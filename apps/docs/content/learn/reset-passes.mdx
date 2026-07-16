@@ -14,6 +14,13 @@ DevPass plans include a [weekly fair-use allowance](/learn/model-categories) for
 	basePath="/learn/reset-passes"
 />
 
+<Callout type="warn">
+	A Reset Pass removes the weekly limit — it does **not** add credits. Premium
+	usage after a reset draws from your plan's monthly credit allowance exactly as
+	before; the pass just lets you keep using premium models now instead of
+	waiting for the window.
+</Callout>
+
 <Callout type="info">
 	Reset Passes exist only on **DevPass** (Lite, Pro, Max). Pay-as-you-go API
 	usage has no weekly premium cap, so there is nothing to reset.
@@ -30,7 +37,7 @@ DevPass plans include a [weekly fair-use allowance](/learn/model-categories) for
 Two kinds of stamps appear on the card:
 
 - **Included passes** come with Pro and Max. They refresh every billing cycle, don't roll over, and are always consumed before purchased passes.
-- **Purchased passes** are one-time purchases at the tier's price. They never expire — they survive tier changes and even a cancelled plan, so an unused pass applies again if you resubscribe.
+- **Purchased passes** are one-time purchases at the tier's price, bound to the tier they were bought for — a pass purchased on Pro is redeemable while you're on Pro. They never expire, so an unused pass applies again whenever you're back on that tier, even after a cancelled plan.
 
 ## Redeeming a pass
 
@@ -52,7 +59,7 @@ If you hit the cap from a coding agent, the gateway's `402` response points here
 
 ## Buying and billing
 
-**Buy a pass** opens a one-time Stripe Checkout — no subscription change, no proration. Each purchase emails a PDF invoice and appears in the DevPass billing history alongside plan charges.
+**Buy a pass** shows a confirmation dialog, then charges the payment method saved on your DevPass — no checkout redirect, no subscription change, no proration. Each purchase emails a PDF invoice and appears in the DevPass billing history alongside plan charges.
 
 <ThemedImage
 	alt="DevPass billing history listing Reset Pass purchases with downloadable invoices"

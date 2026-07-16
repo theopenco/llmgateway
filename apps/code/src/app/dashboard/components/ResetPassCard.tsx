@@ -3,9 +3,20 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, Stamp } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+	AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { useApi } from "@/lib/fetch-client";
 
@@ -116,43 +127,24 @@ export default function ResetPassCard({
 		},
 	);
 
-	const checkoutMutation = api.useMutation(
+	const purchaseMutation = api.useMutation(
 		"post",
-		"/dev-plans/reset-pass/checkout",
+		"/dev-plans/reset-pass/purchase",
 		{
-			onSuccess: (data) => {
-				window.location.href = data.checkoutUrl;
+			onSuccess: async (data) => {
+				toast.success("Reset Pass stamped into your passport", {
+					description: `$${data.amount} was charged to your saved payment method.`,
+				});
+				await invalidateStatus();
 			},
-			onError: () => {
-				toast.error("Could not start checkout. Please try again.");
+			onError: (error) => {
+				toast.error(
+					(error as { message?: string })?.message ??
+						"The payment could not be completed. Check your payment method and try again.",
+				);
 			},
 		},
 	);
-
-	// Returning from Stripe: surface the outcome, then scrub the query param so
-	// a refresh doesn't re-toast. Read from window (client-only effect) rather
-	// than useSearchParams to stay out of a Suspense boundary requirement.
-	useEffect(() => {
-		const params = new URLSearchParams(window.location.search);
-		const outcome = params.get("reset_pass");
-		if (!outcome) {
-			return;
-		}
-		if (outcome === "success") {
-			toast.success("Reset Pass added to your passport", {
-				description:
-					"It can take a moment to appear. Redeem it whenever you need a fresh premium week.",
-			});
-		} else if (outcome === "canceled") {
-			toast.info("Checkout canceled — no charge was made.");
-		}
-		params.delete("reset_pass");
-		window.history.replaceState(
-			null,
-			"",
-			`${window.location.pathname}${params.size ? `?${params}` : ""}`,
-		);
-	}, []);
 
 	// Stamp slots: included first (they're consumed first), then purchased.
 	// Cap the strip so a pass hoarder doesn't stretch the layout.
@@ -203,8 +195,10 @@ export default function ResetPassCard({
 						</div>
 					</div>
 					<p className="mt-2 max-w-md text-sm text-muted-foreground">
-						Stamp a fresh week: redeeming a pass instantly restores your full $
-						{premiumWeeklyLimit.toFixed(2)} premium allowance.
+						Stamp a fresh week: redeeming a pass instantly lifts the weekly
+						premium limit (up to {`$${premiumWeeklyLimit.toFixed(2)} `}again) —
+						it doesn&apos;t add credits; usage still draws from your monthly
+						allowance.
 						{includedTotal > 0 && (
 							<>
 								{" "}
@@ -236,17 +230,41 @@ export default function ResetPassCard({
 							Use a pass
 						</Button>
 						{price !== null && (
-							<Button
-								size="sm"
-								variant={available === 0 ? "default" : "outline"}
-								onClick={() => checkoutMutation.mutate({})}
-								disabled={checkoutMutation.isPending}
-							>
-								{checkoutMutation.isPending ? (
-									<Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-								) : null}
-								Buy a pass · ${price}
-							</Button>
+							<AlertDialog>
+								<AlertDialogTrigger asChild>
+									<Button
+										size="sm"
+										variant={available === 0 ? "default" : "outline"}
+										disabled={purchaseMutation.isPending}
+									>
+										{purchaseMutation.isPending ? (
+											<Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+										) : null}
+										Buy a pass · ${price}
+									</Button>
+								</AlertDialogTrigger>
+								<AlertDialogContent>
+									<AlertDialogHeader>
+										<AlertDialogTitle>
+											Buy a Reset Pass for ${price}?
+										</AlertDialogTitle>
+										<AlertDialogDescription>
+											Your saved payment method is charged {`$${price} `}now and
+											one pass is stamped into your passport. Redeem it anytime
+											to lift the weekly premium limit — it doesn&apos;t add
+											credits; usage still draws from your monthly allowance.
+										</AlertDialogDescription>
+									</AlertDialogHeader>
+									<AlertDialogFooter>
+										<AlertDialogCancel>Not now</AlertDialogCancel>
+										<AlertDialogAction
+											onClick={() => purchaseMutation.mutate({})}
+										>
+											Charge ${price}
+										</AlertDialogAction>
+									</AlertDialogFooter>
+								</AlertDialogContent>
+							</AlertDialog>
 						)}
 					</div>
 				</div>

@@ -7,6 +7,7 @@ import {
 	executeSelfRefund,
 	isSelfRefundCandidateType,
 } from "@/lib/self-refund.js";
+import { posthog } from "@/posthog.js";
 import { ensureStripeCustomer, finalizeDevPlanSetupSession } from "@/stripe.js";
 import { findDefaultOrganization } from "@/utils/default-org.js";
 import {
@@ -125,6 +126,27 @@ async function findPersonalOrg(userId: string) {
 		userOrgs.find((uo) => uo.organization?.kind === "devpass")?.organization ??
 		null
 	);
+}
+
+// Purchased Reset Passes are tier-bound: only the inventory bought for the
+// org's current tier is redeemable, so a cheap Lite pass can't reset the
+// larger Pro/Max allowance.
+function getPurchasedResetPasses(
+	org: {
+		devPlanResetPassesLite: number;
+		devPlanResetPassesPro: number;
+		devPlanResetPassesMax: number;
+	},
+	tier: DevPlanTier,
+): number {
+	switch (tier) {
+		case "lite":
+			return org.devPlanResetPassesLite;
+		case "pro":
+			return org.devPlanResetPassesPro;
+		case "max":
+			return org.devPlanResetPassesMax;
+	}
 }
 
 function getDevPlanPriceId(
@@ -1522,7 +1544,8 @@ const getStatus = createRoute({
 						devPlanPremiumWeeklyLimit: z.string(),
 						devPlanPremiumCreditsUsed: z.string(),
 						devPlanPremiumWeekResetsAt: z.string().nullable(),
-						// Purchased Reset Passes still unredeemed.
+						// Purchased Reset Passes redeemable on the current tier
+						// (purchased inventory is tier-bound).
 						devPlanResetPasses: z.number(),
 						// Plan-included Reset Passes: per-cycle grant and how many
 						// of those are still available this cycle.
@@ -1671,7 +1694,10 @@ devPlans.openapi(getStatus, async (c) => {
 		devPlanPremiumWeeklyLimit: premiumWeeklyLimit.toFixed(2),
 		devPlanPremiumCreditsUsed: premiumCreditsUsed.toFixed(2),
 		devPlanPremiumWeekResetsAt: premiumWeekResetsAt,
-		devPlanResetPasses: personalOrg.devPlanResetPasses,
+		devPlanResetPasses:
+			personalOrg.devPlan !== "none"
+				? getPurchasedResetPasses(personalOrg, personalOrg.devPlan)
+				: 0,
 		devPlanIncludedResetPasses:
 			personalOrg.devPlan !== "none"
 				? DEV_PLAN_INCLUDED_RESET_PASSES[personalOrg.devPlan]
@@ -2750,30 +2776,32 @@ devPlans.openapi(updatePaymentMethod, async (c) => {
 	);
 });
 
-// Buy a Reset Pass — a one-time payment that adds one redeemable pass to the
-// personal org's inventory. Redeeming a pass (route below) instantly restores
-// the weekly premium-model allowance. Priced per tier
-// (DEV_PLAN_RESET_PASS_PRICES); charged via a plain payment-mode Checkout, so
-// no subscription state is involved.
-const resetPassCheckout = createRoute({
+// Buy a Reset Pass — charges the saved payment method directly (the dashboard
+// shows a confirmation dialog first), so there is no Stripe Checkout redirect.
+// The charge and the fulfilment are synchronous: on success one pass is added
+// to the tier-bound inventory for the org's current tier.
+const purchaseResetPass = createRoute({
 	method: "post",
-	path: "/reset-pass/checkout",
+	path: "/reset-pass/purchase",
 	request: {},
 	responses: {
 		200: {
 			content: {
 				"application/json": {
 					schema: z.object({
-						checkoutUrl: z.string(),
+						success: z.boolean(),
+						// Purchased passes now redeemable on the current tier.
+						devPlanResetPasses: z.number(),
+						amount: z.number(),
 					}),
 				},
 			},
-			description: "Stripe Checkout session created successfully",
+			description: "Reset Pass purchased successfully",
 		},
 	},
 });
 
-devPlans.openapi(resetPassCheckout, async (c) => {
+devPlans.openapi(purchaseResetPass, async (c) => {
 	const user = c.get("user");
 
 	if (!user) {
@@ -2805,54 +2833,164 @@ devPlans.openapi(resetPassCheckout, async (c) => {
 	const tier = personalOrg.devPlan;
 	const price = DEV_PLAN_RESET_PASS_PRICES[tier];
 	const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
-	const dashboardUrl = `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard`;
 
-	// Metadata is set on the session only (not payment_intent_data.metadata)
-	// for the same reason as credit top-ups: handlePaymentIntentSucceeded must
-	// not also process this payment. See createCheckoutSession in payments.ts.
-	// Cards only: fulfillment listens for `checkout.session.completed` with
-	// `payment_status: "paid"` and there is no async-payment handler, so a
-	// delayed payment method (e.g. bank debit) would charge without ever
-	// granting the pass.
-	const session = await getStripe().checkout.sessions.create({
-		customer: stripeCustomerId,
-		mode: "payment",
-		payment_method_types: ["card"],
-		line_items: [
-			{
-				price_data: {
-					currency: "usd",
-					product_data: {
-						name: `DevPass Reset Pass — ${tier.toUpperCase()}`,
-						description: `Instantly restores your weekly premium-model allowance on the ${tier} plan`,
-					},
-					unit_amount: Math.round(price * 100),
-				},
-				quantity: 1,
-			},
-		],
-		success_url: `${dashboardUrl}?reset_pass=success`,
-		cancel_url: `${dashboardUrl}?reset_pass=canceled`,
-		metadata: {
-			organizationId: personalOrg.id,
-			type: "dev_plan_reset_pass",
-			devPlan: tier,
-			userEmail: user.email,
-			userId: user.id,
-		},
-	});
-
-	if (!session.url) {
-		throw new HTTPException(500, {
-			message: "Failed to generate checkout URL",
+	// Charge the payment method on file: the subscription's default first,
+	// falling back to the customer's default. DevPass subscriptions are
+	// card-only, so this is always a card.
+	let paymentMethodId: string | null = null;
+	if (personalOrg.devPlanStripeSubscriptionId) {
+		try {
+			const subscription = await getStripe().subscriptions.retrieve(
+				personalOrg.devPlanStripeSubscriptionId,
+			);
+			paymentMethodId = getStripeId(subscription.default_payment_method);
+		} catch (err) {
+			logger.warn("Could not read subscription payment method", {
+				error: err instanceof Error ? err.message : String(err),
+			});
+		}
+	}
+	if (!paymentMethodId) {
+		const customer = await getStripe().customers.retrieve(stripeCustomerId);
+		if (!customer.deleted) {
+			paymentMethodId = getStripeId(
+				customer.invoice_settings?.default_payment_method,
+			);
+		}
+	}
+	if (!paymentMethodId) {
+		throw new HTTPException(400, {
+			message:
+				"No saved payment method found. Update your payment method on the billing page and try again.",
 		});
 	}
+
+	// `kind` (not `baseAmount`) in the metadata keeps this PaymentIntent out
+	// of handlePaymentIntentSucceeded's credit top-up path — fulfilment is
+	// synchronous below, not webhook-driven.
+	let paymentIntent: Stripe.PaymentIntent;
+	try {
+		paymentIntent = await getStripe().paymentIntents.create({
+			amount: Math.round(price * 100),
+			currency: "usd",
+			customer: stripeCustomerId,
+			payment_method: paymentMethodId,
+			off_session: true,
+			confirm: true,
+			description: `DevPass Reset Pass (${tier.toUpperCase()})`,
+			metadata: {
+				organizationId: personalOrg.id,
+				kind: "dev_plan_reset_pass",
+				devPlan: tier,
+				userEmail: user.email,
+				userId: user.id,
+			},
+		});
+	} catch (err) {
+		logger.warn("Reset Pass charge failed", {
+			error: err instanceof Error ? err.message : String(err),
+		});
+		throw new HTTPException(402, {
+			message:
+				"Your card was declined. Update your payment method on the billing page and try again.",
+		});
+	}
+
+	if (paymentIntent.status !== "succeeded") {
+		throw new HTTPException(402, {
+			message:
+				"The payment could not be completed. Update your payment method on the billing page and try again.",
+		});
+	}
+
+	const amountPaid =
+		(paymentIntent.amount_received || paymentIntent.amount) / 100;
+
+	// Record the payment and grant the pass together so a crash between the
+	// two can't sell a pass without delivering it.
+	const purchasedIncrement =
+		tier === "lite"
+			? {
+					devPlanResetPassesLite: sql`${tables.organization.devPlanResetPassesLite} + 1`,
+				}
+			: tier === "pro"
+				? {
+						devPlanResetPassesPro: sql`${tables.organization.devPlanResetPassesPro} + 1`,
+					}
+				: {
+						devPlanResetPassesMax: sql`${tables.organization.devPlanResetPassesMax} + 1`,
+					};
+
+	const { transactionRow, updatedOrg } = await db.transaction(async (tx) => {
+		const [createdTransaction] = await tx
+			.insert(tables.transaction)
+			.values({
+				organizationId: personalOrg.id,
+				type: "dev_plan_reset_pass",
+				amount: amountPaid.toString(),
+				currency: "USD",
+				status: "completed",
+				stripePaymentIntentId: paymentIntent.id,
+				description: `DevPass Reset Pass (${tier.toUpperCase()})`,
+			})
+			.returning();
+
+		const [org] = await tx
+			.update(tables.organization)
+			.set(purchasedIncrement)
+			.where(eq(tables.organization.id, personalOrg.id))
+			.returning({
+				devPlanResetPassesLite: tables.organization.devPlanResetPassesLite,
+				devPlanResetPassesPro: tables.organization.devPlanResetPassesPro,
+				devPlanResetPassesMax: tables.organization.devPlanResetPassesMax,
+			});
+
+		return { transactionRow: createdTransaction, updatedOrg: org };
+	});
+
+	try {
+		const billingDetails = await resolveDevPassBillingDetails(personalOrg);
+		await generateAndEmailInvoice({
+			organizationId: personalOrg.id,
+			invoiceNumber: transactionRow.id,
+			invoiceDate: new Date(),
+			organizationName: personalOrg.name,
+			...billingDetails,
+			lineItems: [
+				{
+					description: `DevPass Reset Pass (${tier.toUpperCase()}) — weekly premium allowance reset`,
+					amount: amountPaid,
+				},
+			],
+			currency: "USD",
+		});
+	} catch (e) {
+		logger.error(
+			"Invoice email failed (Reset Pass invoice); suppressing failure",
+			e as Error,
+		);
+	}
+
+	posthog.capture({
+		distinctId: "organization",
+		event: "reset_pass_purchased",
+		groups: {
+			organization: personalOrg.id,
+		},
+		properties: {
+			devPlan: tier,
+			amount: amountPaid,
+			organization: personalOrg.id,
+			source: "saved_payment_method",
+		},
+	});
 
 	await logAuditEvent({
 		organizationId: personalOrg.id,
 		userId: user.id,
-		action: "dev_plan.reset_pass_checkout",
+		action: "dev_plan.reset_pass_purchase",
 		resourceType: "dev_plan",
+		resourceId: paymentIntent.id,
 		metadata: {
 			tier,
 			price,
@@ -2860,7 +2998,9 @@ devPlans.openapi(resetPassCheckout, async (c) => {
 	});
 
 	return c.json({
-		checkoutUrl: session.url,
+		success: true,
+		devPlanResetPasses: getPurchasedResetPasses(updatedOrg, tier),
+		amount: amountPaid,
 	});
 });
 
@@ -2945,7 +3085,7 @@ devPlans.openapi(redeemResetPass, async (c) => {
 	const source: "included" | "purchased" | null =
 		includedRemaining > 0
 			? "included"
-			: personalOrg.devPlanResetPasses > 0
+			: getPurchasedResetPasses(personalOrg, tier) > 0
 				? "purchased"
 				: null;
 
@@ -2955,6 +3095,27 @@ devPlans.openapi(redeemResetPass, async (c) => {
 				"No Reset Passes available. Buy one to reset your premium allowance now.",
 		});
 	}
+
+	// Purchased inventory is tier-bound, so the decrement targets the column
+	// for the org's current tier.
+	const purchasedColumn =
+		tier === "lite"
+			? tables.organization.devPlanResetPassesLite
+			: tier === "pro"
+				? tables.organization.devPlanResetPassesPro
+				: tables.organization.devPlanResetPassesMax;
+	const purchasedDecrement =
+		tier === "lite"
+			? {
+					devPlanResetPassesLite: sql`${tables.organization.devPlanResetPassesLite} - 1`,
+				}
+			: tier === "pro"
+				? {
+						devPlanResetPassesPro: sql`${tables.organization.devPlanResetPassesPro} - 1`,
+					}
+				: {
+						devPlanResetPassesMax: sql`${tables.organization.devPlanResetPassesMax} - 1`,
+					};
 
 	// The WHERE clause makes the redeem atomic in two ways. The counter guard
 	// stops a concurrent redeem that already consumed the last pass from
@@ -2972,9 +3133,7 @@ devPlans.openapi(redeemResetPass, async (c) => {
 				? {
 						devPlanIncludedResetPassesUsed: sql`${tables.organization.devPlanIncludedResetPassesUsed} + 1`,
 					}
-				: {
-						devPlanResetPasses: sql`${tables.organization.devPlanResetPasses} - 1`,
-					}),
+				: purchasedDecrement),
 		})
 		.where(
 			and(
@@ -2992,11 +3151,13 @@ devPlans.openapi(redeemResetPass, async (c) => {
 							tables.organization.devPlanIncludedResetPassesUsed,
 							DEV_PLAN_INCLUDED_RESET_PASSES[tier],
 						)
-					: gte(tables.organization.devPlanResetPasses, 1),
+					: gte(purchasedColumn, 1),
 			),
 		)
 		.returning({
-			devPlanResetPasses: tables.organization.devPlanResetPasses,
+			devPlanResetPassesLite: tables.organization.devPlanResetPassesLite,
+			devPlanResetPassesPro: tables.organization.devPlanResetPassesPro,
+			devPlanResetPassesMax: tables.organization.devPlanResetPassesMax,
 			devPlanIncludedResetPassesUsed:
 				tables.organization.devPlanIncludedResetPassesUsed,
 		});
@@ -3023,7 +3184,7 @@ devPlans.openapi(redeemResetPass, async (c) => {
 	return c.json({
 		success: true,
 		source,
-		devPlanResetPasses: updated[0].devPlanResetPasses,
+		devPlanResetPasses: getPurchasedResetPasses(updated[0], tier),
 		devPlanIncludedResetPassesRemaining: getIncludedResetPassesRemaining(
 			tier,
 			updated[0].devPlanIncludedResetPassesUsed,

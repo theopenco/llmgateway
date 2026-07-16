@@ -15,7 +15,10 @@ const inter = Inter({
 });
 
 const geistMono = Geist_Mono({
-	variable: "--font-mono",
+	// globals.css maps the Tailwind token: --font-mono: var(--font-geist-mono).
+	// Registering the font under --font-mono directly would leave that theme
+	// mapping dangling and every `font-mono` element falls back to sans.
+	variable: "--font-geist-mono",
 	subsets: ["latin"],
 	display: "swap",
 });

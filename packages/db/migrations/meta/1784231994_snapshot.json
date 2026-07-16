@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "e248234d-7fce-49ba-9a7e-554568a3bc6b",
+  "id": "a4878d73-8a13-499d-8b75-668027ac1385",
   "prevId": "88672968-ad7e-4efa-aaab-1bb3e419c212",
   "ddl": [
     {
@@ -11984,7 +11984,39 @@
       },
       "generated": null,
       "identity": null,
-      "name": "dev_plan_reset_passes",
+      "name": "dev_plan_reset_passes_lite",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "dev_plan_reset_passes_pro",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "dev_plan_reset_passes_max",
       "entityType": "columns",
       "schema": "public",
       "table": "organization"

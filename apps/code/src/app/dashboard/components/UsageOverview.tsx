@@ -62,24 +62,67 @@ function MetricCard({
 	);
 }
 
-// Mirrors the gateway's premium-cap error formatting: days + hours, rounded
-// up to the next hour so the wait is never understated.
-function formatResetTime(resetsAt: string): string {
-	const ms = Math.max(0, new Date(resetsAt).getTime() - Date.now());
-	if (ms < 60 * 60 * 1000) {
-		return "less than an hour";
-	}
-	const totalHours = Math.ceil(ms / (60 * 60 * 1000));
-	const days = Math.floor(totalHours / 24);
-	const hours = totalHours % 24;
-	const parts: string[] = [];
-	if (days > 0) {
-		parts.push(`${days} day${days === 1 ? "" : "s"}`);
-	}
-	if (hours > 0) {
-		parts.push(`${hours} hour${hours === 1 ? "" : "s"}`);
-	}
-	return parts.join(" and ");
+// Weekly premium allowance meter: "$X.XX spent" with the reset date on the
+// left, a slim track in the middle, "N% used" on the right.
+function WeeklyAllowanceMeter({
+	used,
+	limit,
+	resetsAt,
+}: {
+	used: number;
+	limit: number;
+	resetsAt: string | null;
+}) {
+	const percentage = limit > 0 ? (used / limit) * 100 : 0;
+	const clamped = Math.min(100, percentage);
+	const isLow = percentage > 80;
+	const isExhausted = percentage >= 100;
+
+	return (
+		<div className="space-y-3">
+			<div className="flex items-center gap-4 sm:gap-6">
+				<div className="w-44 shrink-0">
+					<div className="text-base font-semibold tracking-tight tabular-nums">
+						${used.toFixed(2)}{" "}
+						<span className="font-normal text-muted-foreground">spent</span>
+					</div>
+					<div className="mt-0.5 text-xs text-muted-foreground">
+						{resetsAt
+							? `Resets ${format(new Date(resetsAt), "MMM d")}`
+							: "Window starts with your first premium request"}
+					</div>
+				</div>
+				<div className="relative h-2 flex-1 overflow-hidden rounded-full border border-border/60 bg-muted">
+					<div
+						className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${
+							isExhausted
+								? "bg-destructive"
+								: isLow
+									? "bg-yellow-500"
+									: "bg-foreground"
+						}`}
+						style={{ width: `${clamped}%` }}
+					/>
+				</div>
+				<div className="w-20 shrink-0 text-right text-sm text-muted-foreground tabular-nums">
+					{Math.round(percentage)}% used
+				</div>
+			</div>
+			{isLow && !isExhausted && (
+				<p className="text-xs text-yellow-700 dark:text-yellow-400">
+					Above 80% of your weekly premium allowance. Standard models stay
+					available.
+				</p>
+			)}
+			{isExhausted && (
+				<p className="text-xs text-destructive">
+					Weekly premium allowance reached — redeem a Reset Pass below for an
+					instant reset, or standard models keep working until the window
+					resets.
+				</p>
+			)}
+		</div>
+	);
 }
 
 function UsageBar({
@@ -278,16 +321,13 @@ export default function UsageOverview({
 								Premium models · weekly allowance
 							</div>
 							<span className="text-xs text-muted-foreground tabular-nums">
-								{premiumWeekResetsAt
-									? `Resets in ${formatResetTime(premiumWeekResetsAt)}`
-									: "Window starts with your first premium request"}
+								${premiumWeeklyLimit.toFixed(2)}/week
 							</span>
 						</div>
-						<UsageBar
+						<WeeklyAllowanceMeter
 							used={premiumCreditsUsed}
 							limit={premiumWeeklyLimit}
-							lowMessage="Above 80% of your weekly premium allowance. Standard models stay available."
-							exhaustedMessage="Weekly premium allowance reached — redeem a Reset Pass below for an instant reset, or standard models keep working until the window resets."
+							resetsAt={premiumWeekResetsAt}
 						/>
 						<ResetPassCard
 							tier={planName.toLowerCase()}

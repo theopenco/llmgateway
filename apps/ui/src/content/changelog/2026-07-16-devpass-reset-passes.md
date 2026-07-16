@@ -15,7 +15,7 @@ Every DevPass plan includes a weekly fair-use allowance for premium frontier mod
 
 ## Stamp a fresh week
 
-The DevPass dashboard now shows a Reset Pass card — styled as a stamped visa extension in your DevPass passport — right under the premium allowance meter. It holds your passes as stamps: plan-included passes and purchased ones. One click on **Use a pass** zeroes the week's premium usage on the spot; standard models are unaffected either way, since they never count against the weekly cap.
+The DevPass dashboard now shows a Reset Pass card — styled as a stamped visa extension in your DevPass passport — right under the premium allowance meter. It holds your passes as stamps: plan-included passes and purchased ones. One click on **Use a pass** zeroes the week's premium usage on the spot. A pass removes the weekly limit only — it doesn't add credits, so premium usage after a reset draws from your monthly allowance exactly as before. Standard models are unaffected either way, since they never count against the weekly cap.
 
 | Plan | Included per cycle | Extra passes |
 | ---- | ------------------ | ------------ |
@@ -23,7 +23,7 @@ The DevPass dashboard now shows a Reset Pass card — styled as a stamped visa e
 | Pro  | 1                  | $29 each     |
 | Max  | 2                  | $79 each     |
 
-Included passes refresh with every billing cycle and don't roll over; they're always consumed before purchased ones. Purchased passes never expire — they survive tier changes and even a cancelled plan, so an unused pass is still there if you resubscribe.
+Included passes refresh with every billing cycle and don't roll over; they're always consumed before purchased ones. Purchased passes are bound to the tier they were bought for and never expire — an unused pass is still there whenever you're back on that tier, even after a cancelled plan.
 
 ## Buy in one click, invoiced like everything else
 

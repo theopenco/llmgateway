@@ -259,10 +259,15 @@ export const organization = pgTable(
 		devPlanCreditsLimit: decimal().notNull().default("0"),
 		devPlanPremiumCreditsUsed: decimal().notNull().default("0"),
 		devPlanPremiumWeekStart: timestamp(),
-		// Purchased Reset Passes still unredeemed. Redeeming one instantly
-		// restores the full weekly premium-model allowance. Purchases survive
-		// plan changes and even a plan ending (they apply again on resubscribe).
-		devPlanResetPasses: integer().notNull().default(0),
+		// Purchased Reset Passes still unredeemed, tracked per tier bought.
+		// Redeeming one instantly restores the full weekly premium-model
+		// allowance, but a pass is only redeemable while the org is on the
+		// tier it was purchased for — a $9 Lite pass can't reset the larger
+		// Pro/Max allowance. Purchases survive plan changes and even a plan
+		// ending (they apply again on resubscribing to that tier).
+		devPlanResetPassesLite: integer().notNull().default(0),
+		devPlanResetPassesPro: integer().notNull().default(0),
+		devPlanResetPassesMax: integer().notNull().default(0),
 		// Plan-included Reset Passes consumed in the current billing cycle.
 		// The per-cycle grant comes from DEV_PLAN_INCLUDED_RESET_PASSES; this
 		// counter clears on subscribe/upgrade/renewal (included passes don't
@@ -2846,7 +2851,7 @@ export const auditLogActions = [
 	"dev_plan.update_billing_details",
 	"dev_plan.rotate_api_key",
 	"dev_plan.update_payment_method",
-	"dev_plan.reset_pass_checkout",
+	"dev_plan.reset_pass_purchase",
 	"dev_plan.reset_pass_redeem",
 	// Chat Plan
 	"chat_plan.subscribe",
