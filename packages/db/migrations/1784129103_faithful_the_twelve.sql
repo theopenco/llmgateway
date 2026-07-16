@@ -1,1 +1,0 @@
-ALTER TABLE "log" ADD COLUMN "internal_error_details" json;

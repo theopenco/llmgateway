@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "2cbd838c-29fa-413f-a050-33826d408383",
+  "id": "88672968-ad7e-4efa-aaab-1bb3e419c212",
   "prevId": "54d78e5c-9580-46b3-a517-345858ca22cc",
   "ddl": [
     {
@@ -7727,19 +7727,6 @@
       "table": "log"
     },
     {
-      "type": "json",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "internal_error_details",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "log"
-    },
-    {
       "type": "real",
       "typeSchema": null,
       "notNull": false,
@@ -12108,22 +12095,6 @@
       "generated": null,
       "identity": null,
       "name": "dev_plan_cycle",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "false",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "dev_plan_allow_all_models",
       "entityType": "columns",
       "schema": "public",
       "table": "organization"

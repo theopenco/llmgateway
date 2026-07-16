@@ -1,0 +1,1 @@
+ALTER TABLE "organization" DROP COLUMN "dev_plan_allow_all_models";
