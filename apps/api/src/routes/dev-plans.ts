@@ -7,8 +7,11 @@ import {
 	executeSelfRefund,
 	isSelfRefundCandidateType,
 } from "@/lib/self-refund.js";
-import { posthog } from "@/posthog.js";
-import { ensureStripeCustomer, finalizeDevPlanSetupSession } from "@/stripe.js";
+import {
+	ensureStripeCustomer,
+	finalizeDevPlanSetupSession,
+	fulfillResetPassPurchase,
+} from "@/stripe.js";
 import { findDefaultOrganization } from "@/utils/default-org.js";
 import {
 	buildInvoiceDataForTransaction,
@@ -2866,8 +2869,8 @@ devPlans.openapi(purchaseResetPass, async (c) => {
 	}
 
 	// `kind` (not `baseAmount`) in the metadata keeps this PaymentIntent out
-	// of handlePaymentIntentSucceeded's credit top-up path — fulfilment is
-	// synchronous below, not webhook-driven.
+	// of handlePaymentIntentSucceeded's credit top-up path and routes it to
+	// the Reset Pass fulfilment recovery branch instead.
 	let paymentIntent: Stripe.PaymentIntent;
 	try {
 		paymentIntent = await getStripe().paymentIntents.create({
@@ -2887,13 +2890,23 @@ devPlans.openapi(purchaseResetPass, async (c) => {
 			},
 		});
 	} catch (err) {
-		logger.warn("Reset Pass charge failed", {
-			error: err instanceof Error ? err.message : String(err),
-		});
-		throw new HTTPException(402, {
-			message:
-				"Your card was declined. Update your payment method on the billing page and try again.",
-		});
+		// Stripe raises StripeCardError when the saved card can't be charged
+		// (declined, expired, insufficient funds, 3DS required off-session) —
+		// an expected user-facing outcome surfaced as 402, mirroring the
+		// tier-change handler. Anything else (configuration, outage,
+		// programming errors) is rethrown to the global error handler.
+		const stripeErr = err as { type?: string; code?: string };
+		if (
+			stripeErr?.type === "StripeCardError" ||
+			stripeErr?.code === "card_declined"
+		) {
+			logger.warn("Reset Pass charge declined", { code: stripeErr.code });
+			throw new HTTPException(402, {
+				message:
+					"Your card was declined. Update your payment method on the billing page and try again.",
+			});
+		}
+		throw err;
 	}
 
 	if (paymentIntent.status !== "succeeded") {
@@ -2903,86 +2916,13 @@ devPlans.openapi(purchaseResetPass, async (c) => {
 		});
 	}
 
-	const amountPaid =
-		(paymentIntent.amount_received || paymentIntent.amount) / 100;
+	// Fulfilment is shared with the `payment_intent.succeeded` webhook, which
+	// re-runs it as the recovery path if this request dies right here — the
+	// charge can never be lost, and the dedup inside makes reruns no-ops.
+	await fulfillResetPassPurchase(paymentIntent);
 
-	// Record the payment and grant the pass together so a crash between the
-	// two can't sell a pass without delivering it.
-	const purchasedIncrement =
-		tier === "lite"
-			? {
-					devPlanResetPassesLite: sql`${tables.organization.devPlanResetPassesLite} + 1`,
-				}
-			: tier === "pro"
-				? {
-						devPlanResetPassesPro: sql`${tables.organization.devPlanResetPassesPro} + 1`,
-					}
-				: {
-						devPlanResetPassesMax: sql`${tables.organization.devPlanResetPassesMax} + 1`,
-					};
-
-	const { transactionRow, updatedOrg } = await db.transaction(async (tx) => {
-		const [createdTransaction] = await tx
-			.insert(tables.transaction)
-			.values({
-				organizationId: personalOrg.id,
-				type: "dev_plan_reset_pass",
-				amount: amountPaid.toString(),
-				currency: "USD",
-				status: "completed",
-				stripePaymentIntentId: paymentIntent.id,
-				description: `DevPass Reset Pass (${tier.toUpperCase()})`,
-			})
-			.returning();
-
-		const [org] = await tx
-			.update(tables.organization)
-			.set(purchasedIncrement)
-			.where(eq(tables.organization.id, personalOrg.id))
-			.returning({
-				devPlanResetPassesLite: tables.organization.devPlanResetPassesLite,
-				devPlanResetPassesPro: tables.organization.devPlanResetPassesPro,
-				devPlanResetPassesMax: tables.organization.devPlanResetPassesMax,
-			});
-
-		return { transactionRow: createdTransaction, updatedOrg: org };
-	});
-
-	try {
-		const billingDetails = await resolveDevPassBillingDetails(personalOrg);
-		await generateAndEmailInvoice({
-			organizationId: personalOrg.id,
-			invoiceNumber: transactionRow.id,
-			invoiceDate: new Date(),
-			organizationName: personalOrg.name,
-			...billingDetails,
-			lineItems: [
-				{
-					description: `DevPass Reset Pass (${tier.toUpperCase()}) — weekly premium allowance reset`,
-					amount: amountPaid,
-				},
-			],
-			currency: "USD",
-		});
-	} catch (e) {
-		logger.error(
-			"Invoice email failed (Reset Pass invoice); suppressing failure",
-			e as Error,
-		);
-	}
-
-	posthog.capture({
-		distinctId: "organization",
-		event: "reset_pass_purchased",
-		groups: {
-			organization: personalOrg.id,
-		},
-		properties: {
-			devPlan: tier,
-			amount: amountPaid,
-			organization: personalOrg.id,
-			source: "saved_payment_method",
-		},
+	const updatedOrg = await db.query.organization.findFirst({
+		where: { id: { eq: personalOrg.id } },
 	});
 
 	await logAuditEvent({
@@ -2999,8 +2939,10 @@ devPlans.openapi(purchaseResetPass, async (c) => {
 
 	return c.json({
 		success: true,
-		devPlanResetPasses: getPurchasedResetPasses(updatedOrg, tier),
-		amount: amountPaid,
+		devPlanResetPasses: updatedOrg
+			? getPurchasedResetPasses(updatedOrg, tier)
+			: 0,
+		amount: (paymentIntent.amount_received || paymentIntent.amount) / 100,
 	});
 });
 

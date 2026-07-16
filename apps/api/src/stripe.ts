@@ -15,6 +15,7 @@ import {
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
+	DEV_PLAN_RESET_PASS_PRICES,
 	getChatPlanCreditsLimit,
 	getDevPlanCreditsLimit,
 	type ChatPlanCycle,
@@ -2433,6 +2434,166 @@ export async function handleEndUserTopUpRefunded(
 	);
 }
 
+/**
+ * Fulfil a Reset Pass PaymentIntent: validate the tier and charged amount
+ * against the metadata stamped at purchase time, then record the payment and
+ * grant one pass to that tier's inventory. Called synchronously from the
+ * purchase route, and again from the `payment_intent.succeeded` webhook as
+ * the recovery path when the API died after the charge but before fulfilment
+ * — so a successful charge can never be lost. The advisory lock plus the
+ * payment-intent dedup make the two paths race-safe: every charge grants
+ * exactly one pass no matter how many times this runs.
+ */
+export async function fulfillResetPassPurchase(
+	paymentIntent: Stripe.PaymentIntent,
+): Promise<void> {
+	const metadata = paymentIntent.metadata;
+	if (metadata?.kind !== "dev_plan_reset_pass") {
+		return;
+	}
+
+	const tierValue = metadata.devPlan;
+	const tier =
+		tierValue && tierValue in DEV_PLAN_RESET_PASS_PRICES
+			? (tierValue as DevPlanTier)
+			: null;
+	if (!tier) {
+		logger.error("Reset Pass payment intent has no valid tier, skipping", {
+			devPlan: metadata.devPlan,
+			paymentIntentId: paymentIntent.id,
+		});
+		return;
+	}
+
+	const amountPaid =
+		(paymentIntent.amount_received || paymentIntent.amount) / 100;
+	if (amountPaid !== DEV_PLAN_RESET_PASS_PRICES[tier]) {
+		logger.error(
+			"Reset Pass payment intent amount does not match the tier price, skipping",
+			{
+				tier,
+				amountPaid,
+				expected: DEV_PLAN_RESET_PASS_PRICES[tier],
+				paymentIntentId: paymentIntent.id,
+			},
+		);
+		return;
+	}
+
+	const organizationId = metadata.organizationId;
+	const organization = organizationId
+		? await db.query.organization.findFirst({
+				where: { id: { eq: organizationId } },
+			})
+		: null;
+	if (!organization) {
+		logger.error("Could not resolve organization for Reset Pass fulfilment", {
+			organizationId,
+			paymentIntentId: paymentIntent.id,
+		});
+		return;
+	}
+
+	const purchasedIncrement =
+		tier === "lite"
+			? {
+					devPlanResetPassesLite: sql`${tables.organization.devPlanResetPassesLite} + 1`,
+				}
+			: tier === "pro"
+				? {
+						devPlanResetPassesPro: sql`${tables.organization.devPlanResetPassesPro} + 1`,
+					}
+				: {
+						devPlanResetPassesMax: sql`${tables.organization.devPlanResetPassesMax} + 1`,
+					};
+
+	// Record the payment and grant the pass together so a crash between the
+	// two can't sell a pass without delivering it. The advisory xact lock
+	// serializes the synchronous route against a concurrently delivered
+	// webhook for the same payment intent, so the dedup check below can't
+	// race into a double grant.
+	const created = await db.transaction(async (tx) => {
+		await tx.execute(
+			sql`SELECT pg_advisory_xact_lock(hashtext(${paymentIntent.id}))`,
+		);
+
+		const existing = await tx.query.transaction.findFirst({
+			where: {
+				stripePaymentIntentId: { eq: paymentIntent.id },
+				type: { eq: "dev_plan_reset_pass" },
+				status: { eq: "completed" },
+			},
+		});
+		if (existing) {
+			return null;
+		}
+
+		const [row] = await tx
+			.insert(tables.transaction)
+			.values({
+				organizationId: organization.id,
+				type: "dev_plan_reset_pass",
+				amount: amountPaid.toString(),
+				currency: "USD",
+				status: "completed",
+				stripePaymentIntentId: paymentIntent.id,
+				description: `DevPass Reset Pass (${tier.toUpperCase()})`,
+			})
+			.returning();
+
+		await tx
+			.update(tables.organization)
+			.set(purchasedIncrement)
+			.where(eq(tables.organization.id, organization.id));
+
+		return row;
+	});
+
+	if (!created) {
+		logger.info(
+			`Skipping duplicate Reset Pass fulfilment for payment intent ${paymentIntent.id}`,
+		);
+		return;
+	}
+
+	try {
+		const billingDetails = await resolveDevPassBillingDetails(organization);
+		await generateAndEmailInvoice({
+			organizationId: organization.id,
+			invoiceNumber: created.id,
+			invoiceDate: new Date(),
+			organizationName: organization.name,
+			...billingDetails,
+			lineItems: [
+				{
+					description: `DevPass Reset Pass (${tier.toUpperCase()}) — weekly premium allowance reset`,
+					amount: amountPaid,
+				},
+			],
+			currency: "USD",
+		});
+	} catch (e) {
+		logger.error(
+			"Invoice email failed (Reset Pass invoice); suppressing failure",
+			e as Error,
+		);
+	}
+
+	posthog.capture({
+		distinctId: "organization",
+		event: "reset_pass_purchased",
+		groups: {
+			organization: organization.id,
+		},
+		properties: {
+			devPlan: tier,
+			amount: amountPaid,
+			organization: organization.id,
+			source: "saved_payment_method",
+		},
+	});
+}
+
 async function handlePaymentIntentSucceeded(
 	event: Stripe.PaymentIntentSucceededEvent,
 ) {
@@ -2443,6 +2604,14 @@ async function handlePaymentIntentSucceeded(
 	// end-user wallet, not the developer's org credits.
 	if (paymentIntent.metadata.kind === "end_user_topup") {
 		await handleEndUserTopUpSucceeded(paymentIntent);
+		return;
+	}
+
+	// DevPass Reset Pass purchases are fulfilled synchronously by the
+	// purchase route; this webhook is the recovery path when the API died
+	// after the charge but before fulfilment (a no-op duplicate otherwise).
+	if (paymentIntent.metadata.kind === "dev_plan_reset_pass") {
+		await fulfillResetPassPurchase(paymentIntent);
 		return;
 	}
 

@@ -92,7 +92,14 @@ function WeeklyAllowanceMeter({
 							: "Window starts with your first premium request"}
 					</div>
 				</div>
-				<div className="relative h-2 flex-1 overflow-hidden rounded-full border border-border/60 bg-muted">
+				<div
+					role="progressbar"
+					aria-label="Weekly premium allowance used"
+					aria-valuenow={Math.round(clamped)}
+					aria-valuemin={0}
+					aria-valuemax={100}
+					className="relative h-2 flex-1 overflow-hidden rounded-full border border-border/60 bg-muted"
+				>
 					<div
 						className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${
 							isExhausted
