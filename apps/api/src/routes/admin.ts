@@ -119,11 +119,17 @@ const timeseriesDataPointSchema = z.object({
 	processed: z.number(),
 	refunds: z.number(),
 	net: z.number(),
+	// DevPass plan revenue (gross Stripe amount, deduplicated per invoice) and
+	// net (after refunds), cumulative like the credits series above.
+	devpassRevenue: z.number(),
+	devpassRefunds: z.number(),
+	devpassNet: z.number(),
 	// Per-day (non-cumulative) values. The cumulative series above start from a
 	// pre-range baseline, so clients cannot derive day-one deltas themselves.
 	dailySignups: z.number(),
 	dailyPaidCustomers: z.number(),
 	dailyNet: z.number(),
+	dailyDevpassNet: z.number(),
 });
 
 const adminTimeseriesSchema = z.object({
@@ -136,6 +142,9 @@ const adminTimeseriesSchema = z.object({
 		processed: z.number(),
 		refunds: z.number(),
 		net: z.number(),
+		devpassRevenue: z.number(),
+		devpassRefunds: z.number(),
+		devpassNet: z.number(),
 	}),
 });
 
@@ -1095,6 +1104,80 @@ admin.openapi(getTimeseries, async (c) => {
 		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
 		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
 
+	// DevPass revenue per day: dev plan payments (+ legacy `subscription_*` rows
+	// on devpass orgs), gross Stripe `amount` deduplicated per invoice. Mirrors
+	// /admin/devpass/timeseries.
+	const devpassRevenuePerDay = await db
+		.select({
+			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
+			total:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "devpass"),
+				inArray(tables.transaction.type, [
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+				firstRowPerInvoiceFilter([
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+				gte(tables.transaction.createdAt, startDate),
+				lte(tables.transaction.createdAt, endDate),
+			),
+		)
+		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
+		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
+
+	// DevPass refunds per day: `credit_refund` rows linked back to a dev plan
+	// payment via `relatedTransactionId`. Mirrors /admin/devpass/timeseries.
+	const devpassRefundOriginalTx = aliasedTable(
+		tables.transaction,
+		"devpass_refund_original_tx",
+	);
+	const devpassRefundsPerDay = await db
+		.select({
+			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
+			total:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			devpassRefundOriginalTx,
+			eq(tables.transaction.relatedTransactionId, devpassRefundOriginalTx.id),
+		)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.type, "credit_refund"),
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "devpass"),
+				inArray(devpassRefundOriginalTx.type, [
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+				gte(tables.transaction.createdAt, startDate),
+				lte(tables.transaction.createdAt, endDate),
+			),
+		)
+		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
+		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
+
 	// Pre-range totals for cumulative chart
 	const [preRangeRevenueRow] = await db
 		.select({
@@ -1150,6 +1233,65 @@ admin.openapi(getTimeseries, async (c) => {
 			),
 		);
 	const preRangeRefunds = Number(preRangeRefundsRow?.total ?? 0);
+
+	const [preRangeDevpassRevenueRow] = await db
+		.select({
+			total:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "devpass"),
+				inArray(tables.transaction.type, [
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+				firstRowPerInvoiceFilter([
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+				sql`${tables.transaction.createdAt} < ${startDate}`,
+			),
+		);
+	const preRangeDevpassRevenue = Number(preRangeDevpassRevenueRow?.total ?? 0);
+
+	const [preRangeDevpassRefundsRow] = await db
+		.select({
+			total:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			devpassRefundOriginalTx,
+			eq(tables.transaction.relatedTransactionId, devpassRefundOriginalTx.id),
+		)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.type, "credit_refund"),
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "devpass"),
+				inArray(devpassRefundOriginalTx.type, [
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+				sql`${tables.transaction.createdAt} < ${startDate}`,
+			),
+		);
+	const preRangeDevpassRefunds = Number(preRangeDevpassRefundsRow?.total ?? 0);
 
 	// Count of orgs that became paying before the range (bounded SQL query)
 	const [preRangeRow] = await db
@@ -1227,6 +1369,16 @@ admin.openapi(getTimeseries, async (c) => {
 		refundsMap.set(row.date, Number(row.total));
 	}
 
+	const devpassRevenueMap = new Map<string, number>();
+	for (const row of devpassRevenuePerDay) {
+		devpassRevenueMap.set(row.date, Number(row.total));
+	}
+
+	const devpassRefundsMap = new Map<string, number>();
+	for (const row of devpassRefundsPerDay) {
+		devpassRefundsMap.set(row.date, Number(row.total));
+	}
+
 	const newPaidMap = new Map<string, number>();
 	for (const row of firstTransactionPerOrg) {
 		newPaidMap.set(row.date, Number(row.count));
@@ -1241,15 +1393,21 @@ admin.openapi(getTimeseries, async (c) => {
 		processed: number;
 		refunds: number;
 		net: number;
+		devpassRevenue: number;
+		devpassRefunds: number;
+		devpassNet: number;
 		dailySignups: number;
 		dailyPaidCustomers: number;
 		dailyNet: number;
+		dailyDevpassNet: number;
 	}> = [];
 	let cumulativePaid = preRangeCount;
 	let totalSignups = 0;
 	let totalRevenue = preRangeRevenue;
 	let totalProcessed = preRangeProcessed;
 	let totalRefunds = preRangeRefunds;
+	let totalDevpassRevenue = preRangeDevpassRevenue;
+	let totalDevpassRefunds = preRangeDevpassRefunds;
 
 	const totalDays = Math.ceil(
 		(endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000),
@@ -1262,6 +1420,8 @@ admin.openapi(getTimeseries, async (c) => {
 		const dailyRevenue = revenueMap.get(dateStr) ?? 0;
 		const dailyProcessed = processedMap.get(dateStr) ?? 0;
 		const dailyRefunds = refundsMap.get(dateStr) ?? 0;
+		const dailyDevpassRevenue = devpassRevenueMap.get(dateStr) ?? 0;
+		const dailyDevpassRefunds = devpassRefundsMap.get(dateStr) ?? 0;
 		const dailyPaidCustomers = newPaidMap.get(dateStr) ?? 0;
 		cumulativePaid += dailyPaidCustomers;
 
@@ -1269,6 +1429,8 @@ admin.openapi(getTimeseries, async (c) => {
 		totalRevenue += dailyRevenue;
 		totalProcessed += dailyProcessed;
 		totalRefunds += dailyRefunds;
+		totalDevpassRevenue += dailyDevpassRevenue;
+		totalDevpassRefunds += dailyDevpassRefunds;
 
 		data.push({
 			date: dateStr,
@@ -1278,9 +1440,13 @@ admin.openapi(getTimeseries, async (c) => {
 			processed: totalProcessed,
 			refunds: totalRefunds,
 			net: totalRevenue - totalRefunds,
+			devpassRevenue: totalDevpassRevenue,
+			devpassRefunds: totalDevpassRefunds,
+			devpassNet: totalDevpassRevenue - totalDevpassRefunds,
 			dailySignups,
 			dailyPaidCustomers,
 			dailyNet: dailyRevenue - dailyRefunds,
+			dailyDevpassNet: dailyDevpassRevenue - dailyDevpassRefunds,
 		});
 	}
 
@@ -1294,6 +1460,9 @@ admin.openapi(getTimeseries, async (c) => {
 			processed: totalProcessed,
 			refunds: totalRefunds,
 			net: totalRevenue - totalRefunds,
+			devpassRevenue: totalDevpassRevenue,
+			devpassRefunds: totalDevpassRefunds,
+			devpassNet: totalDevpassRevenue - totalDevpassRefunds,
 		},
 	});
 });

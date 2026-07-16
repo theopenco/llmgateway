@@ -19,14 +19,24 @@ interface TimeseriesPoint {
 	date: string;
 	paidCustomers: number;
 	net: number;
+	devpassRevenue: number;
+	devpassRefunds: number;
+	devpassNet: number;
 	dailySignups: number;
 	dailyPaidCustomers: number;
 	dailyNet: number;
+	dailyDevpassNet: number;
 }
 
 interface TimeseriesResponse {
 	data: TimeseriesPoint[];
-	totals: { paidCustomers: number; net: number };
+	totals: {
+		paidCustomers: number;
+		net: number;
+		devpassRevenue: number;
+		devpassRefunds: number;
+		devpassNet: number;
+	};
 }
 
 async function getMetrics(cookie: string): Promise<AdminMetricsResponse> {
@@ -263,5 +273,95 @@ describe("admin paid customers — bounded range baseline", () => {
 		// Today's daily net = in-range payments (5 + 10); the gift is excluded.
 		expect(today?.dailyNet).toBe(15);
 		expect(body.totals.net).toBe(35);
+	});
+});
+
+describe("admin timeseries — devpass revenue series", () => {
+	let cookie: string;
+
+	beforeEach(async () => {
+		process.env.ADMIN_EMAILS = "admin@example.com";
+		cookie = await createTestUser();
+
+		await db.insert(tables.organization).values([
+			{
+				id: "devpass-org",
+				name: "DevPass Org",
+				billingEmail: "devpass@example.com",
+				kind: "devpass",
+			},
+			{
+				id: "pro-org",
+				name: "Pro Org",
+				billingEmail: "pro@example.com",
+			},
+		]);
+
+		// eslint-disable-next-line no-mixed-operators
+		const sixtyDaysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+		await db.insert(tables.transaction).values([
+			// Pre-range dev plan payment — belongs to the cumulative baseline.
+			{
+				organizationId: "devpass-org",
+				type: "dev_plan_start",
+				amount: "20",
+				creditAmount: "40",
+				status: "completed",
+				stripeInvoiceId: "inv_pre",
+				createdAt: sixtyDaysAgo,
+			},
+			// In-range dev plan payment.
+			{
+				id: "devpass-start-tx",
+				organizationId: "devpass-org",
+				type: "dev_plan_start",
+				amount: "10",
+				creditAmount: "20",
+				status: "completed",
+				stripeInvoiceId: "inv_1",
+			},
+			// In-range refund against a dev plan payment — netted out.
+			{
+				organizationId: "devpass-org",
+				type: "credit_refund",
+				amount: "4",
+				creditAmount: "0",
+				status: "completed",
+				relatedTransactionId: "devpass-start-tx",
+			},
+			// Legacy `subscription_*` row on a NON-devpass org is org Pro revenue,
+			// never DevPass revenue.
+			{
+				organizationId: "pro-org",
+				type: "subscription_start",
+				amount: "99",
+				creditAmount: "0",
+				status: "completed",
+			},
+		]);
+	});
+
+	afterEach(async () => {
+		await deleteAll();
+	});
+
+	test("range=7d devpass series nets refunds and keeps baseline", async () => {
+		const body = await getTimeseries(cookie, "?range=7d");
+		const todayStr = new Date().toISOString().split("T")[0];
+		const first = body.data[0];
+		const today = body.data.find((point) => point.date === todayStr);
+
+		// 20 pre-range + 10 in-range (org Pro subscription excluded).
+		expect(body.totals.devpassRevenue).toBe(30);
+		expect(body.totals.devpassRefunds).toBe(4);
+		expect(body.totals.devpassNet).toBe(26);
+		expect(body.data.at(-1)?.devpassNet).toBe(26);
+
+		// Pre-range payment sits in the cumulative baseline, not in day one.
+		expect(first.devpassNet).toBe(20);
+		expect(first.dailyDevpassNet).toBe(0);
+
+		// Today's delta: 10 gross - 4 refund.
+		expect(today?.dailyDevpassNet).toBe(6);
 	});
 });

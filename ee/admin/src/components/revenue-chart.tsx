@@ -1,7 +1,7 @@
 "use client";
 
 import { format, parseISO } from "date-fns";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
 	Bar,
 	BarChart,
@@ -41,7 +41,32 @@ const chartConfig = {
 		label: "Net",
 		color: "hsl(38 92% 50%)",
 	},
+	devpassRevenue: {
+		label: "Gross",
+		color: "hsl(217 91% 60%)",
+	},
+	devpassNet: {
+		label: "Net",
+		color: "hsl(142 71% 45%)",
+	},
 } satisfies ChartConfig;
+
+const revenueViews = {
+	credits: {
+		label: "Credits Net",
+		description:
+			"Cumulative processed, revenue (after fees), and net (after fees & refunds) for credit purchases",
+		lines: ["processed", "revenue", "net"],
+	},
+	devpass: {
+		label: "DevPass Net",
+		description:
+			"Cumulative gross and net (after refunds) DevPass plan revenue",
+		lines: ["devpassRevenue", "devpassNet"],
+	},
+} as const;
+
+type ActiveView = keyof typeof revenueViews;
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
 	style: "currency",
@@ -56,18 +81,21 @@ const NEGATIVE_COLOR = "hsl(0 72% 51%)";
 
 export function RevenueChart({
 	data,
-	totalNet,
+	totals,
 }: {
 	data: TimeseriesDataPoint[];
-	totalNet: number;
+	totals: { credits: number; devpass: number };
 }) {
+	const [activeView, setActiveView] = useState<ActiveView>("credits");
+
 	const dailyData = useMemo(
 		() =>
 			data.map((point) => ({
 				date: point.date,
-				dailyNet: point.dailyNet,
+				dailyNet:
+					activeView === "credits" ? point.dailyNet : point.dailyDevpassNet,
 			})),
-		[data],
+		[data, activeView],
 	);
 
 	return (
@@ -75,22 +103,28 @@ export function RevenueChart({
 			<CardHeader className="flex flex-col items-stretch space-y-0 border-b p-0 sm:flex-row">
 				<div className="flex flex-1 flex-col justify-center gap-1.5 px-6 py-5 sm:py-6">
 					<CardTitle className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-						Credits Revenue
+						Credits & DevPass Revenue
 					</CardTitle>
 					<CardDescription className="text-xs">
-						Cumulative processed, revenue (after fees), and net (after fees &
-						refunds) for credit purchases
+						{revenueViews[activeView].description}
 					</CardDescription>
 				</div>
 				<div className="flex">
-					<div className="flex flex-1 flex-col justify-center gap-1.5 border-t px-6 py-4 text-left sm:border-l sm:border-t-0 sm:px-8 sm:py-6">
-						<span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-							Net Revenue
-						</span>
-						<span className="font-mono text-lg font-medium leading-none tabular-nums tracking-tight sm:text-3xl">
-							{currencyFormatter.format(totalNet)}
-						</span>
-					</div>
+					{(["credits", "devpass"] as const).map((key) => (
+						<button
+							key={key}
+							data-active={activeView === key}
+							className="relative z-30 flex flex-1 flex-col justify-center gap-1.5 border-t px-6 py-4 text-left even:border-l data-[active=true]:bg-muted/50 sm:border-l sm:border-t-0 sm:px-8 sm:py-6"
+							onClick={() => setActiveView(key)}
+						>
+							<span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+								{revenueViews[key].label}
+							</span>
+							<span className="font-mono text-lg font-medium leading-none tabular-nums tracking-tight sm:text-3xl">
+								{currencyFormatter.format(totals[key])}
+							</span>
+						</button>
+					))}
 				</div>
 			</CardHeader>
 			<CardContent className="px-2 sm:p-6">
@@ -133,27 +167,16 @@ export function RevenueChart({
 								/>
 							}
 						/>
-						<Line
-							dataKey="processed"
-							type="monotone"
-							stroke="var(--color-processed)"
-							strokeWidth={2}
-							dot={false}
-						/>
-						<Line
-							dataKey="revenue"
-							type="monotone"
-							stroke="var(--color-revenue)"
-							strokeWidth={2}
-							dot={false}
-						/>
-						<Line
-							dataKey="net"
-							type="monotone"
-							stroke="var(--color-net)"
-							strokeWidth={2}
-							dot={false}
-						/>
+						{revenueViews[activeView].lines.map((key) => (
+							<Line
+								key={key}
+								dataKey={key}
+								type="monotone"
+								stroke={`var(--color-${key})`}
+								strokeWidth={2}
+								dot={false}
+							/>
+						))}
 					</LineChart>
 				</ChartContainer>
 				<div className="mt-2 px-2 sm:px-0">
