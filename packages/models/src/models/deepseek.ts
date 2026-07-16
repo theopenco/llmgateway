@@ -138,6 +138,21 @@ export const deepseekModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				// reasoning_effort must NOT be forwarded: Novita ignores it on its
+				// own and, sent alongside the `chat_template_kwargs.thinking` flag,
+				// it suppresses reasoning entirely (verified live 2026-07-16).
+				// Thinking is controlled solely via requiresEnableThinking.
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+				],
 			},
 			{
 				providerId: "alibaba",
