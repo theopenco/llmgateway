@@ -1005,10 +1005,11 @@ export async function prepareRequestBody(
 
 	// `none` reasoning effort is handled natively by a few providers:
 	// OpenAI/Azure forward it (their newer models accept it to turn reasoning
-	// off), and Google, Moonshot, Alibaba, and MiniMax reason by default so
-	// they must explicitly disable thinking when asked. Every other provider
-	// treats the absence of reasoning_effort as "off" already, so normalize
-	// `none` away for them to avoid forwarding an unsupported enum value.
+	// off), and Google, Moonshot, Alibaba, MiniMax, and Xiaomi reason by
+	// default so they must explicitly disable thinking when asked. Every other
+	// provider treats the absence of reasoning_effort as "off" already, so
+	// normalize `none` away for them to avoid forwarding an unsupported enum
+	// value.
 	const handlesNoneNatively =
 		usedProvider === "openai" ||
 		usedProvider === "azure" ||
@@ -1019,6 +1020,7 @@ export async function prepareRequestBody(
 		usedProvider === "moonshot" ||
 		usedProvider === "alibaba" ||
 		usedProvider === "minimax" ||
+		usedProvider === "xiaomi" ||
 		providerMappingForOptions?.apiFormat === "openai-chat-completions";
 	if (reasoning_effort === "none" && !handlesNoneNatively) {
 		reasoning_effort = undefined;
@@ -3482,7 +3484,23 @@ export async function prepareRequestBody(
 			if (presence_penalty !== undefined) {
 				requestBody.presence_penalty = presence_penalty;
 			}
-			if (reasoning_effort !== undefined) {
+			// Xiaomi natively accepts `reasoning_effort` low/medium/high (verified
+			// live: high consistently thinks longer than low) but rejects every
+			// other tier with a 400, and thinking models think by default. Forward
+			// the native tiers verbatim (unsupported ones surface the provider's
+			// 4xx per the no-downgrade rule) and translate `none` to the documented
+			// binary disable (`thinking: { type: "disabled" }`, verified to zero
+			// out reasoning tokens). Mappings that can turn thinking off declare
+			// `none` in `reasoningEfforts`; elsewhere `none` sends nothing and the
+			// provider default is kept.
+			if (reasoning_effort === "none") {
+				const canDisableThinking =
+					providerMappingForOptions?.reasoningEfforts?.includes("none") ??
+					false;
+				if (supportsReasoning && canDisableThinking) {
+					requestBody.thinking = { type: "disabled" };
+				}
+			} else if (reasoning_effort !== undefined) {
 				requestBody.reasoning_effort = reasoning_effort;
 			}
 			break;
