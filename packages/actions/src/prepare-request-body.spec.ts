@@ -924,7 +924,8 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 describe("prepareRequestBody - Moonshot thinking", () => {
 	async function prepare(options: {
 		model: string;
-		reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high";
+		reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "max";
+		maxTokens?: number;
 	}) {
 		return (await prepareRequestBody(
 			"moonshot",
@@ -934,7 +935,7 @@ describe("prepareRequestBody - Moonshot thinking", () => {
 			[{ role: "user", content: "Hello!" }],
 			false, // stream
 			undefined, // temperature
-			undefined, // max_tokens
+			options.maxTokens, // max_tokens
 			undefined, // top_p
 			undefined, // frequency_penalty
 			undefined, // presence_penalty
@@ -993,6 +994,33 @@ describe("prepareRequestBody - Moonshot thinking", () => {
 			reasoningEffort: "medium",
 		});
 		expect(requestBody.thinking).toEqual({ type: "enabled" });
+	});
+
+	test("forwards reasoning_effort natively for kimi-k3 (no thinking toggle)", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k3",
+			reasoningEffort: "max",
+		});
+		expect(requestBody.reasoning_effort).toBe("max");
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test("collapses disable requests onto the provider default for kimi-k3", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k3",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.reasoning_effort).toBeUndefined();
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test("sends max_completion_tokens instead of max_tokens for kimi-k3", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k3",
+			maxTokens: 4096,
+		});
+		expect(requestBody.max_completion_tokens).toBe(4096);
+		expect(requestBody.max_tokens).toBeUndefined();
 	});
 });
 
