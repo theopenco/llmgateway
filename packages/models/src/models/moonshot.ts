@@ -557,4 +557,40 @@ export const moonshotModels = [
 			},
 		],
 	},
+	{
+		id: "kimi-k3",
+		name: "Kimi K3",
+		description:
+			"Kimi's flagship model for long-horizon coding and end-to-end knowledge work with a 1M-token context window.",
+		family: "moonshot",
+		releasedAt: new Date("2026-07-16"),
+		providers: [
+			{
+				providerId: "moonshot",
+				externalId: "kimi-k3",
+				inputPrice: "3.0e-6",
+				cachedInputPrice: "0.3e-6",
+				outputPrice: "15.0e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 1048576,
+				reasoning: true,
+				// K3 always thinks; the effort level is set via the native
+				// top-level `reasoning_effort` field (no K2-era `thinking`
+				// toggle), which currently accepts only "max".
+				reasoningEfforts: ["max"],
+				streaming: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];

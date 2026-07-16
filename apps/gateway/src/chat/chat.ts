@@ -2533,7 +2533,21 @@ chat.openapi(completions, async (c) => {
 			capabilityError instanceof HTTPException &&
 			capabilityError.message.includes("reasoning.max_tokens")
 		) {
-			const message = `"thinking.type.enabled" is not supported for this model. Use "thinking.type.adaptive" and "output_config.effort" to control thinking behavior.`;
+			// Only point the caller at adaptive thinking when the model actually
+			// supports it; on models with no reasoning support at all, telling them
+			// to switch to "thinking.type.adaptive" would just trade one 400 for
+			// another.
+			const providersForAdaptiveCheck = requestedProvider
+				? modelInfo.providers.filter(
+						(p) => (p as ProviderModelMapping).providerId === requestedProvider,
+					)
+				: modelInfo.providers;
+			const supportsAdaptiveThinking = providersForAdaptiveCheck.some(
+				(p) => (p as ProviderModelMapping).reasoningMode === "adaptive",
+			);
+			const message = supportsAdaptiveThinking
+				? `"thinking.type.enabled" is not supported for this model. Use "thinking.type.adaptive" and "output_config.effort" to control thinking behavior.`
+				: `"thinking" is not supported for this model. Remove the "thinking" parameter or use a model that supports extended thinking.`;
 			try {
 				// Use _insertLog directly (not insertLogEntry): the local insertLog
 				// wrapper is declared further down and would be in its temporal dead

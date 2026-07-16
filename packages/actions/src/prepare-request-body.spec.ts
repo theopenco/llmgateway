@@ -924,7 +924,8 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 describe("prepareRequestBody - Moonshot thinking", () => {
 	async function prepare(options: {
 		model: string;
-		reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high";
+		reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "max";
+		maxTokens?: number;
 	}) {
 		return (await prepareRequestBody(
 			"moonshot",
@@ -934,7 +935,7 @@ describe("prepareRequestBody - Moonshot thinking", () => {
 			[{ role: "user", content: "Hello!" }],
 			false, // stream
 			undefined, // temperature
-			undefined, // max_tokens
+			options.maxTokens, // max_tokens
 			undefined, // top_p
 			undefined, // frequency_penalty
 			undefined, // presence_penalty
@@ -993,6 +994,285 @@ describe("prepareRequestBody - Moonshot thinking", () => {
 			reasoningEffort: "medium",
 		});
 		expect(requestBody.thinking).toEqual({ type: "enabled" });
+	});
+
+	test("forwards reasoning_effort natively for kimi-k3 (no thinking toggle)", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k3",
+			reasoningEffort: "max",
+		});
+		expect(requestBody.reasoning_effort).toBe("max");
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test("collapses disable requests onto the provider default for kimi-k3", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k3",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.reasoning_effort).toBeUndefined();
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test("sends max_completion_tokens instead of max_tokens for kimi-k3", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k3",
+			maxTokens: 4096,
+		});
+		expect(requestBody.max_completion_tokens).toBe(4096);
+		expect(requestBody.max_tokens).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - Alibaba thinking", () => {
+	async function prepare(options: {
+		model: string;
+		reasoningEffort?:
+			| "none"
+			| "minimal"
+			| "low"
+			| "medium"
+			| "high"
+			| "xhigh"
+			| "max";
+		reasoningMaxTokens?: number;
+		maxTokens?: number;
+		supportsReasoning?: boolean;
+	}) {
+		return (await prepareRequestBody(
+			"alibaba",
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			options.maxTokens, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			options.reasoningEffort, // reasoning_effort
+			options.supportsReasoning ?? true, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			options.reasoningMaxTokens, // reasoning_max_tokens
+		)) as any;
+	}
+
+	test("maps reasoning_effort to enable_thinking with a native thinking_budget and never forwards reasoning_effort", async () => {
+		const requestBody = await prepare({
+			model: "qwen3.7-max",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.enable_thinking).toBe(true);
+		expect(requestBody.thinking_budget).toBe(24576);
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("maps none to an explicit thinking disable", async () => {
+		const requestBody = await prepare({
+			model: "qwen3.7-max",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.enable_thinking).toBe(false);
+		expect(requestBody.thinking_budget).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("keeps the provider default when no reasoning parameter is requested", async () => {
+		const requestBody = await prepare({ model: "qwen3.7-max" });
+		expect(requestBody.enable_thinking).toBeUndefined();
+		expect(requestBody.thinking_budget).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("forwards reasoning.max_tokens as thinking_budget verbatim", async () => {
+		const requestBody = await prepare({
+			model: "glm-5.2",
+			reasoningMaxTokens: 1234,
+		});
+		expect(requestBody.enable_thinking).toBe(true);
+		expect(requestBody.thinking_budget).toBe(1234);
+	});
+
+	test("keeps thinking_budget below the caller's max_tokens", async () => {
+		const requestBody = await prepare({
+			model: "glm-5.2",
+			reasoningEffort: "medium",
+			maxTokens: 100,
+		});
+		expect(requestBody.enable_thinking).toBe(true);
+		expect(requestBody.thinking_budget).toBe(99);
+		expect(requestBody.max_tokens).toBe(100);
+	});
+
+	test("sends nothing for mappings without budget-controlled thinking", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k2.5",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.enable_thinking).toBeUndefined();
+		expect(requestBody.thinking_budget).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - MiniMax thinking", () => {
+	async function prepare(options: {
+		model: string;
+		reasoningEffort?:
+			| "none"
+			| "minimal"
+			| "low"
+			| "medium"
+			| "high"
+			| "xhigh"
+			| "max";
+	}) {
+		return (await prepareRequestBody(
+			"minimax",
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			options.reasoningEffort, // reasoning_effort
+			true, // supportsReasoning
+		)) as any;
+	}
+
+	test("maps reasoning_effort to thinking adaptive and never forwards reasoning_effort", async () => {
+		const requestBody = await prepare({
+			model: "minimax-m3",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.thinking).toEqual({ type: "adaptive" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("maps none to thinking disabled on models that can turn thinking off", async () => {
+		const requestBody = await prepare({
+			model: "minimax-m3",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("keeps the provider default when no reasoning_effort is requested", async () => {
+		const requestBody = await prepare({ model: "minimax-m3" });
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("never sends disabled to always-on models (M2.x family)", async () => {
+		const requestBody = await prepare({
+			model: "minimax-m2.7",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("sends thinking adaptive to always-on models when effort is requested", async () => {
+		const requestBody = await prepare({
+			model: "minimax-m2.7",
+			reasoningEffort: "medium",
+		});
+		expect(requestBody.thinking).toEqual({ type: "adaptive" });
+		expect(requestBody.extra_body).toEqual({ reasoning_split: true });
+	});
+});
+
+describe("prepareRequestBody - Xiaomi thinking", () => {
+	async function prepare(options: {
+		model: string;
+		reasoningEffort?:
+			| "none"
+			| "minimal"
+			| "low"
+			| "medium"
+			| "high"
+			| "xhigh"
+			| "max";
+	}) {
+		return (await prepareRequestBody(
+			"xiaomi",
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			options.reasoningEffort, // reasoning_effort
+			true, // supportsReasoning
+		)) as any;
+	}
+
+	test("forwards native effort tiers verbatim without a thinking parameter", async () => {
+		const requestBody = await prepare({
+			model: "mimo-v2.5-pro",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.reasoning_effort).toBe("high");
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test("maps none to thinking disabled and never forwards reasoning_effort", async () => {
+		const requestBody = await prepare({
+			model: "mimo-v2.5-pro",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("keeps the provider default when no reasoning_effort is requested", async () => {
+		const requestBody = await prepare({ model: "mimo-v2.5-pro" });
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("forwards unsupported tiers verbatim so the provider rejects them", async () => {
+		const requestBody = await prepare({
+			model: "mimo-v2.5",
+			reasoningEffort: "xhigh",
+		});
+		expect(requestBody.reasoning_effort).toBe("xhigh");
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test("drops none for mappings that do not declare it", async () => {
+		const requestBody = await prepare({
+			model: "mimo-v2-pro",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
 	});
 });
 

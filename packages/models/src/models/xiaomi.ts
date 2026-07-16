@@ -20,6 +20,9 @@ export const xiaomiModels = [
 				maxOutput: 131072,
 				streaming: true,
 				reasoning: true,
+				// Xiaomi accepts low/medium/high natively and rejects the other
+				// tiers with a 400; `none` maps to the binary thinking disable.
+				reasoningEfforts: ["none", "low", "medium", "high"],
 				vision: false,
 				tools: true,
 				jsonOutput: true,
@@ -71,6 +74,9 @@ export const xiaomiModels = [
 				maxOutput: 131072,
 				streaming: true,
 				reasoning: true,
+				// Xiaomi accepts low/medium/high natively and rejects the other
+				// tiers with a 400; `none` maps to the binary thinking disable.
+				reasoningEfforts: ["none", "low", "medium", "high"],
 				vision: true,
 				tools: true,
 				jsonOutput: true,
