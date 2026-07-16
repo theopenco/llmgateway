@@ -161,7 +161,7 @@ describe("speech", () => {
 
 	test("/v1/audio/speech rejects coding-plan personal orgs with 403", async () => {
 		await seedKeys("real-token-speech-coding", "token-id-speech-coding");
-		await harness.setDevPlan({ devPlan: "pro", allowAllModels: true });
+		await harness.setDevPlan({ devPlan: "pro" });
 
 		const res = await app.request("/v1/audio/speech", {
 			method: "POST",

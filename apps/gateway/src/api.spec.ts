@@ -36,7 +36,7 @@ describe("api", () => {
 		expect(data.health).toHaveProperty("database");
 	});
 
-	test("/v1/chat/completions rejects image-output models for dev-plan orgs even with allowAllModels", async () => {
+	test("/v1/chat/completions rejects image-output models for dev-plan orgs", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			token: "real-token",
@@ -45,10 +45,9 @@ describe("api", () => {
 			createdBy: "user-id",
 		});
 
-		// Pro dev plan with allow-all-models on — the legacy coding-model
-		// restriction does NOT apply, so the only thing blocking image
-		// generation is the new image-output guard.
-		await harness.setDevPlan({ devPlan: "pro", allowAllModels: true });
+		// The image-output guard runs before the coding-model restriction, so
+		// image generation is blocked on dev plans regardless of the model.
+		await harness.setDevPlan({ devPlan: "pro" });
 
 		// gemini-2.5-flash-image declares output: ["text", "image"] but
 		// has no imageGenerations: true mapping — exactly the case the
@@ -110,7 +109,7 @@ describe("api", () => {
 			createdBy: "user-id",
 		});
 
-		await harness.setDevPlan({ devPlan: "pro", allowAllModels: true });
+		await harness.setDevPlan({ devPlan: "pro" });
 
 		const res = await app.request("/v1/images/generations", {
 			method: "POST",
@@ -131,7 +130,7 @@ describe("api", () => {
 		);
 	});
 
-	test("/v1/chat/completions rejects provider-targeting model strings for dev-plan orgs even with allowAllModels", async () => {
+	test("/v1/chat/completions rejects provider-targeting model strings for dev-plan orgs", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			token: "real-token",
@@ -140,11 +139,10 @@ describe("api", () => {
 			createdBy: "user-id",
 		});
 
-		// allow-all-models only relaxes the model-level coding/cached-input
-		// restrictions — it must NOT unlock direct provider routing. The
+		// Direct provider routing is never available on dev plans. The
 		// `provider/model` format stays blocked; only the canonical root id
 		// (`deepseek-v4-pro`) is allowed on dev plans.
-		await harness.setDevPlan({ devPlan: "pro", allowAllModels: true });
+		await harness.setDevPlan({ devPlan: "pro" });
 
 		const res = await app.request("/v1/chat/completions", {
 			method: "POST",
@@ -1139,7 +1137,6 @@ describe("api", () => {
 
 		await harness.setDevPlan({
 			devPlan: "pro",
-			allowAllModels: true,
 			serviceTier: "flex",
 		});
 

@@ -2421,9 +2421,9 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	// Dev plans are inference-only — image generation is never allowed,
-	// regardless of devPlanAllowAllModels. Embeddings and video generation
-	// are blocked at their respective endpoints. We check the model's
+	// Dev plans are inference-only — image generation is never allowed.
+	// Embeddings and video generation are blocked at their respective
+	// endpoints. We check the model's
 	// declared output formats (and the legacy imageGenerations provider
 	// flag) so chat-completions models that emit images — e.g. Gemini
 	// *-flash-image with output: ["text", "image"] — are also blocked.
@@ -2435,14 +2435,6 @@ chat.openapi(completions, async (c) => {
 			message: `Image generation is not available for coding plans. Coding plans only include text-based inference.`,
 		});
 	}
-
-	// Coding plans only allow models/provider mappings with cached input pricing.
-	// The model-level check denies models with no cached mapping at all.
-	// The specific-provider check denies a request like `groq/gpt-oss-120b` where the
-	// model qualifies as coding overall but the named mapping itself is uncached.
-	const isDevPlanRestricted = Boolean(
-		isDevPlan && !organization?.devPlanAllowAllModels,
-	);
 
 	// Source restriction is gated behind DEVPASS_ENFORCE_SOURCE_RESTRICTION so it
 	// can be enabled later. While disabled (default), all sources are allowed —
@@ -2460,10 +2452,8 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Provider-targeting model strings (`provider/model`, `custom/model`) are
-	// never allowed on dev plans — only canonical root model ids. This is
-	// independent of allow-all-models: that flag only relaxes the model-level
-	// coding/cached-input restrictions below, it does not unlock direct or
-	// custom provider routing.
+	// never allowed on dev plans — only canonical root model ids. Direct and
+	// custom provider routing is never unlocked on coding plans.
 	if (isDevPlan) {
 		if (
 			requestedProvider &&
@@ -2482,10 +2472,14 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	if (isDevPlanRestricted) {
+	// Coding plans only allow models/provider mappings with cached input pricing.
+	// The model-level check denies models with no cached mapping at all.
+	// The specific-provider check denies a request like `groq/gpt-oss-120b` where the
+	// model qualifies as coding overall but the named mapping itself is uncached.
+	if (isDevPlan) {
 		if (!isCodingModel(modelInfo)) {
 			throw new HTTPException(403, {
-				message: `Model ${modelInfo.id} is not available for coding plans. Coding plans only include models optimized for coding tasks with prompt caching, tool calling, JSON output, and streaming support. You can enable access to all models in your dashboard settings at devpass.llmgateway.io/dashboard, though this may significantly increase costs due to lack of prompt caching.`,
+				message: `Model ${modelInfo.id} is not available for coding plans. Coding plans only include models optimized for coding tasks with prompt caching, tool calling, JSON output, and streaming support.`,
 			});
 		}
 	}
@@ -2713,7 +2707,7 @@ chat.openapi(completions, async (c) => {
 		}
 	};
 
-	if (isDevPlanRestricted) {
+	if (isDevPlan) {
 		iamFilteredModelProviders = iamFilteredModelProviders.filter(
 			providerSupportsCachedInput,
 		);
@@ -2721,7 +2715,7 @@ chat.openapi(completions, async (c) => {
 			expandedIamFilteredModelProviders.filter(providerSupportsCachedInput);
 		if (iamFilteredModelProviders.length === 0) {
 			throw new HTTPException(403, {
-				message: `No provider with cached input pricing is available for model ${modelInfo.id}. Coding plans require providers with prompt caching support; enable access to all models in your dashboard settings at code.llmgateway.io/dashboard to use this model.`,
+				message: `No provider with cached input pricing is available for model ${modelInfo.id}. Coding plans require providers with prompt caching support.`,
 			});
 		}
 	}
@@ -3099,7 +3093,7 @@ chat.openapi(completions, async (c) => {
 					(!candidateAllowedProviders ||
 						candidateAllowedProviders.includes(provider.providerId)),
 			);
-			const cachedFilteredProviders = isDevPlanRestricted
+			const cachedFilteredProviders = isDevPlan
 				? availableModelProviders.filter(providerSupportsCachedInput)
 				: availableModelProviders;
 
@@ -3319,7 +3313,7 @@ chat.openapi(completions, async (c) => {
 					allowedProviders.includes(p.providerId),
 				)
 			: expandAllProviderRegions(modelInfo.providers);
-		if (isDevPlanRestricted) {
+		if (isDevPlan) {
 			iamFilteredModelProviders = iamFilteredModelProviders.filter(
 				providerSupportsCachedInput,
 			);
@@ -3353,12 +3347,12 @@ chat.openapi(completions, async (c) => {
 		const allSameProviderMappings = modelInfo.providers.filter(
 			(p) => p.providerId === usedProvider,
 		);
-		let sameProviderMappings = isDevPlanRestricted
+		let sameProviderMappings = isDevPlan
 			? allSameProviderMappings.filter(providerSupportsCachedInput)
 			: allSameProviderMappings;
-		if (isDevPlanRestricted && sameProviderMappings.length === 0) {
+		if (isDevPlan && sameProviderMappings.length === 0) {
 			throw new HTTPException(403, {
-				message: `Provider ${usedProvider} does not offer cached input pricing for model ${modelInfo.id}. Coding plans require providers with prompt caching support; choose another provider or enable access to all models in your dashboard settings at code.llmgateway.io/dashboard.`,
+				message: `Provider ${usedProvider} does not offer cached input pricing for model ${modelInfo.id}. Coding plans require providers with prompt caching support; choose another provider.`,
 			});
 		}
 		if (hasAudio) {
@@ -3415,12 +3409,12 @@ chat.openapi(completions, async (c) => {
 				? new Map([[usedProvider, lockedRegion]])
 				: undefined;
 			if (
-				isDevPlanRestricted &&
+				isDevPlan &&
 				lockedRegion &&
 				!sameProviderMappings.some((p) => p.region === lockedRegion)
 			) {
 				throw new HTTPException(403, {
-					message: `Region '${lockedRegion}' for provider ${usedProvider} does not offer cached input pricing for model ${modelInfo.id}. Coding plans require providers with prompt caching support; choose another region or enable access to all models in your dashboard settings at code.llmgateway.io/dashboard.`,
+					message: `Region '${lockedRegion}' for provider ${usedProvider} does not offer cached input pricing for model ${modelInfo.id}. Coding plans require providers with prompt caching support; choose another region.`,
 				});
 			}
 			const eligibleMappings = filterEligibleModelProviders(

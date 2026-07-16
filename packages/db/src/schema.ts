@@ -285,7 +285,6 @@ export const organization = pgTable(
 		devPlanCycle: text({ enum: ["monthly", "annual"] })
 			.notNull()
 			.default("monthly"),
-		devPlanAllowAllModels: boolean().notNull().default(false),
 		// Default processing tier for dev-plan (DevPass) routing. "flex" opts
 		// requests into cheaper flex processing (where the selected provider
 		// supports it) to save on plan credits; "default" is standard processing.

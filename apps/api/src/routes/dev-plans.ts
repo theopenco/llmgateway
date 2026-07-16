@@ -1518,7 +1518,6 @@ const getStatus = createRoute({
 						organizationId: z.string().nullable(),
 						projectId: z.string().nullable(),
 						apiKey: z.string().nullable(),
-						devPlanAllowAllModels: z.boolean(),
 						devPlanServiceTier: z.enum(["default", "flex"]),
 						retentionLevel: z.enum(["retain", "none"]),
 						defaultRoutingStrategy: z.enum([
@@ -1576,7 +1575,6 @@ devPlans.openapi(getStatus, async (c) => {
 			organizationId: null,
 			projectId: null,
 			apiKey: null,
-			devPlanAllowAllModels: false,
 			devPlanServiceTier: "default" as const,
 			retentionLevel: "none" as const,
 			defaultRoutingStrategy: "auto" as const,
@@ -1658,7 +1656,6 @@ devPlans.openapi(getStatus, async (c) => {
 		organizationId: personalOrg.id,
 		projectId,
 		apiKey,
-		devPlanAllowAllModels: personalOrg.devPlanAllowAllModels,
 		devPlanServiceTier: personalOrg.devPlanServiceTier,
 		retentionLevel: personalOrg.retentionLevel,
 		defaultRoutingStrategy,
@@ -1674,7 +1671,6 @@ const updateSettings = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
-						devPlanAllowAllModels: z.boolean().optional(),
 						// Default processing tier for DevPass routing. "flex" saves
 						// plan credits by using cheaper flex processing where the
 						// selected provider supports it.
@@ -1694,7 +1690,6 @@ const updateSettings = createRoute({
 				"application/json": {
 					schema: z.object({
 						success: z.boolean(),
-						devPlanAllowAllModels: z.boolean(),
 						devPlanServiceTier: z.enum(["default", "flex"]),
 						retentionLevel: z.enum(["retain", "none"]),
 						defaultRoutingStrategy: z.enum([
@@ -1713,12 +1708,8 @@ const updateSettings = createRoute({
 
 devPlans.openapi(updateSettings, async (c) => {
 	const user = c.get("user");
-	const {
-		devPlanAllowAllModels,
-		devPlanServiceTier,
-		retentionLevel,
-		defaultRoutingStrategy,
-	} = c.req.valid("json");
+	const { devPlanServiceTier, retentionLevel, defaultRoutingStrategy } =
+		c.req.valid("json");
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -1753,14 +1744,10 @@ devPlans.openapi(updateSettings, async (c) => {
 	}
 
 	const updateData: {
-		devPlanAllowAllModels?: boolean;
 		devPlanServiceTier?: "default" | "flex";
 		retentionLevel?: "retain" | "none";
 	} = {};
 
-	if (devPlanAllowAllModels !== undefined) {
-		updateData.devPlanAllowAllModels = devPlanAllowAllModels;
-	}
 	if (devPlanServiceTier !== undefined) {
 		updateData.devPlanServiceTier = devPlanServiceTier;
 	}
@@ -1776,15 +1763,6 @@ devPlans.openapi(updateSettings, async (c) => {
 			.set(updateData)
 			.where(eq(tables.organization.id, personalOrg.id));
 
-		if (
-			devPlanAllowAllModels !== undefined &&
-			devPlanAllowAllModels !== personalOrg.devPlanAllowAllModels
-		) {
-			changes.devPlanAllowAllModels = {
-				old: personalOrg.devPlanAllowAllModels,
-				new: devPlanAllowAllModels,
-			};
-		}
 		if (
 			devPlanServiceTier !== undefined &&
 			devPlanServiceTier !== personalOrg.devPlanServiceTier
@@ -1851,8 +1829,6 @@ devPlans.openapi(updateSettings, async (c) => {
 
 	return c.json({
 		success: true,
-		devPlanAllowAllModels:
-			devPlanAllowAllModels ?? personalOrg.devPlanAllowAllModels,
 		devPlanServiceTier: devPlanServiceTier ?? personalOrg.devPlanServiceTier,
 		retentionLevel: retentionLevel ?? personalOrg.retentionLevel,
 		defaultRoutingStrategy: effectiveRoutingStrategy,
