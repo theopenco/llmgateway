@@ -2810,9 +2810,14 @@ devPlans.openapi(resetPassCheckout, async (c) => {
 	// Metadata is set on the session only (not payment_intent_data.metadata)
 	// for the same reason as credit top-ups: handlePaymentIntentSucceeded must
 	// not also process this payment. See createCheckoutSession in payments.ts.
+	// Cards only: fulfillment listens for `checkout.session.completed` with
+	// `payment_status: "paid"` and there is no async-payment handler, so a
+	// delayed payment method (e.g. bank debit) would charge without ever
+	// granting the pass.
 	const session = await getStripe().checkout.sessions.create({
 		customer: stripeCustomerId,
 		mode: "payment",
+		payment_method_types: ["card"],
 		line_items: [
 			{
 				price_data: {
@@ -2893,6 +2898,12 @@ devPlans.openapi(redeemResetPass, async (c) => {
 		});
 	}
 
+	if (!user.emailVerified) {
+		throw new HTTPException(403, {
+			message: "Email verification required",
+		});
+	}
+
 	const personalOrg = await findPersonalOrg(user.id);
 
 	if (!personalOrg) {
@@ -2916,7 +2927,11 @@ devPlans.openapi(redeemResetPass, async (c) => {
 	);
 
 	// Redeeming with an untouched allowance would burn the pass for nothing.
-	if (remaining >= weeklyLimit) {
+	// A partially-used allowance implies an active (unexpired) window, so the
+	// stored week start is necessarily set — the null check narrows the type
+	// for the compare-and-swap below.
+	const observedPremiumWeekStart = personalOrg.devPlanPremiumWeekStart;
+	if (remaining >= weeklyLimit || !observedPremiumWeekStart) {
 		throw new HTTPException(400, {
 			message:
 				"Your weekly premium allowance is already at its full limit — nothing to reset.",
@@ -2941,9 +2956,13 @@ devPlans.openapi(redeemResetPass, async (c) => {
 		});
 	}
 
-	// The counter guard in the WHERE clause makes the redeem atomic: a
-	// concurrent redeem that already consumed the last pass matches zero rows
-	// instead of driving the inventory negative.
+	// The WHERE clause makes the redeem atomic in two ways. The counter guard
+	// stops a concurrent redeem that already consumed the last pass from
+	// driving the inventory negative. The compare-and-swap on the observed
+	// premium usage and week start stops two concurrent redeems (with enough
+	// inventory for both) from each burning a pass to reset the same
+	// allowance: the first reset rewrites both fields, so the loser's
+	// predicates match zero rows.
 	const updated = await db
 		.update(tables.organization)
 		.set({
@@ -2960,6 +2979,14 @@ devPlans.openapi(redeemResetPass, async (c) => {
 		.where(
 			and(
 				eq(tables.organization.id, personalOrg.id),
+				eq(
+					tables.organization.devPlanPremiumCreditsUsed,
+					personalOrg.devPlanPremiumCreditsUsed,
+				),
+				eq(
+					tables.organization.devPlanPremiumWeekStart,
+					observedPremiumWeekStart,
+				),
 				source === "included"
 					? lt(
 							tables.organization.devPlanIncludedResetPassesUsed,

@@ -9,19 +9,31 @@ Build first (always via Turbo filters): `pnpm exec turbo run build --filter=api 
 
 ## Launch on offset ports (never fight other worktrees for :4002/:3004)
 
-```bash
-# DB/Redis: persistent containers openllm-pg (5433) and openllm-redis (6380)
-export DATABASE_URL="postgres://postgres:pw@localhost:5433/db" REDIS_PORT=6380
+Each server blocks, so run each one in its own terminal session (or as its own
+background task). In every session, set the shared DB/Redis env first:
 
-# API on :4102 (env vars on the command line beat ../../.env)
+```bash
+# All sessions — persistent containers openllm-pg (5433) and openllm-redis (6380)
+export DATABASE_URL="postgres://postgres:pw@localhost:5433/db" REDIS_PORT=6380
+```
+
+Terminal 1 — API on :4102 (env vars on the command line beat ../../.env):
+
+```bash
 cd apps/api && PORT=4102 API_URL=http://localhost:4102 CODE_URL=http://localhost:3104 \
   ORIGIN_URLS="http://localhost:3104,http://localhost:4102" \
   node --enable-source-maps --env-file=../../.env dist/serve.js
+```
 
-# DevPass dashboard on :3104
+Terminal 2 — DevPass dashboard on :3104:
+
+```bash
 cd apps/code && API_URL=http://localhost:4102 pnpm exec next dev --port 3104 --turbopack
+```
 
-# Gateway on :4101
+Terminal 3 — Gateway on :4101:
+
+```bash
 cd apps/gateway && PORT=4101 node --enable-source-maps --env-file=../../.env dist/serve.js
 ```
 
