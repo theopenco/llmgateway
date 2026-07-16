@@ -13,6 +13,10 @@ export const planExcludedTypes = [
 	"dev_plan_renewal",
 	"dev_plan_cancel",
 	"dev_plan_end",
+	// Reset Pass purchases are DevPass revenue (real dollars in `amount`, no
+	// creditAmount), reported with the other dev plan rows — not part of the
+	// credits economy.
+	"dev_plan_reset_pass",
 	"subscription_start",
 	"subscription_cancel",
 	"subscription_end",
@@ -38,6 +42,7 @@ export const DEV_PLAN_TX_TYPES = [
 	"dev_plan_upgrade",
 	"dev_plan_downgrade",
 	"dev_plan_renewal",
+	"dev_plan_reset_pass",
 ] as const;
 
 // Pre-rename rows for what is now a dev plan. The same `subscription_*` types
@@ -94,6 +99,7 @@ export const paidTransactionTypes = [
 	"dev_plan_start",
 	"dev_plan_upgrade",
 	"dev_plan_renewal",
+	"dev_plan_reset_pass",
 	"chat_plan_start",
 	"chat_plan_upgrade",
 	"chat_plan_renewal",

@@ -6,6 +6,7 @@ import { Activity, Coins, Cpu, Gem, TrendingUp } from "lucide-react";
 import { useApi } from "@/lib/fetch-client";
 
 import { AgentModelUsageChart } from "./AgentModelUsageChart";
+import ResetPassCard from "./ResetPassCard";
 
 import type { paths } from "@/lib/api/v1";
 import type { DevPlanCycle } from "@llmgateway/shared";
@@ -16,11 +17,16 @@ type ActivityItem = ActivityResponse["activity"][number];
 
 interface UsageOverviewProps {
 	projectId: string | null;
+	organizationId: string | null;
 	creditsUsed: number;
 	creditsLimit: number;
 	premiumCreditsUsed: number;
 	premiumWeeklyLimit: number;
 	premiumWeekResetsAt: string | null;
+	resetPasses: number;
+	includedResetPasses: number;
+	includedResetPassesRemaining: number;
+	resetPassPrice: number | null;
 	planName: string;
 	planPrice?: number;
 	billingCycleStart: string | null;
@@ -139,11 +145,16 @@ function UsageBar({
 
 export default function UsageOverview({
 	projectId,
+	organizationId,
 	creditsUsed,
 	creditsLimit,
 	premiumCreditsUsed,
 	premiumWeeklyLimit,
 	premiumWeekResetsAt,
+	resetPasses,
+	includedResetPasses,
+	includedResetPassesRemaining,
+	resetPassPrice,
 	planName,
 	planPrice,
 	billingCycleStart,
@@ -276,7 +287,17 @@ export default function UsageOverview({
 							used={premiumCreditsUsed}
 							limit={premiumWeeklyLimit}
 							lowMessage="Above 80% of your weekly premium allowance. Standard models stay available."
-							exhaustedMessage="Weekly premium allowance reached — premium models resume when the window resets; standard models keep working."
+							exhaustedMessage="Weekly premium allowance reached — redeem a Reset Pass below for an instant reset, or standard models keep working until the window resets."
+						/>
+						<ResetPassCard
+							tier={planName.toLowerCase()}
+							organizationId={organizationId}
+							purchased={resetPasses}
+							includedTotal={includedResetPasses}
+							includedRemaining={includedResetPassesRemaining}
+							price={resetPassPrice}
+							premiumCreditsUsed={premiumCreditsUsed}
+							premiumWeeklyLimit={premiumWeeklyLimit}
 						/>
 					</div>
 				)}

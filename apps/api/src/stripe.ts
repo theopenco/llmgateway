@@ -1051,6 +1051,7 @@ export async function finalizeDevPlanSetupSession(
 			devPlan: devPlanTier,
 			devPlanCreditsLimit: creditsLimit.toString(),
 			devPlanCreditsUsed: "0",
+			devPlanIncludedResetPassesUsed: 0,
 			devPlanBillingCycleStart: new Date(),
 			devPlanExpiresAt: getSubscriptionPeriodEnd(subscription),
 			devPlanStripeSubscriptionId: subscription.id,
@@ -1225,6 +1226,11 @@ async function handleCheckoutSessionCompleted(
 
 	if (!subscription && metadata?.type === "credit_topup") {
 		await handleCreditTopUpCheckout(session);
+		return;
+	}
+
+	if (!subscription && metadata?.type === "dev_plan_reset_pass") {
+		await handleResetPassCheckout(session);
 		return;
 	}
 
@@ -1438,6 +1444,7 @@ async function handleCheckoutSessionCompleted(
 					devPlanCreditsUsed: "0",
 					devPlanPremiumCreditsUsed: "0",
 					devPlanPremiumWeekStart: new Date(),
+					devPlanIncludedResetPassesUsed: 0,
 					devPlanBillingCycleStart: new Date(),
 					devPlanStripeSubscriptionId: subscriptionId,
 					devPlanCancelled: false,
@@ -1894,6 +1901,131 @@ async function handleProviderListingCheckout(session: Stripe.Checkout.Session) {
 		.where(eq(tables.providerListingRequest.id, requestId));
 
 	logger.info(`Marked provider listing request ${requestId} as paid`);
+}
+
+// Fulfil a Reset Pass purchase: add one pass to the org's inventory and
+// record the payment. The pass is NOT auto-redeemed — redemption is an
+// explicit action (POST /dev-plans/reset-pass/redeem) so a purchase made
+// ahead of time is never silently burned.
+async function handleResetPassCheckout(session: Stripe.Checkout.Session) {
+	const { customer, metadata } = session;
+
+	if (session.payment_status !== "paid") {
+		logger.info(
+			`Reset Pass checkout session payment not yet settled (status: ${session.payment_status}), skipping`,
+		);
+		return;
+	}
+
+	const result = await resolveOrganizationFromStripeEvent({
+		metadata: metadata as { organizationId?: string } | undefined,
+		customer: typeof customer === "string" ? customer : customer?.id,
+	});
+
+	if (!result) {
+		logger.error(
+			"Could not resolve organization from Reset Pass checkout session",
+		);
+		return;
+	}
+
+	const { organizationId, organization } = result;
+
+	const stripePaymentIntentId =
+		typeof session.payment_intent === "string"
+			? session.payment_intent
+			: (session.payment_intent?.id ?? null);
+
+	if (!stripePaymentIntentId) {
+		logger.error("Reset Pass checkout session has no payment intent, skipping");
+		return;
+	}
+
+	const existingTransaction = await db.query.transaction.findFirst({
+		where: {
+			organizationId: { eq: organizationId },
+			stripePaymentIntentId: { eq: stripePaymentIntentId },
+			type: { eq: "dev_plan_reset_pass" },
+			status: { eq: "completed" },
+		},
+	});
+
+	if (existingTransaction) {
+		logger.info(
+			`Skipping duplicate Reset Pass checkout for organization ${organizationId} (transaction ${existingTransaction.id} already exists)`,
+		);
+		return;
+	}
+
+	const amountPaid = (session.amount_total ?? 0) / 100;
+	const tier = (metadata?.devPlan as DevPlanTier | undefined) ?? "lite";
+
+	// Insert the payment row and grant the pass in one transaction so a
+	// crash between the two can't sell a pass without delivering it.
+	const resetPassTransaction = await db.transaction(async (tx) => {
+		const [created] = await tx
+			.insert(tables.transaction)
+			.values({
+				organizationId,
+				type: "dev_plan_reset_pass",
+				amount: amountPaid.toString(),
+				currency: (session.currency ?? "usd").toUpperCase(),
+				status: "completed",
+				stripePaymentIntentId,
+				description: `DevPass Reset Pass (${tier.toUpperCase()})`,
+			})
+			.returning();
+
+		await tx
+			.update(tables.organization)
+			.set({
+				devPlanResetPasses: sql`${tables.organization.devPlanResetPasses} + 1`,
+			})
+			.where(eq(tables.organization.id, organizationId));
+
+		return created;
+	});
+
+	logger.info(
+		`Reset Pass purchased for organization ${organizationId} (${tier}, $${amountPaid})`,
+	);
+
+	try {
+		const billingDetails = await resolveDevPassBillingDetails(organization);
+		await generateAndEmailInvoice({
+			organizationId,
+			invoiceNumber: resetPassTransaction.id,
+			invoiceDate: new Date(),
+			organizationName: organization.name,
+			...billingDetails,
+			lineItems: [
+				{
+					description: `DevPass Reset Pass (${tier.toUpperCase()}) — weekly premium allowance reset`,
+					amount: amountPaid,
+				},
+			],
+			currency: (session.currency ?? "usd").toUpperCase(),
+		});
+	} catch (e) {
+		logger.error(
+			"Invoice email failed (Reset Pass invoice); suppressing failure",
+			e as Error,
+		);
+	}
+
+	posthog.capture({
+		distinctId: "organization",
+		event: "reset_pass_purchased",
+		groups: {
+			organization: organizationId,
+		},
+		properties: {
+			devPlan: tier,
+			amount: amountPaid,
+			organization: organizationId,
+			source: "stripe_checkout",
+		},
+	});
 }
 
 async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
@@ -3404,6 +3536,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 				devPlan: initialDevPlanTier,
 				devPlanCreditsLimit: creditsLimit.toString(),
 				devPlanCreditsUsed: "0",
+				devPlanIncludedResetPassesUsed: 0,
 				devPlanBillingCycleStart: new Date(),
 				devPlanExpiresAt: initialPeriodEnd
 					? new Date(initialPeriodEnd * 1000)
@@ -3656,6 +3789,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 				devPlanCreditsUsed: "0",
 				devPlanPremiumCreditsUsed: "0",
 				devPlanPremiumWeekStart: new Date(),
+				devPlanIncludedResetPassesUsed: 0,
 				devPlanCreditsFrozen: false,
 				devPlanCreditsLimitBeforeFreeze: null,
 				devPlanBillingCycleStart: new Date(),
@@ -3749,6 +3883,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 						devPlanCreditsUsed: "0",
 						devPlanPremiumCreditsUsed: "0",
 						devPlanPremiumWeekStart: new Date(),
+						devPlanIncludedResetPassesUsed: 0,
 						devPlanCreditsFrozen: false,
 						devPlanCreditsLimitBeforeFreeze: null,
 						devPlanBillingCycleStart: new Date(),
@@ -4665,6 +4800,10 @@ export async function handleSubscriptionDeleted(
 				devPlanCreditsUsed: "0",
 				devPlanPremiumCreditsUsed: "0",
 				devPlanPremiumWeekStart: null,
+				// Included passes expire with the plan; purchased passes
+				// (devPlanResetPasses) are kept — they were paid for and apply
+				// again on resubscribe.
+				devPlanIncludedResetPassesUsed: 0,
 				devPlanCreditsFrozen: false,
 				devPlanCreditsLimitBeforeFreeze: null,
 				devPlanStripeSubscriptionId: null,

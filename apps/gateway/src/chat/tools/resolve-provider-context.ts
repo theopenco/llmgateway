@@ -207,7 +207,7 @@ export function assertDevPlanPremiumCapNotExceeded(
 	);
 	const msUntilReset = Math.max(0, resetAt.getTime() - Date.now());
 	throw new HTTPException(402, {
-		message: `You've used your weekly allowance for premium-tier models on the ${tier} plan. Upgrade for a higher allowance, or use any standard model now. Resets in ${formatTimeUntilReset(msUntilReset)}.`,
+		message: `You've used your weekly allowance for premium-tier models on the ${tier} plan. Redeem a Reset Pass from your dashboard for an instant reset, upgrade for a higher allowance, or use any standard model now. Resets in ${formatTimeUntilReset(msUntilReset)}.`,
 	});
 }
 
