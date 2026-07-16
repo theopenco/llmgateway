@@ -7,6 +7,7 @@ import {
 	MoreHorizontal,
 	PencilIcon,
 	PlusIcon,
+	PowerIcon,
 	RefreshCwIcon,
 	Shield,
 } from "lucide-react";
@@ -782,7 +783,10 @@ export function ApiKeysList({
 													disabled={isPlaygroundKey}
 													onClick={() => toggleStatus(key)}
 												>
-													{key.status === "active" ? "Deactivate" : "Activate"}{" "}
+													<PowerIcon className="mr-2 h-4 w-4" />
+													{key.status === "active"
+														? "Deactivate"
+														: "Activate"}{" "}
 													Key
 												</DropdownMenuItem>
 												<DropdownMenuItem
@@ -895,6 +899,7 @@ export function ApiKeysList({
 											disabled={isPlaygroundKey}
 											onClick={() => toggleStatus(key)}
 										>
+											<PowerIcon className="mr-2 h-4 w-4" />
 											{key.status === "active" ? "Deactivate" : "Activate"} Key
 										</DropdownMenuItem>
 										<DropdownMenuItem
