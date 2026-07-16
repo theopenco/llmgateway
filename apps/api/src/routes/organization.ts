@@ -103,7 +103,6 @@ const organizationSchema = z.object({
 	devPlanPremiumWeekStart: z.date().nullable(),
 	devPlanBillingCycleStart: z.date().nullable(),
 	devPlanExpiresAt: z.date().nullable(),
-	devPlanAllowAllModels: z.boolean(),
 	devPlanServiceTier: z.enum(["default", "flex"]),
 	devPlanBillingOverride: z.boolean(),
 	// Chat Plans fields

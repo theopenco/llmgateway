@@ -2,6 +2,7 @@
 
 @source "../../../node_modules/streamdown/dist/*.js";
 @source "../../../node_modules/@streamdown/code/dist/*.js";
+@source "../../../../packages/shared/src/**/*.{ts,tsx}";
 
 @plugin "tailwindcss-animate";
 @plugin "@tailwindcss/typography";

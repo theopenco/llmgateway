@@ -67,6 +67,29 @@ const providerKeySchema = z.object({
 });
 
 // Schema for creating a new provider key
+// Regular API keys must be printable ASCII without whitespace, but
+// service-account keys (Vertex providers) are JSON blobs that may be
+// pretty-printed, so ASCII whitespace is allowed when the value parses as a
+// JSON object.
+function isValidProviderToken(value: string): boolean {
+	if (/^[\x21-\x7E]+$/.test(value)) {
+		return true;
+	}
+	if (!/^[\t\n\r\x20-\x7E]+$/.test(value)) {
+		return false;
+	}
+	const trimmed = value.trim();
+	if (!trimmed.startsWith("{")) {
+		return false;
+	}
+	try {
+		JSON.parse(trimmed);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 const createProviderKeySchema = z.object({
 	provider: z
 		.string()
@@ -74,13 +97,10 @@ const createProviderKeySchema = z.object({
 			message:
 				"Invalid provider. Must be one of the supported providers or 'custom'.",
 		}),
-	token: z
-		.string()
-		.min(1, "API key is required")
-		.regex(
-			/^[\x21-\x7E]+$/,
+	token: z.string().min(1, "API key is required").refine(isValidProviderToken, {
+		message:
 			"API key contains invalid characters. Make sure you copied the actual key, not a masked version.",
-		),
+	}),
 	name: z
 		.string()
 		.regex(

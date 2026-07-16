@@ -33,8 +33,11 @@ import {
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
+	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
 	DEV_PLAN_PRICES,
 	getDevPlanCreditsLimit,
+	getDevPlanPremiumWeeklyLimit,
+	isPremiumWeekExpired,
 	type DevPlanCycle,
 	type DevPlanTier,
 } from "@llmgateway/shared";
@@ -151,21 +154,6 @@ function getInvoicePaymentIntentId(invoice: Stripe.Invoice) {
 		payment_intent?: string | { id?: string } | null;
 	};
 	return getStripeId(invoiceWithPaymentIntent.payment_intent);
-}
-
-function getRemainingBillingPeriodFraction(
-	subscriptionItem: Stripe.SubscriptionItem,
-) {
-	const nowSeconds = Date.now() / 1000;
-	const periodStart = subscriptionItem.current_period_start;
-	const periodEnd = subscriptionItem.current_period_end;
-	const periodSeconds = periodEnd - periodStart;
-
-	if (periodSeconds <= 0) {
-		return 0;
-	}
-
-	return Math.min(1, Math.max(0, (periodEnd - nowSeconds) / periodSeconds));
 }
 
 // The full price of a tier charged on an upgrade. Reads the Stripe price's
@@ -809,9 +797,7 @@ const tierChangePreviewResponseSchema = z.object({
 	isUpgrade: z.boolean(),
 	amountDueCents: z.number().int().nonnegative(),
 	currency: z.literal("USD"),
-	remainingFraction: z.number(),
 	currentCreditsLimit: z.number(),
-	proratedCreditDelta: z.number(),
 	newCreditsLimit: z.number(),
 	billingPeriodStart: z.string(),
 	billingPeriodEnd: z.string(),
@@ -892,8 +878,6 @@ devPlans.openapi(changeTierPreview, async (c) => {
 		});
 	}
 
-	const remainingFraction = getRemainingBillingPeriodFraction(subscriptionItem);
-
 	// Upgrades charge the full new-tier price today and start a fresh billing
 	// cycle (no proration); downgrades stay deferred to renewal, so nothing is
 	// due today. Credits reset to the new tier's full allowance on an upgrade.
@@ -919,9 +903,7 @@ devPlans.openapi(changeTierPreview, async (c) => {
 		isUpgrade,
 		amountDueCents,
 		currency: "USD" as const,
-		remainingFraction,
 		currentCreditsLimit,
-		proratedCreditDelta: newCreditsLimit - currentCreditsLimit,
 		newCreditsLimit,
 		billingPeriodStart: new Date(
 			subscriptionItem.current_period_start * 1000,
@@ -1526,6 +1508,9 @@ const getStatus = createRoute({
 						devPlanCreditsUsed: z.string(),
 						devPlanCreditsLimit: z.string(),
 						devPlanCreditsRemaining: z.string(),
+						devPlanPremiumWeeklyLimit: z.string(),
+						devPlanPremiumCreditsUsed: z.string(),
+						devPlanPremiumWeekResetsAt: z.string().nullable(),
 						devPlanBillingCycleStart: z.string().nullable(),
 						devPlanCancelled: z.boolean(),
 						devPlanExpiresAt: z.string().nullable(),
@@ -1533,7 +1518,6 @@ const getStatus = createRoute({
 						organizationId: z.string().nullable(),
 						projectId: z.string().nullable(),
 						apiKey: z.string().nullable(),
-						devPlanAllowAllModels: z.boolean(),
 						devPlanServiceTier: z.enum(["default", "flex"]),
 						retentionLevel: z.enum(["retain", "none"]),
 						defaultRoutingStrategy: z.enum([
@@ -1581,6 +1565,9 @@ devPlans.openapi(getStatus, async (c) => {
 			devPlanCreditsUsed: "0",
 			devPlanCreditsLimit: "0",
 			devPlanCreditsRemaining: "0",
+			devPlanPremiumWeeklyLimit: "0",
+			devPlanPremiumCreditsUsed: "0",
+			devPlanPremiumWeekResetsAt: null,
 			devPlanBillingCycleStart: null,
 			devPlanCancelled: false,
 			devPlanExpiresAt: null,
@@ -1588,7 +1575,6 @@ devPlans.openapi(getStatus, async (c) => {
 			organizationId: null,
 			projectId: null,
 			apiKey: null,
-			devPlanAllowAllModels: false,
 			devPlanServiceTier: "default" as const,
 			retentionLevel: "none" as const,
 			defaultRoutingStrategy: "auto" as const,
@@ -1598,6 +1584,27 @@ devPlans.openapi(getStatus, async (c) => {
 	const creditsUsed = parseFloat(personalOrg.devPlanCreditsUsed);
 	const creditsLimit = parseFloat(personalOrg.devPlanCreditsLimit);
 	const creditsRemaining = Math.max(0, creditsLimit - creditsUsed);
+
+	// Weekly premium fair-use allowance, computed with the same helpers the
+	// gateway uses for enforcement. An expired window reports zero usage and no
+	// reset date — the full allowance is already available again.
+	const premiumWeeklyLimit =
+		personalOrg.devPlan !== "none"
+			? getDevPlanPremiumWeeklyLimit(personalOrg.devPlan)
+			: 0;
+	const premiumWeekExpired = isPremiumWeekExpired(
+		personalOrg.devPlanPremiumWeekStart,
+	);
+	const premiumCreditsUsed = premiumWeekExpired
+		? 0
+		: parseFloat(personalOrg.devPlanPremiumCreditsUsed ?? "0");
+	const premiumWeekResetsAt =
+		!premiumWeekExpired && personalOrg.devPlanPremiumWeekStart
+			? new Date(
+					personalOrg.devPlanPremiumWeekStart.getTime() +
+						DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
+				).toISOString()
+			: null;
 
 	// Get API key and project if user has an active dev plan
 	let apiKey: string | null = null;
@@ -1638,6 +1645,9 @@ devPlans.openapi(getStatus, async (c) => {
 		devPlanCreditsUsed: personalOrg.devPlanCreditsUsed,
 		devPlanCreditsLimit: personalOrg.devPlanCreditsLimit,
 		devPlanCreditsRemaining: creditsRemaining.toFixed(2),
+		devPlanPremiumWeeklyLimit: premiumWeeklyLimit.toFixed(2),
+		devPlanPremiumCreditsUsed: premiumCreditsUsed.toFixed(2),
+		devPlanPremiumWeekResetsAt: premiumWeekResetsAt,
 		devPlanBillingCycleStart:
 			personalOrg.devPlanBillingCycleStart?.toISOString() ?? null,
 		devPlanCancelled: personalOrg.devPlanCancelled,
@@ -1646,7 +1656,6 @@ devPlans.openapi(getStatus, async (c) => {
 		organizationId: personalOrg.id,
 		projectId,
 		apiKey,
-		devPlanAllowAllModels: personalOrg.devPlanAllowAllModels,
 		devPlanServiceTier: personalOrg.devPlanServiceTier,
 		retentionLevel: personalOrg.retentionLevel,
 		defaultRoutingStrategy,
@@ -1662,7 +1671,6 @@ const updateSettings = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
-						devPlanAllowAllModels: z.boolean().optional(),
 						// Default processing tier for DevPass routing. "flex" saves
 						// plan credits by using cheaper flex processing where the
 						// selected provider supports it.
@@ -1682,7 +1690,6 @@ const updateSettings = createRoute({
 				"application/json": {
 					schema: z.object({
 						success: z.boolean(),
-						devPlanAllowAllModels: z.boolean(),
 						devPlanServiceTier: z.enum(["default", "flex"]),
 						retentionLevel: z.enum(["retain", "none"]),
 						defaultRoutingStrategy: z.enum([
@@ -1701,12 +1708,8 @@ const updateSettings = createRoute({
 
 devPlans.openapi(updateSettings, async (c) => {
 	const user = c.get("user");
-	const {
-		devPlanAllowAllModels,
-		devPlanServiceTier,
-		retentionLevel,
-		defaultRoutingStrategy,
-	} = c.req.valid("json");
+	const { devPlanServiceTier, retentionLevel, defaultRoutingStrategy } =
+		c.req.valid("json");
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -1741,14 +1744,10 @@ devPlans.openapi(updateSettings, async (c) => {
 	}
 
 	const updateData: {
-		devPlanAllowAllModels?: boolean;
 		devPlanServiceTier?: "default" | "flex";
 		retentionLevel?: "retain" | "none";
 	} = {};
 
-	if (devPlanAllowAllModels !== undefined) {
-		updateData.devPlanAllowAllModels = devPlanAllowAllModels;
-	}
 	if (devPlanServiceTier !== undefined) {
 		updateData.devPlanServiceTier = devPlanServiceTier;
 	}
@@ -1764,15 +1763,6 @@ devPlans.openapi(updateSettings, async (c) => {
 			.set(updateData)
 			.where(eq(tables.organization.id, personalOrg.id));
 
-		if (
-			devPlanAllowAllModels !== undefined &&
-			devPlanAllowAllModels !== personalOrg.devPlanAllowAllModels
-		) {
-			changes.devPlanAllowAllModels = {
-				old: personalOrg.devPlanAllowAllModels,
-				new: devPlanAllowAllModels,
-			};
-		}
 		if (
 			devPlanServiceTier !== undefined &&
 			devPlanServiceTier !== personalOrg.devPlanServiceTier
@@ -1839,8 +1829,6 @@ devPlans.openapi(updateSettings, async (c) => {
 
 	return c.json({
 		success: true,
-		devPlanAllowAllModels:
-			devPlanAllowAllModels ?? personalOrg.devPlanAllowAllModels,
 		devPlanServiceTier: devPlanServiceTier ?? personalOrg.devPlanServiceTier,
 		retentionLevel: retentionLevel ?? personalOrg.retentionLevel,
 		defaultRoutingStrategy: effectiveRoutingStrategy,

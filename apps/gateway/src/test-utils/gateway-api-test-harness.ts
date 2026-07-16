@@ -175,7 +175,6 @@ export function createGatewayApiTestHarness() {
 		},
 		async setDevPlan(options: {
 			devPlan: "lite" | "pro" | "max";
-			allowAllModels?: boolean;
 			serviceTier?: "default" | "flex";
 			creditsUsed?: string;
 			creditsLimit?: string;
@@ -185,7 +184,6 @@ export function createGatewayApiTestHarness() {
 				.set({
 					kind: "devpass",
 					devPlan: options.devPlan,
-					devPlanAllowAllModels: options.allowAllModels ?? false,
 					devPlanServiceTier: options.serviceTier ?? "default",
 					devPlanCreditsUsed: options.creditsUsed ?? "0",
 					devPlanCreditsLimit: options.creditsLimit ?? "100",

@@ -73,17 +73,21 @@ export function RevenueChart({
 	return (
 		<Card>
 			<CardHeader className="flex flex-col items-stretch space-y-0 border-b p-0 sm:flex-row">
-				<div className="flex flex-1 flex-col justify-center gap-1 px-6 py-5 sm:py-6">
-					<CardTitle>Credits Revenue</CardTitle>
-					<CardDescription>
+				<div className="flex flex-1 flex-col justify-center gap-1.5 px-6 py-5 sm:py-6">
+					<CardTitle className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+						Credits Revenue
+					</CardTitle>
+					<CardDescription className="text-xs">
 						Cumulative processed, revenue (after fees), and net (after fees &
 						refunds) for credit purchases
 					</CardDescription>
 				</div>
 				<div className="flex">
-					<div className="flex flex-1 flex-col justify-center gap-1 border-t px-6 py-4 text-left sm:border-l sm:border-t-0 sm:px-8 sm:py-6">
-						<span className="text-xs text-muted-foreground">Net Revenue</span>
-						<span className="text-lg font-bold leading-none sm:text-3xl">
+					<div className="flex flex-1 flex-col justify-center gap-1.5 border-t px-6 py-4 text-left sm:border-l sm:border-t-0 sm:px-8 sm:py-6">
+						<span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+							Net Revenue
+						</span>
+						<span className="font-mono text-lg font-medium leading-none tabular-nums tracking-tight sm:text-3xl">
 							{currencyFormatter.format(totalNet)}
 						</span>
 					</div>

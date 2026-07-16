@@ -483,8 +483,21 @@ export function getProviderEndpoint(
 			return `${url}/v1/projects/${projectId}/locations/${vertexRegion}/endpoints/openapi/chat/completions`;
 		}
 		case "vertex-anthropic": {
-			let vaProjectId: string | undefined =
-				process.env.LLM_VERTEX_ANTHROPIC_PROJECT;
+			// BYOK provider keys hold the customer's service-account JSON; derive
+			// the project from it so requests hit their project, not the server's.
+			let vaProjectId: string | undefined;
+			if (token) {
+				try {
+					const sa = JSON.parse(token) as { project_id?: string };
+					vaProjectId = sa.project_id;
+				} catch {
+					// token is not service-account JSON (e.g. an OAuth access token);
+					// fall back to env-based resolution below
+				}
+			}
+			if (!vaProjectId) {
+				vaProjectId = process.env.LLM_VERTEX_ANTHROPIC_PROJECT;
+			}
 			if (!vaProjectId) {
 				const saJson = process.env.LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON;
 				if (saJson) {

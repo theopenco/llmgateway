@@ -304,6 +304,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			priority: 0.8,
 		},
 		{
+			url: `${baseUrl}/models/premium`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
 			url: `${baseUrl}/mcp`,
 			lastModified: buildDate,
 			changeFrequency: "monthly",

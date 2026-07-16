@@ -21,6 +21,7 @@ export const metaModels = [
 				maxOutput: 131072,
 				streaming: true,
 				reasoning: true,
+				reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"],
 				reasoningMode: "adaptive",
 				reasoningOutput: "omit",
 				supportsResponsesApi: true,

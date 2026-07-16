@@ -39,6 +39,7 @@ export const sakanaModels = [
 				contextSize: 1000000,
 				streaming: true,
 				reasoning: true,
+				reasoningEfforts: ["high", "xhigh"],
 				// Fugu reasoning summaries are only exposed via the OpenAI Responses
 				// API, so route through it. Summaries are adaptive (omitted for
 				// simpler prompts), hence reasoningOutput is "omit".
