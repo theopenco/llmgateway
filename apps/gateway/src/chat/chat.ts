@@ -4,6 +4,7 @@ import { streamSSE } from "hono/streaming";
 
 import { detectCodingAgentFromUserAgent } from "@/chat/tools/detect-coding-agent.js";
 import { extractFirstSseEventData } from "@/chat/tools/extract-first-sse-event-data.js";
+import { applyPinnedDefaultRegions } from "@/chat/tools/pin-default-regions.js";
 import { validateSource } from "@/chat/tools/validate-source.js";
 import { getApiKeyFingerprint } from "@/lib/api-key-fingerprint.js";
 import {
@@ -386,39 +387,6 @@ function filterRegionsByAvailableKeys(
 			mapping.providerId as Provider,
 			mapping.region,
 		);
-	});
-}
-
-/**
- * For providers with `regionConfig.pinDefaultRegion: true`, drop all regional
- * candidates except the defaultRegion (and the synthetic root) when no
- * explicit choice was made. This makes AWS Bedrock default to `:global`
- * unless the caller opts in via the `:region` URL suffix or via the
- * provider-key region option. Providers without `pinDefaultRegion`
- * (e.g. Alibaba) pass through unchanged so the gateway can route to the
- * cheapest region.
- */
-function applyPinnedDefaultRegions(
-	mappings: ProviderModelMapping[],
-	options: {
-		explicitLocks?: Map<string, string>;
-		requestedRegion?: string;
-	} = {},
-): ProviderModelMapping[] {
-	if (options.requestedRegion) {
-		return mappings;
-	}
-	return mappings.filter((m) => {
-		const def = providers.find((p) => p.id === m.providerId) as
-			| ProviderDefinition
-			| undefined;
-		if (!def?.regionConfig?.pinDefaultRegion) {
-			return true;
-		}
-		if (options.explicitLocks?.has(m.providerId)) {
-			return true;
-		}
-		return !m.region || m.region === def.regionConfig.defaultRegion;
 	});
 }
 
