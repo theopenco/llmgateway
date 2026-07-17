@@ -1104,7 +1104,7 @@ export const openaiModels = [
 				webSearch: true,
 				webSearchPrice: "0.01", // $10 per 1000 searches for reasoning models
 				reasoning: true,
-				reasoningEfforts: ["none", "low", "medium", "high"],
+				reasoningEfforts: ["none", "minimal", "low", "medium", "high", "xhigh"],
 				reasoningOutput: "omit",
 				supportsResponsesApi: true,
 				jsonOutputSchema: true,
@@ -1133,7 +1133,7 @@ export const openaiModels = [
 				vision: true,
 				tools: true,
 				reasoning: true,
-				reasoningEfforts: ["none", "low", "medium", "high"],
+				reasoningEfforts: ["none", "minimal", "low", "medium", "high", "xhigh"],
 				supportsResponsesApi: true,
 				jsonOutputSchema: true,
 				supportedParameters: [
