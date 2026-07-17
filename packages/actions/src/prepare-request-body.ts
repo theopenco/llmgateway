@@ -56,6 +56,22 @@ export function hashSessionCacheKey(sessionId: string): string {
 }
 
 /**
+ * OpenAI, Azure, and Meta cap `prompt_cache_key` at 64 characters and reject
+ * anything longer with a 400 (`string_above_max_length`). Callers can supply an
+ * over-length key (e.g. a coding agent that concatenates several ids), so hash
+ * any key that exceeds the limit down to a stable 32-char digest — cache
+ * routing only needs the key to be stable per conversation, and the digest
+ * stays well within the limit. Keys within the limit pass through unchanged.
+ */
+const MAX_PROMPT_CACHE_KEY_LENGTH = 64;
+export function clampPromptCacheKey(key: string): string {
+	if (key.length <= MAX_PROMPT_CACHE_KEY_LENGTH) {
+		return key;
+	}
+	return createHash("sha256").update(key).digest("hex").slice(0, 32);
+}
+
+/**
  * Meta only routes prompt-cache lookups by `prompt_cache_key`: identical
  * prefixes sent without a key land on different backends and report
  * `cached_tokens: 0` every time (verified live), while the same requests with
@@ -1718,7 +1734,8 @@ export async function prepareRequestBody(
 							? deriveConversationCacheKey(processedMessages)
 							: undefined);
 					if (upstreamCacheKey !== undefined) {
-						responsesBody.prompt_cache_key = upstreamCacheKey;
+						responsesBody.prompt_cache_key =
+							clampPromptCacheKey(upstreamCacheKey);
 					}
 				}
 
@@ -1813,7 +1830,8 @@ export async function prepareRequestBody(
 							? hashSessionCacheKey(session_id)
 							: undefined);
 					if (upstreamCacheKey !== undefined) {
-						requestBody.prompt_cache_key = upstreamCacheKey;
+						requestBody.prompt_cache_key =
+							clampPromptCacheKey(upstreamCacheKey);
 					}
 					if (
 						prompt_cache_retention !== undefined &&

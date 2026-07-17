@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import {
+	clampPromptCacheKey,
 	hashSessionCacheKey,
 	prepareRequestBody,
 	RequestError,
@@ -4619,6 +4620,48 @@ describe("prepareRequestBody - upstream prompt_cache_key", () => {
 		expect(a).not.toBe(hashSessionCacheKey("sess-2"));
 		expect(a).toHaveLength(32);
 		expect(a).not.toContain("sess-1");
+	});
+
+	test("clampPromptCacheKey passes through keys within the 64-char limit", () => {
+		const key = "a".repeat(64);
+		expect(clampPromptCacheKey(key)).toBe(key);
+		expect(clampPromptCacheKey("tenant-a")).toBe("tenant-a");
+	});
+
+	test("clampPromptCacheKey hashes over-length keys to a stable 32-char digest", () => {
+		const key = "x".repeat(72);
+		const clamped = clampPromptCacheKey(key);
+		expect(clamped).toHaveLength(32);
+		expect(clamped).toBe(clampPromptCacheKey(key));
+		expect(clampPromptCacheKey("y".repeat(72))).not.toBe(clamped);
+	});
+
+	test("openai chat completions: clamps an over-length caller key to <= 64 chars", async () => {
+		const requestBody = await prepareCacheKeyRequest(
+			"openai",
+			"gpt-4o-mini",
+			conversation,
+			{ promptCacheKey: "z".repeat(72) },
+		);
+
+		expect(requestBody.prompt_cache_key).toBe(
+			clampPromptCacheKey("z".repeat(72)),
+		);
+		expect(requestBody.prompt_cache_key?.length).toBeLessThanOrEqual(64);
+	});
+
+	test("openai responses API: clamps an over-length caller key to <= 64 chars", async () => {
+		const requestBody = await prepareCacheKeyRequest(
+			"openai",
+			"gpt-5-mini",
+			conversation,
+			{ promptCacheKey: "z".repeat(72) },
+		);
+
+		expect(requestBody.prompt_cache_key).toBe(
+			clampPromptCacheKey("z".repeat(72)),
+		);
+		expect(requestBody.prompt_cache_key?.length).toBeLessThanOrEqual(64);
 	});
 });
 
