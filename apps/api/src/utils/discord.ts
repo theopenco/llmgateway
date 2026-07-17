@@ -203,6 +203,47 @@ export async function notifyDevPlanSubscribed(
 	});
 }
 
+export async function notifyResetPassPurchased(
+	email: string,
+	name: string | null | undefined,
+	devPlan: string,
+	amount: number,
+): Promise<void> {
+	const displayName = name ?? "Unknown";
+
+	await sendDiscordNotification({
+		embeds: [
+			{
+				title: "Reset Pass Purchased",
+				color: 0x06b6d4, // Cyan
+				fields: [
+					{
+						name: "Email",
+						value: email,
+						inline: true,
+					},
+					{
+						name: "Name",
+						value: displayName,
+						inline: true,
+					},
+					{
+						name: "Tier",
+						value: devPlan.toUpperCase(),
+						inline: true,
+					},
+					{
+						name: "Amount",
+						value: `$${amount.toFixed(2)}`,
+						inline: true,
+					},
+				],
+				timestamp: new Date().toISOString(),
+			},
+		],
+	});
+}
+
 export async function notifyDevPlanCancelled(
 	email: string,
 	name: string | null | undefined,

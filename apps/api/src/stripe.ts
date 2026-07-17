@@ -36,6 +36,7 @@ import {
 	notifyDevPlanCancelled,
 	notifyDevPlanRenewed,
 	notifyDevPlanSubscribed,
+	notifyResetPassPurchased,
 } from "./utils/discord.js";
 import {
 	generateDevPlanCancellationFeedbackEmailHtml,
@@ -2586,6 +2587,21 @@ export async function fulfillResetPassPurchase(
 		logger.error(
 			"Invoice email failed (Reset Pass invoice); suppressing failure",
 			e as Error,
+		);
+	}
+
+	// Notify the internal Discord channel, mirroring the other purchase
+	// notifications. Runs after the transaction insert (guarded by the
+	// payment-intent dedupe above), so webhook retries won't double-notify.
+	if (organization.billingEmail) {
+		const purchaseUser = await db.query.user.findFirst({
+			where: { email: { eq: organization.billingEmail } },
+		});
+		await notifyResetPassPurchased(
+			organization.billingEmail,
+			purchaseUser?.name,
+			tier,
+			amountPaid,
 		);
 	}
 

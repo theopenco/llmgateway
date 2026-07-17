@@ -495,6 +495,14 @@ export interface ProviderModelMapping {
 	 */
 	supportedToolChoices?: ToolChoiceMode[];
 	/**
+	 * Whether this mapping's upstream accepts the OpenAI-only `developer` message
+	 * role. Defaults to `true` (assumed supported). When set to `false`, the
+	 * gateway rewrites `developer` messages to `system` before forwarding, since
+	 * some OpenAI-compatible providers reject `developer` with a 400 ("developer
+	 * is not one of ['system', 'assistant', 'user', 'tool', 'function']").
+	 */
+	supportsDeveloperRole?: boolean;
+	/**
 	 * Test skip/only functionality
 	 */
 	test?: "skip" | "only";

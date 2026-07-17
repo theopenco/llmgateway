@@ -1,9 +1,11 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 
 import {
 	isRetryableErrorType,
 	sameKeyRetryDelay,
 	SAME_KEY_RETRY_DELAY_MS,
+	getSameKeyMaxRetries,
+	DEFAULT_SAME_KEY_MAX_RETRIES,
 	shouldRetryAlternateKey,
 	shouldRetrySameKey,
 	shouldRetryRequest,
@@ -127,6 +129,15 @@ describe("shouldRetryRequest", () => {
 			shouldRetryRequest({ ...defaultOpts, errorType: "upstream_timeout" }),
 		).toBe(true);
 	});
+
+	it("does not fall back to another provider for session-sticky requests", () => {
+		// Sticky sessions pin to one provider to keep the upstream prompt cache
+		// warm; switching providers mid-session would break the pin. Same-provider
+		// retries handle transient failures instead.
+		expect(shouldRetryRequest({ ...defaultOpts, sessionSticky: true })).toBe(
+			false,
+		);
+	});
 });
 
 describe("shouldRetryAlternateKey", () => {
@@ -176,6 +187,48 @@ describe("shouldRetrySameKey", () => {
 		expect(shouldRetrySameKey({ ...defaultOpts, hasOtherProvider: true })).toBe(
 			false,
 		);
+	});
+
+	it("retries the pinned provider for session-sticky requests even when others exist", () => {
+		// Cross-provider fallback is disabled for sticky sessions, so the pinned
+		// provider is retried on the same key even when alternatives exist.
+		expect(
+			shouldRetrySameKey({
+				...defaultOpts,
+				hasOtherProvider: true,
+				sessionSticky: true,
+			}),
+		).toBe(true);
+	});
+
+	it("still excludes deterministic failures for session-sticky requests", () => {
+		// The sticky bypass only relaxes the hasOtherProvider gate — auth, 4xx and
+		// rate-limit failures remain non-retryable on the same key.
+		expect(
+			shouldRetrySameKey({
+				...defaultOpts,
+				hasOtherProvider: true,
+				sessionSticky: true,
+				errorType: "gateway_error",
+				statusCode: 401,
+			}),
+		).toBe(false);
+		expect(
+			shouldRetrySameKey({
+				...defaultOpts,
+				hasOtherProvider: true,
+				sessionSticky: true,
+				statusCode: 400,
+			}),
+		).toBe(false);
+		expect(
+			shouldRetrySameKey({
+				...defaultOpts,
+				hasOtherProvider: true,
+				sessionSticky: true,
+				retryCount: 2,
+			}),
+		).toBe(false);
 	});
 
 	it("retries on upstream timeouts", () => {
@@ -318,11 +371,11 @@ describe("shouldRetrySameKey", () => {
 });
 
 describe("sameKeyRetryDelay", () => {
-	it("resolves after the fixed delay", async () => {
+	it("resolves after the first-attempt delay", async () => {
 		vi.useFakeTimers();
 		try {
 			let resolved = false;
-			const pending = sameKeyRetryDelay().then(() => {
+			const pending = sameKeyRetryDelay(1).then(() => {
 				resolved = true;
 			});
 
@@ -335,6 +388,65 @@ describe("sameKeyRetryDelay", () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	it("backs off exponentially per attempt (1s, 2s, 4s)", async () => {
+		vi.useFakeTimers();
+		try {
+			for (const [attempt, expectedMs] of [
+				[1, 1000],
+				[2, 2000],
+				[3, 4000],
+			] as const) {
+				let resolved = false;
+				const pending = sameKeyRetryDelay(attempt).then(() => {
+					resolved = true;
+				});
+
+				await vi.advanceTimersByTimeAsync(expectedMs - 1);
+				expect(resolved).toBe(false);
+
+				await vi.advanceTimersByTimeAsync(1);
+				await pending;
+				expect(resolved).toBe(true);
+			}
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});
+
+describe("getSameKeyMaxRetries", () => {
+	const original = process.env.SAME_KEY_MAX_RETRIES;
+	afterEach(() => {
+		if (original === undefined) {
+			delete process.env.SAME_KEY_MAX_RETRIES;
+		} else {
+			process.env.SAME_KEY_MAX_RETRIES = original;
+		}
+	});
+
+	it("defaults to 2 when unset", () => {
+		delete process.env.SAME_KEY_MAX_RETRIES;
+		expect(getSameKeyMaxRetries()).toBe(DEFAULT_SAME_KEY_MAX_RETRIES);
+		expect(DEFAULT_SAME_KEY_MAX_RETRIES).toBe(2);
+	});
+
+	it("honors a valid override", () => {
+		process.env.SAME_KEY_MAX_RETRIES = "5";
+		expect(getSameKeyMaxRetries()).toBe(5);
+	});
+
+	it("allows disabling retries with 0", () => {
+		process.env.SAME_KEY_MAX_RETRIES = "0";
+		expect(getSameKeyMaxRetries()).toBe(0);
+	});
+
+	it("falls back to the default for invalid values", () => {
+		process.env.SAME_KEY_MAX_RETRIES = "not-a-number";
+		expect(getSameKeyMaxRetries()).toBe(DEFAULT_SAME_KEY_MAX_RETRIES);
+		process.env.SAME_KEY_MAX_RETRIES = "-1";
+		expect(getSameKeyMaxRetries()).toBe(DEFAULT_SAME_KEY_MAX_RETRIES);
 	});
 });
 

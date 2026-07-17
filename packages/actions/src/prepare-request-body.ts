@@ -56,6 +56,20 @@ export function hashSessionCacheKey(sessionId: string): string {
 }
 
 /**
+ * Hash a caller-supplied `prompt_cache_key` before forwarding it upstream.
+ * OpenAI, Azure, and Meta cap the field at 64 characters and reject anything
+ * longer with a 400 (`string_above_max_length`). Rather than only clamping
+ * over-length keys, always hash to a stable 32-char digest: every upstream
+ * cache key the gateway sends (this, the session-id hash, the conversation
+ * prefix hash) is then a uniform 32-char value, and raw caller values are never
+ * exposed to providers. Keyed and domain-separated exactly like
+ * `hashSessionCacheKey`, so cache routing stays stable per key.
+ */
+export function hashPromptCacheKey(key: string): string {
+	return hashSessionCacheKey(key);
+}
+
+/**
  * Meta only routes prompt-cache lookups by `prompt_cache_key`: identical
  * prefixes sent without a key land on different backends and report
  * `cached_tokens: 0` every time (verified live), while the same requests with
@@ -740,6 +754,19 @@ function transformMessagesForNoSystemRole(messages: any[]): any[] {
 }
 
 /**
+ * Maps the OpenAI-only `developer` role to `system`. Applied only for mappings
+ * that declare `supportsDeveloperRole: false`, i.e. upstreams that reject
+ * `developer` with a 400 ("developer is not one of ['system', 'assistant',
+ * 'user', 'tool', 'function']"). `developer` is semantically a system
+ * instruction, so downgrading it to `system` is safe on those upstreams.
+ */
+function transformDeveloperRole(messages: any[]): any[] {
+	return messages.map((message) =>
+		message.role === "developer" ? { ...message, role: "system" } : message,
+	);
+}
+
+/**
  * Transforms message content types for OpenAI's Responses API.
  * The Responses API uses different content type identifiers:
  * - "text" -> "input_text" (for user/system/tool messages) or "output_text" (for assistant messages)
@@ -1362,10 +1389,26 @@ export async function prepareRequestBody(
 	const supportsSystemRole =
 		(modelDef as ModelDefinition)?.supportsSystemRole !== false;
 
-	// Transform messages if model doesn't support system role
 	let processedMessages = messages;
+
+	// Rewrite the OpenAI-only `developer` role to `system` for mappings that
+	// declare they don't accept it (`supportsDeveloperRole: false`). Some
+	// OpenAI-compatible upstreams reject `developer` with a 400 ("developer is
+	// not one of ['system', 'assistant', 'user', 'tool', 'function']"). Mappings
+	// default to accepting `developer`, so this only rewrites where explicitly
+	// opted out.
+	const developerRoleMapping = getProviderMapping(
+		modelDef,
+		usedProvider,
+		usedRegion,
+	);
+	if (developerRoleMapping?.supportsDeveloperRole === false) {
+		processedMessages = transformDeveloperRole(processedMessages);
+	}
+
+	// Transform messages if model doesn't support system role
 	if (!supportsSystemRole) {
-		processedMessages = transformMessagesForNoSystemRole(messages);
+		processedMessages = transformMessagesForNoSystemRole(processedMessages);
 	}
 
 	// Strip Anthropic-style cache_control markers from caller-supplied content
@@ -1710,7 +1753,9 @@ export async function prepareRequestBody(
 					usedProvider === "meta"
 				) {
 					const upstreamCacheKey =
-						prompt_cache_key ??
+						(prompt_cache_key !== undefined
+							? hashPromptCacheKey(prompt_cache_key)
+							: undefined) ??
 						(session_id !== undefined
 							? hashSessionCacheKey(session_id)
 							: undefined) ??
@@ -1808,7 +1853,9 @@ export async function prepareRequestBody(
 					// may hit a legacy deployment-based api-version that rejects
 					// unknown body fields, and the deployment type isn't known here.
 					const upstreamCacheKey =
-						prompt_cache_key ??
+						(prompt_cache_key !== undefined
+							? hashPromptCacheKey(prompt_cache_key)
+							: undefined) ??
 						(session_id !== undefined
 							? hashSessionCacheKey(session_id)
 							: undefined);
@@ -2507,8 +2554,28 @@ export async function prepareRequestBody(
 						budget_tokens: thinkingBudget,
 					};
 				}
-				// Anthropic requires temperature to be exactly 1 when thinking is enabled
-				temperature = 1;
+				// Anthropic requires temperature to be exactly 1 when thinking is
+				// enabled — but only for models that still accept temperature. The
+				// newest adaptive models (Opus 4.7/4.8, Sonnet 5, Fable 5) deprecated
+				// temperature and reject non-default values, so honor the mapping's
+				// supportedParameters and omit it there (the API defaults to 1).
+				const anthropicSupportedParams =
+					providerMappingForOptions?.supportedParameters;
+				if (
+					!anthropicSupportedParams ||
+					anthropicSupportedParams.includes("temperature")
+				) {
+					temperature = 1;
+				} else {
+					temperature = undefined;
+				}
+				// Anthropic also rejects `top_p` below 0.95 when thinking is enabled
+				// or in adaptive mode ("`top_p` must be greater than or equal to 0.95
+				// or unset"). Drop a caller-supplied top_p that would violate this
+				// rather than forwarding it and 400ing.
+				if (top_p !== undefined && top_p < 0.95) {
+					top_p = undefined;
+				}
 			}
 
 			// Add optional parameters if they are provided
@@ -3113,6 +3180,13 @@ export async function prepareRequestBody(
 					bedrockSupportedParams.includes("temperature")
 				) {
 					inferenceConfig.temperature = 1;
+				}
+				// Anthropic rejects `top_p` below 0.95 when thinking is enabled or in
+				// adaptive mode ("`top_p` must be greater than or equal to 0.95 or
+				// unset"). Drop a caller-supplied topP that would violate this rather
+				// than forwarding it and 400ing.
+				if (inferenceConfig.topP !== undefined && inferenceConfig.topP < 0.95) {
+					delete inferenceConfig.topP;
 				}
 				if (Object.keys(inferenceConfig).length > 0) {
 					requestBody.inferenceConfig = inferenceConfig;

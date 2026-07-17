@@ -4,6 +4,7 @@ import { streamSSE } from "hono/streaming";
 
 import { detectCodingAgentFromUserAgent } from "@/chat/tools/detect-coding-agent.js";
 import { extractFirstSseEventData } from "@/chat/tools/extract-first-sse-event-data.js";
+import { applyPinnedDefaultRegions } from "@/chat/tools/pin-default-regions.js";
 import { validateSource } from "@/chat/tools/validate-source.js";
 import { getApiKeyFingerprint } from "@/lib/api-key-fingerprint.js";
 import {
@@ -251,6 +252,7 @@ import { resolveReasoningTokens } from "./tools/resolve-reasoning-tokens.js";
 import {
 	type RoutingAttempt,
 	getErrorType,
+	getSameKeyMaxRetries,
 	isRetryableErrorType,
 	providerRetryKey,
 	sameKeyRetryDelay,
@@ -386,39 +388,6 @@ function filterRegionsByAvailableKeys(
 			mapping.providerId as Provider,
 			mapping.region,
 		);
-	});
-}
-
-/**
- * For providers with `regionConfig.pinDefaultRegion: true`, drop all regional
- * candidates except the defaultRegion (and the synthetic root) when no
- * explicit choice was made. This makes AWS Bedrock default to `:global`
- * unless the caller opts in via the `:region` URL suffix or via the
- * provider-key region option. Providers without `pinDefaultRegion`
- * (e.g. Alibaba) pass through unchanged so the gateway can route to the
- * cheapest region.
- */
-function applyPinnedDefaultRegions(
-	mappings: ProviderModelMapping[],
-	options: {
-		explicitLocks?: Map<string, string>;
-		requestedRegion?: string;
-	} = {},
-): ProviderModelMapping[] {
-	if (options.requestedRegion) {
-		return mappings;
-	}
-	return mappings.filter((m) => {
-		const def = providers.find((p) => p.id === m.providerId) as
-			| ProviderDefinition
-			| undefined;
-		if (!def?.regionConfig?.pinDefaultRegion) {
-			return true;
-		}
-		if (options.explicitLocks?.has(m.providerId)) {
-			return true;
-		}
-		return !m.region || m.region === def.regionConfig.defaultRegion;
 	});
 }
 
@@ -6865,6 +6834,7 @@ chat.openapi(completions, async (c) => {
 							const willRetryTimeout = shouldRetryRequest({
 								requestedProvider,
 								noFallback,
+								sessionSticky: sessionStickyEnabled,
 								errorType: "upstream_timeout",
 								retryCount: retryAttempt,
 								remainingProviders:
@@ -6880,6 +6850,7 @@ chat.openapi(completions, async (c) => {
 								!willRetryTimeout &&
 								shouldRetrySameKey({
 									usedProvider,
+									sessionSticky: sessionStickyEnabled,
 									errorType: "upstream_timeout",
 									statusCode: 0,
 									envVarName,
@@ -6888,7 +6859,7 @@ chat.openapi(completions, async (c) => {
 										routingMetadata?.providerScores ?? []
 									).some((s) => s.providerId !== usedProvider),
 									retryCount: sameKeyRetryCount,
-									maxRetries: routingCfg.retry.maxRetries,
+									maxRetries: getSameKeyMaxRetries(),
 								}) &&
 								// Same-key retries re-hit the provider, so consume a rate-limit
 								// slot like fallback retries do and skip the retry when limited.
@@ -7004,7 +6975,7 @@ chat.openapi(completions, async (c) => {
 								// failed attempt) so a client disconnect during the
 								// retried upstream call still cancels.
 								c.req.raw.signal.addEventListener("abort", onAbort);
-								await sameKeyRetryDelay();
+								await sameKeyRetryDelay(sameKeyRetryCount);
 								routingAttempts.push(
 									buildRoutingAttempt(
 										usedProvider,
@@ -7256,6 +7227,7 @@ chat.openapi(completions, async (c) => {
 							const willRetryFetch = shouldRetryRequest({
 								requestedProvider,
 								noFallback,
+								sessionSticky: sessionStickyEnabled,
 								errorType: "network_error",
 								retryCount: retryAttempt,
 								remainingProviders:
@@ -7271,6 +7243,7 @@ chat.openapi(completions, async (c) => {
 								!willRetryFetch &&
 								shouldRetrySameKey({
 									usedProvider,
+									sessionSticky: sessionStickyEnabled,
 									errorType: "network_error",
 									statusCode: 0,
 									envVarName,
@@ -7279,7 +7252,7 @@ chat.openapi(completions, async (c) => {
 										routingMetadata?.providerScores ?? []
 									).some((s) => s.providerId !== usedProvider),
 									retryCount: sameKeyRetryCount,
-									maxRetries: routingCfg.retry.maxRetries,
+									maxRetries: getSameKeyMaxRetries(),
 								}) &&
 								// Same-key retries re-hit the provider, so consume a rate-limit
 								// slot like fallback retries do and skip the retry when limited.
@@ -7414,7 +7387,7 @@ chat.openapi(completions, async (c) => {
 								// failed attempt) so a client disconnect during the
 								// retried upstream call still cancels.
 								c.req.raw.signal.addEventListener("abort", onAbort);
-								await sameKeyRetryDelay();
+								await sameKeyRetryDelay(sameKeyRetryCount);
 								routingAttempts.push(
 									buildRoutingAttempt(
 										usedProvider,
@@ -7552,6 +7525,7 @@ chat.openapi(completions, async (c) => {
 						const willRetryHttpError = shouldRetryRequest({
 							requestedProvider,
 							noFallback,
+							sessionSticky: sessionStickyEnabled,
 							errorType: finishReason,
 							retryCount: retryAttempt,
 							remainingProviders:
@@ -7567,6 +7541,7 @@ chat.openapi(completions, async (c) => {
 							!willRetryHttpError &&
 							shouldRetrySameKey({
 								usedProvider,
+								sessionSticky: sessionStickyEnabled,
 								errorType: finishReason,
 								statusCode: res.status,
 								envVarName,
@@ -7575,7 +7550,7 @@ chat.openapi(completions, async (c) => {
 									(s) => s.providerId !== usedProvider,
 								),
 								retryCount: sameKeyRetryCount,
-								maxRetries: routingCfg.retry.maxRetries,
+								maxRetries: getSameKeyMaxRetries(),
 							}) &&
 							// Same-key retries re-hit the provider, so consume a rate-limit
 							// slot like fallback retries do and skip the retry when limited.
@@ -7751,7 +7726,7 @@ chat.openapi(completions, async (c) => {
 							// failed attempt) so a client disconnect during the
 							// retried upstream call still cancels.
 							c.req.raw.signal.addEventListener("abort", onAbort);
-							await sameKeyRetryDelay();
+							await sameKeyRetryDelay(sameKeyRetryCount);
 							routingAttempts.push(
 								buildRoutingAttempt(
 									usedProvider,
@@ -7922,6 +7897,7 @@ chat.openapi(completions, async (c) => {
 						const willRetryStreamingError = shouldRetryRequest({
 							requestedProvider,
 							noFallback,
+							sessionSticky: sessionStickyEnabled,
 							errorType,
 							retryCount: retryAttempt,
 							remainingProviders:
@@ -7937,6 +7913,7 @@ chat.openapi(completions, async (c) => {
 							!willRetryStreamingError &&
 							shouldRetrySameKey({
 								usedProvider,
+								sessionSticky: sessionStickyEnabled,
 								errorType,
 								statusCode: inferredStatusCode,
 								envVarName,
@@ -7945,7 +7922,7 @@ chat.openapi(completions, async (c) => {
 									(s) => s.providerId !== usedProvider,
 								),
 								retryCount: sameKeyRetryCount,
-								maxRetries: routingCfg.retry.maxRetries,
+								maxRetries: getSameKeyMaxRetries(),
 							}) &&
 							// Same-key retries re-hit the provider, so consume a rate-limit
 							// slot like fallback retries do and skip the retry when limited.
@@ -8083,7 +8060,7 @@ chat.openapi(completions, async (c) => {
 							// failed attempt) so a client disconnect during the
 							// retried upstream call still cancels.
 							c.req.raw.signal.addEventListener("abort", onAbort);
-							await sameKeyRetryDelay();
+							await sameKeyRetryDelay(sameKeyRetryCount);
 							routingAttempts.push(
 								buildRoutingAttempt(
 									usedProvider,
@@ -11249,6 +11226,7 @@ chat.openapi(completions, async (c) => {
 			const willRetryFetchNonStreaming = shouldRetryRequest({
 				requestedProvider,
 				noFallback,
+				sessionSticky: sessionStickyEnabled,
 				errorType: "network_error",
 				retryCount: retryAttempt,
 				remainingProviders:
@@ -11264,6 +11242,7 @@ chat.openapi(completions, async (c) => {
 				!willRetryFetchNonStreaming &&
 				shouldRetrySameKey({
 					usedProvider,
+					sessionSticky: sessionStickyEnabled,
 					errorType: "network_error",
 					statusCode: 0,
 					envVarName,
@@ -11272,7 +11251,7 @@ chat.openapi(completions, async (c) => {
 						(s) => s.providerId !== usedProvider,
 					),
 					retryCount: sameKeyRetryCount,
-					maxRetries: routingCfg.retry.maxRetries,
+					maxRetries: getSameKeyMaxRetries(),
 				}) &&
 				// Same-key retries re-hit the provider, so consume a rate-limit
 				// slot like fallback retries do and skip the retry when limited.
@@ -11408,7 +11387,7 @@ chat.openapi(completions, async (c) => {
 				// a client disconnect during the retried upstream call still
 				// cancels.
 				c.req.raw.signal.addEventListener("abort", onAbort);
-				await sameKeyRetryDelay();
+				await sameKeyRetryDelay(sameKeyRetryCount);
 				routingAttempts.push(
 					buildRoutingAttempt(
 						usedProvider,
@@ -11688,6 +11667,7 @@ chat.openapi(completions, async (c) => {
 			const willRetryHttpNonStreaming = shouldRetryRequest({
 				requestedProvider,
 				noFallback,
+				sessionSticky: sessionStickyEnabled,
 				errorType: finishReason,
 				retryCount: retryAttempt,
 				remainingProviders:
@@ -11703,6 +11683,7 @@ chat.openapi(completions, async (c) => {
 				!willRetryHttpNonStreaming &&
 				shouldRetrySameKey({
 					usedProvider,
+					sessionSticky: sessionStickyEnabled,
 					errorType: finishReason,
 					statusCode: res.status,
 					envVarName,
@@ -11711,7 +11692,7 @@ chat.openapi(completions, async (c) => {
 						(s) => s.providerId !== usedProvider,
 					),
 					retryCount: sameKeyRetryCount,
-					maxRetries: routingCfg.retry.maxRetries,
+					maxRetries: getSameKeyMaxRetries(),
 				}) &&
 				// Same-key retries re-hit the provider, so consume a rate-limit
 				// slot like fallback retries do and skip the retry when limited.
@@ -11906,7 +11887,7 @@ chat.openapi(completions, async (c) => {
 				// a client disconnect during the retried upstream call still
 				// cancels.
 				c.req.raw.signal.addEventListener("abort", onAbort);
-				await sameKeyRetryDelay();
+				await sameKeyRetryDelay(sameKeyRetryCount);
 				routingAttempts.push(
 					buildRoutingAttempt(
 						usedProvider,
