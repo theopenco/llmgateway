@@ -85,6 +85,12 @@ import { getResponsesContext } from "@/lib/responses-context.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
 import {
+	buildUpstreamErrorClientPayload,
+	clientFacingUpstreamFailureMessage,
+	redactedProviderErrorText,
+	shouldRedactProviderError,
+} from "@/lib/stealth-provider-errors.js";
+import {
 	createCombinedSignal,
 	createStreamingCombinedSignal,
 	isTimeoutError,
@@ -2527,7 +2533,21 @@ chat.openapi(completions, async (c) => {
 			capabilityError instanceof HTTPException &&
 			capabilityError.message.includes("reasoning.max_tokens")
 		) {
-			const message = `"thinking.type.enabled" is not supported for this model. Use "thinking.type.adaptive" and "output_config.effort" to control thinking behavior.`;
+			// Only point the caller at adaptive thinking when the model actually
+			// supports it; on models with no reasoning support at all, telling them
+			// to switch to "thinking.type.adaptive" would just trade one 400 for
+			// another.
+			const providersForAdaptiveCheck = requestedProvider
+				? modelInfo.providers.filter(
+						(p) => (p as ProviderModelMapping).providerId === requestedProvider,
+					)
+				: modelInfo.providers;
+			const supportsAdaptiveThinking = providersForAdaptiveCheck.some(
+				(p) => (p as ProviderModelMapping).reasoningMode === "adaptive",
+			);
+			const message = supportsAdaptiveThinking
+				? `"thinking.type.enabled" is not supported for this model. Use "thinking.type.adaptive" and "output_config.effort" to control thinking behavior.`
+				: `"thinking" is not supported for this model. Remove the "thinking" parameter or use a model that supports extended thinking.`;
 			try {
 				// Use _insertLog directly (not insertLogEntry): the local insertLog
 				// wrapper is declared further down and would be in its temporal dead
@@ -7028,7 +7048,11 @@ chat.openapi(completions, async (c) => {
 								event: "error",
 								data: JSON.stringify({
 									error: {
-										message: `Upstream provider timeout: ${errorMessage}`,
+										message: clientFacingUpstreamFailureMessage(
+											usedProvider,
+											"Upstream provider timeout",
+											errorMessage,
+										),
 										type: "upstream_timeout",
 										code: "timeout",
 									},
@@ -7435,7 +7459,11 @@ chat.openapi(completions, async (c) => {
 								event: "error",
 								data: JSON.stringify({
 									error: {
-										message: `Failed to connect to provider: ${errorMessage}`,
+										message: clientFacingUpstreamFailureMessage(
+											usedProvider,
+											"Failed to connect to provider",
+											errorMessage,
+										),
 										type: "upstream_error",
 										code: "fetch_failed",
 									},
@@ -7808,13 +7836,19 @@ chat.openapi(completions, async (c) => {
 									usedInternalModel,
 								});
 							} else {
+								const clientPayload = buildUpstreamErrorClientPayload(
+									usedProvider,
+									res.status,
+									res.statusText,
+									errorResponseText,
+								);
 								errorData = {
 									error: {
-										message: `Error from provider ${usedProvider}: ${res.status} ${res.statusText} ${errorResponseText}`,
+										message: clientPayload.message,
 										type: finishReason,
 										param: null,
 										code: finishReason,
-										responseText: errorResponseText,
+										responseText: clientPayload.responseText,
 									},
 								};
 							}
@@ -8087,19 +8121,29 @@ chat.openapi(completions, async (c) => {
 							continue;
 						}
 
-						await writeSSEAndCache({
-							event: "error",
-							data: JSON.stringify({
-								error: {
-									message: errorMessage,
-									type: errorType,
-									code: errorCode,
-									param: null,
-									responseText: errorResponseText,
-								},
-							}),
-							id: String(eventId++),
-						});
+						{
+							const redactStreamError = shouldRedactProviderError(usedProvider);
+							await writeSSEAndCache({
+								event: "error",
+								data: JSON.stringify({
+									error: {
+										message: redactStreamError
+											? redactedProviderErrorText(inferredStatusCode)
+											: errorMessage,
+										type: errorType,
+										// The provider-supplied error code can carry arbitrary
+										// vendor strings, so replace it with the gateway-derived
+										// error type for stealth providers.
+										code: redactStreamError ? errorType : errorCode,
+										param: null,
+										responseText: redactStreamError
+											? redactedProviderErrorText(inferredStatusCode)
+											: errorResponseText,
+									},
+								}),
+								id: String(eventId++),
+							});
+						}
 						await writeSSEAndCache({
 							event: "done",
 							data: "[DONE]",
@@ -8993,18 +9037,28 @@ chat.openapi(completions, async (c) => {
 											},
 										};
 
+										const redactStreamError =
+											shouldRedactProviderError(usedProvider);
 										await writeSSEAndCache({
 											event: "error",
 											data: JSON.stringify({
 												error: {
-													message: errorMessage,
+													message: redactStreamError
+														? redactedProviderErrorText(inferredStatusCode)
+														: errorMessage,
 													type: errorType,
-													code: errorCode,
+													// The provider-supplied error code can carry arbitrary
+													// vendor strings, so replace it with the gateway-derived
+													// error type for stealth providers.
+													code: redactStreamError ? errorType : errorCode,
 													param:
+														!redactStreamError &&
 														"param" in openAiCompatibleStreamError
 															? (openAiCompatibleStreamError.param ?? null)
 															: null,
-													responseText: errorResponseText,
+													responseText: redactStreamError
+														? redactedProviderErrorText(inferredStatusCode)
+														: errorResponseText,
 												},
 											}),
 											id: String(eventId++),
@@ -9696,7 +9750,11 @@ chat.openapi(completions, async (c) => {
 								event: "error",
 								data: JSON.stringify({
 									error: {
-										message: `Upstream provider timeout: ${errorMessage}`,
+										message: clientFacingUpstreamFailureMessage(
+											usedProvider,
+											"Upstream provider timeout",
+											errorMessage,
+										),
 										type: "upstream_timeout",
 										param: null,
 										code: "timeout",
@@ -11392,9 +11450,13 @@ chat.openapi(completions, async (c) => {
 			return c.json(
 				{
 					error: {
-						message: isTimeoutFetchError
-							? `Upstream provider timeout: ${errorMessage}`
-							: `Failed to connect to provider: ${errorMessage}`,
+						message: clientFacingUpstreamFailureMessage(
+							usedProvider,
+							isTimeoutFetchError
+								? "Upstream provider timeout"
+								: "Failed to connect to provider",
+							errorMessage,
+						),
 						type: isTimeoutFetchError ? "upstream_timeout" : "upstream_error",
 						param: null,
 						code: isTimeoutFetchError ? "timeout" : "fetch_failed",
@@ -11544,9 +11606,13 @@ chat.openapi(completions, async (c) => {
 					return c.json(
 						{
 							error: {
-								message: isTimeoutBody
-									? `Upstream provider timeout: ${errorMessage}`
-									: `Failed to read response from provider: ${errorMessage}`,
+								message: clientFacingUpstreamFailureMessage(
+									usedProvider,
+									isTimeoutBody
+										? "Upstream provider timeout"
+										: "Failed to read response from provider",
+									errorMessage,
+								),
 								type: isTimeoutBody ? "upstream_timeout" : "upstream_error",
 								param: null,
 								code: isTimeoutBody ? "timeout" : "fetch_failed",
@@ -11960,22 +12026,30 @@ chat.openapi(completions, async (c) => {
 			}
 
 			// Return our wrapped error response for non-client errors
-			return c.json(
-				{
-					error: {
-						message: `Error from provider ${usedProvider}: ${res.status} ${res.statusText} ${errorResponseText}`,
-						type: finishReason,
-						param: null,
-						code: finishReason,
-						requestedProvider,
-						usedProvider,
-						requestedModel: initialRequestedModel,
-						usedInternalModel,
-						responseText: errorResponseText,
+			{
+				const clientPayload = buildUpstreamErrorClientPayload(
+					usedProvider,
+					res.status,
+					res.statusText,
+					errorResponseText,
+				);
+				return c.json(
+					{
+						error: {
+							message: clientPayload.message,
+							type: finishReason,
+							param: null,
+							code: finishReason,
+							requestedProvider,
+							usedProvider,
+							requestedModel: initialRequestedModel,
+							usedInternalModel,
+							responseText: clientPayload.responseText,
+						},
 					},
-				},
-				500,
-			);
+					500,
+				);
+			}
 		}
 
 		break; // Fetch succeeded, exit retry loop
@@ -12478,9 +12552,13 @@ chat.openapi(completions, async (c) => {
 			return c.json(
 				{
 					error: {
-						message: isTimeoutBody
-							? `Upstream provider timeout: ${errorMessage}`
-							: `Failed to read response from provider: ${errorMessage}`,
+						message: clientFacingUpstreamFailureMessage(
+							usedProvider,
+							isTimeoutBody
+								? "Upstream provider timeout"
+								: "Failed to read response from provider",
+							errorMessage,
+						),
 						type: isTimeoutBody ? "upstream_timeout" : "upstream_error",
 						param: null,
 						code: isTimeoutBody ? "timeout" : "fetch_failed",

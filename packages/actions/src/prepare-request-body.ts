@@ -2006,6 +2006,11 @@ export async function prepareRequestBody(
 			break;
 		}
 		case "moonshot": {
+			// Kimi K3 has its own parameter surface: output length is capped via
+			// `max_completion_tokens` (the K2-era `max_tokens` is not documented
+			// for it), and thinking is configured through the native top-level
+			// `reasoning_effort` field instead of the binary `thinking` toggle.
+			const isKimiK3 = usedInternalModel === "kimi-k3";
 			if (stream) {
 				requestBody.stream_options = {
 					include_usage: true,
@@ -2020,7 +2025,11 @@ export async function prepareRequestBody(
 				requestBody.temperature = temperature;
 			}
 			if (max_tokens !== undefined) {
-				requestBody.max_tokens = max_tokens;
+				if (isKimiK3) {
+					requestBody.max_completion_tokens = max_tokens;
+				} else {
+					requestBody.max_tokens = max_tokens;
+				}
 			}
 			if (top_p !== undefined) {
 				requestBody.top_p = top_p;
@@ -2031,24 +2040,34 @@ export async function prepareRequestBody(
 			if (presence_penalty !== undefined) {
 				requestBody.presence_penalty = presence_penalty;
 			}
-			// Moonshot's thinking models don't recognize `reasoning_effort`; they
-			// take a binary `thinking` parameter (`{ type: "enabled" | "disabled" }`)
-			// and think by default. Map `none`/`minimal` to an explicit disable and
-			// every other tier to an explicit enable; when no effort is requested,
-			// send nothing and keep the provider default (thinking on). Mappings
-			// that can turn thinking off declare `none` in `reasoningEfforts`;
-			// always-on models (kimi-k2.7-code*) reject `"disabled"` with a 400, so
-			// collapse disable requests onto their minimum (thinking stays on).
+			// Moonshot's K2-era thinking models don't recognize `reasoning_effort`;
+			// they take a binary `thinking` parameter (`{ type: "enabled" |
+			// "disabled" }`) and think by default. Map `none`/`minimal` to an
+			// explicit disable and every other tier to an explicit enable; when no
+			// effort is requested, send nothing and keep the provider default
+			// (thinking on). Mappings that can turn thinking off declare `none` in
+			// `reasoningEfforts`; always-on models (kimi-k2.7-code*) reject
+			// `"disabled"` with a 400, so collapse disable requests onto their
+			// minimum (thinking stays on). Kimi K3 instead takes the top-level
+			// `reasoning_effort` field natively (currently only "max") and always
+			// thinks, so forward the effort as-is and collapse disable requests
+			// onto the provider default.
 			if (supportsReasoning && reasoning_effort !== undefined) {
 				const wantsThinking =
 					reasoning_effort !== "none" && reasoning_effort !== "minimal";
-				const canDisableThinking =
-					providerMappingForOptions?.reasoningEfforts?.includes("none") ??
-					false;
-				if (wantsThinking) {
-					requestBody.thinking = { type: "enabled" };
-				} else if (canDisableThinking) {
-					requestBody.thinking = { type: "disabled" };
+				if (isKimiK3) {
+					if (wantsThinking) {
+						requestBody.reasoning_effort = reasoning_effort;
+					}
+				} else {
+					const canDisableThinking =
+						providerMappingForOptions?.reasoningEfforts?.includes("none") ??
+						false;
+					if (wantsThinking) {
+						requestBody.thinking = { type: "enabled" };
+					} else if (canDisableThinking) {
+						requestBody.thinking = { type: "disabled" };
+					}
 				}
 			}
 			break;
@@ -3288,17 +3307,19 @@ export async function prepareRequestBody(
 				}
 			}
 
-			// Set all safety settings to BLOCK_NONE to disable content filtering
+			// OFF fully disables the safety filters (unlike BLOCK_NONE, which
+			// still runs the classifiers); requires Gemini 2.0+, which all
+			// active mappings on these providers are.
 			requestBody.safetySettings = [
-				{ category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-				{ category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+				{ category: "HARM_CATEGORY_HARASSMENT", threshold: "OFF" },
+				{ category: "HARM_CATEGORY_HATE_SPEECH", threshold: "OFF" },
 				{
 					category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-					threshold: "BLOCK_NONE",
+					threshold: "OFF",
 				},
 				{
 					category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-					threshold: "BLOCK_NONE",
+					threshold: "OFF",
 				},
 			];
 

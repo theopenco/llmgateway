@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "a4878d73-8a13-499d-8b75-668027ac1385",
-  "prevId": "88672968-ad7e-4efa-aaab-1bb3e419c212",
+  "id": "59233e4c-b0ff-4413-aeb5-43cd1c541bd4",
+  "prevId": "57ec792c-ee1b-41ae-823f-9ce33fd103c4",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -7722,6 +7722,19 @@
       "generated": null,
       "identity": null,
       "name": "error_details",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "type": "json",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "internal_error_details",
       "entityType": "columns",
       "schema": "public",
       "table": "log"

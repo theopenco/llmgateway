@@ -70,6 +70,7 @@ export const curatedCategoryModelIds: Record<
 		"gemini-3.5-flash",
 		"grok-build-0-1",
 		"grok-4-3",
+		"kimi-k3",
 		"kimi-k2.7-code",
 		"kimi-k2.7-code-highspeed",
 		"kimi-k2.6",
@@ -195,6 +196,8 @@ export const OPEN_SOURCE_MODEL_IDS: ReadonlySet<string> = new Set([
 // API-only Muse Spark models alongside the open Llama family)
 export const CLOSED_SOURCE_MODEL_IDS: ReadonlySet<string> = new Set([
 	"muse-spark-1.1",
+	// API-only at launch; no open weights published (unlike the K2 family)
+	"kimi-k3",
 ]);
 
 export function isTextOutput(output: string[] | null | undefined): boolean {

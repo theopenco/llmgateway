@@ -472,7 +472,10 @@ export default async function Page({
 						<div className="reveal" style={revealAt(9)}>
 							<RevenueChart
 								data={timeseries.data}
-								totalNet={timeseries.totals.net}
+								totals={{
+									credits: timeseries.totals.net,
+									devpass: timeseries.totals.devpassNet,
+								}}
 							/>
 						</div>
 					</div>
