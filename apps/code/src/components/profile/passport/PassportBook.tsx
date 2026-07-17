@@ -3,7 +3,12 @@
 /* eslint-disable no-mixed-operators -- spring/tilt math mixes arithmetic
  * operators, and prettier strips the clarifying parentheses the rule would
  * otherwise require (same trade-off as packages/db/src/logs.ts). */
-import { Canvas, useFrame, type ThreeEvent } from "@react-three/fiber";
+import {
+	Canvas,
+	useFrame,
+	useThree,
+	type ThreeEvent,
+} from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 
@@ -26,7 +31,11 @@ const PASSPORT_W = 0.88;
 const PASSPORT_H = 1.25;
 const LEAF_GAP = 0.012;
 
-/** Under-damped spring (see threejs-animation skill) for lively page flips. */
+/**
+ * Slightly under-damped spring for lively page flips. Flip rotation runs
+ * near-critical damping: larger overshoot rotates a landing page past flat
+ * and clips it through the stack beneath.
+ */
 class Spring {
 	public position: number;
 	public velocity = 0;
@@ -49,10 +58,20 @@ class Spring {
 	}
 }
 
-function canvasTexture(canvas: HTMLCanvasElement): THREE.CanvasTexture {
+function canvasTexture(
+	canvas: HTMLCanvasElement,
+	gl: THREE.WebGLRenderer,
+): THREE.CanvasTexture {
 	const texture = new THREE.CanvasTexture(canvas);
 	texture.colorSpace = THREE.SRGBColorSpace;
-	texture.anisotropy = 8;
+	texture.anisotropy = gl.capabilities.getMaxAnisotropy();
+	// On dense displays the pages render near 1:1, where mipmapped trilinear
+	// sampling only softens the print — plain linear sampling keeps the ink
+	// crisp. Low-DPI screens minify ~3x, where mipmaps still prevent shimmer.
+	if (gl.getPixelRatio() >= 1.5) {
+		texture.generateMipmaps = false;
+		texture.minFilter = THREE.LinearFilter;
+	}
 	return texture;
 }
 
@@ -74,7 +93,7 @@ function Leaf({
 	reducedMotion: boolean;
 }) {
 	const group = useRef<THREE.Group>(null);
-	const rotSpring = useRef(new Spring(0, 80, 11));
+	const rotSpring = useRef(new Spring(0, 80, 16));
 	const zSpring = useRef(new Spring(-index * LEAF_GAP, 120, 16));
 
 	useFrame((_, dt) => {
@@ -97,8 +116,14 @@ function Leaf({
 			zSpring.current.velocity = 0;
 		}
 		if (group.current) {
-			group.current.rotation.y = rotSpring.current.update(dt);
-			group.current.position.z = zSpring.current.update(dt);
+			const rot = rotSpring.current.update(dt);
+			const z = zSpring.current.update(dt);
+			// Lift the leaf along its flight arc so a turning page clears the
+			// settling stacks instead of clipping through neighbouring pages.
+			const progress = THREE.MathUtils.clamp(-rot / Math.PI, 0, 1);
+			const lift = Math.sin(progress * Math.PI) * 0.035;
+			group.current.rotation.y = rot;
+			group.current.position.z = z + lift;
 		}
 	});
 
@@ -142,37 +167,38 @@ function Book({
 	const group = useRef<THREE.Group>(null);
 	const xSpring = useRef(new Spring(PASSPORT_W / -2, 60, 11));
 	const pointer = useRef({ x: 0, y: 0 });
+	const gl = useThree((state) => state.gl);
 
 	const leaves = useMemo<LeafSpec[]>(() => {
 		const data = buildPassportModel(profile);
 		return [
 			{
-				front: canvasTexture(drawCoverOuter()),
-				back: canvasTexture(drawCoverInner()),
+				front: canvasTexture(drawCoverOuter(), gl),
+				back: canvasTexture(drawCoverInner(), gl),
 				isCover: true,
 			},
 			{
-				front: canvasTexture(drawVisaPage(data)),
-				back: canvasTexture(drawAirportsPage(data.airports)),
+				front: canvasTexture(drawVisaPage(data), gl),
+				back: canvasTexture(drawAirportsPage(data.airports), gl),
 				isCover: false,
 			},
 			{
-				front: canvasTexture(drawAirlinesPage(data.airlines)),
-				back: canvasTexture(drawStampsPage(data.stamps.slice(0, 3), 0)),
+				front: canvasTexture(drawAirlinesPage(data.airlines), gl),
+				back: canvasTexture(drawStampsPage(data.stamps.slice(0, 3), 0), gl),
 				isCover: false,
 			},
 			{
-				front: canvasTexture(drawStampsPage(data.stamps.slice(3, 6), 1)),
-				back: canvasTexture(drawEndorsementsPage(data)),
+				front: canvasTexture(drawStampsPage(data.stamps.slice(3, 6), 1), gl),
+				back: canvasTexture(drawEndorsementsPage(data), gl),
 				isCover: false,
 			},
 			{
-				front: canvasTexture(drawBackCoverInner()),
-				back: canvasTexture(drawBackCoverOuter()),
+				front: canvasTexture(drawBackCoverInner(), gl),
+				back: canvasTexture(drawBackCoverOuter(), gl),
 				isCover: true,
 			},
 		];
-	}, [profile]);
+	}, [profile, gl]);
 
 	useEffect(() => {
 		const specs = leaves;
@@ -272,7 +298,7 @@ export default function PassportCanvas({
 	return (
 		<Canvas
 			camera={{ fov: 38, position: [0, 0.1, 2.75] }}
-			dpr={[1, 2]}
+			dpr={[1, 3]}
 			gl={{ antialias: true, alpha: true }}
 			style={{ touchAction: "pan-y" }}
 		>
