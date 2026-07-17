@@ -5,7 +5,11 @@ import { models } from "@llmgateway/models";
 
 import { validateModelCapabilities } from "./validate-model-capabilities.js";
 
-import type { ModelDefinition } from "@llmgateway/models";
+import type {
+	ModelDefinition,
+	ProviderModelMapping,
+	ReasoningEffort,
+} from "@llmgateway/models";
 
 function getModel(id: string): ModelDefinition {
 	const m = models.find((model) => model.id === id);
@@ -239,6 +243,139 @@ describe("validateModelCapabilities - embeddings", () => {
 		).not.toThrow();
 		expect(() =>
 			validateModelCapabilities(embeddingModel, "custom", undefined, {}),
+		).not.toThrow();
+	});
+});
+
+describe("validateModelCapabilities - reasoning effort allowlist", () => {
+	const ALL_EFFORTS: ReasoningEffort[] = [
+		"none",
+		"minimal",
+		"low",
+		"medium",
+		"high",
+		"xhigh",
+		"max",
+	];
+
+	const reasoningProviders = (m: ModelDefinition) =>
+		(m.providers as ProviderModelMapping[]).filter((p) => p.reasoning === true);
+
+	// A model where every reasoning-capable provider declares a non-empty
+	// reasoningEfforts list AND at least one global tier is left out — lets us
+	// pick both a supported and an unsupported effort deterministically.
+	const declaredModel = (() => {
+		for (const m of models as readonly ModelDefinition[]) {
+			const rp = reasoningProviders(m);
+			if (!rp.length) {
+				continue;
+			}
+			if (!rp.every((p) => p.reasoningEfforts && p.reasoningEfforts.length)) {
+				continue;
+			}
+			const union = new Set(rp.flatMap((p) => p.reasoningEfforts ?? []));
+			if (ALL_EFFORTS.some((e) => !union.has(e))) {
+				return m;
+			}
+		}
+		throw new Error(
+			"Test fixture missing: no reasoning model declares reasoningEfforts on all providers with a missing tier",
+		);
+	})();
+
+	const declaredUnion = new Set(
+		reasoningProviders(declaredModel).flatMap((p) => p.reasoningEfforts ?? []),
+	);
+	const supportedEffort = [...declaredUnion][0];
+	const unsupportedEffort = ALL_EFFORTS.find((e) => !declaredUnion.has(e))!;
+	const pinnedProvider = reasoningProviders(declaredModel)[0].providerId;
+
+	// A reasoning model where at least one reasoning-capable provider declares no
+	// list at all, so every effort must pass through untouched (never a gateway
+	// 400 for a request that could have worked upstream).
+	const undeclaredModel = (() => {
+		for (const m of models as readonly ModelDefinition[]) {
+			const rp = reasoningProviders(m);
+			if (
+				rp.length &&
+				rp.some((p) => !p.reasoningEfforts || !p.reasoningEfforts.length)
+			) {
+				return m;
+			}
+		}
+		throw new Error(
+			"Test fixture missing: no reasoning model with an undeclared reasoningEfforts provider",
+		);
+	})();
+
+	it("allows a declared effort value", () => {
+		expect(() =>
+			validateModelCapabilities(declaredModel, declaredModel.id, undefined, {
+				reasoning_effort: supportedEffort,
+			}),
+		).not.toThrow();
+	});
+
+	it("rejects an effort value outside the declared list", () => {
+		expect(() =>
+			validateModelCapabilities(declaredModel, declaredModel.id, undefined, {
+				reasoning_effort: unsupportedEffort,
+			}),
+		).toThrow(HTTPException);
+	});
+
+	it("tags the rejection with the unsupported_reasoning_effort cause", () => {
+		try {
+			validateModelCapabilities(declaredModel, declaredModel.id, undefined, {
+				reasoning_effort: unsupportedEffort,
+			});
+			throw new Error("expected a rejection");
+		} catch (error) {
+			expect(error).toBeInstanceOf(HTTPException);
+			expect((error as HTTPException).cause).toBe(
+				"unsupported_reasoning_effort",
+			);
+		}
+	});
+
+	it("rejects when the pinned provider excludes the effort", () => {
+		expect(() =>
+			validateModelCapabilities(
+				declaredModel,
+				declaredModel.id,
+				pinnedProvider,
+				{
+					reasoning_effort: unsupportedEffort,
+				},
+			),
+		).toThrow(HTTPException);
+	});
+
+	it("passes through any effort when no list is declared", () => {
+		for (const effort of ALL_EFFORTS) {
+			expect(() =>
+				validateModelCapabilities(
+					undeclaredModel,
+					undeclaredModel.id,
+					undefined,
+					{
+						reasoning_effort: effort,
+					},
+				),
+			).not.toThrow();
+		}
+	});
+
+	it("skips the effort allowlist for auto and custom models", () => {
+		expect(() =>
+			validateModelCapabilities(declaredModel, "auto", undefined, {
+				reasoning_effort: unsupportedEffort,
+			}),
+		).not.toThrow();
+		expect(() =>
+			validateModelCapabilities(declaredModel, "custom", undefined, {
+				reasoning_effort: unsupportedEffort,
+			}),
 		).not.toThrow();
 	});
 });

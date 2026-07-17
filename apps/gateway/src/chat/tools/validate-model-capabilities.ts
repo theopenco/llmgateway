@@ -189,6 +189,53 @@ export function validateModelCapabilities(
 				message: `Model ${requestedModel} does not support reasoning. Remove the reasoning_effort parameter or use a reasoning-capable model.`,
 			});
 		}
+
+		// Enforce the declared reasoning-effort allowlist. A reasoning-capable
+		// provider mapping MAY declare `reasoningEfforts` (the tiers it accepts).
+		// A mapping that declares no list (or an empty list) allows all efforts —
+		// the value is forwarded upstream as-is and we must not risk a gateway 400
+		// on a request that could have succeeded. Only reject when EVERY
+		// reasoning-capable candidate declares a non-empty list and none include
+		// the requested effort.
+		const reasoningProviders = providersToCheck.filter(
+			(provider) => (provider as ProviderModelMapping).reasoning === true,
+		);
+
+		const anyProviderAllowsEffort = reasoningProviders.some((provider) => {
+			const efforts = (provider as ProviderModelMapping).reasoningEfforts;
+			return (
+				!efforts ||
+				efforts.length === 0 ||
+				(efforts as string[]).includes(reasoning_effort)
+			);
+		});
+
+		if (!anyProviderAllowsEffort) {
+			const declaredEfforts = Array.from(
+				new Set(
+					reasoningProviders.flatMap(
+						(provider) =>
+							((provider as ProviderModelMapping).reasoningEfforts as
+								| string[]
+								| undefined) ?? [],
+					),
+				),
+			);
+
+			logger.warn(`Unsupported reasoning effort for model: ${requestedModel}`, {
+				requestedModel,
+				requestedProvider,
+				reasoning_effort,
+				declaredEfforts,
+			});
+
+			throw new HTTPException(400, {
+				message: `Model ${requestedModel} does not support reasoning effort "${reasoning_effort}". Supported values: ${declaredEfforts.join(
+					", ",
+				)}. Use one of the supported values or remove the reasoning_effort parameter.`,
+				cause: "unsupported_reasoning_effort",
+			});
+		}
 	}
 
 	// Check if verbosity is specified but model doesn't support it

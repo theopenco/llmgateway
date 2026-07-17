@@ -442,10 +442,13 @@ export interface ProviderModelMapping {
 	 * ascending order of effort. Effort tiers differ per model generation
 	 * (e.g. GPT-5 accepts `minimal`..`high`, GPT-5.6 accepts `none`..`max`,
 	 * Anthropic thinking models accept `low`..`max`), so each mapping declares
-	 * its own list. The gateway forwards effort values to the provider as-is
-	 * (unsupported values fail upstream); this metadata is exposed via the
+	 * its own list. When declared, the gateway rejects requests whose
+	 * `reasoning_effort` is outside this list with a 400 (and records a
+	 * client_error log); otherwise it forwards the value to the provider as-is
+	 * (unsupported values fail upstream). This metadata is also exposed via the
 	 * models APIs so clients can present valid options. When unset, the
-	 * supported values are not (yet) declared for this mapping.
+	 * supported values are not (yet) declared for this mapping and all efforts
+	 * are forwarded through.
 	 */
 	reasoningEfforts?: ReasoningEffort[];
 	/**

@@ -2552,13 +2552,19 @@ chat.openapi(completions, async (c) => {
 			hasDocuments,
 		});
 	} catch (capabilityError) {
+		// Some capability rejections should be surfaced in the activity feed as a
+		// client_error log — a plain HTTPException here otherwise returns a 400 with
+		// no history row, so the user never sees the rejected request. Determine the
+		// client-facing message and error cause for the cases we want logged.
+		let clientErrorMessage: string | undefined;
+		let clientErrorCause: string | undefined;
+
 		// The /v1/messages layer flags requests that used Anthropic's explicit-budget
 		// thinking API (`thinking.type: "enabled"`). On adaptive-only models the
 		// mapped reasoning.max_tokens is unsupported and validateModelCapabilities
-		// rejects it. Mirror Anthropic's own "use adaptive thinking" 400 and surface
-		// it in the activity feed as a client_error — the raw capability error is
-		// OpenAI-flavored (mentions a field the native client never sent) and isn't
-		// logged otherwise, so the user never sees the rejected request in history.
+		// rejects it. Mirror Anthropic's own "use adaptive thinking" 400 — the raw
+		// capability error is OpenAI-flavored (mentions a field the native client
+		// never sent).
 		const usedAnthropicBudgetThinking =
 			c.req.header("x-llmgateway-thinking-type") === "enabled";
 		if (
@@ -2579,9 +2585,21 @@ chat.openapi(completions, async (c) => {
 			const supportsAdaptiveThinking = providersForAdaptiveCheck.some(
 				(p) => (p as ProviderModelMapping).reasoningMode === "adaptive",
 			);
-			const message = supportsAdaptiveThinking
+			clientErrorMessage = supportsAdaptiveThinking
 				? `"thinking.type.enabled" is not supported for this model. Use "thinking.type.adaptive" and "output_config.effort" to control thinking behavior.`
 				: `"thinking" is not supported for this model. Remove the "thinking" parameter or use a model that supports extended thinking.`;
+			clientErrorCause = "unsupported_reasoning_budget";
+		} else if (
+			capabilityError instanceof HTTPException &&
+			capabilityError.cause === "unsupported_reasoning_effort"
+		) {
+			// The requested reasoning_effort is not in the mapping's declared
+			// allowlist. Surface the gateway's own 400 in history as a client_error.
+			clientErrorMessage = capabilityError.message;
+			clientErrorCause = "unsupported_reasoning_effort";
+		}
+
+		if (clientErrorMessage !== undefined) {
 			try {
 				// Use _insertLog directly (not insertLogEntry): the local insertLog
 				// wrapper is declared further down and would be in its temporal dead
@@ -2633,8 +2651,8 @@ chat.openapi(completions, async (c) => {
 						errorDetails: {
 							statusCode: 400,
 							statusText: "Bad Request",
-							responseText: message,
-							cause: "unsupported_reasoning_budget",
+							responseText: clientErrorMessage,
+							cause: clientErrorCause,
 						},
 						duration: 0,
 						timeToFirstToken: null,
@@ -2658,11 +2676,12 @@ chat.openapi(completions, async (c) => {
 					{ syncInsert: syncLogInsert, retentionLevel },
 				);
 			} catch (error) {
-				logger.error("Failed to log budget-thinking rejection", {
+				logger.error("Failed to log capability rejection", {
 					error: toError(error),
+					cause: clientErrorCause,
 				});
 			}
-			throw new HTTPException(400, { message });
+			throw new HTTPException(400, { message: clientErrorMessage });
 		}
 		throw capabilityError;
 	}
