@@ -1,8 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { HTTPException } from "hono/http-exception";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
 	chunkText,
 	cosineSimilarity,
+	embedTexts,
 	MAX_CHUNK_CHARS,
 	CHUNK_OVERLAP_CHARS,
 } from "./rag.js";
@@ -74,5 +76,46 @@ describe("cosineSimilarity", () => {
 		expect(cosineSimilarity(query, related)).toBeGreaterThan(
 			cosineSimilarity(query, unrelated),
 		);
+	});
+});
+
+describe("embedTexts", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it("forwards upstream 4xx statuses like 402 insufficient credits", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn().mockResolvedValue(
+				new Response(
+					JSON.stringify({
+						error: { message: "Organization org-id has insufficient credits" },
+					}),
+					{ status: 402 },
+				),
+			),
+		);
+
+		const error = await embedTexts("token", ["hello"]).catch((e: unknown) => e);
+		expect(error).toBeInstanceOf(HTTPException);
+		expect(error).toMatchObject({
+			status: 402,
+			message: "Organization org-id has insufficient credits",
+		});
+	});
+
+	it("maps upstream 5xx statuses to a 502", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn().mockResolvedValue(new Response("oops", { status: 500 })),
+		);
+
+		const error = await embedTexts("token", ["hello"]).catch((e: unknown) => e);
+		expect(error).toBeInstanceOf(HTTPException);
+		expect(error).toMatchObject({
+			status: 502,
+			message: "Embedding request failed with status 500",
+		});
 	});
 });
