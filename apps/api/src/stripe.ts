@@ -3109,6 +3109,7 @@ export async function handleChargeRefunded(
 		| "dev_plan_start"
 		| "dev_plan_renewal"
 		| "dev_plan_upgrade"
+		| "dev_plan_reset_pass"
 		| "chat_plan_start"
 		| "chat_plan_renewal"
 		| "chat_plan_upgrade"
@@ -3118,6 +3119,7 @@ export async function handleChargeRefunded(
 		"dev_plan_start",
 		"dev_plan_renewal",
 		"dev_plan_upgrade",
+		"dev_plan_reset_pass",
 		"chat_plan_start",
 		"chat_plan_renewal",
 		"chat_plan_upgrade",
@@ -3264,6 +3266,48 @@ export async function handleChargeRefunded(
 			.where(eq(tables.organization.id, originalTransaction.organizationId));
 	}
 
+	// A full refund of a Reset Pass claws back one unredeemed pass from the
+	// tier-bound inventory the purchase granted, clamped at zero when the pass
+	// was already redeemed — a refunded purchase must not leave a free pass
+	// behind. The tier comes from the PaymentIntent metadata stamped by the
+	// purchase route.
+	if (originalTransaction.type === "dev_plan_reset_pass" && charge.refunded) {
+		const refundedIntent = await getStripe().paymentIntents.retrieve(
+			payment_intent as string,
+		);
+		const tierValue = refundedIntent.metadata?.devPlan;
+		const tier =
+			tierValue && tierValue in DEV_PLAN_RESET_PASS_PRICES
+				? (tierValue as DevPlanTier)
+				: null;
+		if (!tier) {
+			logger.error(
+				"Refunded Reset Pass has no valid tier in its payment intent metadata",
+				{ paymentIntentId: refundedIntent.id },
+			);
+		} else {
+			const clawback =
+				tier === "lite"
+					? {
+							devPlanResetPassesLite: sql`GREATEST(${tables.organization.devPlanResetPassesLite} - 1, 0)`,
+						}
+					: tier === "pro"
+						? {
+								devPlanResetPassesPro: sql`GREATEST(${tables.organization.devPlanResetPassesPro} - 1, 0)`,
+							}
+						: {
+								devPlanResetPassesMax: sql`GREATEST(${tables.organization.devPlanResetPassesMax} - 1, 0)`,
+							};
+			await db
+				.update(tables.organization)
+				.set(clawback)
+				.where(eq(tables.organization.id, organization.id));
+			logger.info(
+				`Clawed back one ${tier} Reset Pass after full refund for organization ${organization.id}`,
+			);
+		}
+	}
+
 	// A full refund of a dev/chat plan payment ends the plan — cancel the Stripe
 	// subscription so the customer isn't left refunded-but-still-subscribed.
 	// Handling it here (rather than only in the self-refund endpoint) covers every
@@ -3271,13 +3315,16 @@ export async function handleChargeRefunded(
 	// refunds issued straight from the Stripe dashboard. Cancelling emits
 	// customer.subscription.deleted, which resets the plan fields and records the
 	// *_plan_end transaction. Gated on a full refund so a partial refund doesn't
-	// tear down the whole plan.
+	// tear down the whole plan. A refunded Reset Pass is a one-off purchase, not
+	// a plan payment — it must never cancel the underlying subscription.
 	if (charge.refunded) {
-		const planSubscriptionId = originalTransaction.type.startsWith("dev_plan")
-			? organization.devPlanStripeSubscriptionId
-			: originalTransaction.type.startsWith("chat_plan")
-				? organization.chatPlanStripeSubscriptionId
-				: null;
+		const planSubscriptionId =
+			originalTransaction.type.startsWith("dev_plan") &&
+			originalTransaction.type !== "dev_plan_reset_pass"
+				? organization.devPlanStripeSubscriptionId
+				: originalTransaction.type.startsWith("chat_plan")
+					? organization.chatPlanStripeSubscriptionId
+					: null;
 		if (planSubscriptionId) {
 			try {
 				await getStripe().subscriptions.cancel(planSubscriptionId);
