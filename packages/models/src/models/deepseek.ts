@@ -334,6 +334,7 @@ export const deepseekModels = [
 				quantization: "fp4",
 				streaming: true,
 				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh"],
 				vision: false,
 				tools: true,
 				jsonOutput: true,
