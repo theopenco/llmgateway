@@ -13,9 +13,9 @@ image:
 
 Every DevPass plan includes a weekly fair-use allowance for premium frontier models. Until now, using it up mid-sprint left two options: switch to standard models until the rolling 7-day window reset, or upgrade a tier. **Reset Passes** add a third — redeem a pass and your full weekly premium allowance is back immediately, with a fresh 7-day window that starts on your next premium request.
 
-## A fresh week in one click
+## Stamp a fresh week
 
-The DevPass dashboard now shows your Reset Passes right under the premium allowance meter: a held-passes count with a slot strip that fills as you collect plan-included and purchased passes. One click on **Use a pass** zeroes the week's premium usage on the spot. A pass removes the weekly limit only — it doesn't add credits, so premium usage after a reset draws from your monthly allowance exactly as before. Standard models are unaffected either way, since they never count against the weekly cap.
+The DevPass dashboard now shows a Reset Pass card — styled as a stamped visa extension in your DevPass passport — right under the premium allowance meter. It holds your passes as stamps: plan-included passes and purchased ones. One click on **Use a pass** zeroes the week's premium usage on the spot. A pass removes the weekly limit only — it doesn't add credits, so premium usage after a reset draws from your monthly allowance exactly as before. Standard models are unaffected either way, since they never count against the weekly cap.
 
 | Plan | Included per cycle | Extra passes |
 | ---- | ------------------ | ------------ |

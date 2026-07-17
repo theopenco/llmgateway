@@ -80,6 +80,7 @@ export default function UsagePage() {
 			{/* Usage — full-width with metrics + chart */}
 			<UsageOverview
 				projectId={devPlanStatus.projectId ?? null}
+				organizationId={devPlanStatus.organizationId ?? null}
 				creditsUsed={creditsUsed}
 				creditsLimit={creditsLimit}
 				premiumCreditsUsed={parseFloat(

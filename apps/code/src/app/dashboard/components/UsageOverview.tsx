@@ -17,6 +17,7 @@ type ActivityItem = ActivityResponse["activity"][number];
 
 interface UsageOverviewProps {
 	projectId: string | null;
+	organizationId: string | null;
 	creditsUsed: number;
 	creditsLimit: number;
 	premiumCreditsUsed: number;
@@ -194,6 +195,7 @@ function UsageBar({
 
 export default function UsageOverview({
 	projectId,
+	organizationId,
 	creditsUsed,
 	creditsLimit,
 	premiumCreditsUsed,
@@ -336,6 +338,7 @@ export default function UsageOverview({
 						/>
 						<ResetPassCard
 							tier={planName.toLowerCase()}
+							organizationId={organizationId}
 							purchased={resetPasses}
 							includedTotal={includedResetPasses}
 							includedRemaining={includedResetPassesRemaining}
