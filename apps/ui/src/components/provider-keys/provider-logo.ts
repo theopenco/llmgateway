@@ -42,6 +42,7 @@ export const providerLogoUrls: Partial<
 	reve: ProviderIcons.reve,
 	sakana: ProviderIcons.sakana,
 	"scx-ai": ProviderIcons["scx-ai"],
+	gonka24: ProviderIcons.gonka24,
 };
 
 export const getProviderLogoDarkModeClasses = () => {
