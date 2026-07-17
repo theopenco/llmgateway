@@ -251,6 +251,7 @@ import { resolveReasoningTokens } from "./tools/resolve-reasoning-tokens.js";
 import {
 	type RoutingAttempt,
 	getErrorType,
+	getSameKeyMaxRetries,
 	isRetryableErrorType,
 	providerRetryKey,
 	sameKeyRetryDelay,
@@ -6890,7 +6891,7 @@ chat.openapi(completions, async (c) => {
 										routingMetadata?.providerScores ?? []
 									).some((s) => s.providerId !== usedProvider),
 									retryCount: sameKeyRetryCount,
-									maxRetries: routingCfg.retry.maxRetries,
+									maxRetries: getSameKeyMaxRetries(),
 								}) &&
 								// Same-key retries re-hit the provider, so consume a rate-limit
 								// slot like fallback retries do and skip the retry when limited.
@@ -7006,7 +7007,7 @@ chat.openapi(completions, async (c) => {
 								// failed attempt) so a client disconnect during the
 								// retried upstream call still cancels.
 								c.req.raw.signal.addEventListener("abort", onAbort);
-								await sameKeyRetryDelay();
+								await sameKeyRetryDelay(sameKeyRetryCount);
 								routingAttempts.push(
 									buildRoutingAttempt(
 										usedProvider,
@@ -7283,7 +7284,7 @@ chat.openapi(completions, async (c) => {
 										routingMetadata?.providerScores ?? []
 									).some((s) => s.providerId !== usedProvider),
 									retryCount: sameKeyRetryCount,
-									maxRetries: routingCfg.retry.maxRetries,
+									maxRetries: getSameKeyMaxRetries(),
 								}) &&
 								// Same-key retries re-hit the provider, so consume a rate-limit
 								// slot like fallback retries do and skip the retry when limited.
@@ -7418,7 +7419,7 @@ chat.openapi(completions, async (c) => {
 								// failed attempt) so a client disconnect during the
 								// retried upstream call still cancels.
 								c.req.raw.signal.addEventListener("abort", onAbort);
-								await sameKeyRetryDelay();
+								await sameKeyRetryDelay(sameKeyRetryCount);
 								routingAttempts.push(
 									buildRoutingAttempt(
 										usedProvider,
@@ -7581,7 +7582,7 @@ chat.openapi(completions, async (c) => {
 									(s) => s.providerId !== usedProvider,
 								),
 								retryCount: sameKeyRetryCount,
-								maxRetries: routingCfg.retry.maxRetries,
+								maxRetries: getSameKeyMaxRetries(),
 							}) &&
 							// Same-key retries re-hit the provider, so consume a rate-limit
 							// slot like fallback retries do and skip the retry when limited.
@@ -7757,7 +7758,7 @@ chat.openapi(completions, async (c) => {
 							// failed attempt) so a client disconnect during the
 							// retried upstream call still cancels.
 							c.req.raw.signal.addEventListener("abort", onAbort);
-							await sameKeyRetryDelay();
+							await sameKeyRetryDelay(sameKeyRetryCount);
 							routingAttempts.push(
 								buildRoutingAttempt(
 									usedProvider,
@@ -7953,7 +7954,7 @@ chat.openapi(completions, async (c) => {
 									(s) => s.providerId !== usedProvider,
 								),
 								retryCount: sameKeyRetryCount,
-								maxRetries: routingCfg.retry.maxRetries,
+								maxRetries: getSameKeyMaxRetries(),
 							}) &&
 							// Same-key retries re-hit the provider, so consume a rate-limit
 							// slot like fallback retries do and skip the retry when limited.
@@ -8091,7 +8092,7 @@ chat.openapi(completions, async (c) => {
 							// failed attempt) so a client disconnect during the
 							// retried upstream call still cancels.
 							c.req.raw.signal.addEventListener("abort", onAbort);
-							await sameKeyRetryDelay();
+							await sameKeyRetryDelay(sameKeyRetryCount);
 							routingAttempts.push(
 								buildRoutingAttempt(
 									usedProvider,
@@ -11282,7 +11283,7 @@ chat.openapi(completions, async (c) => {
 						(s) => s.providerId !== usedProvider,
 					),
 					retryCount: sameKeyRetryCount,
-					maxRetries: routingCfg.retry.maxRetries,
+					maxRetries: getSameKeyMaxRetries(),
 				}) &&
 				// Same-key retries re-hit the provider, so consume a rate-limit
 				// slot like fallback retries do and skip the retry when limited.
@@ -11418,7 +11419,7 @@ chat.openapi(completions, async (c) => {
 				// a client disconnect during the retried upstream call still
 				// cancels.
 				c.req.raw.signal.addEventListener("abort", onAbort);
-				await sameKeyRetryDelay();
+				await sameKeyRetryDelay(sameKeyRetryCount);
 				routingAttempts.push(
 					buildRoutingAttempt(
 						usedProvider,
@@ -11723,7 +11724,7 @@ chat.openapi(completions, async (c) => {
 						(s) => s.providerId !== usedProvider,
 					),
 					retryCount: sameKeyRetryCount,
-					maxRetries: routingCfg.retry.maxRetries,
+					maxRetries: getSameKeyMaxRetries(),
 				}) &&
 				// Same-key retries re-hit the provider, so consume a rate-limit
 				// slot like fallback retries do and skip the retry when limited.
@@ -11918,7 +11919,7 @@ chat.openapi(completions, async (c) => {
 				// a client disconnect during the retried upstream call still
 				// cancels.
 				c.req.raw.signal.addEventListener("abort", onAbort);
-				await sameKeyRetryDelay();
+				await sameKeyRetryDelay(sameKeyRetryCount);
 				routingAttempts.push(
 					buildRoutingAttempt(
 						usedProvider,

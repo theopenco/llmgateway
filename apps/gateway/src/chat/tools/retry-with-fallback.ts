@@ -4,6 +4,23 @@ import { DEFAULT_ROUTING_RETRY } from "@llmgateway/shared/routing-config";
 
 export const MAX_RETRIES = DEFAULT_ROUTING_RETRY.maxRetries;
 
+/**
+ * Number of same-key retries against the pinned/only provider before giving up
+ * (session-sticky and single-provider transient failures). Overridable via the
+ * `SAME_KEY_MAX_RETRIES` env var; defaults to 2. A value of 0 disables same-key
+ * retries entirely.
+ */
+export const DEFAULT_SAME_KEY_MAX_RETRIES = 2;
+
+export function getSameKeyMaxRetries(): number {
+	const raw = process.env.SAME_KEY_MAX_RETRIES;
+	if (!raw) {
+		return DEFAULT_SAME_KEY_MAX_RETRIES;
+	}
+	const v = parseInt(raw, 10);
+	return Number.isFinite(v) && v >= 0 ? v : DEFAULT_SAME_KEY_MAX_RETRIES;
+}
+
 export type RetryableErrorType =
 	| "network_error"
 	| "provider_error"
@@ -60,17 +77,23 @@ export function shouldRetryAlternateKey(
 }
 
 /**
- * Fixed delay before a same-key retry. Cross-provider fallback switches to a
+ * Backoff before a same-key retry. Cross-provider fallback switches to a
  * different upstream and retries immediately, but a same-key retry re-hits
  * the upstream that just failed — a short pause gives transient faults a
  * moment to clear instead of immediately adding pressure. The added latency
  * is acceptable since the upstream is already slow or erroring.
+ *
+ * The delay grows exponentially with the 1-based attempt number so successive
+ * retries back off further: 1s before the first retry, 2s before the second,
+ * 4s before the third, and so on.
  */
 export const SAME_KEY_RETRY_DELAY_MS = 1000;
 
-export function sameKeyRetryDelay(): Promise<void> {
+export function sameKeyRetryDelay(attempt: number): Promise<void> {
+	const multiplier = 2 ** (attempt - 1);
+	const delayMs = multiplier * SAME_KEY_RETRY_DELAY_MS;
 	return new Promise((resolve) => {
-		setTimeout(resolve, SAME_KEY_RETRY_DELAY_MS);
+		setTimeout(resolve, delayMs);
 	});
 }
 
