@@ -155,10 +155,10 @@ function UsageBar({
 				<div className="min-w-0">
 					<div className="flex items-baseline gap-2">
 						<span className="text-3xl font-bold tracking-tight tabular-nums">
-							${remaining.toFixed(2)}
+							${used.toFixed(2)}
 						</span>
 						<span className="text-sm text-muted-foreground">
-							of ${limit.toFixed(limit % 1 === 0 ? 0 : 2)} remaining
+							of ${limit.toFixed(limit % 1 === 0 ? 0 : 2)} spent
 						</span>
 					</div>
 				</div>
@@ -166,7 +166,7 @@ function UsageBar({
 					<div className="tabular-nums font-medium text-foreground">
 						{Math.round(percentage)}% used
 					</div>
-					<div className="tabular-nums">${used.toFixed(2)} this period</div>
+					<div className="tabular-nums">${remaining.toFixed(2)} remaining</div>
 				</div>
 			</div>
 			<div className="relative h-2.5 overflow-hidden rounded-full bg-muted">
