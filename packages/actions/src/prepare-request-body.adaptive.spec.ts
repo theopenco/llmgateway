@@ -150,4 +150,14 @@ describe("prepareRequestBody - Bedrock Opus 4.8 deprecated params", () => {
 		);
 		expect(body.inferenceConfig?.temperature).toBeUndefined();
 	});
+
+	test("drops top_p below 0.95 when thinking is enabled", async () => {
+		const body = await buildBedrockBody({ effort: "high", top_p: 0.9 });
+		expect(body.inferenceConfig?.topP).toBeUndefined();
+	});
+
+	test("keeps top_p >= 0.95 when thinking is enabled", async () => {
+		const body = await buildBedrockBody({ effort: "high", top_p: 0.95 });
+		expect(body.inferenceConfig?.topP).toBe(0.95);
+	});
 });

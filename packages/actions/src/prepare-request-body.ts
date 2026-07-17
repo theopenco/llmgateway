@@ -2509,6 +2509,13 @@ export async function prepareRequestBody(
 				}
 				// Anthropic requires temperature to be exactly 1 when thinking is enabled
 				temperature = 1;
+				// Anthropic also rejects `top_p` below 0.95 when thinking is enabled
+				// or in adaptive mode ("`top_p` must be greater than or equal to 0.95
+				// or unset"). Drop a caller-supplied top_p that would violate this
+				// rather than forwarding it and 400ing.
+				if (top_p !== undefined && top_p < 0.95) {
+					top_p = undefined;
+				}
 			}
 
 			// Add optional parameters if they are provided
@@ -3113,6 +3120,13 @@ export async function prepareRequestBody(
 					bedrockSupportedParams.includes("temperature")
 				) {
 					inferenceConfig.temperature = 1;
+				}
+				// Anthropic rejects `top_p` below 0.95 when thinking is enabled or in
+				// adaptive mode ("`top_p` must be greater than or equal to 0.95 or
+				// unset"). Drop a caller-supplied topP that would violate this rather
+				// than forwarding it and 400ing.
+				if (inferenceConfig.topP !== undefined && inferenceConfig.topP < 0.95) {
+					delete inferenceConfig.topP;
 				}
 				if (Object.keys(inferenceConfig).length > 0) {
 					requestBody.inferenceConfig = inferenceConfig;
