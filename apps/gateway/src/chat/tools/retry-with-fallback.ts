@@ -96,6 +96,12 @@ export function sameKeyRetryDelay(): Promise<void> {
  * request on the identical key will almost certainly fail the same way
  * (and re-firing a 429 would amplify rate-limit pressure). BYOK/custom
  * providers (envVarName unset) are also excluded.
+ *
+ * Session-sticky requests are the exception to the `hasOtherProvider` gate:
+ * they pin the conversation to a single provider to keep the upstream prompt
+ * cache warm, and cross-provider fallback is disabled for them (see
+ * `shouldRetryRequest`), so the pinned provider is retried on the same key even
+ * when other providers exist.
  */
 export function shouldRetrySameKey(opts: {
 	usedProvider: string;
@@ -106,11 +112,12 @@ export function shouldRetrySameKey(opts: {
 	hasOtherProvider: boolean;
 	retryCount: number;
 	maxRetries: number;
+	sessionSticky?: boolean;
 }): boolean {
 	if (opts.retryCount >= opts.maxRetries) {
 		return false;
 	}
-	if (opts.hasOtherProvider) {
+	if (opts.hasOtherProvider && !opts.sessionSticky) {
 		return false;
 	}
 	if (opts.usedProvider === "custom" || opts.usedProvider === "llmgateway") {
@@ -145,6 +152,12 @@ export function shouldRetrySameKey(opts: {
  * Determines whether a failed request should be retried with a different provider.
  * Only retries when no specific provider was requested, the error is retryable,
  * retry count hasn't been exceeded, and alternative providers are available.
+ *
+ * Cross-provider fallback is disabled for session-sticky requests: they pin the
+ * conversation to a single provider so the upstream prompt cache stays warm, and
+ * switching providers mid-session would break that pin. Transient failures on a
+ * sticky request are instead retried against the pinned provider (via the
+ * alternate-key and same-key retry paths).
  */
 export function shouldRetryRequest(opts: {
 	requestedProvider: string | undefined;
@@ -154,11 +167,15 @@ export function shouldRetryRequest(opts: {
 	remainingProviders: number;
 	usedProvider: string;
 	maxRetries?: number;
+	sessionSticky?: boolean;
 }): boolean {
 	if (opts.requestedProvider) {
 		return false;
 	}
 	if (opts.noFallback) {
+		return false;
+	}
+	if (opts.sessionSticky) {
 		return false;
 	}
 	if (!isRetryableErrorType(opts.errorType)) {
