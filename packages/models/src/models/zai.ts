@@ -129,6 +129,7 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				supportsDeveloperRole: false,
 			},
 		],
 	},

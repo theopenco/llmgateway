@@ -1383,11 +1383,11 @@ export async function prepareRequestBody(
 	// not one of ['system', 'assistant', 'user', 'tool', 'function']"). Mappings
 	// default to accepting `developer`, so this only rewrites where explicitly
 	// opted out.
-	const developerRoleMapping = modelDef?.providers.find(
-		(p) =>
-			p.providerId === usedProvider &&
-			((p as ProviderModelMapping).region ?? null) === usedRegion,
-	) as ProviderModelMapping | undefined;
+	const developerRoleMapping = getProviderMapping(
+		modelDef,
+		usedProvider,
+		usedRegion,
+	);
 	if (developerRoleMapping?.supportsDeveloperRole === false) {
 		processedMessages = transformDeveloperRole(processedMessages);
 	}

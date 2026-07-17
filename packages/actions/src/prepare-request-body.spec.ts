@@ -4842,11 +4842,15 @@ describe("prepareRequestBody - Xiaomi", () => {
 });
 
 describe("prepareRequestBody - developer role normalization", () => {
-	async function prepare(provider: string, model: string) {
+	async function prepare(
+		provider: string,
+		model: string,
+		region: string | null = null,
+	) {
 		return (await prepareRequestBody(
 			provider,
 			model,
-			null,
+			region,
 			model,
 			[
 				{ role: "developer", content: "You are a helpful assistant." },
@@ -4873,6 +4877,18 @@ describe("prepareRequestBody - developer role normalization", () => {
 		expect(requestBody.messages[0].content).toBe(
 			"You are a helpful assistant.",
 		);
+		expect(requestBody.messages[1].role).toBe("user");
+	});
+
+	test("rewrites developer to system for alibaba/glm-5.2 (supportsDeveloperRole: false)", async () => {
+		const requestBody = await prepare("alibaba", "glm-5.2");
+		expect(requestBody.messages[0].role).toBe("system");
+		expect(requestBody.messages[1].role).toBe("user");
+	});
+
+	test("resolves the flag through region expansion for alibaba/glm-5.2 (singapore)", async () => {
+		const requestBody = await prepare("alibaba", "glm-5.2", "singapore");
+		expect(requestBody.messages[0].role).toBe("system");
 		expect(requestBody.messages[1].role).toBe("user");
 	});
 
