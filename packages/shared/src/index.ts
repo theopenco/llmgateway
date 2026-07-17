@@ -22,13 +22,16 @@ export {
 } from "./fees.js";
 
 export {
+	DEV_PLAN_INCLUDED_RESET_PASSES,
 	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
 	DEV_PLAN_PREMIUM_WEEKLY_PERCENT,
 	DEV_PLAN_PRICES,
+	DEV_PLAN_RESET_PASS_PRICES,
 	type DevPlanCycle,
 	type DevPlanTier,
 	getDevPlanCreditsLimit,
 	getDevPlanPremiumWeeklyLimit,
+	getIncludedResetPassesRemaining,
 	getRemainingPremiumWeeklyAllowance,
 	isPremiumWeekExpired,
 } from "./dev-plans.js";

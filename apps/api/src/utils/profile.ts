@@ -34,12 +34,25 @@ export const profileSchema = z.object({
 			totalTokens: z.number(),
 		}),
 	),
+	// The DevPass "visa": current plan tier with the validity window of the
+	// running subscription period. Null when the user has no active dev plan.
+	plan: z
+		.object({
+			tier: z.enum(["lite", "pro", "max"]),
+			startedAt: z.string().nullable(),
+			expiresAt: z.string().nullable(),
+		})
+		.nullable(),
 	models: z.array(
 		z.object({
 			id: z.string(),
 			provider: z.string(),
 			requestCount: z.number(),
 			totalTokens: z.number(),
+			// First/last hour the model served a request — the profile
+			// passport renders these as entry/exit stamp dates.
+			firstUsed: z.string().nullable(),
+			lastUsed: z.string().nullable(),
 		}),
 	),
 	providers: z.array(
@@ -163,6 +176,7 @@ export async function computeProfileData(
 			longestStreak: 0,
 			activeDays: 0,
 		},
+		plan: null,
 		activity: [],
 		models: [],
 		providers: [],
@@ -180,6 +194,14 @@ export async function computeProfileData(
 
 	if (!personalOrg) {
 		return base;
+	}
+
+	if (personalOrg.devPlan !== "none") {
+		base.plan = {
+			tier: personalOrg.devPlan,
+			startedAt: personalOrg.devPlanBillingCycleStart?.toISOString() ?? null,
+			expiresAt: personalOrg.devPlanExpiresAt?.toISOString() ?? null,
+		};
 	}
 
 	const projectIds = personalOrg.projects
@@ -228,6 +250,14 @@ export async function computeProfileData(
 					sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
 						"totalTokens",
 					),
+				// mapWith applies the column's own decoder so the naive
+				// timestamp is interpreted as UTC, matching normal column reads.
+				firstUsed: sql`MIN(${projectHourlyModelStats.hourTimestamp})`
+					.mapWith(projectHourlyModelStats.hourTimestamp)
+					.as("firstUsed"),
+				lastUsed: sql`MAX(${projectHourlyModelStats.hourTimestamp})`
+					.mapWith(projectHourlyModelStats.hourTimestamp)
+					.as("lastUsed"),
 			})
 			.from(projectHourlyModelStats)
 			.where(inArray(projectHourlyModelStats.projectId, projectIds))
@@ -277,6 +307,8 @@ export async function computeProfileData(
 			provider: r.usedProvider,
 			requestCount: Number(r.requestCount),
 			totalTokens: Number(r.totalTokens),
+			firstUsed: r.firstUsed?.toISOString() ?? null,
+			lastUsed: r.lastUsed?.toISOString() ?? null,
 		}))
 		.filter((m) => m.id && m.id !== "unknown" && m.requestCount > 0)
 		.sort((a, b) => b.requestCount - a.requestCount);

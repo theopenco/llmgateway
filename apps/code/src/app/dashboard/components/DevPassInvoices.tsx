@@ -223,6 +223,7 @@ const TYPE_LABELS: Record<Invoice["type"], string> = {
 	dev_plan_start: "Plan started",
 	dev_plan_renewal: "Renewal",
 	dev_plan_upgrade: "Upgrade",
+	dev_plan_reset_pass: "Reset Pass",
 };
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {

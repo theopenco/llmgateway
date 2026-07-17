@@ -80,6 +80,7 @@ export default function UsagePage() {
 			{/* Usage — full-width with metrics + chart */}
 			<UsageOverview
 				projectId={devPlanStatus.projectId ?? null}
+				organizationId={devPlanStatus.organizationId ?? null}
 				creditsUsed={creditsUsed}
 				creditsLimit={creditsLimit}
 				premiumCreditsUsed={parseFloat(
@@ -89,6 +90,12 @@ export default function UsagePage() {
 					devPlanStatus.devPlanPremiumWeeklyLimit ?? "0",
 				)}
 				premiumWeekResetsAt={devPlanStatus.devPlanPremiumWeekResetsAt ?? null}
+				resetPasses={devPlanStatus.devPlanResetPasses ?? 0}
+				includedResetPasses={devPlanStatus.devPlanIncludedResetPasses ?? 0}
+				includedResetPassesRemaining={
+					devPlanStatus.devPlanIncludedResetPassesRemaining ?? 0
+				}
+				resetPassPrice={devPlanStatus.devPlanResetPassPrice ?? null}
 				planName={currentPlanName}
 				planPrice={currentPlanData?.price}
 				billingCycleStart={devPlanStatus.devPlanBillingCycleStart ?? null}

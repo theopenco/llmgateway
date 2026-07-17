@@ -8,6 +8,7 @@ import {
 	formatTokens,
 	type AgentDefinition,
 } from "@/app/dashboard/components/coding-agents-shared";
+import { ProfilePassport } from "@/components/profile/passport/ProfilePassport";
 import { ProfileHeatmap } from "@/components/profile/ProfileHeatmap";
 import { ProfileTokensChart } from "@/components/profile/ProfileTokensChart";
 import { ProfileViewerCta } from "@/components/profile/ProfileViewerCta";
@@ -160,6 +161,11 @@ export function ProfileView({ profile }: { profile: ProfileData }) {
 						<p className="text-sm text-muted-foreground">@{profile.username}</p>
 					)}
 				</div>
+			</div>
+
+			{/* Interactive 3D passport */}
+			<div className="mt-8">
+				<ProfilePassport profile={profile} />
 			</div>
 
 			{/* Wrapped card + share toolkit */}

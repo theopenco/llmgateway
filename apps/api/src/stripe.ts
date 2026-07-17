@@ -15,6 +15,7 @@ import {
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
+	DEV_PLAN_RESET_PASS_PRICES,
 	getChatPlanCreditsLimit,
 	getDevPlanCreditsLimit,
 	type ChatPlanCycle,
@@ -1061,6 +1062,7 @@ export async function finalizeDevPlanSetupSession(
 			devPlan: devPlanTier,
 			devPlanCreditsLimit: creditsLimit.toString(),
 			devPlanCreditsUsed: "0",
+			devPlanIncludedResetPassesUsed: 0,
 			devPlanBillingCycleStart: new Date(),
 			devPlanExpiresAt: getSubscriptionPeriodEnd(subscription),
 			devPlanStripeSubscriptionId: subscription.id,
@@ -1448,6 +1450,7 @@ async function handleCheckoutSessionCompleted(
 					devPlanCreditsUsed: "0",
 					devPlanPremiumCreditsUsed: "0",
 					devPlanPremiumWeekStart: new Date(),
+					devPlanIncludedResetPassesUsed: 0,
 					devPlanBillingCycleStart: new Date(),
 					devPlanStripeSubscriptionId: subscriptionId,
 					devPlanCancelled: false,
@@ -2441,6 +2444,166 @@ export async function handleEndUserTopUpRefunded(
 	);
 }
 
+/**
+ * Fulfil a Reset Pass PaymentIntent: validate the tier and charged amount
+ * against the metadata stamped at purchase time, then record the payment and
+ * grant one pass to that tier's inventory. Called synchronously from the
+ * purchase route, and again from the `payment_intent.succeeded` webhook as
+ * the recovery path when the API died after the charge but before fulfilment
+ * — so a successful charge can never be lost. The advisory lock plus the
+ * payment-intent dedup make the two paths race-safe: every charge grants
+ * exactly one pass no matter how many times this runs.
+ */
+export async function fulfillResetPassPurchase(
+	paymentIntent: Stripe.PaymentIntent,
+): Promise<void> {
+	const metadata = paymentIntent.metadata;
+	if (metadata?.kind !== "dev_plan_reset_pass") {
+		return;
+	}
+
+	const tierValue = metadata.devPlan;
+	const tier =
+		tierValue && tierValue in DEV_PLAN_RESET_PASS_PRICES
+			? (tierValue as DevPlanTier)
+			: null;
+	if (!tier) {
+		logger.error("Reset Pass payment intent has no valid tier, skipping", {
+			devPlan: metadata.devPlan,
+			paymentIntentId: paymentIntent.id,
+		});
+		return;
+	}
+
+	const amountPaid =
+		(paymentIntent.amount_received || paymentIntent.amount) / 100;
+	if (amountPaid !== DEV_PLAN_RESET_PASS_PRICES[tier]) {
+		logger.error(
+			"Reset Pass payment intent amount does not match the tier price, skipping",
+			{
+				tier,
+				amountPaid,
+				expected: DEV_PLAN_RESET_PASS_PRICES[tier],
+				paymentIntentId: paymentIntent.id,
+			},
+		);
+		return;
+	}
+
+	const organizationId = metadata.organizationId;
+	const organization = organizationId
+		? await db.query.organization.findFirst({
+				where: { id: { eq: organizationId } },
+			})
+		: null;
+	if (!organization) {
+		logger.error("Could not resolve organization for Reset Pass fulfilment", {
+			organizationId,
+			paymentIntentId: paymentIntent.id,
+		});
+		return;
+	}
+
+	const purchasedIncrement =
+		tier === "lite"
+			? {
+					devPlanResetPassesLite: sql`${tables.organization.devPlanResetPassesLite} + 1`,
+				}
+			: tier === "pro"
+				? {
+						devPlanResetPassesPro: sql`${tables.organization.devPlanResetPassesPro} + 1`,
+					}
+				: {
+						devPlanResetPassesMax: sql`${tables.organization.devPlanResetPassesMax} + 1`,
+					};
+
+	// Record the payment and grant the pass together so a crash between the
+	// two can't sell a pass without delivering it. The advisory xact lock
+	// serializes the synchronous route against a concurrently delivered
+	// webhook for the same payment intent, so the dedup check below can't
+	// race into a double grant.
+	const created = await db.transaction(async (tx) => {
+		await tx.execute(
+			sql`SELECT pg_advisory_xact_lock(hashtext(${paymentIntent.id}))`,
+		);
+
+		const existing = await tx.query.transaction.findFirst({
+			where: {
+				stripePaymentIntentId: { eq: paymentIntent.id },
+				type: { eq: "dev_plan_reset_pass" },
+				status: { eq: "completed" },
+			},
+		});
+		if (existing) {
+			return null;
+		}
+
+		const [row] = await tx
+			.insert(tables.transaction)
+			.values({
+				organizationId: organization.id,
+				type: "dev_plan_reset_pass",
+				amount: amountPaid.toString(),
+				currency: "USD",
+				status: "completed",
+				stripePaymentIntentId: paymentIntent.id,
+				description: `DevPass Reset Pass (${tier.toUpperCase()})`,
+			})
+			.returning();
+
+		await tx
+			.update(tables.organization)
+			.set(purchasedIncrement)
+			.where(eq(tables.organization.id, organization.id));
+
+		return row;
+	});
+
+	if (!created) {
+		logger.info(
+			`Skipping duplicate Reset Pass fulfilment for payment intent ${paymentIntent.id}`,
+		);
+		return;
+	}
+
+	try {
+		const billingDetails = await resolveDevPassBillingDetails(organization);
+		await generateAndEmailInvoice({
+			organizationId: organization.id,
+			invoiceNumber: created.id,
+			invoiceDate: new Date(),
+			organizationName: organization.name,
+			...billingDetails,
+			lineItems: [
+				{
+					description: `DevPass Reset Pass (${tier.toUpperCase()}) — weekly premium allowance reset`,
+					amount: amountPaid,
+				},
+			],
+			currency: "USD",
+		});
+	} catch (e) {
+		logger.error(
+			"Invoice email failed (Reset Pass invoice); suppressing failure",
+			e as Error,
+		);
+	}
+
+	posthog.capture({
+		distinctId: "organization",
+		event: "reset_pass_purchased",
+		groups: {
+			organization: organization.id,
+		},
+		properties: {
+			devPlan: tier,
+			amount: amountPaid,
+			organization: organization.id,
+			source: "saved_payment_method",
+		},
+	});
+}
+
 async function handlePaymentIntentSucceeded(
 	event: Stripe.PaymentIntentSucceededEvent,
 ) {
@@ -2451,6 +2614,14 @@ async function handlePaymentIntentSucceeded(
 	// end-user wallet, not the developer's org credits.
 	if (paymentIntent.metadata.kind === "end_user_topup") {
 		await handleEndUserTopUpSucceeded(paymentIntent);
+		return;
+	}
+
+	// DevPass Reset Pass purchases are fulfilled synchronously by the
+	// purchase route; this webhook is the recovery path when the API died
+	// after the charge but before fulfilment (a no-op duplicate otherwise).
+	if (paymentIntent.metadata.kind === "dev_plan_reset_pass") {
+		await fulfillResetPassPurchase(paymentIntent);
 		return;
 	}
 
@@ -2948,6 +3119,7 @@ export async function handleChargeRefunded(
 		| "dev_plan_start"
 		| "dev_plan_renewal"
 		| "dev_plan_upgrade"
+		| "dev_plan_reset_pass"
 		| "chat_plan_start"
 		| "chat_plan_renewal"
 		| "chat_plan_upgrade"
@@ -2957,6 +3129,7 @@ export async function handleChargeRefunded(
 		"dev_plan_start",
 		"dev_plan_renewal",
 		"dev_plan_upgrade",
+		"dev_plan_reset_pass",
 		"chat_plan_start",
 		"chat_plan_renewal",
 		"chat_plan_upgrade",
@@ -3103,6 +3276,48 @@ export async function handleChargeRefunded(
 			.where(eq(tables.organization.id, originalTransaction.organizationId));
 	}
 
+	// A full refund of a Reset Pass claws back one unredeemed pass from the
+	// tier-bound inventory the purchase granted, clamped at zero when the pass
+	// was already redeemed — a refunded purchase must not leave a free pass
+	// behind. The tier comes from the PaymentIntent metadata stamped by the
+	// purchase route.
+	if (originalTransaction.type === "dev_plan_reset_pass" && charge.refunded) {
+		const refundedIntent = await getStripe().paymentIntents.retrieve(
+			payment_intent as string,
+		);
+		const tierValue = refundedIntent.metadata?.devPlan;
+		const tier =
+			tierValue && tierValue in DEV_PLAN_RESET_PASS_PRICES
+				? (tierValue as DevPlanTier)
+				: null;
+		if (!tier) {
+			logger.error(
+				"Refunded Reset Pass has no valid tier in its payment intent metadata",
+				{ paymentIntentId: refundedIntent.id },
+			);
+		} else {
+			const clawback =
+				tier === "lite"
+					? {
+							devPlanResetPassesLite: sql`GREATEST(${tables.organization.devPlanResetPassesLite} - 1, 0)`,
+						}
+					: tier === "pro"
+						? {
+								devPlanResetPassesPro: sql`GREATEST(${tables.organization.devPlanResetPassesPro} - 1, 0)`,
+							}
+						: {
+								devPlanResetPassesMax: sql`GREATEST(${tables.organization.devPlanResetPassesMax} - 1, 0)`,
+							};
+			await db
+				.update(tables.organization)
+				.set(clawback)
+				.where(eq(tables.organization.id, organization.id));
+			logger.info(
+				`Clawed back one ${tier} Reset Pass after full refund for organization ${organization.id}`,
+			);
+		}
+	}
+
 	// A full refund of a dev/chat plan payment ends the plan — cancel the Stripe
 	// subscription so the customer isn't left refunded-but-still-subscribed.
 	// Handling it here (rather than only in the self-refund endpoint) covers every
@@ -3110,13 +3325,16 @@ export async function handleChargeRefunded(
 	// refunds issued straight from the Stripe dashboard. Cancelling emits
 	// customer.subscription.deleted, which resets the plan fields and records the
 	// *_plan_end transaction. Gated on a full refund so a partial refund doesn't
-	// tear down the whole plan.
+	// tear down the whole plan. A refunded Reset Pass is a one-off purchase, not
+	// a plan payment — it must never cancel the underlying subscription.
 	if (charge.refunded) {
-		const planSubscriptionId = originalTransaction.type.startsWith("dev_plan")
-			? organization.devPlanStripeSubscriptionId
-			: originalTransaction.type.startsWith("chat_plan")
-				? organization.chatPlanStripeSubscriptionId
-				: null;
+		const planSubscriptionId =
+			originalTransaction.type.startsWith("dev_plan") &&
+			originalTransaction.type !== "dev_plan_reset_pass"
+				? organization.devPlanStripeSubscriptionId
+				: originalTransaction.type.startsWith("chat_plan")
+					? organization.chatPlanStripeSubscriptionId
+					: null;
 		if (planSubscriptionId) {
 			try {
 				await getStripe().subscriptions.cancel(planSubscriptionId);
@@ -3414,6 +3632,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 				devPlan: initialDevPlanTier,
 				devPlanCreditsLimit: creditsLimit.toString(),
 				devPlanCreditsUsed: "0",
+				devPlanIncludedResetPassesUsed: 0,
 				devPlanBillingCycleStart: new Date(),
 				devPlanExpiresAt: initialPeriodEnd
 					? new Date(initialPeriodEnd * 1000)
@@ -3666,6 +3885,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 				devPlanCreditsUsed: "0",
 				devPlanPremiumCreditsUsed: "0",
 				devPlanPremiumWeekStart: new Date(),
+				devPlanIncludedResetPassesUsed: 0,
 				devPlanCreditsFrozen: false,
 				devPlanCreditsLimitBeforeFreeze: null,
 				devPlanBillingCycleStart: new Date(),
@@ -3759,6 +3979,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 						devPlanCreditsUsed: "0",
 						devPlanPremiumCreditsUsed: "0",
 						devPlanPremiumWeekStart: new Date(),
+						devPlanIncludedResetPassesUsed: 0,
 						devPlanCreditsFrozen: false,
 						devPlanCreditsLimitBeforeFreeze: null,
 						devPlanBillingCycleStart: new Date(),
@@ -4675,6 +4896,10 @@ export async function handleSubscriptionDeleted(
 				devPlanCreditsUsed: "0",
 				devPlanPremiumCreditsUsed: "0",
 				devPlanPremiumWeekStart: null,
+				// Included passes expire with the plan; purchased passes
+				// (devPlanResetPasses) are kept — they were paid for and apply
+				// again on resubscribe.
+				devPlanIncludedResetPassesUsed: 0,
 				devPlanCreditsFrozen: false,
 				devPlanCreditsLimitBeforeFreeze: null,
 				devPlanStripeSubscriptionId: null,
