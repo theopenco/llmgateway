@@ -460,6 +460,7 @@ export const deepseekModels = [
 				maxOutput: 393216,
 				streaming: true,
 				reasoning: true,
+				reasoningEfforts: ["minimal", "low", "medium", "high", "max"],
 				reasoningOutput: "omit" as const,
 				vision: false,
 				tools: true,
