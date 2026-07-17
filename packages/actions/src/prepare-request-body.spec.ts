@@ -4840,3 +4840,49 @@ describe("prepareRequestBody - Xiaomi", () => {
 		expect(requestBody.reasoning_effort).toBe("medium");
 	});
 });
+
+describe("prepareRequestBody - developer role normalization", () => {
+	async function prepare(provider: string, model: string) {
+		return (await prepareRequestBody(
+			provider,
+			model,
+			null,
+			model,
+			[
+				{ role: "developer", content: "You are a helpful assistant." },
+				{ role: "user", content: "Hello" },
+			] as any,
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+	}
+
+	test("maps developer role to system for non-OpenAI providers", async () => {
+		const requestBody = await prepare("zai", "glm-5.2");
+		expect(requestBody.messages[0].role).toBe("system");
+		expect(requestBody.messages[0].content).toBe(
+			"You are a helpful assistant.",
+		);
+		expect(requestBody.messages[1].role).toBe("user");
+	});
+
+	test("maps developer role to system for alibaba (glm-5.2)", async () => {
+		const requestBody = await prepare("alibaba", "glm-5.2");
+		expect(requestBody.messages[0].role).toBe("system");
+	});
+
+	test("preserves developer role for OpenAI", async () => {
+		const requestBody = await prepare("openai", "gpt-4o-mini");
+		expect(requestBody.messages[0].role).toBe("developer");
+	});
+});

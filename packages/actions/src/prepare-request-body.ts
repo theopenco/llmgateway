@@ -740,6 +740,20 @@ function transformMessagesForNoSystemRole(messages: any[]): any[] {
 }
 
 /**
+ * Maps the OpenAI-only `developer` role to `system`. Only OpenAI's own Chat
+ * Completions / Responses surfaces (and Azure OpenAI) accept the `developer`
+ * role; other OpenAI-compatible providers reject it with a 400 ("developer is
+ * not one of ['system', 'assistant', 'user', 'tool', 'function']"). `developer`
+ * is semantically a system instruction, so downgrading it to `system` is safe
+ * everywhere it isn't natively supported.
+ */
+function transformDeveloperRole(messages: any[]): any[] {
+	return messages.map((message) =>
+		message.role === "developer" ? { ...message, role: "system" } : message,
+	);
+}
+
+/**
  * Transforms message content types for OpenAI's Responses API.
  * The Responses API uses different content type identifiers:
  * - "text" -> "input_text" (for user/system/tool messages) or "output_text" (for assistant messages)
@@ -1362,10 +1376,20 @@ export async function prepareRequestBody(
 	const supportsSystemRole =
 		(modelDef as ModelDefinition)?.supportsSystemRole !== false;
 
-	// Transform messages if model doesn't support system role
 	let processedMessages = messages;
+
+	// Normalize the OpenAI-only `developer` role to `system` for every provider
+	// except OpenAI/Azure OpenAI, which accept it natively. Other
+	// OpenAI-compatible providers reject `developer` with a 400.
+	const providerSupportsDeveloperRole =
+		usedProvider === "openai" || usedProvider === "azure";
+	if (!providerSupportsDeveloperRole) {
+		processedMessages = transformDeveloperRole(processedMessages);
+	}
+
+	// Transform messages if model doesn't support system role
 	if (!supportsSystemRole) {
-		processedMessages = transformMessagesForNoSystemRole(messages);
+		processedMessages = transformMessagesForNoSystemRole(processedMessages);
 	}
 
 	// Strip Anthropic-style cache_control markers from caller-supplied content
