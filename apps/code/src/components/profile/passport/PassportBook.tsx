@@ -66,10 +66,12 @@ function Leaf({
 	spec,
 	index,
 	turned,
+	reducedMotion,
 }: {
 	spec: LeafSpec;
 	index: number;
 	turned: number;
+	reducedMotion: boolean;
 }) {
 	const group = useRef<THREE.Group>(null);
 	const rotSpring = useRef(new Spring(0, 80, 11));
@@ -87,6 +89,13 @@ function Leaf({
 			: -0.01 * (index - turned);
 		rotSpring.current.target = rotTarget;
 		zSpring.current.target = zTarget;
+		if (reducedMotion) {
+			// Snap pages straight to their spread instead of animating the flip.
+			rotSpring.current.position = rotTarget;
+			rotSpring.current.velocity = 0;
+			zSpring.current.position = zTarget;
+			zSpring.current.velocity = 0;
+		}
 		if (group.current) {
 			group.current.rotation.y = rotSpring.current.update(dt);
 			group.current.position.z = zSpring.current.update(dt);
@@ -181,14 +190,20 @@ function Book({
 		}
 		// Open books centre on the spine; a closed passport centres its cover.
 		xSpring.current.target = turned === 0 ? -PASSPORT_W / 2 : 0;
+		if (reducedMotion) {
+			xSpring.current.position = xSpring.current.target;
+			xSpring.current.velocity = 0;
+		}
 		group.current.position.x = xSpring.current.update(dt);
 
 		const t = state.clock.getElapsedTime();
+		// Reduced motion keeps the book perfectly still: no float, no invite
+		// wobble, and no pointer-follow tilt.
 		const float = reducedMotion ? 0 : 1;
 		group.current.position.y = Math.sin(t * 0.9) * 0.015 * float;
 		const invite = turned === 0 ? Math.sin(t * 0.7) * 0.05 * float : 0;
-		const targetRotY = pointer.current.x * 0.22 + invite;
-		const targetRotX = -0.1 - pointer.current.y * 0.14;
+		const targetRotY = pointer.current.x * 0.22 * float + invite;
+		const targetRotX = -0.1 - pointer.current.y * 0.14 * float;
 		group.current.rotation.y +=
 			(targetRotY - group.current.rotation.y) * Math.min(1, dt * 5);
 		group.current.rotation.x +=
@@ -222,7 +237,13 @@ function Book({
 			}}
 		>
 			{leaves.map((leaf, i) => (
-				<Leaf key={i} spec={leaf} index={i} turned={turned} />
+				<Leaf
+					key={i}
+					spec={leaf}
+					index={i}
+					turned={turned}
+					reducedMotion={reducedMotion}
+				/>
 			))}
 		</group>
 	);

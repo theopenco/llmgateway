@@ -88,6 +88,58 @@ function airportCode(label: string): string {
 	return (letters + "XXX").slice(0, 3);
 }
 
+/** UTC date label shared by the page textures and the screen-reader summary. */
+export function formatPassportDate(iso: string | null): string {
+	if (!iso) {
+		return "—";
+	}
+	return new Date(iso)
+		.toLocaleDateString("en-GB", {
+			day: "2-digit",
+			month: "short",
+			year: "numeric",
+			timeZone: "UTC",
+		})
+		.toUpperCase();
+}
+
+/**
+ * Plain-text description of the currently visible spread for assistive
+ * technology — the canvas pages themselves are invisible to screen readers.
+ */
+export function spreadSummary(model: PassportModel, turned: number): string {
+	switch (turned) {
+		case 0:
+			return `Closed DevPass passport of ${model.holderName}. Press Enter or tap to open it.`;
+		case 1: {
+			const visa = model.visa
+				? `${model.visa.tier.toUpperCase()} visa, valid from ${formatPassportDate(model.visa.startedAt)} until ${formatPassportDate(model.visa.expiresAt)}`
+				: "no active visa";
+			return `Visa page for ${model.holderName}: ${visa}.`;
+		}
+		case 2: {
+			const ports =
+				model.airports.map((a) => `${a.label} (${a.code})`).join(", ") ||
+				"none visited yet";
+			const carriers =
+				model.airlines.map((a) => a.label).join(", ") || "none on record";
+			return `Ports of entry, model families: ${ports}. Carriers, harnesses: ${carriers}.`;
+		}
+		case 3: {
+			const stamps =
+				model.stamps
+					.map(
+						(s) =>
+							`${s.model}: entry ${formatPassportDate(s.entry)}, exit ${formatPassportDate(s.exit)}`,
+					)
+					.join("; ") || "awaiting first entry";
+			return `Entry and exit stamps: ${stamps}.`;
+		}
+		default:
+			return `Endorsements: ${model.totalRequests} requests across ${model.activeDays} active days.`;
+	}
+}
+
 export function buildPassportModel(profile: ProfileData): PassportModel {
 	const airportMap = new Map<string, PassportAirport>();
 	for (const row of profile.models) {

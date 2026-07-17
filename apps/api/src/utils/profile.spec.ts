@@ -97,11 +97,16 @@ describe("computeProfileData passport fields", () => {
 
 		const profile = await computeProfileData("test-user-id");
 		const gpt = profile?.models.find((m) => m.id === "gpt-4o");
+		expect(gpt).toBeDefined();
 		expect(gpt?.requestCount).toBe(8);
 		expect(gpt?.firstUsed).toBe(early.toISOString());
 		expect(gpt?.lastUsed).toBe(late.toISOString());
 
+		// A single hour bucket collapses to identical first/last timestamps.
+		const opusHour = new Date(late.getTime() + HOUR_MS).toISOString();
 		const opus = profile?.models.find((m) => m.id === "claude-opus-4-8");
-		expect(opus?.firstUsed).toBe(opus?.lastUsed);
+		expect(opus).toBeDefined();
+		expect(opus?.firstUsed).toBe(opusHour);
+		expect(opus?.lastUsed).toBe(opusHour);
 	});
 });

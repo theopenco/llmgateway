@@ -1,6 +1,8 @@
 /* eslint-disable no-mixed-operators -- canvas layout math is dense with
  * mixed arithmetic, and prettier strips the clarifying parentheses the rule
  * would otherwise require (same trade-off as packages/db/src/logs.ts). */
+import { formatPassportDate as formatDate } from "./passport-data";
+
 import type {
 	PassportAirline,
 	PassportAirport,
@@ -44,17 +46,27 @@ function makeCanvas(): CanvasRenderingContext2D {
 	return ctx;
 }
 
-function formatDate(iso: string | null): string {
-	if (!iso) {
-		return "—";
+/**
+ * Ellipsize `text` so it fits `maxWidth` with the CURRENT ctx.font — set the
+ * font before calling. Keeps user-provided strings (names, handles, model
+ * ids) from spilling over adjacent fields or the page edge.
+ */
+function fitText(
+	ctx: CanvasRenderingContext2D,
+	text: string,
+	maxWidth: number,
+): string {
+	if (ctx.measureText(text).width <= maxWidth) {
+		return text;
 	}
-	return new Date(iso)
-		.toLocaleDateString("en-GB", {
-			day: "2-digit",
-			month: "short",
-			year: "numeric",
-		})
-		.toUpperCase();
+	let trimmed = text;
+	while (
+		trimmed.length > 1 &&
+		ctx.measureText(trimmed + "…").width > maxWidth
+	) {
+		trimmed = trimmed.slice(0, -1);
+	}
+	return trimmed + "…";
 }
 
 function formatCompact(n: number): string {
@@ -228,16 +240,23 @@ export function drawVisaPage(data: PassportModel): HTMLCanvasElement {
 		ctx.fillText(text, x, y);
 		ctx.letterSpacing = "0px";
 	};
-	const value = (text: string, x: number, y: number, size = 30) => {
+	const value = (
+		text: string,
+		x: number,
+		y: number,
+		size = 30,
+		maxWidth = PAGE_W - 140,
+	) => {
 		ctx.fillStyle = PAPER_INK;
 		ctx.font = `600 ${size}px ${SANS}`;
-		ctx.fillText(text, x, y);
+		ctx.fillText(fitText(ctx, text, maxWidth), x, y);
 	};
 
 	label("SURNAME / GIVEN NAMES", 70, 180);
 	value(data.holderName.toUpperCase(), 70, 218);
 	label("CALLSIGN", 70, 280);
-	value(data.username ? `@${data.username}` : "—", 70, 318);
+	// The member-since column starts at x=400; keep the callsign clear of it.
+	value(data.username ? `@${data.username}` : "—", 70, 318, 30, 310);
 	label("MEMBER SINCE", 400, 280);
 	value(formatDate(data.memberSince), 400, 318, 26);
 
@@ -373,7 +392,7 @@ export function drawAirportsPage(
 		ctx.fillText(airport.code, 72, y + 52);
 
 		ctx.font = `500 27px ${SANS}`;
-		ctx.fillText(airport.label, 240, y + 44);
+		ctx.fillText(fitText(ctx, airport.label, 300), 240, y + 44);
 
 		ctx.textAlign = "right";
 		ctx.font = `600 24px ${MONO}`;
@@ -429,7 +448,7 @@ export function drawAirlinesPage(
 		ctx.fillStyle = PAPER_INK;
 		ctx.textAlign = "left";
 		ctx.font = `600 30px ${SANS}`;
-		ctx.fillText(airline.label, 180, y + 46);
+		ctx.fillText(fitText(ctx, airline.label, 360), 180, y + 46);
 		ctx.fillStyle = PAPER_FAINT;
 		ctx.font = `500 20px ${MONO}`;
 		ctx.fillText(
@@ -493,13 +512,11 @@ export function drawStampsPage(
 		ctx.textAlign = "center";
 		ctx.font = `500 17px ${MONO}`;
 		ctx.letterSpacing = "4px";
-		ctx.fillText(stamp.family.toUpperCase(), 0, top + 38);
+		ctx.fillText(fitText(ctx, stamp.family.toUpperCase(), w - 60), 0, top + 38);
 		ctx.letterSpacing = "0px";
 
-		const name =
-			stamp.model.length > 24 ? stamp.model.slice(0, 23) + "…" : stamp.model;
 		ctx.font = `700 30px ${MONO}`;
-		ctx.fillText(name.toUpperCase(), 0, top + 78);
+		ctx.fillText(fitText(ctx, stamp.model.toUpperCase(), w - 50), 0, top + 78);
 
 		ctx.font = `600 19px ${MONO}`;
 		ctx.textAlign = "left";
@@ -547,9 +564,13 @@ export function drawEndorsementsPage(data: PassportModel): HTMLCanvasElement {
 	ctx.font = `500 22px ${MONO}`;
 	ctx.letterSpacing = "3px";
 	ctx.fillText(
-		data.username
-			? `DEVPASS.LLMGATEWAY.IO/PROFILES/${data.username.toUpperCase()}`
-			: "DEVPASS.LLMGATEWAY.IO",
+		fitText(
+			ctx,
+			data.username
+				? `DEVPASS.LLMGATEWAY.IO/PROFILES/${data.username.toUpperCase()}`
+				: "DEVPASS.LLMGATEWAY.IO",
+			PAGE_W - 120,
+		),
 		PAGE_W / 2,
 		PAGE_H - 120,
 	);

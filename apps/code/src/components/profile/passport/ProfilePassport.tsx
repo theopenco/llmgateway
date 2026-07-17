@@ -2,8 +2,12 @@
 
 import { BookOpen, ChevronLeft, ChevronRight } from "lucide-react";
 import dynamic from "next/dynamic";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
+import {
+	buildPassportModel,
+	spreadSummary,
+} from "@/components/profile/passport/passport-data";
 import { MAX_TURNED } from "@/components/profile/passport/passport-shared";
 import { Button } from "@/components/ui/button";
 
@@ -40,6 +44,13 @@ export function ProfilePassport({ profile }: { profile: ProfileData }) {
 		);
 	}, []);
 
+	// The canvas pages are invisible to assistive technology; announce each
+	// spread's content as it changes.
+	const summary = useMemo(
+		() => spreadSummary(buildPassportModel(profile), turned),
+		[profile, turned],
+	);
+
 	return (
 		<section aria-label="DevPass passport">
 			<div className="mb-3 flex items-center justify-between">
@@ -57,6 +68,14 @@ export function ProfilePassport({ profile }: { profile: ProfileData }) {
 				aria-roledescription="interactive 3D passport"
 				tabIndex={0}
 				onKeyDown={(event) => {
+					// The nav buttons handle their own Enter/Space; acting here
+					// too would advance twice per key press.
+					if (
+						event.target instanceof HTMLElement &&
+						event.target.closest("button")
+					) {
+						return;
+					}
 					if (event.key === "ArrowRight" || event.key === "Enter") {
 						event.preventDefault();
 						advance(1);
@@ -67,6 +86,9 @@ export function ProfilePassport({ profile }: { profile: ProfileData }) {
 					}
 				}}
 			>
+				<p className="sr-only" aria-live="polite">
+					{summary}
+				</p>
 				<div className="h-[420px] sm:h-[480px]">
 					<PassportCanvas
 						profile={profile}
