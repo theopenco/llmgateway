@@ -4867,8 +4867,8 @@ describe("prepareRequestBody - developer role normalization", () => {
 		)) as any;
 	}
 
-	test("maps developer role to system for non-OpenAI providers", async () => {
-		const requestBody = await prepare("zai", "glm-5.2");
+	test("rewrites developer to system for a mapping with supportsDeveloperRole: false (granite/glm-5.2)", async () => {
+		const requestBody = await prepare("granite", "glm-5.2");
 		expect(requestBody.messages[0].role).toBe("system");
 		expect(requestBody.messages[0].content).toBe(
 			"You are a helpful assistant.",
@@ -4876,9 +4876,9 @@ describe("prepareRequestBody - developer role normalization", () => {
 		expect(requestBody.messages[1].role).toBe("user");
 	});
 
-	test("maps developer role to system for alibaba (glm-5.2)", async () => {
-		const requestBody = await prepare("alibaba", "glm-5.2");
-		expect(requestBody.messages[0].role).toBe("system");
+	test("preserves developer role for a mapping that supports it (zai/glm-5.2)", async () => {
+		const requestBody = await prepare("zai", "glm-5.2");
+		expect(requestBody.messages[0].role).toBe("developer");
 	});
 
 	test("preserves developer role for OpenAI", async () => {

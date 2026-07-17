@@ -740,12 +740,11 @@ function transformMessagesForNoSystemRole(messages: any[]): any[] {
 }
 
 /**
- * Maps the OpenAI-only `developer` role to `system`. Only OpenAI's own Chat
- * Completions / Responses surfaces (and Azure OpenAI) accept the `developer`
- * role; other OpenAI-compatible providers reject it with a 400 ("developer is
- * not one of ['system', 'assistant', 'user', 'tool', 'function']"). `developer`
- * is semantically a system instruction, so downgrading it to `system` is safe
- * everywhere it isn't natively supported.
+ * Maps the OpenAI-only `developer` role to `system`. Applied only for mappings
+ * that declare `supportsDeveloperRole: false`, i.e. upstreams that reject
+ * `developer` with a 400 ("developer is not one of ['system', 'assistant',
+ * 'user', 'tool', 'function']"). `developer` is semantically a system
+ * instruction, so downgrading it to `system` is safe on those upstreams.
  */
 function transformDeveloperRole(messages: any[]): any[] {
 	return messages.map((message) =>
@@ -1378,12 +1377,18 @@ export async function prepareRequestBody(
 
 	let processedMessages = messages;
 
-	// Normalize the OpenAI-only `developer` role to `system` for every provider
-	// except OpenAI/Azure OpenAI, which accept it natively. Other
-	// OpenAI-compatible providers reject `developer` with a 400.
-	const providerSupportsDeveloperRole =
-		usedProvider === "openai" || usedProvider === "azure";
-	if (!providerSupportsDeveloperRole) {
+	// Rewrite the OpenAI-only `developer` role to `system` for mappings that
+	// declare they don't accept it (`supportsDeveloperRole: false`). Some
+	// OpenAI-compatible upstreams reject `developer` with a 400 ("developer is
+	// not one of ['system', 'assistant', 'user', 'tool', 'function']"). Mappings
+	// default to accepting `developer`, so this only rewrites where explicitly
+	// opted out.
+	const developerRoleMapping = modelDef?.providers.find(
+		(p) =>
+			p.providerId === usedProvider &&
+			((p as ProviderModelMapping).region ?? null) === usedRegion,
+	) as ProviderModelMapping | undefined;
+	if (developerRoleMapping?.supportsDeveloperRole === false) {
 		processedMessages = transformDeveloperRole(processedMessages);
 	}
 
