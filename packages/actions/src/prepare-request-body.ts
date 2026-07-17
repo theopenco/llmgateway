@@ -56,19 +56,17 @@ export function hashSessionCacheKey(sessionId: string): string {
 }
 
 /**
- * OpenAI, Azure, and Meta cap `prompt_cache_key` at 64 characters and reject
- * anything longer with a 400 (`string_above_max_length`). Callers can supply an
- * over-length key (e.g. a coding agent that concatenates several ids), so hash
- * any key that exceeds the limit down to a stable 32-char digest — cache
- * routing only needs the key to be stable per conversation, and the digest
- * stays well within the limit. Keys within the limit pass through unchanged.
+ * Hash a caller-supplied `prompt_cache_key` before forwarding it upstream.
+ * OpenAI, Azure, and Meta cap the field at 64 characters and reject anything
+ * longer with a 400 (`string_above_max_length`). Rather than only clamping
+ * over-length keys, always hash to a stable 32-char digest: every upstream
+ * cache key the gateway sends (this, the session-id hash, the conversation
+ * prefix hash) is then a uniform 32-char value, and raw caller values are never
+ * exposed to providers. Keyed and domain-separated exactly like
+ * `hashSessionCacheKey`, so cache routing stays stable per key.
  */
-const MAX_PROMPT_CACHE_KEY_LENGTH = 64;
-export function clampPromptCacheKey(key: string): string {
-	if (key.length <= MAX_PROMPT_CACHE_KEY_LENGTH) {
-		return key;
-	}
-	return createHash("sha256").update(key).digest("hex").slice(0, 32);
+export function hashPromptCacheKey(key: string): string {
+	return hashSessionCacheKey(key);
 }
 
 /**
@@ -1726,7 +1724,9 @@ export async function prepareRequestBody(
 					usedProvider === "meta"
 				) {
 					const upstreamCacheKey =
-						prompt_cache_key ??
+						(prompt_cache_key !== undefined
+							? hashPromptCacheKey(prompt_cache_key)
+							: undefined) ??
 						(session_id !== undefined
 							? hashSessionCacheKey(session_id)
 							: undefined) ??
@@ -1734,8 +1734,7 @@ export async function prepareRequestBody(
 							? deriveConversationCacheKey(processedMessages)
 							: undefined);
 					if (upstreamCacheKey !== undefined) {
-						responsesBody.prompt_cache_key =
-							clampPromptCacheKey(upstreamCacheKey);
+						responsesBody.prompt_cache_key = upstreamCacheKey;
 					}
 				}
 
@@ -1825,13 +1824,14 @@ export async function prepareRequestBody(
 					// may hit a legacy deployment-based api-version that rejects
 					// unknown body fields, and the deployment type isn't known here.
 					const upstreamCacheKey =
-						prompt_cache_key ??
+						(prompt_cache_key !== undefined
+							? hashPromptCacheKey(prompt_cache_key)
+							: undefined) ??
 						(session_id !== undefined
 							? hashSessionCacheKey(session_id)
 							: undefined);
 					if (upstreamCacheKey !== undefined) {
-						requestBody.prompt_cache_key =
-							clampPromptCacheKey(upstreamCacheKey);
+						requestBody.prompt_cache_key = upstreamCacheKey;
 					}
 					if (
 						prompt_cache_retention !== undefined &&

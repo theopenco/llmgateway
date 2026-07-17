@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import {
-	clampPromptCacheKey,
+	hashPromptCacheKey,
 	hashSessionCacheKey,
 	prepareRequestBody,
 	RequestError,
@@ -544,7 +544,7 @@ describe("prepareRequestBody - OpenAI prompt caching", () => {
 			promptCacheRetention: "24h",
 		})) as any;
 
-		expect(requestBody.prompt_cache_key).toBe("tenant-a");
+		expect(requestBody.prompt_cache_key).toBe(hashPromptCacheKey("tenant-a"));
 		expect(requestBody.prompt_cache_retention).toBe("24h");
 	});
 
@@ -555,7 +555,7 @@ describe("prepareRequestBody - OpenAI prompt caching", () => {
 			promptCacheRetention: "in_memory",
 		})) as any;
 
-		expect(requestBody.prompt_cache_key).toBe("tenant-a");
+		expect(requestBody.prompt_cache_key).toBe(hashPromptCacheKey("tenant-a"));
 		expect(requestBody.prompt_cache_retention).toBe("in_memory");
 	});
 
@@ -613,7 +613,7 @@ describe("prepareRequestBody - OpenAI prompt caching", () => {
 			promptCacheRetention: "24h",
 		})) as any;
 
-		expect(requestBody.prompt_cache_key).toBe("tenant-a");
+		expect(requestBody.prompt_cache_key).toBe(hashPromptCacheKey("tenant-a"));
 		expect(requestBody.prompt_cache_retention).toBeUndefined();
 	});
 
@@ -4510,7 +4510,9 @@ describe("prepareRequestBody - upstream prompt_cache_key", () => {
 			{ promptCacheKey: "caller-session-key", sessionId: "sess-123" },
 		);
 
-		expect(requestBody.prompt_cache_key).toBe("caller-session-key");
+		expect(requestBody.prompt_cache_key).toBe(
+			hashPromptCacheKey("caller-session-key"),
+		);
 	});
 
 	test("meta: session id beats the conversation-derived key and is hashed", async () => {
@@ -4622,21 +4624,16 @@ describe("prepareRequestBody - upstream prompt_cache_key", () => {
 		expect(a).not.toContain("sess-1");
 	});
 
-	test("clampPromptCacheKey passes through keys within the 64-char limit", () => {
-		const key = "a".repeat(64);
-		expect(clampPromptCacheKey(key)).toBe(key);
-		expect(clampPromptCacheKey("tenant-a")).toBe("tenant-a");
+	test("hashPromptCacheKey always hashes to a stable 32-char digest", () => {
+		expect(hashPromptCacheKey("tenant-a")).toHaveLength(32);
+		expect(hashPromptCacheKey("tenant-a")).toBe(hashPromptCacheKey("tenant-a"));
+		expect(hashPromptCacheKey("tenant-a")).not.toBe(
+			hashPromptCacheKey("tenant-b"),
+		);
+		expect(hashPromptCacheKey("tenant-a")).not.toContain("tenant-a");
 	});
 
-	test("clampPromptCacheKey hashes over-length keys to a stable 32-char digest", () => {
-		const key = "x".repeat(72);
-		const clamped = clampPromptCacheKey(key);
-		expect(clamped).toHaveLength(32);
-		expect(clamped).toBe(clampPromptCacheKey(key));
-		expect(clampPromptCacheKey("y".repeat(72))).not.toBe(clamped);
-	});
-
-	test("openai chat completions: clamps an over-length caller key to <= 64 chars", async () => {
+	test("openai chat completions: hashes the caller key within the 64-char limit", async () => {
 		const requestBody = await prepareCacheKeyRequest(
 			"openai",
 			"gpt-4o-mini",
@@ -4645,12 +4642,12 @@ describe("prepareRequestBody - upstream prompt_cache_key", () => {
 		);
 
 		expect(requestBody.prompt_cache_key).toBe(
-			clampPromptCacheKey("z".repeat(72)),
+			hashPromptCacheKey("z".repeat(72)),
 		);
 		expect(requestBody.prompt_cache_key?.length).toBeLessThanOrEqual(64);
 	});
 
-	test("openai responses API: clamps an over-length caller key to <= 64 chars", async () => {
+	test("openai responses API: hashes the caller key within the 64-char limit", async () => {
 		const requestBody = await prepareCacheKeyRequest(
 			"openai",
 			"gpt-5-mini",
@@ -4659,7 +4656,7 @@ describe("prepareRequestBody - upstream prompt_cache_key", () => {
 		);
 
 		expect(requestBody.prompt_cache_key).toBe(
-			clampPromptCacheKey("z".repeat(72)),
+			hashPromptCacheKey("z".repeat(72)),
 		);
 		expect(requestBody.prompt_cache_key?.length).toBeLessThanOrEqual(64);
 	});
