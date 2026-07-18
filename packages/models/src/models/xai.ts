@@ -726,6 +726,7 @@ export const xaiModels = [
 				streaming: true,
 				vision: true,
 				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high"],
 				reasoningOutput: "omit",
 				tools: true,
 				jsonOutput: true,

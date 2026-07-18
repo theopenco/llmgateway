@@ -243,15 +243,23 @@ function checkPlanEligibility(
 }
 
 /**
- * A Reset Pass purchase is returnable while the pass itself is still unused:
- * the tier-bound inventory the purchase granted must still hold at least one
- * pass. The tier is recovered from the charged amount — fulfilment validated
- * it against the tier's fixed price, so the mapping is unambiguous. The
- * `charge.refunded` webhook performs the clawback, so a redeem racing the
- * refund can at worst leave the clamped-at-zero inventory, never a free pass.
+ * A Reset Pass purchase is returnable while the pass itself is still unused.
+ * Passes are fungible within a tier, so redemptions are attributed to the
+ * oldest un-refunded purchase first: a purchase is only refundable while it
+ * ranks within the newest `inventory` un-refunded purchases of its tier.
+ * Gating on the rank rather than just `inventory >= 1` stops a second
+ * purchase from being refunded against the same unredeemed pass — both
+ * outright (a redeemed older purchase never becomes refundable again) and
+ * during the window before the `charge.refunded` webhook records the first
+ * refund's clawback. The tier is recovered from the charged amount —
+ * fulfilment validated it against the tier's fixed price, so the mapping is
+ * unambiguous. The webhook performs the clawback clamped at zero, so a
+ * redeem racing the refund can at worst leave empty inventory, never a free
+ * pass.
  */
 function checkResetPassEligibility(
 	organization: OrganizationRow,
+	transactions: TransactionRow[],
 	transaction: TransactionRow,
 ): SelfRefundEligibility {
 	const amount = dec(transaction.amount);
@@ -262,12 +270,29 @@ function checkResetPassEligibility(
 		return ineligible("unsupported_type");
 	}
 	const inventory =
-		tier === "lite"
+		(tier === "lite"
 			? organization.devPlanResetPassesLite
 			: tier === "pro"
 				? organization.devPlanResetPassesPro
-				: organization.devPlanResetPassesMax;
-	if ((inventory ?? 0) < 1) {
+				: organization.devPlanResetPassesMax) ?? 0;
+
+	const refundedIds = new Set(
+		transactions
+			.filter((t) => t.type === "credit_refund" && t.relatedTransactionId)
+			.map((t) => t.relatedTransactionId),
+	);
+	const tierPrice = dec(DEV_PLAN_RESET_PASS_PRICES[tier]);
+	const newerUnrefundedSameTier = transactions.filter(
+		(t) =>
+			t.type === "dev_plan_reset_pass" &&
+			isCompleted(t) &&
+			!refundedIds.has(t.id) &&
+			dec(t.amount).eq(tierPrice) &&
+			(t.createdAt > transaction.createdAt ||
+				(t.createdAt.getTime() === transaction.createdAt.getTime() &&
+					t.id > transaction.id)),
+	).length;
+	if (newerUnrefundedSameTier >= inventory) {
 		return ineligible("pass_already_used");
 	}
 	return { eligible: true };
@@ -338,7 +363,7 @@ export function computeSelfRefundEligibility({
 				"dev",
 			);
 		case "dev_plan_reset_pass":
-			return checkResetPassEligibility(organization, transaction);
+			return checkResetPassEligibility(organization, transactions, transaction);
 		case "chat_plan_start":
 		case "chat_plan_renewal":
 			return checkPlanEligibility(
