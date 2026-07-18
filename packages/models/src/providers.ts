@@ -201,6 +201,9 @@ export const providers: ProviderDefinition[] = [
 			required: {
 				apiKey: "LLM_OPENAI_API_KEY",
 			},
+			optional: {
+				baseUrl: "LLM_OPENAI_BASE_URL",
+			},
 		},
 		streaming: true,
 		cancellation: true,

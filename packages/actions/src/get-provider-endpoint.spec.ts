@@ -12,6 +12,7 @@ const originalAzureFoundryResource = process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE;
 const originalAzureFoundryApiVersion =
 	process.env.LLM_AZURE_AI_FOUNDRY_API_VERSION;
 const originalXiaomiBaseUrl = process.env.LLM_XIAOMI_BASE_URL;
+const originalOpenaiBaseUrl = process.env.LLM_OPENAI_BASE_URL;
 const originalBedrockBaseUrl = process.env.LLM_AWS_BEDROCK_BASE_URL;
 const originalBedrockRegion = process.env.LLM_AWS_BEDROCK_REGION;
 
@@ -71,6 +72,12 @@ afterEach(() => {
 		process.env.LLM_XIAOMI_BASE_URL = originalXiaomiBaseUrl;
 	}
 
+	if (originalOpenaiBaseUrl === undefined) {
+		delete process.env.LLM_OPENAI_BASE_URL;
+	} else {
+		process.env.LLM_OPENAI_BASE_URL = originalOpenaiBaseUrl;
+	}
+
 	if (originalBedrockBaseUrl === undefined) {
 		delete process.env.LLM_AWS_BEDROCK_BASE_URL;
 	} else {
@@ -107,6 +114,22 @@ describe("getProviderEndpoint", () => {
 		expect(() => getProviderEndpoint("glacier")).toThrow(
 			"Glacier provider requires LLM_GLACIER_BASE_URL environment variable",
 		);
+	});
+
+	it("uses the OpenAI base URL override when configured", () => {
+		process.env.LLM_OPENAI_BASE_URL = "http://localhost:8787/openai";
+
+		const endpoint = getProviderEndpoint("openai", undefined, "gpt-4o");
+
+		expect(endpoint).toBe("http://localhost:8787/openai/v1/chat/completions");
+	});
+
+	it("defaults to api.openai.com when no OpenAI base URL is configured", () => {
+		delete process.env.LLM_OPENAI_BASE_URL;
+
+		const endpoint = getProviderEndpoint("openai", undefined, "gpt-4o");
+
+		expect(endpoint).toBe("https://api.openai.com/v1/chat/completions");
 	});
 
 	it("uses the AI Studio base URL override when configured", () => {
@@ -461,6 +484,8 @@ describe("getProviderEndpoint", () => {
 		});
 
 		it("uses hardcoded default for openai regardless of skipEnvVars", () => {
+			process.env.LLM_OPENAI_BASE_URL = "http://localhost:8787/openai";
+
 			const endpoint = getProviderEndpoint(
 				"openai",
 				undefined,

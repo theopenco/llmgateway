@@ -840,9 +840,10 @@ export async function beforeAllHook() {
 	for (const provider of providers) {
 		const envVarName = getProviderEnvVar(provider.id);
 		const envVarValue = envVarName ? process.env[envVarName] : undefined;
-		const baseUrlEnvName = (
-			provider.env.required as Record<string, string | undefined>
-		).baseUrl;
+		const baseUrlEnvName =
+			(provider.env.required as Record<string, string | undefined>).baseUrl ??
+			(provider.env.optional as Record<string, string | undefined> | undefined)
+				?.baseUrl;
 		const baseUrlValue = baseUrlEnvName
 			? process.env[baseUrlEnvName]
 			: undefined;

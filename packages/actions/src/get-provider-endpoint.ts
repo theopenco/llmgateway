@@ -177,7 +177,9 @@ export function getProviderEndpoint(
 				}
 				break;
 			case "openai":
-				url = "https://api.openai.com";
+				url =
+					envValueOrDefault("openai", "baseUrl", "https://api.openai.com") ??
+					"https://api.openai.com";
 				break;
 			case "anthropic":
 				url = "https://api.anthropic.com";
