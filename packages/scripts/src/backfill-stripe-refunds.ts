@@ -1,13 +1,23 @@
 /* eslint-disable no-console */
 /**
- * One-time backfill: reconcile legacy credit_refund rows whose amount was
+ * One-time backfill in two passes:
+ *
+ * Pass 1 (legacy rows): reconcile legacy credit_refund rows whose amount was
  * stored as the cumulative `charge.amount_refunded` (pre-fix in
  * apps/api/src/stripe.ts) and which therefore have no stripe_refund_id.
- *
  * For each affected DevPass payment intent, pulls the actual succeeded refunds
  * from Stripe, deletes the DevPass legacy NULL-refund-id rows, and inserts one
  * correct row per Stripe refund delta — keyed on stripe_refund_id so the run is
  * idempotent. Regular credit top-up refunds are intentionally skipped.
+ *
+ * Pass 2 (sweep): iterate every refund in Stripe and insert credit_refund rows
+ * for refunds that never produced a DB row at all. Plan refunds (DevPass, chat,
+ * legacy subscription) store only stripe_invoice_id on the original
+ * transaction, and Stripe 18.x dropped `charge.invoice`, so charge.refunded
+ * webhooks failed with "Original transaction not found" before the
+ * invoice-payments fallback was added — those refunds exist only in Stripe.
+ * Missing credit_topup refunds are reported but NOT inserted, since those also
+ * require a credits deduction and need manual review.
  *
  * Usage:
  *   pnpm --filter @llmgateway/scripts backfill-stripe-refunds                       # dry run
@@ -68,6 +78,23 @@ async function main(): Promise<void> {
 		console.log(`Scoped to payment intent: ${scopePI}`);
 	}
 
+	await legacyPass(stripe, commit, scopePI);
+	await sweepPass(stripe, commit, scopePI);
+
+	if (!commit) {
+		console.log(`\n(Dry run — re-run with --commit to apply)`);
+	}
+
+	process.exit(0);
+}
+
+async function legacyPass(
+	stripe: Stripe,
+	commit: boolean,
+	scopePI: string | undefined,
+): Promise<void> {
+	console.log(`\n=== Pass 1: legacy credit_refund rows ===`);
+
 	const legacyRows = await db
 		.select()
 		.from(tables.transaction)
@@ -85,8 +112,8 @@ async function main(): Promise<void> {
 		`\nFound ${legacyRows.length} legacy credit_refund row(s) without stripe_refund_id`,
 	);
 	if (legacyRows.length === 0) {
-		console.log("Nothing to backfill.");
-		process.exit(0);
+		console.log("No legacy rows to backfill.");
+		return;
 	}
 
 	const devpassRows: typeof legacyRows = [];
@@ -135,13 +162,11 @@ async function main(): Promise<void> {
 	}
 
 	if (nonDevpassRows > 0) {
-		console.log(
-			`Skipping ${nonDevpassRows} non-DevPass legacy refund row(s).`,
-		);
+		console.log(`Skipping ${nonDevpassRows} non-DevPass legacy refund row(s).`);
 	}
 	if (devpassRows.length === 0) {
-		console.log("No DevPass refund rows to backfill.");
-		process.exit(0);
+		console.log("No legacy DevPass refund rows to backfill.");
+		return;
 	}
 
 	const byPI = new Map<string, typeof devpassRows>();
@@ -212,7 +237,9 @@ async function main(): Promise<void> {
 		}
 
 		refundAttempts = refundAttempts.sort((a, b) => a.created - b.created);
-		const skippedAttempts = refundAttempts.filter((r) => r.status !== "succeeded");
+		const skippedAttempts = refundAttempts.filter(
+			(r) => r.status !== "succeeded",
+		);
 		if (skippedAttempts.length > 0) {
 			console.log(
 				`  Ignoring ${skippedAttempts.length} non-succeeded Stripe refund attempt(s):`,
@@ -233,7 +260,7 @@ async function main(): Promise<void> {
 			continue;
 		}
 
-		const stripeTotal = refunds.reduce((s, r) => s + r.amount / 100, 0);
+		const stripeTotal = refunds.reduce((s, r) => s + r.amount, 0) / 100;
 		console.log(
 			`  Succeeded Stripe refunds (${refunds.length}, sum $${stripeTotal.toFixed(2)}):`,
 		);
@@ -277,14 +304,12 @@ async function main(): Promise<void> {
 
 		if (commit) {
 			await db.transaction(async (tx) => {
-				await tx
-					.delete(tables.transaction)
-					.where(
-						inArray(
-							tables.transaction.id,
-							rows.map((row) => row.id),
-						),
-					);
+				await tx.delete(tables.transaction).where(
+					inArray(
+						tables.transaction.id,
+						rows.map((row) => row.id),
+					),
+				);
 
 				for (const r of toInsert) {
 					const refundDollars = r.amount / 100;
@@ -313,7 +338,7 @@ async function main(): Promise<void> {
 		totalInsert += toInsert.length;
 	}
 
-	console.log(`\n=== Summary ===`);
+	console.log(`\nPass 1 summary:`);
 	console.log(
 		`  ${totalDelete} legacy row(s) ${commit ? "deleted" : "would be deleted"}`,
 	);
@@ -321,12 +346,164 @@ async function main(): Promise<void> {
 		`  ${totalInsert} correct row(s) ${commit ? "inserted" : "would be inserted"}`,
 	);
 	console.log(`  ${totalSkippedPI} payment intent(s) skipped`);
+}
 
-	if (!commit) {
-		console.log(`\n(Dry run — re-run with --commit to apply)`);
+// Plan purchases (dev_plan_start from setup-mode checkout, invoice renewals)
+// record only the invoice id on the transaction, and current Stripe API
+// versions no longer link a charge back to its invoice. Resolve the paid
+// invoice from the invoice payment this payment intent settled — an exact
+// lookup that works for arbitrarily old invoices. Mirrors
+// resolveRefundInvoiceId in apps/api/src/stripe.ts.
+async function resolveRefundInvoiceId(
+	stripe: Stripe,
+	paymentIntentId: string,
+): Promise<string | undefined> {
+	const payments = await stripe.invoicePayments.list({
+		payment: { type: "payment_intent", payment_intent: paymentIntentId },
+		limit: 1,
+	});
+	const invoice = payments.data[0]?.invoice;
+	if (!invoice) {
+		return undefined;
+	}
+	return typeof invoice === "string" ? invoice : (invoice.id ?? undefined);
+}
+
+async function sweepPass(
+	stripe: Stripe,
+	commit: boolean,
+	scopePI: string | undefined,
+): Promise<void> {
+	console.log(`\n=== Pass 2: sweep Stripe refunds missing from the DB ===`);
+
+	const matchableTypes: (
+		| "credit_topup"
+		| "dev_plan_start"
+		| "dev_plan_renewal"
+		| "dev_plan_upgrade"
+		| "chat_plan_start"
+		| "chat_plan_renewal"
+		| "chat_plan_upgrade"
+		| "subscription_start"
+	)[] = [
+		"credit_topup",
+		"dev_plan_start",
+		"dev_plan_renewal",
+		"dev_plan_upgrade",
+		"chat_plan_start",
+		"chat_plan_renewal",
+		"chat_plan_upgrade",
+		"subscription_start",
+	];
+
+	let scanned = 0;
+	let inserted = 0;
+	let unmatched = 0;
+	let creditTopupMisses = 0;
+
+	for await (const refund of stripe.refunds.list({
+		limit: 100,
+		...(scopePI ? { payment_intent: scopePI } : {}),
+	})) {
+		scanned += 1;
+		if (refund.status !== "succeeded") {
+			continue;
+		}
+		const pi =
+			typeof refund.payment_intent === "string"
+				? refund.payment_intent
+				: (refund.payment_intent?.id ?? undefined);
+		if (!pi) {
+			continue;
+		}
+
+		const existing = await db.query.transaction.findFirst({
+			where: { stripeRefundId: { eq: refund.id } },
+		});
+		if (existing) {
+			continue;
+		}
+
+		// End-user SDK wallet top-up refunds live in wallet_ledger, not
+		// transaction — the webhook handler reverses those separately.
+		const walletTopUp = await db.query.walletLedger.findFirst({
+			where: { stripePaymentIntentId: { eq: pi }, type: { eq: "topup" } },
+		});
+		if (walletTopUp) {
+			continue;
+		}
+
+		let original = await db.query.transaction.findFirst({
+			where: {
+				stripePaymentIntentId: { eq: pi },
+				type: { in: matchableTypes },
+			},
+		});
+		let invoiceId: string | undefined;
+		if (!original) {
+			invoiceId = await resolveRefundInvoiceId(stripe, pi);
+			if (invoiceId) {
+				original = await db.query.transaction.findFirst({
+					where: {
+						stripeInvoiceId: { eq: invoiceId },
+						type: { in: matchableTypes },
+					},
+				});
+			}
+		}
+
+		const refundDollars = refund.amount / 100;
+		const created = new Date(refund.created * 1000);
+
+		if (!original) {
+			unmatched += 1;
+			console.warn(
+				`  UNMATCHED: refund ${refund.id} $${refundDollars.toFixed(2)} pi=${pi}${invoiceId ? ` invoice=${invoiceId}` : ""} created=${created.toISOString()} — no original transaction found`,
+			);
+			continue;
+		}
+
+		if (original.type === "credit_topup") {
+			creditTopupMisses += 1;
+			console.warn(
+				`  SKIP credit_topup: refund ${refund.id} $${refundDollars.toFixed(2)} org=${original.organizationId} created=${created.toISOString()} — needs a credits deduction too, review manually`,
+			);
+			continue;
+		}
+
+		const originalAmount = Number.parseFloat(original.amount ?? "0");
+		const ratio = originalAmount > 0 ? refundDollars / originalAmount : 0;
+		console.log(
+			`  INSERT: refund ${refund.id} $${refundDollars.toFixed(2)} → ${original.type} ${original.id} org=${original.organizationId} created=${created.toISOString()}`,
+		);
+
+		if (commit) {
+			await db.insert(tables.transaction).values({
+				createdAt: created,
+				updatedAt: created,
+				organizationId: original.organizationId,
+				type: "credit_refund",
+				amount: refundDollars.toString(),
+				creditAmount: "0",
+				currency: original.currency ?? "USD",
+				status: "completed",
+				stripePaymentIntentId: pi,
+				stripeRefundId: refund.id,
+				relatedTransactionId: original.id,
+				refundReason: refund.reason ?? null,
+				description: `Credit refund: $${refundDollars.toFixed(2)} (${(ratio * 100).toFixed(1)}% of original purchase) [backfilled]`,
+			});
+		}
+		inserted += 1;
 	}
 
-	process.exit(0);
+	console.log(`\nPass 2 summary:`);
+	console.log(`  ${scanned} Stripe refund(s) scanned`);
+	console.log(
+		`  ${inserted} missing row(s) ${commit ? "inserted" : "would be inserted"}`,
+	);
+	console.log(`  ${creditTopupMisses} missing credit_topup refund(s) skipped`);
+	console.log(`  ${unmatched} refund(s) unmatched`);
 }
 
 main().catch((err) => {
