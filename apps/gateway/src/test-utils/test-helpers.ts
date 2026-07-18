@@ -22,8 +22,21 @@ export async function waitForLogs(
 	const startTime = Date.now();
 	console.log(`Waiting for ${expectedCount} logs (timeout: ${maxWaitMs}ms)...`);
 
-	while (Date.now() - startTime < maxWaitMs) {
-		await processLogQueue();
+	// The deadline is sampled before draining the queue and one final
+	// drain+query always runs after it expires: a single processLogQueue call
+	// can block for many seconds (its internal insert retry backoff sleeps
+	// between attempts), so the deadline may pass while the logs actually
+	// landed in the database.
+	for (;;) {
+		const deadlineReached = Date.now() - startTime >= maxWaitMs;
+
+		try {
+			await processLogQueue();
+		} catch (error) {
+			// A transient Redis/Postgres hiccup on a loaded CI runner shouldn't
+			// insta-fail the test; keep polling until the deadline.
+			console.warn("processLogQueue failed, retrying:", error);
+		}
 
 		const logs = await db.query.log.findMany({});
 
@@ -34,13 +47,17 @@ export async function waitForLogs(
 			return logs;
 		}
 
+		if (deadlineReached) {
+			break;
+		}
+
 		// Wait for the next interval
 		await new Promise((resolve) => {
 			setTimeout(resolve, intervalMs);
 		});
 	}
 
-	const message = `Timed out waiting for ${expectedCount} logs after ${maxWaitMs}ms`;
+	const message = `Timed out waiting for ${expectedCount} logs after ${Date.now() - startTime}ms`;
 	console.warn(message);
 
 	throw new Error(message);
@@ -60,9 +77,20 @@ export async function waitForLogByRequestId(
 ) {
 	const startTime = Date.now();
 
-	while (Date.now() - startTime < maxWaitMs) {
+	// Same deadline handling as waitForLogs: always run one final drain+query
+	// after the deadline expires, since a single processLogQueue call can block
+	// past it while the log actually landed.
+	for (;;) {
+		const deadlineReached = Date.now() - startTime >= maxWaitMs;
+
 		// Process the log queue to ensure any pending logs are written to the database
-		await processLogQueue();
+		try {
+			await processLogQueue();
+		} catch (error) {
+			// A transient Redis/Postgres hiccup on a loaded CI runner shouldn't
+			// insta-fail the test; keep polling until the deadline.
+			console.warn("processLogQueue failed, retrying:", error);
+		}
 
 		// Query for the specific log entry by request ID
 		const logs = await db
@@ -77,13 +105,17 @@ export async function waitForLogByRequestId(
 			return log;
 		}
 
+		if (deadlineReached) {
+			break;
+		}
+
 		// Wait for the next interval
 		await new Promise((resolve) => {
 			setTimeout(resolve, intervalMs);
 		});
 	}
 
-	const message = `Timed out waiting for log with request ID ${requestId} after ${maxWaitMs}ms`;
+	const message = `Timed out waiting for log with request ID ${requestId} after ${Date.now() - startTime}ms`;
 	console.warn(message);
 
 	throw new Error(message);

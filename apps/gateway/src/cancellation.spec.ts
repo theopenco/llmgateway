@@ -17,7 +17,10 @@ import {
 	stopMockServer,
 	waitForMockCheckpoint,
 } from "./test-utils/mock-openai-server.js";
-import { clearCache, waitForLogs } from "./test-utils/test-helpers.js";
+import {
+	clearCache,
+	waitForLogByRequestId,
+} from "./test-utils/test-helpers.js";
 
 import type { ServerType } from "@hono/node-server";
 
@@ -127,12 +130,16 @@ describe("client cancellation logging", () => {
 		return new Promise((resolve) => setTimeout(resolve, 50));
 	}
 
-	function postChat(content: string, signal: AbortSignal) {
+	// Pin the gateway's request id (it honors x-request-id) so each test can
+	// wait for exactly its own log row instead of counting all rows in the
+	// table, which is brittle against any stray row from another request.
+	function postChat(content: string, signal: AbortSignal, requestId: string) {
 		return fetch(`${gatewayUrl}/v1/chat/completions`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
 				Authorization: "Bearer real-token",
+				"x-request-id": requestId,
 			},
 			body: JSON.stringify({
 				model: "llmgateway/custom",
@@ -142,85 +149,103 @@ describe("client cancellation logging", () => {
 		});
 	}
 
-	test("abort before the upstream responds is logged as canceled, not an error", async () => {
-		const controller = new AbortController();
-		// Mock delays 5s before sending any response; abort lands while the
-		// gateway is awaiting the upstream fetch. The checkpoint resolves once
-		// the mock has received the gateway's upstream request and started its
-		// delay, so the abort verifiably lands mid-fetch instead of racing a
-		// fixed sleep against slow CI runners.
-		const upstreamRequestReceived = waitForMockCheckpoint("TRIGGER_TIMEOUT");
-		const requestPromise = postChat(
-			`TRIGGER_TIMEOUT_5000 ${Math.random()}`,
-			controller.signal,
-		);
-		await upstreamRequestReceived;
-		controller.abort();
-
-		await expect(requestPromise).rejects.toThrow();
-
-		const logs = await waitForLogs(1);
-		expect(logs.length).toBe(1);
-		const log = logs[0];
+	// Wait for this request's canceled log and assert its shape. The long
+	// deadline (well past waitForLogs' 10s default) absorbs slow CI runners and
+	// the log worker's internal insert retry backoff, which can delay a queued
+	// log by tens of seconds; each test's vitest timeout is sized above it.
+	async function expectCanceledLog(requestId: string) {
+		const log = await waitForLogByRequestId(requestId, 60000);
 		expect(log.canceled).toBe(true);
 		expect(log.finishReason).toBe("canceled");
 		expect(log.hasError).toBe(false);
 		expect(log.errorDetails).toBeNull();
-	});
-
-	test("abort while reading the response body is logged as canceled, not an error", async () => {
-		const controller = new AbortController();
-		// Mock returns 200 headers + a partial body, then hangs without
-		// finishing it. The abort lands while the gateway is awaiting
-		// res.json(), exercising the body-read cancellation path. The
-		// checkpoint resolves once the mock has flushed the partial body, so
-		// the gateway verifiably has the upstream request in flight before the
-		// abort fires.
-		const partialBodyFlushed = waitForMockCheckpoint("TRIGGER_BODY_HANG");
-		const requestPromise = postChat(
-			`TRIGGER_BODY_HANG ${Math.random()}`,
-			controller.signal,
-		);
-		await partialBodyFlushed;
-		await settle();
-		controller.abort();
-
-		await expect(requestPromise).rejects.toThrow();
-
-		const logs = await waitForLogs(1);
+		// Exactly one row for this request: a canceled request must not also
+		// produce a second (e.g. error) log entry.
+		const logs = await db.query.log.findMany({
+			where: { requestId: { eq: requestId } },
+		});
 		expect(logs.length).toBe(1);
-		const log = logs[0];
-		expect(log.canceled).toBe(true);
-		expect(log.finishReason).toBe("canceled");
-		expect(log.hasError).toBe(false);
-		expect(log.errorDetails).toBeNull();
-	});
+	}
 
-	test("abort while reading a non-OK error body is logged as canceled, not an error", async () => {
-		const controller = new AbortController();
-		// Mock returns a 500 status + a partial error body, then hangs without
-		// finishing it. The abort lands while the gateway is awaiting res.text()
-		// on the error path, exercising the error-body cancellation path. The
-		// checkpoint resolves once the mock has flushed the partial error body,
-		// so the gateway verifiably has the upstream request in flight before
-		// the abort fires.
-		const partialBodyFlushed = waitForMockCheckpoint("TRIGGER_5XX_BODY_HANG");
-		const requestPromise = postChat(
-			`TRIGGER_5XX_BODY_HANG ${Math.random()}`,
-			controller.signal,
-		);
-		await partialBodyFlushed;
-		await settle();
-		controller.abort();
+	test(
+		"abort before the upstream responds is logged as canceled, not an error",
+		{ timeout: 90000 },
+		async () => {
+			const controller = new AbortController();
+			const requestId = `cancel-mid-fetch-${crypto.randomUUID()}`;
+			// Mock delays 5s before sending any response; abort lands while the
+			// gateway is awaiting the upstream fetch. The checkpoint resolves once
+			// the mock has received the gateway's upstream request and started its
+			// delay, so the abort verifiably lands mid-fetch instead of racing a
+			// fixed sleep against slow CI runners.
+			const upstreamRequestReceived = waitForMockCheckpoint("TRIGGER_TIMEOUT");
+			const requestPromise = postChat(
+				`TRIGGER_TIMEOUT_5000 ${Math.random()}`,
+				controller.signal,
+				requestId,
+			);
+			await upstreamRequestReceived;
+			controller.abort();
 
-		await expect(requestPromise).rejects.toThrow();
+			await expect(requestPromise).rejects.toThrow();
 
-		const logs = await waitForLogs(1);
-		expect(logs.length).toBe(1);
-		const log = logs[0];
-		expect(log.canceled).toBe(true);
-		expect(log.finishReason).toBe("canceled");
-		expect(log.hasError).toBe(false);
-		expect(log.errorDetails).toBeNull();
-	});
+			await expectCanceledLog(requestId);
+		},
+	);
+
+	test(
+		"abort while reading the response body is logged as canceled, not an error",
+		{ timeout: 90000 },
+		async () => {
+			const controller = new AbortController();
+			const requestId = `cancel-body-read-${crypto.randomUUID()}`;
+			// Mock returns 200 headers + a partial body, then hangs without
+			// finishing it. The abort lands while the gateway is awaiting
+			// res.json(), exercising the body-read cancellation path. The
+			// checkpoint resolves once the mock has flushed the partial body, so
+			// the gateway verifiably has the upstream request in flight before the
+			// abort fires.
+			const partialBodyFlushed = waitForMockCheckpoint("TRIGGER_BODY_HANG");
+			const requestPromise = postChat(
+				`TRIGGER_BODY_HANG ${Math.random()}`,
+				controller.signal,
+				requestId,
+			);
+			await partialBodyFlushed;
+			await settle();
+			controller.abort();
+
+			await expect(requestPromise).rejects.toThrow();
+
+			await expectCanceledLog(requestId);
+		},
+	);
+
+	test(
+		"abort while reading a non-OK error body is logged as canceled, not an error",
+		{ timeout: 90000 },
+		async () => {
+			const controller = new AbortController();
+			const requestId = `cancel-error-body-${crypto.randomUUID()}`;
+			// Mock returns a 500 status + a partial error body, then hangs without
+			// finishing it. The abort lands while the gateway is awaiting res.text()
+			// on the error path, exercising the error-body cancellation path. The
+			// checkpoint resolves once the mock has flushed the partial error body,
+			// so the gateway verifiably has the upstream request in flight before
+			// the abort fires.
+			const partialBodyFlushed = waitForMockCheckpoint("TRIGGER_5XX_BODY_HANG");
+			const requestPromise = postChat(
+				`TRIGGER_5XX_BODY_HANG ${Math.random()}`,
+				controller.signal,
+				requestId,
+			);
+			await partialBodyFlushed;
+			await settle();
+			controller.abort();
+
+			await expect(requestPromise).rejects.toThrow();
+
+			await expectCanceledLog(requestId);
+		},
+	);
 });
