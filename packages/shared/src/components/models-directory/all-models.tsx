@@ -645,7 +645,11 @@ export function AllModels({
 		(searchParams.get("sortDir") as SortDirection) === "desc" ? "desc" : "asc",
 	);
 	const [filters, setFilters] = useState({
-		category: searchParams.get("category") ?? defaultCategory,
+		// With the selector hidden there is no way to see or change the
+		// category, so ignore any URL override and pin the default.
+		category: hideUseCaseFilter
+			? defaultCategory
+			: (searchParams.get("category") ?? defaultCategory),
 		tier: searchParams.get("tier") ?? "all",
 		capabilities: {
 			streaming: searchParams.get("streaming") === "true",

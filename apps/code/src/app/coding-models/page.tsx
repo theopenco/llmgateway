@@ -92,8 +92,8 @@ export default function CodingModelsPage() {
 							Coding Models
 						</h2>
 						<p className="text-center text-muted-foreground mb-8 max-w-2xl mx-auto">
-							We recommend the latest frontier open-weight models — the full
-							standard and premium catalogue is one tab away.
+							We recommend the latest models from open-weight-first labs — the
+							full standard and premium catalogue is one tab away.
 						</p>
 						<CodingModelsShowcase showCTA showTabs />
 					</div>

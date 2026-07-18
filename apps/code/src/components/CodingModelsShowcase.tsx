@@ -42,16 +42,13 @@ function isActiveMapping(provider: ModelProvider): boolean {
 }
 
 // Mirrors the `category=code` filter on the models directory: paid, stable
-// text models with at least one active mapping offering tools, JSON output,
+// models with at least one active mapping offering tools, JSON output,
 // streaming, and cached input pricing.
 function isCodingModel(model: ModelDefinition): boolean {
 	if (model.free) {
 		return false;
 	}
 	if (model.stability === "unstable" || model.stability === "experimental") {
-		return false;
-	}
-	if (model.output?.some((output) => output !== "text")) {
 		return false;
 	}
 	return model.providers.some(
@@ -245,7 +242,7 @@ export function CodingModelsShowcase({
 			<p className="text-sm text-muted-foreground mb-4">
 				{showTabs && activeTab
 					? activeTab.description
-					: "The latest open-weight models — high performance on coding tasks with tool support and prompt caching."}
+					: "The latest open-weight-lab models — high performance on coding tasks with tool support and prompt caching."}
 			</p>
 			<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 				{visibleModels.map((model) => {
@@ -259,7 +256,7 @@ export function CodingModelsShowcase({
 							key={model.id}
 							className="group relative flex flex-col gap-2 rounded-lg border p-4 transition-all hover:border-primary/50 hover:shadow-sm"
 						>
-							{view !== "premium" && premiumIds.has(model.id) ? (
+							{premiumIds.has(model.id) ? (
 								<span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
 									<Gem className="h-2.5 w-2.5" />
 									Premium
