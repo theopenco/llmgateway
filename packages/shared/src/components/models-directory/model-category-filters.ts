@@ -200,6 +200,16 @@ export const CLOSED_SOURCE_MODEL_IDS: ReadonlySet<string> = new Set([
 	"kimi-k3",
 ]);
 
+// Labs whose model lines are open-weight-first. Broader than the strict
+// open-source filter above: it includes families like Alibaba (Qwen) whose
+// catalogue mixes open and API-only releases, and keeps API-only launches from
+// these labs (e.g. kimi-k3, qwen3.7-max) since they compete on open-lab
+// pricing. Used to derive "recommended" model surfaces from the catalogue so
+// new releases show up without curation.
+export const OPEN_WEIGHT_LAB_FAMILIES: ReadonlySet<string> = new Set(
+	Array.from(OPEN_SOURCE_FAMILIES).concat(["alibaba", "mistral"]),
+);
+
 export function isTextOutput(output: string[] | null | undefined): boolean {
 	return (
 		!output?.includes("image") &&

@@ -8,7 +8,6 @@ import { toast } from "sonner";
 import ApiKeySection from "@/app/dashboard/components/ApiKeySection";
 import { plans } from "@/app/dashboard/plans";
 import { useDevPlanStatus } from "@/app/dashboard/useDevPlanStatus";
-import { CodingModelsShowcase } from "@/components/CodingModelsShowcase";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
@@ -137,12 +136,6 @@ export default function UsagePage() {
 
 			{/* Integrations */}
 			<DashboardIntegrations uiUrl={config.uiUrl} />
-
-			{/* Models */}
-			<div>
-				<h2 className="mb-4 font-semibold">Coding models</h2>
-				<CodingModelsShowcase uiUrl={config.uiUrl} />
-			</div>
 		</div>
 	);
 }

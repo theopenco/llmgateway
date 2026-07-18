@@ -21,14 +21,14 @@ const PREMIUM_INPUT_PER_M = HIGH_COST_INPUT_PRICE * 1e6;
 const PREMIUM_OUTPUT_PER_M = HIGH_COST_OUTPUT_PRICE * 1e6;
 
 export const metadata: Metadata = {
-	title: "AI Models on DevPass — Full Directory",
+	title: "Coding Models on DevPass — Full Directory",
 	description:
-		"Browse every model available on DevPass — search, filter by pricing tier, capabilities, provider, price, and context size. Premium models are marked exactly as the gateway classifies them.",
+		"Browse the coding models available on DevPass — search, filter by pricing tier, capabilities, provider, price, and context size. Premium models are marked exactly as the gateway classifies them.",
 	alternates: { canonical: "/models" },
 	openGraph: {
-		title: "AI Models on DevPass — Full Directory",
+		title: "Coding Models on DevPass — Full Directory",
 		description:
-			"Browse every model available on DevPass — search, filter by pricing tier, capabilities, provider, price, and context size.",
+			"Browse the coding models available on DevPass — search, filter by pricing tier, capabilities, provider, price, and context size.",
 		type: "website",
 		url: "https://devpass.llmgateway.io/models",
 	},
@@ -44,9 +44,9 @@ export default async function DevPassModelsPage() {
 	const collectionSchema = {
 		"@context": "https://schema.org",
 		"@type": "CollectionPage",
-		name: "AI Models on DevPass",
+		name: "Coding Models on DevPass",
 		description:
-			"Every model available on DevPass, with the exact premium/standard fair-use classification the gateway enforces.",
+			"The coding models available on DevPass, with the exact premium/standard fair-use classification the gateway enforces.",
 		url: "https://devpass.llmgateway.io/models",
 	};
 	const collectionSchemaJson = JSON.stringify(collectionSchema).replace(
@@ -66,8 +66,8 @@ export default async function DevPassModelsPage() {
 					uiUrl={config.uiUrl}
 					models={models}
 					providers={providers}
-					title="Models on DevPass"
-					description="Every model on your DevPass plan — filter by pricing tier to see exactly which models count against the weekly premium allowance and which don't."
+					title="Coding models on DevPass"
+					description="The coding models on your DevPass plan — filter by pricing tier to see exactly which models count against the weekly premium allowance and which don't."
 					seoContent={
 						<section className="container mx-auto px-4 pb-16">
 							<h2 className="text-2xl font-bold mb-4">

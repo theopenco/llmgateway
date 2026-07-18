@@ -115,6 +115,16 @@ interface AllModelsProps {
 	 * limits, so the filter is hidden unless the surface opts in.
 	 */
 	showPricingTierFilter?: boolean;
+	/**
+	 * Use Case category applied when the URL has no `category` param
+	 * (e.g. DevPass pins its directory to `code`).
+	 */
+	defaultCategory?: string;
+	/**
+	 * Hide the Use Case select entirely. Combine with `defaultCategory` when a
+	 * surface is pinned to a single use case.
+	 */
+	hideUseCaseFilter?: boolean;
 }
 
 type SortField =
@@ -595,6 +605,8 @@ export function AllModels({
 	renderCta,
 	modelHrefBase = "",
 	showPricingTierFilter = false,
+	defaultCategory = "all",
+	hideUseCaseFilter = false,
 }: AllModelsProps) {
 	const router = useRouter();
 	const pathname = usePathname();
@@ -633,7 +645,7 @@ export function AllModels({
 		(searchParams.get("sortDir") as SortDirection) === "desc" ? "desc" : "asc",
 	);
 	const [filters, setFilters] = useState({
-		category: searchParams.get("category") ?? "all",
+		category: searchParams.get("category") ?? defaultCategory,
 		tier: searchParams.get("tier") ?? "all",
 		capabilities: {
 			streaming: searchParams.get("streaming") === "true",
@@ -1284,7 +1296,7 @@ export function AllModels({
 
 	const hasActiveFilters =
 		searchQuery ||
-		(filters.category && filters.category !== "all") ||
+		(filters.category && filters.category !== defaultCategory) ||
 		(filters.tier && filters.tier !== "all") ||
 		Object.values(filters.capabilities).some(Boolean) ||
 		(filters.selectedProvider && filters.selectedProvider !== "all") ||
@@ -1445,7 +1457,7 @@ export function AllModels({
 	const clearFilters = () => {
 		setSearchQuery("");
 		setFilters({
-			category: "all",
+			category: defaultCategory,
 			tier: "all",
 			capabilities: {
 				streaming: false,
@@ -1509,69 +1521,74 @@ export function AllModels({
 				<div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
 					{/* Categories */}
 					<div className="space-y-3">
-						<div className="font-medium text-sm">Use Case</div>
-						<Select
-							value={filters.category}
-							onValueChange={(value) => {
-								setFilters((prev) => ({ ...prev, category: value }));
-								updateUrlWithFilters({
-									category: value !== "all" ? value : undefined,
-								});
-							}}
-						>
-							<SelectTrigger className="w-full">
-								<SelectValue placeholder="All Use Cases" />
-							</SelectTrigger>
-							<SelectContent>
-								<SelectItem value="all">
-									<div className="flex items-center gap-2">
-										<List className="h-4 w-4 text-muted-foreground" />
-										All Use Cases
-									</div>
-								</SelectItem>
-								<SelectItem value="code">
-									<div className="flex items-center gap-2">
-										<Code className="h-4 w-4 text-indigo-500" />
-										Code Generation
-									</div>
-								</SelectItem>
-								<SelectItem value="chat">
-									<div className="flex items-center gap-2">
-										<Bot className="h-4 w-4 text-blue-500" />
-										Chat & Assistants
-									</div>
-								</SelectItem>
-								<SelectItem value="reasoning">
-									<div className="flex items-center gap-2">
-										<Brain className="h-4 w-4 text-orange-500" />
-										Reasoning & Analysis
-									</div>
-								</SelectItem>
-								<SelectItem value="creative">
-									<div className="flex items-center gap-2">
-										<PenTool className="h-4 w-4 text-purple-500" />
-										Creative & Writing
-									</div>
-								</SelectItem>
-								<SelectItem value="image">
-									<div className="flex items-center gap-2">
-										<ImagePlus className="h-4 w-4 text-pink-500" />
-										Image Generation
-									</div>
-								</SelectItem>
-								<SelectItem value="multimodal">
-									<div className="flex items-center gap-2">
-										<Sparkles className="h-4 w-4 text-amber-500" />
-										Multimodal (Vision)
-									</div>
-								</SelectItem>
-							</SelectContent>
-						</Select>
+						{!hideUseCaseFilter && (
+							<>
+								<div className="font-medium text-sm">Use Case</div>
+								<Select
+									value={filters.category}
+									onValueChange={(value) => {
+										setFilters((prev) => ({ ...prev, category: value }));
+										updateUrlWithFilters({
+											category: value !== defaultCategory ? value : undefined,
+										});
+									}}
+								>
+									<SelectTrigger className="w-full">
+										<SelectValue placeholder="All Use Cases" />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="all">
+											<div className="flex items-center gap-2">
+												<List className="h-4 w-4 text-muted-foreground" />
+												All Use Cases
+											</div>
+										</SelectItem>
+										<SelectItem value="code">
+											<div className="flex items-center gap-2">
+												<Code className="h-4 w-4 text-indigo-500" />
+												Code Generation
+											</div>
+										</SelectItem>
+										<SelectItem value="chat">
+											<div className="flex items-center gap-2">
+												<Bot className="h-4 w-4 text-blue-500" />
+												Chat & Assistants
+											</div>
+										</SelectItem>
+										<SelectItem value="reasoning">
+											<div className="flex items-center gap-2">
+												<Brain className="h-4 w-4 text-orange-500" />
+												Reasoning & Analysis
+											</div>
+										</SelectItem>
+										<SelectItem value="creative">
+											<div className="flex items-center gap-2">
+												<PenTool className="h-4 w-4 text-purple-500" />
+												Creative & Writing
+											</div>
+										</SelectItem>
+										<SelectItem value="image">
+											<div className="flex items-center gap-2">
+												<ImagePlus className="h-4 w-4 text-pink-500" />
+												Image Generation
+											</div>
+										</SelectItem>
+										<SelectItem value="multimodal">
+											<div className="flex items-center gap-2">
+												<Sparkles className="h-4 w-4 text-amber-500" />
+												Multimodal (Vision)
+											</div>
+										</SelectItem>
+									</SelectContent>
+								</Select>
+							</>
+						)}
 
 						{showPricingTierFilter ? (
 							<>
-								{/* Pricing tier — stacked under Use Case to keep the
-								    filter grid on a single row */}
+								{/* Pricing tier — stacked under Use Case (or standing in
+								    for it when that select is hidden) to keep the filter
+								    grid on a single row */}
 								<div className="font-medium text-sm">
 									Pricing Tier (DevPass)
 								</div>
@@ -2075,7 +2092,8 @@ export function AllModels({
 											>
 												{[
 													searchQuery ? 1 : 0,
-													filters.category && filters.category !== "all"
+													filters.category &&
+													filters.category !== defaultCategory
 														? 1
 														: 0,
 													filters.tier && filters.tier !== "all" ? 1 : 0,

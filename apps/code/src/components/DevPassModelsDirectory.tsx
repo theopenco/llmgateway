@@ -15,7 +15,14 @@ type SharedAllModelsProps = ComponentProps<typeof SharedAllModels>;
 export function DevPassModelsDirectory({
 	uiUrl,
 	...rest
-}: Omit<SharedAllModelsProps, "footer" | "renderCta" | "modelHrefBase"> & {
+}: Omit<
+	SharedAllModelsProps,
+	| "footer"
+	| "renderCta"
+	| "modelHrefBase"
+	| "defaultCategory"
+	| "hideUseCaseFilter"
+> & {
 	uiUrl: string;
 }) {
 	return (
@@ -23,6 +30,8 @@ export function DevPassModelsDirectory({
 			{...rest}
 			modelHrefBase={uiUrl}
 			showPricingTierFilter
+			defaultCategory="code"
+			hideUseCaseFilter
 			footer={<Footer />}
 			renderCta={({ size, className, iconClassName, onClick }) => (
 				<Button
