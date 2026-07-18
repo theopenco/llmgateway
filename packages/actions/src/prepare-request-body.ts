@@ -2144,13 +2144,7 @@ export async function prepareRequestBody(
 						thinkingBudget = Math.max(1, max_tokens - 1);
 					}
 					requestBody.enable_thinking = true;
-					// thinking_budget is documented by DashScope as applying only to
-					// Qwen-family models (Qwen3.7/3.6/3.5/3/3-VL); non-Qwen models hosted
-					// on Alibaba (e.g. Kimi-K2.5) support enable_thinking but have not
-					// been confirmed to accept thinking_budget, so it's gated here.
-					if (providerMappingForOptions?.externalId?.startsWith("qwen")) {
-						requestBody.thinking_budget = thinkingBudget;
-					}
+					requestBody.thinking_budget = thinkingBudget;
 				}
 			}
 			break;
