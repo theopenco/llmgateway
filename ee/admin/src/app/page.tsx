@@ -321,6 +321,12 @@ export default async function Page({
 									value: currencyFormatter.format(metrics.grossDevpassRevenue),
 								},
 								{
+									label: "Reset passes",
+									value: currencyFormatter.format(
+										metrics.grossResetPassRevenue,
+									),
+								},
+								{
 									label: "Chat plans",
 									value: currencyFormatter.format(
 										metrics.grossChatPlansRevenue,

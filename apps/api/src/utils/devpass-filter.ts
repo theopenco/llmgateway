@@ -45,6 +45,15 @@ export const DEV_PLAN_TX_TYPES = [
 	"dev_plan_reset_pass",
 ] as const;
 
+// Subscription-billed dev plan rows only — excludes one-time Reset Pass
+// purchases so they can be reported as their own revenue split.
+export const DEV_PLAN_SUBSCRIPTION_TX_TYPES = [
+	"dev_plan_start",
+	"dev_plan_upgrade",
+	"dev_plan_downgrade",
+	"dev_plan_renewal",
+] as const;
+
 // Pre-rename rows for what is now a dev plan. The same `subscription_*` types
 // are STILL written today for non-personal org Pro subs, so always pair them
 // with `organization.kind = 'devpass'` to avoid counting org Pro revenue.

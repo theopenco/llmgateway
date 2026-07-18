@@ -10,6 +10,7 @@ import { adminMiddleware } from "@/middleware/admin.js";
 import { getStripe } from "@/routes/payments.js";
 import {
 	CHAT_PLAN_TX_TYPES,
+	DEV_PLAN_SUBSCRIPTION_TX_TYPES,
 	DEV_PLAN_TX_TYPES,
 	firstRowPerInvoiceFilter,
 	LEGACY_DEV_PLAN_TX_TYPES,
@@ -105,6 +106,7 @@ const adminMetricsSchema = z.object({
 	grossRevenue: z.number(),
 	grossCreditsRevenue: z.number(),
 	grossDevpassRevenue: z.number(),
+	grossResetPassRevenue: z.number(),
 	grossChatPlansRevenue: z.number(),
 	grossProSubscriptionsRevenue: z.number(),
 });
@@ -846,8 +848,10 @@ admin.openapi(getMetrics, async (c) => {
 
 	const grossCreditsRevenue = Number(grossCreditsRow?.value ?? 0);
 
-	// DevPass: dev plan payments (+ legacy `subscription_*` rows on devpass
-	// orgs), deduplicated per Stripe invoice. Mirrors /admin/devpass/timeseries.
+	// DevPass: dev plan subscription payments (+ legacy `subscription_*` rows on
+	// devpass orgs), deduplicated per Stripe invoice. Mirrors
+	// /admin/devpass/timeseries. One-time Reset Pass purchases are reported as
+	// their own split below.
 	const [grossDevpassRow] = await db
 		.select({
 			value:
@@ -865,7 +869,7 @@ admin.openapi(getMetrics, async (c) => {
 				eq(tables.transaction.status, "completed"),
 				eq(tables.organization.kind, "devpass"),
 				inArray(tables.transaction.type, [
-					...DEV_PLAN_TX_TYPES,
+					...DEV_PLAN_SUBSCRIPTION_TX_TYPES,
 					...LEGACY_DEV_PLAN_TX_TYPES,
 				]),
 				firstRowPerInvoiceFilter([
@@ -877,6 +881,32 @@ admin.openapi(getMetrics, async (c) => {
 		);
 
 	const grossDevpassRevenue = Number(grossDevpassRow?.value ?? 0);
+
+	// Reset Passes: one-time PaymentIntent purchases on devpass orgs — no
+	// invoice, so no dedup needed. Gross like the other splits (refunds are
+	// separate `credit_refund` rows and not netted out here).
+	const [grossResetPassRow] = await db
+		.select({
+			value:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"value",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "devpass"),
+				eq(tables.transaction.type, "dev_plan_reset_pass"),
+				transactionDateFilter,
+			),
+		);
+
+	const grossResetPassRevenue = Number(grossResetPassRow?.value ?? 0);
 
 	// Chat Plans: plan payments on chat orgs, deduplicated per Stripe invoice.
 	// Mirrors /admin/chat-plans/timeseries.
@@ -936,6 +966,7 @@ admin.openapi(getMetrics, async (c) => {
 	const grossRevenue =
 		grossCreditsRevenue +
 		grossDevpassRevenue +
+		grossResetPassRevenue +
 		grossChatPlansRevenue +
 		grossProSubscriptionsRevenue;
 
@@ -960,6 +991,7 @@ admin.openapi(getMetrics, async (c) => {
 		grossRevenue,
 		grossCreditsRevenue,
 		grossDevpassRevenue,
+		grossResetPassRevenue,
 		grossChatPlansRevenue,
 		grossProSubscriptionsRevenue,
 	});

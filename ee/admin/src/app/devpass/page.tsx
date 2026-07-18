@@ -481,7 +481,7 @@ export default async function DevpassPage({
 				</Suspense>
 			</header>
 
-			<section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+			<section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
 				<div className="rounded-lg border border-border/60 bg-card p-4">
 					<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
 						<Users className="h-3.5 w-3.5" />

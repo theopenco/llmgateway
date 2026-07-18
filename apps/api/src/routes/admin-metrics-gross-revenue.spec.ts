@@ -16,6 +16,7 @@ interface AdminMetricsResponse {
 	grossRevenue: number;
 	grossCreditsRevenue: number;
 	grossDevpassRevenue: number;
+	grossResetPassRevenue: number;
 	grossChatPlansRevenue: number;
 	grossProSubscriptionsRevenue: number;
 }
@@ -97,6 +98,16 @@ describe("admin /metrics — gross revenue splits", () => {
 				stripeInvoiceId: "inv_gross_dev_2",
 				createdAt: new Date("2026-02-04T00:00:00Z"),
 			},
+			// Reset Pass: one-time PaymentIntent purchase, no invoice. Counted in
+			// its own split, not in DevPass subscription revenue.
+			{
+				organizationId: DEVPASS_ORG_ID,
+				type: "dev_plan_reset_pass",
+				amount: "9",
+				creditAmount: null,
+				status: "completed",
+				createdAt: new Date("2026-01-07T00:00:00Z"),
+			},
 			// Chat Plan: $10 paid for a plan that includes $150 of virtual
 			// credits — the $150 allowance must never count as revenue.
 			{
@@ -134,12 +145,13 @@ describe("admin /metrics — gross revenue splits", () => {
 
 		// Gross = positive Stripe amounts, refunds ignored: $21 + $11 credits.
 		expect(body.grossCreditsRevenue).toBe(32);
-		// $20 start + $20 second-cycle renewal.
+		// $20 start + $20 second-cycle renewal — the Reset Pass is NOT in here.
 		expect(body.grossDevpassRevenue).toBe(40);
+		expect(body.grossResetPassRevenue).toBe(9);
 		expect(body.grossChatPlansRevenue).toBe(10);
 		// Legacy subscription on a non-devpass org.
 		expect(body.grossProSubscriptionsRevenue).toBe(50);
-		expect(body.grossRevenue).toBe(132);
+		expect(body.grossRevenue).toBe(141);
 
 		// The credits-economy metrics must exclude ALL plan rows: chat plan
 		// creditAmount ($150) is a virtual allowance, not revenue.
