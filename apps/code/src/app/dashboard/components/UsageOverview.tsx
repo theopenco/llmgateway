@@ -345,6 +345,8 @@ export default function UsageOverview({
 							price={resetPassPrice}
 							premiumCreditsUsed={premiumCreditsUsed}
 							premiumWeeklyLimit={premiumWeeklyLimit}
+							cycleCreditsUsed={creditsUsed}
+							cycleCreditsLimit={creditsLimit}
 						/>
 					</div>
 				)}

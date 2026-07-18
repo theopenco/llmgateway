@@ -390,6 +390,140 @@ describe("computeSelfRefundEligibility", () => {
 
 		expect(await getEligibility(tx.id)).toEqual({ eligible: true });
 	});
+
+	test("unused reset pass within 7 days is eligible", async () => {
+		await seedOrg({
+			kind: "devpass",
+			devPlan: "pro",
+			devPlanResetPassesPro: 1,
+		});
+		const tx = await seedTransaction({
+			type: "dev_plan_reset_pass",
+			amount: "29",
+			creditAmount: null,
+			createdAt: daysAgo(6),
+		});
+
+		expect(await getEligibility(tx.id)).toEqual({ eligible: true });
+	});
+
+	test("reset pass older than 7 days is not eligible despite the 14-day default", async () => {
+		await seedOrg({
+			kind: "devpass",
+			devPlan: "pro",
+			devPlanResetPassesPro: 1,
+		});
+		const tx = await seedTransaction({
+			type: "dev_plan_reset_pass",
+			amount: "29",
+			creditAmount: null,
+			createdAt: daysAgo(8),
+		});
+
+		expect(await getEligibility(tx.id)).toEqual({
+			eligible: false,
+			reason: "window_expired",
+		});
+	});
+
+	test("redeemed reset pass is not eligible", async () => {
+		await seedOrg({
+			kind: "devpass",
+			devPlan: "pro",
+			devPlanResetPassesPro: 0,
+		});
+		const tx = await seedTransaction({
+			type: "dev_plan_reset_pass",
+			amount: "29",
+			creditAmount: null,
+		});
+
+		expect(await getEligibility(tx.id)).toEqual({
+			eligible: false,
+			reason: "pass_already_used",
+		});
+	});
+
+	test("reset pass inventory is tier-bound: a lite purchase can't ride on pro passes", async () => {
+		// $9 maps to a lite pass; the held inventory is pro-only, so the lite
+		// purchase itself has already been redeemed.
+		await seedOrg({
+			kind: "devpass",
+			devPlan: "pro",
+			devPlanResetPassesPro: 3,
+		});
+		const tx = await seedTransaction({
+			type: "dev_plan_reset_pass",
+			amount: "9",
+			creditAmount: null,
+		});
+
+		expect(await getEligibility(tx.id)).toEqual({
+			eligible: false,
+			reason: "pass_already_used",
+		});
+	});
+
+	test("reset pass with an amount matching no tier price is unsupported", async () => {
+		await seedOrg({
+			kind: "devpass",
+			devPlan: "pro",
+			devPlanResetPassesPro: 1,
+		});
+		const tx = await seedTransaction({
+			type: "dev_plan_reset_pass",
+			amount: "10",
+			creditAmount: null,
+		});
+
+		expect(await getEligibility(tx.id)).toEqual({
+			eligible: false,
+			reason: "unsupported_type",
+		});
+	});
+
+	test("reset pass stays refundable after the plan itself ended", async () => {
+		// Purchased passes survive a cancelled plan, so the return window does
+		// not depend on an active subscription.
+		await seedOrg({
+			kind: "devpass",
+			devPlan: "none",
+			devPlanResetPassesPro: 1,
+		});
+		const tx = await seedTransaction({
+			type: "dev_plan_reset_pass",
+			amount: "29",
+			creditAmount: null,
+		});
+
+		expect(await getEligibility(tx.id)).toEqual({ eligible: true });
+	});
+
+	test("already refunded reset pass is not eligible", async () => {
+		await seedOrg({
+			kind: "devpass",
+			devPlan: "pro",
+			devPlanResetPassesPro: 1,
+		});
+		const tx = await seedTransaction({
+			type: "dev_plan_reset_pass",
+			amount: "29",
+			creditAmount: null,
+		});
+		await seedTransaction({
+			type: "credit_refund",
+			amount: "29",
+			creditAmount: "0",
+			stripeRefundId: "re_test_pass",
+			relatedTransactionId: tx.id,
+			stripePaymentIntentId: null,
+		});
+
+		expect(await getEligibility(tx.id)).toEqual({
+			eligible: false,
+			reason: "already_refunded",
+		});
+	});
 });
 
 describe("self-refund endpoints", () => {

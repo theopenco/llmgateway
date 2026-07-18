@@ -41,7 +41,7 @@ Two kinds of stamps appear on the card:
 
 ## Redeeming a pass
 
-Click **Use a pass** on the card. Your premium usage for the week is zeroed immediately and the 7-day window restarts with your next premium request. Redemption is deliberately explicit — a pass is never consumed automatically, and the gateway rejects a redeem while your allowance is untouched, so a pass can't be wasted.
+Click **Use a pass** on the card. Your premium usage for the week is zeroed immediately and the 7-day window restarts with your next premium request. Redemption is deliberately explicit — a pass is never consumed automatically, and two guards stop a pass from being wasted: a redeem is rejected while your allowance is untouched, and also once you've used more than 90% of your monthly credit allowance (a reset then would restore a cap you have almost nothing left to spend against — the pass keeps until your credits renew).
 
 Standard models are unaffected either way: they never count against the weekly cap.
 
@@ -59,7 +59,9 @@ If you hit the cap from a coding agent, the gateway's `402` response points here
 
 ## Buying and billing
 
-**Buy a pass** shows a confirmation dialog, then charges the payment method saved on your DevPass — no checkout redirect, no subscription change, no proration. Each purchase emails a PDF invoice and appears in the DevPass billing history alongside plan charges.
+**Buy a pass** shows a confirmation dialog, then charges the payment method saved on your DevPass — no checkout redirect, no subscription change, no proration. Each purchase emails a PDF invoice and appears in the DevPass billing history alongside plan charges. Purchases are paused once you've used more than 95% of your monthly credit allowance — a pass would give you almost nothing to use at that point — and open up again when your credits renew.
+
+An unused pass can be returned: for 7 days after purchase, a purchased pass that hasn't been redeemed can be self-refunded from the billing history. The refund goes back to your payment method, the pass is removed from your passport, and your DevPass plan itself is unaffected.
 
 <ThemedImage
 	alt="DevPass billing history listing Reset Pass purchases with downloadable invoices"

@@ -46,7 +46,8 @@ interface RefundEligibility {
 		| "not_latest_purchase"
 		| "plan_inactive"
 		| "credits_frozen"
-		| "usage_exceeded";
+		| "usage_exceeded"
+		| "pass_already_used";
 }
 
 interface Transaction {
@@ -79,6 +80,7 @@ const REFUND_INELIGIBILITY_COPY: Record<
 	plan_inactive: "The plan for this payment is no longer active",
 	credits_frozen: "Refunds are unavailable while credits are frozen",
 	usage_exceeded: "More than 10% of these credits have been used",
+	pass_already_used: "This Reset Pass has already been redeemed",
 };
 
 function RefundButton({

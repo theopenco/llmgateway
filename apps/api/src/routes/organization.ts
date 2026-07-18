@@ -194,6 +194,7 @@ const refundEligibilitySchema = z.object({
 			"plan_inactive",
 			"credits_frozen",
 			"usage_exceeded",
+			"pass_already_used",
 		])
 		.optional(),
 });

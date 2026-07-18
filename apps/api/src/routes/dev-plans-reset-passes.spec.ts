@@ -59,6 +59,8 @@ const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000;
 
 interface OrgOverrides {
 	devPlan?: "none" | "lite" | "pro" | "max";
+	devPlanCreditsUsed?: string;
+	devPlanCreditsLimit?: string;
 	devPlanPremiumCreditsUsed?: string;
 	devPlanPremiumWeekStart?: Date | null;
 	devPlanIncludedResetPassesUsed?: number;
@@ -212,6 +214,39 @@ describe("reset pass redeem", () => {
 		const res = await redeemRequest(token);
 		expect(res.status).toBe(400);
 		expect((await getOrg()).devPlanResetPassesPro).toBe(2);
+	});
+
+	it("rejects redeem above 90% of the monthly cycle allowance", async () => {
+		// The weekly cap would be restored against an almost-empty credit pool,
+		// wasting the pass — the redeem is held until the cycle renews.
+		await insertOrg({
+			devPlanCreditsUsed: "91",
+			devPlanCreditsLimit: "100",
+			devPlanPremiumCreditsUsed: "5",
+			devPlanPremiumWeekStart: new Date(),
+			devPlanResetPassesPro: 2,
+		});
+
+		const res = await redeemRequest(token);
+		expect(res.status).toBe(400);
+		const body = await res.json();
+		expect(body.message).toContain("90%");
+		expect((await getOrg()).devPlanResetPassesPro).toBe(2);
+	});
+
+	it("allows redeem at exactly 90% of the monthly cycle allowance", async () => {
+		await insertOrg({
+			devPlanCreditsUsed: "90",
+			devPlanCreditsLimit: "100",
+			devPlanPremiumCreditsUsed: "5",
+			devPlanPremiumWeekStart: new Date(),
+			devPlanIncludedResetPassesUsed: 1,
+			devPlanResetPassesPro: 1,
+		});
+
+		const res = await redeemRequest(token);
+		expect(res.status).toBe(200);
+		expect((await getOrg()).devPlanResetPassesPro).toBe(0);
 	});
 
 	it("rejects redeem with no passes available", async () => {
@@ -376,6 +411,33 @@ describe("reset pass purchase", () => {
 		const res = await purchaseRequest(token);
 		expect(res.status).toBe(400);
 		expect(stripeMock.paymentIntents.create).not.toHaveBeenCalled();
+	});
+
+	it("rejects purchase above 95% of the monthly cycle allowance", async () => {
+		// A pass sold against an almost-exhausted credit pool would be unusable
+		// this cycle — the card is never charged.
+		await insertOrg({
+			devPlanCreditsUsed: "96",
+			devPlanCreditsLimit: "100",
+		});
+
+		const res = await purchaseRequest(token);
+		expect(res.status).toBe(400);
+		const body = await res.json();
+		expect(body.message).toContain("95%");
+		expect(stripeMock.paymentIntents.create).not.toHaveBeenCalled();
+		expect((await getOrg()).devPlanResetPassesPro).toBe(0);
+	});
+
+	it("allows purchase at exactly 95% of the monthly cycle allowance", async () => {
+		await insertOrg({
+			devPlanCreditsUsed: "95",
+			devPlanCreditsLimit: "100",
+		});
+
+		const res = await purchaseRequest(token);
+		expect(res.status).toBe(200);
+		expect((await getOrg()).devPlanResetPassesPro).toBe(1);
 	});
 
 	it("rejects purchase when no payment method is on file", async () => {

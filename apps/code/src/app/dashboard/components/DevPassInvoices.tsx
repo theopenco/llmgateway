@@ -122,11 +122,22 @@ const REFUND_INELIGIBILITY_COPY: Record<string, string> = {
 	plan_inactive: "Your DevPass is no longer active",
 	credits_frozen: "Refunds are unavailable while credits are frozen",
 	usage_exceeded: "More than 10% of this period's credits have been used",
+	pass_already_used: "This Reset Pass has already been redeemed",
 };
+
+function refundIneligibilityCopy(invoice: Invoice): string {
+	const reason = invoice.refund?.reason ?? "unsupported_type";
+	// Reset Passes have a shorter return window than plan payments.
+	if (reason === "window_expired" && invoice.type === "dev_plan_reset_pass") {
+		return "Unused Reset Passes can be refunded for 7 days after purchase";
+	}
+	return REFUND_INELIGIBILITY_COPY[reason] ?? "This payment cannot be refunded";
+}
 
 function RefundButton({ invoice }: { invoice: Invoice }) {
 	const api = useApi();
 	const queryClient = useQueryClient();
+	const isResetPass = invoice.type === "dev_plan_reset_pass";
 
 	const refundMutation = api.useMutation(
 		"post",
@@ -134,7 +145,9 @@ function RefundButton({ invoice }: { invoice: Invoice }) {
 		{
 			onSuccess: () => {
 				toast.success(
-					"Refund processing. Your DevPass has been cancelled and the refund will arrive within a few business days.",
+					isResetPass
+						? "Refund processing. The unused pass has been returned and the refund will arrive within a few business days."
+						: "Refund processing. Your DevPass has been cancelled and the refund will arrive within a few business days.",
 				);
 				void queryClient.invalidateQueries({
 					predicate: (query) => {
@@ -167,12 +180,7 @@ function RefundButton({ invoice }: { invoice: Invoice }) {
 
 	if (!refund.eligible) {
 		return (
-			<span
-				title={
-					REFUND_INELIGIBILITY_COPY[refund.reason ?? "unsupported_type"] ??
-					"This payment cannot be refunded"
-				}
-			>
+			<span title={refundIneligibilityCopy(invoice)}>
 				<Button variant="outline" size="sm" disabled>
 					<Undo2 className="h-4 w-4" />
 					<span className="sr-only sm:not-sr-only">Refund</span>
@@ -195,15 +203,19 @@ function RefundButton({ invoice }: { invoice: Invoice }) {
 			</AlertDialogTrigger>
 			<AlertDialogContent>
 				<AlertDialogHeader>
-					<AlertDialogTitle>Refund this payment?</AlertDialogTitle>
+					<AlertDialogTitle>
+						{isResetPass ? "Refund this Reset Pass?" : "Refund this payment?"}
+					</AlertDialogTitle>
 					<AlertDialogDescription>
-						{formatAmount(invoice.amount, invoice.currency)} will be refunded to
-						your payment method and your DevPass will be cancelled immediately.
-						This cannot be undone.
+						{isResetPass
+							? `${formatAmount(invoice.amount, invoice.currency)} will be refunded to your payment method and the unused pass removed from your passport. Your DevPass plan is not affected. This cannot be undone.`
+							: `${formatAmount(invoice.amount, invoice.currency)} will be refunded to your payment method and your DevPass will be cancelled immediately. This cannot be undone.`}
 					</AlertDialogDescription>
 				</AlertDialogHeader>
 				<AlertDialogFooter>
-					<AlertDialogCancel>Keep my DevPass</AlertDialogCancel>
+					<AlertDialogCancel>
+						{isResetPass ? "Keep my pass" : "Keep my DevPass"}
+					</AlertDialogCancel>
 					<AlertDialogAction
 						onClick={() =>
 							refundMutation.mutate({
@@ -211,7 +223,7 @@ function RefundButton({ invoice }: { invoice: Invoice }) {
 							})
 						}
 					>
-						Refund and cancel
+						{isResetPass ? "Refund pass" : "Refund and cancel"}
 					</AlertDialogAction>
 				</AlertDialogFooter>
 			</AlertDialogContent>
