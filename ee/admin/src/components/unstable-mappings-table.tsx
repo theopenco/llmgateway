@@ -52,12 +52,14 @@ function ErrorDetails({
 	includeRetried,
 	window,
 	logLimit,
+	ignoreExpected,
 }: {
 	usedModel: string;
 	provider: string;
 	includeRetried: boolean;
 	window: UnstableWindow;
 	logLimit: number;
+	ignoreExpected: boolean;
 }) {
 	const $api = useApi();
 	const { data, isLoading, isError } = $api.useQuery(
@@ -71,6 +73,7 @@ function ErrorDetails({
 					includeRetried: includeRetried ? "true" : "false",
 					window,
 					logLimit,
+					ignoreExpected: ignoreExpected ? "true" : "false",
 				},
 			},
 		},
@@ -155,11 +158,13 @@ export function UnstableMappingsTable({
 	includeRetried,
 	window,
 	logLimit,
+	ignoreExpected,
 }: {
 	mappings: UnstableMapping[];
 	includeRetried: boolean;
 	window: UnstableWindow;
 	logLimit: number;
+	ignoreExpected: boolean;
 }) {
 	const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -256,6 +261,7 @@ export function UnstableMappingsTable({
 											includeRetried={includeRetried}
 											window={window}
 											logLimit={logLimit}
+											ignoreExpected={ignoreExpected}
 										/>
 									</TableCell>
 								</TableRow>

@@ -3271,6 +3271,36 @@ export const rateLimit = pgTable(
 	],
 );
 
+// Matchers for expected upstream errors. The unstable-mappings admin
+// dashboard treats errors matching any of these as non-errors so known-benign
+// upstream failures don't drown out real instability. A matcher targets a
+// case-insensitive substring of the error details, an upstream status code, or
+// both (both must match).
+export const ignoredErrorMatcher = pgTable(
+	"ignored_error_matcher",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		// Case-insensitive substring matched against the serialized error details.
+		pattern: text(),
+		// Upstream HTTP status code from the error details.
+		statusCode: integer(),
+	},
+	(table) => [
+		// One row per pattern/status combination. Coalesce nulls to sentinels so
+		// Postgres treats them as equal.
+		uniqueIndex("ignored_error_matcher_pattern_status_code_unique").using(
+			"btree",
+			sql`coalesce(${table.pattern}, '')`,
+			sql`coalesce(${table.statusCode}, -1)`,
+		),
+		check(
+			"ignored_error_matcher_target_check",
+			sql`${table.pattern} IS NOT NULL OR ${table.statusCode} IS NOT NULL`,
+		),
+	],
+);
+
 // Project hourly statistics aggregation - used for fast dashboard queries
 export const projectHourlyStats = pgTable(
 	"project_hourly_stats",

@@ -8331,6 +8331,50 @@ function resolveUnstableMappingsWindow(
 // those as non-retried so they are not silently dropped from the rankings.
 const unstableMappingsNotRetriedClause = sql`AND ${tables.log.retried} IS DISTINCT FROM true`;
 
+// Matchers are plain substrings, so LIKE metacharacters in the stored pattern
+// must be escaped before wrapping in wildcards.
+function escapeLikePattern(pattern: string): string {
+	return pattern.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+interface IgnoredErrorMatcherTarget {
+	pattern: string | null;
+	statusCode: number | null;
+}
+
+// Builds an OR chain across all stored matchers so expected upstream errors
+// can be treated as non-errors. A substring pattern is matched
+// case-insensitively against the serialized error details JSON (covering
+// status text, response body, and cause); a status code is matched against the
+// upstream `statusCode` field. When a matcher has both, both must match.
+function buildIgnoredErrorMatchExpr(matchers: IgnoredErrorMatcherTarget[]) {
+	return sql.join(
+		matchers.map((matcher) => {
+			const conditions = [];
+			if (matcher.pattern !== null) {
+				conditions.push(
+					sql`${tables.log.errorDetails}::text ILIKE ${`%${escapeLikePattern(matcher.pattern)}%`}`,
+				);
+			}
+			if (matcher.statusCode !== null) {
+				conditions.push(
+					sql`${tables.log.errorDetails}->>'statusCode' = ${String(matcher.statusCode)}`,
+				);
+			}
+			return sql`(${sql.join(conditions, sql` AND `)})`;
+		}),
+		sql` OR `,
+	);
+}
+
+async function listIgnoredErrorMatchers() {
+	return await db.query.ignoredErrorMatcher.findMany({
+		orderBy: {
+			createdAt: "desc",
+		},
+	});
+}
+
 // Gateway logs store `used_model` as the display value `provider/model[:region]`
 // (for example `openai/gpt-5-nano` or `alibaba/glm-4.6:cn-beijing`), but the
 // mapping detail page and the `model_provider_mapping` table key off the bare
@@ -8374,6 +8418,9 @@ const unstableMappingsListSchema = z.object({
 	windowHours: z.number(),
 	logLimit: z.number(),
 	includeRetried: z.boolean(),
+	ignoreExpected: z.boolean(),
+	// Number of ignore matchers applied to this ranking (0 when disabled).
+	ignoredMatcherCount: z.number(),
 });
 
 const getUnstableMappings = createRoute({
@@ -8389,6 +8436,7 @@ const getUnstableMappings = createRoute({
 				.optional(),
 			includeRetried: z.enum(["true", "false"]).optional(),
 			window: unstableMappingsWindowSchema.optional(),
+			ignoreExpected: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
@@ -8412,8 +8460,20 @@ admin.openapi(getUnstableMappings, async (c) => {
 	const retriedClause = includeRetried
 		? sql``
 		: unstableMappingsNotRetriedClause;
+	const ignoreExpected = query.ignoreExpected !== "false";
 	const { interval: windowInterval, hours: windowHours } =
 		resolveUnstableMappingsWindow(query.window);
+
+	// When ignore matchers apply, errors matching any matcher count as
+	// successes: the log stays in the sample (denominator) but no longer counts
+	// against the mapping. NULL error details coalesce to "no match" so errors
+	// without details are still counted. The full matcher count is returned
+	// regardless so the UI can surface it even when ignoring is toggled off.
+	const ignoredMatchers = await listIgnoredErrorMatchers();
+	const hasErrorExpr =
+		ignoreExpected && ignoredMatchers.length > 0
+			? sql`(${tables.log.hasError} AND NOT COALESCE((${buildIgnoredErrorMatchExpr(ignoredMatchers)}), false))`
+			: sql`${tables.log.hasError}`;
 
 	const rows = await db.execute<{
 		used_model: string;
@@ -8426,7 +8486,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 		WITH recent_logs AS (
 			SELECT ${tables.log.usedModel} AS used_model,
 				${tables.log.usedProvider} AS used_provider,
-				${tables.log.hasError} AS has_error
+				${hasErrorExpr} AS has_error
 			FROM ${tables.log}
 			WHERE ${tables.log.createdAt} >= ${windowInterval}
 				${retriedClause}
@@ -8477,6 +8537,8 @@ admin.openapi(getUnstableMappings, async (c) => {
 		windowHours,
 		logLimit,
 		includeRetried,
+		ignoreExpected,
+		ignoredMatcherCount: ignoredMatchers.length,
 	});
 });
 
@@ -8507,6 +8569,7 @@ const getUnstableMappingErrors = createRoute({
 				.min(1)
 				.max(UNSTABLE_MAPPINGS_MAX_LOG_LIMIT)
 				.optional(),
+			ignoreExpected: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
@@ -8523,12 +8586,21 @@ const getUnstableMappingErrors = createRoute({
 });
 
 admin.openapi(getUnstableMappingErrors, async (c) => {
-	const { model, provider, includeRetried, window, logLimit } =
+	const { model, provider, includeRetried, window, logLimit, ignoreExpected } =
 		c.req.valid("query");
 	const sampleLimit = logLimit ?? UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT;
 	const retriedClause =
 		includeRetried === "true" ? sql`` : unstableMappingsNotRetriedClause;
 	const { interval: windowInterval } = resolveUnstableMappingsWindow(window);
+
+	// Mirror the ranking view: drop errors matching an ignore matcher so the
+	// drilldown shows the same errors that counted against the mapping.
+	const ignoredMatchers =
+		ignoreExpected !== "false" ? await listIgnoredErrorMatchers() : [];
+	const ignoredClause =
+		ignoredMatchers.length > 0
+			? sql`AND NOT COALESCE((${buildIgnoredErrorMatchExpr(ignoredMatchers)}), false)`
+			: sql``;
 
 	const rows = await db.execute<{
 		status_code: string | null;
@@ -8546,6 +8618,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 				AND ${tables.log.usedProvider} = ${provider}
 				AND ${tables.log.createdAt} >= ${windowInterval}
 				${retriedClause}
+				${ignoredClause}
 			ORDER BY ${tables.log.createdAt} DESC
 			LIMIT ${sampleLimit}
 		)
@@ -8574,6 +8647,148 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		})),
 		sampledErrors,
 	});
+});
+
+// ── Ignored Error Matchers ──────────────────────────────────────────────────
+
+const ignoredErrorMatcherSchema = z.object({
+	id: z.string(),
+	pattern: z.string().nullable(),
+	statusCode: z.number().nullable(),
+	createdAt: z.string(),
+});
+
+const ignoredErrorMatchersListSchema = z.object({
+	matchers: z.array(ignoredErrorMatcherSchema),
+});
+
+function serializeIgnoredErrorMatcher(matcher: {
+	id: string;
+	pattern: string | null;
+	statusCode: number | null;
+	createdAt: Date;
+}) {
+	return {
+		id: matcher.id,
+		pattern: matcher.pattern,
+		statusCode: matcher.statusCode,
+		createdAt: matcher.createdAt.toISOString(),
+	};
+}
+
+const getIgnoredErrorMatchers = createRoute({
+	method: "get",
+	path: "/unstable-mappings/ignored-errors",
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: ignoredErrorMatchersListSchema.openapi({}),
+				},
+			},
+			description:
+				"Substring matchers for expected upstream errors ignored by the unstable mappings rankings.",
+		},
+	},
+});
+
+admin.openapi(getIgnoredErrorMatchers, async (c) => {
+	const matchers = await listIgnoredErrorMatchers();
+	return c.json({ matchers: matchers.map(serializeIgnoredErrorMatcher) });
+});
+
+const createIgnoredErrorMatcher = createRoute({
+	method: "post",
+	path: "/unstable-mappings/ignored-errors",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z
+						.object({
+							pattern: z.string().trim().min(1).max(500).nullish(),
+							statusCode: z.number().int().min(100).max(599).nullish(),
+						})
+						.refine(
+							(value) =>
+								(value.pattern ?? null) !== null ||
+								(value.statusCode ?? null) !== null,
+							{ message: "Provide a pattern or a status code" },
+						)
+						.openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: ignoredErrorMatcherSchema.openapi({}),
+				},
+			},
+			description: "Created ignored error matcher.",
+		},
+		409: {
+			description:
+				"A matcher with this pattern/status code combination already exists.",
+		},
+	},
+});
+
+admin.openapi(createIgnoredErrorMatcher, async (c) => {
+	const { pattern, statusCode } = c.req.valid("json");
+
+	const [created] = await db
+		.insert(tables.ignoredErrorMatcher)
+		.values({ pattern: pattern ?? null, statusCode: statusCode ?? null })
+		.onConflictDoNothing()
+		.returning();
+
+	if (!created) {
+		throw new HTTPException(409, {
+			message:
+				"A matcher with this pattern/status code combination already exists",
+		});
+	}
+
+	return c.json(serializeIgnoredErrorMatcher(created), 201);
+});
+
+const deleteIgnoredErrorMatcher = createRoute({
+	method: "delete",
+	path: "/unstable-mappings/ignored-errors/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }).openapi({}),
+				},
+			},
+			description: "Ignored error matcher deleted.",
+		},
+		404: {
+			description: "Matcher not found.",
+		},
+	},
+});
+
+admin.openapi(deleteIgnoredErrorMatcher, async (c) => {
+	const { id } = c.req.valid("param");
+
+	const deleted = await db
+		.delete(tables.ignoredErrorMatcher)
+		.where(eq(tables.ignoredErrorMatcher.id, id))
+		.returning();
+
+	if (deleted.length === 0) {
+		throw new HTTPException(404, { message: "Matcher not found" });
+	}
+
+	return c.json({ success: true });
 });
 
 // ── Enterprise Contact Submissions ──────────────────────────────────────────
