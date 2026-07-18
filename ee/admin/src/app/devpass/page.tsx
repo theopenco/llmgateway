@@ -8,6 +8,7 @@ import {
 	Info,
 	RotateCcw,
 	Search,
+	Ticket,
 	TrendingDown,
 	TrendingUp,
 	Users,
@@ -480,7 +481,7 @@ export default async function DevpassPage({
 				</Suspense>
 			</header>
 
-			<section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+			<section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
 				<div className="rounded-lg border border-border/60 bg-card p-4">
 					<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
 						<Users className="h-3.5 w-3.5" />
@@ -591,6 +592,18 @@ export default async function DevpassPage({
 					<div className="mt-1 text-xs text-muted-foreground">
 						{kpis.refundsThisMonth} refund
 						{kpis.refundsThisMonth === 1 ? "" : "s"} processed
+					</div>
+				</div>
+				<div className="rounded-lg border border-border/60 bg-card p-4">
+					<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+						<Ticket className="h-3.5 w-3.5" />
+						Reset passes sold
+					</div>
+					<div className="mt-2 text-2xl font-semibold tabular-nums">
+						{kpis.resetPassesSold}
+					</div>
+					<div className="mt-1 text-xs text-muted-foreground">
+						{currencyFormatter.format(kpis.resetPassRevenue)} all-time revenue
 					</div>
 				</div>
 				<div className="rounded-lg border border-border/60 bg-card p-4">

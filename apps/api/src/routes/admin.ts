@@ -10173,6 +10173,8 @@ const devpassKpisSchema = z.object({
 	netNewThisMonth: z.number(),
 	refundsThisMonth: z.number(),
 	refundedAmountThisMonth: z.number(),
+	resetPassesSold: z.number(),
+	resetPassRevenue: z.number(),
 	weightedAvgUtilization: z.number(),
 	totalRealCostCycle: z.number(),
 	totalMrrCycle: z.number(),
@@ -10948,6 +10950,57 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 	const refundsThisMonth = Number(refundsRow?.count ?? 0);
 	const refundedAmountThisMonth = Number(refundsRow?.total ?? 0);
 
+	// All-time Reset Pass sales on DevPass orgs. These are one-time
+	// PaymentIntent purchases (no invoice), so no invoice dedup is needed;
+	// revenue is netted against completed refunds whose original transaction
+	// is a Reset Pass purchase, mirroring the all-time revenue subquery.
+	const [resetPassRow] = await db
+		.select({
+			count: sql<number>`COUNT(*)`,
+			total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.type, "dev_plan_reset_pass"),
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "devpass"),
+			),
+		);
+	const resetPassesSold = Number(resetPassRow?.count ?? 0);
+
+	const resetPassRefundOriginalTx = aliasedTable(
+		tables.transaction,
+		"reset_pass_refund_original_tx",
+	);
+	const [resetPassRefundRow] = await db
+		.select({
+			total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			resetPassRefundOriginalTx,
+			eq(tables.transaction.relatedTransactionId, resetPassRefundOriginalTx.id),
+		)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.type, "credit_refund"),
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "devpass"),
+				eq(resetPassRefundOriginalTx.type, "dev_plan_reset_pass"),
+			),
+		);
+	const resetPassRevenue =
+		Number(resetPassRow?.total ?? 0) - Number(resetPassRefundRow?.total ?? 0);
+
 	// Weighted utilization across active subscribers
 	const [utilRow] = await db
 		.select({
@@ -11087,6 +11140,8 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			netNewThisMonth: startsThisMonth - endsThisMonth,
 			refundsThisMonth,
 			refundedAmountThisMonth,
+			resetPassesSold,
+			resetPassRevenue,
 			weightedAvgUtilization,
 			totalRealCostCycle,
 			totalMrrCycle,
