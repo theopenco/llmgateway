@@ -4,7 +4,10 @@ import {
 	DEV_PLAN_INCLUDED_RESET_PASSES,
 	DEV_PLAN_PRICES,
 	DEV_PLAN_RESET_PASS_PRICES,
+	DEV_PLAN_RESET_PASS_PURCHASE_MAX_CYCLE_USAGE,
+	DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE,
 	getDevPlanCreditsLimit,
+	getDevPlanCycleUsageFraction,
 	getDevPlanPremiumWeeklyLimit,
 	getIncludedResetPassesRemaining,
 } from "./dev-plans.js";
@@ -82,5 +85,30 @@ describe("reset passes", () => {
 		expect(getIncludedResetPassesRemaining("max", null)).toBe(
 			DEV_PLAN_INCLUDED_RESET_PASSES.max,
 		);
+	});
+});
+
+describe("getDevPlanCycleUsageFraction", () => {
+	it("returns the used fraction of the cycle allowance", () => {
+		expect(getDevPlanCycleUsageFraction("50", "100")).toBe(0.5);
+		expect(getDevPlanCycleUsageFraction(96, 100)).toBe(0.96);
+		expect(getDevPlanCycleUsageFraction("0", "237")).toBe(0);
+	});
+
+	it("returns 0 for a missing, zero, or invalid limit so the gates never block", () => {
+		expect(getDevPlanCycleUsageFraction("50", "0")).toBe(0);
+		expect(getDevPlanCycleUsageFraction("50", null)).toBe(0);
+		expect(getDevPlanCycleUsageFraction("50", undefined)).toBe(0);
+		expect(getDevPlanCycleUsageFraction("50", "not-a-number")).toBe(0);
+		expect(getDevPlanCycleUsageFraction("not-a-number", "100")).toBe(0);
+	});
+
+	it("keeps the purchase gate looser than the redeem gate", () => {
+		// A user who can no longer redeem may still hold the pass for the next
+		// cycle, but purchases must stop before the pool is fully drained.
+		expect(DEV_PLAN_RESET_PASS_PURCHASE_MAX_CYCLE_USAGE).toBeGreaterThan(
+			DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE,
+		);
+		expect(DEV_PLAN_RESET_PASS_PURCHASE_MAX_CYCLE_USAGE).toBeLessThan(1);
 	});
 });

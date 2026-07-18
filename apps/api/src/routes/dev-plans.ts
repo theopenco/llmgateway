@@ -44,7 +44,10 @@ import {
 	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
 	DEV_PLAN_PRICES,
 	DEV_PLAN_RESET_PASS_PRICES,
+	DEV_PLAN_RESET_PASS_PURCHASE_MAX_CYCLE_USAGE,
+	DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE,
 	getDevPlanCreditsLimit,
+	getDevPlanCycleUsageFraction,
 	getDevPlanPremiumWeeklyLimit,
 	getIncludedResetPassesRemaining,
 	getRemainingPremiumWeeklyAllowance,
@@ -2125,6 +2128,7 @@ const getInvoices = createRoute({
 												"plan_inactive",
 												"credits_frozen",
 												"usage_exceeded",
+												"pass_already_used",
 											])
 											.optional(),
 									})
@@ -2205,8 +2209,10 @@ devPlans.openapi(getInvoices, async (c) => {
 });
 
 // Self-service refund for a DevPass billing event. Only the first (or latest)
-// barely-used payment qualifies; refunding also cancels the DevPass
-// immediately. See lib/self-refund.ts for the eligibility rules.
+// barely-used payment qualifies; refunding a plan payment also cancels the
+// DevPass immediately, while refunding an unused Reset Pass just returns the
+// pass and leaves the plan running. See lib/self-refund.ts for the
+// eligibility rules.
 const selfRefundInvoice = createRoute({
 	method: "post",
 	path: "/invoices/{invoiceId}/refund",
@@ -2226,7 +2232,7 @@ const selfRefundInvoice = createRoute({
 				},
 			},
 			description:
-				"Refund created; the DevPass is cancelled immediately and bookkeeping is applied when Stripe confirms via webhook",
+				"Refund created; bookkeeping is applied when Stripe confirms via webhook. A plan-payment refund cancels the DevPass immediately, a Reset Pass refund removes the unused pass and leaves the plan running",
 		},
 	},
 });
@@ -2837,18 +2843,20 @@ devPlans.openapi(purchaseResetPass, async (c) => {
 		});
 	}
 
-	// A Reset Pass only lifts the weekly premium cap — it never adds credits.
-	// With the monthly allowance exhausted the pass could not unlock anything,
-	// so refuse the charge; the dashboard promotes a plan upgrade (or PAYG
-	// credits on the max tier) instead.
+	// A pass lifts the weekly premium cap, but the unlocked spend still draws
+	// from the monthly credit pool — selling one against a nearly exhausted
+	// pool would only confuse buyers, so the purchase waits for the renewal.
+	// (At 100% the dashboard replaces the pass card with an upgrade/PAYG
+	// promo; this gate is the server-side backstop for that state too.)
 	if (
-		parseFloat(personalOrg.devPlanCreditsLimit) > 0 &&
-		parseFloat(personalOrg.devPlanCreditsUsed) >=
-			parseFloat(personalOrg.devPlanCreditsLimit)
+		getDevPlanCycleUsageFraction(
+			personalOrg.devPlanCreditsUsed,
+			personalOrg.devPlanCreditsLimit,
+		) > DEV_PLAN_RESET_PASS_PURCHASE_MAX_CYCLE_USAGE
 	) {
 		throw new HTTPException(400, {
 			message:
-				"Your monthly allowance is used up, so a Reset Pass can't unlock anything right now. Upgrade your plan to keep coding.",
+				"You've used more than 95% of this cycle's credit allowance, so a Reset Pass would give you almost nothing to use right now. You can buy one again when your credits renew.",
 		});
 	}
 
@@ -3016,6 +3024,21 @@ devPlans.openapi(redeemResetPass, async (c) => {
 	if (personalOrg.devPlan === "none") {
 		throw new HTTPException(400, {
 			message: "An active dev plan is required to redeem a Reset Pass.",
+		});
+	}
+
+	// With the monthly credit pool nearly exhausted, a reset would restore a
+	// weekly cap the user can't actually spend against — burning the pass for
+	// almost nothing. The pass keeps until the cycle renews, so hold it.
+	if (
+		getDevPlanCycleUsageFraction(
+			personalOrg.devPlanCreditsUsed,
+			personalOrg.devPlanCreditsLimit,
+		) > DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE
+	) {
+		throw new HTTPException(400, {
+			message:
+				"You've used more than 90% of this cycle's credit allowance — redeeming now would waste the pass on usage you can't spend. Your pass stays available for when your credits renew.",
 		});
 	}
 

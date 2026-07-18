@@ -20,6 +20,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { useApi } from "@/lib/fetch-client";
 
+import {
+	DEV_PLAN_RESET_PASS_PURCHASE_MAX_CYCLE_USAGE,
+	DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE,
+	getDevPlanCycleUsageFraction,
+} from "@llmgateway/shared";
+
 interface ResetPassCardProps {
 	tier: string;
 	organizationId: string | null;
@@ -29,6 +35,8 @@ interface ResetPassCardProps {
 	price: number | null;
 	premiumCreditsUsed: number;
 	premiumWeeklyLimit: number;
+	cycleCreditsUsed: number;
+	cycleCreditsLimit: number;
 }
 
 // A single visa-stamp slot in the pass strip. Held passes render as inked
@@ -95,6 +103,8 @@ export default function ResetPassCard({
 	price,
 	premiumCreditsUsed,
 	premiumWeeklyLimit,
+	cycleCreditsUsed,
+	cycleCreditsLimit,
 }: ResetPassCardProps) {
 	const api = useApi();
 	const queryClient = useQueryClient();
@@ -102,6 +112,16 @@ export default function ResetPassCard({
 
 	const available = includedRemaining + purchased;
 	const nothingToReset = premiumCreditsUsed <= 0;
+	// Mirrors the server-side gates: near the end of the monthly credit pool a
+	// pass restores a cap there's nothing left to spend against, so buying is
+	// blocked above 95% cycle usage and redeeming above 90%.
+	const cycleUsage = getDevPlanCycleUsageFraction(
+		cycleCreditsUsed,
+		cycleCreditsLimit,
+	);
+	const purchaseBlocked =
+		cycleUsage > DEV_PLAN_RESET_PASS_PURCHASE_MAX_CYCLE_USAGE;
+	const redeemBlocked = cycleUsage > DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE;
 	const serial = (organizationId ?? "GATEWAY").slice(-6).toUpperCase();
 
 	const invalidateStatus = () =>
@@ -212,14 +232,19 @@ export default function ResetPassCard({
 							size="sm"
 							onClick={() => redeemMutation.mutate({})}
 							disabled={
-								available === 0 || nothingToReset || redeemMutation.isPending
+								available === 0 ||
+								nothingToReset ||
+								redeemBlocked ||
+								redeemMutation.isPending
 							}
 							title={
-								available === 0
-									? "No passes held — buy one below"
-									: nothingToReset
-										? "Nothing to reset yet — your allowance is untouched"
-										: undefined
+								redeemBlocked
+									? "Over 90% of this cycle's credits are used — a reset would give you almost nothing. Your passes keep until your credits renew."
+									: available === 0
+										? "No passes held — buy one below"
+										: nothingToReset
+											? "Nothing to reset yet — your allowance is untouched"
+											: undefined
 							}
 						>
 							{redeemMutation.isPending ? (
@@ -229,7 +254,17 @@ export default function ResetPassCard({
 							)}
 							Use a pass
 						</Button>
-						{price !== null && (
+						{price !== null && purchaseBlocked && (
+							<Button
+								size="sm"
+								variant="outline"
+								disabled
+								title="Over 95% of this cycle's credits are used — a pass would give you almost nothing to use. Buy one again when your credits renew."
+							>
+								Buy a pass · ${price}
+							</Button>
+						)}
+						{price !== null && !purchaseBlocked && (
 							<AlertDialog>
 								<AlertDialogTrigger asChild>
 									<Button

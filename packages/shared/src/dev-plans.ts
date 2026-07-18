@@ -49,6 +49,39 @@ export const DEV_PLAN_RESET_PASS_PRICES: Record<DevPlanTier, number> = {
 };
 
 /**
+ * Cycle-usage gates for Reset Passes. A pass lifts the weekly premium cap, but
+ * the unlocked spend still draws from the monthly credit pool — with the pool
+ * nearly exhausted a pass delivers almost nothing, so selling one would
+ * confuse buyers and redeeming one would waste it. Purchases stop above 95%
+ * of the cycle allowance, redemptions above 90%.
+ */
+export const DEV_PLAN_RESET_PASS_PURCHASE_MAX_CYCLE_USAGE = 0.95;
+export const DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE = 0.9;
+
+/**
+ * Fraction of the monthly cycle credit allowance already consumed, as a value
+ * in [0, ∞). Returns 0 when the limit is unset/zero so the Reset Pass gates
+ * never block an org without a stored allowance.
+ */
+export function getDevPlanCycleUsageFraction(
+	creditsUsed: string | number | null | undefined,
+	creditsLimit: string | number | null | undefined,
+): number {
+	const used =
+		typeof creditsUsed === "string"
+			? parseFloat(creditsUsed)
+			: (creditsUsed ?? 0);
+	const limit =
+		typeof creditsLimit === "string"
+			? parseFloat(creditsLimit)
+			: (creditsLimit ?? 0);
+	if (!Number.isFinite(used) || !Number.isFinite(limit) || limit <= 0) {
+		return 0;
+	}
+	return used / limit;
+}
+
+/**
  * Reset Passes included with each plan per billing cycle. Included passes
  * don't roll over: the used-counter clears on subscribe/upgrade/renewal. Lite
  * includes none — its premium cap is the margin guardrail on the thinnest
