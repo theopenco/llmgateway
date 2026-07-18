@@ -178,6 +178,8 @@ export function createGatewayApiTestHarness() {
 			serviceTier?: "default" | "flex";
 			creditsUsed?: string;
 			creditsLimit?: string;
+			premiumCreditsUsed?: string;
+			premiumWeekStart?: Date | null;
 		}) {
 			await db
 				.update(tables.organization)
@@ -187,6 +189,8 @@ export function createGatewayApiTestHarness() {
 					devPlanServiceTier: options.serviceTier ?? "default",
 					devPlanCreditsUsed: options.creditsUsed ?? "0",
 					devPlanCreditsLimit: options.creditsLimit ?? "100",
+					devPlanPremiumCreditsUsed: options.premiumCreditsUsed ?? "0",
+					devPlanPremiumWeekStart: options.premiumWeekStart ?? null,
 				})
 				.where(eq(tables.organization.id, TEST_ORGANIZATION_ID));
 		},
