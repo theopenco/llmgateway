@@ -1092,6 +1092,8 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.1",
+				serviceTiers: ["flex", "priority"],
+				serviceTierMultipliers: { priority: 2 },
 				inputPrice: "1.25e-6",
 				outputPrice: "10.0e-6",
 				cachedInputPrice: "0.125e-6",
@@ -1191,6 +1193,8 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.1-codex",
+				serviceTiers: ["priority"],
+				serviceTierMultipliers: { priority: 2 },
 				inputPrice: "1.25e-6",
 				outputPrice: "10e-6",
 				requestPrice: "0",
@@ -1284,6 +1288,8 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.2",
+				serviceTiers: ["flex", "priority"],
+				serviceTierMultipliers: { priority: 2 },
 				inputPrice: "1.75e-6",
 				outputPrice: "14.0e-6",
 				cachedInputPrice: "0.175e-6",
