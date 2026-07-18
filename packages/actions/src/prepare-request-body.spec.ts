@@ -320,6 +320,81 @@ describe("prepareRequestBody - Anthropic", () => {
 		expect(totalCacheControlBlocks).toBe(4);
 	});
 
+	test("does not spend cache_control budget on tool-result messages", async () => {
+		// A tool-result message's text content is rebuilt into a tool_result
+		// block (which carries no cache_control), so the long tool outputs below
+		// must not consume any of the 4 cache_control slots — the real cacheable
+		// user turns after them should still receive markers.
+		const longContent = "A".repeat(5000);
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			null,
+			"claude-3-5-sonnet-20241022",
+			[
+				{
+					role: "assistant",
+					content: "",
+					tool_calls: [
+						{
+							id: "call_1",
+							type: "function",
+							function: { name: "search", arguments: "{}" },
+						},
+						{
+							id: "call_2",
+							type: "function",
+							function: { name: "search", arguments: "{}" },
+						},
+						{
+							id: "call_3",
+							type: "function",
+							function: { name: "search", arguments: "{}" },
+						},
+						{
+							id: "call_4",
+							type: "function",
+							function: { name: "search", arguments: "{}" },
+						},
+					],
+				},
+				{ role: "tool", tool_call_id: "call_1", content: longContent },
+				{ role: "tool", tool_call_id: "call_2", content: longContent },
+				{ role: "tool", tool_call_id: "call_3", content: longContent },
+				{ role: "tool", tool_call_id: "call_4", content: longContent },
+				{ role: "user", content: longContent },
+				{ role: "user", content: longContent },
+			],
+			false,
+			undefined,
+			1024,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as AnthropicRequestBody;
+
+		let totalCacheControlBlocks = 0;
+		for (const msg of requestBody.messages) {
+			if (Array.isArray(msg.content)) {
+				for (const block of msg.content) {
+					if (getCacheControl(block)) {
+						totalCacheControlBlocks++;
+					}
+				}
+			}
+		}
+
+		// Both trailing user turns get a marker; without the fix the four tool
+		// results exhaust the budget and this is 0.
+		expect(totalCacheControlBlocks).toBe(2);
+	});
+
 	test.each(["claude-fable-5", "claude-opus-5"])(
 		"strips cache_control for %s when provider cache writes are disabled",
 		async (model) => {
