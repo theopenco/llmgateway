@@ -60,6 +60,14 @@ describe("/v1/key", () => {
 		expect(res.status).toBe(403);
 	});
 
+	test("401 for platform_secret keys, which the gateway treats as nonexistent", async () => {
+		// findApiKeyByToken excludes platform_secret on every gateway route, so
+		// the response must not acknowledge that the token exists (401, not 403).
+		await insertApiKey({ keyType: "platform_secret" });
+		const res = await getKey("real-token");
+		expect(res.status).toBe(401);
+	});
+
 	test("returns key info with devPlan none for PAYG orgs", async () => {
 		await insertApiKey({ usage: "12.5", usageLimit: "50" });
 
