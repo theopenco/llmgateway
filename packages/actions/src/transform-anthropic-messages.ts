@@ -94,6 +94,16 @@ export async function transformAnthropicMessages(
 	for (const m of groupedMessages) {
 		let content: MessageContent[] = [];
 
+		// A tool-result message has its content rebuilt into a tool_result block
+		// below, discarding whatever we assemble here. Skip cache_control
+		// accounting for it — otherwise auto-injecting (or counting a
+		// caller-supplied marker on) a text block that gets thrown away still
+		// consumes one of Anthropic's 4 cache_control slots, starving the real
+		// cacheable blocks (and the turn boundary) of markers.
+		const originalRole = m.role === "user" && m.tool_call_id ? "tool" : m.role;
+		const isDiscardedToolResult =
+			originalRole === "tool" && !!m.tool_call_id && m.content !== undefined;
+
 		// Handle existing content
 		if (Array.isArray(m.content)) {
 			// Process all images in parallel for better performance
@@ -132,7 +142,7 @@ export async function transformAnthropicMessages(
 							} as TextContent;
 						}
 					}
-					if (isTextContent(part) && part.text) {
+					if (!isDiscardedToolResult && isTextContent(part) && part.text) {
 						if (part.cache_control) {
 							// Count caller-supplied markers toward Anthropic's 4-block
 							// cap so subsequent auto-injection and the turn-boundary
@@ -160,6 +170,7 @@ export async function transformAnthropicMessages(
 		} else if (m.content && typeof m.content === "string") {
 			// Handle string content - automatically add cache_control for long prompts
 			const shouldCache =
+				!isDiscardedToolResult &&
 				shouldApplyCacheControl &&
 				m.content.length >= minCacheableChars &&
 				cacheControlCount < maxCacheControlBlocks;
@@ -218,8 +229,7 @@ export async function transformAnthropicMessages(
 		}
 
 		// Handle OpenAI-style tool role messages by converting them to Anthropic tool_result content blocks
-		// Use the original role since the mapped role will be "user"
-		const originalRole = m.role === "user" && m.tool_call_id ? "tool" : m.role;
+		// (originalRole was computed above, since the mapped role will be "user")
 		if (originalRole === "tool" && m.tool_call_id && m.content !== undefined) {
 			// For tool results, we need to check if content is JSON string and parse it appropriately
 			let toolResultContent: string;
