@@ -444,6 +444,128 @@ describe("computeSelfRefundEligibility", () => {
 		});
 	});
 
+	test("with one pass redeemed, only the newest of two purchases is refundable", async () => {
+		// Two pro passes bought, one redeemed → inventory 1. The remaining pass
+		// is attributed to the newest purchase; the older one counts as redeemed
+		// and must not be refundable against the newer purchase's pass.
+		await seedOrg({
+			kind: "devpass",
+			devPlan: "pro",
+			devPlanResetPassesPro: 1,
+		});
+		const older = await seedTransaction({
+			type: "dev_plan_reset_pass",
+			amount: "29",
+			creditAmount: null,
+			createdAt: daysAgo(2),
+			stripePaymentIntentId: "pi_test_older",
+		});
+		const newer = await seedTransaction({
+			type: "dev_plan_reset_pass",
+			amount: "29",
+			creditAmount: null,
+			createdAt: daysAgo(1),
+			stripePaymentIntentId: "pi_test_newer",
+		});
+
+		expect(await getEligibility(newer.id)).toEqual({ eligible: true });
+		expect(await getEligibility(older.id)).toEqual({
+			eligible: false,
+			reason: "pass_already_used",
+		});
+	});
+
+	test("both purchases are refundable while inventory covers both", async () => {
+		await seedOrg({
+			kind: "devpass",
+			devPlan: "pro",
+			devPlanResetPassesPro: 2,
+		});
+		const older = await seedTransaction({
+			type: "dev_plan_reset_pass",
+			amount: "29",
+			creditAmount: null,
+			createdAt: daysAgo(2),
+			stripePaymentIntentId: "pi_test_older",
+		});
+		const newer = await seedTransaction({
+			type: "dev_plan_reset_pass",
+			amount: "29",
+			creditAmount: null,
+			createdAt: daysAgo(1),
+			stripePaymentIntentId: "pi_test_newer",
+		});
+
+		expect(await getEligibility(newer.id)).toEqual({ eligible: true });
+		expect(await getEligibility(older.id)).toEqual({ eligible: true });
+	});
+
+	test("a refunded newer purchase no longer blocks the older one", async () => {
+		// The newer purchase was refunded (clawback already applied → inventory
+		// back to 1); the older purchase's pass is genuinely unredeemed.
+		await seedOrg({
+			kind: "devpass",
+			devPlan: "pro",
+			devPlanResetPassesPro: 1,
+		});
+		const older = await seedTransaction({
+			type: "dev_plan_reset_pass",
+			amount: "29",
+			creditAmount: null,
+			createdAt: daysAgo(2),
+			stripePaymentIntentId: "pi_test_older",
+		});
+		const newer = await seedTransaction({
+			type: "dev_plan_reset_pass",
+			amount: "29",
+			creditAmount: null,
+			createdAt: daysAgo(1),
+			stripePaymentIntentId: "pi_test_newer",
+		});
+		await seedTransaction({
+			type: "credit_refund",
+			amount: "29",
+			creditAmount: "0",
+			stripeRefundId: "re_test_newer",
+			relatedTransactionId: newer.id,
+			stripePaymentIntentId: null,
+		});
+
+		expect(await getEligibility(older.id)).toEqual({ eligible: true });
+	});
+
+	test("a redeemed lite pass can't be refunded against pro inventory", async () => {
+		// The attribution count is tier-bound both ways: a lite purchase whose
+		// pass was redeemed stays ineligible even with unrelated pro passes and
+		// a newer pro purchase present.
+		await seedOrg({
+			kind: "devpass",
+			devPlan: "pro",
+			devPlanResetPassesLite: 0,
+			devPlanResetPassesPro: 1,
+		});
+		const lite = await seedTransaction({
+			type: "dev_plan_reset_pass",
+			amount: "9",
+			creditAmount: null,
+			createdAt: daysAgo(2),
+			stripePaymentIntentId: "pi_test_lite",
+		});
+		const pro = await seedTransaction({
+			type: "dev_plan_reset_pass",
+			amount: "29",
+			creditAmount: null,
+			createdAt: daysAgo(1),
+			stripePaymentIntentId: "pi_test_pro",
+		});
+
+		expect(await getEligibility(lite.id)).toEqual({
+			eligible: false,
+			reason: "pass_already_used",
+		});
+		expect(await getEligibility(pro.id)).toEqual({ eligible: true });
+	});
+
 	test("reset pass inventory is tier-bound: a lite purchase can't ride on pro passes", async () => {
 		// $9 maps to a lite pass; the held inventory is pro-only, so the lite
 		// purchase itself has already been redeemed.
