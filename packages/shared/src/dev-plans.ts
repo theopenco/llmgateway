@@ -36,6 +36,41 @@ export function getDevPlanPremiumWeeklyLimit(tier: DevPlanTier): number {
 export const DEV_PLAN_PREMIUM_WEEK_LENGTH_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
+ * One-time price of a Reset Pass per tier. Redeeming a pass instantly restores
+ * the full weekly premium-model allowance (a fresh 7-day window). Priced at
+ * ~82-86% of the weekly premium cap the pass unlocks: cheaper than buying the
+ * equivalent usage as PAYG credits, while the unlocked spend still draws from
+ * the plan's monthly credit pool, so the pool remains the hard cost ceiling.
+ */
+export const DEV_PLAN_RESET_PASS_PRICES: Record<DevPlanTier, number> = {
+	lite: 9,
+	pro: 29,
+	max: 79,
+};
+
+/**
+ * Reset Passes included with each plan per billing cycle. Included passes
+ * don't roll over: the used-counter clears on subscribe/upgrade/renewal. Lite
+ * includes none — its premium cap is the margin guardrail on the thinnest
+ * tier, and a recurring free reset there would be a permanent cap raise.
+ */
+export const DEV_PLAN_INCLUDED_RESET_PASSES: Record<DevPlanTier, number> = {
+	lite: 0,
+	pro: 1,
+	max: 2,
+};
+
+export function getIncludedResetPassesRemaining(
+	tier: DevPlanTier,
+	includedUsed: number | null | undefined,
+): number {
+	return Math.max(
+		0,
+		DEV_PLAN_INCLUDED_RESET_PASSES[tier] - (includedUsed ?? 0),
+	);
+}
+
+/**
  * Returns true when the stored premium-week start is older than the rolling
  * 7-day window (or absent), meaning the premium usage counter should be
  * reset before the next deduction or check.

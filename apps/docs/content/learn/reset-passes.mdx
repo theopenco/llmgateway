@@ -1,0 +1,74 @@
+---
+title: Reset Passes
+description: Instantly restore your DevPass weekly premium allowance
+icon: Stamp
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+import { ThemedImage } from "@/components/themed-image";
+
+DevPass plans include a [weekly fair-use allowance](/learn/model-categories) for premium frontier models. A **Reset Pass** restores that full allowance the moment you redeem it — no waiting for the rolling 7-day window — and a fresh window starts with your next premium request. The pass card lives on the DevPass dashboard directly under the premium allowance meter, styled as a stamped visa extension: each pass you hold appears as a stamp.
+
+<ThemedImage
+	alt="DevPass usage page with the premium allowance meter and the Reset Pass visa-extension card holding an included and a purchased pass"
+	basePath="/learn/reset-passes"
+/>
+
+<Callout type="warn">
+	A Reset Pass removes the weekly limit — it does **not** add credits. Premium
+	usage after a reset draws from your plan's monthly credit allowance exactly as
+	before; the pass just lets you keep using premium models now instead of
+	waiting for the window.
+</Callout>
+
+<Callout type="info">
+	Reset Passes exist only on **DevPass** (Lite, Pro, Max). Pay-as-you-go API
+	usage has no weekly premium cap, so there is nothing to reset.
+</Callout>
+
+## Included and purchased passes
+
+| Plan     | Included per billing cycle | Extra passes |
+| -------- | -------------------------- | ------------ |
+| **Lite** | —                          | $9 each      |
+| **Pro**  | 1                          | $29 each     |
+| **Max**  | 2                          | $79 each     |
+
+Two kinds of stamps appear on the card:
+
+- **Included passes** come with Pro and Max. They refresh every billing cycle, don't roll over, and are always consumed before purchased passes.
+- **Purchased passes** are one-time purchases at the tier's price, bound to the tier they were bought for — a pass purchased on Pro is redeemable while you're on Pro. They never expire, so an unused pass applies again whenever you're back on that tier, even after a cancelled plan.
+
+## Redeeming a pass
+
+Click **Use a pass** on the card. Your premium usage for the week is zeroed immediately and the 7-day window restarts with your next premium request. Redemption is deliberately explicit — a pass is never consumed automatically, and the gateway rejects a redeem while your allowance is untouched, so a pass can't be wasted.
+
+Standard models are unaffected either way: they never count against the weekly cap.
+
+If you hit the cap from a coding agent, the gateway's `402` response points here:
+
+```json
+{
+	"error": {
+		"message": "You've used your weekly allowance for premium-tier models on the pro plan. Redeem a Reset Pass from your dashboard for an instant reset, upgrade for a higher allowance, or use any standard model now. Resets in 6 days.",
+		"type": "invalid_request_error",
+		"code": "billing_error"
+	}
+}
+```
+
+## Buying and billing
+
+**Buy a pass** shows a confirmation dialog, then charges the payment method saved on your DevPass — no checkout redirect, no subscription change, no proration. Each purchase emails a PDF invoice and appears in the DevPass billing history alongside plan charges.
+
+<ThemedImage
+	alt="DevPass billing history listing Reset Pass purchases with downloadable invoices"
+	basePath="/learn/reset-passes-billing"
+/>
+
+<Callout type="info">
+	Reaching for a Reset Pass every week? Upgrading a tier is usually the better
+	deal — the next tier raises the weekly cap itself and brings a larger monthly
+	allowance. Compare on the [DevPass pricing
+	page](https://devpass.llmgateway.io/pricing).
+</Callout>

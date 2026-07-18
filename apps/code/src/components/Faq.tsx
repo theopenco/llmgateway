@@ -10,6 +10,8 @@ import {
 } from "@/components/ui/accordion";
 
 import {
+	DEV_PLAN_INCLUDED_RESET_PASSES,
+	DEV_PLAN_RESET_PASS_PRICES,
 	HIGH_COST_INPUT_PRICE,
 	HIGH_COST_OUTPUT_PRICE,
 	MARKETING_STATS,
@@ -129,6 +131,10 @@ const faqData: FaqItem[] = [
 				</p>
 			</>
 		),
+	},
+	{
+		question: "What if I hit the weekly premium allowance mid-week?",
+		answer: `Redeem a Reset Pass: it instantly restores your full weekly premium allowance and starts a fresh 7-day window. A pass removes the weekly limit only — it doesn't add credits, so usage still draws from your monthly allowance. Pro includes ${DEV_PLAN_INCLUDED_RESET_PASSES.pro} pass per billing cycle and Max includes ${DEV_PLAN_INCLUDED_RESET_PASSES.max}; extra passes are a one-time purchase from your dashboard ($${DEV_PLAN_RESET_PASS_PRICES.lite} on Lite, $${DEV_PLAN_RESET_PASS_PRICES.pro} on Pro, $${DEV_PLAN_RESET_PASS_PRICES.max} on Max). Standard models keep working the whole time, and if you're resetting every week, upgrading a tier is usually the better deal.`,
 	},
 	{
 		question: "Can I get a refund?",

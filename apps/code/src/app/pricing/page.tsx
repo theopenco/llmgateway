@@ -18,8 +18,10 @@ import { getConfig } from "@/lib/config-server";
 import { formatUsageRatio } from "@/lib/utils";
 
 import {
+	DEV_PLAN_INCLUDED_RESET_PASSES,
 	DEV_PLAN_PREMIUM_WEEKLY_PERCENT,
 	DEV_PLAN_PRICES,
+	DEV_PLAN_RESET_PASS_PRICES,
 	getDevPlanCreditsLimit,
 	HIGH_COST_INPUT_PRICE,
 	HIGH_COST_OUTPUT_PRICE,
@@ -145,6 +147,12 @@ const usageRows: UsageRow[] = [
 		lite: `${Math.round(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.lite * 100)}% of credits`,
 		pro: `${Math.round(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.pro * 100)}% of credits`,
 		max: `${Math.round(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.max * 100)}% of credits`,
+	},
+	{
+		label: "Reset Passes included (instant premium-allowance reset)",
+		lite: `Buy anytime · $${DEV_PLAN_RESET_PASS_PRICES.lite}`,
+		pro: `${DEV_PLAN_INCLUDED_RESET_PASSES.pro}/month · extras $${DEV_PLAN_RESET_PASS_PRICES.pro}`,
+		max: `${DEV_PLAN_INCLUDED_RESET_PASSES.max}/month · extras $${DEV_PLAN_RESET_PASS_PRICES.max}`,
 	},
 	{
 		label: "Priority routing on flagship models",
