@@ -2837,6 +2837,21 @@ devPlans.openapi(purchaseResetPass, async (c) => {
 		});
 	}
 
+	// A Reset Pass only lifts the weekly premium cap — it never adds credits.
+	// With the monthly allowance exhausted the pass could not unlock anything,
+	// so refuse the charge; the dashboard promotes a plan upgrade (or PAYG
+	// credits on the max tier) instead.
+	if (
+		parseFloat(personalOrg.devPlanCreditsLimit) > 0 &&
+		parseFloat(personalOrg.devPlanCreditsUsed) >=
+			parseFloat(personalOrg.devPlanCreditsLimit)
+	) {
+		throw new HTTPException(400, {
+			message:
+				"Your monthly allowance is used up, so a Reset Pass can't unlock anything right now. Upgrade your plan to keep coding.",
+		});
+	}
+
 	const tier = personalOrg.devPlan;
 	const price = DEV_PLAN_RESET_PASS_PRICES[tier];
 	const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);

@@ -59,6 +59,7 @@ const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000;
 
 interface OrgOverrides {
 	devPlan?: "none" | "lite" | "pro" | "max";
+	devPlanCreditsUsed?: string;
 	devPlanPremiumCreditsUsed?: string;
 	devPlanPremiumWeekStart?: Date | null;
 	devPlanIncludedResetPassesUsed?: number;
@@ -376,6 +377,21 @@ describe("reset pass purchase", () => {
 		const res = await purchaseRequest(token);
 		expect(res.status).toBe(400);
 		expect(stripeMock.paymentIntents.create).not.toHaveBeenCalled();
+	});
+
+	it("rejects purchase when the monthly allowance is exhausted", async () => {
+		await insertOrg({ devPlanCreditsUsed: "237" });
+		const res = await purchaseRequest(token);
+		expect(res.status).toBe(400);
+		const body = await res.json();
+		expect(body.message).toContain("monthly allowance is used up");
+		expect(stripeMock.paymentIntents.create).not.toHaveBeenCalled();
+	});
+
+	it("allows purchase when the monthly allowance is merely close to full", async () => {
+		await insertOrg({ devPlanCreditsUsed: "236.99" });
+		const res = await purchaseRequest(token);
+		expect(res.status).toBe(200);
 	});
 
 	it("rejects purchase when no payment method is on file", async () => {
