@@ -2846,6 +2846,8 @@ devPlans.openapi(purchaseResetPass, async (c) => {
 	// A pass lifts the weekly premium cap, but the unlocked spend still draws
 	// from the monthly credit pool — selling one against a nearly exhausted
 	// pool would only confuse buyers, so the purchase waits for the renewal.
+	// (At 100% the dashboard replaces the pass card with an upgrade/PAYG
+	// promo; this gate is the server-side backstop for that state too.)
 	if (
 		getDevPlanCycleUsageFraction(
 			personalOrg.devPlanCreditsUsed,

@@ -6,6 +6,7 @@ import { Activity, Coins, Cpu, Gem, TrendingUp } from "lucide-react";
 import { useApi } from "@/lib/fetch-client";
 
 import { AgentModelUsageChart } from "./AgentModelUsageChart";
+import AllowanceExhaustedCard from "./AllowanceExhaustedCard";
 import ResetPassCard from "./ResetPassCard";
 
 import type { paths } from "@/lib/api/v1";
@@ -68,10 +69,15 @@ function WeeklyAllowanceMeter({
 	used,
 	limit,
 	resetsAt,
+	resetPassAvailable,
 }: {
 	used: number;
 	limit: number;
 	resetsAt: string | null;
+	// False when the monthly pool is exhausted: the Reset Pass card below is
+	// replaced by the upgrade/PAYG promo, so don't point at a card that isn't
+	// there — and "standard models keep working" no longer holds either.
+	resetPassAvailable: boolean;
 }) {
 	const percentage = limit > 0 ? (used / limit) * 100 : 0;
 	const clamped = Math.min(100, percentage);
@@ -123,9 +129,9 @@ function WeeklyAllowanceMeter({
 			)}
 			{isExhausted && (
 				<p className="text-xs text-destructive">
-					Weekly premium allowance reached — redeem a Reset Pass below for an
-					instant reset, or standard models keep working until the window
-					resets.
+					{resetPassAvailable
+						? "Weekly premium allowance reached — redeem a Reset Pass below for an instant reset, or standard models keep working until the window resets."
+						: "Weekly premium allowance reached for this window."}
 				</p>
 			)}
 		</div>
@@ -213,6 +219,12 @@ export default function UsageOverview({
 	cycle = "monthly",
 }: UsageOverviewProps) {
 	const api = useApi();
+
+	const tierKey = planName.toLowerCase();
+	// The monthly credit pool (not the weekly premium allowance) is the hard
+	// ceiling: once it's gone, Reset Passes can't unlock anything, so the pass
+	// card gives way to the upgrade/PAYG promo.
+	const monthlyExhausted = creditsLimit > 0 && creditsUsed >= creditsLimit;
 
 	const { data: activity } = api.useQuery(
 		"get",
@@ -319,7 +331,15 @@ export default function UsageOverview({
 
 			{/* Usage progress */}
 			<div className="rounded-xl border bg-card p-6">
-				<UsageBar used={creditsUsed} limit={creditsLimit} />
+				<UsageBar
+					used={creditsUsed}
+					limit={creditsLimit}
+					exhaustedMessage={
+						tierKey === "max"
+							? "Allowance reached for this billing cycle. Switch to pay-as-you-go credits below to keep coding."
+							: undefined
+					}
+				/>
 				{premiumWeeklyLimit > 0 && (
 					<div className="mt-6 border-t pt-6">
 						<div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -335,20 +355,29 @@ export default function UsageOverview({
 							used={premiumCreditsUsed}
 							limit={premiumWeeklyLimit}
 							resetsAt={premiumWeekResetsAt}
+							resetPassAvailable={!monthlyExhausted}
 						/>
-						<ResetPassCard
-							tier={planName.toLowerCase()}
-							organizationId={organizationId}
-							purchased={resetPasses}
-							includedTotal={includedResetPasses}
-							includedRemaining={includedResetPassesRemaining}
-							price={resetPassPrice}
-							premiumCreditsUsed={premiumCreditsUsed}
-							premiumWeeklyLimit={premiumWeeklyLimit}
-							cycleCreditsUsed={creditsUsed}
-							cycleCreditsLimit={creditsLimit}
-						/>
+						{!monthlyExhausted && (
+							<ResetPassCard
+								tier={tierKey}
+								organizationId={organizationId}
+								purchased={resetPasses}
+								includedTotal={includedResetPasses}
+								includedRemaining={includedResetPassesRemaining}
+								price={resetPassPrice}
+								premiumCreditsUsed={premiumCreditsUsed}
+								premiumWeeklyLimit={premiumWeeklyLimit}
+								cycleCreditsUsed={creditsUsed}
+								cycleCreditsLimit={creditsLimit}
+							/>
+						)}
 					</div>
+				)}
+				{monthlyExhausted && (
+					<AllowanceExhaustedCard
+						tier={tierKey}
+						organizationId={organizationId}
+					/>
 				)}
 			</div>
 

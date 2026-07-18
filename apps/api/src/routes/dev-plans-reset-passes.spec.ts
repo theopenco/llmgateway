@@ -429,6 +429,16 @@ describe("reset pass purchase", () => {
 		expect((await getOrg()).devPlanResetPassesPro).toBe(0);
 	});
 
+	it("rejects purchase when the allowance is fully exhausted", async () => {
+		// The 100% boundary: the dashboard swaps the pass card for the
+		// upgrade/PAYG promo here, and the same server gate backstops it.
+		await insertOrg({ devPlanCreditsUsed: "237" });
+
+		const res = await purchaseRequest(token);
+		expect(res.status).toBe(400);
+		expect(stripeMock.paymentIntents.create).not.toHaveBeenCalled();
+	});
+
 	it("allows purchase at exactly 95% of the monthly cycle allowance", async () => {
 		await insertOrg({
 			devPlanCreditsUsed: "95",
