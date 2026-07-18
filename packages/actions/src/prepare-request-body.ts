@@ -2839,7 +2839,7 @@ export async function prepareRequestBody(
 				};
 
 				// Handle assistant messages with tool calls
-				if (msg.role === "assistant" && msg.tool_calls) {
+				if (msg.role === "assistant" && msg.tool_calls?.length) {
 					// Add text content if present
 					if (msg.content) {
 						bedrockMessage.content.push({
@@ -2958,6 +2958,15 @@ export async function prepareRequestBody(
 							}
 						}
 					}
+				}
+
+				// Bedrock's Converse API rejects messages whose content array is
+				// empty ("The content field in the Message object at messages.N is
+				// empty"), while the Anthropic API accepts empty assistant turns.
+				// Mirror transformAnthropicMessages and drop such messages —
+				// Bedrock accepts the resulting consecutive same-role messages.
+				if (bedrockMessage.content.length === 0) {
+					continue;
 				}
 
 				bedrockMessages.push(bedrockMessage);

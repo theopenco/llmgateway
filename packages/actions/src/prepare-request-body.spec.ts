@@ -3511,6 +3511,45 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			// replaced by the model maxOutput.
 			expect(requestBody.inferenceConfig?.maxTokens).toBe(5000);
 		});
+
+		test("drops messages whose content resolves to empty", async () => {
+			// Bedrock's Converse API 400s on messages with an empty content array
+			// ("The content field in the Message object at messages.N is empty"),
+			// while the Anthropic API accepts empty assistant turns and the
+			// Anthropic transform drops empty messages entirely. The Bedrock
+			// builder must drop them too.
+			const requestBody = (await prepareRequestBody(
+				"aws-bedrock",
+				"claude-sonnet-4-6",
+				null,
+				"anthropic.claude-sonnet-4-6",
+				[
+					{ role: "user", content: "say hi" },
+					{ role: "assistant", content: "" },
+					{ role: "user", content: [{ type: "text", text: "" }] as any },
+					{ role: "assistant", content: [] as any },
+					{ role: "assistant", content: "", tool_calls: [] },
+					{ role: "user", content: "say hi again" },
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.messages).toEqual([
+				{ role: "user", content: [{ text: "say hi" }] },
+				{ role: "user", content: [{ text: "say hi again" }] },
+			]);
+		});
 	});
 
 	describe("openai (Chat Completions)", () => {
