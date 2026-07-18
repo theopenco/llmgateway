@@ -307,6 +307,7 @@ export const moonshotModels = [
 				contextSize: 262144,
 				maxOutput: 98304,
 				reasoning: true,
+				reasoningMaxTokens: true,
 				streaming: true,
 				vision: true,
 				tools: true,
