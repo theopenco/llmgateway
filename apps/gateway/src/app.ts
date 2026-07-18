@@ -28,6 +28,7 @@ import { extractErrorCause } from "./chat/tools/extract-error-cause.js";
 import { isUpstreamTermination } from "./chat/tools/normalize-streaming-error.js";
 import { embeddingsRoute } from "./embeddings/route.js";
 import { imagesRoute } from "./images/route.js";
+import { keyRoute } from "./key/route.js";
 import {
 	buildAnthropicErrorBody,
 	buildOpenAIErrorBody,
@@ -341,6 +342,7 @@ const v1 = new OpenAPIHono<ServerTypes>();
 v1.route("/chat", chat);
 v1.route("/embeddings", embeddingsRoute);
 v1.route("/images", imagesRoute);
+v1.route("/key", keyRoute);
 v1.route("/models", models);
 v1.route("/moderations", moderationsRoute);
 v1.route("/ocr", ocrRoute);
