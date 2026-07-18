@@ -8485,6 +8485,12 @@ const unstableMappingErrorDetailSchema = z.object({
 	statusText: z.string().nullable(),
 	responseText: z.string().nullable(),
 	cause: z.string().nullable(),
+	// The gateway's internal classification stored on the log
+	// (`unified_finish_reason`, e.g. `client_error`, `gateway_error`,
+	// `upstream_error`, `content_filter`). Surfaced because the HTTP status
+	// alone is misleading: some 4xx responses are classified as gateway or
+	// upstream errors.
+	classification: z.string().nullable(),
 	count: z.number(),
 });
 
@@ -8535,11 +8541,13 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		status_text: string | null;
 		response_text: string | null;
 		cause: string | null;
+		classification: string | null;
 		count: string;
 		sampled_errors: string;
 	}>(sql`
 		WITH recent_errors AS (
-			SELECT ${tables.log.errorDetails} AS error_details
+			SELECT ${tables.log.errorDetails} AS error_details,
+				${tables.log.unifiedFinishReason} AS classification
 			FROM ${tables.log}
 			WHERE ${tables.log.hasError} = true
 				AND ${tables.log.usedModel} = ${model}
@@ -8553,10 +8561,11 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 			error_details->>'statusText' AS status_text,
 			LEFT(error_details->>'responseText', 2000) AS response_text,
 			error_details->>'cause' AS cause,
+			classification,
 			COUNT(*) AS count,
 			(SELECT COUNT(*) FROM recent_errors) AS sampled_errors
 		FROM recent_errors
-		GROUP BY status_code, status_text, response_text, cause
+		GROUP BY status_code, status_text, response_text, cause, classification
 		ORDER BY count DESC
 		LIMIT 10
 	`);
@@ -8570,6 +8579,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 			statusText: r.status_text,
 			responseText: r.response_text,
 			cause: r.cause,
+			classification: r.classification,
 			count: Number(r.count),
 		})),
 		sampledErrors,
