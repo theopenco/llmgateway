@@ -48,7 +48,7 @@
 		"dotenv": "17.4.2",
 		"esbuild-fix-imports-plugin": "1.0.23",
 		"eslint": "^9.34.0",
-		"eslint-import-resolver-typescript": "4.4.4",
+		"eslint-import-resolver-typescript": "4.4.5",
 		"eslint-plugin-import": "2.32.0",
 		"eslint-plugin-no-relative-import-paths": "1.6.1",
 		"husky": "^9.1.7",
