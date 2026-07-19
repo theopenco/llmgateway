@@ -31,7 +31,7 @@
 
 import Stripe from "stripe";
 
-import { and, db, eq, inArray, isNull, tables } from "@llmgateway/db";
+import { and, db, eq, inArray, isNull, or, tables } from "@llmgateway/db";
 
 const STRIPE_API_VERSION = "2025-04-30.basil" as const;
 const DEV_PLAN_TX_TYPES = [
@@ -93,14 +93,19 @@ async function legacyPass(
 	commit: boolean,
 	scopePI: string | undefined,
 ): Promise<void> {
-	console.log(`\n=== Pass 1: legacy credit_refund rows ===`);
+	console.log(`\n=== Pass 1: legacy refund rows ===`);
 
 	const legacyRows = await db
 		.select()
 		.from(tables.transaction)
 		.where(
 			and(
-				eq(tables.transaction.type, "credit_refund"),
+				// Match both types so this pass still finds legacy rows after
+				// backfill-subscription-refunds has re-typed them.
+				inArray(tables.transaction.type, [
+					"credit_refund",
+					"subscription_refund",
+				]),
 				isNull(tables.transaction.stripeRefundId),
 				...(scopePI
 					? [eq(tables.transaction.stripePaymentIntentId, scopePI)]
@@ -109,7 +114,7 @@ async function legacyPass(
 		);
 
 	console.log(
-		`\nFound ${legacyRows.length} legacy credit_refund row(s) without stripe_refund_id`,
+		`\nFound ${legacyRows.length} legacy refund row(s) without stripe_refund_id`,
 	);
 	if (legacyRows.length === 0) {
 		console.log("No legacy rows to backfill.");
@@ -388,6 +393,7 @@ async function sweepPass(
 		| "dev_plan_start"
 		| "dev_plan_renewal"
 		| "dev_plan_upgrade"
+		| "dev_plan_reset_pass"
 		| "chat_plan_start"
 		| "chat_plan_renewal"
 		| "chat_plan_upgrade"
@@ -397,6 +403,7 @@ async function sweepPass(
 		"dev_plan_start",
 		"dev_plan_renewal",
 		"dev_plan_upgrade",
+		"dev_plan_reset_pass",
 		"chat_plan_start",
 		"chat_plan_renewal",
 		"chat_plan_upgrade",
@@ -406,7 +413,8 @@ async function sweepPass(
 	let scanned = 0;
 	let inserted = 0;
 	let unmatched = 0;
-	let creditTopupMisses = 0;
+	let manualReviewMisses = 0;
+	let legacyRowSkips = 0;
 
 	for await (const refund of stripe.refunds.list({
 		limit: 100,
@@ -471,9 +479,49 @@ async function sweepPass(
 		}
 
 		if (original.type === "credit_topup") {
-			creditTopupMisses += 1;
+			manualReviewMisses += 1;
 			console.warn(
 				`  SKIP credit_topup: refund ${refund.id} $${refundDollars.toFixed(2)} org=${original.organizationId} created=${created.toISOString()} — needs a credits deduction too, review manually`,
+			);
+			continue;
+		}
+
+		// A Reset Pass refund also claws back one pass from the org's inventory
+		// (see handleChargeRefunded); the backfill can't replay that side effect,
+		// so report it for manual review instead of inserting a bare row.
+		if (original.type === "dev_plan_reset_pass") {
+			manualReviewMisses += 1;
+			console.warn(
+				`  SKIP dev_plan_reset_pass: refund ${refund.id} $${refundDollars.toFixed(2)} org=${original.organizationId} created=${created.toISOString()} — needs a pass-inventory clawback too, review manually`,
+			);
+			continue;
+		}
+
+		// A legacy refund row (recorded pre-fix with cumulative amount and no
+		// stripe_refund_id) may already represent this refund; the refund-id
+		// dedupe above can't see it. Pass 1 rewrites the DevPass ones, but
+		// non-DevPass legacy rows and pass-1 skips would end up double-counted.
+		const [legacyRow] = await db
+			.select({ id: tables.transaction.id })
+			.from(tables.transaction)
+			.where(
+				and(
+					inArray(tables.transaction.type, [
+						"credit_refund",
+						"subscription_refund",
+					]),
+					isNull(tables.transaction.stripeRefundId),
+					or(
+						eq(tables.transaction.stripePaymentIntentId, pi),
+						eq(tables.transaction.relatedTransactionId, original.id),
+					),
+				),
+			)
+			.limit(1);
+		if (legacyRow) {
+			legacyRowSkips += 1;
+			console.warn(
+				`  SKIP legacy row: refund ${refund.id} $${refundDollars.toFixed(2)} org=${original.organizationId} — legacy refund row ${legacyRow.id} without stripe_refund_id already covers this payment, review manually`,
 			);
 			continue;
 		}
@@ -511,7 +559,12 @@ async function sweepPass(
 	console.log(
 		`  ${inserted} missing row(s) ${commit ? "inserted" : "would be inserted"}`,
 	);
-	console.log(`  ${creditTopupMisses} missing credit_topup refund(s) skipped`);
+	console.log(
+		`  ${manualReviewMisses} missing refund(s) skipped for manual review`,
+	);
+	console.log(
+		`  ${legacyRowSkips} refund(s) skipped as covered by legacy rows`,
+	);
 	console.log(`  ${unmatched} refund(s) unmatched`);
 }
 
