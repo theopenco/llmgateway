@@ -28,7 +28,7 @@ The largest open-weight model ever announced (API live July 16; weights publish 
 
 **Z.ai · 744B params · 1M context · $1.40 / $4.40 per M**
 
-MIT-licensed, weights on Hugging Face, and the top-ranked open model until K3 arrived. A real 1M-token context, strong agentic-coding results, and built-in web search support — at less than a third of K3's price. Also the largest model on this list that fits a single 8-GPU node (or one 512 GB Mac Studio) at INT4.
+MIT-licensed, weights on Hugging Face, and the top-ranked open model until K3 arrived. A real 1M-token context, strong agentic-coding results, and built-in web search support — with output at under a third of K3's rate and input at about half. Also the largest model on this list that fits a single 8-GPU node (or one 512 GB Mac Studio) at INT4.
 
 **Best for:** the best capability-per-dollar in the open field.
 
