@@ -15,6 +15,33 @@ import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 // master-key route, then asserts BOTH the SWR mirror is evicted AND a fresh cdb
 // select serves the new value.
 
+// Seed an SWR mirror entry the way the gateway would and confirm it landed.
+async function primeSwrEntry<T>(key: string, table: string, value: T) {
+	await swrWrap(key, [table], async () => value);
+	expect(await redisClient.get(SWR_PREFIX + key)).not.toBeNull();
+}
+
+async function assertSwrCleared(key: string) {
+	expect(await redisClient.get(SWR_PREFIX + key)).toBeNull();
+}
+
+function readActiveIamRules(apiKeyId: string) {
+	return swrWrap(
+		`iamRules:${apiKeyId}`,
+		[getTableName(tables.apiKeyIamRule)],
+		async () =>
+			await cdb
+				.select()
+				.from(tables.apiKeyIamRule)
+				.where(
+					and(
+						eq(tables.apiKeyIamRule.apiKeyId, apiKeyId),
+						eq(tables.apiKeyIamRule.status, "active"),
+					),
+				),
+	);
+}
+
 describe("v1/master cache invalidation", () => {
 	let masterToken: string;
 
@@ -75,16 +102,6 @@ describe("v1/master cache invalidation", () => {
 			Authorization: `Bearer ${masterToken}`,
 			...extra,
 		};
-	}
-
-	// Seed an SWR mirror entry the way the gateway would and confirm it landed.
-	async function primeSwrEntry<T>(key: string, table: string, value: T) {
-		await swrWrap(key, [table], async () => value);
-		expect(await redisClient.get(SWR_PREFIX + key)).not.toBeNull();
-	}
-
-	async function assertSwrCleared(key: string) {
-		expect(await redisClient.get(SWR_PREFIX + key)).toBeNull();
 	}
 
 	test("PATCH /keys/{id} invalidates the gateway api_key cache", async () => {
@@ -225,23 +242,7 @@ describe("v1/master cache invalidation", () => {
 			createdBy: "test-user-id",
 		});
 
-		const readActiveIamRules = () =>
-			swrWrap(
-				`iamRules:${apiKeyId}`,
-				[getTableName(tables.apiKeyIamRule)],
-				async () =>
-					await cdb
-						.select()
-						.from(tables.apiKeyIamRule)
-						.where(
-							and(
-								eq(tables.apiKeyIamRule.apiKeyId, apiKeyId),
-								eq(tables.apiKeyIamRule.status, "active"),
-							),
-						),
-			);
-
-		expect(await readActiveIamRules()).toHaveLength(0);
+		expect(await readActiveIamRules(apiKeyId)).toHaveLength(0);
 		await primeSwrEntry(
 			`iamRules:${apiKeyId}`,
 			getTableName(tables.apiKeyIamRule),
@@ -259,7 +260,7 @@ describe("v1/master cache invalidation", () => {
 		expect(res.status).toBe(200);
 
 		await assertSwrCleared(`iamRules:${apiKeyId}`);
-		expect(await readActiveIamRules()).toHaveLength(1);
+		expect(await readActiveIamRules(apiKeyId)).toHaveLength(1);
 	});
 
 	test("PATCH /keys/{id}/iam/{ruleId} busts the gateway's cached IAM rule lookups", async () => {
@@ -280,23 +281,7 @@ describe("v1/master cache invalidation", () => {
 			})
 			.returning();
 
-		const readActiveIamRules = () =>
-			swrWrap(
-				`iamRules:${apiKeyId}`,
-				[getTableName(tables.apiKeyIamRule)],
-				async () =>
-					await cdb
-						.select()
-						.from(tables.apiKeyIamRule)
-						.where(
-							and(
-								eq(tables.apiKeyIamRule.apiKeyId, apiKeyId),
-								eq(tables.apiKeyIamRule.status, "active"),
-							),
-						),
-			);
-
-		expect(await readActiveIamRules()).toHaveLength(1);
+		expect(await readActiveIamRules(apiKeyId)).toHaveLength(1);
 		await primeSwrEntry(
 			`iamRules:${apiKeyId}`,
 			getTableName(tables.apiKeyIamRule),
@@ -316,7 +301,7 @@ describe("v1/master cache invalidation", () => {
 		expect(res.status).toBe(200);
 
 		await assertSwrCleared(`iamRules:${apiKeyId}`);
-		const rules = await readActiveIamRules();
+		const rules = await readActiveIamRules(apiKeyId);
 		expect(rules).toHaveLength(1);
 		expect(rules[0]?.ruleValue).toEqual({
 			models: ["anthropic/claude-3-5-sonnet"],
@@ -341,23 +326,7 @@ describe("v1/master cache invalidation", () => {
 			})
 			.returning();
 
-		const readActiveIamRules = () =>
-			swrWrap(
-				`iamRules:${apiKeyId}`,
-				[getTableName(tables.apiKeyIamRule)],
-				async () =>
-					await cdb
-						.select()
-						.from(tables.apiKeyIamRule)
-						.where(
-							and(
-								eq(tables.apiKeyIamRule.apiKeyId, apiKeyId),
-								eq(tables.apiKeyIamRule.status, "active"),
-							),
-						),
-			);
-
-		expect(await readActiveIamRules()).toHaveLength(1);
+		expect(await readActiveIamRules(apiKeyId)).toHaveLength(1);
 		await primeSwrEntry(
 			`iamRules:${apiKeyId}`,
 			getTableName(tables.apiKeyIamRule),
@@ -374,6 +343,6 @@ describe("v1/master cache invalidation", () => {
 		expect(res.status).toBe(200);
 
 		await assertSwrCleared(`iamRules:${apiKeyId}`);
-		expect(await readActiveIamRules()).toHaveLength(0);
+		expect(await readActiveIamRules(apiKeyId)).toHaveLength(0);
 	});
 });
