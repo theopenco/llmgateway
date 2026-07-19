@@ -101,7 +101,9 @@ export default function TermsPage() {
 				</li>
 				<li>
 					Allowances reset at the start of each billing cycle and{" "}
-					<strong>do not roll over</strong>
+					<strong>do not roll over</strong> at renewal; the only exception is an
+					immediate mid-cycle upgrade, which rolls your unused allowance into
+					the new cycle (see &ldquo;Plan changes&rdquo; below)
 				</li>
 			</ul>
 			<p>

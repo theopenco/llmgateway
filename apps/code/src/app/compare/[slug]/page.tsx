@@ -320,8 +320,9 @@ export default async function ComparePage({ params }: ComparePageProps) {
 							One key. Every model.
 						</h2>
 						<p className="mb-8 text-muted-foreground">
-							Start on Pro — most developers ship from there. Upgrade any time
-							and your new allowance kicks in instantly.
+							Start on Pro — most developers ship from there. Upgrade any time —
+							your new allowance kicks in instantly and unused credits roll
+							over.
 						</p>
 						<div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
 							<CodeCTATracker cta="get_started" location="compare_bottom_cta">
