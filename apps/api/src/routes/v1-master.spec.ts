@@ -260,8 +260,6 @@ describe("v1/master cache invalidation", () => {
 		expect(res.status).toBe(200);
 
 		await assertSwrCleared(`iamRules:${apiKeyId}`);
-		// A bare cdb select (not via swrWrap) must now return the new rule,
-		// proving the Drizzle cache layer was busted, not just the SWR mirror.
 		const directRules = await cdb
 			.select()
 			.from(tables.apiKeyIamRule)
@@ -313,6 +311,19 @@ describe("v1/master cache invalidation", () => {
 		expect(res.status).toBe(200);
 
 		await assertSwrCleared(`iamRules:${apiKeyId}`);
+		const directRules = await cdb
+			.select()
+			.from(tables.apiKeyIamRule)
+			.where(
+				and(
+					eq(tables.apiKeyIamRule.apiKeyId, apiKeyId),
+					eq(tables.apiKeyIamRule.status, "active"),
+				),
+			);
+		expect(directRules).toHaveLength(1);
+		expect(directRules[0]?.ruleValue).toEqual({
+			models: ["anthropic/claude-3-5-sonnet"],
+		});
 		const rules = await readActiveIamRules(apiKeyId);
 		expect(rules).toHaveLength(1);
 		expect(rules[0]?.ruleValue).toEqual({
@@ -355,6 +366,16 @@ describe("v1/master cache invalidation", () => {
 		expect(res.status).toBe(200);
 
 		await assertSwrCleared(`iamRules:${apiKeyId}`);
+		const directRules = await cdb
+			.select()
+			.from(tables.apiKeyIamRule)
+			.where(
+				and(
+					eq(tables.apiKeyIamRule.apiKeyId, apiKeyId),
+					eq(tables.apiKeyIamRule.status, "active"),
+				),
+			);
+		expect(directRules).toHaveLength(0);
 		expect(await readActiveIamRules(apiKeyId)).toHaveLength(0);
 	});
 });
