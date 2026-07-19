@@ -46,6 +46,40 @@ const LEGACY_DEV_PLAN_TX_TYPES = [
 	"subscription_end",
 ] as const;
 
+// Insert payload shared by both passes. Every backfilled row is a plan refund
+// (pass 1 is DevPass-only, pass 2 skips credit_topup misses), so they are
+// recorded as subscription_refund with creditAmount 0 — plan refunds never
+// touch organization.credits.
+function subscriptionRefundRow(args: {
+	createdAt: Date;
+	organizationId: string;
+	refundDollars: number;
+	originalAmount: number;
+	currency: string | null;
+	paymentIntentId: string;
+	refundId: string;
+	relatedTransactionId: string | null;
+	reason: string | null;
+}): typeof tables.transaction.$inferInsert {
+	const ratio =
+		args.originalAmount > 0 ? args.refundDollars / args.originalAmount : 0;
+	return {
+		createdAt: args.createdAt,
+		updatedAt: args.createdAt,
+		organizationId: args.organizationId,
+		type: "subscription_refund",
+		amount: args.refundDollars.toString(),
+		creditAmount: "0",
+		currency: args.currency ?? "USD",
+		status: "completed",
+		stripePaymentIntentId: args.paymentIntentId,
+		stripeRefundId: args.refundId,
+		relatedTransactionId: args.relatedTransactionId,
+		refundReason: args.reason,
+		description: `Subscription refund: $${args.refundDollars.toFixed(2)} (${(ratio * 100).toFixed(1)}% of original purchase) [backfilled]`,
+	};
+}
+
 function getStripe(): Stripe {
 	const key = process.env.STRIPE_SECRET_KEY;
 	if (!key) {
@@ -322,25 +356,19 @@ async function legacyPass(
 				);
 
 				for (const r of toInsert) {
-					const refundDollars = r.amount / 100;
-					const ratio = originalAmount > 0 ? refundDollars / originalAmount : 0;
-					await tx.insert(tables.transaction).values({
-						createdAt: new Date(r.created * 1000),
-						updatedAt: new Date(r.created * 1000),
-						organizationId: sample.organizationId,
-						// Pass 1 only handles DevPass plan refunds, which are recorded
-						// as subscription_refund (never touch organization.credits).
-						type: "subscription_refund",
-						amount: refundDollars.toString(),
-						creditAmount: "0",
-						currency: sample.currency ?? "USD",
-						status: "completed",
-						stripePaymentIntentId: pi,
-						stripeRefundId: r.id,
-						relatedTransactionId: sample.relatedTransactionId,
-						refundReason: r.reason ?? null,
-						description: `Subscription refund: $${refundDollars.toFixed(2)} (${(ratio * 100).toFixed(1)}% of original purchase) [backfilled]`,
-					});
+					await tx.insert(tables.transaction).values(
+						subscriptionRefundRow({
+							createdAt: new Date(r.created * 1000),
+							organizationId: sample.organizationId,
+							refundDollars: r.amount / 100,
+							originalAmount,
+							currency: sample.currency,
+							paymentIntentId: pi,
+							refundId: r.id,
+							relatedTransactionId: sample.relatedTransactionId,
+							reason: r.reason ?? null,
+						}),
+					);
 				}
 			});
 			console.log(`  Applied`);
@@ -526,30 +554,24 @@ async function sweepPass(
 			continue;
 		}
 
-		const originalAmount = Number.parseFloat(original.amount ?? "0");
-		const ratio = originalAmount > 0 ? refundDollars / originalAmount : 0;
 		console.log(
 			`  INSERT: refund ${refund.id} $${refundDollars.toFixed(2)} → ${original.type} ${original.id} org=${original.organizationId} created=${created.toISOString()}`,
 		);
 
 		if (commit) {
-			await db.insert(tables.transaction).values({
-				createdAt: created,
-				updatedAt: created,
-				organizationId: original.organizationId,
-				// credit_topup misses are skipped above, so every inserted row is a
-				// plan refund — recorded as subscription_refund.
-				type: "subscription_refund",
-				amount: refundDollars.toString(),
-				creditAmount: "0",
-				currency: original.currency ?? "USD",
-				status: "completed",
-				stripePaymentIntentId: pi,
-				stripeRefundId: refund.id,
-				relatedTransactionId: original.id,
-				refundReason: refund.reason ?? null,
-				description: `Subscription refund: $${refundDollars.toFixed(2)} (${(ratio * 100).toFixed(1)}% of original purchase) [backfilled]`,
-			});
+			await db.insert(tables.transaction).values(
+				subscriptionRefundRow({
+					createdAt: created,
+					organizationId: original.organizationId,
+					refundDollars,
+					originalAmount: Number.parseFloat(original.amount ?? "0"),
+					currency: original.currency,
+					paymentIntentId: pi,
+					refundId: refund.id,
+					relatedTransactionId: original.id,
+					reason: refund.reason ?? null,
+				}),
+			);
 		}
 		inserted += 1;
 	}

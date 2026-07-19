@@ -8,8 +8,9 @@
  * original transaction's type) and rewrites their auto-generated
  * "Credit refund:" description prefix accordingly.
  *
- * credit_topup refunds and rows without a related original transaction are
- * left untouched.
+ * credit_topup refunds are left untouched; rows whose original transaction
+ * can't be resolved (missing or dangling relatedTransactionId) are reported
+ * for manual review since they can't be classified.
  *
  * Usage:
  *   pnpm --filter @llmgateway/scripts backfill-subscription-refunds           # dry run
@@ -19,7 +20,17 @@
  *   DATABASE_URL - defaults to local postgres if unset
  */
 
-import { aliasedTable, db, eq, ne, and, tables } from "@llmgateway/db";
+import {
+	aliasedTable,
+	and,
+	db,
+	eq,
+	isNull,
+	ne,
+	or,
+	sql,
+	tables,
+} from "@llmgateway/db";
 
 function hasFlag(name: string): boolean {
 	return process.argv.includes(`--${name}`);
@@ -31,6 +42,31 @@ async function main(): Promise<void> {
 	console.log(
 		`Mode: ${commit ? "COMMIT (writes enabled)" : "DRY RUN (no writes)"}`,
 	);
+
+	// Rows the classifying inner join below would silently drop: refund rows
+	// with no relatedTransactionId, or one pointing at a deleted transaction
+	// (the column has no FK). They can't be classified, so surface them.
+	const unresolvedRows = await db
+		.select({
+			id: tables.transaction.id,
+			organizationId: tables.transaction.organizationId,
+			amount: tables.transaction.amount,
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.type, "credit_refund"),
+				or(
+					isNull(tables.transaction.relatedTransactionId),
+					sql`NOT EXISTS (SELECT 1 FROM ${tables.transaction} AS original_tx WHERE original_tx.id = ${tables.transaction.relatedTransactionId})`,
+				),
+			),
+		);
+	for (const row of unresolvedRows) {
+		console.warn(
+			`  UNRESOLVED ${row.id} org=${row.organizationId} $${row.amount ?? "?"}: no resolvable original transaction — cannot classify, review manually`,
+		);
+	}
 
 	const originalTx = aliasedTable(tables.transaction, "original_tx");
 	const rows = await db
@@ -58,6 +94,7 @@ async function main(): Promise<void> {
 		`\nFound ${rows.length} credit_refund row(s) whose original transaction is not a credit_topup`,
 	);
 
+	let retyped = 0;
 	let skipped = 0;
 	for (const row of rows) {
 		// Plan refunds have always been recorded with creditAmount 0 (the
@@ -80,6 +117,7 @@ async function main(): Promise<void> {
 					? ` (description: "${row.description}" -> "${newDescription}")`
 					: ""),
 		);
+		retyped += 1;
 
 		if (commit) {
 			await db
@@ -94,12 +132,17 @@ async function main(): Promise<void> {
 
 	console.log(`\n=== Summary ===`);
 	console.log(
-		`  ${rows.length - skipped} row(s) ${commit ? "re-typed to subscription_refund" : "would be re-typed to subscription_refund"}`,
+		`  ${retyped} row(s) ${commit ? "re-typed to subscription_refund" : "would be re-typed to subscription_refund"}`,
 	);
+	if (unresolvedRows.length > 0) {
+		console.log(
+			`  ${unresolvedRows.length} row(s) with no resolvable original transaction`,
+		);
+	}
 	if (skipped > 0) {
 		console.log(`  ${skipped} row(s) skipped for manual review`);
 	}
-	if (!commit && rows.length > skipped) {
+	if (!commit && retyped > 0) {
 		console.log("  Re-run with --commit to apply.");
 	}
 
