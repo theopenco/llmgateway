@@ -90,6 +90,32 @@ describe("model service tier support", () => {
 			)?.multiplier,
 		).toBe(2);
 		expect(
+			getSupportedServiceTiers("gpt-5.1", "openai").map((tier) => tier.id),
+		).toEqual(["flex", "priority"]);
+		expect(
+			getSupportedServiceTiers("gpt-5.1", "openai").find(
+				(tier) => tier.id === "priority",
+			)?.multiplier,
+		).toBe(2);
+		expect(
+			getSupportedServiceTiers("gpt-5.2", "openai").map((tier) => tier.id),
+		).toEqual(["flex", "priority"]);
+		expect(
+			getSupportedServiceTiers("gpt-5.2", "openai").find(
+				(tier) => tier.id === "priority",
+			)?.multiplier,
+		).toBe(2);
+		expect(
+			getSupportedServiceTiers("gpt-5.1-codex", "openai").map(
+				(tier) => tier.id,
+			),
+		).toEqual(["priority"]);
+		expect(
+			getSupportedServiceTiers("gpt-5.1-codex", "openai").find(
+				(tier) => tier.id === "priority",
+			)?.multiplier,
+		).toBe(2);
+		expect(
 			getSupportedServiceTiers("gpt-5.5-pro", "openai").map((tier) => tier.id),
 		).toEqual(["flex"]);
 		expect(

@@ -63,9 +63,11 @@ export function SignupsChart({
 	return (
 		<Card>
 			<CardHeader className="flex flex-col items-stretch space-y-0 border-b p-0 sm:flex-row">
-				<div className="flex flex-1 flex-col justify-center gap-1 px-6 py-5 sm:py-6">
-					<CardTitle>Signups & Paid Customers</CardTitle>
-					<CardDescription>
+				<div className="flex flex-1 flex-col justify-center gap-1.5 px-6 py-5 sm:py-6">
+					<CardTitle className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+						Signups & Paid Customers
+					</CardTitle>
+					<CardDescription className="text-xs">
 						Cumulative signups and paid customers over time
 					</CardDescription>
 				</div>
@@ -74,13 +76,13 @@ export function SignupsChart({
 						<button
 							key={key}
 							data-active={activeChart === key}
-							className="relative z-30 flex flex-1 flex-col justify-center gap-1 border-t px-6 py-4 text-left even:border-l data-[active=true]:bg-muted/50 sm:border-l sm:border-t-0 sm:px-8 sm:py-6"
+							className="relative z-30 flex flex-1 flex-col justify-center gap-1.5 border-t px-6 py-4 text-left even:border-l data-[active=true]:bg-muted/50 sm:border-l sm:border-t-0 sm:px-8 sm:py-6"
 							onClick={() => setActiveChart(key)}
 						>
-							<span className="text-xs text-muted-foreground">
+							<span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
 								{chartConfig[key].label}
 							</span>
-							<span className="text-lg font-bold leading-none sm:text-3xl">
+							<span className="font-mono text-lg font-medium leading-none tabular-nums tracking-tight sm:text-3xl">
 								{numberFormatter.format(totals[key])}
 							</span>
 						</button>

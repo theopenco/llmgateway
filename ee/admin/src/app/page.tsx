@@ -1,8 +1,10 @@
 import {
 	AlertTriangle,
+	ArrowUpRight,
 	CircleDollarSign,
 	Gift,
 	PiggyBank,
+	TrendingUp,
 	Users,
 } from "lucide-react";
 import Link from "next/link";
@@ -18,9 +20,12 @@ import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
 
+import type { CSSProperties, ReactNode } from "react";
+
 const currencyFormatter = new Intl.NumberFormat("en-US", {
 	style: "currency",
 	currency: "USD",
+	minimumFractionDigits: 2,
 	maximumFractionDigits: 2,
 });
 
@@ -28,70 +33,182 @@ const numberFormatter = new Intl.NumberFormat("en-US", {
 	maximumFractionDigits: 0,
 });
 
-type Accent = "green" | "blue" | "purple" | "red" | "amber";
+type Accent = "green" | "blue" | "violet" | "amber" | "teal";
 
-const accentRing: Record<Accent, string> = {
-	green: "border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
-	blue: "border-sky-500/30 bg-sky-500/10 text-sky-400",
-	purple: "border-violet-500/30 bg-violet-500/10 text-violet-400",
-	red: "border-red-500/30 bg-red-500/10 text-red-400",
-	amber: "border-amber-500/30 bg-amber-500/10 text-amber-400",
+const accentTick: Record<Accent, string> = {
+	green: "bg-emerald-500 dark:bg-emerald-400",
+	blue: "bg-sky-500 dark:bg-sky-400",
+	violet: "bg-violet-500 dark:bg-violet-400",
+	amber: "bg-amber-500 dark:bg-amber-400",
+	teal: "bg-teal-500 dark:bg-teal-400",
 };
 
-function GroupedMetricCard({
-	label,
-	value,
-	subtitle,
-	icon,
-	accent,
-	stats,
+const accentIcon: Record<Accent, string> = {
+	green: "text-emerald-600 dark:text-emerald-400",
+	blue: "text-sky-600 dark:text-sky-400",
+	violet: "text-violet-600 dark:text-violet-400",
+	amber: "text-amber-600 dark:text-amber-400",
+	teal: "text-teal-600 dark:text-teal-400",
+};
+
+function revealAt(index: number): CSSProperties {
+	return { "--reveal-index": index } as CSSProperties;
+}
+
+/** Split "$1,234.56" into ["$1,234", ".56"] so cents can be de-emphasized. */
+function splitCents(formatted: string): [string, string] {
+	const dot = formatted.lastIndexOf(".");
+	if (dot === -1) {
+		return [formatted, ""];
+	}
+	return [formatted.slice(0, dot), formatted.slice(dot)];
+}
+
+/** Step the value type size down as the figure grows so it never overflows. */
+function valueSizeClass(length: number, hero: boolean): string {
+	if (hero) {
+		if (length > 17) {
+			return "text-2xl lg:text-3xl";
+		}
+		if (length > 13) {
+			return "text-3xl lg:text-4xl";
+		}
+		return "text-4xl lg:text-5xl";
+	}
+	if (length > 16) {
+		return "text-xl";
+	}
+	if (length > 13) {
+		return "text-2xl";
+	}
+	return "text-[2rem]";
+}
+
+function SectionHeader({
+	index,
+	title,
+	action,
 }: {
-	label: string;
-	value: string;
-	subtitle?: string;
-	icon: React.ReactNode;
-	accent: Accent;
-	stats: { label: string; value: string }[];
+	index: string;
+	title: string;
+	action?: ReactNode;
 }) {
 	return (
-		<div className="bg-card text-card-foreground flex flex-col gap-5 rounded-xl border border-border/60 p-5 shadow-sm">
-			<div className="flex items-start justify-between gap-3">
-				<div className="min-w-0">
-					<p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-						{label}
-					</p>
-					<p className="mt-2 text-3xl font-semibold tabular-nums">{value}</p>
-					{subtitle ? (
-						<p className="mt-1 text-xs text-muted-foreground">{subtitle}</p>
-					) : null}
-				</div>
+		<div className="flex items-center gap-3">
+			<span className="font-mono text-[11px] tabular-nums tracking-widest text-muted-foreground/60">
+				{index}
+			</span>
+			<h2 className="shrink-0 font-mono text-[11px] font-medium uppercase tracking-[0.2em] text-muted-foreground">
+				{title}
+			</h2>
+			<span aria-hidden className="h-px flex-1 bg-border/70" />
+			{action}
+		</div>
+	);
+}
+
+function LedgerRow({ label, value }: { label: string; value: string }) {
+	return (
+		<div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
+			<dt className="shrink-0 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+				{label}
+			</dt>
+			<span
+				aria-hidden
+				className="min-w-3 flex-1 self-end border-b border-dotted border-foreground/20 pb-1"
+			/>
+			<dd className="ml-auto font-mono text-[13px] font-medium tabular-nums tracking-tight">
+				{value}
+			</dd>
+		</div>
+	);
+}
+
+function MetricCell({
+	label,
+	value,
+	format,
+	sublabel,
+	icon,
+	accent,
+	rows,
+	hero = false,
+	className,
+	style,
+}: {
+	label: string;
+	value: number;
+	format: "currency" | "count";
+	sublabel: string;
+	icon: ReactNode;
+	accent: Accent;
+	rows: { label: string; value: string }[];
+	hero?: boolean;
+	className?: string;
+	style?: CSSProperties;
+}) {
+	const formatted =
+		format === "currency"
+			? currencyFormatter.format(value)
+			: numberFormatter.format(value);
+	const [main, cents] =
+		format === "currency" ? splitCents(formatted) : [formatted, ""];
+
+	return (
+		<article
+			className={cn(
+				"reveal relative flex min-w-0 flex-col gap-5 bg-card p-5",
+				className,
+			)}
+			style={style}
+		>
+			{hero ? (
 				<div
+					aria-hidden
+					className="bg-dotgrid pointer-events-none absolute inset-0"
+				/>
+			) : null}
+			<header className="relative flex items-center justify-between gap-3">
+				<div className="flex items-center gap-2.5">
+					<span
+						aria-hidden
+						className={cn("h-3 w-[3px] rounded-full", accentTick[accent])}
+					/>
+					<h3 className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+						{label}
+					</h3>
+				</div>
+				<span className={cn("shrink-0", accentIcon[accent])}>{icon}</span>
+			</header>
+			<div className="relative min-w-0">
+				<p
 					className={cn(
-						"inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-xs",
-						accentRing[accent],
+						"font-mono font-medium tabular-nums leading-none tracking-tight",
+						valueSizeClass(formatted.length, hero),
 					)}
 				>
-					{icon}
-				</div>
+					{main}
+					{cents ? (
+						<span className="text-[0.6em] font-normal text-muted-foreground">
+							{cents}
+						</span>
+					) : null}
+				</p>
+				<p className="mt-2.5 text-xs text-muted-foreground">{sublabel}</p>
 			</div>
-			<div
+			<dl
 				className={cn(
-					"grid gap-4 border-t border-border/50 pt-4",
-					stats.length === 3 ? "grid-cols-3" : "grid-cols-2",
+					"relative mt-auto border-t border-border/50 pt-4",
+					hero
+						? "grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-2"
+						: "flex flex-col gap-2",
 				)}
 			>
-				{stats.map((stat) => (
-					<div key={stat.label} className="min-w-0">
-						<p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/80">
-							{stat.label}
-						</p>
-						<p className="mt-1 truncate text-sm font-semibold tabular-nums">
-							{stat.value}
-						</p>
-					</div>
+				{rows.map((row) => (
+					<LedgerRow key={row.label} label={row.label} value={row.value} />
 				))}
-			</div>
-		</div>
+			</dl>
+		</article>
 	);
 }
 
@@ -140,158 +257,257 @@ export default async function Page({
 	}
 
 	return (
-		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
-			<header className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
-				<div>
-					<h1 className="text-3xl font-semibold tracking-tight">
+		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-10 px-4 py-8 md:px-8">
+			<header
+				className="reveal relative flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"
+				style={revealAt(0)}
+			>
+				<div
+					aria-hidden
+					className="bg-dotgrid pointer-events-none absolute -top-8 right-0 left-0 h-36"
+				/>
+				<div className="relative">
+					<p className="font-mono text-[11px] uppercase tracking-[0.25em] text-muted-foreground">
+						LLM Gateway{" "}
+						<span aria-hidden className="text-foreground/30">
+							/
+						</span>{" "}
+						Operations
+					</p>
+					<h1 className="mt-2.5 text-3xl font-semibold tracking-tight md:text-4xl">
 						Admin Dashboard
 					</h1>
-					<p className="mt-1 text-sm text-muted-foreground">
-						Overview of users, customers, and revenue.
+					<p className="mt-1.5 text-sm text-muted-foreground">
+						Users, customers, and revenue at a glance.
 					</p>
 				</div>
-				<div className="flex items-center gap-3">
+				<div className="relative flex items-center gap-3">
 					<Suspense>
 						<DateRangePicker />
 					</Suspense>
-					<div className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-background/60 px-3 py-1 text-xs text-muted-foreground backdrop-blur">
-						<span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
-						<span>Live data</span>
+					<div className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-card/60 px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground backdrop-blur">
+						<span className="relative flex h-1.5 w-1.5">
+							<span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+							<span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+						</span>
+						<span>Live</span>
 					</div>
 				</div>
 			</header>
 
-			<section className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
-				<GroupedMetricCard
-					label="Audience"
-					value={numberFormatter.format(metrics.totalSignups)}
-					subtitle="Total sign-ups"
-					icon={<Users className="h-4 w-4" />}
-					accent="blue"
-					stats={[
-						{
-							label: "Verified",
-							value: numberFormatter.format(metrics.verifiedUsers),
-						},
-						{
-							label: "Paying",
-							value: numberFormatter.format(metrics.payingCustomers),
-						},
-						{
-							label: "Orgs",
-							value: numberFormatter.format(metrics.totalOrganizations),
-						},
-					]}
-				/>
-				<GroupedMetricCard
-					label="Revenue"
-					value={currencyFormatter.format(
-						metrics.totalRevenue - metrics.totalRefunds,
-					)}
-					subtitle="Net (excl. Stripe fees & refunds)"
-					icon={<CircleDollarSign className="h-4 w-4" />}
-					accent="green"
-					stats={[
-						{
-							label: "Processed",
-							value: currencyFormatter.format(metrics.totalProcessed),
-						},
-						{
-							label: "Fees",
-							value: currencyFormatter.format(
-								Math.max(0, metrics.totalProcessed - metrics.totalRevenue),
-							),
-						},
-						{
-							label: "Refunds",
-							value: currencyFormatter.format(metrics.totalRefunds),
-						},
-					]}
-				/>
-				<GroupedMetricCard
-					label="Credit Flow"
-					value={currencyFormatter.format(metrics.totalToppedUp)}
-					subtitle="All-time credits purchased"
-					icon={<PiggyBank className="h-4 w-4" />}
-					accent="purple"
-					stats={[
-						{
-							label: "Spent",
-							value: currencyFormatter.format(metrics.totalSpent),
-						},
-						{
-							label: "Unused",
-							value: currencyFormatter.format(metrics.unusedCredits),
-						},
-					]}
-				/>
-				<GroupedMetricCard
-					label="Credits Given"
-					value={currencyFormatter.format(
-						metrics.totalGiftedCredits + metrics.totalBonusCredits,
-					)}
-					subtitle="Free credits given (gift + SDK bonus)"
-					icon={<Gift className="h-4 w-4" />}
-					accent="amber"
-					stats={[
-						{
-							label: "Gifted",
-							value: currencyFormatter.format(metrics.totalGiftedCredits),
-						},
-						{
-							label: "SDK bonus",
-							value: currencyFormatter.format(metrics.totalBonusCredits),
-						},
-					]}
-				/>
-			</section>
+			<section className="flex flex-col gap-4">
+				<div className="reveal" style={revealAt(1)}>
+					<SectionHeader index="01" title="Key metrics" />
+				</div>
+				<div className="panel-ticks">
+					<div className="grid gap-px overflow-hidden rounded-xl border border-border/60 bg-border/60 shadow-sm sm:grid-cols-2 xl:grid-cols-3">
+						<MetricCell
+							label="Total revenue"
+							value={metrics.grossRevenue}
+							format="currency"
+							sublabel="Gross, all products — before fees & refunds"
+							icon={<TrendingUp className="h-4 w-4" strokeWidth={1.75} />}
+							accent="teal"
+							hero
+							className="sm:col-span-2"
+							style={revealAt(2)}
+							rows={[
+								{
+									label: "Credits",
+									value: currencyFormatter.format(metrics.grossCreditsRevenue),
+								},
+								{
+									label: "DevPass",
+									value: currencyFormatter.format(metrics.grossDevpassRevenue),
+								},
+								{
+									label: "Reset passes",
+									value: currencyFormatter.format(
+										metrics.grossResetPassRevenue,
+									),
+								},
+								{
+									label: "Chat plans",
+									value: currencyFormatter.format(
+										metrics.grossChatPlansRevenue,
+									),
+								},
+								...(metrics.grossProSubscriptionsRevenue > 0
+									? [
+											{
+												label: "Pro subs",
+												value: currencyFormatter.format(
+													metrics.grossProSubscriptionsRevenue,
+												),
+											},
+										]
+									: []),
+							]}
+						/>
+						<MetricCell
+							label="Audience"
+							value={metrics.totalSignups}
+							format="count"
+							sublabel="Total sign-ups"
+							icon={<Users className="h-4 w-4" strokeWidth={1.75} />}
+							accent="blue"
+							style={revealAt(3)}
+							rows={[
+								{
+									label: "Verified",
+									value: numberFormatter.format(metrics.verifiedUsers),
+								},
+								{
+									label: "Paying",
+									value: numberFormatter.format(metrics.payingCustomers),
+								},
+								{
+									label: "Orgs",
+									value: numberFormatter.format(metrics.totalOrganizations),
+								},
+							]}
+						/>
+						<MetricCell
+							label="Credits revenue"
+							value={metrics.totalRevenue - metrics.totalRefunds}
+							format="currency"
+							sublabel="Net credits — excl. Stripe fees & refunds"
+							icon={<CircleDollarSign className="h-4 w-4" strokeWidth={1.75} />}
+							accent="green"
+							style={revealAt(4)}
+							rows={[
+								{
+									label: "Processed",
+									value: currencyFormatter.format(metrics.totalProcessed),
+								},
+								{
+									label: "Fees",
+									value: currencyFormatter.format(
+										Math.max(0, metrics.totalProcessed - metrics.totalRevenue),
+									),
+								},
+								{
+									label: "Refunds",
+									value: currencyFormatter.format(metrics.totalRefunds),
+								},
+							]}
+						/>
+						<MetricCell
+							label="Credit flow"
+							value={metrics.totalToppedUp}
+							format="currency"
+							sublabel="All-time credits purchased"
+							icon={<PiggyBank className="h-4 w-4" strokeWidth={1.75} />}
+							accent="violet"
+							style={revealAt(5)}
+							rows={[
+								{
+									label: "Spent",
+									value: currencyFormatter.format(metrics.totalSpent),
+								},
+								{
+									label: "Unused",
+									value: currencyFormatter.format(metrics.unusedCredits),
+								},
+							]}
+						/>
+						<MetricCell
+							label="Credits given"
+							value={metrics.totalGiftedCredits + metrics.totalBonusCredits}
+							format="currency"
+							sublabel="Free credits given — gift + SDK bonus"
+							icon={<Gift className="h-4 w-4" strokeWidth={1.75} />}
+							accent="amber"
+							style={revealAt(6)}
+							rows={[
+								{
+									label: "Gifted",
+									value: currencyFormatter.format(metrics.totalGiftedCredits),
+								},
+								{
+									label: "SDK bonus",
+									value: currencyFormatter.format(metrics.totalBonusCredits),
+								},
+							]}
+						/>
+					</div>
+				</div>
 
-			{metrics.overage > 0 && (
-				<div className="flex items-center justify-between gap-4 rounded-xl border border-red-500/30 bg-red-500/5 px-5 py-4">
-					<div className="flex items-center gap-3">
-						<div className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-red-500/30 bg-red-500/10 text-red-400">
-							<AlertTriangle className="h-4 w-4" />
-						</div>
-						<div>
-							<p className="text-sm font-medium">
-								Overage:{" "}
-								<span className="font-semibold text-red-400 tabular-nums">
-									{currencyFormatter.format(metrics.overage)}
-								</span>
+				{metrics.overage > 0 && (
+					<div
+						className="reveal relative overflow-hidden rounded-xl border border-destructive/30 bg-destructive/5"
+						style={revealAt(7)}
+					>
+						<div
+							aria-hidden
+							className="stripe-caution absolute inset-y-0 left-0 w-1.5"
+						/>
+						<div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 py-4 pr-5 pl-7">
+							<div className="flex items-center gap-2.5 self-center">
+								<AlertTriangle className="h-4 w-4 text-destructive" />
+								<p className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-destructive">
+									Overage
+								</p>
+							</div>
+							<p className="font-mono text-lg font-medium tabular-nums tracking-tight text-destructive">
+								{currencyFormatter.format(metrics.overage)}
 							</p>
 							<p className="text-xs text-muted-foreground">
 								Spending exceeding topped-up credits.
 							</p>
 						</div>
 					</div>
-				</div>
-			)}
+				)}
+			</section>
 
 			{timeseries ? (
-				<section className="grid gap-6 lg:grid-cols-2">
-					<SignupsChart
-						data={timeseries.data}
-						totals={{
-							signups: timeseries.totals.signups,
-							paidCustomers: timeseries.totals.paidCustomers,
-						}}
-					/>
-					<RevenueChart
-						data={timeseries.data}
-						totalNet={timeseries.totals.net}
-					/>
+				<section className="flex flex-col gap-4">
+					<div className="reveal" style={revealAt(7)}>
+						<SectionHeader index="02" title="Growth & revenue" />
+					</div>
+					<div className="grid gap-6 lg:grid-cols-2">
+						<div className="reveal" style={revealAt(8)}>
+							<SignupsChart
+								data={timeseries.data}
+								totals={{
+									signups: timeseries.totals.signups,
+									paidCustomers: timeseries.totals.paidCustomers,
+								}}
+							/>
+						</div>
+						<div className="reveal" style={revealAt(9)}>
+							<RevenueChart
+								data={timeseries.data}
+								totals={{
+									credits: timeseries.totals.net,
+									devpass: timeseries.totals.devpassNet,
+								}}
+							/>
+						</div>
+					</div>
 				</section>
 			) : null}
 
-			<section>
-				<DashboardCostByModel from={from} to={to} />
+			<section className="flex flex-col gap-4">
+				<div className="reveal" style={revealAt(10)}>
+					<SectionHeader
+						index="03"
+						title="Cost by model"
+						action={
+							<Link
+								href="/organizations"
+								className="group flex shrink-0 items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:text-foreground"
+							>
+								View organizations
+								<ArrowUpRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+							</Link>
+						}
+					/>
+				</div>
+				<div className="reveal" style={revealAt(11)}>
+					<DashboardCostByModel from={from} to={to} />
+				</div>
 			</section>
-
-			<div className="mt-4">
-				<Button asChild>
-					<Link href="/organizations">View Organizations</Link>
-				</Button>
-			</div>
 		</div>
 	);
 }

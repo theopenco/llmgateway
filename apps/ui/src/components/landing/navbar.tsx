@@ -34,7 +34,7 @@ import { useEffect, useState } from "react";
 
 import { AuthLink } from "@/components/shared/auth-link";
 import { ModelSearch } from "@/components/shared/model-search";
-import { useUser } from "@/hooks/useUser";
+import { useSessionStatus } from "@/hooks/useUser";
 import { Button } from "@/lib/components/button";
 import {
 	NavigationMenu,
@@ -130,8 +130,8 @@ export const Navbar = ({
 	providers?: ApiProvider[];
 }) => {
 	const config = useAppConfig();
-	const { user, isLoading } = useUser();
-	const isAuthenticated = !!user && !isLoading;
+	const { isAuthenticated: hasSession, isLoading } = useSessionStatus();
+	const isAuthenticated = hasSession && !isLoading;
 
 	const productsLinks: Array<{
 		title: string;
@@ -417,7 +417,6 @@ export const Navbar = ({
 						<div className="flex w-full justify-between nav:w-auto">
 							<Link
 								href="/"
-								aria-label="home"
 								className="flex items-center space-x-2"
 								prefetch={true}
 							>

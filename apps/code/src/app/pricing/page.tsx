@@ -15,12 +15,16 @@ import { CodeCTATracker } from "@/components/LandingTracker";
 import { PricingPlans } from "@/components/PricingPlans";
 import { Button } from "@/components/ui/button";
 import { getConfig } from "@/lib/config-server";
-import { formatUsd } from "@/lib/utils";
+import { formatUsageRatio } from "@/lib/utils";
 
 import {
-	DEV_PLAN_PREMIUM_WEEKLY_LIMITS,
+	DEV_PLAN_INCLUDED_RESET_PASSES,
+	DEV_PLAN_PREMIUM_WEEKLY_PERCENT,
 	DEV_PLAN_PRICES,
+	DEV_PLAN_RESET_PASS_PRICES,
 	getDevPlanCreditsLimit,
+	HIGH_COST_INPUT_PRICE,
+	HIGH_COST_OUTPUT_PRICE,
 } from "@llmgateway/shared";
 
 import type { Metadata } from "next";
@@ -48,6 +52,9 @@ interface UsageRow {
 const liteCredits = getDevPlanCreditsLimit("lite");
 const proCredits = getDevPlanCreditsLimit("pro");
 const maxCredits = getDevPlanCreditsLimit("max");
+
+const premiumInputPerM = Math.round(HIGH_COST_INPUT_PRICE * 1_000_000);
+const premiumOutputPerM = Math.round(HIGH_COST_OUTPUT_PRICE * 1_000_000);
 
 const productSchema = {
 	"@context": "https://schema.org",
@@ -129,23 +136,23 @@ const productSchema = {
 
 const usageRows: UsageRow[] = [
 	{
-		label: "You pay",
-		lite: `${formatUsd(DEV_PLAN_PRICES.lite)}/mo`,
-		pro: `${formatUsd(DEV_PLAN_PRICES.pro)}/mo`,
-		max: `${formatUsd(DEV_PLAN_PRICES.max)}/mo`,
-	},
-	{
-		label: "Model usage at provider rates",
-		lite: `${formatUsd(liteCredits)}/mo`,
-		pro: `${formatUsd(proCredits)}/mo`,
-		max: `${formatUsd(maxCredits)}/mo`,
+		label: "Usage value (metered at provider rates)",
+		lite: `${formatUsageRatio(liteCredits, DEV_PLAN_PRICES.lite)} what you pay`,
+		pro: `${formatUsageRatio(proCredits, DEV_PLAN_PRICES.pro)} what you pay`,
+		max: `${formatUsageRatio(maxCredits, DEV_PLAN_PRICES.max)} what you pay`,
 		emphasis: true,
 	},
 	{
-		label: "Frontier flagship fair-use (Opus, GPT Pro, Gemini Pro, Grok)",
-		lite: `${formatUsd(DEV_PLAN_PREMIUM_WEEKLY_LIMITS.lite)}/wk`,
-		pro: `${formatUsd(DEV_PLAN_PREMIUM_WEEKLY_LIMITS.pro)}/wk`,
-		max: `${formatUsd(DEV_PLAN_PREMIUM_WEEKLY_LIMITS.max)}/wk`,
+		label: `Premium model fair-use ($${premiumInputPerM}+/M input or $${premiumOutputPerM}+/M output)`,
+		lite: `${Math.round(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.lite * 100)}% of credits`,
+		pro: `${Math.round(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.pro * 100)}% of credits`,
+		max: `${Math.round(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.max * 100)}% of credits`,
+	},
+	{
+		label: "Reset Passes included (instant premium-allowance reset)",
+		lite: `Buy anytime · $${DEV_PLAN_RESET_PASS_PRICES.lite}`,
+		pro: `${DEV_PLAN_INCLUDED_RESET_PASSES.pro}/month · extras $${DEV_PLAN_RESET_PASS_PRICES.pro}`,
+		max: `${DEV_PLAN_INCLUDED_RESET_PASSES.max}/month · extras $${DEV_PLAN_RESET_PASS_PRICES.max}`,
 	},
 	{
 		label: "Priority routing on flagship models",
@@ -174,7 +181,7 @@ const includedInEveryPlan = [
 	"DevPass Code, Claude Code, OpenCode, SoulForge",
 	"Any OpenAI/Anthropic-compatible tool",
 	"Real-time dashboard with per-request cost & latency",
-	"Switch tiers anytime — prorated, no cancellation fee",
+	"Switch tiers anytime — no lock-in, no cancellation fee",
 	"7-day first-month guarantee",
 ];
 
@@ -284,7 +291,7 @@ export default function PricingPage() {
 							</h2>
 							<p className="mt-3 text-muted-foreground">
 								Every tier ships with the full model catalog. Three dials
-								change: your monthly usage allowance, the weekly frontier
+								change: your monthly usage allowance, the weekly premium-model
 								fair-use, and support.
 							</p>
 						</div>
@@ -438,8 +445,8 @@ export default function PricingPage() {
 							Still deciding?
 						</h2>
 						<p className="mb-8 text-muted-foreground">
-							Start on Pro — most developers ship from there. Switch tiers any
-							time, prorated.
+							Start on Pro — most developers ship from there. Upgrade any time
+							and your new allowance kicks in instantly.
 						</p>
 						<div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
 							<GetDevPassButton

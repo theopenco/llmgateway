@@ -1,4 +1,4 @@
-import { Inter, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 
 import { AdminShell } from "@/components/admin-shell";
 import { getConfig } from "@/lib/config-server";
@@ -9,14 +9,14 @@ import "./globals.css";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
-const inter = Inter({
-	variable: "--font-inter",
+const geistSans = Geist({
+	variable: "--font-geist-sans",
 	subsets: ["latin"],
 	display: "swap",
 });
 
 const geistMono = Geist_Mono({
-	variable: "--font-mono",
+	variable: "--font-geist-mono",
 	subsets: ["latin"],
 });
 
@@ -40,7 +40,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 
 	return (
 		<html lang="en" suppressHydrationWarning>
-			<body className={`${inter.variable} ${geistMono.variable} antialiased`}>
+			<body
+				className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+			>
 				<Providers config={config}>
 					<AdminShell>{children}</AdminShell>
 				</Providers>

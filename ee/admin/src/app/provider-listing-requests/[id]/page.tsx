@@ -142,6 +142,57 @@ export default async function ProviderListingRequestDetailPage({
 							</a>
 						</dd>
 					</div>
+					{data.termsUrl && (
+						<div>
+							<dt className="text-sm font-medium text-muted-foreground">
+								Terms of Service
+							</dt>
+							<dd className="mt-1">
+								<a
+									href={data.termsUrl}
+									target="_blank"
+									rel="noopener noreferrer"
+									className="text-primary hover:underline"
+								>
+									{data.termsUrl}
+								</a>
+							</dd>
+						</div>
+					)}
+					{data.privacyUrl && (
+						<div>
+							<dt className="text-sm font-medium text-muted-foreground">
+								Privacy Policy
+							</dt>
+							<dd className="mt-1">
+								<a
+									href={data.privacyUrl}
+									target="_blank"
+									rel="noopener noreferrer"
+									className="text-primary hover:underline"
+								>
+									{data.privacyUrl}
+								</a>
+							</dd>
+						</div>
+					)}
+					{data.statusPageUrl && (
+						<div>
+							<dt className="text-sm font-medium text-muted-foreground">
+								Status Page
+							</dt>
+							<dd className="mt-1">
+								<a
+									href={data.statusPageUrl}
+									target="_blank"
+									rel="noopener noreferrer"
+									className="text-primary hover:underline"
+								>
+									{data.statusPageUrl}
+								</a>
+							</dd>
+						</div>
+					)}
 					<div>
 						<dt className="text-sm font-medium text-muted-foreground">
 							HQ Country

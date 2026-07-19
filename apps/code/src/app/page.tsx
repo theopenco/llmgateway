@@ -430,7 +430,7 @@ export default function LandingPage() {
 								open-weight Chinese coders — included on every tier.
 							</p>
 						</div>
-						<CodingModelsShowcase uiUrl={config.uiUrl} />
+						<CodingModelsShowcase />
 					</div>
 				</section>
 

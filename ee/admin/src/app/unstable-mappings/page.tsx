@@ -1,3 +1,7 @@
+import {
+	IgnoredErrorMatchersDialog,
+	IgnoredErrorsToggle,
+} from "@/components/ignored-error-matchers";
 import { RetriedFilterToggle } from "@/components/retried-filter-toggle";
 import { SegmentedQueryToggle } from "@/components/segmented-query-toggle";
 import { UnstableMappingsTable } from "@/components/unstable-mappings-table";
@@ -20,12 +24,14 @@ export default async function UnstableMappingsPage({
 		includeRetried?: string;
 		window?: string;
 		logLimit?: string;
+		ignoreExpected?: string;
 	}>;
 }) {
 	await requireSession();
 
 	const params = await searchParams;
 	const includeRetried = params?.includeRetried === "true";
+	const ignoreExpected = params?.ignoreExpected !== "false";
 	const window = parseUnstableWindow(params?.window);
 	const logLimit = parseUnstableLogLimit(params?.logLimit);
 
@@ -37,6 +43,7 @@ export default async function UnstableMappingsPage({
 				logLimit,
 				includeRetried: includeRetried ? "true" : "false",
 				window,
+				ignoreExpected: ignoreExpected ? "true" : "false",
 			},
 		},
 	});
@@ -62,10 +69,19 @@ export default async function UnstableMappingsPage({
 						{data.includeRetried
 							? "Retried requests are included."
 							: "Retried requests are excluded."}{" "}
+						{data.ignoreExpected
+							? `${data.ignoredMatcherCount.toLocaleString()} expected-error matcher${data.ignoredMatcherCount === 1 ? "" : "s"} applied.`
+							: "Expected-error matchers are disabled."}{" "}
 						Click a row to load its top 10 error details.
 					</p>
 				</div>
 				<div className="flex flex-col items-start gap-2 lg:items-end">
+					<div className="flex flex-wrap items-center gap-2">
+						<IgnoredErrorMatchersDialog
+							matcherCount={data.ignoredMatcherCount}
+						/>
+						<IgnoredErrorsToggle ignoreExpected={data.ignoreExpected} />
+					</div>
 					<div className="flex flex-wrap items-center gap-2">
 						<span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
 							Window
@@ -100,6 +116,7 @@ export default async function UnstableMappingsPage({
 					includeRetried={data.includeRetried}
 					window={window}
 					logLimit={logLimit}
+					ignoreExpected={data.ignoreExpected}
 				/>
 			</div>
 		</div>

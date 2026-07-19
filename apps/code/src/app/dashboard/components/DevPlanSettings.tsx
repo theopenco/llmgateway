@@ -1,7 +1,6 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -31,21 +30,26 @@ const ROUTING_OPTIONS: Array<{
 	{ value: "latency", label: "Lowest latency", allowed: false },
 ];
 
+type ServiceTier = "default" | "flex";
+
+const SERVICE_TIER_OPTIONS: Array<{ value: ServiceTier; label: string }> = [
+	{ value: "default", label: "Standard (recommended)" },
+	{ value: "flex", label: "Flex" },
+];
+
 interface DevPlanSettingsProps {
-	devPlanAllowAllModels: boolean;
+	devPlanServiceTier: ServiceTier;
 	retentionLevel: "retain" | "none";
 	defaultRoutingStrategy: RoutingStrategy;
 }
 
 export default function DevPlanSettings({
-	devPlanAllowAllModels: initialAllowAllModels,
+	devPlanServiceTier: initialServiceTier,
 	retentionLevel: initialRetentionLevel,
 	defaultRoutingStrategy: initialRoutingStrategy,
 }: DevPlanSettingsProps) {
 	const api = useApi();
 	const queryClient = useQueryClient();
-	const [allowAllModels, setAllowAllModels] = useState(initialAllowAllModels);
-	const [isUpdatingAllowAll, setIsUpdatingAllowAll] = useState(false);
 
 	const [retainData, setRetainData] = useState(
 		initialRetentionLevel === "retain",
@@ -57,7 +61,9 @@ export default function DevPlanSettings({
 	);
 	const [isUpdatingRouting, setIsUpdatingRouting] = useState(false);
 
-	const [advancedOpen, setAdvancedOpen] = useState(false);
+	const [serviceTier, setServiceTier] =
+		useState<ServiceTier>(initialServiceTier);
+	const [isUpdatingServiceTier, setIsUpdatingServiceTier] = useState(false);
 
 	const updateSettingsMutation = api.useMutation(
 		"patch",
@@ -71,23 +77,6 @@ export default function DevPlanSettings({
 				return Array.isArray(key) && key[1] === "/dev-plans/status";
 			},
 		});
-
-	const handleAllowAllToggle = async (checked: boolean) => {
-		setIsUpdatingAllowAll(true);
-		try {
-			await updateSettingsMutation.mutateAsync({
-				body: { devPlanAllowAllModels: checked },
-			});
-			setAllowAllModels(checked);
-			toast.success(
-				checked ? "All models enabled" : "Restricted to coding models",
-			);
-		} catch {
-			toast.error("Failed to update settings");
-		} finally {
-			setIsUpdatingAllowAll(false);
-		}
-	};
 
 	const handleRoutingChange = async (value: string) => {
 		const strategy = value as RoutingStrategy;
@@ -107,6 +96,31 @@ export default function DevPlanSettings({
 			toast.error("Failed to update routing strategy");
 		} finally {
 			setIsUpdatingRouting(false);
+		}
+	};
+
+	const handleServiceTierChange = async (value: string) => {
+		const tier = value as ServiceTier;
+		if (tier !== "default" && tier !== "flex") {
+			return;
+		}
+		const previous = serviceTier;
+		setServiceTier(tier);
+		setIsUpdatingServiceTier(true);
+		try {
+			await updateSettingsMutation.mutateAsync({
+				body: { devPlanServiceTier: tier },
+			});
+			toast.success(
+				tier === "flex"
+					? "Requests default to flex processing"
+					: "Requests default to standard processing",
+			);
+		} catch {
+			setServiceTier(previous);
+			toast.error("Failed to update service tier");
+		} finally {
+			setIsUpdatingServiceTier(false);
 		}
 	};
 
@@ -183,6 +197,46 @@ export default function DevPlanSettings({
 				<div className="rounded-xl border p-5 space-y-4">
 					<div className="flex items-center justify-between gap-4">
 						<div className="space-y-0.5">
+							<Label htmlFor="service-tier" className="text-sm font-medium">
+								Default service tier
+							</Label>
+							<p className="text-xs text-muted-foreground">
+								Flex processing costs less and saves your plan credits, but
+								responses may be slower during peak demand. Only applied for
+								models that support it — everything else stays on standard
+								processing.{" "}
+								<a
+									href="https://docs.llmgateway.io/features/service-tiers"
+									target="_blank"
+									rel="noreferrer"
+									className="underline underline-offset-2"
+								>
+									Learn more
+								</a>
+							</p>
+						</div>
+						<Select
+							value={serviceTier}
+							onValueChange={handleServiceTierChange}
+							disabled={isUpdatingServiceTier}
+						>
+							<SelectTrigger id="service-tier" size="sm" className="w-[180px]">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								{SERVICE_TIER_OPTIONS.map((option) => (
+									<SelectItem key={option.value} value={option.value}>
+										{option.label}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+					</div>
+				</div>
+
+				<div className="rounded-xl border p-5 space-y-4">
+					<div className="flex items-center justify-between gap-4">
+						<div className="space-y-0.5">
 							<Label htmlFor="retain-data" className="text-sm font-medium">
 								Retain request data
 							</Label>
@@ -200,67 +254,6 @@ export default function DevPlanSettings({
 							disabled={isUpdatingRetention}
 						/>
 					</div>
-				</div>
-
-				<div className="rounded-xl border">
-					<button
-						type="button"
-						onClick={() => setAdvancedOpen((open) => !open)}
-						aria-expanded={advancedOpen}
-						className="flex w-full items-center justify-between gap-4 p-5 text-left"
-					>
-						<span className="text-sm font-medium">Advanced</span>
-						<ChevronDown
-							className={`h-4 w-4 text-muted-foreground transition-transform ${
-								advancedOpen ? "rotate-180" : ""
-							}`}
-						/>
-					</button>
-
-					{advancedOpen && (
-						<div className="border-t p-5 space-y-4">
-							<div className="flex items-center justify-between gap-4">
-								<div className="space-y-0.5">
-									<Label
-										htmlFor="allow-all-models"
-										className="text-sm font-medium"
-									>
-										Allow all models
-									</Label>
-									<p className="text-xs text-muted-foreground">
-										Enable access beyond the curated coding model list
-									</p>
-								</div>
-								<Switch
-									id="allow-all-models"
-									checked={allowAllModels}
-									onCheckedChange={handleAllowAllToggle}
-									disabled={isUpdatingAllowAll}
-								/>
-							</div>
-
-							{allowAllModels && (
-								<div className="flex gap-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20 p-3.5">
-									<AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-400 shrink-0 mt-0.5" />
-									<p className="text-xs leading-relaxed text-muted-foreground">
-										<span className="font-medium text-yellow-600 dark:text-yellow-400">
-											Prompt caching may not be available.
-										</span>{" "}
-										Coding models are selected because they support prompt
-										caching, which reduces costs and latency. Non-curated models
-										may cost more.
-									</p>
-								</div>
-							)}
-
-							{!allowAllModels && (
-								<p className="text-xs text-muted-foreground rounded-lg bg-muted p-3.5">
-									Using coding-optimized models with prompt caching, tool
-									calling, JSON output, and streaming.
-								</p>
-							)}
-						</div>
-					)}
 				</div>
 			</div>
 		</div>

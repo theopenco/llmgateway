@@ -203,6 +203,47 @@ export async function notifyDevPlanSubscribed(
 	});
 }
 
+export async function notifyResetPassPurchased(
+	email: string,
+	name: string | null | undefined,
+	devPlan: string,
+	amount: number,
+): Promise<void> {
+	const displayName = name ?? "Unknown";
+
+	await sendDiscordNotification({
+		embeds: [
+			{
+				title: "Reset Pass Purchased",
+				color: 0x06b6d4, // Cyan
+				fields: [
+					{
+						name: "Email",
+						value: email,
+						inline: true,
+					},
+					{
+						name: "Name",
+						value: displayName,
+						inline: true,
+					},
+					{
+						name: "Tier",
+						value: devPlan.toUpperCase(),
+						inline: true,
+					},
+					{
+						name: "Amount",
+						value: `$${amount.toFixed(2)}`,
+						inline: true,
+					},
+				],
+				timestamp: new Date().toISOString(),
+			},
+		],
+	});
+}
+
 export async function notifyDevPlanCancelled(
 	email: string,
 	name: string | null | undefined,
@@ -334,6 +375,9 @@ export async function notifyProviderContact(args: {
 	providerName: string;
 	email: string;
 	url: string;
+	termsUrl: string;
+	privacyUrl: string;
+	statusPageUrl?: string | null;
 	country: string;
 	compliance: string;
 	dataRetentionDays: number;
@@ -344,6 +388,9 @@ export async function notifyProviderContact(args: {
 		providerName,
 		email,
 		url,
+		termsUrl,
+		privacyUrl,
+		statusPageUrl,
 		country,
 		compliance,
 		dataRetentionDays,
@@ -362,6 +409,11 @@ export async function notifyProviderContact(args: {
 						{ name: "Provider", value: providerName, inline: true },
 						{ name: "Email", value: email, inline: true },
 						{ name: "URL", value: url, inline: false },
+						{ name: "Terms of Service", value: termsUrl, inline: false },
+						{ name: "Privacy Policy", value: privacyUrl, inline: false },
+						...(statusPageUrl
+							? [{ name: "Status Page", value: statusPageUrl, inline: false }]
+							: []),
 						{ name: "HQ Country", value: country, inline: true },
 						{
 							name: "Data Retention",

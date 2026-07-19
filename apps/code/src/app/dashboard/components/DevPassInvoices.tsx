@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
 
 import type { paths } from "@/lib/api/v1";
+import type { ReactNode } from "react";
 
 const PAGE_SIZE = 10;
 
@@ -40,6 +41,23 @@ function isInvoiceable(invoice: Invoice): boolean {
 		invoice.status === "completed" &&
 		invoice.amount !== null &&
 		Number(invoice.amount) > 0
+	);
+}
+
+// Invisible stand-in that reserves the exact footprint of an action button so
+// the Invoice/Refund columns stay aligned on rows missing one of the actions.
+function ActionButtonPlaceholder({ children }: { children: ReactNode }) {
+	return (
+		<Button
+			variant="outline"
+			size="sm"
+			disabled
+			aria-hidden="true"
+			tabIndex={-1}
+			className="invisible hidden sm:inline-flex"
+		>
+			{children}
+		</Button>
 	);
 }
 
@@ -104,11 +122,22 @@ const REFUND_INELIGIBILITY_COPY: Record<string, string> = {
 	plan_inactive: "Your DevPass is no longer active",
 	credits_frozen: "Refunds are unavailable while credits are frozen",
 	usage_exceeded: "More than 10% of this period's credits have been used",
+	pass_already_used: "This Reset Pass has already been redeemed",
 };
+
+function refundIneligibilityCopy(invoice: Invoice): string {
+	const reason = invoice.refund?.reason ?? "unsupported_type";
+	// Reset Passes have a shorter return window than plan payments.
+	if (reason === "window_expired" && invoice.type === "dev_plan_reset_pass") {
+		return "Unused Reset Passes can be refunded for 7 days after purchase";
+	}
+	return REFUND_INELIGIBILITY_COPY[reason] ?? "This payment cannot be refunded";
+}
 
 function RefundButton({ invoice }: { invoice: Invoice }) {
 	const api = useApi();
 	const queryClient = useQueryClient();
+	const isResetPass = invoice.type === "dev_plan_reset_pass";
 
 	const refundMutation = api.useMutation(
 		"post",
@@ -116,7 +145,9 @@ function RefundButton({ invoice }: { invoice: Invoice }) {
 		{
 			onSuccess: () => {
 				toast.success(
-					"Refund processing. Your DevPass has been cancelled and the refund will arrive within a few business days.",
+					isResetPass
+						? "Refund processing. The unused pass has been returned and the refund will arrive within a few business days."
+						: "Refund processing. Your DevPass has been cancelled and the refund will arrive within a few business days.",
 				);
 				void queryClient.invalidateQueries({
 					predicate: (query) => {
@@ -139,17 +170,17 @@ function RefundButton({ invoice }: { invoice: Invoice }) {
 
 	const refund = invoice.refund;
 	if (!refund) {
-		return null;
+		return (
+			<ActionButtonPlaceholder>
+				<Undo2 className="h-4 w-4" />
+				<span className="sr-only sm:not-sr-only">Refund</span>
+			</ActionButtonPlaceholder>
+		);
 	}
 
 	if (!refund.eligible) {
 		return (
-			<span
-				title={
-					REFUND_INELIGIBILITY_COPY[refund.reason ?? "unsupported_type"] ??
-					"This payment cannot be refunded"
-				}
-			>
+			<span title={refundIneligibilityCopy(invoice)}>
 				<Button variant="outline" size="sm" disabled>
 					<Undo2 className="h-4 w-4" />
 					<span className="sr-only sm:not-sr-only">Refund</span>
@@ -172,15 +203,19 @@ function RefundButton({ invoice }: { invoice: Invoice }) {
 			</AlertDialogTrigger>
 			<AlertDialogContent>
 				<AlertDialogHeader>
-					<AlertDialogTitle>Refund this payment?</AlertDialogTitle>
+					<AlertDialogTitle>
+						{isResetPass ? "Refund this Reset Pass?" : "Refund this payment?"}
+					</AlertDialogTitle>
 					<AlertDialogDescription>
-						{formatAmount(invoice.amount, invoice.currency)} will be refunded to
-						your payment method and your DevPass will be cancelled immediately.
-						This cannot be undone.
+						{isResetPass
+							? `${formatAmount(invoice.amount, invoice.currency)} will be refunded to your payment method and the unused pass removed from your passport. Your DevPass plan is not affected. This cannot be undone.`
+							: `${formatAmount(invoice.amount, invoice.currency)} will be refunded to your payment method and your DevPass will be cancelled immediately. This cannot be undone.`}
 					</AlertDialogDescription>
 				</AlertDialogHeader>
 				<AlertDialogFooter>
-					<AlertDialogCancel>Keep my DevPass</AlertDialogCancel>
+					<AlertDialogCancel>
+						{isResetPass ? "Keep my pass" : "Keep my DevPass"}
+					</AlertDialogCancel>
 					<AlertDialogAction
 						onClick={() =>
 							refundMutation.mutate({
@@ -188,7 +223,7 @@ function RefundButton({ invoice }: { invoice: Invoice }) {
 							})
 						}
 					>
-						Refund and cancel
+						{isResetPass ? "Refund pass" : "Refund and cancel"}
 					</AlertDialogAction>
 				</AlertDialogFooter>
 			</AlertDialogContent>
@@ -200,6 +235,7 @@ const TYPE_LABELS: Record<Invoice["type"], string> = {
 	dev_plan_start: "Plan started",
 	dev_plan_renewal: "Renewal",
 	dev_plan_upgrade: "Upgrade",
+	dev_plan_reset_pass: "Reset Pass",
 };
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -254,8 +290,8 @@ export default function DevPassInvoices() {
 				usage credits granted for that billing period.
 			</p>
 
-			<div className="overflow-hidden rounded-xl border">
-				<div className="hidden grid-cols-[1fr_1fr_auto_auto_auto] gap-4 border-b bg-muted/40 px-5 py-3 text-xs font-medium text-muted-foreground sm:grid">
+			<div className="overflow-hidden rounded-xl border sm:grid sm:grid-cols-[1fr_1fr_auto_auto_auto]">
+				<div className="hidden grid-cols-subgrid gap-4 border-b bg-muted/40 px-5 py-3 text-xs font-medium text-muted-foreground sm:col-span-5 sm:grid">
 					<div>Date</div>
 					<div>Description</div>
 					<div className="text-right">Amount debited</div>
@@ -266,7 +302,7 @@ export default function DevPassInvoices() {
 				{pageInvoices.map((invoice) => (
 					<div
 						key={invoice.id}
-						className="grid grid-cols-2 gap-x-4 gap-y-1 border-b px-5 py-4 last:border-b-0 sm:grid-cols-[1fr_1fr_auto_auto_auto] sm:items-center"
+						className="grid grid-cols-2 gap-x-4 gap-y-1 border-b px-5 py-4 last:border-b-0 sm:col-span-5 sm:grid-cols-subgrid sm:items-center"
 					>
 						<div className="text-sm tabular-nums">
 							{format(new Date(invoice.date), "MMM d, yyyy")}
@@ -295,8 +331,13 @@ export default function DevPassInvoices() {
 							{formatCredits(invoice.creditAmount)}
 						</div>
 						<div className="col-span-2 mt-1 flex justify-end gap-2 sm:col-span-1 sm:mt-0">
-							{isInvoiceable(invoice) && (
+							{isInvoiceable(invoice) ? (
 								<InvoiceDownloadButton invoice={invoice} />
+							) : (
+								<ActionButtonPlaceholder>
+									<Download className="h-4 w-4" />
+									<span className="sr-only sm:not-sr-only">Invoice</span>
+								</ActionButtonPlaceholder>
 							)}
 							<RefundButton invoice={invoice} />
 						</div>

@@ -21,7 +21,7 @@ export function PricingHero() {
 							href={config.playgroundUrl}
 							target="_blank"
 							rel="noopener noreferrer"
-							className="text-primary hover:underline underline-offset-4"
+							className="text-primary underline underline-offset-4"
 						>
 							Try models in our Playground
 						</a>{" "}

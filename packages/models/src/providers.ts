@@ -201,6 +201,9 @@ export const providers: ProviderDefinition[] = [
 			required: {
 				apiKey: "LLM_OPENAI_API_KEY",
 			},
+			optional: {
+				baseUrl: "LLM_OPENAI_BASE_URL",
+			},
 		},
 		streaming: true,
 		cancellation: true,
@@ -649,7 +652,7 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: true,
 			retentionPeriod: null,
 		},
-		priority: 2,
+		priority: 1.2,
 	},
 	{
 		id: "alibaba",
@@ -1266,7 +1269,7 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: true,
 			retentionPeriod: null,
 		},
-		priority: 2,
+		priority: 1.2,
 	},
 	{
 		id: "embercloud",

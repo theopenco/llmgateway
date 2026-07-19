@@ -67,4 +67,26 @@ describe("normalizeClientErrorBody", () => {
 		};
 		expect(result.error.message).toBe("quota exceeded");
 	});
+
+	it("redacts stealth provider errors down to the status code", () => {
+		const body = JSON.stringify({
+			error: {
+				message: "SecretVendor rejected the request",
+				type: "invalid_request_error",
+			},
+		});
+		const result = normalizeClientErrorBody(body, {
+			...ctx,
+			usedProvider: "granite",
+			requestedProvider: "granite",
+		}) as { error: Record<string, unknown> };
+		expect(result.error.message).toBe(
+			"Error from provider granite: 400 Bad Request",
+		);
+		expect(result.error.responseText).toBe(
+			"Upstream provider error (400 Bad Request)",
+		);
+		expect(result.error.usedProvider).toBe("granite");
+		expect(JSON.stringify(result)).not.toContain("SecretVendor");
+	});
 });

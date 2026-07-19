@@ -55,6 +55,7 @@ const InactivePlanChooser = dynamic(
 const navItems: Array<{ label: string; href: Route; icon: typeof BarChart3 }> =
 	[
 		{ label: "Usage", href: "/dashboard" as Route, icon: BarChart3 },
+		{ label: "Coding models", href: "/coding-models" as Route, icon: Code },
 		{ label: "Billing", href: "/dashboard/billing" as Route, icon: CreditCard },
 		{ label: "Profile", href: "/profile" as Route, icon: UserRound },
 		{ label: "Settings", href: "/dashboard/settings" as Route, icon: Settings },

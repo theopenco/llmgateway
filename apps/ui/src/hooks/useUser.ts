@@ -1,9 +1,10 @@
 "use client";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useEffect } from "react";
 
+import { useAuthClient } from "@/lib/auth-client";
 import { useApi } from "@/lib/fetch-client";
 
 import type { Route } from "next";
@@ -22,6 +23,33 @@ export interface UseUserOptions {
 	redirectTo?: string;
 	redirectWhen?: "authenticated" | "unauthenticated";
 	checkOnboarding?: boolean;
+	enabled?: boolean;
+}
+
+/**
+ * Lightweight session check for marketing/auth surfaces. Uses better-auth's
+ * get-session endpoint, which returns 200 with null for anonymous visitors,
+ * so it never logs a 401 console error like /user/me does.
+ */
+export function useSessionStatus() {
+	const authClient = useAuthClient();
+
+	const { data, isLoading } = useQuery({
+		queryKey: ["auth-session-status"],
+		queryFn: async () => {
+			const { data: session } = await authClient.getSession();
+			return session ?? null;
+		},
+		retry: 0,
+		staleTime: 60 * 1000,
+		refetchOnWindowFocus: false,
+	});
+
+	return {
+		isAuthenticated: !!data?.user,
+		isLoading,
+		session: data ?? null,
+	};
 }
 
 export function useUser(options?: UseUserOptions) {
@@ -37,6 +65,7 @@ export function useUser(options?: UseUserOptions) {
 			retry: 0,
 			staleTime: 5 * 60 * 1000, // 5 minutes
 			refetchOnWindowFocus: false,
+			enabled: options?.enabled ?? true,
 		},
 	);
 

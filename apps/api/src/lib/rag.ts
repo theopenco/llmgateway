@@ -2,6 +2,8 @@ import { HTTPException } from "hono/http-exception";
 
 import { getGatewayUrl } from "@/utils/playground-key.js";
 
+import type { ContentfulStatusCode } from "hono/utils/http-status";
+
 export const EMBEDDING_MODEL = "openai/text-embedding-3-small";
 
 // Target chunk size in characters (~375 tokens), small enough that several
@@ -117,7 +119,14 @@ export async function embedTexts(
 			} catch {
 				// Keep the generic message when the error body isn't JSON.
 			}
-			throw new HTTPException(502, { message });
+			// Gateway 4xx responses (e.g. 402 insufficient credits) are expected
+			// user-facing conditions — forward the status instead of wrapping it
+			// as a 502, which the global error handler would log as an error.
+			const status: ContentfulStatusCode =
+				res.status >= 400 && res.status < 500
+					? (res.status as ContentfulStatusCode)
+					: 502;
+			throw new HTTPException(status, { message });
 		}
 
 		const json = (await res.json()) as EmbeddingResponse;

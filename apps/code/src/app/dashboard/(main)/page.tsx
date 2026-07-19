@@ -8,7 +8,6 @@ import { toast } from "sonner";
 import ApiKeySection from "@/app/dashboard/components/ApiKeySection";
 import { plans } from "@/app/dashboard/plans";
 import { useDevPlanStatus } from "@/app/dashboard/useDevPlanStatus";
-import { CodingModelsShowcase } from "@/components/CodingModelsShowcase";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
@@ -80,8 +79,22 @@ export default function UsagePage() {
 			{/* Usage — full-width with metrics + chart */}
 			<UsageOverview
 				projectId={devPlanStatus.projectId ?? null}
+				organizationId={devPlanStatus.organizationId ?? null}
 				creditsUsed={creditsUsed}
 				creditsLimit={creditsLimit}
+				premiumCreditsUsed={parseFloat(
+					devPlanStatus.devPlanPremiumCreditsUsed ?? "0",
+				)}
+				premiumWeeklyLimit={parseFloat(
+					devPlanStatus.devPlanPremiumWeeklyLimit ?? "0",
+				)}
+				premiumWeekResetsAt={devPlanStatus.devPlanPremiumWeekResetsAt ?? null}
+				resetPasses={devPlanStatus.devPlanResetPasses ?? 0}
+				includedResetPasses={devPlanStatus.devPlanIncludedResetPasses ?? 0}
+				includedResetPassesRemaining={
+					devPlanStatus.devPlanIncludedResetPassesRemaining ?? 0
+				}
+				resetPassPrice={devPlanStatus.devPlanResetPassPrice ?? null}
 				planName={currentPlanName}
 				planPrice={currentPlanData?.price}
 				billingCycleStart={devPlanStatus.devPlanBillingCycleStart ?? null}
@@ -123,12 +136,6 @@ export default function UsagePage() {
 
 			{/* Integrations */}
 			<DashboardIntegrations uiUrl={config.uiUrl} />
-
-			{/* Models */}
-			<div>
-				<h2 className="mb-4 font-semibold">Coding models</h2>
-				<CodingModelsShowcase uiUrl={config.uiUrl} />
-			</div>
 		</div>
 	);
 }

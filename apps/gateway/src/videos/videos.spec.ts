@@ -94,7 +94,7 @@ describe("videos", () => {
 			createdBy: "user-id",
 		});
 
-		await harness.setDevPlan({ devPlan: "pro", allowAllModels: true });
+		await harness.setDevPlan({ devPlan: "pro" });
 
 		const res = await app.request("/v1/videos", {
 			method: "POST",

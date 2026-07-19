@@ -24,7 +24,8 @@ interface Transaction {
 			| "not_latest_purchase"
 			| "plan_inactive"
 			| "credits_frozen"
-			| "usage_exceeded";
+			| "usage_exceeded"
+			| "pass_already_used";
 	};
 }
 

@@ -36,6 +36,50 @@ const percentFormatter = new Intl.NumberFormat("en-US", {
 	maximumFractionDigits: 1,
 });
 
+// Human-readable labels and badge styling for the gateway's internal error
+// classification (the log's `unified_finish_reason`). Shown next to the HTTP
+// status because the status alone is misleading — some 4xx responses are
+// classified as gateway or upstream errors.
+const classificationBadges: Record<string, { label: string; class: string }> = {
+	client_error: {
+		label: "Client error",
+		class: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
+	},
+	gateway_error: {
+		label: "Gateway error",
+		class: "bg-orange-500/15 text-orange-600 dark:text-orange-400",
+	},
+	upstream_error: {
+		label: "Upstream error",
+		class: "bg-red-500/15 text-red-600 dark:text-red-400",
+	},
+	content_filter: {
+		label: "Content filter",
+		class: "bg-purple-500/15 text-purple-600 dark:text-purple-400",
+	},
+	canceled: {
+		label: "Canceled",
+		class: "bg-muted text-muted-foreground",
+	},
+};
+
+function ClassificationBadge({
+	classification,
+}: {
+	classification: string | null;
+}) {
+	if (!classification) {
+		return null;
+	}
+	const badge = classificationBadges[classification] ?? {
+		label: classification,
+		class: "bg-muted text-muted-foreground",
+	};
+	return (
+		<Badge className={cn("font-medium", badge.class)}>{badge.label}</Badge>
+	);
+}
+
 function errorRateClass(rate: number): string {
 	if (rate >= 0.5) {
 		return "bg-red-500/15 text-red-600 dark:text-red-400";
@@ -52,12 +96,14 @@ function ErrorDetails({
 	includeRetried,
 	window,
 	logLimit,
+	ignoreExpected,
 }: {
 	usedModel: string;
 	provider: string;
 	includeRetried: boolean;
 	window: UnstableWindow;
 	logLimit: number;
+	ignoreExpected: boolean;
 }) {
 	const $api = useApi();
 	const { data, isLoading, isError } = $api.useQuery(
@@ -71,6 +117,7 @@ function ErrorDetails({
 					includeRetried: includeRetried ? "true" : "false",
 					window,
 					logLimit,
+					ignoreExpected: ignoreExpected ? "true" : "false",
 				},
 			},
 		},
@@ -128,6 +175,7 @@ function ErrorDetails({
 										{error.statusText}
 									</span>
 								)}
+								<ClassificationBadge classification={error.classification} />
 							</div>
 							<span className="shrink-0 text-sm font-semibold tabular-nums">
 								{error.count.toLocaleString()}×
@@ -155,11 +203,13 @@ export function UnstableMappingsTable({
 	includeRetried,
 	window,
 	logLimit,
+	ignoreExpected,
 }: {
 	mappings: UnstableMapping[];
 	includeRetried: boolean;
 	window: UnstableWindow;
 	logLimit: number;
+	ignoreExpected: boolean;
 }) {
 	const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -256,6 +306,7 @@ export function UnstableMappingsTable({
 											includeRetried={includeRetried}
 											window={window}
 											logLimit={logLimit}
+											ignoreExpected={ignoreExpected}
 										/>
 									</TableCell>
 								</TableRow>
