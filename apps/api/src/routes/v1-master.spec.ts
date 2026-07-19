@@ -260,6 +260,18 @@ describe("v1/master cache invalidation", () => {
 		expect(res.status).toBe(200);
 
 		await assertSwrCleared(`iamRules:${apiKeyId}`);
+		// A bare cdb select (not via swrWrap) must now return the new rule,
+		// proving the Drizzle cache layer was busted, not just the SWR mirror.
+		const directRules = await cdb
+			.select()
+			.from(tables.apiKeyIamRule)
+			.where(
+				and(
+					eq(tables.apiKeyIamRule.apiKeyId, apiKeyId),
+					eq(tables.apiKeyIamRule.status, "active"),
+				),
+			);
+		expect(directRules).toHaveLength(1);
 		expect(await readActiveIamRules(apiKeyId)).toHaveLength(1);
 	});
 
