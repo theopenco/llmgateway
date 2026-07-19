@@ -97,7 +97,7 @@ export function ProfilePageClient({
 	};
 
 	return (
-		<div className="mx-auto w-full max-w-5xl space-y-10">
+		<div className="space-y-10">
 			<div>
 				<h1 className="text-lg font-semibold tracking-tight">Your profile</h1>
 				<p className="mt-0.5 text-sm text-muted-foreground">
