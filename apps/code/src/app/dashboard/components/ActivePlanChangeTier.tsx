@@ -88,7 +88,7 @@ export default function ActivePlanChangeTier({
 					? "Your subscription is scheduled to cancel. Resume it first to change your plan."
 					: hasPendingChange && pendingName
 						? `You're scheduled to move to ${pendingName} at your next renewal. You can still upgrade immediately, or cancel the scheduled change to keep ${currentName}.`
-						: "Upgrades take effect immediately or at your next renewal — your choice; downgrades apply at your next renewal."}
+						: "Upgrades take effect immediately or at your next renewal — your choice; downgrades apply at your next renewal. Selecting a plan won't change anything yet: you'll review the details and confirm before any payment is made."}
 			</p>
 			<div className="grid gap-4 md:grid-cols-3">
 				{plans.map((plan) => {
