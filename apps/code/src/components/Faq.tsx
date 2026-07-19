@@ -67,14 +67,16 @@ const faqData: FaqItem[] = [
 	{
 		question: "What happens if I hit my monthly limit?",
 		answer:
-			"Requests pause until your allowance resets at the start of the next billing cycle. Or upgrade to a higher tier at any time: you pay the new tier's full price, your billing cycle restarts, and you get the new tier's full monthly allowance immediately — plus anything left of your current allowance rolls over.",
+			"Requests pause until your allowance resets at the start of the next billing cycle. Or upgrade to a higher tier at any time: an immediate upgrade charges the new tier's full price, restarts your billing cycle, and grants the new tier's full monthly allowance right away — plus anything left of your current allowance rolls over. Credits only roll over on an immediate upgrade, never at a regular renewal.",
 		content: (
 			<>
 				Requests pause until your allowance resets at the start of the next
 				billing cycle. Or <strong>upgrade to a higher tier at any time</strong>:
-				you pay the new tier&apos;s full price, your billing cycle restarts, and
-				you get the new tier&apos;s full monthly allowance immediately — plus
-				anything left of your current allowance rolls over.
+				an immediate upgrade charges the new tier&apos;s full price, restarts
+				your billing cycle, and grants the new tier&apos;s full monthly
+				allowance right away — plus anything left of your current allowance
+				rolls over. Credits only roll over on an immediate upgrade, never at a
+				regular renewal.
 			</>
 		),
 	},

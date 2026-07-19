@@ -27,6 +27,7 @@ import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
+import type { TierChangeTiming } from "@/app/dashboard/components/ActivePlanChangeTier";
 import type { PlanTier } from "@/app/dashboard/types";
 import type { DevPlanStatus } from "@/app/dashboard/useDevPlanStatus";
 import type { paths } from "@/lib/api/v1";
@@ -99,7 +100,7 @@ export default function BillingClient({
 	const handleChangeTier = async (
 		newTier: PlanTier,
 		expectedAmountDueCents?: number,
-		timing?: "now" | "next_cycle",
+		timing?: TierChangeTiming,
 	): Promise<void> => {
 		// Cycle is intentionally not sent — the server preserves the existing
 		// monthly/annual cadence by reading it from the org's stored devPlanCycle
@@ -119,7 +120,7 @@ export default function BillingClient({
 			}
 			toast.success(
 				timing === "next_cycle"
-					? "Upgrade scheduled for your next renewal"
+					? "Plan change scheduled for your next renewal"
 					: "Plan updated",
 			);
 		} catch (error) {

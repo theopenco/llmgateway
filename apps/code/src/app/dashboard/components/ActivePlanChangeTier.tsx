@@ -302,9 +302,13 @@ function TierChangeDialog({
 							if (!preview) {
 								return;
 							}
-							const effectiveTiming: TierChangeTiming = showTimingChoice
-								? timing
-								: "now";
+							// Downgrades are always deferred to renewal server-side, so
+							// report them as next_cycle for an accurate confirmation toast.
+							const effectiveTiming: TierChangeTiming = !isUpgrade
+								? "next_cycle"
+								: showTimingChoice
+									? timing
+									: "now";
 							onChangeTier(
 								plan.tier,
 								effectiveTiming === "now" ? preview.amountDueCents : undefined,
@@ -330,6 +334,36 @@ function TierChangeDialog({
 function formatRenewalDate(iso: string): string | null {
 	const date = new Date(iso);
 	return Number.isNaN(date.getTime()) ? null : format(date, "MMM d, yyyy");
+}
+
+// Shared between the timing chooser and the fallback preview copy so the
+// rollover explanation can't drift between the two.
+function RolloverAllowanceCopy({
+	plan,
+	preview,
+}: {
+	plan: PlanOption;
+	preview: TierChangePreview;
+}) {
+	if (preview.rolloverCredits > 0) {
+		return (
+			<>
+				Your allowance for the new period is{" "}
+				<strong>{formatUsageAmount(preview.newCreditsLimit)}</strong>: the{" "}
+				{plan.name} allowance of ${plan.usage} plus{" "}
+				<strong>{formatUsageAmount(preview.rolloverCredits)}</strong> of unspent
+				credits rolled over from your current period. Rolled-over credits last
+				until your next renewal.
+			</>
+		);
+	}
+	return (
+		<>
+			Your allowance resets to{" "}
+			<strong>{formatUsageAmount(preview.newCreditsLimit)}</strong> in usage for
+			the new period.
+		</>
+	);
 }
 
 function UpgradeTimingChoice({
@@ -373,22 +407,7 @@ function UpgradeTimingChoice({
 						<strong>{formatCurrencyFromCents(preview.amountDueCents)}</strong>{" "}
 						charged today and your billing period restarts, then ${plan.price}
 						/mo going forward.{" "}
-						{preview.rolloverCredits > 0 ? (
-							<>
-								Your allowance becomes{" "}
-								<strong>{formatUsageAmount(preview.newCreditsLimit)}</strong>:
-								the {plan.name} allowance of ${plan.usage} plus{" "}
-								<strong>{formatUsageAmount(preview.rolloverCredits)}</strong> of
-								unspent credits rolled over from your current period
-								(rolled-over credits last until your next renewal).
-							</>
-						) : (
-							<>
-								Your allowance resets to{" "}
-								<strong>{formatUsageAmount(preview.newCreditsLimit)}</strong> in
-								usage for the new period.
-							</>
-						)}
+						<RolloverAllowanceCopy plan={plan} preview={preview} />
 					</span>
 				</span>
 			</label>
@@ -467,23 +486,7 @@ function TierChangePreviewCopy({
 				You&apos;ll be charged{" "}
 				<strong>{formatCurrencyFromCents(preview.amountDueCents)}</strong> today
 				and your billing period restarts now, then ${plan.price}/mo going
-				forward.{" "}
-				{preview.rolloverCredits > 0 ? (
-					<>
-						Your allowance for the new period is{" "}
-						{formatUsageAmount(preview.newCreditsLimit)} in usage: the{" "}
-						{plan.name} allowance plus{" "}
-						{formatUsageAmount(preview.rolloverCredits)} of unspent credits
-						rolled over from your current period. Rolled-over credits last until
-						your next renewal.
-					</>
-				) : (
-					<>
-						Your allowance resets to{" "}
-						{formatUsageAmount(preview.newCreditsLimit)} in usage for the new
-						period.
-					</>
-				)}
+				forward. <RolloverAllowanceCopy plan={plan} preview={preview} />
 			</span>
 		);
 	}

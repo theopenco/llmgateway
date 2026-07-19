@@ -3,6 +3,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, Globe, Image as ImageIcon, Lock } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -22,10 +23,9 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useApi } from "@/lib/fetch-client";
 
-import type { paths } from "@/lib/api/v1";
+import type { UserMe as UserMeResponse } from "@/hooks/useUser";
 
-type UserMe =
-	paths["/user/me"]["get"]["responses"][200]["content"]["application/json"]["user"];
+type UserMe = UserMeResponse["user"];
 
 interface ProfilePageClientProps {
 	initialProfile: ProfileData | null;
@@ -38,6 +38,7 @@ export function ProfilePageClient({
 }: ProfilePageClientProps) {
 	const api = useApi();
 	const queryClient = useQueryClient();
+	const router = useRouter();
 
 	const [username, setUsername] = useState(initialUser.username ?? "");
 	const [savedUsername, setSavedUsername] = useState(
@@ -88,6 +89,9 @@ export function ProfilePageClient({
 			setProfilePublic(result.user.profilePublic);
 			setShowPicture(!result.user.profileHidePicture);
 			await invalidate();
+			// Refresh the server-provided props so the Preview section below
+			// reflects the just-saved values without a full page reload.
+			router.refresh();
 			toast.success("Profile saved");
 		} catch (error) {
 			const message =

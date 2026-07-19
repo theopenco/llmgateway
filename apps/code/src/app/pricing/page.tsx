@@ -445,9 +445,9 @@ export default function PricingPage() {
 							Still deciding?
 						</h2>
 						<p className="mb-8 text-muted-foreground">
-							Start on Pro — most developers ship from there. Upgrade any time —
-							your new allowance kicks in instantly and unused credits roll
-							over.
+							Start on Pro — most developers ship from there. An instant upgrade
+							brings the new allowance right away and rolls your unused credits
+							on top.
 						</p>
 						<div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
 							<GetDevPassButton

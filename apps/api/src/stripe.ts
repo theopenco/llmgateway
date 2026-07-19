@@ -3960,12 +3960,6 @@ export async function handleInvoicePaymentSucceeded(event: {
 			await getStripe().subscriptions.retrieve(subscriptionId);
 		const toTier = (upgradeSubscription.metadata?.devPlan ??
 			organization.devPlan) as DevPlanTier;
-		const { rolloverCredits, newCreditsLimit: creditsLimit } =
-			getDevPlanUpgradeCredits(
-				toTier,
-				organization.devPlanCreditsUsed,
-				organization.devPlanCreditsLimit,
-			);
 
 		// The invoice lines cover the new period, so the latest line end is the new
 		// current_period_end (= next renewal date).
@@ -3974,7 +3968,21 @@ export async function handleInvoicePaymentSucceeded(event: {
 			0,
 		);
 
-		const upgradeTransaction = await db.transaction(async (tx) => {
+		const upgradeResult = await db.transaction(async (tx) => {
+			// Recompute the rollover from a fresh row read inside the transaction:
+			// usage may have advanced since the event's org snapshot was resolved
+			// (a Stripe retrieve intervenes above), and the stale snapshot would
+			// over-grant that spend as rollover.
+			const freshOrg = await tx.query.organization.findFirst({
+				where: { id: { eq: organizationId } },
+			});
+			const { rolloverCredits, newCreditsLimit: creditsLimit } =
+				getDevPlanUpgradeCredits(
+					toTier,
+					freshOrg?.devPlanCreditsUsed ?? organization.devPlanCreditsUsed,
+					freshOrg?.devPlanCreditsLimit ?? organization.devPlanCreditsLimit,
+				);
+
 			const [created] = await tx
 				.insert(tables.transaction)
 				.values({
@@ -4017,15 +4025,16 @@ export async function handleInvoicePaymentSucceeded(event: {
 					.where(eq(tables.organization.id, organizationId));
 			}
 
-			return created;
+			return created ? { created, rolloverCredits, creditsLimit } : null;
 		});
 
-		if (upgradeTransaction) {
+		if (upgradeResult) {
+			const { created, rolloverCredits, creditsLimit } = upgradeResult;
 			try {
 				const billingDetails = await resolveDevPassBillingDetails(organization);
 				await generateAndEmailInvoice({
 					organizationId: organization.id,
-					invoiceNumber: upgradeTransaction.id,
+					invoiceNumber: created.id,
 					invoiceDate: new Date(),
 					organizationName: organization.name,
 					...billingDetails,

@@ -1231,15 +1231,6 @@ devPlans.openapi(changeTier, async (c) => {
 				getDevPlanChangeInvoiceId(updated);
 			const chargedAmount =
 				amountPaid !== null ? amountPaid / 100 : amountDueCents / 100;
-			// The new allowance is the new tier's full allotment plus the unused
-			// remainder of the cycle being replaced — the user already paid for it,
-			// so it rolls over instead of being forfeited. The rollover lasts until
-			// the next renewal, which resets the limit to the tier's base allotment.
-			const { rolloverCredits, newCreditsLimit } = getDevPlanUpgradeCredits(
-				newTier,
-				personalOrg.devPlanCreditsUsed,
-				personalOrg.devPlanCreditsLimit,
-			);
 
 			// Insert the unique-stripeInvoiceId marker and reset the org to the new
 			// tier's full allowance in one transaction so they commit together.
@@ -1248,7 +1239,23 @@ devPlans.openapi(changeTier, async (c) => {
 			// the insert resets org state and emails the invoice, so a concurrent
 			// webhook can't double-apply the reset, produce a second transaction row,
 			// or send a duplicate email.
-			const upgradeTransaction = await db.transaction(async (tx) => {
+			const upgradeResult = await db.transaction(async (tx) => {
+				// The new allowance is the new tier's full allotment plus the unused
+				// remainder of the cycle being replaced — the user already paid for
+				// it, so it rolls over instead of being forfeited. The rollover lasts
+				// until the next renewal, which resets the limit to the tier's base
+				// allotment. Recompute from a fresh row read inside the transaction:
+				// usage may have advanced during the Stripe round-trips above, and the
+				// request-start snapshot would over-grant that spend as rollover.
+				const freshOrg = await tx.query.organization.findFirst({
+					where: { id: { eq: personalOrg.id } },
+				});
+				const { rolloverCredits, newCreditsLimit } = getDevPlanUpgradeCredits(
+					newTier,
+					freshOrg?.devPlanCreditsUsed ?? personalOrg.devPlanCreditsUsed,
+					freshOrg?.devPlanCreditsLimit ?? personalOrg.devPlanCreditsLimit,
+				);
+
 				const [created] = await tx
 					.insert(tables.transaction)
 					.values({
@@ -1289,15 +1296,16 @@ devPlans.openapi(changeTier, async (c) => {
 						.where(eq(tables.organization.id, personalOrg.id));
 				}
 
-				return created;
+				return created ? { created, rolloverCredits, newCreditsLimit } : null;
 			});
 
-			if (upgradeTransaction) {
+			if (upgradeResult) {
+				const { created, rolloverCredits, newCreditsLimit } = upgradeResult;
 				try {
 					const billingDetails =
 						await resolveDevPassBillingDetails(personalOrg);
 					await generateAndEmailInvoice({
-						invoiceNumber: upgradeTransaction.id,
+						invoiceNumber: created.id,
 						invoiceDate: new Date(),
 						organizationName: personalOrg.name,
 						organizationId: personalOrg.id,
