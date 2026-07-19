@@ -151,49 +151,83 @@ function ErrorDetails({
 		);
 	}
 
+	// Streaming and non-streaming requests often fail differently, so split
+	// the drilldown into one section per mode to make debugging easier.
+	const groups = [
+		{
+			label: "Streaming",
+			badgeClass: "bg-cyan-500/15 text-cyan-600 dark:text-cyan-400",
+			errors: errors.filter((error) => error.streamed),
+		},
+		{
+			label: "Non-streaming",
+			badgeClass: "bg-muted text-muted-foreground",
+			errors: errors.filter((error) => !error.streamed),
+		},
+	].filter((group) => group.errors.length > 0);
+
 	return (
-		<div className="space-y-3 p-4">
+		<div className="space-y-4 p-4">
 			<p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
 				Top {errors.length} error{errors.length === 1 ? "" : "s"} ·{" "}
 				{data?.sampledErrors.toLocaleString()} sampled
 			</p>
-			<ul className="space-y-2">
-				{errors.map((error, i) => (
-					<li
-						key={i}
-						className="rounded-md border border-border/60 bg-background/60 p-3"
-					>
-						<div className="flex items-center justify-between gap-3">
-							<div className="flex items-center gap-2">
-								{error.statusCode !== null && (
-									<Badge variant="outline" className="font-mono">
-										{error.statusCode}
-									</Badge>
-								)}
-								{error.statusText && (
-									<span className="text-sm font-medium">
-										{error.statusText}
+			{groups.map((group) => (
+				<div key={group.label} className="space-y-2">
+					<div className="flex items-center gap-2">
+						<Badge className={cn("font-medium", group.badgeClass)}>
+							{group.label}
+						</Badge>
+						<span className="text-xs text-muted-foreground">
+							{group.errors.length} error
+							{group.errors.length === 1 ? "" : "s"} ·{" "}
+							{group.errors
+								.reduce((sum, error) => sum + error.count, 0)
+								.toLocaleString()}
+							× total
+						</span>
+					</div>
+					<ul className="space-y-2">
+						{group.errors.map((error, i) => (
+							<li
+								key={i}
+								className="rounded-md border border-border/60 bg-background/60 p-3"
+							>
+								<div className="flex items-center justify-between gap-3">
+									<div className="flex items-center gap-2">
+										{error.statusCode !== null && (
+											<Badge variant="outline" className="font-mono">
+												{error.statusCode}
+											</Badge>
+										)}
+										{error.statusText && (
+											<span className="text-sm font-medium">
+												{error.statusText}
+											</span>
+										)}
+										<ClassificationBadge
+											classification={error.classification}
+										/>
+									</div>
+									<span className="shrink-0 text-sm font-semibold tabular-nums">
+										{error.count.toLocaleString()}×
 									</span>
+								</div>
+								{error.responseText && (
+									<pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 text-xs text-muted-foreground">
+										{error.responseText}
+									</pre>
 								)}
-								<ClassificationBadge classification={error.classification} />
-							</div>
-							<span className="shrink-0 text-sm font-semibold tabular-nums">
-								{error.count.toLocaleString()}×
-							</span>
-						</div>
-						{error.responseText && (
-							<pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 text-xs text-muted-foreground">
-								{error.responseText}
-							</pre>
-						)}
-						{error.cause && (
-							<p className="mt-1 text-xs text-muted-foreground">
-								Cause: {error.cause}
-							</p>
-						)}
-					</li>
-				))}
-			</ul>
+								{error.cause && (
+									<p className="mt-1 text-xs text-muted-foreground">
+										Cause: {error.cause}
+									</p>
+								)}
+							</li>
+						))}
+					</ul>
+				</div>
+			))}
 		</div>
 	);
 }

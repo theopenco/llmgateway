@@ -8553,6 +8553,10 @@ const unstableMappingErrorDetailSchema = z.object({
 	// alone is misleading: some 4xx responses are classified as gateway or
 	// upstream errors.
 	classification: z.string().nullable(),
+	// Whether the failed request was a streaming request. Streaming and
+	// non-streaming failures often have different causes, so the drilldown
+	// groups errors by this flag.
+	streamed: z.boolean(),
 	count: z.number(),
 });
 
@@ -8614,12 +8618,14 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		response_text: string | null;
 		cause: string | null;
 		classification: string | null;
+		streamed: boolean;
 		count: string;
 		sampled_errors: string;
 	}>(sql`
 		WITH recent_errors AS (
 			SELECT ${tables.log.errorDetails} AS error_details,
-				${tables.log.unifiedFinishReason} AS classification
+				${tables.log.unifiedFinishReason} AS classification,
+				COALESCE(${tables.log.streamed}, false) AS streamed
 			FROM ${tables.log}
 			WHERE ${tables.log.hasError} = true
 				AND ${tables.log.usedModel} = ${model}
@@ -8635,10 +8641,11 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 			LEFT(error_details->>'responseText', 2000) AS response_text,
 			error_details->>'cause' AS cause,
 			classification,
+			streamed,
 			COUNT(*) AS count,
 			(SELECT COUNT(*) FROM recent_errors) AS sampled_errors
 		FROM recent_errors
-		GROUP BY status_code, status_text, response_text, cause, classification
+		GROUP BY status_code, status_text, response_text, cause, classification, streamed
 		ORDER BY count DESC
 		LIMIT 10
 	`);
@@ -8653,6 +8660,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 			responseText: r.response_text,
 			cause: r.cause,
 			classification: r.classification,
+			streamed: r.streamed,
 			count: Number(r.count),
 		})),
 		sampledErrors,
