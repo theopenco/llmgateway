@@ -12,7 +12,11 @@ describe("speech", () => {
 	async function seedKeys(
 		token: string,
 		apiKeyId: string,
-		provider: "google-ai-studio" | "openai" | "elevenlabs" = "google-ai-studio",
+		provider:
+			| "google-ai-studio"
+			| "google-vertex"
+			| "openai"
+			| "elevenlabs" = "google-ai-studio",
 	) {
 		await db.insert(tables.apiKey).values({
 			id: apiKeyId,
@@ -33,6 +37,9 @@ describe("speech", () => {
 			provider,
 			organizationId: "org-id",
 			baseUrl: harness.mockServerUrl,
+			...(provider === "google-vertex"
+				? { options: { google_vertex_project_id: "test-project" } }
+				: {}),
 		});
 	}
 
@@ -269,6 +276,82 @@ describe("speech", () => {
 				delete process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
 			}
 		}
+	});
+
+	test("/v1/audio/speech returns a WAV file via Google Vertex", async () => {
+		await seedKeys(
+			"real-token-speech-vertex",
+			"token-id-speech-vertex",
+			"google-vertex",
+		);
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-vertex",
+			},
+			body: JSON.stringify({
+				model: "google-vertex/gemini-2.5-pro-preview-tts",
+				input: "Hello there",
+				voice: "Kore",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toBe("audio/wav");
+
+		const bytes = Buffer.from(await res.arrayBuffer());
+		expect(bytes.subarray(0, 4).toString("ascii")).toBe("RIFF");
+		expect(bytes.subarray(8, 12).toString("ascii")).toBe("WAVE");
+		expect(bytes.length).toBe(44 + 16);
+
+		const logs = await waitForLogs(1);
+		const log = logs.find(
+			(l) => l.usedModel === "google-vertex/gemini-2.5-pro-preview-tts",
+		);
+		expect(log).toBeDefined();
+		expect(log?.hasError).toBe(false);
+		expect(log?.finishReason).toBe("stop");
+		expect(log?.usedModelMapping).toBe("gemini-2.5-pro-tts");
+		expect(log?.promptTokens).toBe("5");
+		expect(log?.completionTokens).toBe("42");
+		// 42 audio output tokens * $20/1M.
+		expect(Number(log?.outputCost)).toBeCloseTo(42 * 20e-6, 10);
+	});
+
+	test("/v1/audio/speech serves gemini-3.1-flash-tts-preview via Vertex", async () => {
+		await seedKeys(
+			"real-token-speech-vertex-31",
+			"token-id-speech-vertex-31",
+			"google-vertex",
+		);
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-vertex-31",
+			},
+			body: JSON.stringify({
+				model: "google-vertex/gemini-3.1-flash-tts-preview",
+				input: "Hello there",
+				response_format: "pcm",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toBe("audio/pcm");
+		const bytes = Buffer.from(await res.arrayBuffer());
+		expect(bytes.length).toBe(16);
+
+		const logs = await waitForLogs(1);
+		const log = logs.find(
+			(l) => l.usedModel === "google-vertex/gemini-3.1-flash-tts-preview",
+		);
+		expect(log).toBeDefined();
+		expect(log?.hasError).toBe(false);
+		expect(log?.finishReason).toBe("stop");
 	});
 
 	test("/v1/audio/speech proxies OpenAI tts-1 and bills by characters", async () => {

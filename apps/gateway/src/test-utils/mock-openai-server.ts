@@ -2957,6 +2957,39 @@ mockOpenAIServer.post(
 			});
 		}
 
+		// Speech generation: when the caller requests AUDIO output, return an
+		// inlineData audio part (base64-encoded PCM) like Gemini TTS models do.
+		const vertexResponseModalities: string[] =
+			body.generationConfig?.responseModalities ?? [];
+		if (vertexResponseModalities.includes("AUDIO")) {
+			// 8 samples of 16-bit silence as a deterministic PCM payload.
+			const pcm = Buffer.alloc(16);
+			return c.json({
+				candidates: [
+					{
+						content: {
+							parts: [
+								{
+									inlineData: {
+										mimeType: "audio/L16;codec=pcm;rate=24000",
+										data: pcm.toString("base64"),
+									},
+								},
+							],
+							role: "model",
+						},
+						finishReason: "STOP",
+						index: 0,
+					},
+				],
+				usageMetadata: {
+					promptTokenCount: 5,
+					candidatesTokenCount: 42,
+					totalTokenCount: 47,
+				},
+			});
+		}
+
 		const userMessage =
 			body.contents?.find?.((ct: any) => ct.role === "user")?.parts?.[0]
 				?.text ?? "";

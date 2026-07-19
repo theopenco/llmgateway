@@ -44,13 +44,18 @@ import {
 	ELEVENLABS_VOICE_IDS,
 	getProviderEnvValue,
 	models as modelDefinitions,
+	resolveVertexTokenType,
 } from "@llmgateway/models";
 
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
 import type { ServerTypes } from "@/vars.js";
 import type { RoutingMetadata } from "@llmgateway/actions";
 import type { InferSelectModel, tables } from "@llmgateway/db";
-import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
+import type {
+	ModelDefinition,
+	ProviderModelMapping,
+	VertexTokenType,
+} from "@llmgateway/models";
 
 const speechRequestSchema = z.object({
 	model: z.string().openapi({
@@ -154,12 +159,14 @@ function extractUpstreamErrorMessage(value: unknown, fallback: string): string {
 
 const PROVIDER_BASE_URL_DEFAULTS: Partial<Record<string, string>> = {
 	"google-ai-studio": "https://generativelanguage.googleapis.com",
+	"google-vertex": "https://aiplatform.googleapis.com",
 	openai: "https://api.openai.com",
 	elevenlabs: "https://api.elevenlabs.io",
 };
 
 const SUPPORTED_PROVIDERS = new Set([
 	"google-ai-studio",
+	"google-vertex",
 	"openai",
 	"elevenlabs",
 ]);
@@ -470,6 +477,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 	const providerId = mapping.providerId;
 	const isOpenAI = providerId === "openai";
 	const isElevenLabs = providerId === "elevenlabs";
+	const isGoogleVertex = providerId === "google-vertex";
 	// OpenAI and ElevenLabs both return audio already encoded in the requested
 	// format and bill independently of Gemini's inline-PCM path.
 	const isEncodedPassthrough = isOpenAI || isElevenLabs;
@@ -697,6 +705,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		configIndex: number;
 		envVarName: string | undefined;
 		upstreamUrl: string;
+		vertexTokenType?: VertexTokenType;
 	}
 
 	async function resolveAttempt(): Promise<SpeechAttempt> {
@@ -803,13 +812,51 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		// pass a voice id directly.
 		const elevenLabsVoiceId = ELEVENLABS_VOICE_IDS[voice] ?? voice;
 
-		const upstreamUrl = isOpenAI
-			? `${resolvedBaseUrl}/v1/audio/speech`
-			: isElevenLabs
-				? `${resolvedBaseUrl}/v1/text-to-speech/${encodeURIComponent(elevenLabsVoiceId)}?output_format=${elevenLabsOutputFormat}`
-				: `${resolvedBaseUrl}/v1beta/models/${upstreamModel}:generateContent?key=${encodeURIComponent(usedToken)}`;
+		let upstreamUrl: string;
+		let vertexTokenType: VertexTokenType | undefined;
+		if (isOpenAI) {
+			upstreamUrl = `${resolvedBaseUrl}/v1/audio/speech`;
+		} else if (isElevenLabs) {
+			upstreamUrl = `${resolvedBaseUrl}/v1/text-to-speech/${encodeURIComponent(elevenLabsVoiceId)}?output_format=${elevenLabsOutputFormat}`;
+		} else if (isGoogleVertex) {
+			const vertexProjectId =
+				providerKey?.options?.google_vertex_project_id ??
+				getProviderEnvValue("google-vertex", "project", configIndex);
+			if (!vertexProjectId) {
+				throw new HTTPException(500, {
+					message:
+						"Google Vertex requires a project ID. Set LLM_GOOGLE_CLOUD_PROJECT or configure google_vertex_project_id on the provider key.",
+				});
+			}
+			const vertexRegion =
+				getProviderEnvValue("google-vertex", "region", configIndex, "global") ??
+				"global";
+			// OAuth tokens are sent via the Authorization header; only API keys go
+			// in the `?key=` query param. Resolve once so the header and the query
+			// param agree.
+			vertexTokenType = resolveVertexTokenType(
+				"google-vertex",
+				providerKey?.options ?? undefined,
+				configIndex,
+				providerKey !== undefined,
+			);
+			const vertexAuthQuery =
+				vertexTokenType === "oauth"
+					? ""
+					: `?key=${encodeURIComponent(usedToken)}`;
+			upstreamUrl = `${resolvedBaseUrl}/v1/projects/${vertexProjectId}/locations/${vertexRegion}/publishers/google/models/${upstreamModel}:generateContent${vertexAuthQuery}`;
+		} else {
+			upstreamUrl = `${resolvedBaseUrl}/v1beta/models/${upstreamModel}:generateContent?key=${encodeURIComponent(usedToken)}`;
+		}
 
-		return { providerKey, usedToken, configIndex, envVarName, upstreamUrl };
+		return {
+			providerKey,
+			usedToken,
+			configIndex,
+			envVarName,
+			upstreamUrl,
+			vertexTokenType,
+		};
 	}
 
 	async function resolveNextAttempt(
@@ -879,7 +926,10 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 					redirect: "error",
 					headers: {
 						"Content-Type": "application/json",
-						...getProviderHeaders(providerId, attempt.usedToken, { requestId }),
+						...getProviderHeaders(providerId, attempt.usedToken, {
+							requestId,
+							tokenType: attempt.vertexTokenType,
+						}),
 					},
 					body: JSON.stringify(upstreamRequestBody),
 					signal: fetchSignal,
@@ -1408,7 +1458,8 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				});
 			}
 
-			// Google AI Studio: parse the inline PCM audio from the JSON response.
+			// Google (AI Studio or Vertex): parse the inline PCM audio from the
+			// JSON generateContent response — both return the same shape.
 			const upstreamText = await upstreamResponse.text();
 			const responseSize = upstreamText.length;
 			let upstreamJson: GeminiResponse = {};
