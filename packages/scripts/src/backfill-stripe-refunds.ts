@@ -10,8 +10,8 @@
  * correct row per Stripe refund delta — keyed on stripe_refund_id so the run is
  * idempotent. Regular credit top-up refunds are intentionally skipped.
  *
- * Pass 2 (sweep): iterate every refund in Stripe and insert credit_refund rows
- * for refunds that never produced a DB row at all. Plan refunds (DevPass, chat,
+ * Pass 2 (sweep): iterate every refund in Stripe and insert subscription_refund
+ * rows for refunds that never produced a DB row at all. Plan refunds (DevPass, chat,
  * legacy subscription) store only stripe_invoice_id on the original
  * transaction, and Stripe 18.x dropped `charge.invoice`, so charge.refunded
  * webhooks failed with "Original transaction not found" before the
@@ -278,7 +278,12 @@ async function legacyPass(
 			.from(tables.transaction)
 			.where(
 				and(
-					eq(tables.transaction.type, "credit_refund"),
+					// Match both types: rows written before subscription_refund existed
+					// and rows already re-typed by backfill-subscription-refunds.
+					inArray(tables.transaction.type, [
+						"credit_refund",
+						"subscription_refund",
+					]),
 					eq(tables.transaction.stripePaymentIntentId, pi),
 				),
 			);
@@ -318,7 +323,9 @@ async function legacyPass(
 						createdAt: new Date(r.created * 1000),
 						updatedAt: new Date(r.created * 1000),
 						organizationId: sample.organizationId,
-						type: "credit_refund",
+						// Pass 1 only handles DevPass plan refunds, which are recorded
+						// as subscription_refund (never touch organization.credits).
+						type: "subscription_refund",
 						amount: refundDollars.toString(),
 						creditAmount: "0",
 						currency: sample.currency ?? "USD",
@@ -327,7 +334,7 @@ async function legacyPass(
 						stripeRefundId: r.id,
 						relatedTransactionId: sample.relatedTransactionId,
 						refundReason: r.reason ?? null,
-						description: `Credit refund: $${refundDollars.toFixed(2)} (${(ratio * 100).toFixed(1)}% of original purchase) [backfilled]`,
+						description: `Subscription refund: $${refundDollars.toFixed(2)} (${(ratio * 100).toFixed(1)}% of original purchase) [backfilled]`,
 					});
 				}
 			});
@@ -482,7 +489,9 @@ async function sweepPass(
 				createdAt: created,
 				updatedAt: created,
 				organizationId: original.organizationId,
-				type: "credit_refund",
+				// credit_topup misses are skipped above, so every inserted row is a
+				// plan refund — recorded as subscription_refund.
+				type: "subscription_refund",
 				amount: refundDollars.toString(),
 				creditAmount: "0",
 				currency: original.currency ?? "USD",
@@ -491,7 +500,7 @@ async function sweepPass(
 				stripeRefundId: refund.id,
 				relatedTransactionId: original.id,
 				refundReason: refund.reason ?? null,
-				description: `Credit refund: $${refundDollars.toFixed(2)} (${(ratio * 100).toFixed(1)}% of original purchase) [backfilled]`,
+				description: `Subscription refund: $${refundDollars.toFixed(2)} (${(ratio * 100).toFixed(1)}% of original purchase) [backfilled]`,
 			});
 		}
 		inserted += 1;
