@@ -188,6 +188,18 @@ describe("getFinishReasonFromError", () => {
 		expect(getFinishReasonFromError(422)).toBe("client_error");
 	});
 
+	it("returns upstream_error for unsupported-capability 400s", () => {
+		expect(
+			getFinishReasonFromError(
+				400,
+				'{"error":{"message":"image_url content is not supported for this model","type":"invalid_request_error","code":"unsupported_content_type","param":"messages"}}',
+			),
+		).toBe("upstream_error");
+		expect(
+			getFinishReasonFromError(400, "tools are not supported for this model"),
+		).toBe("upstream_error");
+	});
+
 	it("returns gateway_error for bare 'Not Found' body", () => {
 		expect(getFinishReasonFromError(400, "Not Found")).toBe("gateway_error");
 		expect(getFinishReasonFromError(400, "  Not Found  ")).toBe(

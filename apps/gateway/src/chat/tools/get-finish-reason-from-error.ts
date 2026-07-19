@@ -81,6 +81,20 @@ export function getFinishReasonFromError(
 		return "upstream_error";
 	}
 
+	// A provider deployment rejecting a capability the model supports elsewhere
+	// (e.g. Tundra's kimi-k2.6 returning 400 "image_url content is not supported
+	// for this model" / code "unsupported_content_type" while the model is
+	// vision-capable on other providers) is a limitation of that deployment, not
+	// a client mistake. Classify as upstream_error so the request falls back to
+	// a provider that supports the capability.
+	if (
+		errorText &&
+		(/unsupported_content_type/i.test(errorText) ||
+			/not supported for this model/i.test(errorText))
+	) {
+		return "upstream_error";
+	}
+
 	// Some providers return a bare "Not Found" body on non-404 status codes when
 	// the model/endpoint mapping is wrong on our side. Treat as gateway_error so
 	// the request can be retried with another provider.

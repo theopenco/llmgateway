@@ -477,7 +477,11 @@ export const moonshotModels = [
 				// keeps streaming content clean (reasoning_content -> reasoning) yet
 				// does not require structured reasoning to be returned.
 				reasoningOutput: "omit",
-				vision: true,
+				// Tundra's kimi-k2.6 deployment rejects image inputs with a 400
+				// ("image_url content is not supported for this model") even though
+				// the model is vision-capable on other providers (verified
+				// 2026-07-19), so route image requests elsewhere.
+				vision: false,
 				tools: true,
 				jsonOutput: true,
 			},
