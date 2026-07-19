@@ -890,7 +890,7 @@ admin.openapi(getMetrics, async (c) => {
 
 	// Reset Passes: one-time PaymentIntent purchases on devpass orgs — no
 	// invoice, so no dedup needed. Gross like the other splits (refunds are
-	// separate `credit_refund` rows and not netted out here).
+	// separate refund rows and not netted out here).
 	const [grossResetPassRow] = await db
 		.select({
 			value:
@@ -1177,7 +1177,7 @@ admin.openapi(getTimeseries, async (c) => {
 		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
 		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
 
-	// DevPass refunds per day: `credit_refund` rows linked back to a dev plan
+	// DevPass refunds per day: refund rows linked back to a dev plan
 	// payment via `relatedTransactionId`. Mirrors /admin/devpass/timeseries.
 	const devpassRefundOriginalTx = aliasedTable(
 		tables.transaction,
@@ -1202,7 +1202,7 @@ admin.openapi(getTimeseries, async (c) => {
 		)
 		.where(
 			and(
-				eq(tables.transaction.type, "credit_refund"),
+				inArray(tables.transaction.type, [...REFUND_TX_TYPES]),
 				eq(tables.transaction.status, "completed"),
 				eq(tables.organization.kind, "devpass"),
 				inArray(devpassRefundOriginalTx.type, [
@@ -1319,7 +1319,7 @@ admin.openapi(getTimeseries, async (c) => {
 		)
 		.where(
 			and(
-				eq(tables.transaction.type, "credit_refund"),
+				inArray(tables.transaction.type, [...REFUND_TX_TYPES]),
 				eq(tables.transaction.status, "completed"),
 				eq(tables.organization.kind, "devpass"),
 				inArray(devpassRefundOriginalTx.type, [
@@ -11255,7 +11255,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		)
 		.where(
 			and(
-				eq(tables.transaction.type, "credit_refund"),
+				inArray(tables.transaction.type, [...REFUND_TX_TYPES]),
 				eq(tables.transaction.status, "completed"),
 				eq(tables.organization.kind, "devpass"),
 				eq(resetPassRefundOriginalTx.type, "dev_plan_reset_pass"),

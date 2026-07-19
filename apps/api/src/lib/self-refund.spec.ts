@@ -549,8 +549,9 @@ describe("computeSelfRefundEligibility", () => {
 			createdAt: daysAgo(1),
 			stripePaymentIntentId: "pi_test_newer",
 		});
+		// Reset Pass refunds are recorded as subscription_refund by the webhook.
 		await seedTransaction({
-			type: "credit_refund",
+			type: "subscription_refund",
 			amount: "29",
 			creditAmount: "0",
 			stripeRefundId: "re_test_newer",

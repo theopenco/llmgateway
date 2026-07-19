@@ -278,7 +278,11 @@ function checkResetPassEligibility(
 
 	const refundedIds = new Set(
 		transactions
-			.filter((t) => t.type === "credit_refund" && t.relatedTransactionId)
+			.filter(
+				(t) =>
+					(t.type === "credit_refund" || t.type === "subscription_refund") &&
+					t.relatedTransactionId,
+			)
 			.map((t) => t.relatedTransactionId),
 	);
 	const tierPrice = dec(DEV_PLAN_RESET_PASS_PRICES[tier]);
