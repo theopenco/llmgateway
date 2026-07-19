@@ -38,6 +38,7 @@ async function main(): Promise<void> {
 			id: tables.transaction.id,
 			organizationId: tables.transaction.organizationId,
 			amount: tables.transaction.amount,
+			creditAmount: tables.transaction.creditAmount,
 			description: tables.transaction.description,
 			originalType: originalTx.type,
 		})
@@ -57,7 +58,19 @@ async function main(): Promise<void> {
 		`\nFound ${rows.length} credit_refund row(s) whose original transaction is not a credit_topup`,
 	);
 
+	let skipped = 0;
 	for (const row of rows) {
+		// Plan refunds have always been recorded with creditAmount 0 (the
+		// credits-deduction gate landed in the same commit as plan-refund
+		// support, #2362), so a non-zero value means the row deducted org
+		// credits and its ledger semantics must be reviewed manually.
+		if (Number(row.creditAmount ?? 0) !== 0) {
+			skipped += 1;
+			console.warn(
+				`  SKIP ${row.id} org=${row.organizationId}: creditAmount=${row.creditAmount} is non-zero — review manually`,
+			);
+			continue;
+		}
 		const newDescription = row.description?.startsWith("Credit refund:")
 			? row.description.replace(/^Credit refund:/, "Subscription refund:")
 			: row.description;
@@ -81,9 +94,12 @@ async function main(): Promise<void> {
 
 	console.log(`\n=== Summary ===`);
 	console.log(
-		`  ${rows.length} row(s) ${commit ? "re-typed to subscription_refund" : "would be re-typed to subscription_refund"}`,
+		`  ${rows.length - skipped} row(s) ${commit ? "re-typed to subscription_refund" : "would be re-typed to subscription_refund"}`,
 	);
-	if (!commit && rows.length > 0) {
+	if (skipped > 0) {
+		console.log(`  ${skipped} row(s) skipped for manual review`);
+	}
+	if (!commit && rows.length > skipped) {
 		console.log("  Re-run with --commit to apply.");
 	}
 
