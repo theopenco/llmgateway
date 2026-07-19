@@ -36,6 +36,13 @@ describe("getFinishReasonFromError", () => {
 		).toBe("gateway_error");
 	});
 
+	it("returns gateway_error for 405 method not allowed", () => {
+		expect(getFinishReasonFromError(405)).toBe("gateway_error");
+		expect(getFinishReasonFromError(405, "Method Not Allowed")).toBe(
+			"gateway_error",
+		);
+	});
+
 	it("returns content_filter for Azure ResponsibleAIPolicyViolation", () => {
 		const azureError = JSON.stringify({
 			error: {
