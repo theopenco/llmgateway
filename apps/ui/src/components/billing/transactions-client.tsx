@@ -371,6 +371,8 @@ function TransactionCard({
 				return "Credit Top-up";
 			case "credit_refund":
 				return "Credit Refund";
+			case "subscription_refund":
+				return "Subscription Refund";
 			case "credit_gift":
 				return "Credit Gift";
 			case "credit_manual_payment":
