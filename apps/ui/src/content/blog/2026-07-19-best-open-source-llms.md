@@ -3,7 +3,7 @@ id: "blog-best-open-source-llms"
 slug: "best-open-source-llms"
 date: "2026-07-19"
 title: "9 Best Open-Source LLMs in 2026 (Compared)"
-summary: "The best open-source LLMs in 2026, ranked — Kimi K3, GLM-5.2, DeepSeek V4 Pro, MiniMax M3 and more, compared on license, context window, and real per-token price. All of them run through one API with LLM Gateway."
+summary: "The best open-source LLMs in 2026, ranked — Kimi K3 (weights expected by July 27), GLM-5.2, DeepSeek V4 Pro, MiniMax M3 and more, compared on license, context window, and real per-token price. All of them run through one API with LLM Gateway."
 categories: ["Guides"]
 image:
   src: "/blog/best-open-source-llms.png"
@@ -12,7 +12,7 @@ image:
   height: 1024
 ---
 
-Open-source LLMs stopped being the budget option in 2026. Kimi K3 sits level with Claude Opus 4.8 on the Artificial Analysis Intelligence Index, GLM-5.2 held the top open-model spot before it, and the field behind them is deep enough that the hard part is choosing.
+Open-source LLMs stopped being the budget option in 2026. Kimi K3 sits level with Claude Opus 4.8 on the Artificial Analysis Intelligence Index (its hosted API is live; the weights themselves are expected by July 27), GLM-5.2 held the top open-model spot before it, and the field behind them is deep enough that the hard part is choosing.
 
 This ranking covers the nine best open-weight models right now — on license, context window, hardware reality, and the per-token price you actually pay. Every one of them is available through **LLM Gateway** with one key, at each provider's published rate, so you can A/B any two of them by changing one word in a request.
 
@@ -20,7 +20,7 @@ This ranking covers the nine best open-weight models right now — on license, c
 
 **Moonshot AI · 2.8T params · 1M context · $3.00 / $15.00 per M**
 
-The largest open-weight model ever announced (API live July 16; weights publish by July 27). Ranks 4th of 189 models on the Artificial Analysis Intelligence Index — tied with Claude Opus 4.8 and GPT-5.5 — and took first place in Arena's blind Frontend Code testing. Always-on reasoning, vision, tools, and output configurable up to 1M tokens. The open model to beat, priced accordingly. [Full breakdown here](/blog/kimi-k3).
+The largest open-weight model ever announced — with one caveat: the weights are not downloadable yet. Moonshot expects to release them by July 27, 2026, and the license is still unannounced; the hosted API has been live since July 16. Ranks 4th of 189 models on the Artificial Analysis Intelligence Index — tied with Claude Opus 4.8 and GPT-5.5 — and took first place in Arena's blind Frontend Code testing. Always-on reasoning, vision, tools, and output configurable up to 1M tokens. The open model to beat, priced accordingly. [Full breakdown here](/blog/kimi-k3).
 
 **Best for:** teams that want closed-frontier quality with open-weight freedom.
 
@@ -132,7 +132,7 @@ Two ways to pay. **Pay-as-you-go**: top up from $10, pay the published per-token
 
 ### What is the best open-source LLM in 2026?
 
-Kimi K3, by benchmark standing: 4th of 189 models on the Artificial Analysis Intelligence Index, level with Claude Opus 4.8. If price matters, GLM-5.2 delivers most of that capability at less than a third of the cost.
+Kimi K3, by benchmark standing: 4th of 189 models on the Artificial Analysis Intelligence Index, level with Claude Opus 4.8 — though its weights are expected by July 27 and it is API-only until then. If price matters, GLM-5.2 delivers most of that capability with output at under a third of K3's price.
 
 ### What is the best small open-source LLM?
 
@@ -140,7 +140,7 @@ Qwen3.6-35B-A3B — Apache 2.0, multimodal, 3B active parameters, and it runs on
 
 ### Are these models open source or open weight?
 
-Open weight: the trained weights are downloadable and self-hostable under permissive licenses (mostly MIT or Apache 2.0), but training data and code are generally not released. GLM-5.2, DeepSeek V4 Pro, Qwen3.6-35B-A3B, and gpt-oss-120b use standard OSI licenses; Llama uses Meta's community license.
+Open weight: the trained weights are downloadable and self-hostable under permissive licenses (mostly MIT or Apache 2.0), but training data and code are generally not released. GLM-5.2, DeepSeek V4 Pro, Qwen3.6-35B-A3B, and gpt-oss-120b use standard OSI licenses; Llama uses Meta's community license. Kimi K3 is the exception for now: its weights are expected by July 27, 2026 and are unlicensed until Moonshot announces terms — today it is usable only through hosted APIs.
 
 ### What is the cheapest way to use open-source LLMs?
 

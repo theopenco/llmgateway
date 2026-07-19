@@ -3,7 +3,7 @@ id: "blog-kimi-k3-vs-claude-opus"
 slug: "kimi-k3-vs-claude-opus"
 date: "2026-07-19"
 title: "Kimi K3 vs Claude Opus 4.8: Benchmarks, Price, Verdict"
-summary: "Kimi K3 ties Claude Opus 4.8 on GPQA Diamond, costs 40% less per token, and its weights go public by July 27 — but Opus still leads where it counts for some teams. A fact-checked comparison of benchmarks, pricing, and context windows, and how to A/B both through one API."
+summary: "Kimi K3 ties Claude Opus 4.8 on GPQA Diamond, costs 40% less per token, and its weights are expected by July 27 — but Opus still leads where it counts for some teams. A fact-checked comparison of benchmarks, pricing, and context windows, and how to A/B both through one API."
 categories: ["Guides"]
 image:
   src: "/blog/kimi-k3-vs-claude-opus.png"
@@ -12,7 +12,7 @@ image:
   height: 1024
 ---
 
-Kimi K3 is the first open-weight model that makes the Kimi K3 vs Claude Opus 4.8 question worth asking seriously. On the Artificial Analysis Intelligence Index, K3 ranks fourth of 189 models — level with Opus 4.8 and GPT-5.5, behind only Claude Fable 5 and GPT-5.6 Sol. It also costs 40% less per token, and Moonshot has committed to publishing its weights by July 27.
+Kimi K3 is the first open-weight model that makes the Kimi K3 vs Claude Opus 4.8 question worth asking seriously. On the Artificial Analysis Intelligence Index, K3 ranks fourth of 189 models — level with Opus 4.8 and GPT-5.5, behind only Claude Fable 5 and GPT-5.6 Sol. It also costs 40% less per token, and its weights are expected to be released by July 27.
 
 The honest answer is not "K3 wins" or "Opus wins" — it depends on what you're optimizing for. Here are the numbers, then the verdict.
 
@@ -88,7 +88,7 @@ Yes. Through LLM Gateway both are the same OpenAI-compatible endpoint — swap t
 
 ### Is Kimi K3 open source?
 
-Moonshot has committed to publishing its weights by July 27, 2026 (the license has not been announced yet); the API is live now. Opus 4.8 is closed and API-only. See [our Kimi K3 overview](/blog/kimi-k3) for the full release details.
+Not yet. Kimi K3's weights are expected by July 27, 2026 and the license has not been announced; until then it is API-only, like Opus 4.8 — the difference is that Opus stays closed. See [our Kimi K3 overview](/blog/kimi-k3) for the full release details.
 
 ## Getting started
 
