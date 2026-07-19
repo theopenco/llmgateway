@@ -18,6 +18,7 @@ import {
 	DEV_PLAN_RESET_PASS_PRICES,
 	getChatPlanCreditsLimit,
 	getDevPlanCreditsLimit,
+	getDevPlanUpgradeCredits,
 	type ChatPlanCycle,
 	type ChatPlanTier,
 	type DevPlanCycle,
@@ -3828,11 +3829,11 @@ export async function handleInvoicePaymentSucceeded(event: {
 			);
 		}
 	} else if (isDevPlanRenewal) {
-		// A scheduled downgrade takes effect now, at the renewal boundary: the
-		// lower tier the user selected mid-cycle becomes the active plan for the
-		// new period. When there's no pending downgrade this is just the current
-		// tier. The credit allotment and the tier we persist below both follow
-		// this effective tier.
+		// A scheduled tier change (downgrade, or an upgrade deferred to renewal)
+		// takes effect now, at the renewal boundary: the tier the user selected
+		// mid-cycle becomes the active plan for the new period. When there's no
+		// pending change this is just the current tier. The credit allotment and
+		// the tier we persist below both follow this effective tier.
 		const effectiveTier = (organization.devPlanPendingTier ??
 			organization.devPlan) as DevPlanTier;
 		const creditsLimit = getDevPlanCreditsLimit(effectiveTier);
@@ -3887,9 +3888,9 @@ export async function handleInvoicePaymentSucceeded(event: {
 		);
 
 		// Reset credits used and update billing cycle start. Also reset the
-		// limit to the full tier allotment: mid-cycle tier changes leave the
-		// limit at a prorated value, and a fresh cycle should grant the tier's
-		// full credits. Persist the effective tier and clear the pending
+		// limit to the full tier allotment: mid-cycle upgrades leave the limit
+		// above it (unused-credit rollover), and that rollover only lasts until
+		// this renewal. Persist the effective tier and clear the pending
 		// downgrade so a scheduled downgrade becomes the active plan now. Clear
 		// any dunning freeze state since the limit is now authoritative again.
 		await db
@@ -3951,12 +3952,20 @@ export async function handleInvoicePaymentSucceeded(event: {
 		// if that process exited after Stripe collected payment but before the
 		// local insert. It reproduces the same fresh-cycle reset, idempotently via
 		// onConflictDoNothing on the unique stripeInvoiceId, reading the target
-		// tier from the subscription metadata the update set.
+		// tier from the subscription metadata the update set. Like the endpoint,
+		// it rolls the unused remainder of the replaced cycle into the new limit
+		// (the org row still holds the old cycle's used/limit in this crash
+		// window, since only the insert winner applies the reset).
 		const upgradeSubscription =
 			await getStripe().subscriptions.retrieve(subscriptionId);
 		const toTier = (upgradeSubscription.metadata?.devPlan ??
 			organization.devPlan) as DevPlanTier;
-		const creditsLimit = getDevPlanCreditsLimit(toTier);
+		const { rolloverCredits, newCreditsLimit: creditsLimit } =
+			getDevPlanUpgradeCredits(
+				toTier,
+				organization.devPlanCreditsUsed,
+				organization.devPlanCreditsLimit,
+			);
 
 		// The invoice lines cover the new period, so the latest line end is the new
 		// current_period_end (= next renewal date).
@@ -3983,10 +3992,11 @@ export async function handleInvoicePaymentSucceeded(event: {
 				.returning();
 
 			if (created) {
-				// Fresh billing cycle: reset the limit to the new tier's full
-				// allowance, zero out usage (including the premium weekly window),
-				// advance the cycle start, clear any pending downgrade and dunning
-				// freeze state, and persist the new period end as the renewal date.
+				// Fresh billing cycle: set the limit to the new tier's full
+				// allowance plus the rollover, zero out usage (including the premium
+				// weekly window), advance the cycle start, clear any pending
+				// downgrade and dunning freeze state, and persist the new period end
+				// as the renewal date.
 				await tx
 					.update(tables.organization)
 					.set({
@@ -4021,7 +4031,10 @@ export async function handleInvoicePaymentSucceeded(event: {
 					...billingDetails,
 					lineItems: [
 						{
-							description: `Dev Plan upgrade to ${toTier.toUpperCase()} ($${creditsLimit} credits included)`,
+							description:
+								rolloverCredits > 0
+									? `Dev Plan upgrade to ${toTier.toUpperCase()} ($${getDevPlanCreditsLimit(toTier)} credits included + $${rolloverCredits} unused credits rolled over)`
+									: `Dev Plan upgrade to ${toTier.toUpperCase()} ($${creditsLimit} credits included)`,
 							amount: invoice.amount_paid / 100,
 						},
 					],

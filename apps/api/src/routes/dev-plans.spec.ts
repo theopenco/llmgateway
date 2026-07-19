@@ -108,7 +108,7 @@ describe("dev plan tier changes", () => {
 		await deleteAll();
 	});
 
-	it("previews the full upgrade charge and new-tier credits", async () => {
+	it("previews the full upgrade charge, new-tier credits and rollover", async () => {
 		stripeMock.subscriptions.retrieve.mockResolvedValue(
 			retrievedSubscription(),
 		);
@@ -136,8 +136,10 @@ describe("dev plan tier changes", () => {
 			amountDueCents: 7900,
 			currency: "USD",
 			currentCreditsLimit: 87,
-			// Allowance resets to the new tier's full allotment (79 * 3 = 237).
-			newCreditsLimit: 237,
+			// New allowance = the new tier's full allotment (79 * 3 = 237) plus the
+			// unused remainder of the current cycle (87 - 12.5 = 74.5) rolled over.
+			newCreditsLimit: 311.5,
+			rolloverCredits: 74.5,
 			billingPeriodStart: new Date((nowSeconds - 500) * 1000).toISOString(),
 			billingPeriodEnd: new Date((nowSeconds + 500) * 1000).toISOString(),
 		});
@@ -173,7 +175,7 @@ describe("dev plan tier changes", () => {
 		expect(org?.devPlanTierChangeClaimedAt).toBeNull();
 	});
 
-	it("charges the full price, resets usage, and grants full new-tier credits", async () => {
+	it("charges the full price, resets usage, and rolls unused credits into the new limit", async () => {
 		stripeMock.subscriptions.retrieve.mockResolvedValue(
 			retrievedSubscription(),
 		);
@@ -231,9 +233,10 @@ describe("dev plan tier changes", () => {
 			},
 		});
 		expect(org?.devPlan).toBe("pro");
-		// Fresh cycle: usage wiped, limit reset to the full new-tier allowance.
+		// Fresh cycle: usage wiped, limit set to the full new-tier allowance (237)
+		// plus the unused remainder of the old cycle (87 - 12.5 = 74.5).
 		expect(org?.devPlanCreditsUsed).toBe("0");
-		expect(org?.devPlanCreditsLimit).toBe("237");
+		expect(org?.devPlanCreditsLimit).toBe("311.5");
 		expect(org?.devPlanBillingCycleStart).not.toBeNull();
 		expect(org?.devPlanExpiresAt).toEqual(
 			new Date((nowSeconds + THIRTY_DAYS) * 1000),
@@ -250,14 +253,16 @@ describe("dev plan tier changes", () => {
 		});
 		expect(transaction?.type).toBe("dev_plan_upgrade");
 		expect(transaction?.amount).toBe("79");
-		expect(transaction?.creditAmount).toBe("237");
+		expect(transaction?.creditAmount).toBe("311.5");
 		expect(transaction?.stripeInvoiceId).toBe("in_upgrade");
 		expect(transaction?.stripePaymentIntentId).toBe("pi_upgrade");
 	});
 
-	it("wipes prior mid-cycle usage on upgrade (fresh cycle)", async () => {
-		// The org has heavy prior usage this period; an upgrade starts a brand-new
-		// cycle, so usage resets to 0 rather than carrying over.
+	it("rolls over a fractional remainder without float artifacts", async () => {
+		// The org has heavy prior usage this period; the usage counter resets to 0
+		// and only the exact unused remainder (87 - 80.42 = 6.58) rolls over —
+		// computed with Decimal, so the stored limit is "243.58", not
+		// "243.57999999999998".
 		await db
 			.update(tables.organization)
 			.set({
@@ -310,7 +315,154 @@ describe("dev plan tier changes", () => {
 		});
 		expect(org?.devPlan).toBe("pro");
 		expect(org?.devPlanCreditsUsed).toBe("0");
+		expect(org?.devPlanCreditsLimit).toBe("243.58");
+	});
+
+	it("grants only the new-tier allotment when the old allowance is fully used", async () => {
+		// Usage at (or past) the limit leaves nothing to roll over: the new cycle
+		// starts with exactly the new tier's allotment.
+		await db
+			.update(tables.organization)
+			.set({
+				devPlanCreditsLimit: "87",
+				devPlanCreditsUsed: "88.31",
+			})
+			.where(eq(tables.organization.id, ORG_ID));
+
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(),
+		);
+		stripeMock.prices.retrieve.mockResolvedValue({ unit_amount: 7900 });
+		stripeMock.subscriptions.update.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "active",
+			metadata: { devPlan: "pro" },
+			latest_invoice: {
+				id: "in_upgrade",
+				amount_paid: 7900,
+				payment_intent: { id: "pi_upgrade" },
+			},
+			items: {
+				data: [
+					{ id: "si_dev_plan", current_period_end: nowSeconds + THIRTY_DAYS },
+				],
+			},
+		});
+
+		const res = await app.request("/dev-plans/change-tier", {
+			method: "POST",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				newTier: "pro",
+				expectedAmountDueCents: 7900,
+			}),
+		});
+
+		expect(res.status).toBe(200);
+
+		const org = await db.query.organization.findFirst({
+			where: {
+				id: {
+					eq: ORG_ID,
+				},
+			},
+		});
+		expect(org?.devPlan).toBe("pro");
+		expect(org?.devPlanCreditsUsed).toBe("0");
 		expect(org?.devPlanCreditsLimit).toBe("237");
+	});
+
+	it("schedules an upgrade for renewal when timing is next_cycle", async () => {
+		// The user opted to defer the upgrade: no charge today, no cycle reset.
+		// Like a downgrade, the Stripe price is swapped so the renewal bills the
+		// new tier, the target tier is recorded as pending, and the current
+		// cycle's credits stay untouched.
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(),
+		);
+		stripeMock.subscriptions.update.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "active",
+			items: { data: [{ id: "si_dev_plan" }] },
+		});
+
+		const res = await app.request("/dev-plans/change-tier", {
+			method: "POST",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				newTier: "pro",
+				timing: "next_cycle",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		// No full-price charge is prepared and the cycle is NOT reset.
+		expect(stripeMock.prices.retrieve).not.toHaveBeenCalled();
+		expect(stripeMock.subscriptions.update).toHaveBeenCalledWith(
+			SUBSCRIPTION_ID,
+			expect.objectContaining({
+				items: [{ id: "si_dev_plan", price: "price_pro" }],
+				proration_behavior: "none",
+			}),
+		);
+		expect(stripeMock.subscriptions.update).not.toHaveBeenCalledWith(
+			SUBSCRIPTION_ID,
+			expect.objectContaining({ billing_cycle_anchor: "now" }),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		// Current tier and allowance are preserved for the rest of the cycle.
+		expect(org?.devPlan).toBe("lite");
+		expect(org?.devPlanPendingTier).toBe("pro");
+		expect(org?.devPlanCreditsUsed).toBe("12.5");
+		expect(org?.devPlanCreditsLimit).toBe("87");
+		// Scheduled changes never claim the upgrade lease.
+		expect(org?.devPlanTierChangeClaimedAt).toBeNull();
+
+		// No transaction row: dev_plan_upgrade rows are payment rows (invoice
+		// list, self-refund eligibility), so scheduling records only an audit
+		// event.
+		const transaction = await db.query.transaction.findFirst({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(transaction).toBeUndefined();
+	});
+
+	it("blocks scheduling an upgrade while another change is pending", async () => {
+		process.env.STRIPE_DEV_PLAN_MAX_PRICE_ID = "price_max";
+		await db
+			.update(tables.organization)
+			.set({ devPlanPendingTier: "pro" })
+			.where(eq(tables.organization.id, ORG_ID));
+
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(),
+		);
+
+		const res = await app.request("/dev-plans/change-tier", {
+			method: "POST",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				newTier: "max",
+				timing: "next_cycle",
+			}),
+		});
+
+		expect(res.status).toBe(409);
+		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
 	});
 
 	it("blocks a duplicate upgrade while another is in flight", async () => {
@@ -662,7 +814,8 @@ describe("dev plan tier changes", () => {
 		expect(org?.devPlan).toBe("max");
 		expect(org?.devPlanPendingTier).toBeNull();
 		expect(org?.devPlanCreditsUsed).toBe("0");
-		expect(org?.devPlanCreditsLimit).toBe("537");
+		// Max allotment (537) plus the unused pro remainder (237 - 40 = 197).
+		expect(org?.devPlanCreditsLimit).toBe("734");
 	});
 
 	it("cancels a scheduled downgrade and reverts the Stripe price to the current tier", async () => {

@@ -34,6 +34,7 @@ export {
 	getDevPlanCreditsLimit,
 	getDevPlanCycleUsageFraction,
 	getDevPlanPremiumWeeklyLimit,
+	getDevPlanUpgradeCredits,
 	getIncludedResetPassesRemaining,
 	getRemainingPremiumWeeklyAllowance,
 	isPremiumWeekExpired,

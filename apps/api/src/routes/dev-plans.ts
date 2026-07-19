@@ -49,6 +49,7 @@ import {
 	getDevPlanCreditsLimit,
 	getDevPlanCycleUsageFraction,
 	getDevPlanPremiumWeeklyLimit,
+	getDevPlanUpgradeCredits,
 	getIncludedResetPassesRemaining,
 	getRemainingPremiumWeeklyAllowance,
 	isPremiumWeekExpired,
@@ -828,6 +829,12 @@ const changeTierPreviewBodySchema = z.object({
 
 const changeTierBodySchema = changeTierPreviewBodySchema.extend({
 	expectedAmountDueCents: z.number().int().nonnegative().optional(),
+	// When an upgrade takes effect. "now" (default) charges the full new-tier
+	// price immediately, restarts the cycle, and rolls unused credits over;
+	// "next_cycle" schedules the new tier for the upcoming renewal like a
+	// downgrade — no charge today, current allowance kept until then.
+	// Downgrades always apply at renewal, so timing is ignored for them.
+	timing: z.enum(["now", "next_cycle"]).optional(),
 });
 
 const tierChangePreviewResponseSchema = z.object({
@@ -838,6 +845,7 @@ const tierChangePreviewResponseSchema = z.object({
 	currency: z.literal("USD"),
 	currentCreditsLimit: z.number(),
 	newCreditsLimit: z.number(),
+	rolloverCredits: z.number(),
 	billingPeriodStart: z.string(),
 	billingPeriodEnd: z.string(),
 });
@@ -919,10 +927,12 @@ devPlans.openapi(changeTierPreview, async (c) => {
 
 	// Upgrades charge the full new-tier price today and start a fresh billing
 	// cycle (no proration); downgrades stay deferred to renewal, so nothing is
-	// due today. Credits reset to the new tier's full allowance on an upgrade.
+	// due today. On an upgrade the new allowance is the new tier's full
+	// allotment plus the unused remainder of the current cycle rolled over.
 	const currentCreditsLimit = parseFloat(personalOrg.devPlanCreditsLimit);
 	let amountDueCents = 0;
 	let newCreditsLimit = currentCreditsLimit;
+	let rolloverCredits = 0;
 	if (isUpgrade) {
 		const newPriceId = getDevPlanPriceId(newTier, existingCycle);
 		if (!newPriceId) {
@@ -933,7 +943,11 @@ devPlans.openapi(changeTierPreview, async (c) => {
 			});
 		}
 		amountDueCents = await getDevPlanFullPriceCents(newPriceId);
-		newCreditsLimit = getDevPlanCreditsLimit(newTier);
+		({ rolloverCredits, newCreditsLimit } = getDevPlanUpgradeCredits(
+			newTier,
+			personalOrg.devPlanCreditsUsed,
+			personalOrg.devPlanCreditsLimit,
+		));
 	}
 
 	return c.json({
@@ -944,6 +958,7 @@ devPlans.openapi(changeTierPreview, async (c) => {
 		currency: "USD" as const,
 		currentCreditsLimit,
 		newCreditsLimit,
+		rolloverCredits,
 		billingPeriodStart: new Date(
 			subscriptionItem.current_period_start * 1000,
 		).toISOString(),
@@ -982,7 +997,7 @@ const changeTier = createRoute({
 
 devPlans.openapi(changeTier, async (c) => {
 	const user = c.get("user");
-	const { newTier, expectedAmountDueCents } = c.req.valid("json");
+	const { newTier, expectedAmountDueCents, timing } = c.req.valid("json");
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -1043,6 +1058,9 @@ devPlans.openapi(changeTier, async (c) => {
 	}
 
 	const isUpgrade = DEV_PLAN_PRICES[newTier] > DEV_PLAN_PRICES[currentTier];
+	// An upgrade applies immediately unless the user opted to schedule it for
+	// the next renewal; downgrades are always deferred to renewal.
+	const applyNow = isUpgrade && timing !== "next_cycle";
 
 	// Tracks whether this request won the upgrade lease, so only the winning
 	// request releases it — a request that lost the claim race must not clear a
@@ -1073,7 +1091,7 @@ devPlans.openapi(changeTier, async (c) => {
 		}
 
 		if (
-			isUpgrade &&
+			applyNow &&
 			subscription.status !== "active" &&
 			subscription.status !== "trialing"
 		) {
@@ -1093,15 +1111,16 @@ devPlans.openapi(changeTier, async (c) => {
 			});
 		}
 
-		// A scheduled downgrade doesn't hard-lock the plan: the user can still
-		// upgrade, which supersedes and clears the pending downgrade (the upgrade
-		// branch below sets devPlanPendingTier back to null). Only block scheduling
-		// *another* downgrade while one is already pending — to revert to the
-		// current tier the user uses the dedicated cancel-downgrade action.
-		if (personalOrg.devPlanPendingTier && !isUpgrade) {
+		// A scheduled tier change (upgrade or downgrade) doesn't hard-lock the
+		// plan: the user can still upgrade immediately, which supersedes and
+		// clears the pending change (the immediate-upgrade branch below sets
+		// devPlanPendingTier back to null). Only block scheduling *another*
+		// change while one is already pending — to revert to the current tier
+		// the user uses the dedicated cancel action.
+		if (personalOrg.devPlanPendingTier && !applyNow) {
 			throw new HTTPException(409, {
 				message:
-					"You've already scheduled a downgrade for your next renewal. Upgrade to a higher tier or cancel the scheduled downgrade to change your plan.",
+					"You've already scheduled a plan change for your next renewal. Upgrade immediately or cancel the scheduled change first.",
 			});
 		}
 
@@ -1117,9 +1136,10 @@ devPlans.openapi(changeTier, async (c) => {
 		// lease that old cannot still have a charge in flight — and a retry
 		// re-claims it. A re-submit after a completed upgrade is not this guard's
 		// job: it is rejected by the "Already on <tier> plan" check above.
-		// Downgrades are exempt: they only schedule the lower tier for renewal (no
-		// charge), so an in-flight upgrade must not block a later downgrade.
-		if (isUpgrade) {
+		// Scheduled changes (downgrades and next-cycle upgrades) are exempt: they
+		// only record the target tier for renewal (no charge), so an in-flight
+		// upgrade must not block them.
+		if (applyNow) {
 			const staleClaimBefore = new Date(
 				Date.now() - STALE_TIER_CHANGE_CLAIM_MS,
 			);
@@ -1152,9 +1172,9 @@ devPlans.openapi(changeTier, async (c) => {
 			claimedLeaseThisCall = true;
 		}
 
-		// Upgrades charge the full new-tier price today; downgrades are deferred to
-		// renewal and cost nothing now.
-		const amountDueCents = isUpgrade
+		// Immediate upgrades charge the full new-tier price today; scheduled
+		// changes are deferred to renewal and cost nothing now.
+		const amountDueCents = applyNow
 			? await getDevPlanFullPriceCents(newPriceId)
 			: 0;
 
@@ -1171,7 +1191,7 @@ devPlans.openapi(changeTier, async (c) => {
 			});
 		}
 
-		if (isUpgrade) {
+		if (applyNow) {
 			// Swap to the new price, reset the billing cycle to now
 			// (`billing_cycle_anchor: "now"`) so Stripe immediately invoices the full
 			// new-tier price and starts a fresh period, and suppress proration
@@ -1211,7 +1231,15 @@ devPlans.openapi(changeTier, async (c) => {
 				getDevPlanChangeInvoiceId(updated);
 			const chargedAmount =
 				amountPaid !== null ? amountPaid / 100 : amountDueCents / 100;
-			const newCreditsLimit = getDevPlanCreditsLimit(newTier);
+			// The new allowance is the new tier's full allotment plus the unused
+			// remainder of the cycle being replaced — the user already paid for it,
+			// so it rolls over instead of being forfeited. The rollover lasts until
+			// the next renewal, which resets the limit to the tier's base allotment.
+			const { rolloverCredits, newCreditsLimit } = getDevPlanUpgradeCredits(
+				newTier,
+				personalOrg.devPlanCreditsUsed,
+				personalOrg.devPlanCreditsLimit,
+			);
 
 			// Insert the unique-stripeInvoiceId marker and reset the org to the new
 			// tier's full allowance in one transaction so they commit together.
@@ -1238,10 +1266,11 @@ devPlans.openapi(changeTier, async (c) => {
 					.returning();
 
 				if (created) {
-					// Fresh billing cycle: reset the limit to the new tier's full
-					// allowance, zero out usage (including the premium weekly window),
-					// advance the cycle start, clear any pending downgrade and dunning
-					// freeze state, and persist the new period end as the renewal date.
+					// Fresh billing cycle: set the limit to the new tier's full
+					// allowance plus the rollover, zero out usage (including the
+					// premium weekly window), advance the cycle start, clear any
+					// pending change and dunning freeze state, and persist the new
+					// period end as the renewal date.
 					await tx
 						.update(tables.organization)
 						.set({
@@ -1275,7 +1304,10 @@ devPlans.openapi(changeTier, async (c) => {
 						...billingDetails,
 						lineItems: [
 							{
-								description: `Dev Plan upgrade to ${newTier.toUpperCase()} ($${newCreditsLimit} credits included)`,
+								description:
+									rolloverCredits > 0
+										? `Dev Plan upgrade to ${newTier.toUpperCase()} ($${getDevPlanCreditsLimit(newTier)} credits included + $${rolloverCredits} unused credits rolled over)`
+										: `Dev Plan upgrade to ${newTier.toUpperCase()} ($${newCreditsLimit} credits included)`,
 								amount: chargedAmount,
 							},
 						],
@@ -1289,13 +1321,14 @@ devPlans.openapi(changeTier, async (c) => {
 				}
 			}
 		} else {
-			// Downgrade: unchanged. The lower tier takes effect at the next renewal,
-			// so keep `devPlan` (and the current cycle's credits) on the current
-			// higher tier and record the target tier as pending. Swap the Stripe
-			// price with no proration and no cycle reset, so the renewal invoice bills
-			// the lower price; the renewal webhook then flips `devPlan` to the pending
-			// tier and resets credits to its allotment. No invoice is generated now,
-			// so record the tier-change transaction here.
+			// Scheduled change (a downgrade, or an upgrade the user chose to defer):
+			// the new tier takes effect at the next renewal, so keep `devPlan` (and
+			// the current cycle's credits) on the current tier and record the target
+			// tier as pending. Swap the Stripe price with no proration and no cycle
+			// reset, so the renewal invoice bills the new price; the renewal webhook
+			// then flips `devPlan` to the pending tier and resets credits to its
+			// allotment. No invoice is generated now, so record the tier-change
+			// transaction here.
 			await getStripe().subscriptions.update(subscriptionId, {
 				items: [
 					{
@@ -1319,12 +1352,20 @@ devPlans.openapi(changeTier, async (c) => {
 				})
 				.where(eq(tables.organization.id, personalOrg.id));
 
-			await db.insert(tables.transaction).values({
-				organizationId: personalOrg.id,
-				type: "dev_plan_downgrade",
-				description: `Changed from ${currentTier} to ${newTier} plan`,
-				status: "completed",
-			});
+			// Scheduled downgrades keep their historical no-amount transaction row.
+			// A scheduled upgrade records no transaction: `dev_plan_upgrade` rows
+			// are treated as payment rows by the invoice list and self-refund
+			// eligibility, so a $0 marker would pollute both. The audit event below
+			// captures the scheduling; the renewal itself is recorded by the
+			// `dev_plan_renewal` transaction when it bills.
+			if (!isUpgrade) {
+				await db.insert(tables.transaction).values({
+					organizationId: personalOrg.id,
+					type: "dev_plan_downgrade",
+					description: `Changed from ${currentTier} to ${newTier} plan`,
+					status: "completed",
+				});
+			}
 		}
 
 		await logAuditEvent({
@@ -1337,6 +1378,7 @@ devPlans.openapi(changeTier, async (c) => {
 				changes: {
 					tier: { old: currentTier, new: newTier },
 				},
+				timing: applyNow ? "now" : "next_cycle",
 			},
 		});
 
@@ -1400,7 +1442,8 @@ const cancelDowngrade = createRoute({
 					}),
 				},
 			},
-			description: "Scheduled dev plan downgrade cancelled successfully",
+			description:
+				"Scheduled dev plan tier change (upgrade or downgrade) cancelled successfully",
 		},
 	},
 });
@@ -1441,7 +1484,7 @@ devPlans.openapi(cancelDowngrade, async (c) => {
 
 	if (!personalOrg.devPlanPendingTier || personalOrg.devPlan === "none") {
 		throw new HTTPException(400, {
-			message: "No scheduled downgrade to cancel",
+			message: "No scheduled plan change to cancel",
 		});
 	}
 
@@ -1479,7 +1522,7 @@ devPlans.openapi(cancelDowngrade, async (c) => {
 			});
 		}
 
-		// Scheduling the downgrade swapped the Stripe price to the lower tier so the
+		// Scheduling the change swapped the Stripe price to the target tier so the
 		// renewal would bill it; reverting to the current tier's price keeps the
 		// subscriber on their current plan going forward. Proration stays suppressed
 		// (no charge or refund) — the current tier was never actually left.
@@ -1526,7 +1569,7 @@ devPlans.openapi(cancelDowngrade, async (c) => {
 			error instanceof Error ? error : new Error(String(error)),
 		);
 		throw new HTTPException(500, {
-			message: "Failed to cancel scheduled downgrade",
+			message: "Failed to cancel scheduled plan change",
 		});
 	}
 });

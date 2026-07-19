@@ -272,8 +272,9 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 	}
 
 	test("resets credits and grants a full fresh allotment on a true cycle renewal", async () => {
-		// Seed a prorated limit left over from a mid-cycle upgrade to verify the
-		// renewal restores the tier's full allotment.
+		// Seed a raised limit left over from a mid-cycle upgrade's unused-credit
+		// rollover to verify the renewal restores the tier's base allotment (the
+		// rollover only lasts until renewal).
 		await seedUsedDevPlanOrg({ devPlanCreditsLimit: "312" });
 
 		await handleInvoicePaymentSucceeded(
@@ -336,6 +337,47 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		expect(txns).toHaveLength(1);
 		expect(txns[0].type).toBe("dev_plan_renewal");
 		expect(txns[0].creditAmount).toBe("87");
+	});
+
+	test("applies a scheduled upgrade at renewal: switches tier and grants the higher allotment", async () => {
+		// Org is on pro with an upgrade to max deferred to renewal. At the cycle
+		// renewal the tier flips to max and credits reset to max's full allotment;
+		// the old cycle's unused credits do NOT roll over (rollover is exclusive
+		// to immediate upgrades).
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			devPlan: "pro",
+			devPlanPendingTier: "max",
+			devPlanCreditsLimit: "237",
+			devPlanCreditsUsed: "150",
+			devPlanStripeSubscriptionId: SUB_ID,
+			devPlanCancelled: false,
+		});
+
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_cycle",
+				amountPaid: 17900,
+				invoiceId: "in_cycle_upgrade_001",
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlan).toBe("max");
+		expect(org?.devPlanPendingTier).toBeNull();
+		expect(org?.devPlanCreditsUsed).toBe("0");
+		expect(org?.devPlanCreditsLimit).toBe("537");
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+		expect(txns[0].type).toBe("dev_plan_renewal");
+		expect(txns[0].creditAmount).toBe("537");
 	});
 
 	test("emails an invoice on renewal, falling back to the org's own billing email when no default org exists", async () => {
@@ -424,9 +466,10 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 	test("resets to a fresh new-tier cycle on a tier-change invoice (webhook fallback)", async () => {
 		// The change-tier endpoint normally resets state synchronously; this exercises
 		// the webhook fallback when that process died after Stripe collected payment.
-		// An upgrade invoice (`subscription_update`) starts a brand-new cycle, so the
-		// org resets to the new tier's full allowance with usage zeroed. The target
-		// tier is read from the subscription metadata the update set.
+		// An upgrade invoice (`subscription_update`) starts a brand-new cycle: usage
+		// zeroes and the limit becomes the new tier's full allowance (537) plus the
+		// unused remainder of the replaced cycle (237 - 150 = 87) rolled over. The
+		// target tier is read from the subscription metadata the update set.
 		await seedUsedDevPlanOrg();
 		stripeMock.subscriptions.retrieve.mockResolvedValue({
 			id: SUB_ID,
@@ -448,7 +491,7 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		});
 		expect(org?.devPlan).toBe("max");
 		expect(org?.devPlanCreditsUsed).toBe("0");
-		expect(org?.devPlanCreditsLimit).toBe("537");
+		expect(org?.devPlanCreditsLimit).toBe("624");
 		expect(org?.devPlanExpiresAt?.getTime()).toBe(periodEnd * 1000);
 
 		const txns = await db.query.transaction.findMany({
@@ -456,7 +499,7 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		});
 		expect(txns).toHaveLength(1);
 		expect(txns[0].type).toBe("dev_plan_upgrade");
-		expect(txns[0].creditAmount).toBe("537");
+		expect(txns[0].creditAmount).toBe("624");
 		expect(txns[0].amount).toBe("179");
 		expect(txns[0].stripeInvoiceId).toBe("in_upgrade_001");
 	});

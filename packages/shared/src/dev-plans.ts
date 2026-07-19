@@ -1,3 +1,5 @@
+import { Decimal } from "decimal.js";
+
 export const DEV_PLAN_PRICES = {
 	lite: 29,
 	pro: 79,
@@ -14,6 +16,44 @@ export type DevPlanCycle = "monthly" | "annual";
 export function getDevPlanCreditsLimit(tier: DevPlanTier): number {
 	const multiplier = parseFloat(process.env.DEV_PLAN_CREDITS_MULTIPLIER ?? "3");
 	return DEV_PLAN_PRICES[tier] * multiplier;
+}
+
+function toDecimalOrZero(value: string | number | null | undefined): Decimal {
+	if (value === null || value === undefined) {
+		return new Decimal(0);
+	}
+	try {
+		const parsed = new Decimal(value);
+		return parsed.isFinite() ? parsed : new Decimal(0);
+	} catch {
+		return new Decimal(0);
+	}
+}
+
+/**
+ * Credit allowance granted by an immediate tier upgrade. Upgrades charge the
+ * full new-tier price and restart the billing cycle today, so the unused
+ * remainder of the current cycle — already paid for — rolls over on top of the
+ * new tier's full allotment instead of being forfeited. The rollover lives
+ * only until the next renewal, which resets the limit to the tier's base
+ * allotment. Dunning-frozen orgs get no rollover for free: the freeze clamps
+ * the stored limit down to the used amount, so the remainder is already 0.
+ * Computed with Decimal so fractional usage strings never leave float
+ * artifacts in the stored limit.
+ */
+export function getDevPlanUpgradeCredits(
+	newTier: DevPlanTier,
+	currentCreditsUsed: string | number | null | undefined,
+	currentCreditsLimit: string | number | null | undefined,
+): { rolloverCredits: number; newCreditsLimit: number } {
+	const remaining = toDecimalOrZero(currentCreditsLimit).minus(
+		toDecimalOrZero(currentCreditsUsed),
+	);
+	const rollover = Decimal.max(0, remaining);
+	return {
+		rolloverCredits: rollover.toNumber(),
+		newCreditsLimit: rollover.plus(getDevPlanCreditsLimit(newTier)).toNumber(),
+	};
 }
 
 /**

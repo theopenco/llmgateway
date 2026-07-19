@@ -80,7 +80,7 @@ const faqData: FaqItem[] = [
 	{
 		question: "Can I change plans anytime?",
 		answer:
-			"Yes. Upgrades take effect immediately: you're charged the new tier's full price, your billing cycle restarts, and you get the new tier's full allowance right away (unspent credits from the old cycle don't carry over). Downgrades take effect at your next renewal. There's no lock-in and no cancellation fee.",
+			"Yes. Upgrades can take effect immediately — you're charged the new tier's full price, your billing cycle restarts, and you get the new tier's full allowance right away, plus any unspent credits from the cycle being replaced roll over until your next renewal — or you can schedule the upgrade for your next renewal instead. Downgrades take effect at your next renewal. There's no lock-in and no cancellation fee.",
 	},
 	{
 		question: "Do I need a subscription, or is there pay-as-you-go?",
