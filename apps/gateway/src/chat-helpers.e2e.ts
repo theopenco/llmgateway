@@ -624,6 +624,15 @@ export function getSupportedReasoningEffort(
 	return "medium";
 }
 
+// One test case per (reasoning model, declared effort) so every effort tier a
+// mapping declares via `reasoningEfforts` is exercised against the endpoint.
+export const reasoningEffortModels = reasoningModels.flatMap((m) =>
+	(
+		m.providers.find((p: ProviderModelMapping) => p.reasoning === true)
+			?.reasoningEfforts ?? []
+	).map((effort) => ({ model: m.model, effort })),
+);
+
 export const verbosityModels = testModels.filter((m) =>
 	m.providers.some((p: ProviderModelMapping) => p.verbosity === true),
 );
