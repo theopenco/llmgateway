@@ -3,7 +3,7 @@ id: "blog-kimi-k3-vs-claude-opus"
 slug: "kimi-k3-vs-claude-opus"
 date: "2026-07-19"
 title: "Kimi K3 vs Claude Opus 4.8: Benchmarks, Price, Verdict"
-summary: "Kimi K3 ties Claude Opus 4.8 on GPQA Diamond and costs 40% less per token — but Opus still leads where it counts for some teams. A fact-checked comparison of benchmarks, pricing, and context windows, and how to A/B both through one API."
+summary: "Kimi K3 ties Claude Opus 4.8 on GPQA Diamond, costs 40% less per token, and its weights go public by July 27 — but Opus still leads where it counts for some teams. A fact-checked comparison of benchmarks, pricing, and context windows, and how to A/B both through one API."
 categories: ["Guides"]
 image:
   src: "/blog/kimi-k3-vs-claude-opus.png"
@@ -12,7 +12,7 @@ image:
   height: 1024
 ---
 
-Kimi K3 is the first open-weight model that makes the Kimi K3 vs Claude Opus 4.8 question worth asking seriously. On the Artificial Analysis Intelligence Index, K3 ranks fourth of 189 models — level with Opus 4.8 and GPT-5.5, behind only Claude Fable 5 and GPT-5.6 Sol. It also costs 40% less per token, and its weights ship under a Modified MIT license on July 27.
+Kimi K3 is the first open-weight model that makes the Kimi K3 vs Claude Opus 4.8 question worth asking seriously. On the Artificial Analysis Intelligence Index, K3 ranks fourth of 189 models — level with Opus 4.8 and GPT-5.5, behind only Claude Fable 5 and GPT-5.6 Sol. It also costs 40% less per token, and Moonshot has committed to publishing its weights by July 27.
 
 The honest answer is not "K3 wins" or "Opus wins" — it depends on what you're optimizing for. Here are the numbers, then the verdict.
 
@@ -42,11 +42,11 @@ Per-token rates through LLM Gateway (each provider's published pricing):
 | Cached input       | $0.30   | $0.50           |
 | Output             | $15.00  | $25.00          |
 
-Both have a 1M-token context window. K3 can emit up to 1M tokens in a single response; Opus 4.8 caps output at 128K.
+Both have a 1M-token context window. K3's output limit defaults to 131K tokens but is configurable up to the full 1M in a single response; Opus 4.8 caps output at 128K.
 
 Concrete math: a coding-agent workload of 100M input and 20M output tokens a month runs $600 on Kimi K3 and $1,000 on Claude Opus 4.8. Same ratio at any scale — K3 is 40% cheaper on input, cached input, and output alike.
 
-One operational difference: K3's reasoning is always on at full effort. That is part of why its benchmark numbers are strong, but it means K3 spends thinking tokens even on trivial requests. Opus 4.8 lets you dial reasoning effort up and down per request — cheaper and faster on the easy 80%.
+One operational difference: K3's reasoning is always on at full effort — `reasoning_effort` currently accepts only `max`, with lower-effort modes promised in later updates. That is part of why its benchmark numbers are strong, but it means K3 spends thinking tokens even on trivial requests. Opus 4.8 lets you dial reasoning effort up and down per request today — cheaper and faster on the easy 80%.
 
 ## What each one is for
 
@@ -88,7 +88,7 @@ Yes. Through LLM Gateway both are the same OpenAI-compatible endpoint — swap t
 
 ### Is Kimi K3 open source?
 
-Its weights publish July 27, 2026 under a Modified MIT license; the API is live now. Opus 4.8 is closed and API-only. See [our Kimi K3 overview](/blog/kimi-k3) for the full release details.
+Moonshot has committed to publishing its weights by July 27, 2026 (the license has not been announced yet); the API is live now. Opus 4.8 is closed and API-only. See [our Kimi K3 overview](/blog/kimi-k3) for the full release details.
 
 ## Getting started
 
