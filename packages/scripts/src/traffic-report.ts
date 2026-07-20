@@ -65,7 +65,14 @@ const PRODUCTS: ReadonlyArray<{ host: string; label: string }> = [
 	{ host: "docs.llmgateway.io", label: "Docs" },
 ];
 
-const EVENTS: ReadonlyArray<{ event: string; label: string }> = [
+// `unique: true` counts distinct persons instead of raw events. Click events
+// use it because a single bot hammering a page can otherwise dominate the
+// weekly number (e.g. 708 pricing clicks from one crawler on 2026-07-11).
+const EVENTS: ReadonlyArray<{
+	event: string;
+	label: string;
+	unique?: boolean;
+}> = [
 	{ event: "user_signed_up", label: "Signups" },
 	{ event: "credits_purchased", label: "Credit purchases" },
 	{ event: "dev_plan_started", label: "DevPass starts" },
@@ -73,8 +80,8 @@ const EVENTS: ReadonlyArray<{ event: string; label: string }> = [
 	{ event: "reset_pass_purchased", label: "Reset passes" },
 	{ event: "onboarding_completed", label: "Onboarding done" },
 	{ event: "playground_chat_sent", label: "Playground chats" },
-	{ event: "cta_clicked", label: "CTA clicks" },
-	{ event: "pricing_plan_clicked", label: "Pricing clicks" },
+	{ event: "cta_clicked", label: "CTA clickers", unique: true },
+	{ event: "pricing_plan_clicked", label: "Pricing clickers", unique: true },
 	{ event: "enterprise_contact_submitted", label: "Enterprise leads" },
 ];
 
@@ -268,7 +275,8 @@ async function fetchReport(window: ReportWindow): Promise<ReportData> {
 
 	const eventList = EVENTS.map((e) => `'${e.event}'`).join(",");
 	const eventsQuery = `
-		SELECT event, ${periodExpr} AS period, count() AS hits
+		SELECT event, ${periodExpr} AS period, count() AS hits,
+			count(DISTINCT person_id) AS unique_hits
 		FROM events
 		WHERE event IN (${eventList}) AND ${rangeExpr}
 		GROUP BY event, period`;
@@ -433,18 +441,23 @@ async function fetchReport(window: ReportWindow): Promise<ReportData> {
 	}
 
 	const eventsData = new Map<string, PeriodPair>();
+	const uniqueEvents = new Set(
+		EVENTS.filter((e) => e.unique).map((e) => e.event),
+	);
 	for (const { event } of EVENTS) {
 		eventsData.set(event, { current: 0, previous: 0 });
 	}
 	for (const row of events) {
-		const entry = eventsData.get(String(row[0]));
+		const event = String(row[0]);
+		const entry = eventsData.get(event);
 		if (!entry) {
 			continue;
 		}
+		const value = uniqueEvents.has(event) ? num(row[3]) : num(row[2]);
 		if (row[1] === "current") {
-			entry.current = num(row[2]);
+			entry.current = value;
 		} else {
-			entry.previous = num(row[2]);
+			entry.previous = value;
 		}
 	}
 
