@@ -1409,7 +1409,7 @@ async function handleCheckoutSessionCompleted(
 			});
 			posthog.capture({
 				distinctId: await resolvePurchaserDistinctId(
-					metadata?.userEmail as string | undefined,
+					metadata?.userEmail,
 					organization.billingEmail,
 				),
 				event: "chat_plan_started",
@@ -1534,7 +1534,7 @@ async function handleCheckoutSessionCompleted(
 			});
 			posthog.capture({
 				distinctId: await resolvePurchaserDistinctId(
-					metadata?.userEmail as string | undefined,
+					metadata?.userEmail,
 					organization.billingEmail,
 				),
 				event: "dev_plan_started",
@@ -1776,10 +1776,10 @@ async function applyFirstTimeBonus({
 async function resolvePurchaserDistinctId(
 	...emails: (string | null | undefined)[]
 ): Promise<string> {
-	for (const email of emails) {
-		if (!email) {
-			continue;
-		}
+	const candidates = new Set(
+		emails.filter((email): email is string => Boolean(email)),
+	);
+	for (const email of candidates) {
 		const purchaser = await db.query.user.findFirst({
 			where: { email: { eq: email } },
 		});

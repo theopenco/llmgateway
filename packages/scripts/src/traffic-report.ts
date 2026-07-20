@@ -80,6 +80,9 @@ const EVENTS: ReadonlyArray<{ event: string; label: string }> = [
 
 const HOST_LIST = PRODUCTS.map((p) => `'${p.host}'`).join(",");
 
+// The blog is served by the marketing site (apps/ui) only.
+const BLOG_HOST = "llmgateway.io";
+
 // Events that mean the person paid us money. Payment events are captured
 // server-side against the purchasing user's id (see apps/api/src/stripe.ts),
 // which is the same id the frontends pass to posthog.identify, so they share
@@ -88,6 +91,7 @@ const PAYMENT_EVENTS = [
 	"credits_purchased",
 	"dev_plan_started",
 	"chat_plan_started",
+	"reset_pass_purchased",
 ] as const;
 const PAYMENT_EVENT_LIST = PAYMENT_EVENTS.map((e) => `'${e}'`).join(",");
 
@@ -338,12 +342,15 @@ async function fetchReport(window: ReportWindow): Promise<ReportData> {
 			AND timestamp >= toDateTime('${curStart}') AND timestamp < toDateTime('${curEnd}')
 		GROUP BY person_id`;
 
-	// A page "converts" a person when they viewed it any time in the lookback
+	// A page "converts" a person when they viewed it within the lookback
 	// window before their first signup/payment of the period.
+	const attributedTo = (conversionColumn: string): string =>
+		`ifNull(e.timestamp <= ${conversionColumn} AND e.timestamp >= ${conversionColumn} - INTERVAL ${ATTRIBUTION_LOOKBACK_DAYS} DAY, 0)`;
+
 	const convertingPagesQuery = `
 		SELECT concat(e.properties.$host, e.properties.$pathname) AS url,
-			uniqIf(e.person_id, ifNull(e.timestamp <= c.paid_at, 0)) AS payers,
-			uniqIf(e.person_id, ifNull(e.timestamp <= c.signed_up_at, 0)) AS signups
+			uniqIf(e.person_id, ${attributedTo("c.paid_at")}) AS payers,
+			uniqIf(e.person_id, ${attributedTo("c.signed_up_at")}) AS signups
 		FROM events AS e
 		JOIN (${convertersSubquery}) AS c ON e.person_id = c.person_id
 		WHERE e.event = '$pageview'
@@ -357,13 +364,13 @@ async function fetchReport(window: ReportWindow): Promise<ReportData> {
 	const blogConversionsQuery = `
 		SELECT e.properties.$pathname AS path,
 			uniqIf(e.person_id, e.timestamp >= toDateTime('${curStart}')) AS readers,
-			uniqIf(e.person_id, ifNull(e.timestamp <= c.signed_up_at, 0)) AS signups,
-			uniqIf(e.person_id, ifNull(e.timestamp <= c.paid_at, 0)) AS payers
+			uniqIf(e.person_id, ${attributedTo("c.signed_up_at")}) AS signups,
+			uniqIf(e.person_id, ${attributedTo("c.paid_at")}) AS payers
 		FROM events AS e
 		LEFT JOIN (${convertersSubquery}) AS c ON e.person_id = c.person_id
 		WHERE e.event = '$pageview'
 			AND e.timestamp >= toDateTime('${lookbackStart}') AND e.timestamp < toDateTime('${curEnd}')
-			AND e.properties.$host = 'llmgateway.io'
+			AND e.properties.$host = '${BLOG_HOST}'
 			AND e.properties.$pathname LIKE '/blog/%'
 		GROUP BY path
 		ORDER BY payers DESC, signups DESC, readers DESC
