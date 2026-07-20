@@ -2,7 +2,10 @@
 
 import { format, formatDistanceToNowStrict } from "date-fns";
 import { Activity, Coins, Cpu, Gem, TrendingUp } from "lucide-react";
+import { usePostHog } from "posthog-js/react";
+import { useEffect } from "react";
 
+import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
 import { AgentModelUsageChart } from "./AgentModelUsageChart";
@@ -219,12 +222,36 @@ export default function UsageOverview({
 	cycle = "monthly",
 }: UsageOverviewProps) {
 	const api = useApi();
+	const posthog = usePostHog();
+	const { posthogKey } = useAppConfig();
 
 	const tierKey = planName.toLowerCase();
 	// The monthly credit pool (not the weekly premium allowance) is the hard
 	// ceiling: once it's gone, Reset Passes can't unlock anything, so the pass
 	// card gives way to the upgrade/PAYG promo.
 	const monthlyExhausted = creditsLimit > 0 && creditsUsed >= creditsLimit;
+
+	// Top of the Reset Pass upsell funnel: the user sees the exhausted weekly
+	// premium meter. reset_pass_purchased/redeemed are captured server-side,
+	// so without this event the funnel has a bottom but no top.
+	const weeklyExhausted =
+		premiumWeeklyLimit > 0 && premiumCreditsUsed >= premiumWeeklyLimit;
+	useEffect(() => {
+		if (!posthogKey || !weeklyExhausted) {
+			return;
+		}
+		posthog.capture("devpass_weekly_cap_hit_viewed", {
+			tier: tierKey,
+			weeklyLimit: premiumWeeklyLimit,
+			weeklyUsed: premiumCreditsUsed,
+			resetsAt: premiumWeekResetsAt,
+			purchasedPasses: resetPasses,
+			includedPassesRemaining: includedResetPassesRemaining,
+			monthlyExhausted,
+		});
+		// Fire once per exhausted dashboard view, not on every prop tick.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [posthogKey, weeklyExhausted]);
 
 	const { data: activity } = api.useQuery(
 		"get",
