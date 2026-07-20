@@ -264,7 +264,7 @@ export const deepseekModels = [
 				jsonOutput: true,
 				streaming: true,
 				reasoning: true,
-				reasoningEfforts: ["high", "max"],
+				reasoningEfforts: ["none", "high", "max"],
 				vision: false,
 				tools: true,
 				supportedParameters: [
@@ -277,6 +277,7 @@ export const deepseekModels = [
 					"stream",
 					"response_format",
 					"tools",
+					"reasoning_effort",
 				],
 			},
 			{
@@ -379,7 +380,7 @@ export const deepseekModels = [
 				jsonOutput: true,
 				streaming: true,
 				reasoning: true,
-				reasoningEfforts: ["high", "max"],
+				reasoningEfforts: ["none", "high", "max"],
 				vision: false,
 				tools: true,
 				supportedParameters: [
@@ -392,6 +393,7 @@ export const deepseekModels = [
 					"stream",
 					"response_format",
 					"tools",
+					"reasoning_effort",
 				],
 			},
 			{
