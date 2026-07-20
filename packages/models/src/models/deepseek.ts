@@ -277,6 +277,7 @@ export const deepseekModels = [
 					"stream",
 					"response_format",
 					"tools",
+					"reasoning_effort",
 				],
 			},
 			{
@@ -392,6 +393,7 @@ export const deepseekModels = [
 					"stream",
 					"response_format",
 					"tools",
+					"reasoning_effort",
 				],
 			},
 			{

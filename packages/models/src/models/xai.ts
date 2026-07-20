@@ -7,6 +7,7 @@ const xaiSupportedParamsNoFreqPresence = [
 	"response_format",
 	"tools",
 	"tool_choice",
+	"reasoning_effort",
 ];
 
 export const xaiModels = [
