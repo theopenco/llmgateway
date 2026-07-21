@@ -227,6 +227,7 @@ export const deepseekModels = [
 			{
 				providerId: "vertex-openai",
 				externalId: "deepseek-ai/deepseek-v3.2-maas",
+				deactivatedAt: new Date("2026-10-21"),
 				// Vertex MaaS throttles this model's tiny concurrency quota (429
 				// RESOURCE_EXHAUSTED even for single spaced-out requests,
 				// verified 2026-07-14), flaking e2e
