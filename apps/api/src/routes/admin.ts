@@ -12071,6 +12071,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 					"dev_plan_upgrade",
 					"dev_plan_downgrade",
 					"dev_plan_cancel",
+					"dev_plan_resume",
 					"dev_plan_end",
 					"dev_plan_renewal",
 					// Legacy types — pre dev_plan_* rename, still in DB for older
@@ -13635,6 +13636,7 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 					"chat_plan_upgrade",
 					"chat_plan_downgrade",
 					"chat_plan_cancel",
+					"chat_plan_resume",
 					"chat_plan_end",
 					"chat_plan_renewal",
 				]),
