@@ -1885,6 +1885,38 @@ export const alibabaModels = [
 		],
 	},
 	{
+		id: "qwen-image-3.0-pro",
+		name: "Qwen Image 3.0 Pro",
+		description:
+			"Alibaba's third-generation Qwen image model with richer content, authentic details, and native text rendering in 12 languages, supporting prompts up to 4.5k tokens.",
+		family: "alibaba",
+		output: ["text", "image"],
+		releasedAt: new Date("2026-07-21"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "alibaba",
+				// Launch-day (2026-07-21) requests alternate between AccessDenied
+				// and Throttling.RateQuota in every region; re-verify and remove
+				// once Alibaba opens up access.
+				stability: "unstable",
+				externalId: "qwen-image-3.0-pro",
+				// Limited-time free at launch (2026-07-21) in both mainland and
+				// international regions; update prices once Alibaba publishes them.
+				inputPrice: "0",
+				outputPrice: "0",
+				requestPrice: "0",
+				contextSize: 4500,
+				maxOutput: 4096,
+				streaming: false,
+				vision: false,
+				tools: false,
+				jsonOutput: false,
+				imageGenerations: true,
+			},
+		],
+	},
+	{
 		id: "qwq-plus",
 		name: "QwQ Plus",
 		description:
