@@ -53,6 +53,10 @@ describe("detectCodingAgentFromUserAgent", () => {
 		);
 	});
 
+	it("detects Empryo", () => {
+		expect(detectCodingAgentFromUserAgent("empryo/1.0.0")).toBe("empryo");
+	});
+
 	it("detects SoulForge", () => {
 		expect(detectCodingAgentFromUserAgent("soulforge/0.9.0")).toBe("soulforge");
 	});

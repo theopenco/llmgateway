@@ -1,3 +1,5 @@
+import { getProviderDefaultBaseUrl } from "./get-provider-endpoint.js";
+
 import type { ProviderId, ProviderRequestBody } from "@llmgateway/models";
 
 /**
@@ -31,18 +33,18 @@ export function applyGoogleServiceTier(
 }
 
 /**
- * Canonical upstream base URLs for the Google providers that honor the
- * OpenAI-compatible `service_tier` (Flex / Priority). A premium tier is only
- * guaranteed to apply when the request reaches Google directly: a provider key
- * pointing at a proxy / custom base URL may silently drop the tier header (Vertex)
- * or body field (AI Studio), so the gateway would bill and report the standard
- * tier even though the caller asked for Flex/Priority. Service-tier routing is
- * therefore restricted to keys that target these endpoints.
+ * The Google providers the gateway forwards premium tiers to via Google's
+ * transports: the `service_tier` body field (BODY_TIER_PROVIDERS) or the
+ * Vertex request headers. A premium tier is only guaranteed to apply when the
+ * request reaches Google's real upstream — a key pointing at a proxy / custom
+ * base URL may silently drop the tier and the request is served (and billed)
+ * as standard, never at the tier the caller asked for. Service-tier routing
+ * is therefore restricted to keys targeting the provider's default base URL.
  */
-const SERVICE_TIER_UPSTREAM_BASE_URLS: Partial<Record<ProviderId, string>> = {
-	"google-ai-studio": "https://generativelanguage.googleapis.com",
-	"google-vertex": "https://aiplatform.googleapis.com",
-};
+const GOOGLE_TIER_PROVIDERS: ReadonlySet<ProviderId> = new Set<ProviderId>([
+	...BODY_TIER_PROVIDERS,
+	"google-vertex",
+]);
 
 /**
  * The OpenAI-compatible processing tiers that select premium (Flex / Priority)
@@ -68,20 +70,22 @@ function normalizeServiceTierBaseUrl(baseUrl: string): string {
 
 /**
  * Whether a provider key's base URL is eligible to carry a Flex/Priority
- * service-tier request. Eligible when the provider has no upstream-only rule, or
- * when the key uses the managed default (no custom base URL), or when the custom
- * base URL exactly matches the provider's canonical upstream. A custom base URL
- * on google-ai-studio / google-vertex is the only case this rejects.
+ * service-tier request. Eligible when the provider is not one of the Google
+ * tier providers, when the key uses the managed default (no custom base URL),
+ * or when the custom base URL exactly matches the provider's default base URL
+ * (its real upstream). A custom base URL on google-ai-studio / google-vertex
+ * is the only case this rejects — glacier has no static default base URL
+ * (env-defined deployment), so there is no canonical upstream to enforce.
  */
 export function providerKeyBaseUrlSupportsServiceTier(
 	provider: ProviderId,
 	baseUrl: string | null | undefined,
 ): boolean {
-	const upstream = SERVICE_TIER_UPSTREAM_BASE_URLS[provider];
-	if (!upstream) {
+	if (!GOOGLE_TIER_PROVIDERS.has(provider) || !baseUrl) {
 		return true;
 	}
-	if (!baseUrl) {
+	const upstream = getProviderDefaultBaseUrl(provider);
+	if (!upstream) {
 		return true;
 	}
 	return (

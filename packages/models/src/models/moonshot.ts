@@ -171,6 +171,7 @@ export const moonshotModels = [
 			{
 				providerId: "vertex-openai",
 				externalId: "moonshotai/kimi-k2-thinking-maas",
+				deactivatedAt: new Date("2026-10-21"),
 				inputPrice: "0.6e-6",
 				cachedInputPrice: "0.06e-6",
 				outputPrice: "2.5e-6",

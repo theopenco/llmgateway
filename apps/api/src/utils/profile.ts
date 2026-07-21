@@ -80,6 +80,7 @@ export const CODING_AGENT_SOURCES = [
 	"open-code",
 	"cursor",
 	"autohand",
+	"empryo",
 	"soulforge",
 	"cline",
 	"codex",

@@ -21,7 +21,13 @@ import {
 import { createProjectForOrg } from "@/routes/projects.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
-import { db, eq, getApiKeyCurrentPeriodState, tables } from "@llmgateway/db";
+import {
+	cdb,
+	db,
+	eq,
+	getApiKeyCurrentPeriodState,
+	tables,
+} from "@llmgateway/db";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 import type { ServerTypes } from "@/vars.js";
@@ -420,7 +426,7 @@ v1Master.openapi(updateProject, async (c) => {
 		});
 	}
 
-	const [updated] = await db
+	const [updated] = await cdb
 		.update(tables.project)
 		.set(updates)
 		.where(eq(tables.project.id, id))
@@ -503,7 +509,7 @@ v1Master.openapi(deleteProject, async (c) => {
 		});
 	}
 
-	await db
+	await cdb
 		.update(tables.project)
 		.set({ status: "deleted" })
 		.where(eq(tables.project.id, id));
@@ -660,7 +666,7 @@ v1Master.openapi(updateApiKey, async (c) => {
 		}
 	}
 
-	const [updated] = await db
+	const [updated] = await cdb
 		.update(tables.apiKey)
 		.set(setPayload)
 		.where(eq(tables.apiKey.id, id))
@@ -843,7 +849,7 @@ v1Master.openapi(deleteApiKey, async (c) => {
 		});
 	}
 
-	await db
+	await cdb
 		.update(tables.apiKey)
 		.set({ status: "deleted" })
 		.where(eq(tables.apiKey.id, id));
@@ -908,7 +914,7 @@ v1Master.openapi(createIamRule, async (c) => {
 
 	const apiKey = await loadApiKeyForOrg(id, masterKey.organizationId);
 
-	const [rule] = await db
+	const [rule] = await cdb
 		.insert(tables.apiKeyIamRule)
 		.values({
 			apiKeyId: apiKey.id,
@@ -1024,7 +1030,7 @@ v1Master.openapi(updateIamRule, async (c) => {
 		});
 	}
 
-	const [updated] = await db
+	const [updated] = await cdb
 		.update(tables.apiKeyIamRule)
 		.set(updates)
 		.where(eq(tables.apiKeyIamRule.id, ruleId))
@@ -1090,7 +1096,7 @@ v1Master.openapi(deleteIamRule, async (c) => {
 		});
 	}
 
-	await db
+	await cdb
 		.delete(tables.apiKeyIamRule)
 		.where(eq(tables.apiKeyIamRule.id, ruleId));
 
