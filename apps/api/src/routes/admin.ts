@@ -8311,13 +8311,28 @@ const UNSTABLE_MAPPINGS_MAX_LOG_LIMIT = 1000000;
 // Supported time windows for the rankings, mapping each selectable value to its
 // SQL interval bound and an hours count surfaced to the UI for the description.
 const UNSTABLE_MAPPINGS_WINDOWS = {
+	"1h": { interval: sql`now() - interval '1 hour'`, hours: 1 },
+	"2h": { interval: sql`now() - interval '2 hours'`, hours: 2 },
 	"4h": { interval: sql`now() - interval '4 hours'`, hours: 4 },
+	"8h": { interval: sql`now() - interval '8 hours'`, hours: 8 },
+	"12h": { interval: sql`now() - interval '12 hours'`, hours: 12 },
+	"16h": { interval: sql`now() - interval '16 hours'`, hours: 16 },
 	"24h": { interval: sql`now() - interval '24 hours'`, hours: 24 },
 	"3d": { interval: sql`now() - interval '3 days'`, hours: 72 },
 	"7d": { interval: sql`now() - interval '7 days'`, hours: 168 },
 } as const;
 
-const unstableMappingsWindowSchema = z.enum(["4h", "24h", "3d", "7d"]);
+const unstableMappingsWindowSchema = z.enum([
+	"1h",
+	"2h",
+	"4h",
+	"8h",
+	"12h",
+	"16h",
+	"24h",
+	"3d",
+	"7d",
+]);
 
 type UnstableMappingsWindow = keyof typeof UNSTABLE_MAPPINGS_WINDOWS;
 
