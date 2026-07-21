@@ -872,17 +872,17 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
-		id: "bedrock",
-		name: "Bedrock",
+		id: "aws-mantle",
+		name: "AWS Mantle",
 		description:
 			"Amazon Bedrock Mantle - OpenAI frontier models served on AWS via the Responses API",
 		env: {
 			required: {
-				apiKey: "LLM_BEDROCK_API_KEY",
+				apiKey: "LLM_AWS_MANTLE_API_KEY",
 			},
 			optional: {
-				baseUrl: "LLM_BEDROCK_BASE_URL",
-				region: "LLM_BEDROCK_REGION",
+				baseUrl: "LLM_AWS_MANTLE_BASE_URL",
+				region: "LLM_AWS_MANTLE_REGION",
 			},
 		},
 		priority: 2,

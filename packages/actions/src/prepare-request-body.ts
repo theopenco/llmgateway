@@ -1040,7 +1040,7 @@ export async function prepareRequestBody(
 	const handlesNoneNatively =
 		usedProvider === "openai" ||
 		usedProvider === "azure" ||
-		usedProvider === "bedrock" ||
+		usedProvider === "aws-mantle" ||
 		usedProvider === "google-ai-studio" ||
 		usedProvider === "glacier" ||
 		usedProvider === "google-vertex" ||
@@ -1658,7 +1658,7 @@ export async function prepareRequestBody(
 		case "azure":
 		case "sakana":
 		case "meta":
-		case "bedrock":
+		case "aws-mantle":
 		case "openai": {
 			// Determine whether to use Responses API format.
 			// If useResponsesApi is explicitly passed (derived from endpoint URL), use it.
@@ -1687,6 +1687,33 @@ export async function prepareRequestBody(
 				// - Convert tool role messages to function_call_output items
 				const transformedMessages =
 					transformMessagesForResponsesApi(processedMessages);
+
+				// Bedrock Mantle only accepts `data:` (or `s3://`) image URLs and
+				// rejects remote http(s) references outright, so fetch user-supplied
+				// image URLs (SSRF-guarded) and inline them as data URLs upstream.
+				if (usedProvider === "aws-mantle") {
+					for (const item of transformedMessages) {
+						if (!Array.isArray(item?.content)) {
+							continue;
+						}
+						for (const part of item.content) {
+							if (
+								part?.type === "input_image" &&
+								typeof part.image_url === "string" &&
+								(part.image_url.startsWith("http://") ||
+									part.image_url.startsWith("https://"))
+							) {
+								const { data, mimeType } = await processImageUrl(
+									part.image_url,
+									isProd,
+									maxImageSizeMB,
+									userPlan,
+								);
+								part.image_url = `data:${mimeType};base64,${data}`;
+							}
+						}
+					}
+				}
 
 				// Fugu always reasons and only accepts "high"/"xhigh" effort — it has
 				// no off switch and rejects none/minimal/low/medium — so every tier at
@@ -1753,7 +1780,7 @@ export async function prepareRequestBody(
 				if (
 					usedProvider === "openai" ||
 					usedProvider === "azure" ||
-					usedProvider === "bedrock" ||
+					usedProvider === "aws-mantle" ||
 					usedProvider === "meta"
 				) {
 					const upstreamCacheKey =

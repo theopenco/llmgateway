@@ -326,16 +326,16 @@ export function getProviderEndpoint(
 					"https://bedrock-runtime.us-east-1.amazonaws.com";
 				break;
 			}
-			case "bedrock": {
+			case "aws-mantle": {
 				// Bedrock Mantle: OpenAI frontier models on AWS, Responses API only.
 				// GPT-5.6 Sol is deployed in us-east-1/us-east-2 only (Terra/Luna
 				// additionally in us-west-2), so default to us-east-1 where the
 				// whole family is available.
 				const envBaseUrl = skipEnvVars
 					? undefined
-					: getProviderEnvValue("bedrock", "baseUrl", configIndex);
+					: getProviderEnvValue("aws-mantle", "baseUrl", configIndex);
 				const mantleRegion =
-					envValueOrDefault("bedrock", "region", "us-east-1") ?? "us-east-1";
+					envValueOrDefault("aws-mantle", "region", "us-east-1") ?? "us-east-1";
 				url = envBaseUrl ?? `https://bedrock-mantle.${mantleRegion}.api.aws`;
 				break;
 			}
@@ -543,7 +543,7 @@ export function getProviderEndpoint(
 			const endpoint = stream ? "converse-stream" : "converse";
 			return `${url}/model/${prefix}${externalId}/${endpoint}`;
 		}
-		case "bedrock":
+		case "aws-mantle":
 			// Bedrock Mantle only exposes the OpenAI Responses API — Chat
 			// Completions requests are rejected upstream.
 			return appendPath(url, "/openai/v1/responses");

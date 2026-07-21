@@ -650,7 +650,7 @@ export async function calculateCosts(
 		provider === "azure" ||
 		provider === "sakana" ||
 		provider === "meta" ||
-		provider === "bedrock";
+		provider === "aws-mantle";
 	const totalOutputTokens = completionIncludesReasoning
 		? calculatedCompletionTokens
 		: calculatedCompletionTokens + (reasoningTokens ?? 0);
