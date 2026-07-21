@@ -8,6 +8,11 @@ import {
 import { recordChatCompletionMetrics } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 
+import {
+	redactErrorDetails,
+	shouldRedactProviderError,
+} from "./stealth-provider-errors.js";
+
 import type { InferInsertModel } from "@llmgateway/db";
 
 /**
@@ -282,6 +287,15 @@ export async function insertLog(
 	logData: LogInsertData,
 	options?: { syncInsert?: boolean },
 ): Promise<unknown> {
+	// Stealth providers: the raw upstream error may reveal the underlying
+	// platform, so it survives only in internalErrorDetails — a column excluded
+	// from public API routes and the UI — while the public errorDetails keeps
+	// just the upstream status code.
+	if (logData.errorDetails && shouldRedactProviderError(logData.usedProvider)) {
+		logData.internalErrorDetails = logData.errorDetails;
+		logData.errorDetails = redactErrorDetails(logData.errorDetails);
+	}
+
 	if (logData.unifiedFinishReason === undefined) {
 		if (logData.canceled) {
 			logData.unifiedFinishReason = UnifiedFinishReason.CANCELED;

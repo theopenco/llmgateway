@@ -36,7 +36,7 @@ describe("api", () => {
 		expect(data.health).toHaveProperty("database");
 	});
 
-	test("/v1/chat/completions rejects image-output models for dev-plan orgs even with allowAllModels", async () => {
+	test("/v1/chat/completions rejects image-output models for dev-plan orgs", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			token: "real-token",
@@ -45,10 +45,9 @@ describe("api", () => {
 			createdBy: "user-id",
 		});
 
-		// Pro dev plan with allow-all-models on — the legacy coding-model
-		// restriction does NOT apply, so the only thing blocking image
-		// generation is the new image-output guard.
-		await harness.setDevPlan({ devPlan: "pro", allowAllModels: true });
+		// The image-output guard runs before the coding-model restriction, so
+		// image generation is blocked on dev plans regardless of the model.
+		await harness.setDevPlan({ devPlan: "pro" });
 
 		// gemini-2.5-flash-image declares output: ["text", "image"] but
 		// has no imageGenerations: true mapping — exactly the case the
@@ -110,7 +109,7 @@ describe("api", () => {
 			createdBy: "user-id",
 		});
 
-		await harness.setDevPlan({ devPlan: "pro", allowAllModels: true });
+		await harness.setDevPlan({ devPlan: "pro" });
 
 		const res = await app.request("/v1/images/generations", {
 			method: "POST",
@@ -128,6 +127,39 @@ describe("api", () => {
 		const json = await res.json();
 		expect(JSON.stringify(json)).toContain(
 			"Image generation is not available for coding plans",
+		);
+	});
+
+	test("/v1/chat/completions rejects provider-targeting model strings for dev-plan orgs", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		// Direct provider routing is never available on dev plans. The
+		// `provider/model` format stays blocked; only the canonical root id
+		// (`deepseek-v4-pro`) is allowed on dev plans.
+		await harness.setDevPlan({ devPlan: "pro" });
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "deepseek/deepseek-v4-pro",
+				messages: [{ role: "user", content: "hi" }],
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Direct provider routing is not available on coding plans",
 		);
 	});
 
@@ -1000,6 +1032,134 @@ describe("api", () => {
 		expect(json.metadata?.used_service_tier).toBeUndefined();
 	});
 
+	test("/v1/chat/completions applies the dev-plan default flex service tier", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-devplan-flex-default",
+			token: "real-token-devplan-flex-default",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-devplan-flex-default",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		await harness.setDevPlan({ devPlan: "pro", serviceTier: "flex" });
+
+		// No service_tier on the request — the org-level DevPass setting should
+		// route it to flex processing on the flex-capable openai mapping.
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-devplan-flex-default",
+			},
+			body: JSON.stringify({
+				model: "gpt-5.5",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.service_tier).toBe("flex");
+		// The tier came from the org default, not the request, so only the
+		// used tier is surfaced.
+		expect(json.metadata?.requested_service_tier).toBeUndefined();
+		expect(json.metadata?.used_service_tier).toBe("flex");
+
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		expect(logs[0].requestedServiceTier).toBeNull();
+		expect(logs[0].usedServiceTier).toBe("flex");
+	});
+
+	test("/v1/chat/completions lets an explicit service_tier win over the dev-plan default", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-devplan-flex-override",
+			token: "real-token-devplan-flex-override",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-devplan-flex-override",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		await harness.setDevPlan({ devPlan: "pro", serviceTier: "flex" });
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-devplan-flex-override",
+			},
+			body: JSON.stringify({
+				model: "gpt-5.5",
+				service_tier: "priority",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.service_tier).toBe("priority");
+		expect(json.metadata?.requested_service_tier).toBe("priority");
+		expect(json.metadata?.used_service_tier).toBe("priority");
+	});
+
+	test("/v1/chat/completions skips the dev-plan flex default for models without flex support", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-devplan-flex-unsupported",
+			token: "real-token-devplan-flex-unsupported",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-devplan-flex-unsupported",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		await harness.setDevPlan({
+			devPlan: "pro",
+			serviceTier: "flex",
+		});
+
+		// gpt-4o has no flex-capable mapping — the default must fall back to
+		// standard processing instead of failing the request.
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-devplan-flex-unsupported",
+			},
+			body: JSON.stringify({
+				model: "gpt-4o",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.metadata?.requested_service_tier).toBeUndefined();
+		expect(json.metadata?.used_service_tier).toBeUndefined();
+	});
+
 	test("/v1/chat/completions streams service tier in the final usage chunk", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-service-tier-stream",
@@ -1460,6 +1620,122 @@ describe("api", () => {
 			},
 		]);
 		expect(moderationLog?.content).toContain('"flagged":true');
+	});
+
+	test("/v1/moderations retries with next env key on invalid key", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await harness.setProjectMode("credits");
+
+		const previousOpenAIKey = process.env.LLM_OPENAI_API_KEY;
+		const requestId = "moderation-key-rotation-request-id";
+		const attemptedKeys: (string | null)[] = [];
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+				expect(url).toBe("https://api.openai.com/v1/moderations");
+
+				const headers = new Headers(init?.headers);
+				const auth = headers.get("authorization");
+				attemptedKeys.push(auth);
+
+				if (auth === "Bearer sk-bad-key") {
+					return new Response(
+						JSON.stringify({
+							error: {
+								message: "Incorrect API key provided: sk-bad-key.",
+								type: "invalid_request_error",
+								param: null,
+								code: "invalid_api_key",
+							},
+						}),
+						{
+							status: 401,
+							headers: { "Content-Type": "application/json" },
+						},
+					);
+				}
+
+				expect(auth).toBe("Bearer sk-good-key");
+				return new Response(
+					JSON.stringify({
+						id: "modr-456",
+						model: "omni-moderation-latest",
+						results: [
+							{
+								flagged: false,
+							},
+						],
+					}),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				);
+			});
+
+		resetKeyHealth();
+		try {
+			process.env.LLM_OPENAI_API_KEY = "sk-bad-key,sk-good-key";
+
+			const res = await app.request("/v1/moderations", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+					"x-request-id": requestId,
+				},
+				body: JSON.stringify({
+					input: "Just a harmless sentence.",
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const json = await res.json();
+			expect(json).toHaveProperty("id", "modr-456");
+			expect(json.results[0].flagged).toBe(false);
+			expect(attemptedKeys).toEqual([
+				"Bearer sk-bad-key",
+				"Bearer sk-good-key",
+			]);
+
+			const logs = await waitForLogs(2);
+			const moderationLogs = logs.filter((log) => log.requestId === requestId);
+			expect(moderationLogs).toHaveLength(2);
+
+			const failedAttempt = moderationLogs.find((log) => log.hasError);
+			const successAttempt = moderationLogs.find((log) => !log.hasError);
+
+			expect(failedAttempt).toBeTruthy();
+			expect(failedAttempt?.finishReason).toBe("gateway_error");
+			expect(failedAttempt?.retried).toBe(true);
+			expect(failedAttempt?.retriedByLogId).toBe(successAttempt?.id);
+
+			expect(successAttempt).toBeTruthy();
+			expect(successAttempt?.finishReason).toBe("stop");
+			expect(successAttempt?.content).toContain('"flagged":false');
+		} finally {
+			fetchSpy.mockRestore();
+			resetKeyHealth();
+			if (previousOpenAIKey === undefined) {
+				delete process.env.LLM_OPENAI_API_KEY;
+			} else {
+				process.env.LLM_OPENAI_API_KEY = previousOpenAIKey;
+			}
+		}
 	});
 
 	test("/v1/embeddings e2e success", async () => {

@@ -175,58 +175,45 @@ export default async function TimelinePage() {
 								DeepSeek and more. Browse the full history by year.
 							</p>
 
-							<dl className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3 pt-2 text-sm">
-								<div className="flex items-baseline gap-1.5">
-									<dd className="font-display text-xl font-bold tabular-nums text-foreground">
+							<ul className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3 pt-2 text-sm">
+								<li className="flex items-baseline gap-1.5">
+									<span className="font-display text-xl font-bold tabular-nums text-foreground">
 										{stats.totalModels}
-									</dd>
-									<dt className="text-muted-foreground">models</dt>
-								</div>
-								<span aria-hidden className="text-border">
-									•
-								</span>
-								<div className="flex items-baseline gap-1.5">
-									<dd className="font-display text-xl font-bold tabular-nums text-foreground">
+									</span>
+									<span className="text-muted-foreground">models</span>
+								</li>
+								<li className="flex items-baseline gap-1.5 before:mr-6 before:text-border before:content-['•']">
+									<span className="font-display text-xl font-bold tabular-nums text-foreground">
 										{stats.totalProviders}
-									</dd>
-									<dt className="text-muted-foreground">providers</dt>
-								</div>
+									</span>
+									<span className="text-muted-foreground">providers</span>
+								</li>
 								{stats.firstYear ? (
-									<>
-										<span aria-hidden className="text-border">
-											•
+									<li className="flex items-baseline gap-1.5 before:mr-6 before:text-border before:content-['•']">
+										<span className="text-muted-foreground">since</span>
+										<span className="font-display text-xl font-bold tabular-nums text-foreground">
+											{stats.firstYear}
 										</span>
-										<div className="flex items-baseline gap-1.5">
-											<dd className="text-muted-foreground">since</dd>
-											<dt className="font-display text-xl font-bold tabular-nums text-foreground">
-												{stats.firstYear}
-											</dt>
-										</div>
-									</>
+									</li>
 								) : null}
 								{stats.latestReleasedAt ? (
-									<>
-										<span aria-hidden className="text-border">
-											•
+									<li className="flex items-center gap-1.5 before:mr-6 before:text-border before:content-['•']">
+										<span className="relative flex h-2 w-2">
+											<span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/70" />
+											<span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
 										</span>
-										<div className="flex items-center gap-1.5">
-											<span className="relative flex h-2 w-2">
-												<span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/70" />
-												<span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
-											</span>
-											<span className="text-muted-foreground">
-												Updated{" "}
-												<time
-													dateTime={isoDate(stats.latestReleasedAt)}
-													className="font-medium text-foreground"
-												>
-													{formatDate(stats.latestReleasedAt)}
-												</time>
-											</span>
-										</div>
-									</>
+										<span className="text-muted-foreground">
+											Updated{" "}
+											<time
+												dateTime={isoDate(stats.latestReleasedAt)}
+												className="font-medium text-foreground"
+											>
+												{formatDate(stats.latestReleasedAt)}
+											</time>
+										</span>
+									</li>
 								) : null}
-							</dl>
+							</ul>
 						</div>
 					</div>
 				</section>

@@ -88,8 +88,10 @@ export default function PricingPage() {
 		<>
 			<JsonLd data={[pricingSchema, breadcrumbSchema]} />
 			<HeroRSC navbarOnly />
-			<PricingHero />
-			<PricingTable />
+			<main>
+				<PricingHero />
+				<PricingTable />
+			</main>
 			<Footer />
 		</>
 	);

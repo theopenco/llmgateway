@@ -87,6 +87,51 @@ function buildVertexCompatibleEndpoint(
 }
 
 /**
+ * Static default base URLs for providers whose canonical upstream is a fixed
+ * host. Single source of truth for "the provider's default base URL":
+ * getProviderEndpoint falls back to these when no key base URL or env
+ * override is configured, and service-tier key eligibility compares custom
+ * base URLs against them. Providers absent from this map derive their
+ * endpoint from env vars, key options (e.g. the Azure resource), or region
+ * maps and have no static default.
+ */
+const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
+	openai: "https://api.openai.com",
+	anthropic: "https://api.anthropic.com",
+	"google-ai-studio": "https://generativelanguage.googleapis.com",
+	"google-vertex": "https://aiplatform.googleapis.com",
+	"inference.net": "https://api.inference.net",
+	"together-ai": "https://api.together.ai",
+	"scx-ai": "https://api.scx.ai",
+	mistral: "https://api.mistral.ai",
+	xai: "https://api.x.ai",
+	groq: "https://api.groq.com/openai",
+	cerebras: "https://api.cerebras.ai",
+	deepseek: "https://api.deepseek.com",
+	perplexity: "https://api.perplexity.ai",
+	novita: "https://api.novita.ai/v3/openai",
+	moonshot: "https://api.moonshot.ai",
+	meta: "https://api.meta.ai",
+	nebius: "https://api.tokenfactory.nebius.com",
+	zai: "https://api.z.ai",
+	nanogpt: "https://nano-gpt.com/api",
+	bytedance: "https://ark.ap-southeast.bytepluses.com/api/v3",
+	minimax: "https://api.minimax.io",
+	sakana: "https://api.sakana.ai",
+	reve: "https://api.reve.com",
+	xiaomi: "https://api.xiaomimimo.com",
+	canopywave: "https://inference.canopywave.io",
+	embercloud: "https://api.embercloud.ai",
+	deepinfra: "https://api.deepinfra.com/v1/openai",
+};
+
+export function getProviderDefaultBaseUrl(
+	provider: ProviderId,
+): string | undefined {
+	return PROVIDER_DEFAULT_BASE_URLS[provider];
+}
+
+/**
  * Get the endpoint URL for a provider API call.
  *
  * @param model - The upstream model id sent in the URL path (e.g. for Google
@@ -177,18 +222,15 @@ export function getProviderEndpoint(
 				}
 				break;
 			case "openai":
-				url = "https://api.openai.com";
-				break;
-			case "anthropic":
-				url = "https://api.anthropic.com";
-				break;
 			case "google-ai-studio":
+			case "google-vertex":
+			case "xiaomi":
 				url =
 					envValueOrDefault(
-						"google-ai-studio",
+						provider,
 						"baseUrl",
-						"https://generativelanguage.googleapis.com",
-					) ?? "https://generativelanguage.googleapis.com";
+						getProviderDefaultBaseUrl(provider),
+					) ?? getProviderDefaultBaseUrl(provider);
 				break;
 			case "glacier":
 				url = skipEnvVars
@@ -209,14 +251,6 @@ export function getProviderEndpoint(
 						"Granite provider requires LLM_GRANITE_BASE_URL environment variable",
 					);
 				}
-				break;
-			case "google-vertex":
-				url =
-					envValueOrDefault(
-						"google-vertex",
-						"baseUrl",
-						"https://aiplatform.googleapis.com",
-					) ?? "https://aiplatform.googleapis.com";
 				break;
 			case "vertex-openai": {
 				const vertexOpenaiDefaultHost =
@@ -268,42 +302,6 @@ export function getProviderEndpoint(
 					);
 				}
 				break;
-			case "inference.net":
-				url = "https://api.inference.net";
-				break;
-			case "together-ai":
-				url = "https://api.together.ai";
-				break;
-			case "scx-ai":
-				url = "https://api.scx.ai";
-				break;
-			case "mistral":
-				url = "https://api.mistral.ai";
-				break;
-			case "xai":
-				url = "https://api.x.ai";
-				break;
-			case "groq":
-				url = "https://api.groq.com/openai";
-				break;
-			case "cerebras":
-				url = "https://api.cerebras.ai";
-				break;
-			case "deepseek":
-				url = "https://api.deepseek.com";
-				break;
-			case "perplexity":
-				url = "https://api.perplexity.ai";
-				break;
-			case "novita":
-				url = "https://api.novita.ai/v3/openai";
-				break;
-			case "moonshot":
-				url = "https://api.moonshot.ai";
-				break;
-			case "meta":
-				url = "https://api.meta.ai";
-				break;
 			case "alibaba": {
 				const alibabaBaseUrl =
 					regionBaseUrl ?? "https://dashscope-intl.aliyuncs.com";
@@ -315,35 +313,6 @@ export function getProviderEndpoint(
 				}
 				break;
 			}
-			case "nebius":
-				url = "https://api.tokenfactory.nebius.com";
-				break;
-			case "zai":
-				url = "https://api.z.ai";
-				break;
-			case "nanogpt":
-				url = "https://nano-gpt.com/api";
-				break;
-			case "bytedance":
-				url = "https://ark.ap-southeast.bytepluses.com/api/v3";
-				break;
-			case "minimax":
-				url = "https://api.minimax.io";
-				break;
-			case "sakana":
-				url = "https://api.sakana.ai";
-				break;
-			case "reve":
-				url = "https://api.reve.com";
-				break;
-			case "xiaomi":
-				url =
-					envValueOrDefault(
-						"xiaomi",
-						"baseUrl",
-						"https://api.xiaomimimo.com",
-					) ?? "https://api.xiaomimimo.com";
-				break;
 			case "aws-bedrock": {
 				// Precedence: explicit baseUrl arg (handled above) > env baseUrl >
 				// region-derived endpoint > hardcoded default. An explicitly
@@ -396,23 +365,20 @@ export function getProviderEndpoint(
 				url = `https://${resource}.services.ai.azure.com`;
 				break;
 			}
-			case "canopywave":
-				url = "https://inference.canopywave.io";
-				break;
-			case "embercloud":
-				url = "https://api.embercloud.ai";
-				break;
-			case "deepinfra":
-				url = "https://api.deepinfra.com/v1/openai";
-				break;
 			case "custom":
 				if (!baseUrl) {
 					throw new Error(`Custom provider requires a baseUrl`);
 				}
 				url = baseUrl;
 				break;
-			default:
-				throw new Error(`Provider ${provider} requires a baseUrl`);
+			default: {
+				const staticDefault = getProviderDefaultBaseUrl(provider);
+				if (!staticDefault) {
+					throw new Error(`Provider ${provider} requires a baseUrl`);
+				}
+				url = staticDefault;
+				break;
+			}
 		}
 	}
 
@@ -486,8 +452,21 @@ export function getProviderEndpoint(
 			return `${url}/v1/projects/${projectId}/locations/${vertexRegion}/endpoints/openapi/chat/completions`;
 		}
 		case "vertex-anthropic": {
-			let vaProjectId: string | undefined =
-				process.env.LLM_VERTEX_ANTHROPIC_PROJECT;
+			// BYOK provider keys hold the customer's service-account JSON; derive
+			// the project from it so requests hit their project, not the server's.
+			let vaProjectId: string | undefined;
+			if (token) {
+				try {
+					const sa = JSON.parse(token) as { project_id?: string };
+					vaProjectId = sa.project_id;
+				} catch {
+					// token is not service-account JSON (e.g. an OAuth access token);
+					// fall back to env-based resolution below
+				}
+			}
+			if (!vaProjectId) {
+				vaProjectId = process.env.LLM_VERTEX_ANTHROPIC_PROJECT;
+			}
 			if (!vaProjectId) {
 				const saJson = process.env.LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON;
 				if (saJson) {

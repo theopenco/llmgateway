@@ -120,7 +120,7 @@ export default async function FeaturePage({ params }: PageProps) {
 				}}
 			/>
 			<Navbar />
-			<div className="min-h-screen bg-background">
+			<main className="min-h-screen bg-background">
 				<div className="relative border-b border-zinc-200 dark:border-zinc-800 bg-gradient-to-b from-zinc-50 to-background dark:from-zinc-900/50 dark:to-background">
 					<div className="container mx-auto px-4 py-16 md:py-24 pt-32 md:pt-40">
 						<div className="max-w-4xl mx-auto text-center">
@@ -266,7 +266,7 @@ export default async function FeaturePage({ params }: PageProps) {
 						</section>
 					</div>
 				</div>
-			</div>
+			</main>
 			<Footer />
 		</>
 	);

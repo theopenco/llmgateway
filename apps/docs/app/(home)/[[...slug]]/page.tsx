@@ -14,6 +14,7 @@ import { EnterpriseCTA } from "@/components/enterprise-cta";
 import { Feedback } from "@/components/feedback";
 import { JsonLd } from "@/components/json-ld";
 import { docsBaseUrl } from "@/lib/base-url";
+import { marketingGuideCanonical } from "@/lib/guide-canonical";
 import { source } from "@/lib/source";
 import { getMDXComponents } from "@/mdx-components";
 
@@ -33,7 +34,8 @@ export async function generateMetadata({
 	}
 
 	const path = page.url === "/" ? "" : page.url;
-	const canonicalUrl = `${docsBaseUrl}${path}`;
+	const canonicalUrl =
+		marketingGuideCanonical(page.url) ?? `${docsBaseUrl}${path}`;
 	const image = ["/docs-og", ...slug, "image.png"].join("/");
 
 	return {
@@ -88,7 +90,7 @@ export default async function Page(props: {
 		"@type": "TechArticle",
 		headline: page.data.title,
 		description: page.data.description,
-		url: `${docsBaseUrl}${path}`,
+		url: marketingGuideCanonical(page.url) ?? `${docsBaseUrl}${path}`,
 		...(time ? { dateModified: new Date(time).toISOString() } : {}),
 		author: {
 			"@type": "Organization",

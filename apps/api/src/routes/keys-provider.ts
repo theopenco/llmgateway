@@ -7,8 +7,7 @@ import { getAdminOrganizationIds } from "@/utils/authorization.js";
 
 import { validateProviderKey } from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
-import { invalidateSwrByTables } from "@llmgateway/cache";
-import { db, eq, getTableName, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { isStealthProvider, providers } from "@llmgateway/models";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
@@ -17,8 +16,6 @@ import type { ServerTypes } from "@/vars.js";
 import type { ProviderId } from "@llmgateway/models";
 
 export const keysProvider = new OpenAPIHono<ServerTypes>();
-
-const providerKeyTableName = getTableName(tables.providerKey);
 
 // Create a schema for provider key responses
 // Using z.object directly instead of createSelectSchema due to compatibility issues
@@ -70,6 +67,29 @@ const providerKeySchema = z.object({
 });
 
 // Schema for creating a new provider key
+// Regular API keys must be printable ASCII without whitespace, but
+// service-account keys (Vertex providers) are JSON blobs that may be
+// pretty-printed, so ASCII whitespace is allowed when the value parses as a
+// JSON object.
+function isValidProviderToken(value: string): boolean {
+	if (/^[\x21-\x7E]+$/.test(value)) {
+		return true;
+	}
+	if (!/^[\t\n\r\x20-\x7E]+$/.test(value)) {
+		return false;
+	}
+	const trimmed = value.trim();
+	if (!trimmed.startsWith("{")) {
+		return false;
+	}
+	try {
+		JSON.parse(trimmed);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 const createProviderKeySchema = z.object({
 	provider: z
 		.string()
@@ -77,13 +97,10 @@ const createProviderKeySchema = z.object({
 			message:
 				"Invalid provider. Must be one of the supported providers or 'custom'.",
 		}),
-	token: z
-		.string()
-		.min(1, "API key is required")
-		.regex(
-			/^[\x21-\x7E]+$/,
+	token: z.string().min(1, "API key is required").refine(isValidProviderToken, {
+		message:
 			"API key contains invalid characters. Make sure you copied the actual key, not a masked version.",
-		),
+	}),
 	name: z
 		.string()
 		.regex(
@@ -342,7 +359,7 @@ keysProvider.openapi(create, async (c) => {
 
 	// Use the user-provided token
 	// Create the provider key
-	const [providerKey] = await db
+	const [providerKey] = await cdb
 		.insert(tables.providerKey)
 		.values({
 			token: userToken,
@@ -365,10 +382,6 @@ keysProvider.openapi(create, async (c) => {
 			hasCustomBaseUrl: !!baseUrl,
 		},
 	});
-
-	// The gateway caches provider keys via SWR; invalidate so a newly added key
-	// is usable immediately.
-	await invalidateSwrByTables([providerKeyTableName]);
 
 	return c.json({
 		providerKey: {
@@ -570,7 +583,7 @@ keysProvider.openapi(deleteKey, async (c) => {
 		});
 	}
 
-	await db
+	await cdb
 		.update(tables.providerKey)
 		.set({
 			status: "deleted",
@@ -587,10 +600,6 @@ keysProvider.openapi(deleteKey, async (c) => {
 			provider: providerKey.provider,
 		},
 	});
-
-	// The gateway caches provider keys via SWR; invalidate so a deleted key
-	// stops being used immediately.
-	await invalidateSwrByTables([providerKeyTableName]);
 
 	return c.json({
 		message: "Provider key deleted successfully",
@@ -714,7 +723,7 @@ keysProvider.openapi(updateStatus, async (c) => {
 	}
 
 	// Update the provider key
-	const [updatedProviderKey] = await db
+	const [updatedProviderKey] = await cdb
 		.update(tables.providerKey)
 		.set(updates)
 		.where(eq(tables.providerKey.id, id))
@@ -746,9 +755,6 @@ keysProvider.openapi(updateStatus, async (c) => {
 				changes,
 			},
 		});
-		// The gateway caches provider keys (incl. customModelsOnly) via SWR;
-		// invalidate so status/restriction changes take effect promptly.
-		await invalidateSwrByTables([providerKeyTableName]);
 	}
 
 	return c.json({

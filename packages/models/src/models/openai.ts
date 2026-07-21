@@ -731,6 +731,9 @@ export const openaiModels = [
 			{
 				providerId: "nebius",
 				externalId: "openai/gpt-oss-120b",
+				// Streaming tool calls arrive malformed from nebius (vLLM emits a
+				// bogus tool_call index on the final argument fragment)
+				stability: "unstable",
 				inputPrice: "0.15e-6",
 				outputPrice: "0.6e-6",
 				requestPrice: "0",
@@ -768,6 +771,9 @@ export const openaiModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				// Azure's gpt-oss-120b rejects tool_choice="required" (and named
+				// function choices) with UnsupportedToolUse.
+				supportedToolChoices: ["auto", "none"],
 				reasoning: true,
 				// Azure's gpt-oss-120b accepts response_format but wraps the output
 				// in a `{"final": "..."}` envelope instead of the requested schema.
@@ -1086,6 +1092,8 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.1",
+				serviceTiers: ["flex", "priority"],
+				serviceTierMultipliers: { priority: 2 },
 				inputPrice: "1.25e-6",
 				outputPrice: "10.0e-6",
 				cachedInputPrice: "0.125e-6",
@@ -1098,7 +1106,7 @@ export const openaiModels = [
 				webSearch: true,
 				webSearchPrice: "0.01", // $10 per 1000 searches for reasoning models
 				reasoning: true,
-				reasoningEfforts: ["none", "low", "medium", "high"],
+				reasoningEfforts: ["none", "minimal", "low", "medium", "high", "xhigh"],
 				reasoningOutput: "omit",
 				supportsResponsesApi: true,
 				jsonOutputSchema: true,
@@ -1127,7 +1135,7 @@ export const openaiModels = [
 				vision: true,
 				tools: true,
 				reasoning: true,
-				reasoningEfforts: ["none", "low", "medium", "high"],
+				reasoningEfforts: ["none", "minimal", "low", "medium", "high", "xhigh"],
 				supportsResponsesApi: true,
 				jsonOutputSchema: true,
 				supportedParameters: [
@@ -1185,6 +1193,8 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.1-codex",
+				serviceTiers: ["priority"],
+				serviceTierMultipliers: { priority: 2 },
 				inputPrice: "1.25e-6",
 				outputPrice: "10e-6",
 				requestPrice: "0",
@@ -1278,6 +1288,8 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.2",
+				serviceTiers: ["flex", "priority"],
+				serviceTierMultipliers: { priority: 2 },
 				inputPrice: "1.75e-6",
 				outputPrice: "14.0e-6",
 				cachedInputPrice: "0.175e-6",

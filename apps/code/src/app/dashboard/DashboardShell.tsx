@@ -5,6 +5,7 @@ import {
 	BarChart3,
 	Code,
 	CreditCard,
+	ExternalLink,
 	Loader2,
 	LogOut,
 	Settings,
@@ -56,9 +57,17 @@ const navItems: Array<{ label: string; href: Route; icon: typeof BarChart3 }> =
 	[
 		{ label: "Usage", href: "/dashboard" as Route, icon: BarChart3 },
 		{ label: "Billing", href: "/dashboard/billing" as Route, icon: CreditCard },
-		{ label: "Profile", href: "/profile" as Route, icon: UserRound },
+		{ label: "Profile", href: "/dashboard/profile" as Route, icon: UserRound },
 		{ label: "Settings", href: "/dashboard/settings" as Route, icon: Settings },
 	];
+
+// Pages that live on the DevPass site but outside the dashboard shell, so
+// they're rendered in their own subtle nav section with a link-out marker.
+const resourceNavItems: Array<{
+	label: string;
+	href: Route;
+	icon: typeof BarChart3;
+}> = [{ label: "Coding models", href: "/coding-models" as Route, icon: Code }];
 
 type SetupActivationStatus =
 	| "loading_stripe"
@@ -507,7 +516,7 @@ export default function DashboardShell({
 				<div className="container mx-auto flex flex-col gap-8 px-4 py-8 lg:flex-row">
 					<aside className="lg:w-56 lg:shrink-0">
 						<div className="flex gap-1 lg:flex-col">
-							{navItems.map((item) => (
+							{[...navItems, ...resourceNavItems].map((item) => (
 								<Skeleton key={item.href} className="h-9 w-full lg:w-full" />
 							))}
 						</div>
@@ -543,6 +552,22 @@ export default function DashboardShell({
 									>
 										<Icon className="h-4 w-4" />
 										{item.label}
+									</Link>
+								);
+							})}
+							<div className="my-1 hidden border-t border-border/50 lg:block" />
+							{resourceNavItems.map((item) => {
+								const Icon = item.icon;
+								return (
+									<Link
+										key={item.href}
+										href={item.href}
+										prefetch
+										className="flex shrink-0 items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+									>
+										<Icon className="h-4 w-4" />
+										{item.label}
+										<ExternalLink className="ml-auto h-3 w-3 text-muted-foreground/60" />
 									</Link>
 								);
 							})}

@@ -7,8 +7,10 @@ import {
 	beforeEachHook,
 	generateTestRequestId,
 	getConcurrentTestOptions,
+	getSupportedReasoningEffort,
 	getTestOptions,
 	logMode,
+	reasoningEffortModels,
 	reasoningModels,
 	validateLogByRequestId,
 	validateResponse,
@@ -50,7 +52,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 							content: "What is 2/3 + 1/4 + 5/6?",
 						},
 					],
-					reasoning_effort: "medium",
+					reasoning_effort: getSupportedReasoningEffort(providers),
 				}),
 			});
 
@@ -108,6 +110,44 @@ describe("e2e", getConcurrentTestOptions(), () => {
 			if (shouldCheckReasoning) {
 				expect(json.choices[0].message).toHaveProperty("reasoning");
 			}
+		},
+	);
+
+	test.each(reasoningEffortModels)(
+		"reasoning effort $effort $model",
+		getTestOptions(),
+		async ({ model, effort }) => {
+			const requestId = generateTestRequestId();
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-request-id": requestId,
+					"x-no-fallback": "true",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: model,
+					messages: [
+						{
+							role: "user",
+							content: "What is 2/3 + 1/4?",
+						},
+					],
+					reasoning_effort: effort,
+				}),
+			});
+
+			const json = await res.json();
+			if (logMode) {
+				console.log(
+					`reasoning effort ${effort} response:`,
+					JSON.stringify(json, null, 2),
+				);
+			}
+
+			expect(res.status).toBe(200);
+			validateResponse(json);
 		},
 	);
 });

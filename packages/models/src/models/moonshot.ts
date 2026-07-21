@@ -118,6 +118,10 @@ export const moonshotModels = [
 			{
 				providerId: "moonshot",
 				externalId: "kimi-k2-thinking",
+				// Moonshot rejects forced tool_choice ("required"/named function)
+				// when thinking is enabled, which cannot be disabled on reasoning
+				// models. Only "auto"/"none" are accepted.
+				supportedToolChoices: ["auto", "none"],
 				inputPrice: "0.6e-6",
 				outputPrice: "2.5e-6",
 				cachedInputPrice: "0.15e-6",
@@ -167,6 +171,7 @@ export const moonshotModels = [
 			{
 				providerId: "vertex-openai",
 				externalId: "moonshotai/kimi-k2-thinking-maas",
+				deactivatedAt: new Date("2026-10-21"),
 				inputPrice: "0.6e-6",
 				cachedInputPrice: "0.06e-6",
 				outputPrice: "2.5e-6",
@@ -191,6 +196,9 @@ export const moonshotModels = [
 			{
 				providerId: "moonshot",
 				externalId: "kimi-k2-thinking-turbo",
+				// Reasoning model: forced tool_choice is rejected while thinking is
+				// on, so only "auto"/"none" are accepted.
+				supportedToolChoices: ["auto", "none"],
 				// Frequently overloaded (429 engine_overloaded_error)
 				stability: "unstable",
 				inputPrice: "1.15e-6",
@@ -219,6 +227,9 @@ export const moonshotModels = [
 			{
 				providerId: "moonshot",
 				externalId: "kimi-k2.5",
+				// Reasoning model: forced tool_choice is rejected while thinking is
+				// on, so only "auto"/"none" are accepted.
+				supportedToolChoices: ["auto", "none"],
 				inputPrice: "0.6e-6",
 				outputPrice: "3.0e-6",
 				cachedInputPrice: "0.1e-6",
@@ -226,6 +237,17 @@ export const moonshotModels = [
 				contextSize: 262144,
 				maxOutput: 32768,
 				reasoning: true,
+				// Moonshot thinking is a binary toggle (`thinking.type`), not a
+				// graduated effort: none/minimal disable it, low..max enable it.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				streaming: true,
 				vision: true,
 				tools: true,
@@ -235,6 +257,7 @@ export const moonshotModels = [
 					"response_format",
 					"tools",
 					"tool_choice",
+					"reasoning_effort",
 				],
 			},
 			{
@@ -285,6 +308,7 @@ export const moonshotModels = [
 				contextSize: 262144,
 				maxOutput: 98304,
 				reasoning: true,
+				reasoningMaxTokens: true,
 				streaming: true,
 				vision: true,
 				tools: true,
@@ -350,6 +374,9 @@ export const moonshotModels = [
 			{
 				providerId: "moonshot",
 				externalId: "kimi-k2.6",
+				// Reasoning model: forced tool_choice is rejected while thinking is
+				// on, so only "auto"/"none" are accepted.
+				supportedToolChoices: ["auto", "none"],
 				inputPrice: "0.95e-6",
 				cachedInputPrice: "0.16e-6",
 				outputPrice: "4.0e-6",
@@ -357,6 +384,17 @@ export const moonshotModels = [
 				contextSize: 262144,
 				maxOutput: 262144,
 				reasoning: true,
+				// Moonshot thinking is a binary toggle (`thinking.type`), not a
+				// graduated effort: none/minimal disable it, low..max enable it.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				streaming: true,
 				vision: true,
 				tools: true,
@@ -366,11 +404,16 @@ export const moonshotModels = [
 					"response_format",
 					"tools",
 					"tool_choice",
+					"reasoning_effort",
 				],
 			},
 			{
 				providerId: "canopywave",
 				externalId: "moonshotai/kimi-k2.6",
+				// canopywave's kimi-k2.6 deployment 503s on every request ("No
+				// available prefill workers") while other models on the same key
+				// work (verified 2026-07-14)
+				stability: "unstable",
 				inputPrice: "0.5e-6",
 				cachedInputPrice: "0.1e-6",
 				outputPrice: "2.8e-6",
@@ -417,6 +460,9 @@ export const moonshotModels = [
 			{
 				providerId: "tundra",
 				externalId: "kimi-k2.6",
+				// Tundra rejects tool_choice="required" with a 400; named/forced
+				// function choice works, so allow everything except "required".
+				supportedToolChoices: ["auto", "none", "function"],
 				inputPrice: "0.4e-6",
 				cachedInputPrice: "0.08e-6",
 				outputPrice: "2.2e-6",
@@ -432,7 +478,11 @@ export const moonshotModels = [
 				// keeps streaming content clean (reasoning_content -> reasoning) yet
 				// does not require structured reasoning to be returned.
 				reasoningOutput: "omit",
-				vision: true,
+				// Tundra's kimi-k2.6 deployment rejects image inputs with a 400
+				// ("image_url content is not supported for this model") even though
+				// the model is vision-capable on other providers (verified
+				// 2026-07-19), so route image requests elsewhere.
+				vision: false,
 				tools: true,
 				jsonOutput: true,
 			},
@@ -449,6 +499,9 @@ export const moonshotModels = [
 			{
 				providerId: "moonshot",
 				externalId: "kimi-k2.7-code",
+				// Reasoning model: forced tool_choice is rejected while thinking is
+				// on, so only "auto"/"none" are accepted.
+				supportedToolChoices: ["auto", "none"],
 				inputPrice: "0.95e-6",
 				cachedInputPrice: "0.19e-6",
 				outputPrice: "4.0e-6",
@@ -456,6 +509,9 @@ export const moonshotModels = [
 				contextSize: 262144,
 				maxOutput: 262144,
 				reasoning: true,
+				// Thinking is always on for kimi-k2.7-code; `thinking.type:
+				// "disabled"` errors upstream, so `none`/`minimal` are not offered.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				streaming: true,
 				vision: true,
 				tools: true,
@@ -465,6 +521,7 @@ export const moonshotModels = [
 					"response_format",
 					"tools",
 					"tool_choice",
+					"reasoning_effort",
 				],
 			},
 		],
@@ -480,6 +537,9 @@ export const moonshotModels = [
 			{
 				providerId: "moonshot",
 				externalId: "kimi-k2.7-code-highspeed",
+				// Reasoning model: forced tool_choice is rejected while thinking is
+				// on, so only "auto"/"none" are accepted.
+				supportedToolChoices: ["auto", "none"],
 				inputPrice: "1.9e-6",
 				cachedInputPrice: "0.38e-6",
 				outputPrice: "8.0e-6",
@@ -487,11 +547,70 @@ export const moonshotModels = [
 				contextSize: 262144,
 				maxOutput: 262144,
 				reasoning: true,
+				// Thinking is always on for kimi-k2.7-code-highspeed; `thinking.type:
+				// "disabled"` errors upstream, so `none`/`minimal` are not offered.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				streaming: true,
 				vision: true,
 				tools: true,
 				jsonOutput: false,
-				supportedParameters: ["max_tokens", "tools", "tool_choice"],
+				supportedParameters: [
+					"max_tokens",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
+			},
+		],
+	},
+	{
+		id: "kimi-k3",
+		name: "Kimi K3",
+		description:
+			"Kimi's flagship model for long-horizon coding and end-to-end knowledge work with a 1M-token context window.",
+		family: "moonshot",
+		releasedAt: new Date("2026-07-16"),
+		providers: [
+			{
+				providerId: "moonshot",
+				externalId: "kimi-k3",
+				inputPrice: "3.0e-6",
+				cachedInputPrice: "0.3e-6",
+				outputPrice: "15.0e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 1048576,
+				reasoning: true,
+				// K3 always thinks; the effort level is set via the native
+				// top-level `reasoning_effort` field (no K2-era `thinking`
+				// toggle), which currently accepts only "max".
+				reasoningEfforts: ["max"],
+				streaming: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
+			},
+			{
+				providerId: "novita",
+				externalId: "moonshotai/kimi-k3",
+				inputPrice: "3.0e-6",
+				cachedInputPrice: "0.3e-6",
+				outputPrice: "15.0e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 1048576,
+				streaming: true,
+				reasoning: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
 			},
 		],
 	},

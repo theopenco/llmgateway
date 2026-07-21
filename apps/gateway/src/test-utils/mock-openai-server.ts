@@ -332,6 +332,35 @@ let failOnceCounter = 0;
 let currentMockServerUrl = "";
 let videoCounter = 0;
 
+// Checkpoint waiters let tests synchronize with the mock reaching a specific
+// point inside a request (e.g. the partial body of a hang trigger has been
+// flushed to the socket) instead of guessing with fixed sleeps, which flake on
+// slow CI runners. Register the waiter BEFORE issuing the request, then await
+// it to know the gateway's upstream request has verifiably reached that point.
+const mockCheckpointWaiters = new Map<string, Array<() => void>>();
+
+export function waitForMockCheckpoint(name: string): Promise<void> {
+	return new Promise((resolve) => {
+		const waiters = mockCheckpointWaiters.get(name) ?? [];
+		waiters.push(resolve);
+		mockCheckpointWaiters.set(name, waiters);
+	});
+}
+
+function notifyMockCheckpoint(name: string) {
+	const waiters = mockCheckpointWaiters.get(name);
+	if (waiters) {
+		mockCheckpointWaiters.delete(name);
+		for (const resolve of waiters) {
+			resolve();
+		}
+	}
+}
+
+export function resetMockCheckpoints() {
+	mockCheckpointWaiters.clear();
+}
+
 interface MockVideoJobState {
 	id: string;
 	object: "video";
@@ -842,6 +871,7 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 	// Check if this request should trigger a timeout (delay response)
 	const timeoutDelay = extractTimeoutDelay(userMessage);
 	if (timeoutDelay) {
+		notifyMockCheckpoint("TRIGGER_TIMEOUT");
 		await delay(timeoutDelay);
 	}
 
@@ -1129,6 +1159,7 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 					controller.enqueue(
 						encoder.encode('{"id":"chatcmpl-123","object":"chat.completion"'),
 					);
+					notifyMockCheckpoint("TRIGGER_BODY_HANG");
 					return;
 				}
 				// Never enqueue more and never close: the body read hangs until the
@@ -1157,6 +1188,7 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 					sentPartialBody = true;
 					// Flush a partial JSON body so headers are written first.
 					controller.enqueue(encoder.encode('{"error":{"message":"partial'));
+					notifyMockCheckpoint("TRIGGER_5XX_BODY_HANG");
 					return;
 				}
 				// Never enqueue more and never close: the body read hangs until the
@@ -2921,6 +2953,39 @@ mockOpenAIServer.post(
 					code: 500,
 					message: "Internal server error",
 					status: "INTERNAL",
+				},
+			});
+		}
+
+		// Speech generation: when the caller requests AUDIO output, return an
+		// inlineData audio part (base64-encoded PCM) like Gemini TTS models do.
+		const vertexResponseModalities: string[] =
+			body.generationConfig?.responseModalities ?? [];
+		if (vertexResponseModalities.includes("AUDIO")) {
+			// 8 samples of 16-bit silence as a deterministic PCM payload.
+			const pcm = Buffer.alloc(16);
+			return c.json({
+				candidates: [
+					{
+						content: {
+							parts: [
+								{
+									inlineData: {
+										mimeType: "audio/L16;codec=pcm;rate=24000",
+										data: pcm.toString("base64"),
+									},
+								},
+							],
+							role: "model",
+						},
+						finishReason: "STOP",
+						index: 0,
+					},
+				],
+				usageMetadata: {
+					promptTokenCount: 5,
+					candidatesTokenCount: 42,
+					totalTokenCount: 47,
 				},
 			});
 		}

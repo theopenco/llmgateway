@@ -1,5 +1,6 @@
 "use client";
 
+import { format } from "date-fns";
 import { ArrowDown, ArrowRight, ArrowUp, Loader2 } from "lucide-react";
 import { useState } from "react";
 
@@ -15,11 +16,14 @@ import {
 	AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useApi } from "@/lib/fetch-client";
 import { cn, formatUsageRatio } from "@/lib/utils";
 
 import type { PlanOption, PlanTier } from "@/app/dashboard/types";
 import type { paths } from "@/lib/api/v1";
+
+export type TierChangeTiming = "now" | "next_cycle";
 
 interface ActivePlanChangeTierProps {
 	plans: PlanOption[];
@@ -28,7 +32,11 @@ interface ActivePlanChangeTierProps {
 	cancelled: boolean;
 	subscribingTier: PlanTier | null;
 	isCancellingDowngrade: boolean;
-	onChangeTier: (tier: PlanTier, expectedAmountDueCents?: number) => void;
+	onChangeTier: (
+		tier: PlanTier,
+		expectedAmountDueCents?: number,
+		timing?: TierChangeTiming,
+	) => void;
 	onCancelDowngrade: () => void;
 }
 
@@ -67,9 +75,10 @@ export default function ActivePlanChangeTier({
 	const currentName =
 		plans.find((p) => p.tier === currentPlan)?.name ?? "your plan";
 	const pendingName = plans.find((p) => p.tier === pendingTier)?.name ?? null;
-	// A scheduled downgrade doesn't lock the plan: the user can still upgrade to a
-	// higher tier, or cancel the downgrade to stay on their current tier.
-	const hasPendingDowngrade = pendingTier !== null;
+	// A scheduled tier change doesn't lock the plan: the user can still upgrade
+	// immediately (superseding it), or cancel the change to stay on their
+	// current tier.
+	const hasPendingChange = pendingTier !== null;
 
 	return (
 		<div>
@@ -77,9 +86,9 @@ export default function ActivePlanChangeTier({
 			<p className="mb-4 text-sm text-muted-foreground">
 				{cancelled
 					? "Your subscription is scheduled to cancel. Resume it first to change your plan."
-					: hasPendingDowngrade && pendingName
-						? `You're scheduled to move to ${pendingName} at your next renewal. You can still upgrade, or cancel the scheduled downgrade to keep ${currentName}.`
-						: "Upgrades take effect immediately; downgrades apply at your next renewal."}
+					: hasPendingChange && pendingName
+						? `You're scheduled to move to ${pendingName} at your next renewal. You can still upgrade immediately, or cancel the scheduled change to keep ${currentName}.`
+						: "Upgrades take effect immediately or at your next renewal — your choice; downgrades apply at your next renewal. Selecting a plan won't change anything yet: you'll review the details and confirm before any payment is made."}
 			</p>
 			<div className="grid gap-4 md:grid-cols-3">
 				{plans.map((plan) => {
@@ -141,7 +150,7 @@ export default function ActivePlanChangeTier({
 									Takes effect at your next renewal.
 								</p>
 							) : isCurrent ? (
-								hasPendingDowngrade ? (
+								hasPendingChange ? (
 									<Button
 										className="mt-auto w-full"
 										variant="outline"
@@ -162,10 +171,11 @@ export default function ActivePlanChangeTier({
 									currentName={currentName}
 									isUpgrade={isUpgrade}
 									isPending={isPending}
+									hasPendingChange={hasPendingChange}
 									// A cancelling subscription must be resumed before any tier
-									// change. A pending downgrade blocks scheduling another
-									// downgrade, but upgrades are still allowed (they supersede it).
-									disabled={cancelled || (hasPendingDowngrade && !isUpgrade)}
+									// change. A pending change blocks scheduling another one, but
+									// immediate upgrades are still allowed (they supersede it).
+									disabled={cancelled || (hasPendingChange && !isUpgrade)}
 									onChangeTier={onChangeTier}
 								/>
 							)}
@@ -187,6 +197,7 @@ function TierChangeDialog({
 	currentName,
 	isUpgrade,
 	isPending,
+	hasPendingChange,
 	disabled,
 	onChangeTier,
 }: {
@@ -194,11 +205,17 @@ function TierChangeDialog({
 	currentName: string;
 	isUpgrade: boolean;
 	isPending: boolean;
+	hasPendingChange: boolean;
 	disabled?: boolean;
-	onChangeTier: (tier: PlanTier, expectedAmountDueCents?: number) => void;
+	onChangeTier: (
+		tier: PlanTier,
+		expectedAmountDueCents?: number,
+		timing?: TierChangeTiming,
+	) => void;
 }) {
 	const api = useApi();
 	const [open, setOpen] = useState(false);
+	const [timing, setTiming] = useState<TierChangeTiming>("now");
 	const {
 		data: preview,
 		isLoading,
@@ -220,9 +237,20 @@ function TierChangeDialog({
 	);
 	const isPreviewLoading = isLoading || isFetching;
 	const canConfirm = !isPending && !!preview && !isPreviewLoading && !isError;
+	// A pending change must be superseded (immediate upgrade) or cancelled
+	// before another change can be scheduled, so hide the schedule option then.
+	const showTimingChoice = isUpgrade && !hasPendingChange;
 
 	return (
-		<AlertDialog open={open} onOpenChange={setOpen}>
+		<AlertDialog
+			open={open}
+			onOpenChange={(next) => {
+				setOpen(next);
+				if (next) {
+					setTiming("now");
+				}
+			}}
+		>
 			<AlertDialogTrigger asChild>
 				<Button
 					className="mt-auto w-full"
@@ -250,12 +278,22 @@ function TierChangeDialog({
 							plan={plan}
 							currentName={currentName}
 							isUpgrade={isUpgrade}
+							showTimingChoice={showTimingChoice}
 							preview={preview}
 							isLoading={isPreviewLoading}
 							isError={isError}
 						/>
 					</AlertDialogDescription>
 				</AlertDialogHeader>
+				{showTimingChoice && preview && !isPreviewLoading && !isError && (
+					<UpgradeTimingChoice
+						plan={plan}
+						currentName={currentName}
+						preview={preview}
+						timing={timing}
+						onTimingChange={setTiming}
+					/>
+				)}
 				<AlertDialogFooter>
 					<AlertDialogCancel>Keep {currentName}</AlertDialogCancel>
 					<AlertDialogAction
@@ -264,13 +302,28 @@ function TierChangeDialog({
 							if (!preview) {
 								return;
 							}
-							onChangeTier(plan.tier, preview.amountDueCents);
+							// Downgrades are always deferred to renewal server-side, so
+							// report them as next_cycle for an accurate confirmation toast.
+							const effectiveTiming: TierChangeTiming = !isUpgrade
+								? "next_cycle"
+								: showTimingChoice
+									? timing
+									: "now";
+							onChangeTier(
+								plan.tier,
+								effectiveTiming === "now" ? preview.amountDueCents : undefined,
+								effectiveTiming,
+							);
 						}}
 					>
 						{isPending && (
 							<Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
 						)}
-						{isUpgrade ? `Pay and upgrade` : `Switch to ${plan.name}`}
+						{!isUpgrade
+							? `Switch to ${plan.name}`
+							: showTimingChoice && timing === "next_cycle"
+								? `Schedule upgrade`
+								: `Pay and upgrade`}
 					</AlertDialogAction>
 				</AlertDialogFooter>
 			</AlertDialogContent>
@@ -278,10 +331,121 @@ function TierChangeDialog({
 	);
 }
 
+function formatRenewalDate(iso: string): string | null {
+	const date = new Date(iso);
+	return Number.isNaN(date.getTime()) ? null : format(date, "MMM d, yyyy");
+}
+
+// Shared between the timing chooser and the fallback preview copy so the
+// rollover explanation can't drift between the two.
+function RolloverAllowanceCopy({
+	plan,
+	preview,
+}: {
+	plan: PlanOption;
+	preview: TierChangePreview;
+}) {
+	if (preview.rolloverCredits > 0) {
+		return (
+			<>
+				Your allowance for the new period is{" "}
+				<strong>{formatUsageAmount(preview.newCreditsLimit)}</strong>: the{" "}
+				{plan.name} allowance of ${plan.usage} plus{" "}
+				<strong>{formatUsageAmount(preview.rolloverCredits)}</strong> of unspent
+				credits rolled over from your current period. Rolled-over credits last
+				until your next renewal.
+			</>
+		);
+	}
+	return (
+		<>
+			Your allowance resets to{" "}
+			<strong>{formatUsageAmount(preview.newCreditsLimit)}</strong> in usage for
+			the new period.
+		</>
+	);
+}
+
+function UpgradeTimingChoice({
+	plan,
+	currentName,
+	preview,
+	timing,
+	onTimingChange,
+}: {
+	plan: PlanOption;
+	currentName: string;
+	preview: TierChangePreview;
+	timing: TierChangeTiming;
+	onTimingChange: (timing: TierChangeTiming) => void;
+}) {
+	const renewalDate = formatRenewalDate(preview.billingPeriodEnd);
+
+	return (
+		<RadioGroup
+			value={timing}
+			onValueChange={(value) => onTimingChange(value as TierChangeTiming)}
+			className="gap-2"
+		>
+			<label
+				htmlFor="upgrade-timing-now"
+				className={cn(
+					"flex cursor-pointer items-start gap-3 rounded-lg border p-3.5 transition-colors",
+					timing === "now"
+						? "border-foreground/30 bg-muted/40"
+						: "hover:bg-muted/20",
+				)}
+			>
+				<RadioGroupItem
+					value="now"
+					id="upgrade-timing-now"
+					className="mt-0.5"
+				/>
+				<span className="flex flex-col gap-1">
+					<span className="text-sm font-medium">Upgrade now</span>
+					<span className="text-xs text-muted-foreground">
+						<strong>{formatCurrencyFromCents(preview.amountDueCents)}</strong>{" "}
+						charged today and your billing period restarts, then ${plan.price}
+						/mo going forward.{" "}
+						<RolloverAllowanceCopy plan={plan} preview={preview} />
+					</span>
+				</span>
+			</label>
+			<label
+				htmlFor="upgrade-timing-next-cycle"
+				className={cn(
+					"flex cursor-pointer items-start gap-3 rounded-lg border p-3.5 transition-colors",
+					timing === "next_cycle"
+						? "border-foreground/30 bg-muted/40"
+						: "hover:bg-muted/20",
+				)}
+			>
+				<RadioGroupItem
+					value="next_cycle"
+					id="upgrade-timing-next-cycle"
+					className="mt-0.5"
+				/>
+				<span className="flex flex-col gap-1">
+					<span className="text-sm font-medium">
+						At next renewal{renewalDate ? ` — ${renewalDate}` : ""}
+					</span>
+					<span className="text-xs text-muted-foreground">
+						No charge today. You keep your {currentName} allowance until{" "}
+						{renewalDate ?? "your next renewal"}, then move to {plan.name} ($
+						{plan.price}/mo, ${plan.usage} in usage). Unspent credits don&apos;t
+						carry over at renewal.
+					</span>
+				</span>
+			</label>
+		</RadioGroup>
+	);
+}
+
 function TierChangePreviewCopy({
 	plan,
 	currentName,
 	isUpgrade,
+	showTimingChoice,
 	preview,
 	isLoading,
 	isError,
@@ -289,6 +453,7 @@ function TierChangePreviewCopy({
 	plan: PlanOption;
 	currentName: string;
 	isUpgrade: boolean;
+	showTimingChoice: boolean;
 	preview: TierChangePreview | undefined;
 	isLoading: boolean;
 	isError: boolean;
@@ -311,16 +476,17 @@ function TierChangePreviewCopy({
 		);
 	}
 
+	if (showTimingChoice) {
+		return <span>Choose when the upgrade takes effect.</span>;
+	}
+
 	if (isUpgrade) {
 		return (
 			<span>
 				You&apos;ll be charged{" "}
 				<strong>{formatCurrencyFromCents(preview.amountDueCents)}</strong> today
 				and your billing period restarts now, then ${plan.price}/mo going
-				forward. Your allowance resets to{" "}
-				{formatUsageAmount(preview.newCreditsLimit)} in usage for the new
-				period, and any unspent credits from your current period aren&apos;t
-				rolled over.
+				forward. <RolloverAllowanceCopy plan={plan} preview={preview} />
 			</span>
 		);
 	}

@@ -36,10 +36,20 @@ import type { ServerTypes } from "@/vars.js";
 
 export const logs = new OpenAPIHono<ServerTypes>();
 
-type LogRecord = InferSelectModel<typeof tables.log>;
+// internalErrorDetails is omitted: public log queries never select it.
+type LogRecord = Omit<
+	InferSelectModel<typeof tables.log>,
+	"internalErrorDetails"
+>;
+
+// internalErrorDetails holds the raw upstream error for stealth providers and
+// must never leave the internal admin surface, so strip it from the columns
+// served by the public logs endpoints.
+const { internalErrorDetails: _internalErrorDetails, ...publicLogColumns } =
+	getTableColumns(tables.log);
 
 const logSelection = {
-	...getTableColumns(tables.log),
+	...publicLogColumns,
 	organizationName: tables.organization.name,
 	projectName: tables.project.name,
 	apiKeyName: tables.apiKey.description,

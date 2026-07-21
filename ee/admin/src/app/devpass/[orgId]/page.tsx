@@ -220,9 +220,6 @@ export default async function DevpassDetailPage({
 								payment issue
 							</Badge>
 						)}
-						{sub.allowAllModels && (
-							<Badge variant="outline">all-models access</Badge>
-						)}
 					</div>
 				</div>
 				<Button variant="outline" size="sm" asChild>

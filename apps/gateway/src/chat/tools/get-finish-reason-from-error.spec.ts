@@ -17,6 +17,15 @@ describe("getFinishReasonFromError", () => {
 		expect(getFinishReasonFromError(404)).toBe("upstream_error");
 	});
 
+	it("returns upstream_error for 400 temporary routing errors", () => {
+		expect(
+			getFinishReasonFromError(
+				400,
+				'{"error":{"message":"Temporary routing error (400).","type":"upstream_error","code":400}}',
+			),
+		).toBe("upstream_error");
+	});
+
 	it("returns gateway_error for 402 insufficient balance", () => {
 		expect(getFinishReasonFromError(402)).toBe("gateway_error");
 		expect(
@@ -25,6 +34,13 @@ describe("getFinishReasonFromError", () => {
 				'{"error":{"message":"Insufficient Balance","type":"unknown_error","param":null,"code":"invalid_request_error"}}',
 			),
 		).toBe("gateway_error");
+	});
+
+	it("returns gateway_error for 405 method not allowed", () => {
+		expect(getFinishReasonFromError(405)).toBe("gateway_error");
+		expect(getFinishReasonFromError(405, "Method Not Allowed")).toBe(
+			"gateway_error",
+		);
 	});
 
 	it("returns content_filter for Azure ResponsibleAIPolicyViolation", () => {

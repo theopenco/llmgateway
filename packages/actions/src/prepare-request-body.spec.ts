@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import {
+	hashPromptCacheKey,
 	hashSessionCacheKey,
 	prepareRequestBody,
 	RequestError,
@@ -543,7 +544,7 @@ describe("prepareRequestBody - OpenAI prompt caching", () => {
 			promptCacheRetention: "24h",
 		})) as any;
 
-		expect(requestBody.prompt_cache_key).toBe("tenant-a");
+		expect(requestBody.prompt_cache_key).toBe(hashPromptCacheKey("tenant-a"));
 		expect(requestBody.prompt_cache_retention).toBe("24h");
 	});
 
@@ -554,7 +555,7 @@ describe("prepareRequestBody - OpenAI prompt caching", () => {
 			promptCacheRetention: "in_memory",
 		})) as any;
 
-		expect(requestBody.prompt_cache_key).toBe("tenant-a");
+		expect(requestBody.prompt_cache_key).toBe(hashPromptCacheKey("tenant-a"));
 		expect(requestBody.prompt_cache_retention).toBe("in_memory");
 	});
 
@@ -612,7 +613,7 @@ describe("prepareRequestBody - OpenAI prompt caching", () => {
 			promptCacheRetention: "24h",
 		})) as any;
 
-		expect(requestBody.prompt_cache_key).toBe("tenant-a");
+		expect(requestBody.prompt_cache_key).toBe(hashPromptCacheKey("tenant-a"));
 		expect(requestBody.prompt_cache_retention).toBeUndefined();
 	});
 
@@ -918,6 +919,371 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 			model: "claude-sonnet-4-20250514",
 		})) as AnthropicRequestBody;
 		expect(requestBody.thinking).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - Moonshot thinking", () => {
+	async function prepare(options: {
+		model: string;
+		reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "max";
+		maxTokens?: number;
+	}) {
+		return (await prepareRequestBody(
+			"moonshot",
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			options.maxTokens, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			options.reasoningEffort, // reasoning_effort
+			true, // supportsReasoning
+		)) as any;
+	}
+
+	test("maps reasoning_effort to thinking enabled and never forwards reasoning_effort", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k2.6",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.thinking).toEqual({ type: "enabled" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("maps none to thinking disabled on models that can turn thinking off", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k2.6",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("maps minimal to thinking disabled on models that can turn thinking off", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k2.5",
+			reasoningEffort: "minimal",
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+	});
+
+	test("keeps the provider default when no reasoning_effort is requested", async () => {
+		const requestBody = await prepare({ model: "kimi-k2.6" });
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("never sends disabled to always-on models (kimi-k2.7-code)", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k2.7-code",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("sends thinking enabled to always-on models when effort is requested", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k2.7-code",
+			reasoningEffort: "medium",
+		});
+		expect(requestBody.thinking).toEqual({ type: "enabled" });
+	});
+
+	test("forwards reasoning_effort natively for kimi-k3 (no thinking toggle)", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k3",
+			reasoningEffort: "max",
+		});
+		expect(requestBody.reasoning_effort).toBe("max");
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test("collapses disable requests onto the provider default for kimi-k3", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k3",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.reasoning_effort).toBeUndefined();
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test("sends max_completion_tokens instead of max_tokens for kimi-k3", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k3",
+			maxTokens: 4096,
+		});
+		expect(requestBody.max_completion_tokens).toBe(4096);
+		expect(requestBody.max_tokens).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - Alibaba thinking", () => {
+	async function prepare(options: {
+		model: string;
+		reasoningEffort?:
+			| "none"
+			| "minimal"
+			| "low"
+			| "medium"
+			| "high"
+			| "xhigh"
+			| "max";
+		reasoningMaxTokens?: number;
+		maxTokens?: number;
+		supportsReasoning?: boolean;
+	}) {
+		return (await prepareRequestBody(
+			"alibaba",
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			options.maxTokens, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			options.reasoningEffort, // reasoning_effort
+			options.supportsReasoning ?? true, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			options.reasoningMaxTokens, // reasoning_max_tokens
+		)) as any;
+	}
+
+	test("maps reasoning_effort to enable_thinking with a native thinking_budget and never forwards reasoning_effort", async () => {
+		const requestBody = await prepare({
+			model: "qwen3.7-max",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.enable_thinking).toBe(true);
+		expect(requestBody.thinking_budget).toBe(24576);
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("maps none to an explicit thinking disable", async () => {
+		const requestBody = await prepare({
+			model: "qwen3.7-max",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.enable_thinking).toBe(false);
+		expect(requestBody.thinking_budget).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("keeps the provider default when no reasoning parameter is requested", async () => {
+		const requestBody = await prepare({ model: "qwen3.7-max" });
+		expect(requestBody.enable_thinking).toBeUndefined();
+		expect(requestBody.thinking_budget).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("forwards reasoning.max_tokens as thinking_budget verbatim", async () => {
+		const requestBody = await prepare({
+			model: "glm-5.2",
+			reasoningMaxTokens: 1234,
+		});
+		expect(requestBody.enable_thinking).toBe(true);
+		expect(requestBody.thinking_budget).toBe(1234);
+	});
+
+	test("keeps thinking_budget below the caller's max_tokens", async () => {
+		const requestBody = await prepare({
+			model: "glm-5.2",
+			reasoningEffort: "medium",
+			maxTokens: 100,
+		});
+		expect(requestBody.enable_thinking).toBe(true);
+		expect(requestBody.thinking_budget).toBe(99);
+		expect(requestBody.max_tokens).toBe(100);
+	});
+
+	test("sends enable_thinking and thinking_budget for kimi-k2.5 (budget-controlled thinking)", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k2.5",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.enable_thinking).toBe(true);
+		expect(requestBody.thinking_budget).toBe(24576);
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("sends nothing for mappings without budget-controlled thinking", async () => {
+		const requestBody = await prepare({
+			model: "glm-5",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.enable_thinking).toBeUndefined();
+		expect(requestBody.thinking_budget).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - MiniMax thinking", () => {
+	async function prepare(options: {
+		model: string;
+		reasoningEffort?:
+			| "none"
+			| "minimal"
+			| "low"
+			| "medium"
+			| "high"
+			| "xhigh"
+			| "max";
+	}) {
+		return (await prepareRequestBody(
+			"minimax",
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			options.reasoningEffort, // reasoning_effort
+			true, // supportsReasoning
+		)) as any;
+	}
+
+	test("maps reasoning_effort to thinking adaptive and never forwards reasoning_effort", async () => {
+		const requestBody = await prepare({
+			model: "minimax-m3",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.thinking).toEqual({ type: "adaptive" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("maps none to thinking disabled on models that can turn thinking off", async () => {
+		const requestBody = await prepare({
+			model: "minimax-m3",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("keeps the provider default when no reasoning_effort is requested", async () => {
+		const requestBody = await prepare({ model: "minimax-m3" });
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("never sends disabled to always-on models (M2.x family)", async () => {
+		const requestBody = await prepare({
+			model: "minimax-m2.7",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("sends thinking adaptive to always-on models when effort is requested", async () => {
+		const requestBody = await prepare({
+			model: "minimax-m2.7",
+			reasoningEffort: "medium",
+		});
+		expect(requestBody.thinking).toEqual({ type: "adaptive" });
+		expect(requestBody.extra_body).toEqual({ reasoning_split: true });
+	});
+});
+
+describe("prepareRequestBody - Xiaomi thinking", () => {
+	async function prepare(options: {
+		model: string;
+		reasoningEffort?:
+			| "none"
+			| "minimal"
+			| "low"
+			| "medium"
+			| "high"
+			| "xhigh"
+			| "max";
+	}) {
+		return (await prepareRequestBody(
+			"xiaomi",
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			options.reasoningEffort, // reasoning_effort
+			true, // supportsReasoning
+		)) as any;
+	}
+
+	test("forwards native effort tiers verbatim without a thinking parameter", async () => {
+		const requestBody = await prepare({
+			model: "mimo-v2.5-pro",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.reasoning_effort).toBe("high");
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test("maps none to thinking disabled and never forwards reasoning_effort", async () => {
+		const requestBody = await prepare({
+			model: "mimo-v2.5-pro",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("keeps the provider default when no reasoning_effort is requested", async () => {
+		const requestBody = await prepare({ model: "mimo-v2.5-pro" });
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("forwards unsupported tiers verbatim so the provider rejects them", async () => {
+		const requestBody = await prepare({
+			model: "mimo-v2.5",
+			reasoningEffort: "xhigh",
+		});
+		expect(requestBody.reasoning_effort).toBe("xhigh");
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test("drops none for mappings that do not declare it", async () => {
+		const requestBody = await prepare({
+			model: "mimo-v2-pro",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
 	});
 });
 
@@ -3145,6 +3511,45 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			// replaced by the model maxOutput.
 			expect(requestBody.inferenceConfig?.maxTokens).toBe(5000);
 		});
+
+		test("drops messages whose content resolves to empty", async () => {
+			// Bedrock's Converse API 400s on messages with an empty content array
+			// ("The content field in the Message object at messages.N is empty"),
+			// while the Anthropic API accepts empty assistant turns and the
+			// Anthropic transform drops empty messages entirely. The Bedrock
+			// builder must drop them too.
+			const requestBody = (await prepareRequestBody(
+				"aws-bedrock",
+				"claude-sonnet-4-6",
+				null,
+				"anthropic.claude-sonnet-4-6",
+				[
+					{ role: "user", content: "say hi" },
+					{ role: "assistant", content: "" },
+					{ role: "user", content: [{ type: "text", text: "" }] as any },
+					{ role: "assistant", content: [] as any },
+					{ role: "assistant", content: "", tool_calls: [] },
+					{ role: "user", content: "say hi again" },
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.messages).toEqual([
+				{ role: "user", content: [{ text: "say hi" }] },
+				{ role: "user", content: [{ text: "say hi again" }] },
+			]);
+		});
 	});
 
 	describe("openai (Chat Completions)", () => {
@@ -4154,7 +4559,9 @@ describe("prepareRequestBody - upstream prompt_cache_key", () => {
 			{ promptCacheKey: "caller-session-key", sessionId: "sess-123" },
 		);
 
-		expect(requestBody.prompt_cache_key).toBe("caller-session-key");
+		expect(requestBody.prompt_cache_key).toBe(
+			hashPromptCacheKey("caller-session-key"),
+		);
 	});
 
 	test("meta: session id beats the conversation-derived key and is hashed", async () => {
@@ -4264,6 +4671,43 @@ describe("prepareRequestBody - upstream prompt_cache_key", () => {
 		expect(a).not.toBe(hashSessionCacheKey("sess-2"));
 		expect(a).toHaveLength(32);
 		expect(a).not.toContain("sess-1");
+	});
+
+	test("hashPromptCacheKey always hashes to a stable 32-char digest", () => {
+		expect(hashPromptCacheKey("tenant-a")).toHaveLength(32);
+		expect(hashPromptCacheKey("tenant-a")).toBe(hashPromptCacheKey("tenant-a"));
+		expect(hashPromptCacheKey("tenant-a")).not.toBe(
+			hashPromptCacheKey("tenant-b"),
+		);
+		expect(hashPromptCacheKey("tenant-a")).not.toContain("tenant-a");
+	});
+
+	test("openai chat completions: hashes the caller key within the 64-char limit", async () => {
+		const requestBody = await prepareCacheKeyRequest(
+			"openai",
+			"gpt-4o-mini",
+			conversation,
+			{ promptCacheKey: "z".repeat(72) },
+		);
+
+		expect(requestBody.prompt_cache_key).toBe(
+			hashPromptCacheKey("z".repeat(72)),
+		);
+		expect(requestBody.prompt_cache_key?.length).toBeLessThanOrEqual(64);
+	});
+
+	test("openai responses API: hashes the caller key within the 64-char limit", async () => {
+		const requestBody = await prepareCacheKeyRequest(
+			"openai",
+			"gpt-5-mini",
+			conversation,
+			{ promptCacheKey: "z".repeat(72) },
+		);
+
+		expect(requestBody.prompt_cache_key).toBe(
+			hashPromptCacheKey("z".repeat(72)),
+		);
+		expect(requestBody.prompt_cache_key?.length).toBeLessThanOrEqual(64);
 	});
 });
 
@@ -4483,5 +4927,67 @@ describe("prepareRequestBody - Xiaomi", () => {
 		expect(requestBody.frequency_penalty).toBe(0.5);
 		expect(requestBody.presence_penalty).toBe(0.5);
 		expect(requestBody.reasoning_effort).toBe("medium");
+	});
+});
+
+describe("prepareRequestBody - developer role normalization", () => {
+	async function prepare(
+		provider: string,
+		model: string,
+		region: string | null = null,
+	) {
+		return (await prepareRequestBody(
+			provider,
+			model,
+			region,
+			model,
+			[
+				{ role: "developer", content: "You are a helpful assistant." },
+				{ role: "user", content: "Hello" },
+			] as any,
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+	}
+
+	test("rewrites developer to system for a mapping with supportsDeveloperRole: false (granite/glm-5.2)", async () => {
+		const requestBody = await prepare("granite", "glm-5.2");
+		expect(requestBody.messages[0].role).toBe("system");
+		expect(requestBody.messages[0].content).toBe(
+			"You are a helpful assistant.",
+		);
+		expect(requestBody.messages[1].role).toBe("user");
+	});
+
+	test("rewrites developer to system for alibaba/glm-5.2 (supportsDeveloperRole: false)", async () => {
+		const requestBody = await prepare("alibaba", "glm-5.2");
+		expect(requestBody.messages[0].role).toBe("system");
+		expect(requestBody.messages[1].role).toBe("user");
+	});
+
+	test("resolves the flag through region expansion for alibaba/glm-5.2 (singapore)", async () => {
+		const requestBody = await prepare("alibaba", "glm-5.2", "singapore");
+		expect(requestBody.messages[0].role).toBe("system");
+		expect(requestBody.messages[1].role).toBe("user");
+	});
+
+	test("preserves developer role for a mapping that supports it (zai/glm-5.2)", async () => {
+		const requestBody = await prepare("zai", "glm-5.2");
+		expect(requestBody.messages[0].role).toBe("developer");
+	});
+
+	test("preserves developer role for OpenAI", async () => {
+		const requestBody = await prepare("openai", "gpt-4o-mini");
+		expect(requestBody.messages[0].role).toBe("developer");
 	});
 });

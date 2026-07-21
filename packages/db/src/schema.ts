@@ -66,6 +66,7 @@ export const user = pgTable("user", {
 	// (/profiles/:username) and is null until the user claims one.
 	username: text().unique(),
 	profilePublic: boolean().notNull().default(false),
+	profileHidePicture: boolean().notNull().default(false),
 	bio: text(),
 	githubUsername: text(),
 	xUsername: text(),
@@ -258,6 +259,20 @@ export const organization = pgTable(
 		devPlanCreditsLimit: decimal().notNull().default("0"),
 		devPlanPremiumCreditsUsed: decimal().notNull().default("0"),
 		devPlanPremiumWeekStart: timestamp(),
+		// Purchased Reset Passes still unredeemed, tracked per tier bought.
+		// Redeeming one instantly restores the full weekly premium-model
+		// allowance, but a pass is only redeemable while the org is on the
+		// tier it was purchased for — a $9 Lite pass can't reset the larger
+		// Pro/Max allowance. Purchases survive plan changes and even a plan
+		// ending (they apply again on resubscribing to that tier).
+		devPlanResetPassesLite: integer().notNull().default(0),
+		devPlanResetPassesPro: integer().notNull().default(0),
+		devPlanResetPassesMax: integer().notNull().default(0),
+		// Plan-included Reset Passes consumed in the current billing cycle.
+		// The per-cycle grant comes from DEV_PLAN_INCLUDED_RESET_PASSES; this
+		// counter clears on subscribe/upgrade/renewal (included passes don't
+		// roll over).
+		devPlanIncludedResetPassesUsed: integer().notNull().default(0),
 		// Set when dunning freezes dev-plan spend (limit capped to used). The
 		// pre-freeze limit is preserved so recovery restores the exact value
 		// (which may be a prorated mid-cycle amount), not a full tier cap.
@@ -284,7 +299,13 @@ export const organization = pgTable(
 		devPlanCycle: text({ enum: ["monthly", "annual"] })
 			.notNull()
 			.default("monthly"),
-		devPlanAllowAllModels: boolean().notNull().default(false),
+		// Default processing tier for dev-plan (DevPass) routing. "flex" opts
+		// requests into cheaper flex processing (where the selected provider
+		// supports it) to save on plan credits; "default" is standard processing.
+		// A service_tier set explicitly on the request always wins.
+		devPlanServiceTier: text({ enum: ["default", "flex"] })
+			.notNull()
+			.default("default"),
 		// When false (default), DevPass invoices use the owner's default-org
 		// billing details. When true, the DevPass org's own billing* fields below
 		// are used as a custom override for DevPass invoices.
@@ -403,6 +424,10 @@ export const transaction = pgTable(
 				"dev_plan_cancel",
 				"dev_plan_end",
 				"dev_plan_renewal",
+				// One-time purchase of a DevPass Reset Pass (weekly premium
+				// allowance reset). `amount` is the real dollars paid;
+				// `creditAmount` is null (no credits are granted).
+				"dev_plan_reset_pass",
 				"chat_plan_start",
 				"chat_plan_upgrade",
 				"chat_plan_downgrade",
@@ -631,6 +656,9 @@ export const providerListingRequest = pgTable(
 		providerName: text().notNull(),
 		email: text().notNull(),
 		url: text().notNull(),
+		termsUrl: text(),
+		privacyUrl: text(),
+		statusPageUrl: text(),
 		country: text().notNull(),
 		complianceSoc2Type2: boolean().notNull().default(false),
 		complianceIso27001: boolean().notNull().default(false),
@@ -1452,6 +1480,10 @@ export const log = pgTable(
 		responseFormat: json(),
 		hasError: boolean().default(false),
 		errorDetails: json().$type<z.infer<typeof errorDetails>>(),
+		// Raw upstream error for stealth providers, whose public-facing
+		// errorDetails are redacted to hide the underlying platform. Internal
+		// only: must never be exposed through public API routes or the UI.
+		internalErrorDetails: json().$type<z.infer<typeof errorDetails>>(),
 		cost: real(),
 		inputCost: real(),
 		outputCost: real(),
@@ -1531,6 +1563,11 @@ export const log = pgTable(
 				apiKeyHash?: string;
 				logId?: string;
 			}>;
+			filteredProviders?: Array<{
+				providerId: string;
+				reasons: string[];
+			}>;
+			strippedParameters?: string[];
 		}>(),
 		processedAt: timestamp(),
 		rawRequest: jsonb(),
@@ -2818,6 +2855,8 @@ export const auditLogActions = [
 	"dev_plan.update_billing_details",
 	"dev_plan.rotate_api_key",
 	"dev_plan.update_payment_method",
+	"dev_plan.reset_pass_purchase",
+	"dev_plan.reset_pass_redeem",
 	// Chat Plan
 	"chat_plan.subscribe",
 	"chat_plan.cancel",
@@ -3229,6 +3268,36 @@ export const rateLimit = pgTable(
 		index("rate_limit_organization_id_idx").on(table.organizationId),
 		index("rate_limit_provider_idx").on(table.provider),
 		index("rate_limit_model_idx").on(table.model),
+	],
+);
+
+// Matchers for expected upstream errors. The unstable-mappings admin
+// dashboard treats errors matching any of these as non-errors so known-benign
+// upstream failures don't drown out real instability. A matcher targets a
+// case-insensitive substring of the error details, an upstream status code, or
+// both (both must match).
+export const ignoredErrorMatcher = pgTable(
+	"ignored_error_matcher",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		// Case-insensitive substring matched against the serialized error details.
+		pattern: text(),
+		// Upstream HTTP status code from the error details.
+		statusCode: integer(),
+	},
+	(table) => [
+		// One row per pattern/status combination. Coalesce nulls to sentinels so
+		// Postgres treats them as equal.
+		uniqueIndex("ignored_error_matcher_pattern_status_code_unique").using(
+			"btree",
+			sql`coalesce(${table.pattern}, '')`,
+			sql`coalesce(${table.statusCode}, -1)`,
+		),
+		check(
+			"ignored_error_matcher_target_check",
+			sql`${table.pattern} IS NOT NULL OR ${table.statusCode} IS NOT NULL`,
+		),
 	],
 );
 

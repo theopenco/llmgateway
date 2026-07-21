@@ -178,7 +178,7 @@ export function Graph() {
 
 								<div className="relative group">
 									<Tooltip>
-										<TooltipTrigger>
+										<TooltipTrigger aria-label="More providers — could be your model">
 											<Circle ref={rightRefs[5]}>
 												<HelpCircle className="text-muted-foreground dark:text-neutral-400" />
 											</Circle>

@@ -8,6 +8,7 @@ import { logAuditEvent } from "@llmgateway/audit";
 import {
 	CHAT_PLAN_PRICES,
 	DEV_PLAN_PRICES,
+	DEV_PLAN_RESET_PASS_PRICES,
 	type ChatPlanTier,
 	type DevPlanTier,
 } from "@llmgateway/shared";
@@ -20,6 +21,13 @@ type TransactionRow = typeof tables.transaction.$inferSelect;
 export const SELF_REFUND_WINDOW_DAYS = 14;
 
 const SELF_REFUND_WINDOW_MS = SELF_REFUND_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+
+// Reset Passes get a shorter window than plan payments: an unused pass can be
+// returned for 7 days, after which the purchase is final.
+export const RESET_PASS_SELF_REFUND_WINDOW_DAYS = 7;
+
+const RESET_PASS_SELF_REFUND_WINDOW_MS =
+	RESET_PASS_SELF_REFUND_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 
 // Usage at or above 10% of the purchased credits denies the self-refund;
 // equivalently, repeat top-ups require the balance to still cover the
@@ -46,7 +54,8 @@ export type SelfRefundIneligibilityReason =
 	| "not_latest_purchase"
 	| "plan_inactive"
 	| "credits_frozen"
-	| "usage_exceeded";
+	| "usage_exceeded"
+	| "pass_already_used";
 
 export interface SelfRefundEligibility {
 	eligible: boolean;
@@ -57,6 +66,7 @@ export const SELF_REFUNDABLE_TYPES = [
 	"credit_topup",
 	"dev_plan_start",
 	"dev_plan_renewal",
+	"dev_plan_reset_pass",
 	"chat_plan_start",
 	"chat_plan_renewal",
 ] as const;
@@ -233,6 +243,62 @@ function checkPlanEligibility(
 }
 
 /**
+ * A Reset Pass purchase is returnable while the pass itself is still unused.
+ * Passes are fungible within a tier, so redemptions are attributed to the
+ * oldest un-refunded purchase first: a purchase is only refundable while it
+ * ranks within the newest `inventory` un-refunded purchases of its tier.
+ * Gating on the rank rather than just `inventory >= 1` stops a second
+ * purchase from being refunded against the same unredeemed pass — both
+ * outright (a redeemed older purchase never becomes refundable again) and
+ * during the window before the `charge.refunded` webhook records the first
+ * refund's clawback. The tier is recovered from the charged amount —
+ * fulfilment validated it against the tier's fixed price, so the mapping is
+ * unambiguous. The webhook performs the clawback clamped at zero, so a
+ * redeem racing the refund can at worst leave empty inventory, never a free
+ * pass.
+ */
+function checkResetPassEligibility(
+	organization: OrganizationRow,
+	transactions: TransactionRow[],
+	transaction: TransactionRow,
+): SelfRefundEligibility {
+	const amount = dec(transaction.amount);
+	const tier = (Object.keys(DEV_PLAN_RESET_PASS_PRICES) as DevPlanTier[]).find(
+		(t) => amount.eq(DEV_PLAN_RESET_PASS_PRICES[t]),
+	);
+	if (!tier) {
+		return ineligible("unsupported_type");
+	}
+	const inventory =
+		(tier === "lite"
+			? organization.devPlanResetPassesLite
+			: tier === "pro"
+				? organization.devPlanResetPassesPro
+				: organization.devPlanResetPassesMax) ?? 0;
+
+	const refundedIds = new Set(
+		transactions
+			.filter((t) => t.type === "credit_refund" && t.relatedTransactionId)
+			.map((t) => t.relatedTransactionId),
+	);
+	const tierPrice = dec(DEV_PLAN_RESET_PASS_PRICES[tier]);
+	const newerUnrefundedSameTier = transactions.filter(
+		(t) =>
+			t.type === "dev_plan_reset_pass" &&
+			isCompleted(t) &&
+			!refundedIds.has(t.id) &&
+			dec(t.amount).eq(tierPrice) &&
+			(t.createdAt > transaction.createdAt ||
+				(t.createdAt.getTime() === transaction.createdAt.getTime() &&
+					t.id > transaction.id)),
+	).length;
+	if (newerUnrefundedSameTier >= inventory) {
+		return ineligible("pass_already_used");
+	}
+	return { eligible: true };
+}
+
+/**
  * Decide whether a transaction can be self-refunded by the org owner.
  * `transactions` must be the org's complete transaction list (any order); the
  * same list the transactions endpoints already fetch.
@@ -270,10 +336,11 @@ export function computeSelfRefundEligibility({
 	) {
 		return ineligible("already_refunded");
 	}
-	if (
-		now.getTime() - new Date(transaction.createdAt).getTime() >
-		SELF_REFUND_WINDOW_MS
-	) {
+	const windowMs =
+		transaction.type === "dev_plan_reset_pass"
+			? RESET_PASS_SELF_REFUND_WINDOW_MS
+			: SELF_REFUND_WINDOW_MS;
+	if (now.getTime() - new Date(transaction.createdAt).getTime() > windowMs) {
 		return ineligible("window_expired");
 	}
 	if (role !== "owner") {
@@ -295,6 +362,8 @@ export function computeSelfRefundEligibility({
 				transaction,
 				"dev",
 			);
+		case "dev_plan_reset_pass":
+			return checkResetPassEligibility(organization, transactions, transaction);
 		case "chat_plan_start":
 		case "chat_plan_renewal":
 			return checkPlanEligibility(

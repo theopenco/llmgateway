@@ -50,6 +50,8 @@ export ANTHROPIC_API_KEY="$LLM_GATEWAY_API_KEY"
 # every one of the 200+ models is now a single switch away
 ```
 
+<BlogCta variant="devpass" location="after_ranking" />
+
 ---
 
 ## 2. Claude Code (Anthropic Max)
@@ -325,4 +327,6 @@ Switch to one flat rate for every model in under two minutes:
 
 No per-token math. No vendor lock-in. Just every model under one key.
 
-**[Get DevPass](https://devpass.llmgateway.io/signup?plan=pro)** | **[Compare DevPass vs Cursor](https://devpass.llmgateway.io/compare/cursor)** | **[Read the 7 best AI gateways](/blog/best-ai-gateways)**
+<BlogCta variant="devpass" location="bottom" />
+
+**[Compare DevPass vs Cursor](https://devpass.llmgateway.io/compare/cursor)** | **[Read the 7 best AI gateways](/blog/best-ai-gateways)**

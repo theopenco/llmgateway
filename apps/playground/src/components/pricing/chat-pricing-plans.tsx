@@ -42,7 +42,7 @@ const plans: PlanContent[] = [
 			"Claude Sonnet plus fast models like Haiku & Gemini Flash",
 			"Chat, image, video & audio studios",
 			"Real-time usage and per-message cost",
-			"Upgrade to frontier models anytime — prorated",
+			"Upgrade to frontier models anytime — takes effect instantly",
 		],
 	},
 	{

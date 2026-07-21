@@ -1,7 +1,7 @@
 import Stripe from "stripe";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import {
@@ -272,8 +272,9 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 	}
 
 	test("resets credits and grants a full fresh allotment on a true cycle renewal", async () => {
-		// Seed a prorated limit left over from a mid-cycle upgrade to verify the
-		// renewal restores the tier's full allotment.
+		// Seed a raised limit left over from a mid-cycle upgrade's unused-credit
+		// rollover to verify the renewal restores the tier's base allotment (the
+		// rollover only lasts until renewal).
 		await seedUsedDevPlanOrg({ devPlanCreditsLimit: "312" });
 
 		await handleInvoicePaymentSucceeded(
@@ -336,6 +337,47 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		expect(txns).toHaveLength(1);
 		expect(txns[0].type).toBe("dev_plan_renewal");
 		expect(txns[0].creditAmount).toBe("87");
+	});
+
+	test("applies a scheduled upgrade at renewal: switches tier and grants the higher allotment", async () => {
+		// Org is on pro with an upgrade to max deferred to renewal. At the cycle
+		// renewal the tier flips to max and credits reset to max's full allotment;
+		// the old cycle's unused credits do NOT roll over (rollover is exclusive
+		// to immediate upgrades).
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			devPlan: "pro",
+			devPlanPendingTier: "max",
+			devPlanCreditsLimit: "237",
+			devPlanCreditsUsed: "150",
+			devPlanStripeSubscriptionId: SUB_ID,
+			devPlanCancelled: false,
+		});
+
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_cycle",
+				amountPaid: 17900,
+				invoiceId: "in_cycle_upgrade_001",
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlan).toBe("max");
+		expect(org?.devPlanPendingTier).toBeNull();
+		expect(org?.devPlanCreditsUsed).toBe("0");
+		expect(org?.devPlanCreditsLimit).toBe("537");
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+		expect(txns[0].type).toBe("dev_plan_renewal");
+		expect(txns[0].creditAmount).toBe("537");
 	});
 
 	test("emails an invoice on renewal, falling back to the org's own billing email when no default org exists", async () => {
@@ -424,9 +466,10 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 	test("resets to a fresh new-tier cycle on a tier-change invoice (webhook fallback)", async () => {
 		// The change-tier endpoint normally resets state synchronously; this exercises
 		// the webhook fallback when that process died after Stripe collected payment.
-		// An upgrade invoice (`subscription_update`) starts a brand-new cycle, so the
-		// org resets to the new tier's full allowance with usage zeroed. The target
-		// tier is read from the subscription metadata the update set.
+		// An upgrade invoice (`subscription_update`) starts a brand-new cycle: usage
+		// zeroes and the limit becomes the new tier's full allowance (537) plus the
+		// unused remainder of the replaced cycle (237 - 150 = 87) rolled over. The
+		// target tier is read from the subscription metadata the update set.
 		await seedUsedDevPlanOrg();
 		stripeMock.subscriptions.retrieve.mockResolvedValue({
 			id: SUB_ID,
@@ -448,7 +491,7 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		});
 		expect(org?.devPlan).toBe("max");
 		expect(org?.devPlanCreditsUsed).toBe("0");
-		expect(org?.devPlanCreditsLimit).toBe("537");
+		expect(org?.devPlanCreditsLimit).toBe("624");
 		expect(org?.devPlanExpiresAt?.getTime()).toBe(periodEnd * 1000);
 
 		const txns = await db.query.transaction.findMany({
@@ -456,7 +499,7 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		});
 		expect(txns).toHaveLength(1);
 		expect(txns[0].type).toBe("dev_plan_upgrade");
-		expect(txns[0].creditAmount).toBe("537");
+		expect(txns[0].creditAmount).toBe("624");
 		expect(txns[0].amount).toBe("179");
 		expect(txns[0].stripeInvoiceId).toBe("in_upgrade_001");
 	});
@@ -482,6 +525,150 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 			where: { id: { eq: ORG_ID } },
 		});
 		expect(org?.devPlanCreditsUsed).toBe("150");
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+	});
+});
+
+describe("handleInvoicePaymentSucceeded — chat plan upgrade invoice", () => {
+	beforeEach(async () => {
+		await deleteAll();
+		sendEmailMock.mockClear();
+	});
+
+	afterEach(async () => {
+		await db.delete(tables.transaction);
+		await deleteAll();
+	});
+
+	async function seedChatPlanOrg(opts: {
+		chatPlan: "starter" | "plus" | "pro";
+		creditsLimit: string;
+		creditsUsed: string;
+	}) {
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			chatPlan: opts.chatPlan,
+			chatPlanCreditsLimit: opts.creditsLimit,
+			chatPlanCreditsUsed: opts.creditsUsed,
+			chatPlanStripeSubscriptionId: SUB_ID,
+		});
+	}
+
+	test("leaves credits untouched when the endpoint already applied the upgrade", async () => {
+		// Normal flow: the change-tier endpoint already flipped the org to the new
+		// tier and reset the cycle before this webhook arrived. Usage consumed
+		// since then must not be re-zeroed.
+		await seedChatPlanOrg({
+			chatPlan: "plus",
+			creditsLimit: "47.5",
+			creditsUsed: "12",
+		});
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUB_ID,
+			metadata: { chatPlan: "plus" },
+		});
+
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_update",
+				amountPaid: 1900,
+				invoiceId: "in_chat_upgrade_applied",
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.chatPlan).toBe("plus");
+		expect(org?.chatPlanCreditsUsed).toBe("12");
+		expect(org?.chatPlanCreditsLimit).toBe("47.5");
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+		expect(txns[0].type).toBe("chat_plan_upgrade");
+		expect(txns[0].amount).toBe("19");
+		expect(txns[0].creditAmount).toBe("47.5");
+		expect(txns[0].description).toBe("Chat Plan PLUS upgrade");
+	});
+
+	test("resets to a fresh new-tier cycle when the endpoint never completed (webhook fallback)", async () => {
+		// Crash window: Stripe collected the full new-tier charge but the endpoint
+		// died before updating the org. The webhook must reproduce the fresh-cycle
+		// reset — full new allowance, usage zeroed. The old cycle's unused credits
+		// (18 - 10 = 8 here) are discarded, not rolled over into the new limit.
+		await seedChatPlanOrg({
+			chatPlan: "starter",
+			creditsLimit: "18",
+			creditsUsed: "10",
+		});
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUB_ID,
+			metadata: { chatPlan: "plus" },
+		});
+
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_update",
+				amountPaid: 1900,
+				invoiceId: "in_chat_upgrade_fallback",
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.chatPlan).toBe("plus");
+		expect(org?.chatPlanCreditsUsed).toBe("0");
+		expect(org?.chatPlanCreditsLimit).toBe("47.5");
+		expect(org?.chatPlanBillingCycleStart).not.toBeNull();
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+		expect(txns[0].type).toBe("chat_plan_upgrade");
+		expect(txns[0].creditAmount).toBe("47.5");
+		expect(txns[0].description).toBe("Chat Plan PLUS upgrade");
+	});
+
+	test("does not re-apply the reset on a Stripe retry of the same invoice", async () => {
+		await seedChatPlanOrg({
+			chatPlan: "starter",
+			creditsLimit: "18",
+			creditsUsed: "10",
+		});
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUB_ID,
+			metadata: { chatPlan: "plus" },
+		});
+
+		const event = makeInvoiceEvent({
+			billingReason: "subscription_update",
+			amountPaid: 1900,
+			invoiceId: "in_chat_upgrade_retry",
+		});
+		await handleInvoicePaymentSucceeded(event);
+
+		// Usage accrues on the fresh cycle before the retry lands.
+		await db
+			.update(tables.organization)
+			.set({ chatPlanCreditsUsed: "5" })
+			.where(eq(tables.organization.id, ORG_ID));
+
+		await handleInvoicePaymentSucceeded(event);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.chatPlanCreditsUsed).toBe("5");
 
 		const txns = await db.query.transaction.findMany({
 			where: { organizationId: { eq: ORG_ID } },

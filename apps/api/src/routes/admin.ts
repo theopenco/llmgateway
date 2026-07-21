@@ -9,9 +9,14 @@ import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { getStripe } from "@/routes/payments.js";
 import {
-	notDevpassFilter,
+	CHAT_PLAN_TX_TYPES,
+	DEV_PLAN_SUBSCRIPTION_TX_TYPES,
+	DEV_PLAN_TX_TYPES,
+	firstRowPerInvoiceFilter,
+	LEGACY_DEV_PLAN_TX_TYPES,
 	notEndUserNonRevenueFilter,
 	notEndUserWalletFilter,
+	notPlanFilter,
 	paidTransactionFilter,
 } from "@/utils/devpass-filter.js";
 import {
@@ -96,6 +101,14 @@ const adminMetricsSchema = z.object({
 	totalGiftedCredits: z.number(),
 	totalBonusCredits: z.number(),
 	totalRefunds: z.number(),
+	// Gross revenue across all products (Stripe `amount`, i.e. before Stripe
+	// fees; refunds not netted out), split by product.
+	grossRevenue: z.number(),
+	grossCreditsRevenue: z.number(),
+	grossDevpassRevenue: z.number(),
+	grossResetPassRevenue: z.number(),
+	grossChatPlansRevenue: z.number(),
+	grossProSubscriptionsRevenue: z.number(),
 });
 
 const timeseriesRangeSchema = z.enum(["7d", "30d", "90d", "365d", "all"]);
@@ -108,11 +121,17 @@ const timeseriesDataPointSchema = z.object({
 	processed: z.number(),
 	refunds: z.number(),
 	net: z.number(),
+	// DevPass plan revenue (gross Stripe amount, deduplicated per invoice) and
+	// net (after refunds), cumulative like the credits series above.
+	devpassRevenue: z.number(),
+	devpassRefunds: z.number(),
+	devpassNet: z.number(),
 	// Per-day (non-cumulative) values. The cumulative series above start from a
 	// pre-range baseline, so clients cannot derive day-one deltas themselves.
 	dailySignups: z.number(),
 	dailyPaidCustomers: z.number(),
 	dailyNet: z.number(),
+	dailyDevpassNet: z.number(),
 });
 
 const adminTimeseriesSchema = z.object({
@@ -125,6 +144,9 @@ const adminTimeseriesSchema = z.object({
 		processed: z.number(),
 		refunds: z.number(),
 		net: z.number(),
+		devpassRevenue: z.number(),
+		devpassRefunds: z.number(),
+		devpassNet: z.number(),
 	}),
 });
 
@@ -622,8 +644,9 @@ admin.openapi(getMetrics, async (c) => {
 
 	// Total revenue: completed credit-purchase rows — org credit top-ups AND
 	// end-user wallet top-ups (`end_user_topup`, reversed on refund) — using
-	// creditAmount to exclude Stripe fees. Excludes gifts, DevPass subscription
-	// rows, and the non-revenue end-user rows (developer margin + funded bonus).
+	// creditAmount to exclude Stripe fees. Excludes gifts, all plan rows
+	// (DevPass/legacy subscription/Chat Plan), and the non-revenue end-user rows
+	// (developer margin + funded bonus).
 	const [revenueRow] = await db
 		.select({
 			value:
@@ -636,7 +659,7 @@ admin.openapi(getMetrics, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
-				notDevpassFilter,
+				notPlanFilter,
 				notEndUserNonRevenueFilter,
 				transactionDateFilter,
 			),
@@ -655,11 +678,11 @@ admin.openapi(getMetrics, async (c) => {
 	const totalOrganizations = Number(orgsRow?.count ?? 0);
 
 	// Total topped up (credits from completed credit-purchase transactions).
-	// Excludes DevPass virtual credits — those are granted per cycle and reset,
-	// so they would inflate the topped-up / unused-credits numbers — and all
-	// end-user wallet rows, which live in their own balance economy (their spend
-	// is not in `totalSpent`, so counting their top-ups would inflate unused
-	// credits).
+	// Excludes DevPass and Chat Plan virtual credits — those are granted per
+	// cycle and reset, so they would inflate the topped-up / unused-credits
+	// numbers — and all end-user wallet rows, which live in their own balance
+	// economy (their spend is not in `totalSpent`, so counting their top-ups
+	// would inflate unused credits).
 	const [toppedUpRow] = await db
 		.select({
 			value:
@@ -671,7 +694,7 @@ admin.openapi(getMetrics, async (c) => {
 		.where(
 			and(
 				eq(tables.transaction.status, "completed"),
-				notDevpassFilter,
+				notPlanFilter,
 				notEndUserWalletFilter,
 				transactionDateFilter,
 			),
@@ -680,7 +703,7 @@ admin.openapi(getMetrics, async (c) => {
 	const totalToppedUp = Number(toppedUpRow?.value ?? 0);
 
 	// Total spent (usage cost from hourly stats). Excludes spend from projects
-	// belonging to orgs whose usage is/was on a DevPass plan, so the
+	// belonging to orgs whose usage is/was on a DevPass or Chat Plan, so the
 	// unusedCredits derivation (toppedUp - spent) only reflects the
 	// credit-purchase economy.
 	const [spentRow] = await db
@@ -703,11 +726,13 @@ admin.openapi(getMetrics, async (c) => {
 			and(
 				projectStatsDateFilter,
 				eq(tables.organization.devPlan, "none"),
+				eq(tables.organization.chatPlan, "none"),
 				sql`NOT EXISTS (
 					SELECT 1 FROM ${tables.transaction} t
 					WHERE t.organization_id = ${tables.organization.id}
 					AND (
 						t.type IN ('dev_plan_start', 'dev_plan_upgrade', 'dev_plan_downgrade', 'dev_plan_renewal')
+						OR t.type IN ('chat_plan_start', 'chat_plan_upgrade', 'chat_plan_downgrade', 'chat_plan_renewal')
 						OR (t.type IN ('subscription_start', 'subscription_cancel', 'subscription_end') AND ${tables.organization.kind} = 'devpass')
 					)
 				)`,
@@ -716,7 +741,7 @@ admin.openapi(getMetrics, async (c) => {
 
 	const totalSpent = Number(spentRow?.value ?? 0);
 
-	// Total processed (gross Stripe amounts from completed non-gift, non-DevPass transactions)
+	// Total processed (gross Stripe amounts from completed non-gift, non-plan transactions)
 	const [processedRow] = await db
 		.select({
 			value:
@@ -729,7 +754,7 @@ admin.openapi(getMetrics, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
-				notDevpassFilter,
+				notPlanFilter,
 				notEndUserNonRevenueFilter,
 				transactionDateFilter,
 			),
@@ -799,6 +824,152 @@ admin.openapi(getMetrics, async (c) => {
 
 	const totalRefunds = Number(refundsRow?.value ?? 0);
 
+	// Gross revenue splits: actual dollars charged via Stripe (`amount`, so
+	// including Stripe fees), before netting refunds out.
+	//
+	// Credits: org credit top-ups + end-user wallet top-ups. Refund reversals
+	// are negative same-type rows, so only positive amounts count as gross.
+	const [grossCreditsRow] = await db
+		.select({
+			value:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"value",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				inArray(tables.transaction.type, ["credit_topup", "end_user_topup"]),
+				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+				transactionDateFilter,
+			),
+		);
+
+	const grossCreditsRevenue = Number(grossCreditsRow?.value ?? 0);
+
+	// DevPass: dev plan subscription payments (+ legacy `subscription_*` rows on
+	// devpass orgs), deduplicated per Stripe invoice. Mirrors
+	// /admin/devpass/timeseries. One-time Reset Pass purchases are reported as
+	// their own split below.
+	const [grossDevpassRow] = await db
+		.select({
+			value:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"value",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "devpass"),
+				inArray(tables.transaction.type, [
+					...DEV_PLAN_SUBSCRIPTION_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+				firstRowPerInvoiceFilter([
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+				transactionDateFilter,
+			),
+		);
+
+	const grossDevpassRevenue = Number(grossDevpassRow?.value ?? 0);
+
+	// Reset Passes: one-time PaymentIntent purchases on devpass orgs — no
+	// invoice, so no dedup needed. Gross like the other splits (refunds are
+	// separate `credit_refund` rows and not netted out here).
+	const [grossResetPassRow] = await db
+		.select({
+			value:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"value",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "devpass"),
+				eq(tables.transaction.type, "dev_plan_reset_pass"),
+				transactionDateFilter,
+			),
+		);
+
+	const grossResetPassRevenue = Number(grossResetPassRow?.value ?? 0);
+
+	// Chat Plans: plan payments on chat orgs, deduplicated per Stripe invoice.
+	// Mirrors /admin/chat-plans/timeseries.
+	const [grossChatPlansRow] = await db
+		.select({
+			value:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"value",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "chat"),
+				inArray(tables.transaction.type, [...CHAT_PLAN_TX_TYPES]),
+				firstRowPerInvoiceFilter(CHAT_PLAN_TX_TYPES),
+				transactionDateFilter,
+			),
+		);
+
+	const grossChatPlansRevenue = Number(grossChatPlansRow?.value ?? 0);
+
+	// Org Pro subscriptions: `subscription_*` rows on non-devpass orgs (the same
+	// legacy types double as DevPass rows on devpass orgs, counted above).
+	const [grossProSubsRow] = await db
+		.select({
+			value:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"value",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				ne(tables.organization.kind, "devpass"),
+				inArray(tables.transaction.type, [...LEGACY_DEV_PLAN_TX_TYPES]),
+				firstRowPerInvoiceFilter([
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+				transactionDateFilter,
+			),
+		);
+
+	const grossProSubscriptionsRevenue = Number(grossProSubsRow?.value ?? 0);
+
+	const grossRevenue =
+		grossCreditsRevenue +
+		grossDevpassRevenue +
+		grossResetPassRevenue +
+		grossChatPlansRevenue +
+		grossProSubscriptionsRevenue;
+
 	const rawBalance = totalToppedUp - totalSpent;
 	const unusedCredits = Math.max(0, rawBalance);
 	const overage = Math.max(0, -rawBalance);
@@ -817,6 +988,12 @@ admin.openapi(getMetrics, async (c) => {
 		totalGiftedCredits,
 		totalBonusCredits,
 		totalRefunds,
+		grossRevenue,
+		grossCreditsRevenue,
+		grossDevpassRevenue,
+		grossResetPassRevenue,
+		grossChatPlansRevenue,
+		grossProSubscriptionsRevenue,
 	});
 });
 
@@ -906,7 +1083,7 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
-				notDevpassFilter,
+				notPlanFilter,
 				notEndUserNonRevenueFilter,
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
@@ -929,7 +1106,7 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
-				notDevpassFilter,
+				notPlanFilter,
 				notEndUserNonRevenueFilter,
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
@@ -959,6 +1136,80 @@ admin.openapi(getTimeseries, async (c) => {
 		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
 		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
 
+	// DevPass revenue per day: dev plan payments (+ legacy `subscription_*` rows
+	// on devpass orgs), gross Stripe `amount` deduplicated per invoice. Mirrors
+	// /admin/devpass/timeseries.
+	const devpassRevenuePerDay = await db
+		.select({
+			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
+			total:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "devpass"),
+				inArray(tables.transaction.type, [
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+				firstRowPerInvoiceFilter([
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+				gte(tables.transaction.createdAt, startDate),
+				lte(tables.transaction.createdAt, endDate),
+			),
+		)
+		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
+		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
+
+	// DevPass refunds per day: `credit_refund` rows linked back to a dev plan
+	// payment via `relatedTransactionId`. Mirrors /admin/devpass/timeseries.
+	const devpassRefundOriginalTx = aliasedTable(
+		tables.transaction,
+		"devpass_refund_original_tx",
+	);
+	const devpassRefundsPerDay = await db
+		.select({
+			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
+			total:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			devpassRefundOriginalTx,
+			eq(tables.transaction.relatedTransactionId, devpassRefundOriginalTx.id),
+		)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.type, "credit_refund"),
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "devpass"),
+				inArray(devpassRefundOriginalTx.type, [
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+				gte(tables.transaction.createdAt, startDate),
+				lte(tables.transaction.createdAt, endDate),
+			),
+		)
+		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
+		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
+
 	// Pre-range totals for cumulative chart
 	const [preRangeRevenueRow] = await db
 		.select({
@@ -972,7 +1223,7 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
-				notDevpassFilter,
+				notPlanFilter,
 				notEndUserNonRevenueFilter,
 				sql`${tables.transaction.createdAt} < ${startDate}`,
 			),
@@ -991,7 +1242,7 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
-				notDevpassFilter,
+				notPlanFilter,
 				notEndUserNonRevenueFilter,
 				sql`${tables.transaction.createdAt} < ${startDate}`,
 			),
@@ -1014,6 +1265,65 @@ admin.openapi(getTimeseries, async (c) => {
 			),
 		);
 	const preRangeRefunds = Number(preRangeRefundsRow?.total ?? 0);
+
+	const [preRangeDevpassRevenueRow] = await db
+		.select({
+			total:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "devpass"),
+				inArray(tables.transaction.type, [
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+				firstRowPerInvoiceFilter([
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+				sql`${tables.transaction.createdAt} < ${startDate}`,
+			),
+		);
+	const preRangeDevpassRevenue = Number(preRangeDevpassRevenueRow?.total ?? 0);
+
+	const [preRangeDevpassRefundsRow] = await db
+		.select({
+			total:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			devpassRefundOriginalTx,
+			eq(tables.transaction.relatedTransactionId, devpassRefundOriginalTx.id),
+		)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.type, "credit_refund"),
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "devpass"),
+				inArray(devpassRefundOriginalTx.type, [
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+				sql`${tables.transaction.createdAt} < ${startDate}`,
+			),
+		);
+	const preRangeDevpassRefunds = Number(preRangeDevpassRefundsRow?.total ?? 0);
 
 	// Count of orgs that became paying before the range (bounded SQL query)
 	const [preRangeRow] = await db
@@ -1091,6 +1401,16 @@ admin.openapi(getTimeseries, async (c) => {
 		refundsMap.set(row.date, Number(row.total));
 	}
 
+	const devpassRevenueMap = new Map<string, number>();
+	for (const row of devpassRevenuePerDay) {
+		devpassRevenueMap.set(row.date, Number(row.total));
+	}
+
+	const devpassRefundsMap = new Map<string, number>();
+	for (const row of devpassRefundsPerDay) {
+		devpassRefundsMap.set(row.date, Number(row.total));
+	}
+
 	const newPaidMap = new Map<string, number>();
 	for (const row of firstTransactionPerOrg) {
 		newPaidMap.set(row.date, Number(row.count));
@@ -1105,15 +1425,21 @@ admin.openapi(getTimeseries, async (c) => {
 		processed: number;
 		refunds: number;
 		net: number;
+		devpassRevenue: number;
+		devpassRefunds: number;
+		devpassNet: number;
 		dailySignups: number;
 		dailyPaidCustomers: number;
 		dailyNet: number;
+		dailyDevpassNet: number;
 	}> = [];
 	let cumulativePaid = preRangeCount;
 	let totalSignups = 0;
 	let totalRevenue = preRangeRevenue;
 	let totalProcessed = preRangeProcessed;
 	let totalRefunds = preRangeRefunds;
+	let totalDevpassRevenue = preRangeDevpassRevenue;
+	let totalDevpassRefunds = preRangeDevpassRefunds;
 
 	const totalDays = Math.ceil(
 		(endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000),
@@ -1126,6 +1452,8 @@ admin.openapi(getTimeseries, async (c) => {
 		const dailyRevenue = revenueMap.get(dateStr) ?? 0;
 		const dailyProcessed = processedMap.get(dateStr) ?? 0;
 		const dailyRefunds = refundsMap.get(dateStr) ?? 0;
+		const dailyDevpassRevenue = devpassRevenueMap.get(dateStr) ?? 0;
+		const dailyDevpassRefunds = devpassRefundsMap.get(dateStr) ?? 0;
 		const dailyPaidCustomers = newPaidMap.get(dateStr) ?? 0;
 		cumulativePaid += dailyPaidCustomers;
 
@@ -1133,6 +1461,8 @@ admin.openapi(getTimeseries, async (c) => {
 		totalRevenue += dailyRevenue;
 		totalProcessed += dailyProcessed;
 		totalRefunds += dailyRefunds;
+		totalDevpassRevenue += dailyDevpassRevenue;
+		totalDevpassRefunds += dailyDevpassRefunds;
 
 		data.push({
 			date: dateStr,
@@ -1142,9 +1472,13 @@ admin.openapi(getTimeseries, async (c) => {
 			processed: totalProcessed,
 			refunds: totalRefunds,
 			net: totalRevenue - totalRefunds,
+			devpassRevenue: totalDevpassRevenue,
+			devpassRefunds: totalDevpassRefunds,
+			devpassNet: totalDevpassRevenue - totalDevpassRefunds,
 			dailySignups,
 			dailyPaidCustomers,
 			dailyNet: dailyRevenue - dailyRefunds,
+			dailyDevpassNet: dailyDevpassRevenue - dailyDevpassRefunds,
 		});
 	}
 
@@ -1158,6 +1492,9 @@ admin.openapi(getTimeseries, async (c) => {
 			processed: totalProcessed,
 			refunds: totalRefunds,
 			net: totalRevenue - totalRefunds,
+			devpassRevenue: totalDevpassRevenue,
+			devpassRefunds: totalDevpassRefunds,
+			devpassNet: totalDevpassRevenue - totalDevpassRefunds,
 		},
 	});
 });
@@ -2657,6 +2994,7 @@ const logEntrySchema = z.object({
 	dataStorageCost: z.number().nullable(),
 	hasError: z.boolean().nullable(),
 	errorDetails: z.any().nullable(),
+	internalErrorDetails: z.any().nullable(),
 	finishReason: z.string().nullable(),
 	unifiedFinishReason: z.string().nullable(),
 	cached: z.boolean().nullable(),
@@ -2853,6 +3191,7 @@ admin.openapi(getProjectLogs, async (c) => {
 			dataStorageCost: tables.log.dataStorageCost,
 			hasError: tables.log.hasError,
 			errorDetails: tables.log.errorDetails,
+			internalErrorDetails: tables.log.internalErrorDetails,
 			finishReason: tables.log.finishReason,
 			unifiedFinishReason: tables.log.unifiedFinishReason,
 			cached: tables.log.cached,
@@ -7972,13 +8311,28 @@ const UNSTABLE_MAPPINGS_MAX_LOG_LIMIT = 1000000;
 // Supported time windows for the rankings, mapping each selectable value to its
 // SQL interval bound and an hours count surfaced to the UI for the description.
 const UNSTABLE_MAPPINGS_WINDOWS = {
+	"1h": { interval: sql`now() - interval '1 hour'`, hours: 1 },
+	"2h": { interval: sql`now() - interval '2 hours'`, hours: 2 },
 	"4h": { interval: sql`now() - interval '4 hours'`, hours: 4 },
+	"8h": { interval: sql`now() - interval '8 hours'`, hours: 8 },
+	"12h": { interval: sql`now() - interval '12 hours'`, hours: 12 },
+	"16h": { interval: sql`now() - interval '16 hours'`, hours: 16 },
 	"24h": { interval: sql`now() - interval '24 hours'`, hours: 24 },
 	"3d": { interval: sql`now() - interval '3 days'`, hours: 72 },
 	"7d": { interval: sql`now() - interval '7 days'`, hours: 168 },
 } as const;
 
-const unstableMappingsWindowSchema = z.enum(["4h", "24h", "3d", "7d"]);
+const unstableMappingsWindowSchema = z.enum([
+	"1h",
+	"2h",
+	"4h",
+	"8h",
+	"12h",
+	"16h",
+	"24h",
+	"3d",
+	"7d",
+]);
 
 type UnstableMappingsWindow = keyof typeof UNSTABLE_MAPPINGS_WINDOWS;
 
@@ -7991,6 +8345,50 @@ function resolveUnstableMappingsWindow(
 // `retried` is nullable; legacy rows predate the column and are NULL. Treat
 // those as non-retried so they are not silently dropped from the rankings.
 const unstableMappingsNotRetriedClause = sql`AND ${tables.log.retried} IS DISTINCT FROM true`;
+
+// Matchers are plain substrings, so LIKE metacharacters in the stored pattern
+// must be escaped before wrapping in wildcards.
+function escapeLikePattern(pattern: string): string {
+	return pattern.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+interface IgnoredErrorMatcherTarget {
+	pattern: string | null;
+	statusCode: number | null;
+}
+
+// Builds an OR chain across all stored matchers so expected upstream errors
+// can be treated as non-errors. A substring pattern is matched
+// case-insensitively against the serialized error details JSON (covering
+// status text, response body, and cause); a status code is matched against the
+// upstream `statusCode` field. When a matcher has both, both must match.
+function buildIgnoredErrorMatchExpr(matchers: IgnoredErrorMatcherTarget[]) {
+	return sql.join(
+		matchers.map((matcher) => {
+			const conditions = [];
+			if (matcher.pattern !== null) {
+				conditions.push(
+					sql`${tables.log.errorDetails}::text ILIKE ${`%${escapeLikePattern(matcher.pattern)}%`}`,
+				);
+			}
+			if (matcher.statusCode !== null) {
+				conditions.push(
+					sql`${tables.log.errorDetails}->>'statusCode' = ${String(matcher.statusCode)}`,
+				);
+			}
+			return sql`(${sql.join(conditions, sql` AND `)})`;
+		}),
+		sql` OR `,
+	);
+}
+
+async function listIgnoredErrorMatchers() {
+	return await db.query.ignoredErrorMatcher.findMany({
+		orderBy: {
+			createdAt: "desc",
+		},
+	});
+}
 
 // Gateway logs store `used_model` as the display value `provider/model[:region]`
 // (for example `openai/gpt-5-nano` or `alibaba/glm-4.6:cn-beijing`), but the
@@ -8035,6 +8433,9 @@ const unstableMappingsListSchema = z.object({
 	windowHours: z.number(),
 	logLimit: z.number(),
 	includeRetried: z.boolean(),
+	ignoreExpected: z.boolean(),
+	// Number of ignore matchers applied to this ranking (0 when disabled).
+	ignoredMatcherCount: z.number(),
 });
 
 const getUnstableMappings = createRoute({
@@ -8050,6 +8451,7 @@ const getUnstableMappings = createRoute({
 				.optional(),
 			includeRetried: z.enum(["true", "false"]).optional(),
 			window: unstableMappingsWindowSchema.optional(),
+			ignoreExpected: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
@@ -8073,8 +8475,20 @@ admin.openapi(getUnstableMappings, async (c) => {
 	const retriedClause = includeRetried
 		? sql``
 		: unstableMappingsNotRetriedClause;
+	const ignoreExpected = query.ignoreExpected !== "false";
 	const { interval: windowInterval, hours: windowHours } =
 		resolveUnstableMappingsWindow(query.window);
+
+	// When ignore matchers apply, errors matching any matcher count as
+	// successes: the log stays in the sample (denominator) but no longer counts
+	// against the mapping. NULL error details coalesce to "no match" so errors
+	// without details are still counted. The full matcher count is returned
+	// regardless so the UI can surface it even when ignoring is toggled off.
+	const ignoredMatchers = await listIgnoredErrorMatchers();
+	const hasErrorExpr =
+		ignoreExpected && ignoredMatchers.length > 0
+			? sql`(${tables.log.hasError} AND NOT COALESCE((${buildIgnoredErrorMatchExpr(ignoredMatchers)}), false))`
+			: sql`${tables.log.hasError}`;
 
 	const rows = await db.execute<{
 		used_model: string;
@@ -8087,7 +8501,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 		WITH recent_logs AS (
 			SELECT ${tables.log.usedModel} AS used_model,
 				${tables.log.usedProvider} AS used_provider,
-				${tables.log.hasError} AS has_error
+				${hasErrorExpr} AS has_error
 			FROM ${tables.log}
 			WHERE ${tables.log.createdAt} >= ${windowInterval}
 				${retriedClause}
@@ -8138,6 +8552,8 @@ admin.openapi(getUnstableMappings, async (c) => {
 		windowHours,
 		logLimit,
 		includeRetried,
+		ignoreExpected,
+		ignoredMatcherCount: ignoredMatchers.length,
 	});
 });
 
@@ -8146,6 +8562,16 @@ const unstableMappingErrorDetailSchema = z.object({
 	statusText: z.string().nullable(),
 	responseText: z.string().nullable(),
 	cause: z.string().nullable(),
+	// The gateway's internal classification stored on the log
+	// (`unified_finish_reason`, e.g. `client_error`, `gateway_error`,
+	// `upstream_error`, `content_filter`). Surfaced because the HTTP status
+	// alone is misleading: some 4xx responses are classified as gateway or
+	// upstream errors.
+	classification: z.string().nullable(),
+	// Whether the failed request was a streaming request. Streaming and
+	// non-streaming failures often have different causes, so the drilldown
+	// groups errors by this flag.
+	streamed: z.boolean(),
 	count: z.number(),
 });
 
@@ -8168,6 +8594,7 @@ const getUnstableMappingErrors = createRoute({
 				.min(1)
 				.max(UNSTABLE_MAPPINGS_MAX_LOG_LIMIT)
 				.optional(),
+			ignoreExpected: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
@@ -8184,29 +8611,43 @@ const getUnstableMappingErrors = createRoute({
 });
 
 admin.openapi(getUnstableMappingErrors, async (c) => {
-	const { model, provider, includeRetried, window, logLimit } =
+	const { model, provider, includeRetried, window, logLimit, ignoreExpected } =
 		c.req.valid("query");
 	const sampleLimit = logLimit ?? UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT;
 	const retriedClause =
 		includeRetried === "true" ? sql`` : unstableMappingsNotRetriedClause;
 	const { interval: windowInterval } = resolveUnstableMappingsWindow(window);
 
+	// Mirror the ranking view: drop errors matching an ignore matcher so the
+	// drilldown shows the same errors that counted against the mapping.
+	const ignoredMatchers =
+		ignoreExpected !== "false" ? await listIgnoredErrorMatchers() : [];
+	const ignoredClause =
+		ignoredMatchers.length > 0
+			? sql`AND NOT COALESCE((${buildIgnoredErrorMatchExpr(ignoredMatchers)}), false)`
+			: sql``;
+
 	const rows = await db.execute<{
 		status_code: string | null;
 		status_text: string | null;
 		response_text: string | null;
 		cause: string | null;
+		classification: string | null;
+		streamed: boolean;
 		count: string;
 		sampled_errors: string;
 	}>(sql`
 		WITH recent_errors AS (
-			SELECT ${tables.log.errorDetails} AS error_details
+			SELECT ${tables.log.errorDetails} AS error_details,
+				${tables.log.unifiedFinishReason} AS classification,
+				COALESCE(${tables.log.streamed}, false) AS streamed
 			FROM ${tables.log}
 			WHERE ${tables.log.hasError} = true
 				AND ${tables.log.usedModel} = ${model}
 				AND ${tables.log.usedProvider} = ${provider}
 				AND ${tables.log.createdAt} >= ${windowInterval}
 				${retriedClause}
+				${ignoredClause}
 			ORDER BY ${tables.log.createdAt} DESC
 			LIMIT ${sampleLimit}
 		)
@@ -8214,10 +8655,12 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 			error_details->>'statusText' AS status_text,
 			LEFT(error_details->>'responseText', 2000) AS response_text,
 			error_details->>'cause' AS cause,
+			classification,
+			streamed,
 			COUNT(*) AS count,
 			(SELECT COUNT(*) FROM recent_errors) AS sampled_errors
 		FROM recent_errors
-		GROUP BY status_code, status_text, response_text, cause
+		GROUP BY status_code, status_text, response_text, cause, classification, streamed
 		ORDER BY count DESC
 		LIMIT 10
 	`);
@@ -8231,10 +8674,154 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 			statusText: r.status_text,
 			responseText: r.response_text,
 			cause: r.cause,
+			classification: r.classification,
+			streamed: r.streamed,
 			count: Number(r.count),
 		})),
 		sampledErrors,
 	});
+});
+
+// ── Ignored Error Matchers ──────────────────────────────────────────────────
+
+const ignoredErrorMatcherSchema = z.object({
+	id: z.string(),
+	pattern: z.string().nullable(),
+	statusCode: z.number().nullable(),
+	createdAt: z.string(),
+});
+
+const ignoredErrorMatchersListSchema = z.object({
+	matchers: z.array(ignoredErrorMatcherSchema),
+});
+
+function serializeIgnoredErrorMatcher(matcher: {
+	id: string;
+	pattern: string | null;
+	statusCode: number | null;
+	createdAt: Date;
+}) {
+	return {
+		id: matcher.id,
+		pattern: matcher.pattern,
+		statusCode: matcher.statusCode,
+		createdAt: matcher.createdAt.toISOString(),
+	};
+}
+
+const getIgnoredErrorMatchers = createRoute({
+	method: "get",
+	path: "/unstable-mappings/ignored-errors",
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: ignoredErrorMatchersListSchema.openapi({}),
+				},
+			},
+			description:
+				"Substring matchers for expected upstream errors ignored by the unstable mappings rankings.",
+		},
+	},
+});
+
+admin.openapi(getIgnoredErrorMatchers, async (c) => {
+	const matchers = await listIgnoredErrorMatchers();
+	return c.json({ matchers: matchers.map(serializeIgnoredErrorMatcher) });
+});
+
+const createIgnoredErrorMatcher = createRoute({
+	method: "post",
+	path: "/unstable-mappings/ignored-errors",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z
+						.object({
+							pattern: z.string().trim().min(1).max(500).nullish(),
+							statusCode: z.number().int().min(100).max(599).nullish(),
+						})
+						.refine(
+							(value) =>
+								(value.pattern ?? null) !== null ||
+								(value.statusCode ?? null) !== null,
+							{ message: "Provide a pattern or a status code" },
+						)
+						.openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: ignoredErrorMatcherSchema.openapi({}),
+				},
+			},
+			description: "Created ignored error matcher.",
+		},
+		409: {
+			description:
+				"A matcher with this pattern/status code combination already exists.",
+		},
+	},
+});
+
+admin.openapi(createIgnoredErrorMatcher, async (c) => {
+	const { pattern, statusCode } = c.req.valid("json");
+
+	const [created] = await db
+		.insert(tables.ignoredErrorMatcher)
+		.values({ pattern: pattern ?? null, statusCode: statusCode ?? null })
+		.onConflictDoNothing()
+		.returning();
+
+	if (!created) {
+		throw new HTTPException(409, {
+			message:
+				"A matcher with this pattern/status code combination already exists",
+		});
+	}
+
+	return c.json(serializeIgnoredErrorMatcher(created), 201);
+});
+
+const deleteIgnoredErrorMatcher = createRoute({
+	method: "delete",
+	path: "/unstable-mappings/ignored-errors/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }).openapi({}),
+				},
+			},
+			description: "Ignored error matcher deleted.",
+		},
+		404: {
+			description: "Matcher not found.",
+		},
+	},
+});
+
+admin.openapi(deleteIgnoredErrorMatcher, async (c) => {
+	const { id } = c.req.valid("param");
+
+	const deleted = await db
+		.delete(tables.ignoredErrorMatcher)
+		.where(eq(tables.ignoredErrorMatcher.id, id))
+		.returning();
+
+	if (deleted.length === 0) {
+		throw new HTTPException(404, { message: "Matcher not found" });
+	}
+
+	return c.json({ success: true });
 });
 
 // ── Enterprise Contact Submissions ──────────────────────────────────────────
@@ -9295,6 +9882,9 @@ const providerListingRequestSchema = z.object({
 	providerName: z.string(),
 	email: z.string(),
 	url: z.string(),
+	termsUrl: z.string().nullable(),
+	privacyUrl: z.string().nullable(),
+	statusPageUrl: z.string().nullable(),
 	country: z.string(),
 	complianceSoc2Type2: z.boolean(),
 	complianceIso27001: z.boolean(),
@@ -9404,6 +9994,9 @@ admin.openapi(getProviderListingRequests, async (c) => {
 				providerName: t.providerName,
 				email: t.email,
 				url: t.url,
+				termsUrl: t.termsUrl,
+				privacyUrl: t.privacyUrl,
+				statusPageUrl: t.statusPageUrl,
 				country: t.country,
 				complianceSoc2Type2: t.complianceSoc2Type2,
 				complianceIso27001: t.complianceIso27001,
@@ -9469,6 +10062,9 @@ admin.openapi(getProviderListingRequest, async (c) => {
 			providerName: t.providerName,
 			email: t.email,
 			url: t.url,
+			termsUrl: t.termsUrl,
+			privacyUrl: t.privacyUrl,
+			statusPageUrl: t.statusPageUrl,
 			country: t.country,
 			complianceSoc2Type2: t.complianceSoc2Type2,
 			complianceIso27001: t.complianceIso27001,
@@ -9828,7 +10424,6 @@ const devpassSubscriberSchema = z.object({
 	cycleDaysIn: z.number().nullable(),
 	expiresAt: z.string().nullable(),
 	cancelled: z.boolean(),
-	allowAllModels: z.boolean(),
 	mrr: z.number(),
 	realCost: z.number(),
 	margin: z.number(),
@@ -9858,6 +10453,8 @@ const devpassKpisSchema = z.object({
 	netNewThisMonth: z.number(),
 	refundsThisMonth: z.number(),
 	refundedAmountThisMonth: z.number(),
+	resetPassesSold: z.number(),
+	resetPassRevenue: z.number(),
 	weightedAvgUtilization: z.number(),
 	totalRealCostCycle: z.number(),
 	totalMrrCycle: z.number(),
@@ -10054,22 +10651,6 @@ const getDevpassUsage = createRoute({
 	},
 });
 
-const DEV_PLAN_TX_TYPES = [
-	"dev_plan_start",
-	"dev_plan_upgrade",
-	"dev_plan_downgrade",
-	"dev_plan_renewal",
-] as const;
-
-// Pre-rename rows for what is now a dev plan. The same `subscription_*` types
-// are STILL written today for non-personal org Pro subs, so always pair them
-// with `organization.kind = 'devpass'` to avoid counting org Pro revenue.
-const LEGACY_DEV_PLAN_TX_TYPES = [
-	"subscription_start",
-	"subscription_cancel",
-	"subscription_end",
-] as const;
-
 function tierPriceOf(tier: string): number {
 	if (tier === "lite" || tier === "pro" || tier === "max") {
 		return DEV_PLAN_PRICES[tier];
@@ -10254,23 +10835,10 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 					...DEV_PLAN_TX_TYPES,
 					...LEGACY_DEV_PLAN_TX_TYPES,
 				]),
-				sql`NOT EXISTS (
-					SELECT 1 FROM ${tables.transaction} dup
-					WHERE dup.stripe_invoice_id = ${tables.transaction.stripeInvoiceId}
-						AND dup.stripe_invoice_id IS NOT NULL
-						AND dup.organization_id = ${tables.transaction.organizationId}
-						AND dup.id <> ${tables.transaction.id}
-						AND dup.status = 'completed'
-						AND dup.amount IS NOT NULL
-						AND dup.type IN (
-							'dev_plan_start', 'dev_plan_upgrade', 'dev_plan_downgrade', 'dev_plan_renewal',
-							'subscription_start', 'subscription_cancel', 'subscription_end'
-						)
-						AND (
-							dup.created_at < ${tables.transaction.createdAt}
-							OR (dup.created_at = ${tables.transaction.createdAt} AND dup.id < ${tables.transaction.id})
-						)
-				)`,
+				firstRowPerInvoiceFilter([
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
 			),
 		)
 		.groupBy(tables.transaction.organizationId)
@@ -10447,7 +11015,6 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			cycleStart: tables.organization.devPlanBillingCycleStart,
 			expiresAt: tables.organization.devPlanExpiresAt,
 			cancelled: tables.organization.devPlanCancelled,
-			allowAllModels: tables.organization.devPlanAllowAllModels,
 			createdAt: tables.organization.createdAt,
 			paymentFailureCount: tables.organization.paymentFailureCount,
 			utilizationPct: utilizationExpr,
@@ -10663,6 +11230,57 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 	const refundsThisMonth = Number(refundsRow?.count ?? 0);
 	const refundedAmountThisMonth = Number(refundsRow?.total ?? 0);
 
+	// All-time Reset Pass sales on DevPass orgs. These are one-time
+	// PaymentIntent purchases (no invoice), so no invoice dedup is needed;
+	// revenue is netted against completed refunds whose original transaction
+	// is a Reset Pass purchase, mirroring the all-time revenue subquery.
+	const [resetPassRow] = await db
+		.select({
+			count: sql<number>`COUNT(*)`,
+			total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.type, "dev_plan_reset_pass"),
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "devpass"),
+			),
+		);
+	const resetPassesSold = Number(resetPassRow?.count ?? 0);
+
+	const resetPassRefundOriginalTx = aliasedTable(
+		tables.transaction,
+		"reset_pass_refund_original_tx",
+	);
+	const [resetPassRefundRow] = await db
+		.select({
+			total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			resetPassRefundOriginalTx,
+			eq(tables.transaction.relatedTransactionId, resetPassRefundOriginalTx.id),
+		)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.type, "credit_refund"),
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "devpass"),
+				eq(resetPassRefundOriginalTx.type, "dev_plan_reset_pass"),
+			),
+		);
+	const resetPassRevenue =
+		Number(resetPassRow?.total ?? 0) - Number(resetPassRefundRow?.total ?? 0);
+
 	// Weighted utilization across active subscribers
 	const [utilRow] = await db
 		.select({
@@ -10768,7 +11386,6 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			cycleDaysIn,
 			expiresAt: expiresAt ? expiresAt.toISOString() : null,
 			cancelled,
-			allowAllModels: row.allowAllModels,
 			mrr: mrrNum,
 			realCost: Number(row.realCost ?? 0),
 			margin: marginNum,
@@ -10803,6 +11420,8 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			netNewThisMonth: startsThisMonth - endsThisMonth,
 			refundsThisMonth,
 			refundedAmountThisMonth,
+			resetPassesSold,
+			resetPassRevenue,
 			weightedAvgUtilization,
 			totalRealCostCycle,
 			totalMrrCycle,
@@ -10902,23 +11521,10 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 					...DEV_PLAN_TX_TYPES,
 					...LEGACY_DEV_PLAN_TX_TYPES,
 				]),
-				sql`NOT EXISTS (
-					SELECT 1 FROM ${tables.transaction} dup
-					WHERE dup.stripe_invoice_id = ${tables.transaction.stripeInvoiceId}
-						AND dup.stripe_invoice_id IS NOT NULL
-						AND dup.organization_id = ${tables.transaction.organizationId}
-						AND dup.id <> ${tables.transaction.id}
-						AND dup.status = 'completed'
-						AND dup.amount IS NOT NULL
-						AND dup.type IN (
-							'dev_plan_start', 'dev_plan_upgrade', 'dev_plan_downgrade', 'dev_plan_renewal',
-							'subscription_start', 'subscription_cancel', 'subscription_end'
-						)
-						AND (
-							dup.created_at < ${tables.transaction.createdAt}
-							OR (dup.created_at = ${tables.transaction.createdAt} AND dup.id < ${tables.transaction.id})
-						)
-				)`,
+				firstRowPerInvoiceFilter([
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
 			),
 		)
 		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
@@ -11333,23 +11939,10 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 				eq(tables.transaction.organizationId, orgId),
 				eq(tables.transaction.status, "completed"),
 				inArray(tables.transaction.type, allTimeRevenueTypes),
-				sql`NOT EXISTS (
-					SELECT 1 FROM ${tables.transaction} dup
-					WHERE dup.stripe_invoice_id = ${tables.transaction.stripeInvoiceId}
-						AND dup.stripe_invoice_id IS NOT NULL
-						AND dup.organization_id = ${tables.transaction.organizationId}
-						AND dup.id <> ${tables.transaction.id}
-						AND dup.status = 'completed'
-						AND dup.amount IS NOT NULL
-						AND dup.type IN (
-							'dev_plan_start', 'dev_plan_upgrade', 'dev_plan_downgrade', 'dev_plan_renewal',
-							'subscription_start', 'subscription_cancel', 'subscription_end'
-						)
-						AND (
-							dup.created_at < ${tables.transaction.createdAt}
-							OR (dup.created_at = ${tables.transaction.createdAt} AND dup.id < ${tables.transaction.id})
-						)
-				)`,
+				firstRowPerInvoiceFilter([
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
 			),
 		);
 
@@ -11441,7 +12034,6 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		cycleDaysIn,
 		expiresAt: org.devPlanExpiresAt ? org.devPlanExpiresAt.toISOString() : null,
 		cancelled: org.devPlanCancelled,
-		allowAllModels: org.devPlanAllowAllModels,
 		mrr,
 		realCost,
 		margin,
@@ -11783,13 +12375,6 @@ const getChatPlansUsage = createRoute({
 	},
 });
 
-const CHAT_PLAN_TX_TYPES = [
-	"chat_plan_start",
-	"chat_plan_upgrade",
-	"chat_plan_downgrade",
-	"chat_plan_renewal",
-] as const;
-
 function chatTierPriceOf(tier: string): number {
 	if (tier === "starter" || tier === "plus" || tier === "pro") {
 		return CHAT_PLAN_PRICES[tier];
@@ -11958,22 +12543,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				inArray(tables.transaction.type, [...CHAT_PLAN_TX_TYPES]),
-				sql`NOT EXISTS (
-					SELECT 1 FROM ${tables.transaction} dup
-					WHERE dup.stripe_invoice_id = ${tables.transaction.stripeInvoiceId}
-						AND dup.stripe_invoice_id IS NOT NULL
-						AND dup.organization_id = ${tables.transaction.organizationId}
-						AND dup.id <> ${tables.transaction.id}
-						AND dup.status = 'completed'
-						AND dup.amount IS NOT NULL
-						AND dup.type IN (
-							'chat_plan_start', 'chat_plan_upgrade', 'chat_plan_downgrade', 'chat_plan_renewal'
-						)
-						AND (
-							dup.created_at < ${tables.transaction.createdAt}
-							OR (dup.created_at = ${tables.transaction.createdAt} AND dup.id < ${tables.transaction.id})
-						)
-				)`,
+				firstRowPerInvoiceFilter(CHAT_PLAN_TX_TYPES),
 			),
 		)
 		.groupBy(tables.transaction.organizationId)
@@ -12542,22 +13112,7 @@ admin.openapi(getChatPlansTimeseries, async (c) => {
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
 				inArray(tables.transaction.type, [...CHAT_PLAN_TX_TYPES]),
-				sql`NOT EXISTS (
-					SELECT 1 FROM ${tables.transaction} dup
-					WHERE dup.stripe_invoice_id = ${tables.transaction.stripeInvoiceId}
-						AND dup.stripe_invoice_id IS NOT NULL
-						AND dup.organization_id = ${tables.transaction.organizationId}
-						AND dup.id <> ${tables.transaction.id}
-						AND dup.status = 'completed'
-						AND dup.amount IS NOT NULL
-						AND dup.type IN (
-							'chat_plan_start', 'chat_plan_upgrade', 'chat_plan_downgrade', 'chat_plan_renewal'
-						)
-						AND (
-							dup.created_at < ${tables.transaction.createdAt}
-							OR (dup.created_at = ${tables.transaction.createdAt} AND dup.id < ${tables.transaction.id})
-						)
-				)`,
+				firstRowPerInvoiceFilter(CHAT_PLAN_TX_TYPES),
 			),
 		)
 		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
@@ -12959,22 +13514,7 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 				eq(tables.transaction.organizationId, orgId),
 				eq(tables.transaction.status, "completed"),
 				inArray(tables.transaction.type, [...CHAT_PLAN_TX_TYPES]),
-				sql`NOT EXISTS (
-					SELECT 1 FROM ${tables.transaction} dup
-					WHERE dup.stripe_invoice_id = ${tables.transaction.stripeInvoiceId}
-						AND dup.stripe_invoice_id IS NOT NULL
-						AND dup.organization_id = ${tables.transaction.organizationId}
-						AND dup.id <> ${tables.transaction.id}
-						AND dup.status = 'completed'
-						AND dup.amount IS NOT NULL
-						AND dup.type IN (
-							'chat_plan_start', 'chat_plan_upgrade', 'chat_plan_downgrade', 'chat_plan_renewal'
-						)
-						AND (
-							dup.created_at < ${tables.transaction.createdAt}
-							OR (dup.created_at = ${tables.transaction.createdAt} AND dup.id < ${tables.transaction.id})
-						)
-				)`,
+				firstRowPerInvoiceFilter(CHAT_PLAN_TX_TYPES),
 			),
 		);
 

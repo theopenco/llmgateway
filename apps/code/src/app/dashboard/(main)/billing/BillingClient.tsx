@@ -25,7 +25,9 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
+import { cn } from "@/lib/utils";
 
+import type { TierChangeTiming } from "@/app/dashboard/components/ActivePlanChangeTier";
 import type { PlanTier } from "@/app/dashboard/types";
 import type { DevPlanStatus } from "@/app/dashboard/useDevPlanStatus";
 import type { paths } from "@/lib/api/v1";
@@ -98,6 +100,7 @@ export default function BillingClient({
 	const handleChangeTier = async (
 		newTier: PlanTier,
 		expectedAmountDueCents?: number,
+		timing?: TierChangeTiming,
 	): Promise<void> => {
 		// Cycle is intentionally not sent — the server preserves the existing
 		// monthly/annual cadence by reading it from the org's stored devPlanCycle
@@ -105,16 +108,21 @@ export default function BillingClient({
 		setSubscribingTier(newTier);
 		try {
 			await changeTierMutation.mutateAsync({
-				body: { newTier, expectedAmountDueCents },
+				body: { newTier, expectedAmountDueCents, timing },
 			});
-			// An upgrade records a new dev_plan_upgrade invoice server-side; refetch
-			// so the Invoices section reflects the just-paid charge immediately, and
-			// refresh status so the current tier / pending-downgrade state updates.
+			// An immediate upgrade records a new dev_plan_upgrade invoice
+			// server-side; refetch so the Invoices section reflects the just-paid
+			// charge immediately, and refresh status so the current tier /
+			// pending-change state updates.
 			await Promise.all([invalidateInvoices(), invalidateStatus()]);
 			if (posthogKey) {
-				posthog.capture("dev_plan_tier_changed", { newTier });
+				posthog.capture("dev_plan_tier_changed", { newTier, timing });
 			}
-			toast.success("Plan updated");
+			toast.success(
+				timing === "next_cycle"
+					? "Plan change scheduled for your next renewal"
+					: "Plan updated",
+			);
 		} catch (error) {
 			const message =
 				error && typeof error === "object" && "message" in error
@@ -133,13 +141,13 @@ export default function BillingClient({
 		try {
 			await cancelDowngradeMutation.mutateAsync({});
 			await invalidateStatus();
-			toast.success("Scheduled downgrade cancelled");
+			toast.success("Scheduled plan change cancelled");
 		} catch (error) {
 			const message =
 				error && typeof error === "object" && "message" in error
 					? String((error as { message: unknown }).message)
 					: undefined;
-			toast.error("Failed to cancel downgrade", {
+			toast.error("Failed to cancel plan change", {
 				description: message,
 			});
 		} finally {
@@ -202,10 +210,13 @@ export default function BillingClient({
 	const cycle = devPlanStatus.devPlanCycle ?? "monthly";
 	const cancelled = devPlanStatus.devPlanCancelled ?? false;
 	// A cancelled subscription ends before its next renewal, so a scheduled
-	// downgrade would never take effect — surfacing it alongside "Cancelling" is
-	// confusing. Hide the pending-downgrade UI while cancelled; the tier is kept in
-	// the DB (cancel/resume don't clear it), so it reappears if the user resumes.
-	const showPendingDowngrade = pendingTier !== null && !cancelled;
+	// tier change would never take effect — surfacing it alongside "Cancelling"
+	// is confusing. Hide the pending-change UI while cancelled; the tier is kept
+	// in the DB (cancel/resume don't clear it), so it reappears if the user
+	// resumes.
+	const showPendingChange = pendingTier !== null && !cancelled;
+	const pendingIsUpgrade =
+		(pendingPlanData?.price ?? 0) > (currentPlanData?.price ?? 0);
 	const billingCycleStart = devPlanStatus.devPlanBillingCycleStart ?? null;
 	const currentPeriodEnd = devPlanStatus.devPlanExpiresAt ?? null;
 
@@ -234,11 +245,11 @@ export default function BillingClient({
 			? `Ends ${renewWhen}`
 			: `Renews ${renewWhen} (in ${formatDistanceToNowStrict(renewAt)})`;
 
-	// A scheduled downgrade keeps the current (higher) tier active until renewal,
-	// then switches. Surface both the pending tier and the date it applies.
-	const pendingDowngradeNotice =
-		showPendingDowngrade && pendingPlanData
-			? `Your plan switches to ${pendingPlanData.name}${
+	// A scheduled tier change keeps the current tier active until renewal, then
+	// switches. Surface both the pending tier and the date it applies.
+	const pendingChangeNotice =
+		showPendingChange && pendingPlanData
+			? `Your plan ${pendingIsUpgrade ? "upgrades" : "switches"} to ${pendingPlanData.name}${
 					renewWhen ? ` on ${renewWhen}` : " at your next renewal"
 				}. You keep your current allowance until then.`
 			: null;
@@ -268,9 +279,17 @@ export default function BillingClient({
 									Cancelling
 								</span>
 							)}
-							{showPendingDowngrade && pendingPlanData && (
-								<span className="rounded-md bg-amber-500/10 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400">
-									Downgrading to {pendingPlanData.name}
+							{showPendingChange && pendingPlanData && (
+								<span
+									className={cn(
+										"rounded-md px-1.5 py-0.5 text-xs font-medium",
+										pendingIsUpgrade
+											? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+											: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
+									)}
+								>
+									{pendingIsUpgrade ? "Upgrading" : "Downgrading"} to{" "}
+									{pendingPlanData.name}
 								</span>
 							)}
 						</div>
@@ -281,9 +300,16 @@ export default function BillingClient({
 						<p className="mt-0.5 text-xs text-muted-foreground">
 							{renewalHint}
 						</p>
-						{pendingDowngradeNotice && (
-							<p className="mt-0.5 text-xs text-amber-700 dark:text-amber-400">
-								{pendingDowngradeNotice}
+						{pendingChangeNotice && (
+							<p
+								className={cn(
+									"mt-0.5 text-xs",
+									pendingIsUpgrade
+										? "text-emerald-700 dark:text-emerald-400"
+										: "text-amber-700 dark:text-amber-400",
+								)}
+							>
+								{pendingChangeNotice}
 							</p>
 						)}
 					</div>
@@ -354,7 +380,7 @@ export default function BillingClient({
 			<ActivePlanChangeTier
 				plans={plans}
 				currentPlan={currentPlan}
-				pendingTier={showPendingDowngrade ? pendingTier : null}
+				pendingTier={showPendingChange ? pendingTier : null}
 				cancelled={cancelled}
 				subscribingTier={subscribingTier}
 				isCancellingDowngrade={isCancellingDowngrade}

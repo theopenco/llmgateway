@@ -5,6 +5,7 @@ import {
 	CodexIcon,
 	CursorIcon,
 	DevPassCodeIcon,
+	EmpryoIcon,
 	N8nIcon,
 	OpenClawIcon,
 	OpenCodeIcon,
@@ -62,6 +63,13 @@ export const AGENTS: AgentDefinition[] = [
 		icon: AutohandIcon,
 		sources: ["autohand"],
 		guideUrl: "/guides/autohand",
+	},
+	{
+		id: "empryo",
+		label: "Empryo",
+		icon: EmpryoIcon,
+		sources: ["empryo"],
+		guideUrl: "/guides/empryo",
 	},
 	{
 		id: "soulforge",

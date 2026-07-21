@@ -66,7 +66,7 @@ export function TrustBarEnterprise() {
 					{companies.map((company) => (
 						<div
 							key={company.name}
-							className={`text-muted-foreground/50 select-none ${company.className ?? ""}`}
+							className={`text-muted-foreground/80 select-none ${company.className ?? ""}`}
 						>
 							{company.logo ?? company.name}
 						</div>

@@ -9,6 +9,7 @@
 		"agents",
 		"model-usage",
 		"model-categories",
+		"reset-passes",
 		"usage-metrics",
 		"analytics",
 		"api-keys",

@@ -101,9 +101,13 @@ const organizationSchema = z.object({
 	devPlanCreditsLimit: z.string(),
 	devPlanPremiumCreditsUsed: z.string(),
 	devPlanPremiumWeekStart: z.date().nullable(),
+	devPlanResetPassesLite: z.number(),
+	devPlanResetPassesPro: z.number(),
+	devPlanResetPassesMax: z.number(),
+	devPlanIncludedResetPassesUsed: z.number(),
 	devPlanBillingCycleStart: z.date().nullable(),
 	devPlanExpiresAt: z.date().nullable(),
-	devPlanAllowAllModels: z.boolean(),
+	devPlanServiceTier: z.enum(["default", "flex"]),
 	devPlanBillingOverride: z.boolean(),
 	// Chat Plans fields
 	chatPlan: z.enum(["none", "starter", "plus", "pro"]),
@@ -190,6 +194,7 @@ const refundEligibilitySchema = z.object({
 			"plan_inactive",
 			"credits_frozen",
 			"usage_exceeded",
+			"pass_already_used",
 		])
 		.optional(),
 });
@@ -212,6 +217,7 @@ const transactionSchema = z.object({
 		"dev_plan_cancel",
 		"dev_plan_end",
 		"dev_plan_renewal",
+		"dev_plan_reset_pass",
 		"chat_plan_start",
 		"chat_plan_upgrade",
 		"chat_plan_downgrade",
@@ -676,23 +682,29 @@ organization.openapi(updateOrganization, async (c) => {
 		updateData.autoTopUpAmount = autoTopUpAmount.toString();
 	}
 
+	// An empty PATCH body is a valid no-op; drizzle throws "No values to set"
+	// on an empty update, so skip the query and return the org unchanged.
 	let updatedOrganization;
-	try {
-		[updatedOrganization] = await db
-			.update(tables.organization)
-			.set(updateData)
-			.where(eq(tables.organization.id, id))
-			.returning();
-	} catch (err) {
-		const code =
-			(err as { code?: string; cause?: { code?: string } })?.code ??
-			(err as { cause?: { code?: string } })?.cause?.code;
-		if (code === "23505" && normalizedSsoDomain) {
-			throw new HTTPException(409, {
-				message: "This domain is already configured by another organization.",
-			});
+	if (Object.keys(updateData).length === 0) {
+		updatedOrganization = userOrganization.organization!;
+	} else {
+		try {
+			[updatedOrganization] = await db
+				.update(tables.organization)
+				.set(updateData)
+				.where(eq(tables.organization.id, id))
+				.returning();
+		} catch (err) {
+			const code =
+				(err as { code?: string; cause?: { code?: string } })?.code ??
+				(err as { cause?: { code?: string } })?.cause?.code;
+			if (code === "23505" && normalizedSsoDomain) {
+				throw new HTTPException(409, {
+					message: "This domain is already configured by another organization.",
+				});
+			}
+			throw err;
 		}
-		throw err;
 	}
 
 	// Build changes metadata for audit log

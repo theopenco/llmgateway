@@ -11,6 +11,7 @@ import {
 	Coins,
 	Copy,
 	Check,
+	Filter,
 	Globe,
 	Info,
 	Package,
@@ -809,6 +810,43 @@ export function LogDetailClient({
 														</div>
 													))}
 												</div>
+											</div>
+										)}
+									{log.routingMetadata.filteredProviders &&
+										log.routingMetadata.filteredProviders.length > 0 && (
+											<div className="mt-3 pt-3 border-t border-border/50">
+												<p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
+													<Filter className="h-3 w-3" />
+													Filtered Providers
+												</p>
+												<div className="space-y-1.5">
+													{log.routingMetadata.filteredProviders.map(
+														(filtered) => (
+															<div
+																key={filtered.providerId}
+																className="flex items-center justify-between text-xs font-mono"
+															>
+																<span className="text-amber-600">
+																	{filtered.providerId}
+																</span>
+																<span className="text-muted-foreground text-right">
+																	{filtered.reasons.join(", ")}
+																</span>
+															</div>
+														),
+													)}
+												</div>
+											</div>
+										)}
+									{log.routingMetadata.strippedParameters &&
+										log.routingMetadata.strippedParameters.length > 0 && (
+											<div className="mt-3 pt-3 border-t border-border/50">
+												<p className="text-xs text-muted-foreground mb-2">
+													Stripped Parameters
+												</p>
+												<p className="text-xs font-mono text-amber-600">
+													{log.routingMetadata.strippedParameters.join(", ")}
+												</p>
 											</div>
 										)}
 								</div>

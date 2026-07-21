@@ -39,6 +39,11 @@ import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import {
+	clientFacingUpstreamFailureMessage,
+	redactedProviderErrorText,
+	shouldRedactProviderError,
+} from "@/lib/stealth-provider-errors.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
 import { getProviderHeaders } from "@llmgateway/actions";
@@ -1144,9 +1149,13 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				return c.json(
 					{
 						error: {
-							message: isTimeout
-								? `Upstream provider timeout: ${fetchError.message}`
-								: `Failed to connect to provider: ${fetchError.message}`,
+							message: clientFacingUpstreamFailureMessage(
+								providerId,
+								isTimeout
+									? "Upstream provider timeout"
+									: "Failed to connect to provider",
+								fetchError.message,
+							),
 							type: isTimeout ? "upstream_timeout" : "upstream_error",
 							param: null,
 							code: isTimeout ? "timeout" : "fetch_failed",
@@ -1266,6 +1275,22 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				if (willRetry && nextAttempt) {
 					attempt = nextAttempt;
 					continue;
+				}
+
+				// Stealth providers: never pass the raw upstream error body through
+				// to the client — only the upstream status code may be surfaced.
+				if (shouldRedactProviderError(providerId)) {
+					return c.json(
+						{
+							error: {
+								message: redactedProviderErrorText(status),
+								type: "upstream_error",
+								param: null,
+								code: "upstream_error",
+							},
+						} satisfies z.infer<typeof embeddingErrorSchema>,
+						status as 400 | 401 | 403 | 404 | 410 | 429 | 500 | 502 | 503 | 504,
+					);
 				}
 
 				const normalizedUpstreamError: z.infer<typeof embeddingErrorSchema> = {

@@ -84,6 +84,7 @@ export const deepseekModels = [
 			{
 				providerId: "bytedance",
 				externalId: "deepseek-v3-1-250821",
+				deactivatedAt: new Date("2026-07-11"),
 				inputPrice: "0.56e-6",
 				cachedInputPrice: "0.112e-6",
 				outputPrice: "1.68e-6",
@@ -137,6 +138,21 @@ export const deepseekModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				// reasoning_effort must NOT be forwarded: Novita ignores it on its
+				// own and, sent alongside the `chat_template_kwargs.thinking` flag,
+				// it suppresses reasoning entirely (verified live 2026-07-16).
+				// Thinking is controlled solely via requiresEnableThinking.
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+				],
 			},
 			{
 				providerId: "alibaba",
@@ -211,6 +227,11 @@ export const deepseekModels = [
 			{
 				providerId: "vertex-openai",
 				externalId: "deepseek-ai/deepseek-v3.2-maas",
+				deactivatedAt: new Date("2026-10-21"),
+				// Vertex MaaS throttles this model's tiny concurrency quota (429
+				// RESOURCE_EXHAUSTED even for single spaced-out requests,
+				// verified 2026-07-14), flaking e2e
+				stability: "unstable",
 				inputPrice: "0.56e-6",
 				cachedInputPrice: "0.056e-6",
 				outputPrice: "1.68e-6",
@@ -244,6 +265,7 @@ export const deepseekModels = [
 				jsonOutput: true,
 				streaming: true,
 				reasoning: true,
+				reasoningEfforts: ["high", "max"],
 				vision: false,
 				tools: true,
 				supportedParameters: [
@@ -269,6 +291,7 @@ export const deepseekModels = [
 				maxOutput: 163840,
 				streaming: true,
 				reasoning: true,
+				reasoningEfforts: ["high", "max"],
 				reasoningOutput: "omit",
 				vision: false,
 				tools: true,
@@ -296,6 +319,7 @@ export const deepseekModels = [
 				maxOutput: 393216,
 				streaming: true,
 				reasoning: true,
+				reasoningMaxTokens: true,
 				vision: false,
 				tools: true,
 				jsonOutput: true,
@@ -312,6 +336,7 @@ export const deepseekModels = [
 				quantization: "fp4",
 				streaming: true,
 				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh"],
 				vision: false,
 				tools: true,
 				jsonOutput: true,
@@ -327,6 +352,7 @@ export const deepseekModels = [
 				maxOutput: 393216,
 				streaming: true,
 				reasoning: true,
+				reasoningEfforts: ["minimal", "low", "medium", "high", "max"],
 				reasoningOutput: "omit" as const,
 				vision: false,
 				tools: true,
@@ -354,6 +380,7 @@ export const deepseekModels = [
 				jsonOutput: true,
 				streaming: true,
 				reasoning: true,
+				reasoningEfforts: ["high", "max"],
 				vision: false,
 				tools: true,
 				supportedParameters: [
@@ -405,6 +432,7 @@ export const deepseekModels = [
 				maxOutput: 393216,
 				streaming: true,
 				reasoning: true,
+				reasoningMaxTokens: true,
 				vision: false,
 				tools: true,
 				jsonOutput: true,
@@ -436,6 +464,7 @@ export const deepseekModels = [
 				maxOutput: 393216,
 				streaming: true,
 				reasoning: true,
+				reasoningEfforts: ["minimal", "low", "medium", "high", "max"],
 				reasoningOutput: "omit" as const,
 				vision: false,
 				tools: true,

@@ -836,6 +836,8 @@ export function transformStreamingToOpenai(
 					case "response.output_item.done":
 					case "response.content_part.done":
 					case "response.output_text.done":
+					case "response.reasoning_summary_text.done":
+					case "response.reasoning_summary_part.done":
 					case "response.web_search_call.in_progress":
 					case "response.web_search_call.searching":
 					case "response.web_search_call.completed":

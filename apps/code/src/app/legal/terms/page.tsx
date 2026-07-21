@@ -16,7 +16,7 @@ export default function TermsPage() {
 			<p>
 				<strong>Effective Date:</strong> April 26, 2026
 				<br />
-				<strong>Last Updated:</strong> June 26, 2026
+				<strong>Last Updated:</strong> July 19, 2026
 			</p>
 			<p>
 				<strong>DevPass</strong> is a service operated by{" "}
@@ -101,7 +101,9 @@ export default function TermsPage() {
 				</li>
 				<li>
 					Allowances reset at the start of each billing cycle and{" "}
-					<strong>do not roll over</strong>
+					<strong>do not roll over</strong> at renewal; the only exception is an
+					immediate mid-cycle upgrade, which rolls your unused allowance into
+					the new cycle (see &ldquo;Plan changes&rdquo; below)
 				</li>
 			</ul>
 			<p>
@@ -111,6 +113,24 @@ export default function TermsPage() {
 				fees are non-refundable except where required by law. You may cancel at
 				any time; your plan remains active until the end of the current billing
 				period.
+			</p>
+			<p>
+				<strong>Plan changes.</strong> You may change tiers at any time from
+				your dashboard. <strong>Upgrades</strong> take effect immediately by
+				default: we charge the full price of the new tier at the time of the
+				upgrade, your billing cycle restarts on that day, and you receive the
+				new tier&rsquo;s full monthly allowance. Any unused allowance from the
+				cycle being replaced <strong>rolls over</strong> into the new
+				cycle&rsquo;s allowance; rolled-over allowance expires at your next
+				renewal and is not refunded, credited, or deducted from the upgrade
+				price. You may instead schedule an upgrade for your next renewal: no
+				charge is due when scheduling, you keep your current tier and allowance
+				until the renewal, and the new tier is billed from the renewal onward
+				(no allowance rolls over at renewal). <strong>Downgrades</strong> are
+				scheduled for your next renewal: you keep your current tier and its
+				allowance until the end of the period you have already paid for, the
+				lower tier is billed from the next renewal onward, and no charge or
+				refund is issued when you schedule the downgrade.
 			</p>
 			<p>
 				DevPass is intended for individual developer use. We may rate-limit,

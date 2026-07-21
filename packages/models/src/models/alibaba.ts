@@ -516,6 +516,7 @@ export const alibabaModels = [
 			{
 				providerId: "vertex-openai",
 				externalId: "qwen/qwen3-235b-a22b-instruct-2507-maas",
+				deactivatedAt: new Date("2026-10-21"),
 				inputPrice: "0.22e-6",
 				outputPrice: "0.88e-6",
 				requestPrice: "0",
@@ -651,6 +652,9 @@ export const alibabaModels = [
 			{
 				providerId: "deepinfra",
 				externalId: "Qwen/Qwen3.5-9B",
+				// deepinfra hangs on reasoning + streaming requests
+				// (e2e 180s timeouts, verified 2026-07-21)
+				stability: "unstable",
 				inputPrice: "0.1e-6",
 				outputPrice: "0.15e-6",
 				requestPrice: "0",
@@ -859,6 +863,7 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-vl-8b-instruct",
+				deactivatedAt: new Date("2026-07-11"),
 				inputPrice: "0.08e-6",
 				outputPrice: "0.5e-6",
 				requestPrice: "0",
@@ -922,6 +927,7 @@ export const alibabaModels = [
 			{
 				providerId: "vertex-openai",
 				externalId: "qwen/qwen3-coder-480b-a35b-instruct-maas",
+				deactivatedAt: new Date("2026-10-21"),
 				inputPrice: "0.22e-6",
 				cachedInputPrice: "0.022e-6",
 				outputPrice: "1.8e-6",
@@ -1128,6 +1134,7 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-next-80b-a3b-thinking",
+				deactivatedAt: new Date("2026-07-11"),
 				inputPrice: "0.15e-6",
 				outputPrice: "1.5e-6",
 				requestPrice: "0",
@@ -1180,6 +1187,10 @@ export const alibabaModels = [
 			{
 				providerId: "vertex-openai",
 				externalId: "qwen/qwen3-next-80b-a3b-thinking-maas",
+				deactivatedAt: new Date("2026-10-21"),
+				// Vertex MaaS throttles this model's tiny concurrency quota (429
+				// RESOURCE_EXHAUSTED) even on single requests, flaking e2e
+				stability: "unstable",
 				inputPrice: "0.15e-6",
 				outputPrice: "1.2e-6",
 				requestPrice: "0",
@@ -1238,11 +1249,13 @@ export const alibabaModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
-				jsonOutput: true,
+				// novita rejects response_format json_object for this model (400)
+				jsonOutput: false,
 			},
 			{
 				providerId: "vertex-openai",
 				externalId: "qwen/qwen3-next-80b-a3b-instruct-maas",
+				deactivatedAt: new Date("2026-10-21"),
 				inputPrice: "0.15e-6",
 				outputPrice: "1.2e-6",
 				requestPrice: "0",
@@ -1275,6 +1288,7 @@ export const alibabaModels = [
 				contextSize: 256000,
 				maxOutput: 32800,
 				reasoning: true,
+				reasoningMaxTokens: true,
 				reasoningOutput: "omit",
 				streaming: true,
 				vision: true,
@@ -1294,6 +1308,9 @@ export const alibabaModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				// novita rejects tool_choice "required" and named function choices
+				// with invalid_request_error; "auto" and "none" work
+				supportedToolChoices: ["auto", "none"],
 			},
 		],
 	},
@@ -1329,6 +1346,7 @@ export const alibabaModels = [
 				contextSize: 1000000,
 				maxOutput: 65536,
 				reasoning: true,
+				reasoningMaxTokens: true,
 				reasoningOutput: "omit",
 				streaming: true,
 				vision: false,
@@ -1347,6 +1365,7 @@ export const alibabaModels = [
 					"stream",
 					"tools",
 					"response_format",
+					"reasoning_effort",
 				],
 			},
 			{
@@ -1454,6 +1473,7 @@ export const alibabaModels = [
 				contextSize: 1000000,
 				maxOutput: 65536,
 				reasoning: true,
+				reasoningMaxTokens: true,
 				reasoningOutput: "omit",
 				streaming: true,
 				vision: true,
@@ -1470,6 +1490,7 @@ export const alibabaModels = [
 					"stream",
 					"tools",
 					"response_format",
+					"reasoning_effort",
 				],
 			},
 		],
@@ -1557,6 +1578,7 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-vl-30b-a3b-thinking",
+				deactivatedAt: new Date("2026-07-11"),
 				inputPrice: "0.2e-6",
 				outputPrice: "1e-6",
 				requestPrice: "0",
@@ -1630,6 +1652,7 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-4b-fp8",
+				deactivatedAt: new Date("2026-07-11"),
 				inputPrice: "0.03e-6",
 				outputPrice: "0.03e-6",
 				requestPrice: "0",
@@ -1683,6 +1706,7 @@ export const alibabaModels = [
 				contextSize: 262144,
 				maxOutput: 65536,
 				reasoning: true,
+				reasoningMaxTokens: true,
 				streaming: true,
 				vision: true,
 				tools: true,
@@ -1700,6 +1724,7 @@ export const alibabaModels = [
 					"stream",
 					"response_format",
 					"tools",
+					"reasoning_effort",
 				],
 			},
 			{
@@ -1731,6 +1756,9 @@ export const alibabaModels = [
 			{
 				providerId: "nebius",
 				externalId: "Qwen/Qwen3.5-397B-A17B",
+				// Intermittent 404 "The model does not exist" in production
+				// (~57% success rate observed 2026-07-14)
+				deactivatedAt: new Date("2026-07-14"),
 				inputPrice: "0.6e-6",
 				outputPrice: "3.6e-6",
 				requestPrice: "0",
@@ -2634,6 +2662,7 @@ export const alibabaModels = [
 				contextSize: 262144,
 				maxOutput: 65536,
 				reasoning: true,
+				reasoningMaxTokens: true,
 				streaming: true,
 				vision: false,
 				tools: true,
@@ -2649,6 +2678,7 @@ export const alibabaModels = [
 					"stream",
 					"response_format",
 					"tools",
+					"reasoning_effort",
 				],
 			},
 		],
@@ -2672,6 +2702,7 @@ export const alibabaModels = [
 				contextSize: 262144,
 				maxOutput: 65536,
 				reasoning: true,
+				reasoningMaxTokens: true,
 				streaming: true,
 				vision: true,
 				tools: true,
@@ -2689,6 +2720,7 @@ export const alibabaModels = [
 					"stream",
 					"response_format",
 					"tools",
+					"reasoning_effort",
 				],
 			},
 		],
@@ -2711,6 +2743,7 @@ export const alibabaModels = [
 				contextSize: 262144,
 				maxOutput: 65536,
 				reasoning: true,
+				reasoningMaxTokens: true,
 				streaming: true,
 				vision: true,
 				tools: true,
@@ -2728,6 +2761,7 @@ export const alibabaModels = [
 					"stream",
 					"response_format",
 					"tools",
+					"reasoning_effort",
 				],
 			},
 			{
@@ -2781,6 +2815,7 @@ export const alibabaModels = [
 				contextSize: 262144,
 				maxOutput: 65536,
 				reasoning: true,
+				reasoningMaxTokens: true,
 				streaming: true,
 				vision: false,
 				tools: true,
@@ -2796,6 +2831,7 @@ export const alibabaModels = [
 					"stream",
 					"response_format",
 					"tools",
+					"reasoning_effort",
 				],
 			},
 		],

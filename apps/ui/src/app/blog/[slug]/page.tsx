@@ -145,7 +145,9 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 										alt={entry.image.alt ?? entry.title}
 										width={entry.image.width}
 										height={entry.image.height}
+										sizes="(max-width: 768px) 100vw, 768px"
 										className="w-full rounded-lg object-cover"
+										priority
 									/>
 								</div>
 							)}

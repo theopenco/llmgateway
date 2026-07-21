@@ -20,6 +20,7 @@ import {
 	supportsOpenAIExplicitPromptCache,
 	supportsOpenAIExtendedPromptCache,
 	supportsServiceTier,
+	type ToolChoiceMode,
 	type ToolChoiceType,
 	type WebSearchTool,
 } from "@llmgateway/models";
@@ -55,6 +56,20 @@ export function hashSessionCacheKey(sessionId: string): string {
 }
 
 /**
+ * Hash a caller-supplied `prompt_cache_key` before forwarding it upstream.
+ * OpenAI, Azure, and Meta cap the field at 64 characters and reject anything
+ * longer with a 400 (`string_above_max_length`). Rather than only clamping
+ * over-length keys, always hash to a stable 32-char digest: every upstream
+ * cache key the gateway sends (this, the session-id hash, the conversation
+ * prefix hash) is then a uniform 32-char value, and raw caller values are never
+ * exposed to providers. Keyed and domain-separated exactly like
+ * `hashSessionCacheKey`, so cache routing stays stable per key.
+ */
+export function hashPromptCacheKey(key: string): string {
+	return hashSessionCacheKey(key);
+}
+
+/**
  * Meta only routes prompt-cache lookups by `prompt_cache_key`: identical
  * prefixes sent without a key land on different backends and report
  * `cached_tokens: 0` every time (verified live), while the same requests with
@@ -75,6 +90,55 @@ export function deriveConversationCacheKey(
 		.update(JSON.stringify(prefix))
 		.digest("hex")
 		.slice(0, 32);
+}
+
+/**
+ * Collapse an OpenAI `tool_choice` value to its coarse mode so it can be
+ * checked against a mapping's `supportedToolChoices`. A named function choice
+ * (`{type:"function",...}`) maps to "function".
+ */
+function toolChoiceModeOf(
+	toolChoice: ToolChoiceType,
+): ToolChoiceMode | undefined {
+	if (
+		toolChoice === "auto" ||
+		toolChoice === "none" ||
+		toolChoice === "required"
+	) {
+		return toolChoice;
+	}
+	if (typeof toolChoice === "object" && toolChoice?.type === "function") {
+		return "function";
+	}
+	return undefined;
+}
+
+/**
+ * Recursively remove `default` keywords from a JSON schema. Keys inside a
+ * `properties` map are property names, not schema keywords, so a property
+ * literally named "default" is preserved.
+ */
+function stripSchemaDefaults(
+	schema: unknown,
+	isPropertiesMap = false,
+): unknown {
+	if (Array.isArray(schema)) {
+		return schema.map((item) => stripSchemaDefaults(item));
+	}
+	if (schema && typeof schema === "object") {
+		const out: Record<string, unknown> = {};
+		for (const [key, value] of Object.entries(schema)) {
+			if (!isPropertiesMap && key === "default") {
+				continue;
+			}
+			out[key] = stripSchemaDefaults(
+				value,
+				!isPropertiesMap && key === "properties",
+			);
+		}
+		return out;
+	}
+	return schema;
 }
 
 function getProviderMapping(
@@ -690,6 +754,19 @@ function transformMessagesForNoSystemRole(messages: any[]): any[] {
 }
 
 /**
+ * Maps the OpenAI-only `developer` role to `system`. Applied only for mappings
+ * that declare `supportsDeveloperRole: false`, i.e. upstreams that reject
+ * `developer` with a 400 ("developer is not one of ['system', 'assistant',
+ * 'user', 'tool', 'function']"). `developer` is semantically a system
+ * instruction, so downgrading it to `system` is safe on those upstreams.
+ */
+function transformDeveloperRole(messages: any[]): any[] {
+	return messages.map((message) =>
+		message.role === "developer" ? { ...message, role: "system" } : message,
+	);
+}
+
+/**
  * Transforms message content types for OpenAI's Responses API.
  * The Responses API uses different content type identifiers:
  * - "text" -> "input_text" (for user/system/tool messages) or "output_text" (for assistant messages)
@@ -955,10 +1032,11 @@ export async function prepareRequestBody(
 
 	// `none` reasoning effort is handled natively by a few providers:
 	// OpenAI/Azure forward it (their newer models accept it to turn reasoning
-	// off), and Google reasons by default so it must explicitly disable thinking
-	// when asked. Every other provider treats the absence of reasoning_effort as
-	// "off" already, so normalize `none` away for them to avoid forwarding an
-	// unsupported enum value.
+	// off), and Google, Moonshot, Alibaba, MiniMax, and Xiaomi reason by
+	// default so they must explicitly disable thinking when asked. Every other
+	// provider treats the absence of reasoning_effort as "off" already, so
+	// normalize `none` away for them to avoid forwarding an unsupported enum
+	// value.
 	const handlesNoneNatively =
 		usedProvider === "openai" ||
 		usedProvider === "azure" ||
@@ -966,6 +1044,10 @@ export async function prepareRequestBody(
 		usedProvider === "glacier" ||
 		usedProvider === "google-vertex" ||
 		usedProvider === "quartz" ||
+		usedProvider === "moonshot" ||
+		usedProvider === "alibaba" ||
+		usedProvider === "minimax" ||
+		usedProvider === "xiaomi" ||
 		providerMappingForOptions?.apiFormat === "openai-chat-completions";
 	if (reasoning_effort === "none" && !handlesNoneNatively) {
 		reasoning_effort = undefined;
@@ -1307,10 +1389,26 @@ export async function prepareRequestBody(
 	const supportsSystemRole =
 		(modelDef as ModelDefinition)?.supportsSystemRole !== false;
 
-	// Transform messages if model doesn't support system role
 	let processedMessages = messages;
+
+	// Rewrite the OpenAI-only `developer` role to `system` for mappings that
+	// declare they don't accept it (`supportsDeveloperRole: false`). Some
+	// OpenAI-compatible upstreams reject `developer` with a 400 ("developer is
+	// not one of ['system', 'assistant', 'user', 'tool', 'function']"). Mappings
+	// default to accepting `developer`, so this only rewrites where explicitly
+	// opted out.
+	const developerRoleMapping = getProviderMapping(
+		modelDef,
+		usedProvider,
+		usedRegion,
+	);
+	if (developerRoleMapping?.supportsDeveloperRole === false) {
+		processedMessages = transformDeveloperRole(processedMessages);
+	}
+
+	// Transform messages if model doesn't support system role
 	if (!supportsSystemRole) {
-		processedMessages = transformMessagesForNoSystemRole(messages);
+		processedMessages = transformMessagesForNoSystemRole(processedMessages);
 	}
 
 	// Strip Anthropic-style cache_control markers from caller-supplied content
@@ -1484,8 +1582,12 @@ export async function prepareRequestBody(
 		}
 	}
 
-	// Resolve tool_choice: fall back to "auto" when the provider mapping
-	// explicitly lists supportedParameters but omits "tool_choice".
+	// Resolve tool_choice against what the mapping declares it accepts. Fall
+	// back to "auto" when the mapping omits "tool_choice" from
+	// supportedParameters, or when the requested tool_choice mode isn't listed
+	// in the mapping's supportedToolChoices. This keeps forced-tool requests
+	// working on providers that only accept a subset of tool_choice modes,
+	// instead of hard-coding per-provider downgrades here.
 	let resolvedToolChoice = tool_choice;
 	if (tool_choice) {
 		const mapping = modelDef?.providers.find(
@@ -1493,10 +1595,22 @@ export async function prepareRequestBody(
 				p.providerId === usedProvider &&
 				((p as ProviderModelMapping).region ?? null) === usedRegion,
 		) as ProviderModelMapping | undefined;
-		const supported = mapping?.supportedParameters;
-		const supportsToolChoice =
-			!supported || supported.length === 0 || supported.includes("tool_choice");
-		resolvedToolChoice = supportsToolChoice ? tool_choice : "auto";
+
+		const supportedParams = mapping?.supportedParameters;
+		const toolChoiceParamSupported =
+			!supportedParams ||
+			supportedParams.length === 0 ||
+			supportedParams.includes("tool_choice");
+
+		const supportedModes = mapping?.supportedToolChoices;
+		const mode = toolChoiceModeOf(tool_choice);
+		const modeSupported =
+			!supportedModes ||
+			supportedModes.length === 0 ||
+			(mode !== undefined && supportedModes.includes(mode));
+
+		resolvedToolChoice =
+			toolChoiceParamSupported && modeSupported ? tool_choice : "auto";
 		requestBody.tool_choice = resolvedToolChoice;
 	}
 
@@ -1522,46 +1636,8 @@ export async function prepareRequestBody(
 		}
 	}
 
-	if (forcesToolUse && usedProvider === "moonshot") {
-		const providerMapping = modelDef?.providers.find(
-			(p) =>
-				p.providerId === usedProvider &&
-				((p as ProviderModelMapping).region ?? null) === usedRegion,
-		);
-		const isReasoningModel =
-			providerMapping &&
-			"reasoning" in providerMapping &&
-			providerMapping.reasoning === true;
-		if (isReasoningModel) {
-			// Moonshot rejects tool_choice="required" (and forced function choice)
-			// when thinking is enabled, and thinking cannot be disabled on
-			// reasoning models. Downgrade to "auto" so the request still works.
-			resolvedToolChoice = "auto";
-			requestBody.tool_choice = "auto";
-		}
-	}
-
-	if (
-		forcesToolUse &&
-		usedProvider === "tundra" &&
-		resolvedToolChoice === "required"
-	) {
-		// The Tundra upstream rejects tool_choice="required" with a 400.
-		// Named/forced function choice works, so only downgrade the "required"
-		// sentinel to "auto" so the request still succeeds.
-		resolvedToolChoice = "auto";
-		requestBody.tool_choice = "auto";
-	}
-
-	if (
-		forcesToolUse &&
-		usedProvider === "azure" &&
-		usedInternalModel === "gpt-oss-120b"
-	) {
-		// Azure's gpt-oss-120b rejects tool_choice="required" with UnsupportedToolUse.
-		resolvedToolChoice = "auto";
-		requestBody.tool_choice = "auto";
-	}
+	// Per-provider tool_choice downgrades are declared on the model mappings via
+	// `supportedToolChoices` and applied in the resolution block above.
 
 	// Override temperature to 1 for GPT-5 models (they only support temperature = 1)
 	if (usedInternalModel.startsWith("gpt-5")) {
@@ -1677,7 +1753,9 @@ export async function prepareRequestBody(
 					usedProvider === "meta"
 				) {
 					const upstreamCacheKey =
-						prompt_cache_key ??
+						(prompt_cache_key !== undefined
+							? hashPromptCacheKey(prompt_cache_key)
+							: undefined) ??
 						(session_id !== undefined
 							? hashSessionCacheKey(session_id)
 							: undefined) ??
@@ -1775,7 +1853,9 @@ export async function prepareRequestBody(
 					// may hit a legacy deployment-based api-version that rejects
 					// unknown body fields, and the deployment type isn't known here.
 					const upstreamCacheKey =
-						prompt_cache_key ??
+						(prompt_cache_key !== undefined
+							? hashPromptCacheKey(prompt_cache_key)
+							: undefined) ??
 						(session_id !== undefined
 							? hashSessionCacheKey(session_id)
 							: undefined);
@@ -1902,6 +1982,24 @@ export async function prepareRequestBody(
 				requestBody.response_format = response_format;
 			}
 
+			// zai's glm-4.6 hangs indefinitely when a tool parameter schema
+			// contains a `default` keyword (verified live 2026-07-14). Defaults
+			// are advisory in JSON Schema, so strip them for all zai models.
+			if (Array.isArray(requestBody.tools)) {
+				requestBody.tools = requestBody.tools.map(
+					(tool: { function?: { parameters?: unknown } }) =>
+						tool?.function?.parameters
+							? {
+									...tool,
+									function: {
+										...tool.function,
+										parameters: stripSchemaDefaults(tool.function.parameters),
+									},
+								}
+							: tool,
+				);
+			}
+
 			// Add web search tool for ZAI
 			// ZAI uses a web_search tool with enable flag and search_engine config
 			if (webSearchTool) {
@@ -1934,16 +2032,222 @@ export async function prepareRequestBody(
 			// ZAI/GLM models use a `thinking` parameter instead of `reasoning_effort`.
 			// Mirror the OpenAI/Anthropic/Google contract: thinking is opt-in via
 			// `reasoning_effort`. Unset or `minimal` => disabled, anything else => enabled.
+			// Exception: disabling thinking corrupts GLM structured output
+			// (verified live: glm-4.5 emits tool calls as raw <tool_call> text,
+			// glm-4.6v-flashx appends a stray "End" token after JSON output), so
+			// for requests with tools or a response_format leave the provider
+			// default (enabled) rather than disabling.
 			if (supportsReasoning) {
 				const wantsThinking =
 					reasoning_effort !== undefined && reasoning_effort !== "minimal";
-				requestBody.thinking = {
-					type: wantsThinking ? "enabled" : "disabled",
-				};
+				if (wantsThinking || (!requestBody.tools && !response_format)) {
+					requestBody.thinking = {
+						type: wantsThinking ? "enabled" : "disabled",
+					};
+				}
 			}
 			// Add sensitive_word_check if provided (Z.ai specific)
 			if (sensitive_word_check) {
 				requestBody.sensitive_word_check = sensitive_word_check;
+			}
+			break;
+		}
+		case "moonshot": {
+			// Kimi K3 has its own parameter surface: output length is capped via
+			// `max_completion_tokens` (the K2-era `max_tokens` is not documented
+			// for it), and thinking is configured through the native top-level
+			// `reasoning_effort` field instead of the binary `thinking` toggle.
+			const isKimiK3 = usedInternalModel === "kimi-k3";
+			if (stream) {
+				requestBody.stream_options = {
+					include_usage: true,
+				};
+			}
+			if (response_format) {
+				requestBody.response_format = response_format;
+			}
+
+			// Add optional parameters if they are provided
+			if (temperature !== undefined) {
+				requestBody.temperature = temperature;
+			}
+			if (max_tokens !== undefined) {
+				if (isKimiK3) {
+					requestBody.max_completion_tokens = max_tokens;
+				} else {
+					requestBody.max_tokens = max_tokens;
+				}
+			}
+			if (top_p !== undefined) {
+				requestBody.top_p = top_p;
+			}
+			if (frequency_penalty !== undefined) {
+				requestBody.frequency_penalty = frequency_penalty;
+			}
+			if (presence_penalty !== undefined) {
+				requestBody.presence_penalty = presence_penalty;
+			}
+			// Moonshot's K2-era thinking models don't recognize `reasoning_effort`;
+			// they take a binary `thinking` parameter (`{ type: "enabled" |
+			// "disabled" }`) and think by default. Map `none`/`minimal` to an
+			// explicit disable and every other tier to an explicit enable; when no
+			// effort is requested, send nothing and keep the provider default
+			// (thinking on). Mappings that can turn thinking off declare `none` in
+			// `reasoningEfforts`; always-on models (kimi-k2.7-code*) reject
+			// `"disabled"` with a 400, so collapse disable requests onto their
+			// minimum (thinking stays on). Kimi K3 instead takes the top-level
+			// `reasoning_effort` field natively (currently only "max") and always
+			// thinks, so forward the effort as-is and collapse disable requests
+			// onto the provider default.
+			if (supportsReasoning && reasoning_effort !== undefined) {
+				const wantsThinking =
+					reasoning_effort !== "none" && reasoning_effort !== "minimal";
+				if (isKimiK3) {
+					if (wantsThinking) {
+						requestBody.reasoning_effort = reasoning_effort;
+					}
+				} else {
+					const canDisableThinking =
+						providerMappingForOptions?.reasoningEfforts?.includes("none") ??
+						false;
+					if (wantsThinking) {
+						requestBody.thinking = { type: "enabled" };
+					} else if (canDisableThinking) {
+						requestBody.thinking = { type: "disabled" };
+					}
+				}
+			}
+			break;
+		}
+		case "alibaba": {
+			if (stream) {
+				requestBody.stream_options = {
+					include_usage: true,
+				};
+			}
+			if (response_format) {
+				requestBody.response_format = response_format;
+			}
+
+			// Add optional parameters if they are provided
+			if (temperature !== undefined) {
+				requestBody.temperature = temperature;
+			}
+			if (max_tokens !== undefined) {
+				requestBody.max_tokens = max_tokens;
+			}
+			if (top_p !== undefined) {
+				requestBody.top_p = top_p;
+			}
+			if (frequency_penalty !== undefined) {
+				requestBody.frequency_penalty = frequency_penalty;
+			}
+			if (presence_penalty !== undefined) {
+				requestBody.presence_penalty = presence_penalty;
+			}
+			// DashScope doesn't recognize `reasoning_effort`; thinking is
+			// controlled via `enable_thinking` (boolean) and `thinking_budget`
+			// (max thinking tokens), and thinking models think by default.
+			// Mappings whose thinking is budget-controlled declare
+			// `reasoningMaxTokens`, so translate the unified reasoning parameters
+			// only for them: `none` becomes an explicit disable, every other tier
+			// becomes an explicit enable with a native budget (mirroring the
+			// Google tier-to-budget mapping), and an explicit
+			// `reasoning.max_tokens` is forwarded as the budget verbatim. When no
+			// reasoning parameter is set, send nothing and keep the provider
+			// default.
+			if (
+				supportsReasoning &&
+				providerMappingForOptions?.reasoningMaxTokens === true &&
+				(reasoning_effort !== undefined || reasoning_max_tokens !== undefined)
+			) {
+				if (reasoning_effort === "none" && reasoning_max_tokens === undefined) {
+					requestBody.enable_thinking = false;
+				} else {
+					const getThinkingBudget = (effort?: string) => {
+						switch (effort) {
+							case "minimal":
+								return 512;
+							case "low":
+								return 2048;
+							case "high":
+								return 24576;
+							case "xhigh":
+							case "max":
+								// DashScope has no tier above xhigh, so max shares its
+								// top thinking budget.
+								return 65536;
+							case "medium":
+							default:
+								return 8192; // Balanced default
+						}
+					};
+					let thinkingBudget =
+						reasoning_max_tokens ?? getThinkingBudget(reasoning_effort);
+					// DashScope rejects requests where thinking_budget >= max_tokens
+					// for some models (verified live on glm-5.2), so keep the budget
+					// below the caller's completion limit.
+					if (max_tokens !== undefined && thinkingBudget >= max_tokens) {
+						thinkingBudget = Math.max(1, max_tokens - 1);
+					}
+					requestBody.enable_thinking = true;
+					requestBody.thinking_budget = thinkingBudget;
+				}
+			}
+			break;
+		}
+		case "minimax": {
+			if (stream) {
+				requestBody.stream_options = {
+					include_usage: true,
+				};
+			}
+			if (response_format) {
+				requestBody.response_format = response_format;
+			}
+
+			// Add optional parameters if they are provided
+			if (temperature !== undefined) {
+				requestBody.temperature = temperature;
+			}
+			if (max_tokens !== undefined) {
+				requestBody.max_tokens = max_tokens;
+			}
+			if (top_p !== undefined) {
+				requestBody.top_p = top_p;
+			}
+			if (frequency_penalty !== undefined) {
+				requestBody.frequency_penalty = frequency_penalty;
+			}
+			if (presence_penalty !== undefined) {
+				requestBody.presence_penalty = presence_penalty;
+			}
+			if (supportsReasoning) {
+				requestBody.extra_body = {
+					...(requestBody.extra_body ?? {}),
+					reasoning_split: true,
+				};
+			}
+			// MiniMax doesn't recognize `reasoning_effort`; its thinking models
+			// take a binary `thinking` parameter (`{ type: "adaptive" | "disabled" }`)
+			// and think by default. Map `none`/`minimal` to an explicit disable and
+			// every other tier to an explicit enable; when no effort is requested,
+			// send nothing and keep the provider default (thinking on). Only
+			// MiniMax-M3 can actually turn thinking off — the M2.x family silently
+			// ignores `"disabled"` and keeps thinking (verified live) — so mappings
+			// that can disable declare `none` in `reasoningEfforts` and disable
+			// requests collapse onto the minimum (thinking stays on) elsewhere.
+			if (supportsReasoning && reasoning_effort !== undefined) {
+				const wantsThinking =
+					reasoning_effort !== "none" && reasoning_effort !== "minimal";
+				const canDisableThinking =
+					providerMappingForOptions?.reasoningEfforts?.includes("none") ??
+					false;
+				if (wantsThinking) {
+					requestBody.thinking = { type: "adaptive" };
+				} else if (canDisableThinking) {
+					requestBody.thinking = { type: "disabled" };
+				}
 			}
 			break;
 		}
@@ -2250,8 +2554,28 @@ export async function prepareRequestBody(
 						budget_tokens: thinkingBudget,
 					};
 				}
-				// Anthropic requires temperature to be exactly 1 when thinking is enabled
-				temperature = 1;
+				// Anthropic requires temperature to be exactly 1 when thinking is
+				// enabled — but only for models that still accept temperature. The
+				// newest adaptive models (Opus 4.7/4.8, Sonnet 5, Fable 5) deprecated
+				// temperature and reject non-default values, so honor the mapping's
+				// supportedParameters and omit it there (the API defaults to 1).
+				const anthropicSupportedParams =
+					providerMappingForOptions?.supportedParameters;
+				if (
+					!anthropicSupportedParams ||
+					anthropicSupportedParams.includes("temperature")
+				) {
+					temperature = 1;
+				} else {
+					temperature = undefined;
+				}
+				// Anthropic also rejects `top_p` below 0.95 when thinking is enabled
+				// or in adaptive mode ("`top_p` must be greater than or equal to 0.95
+				// or unset"). Drop a caller-supplied top_p that would violate this
+				// rather than forwarding it and 400ing.
+				if (top_p !== undefined && top_p < 0.95) {
+					top_p = undefined;
+				}
 			}
 
 			// Add optional parameters if they are provided
@@ -2515,7 +2839,7 @@ export async function prepareRequestBody(
 				};
 
 				// Handle assistant messages with tool calls
-				if (msg.role === "assistant" && msg.tool_calls) {
+				if (msg.role === "assistant" && msg.tool_calls?.length) {
 					// Add text content if present
 					if (msg.content) {
 						bedrockMessage.content.push({
@@ -2634,6 +2958,15 @@ export async function prepareRequestBody(
 							}
 						}
 					}
+				}
+
+				// Bedrock's Converse API rejects messages whose content array is
+				// empty ("The content field in the Message object at messages.N is
+				// empty"), while the Anthropic API accepts empty assistant turns.
+				// Mirror transformAnthropicMessages and drop such messages —
+				// Bedrock accepts the resulting consecutive same-role messages.
+				if (bedrockMessage.content.length === 0) {
+					continue;
 				}
 
 				bedrockMessages.push(bedrockMessage);
@@ -2857,6 +3190,13 @@ export async function prepareRequestBody(
 				) {
 					inferenceConfig.temperature = 1;
 				}
+				// Anthropic rejects `top_p` below 0.95 when thinking is enabled or in
+				// adaptive mode ("`top_p` must be greater than or equal to 0.95 or
+				// unset"). Drop a caller-supplied topP that would violate this rather
+				// than forwarding it and 400ing.
+				if (inferenceConfig.topP !== undefined && inferenceConfig.topP < 0.95) {
+					delete inferenceConfig.topP;
+				}
 				if (Object.keys(inferenceConfig).length > 0) {
 					requestBody.inferenceConfig = inferenceConfig;
 				}
@@ -3050,17 +3390,19 @@ export async function prepareRequestBody(
 				}
 			}
 
-			// Set all safety settings to BLOCK_NONE to disable content filtering
+			// OFF fully disables the safety filters (unlike BLOCK_NONE, which
+			// still runs the classifiers); requires Gemini 2.0+, which all
+			// active mappings on these providers are.
 			requestBody.safetySettings = [
-				{ category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-				{ category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+				{ category: "HARM_CATEGORY_HARASSMENT", threshold: "OFF" },
+				{ category: "HARM_CATEGORY_HATE_SPEECH", threshold: "OFF" },
 				{
 					category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-					threshold: "BLOCK_NONE",
+					threshold: "OFF",
 				},
 				{
 					category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-					threshold: "BLOCK_NONE",
+					threshold: "OFF",
 				},
 			];
 
@@ -3071,6 +3413,16 @@ export async function prepareRequestBody(
 			if (usedExternalId.startsWith(`${usedProvider}/`)) {
 				requestBody.model = usedExternalId.substring(usedProvider.length + 1);
 			}
+
+			// Together rejects assistant tool_call messages whose content is null
+			// with a bare "Input validation error", even though the OpenAI spec
+			// allows null there; an empty string is accepted.
+			requestBody.messages = (requestBody.messages as BaseMessage[]).map((m) =>
+				m.role === "assistant" &&
+				(m.content === null || m.content === undefined)
+					? { ...m, content: "" }
+					: m,
+			);
 
 			if (response_format) {
 				requestBody.response_format = response_format;
@@ -3236,7 +3588,23 @@ export async function prepareRequestBody(
 			if (presence_penalty !== undefined) {
 				requestBody.presence_penalty = presence_penalty;
 			}
-			if (reasoning_effort !== undefined) {
+			// Xiaomi natively accepts `reasoning_effort` low/medium/high (verified
+			// live: high consistently thinks longer than low) but rejects every
+			// other tier with a 400, and thinking models think by default. Forward
+			// the native tiers verbatim (unsupported ones surface the provider's
+			// 4xx per the no-downgrade rule) and translate `none` to the documented
+			// binary disable (`thinking: { type: "disabled" }`, verified to zero
+			// out reasoning tokens). Mappings that can turn thinking off declare
+			// `none` in `reasoningEfforts`; elsewhere `none` sends nothing and the
+			// provider default is kept.
+			if (reasoning_effort === "none") {
+				const canDisableThinking =
+					providerMappingForOptions?.reasoningEfforts?.includes("none") ??
+					false;
+				if (supportsReasoning && canDisableThinking) {
+					requestBody.thinking = { type: "disabled" };
+				}
+			} else if (reasoning_effort !== undefined) {
 				requestBody.reasoning_effort = reasoning_effort;
 			}
 			break;
@@ -3294,12 +3662,6 @@ export async function prepareRequestBody(
 				) {
 					requestBody.reasoning_effort = reasoning_effort;
 				}
-			}
-			if (usedProvider === "minimax" && supportsReasoning) {
-				requestBody.extra_body = {
-					...(requestBody.extra_body ?? {}),
-					reasoning_split: true,
-				};
 			}
 			// Hybrid models that keep thinking off by default (e.g. DeepSeek V3.2 on
 			// Novita) ignore `reasoning_effort` and require the vLLM chat-template

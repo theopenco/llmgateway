@@ -2,16 +2,16 @@
 
 import Link from "next/link";
 
-import { useUser } from "@/hooks/useUser";
+import { useSessionStatus } from "@/hooks/useUser";
 
 type AuthLinkProps = Omit<React.ComponentProps<typeof Link>, "to">;
 
 export function AuthLink(props: AuthLinkProps) {
-	const { user, isLoading } = useUser();
+	const { isAuthenticated, isLoading } = useSessionStatus();
 	return (
 		<Link
 			{...props}
-			href={user && !isLoading ? "/dashboard" : "/signup"}
+			href={isAuthenticated && !isLoading ? "/dashboard" : "/signup"}
 			prefetch={true}
 		/>
 	);
