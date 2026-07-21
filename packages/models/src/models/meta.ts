@@ -460,6 +460,22 @@ export const metaModels = [
 				tools: false,
 				jsonOutput: true,
 			},
+			{
+				providerId: "scx-ai",
+				externalId: "Llama-4-Maverick-17B-128E-Instruct",
+				// 1.615 AUD / 4.93 AUD per 1M tokens at 0.692662 AUD/USD
+				inputPrice: "1.1186e-6",
+				cachedInputPrice: "0.16779e-6",
+				outputPrice: "3.4148e-6",
+				requestPrice: "0",
+				contextSize: 131072,
+				maxOutput: 8192,
+				quantization: "fp8",
+				streaming: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
 		],
 	},
 	{

@@ -1169,9 +1169,9 @@ export const providers: ProviderDefinition[] = [
 	},
 	{
 		id: "scx-ai",
-		name: "SCX AI",
+		name: "SCX.ai (Turbo Models up to 4x speed)",
 		description:
-			"SCX.ai is an Australian sovereign AI platform providing OpenAI- and Anthropic-compatible inference endpoints for a range of open models and SCX's own models, hosted on renewable-powered infrastructure.",
+			"SCX.ai is an Australian sovereign AI platform providing OpenAI-compatible Turbo inference endpoints — up to 4x faster than comparable providers — for a range of open models and SCX's own models, hosted on renewable-powered infrastructure.",
 		env: {
 			required: {
 				apiKey: "LLM_SCX_AI_API_KEY",

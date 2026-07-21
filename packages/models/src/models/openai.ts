@@ -779,6 +779,23 @@ export const openaiModels = [
 				// in a `{"final": "..."}` envelope instead of the requested schema.
 				jsonOutput: false,
 			},
+			{
+				providerId: "scx-ai",
+				externalId: "gpt-oss-120b",
+				// 0.51 AUD / 1.666 AUD per 1M tokens at 0.692662 AUD/USD
+				inputPrice: "0.3533e-6",
+				cachedInputPrice: "0.052995e-6",
+				outputPrice: "1.154e-6",
+				requestPrice: "0",
+				contextSize: 131072,
+				maxOutput: 32768,
+				quantization: "fp8",
+				streaming: true,
+				vision: false,
+				tools: true,
+				reasoning: true,
+				jsonOutput: true,
+			},
 		],
 	},
 	{
