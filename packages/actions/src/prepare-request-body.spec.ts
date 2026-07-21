@@ -1386,6 +1386,8 @@ describe("prepareRequestBody - Z.ai thinking", () => {
 			| "high"
 			| "xhigh"
 			| "max";
+		responseFormat?: Parameters<typeof prepareRequestBody>[11];
+		tools?: Parameters<typeof prepareRequestBody>[12];
 	}) {
 		return (await prepareRequestBody(
 			"zai",
@@ -1399,8 +1401,8 @@ describe("prepareRequestBody - Z.ai thinking", () => {
 			undefined, // top_p
 			undefined, // frequency_penalty
 			undefined, // presence_penalty
-			undefined, // response_format
-			undefined, // tools
+			options.responseFormat, // response_format
+			options.tools, // tools
 			undefined, // tool_choice
 			options.reasoningEffort, // reasoning_effort
 			true, // supportsReasoning
@@ -1434,6 +1436,42 @@ describe("prepareRequestBody - Z.ai thinking", () => {
 			reasoningEffort: "minimal",
 		});
 		expect(requestBody.thinking).toEqual({ type: "disabled" });
+	});
+
+	test("none disables thinking even when tools are present", async () => {
+		const requestBody = await prepare({
+			model: "glm-4.7",
+			reasoningEffort: "none",
+			tools: [
+				{
+					type: "function",
+					function: { name: "get_weather" },
+				},
+			],
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+	});
+
+	test("none disables thinking even with a response_format", async () => {
+		const requestBody = await prepare({
+			model: "glm-4.7",
+			reasoningEffort: "none",
+			responseFormat: { type: "json_object" },
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+	});
+
+	test("leaves thinking on provider default for tool requests without an effort", async () => {
+		const requestBody = await prepare({
+			model: "glm-4.7",
+			tools: [
+				{
+					type: "function",
+					function: { name: "get_weather" },
+				},
+			],
+		});
+		expect(requestBody.thinking).toBeUndefined();
 	});
 });
 
