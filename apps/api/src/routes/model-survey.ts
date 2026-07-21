@@ -258,7 +258,7 @@ const submitSurvey = createRoute({
 						speedScore: z.number().int().min(1).max(5),
 						wouldRecommend: z.boolean(),
 						primaryUseCase: useCaseEnum,
-						comment: z.string().trim().max(2000).optional(),
+						comment: z.string().trim().min(1).max(2000),
 					}),
 				},
 			},
@@ -343,7 +343,7 @@ modelSurvey.openapi(submitSurvey, async (c) => {
 					speedScore,
 					wouldRecommend,
 					primaryUseCase,
-					comment: comment || null,
+					comment,
 					requestCount,
 					devPlanTier: tier,
 					rewardTier: grantTier,
@@ -419,7 +419,6 @@ modelSurvey.openapi(submitSurvey, async (c) => {
 			speedScore,
 			wouldRecommend,
 			primaryUseCase,
-			hasComment: Boolean(comment),
 		},
 	});
 

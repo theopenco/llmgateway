@@ -67,7 +67,11 @@ const formSchema = z.object({
 		USE_CASES.map((u) => u.value) as [UseCase, ...UseCase[]],
 		{ errorMap: () => ({ message: "Pick your main use." }) },
 	),
-	comment: z.string().max(2000, "Keep it under 2000 characters."),
+	comment: z
+		.string()
+		.trim()
+		.min(1, "Field notes are required — one honest line is plenty.")
+		.max(2000, "Keep it under 2000 characters."),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -195,7 +199,7 @@ export default function SurveyClient({
 					speedScore: values.speedScore,
 					wouldRecommend: values.wouldRecommend,
 					primaryUseCase: values.primaryUseCase,
-					comment: trimmedComment || undefined,
+					comment: trimmedComment,
 				},
 			});
 			if (posthogKey) {
@@ -473,9 +477,7 @@ export default function SurveyClient({
 					name="comment"
 					render={({ field }) => (
 						<FormItem>
-							<FormLabel className="text-sm font-medium">
-								Field notes (optional)
-							</FormLabel>
+							<FormLabel className="text-sm font-medium">Field notes</FormLabel>
 							<FormControl>
 								<Textarea
 									rows={4}

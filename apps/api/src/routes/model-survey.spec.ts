@@ -79,6 +79,7 @@ const validBody = {
 	speedScore: 3,
 	wouldRecommend: true,
 	primaryUseCase: "agentic_coding",
+	comment: "Great value for agentic work.",
 };
 
 async function getOrg() {
@@ -188,6 +189,17 @@ describe("model survey submit", () => {
 
 		const res = await submitRequest(validBody, token);
 		expect(res.status).toBe(403);
+	});
+
+	it("rejects a missing or blank comment", async () => {
+		await insertOrg();
+		await seedModelStats("survey-coder-large", "openai", 80);
+
+		const { comment: _comment, ...withoutComment } = validBody;
+		expect((await submitRequest(withoutComment, token)).status).toBe(400);
+		expect(
+			(await submitRequest({ ...validBody, comment: "   " }, token)).status,
+		).toBe(400);
 	});
 
 	it("records the response and grants one reset pass per org per year", async () => {
