@@ -29,6 +29,7 @@ import {
 	findProviderKeysByProviders,
 	type CustomModel,
 } from "@/lib/cached-queries.js";
+import { raceClientAbort } from "@/lib/client-abort.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import {
 	isCodingModel,
@@ -11002,6 +11003,20 @@ chat.openapi(completions, async (c) => {
 		); // Using 400 status code for client closed request
 	};
 
+	// Wrap an upstream body read (res.text()/res.json()) so a client disconnect
+	// settles it immediately instead of relying on the fetch AbortSignal to
+	// propagate into undici's in-flight body machinery — a late abort can be
+	// missed there, leaving the read blocked until the fetch timeout and the
+	// request mislogged as an upstream error instead of canceled.
+	// requestCanBeCanceled is read at call time: retries can switch providers,
+	// flipping whether cancellation is supported.
+	const readBodyWithClientAbort = <T>(bodyPromise: Promise<T>): Promise<T> =>
+		raceClientAbort(
+			bodyPromise,
+			c.req.raw.signal,
+			requestCanBeCanceled ? controller : undefined,
+		);
+
 	// --- Retry loop for provider fallback ---
 	const routingAttempts: RoutingAttempt[] = [];
 	const failedProviderIds = new Set<string>();
@@ -11467,7 +11482,7 @@ chat.openapi(completions, async (c) => {
 				onAbort();
 			}
 			try {
-				const rawErrorResponseText = await res.text();
+				const rawErrorResponseText = await readBodyWithClientAbort(res.text());
 				errorResponseText = usesAwsBedrockConverse()
 					? extractAwsBedrockHttpError(res, rawErrorResponseText)
 					: rawErrorResponseText;
@@ -11479,8 +11494,14 @@ chat.openapi(completions, async (c) => {
 				// A client disconnect aborts the in-flight error-body read; record
 				// it as a canceled request (same log shape as the fetch-
 				// cancellation path) instead of misreporting it as an upstream
-				// failure or a bare 499.
-				if (bodyError.name === "AbortError") {
+				// failure or a bare 499. The abort can also surface as a generic
+				// failure (undici "terminated" TypeError, or a TimeoutError when
+				// the abort never reached the body read), so any read failure
+				// after the client already disconnected counts as canceled too.
+				if (
+					bodyError.name === "AbortError" ||
+					(requestCanBeCanceled && c.req.raw.signal.aborted)
+				) {
 					return await respondCanceled();
 				}
 				// A read timeout or a mid-body socket failure (e.g. undici
@@ -12112,7 +12133,7 @@ chat.openapi(completions, async (c) => {
 		if (forceStream && res.body) {
 			// Stream-only model: upstream returned SSE but client expects JSON.
 			// Read the full stream and assemble a non-streaming response.
-			const text = await res.text();
+			const text = await readBodyWithClientAbort(res.text());
 			const lines = text.split("\n");
 			let content = "";
 			const toolCalls: any[] = [];
@@ -12196,7 +12217,7 @@ chat.openapi(completions, async (c) => {
 			// Upstream is openai/azure gpt-image-* and we forced stream=true
 			// to dodge the 122s sync wall. Collapse the SSE back into the
 			// normal { data: [{ b64_json }], usage } shape.
-			const text = await res.text();
+			const text = await readBodyWithClientAbort(res.text());
 			const collapsed = collapseImageGenSse(text);
 			if ("error" in collapsed) {
 				const sseErrorText = JSON.stringify(collapsed.error);
@@ -12344,7 +12365,7 @@ chat.openapi(completions, async (c) => {
 			}
 			json = collapsed.json;
 		} else {
-			json = await res.json();
+			json = await readBodyWithClientAbort(res.json());
 		}
 	} catch (bodyError) {
 		// Re-throw non-Error values (mirrors the fetch catch above).
@@ -12354,7 +12375,14 @@ chat.openapi(completions, async (c) => {
 		// A client disconnect aborts the in-flight body read; record it as a
 		// canceled request (same log shape as the fetch-cancellation path)
 		// instead of misreporting it as an upstream failure or a bare 499.
-		if (bodyError.name === "AbortError") {
+		// The abort can also surface as a generic failure (undici "terminated"
+		// TypeError, or a TimeoutError when the abort never reached the body
+		// read), so any read failure after the client already disconnected
+		// counts as canceled too.
+		if (
+			bodyError.name === "AbortError" ||
+			(requestCanBeCanceled && c.req.raw.signal.aborted)
+		) {
 			// The post-loop success append already recorded this provider as a
 			// succeeded routing attempt. Drop it before logging the cancellation
 			// so a client disconnect isn't counted as a provider success in the
