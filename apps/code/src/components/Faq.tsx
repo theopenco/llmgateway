@@ -142,7 +142,7 @@ const faqData: FaqItem[] = [
 	{
 		question: "Does the weekly premium allowance reset when my plan renews?",
 		answer:
-			"Yes. Every monthly renewal resets everything at once: your monthly credits, your weekly premium allowance (a fresh 7-day window starts at renewal), and your included Reset Passes. Between renewals the window is rolling — when 7 days end, the next window starts with your next premium request, and redeeming a Reset Pass clears the window so the next request starts a fresh one. There's no reset schedule to manage and nothing carries into the next cycle. Purchased Reset Passes are separate: they persist until redeemed.",
+			"Yes. Every monthly renewal resets everything at once: your monthly credits, your weekly premium allowance (a fresh 7-day window starts at renewal), and your included Reset Passes. Between renewals the window is rolling — when 7 days end, the next window starts with your next premium request, and redeeming a Reset Pass clears the window so the next request starts a fresh one. There's no reset schedule to manage — neither the weekly window nor unused included passes carry into the next cycle. Purchased Reset Passes are separate: they persist until redeemed.",
 		content: (
 			<>
 				<p>
@@ -154,9 +154,9 @@ const faqData: FaqItem[] = [
 					Between renewals the window is rolling — when 7 days end, the next
 					window starts with your next premium request, and redeeming a Reset
 					Pass clears the window so the next request starts a fresh one.
-					There&apos;s no reset schedule to manage and nothing carries into the
-					next cycle. Purchased Reset Passes are separate: they persist until
-					redeemed. See{" "}
+					There&apos;s no reset schedule to manage — neither the weekly window
+					nor unused included passes carry into the next cycle. Purchased Reset
+					Passes are separate: they persist until redeemed. See{" "}
 					<Link
 						href="https://docs.llmgateway.io/learn/reset-passes"
 						className="underline"
