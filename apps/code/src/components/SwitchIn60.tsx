@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 
 import {
 	AnthropicIcon,
+	EmpryoIcon,
 	OpenCodeIcon,
 	SoulForgeIcon,
 } from "@llmgateway/shared/components";
@@ -62,6 +63,16 @@ const TOOLS: ToolGuide[] = [
 		steps: [
 			{ label: "Launch OpenCode", code: "opencode" },
 			{ label: "Type /connect, pick LLM Gateway, paste your DevPass key" },
+		],
+	},
+	{
+		id: "empryo",
+		label: "Empryo",
+		icon: EmpryoIcon,
+		blurb: "Edits symbols, not strings. One key, every model.",
+		steps: [
+			{ label: "Launch Empryo", code: "empryo" },
+			{ label: "Type /keys and paste your DevPass key" },
 		],
 	},
 	{

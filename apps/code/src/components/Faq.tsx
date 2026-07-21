@@ -92,7 +92,7 @@ const faqData: FaqItem[] = [
 	{
 		question: "Which tools and SDKs work with DevPass?",
 		answer:
-			"Anything that speaks the OpenAI or Anthropic API — Claude Code, SoulForge, Cursor, Cline, Continue, Aider, the OpenAI and Anthropic SDKs, and more. Set two environment variables and you're in.",
+			"Anything that speaks the OpenAI or Anthropic API — Claude Code, Empryo, SoulForge, Cursor, Cline, Continue, Aider, the OpenAI and Anthropic SDKs, and more. Set two environment variables and you're in.",
 	},
 	{
 		question: "Are all 200+ models included on every plan?",

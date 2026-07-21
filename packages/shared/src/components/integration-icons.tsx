@@ -226,6 +226,24 @@ export const SoulForgeIcon: React.FC<React.SVGProps<SVGSVGElement>> = ({
 	/>
 );
 
+// Empryo Icon — raster mark hosted at /integrations/empryo.png in each app's public dir.
+export const EmpryoIcon: React.FC<React.SVGProps<SVGSVGElement>> = ({
+	className,
+	style,
+}) => (
+	<img
+		src="/integrations/empryo.png"
+		alt="Empryo"
+		className={className as string | undefined}
+		style={
+			{
+				objectFit: "contain",
+				...(style as React.CSSProperties | undefined),
+			} as React.CSSProperties
+		}
+	/>
+);
+
 // Continue CLI Icon
 export const ContinueIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	props,

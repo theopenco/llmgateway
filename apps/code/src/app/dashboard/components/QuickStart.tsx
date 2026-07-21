@@ -10,11 +10,18 @@ import {
 	AnthropicIcon,
 	AutohandIcon,
 	ClineIcon,
+	EmpryoIcon,
 	OpenCodeIcon,
 	SoulForgeIcon,
 } from "@llmgateway/shared/components";
 
-type ToolId = "claude-code" | "opencode" | "soulforge" | "autohand" | "cline";
+type ToolId =
+	| "claude-code"
+	| "opencode"
+	| "empryo"
+	| "soulforge"
+	| "autohand"
+	| "cline";
 
 interface ToolDef {
 	id: ToolId;
@@ -26,6 +33,11 @@ interface ToolDef {
 const TOOLS: ToolDef[] = [
 	{ id: "claude-code", name: "Claude Code", icon: AnthropicIcon },
 	{ id: "opencode", name: "OpenCode", icon: OpenCodeIcon },
+	{
+		id: "empryo",
+		name: "Empryo",
+		icon: EmpryoIcon,
+	},
 	{
 		id: "soulforge",
 		name: "SoulForge",
@@ -61,6 +73,12 @@ function buildSnippets(apiKey: string): Record<ToolId, Snippet> {
 			exports: [],
 			command: "opencode",
 			comment: "# LLM Gateway is built-in — type /connect to link your key",
+		},
+		empryo: {
+			exports: [],
+			command: "empryo",
+			comment:
+				"# inside: /keys → paste your DevPass key (or: empryo --set-key llmgateway <key>)",
 		},
 		soulforge: {
 			exports: [],
