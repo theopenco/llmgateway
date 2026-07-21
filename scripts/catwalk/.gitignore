@@ -1,0 +1,2 @@
+# Re-include the generated catwalk provider config (scripts/.gitignore ignores *.json)
+!llmgateway.json

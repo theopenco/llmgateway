@@ -1,0 +1,128 @@
+---
+title: Crush Integration
+description: Use any model with Crush, Charm's terminal coding agent. Custom provider configuration, automatic provider routing, full cost tracking.
+icon: Crush
+---
+
+import { Step, Steps } from "fumadocs-ui/components/steps";
+import { Callout } from "fumadocs-ui/components/callout";
+
+[Crush](https://github.com/charmbracelet/crush) is Charm's open-source AI coding agent for the terminal. It edits files, runs commands, and works through multi-step tasks with a polished TUI. Point it at LLM Gateway and every session runs on any model in the catalog — with one API key, automatic provider failover, and per-request cost tracking.
+
+## Prerequisites
+
+- Crush installed — see the [Crush README](https://github.com/charmbracelet/crush#installation) for all install methods
+- An LLM Gateway API key from the [dashboard](https://llmgateway.io/dashboard)
+
+## Setup
+
+<Steps>
+<Step>
+### Install Crush
+
+```bash
+brew install charmbracelet/tap/crush
+```
+
+or via npm:
+
+```bash
+npm install -g @charmland/crush
+```
+
+Confirm the installation:
+
+```bash
+crush --version
+```
+
+</Step>
+
+<Step>
+### Set your API key
+
+```bash
+export LLMGATEWAY_API_KEY=your_api_key_here
+```
+
+</Step>
+
+<Step>
+### Add LLM Gateway as a provider
+
+Create a `crush.json` in your project directory (or `~/.config/crush/crush.json` to apply globally):
+
+```json
+{
+	"$schema": "https://charm.land/crush.json",
+	"providers": {
+		"llmgateway": {
+			"name": "LLM Gateway",
+			"type": "openai-compat",
+			"base_url": "https://api.llmgateway.io/v1",
+			"api_key": "$LLMGATEWAY_API_KEY",
+			"models": [
+				{
+					"id": "claude-sonnet-5",
+					"name": "Claude Sonnet 5",
+					"cost_per_1m_in": 2,
+					"cost_per_1m_out": 10,
+					"context_window": 1000000,
+					"default_max_tokens": 128000,
+					"can_reason": true,
+					"supports_attachments": true
+				},
+				{
+					"id": "claude-haiku-4-5",
+					"name": "Claude Haiku 4.5",
+					"cost_per_1m_in": 1,
+					"cost_per_1m_out": 5,
+					"context_window": 200000,
+					"default_max_tokens": 64000,
+					"can_reason": true,
+					"supports_attachments": true
+				}
+			]
+		}
+	}
+}
+```
+
+Add an entry to `models` for any model you want to use — every ID from the [models catalog](https://llmgateway.io/models) works, and the catalog lists each model's context window and pricing.
+
+<Callout type="info">
+	Bare model IDs (e.g. `claude-sonnet-5`) get automatic provider selection and
+	failover. Prefix with a provider (e.g. `anthropic/claude-sonnet-5`) to pin
+	routing to a specific upstream provider.
+</Callout>
+
+</Step>
+
+<Step>
+### Start coding
+
+Launch Crush in your project:
+
+```bash
+crush
+```
+
+Pick a model from the LLM Gateway provider when prompted (or switch anytime from within Crush). Every request now routes through LLM Gateway and shows up in your [dashboard](https://llmgateway.io/dashboard) with per-request costs.
+
+</Step>
+</Steps>
+
+## Troubleshooting
+
+**Authentication errors** — Double-check the key and that the base URL is exactly `https://api.llmgateway.io/v1`.
+
+**Model not found** — Copy the model ID exactly from the [models page](https://llmgateway.io/models).
+
+**Context overflow on big tasks** — Switch to a model with a larger context window; the catalog lists context sizes per model, and set `context_window` in your `crush.json` to match.
+
+## Why route Crush through LLM Gateway
+
+- **Any model, one key** — OpenAI, Anthropic, Google, Meta, DeepSeek, and open-source models through one endpoint
+- **Automatic failover** — bare model IDs route to the best available provider and fall over automatically
+- **Cost control** — per-request cost tracking and spend limits in the dashboard
+- **Response caching** — repeated requests hit cache automatically

@@ -10,6 +10,7 @@ import {
 	AutohandIcon,
 	CodexIcon,
 	ContinueIcon,
+	CrushIcon,
 	OpenClawIcon,
 	ClineIcon,
 	CursorIcon,
@@ -93,6 +94,14 @@ const integrations: Integration[] = [
 			"Use LLM Gateway with Continue's open-source AI code assistant CLI.",
 		href: "/guides/continue",
 		icon: ContinueIcon,
+		comingSoon: false,
+	},
+	{
+		name: "Crush",
+		description:
+			"Use LLM Gateway with Crush, Charm's glamorous terminal coding agent, on any model.",
+		href: "/guides/crush",
+		icon: CrushIcon,
 		comingSoon: false,
 	},
 	{

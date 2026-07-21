@@ -8,6 +8,7 @@ import {
 	ClineIcon,
 	CodexIcon,
 	ContinueIcon,
+	CrushIcon,
 	CursorIcon,
 	DevPassCodeIcon,
 	HermesIcon,
@@ -90,6 +91,14 @@ export const DEFAULT_INTEGRATION_GUIDES: IntegrationGuide[] = [
 			"Use LLM Gateway with Continue's open-source AI code assistant CLI.",
 		href: "/guides/continue",
 		icon: ContinueIcon,
+		comingSoon: false,
+	},
+	{
+		name: "Crush",
+		description:
+			"Use LLM Gateway with Crush, Charm's glamorous terminal coding agent, on any model.",
+		href: "/guides/crush",
+		icon: CrushIcon,
 		comingSoon: false,
 	},
 	{
