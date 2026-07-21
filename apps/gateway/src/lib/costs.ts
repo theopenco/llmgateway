@@ -649,7 +649,8 @@ export async function calculateCosts(
 		provider === "openai" ||
 		provider === "azure" ||
 		provider === "sakana" ||
-		provider === "meta";
+		provider === "meta" ||
+		provider === "bedrock";
 	const totalOutputTokens = completionIncludesReasoning
 		? calculatedCompletionTokens
 		: calculatedCompletionTokens + (reasoningTokens ?? 0);

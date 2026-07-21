@@ -114,6 +114,7 @@ export function getProviderHeaders(
 				Authorization: `Bearer ${token}`,
 			};
 		case "aws-bedrock":
+		case "bedrock":
 			return {
 				...requestIdHeader,
 				Authorization: `Bearer ${token}`,

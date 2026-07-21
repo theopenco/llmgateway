@@ -1040,6 +1040,7 @@ export async function prepareRequestBody(
 	const handlesNoneNatively =
 		usedProvider === "openai" ||
 		usedProvider === "azure" ||
+		usedProvider === "bedrock" ||
 		usedProvider === "google-ai-studio" ||
 		usedProvider === "glacier" ||
 		usedProvider === "google-vertex" ||
@@ -1657,6 +1658,7 @@ export async function prepareRequestBody(
 		case "azure":
 		case "sakana":
 		case "meta":
+		case "bedrock":
 		case "openai": {
 			// Determine whether to use Responses API format.
 			// If useResponsesApi is explicitly passed (derived from endpoint URL), use it.
@@ -1743,13 +1745,15 @@ export async function prepareRequestBody(
 
 				// prompt_cache_key influences upstream cache-shard routing; only
 				// OpenAI, Azure (v1 surface — the Responses API path is always v1),
-				// and Meta support it. Sakana does not document the field. Prefer
-				// the caller's explicit key, then the salted hash of the caller's
-				// session id, then (Meta only, where the key is required for hits
-				// at all) a key derived from the conversation prefix.
+				// Bedrock Mantle, and Meta support it. Sakana does not document the
+				// field. Prefer the caller's explicit key, then the salted hash of
+				// the caller's session id, then (Meta only, where the key is
+				// required for hits at all) a key derived from the conversation
+				// prefix.
 				if (
 					usedProvider === "openai" ||
 					usedProvider === "azure" ||
+					usedProvider === "bedrock" ||
 					usedProvider === "meta"
 				) {
 					const upstreamCacheKey =
