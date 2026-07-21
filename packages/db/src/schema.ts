@@ -428,6 +428,11 @@ export const transaction = pgTable(
 				// allowance reset). `amount` is the real dollars paid;
 				// `creditAmount` is null (no credits are granted).
 				"dev_plan_reset_pass",
+				// Free Reset Pass granted as the reward for a yearly model-survey
+				// response. `amount` is "0" (nothing is charged) and `creditAmount`
+				// is null. A separate type so reset-pass revenue analytics, which
+				// count "dev_plan_reset_pass", are unaffected by reward grants.
+				"dev_plan_reset_pass_reward",
 				"chat_plan_start",
 				"chat_plan_upgrade",
 				"chat_plan_downgrade",
@@ -548,6 +553,79 @@ export const chatPlanCancellationFeedback = pgTable(
 		),
 		index("chat_plan_cancellation_feedback_organization_id_idx").on(
 			table.organizationId,
+		),
+	],
+);
+
+// One DevPass member's yearly-survey verdict on a coding model they have
+// genuinely used through the gateway. Powers the annual public model-value
+// report (/data/<year> on the DevPass site). Responses are usage-verified:
+// the API only accepts one when the member's DevPass org has enough recent
+// requests on the model, and `requestCount` snapshots that usage.
+export const modelSurveyResponse = pgTable(
+	"model_survey_response",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		// Campaign year the response counts toward (the survey runs all year).
+		year: integer().notNull(),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		modelId: text().notNull(),
+		// 1-5: was the output worth what the model costs.
+		valueScore: integer().notNull(),
+		// 1-5: quality of the generated code/output.
+		qualityScore: integer().notNull(),
+		// 1-5: satisfaction with generation speed.
+		speedScore: integer().notNull(),
+		wouldRecommend: boolean().notNull(),
+		primaryUseCase: text({
+			enum: [
+				"agentic_coding",
+				"code_completion",
+				"code_review",
+				"debugging",
+				"writing_tests",
+				"docs_and_explanations",
+				"other",
+			],
+		}).notNull(),
+		comment: text(),
+		// Requests the org had made on the model within the qualifying window
+		// at submission time.
+		requestCount: integer().notNull(),
+		devPlanTier: text({ enum: ["lite", "pro", "max"] }).notNull(),
+		// Tier of the free Reset Pass granted for this response. Null when no
+		// pass was granted (only the org's first response each year rewards).
+		rewardTier: text({ enum: ["lite", "pro", "max"] }),
+	},
+	(table) => [
+		uniqueIndex("model_survey_response_user_model_year_unique").on(
+			table.userId,
+			table.modelId,
+			table.year,
+		),
+		index("model_survey_response_year_model_idx").on(table.year, table.modelId),
+		index("model_survey_response_organization_id_idx").on(table.organizationId),
+		check(
+			"model_survey_response_value_score_check",
+			sql`${table.valueScore} >= 1 AND ${table.valueScore} <= 5`,
+		),
+		check(
+			"model_survey_response_quality_score_check",
+			sql`${table.qualityScore} >= 1 AND ${table.qualityScore} <= 5`,
+		),
+		check(
+			"model_survey_response_speed_score_check",
+			sql`${table.speedScore} >= 1 AND ${table.speedScore} <= 5`,
 		),
 	],
 );
@@ -2857,6 +2935,8 @@ export const auditLogActions = [
 	"dev_plan.update_payment_method",
 	"dev_plan.reset_pass_purchase",
 	"dev_plan.reset_pass_redeem",
+	// Free Reset Pass granted for a yearly model-survey response.
+	"dev_plan.reset_pass_reward",
 	// Chat Plan
 	"chat_plan.subscribe",
 	"chat_plan.cancel",

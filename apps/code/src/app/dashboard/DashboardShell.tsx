@@ -9,6 +9,7 @@ import {
 	Loader2,
 	LogOut,
 	Settings,
+	Stamp,
 	UserRound,
 } from "lucide-react";
 import dynamic from "next/dynamic";
@@ -18,6 +19,7 @@ import { usePostHog } from "posthog-js/react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import SurveyReminderDialog from "@/app/dashboard/components/SurveyReminderDialog";
 import { EmailVerificationBanner } from "@/components/EmailVerificationBanner";
 import {
 	AlertDialog,
@@ -67,7 +69,14 @@ const resourceNavItems: Array<{
 	label: string;
 	href: Route;
 	icon: typeof BarChart3;
-}> = [{ label: "Coding models", href: "/coding-models" as Route, icon: Code }];
+}> = [
+	{ label: "Coding models", href: "/coding-models" as Route, icon: Code },
+	{
+		label: "Model census",
+		href: `/data/${new Date().getUTCFullYear()}` as Route,
+		icon: Stamp,
+	},
+];
 
 type SetupActivationStatus =
 	| "loading_stripe"
@@ -459,6 +468,8 @@ export default function DashboardShell({
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>
+
+			<SurveyReminderDialog active={Boolean(hasActivePlan)} />
 
 			{/* Header */}
 			<header className="border-b border-border/50">

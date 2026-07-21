@@ -17,6 +17,8 @@ export const planExcludedTypes = [
 	// creditAmount), reported with the other dev plan rows — not part of the
 	// credits economy.
 	"dev_plan_reset_pass",
+	// Free survey-reward passes carry amount "0" and are never revenue.
+	"dev_plan_reset_pass_reward",
 	"subscription_start",
 	"subscription_cancel",
 	"subscription_end",
