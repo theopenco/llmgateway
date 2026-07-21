@@ -7,6 +7,7 @@ import {
 	executeSelfRefund,
 	isSelfRefundCandidateType,
 } from "@/lib/self-refund.js";
+import { posthog } from "@/posthog.js";
 import {
 	ensureStripeCustomer,
 	finalizeDevPlanSetupSession,
@@ -3213,6 +3214,17 @@ devPlans.openapi(redeemResetPass, async (c) => {
 			tier,
 			source,
 			premiumCreditsUsedBeforeReset: personalOrg.devPlanPremiumCreditsUsed,
+		},
+	});
+
+	posthog.capture({
+		distinctId: user.id,
+		event: "reset_pass_redeemed",
+		groups: { organization: personalOrg.id },
+		properties: {
+			devPlan: tier,
+			source,
+			organization: personalOrg.id,
 		},
 	});
 

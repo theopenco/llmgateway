@@ -140,6 +140,35 @@ const faqData: FaqItem[] = [
 		answer: `Redeem a Reset Pass: it instantly restores your full weekly premium allowance and starts a fresh 7-day window. A pass removes the weekly limit only — it doesn't add credits, so usage still draws from your monthly allowance. Pro includes ${DEV_PLAN_INCLUDED_RESET_PASSES.pro} pass per billing cycle and Max includes ${DEV_PLAN_INCLUDED_RESET_PASSES.max}; extra passes are a one-time purchase from your dashboard ($${DEV_PLAN_RESET_PASS_PRICES.lite} on Lite, $${DEV_PLAN_RESET_PASS_PRICES.pro} on Pro, $${DEV_PLAN_RESET_PASS_PRICES.max} on Max). Standard models keep working the whole time, and if you're resetting every week, upgrading a tier is usually the better deal.`,
 	},
 	{
+		question: "Does the weekly premium allowance reset when my plan renews?",
+		answer:
+			"Yes. Every monthly renewal resets everything at once: your monthly credits, your weekly premium allowance (a fresh 7-day window starts at renewal), and your included Reset Passes. Between renewals the window is rolling — when 7 days end, the next window starts with your next premium request, and redeeming a Reset Pass clears the window so the next request starts a fresh one. There's no reset schedule to manage — neither the weekly window nor unused included passes carry into the next cycle. Purchased Reset Passes are separate: they persist until redeemed.",
+		content: (
+			<>
+				<p>
+					Yes. Every monthly renewal resets everything at once: your monthly
+					credits, your weekly premium allowance (a fresh 7-day window starts at
+					renewal), and your included Reset Passes.
+				</p>
+				<p className="mt-3">
+					Between renewals the window is rolling — when 7 days end, the next
+					window starts with your next premium request, and redeeming a Reset
+					Pass clears the window so the next request starts a fresh one.
+					There&apos;s no reset schedule to manage — neither the weekly window
+					nor unused included passes carry into the next cycle. Purchased Reset
+					Passes are separate: they persist until redeemed. See{" "}
+					<Link
+						href="https://docs.llmgateway.io/learn/reset-passes"
+						className="underline"
+					>
+						Reset Passes
+					</Link>{" "}
+					for the full mechanics.
+				</p>
+			</>
+		),
+	},
+	{
 		question: "Can I get a refund?",
 		answer:
 			"Yes — DevPass comes with a first-month guarantee. Cancel within 7 days of your first purchase and email contact@llmgateway.io: we'll refund your first month minus the usage you consumed at provider rates. There's no cancellation fee.",

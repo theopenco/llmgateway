@@ -1157,7 +1157,10 @@ export async function finalizeDevPlanSetupSession(
 		properties: { name: organization.name },
 	});
 	posthog.capture({
-		distinctId: "organization",
+		distinctId: await resolvePurchaserDistinctId(
+			userEmail,
+			organization.billingEmail,
+		),
 		event: "dev_plan_started",
 		groups: { organization: organizationId },
 		properties: {
@@ -1405,7 +1408,10 @@ async function handleCheckoutSessionCompleted(
 				},
 			});
 			posthog.capture({
-				distinctId: "organization",
+				distinctId: await resolvePurchaserDistinctId(
+					metadata?.userEmail,
+					organization.billingEmail,
+				),
 				event: "chat_plan_started",
 				groups: {
 					organization: organizationId,
@@ -1527,7 +1533,10 @@ async function handleCheckoutSessionCompleted(
 				},
 			});
 			posthog.capture({
-				distinctId: "organization",
+				distinctId: await resolvePurchaserDistinctId(
+					metadata?.userEmail,
+					organization.billingEmail,
+				),
 				event: "dev_plan_started",
 				groups: {
 					organization: organizationId,
@@ -1756,6 +1765,31 @@ async function applyFirstTimeBonus({
 	return { finalCreditAmount, bonusAmount, bonusType };
 }
 
+/**
+ * Resolves the PostHog distinct id for a purchase conversion event. The
+ * frontends identify browser persons with the user's id, so capturing
+ * payments against that same id lets pageview journeys be joined to
+ * payments in analytics (e.g. the converting-URL sections of the traffic
+ * report). Falls back to the legacy "organization" pseudo-person when no
+ * user can be resolved.
+ */
+async function resolvePurchaserDistinctId(
+	...emails: (string | null | undefined)[]
+): Promise<string> {
+	const candidates = new Set(
+		emails.filter((email): email is string => Boolean(email)),
+	);
+	for (const email of candidates) {
+		const purchaser = await db.query.user.findFirst({
+			where: { email: { eq: email } },
+		});
+		if (purchaser) {
+			return purchaser.id;
+		}
+	}
+	return "organization";
+}
+
 async function recordCreditTopUp({
 	organizationId,
 	finalCreditAmount,
@@ -1768,6 +1802,7 @@ async function recordCreditTopUp({
 	organization,
 	source,
 	bonusType,
+	purchaserUserId,
 }: {
 	organizationId: string;
 	finalCreditAmount: number;
@@ -1787,6 +1822,7 @@ async function recordCreditTopUp({
 	};
 	source: string;
 	bonusType?: BonusType | null;
+	purchaserUserId?: string | null;
 }) {
 	await db
 		.update(tables.organization)
@@ -1871,7 +1907,9 @@ async function recordCreditTopUp({
 		},
 	});
 	posthog.capture({
-		distinctId: "organization",
+		distinctId:
+			purchaserUserId ??
+			(await resolvePurchaserDistinctId(organization.billingEmail)),
 		event: "credits_purchased",
 		groups: {
 			organization: organizationId,
@@ -2005,6 +2043,7 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
 		organization,
 		source: "stripe_checkout",
 		bonusType,
+		purchaserUserId: resolvedUser?.id ?? null,
 	});
 
 	if (userEmail) {
@@ -2607,7 +2646,12 @@ export async function fulfillResetPassPurchase(
 	}
 
 	posthog.capture({
-		distinctId: "organization",
+		distinctId:
+			metadata.userId ??
+			(await resolvePurchaserDistinctId(
+				metadata.userEmail,
+				organization.billingEmail,
+			)),
 		event: "reset_pass_purchased",
 		groups: {
 			organization: organization.id,
@@ -2820,7 +2864,9 @@ async function handlePaymentIntentSucceeded(
 			},
 		});
 		posthog.capture({
-			distinctId: "organization",
+			distinctId:
+				resolvedUser?.id ??
+				(await resolvePurchaserDistinctId(organization.billingEmail)),
 			event: "credits_purchased",
 			groups: {
 				organization: organizationId,
@@ -2845,6 +2891,7 @@ async function handlePaymentIntentSucceeded(
 			organization,
 			source: "payment_intent",
 			bonusType,
+			purchaserUserId: resolvedUser?.id ?? null,
 		});
 	}
 
@@ -3719,7 +3766,10 @@ export async function handleInvoicePaymentSucceeded(event: {
 			properties: { name: organization.name },
 		});
 		posthog.capture({
-			distinctId: "organization",
+			distinctId: await resolvePurchaserDistinctId(
+				subscriptionMetadata.userEmail,
+				organization.billingEmail,
+			),
 			event: "dev_plan_started",
 			groups: { organization: organizationId },
 			properties: {
