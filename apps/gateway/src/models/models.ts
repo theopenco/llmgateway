@@ -50,6 +50,10 @@ const modelSchema = z.object({
 					ocr_page: z.string().optional(),
 				})
 				.optional(),
+			max_output: z.number().optional().openapi({
+				description:
+					"Maximum number of output tokens this provider mapping can generate in a single response.",
+			}),
 			streaming: z.union([z.boolean(), z.literal("only")]),
 			vision: z.boolean(),
 			cancellation: z.boolean(),
@@ -88,6 +92,10 @@ const modelSchema = z.object({
 		ocr_page: z.string().optional(),
 	}),
 	context_length: z.number().optional(),
+	max_output: z.number().optional().openapi({
+		description:
+			"Maximum number of output tokens in a single response (largest across all provider mappings).",
+	}),
 	per_request_limits: z.record(z.string()).optional(),
 	supported_parameters: z.array(z.string()).optional(),
 	json_output: z.boolean(),
@@ -263,6 +271,7 @@ modelsApi.openapi(listModels, async (c) => {
 						pricing: hasPricing(provider)
 							? buildPricingFields(provider)
 							: undefined,
+						max_output: provider.maxOutput,
 						streaming: provider.streaming,
 						vision: provider.vision ?? false,
 						cancellation: providerDef?.cancellation ?? false,
@@ -283,6 +292,13 @@ modelsApi.openapi(listModels, async (c) => {
 				context_length:
 					Math.max(...model.providers.map((p) => p.contextSize ?? 0)) ??
 					undefined,
+				max_output: model.providers.some((p) => p.maxOutput !== undefined)
+					? Math.max(
+							...model.providers
+								.map((p) => p.maxOutput)
+								.filter((m): m is number => m !== undefined),
+						)
+					: undefined,
 				per_request_limits: getPerRequestLimits(model),
 				// Get supported parameters from model definitions with fallback to defaults
 				supported_parameters: getSupportedParametersFromModel(model),
