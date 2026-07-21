@@ -22,18 +22,19 @@ export function getProviderEnvVar(
 	return providerEnvVarMap[provider as Provider];
 }
 
-export type EnvVarVariant = "enterprise" | "devpass";
+export type EnvVarVariant = "enterprise" | "plans";
 
 export const ENV_VAR_VARIANT_SUFFIXES: Record<EnvVarVariant, string> = {
 	enterprise: "__ENTERPRISE",
-	devpass: "__DEVPASS",
+	plans: "__PLANS",
 };
 
 /**
  * Resolve which env-var variant applies to an organization's request:
- * enterprise-plan orgs use the `__ENTERPRISE` overrides, DevPass (coding
- * plan) orgs the `__DEVPASS` overrides, everyone else the base vars.
- * Enterprise wins should an org ever match both.
+ * enterprise-plan orgs use the `__ENTERPRISE` overrides; plan-based
+ * (non-PAYG) orgs — DevPass coding plans and Chat plans — use the
+ * `__PLANS` overrides; everyone else (regular PAYG credits/BYOK orgs)
+ * uses the base vars. Enterprise wins should an org ever match both.
  */
 export function getOrganizationEnvVariant(
 	organization:
@@ -41,6 +42,7 @@ export function getOrganizationEnvVariant(
 				plan: string;
 				kind?: string | null;
 				devPlan?: string | null;
+				chatPlan?: string | null;
 		  }
 		| null
 		| undefined,
@@ -52,18 +54,21 @@ export function getOrganizationEnvVariant(
 		return "enterprise";
 	}
 	if (
-		organization.kind === "devpass" &&
-		organization.devPlan &&
-		organization.devPlan !== "none"
+		(organization.kind === "devpass" &&
+			organization.devPlan &&
+			organization.devPlan !== "none") ||
+		(organization.kind === "chat" &&
+			organization.chatPlan &&
+			organization.chatPlan !== "none")
 	) {
-		return "devpass";
+		return "plans";
 	}
 	return undefined;
 }
 
 /**
  * Name of the variant override env var (`{baseEnvVarName}__ENTERPRISE` /
- * `{baseEnvVarName}__DEVPASS`), returned only when it is actually set.
+ * `{baseEnvVarName}__PLANS`), returned only when it is actually set.
  * Applies to any provider env var: API keys, base URLs, regions, projects,
  * and other provider-specific settings.
  */
@@ -246,7 +251,7 @@ export function getRegionSpecificEnvValue(
  * credential rather than the base env var.
  *
  * With a variant (enterprise-plan or DevPass orgs), the variant-regional
- * name `{BASE_ENV_VAR}__ENTERPRISE__{REGION}` / `{BASE_ENV_VAR}__DEVPASS__{REGION}`
+ * name `{BASE_ENV_VAR}__ENTERPRISE__{REGION}` / `{BASE_ENV_VAR}__PLANS__{REGION}`
  * is checked first and wins over the shared regional var when set.
  */
 export function getRegionSpecificEnvVarName(

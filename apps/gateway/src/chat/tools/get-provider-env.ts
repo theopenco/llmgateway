@@ -140,8 +140,8 @@ export function getProviderEnv(
 		});
 	}
 	// Enterprise-plan orgs use the optional `{BASE}__ENTERPRISE` override and
-	// DevPass orgs `{BASE}__DEVPASS` when set; everyone else (and matching orgs
-	// without the override) uses the base env var.
+	// plan-based (DevPass/Chat plan) orgs `{BASE}__PLANS` when set; everyone
+	// else (and matching orgs without the override) uses the base env var.
 	const effectiveEnvVar =
 		getVariantEnvVarName(usedProvider, options.variant) ?? envVar;
 	const envValue = process.env[effectiveEnvVar];

@@ -19,7 +19,7 @@ const REDIS_KEY = "gcp:vertex-anthropic:access_token";
 const TTL_SECONDS = 50 * 60;
 const TTL_MS = TTL_SECONDS * 1000;
 
-// Caches are keyed by the resolved env var name so enterprise/devpass variant
+// Caches are keyed by the resolved env var name so enterprise/plans variant
 // credentials never share tokens with the base credential.
 const memoryCache = new Map<string, { token: string; expiresAt: number }>();
 

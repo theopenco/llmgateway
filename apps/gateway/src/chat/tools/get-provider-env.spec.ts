@@ -83,14 +83,14 @@ describe("getProviderEnv", () => {
 describe("variant env overrides", () => {
 	const originalOpenAIKey = process.env.LLM_OPENAI_API_KEY;
 	const originalEnterpriseKey = process.env.LLM_OPENAI_API_KEY__ENTERPRISE;
-	const originalDevpassKey = process.env.LLM_OPENAI_API_KEY__DEVPASS;
+	const originalPlansKey = process.env.LLM_OPENAI_API_KEY__PLANS;
 
 	beforeEach(() => {
 		resetRoundRobinCounters();
 		resetKeyHealth();
 		process.env.LLM_OPENAI_API_KEY = "sk-base-a,sk-base-b";
 		process.env.LLM_OPENAI_API_KEY__ENTERPRISE = "sk-ent-a,sk-ent-b,sk-ent-c";
-		process.env.LLM_OPENAI_API_KEY__DEVPASS = "sk-dev-a,sk-dev-b";
+		process.env.LLM_OPENAI_API_KEY__PLANS = "sk-plans-a,sk-plans-b";
 	});
 
 	afterEach(() => {
@@ -104,10 +104,10 @@ describe("variant env overrides", () => {
 		} else {
 			process.env.LLM_OPENAI_API_KEY__ENTERPRISE = originalEnterpriseKey;
 		}
-		if (originalDevpassKey === undefined) {
-			delete process.env.LLM_OPENAI_API_KEY__DEVPASS;
+		if (originalPlansKey === undefined) {
+			delete process.env.LLM_OPENAI_API_KEY__PLANS;
 		} else {
-			process.env.LLM_OPENAI_API_KEY__DEVPASS = originalDevpassKey;
+			process.env.LLM_OPENAI_API_KEY__PLANS = originalPlansKey;
 		}
 	});
 
@@ -118,16 +118,16 @@ describe("variant env overrides", () => {
 		expect(selection.configIndex).toBe(0);
 	});
 
-	it("uses the devpass var for DevPass orgs when set", () => {
-		const selection = getProviderEnv("openai", { variant: "devpass" });
-		expect(selection.token).toBe("sk-dev-a");
-		expect(selection.envVarName).toBe("LLM_OPENAI_API_KEY__DEVPASS");
+	it("uses the plans var for plan-based orgs when set", () => {
+		const selection = getProviderEnv("openai", { variant: "plans" });
+		expect(selection.token).toBe("sk-plans-a");
+		expect(selection.envVarName).toBe("LLM_OPENAI_API_KEY__PLANS");
 	});
 
 	it("falls back to the base var when the variant var is unset", () => {
 		delete process.env.LLM_OPENAI_API_KEY__ENTERPRISE;
-		delete process.env.LLM_OPENAI_API_KEY__DEVPASS;
-		for (const variant of ["enterprise", "devpass"] as const) {
+		delete process.env.LLM_OPENAI_API_KEY__PLANS;
+		for (const variant of ["enterprise", "plans"] as const) {
 			const selection = getProviderEnv("openai", { variant });
 			expect(selection.token).toBe("sk-base-a");
 			expect(selection.envVarName).toBe("LLM_OPENAI_API_KEY");

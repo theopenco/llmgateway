@@ -302,7 +302,7 @@ async function resolveVideoProviderContext(
 	}
 
 	// Polls must use the same credential class as job creation: some providers
-	// scope job visibility to the creating API key, so an enterprise/DevPass
+	// scope job visibility to the creating API key, so an enterprise/plan
 	// org's job created with a variant env override must also be polled with it.
 	const organization = await db.query.organization.findFirst({
 		where: {

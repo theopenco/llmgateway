@@ -553,7 +553,7 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 	};
 	const retryOrganization = organization;
 
-	// Which env-var variant (`__ENTERPRISE` / `__DEVPASS` overrides) applies to
+	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
 	// this org's env-credential reads. Undefined = base vars only.
 	const envVariant = getOrganizationEnvVariant(retryOrganization);
 

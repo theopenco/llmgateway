@@ -1443,7 +1443,7 @@ async function resolveProviderContext(
 			"us-central1")
 		: undefined;
 
-	// Which env-var variant (`__ENTERPRISE` / `__DEVPASS` overrides) applies to
+	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
 	// this org's env-credential reads. Undefined = base vars only.
 	const organization = await findOrganizationById(organizationId);
 	const envVariant = getOrganizationEnvVariant(organization);
@@ -2617,7 +2617,7 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 
 	// Polls/content retrieval must use the same credential class as job
 	// creation: some providers scope job visibility to the creating API key,
-	// so an enterprise/DevPass org's job created with a variant env override
+	// so an enterprise/plan org's job created with a variant env override
 	// must also be polled with it.
 	const organization = await findOrganizationById(job.organizationId);
 	const envVariant = getOrganizationEnvVariant(organization);

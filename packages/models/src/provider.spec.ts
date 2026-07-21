@@ -10,10 +10,10 @@ import {
 
 const BASE = "LLM_ALIBABA_API_KEY";
 const ENTERPRISE = `${BASE}__ENTERPRISE`;
-const DEVPASS = `${BASE}__DEVPASS`;
+const PLANS = `${BASE}__PLANS`;
 const REGIONAL = `${BASE}__US_VIRGINIA`;
 const ENTERPRISE_REGIONAL = `${BASE}__ENTERPRISE__US_VIRGINIA`;
-const DEVPASS_REGIONAL = `${BASE}__DEVPASS__US_VIRGINIA`;
+const PLANS_REGIONAL = `${BASE}__PLANS__US_VIRGINIA`;
 const VERTEX_PROJECT = "LLM_GOOGLE_CLOUD_PROJECT";
 
 describe("variant env var helpers", () => {
@@ -21,13 +21,13 @@ describe("variant env var helpers", () => {
 		for (const name of [
 			BASE,
 			ENTERPRISE,
-			DEVPASS,
+			PLANS,
 			REGIONAL,
 			ENTERPRISE_REGIONAL,
-			DEVPASS_REGIONAL,
+			PLANS_REGIONAL,
 			VERTEX_PROJECT,
 			`${VERTEX_PROJECT}__ENTERPRISE`,
-			`${VERTEX_PROJECT}__DEVPASS`,
+			`${VERTEX_PROJECT}__PLANS`,
 		]) {
 			vi.stubEnv(name, undefined);
 		}
@@ -40,11 +40,11 @@ describe("variant env var helpers", () => {
 	describe("getVariantEnvVarName", () => {
 		it("returns the variant var name only when it is set", () => {
 			expect(getVariantEnvVarName("alibaba", "enterprise")).toBeUndefined();
-			expect(getVariantEnvVarName("alibaba", "devpass")).toBeUndefined();
+			expect(getVariantEnvVarName("alibaba", "plans")).toBeUndefined();
 			vi.stubEnv(ENTERPRISE, "sk-ent");
-			vi.stubEnv(DEVPASS, "sk-dev");
+			vi.stubEnv(PLANS, "sk-dev");
 			expect(getVariantEnvVarName("alibaba", "enterprise")).toBe(ENTERPRISE);
-			expect(getVariantEnvVarName("alibaba", "devpass")).toBe(DEVPASS);
+			expect(getVariantEnvVarName("alibaba", "plans")).toBe(PLANS);
 		});
 
 		it("returns undefined without a variant or for unknown providers", () => {
@@ -58,9 +58,9 @@ describe("variant env var helpers", () => {
 
 	describe("getVariantEnvVarNameFor", () => {
 		it("applies to arbitrary env var names", () => {
-			vi.stubEnv(`${VERTEX_PROJECT}__DEVPASS`, "devpass-project");
-			expect(getVariantEnvVarNameFor(VERTEX_PROJECT, "devpass")).toBe(
-				`${VERTEX_PROJECT}__DEVPASS`,
+			vi.stubEnv(`${VERTEX_PROJECT}__PLANS`, "plans-project");
+			expect(getVariantEnvVarNameFor(VERTEX_PROJECT, "plans")).toBe(
+				`${VERTEX_PROJECT}__PLANS`,
 			);
 			expect(
 				getVariantEnvVarNameFor(VERTEX_PROJECT, "enterprise"),
@@ -89,19 +89,13 @@ describe("variant env var helpers", () => {
 				),
 			).toBe("ent-project-b");
 			expect(
-				getProviderEnvValue(
-					"google-vertex",
-					"project",
-					0,
-					undefined,
-					"devpass",
-				),
+				getProviderEnvValue("google-vertex", "project", 0, undefined, "plans"),
 			).toBe("base-project-a");
 		});
 
 		it("returns the default when neither variant nor base var is set", () => {
 			expect(
-				getProviderEnvValue("google-vertex", "region", 0, "global", "devpass"),
+				getProviderEnvValue("google-vertex", "region", 0, "global", "plans"),
 			).toBe("global");
 		});
 	});
@@ -110,13 +104,13 @@ describe("variant env var helpers", () => {
 		it("prefers the variant-regional var for matching orgs", () => {
 			vi.stubEnv(REGIONAL, "sk-region");
 			vi.stubEnv(ENTERPRISE_REGIONAL, "sk-ent-region");
-			vi.stubEnv(DEVPASS_REGIONAL, "sk-dev-region");
+			vi.stubEnv(PLANS_REGIONAL, "sk-dev-region");
 			expect(
 				getRegionSpecificEnvVarName("alibaba", "us-virginia", "enterprise"),
 			).toBe(ENTERPRISE_REGIONAL);
 			expect(
-				getRegionSpecificEnvVarName("alibaba", "us-virginia", "devpass"),
-			).toBe(DEVPASS_REGIONAL);
+				getRegionSpecificEnvVarName("alibaba", "us-virginia", "plans"),
+			).toBe(PLANS_REGIONAL);
 		});
 
 		it("falls back to the shared regional var when no variant-regional var is set", () => {
@@ -153,14 +147,25 @@ describe("variant env var helpers", () => {
 			).toBe("enterprise");
 		});
 
-		it("maps DevPass orgs to the devpass variant", () => {
+		it("maps DevPass orgs to the plans variant", () => {
 			expect(
 				getOrganizationEnvVariant({
 					plan: "free",
 					kind: "devpass",
 					devPlan: "pro",
 				}),
-			).toBe("devpass");
+			).toBe("plans");
+		});
+
+		it("maps Chat plan orgs to the plans variant", () => {
+			expect(
+				getOrganizationEnvVariant({
+					plan: "free",
+					kind: "chat",
+					devPlan: "none",
+					chatPlan: "plus",
+				}),
+			).toBe("plans");
 		});
 
 		it("prefers enterprise when an org matches both", () => {
@@ -173,7 +178,7 @@ describe("variant env var helpers", () => {
 			).toBe("enterprise");
 		});
 
-		it("returns undefined for regular orgs, inactive dev plans, and missing orgs", () => {
+		it("returns undefined for regular orgs, inactive plans, and missing orgs", () => {
 			expect(
 				getOrganizationEnvVariant({
 					plan: "pro",
@@ -186,6 +191,13 @@ describe("variant env var helpers", () => {
 					plan: "free",
 					kind: "devpass",
 					devPlan: "none",
+				}),
+			).toBeUndefined();
+			expect(
+				getOrganizationEnvVariant({
+					plan: "free",
+					kind: "chat",
+					chatPlan: "none",
 				}),
 			).toBeUndefined();
 			expect(getOrganizationEnvVariant(null)).toBeUndefined();
