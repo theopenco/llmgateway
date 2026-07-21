@@ -22,22 +22,76 @@ export function getProviderEnvVar(
 	return providerEnvVarMap[provider as Provider];
 }
 
-export const ENTERPRISE_ENV_SUFFIX = "__ENTERPRISE";
+export type EnvVarVariant = "enterprise" | "devpass";
+
+export const ENV_VAR_VARIANT_SUFFIXES: Record<EnvVarVariant, string> = {
+	enterprise: "__ENTERPRISE",
+	devpass: "__DEVPASS",
+};
 
 /**
- * Name of the enterprise-only override env var (`{BASE_ENV_VAR}__ENTERPRISE`),
- * returned only when it is actually set. Organizations on the enterprise plan
- * use it instead of the base env var; all other organizations never read it.
+ * Resolve which env-var variant applies to an organization's request:
+ * enterprise-plan orgs use the `__ENTERPRISE` overrides, DevPass (coding
+ * plan) orgs the `__DEVPASS` overrides, everyone else the base vars.
+ * Enterprise wins should an org ever match both.
  */
-export function getEnterpriseEnvVarName(
+export function getOrganizationEnvVariant(
+	organization:
+		| {
+				plan: string;
+				kind?: string | null;
+				devPlan?: string | null;
+		  }
+		| null
+		| undefined,
+): EnvVarVariant | undefined {
+	if (!organization) {
+		return undefined;
+	}
+	if (organization.plan === "enterprise") {
+		return "enterprise";
+	}
+	if (
+		organization.kind === "devpass" &&
+		organization.devPlan &&
+		organization.devPlan !== "none"
+	) {
+		return "devpass";
+	}
+	return undefined;
+}
+
+/**
+ * Name of the variant override env var (`{baseEnvVarName}__ENTERPRISE` /
+ * `{baseEnvVarName}__DEVPASS`), returned only when it is actually set.
+ * Applies to any provider env var: API keys, base URLs, regions, projects,
+ * and other provider-specific settings.
+ */
+export function getVariantEnvVarNameFor(
+	baseEnvVarName: string,
+	variant: EnvVarVariant | undefined,
+): string | undefined {
+	if (!variant) {
+		return undefined;
+	}
+	const variantName = `${baseEnvVarName}${ENV_VAR_VARIANT_SUFFIXES[variant]}`;
+	return process.env[variantName] ? variantName : undefined;
+}
+
+/**
+ * Variant override env var for the provider's API key credential, returned
+ * only when it is actually set. Matching orgs use it instead of the base env
+ * var; all other organizations never read it.
+ */
+export function getVariantEnvVarName(
 	provider: Provider | string,
+	variant: EnvVarVariant | undefined,
 ): string | undefined {
 	const baseEnvVar = getProviderEnvVar(provider);
 	if (!baseEnvVar) {
 		return undefined;
 	}
-	const enterpriseName = `${baseEnvVar}${ENTERPRISE_ENV_SUFFIX}`;
-	return process.env[enterpriseName] ? enterpriseName : undefined;
+	return getVariantEnvVarNameFor(baseEnvVar, variant);
 }
 
 export function getProviderEnvConfig(
@@ -59,6 +113,7 @@ export function getProviderEnvValue(
 	key: string,
 	configIndex?: number,
 	defaultValue?: string,
+	variant?: EnvVarVariant,
 ): string | undefined {
 	const config = getProviderEnvConfig(provider);
 	if (!config) {
@@ -78,7 +133,11 @@ export function getProviderEnvValue(
 		return defaultValue;
 	}
 
-	const envValue = process.env[envVarName];
+	// A set variant override var replaces the base var wholesale (including
+	// its comma-separated list); an unset one falls back to the base var.
+	const effectiveEnvVarName =
+		getVariantEnvVarNameFor(envVarName, variant) ?? envVarName;
+	const envValue = process.env[effectiveEnvVarName];
 
 	if (!envValue) {
 		return defaultValue;
@@ -119,13 +178,20 @@ export function resolveVertexTokenType(
 	providerKeyOptions?: VertexTokenTypeOptions,
 	configIndex?: number,
 	skipEnvVars?: boolean,
+	variant?: EnvVarVariant,
 ): VertexTokenType {
 	const optionValue = providerKeyOptions?.google_vertex_token_type;
 	if (optionValue === "api-key" || optionValue === "oauth") {
 		return optionValue;
 	}
 	if (!skipEnvVars) {
-		const envValue = getProviderEnvValue(provider, "tokenType", configIndex);
+		const envValue = getProviderEnvValue(
+			provider,
+			"tokenType",
+			configIndex,
+			undefined,
+			variant,
+		);
 		if (envValue === "api-key" || envValue === "oauth") {
 			return envValue;
 		}
@@ -179,24 +245,24 @@ export function getRegionSpecificEnvValue(
  * undefined. Use this when you need to attribute health to the regional
  * credential rather than the base env var.
  *
- * With `enterprise: true` (enterprise-plan orgs), the enterprise-regional
- * variant `{BASE_ENV_VAR}__ENTERPRISE__{REGION}` is checked first and wins
- * over the shared regional var when set.
+ * With a variant (enterprise-plan or DevPass orgs), the variant-regional
+ * name `{BASE_ENV_VAR}__ENTERPRISE__{REGION}` / `{BASE_ENV_VAR}__DEVPASS__{REGION}`
+ * is checked first and wins over the shared regional var when set.
  */
 export function getRegionSpecificEnvVarName(
 	provider: Provider,
 	region: string,
-	enterprise = false,
+	variant?: EnvVarVariant,
 ): string | undefined {
 	const baseEnvVar = getProviderEnvVar(provider);
 	if (!baseEnvVar) {
 		return undefined;
 	}
 	const regionSuffix = region.toUpperCase().replace(/-/g, "_");
-	if (enterprise) {
-		const enterpriseRegionalName = `${baseEnvVar}${ENTERPRISE_ENV_SUFFIX}__${regionSuffix}`;
-		if (process.env[enterpriseRegionalName]) {
-			return enterpriseRegionalName;
+	if (variant) {
+		const variantRegionalName = `${baseEnvVar}${ENV_VAR_VARIANT_SUFFIXES[variant]}__${regionSuffix}`;
+		if (process.env[variantRegionalName]) {
+			return variantRegionalName;
 		}
 	}
 	const regionalName = `${baseEnvVar}__${regionSuffix}`;

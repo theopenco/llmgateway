@@ -60,6 +60,8 @@ import {
 } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
 import {
+	type EnvVarVariant,
+	getOrganizationEnvVariant,
 	getProviderEnvValue,
 	getProviderEnvVar,
 	hasProviderEnvironmentToken,
@@ -630,6 +632,7 @@ function resolveVideoVertexTokenType(
 	providerId: Provider,
 	providerKey: InferSelectModel<typeof tables.providerKey> | undefined,
 	configIndex: number | null,
+	variant?: EnvVarVariant,
 ): VertexTokenType | undefined {
 	if (providerId !== "google-vertex") {
 		return undefined;
@@ -646,6 +649,7 @@ function resolveVideoVertexTokenType(
 				undefined,
 				configIndex ?? undefined,
 				false,
+				variant,
 			);
 }
 
@@ -1439,6 +1443,11 @@ async function resolveProviderContext(
 			"us-central1")
 		: undefined;
 
+	// Which env-var variant (`__ENTERPRISE` / `__DEVPASS` overrides) applies to
+	// this org's env-credential reads. Undefined = base vars only.
+	const organization = await findOrganizationById(organizationId);
+	const envVariant = getOrganizationEnvVariant(organization);
+
 	if (project.mode === "api-keys") {
 		const providerKey = await findProviderKey(
 			organizationId,
@@ -1493,15 +1502,19 @@ async function resolveProviderContext(
 	}
 
 	if (project.mode === "credits") {
-		const organization = await findOrganizationById(organizationId);
 		const env = getProviderEnv(providerId, {
 			excludedIndices: getVideoExcludedConfigIndices(providerId),
 			selectionScope,
-			plan: organization?.plan ?? null,
+			variant: envVariant,
 		});
 		const baseUrl =
-			getProviderEnvValue(providerId, "baseUrl", env.configIndex) ??
-			defaultBaseUrl;
+			getProviderEnvValue(
+				providerId,
+				"baseUrl",
+				env.configIndex,
+				undefined,
+				envVariant,
+			) ?? defaultBaseUrl;
 		if (!baseUrl) {
 			throw new HTTPException(500, {
 				message: `Base URL environment variable is required for ${providerId} provider`,
@@ -1509,7 +1522,13 @@ async function resolveProviderContext(
 		}
 
 		const vertexProjectId = isGoogleVertexVideoProvider(providerId)
-			? getProviderEnvValue(providerId, "project", env.configIndex)
+			? getProviderEnvValue(
+					providerId,
+					"project",
+					env.configIndex,
+					undefined,
+					envVariant,
+				)
 			: undefined;
 		const vertexRegion = isGoogleVertexVideoProvider(providerId)
 			? (getProviderEnvValue(
@@ -1517,6 +1536,7 @@ async function resolveProviderContext(
 					"region",
 					env.configIndex,
 					"us-central1",
+					envVariant,
 				) ?? "us-central1")
 			: undefined;
 
@@ -1539,6 +1559,7 @@ async function resolveProviderContext(
 				providerId,
 				undefined,
 				env.configIndex,
+				envVariant,
 			),
 			uploadBaseUrl:
 				providerId === "avalanche"
@@ -1546,6 +1567,8 @@ async function resolveProviderContext(
 							providerId,
 							"fileUploadBaseUrl",
 							env.configIndex,
+							undefined,
+							envVariant,
 						)
 					: undefined,
 		};
@@ -1606,14 +1629,18 @@ async function resolveProviderContext(
 		});
 	}
 
-	const organization = await findOrganizationById(organizationId);
 	const env = getProviderEnv(providerId, {
 		excludedIndices: getVideoExcludedConfigIndices(providerId),
-		plan: organization?.plan ?? null,
+		variant: envVariant,
 	});
 	const baseUrl =
-		getProviderEnvValue(providerId, "baseUrl", env.configIndex) ??
-		defaultBaseUrl;
+		getProviderEnvValue(
+			providerId,
+			"baseUrl",
+			env.configIndex,
+			undefined,
+			envVariant,
+		) ?? defaultBaseUrl;
 	if (!baseUrl) {
 		throw new HTTPException(500, {
 			message: `Base URL environment variable is required for ${providerId} provider`,
@@ -1621,7 +1648,13 @@ async function resolveProviderContext(
 	}
 
 	const vertexProjectId = isGoogleVertexVideoProvider(providerId)
-		? getProviderEnvValue(providerId, "project", env.configIndex)
+		? getProviderEnvValue(
+				providerId,
+				"project",
+				env.configIndex,
+				undefined,
+				envVariant,
+			)
 		: undefined;
 	const vertexRegion = isGoogleVertexVideoProvider(providerId)
 		? (getProviderEnvValue(
@@ -1629,6 +1662,7 @@ async function resolveProviderContext(
 				"region",
 				env.configIndex,
 				"us-central1",
+				envVariant,
 			) ?? "us-central1")
 		: undefined;
 
@@ -1649,7 +1683,13 @@ async function resolveProviderContext(
 		vertexRegion,
 		uploadBaseUrl:
 			providerId === "avalanche"
-				? getProviderEnvValue(providerId, "fileUploadBaseUrl", env.configIndex)
+				? getProviderEnvValue(
+						providerId,
+						"fileUploadBaseUrl",
+						env.configIndex,
+						undefined,
+						envVariant,
+					)
 				: undefined,
 	};
 
@@ -2577,17 +2617,23 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 
 	// Polls/content retrieval must use the same credential class as job
 	// creation: some providers scope job visibility to the creating API key,
-	// so an enterprise org's job created with the enterprise env override must
-	// also be polled with it.
+	// so an enterprise/DevPass org's job created with a variant env override
+	// must also be polled with it.
 	const organization = await findOrganizationById(job.organizationId);
+	const envVariant = getOrganizationEnvVariant(organization);
 	const env = getProviderEnv(providerId, {
 		excludedIndices: getVideoExcludedConfigIndices(providerId),
 		selectionScope: job.usedModel,
-		plan: organization?.plan ?? null,
+		variant: envVariant,
 	});
 	const baseUrl =
-		getProviderEnvValue(providerId, "baseUrl", env.configIndex) ??
-		defaultBaseUrl;
+		getProviderEnvValue(
+			providerId,
+			"baseUrl",
+			env.configIndex,
+			undefined,
+			envVariant,
+		) ?? defaultBaseUrl;
 	if (!baseUrl) {
 		throw new HTTPException(500, {
 			message: `Base URL environment variable is required for ${providerId} provider`,

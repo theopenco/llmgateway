@@ -42,6 +42,7 @@ import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	ELEVENLABS_VOICE_IDS,
+	getOrganizationEnvVariant,
 	getProviderEnvValue,
 	models as modelDefinitions,
 	resolveVertexTokenType,
@@ -659,6 +660,10 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 	};
 	const retryOrganization = organization;
 
+	// Which env-var variant (`__ENTERPRISE` / `__DEVPASS` overrides) applies to
+	// this org's env-credential reads. Undefined = base vars only.
+	const envVariant = getOrganizationEnvVariant(retryOrganization);
+
 	const promptText = request.instructions
 		? `${request.instructions}: ${request.input}`
 		: request.input;
@@ -748,7 +753,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 			const envResult = getProviderEnv(providerId, {
 				selectionScope: upstreamModel,
 				excludedIndices: excludedEnvKeyIndices,
-				plan: retryOrganization.plan,
+				variant: envVariant,
 			});
 			usedToken = envResult.token;
 			configIndex = envResult.configIndex;
@@ -774,7 +779,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				const envResult = getProviderEnv(providerId, {
 					selectionScope: upstreamModel,
 					excludedIndices: excludedEnvKeyIndices,
-					plan: retryOrganization.plan,
+					variant: envVariant,
 				});
 				usedToken = envResult.token;
 				configIndex = envResult.configIndex;
@@ -800,7 +805,13 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 			throw new HTTPException(500, { message: "No token" });
 		}
 
-		const envBaseUrl = getProviderEnvValue(providerId, "baseUrl", configIndex);
+		const envBaseUrl = getProviderEnvValue(
+			providerId,
+			"baseUrl",
+			configIndex,
+			undefined,
+			envVariant,
+		);
 		const resolvedBaseUrl =
 			providerKey?.baseUrl ??
 			envBaseUrl ??
@@ -823,7 +834,13 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		} else if (isGoogleVertex) {
 			const vertexProjectId =
 				providerKey?.options?.google_vertex_project_id ??
-				getProviderEnvValue("google-vertex", "project", configIndex);
+				getProviderEnvValue(
+					"google-vertex",
+					"project",
+					configIndex,
+					undefined,
+					envVariant,
+				);
 			if (!vertexProjectId) {
 				throw new HTTPException(500, {
 					message:
@@ -831,8 +848,13 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				});
 			}
 			const vertexRegion =
-				getProviderEnvValue("google-vertex", "region", configIndex, "global") ??
-				"global";
+				getProviderEnvValue(
+					"google-vertex",
+					"region",
+					configIndex,
+					"global",
+					envVariant,
+				) ?? "global";
 			// OAuth tokens are sent via the Authorization header; only API keys go
 			// in the `?key=` query param. Resolve once so the header and the query
 			// param agree.
@@ -841,6 +863,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				providerKey?.options ?? undefined,
 				configIndex,
 				providerKey !== undefined,
+				envVariant,
 			);
 			const vertexAuthQuery =
 				vertexTokenType === "oauth"

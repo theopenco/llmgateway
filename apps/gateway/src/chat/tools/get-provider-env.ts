@@ -8,10 +8,11 @@ import {
 
 import { providerKeyBaseUrlSupportsServiceTier } from "@llmgateway/actions";
 import {
-	getEnterpriseEnvVarName,
+	type EnvVarVariant,
 	getProviderEnvValue,
 	getProviderEnvVar,
 	getProviderEnvConfig,
+	getVariantEnvVarName,
 	type Provider,
 } from "@llmgateway/models";
 
@@ -21,8 +22,12 @@ export interface ProviderEnvResult {
 	envVarName: string;
 }
 
-function getEnvCredentialCount(provider: Provider): number {
-	const envVar = getProviderEnvVar(provider);
+function getEnvCredentialCount(
+	provider: Provider,
+	variant?: EnvVarVariant,
+): number {
+	const envVar =
+		getVariantEnvVarName(provider, variant) ?? getProviderEnvVar(provider);
 	const value = envVar ? process.env[envVar] : undefined;
 	if (!value) {
 		return 0;
@@ -47,13 +52,26 @@ function getEnvCredentialCount(provider: Provider): number {
 function isServiceTierEligibleEnvIndex(
 	provider: Provider,
 	index: number,
+	variant?: EnvVarVariant,
 ): boolean {
-	const baseUrl = getProviderEnvValue(provider, "baseUrl", index);
+	const baseUrl = getProviderEnvValue(
+		provider,
+		"baseUrl",
+		index,
+		undefined,
+		variant,
+	);
 	if (!providerKeyBaseUrlSupportsServiceTier(provider, baseUrl)) {
 		return false;
 	}
 	if (provider === "google-vertex") {
-		const region = getProviderEnvValue(provider, "region", index, "global");
+		const region = getProviderEnvValue(
+			provider,
+			"region",
+			index,
+			"global",
+			variant,
+		);
 		if (region !== "global") {
 			return false;
 		}
@@ -69,11 +87,12 @@ function isServiceTierEligibleEnvIndex(
  */
 export function getServiceTierIneligibleEnvIndices(
 	provider: Provider,
+	variant?: EnvVarVariant,
 ): Set<number> {
 	const ineligible = new Set<number>();
-	const count = getEnvCredentialCount(provider);
+	const count = getEnvCredentialCount(provider, variant);
 	for (let index = 0; index < count; index++) {
-		if (!isServiceTierEligibleEnvIndex(provider, index)) {
+		if (!isServiceTierEligibleEnvIndex(provider, index, variant)) {
 			ineligible.add(index);
 		}
 	}
@@ -86,10 +105,11 @@ export function getServiceTierIneligibleEnvIndices(
  */
 export function hasServiceTierEligibleEnvCredential(
 	provider: Provider,
+	variant?: EnvVarVariant,
 ): boolean {
-	const count = getEnvCredentialCount(provider);
+	const count = getEnvCredentialCount(provider, variant);
 	for (let index = 0; index < count; index++) {
-		if (isServiceTierEligibleEnvIndex(provider, index)) {
+		if (isServiceTierEligibleEnvIndex(provider, index, variant)) {
 			return true;
 		}
 	}
@@ -100,7 +120,7 @@ interface GetProviderEnvOptions {
 	advanceRoundRobin?: boolean;
 	excludedIndices?: ReadonlySet<number>;
 	selectionScope?: string;
-	plan?: "free" | "pro" | "enterprise" | null;
+	variant?: EnvVarVariant;
 }
 
 /**
@@ -119,14 +139,11 @@ export function getProviderEnv(
 			message: `No environment variable set for provider: ${usedProvider}`,
 		});
 	}
-	// Enterprise-plan orgs use the optional `{BASE}__ENTERPRISE` override when
-	// it is set; everyone else (and enterprise orgs without the override) uses
-	// the base env var.
-	const enterpriseEnvVar =
-		options.plan === "enterprise"
-			? getEnterpriseEnvVarName(usedProvider)
-			: undefined;
-	const effectiveEnvVar = enterpriseEnvVar ?? envVar;
+	// Enterprise-plan orgs use the optional `{BASE}__ENTERPRISE` override and
+	// DevPass orgs `{BASE}__DEVPASS` when set; everyone else (and matching orgs
+	// without the override) uses the base env var.
+	const effectiveEnvVar =
+		getVariantEnvVarName(usedProvider, options.variant) ?? envVar;
 	const envValue = process.env[effectiveEnvVar];
 	if (!envValue) {
 		throw new HTTPException(500, {

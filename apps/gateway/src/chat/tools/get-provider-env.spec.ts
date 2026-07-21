@@ -80,15 +80,17 @@ describe("getProviderEnv", () => {
 	});
 });
 
-describe("enterprise env override", () => {
+describe("variant env overrides", () => {
 	const originalOpenAIKey = process.env.LLM_OPENAI_API_KEY;
 	const originalEnterpriseKey = process.env.LLM_OPENAI_API_KEY__ENTERPRISE;
+	const originalDevpassKey = process.env.LLM_OPENAI_API_KEY__DEVPASS;
 
 	beforeEach(() => {
 		resetRoundRobinCounters();
 		resetKeyHealth();
 		process.env.LLM_OPENAI_API_KEY = "sk-base-a,sk-base-b";
 		process.env.LLM_OPENAI_API_KEY__ENTERPRISE = "sk-ent-a,sk-ent-b,sk-ent-c";
+		process.env.LLM_OPENAI_API_KEY__DEVPASS = "sk-dev-a,sk-dev-b";
 	});
 
 	afterEach(() => {
@@ -102,33 +104,45 @@ describe("enterprise env override", () => {
 		} else {
 			process.env.LLM_OPENAI_API_KEY__ENTERPRISE = originalEnterpriseKey;
 		}
+		if (originalDevpassKey === undefined) {
+			delete process.env.LLM_OPENAI_API_KEY__DEVPASS;
+		} else {
+			process.env.LLM_OPENAI_API_KEY__DEVPASS = originalDevpassKey;
+		}
 	});
 
-	it("uses the enterprise var for enterprise-plan orgs when set", () => {
-		const selection = getProviderEnv("openai", { plan: "enterprise" });
+	it("uses the enterprise var for enterprise orgs when set", () => {
+		const selection = getProviderEnv("openai", { variant: "enterprise" });
 		expect(selection.token).toBe("sk-ent-a");
 		expect(selection.envVarName).toBe("LLM_OPENAI_API_KEY__ENTERPRISE");
 		expect(selection.configIndex).toBe(0);
 	});
 
-	it("falls back to the base var when the enterprise var is unset", () => {
-		delete process.env.LLM_OPENAI_API_KEY__ENTERPRISE;
-		const selection = getProviderEnv("openai", { plan: "enterprise" });
-		expect(selection.token).toBe("sk-base-a");
-		expect(selection.envVarName).toBe("LLM_OPENAI_API_KEY");
+	it("uses the devpass var for DevPass orgs when set", () => {
+		const selection = getProviderEnv("openai", { variant: "devpass" });
+		expect(selection.token).toBe("sk-dev-a");
+		expect(selection.envVarName).toBe("LLM_OPENAI_API_KEY__DEVPASS");
 	});
 
-	it("never uses the enterprise var for non-enterprise plans", () => {
-		for (const plan of ["free", "pro", null, undefined] as const) {
-			const selection = getProviderEnv("openai", { plan });
+	it("falls back to the base var when the variant var is unset", () => {
+		delete process.env.LLM_OPENAI_API_KEY__ENTERPRISE;
+		delete process.env.LLM_OPENAI_API_KEY__DEVPASS;
+		for (const variant of ["enterprise", "devpass"] as const) {
+			const selection = getProviderEnv("openai", { variant });
 			expect(selection.token).toBe("sk-base-a");
 			expect(selection.envVarName).toBe("LLM_OPENAI_API_KEY");
 		}
 	});
 
-	it("selects within the enterprise key list with exclusions", () => {
+	it("never uses variant vars without a variant", () => {
+		const selection = getProviderEnv("openai", {});
+		expect(selection.token).toBe("sk-base-a");
+		expect(selection.envVarName).toBe("LLM_OPENAI_API_KEY");
+	});
+
+	it("selects within the variant key list with exclusions", () => {
 		const selection = getProviderEnv("openai", {
-			plan: "enterprise",
+			variant: "enterprise",
 			excludedIndices: new Set([0, 1]),
 		});
 		expect(selection.token).toBe("sk-ent-c");
@@ -141,7 +155,7 @@ describe("enterprise env override", () => {
 		reportKeyError("LLM_OPENAI_API_KEY", 0, 500, undefined, "gpt-4");
 
 		const enterpriseSelection = getProviderEnv("openai", {
-			plan: "enterprise",
+			variant: "enterprise",
 			selectionScope: "gpt-4",
 		});
 		const baseSelection = getProviderEnv("openai", {
@@ -152,9 +166,9 @@ describe("enterprise env override", () => {
 		expect(baseSelection.configIndex).toBe(1);
 	});
 
-	it("works for enterprise orgs even when only the enterprise var is set", () => {
+	it("works for variant orgs even when only the variant var is set", () => {
 		delete process.env.LLM_OPENAI_API_KEY;
-		const selection = getProviderEnv("openai", { plan: "enterprise" });
+		const selection = getProviderEnv("openai", { variant: "enterprise" });
 		expect(selection.token).toBe("sk-ent-a");
 		expect(() => getProviderEnv("openai")).toThrow();
 	});

@@ -17,7 +17,9 @@ import {
 } from "@llmgateway/actions";
 import {
 	type BaseMessage,
+	getOrganizationEnvVariant,
 	getRegionSpecificEnvVarName,
+	getVariantEnvVarNameFor,
 	hasMaxTokens,
 	type ModelDefinition,
 	type OpenAIRequestBody,
@@ -159,6 +161,8 @@ interface ProjectInfo {
 interface OrgInfo {
 	id: string;
 	credits: string | null;
+	plan: string;
+	kind: string;
 	devPlan: string;
 	devPlanCreditsLimit: string | null;
 	devPlanCreditsUsed: string | null;
@@ -338,6 +342,10 @@ export async function resolveProviderContext(
 	let configIndex = 0;
 	let envVarName: string | undefined;
 
+	// Which env-var variant (`__ENTERPRISE` / `__DEVPASS` overrides) applies to
+	// this org's env-credential reads. Undefined = base vars only.
+	const envVariant = getOrganizationEnvVariant(organization);
+
 	// Flex/Priority is only honored when the request reaches the provider's real
 	// upstream endpoint. Skip provider keys whose custom base URL (proxy) may
 	// silently drop the tier, so a compliant key (or the managed env credential)
@@ -357,7 +365,7 @@ export async function resolveProviderContext(
 		if (!serviceTierKeyFilter) {
 			return options.excludedEnvKeyIndices;
 		}
-		const ineligible = getServiceTierIneligibleEnvIndices(provider);
+		const ineligible = getServiceTierIneligibleEnvIndices(provider, envVariant);
 		if (ineligible.size === 0) {
 			return options.excludedEnvKeyIndices;
 		}
@@ -394,7 +402,7 @@ export async function resolveProviderContext(
 		const envResult = getProviderEnv(usedProvider as Provider, {
 			excludedIndices: serviceTierEnvExcludedIndices(usedProvider as Provider),
 			selectionScope: usedInternalModel,
-			plan: options.userPlan,
+			variant: envVariant,
 		});
 		usedToken = envResult.token;
 		configIndex = envResult.configIndex;
@@ -426,7 +434,7 @@ export async function resolveProviderContext(
 					usedProvider as Provider,
 				),
 				selectionScope: usedInternalModel,
-				plan: options.userPlan,
+				variant: envVariant,
 			});
 			usedToken = envResult.token;
 			configIndex = envResult.configIndex;
@@ -473,7 +481,7 @@ export async function resolveProviderContext(
 		const regionEnvVarName = getRegionSpecificEnvVarName(
 			usedProvider,
 			usedRegion,
-			options.userPlan === "enterprise",
+			envVariant,
 		);
 		if (regionEnvVarName) {
 			const regionToken = process.env[regionEnvVarName];
@@ -523,6 +531,7 @@ export async function resolveProviderContext(
 					providerKey?.options ?? undefined,
 					configIndex,
 					isBYOK,
+					envVariant,
 				)
 			: undefined;
 	const url = getProviderEndpoint(
@@ -546,6 +555,7 @@ export async function resolveProviderContext(
 		isBYOK,
 		usedInternalModel,
 		vertexTokenType,
+		envVariant,
 	);
 
 	if (!url) {
@@ -715,7 +725,12 @@ export async function resolveProviderContext(
 	if (usedProvider === "vertex-openai") {
 		const fullSaJson = providerKey
 			? usedToken
-			: (process.env.LLM_VERTEX_OPENAI_SERVICE_ACCOUNT_JSON ?? "");
+			: (process.env[
+					getVariantEnvVarNameFor(
+						"LLM_VERTEX_OPENAI_SERVICE_ACCOUNT_JSON",
+						envVariant,
+					) ?? "LLM_VERTEX_OPENAI_SERVICE_ACCOUNT_JSON"
+				] ?? "");
 		usedToken = await getGcpServiceAccountAccessToken(fullSaJson);
 	}
 
