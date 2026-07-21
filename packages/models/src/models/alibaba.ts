@@ -651,6 +651,9 @@ export const alibabaModels = [
 			{
 				providerId: "deepinfra",
 				externalId: "Qwen/Qwen3.5-9B",
+				// deepinfra hangs on reasoning + streaming requests
+				// (e2e 180s timeouts, verified 2026-07-21)
+				stability: "unstable",
 				inputPrice: "0.1e-6",
 				outputPrice: "0.15e-6",
 				requestPrice: "0",

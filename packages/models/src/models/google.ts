@@ -2191,6 +2191,9 @@ export const googleModels = [
 			{
 				providerId: "novita",
 				externalId: "google/gemma-4-26b-a4b-it",
+				// novita streams empty content for JSON output requests
+				// (e2e JSON output streaming failures, verified 2026-07-21)
+				stability: "unstable",
 				inputPrice: "0.07e-6",
 				outputPrice: "0.34e-6",
 				requestPrice: "0",
