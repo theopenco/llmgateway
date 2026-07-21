@@ -257,7 +257,7 @@ describe("v1/master cache invalidation", () => {
 				ruleValue: { models: ["openai/gpt-4o-mini"] },
 			}),
 		});
-		expect(res.status).toBe(200);
+		expect(res.status).toBe(201);
 
 		await assertSwrCleared(`iamRules:${apiKeyId}`);
 		const directRules = await cdb
