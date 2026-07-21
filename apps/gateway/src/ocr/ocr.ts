@@ -605,6 +605,7 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 			const envResult = getProviderEnv(providerId, {
 				selectionScope: upstreamModel,
 				excludedIndices: excludedEnvKeyIndices,
+				plan: retryOrganization.plan,
 			});
 			usedToken = envResult.token;
 			configIndex = envResult.configIndex;
@@ -630,6 +631,7 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 				const envResult = getProviderEnv(providerId, {
 					selectionScope: upstreamModel,
 					excludedIndices: excludedEnvKeyIndices,
+					plan: retryOrganization.plan,
 				});
 				usedToken = envResult.token;
 				configIndex = envResult.configIndex;

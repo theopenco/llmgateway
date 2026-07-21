@@ -22,6 +22,24 @@ export function getProviderEnvVar(
 	return providerEnvVarMap[provider as Provider];
 }
 
+export const ENTERPRISE_ENV_SUFFIX = "__ENTERPRISE";
+
+/**
+ * Name of the enterprise-only override env var (`{BASE_ENV_VAR}__ENTERPRISE`),
+ * returned only when it is actually set. Organizations on the enterprise plan
+ * use it instead of the base env var; all other organizations never read it.
+ */
+export function getEnterpriseEnvVarName(
+	provider: Provider | string,
+): string | undefined {
+	const baseEnvVar = getProviderEnvVar(provider);
+	if (!baseEnvVar) {
+		return undefined;
+	}
+	const enterpriseName = `${baseEnvVar}${ENTERPRISE_ENV_SUFFIX}`;
+	return process.env[enterpriseName] ? enterpriseName : undefined;
+}
+
 export function getProviderEnvConfig(
 	provider: Provider | string,
 ): ProviderEnvConfig | undefined {
@@ -160,16 +178,27 @@ export function getRegionSpecificEnvValue(
  * Returns `{BASE_ENV_VAR}__{REGION}` when the regional override exists, else
  * undefined. Use this when you need to attribute health to the regional
  * credential rather than the base env var.
+ *
+ * With `enterprise: true` (enterprise-plan orgs), the enterprise-regional
+ * variant `{BASE_ENV_VAR}__ENTERPRISE__{REGION}` is checked first and wins
+ * over the shared regional var when set.
  */
 export function getRegionSpecificEnvVarName(
 	provider: Provider,
 	region: string,
+	enterprise = false,
 ): string | undefined {
 	const baseEnvVar = getProviderEnvVar(provider);
 	if (!baseEnvVar) {
 		return undefined;
 	}
 	const regionSuffix = region.toUpperCase().replace(/-/g, "_");
+	if (enterprise) {
+		const enterpriseRegionalName = `${baseEnvVar}${ENTERPRISE_ENV_SUFFIX}__${regionSuffix}`;
+		if (process.env[enterpriseRegionalName]) {
+			return enterpriseRegionalName;
+		}
+	}
 	const regionalName = `${baseEnvVar}__${regionSuffix}`;
 	return process.env[regionalName] ? regionalName : undefined;
 }

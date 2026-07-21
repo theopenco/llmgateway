@@ -1493,9 +1493,11 @@ async function resolveProviderContext(
 	}
 
 	if (project.mode === "credits") {
+		const organization = await findOrganizationById(organizationId);
 		const env = getProviderEnv(providerId, {
 			excludedIndices: getVideoExcludedConfigIndices(providerId),
 			selectionScope,
+			plan: organization?.plan ?? null,
 		});
 		const baseUrl =
 			getProviderEnvValue(providerId, "baseUrl", env.configIndex) ??
@@ -1604,8 +1606,10 @@ async function resolveProviderContext(
 		});
 	}
 
+	const organization = await findOrganizationById(organizationId);
 	const env = getProviderEnv(providerId, {
 		excludedIndices: getVideoExcludedConfigIndices(providerId),
+		plan: organization?.plan ?? null,
 	});
 	const baseUrl =
 		getProviderEnvValue(providerId, "baseUrl", env.configIndex) ??
@@ -2571,9 +2575,15 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 		};
 	}
 
+	// Polls/content retrieval must use the same credential class as job
+	// creation: some providers scope job visibility to the creating API key,
+	// so an enterprise org's job created with the enterprise env override must
+	// also be polled with it.
+	const organization = await findOrganizationById(job.organizationId);
 	const env = getProviderEnv(providerId, {
 		excludedIndices: getVideoExcludedConfigIndices(providerId),
 		selectionScope: job.usedModel,
+		plan: organization?.plan ?? null,
 	});
 	const baseUrl =
 		getProviderEnvValue(providerId, "baseUrl", env.configIndex) ??

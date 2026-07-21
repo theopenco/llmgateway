@@ -42,6 +42,8 @@ config:
 helm install llmgateway oci://ghcr.io/theopenco/charts/llmgateway -f values.yaml
 ```
 
+Provider keys support comma-separated values for load balancing and an optional `__ENTERPRISE` suffix override used only for enterprise-plan organizations — see [Enterprise-only provider keys](/self-host/docker-compose#enterprise-only-provider-keys).
+
 In production, store secrets in your cluster's secret manager rather than committing them to `values.yaml`. The cloud guides cover the recommended approach for each provider:
 
 - [AWS](/self-host/aws) — EKS with RDS, ElastiCache, and Secrets Manager

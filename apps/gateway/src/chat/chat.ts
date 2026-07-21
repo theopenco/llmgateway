@@ -4712,6 +4712,7 @@ chat.openapi(completions, async (c) => {
 			excludedIndices: isRequestedServiceTier(service_tier)
 				? getServiceTierIneligibleEnvIndices(usedProvider as Provider)
 				: undefined,
+			plan: organization.plan,
 		});
 		usedToken = envResult.token;
 		configIndex = envResult.configIndex;
@@ -4723,6 +4724,7 @@ chat.openapi(completions, async (c) => {
 			const regionEnvVarName = getRegionSpecificEnvVarName(
 				usedProvider,
 				usedRegion,
+				organization.plan === "enterprise",
 			);
 			if (regionEnvVarName) {
 				const regionToken = process.env[regionEnvVarName];
@@ -4842,6 +4844,7 @@ chat.openapi(completions, async (c) => {
 				excludedIndices: isRequestedServiceTier(service_tier)
 					? getServiceTierIneligibleEnvIndices(usedProvider as Provider)
 					: undefined,
+				plan: organization.plan,
 			});
 			usedToken = envResult.token;
 			configIndex = envResult.configIndex;
@@ -4853,6 +4856,7 @@ chat.openapi(completions, async (c) => {
 				const regionEnvVarName = getRegionSpecificEnvVarName(
 					usedProvider,
 					usedRegion,
+					organization.plan === "enterprise",
 				);
 				if (regionEnvVarName) {
 					const regionToken = process.env[regionEnvVarName];

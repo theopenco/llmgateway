@@ -748,6 +748,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 			const envResult = getProviderEnv(providerId, {
 				selectionScope: upstreamModel,
 				excludedIndices: excludedEnvKeyIndices,
+				plan: retryOrganization.plan,
 			});
 			usedToken = envResult.token;
 			configIndex = envResult.configIndex;
@@ -773,6 +774,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				const envResult = getProviderEnv(providerId, {
 					selectionScope: upstreamModel,
 					excludedIndices: excludedEnvKeyIndices,
+					plan: retryOrganization.plan,
 				});
 				usedToken = envResult.token;
 				configIndex = envResult.configIndex;

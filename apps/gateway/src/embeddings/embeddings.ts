@@ -738,6 +738,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			const envResult = getProviderEnv(providerId, {
 				selectionScope: upstreamModel,
 				excludedIndices: excludedEnvKeyIndices,
+				plan: retryOrganization.plan,
 			});
 			usedToken = envResult.token;
 			configIndex = envResult.configIndex;
@@ -763,6 +764,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				const envResult = getProviderEnv(providerId, {
 					selectionScope: upstreamModel,
 					excludedIndices: excludedEnvKeyIndices,
+					plan: retryOrganization.plan,
 				});
 				usedToken = envResult.token;
 				configIndex = envResult.configIndex;

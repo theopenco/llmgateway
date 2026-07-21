@@ -17,8 +17,7 @@ import {
 } from "@llmgateway/actions";
 import {
 	type BaseMessage,
-	getRegionSpecificEnvValue,
-	getProviderEnvVar,
+	getRegionSpecificEnvVarName,
 	hasMaxTokens,
 	type ModelDefinition,
 	type OpenAIRequestBody,
@@ -395,6 +394,7 @@ export async function resolveProviderContext(
 		const envResult = getProviderEnv(usedProvider as Provider, {
 			excludedIndices: serviceTierEnvExcludedIndices(usedProvider as Provider),
 			selectionScope: usedInternalModel,
+			plan: options.userPlan,
 		});
 		usedToken = envResult.token;
 		configIndex = envResult.configIndex;
@@ -426,6 +426,7 @@ export async function resolveProviderContext(
 					usedProvider as Provider,
 				),
 				selectionScope: usedInternalModel,
+				plan: options.userPlan,
 			});
 			usedToken = envResult.token;
 			configIndex = envResult.configIndex;
@@ -465,17 +466,21 @@ export async function resolveProviderContext(
 		}
 	}
 
-	// Override token with region-specific env var if available (credits/hybrid mode)
+	// Override with region-specific env var if a non-default region is selected
+	// (credits/hybrid mode). Health attribution must follow the credential we
+	// actually send.
 	if (usedRegion && !providerKey) {
-		const regionToken = getRegionSpecificEnvValue(usedProvider, usedRegion);
-		if (regionToken) {
-			usedToken = regionToken;
-			// Update envVarName to reflect the regional env var
-			const baseEnvVar = getProviderEnvVar(usedProvider);
-			if (baseEnvVar) {
-				const regionSuffix = usedRegion.toUpperCase().replace(/-/g, "_");
-				const regionalEnvVar = `${baseEnvVar}__${regionSuffix}`;
-				envVarName = process.env[regionalEnvVar] ? regionalEnvVar : baseEnvVar;
+		const regionEnvVarName = getRegionSpecificEnvVarName(
+			usedProvider,
+			usedRegion,
+			options.userPlan === "enterprise",
+		);
+		if (regionEnvVarName) {
+			const regionToken = process.env[regionEnvVarName];
+			if (regionToken) {
+				usedToken = regionToken;
+				envVarName = regionEnvVarName;
+				configIndex = 0;
 			}
 		}
 	}

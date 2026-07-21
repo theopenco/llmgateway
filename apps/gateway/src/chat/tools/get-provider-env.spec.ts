@@ -80,6 +80,86 @@ describe("getProviderEnv", () => {
 	});
 });
 
+describe("enterprise env override", () => {
+	const originalOpenAIKey = process.env.LLM_OPENAI_API_KEY;
+	const originalEnterpriseKey = process.env.LLM_OPENAI_API_KEY__ENTERPRISE;
+
+	beforeEach(() => {
+		resetRoundRobinCounters();
+		resetKeyHealth();
+		process.env.LLM_OPENAI_API_KEY = "sk-base-a,sk-base-b";
+		process.env.LLM_OPENAI_API_KEY__ENTERPRISE = "sk-ent-a,sk-ent-b,sk-ent-c";
+	});
+
+	afterEach(() => {
+		if (originalOpenAIKey === undefined) {
+			delete process.env.LLM_OPENAI_API_KEY;
+		} else {
+			process.env.LLM_OPENAI_API_KEY = originalOpenAIKey;
+		}
+		if (originalEnterpriseKey === undefined) {
+			delete process.env.LLM_OPENAI_API_KEY__ENTERPRISE;
+		} else {
+			process.env.LLM_OPENAI_API_KEY__ENTERPRISE = originalEnterpriseKey;
+		}
+	});
+
+	it("uses the enterprise var for enterprise-plan orgs when set", () => {
+		const selection = getProviderEnv("openai", { plan: "enterprise" });
+		expect(selection.token).toBe("sk-ent-a");
+		expect(selection.envVarName).toBe("LLM_OPENAI_API_KEY__ENTERPRISE");
+		expect(selection.configIndex).toBe(0);
+	});
+
+	it("falls back to the base var when the enterprise var is unset", () => {
+		delete process.env.LLM_OPENAI_API_KEY__ENTERPRISE;
+		const selection = getProviderEnv("openai", { plan: "enterprise" });
+		expect(selection.token).toBe("sk-base-a");
+		expect(selection.envVarName).toBe("LLM_OPENAI_API_KEY");
+	});
+
+	it("never uses the enterprise var for non-enterprise plans", () => {
+		for (const plan of ["free", "pro", null, undefined] as const) {
+			const selection = getProviderEnv("openai", { plan });
+			expect(selection.token).toBe("sk-base-a");
+			expect(selection.envVarName).toBe("LLM_OPENAI_API_KEY");
+		}
+	});
+
+	it("selects within the enterprise key list with exclusions", () => {
+		const selection = getProviderEnv("openai", {
+			plan: "enterprise",
+			excludedIndices: new Set([0, 1]),
+		});
+		expect(selection.token).toBe("sk-ent-c");
+		expect(selection.configIndex).toBe(2);
+	});
+
+	it("tracks key health independently per env var", () => {
+		reportKeyError("LLM_OPENAI_API_KEY", 0, 500, undefined, "gpt-4");
+		reportKeyError("LLM_OPENAI_API_KEY", 0, 500, undefined, "gpt-4");
+		reportKeyError("LLM_OPENAI_API_KEY", 0, 500, undefined, "gpt-4");
+
+		const enterpriseSelection = getProviderEnv("openai", {
+			plan: "enterprise",
+			selectionScope: "gpt-4",
+		});
+		const baseSelection = getProviderEnv("openai", {
+			selectionScope: "gpt-4",
+		});
+
+		expect(enterpriseSelection.configIndex).toBe(0);
+		expect(baseSelection.configIndex).toBe(1);
+	});
+
+	it("works for enterprise orgs even when only the enterprise var is set", () => {
+		delete process.env.LLM_OPENAI_API_KEY;
+		const selection = getProviderEnv("openai", { plan: "enterprise" });
+		expect(selection.token).toBe("sk-ent-a");
+		expect(() => getProviderEnv("openai")).toThrow();
+	});
+});
+
 describe("getEnvKeyCount", () => {
 	const envVar = "LLM_TEST_ENV_KEY_COUNT";
 

@@ -8,6 +8,7 @@ import {
 
 import { providerKeyBaseUrlSupportsServiceTier } from "@llmgateway/actions";
 import {
+	getEnterpriseEnvVarName,
 	getProviderEnvValue,
 	getProviderEnvVar,
 	getProviderEnvConfig,
@@ -99,6 +100,7 @@ interface GetProviderEnvOptions {
 	advanceRoundRobin?: boolean;
 	excludedIndices?: ReadonlySet<number>;
 	selectionScope?: string;
+	plan?: "free" | "pro" | "enterprise" | null;
 }
 
 /**
@@ -117,7 +119,15 @@ export function getProviderEnv(
 			message: `No environment variable set for provider: ${usedProvider}`,
 		});
 	}
-	const envValue = process.env[envVar];
+	// Enterprise-plan orgs use the optional `{BASE}__ENTERPRISE` override when
+	// it is set; everyone else (and enterprise orgs without the override) uses
+	// the base env var.
+	const enterpriseEnvVar =
+		options.plan === "enterprise"
+			? getEnterpriseEnvVarName(usedProvider)
+			: undefined;
+	const effectiveEnvVar = enterpriseEnvVar ?? envVar;
+	const envValue = process.env[effectiveEnvVar];
 	if (!envValue) {
 		throw new HTTPException(500, {
 			message: `No API key set in environment for provider: ${usedProvider}`,
@@ -143,10 +153,24 @@ export function getProviderEnv(
 	const excludedIndices = options.excludedIndices;
 	const selectionScope = options.selectionScope;
 	const result = advanceRoundRobin
-		? getRoundRobinValue(envVar, envValue, selectionScope, excludedIndices)
-		: peekRoundRobinValue(envVar, envValue, selectionScope, excludedIndices);
+		? getRoundRobinValue(
+				effectiveEnvVar,
+				envValue,
+				selectionScope,
+				excludedIndices,
+			)
+		: peekRoundRobinValue(
+				effectiveEnvVar,
+				envValue,
+				selectionScope,
+				excludedIndices,
+			);
 
-	return { token: result.value, configIndex: result.index, envVarName: envVar };
+	return {
+		token: result.value,
+		configIndex: result.index,
+		envVarName: effectiveEnvVar,
+	};
 }
 
 /**
