@@ -15,6 +15,71 @@ import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
+// Ask AI is public, anonymous and spends LLM credits on every call, so it
+// gets per-IP limits plus a global circuit breaker (per-IP buckets alone are
+// defeated by rotating addresses). The docs app has no Redis and the
+// standalone Next server runs as a single instance, so an in-memory sliding
+// window is sufficient.
+const BURST_LIMIT_MAX = 3;
+const BURST_LIMIT_WINDOW_MS = 20_000;
+const HOURLY_LIMIT_MAX = 30;
+const HOURLY_LIMIT_WINDOW_MS = 60 * 60 * 1000;
+const GLOBAL_HOURLY_LIMIT_MAX = 300;
+const MAX_MESSAGES = 50;
+
+// Hard cap on tracked buckets so an attacker rotating IPs can't grow the map
+// with the attack rate: the least-recently-used bucket is evicted as soon as
+// the cap is exceeded (an evicted bucket simply starts fresh). Each check
+// re-inserts its key, so insertion order doubles as recency order.
+const MAX_TRACKED_KEYS = 10_000;
+const rateLimitHits = new Map<string, number[]>();
+
+function isAllowed(key: string, max: number, windowMs: number): boolean {
+	const now = Date.now();
+	const hits = (rateLimitHits.get(key) ?? []).filter((t) => now - t < windowMs);
+	rateLimitHits.delete(key);
+	rateLimitHits.set(key, hits);
+	if (hits.length >= max) {
+		return false;
+	}
+	hits.push(now);
+	while (rateLimitHits.size > MAX_TRACKED_KEYS) {
+		const oldest = rateLimitHits.keys().next().value;
+		if (oldest === undefined) {
+			break;
+		}
+		rateLimitHits.delete(oldest);
+	}
+	return true;
+}
+
+// The global bucket lives outside the evictable map so key churn can never
+// push it out. Timestamps are appended in order, so expiry trims the front.
+const globalHits: number[] = [];
+
+function isGlobalAllowed(max: number, windowMs: number): boolean {
+	const now = Date.now();
+	let first = globalHits[0];
+	while (first !== undefined && now - first >= windowMs) {
+		globalHits.shift();
+		first = globalHits[0];
+	}
+	if (globalHits.length >= max) {
+		return false;
+	}
+	globalHits.push(now);
+	return true;
+}
+
+function extractClientIP(req: Request): string {
+	return (
+		req.headers.get("cf-connecting-ip") ??
+		req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+		req.headers.get("x-real-ip") ??
+		"unknown"
+	);
+}
+
 interface CustomDocument extends DocumentData {
 	url: string;
 	title: string;
@@ -111,6 +176,34 @@ export async function POST(req: Request) {
 		);
 	}
 
+	// Narrower windows first so a blocked request doesn't consume the wider
+	// quotas; the global bucket last so per-IP rejections don't eat into it.
+	const ip = extractClientIP(req);
+	if (!isAllowed(`burst:${ip}`, BURST_LIMIT_MAX, BURST_LIMIT_WINDOW_MS)) {
+		return Response.json(
+			{
+				error:
+					"You're sending messages too quickly. Please wait a few seconds and try again.",
+			},
+			{ status: 429 },
+		);
+	}
+	if (!isAllowed(`hour:${ip}`, HOURLY_LIMIT_MAX, HOURLY_LIMIT_WINDOW_MS)) {
+		return Response.json(
+			{ error: "Too many messages. Please try again later." },
+			{ status: 429 },
+		);
+	}
+	if (!isGlobalAllowed(GLOBAL_HOURLY_LIMIT_MAX, HOURLY_LIMIT_WINDOW_MS)) {
+		return Response.json(
+			{
+				error:
+					"Ask AI is experiencing unusually high volume. Please try again later.",
+			},
+			{ status: 429 },
+		);
+	}
+
 	const llmgateway = createLLMGateway({
 		apiKey,
 		baseURL: process.env.GATEWAY_URL ?? "https://api.llmgateway.io/v1",
@@ -120,6 +213,12 @@ export async function POST(req: Request) {
 	});
 
 	const reqJson = (await req.json()) as { messages?: ChatUIMessage[] };
+	if ((reqJson.messages ?? []).length > MAX_MESSAGES) {
+		return Response.json(
+			{ error: "Too many messages in conversation" },
+			{ status: 400 },
+		);
+	}
 
 	const result = streamText({
 		model: llmgateway.chat("auto"),

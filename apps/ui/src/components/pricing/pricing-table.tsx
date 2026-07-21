@@ -25,12 +25,17 @@ const pricingFeatures: PricingFeature[] = [
 		enterprise: "Volume discounts",
 	},
 	{
+		name: "Free Trial",
+		free: "Free forever",
+		enterprise: "30-day trial",
+	},
+	{
 		name: "Models",
-		description: "210+ unique models across 25+ providers",
+		description: "200+ unique models across 40+ providers",
 		learnMoreLink: "/models",
 		learnMoreText: "Browse all models →",
-		free: "All 210+ models",
-		enterprise: "All 210+ models",
+		free: "All 200+ models",
+		enterprise: "All 200+ models",
 	},
 	{
 		name: "Provider Choice",
@@ -105,18 +110,50 @@ const pricingFeatures: PricingFeature[] = [
 		enterprise: true,
 	},
 	{
-		name: "Data Policy-Based Routing",
-		description: "Route based on data policies",
+		name: "Enterprise Audit Logs",
+		description: "Immutable, SIEM-ready audit trails",
+		learnMoreLink: "/enterprise/audit-logs",
+		learnMoreText: "Learn more →",
 		free: false,
 		enterprise: true,
 	},
 	{
-		name: "Managed Policy Enforcement",
+		name: "Enterprise Guardrails",
+		description: "Prompt injection, PII & secret detection",
+		learnMoreLink: "/enterprise/guardrails",
+		learnMoreText: "Learn more →",
+		free: false,
+		enterprise: true,
+	},
+	{
+		name: "Per-Project Routing Overrides",
+		description: "Region pinning, fallback & cost ceilings per project",
+		learnMoreLink: "/enterprise/routing-overrides",
+		learnMoreText: "Learn more →",
+		free: false,
+		enterprise: true,
+	},
+	{
+		name: "Provider Compliance Policies",
+		description: "Route only to SOC 2 / ISO 27001 / GDPR providers",
+		learnMoreLink: "/enterprise/compliance",
+		learnMoreText: "Learn more →",
+		free: false,
+		enterprise: true,
+	},
+	{
+		name: "Discord & Slack Alerts",
+		description: "Real-time webhook alerts to your channels",
+		learnMoreLink: "/enterprise/discord-notifications",
+		learnMoreText: "Learn more →",
 		free: false,
 		enterprise: true,
 	},
 	{
 		name: "SSO/SAML",
+		description: "SAML 2.0 & OIDC with SCIM provisioning",
+		learnMoreLink: "/enterprise/sso-saml",
+		learnMoreText: "Learn more →",
 		free: false,
 		enterprise: true,
 	},
@@ -127,6 +164,9 @@ const pricingFeatures: PricingFeature[] = [
 	},
 	{
 		name: "Chat App (Whitelabel)",
+		description: "Ship the playground under your own brand & domain",
+		learnMoreLink: "/enterprise/white-label",
+		learnMoreText: "Learn more →",
 		free: false,
 		enterprise: true,
 	},
@@ -152,7 +192,7 @@ const pricingFeatures: PricingFeature[] = [
 	{
 		name: "Support",
 		free: "Discord Community",
-		enterprise: "24/7 SLA + Discord channel",
+		enterprise: "24/7 SLA + Slack channel",
 	},
 ];
 
@@ -175,24 +215,35 @@ export function PricingTable() {
 	return (
 		<section className="w-full pb-16 md:pb-24">
 			<div className="container mx-auto px-4 md:px-6">
+				<h2 className="text-2xl md:text-3xl font-bold tracking-tight text-center mb-8">
+					Compare plans
+				</h2>
 				<div className="overflow-x-auto">
 					<table className="w-full border-collapse min-w-[600px]">
 						{/* Header */}
 						<thead>
 							<tr>
-								<th className="text-left p-4 w-1/3" />
-								<th className="p-4 text-center w-1/3 bg-blue-600/10 rounded-t-xl border-x border-t border-blue-600/20">
+								<th scope="col" className="text-left p-4 w-1/3">
+									<span className="sr-only">Feature</span>
+								</th>
+								<th
+									scope="col"
+									className="p-4 text-center w-1/3 bg-blue-600/10 rounded-t-xl border-x border-t border-blue-600/20"
+								>
 									<div className="font-semibold text-lg text-blue-600 dark:text-blue-400">
 										Free
 									</div>
 									<div className="text-2xl font-bold mt-1">$0</div>
 									<div className="text-sm text-muted-foreground">forever</div>
 								</th>
-								<th className="p-4 text-center w-1/3">
+								<th scope="col" className="p-4 text-center w-1/3">
 									<div className="font-semibold text-lg">Enterprise</div>
 									<div className="text-2xl font-bold mt-1">Custom</div>
 									<div className="text-sm text-muted-foreground">
 										Contact us
+									</div>
+									<div className="mt-1 text-xs font-medium text-blue-600 dark:text-blue-400">
+										30-day trial
 									</div>
 								</th>
 							</tr>
@@ -206,7 +257,7 @@ export function PricingTable() {
 										index % 2 === 0 ? "bg-muted/30" : "",
 									)}
 								>
-									<td className="p-4">
+									<th scope="row" className="p-4 text-left font-normal">
 										<div className="font-medium">{feature.name}</div>
 										{feature.description && (
 											<div className="text-sm text-muted-foreground">
@@ -216,12 +267,12 @@ export function PricingTable() {
 										{feature.learnMoreLink && (
 											<Link
 												href={feature.learnMoreLink as any}
-												className="text-xs text-blue-600 hover:underline"
+												className="text-xs text-blue-700 underline underline-offset-2 dark:text-blue-400"
 											>
 												{feature.learnMoreText ?? feature.name}
 											</Link>
 										)}
-									</td>
+									</th>
 									<td className="p-4 text-center bg-blue-600/5 border-x border-blue-600/20">
 										<FeatureCell value={feature.free} />
 									</td>
@@ -232,7 +283,9 @@ export function PricingTable() {
 							))}
 							{/* CTA Row */}
 							<tr>
-								<td className="p-4" />
+								<th scope="row" className="p-4 text-left font-normal">
+									<span className="sr-only">Get started</span>
+								</th>
 								<td className="p-6 text-center bg-blue-600/5 border-x border-b border-blue-600/20 rounded-b-xl">
 									<AuthLink href="/signup">
 										<Button className="w-full max-w-[200px]">
@@ -259,7 +312,10 @@ export function PricingTable() {
 						support.
 						<br />
 						Need a custom solution?{" "}
-						<Link href="/enterprise" className="text-blue-600 hover:underline">
+						<Link
+							href="/enterprise"
+							className="text-blue-700 underline underline-offset-2 dark:text-blue-400"
+						>
 							Contact our team
 						</Link>
 						.

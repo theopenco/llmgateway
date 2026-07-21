@@ -9,13 +9,37 @@ import {
 	providers,
 } from "@llmgateway/models";
 
+import { getGcpServiceAccountAccessToken } from "./gcp-access-token.js";
 import { getProviderEndpoint } from "./get-provider-endpoint.js";
 import { getProviderHeaders } from "./get-provider-headers.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
 
-function getValidationModel(
+/**
+ * Pick the cheapest candidate among the newer half of the provider's releases,
+ * so key validation uses a cheap but current model instead of an outdated one
+ * that happens to be the cheapest. The cutoff is the median release date of
+ * the dated candidates, i.e. relative to the provider's own catalog rather
+ * than any absolute age threshold. Candidates without a release date are
+ * treated as old; they only win when fewer than two candidates are dated.
+ */
+export function pickCheapestRecentModel<
+	T extends { price: number; releasedAt?: Date },
+>(candidates: T[]): T | undefined {
+	const byPrice = [...candidates].sort((a, b) => a.price - b.price);
+	const dated = byPrice.filter((c) => c.releasedAt !== undefined);
+	if (dated.length < 2) {
+		return byPrice[0];
+	}
+	const releaseTimes = dated
+		.map((c) => c.releasedAt!.getTime())
+		.sort((a, b) => a - b);
+	const medianReleaseTime = releaseTimes[Math.floor(releaseTimes.length / 2)];
+	return dated.find((c) => c.releasedAt!.getTime() >= medianReleaseTime);
+}
+
+export function getValidationModel(
 	provider: ProviderId,
 	providerKeyOptions?: ProviderKeyOptions,
 ): { modelId: string; externalId: string } | null {
@@ -36,8 +60,8 @@ function getValidationModel(
 		: undefined;
 
 	const currentDate = new Date();
-	const providerModels = models
-		.flatMap((model) => {
+	const collectModels = (restrictToRegion: boolean) =>
+		models.flatMap((model) => {
 			const providerMapping = model.providers.find(
 				(p) => p.providerId === provider,
 			) as ProviderModelMapping | undefined;
@@ -46,7 +70,7 @@ function getValidationModel(
 			}
 
 			// If a region is selected, only consider models available in that region
-			if (selectedRegion && providerMapping.regions) {
+			if (restrictToRegion && selectedRegion && providerMapping.regions) {
 				if (!providerMapping.regions.some((r) => r.id === selectedRegion)) {
 					return [];
 				}
@@ -78,7 +102,9 @@ function getValidationModel(
 				isDeactivated ||
 				providerMapping.imageGenerations ||
 				providerMapping.videoGenerations ||
-				providerMapping.embeddings
+				providerMapping.embeddings ||
+				providerMapping.speechGenerations ||
+				providerMapping.ocr
 			) {
 				return [];
 			}
@@ -88,22 +114,32 @@ function getValidationModel(
 				providerMapping.outputPrice !== undefined;
 			const inputPrice = Number(providerMapping.inputPrice ?? "0");
 			const outputPrice = Number(providerMapping.outputPrice ?? "0");
-			const discount = Number(providerMapping.discount ?? "0");
-			const discountedAveragePrice = hasPricing
-				? ((inputPrice + outputPrice) / 2) * (1 - discount)
+			const averagePrice = hasPricing
+				? (inputPrice + outputPrice) / 2
 				: Number.MAX_VALUE;
 
 			return [
 				{
 					modelId: model.id,
 					externalId: providerMapping.externalId,
-					price: discountedAveragePrice,
+					price: averagePrice,
+					releasedAt:
+						"releasedAt" in model
+							? (model.releasedAt as Date | undefined)
+							: undefined,
 				},
 			];
-		})
-		.sort((a, b) => a.price - b.price);
+		});
 
-	const best = providerModels[0];
+	// Prefer a model available in the selected region. If none is declared for
+	// that region (e.g. a data-residency AWS region that no model lists), fall
+	// back to any model for the provider so validation can still proceed.
+	const regionModels = selectedRegion ? collectModels(true) : [];
+	const providerModels = regionModels.length
+		? regionModels
+		: collectModels(false);
+
+	const best = pickCheapestRecentModel(providerModels);
 	return best ? { modelId: best.modelId, externalId: best.externalId } : null;
 }
 
@@ -154,7 +190,18 @@ export async function validateProviderKey(
 		};
 		const messages: BaseMessage[] = [systemMessage, minimalMessage];
 
-		const headers = getProviderHeaders(provider, token);
+		// Vertex provider keys are service-account JSON blobs; the upstream API
+		// expects an OAuth access token, so exchange the key before building
+		// headers.
+		let requestToken = token;
+		if (provider === "vertex-anthropic" || provider === "vertex-openai") {
+			requestToken = await getGcpServiceAccountAccessToken(token);
+		}
+
+		const headers = getProviderHeaders(provider, requestToken, {
+			providerKeyOptions,
+			skipEnvVars: true, // provider key validation is always BYOK context
+		});
 		headers["Content-Type"] = "application/json";
 
 		// Look up the model definition by canonical id.
@@ -184,7 +231,8 @@ export async function validateProviderKey(
 			provider === "google-ai-studio" ||
 				provider === "glacier" ||
 				provider === "google-vertex" ||
-				provider === "quartz"
+				provider === "quartz" ||
+				provider === "vertex-anthropic"
 				? token
 				: undefined,
 			false, // validation doesn't need streaming
@@ -252,6 +300,9 @@ export async function validateProviderKey(
 
 		const response = await fetch(endpoint, {
 			method: "POST",
+			// SSRF: never follow redirects when validating a tenant-supplied baseUrl,
+			// which could 3xx to an internal host (and would leak the upstream token).
+			redirect: "error",
 			headers,
 			body: JSON.stringify(payload),
 		});

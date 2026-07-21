@@ -207,8 +207,13 @@ export function transformStreamingToOpenai(
 				};
 			} else if (
 				data.type === "content_block_delta" &&
-				data.delta?.partial_json
+				(data.delta?.type === "input_json_delta" ||
+					data.delta?.partial_json !== undefined)
 			) {
+				// input_json_delta carries the tool-call arguments. The first delta
+				// of a tool_use block often has an empty partial_json (""), so match
+				// on the delta type rather than the truthiness of partial_json.
+				const partialJson = data.delta.partial_json ?? "";
 				// Skip partial_json deltas for server_tool_use blocks (e.g. web search)
 				if (
 					serverToolUseIndices &&
@@ -245,7 +250,7 @@ export function transformStreamingToOpenai(
 										{
 											index: data.index ?? 0,
 											function: {
-												arguments: data.delta.partial_json,
+												arguments: partialJson,
 											},
 										},
 									],
@@ -730,6 +735,8 @@ export function transformStreamingToOpenai(
 		}
 
 		case "azure":
+		case "sakana":
+		case "meta":
 		case "openai": {
 			// Azure precedes every stream with a prompt-filter-only chunk that has
 			// empty id/object/model and no choices. The default OpenAI fallback
@@ -829,6 +836,8 @@ export function transformStreamingToOpenai(
 					case "response.output_item.done":
 					case "response.content_part.done":
 					case "response.output_text.done":
+					case "response.reasoning_summary_text.done":
+					case "response.reasoning_summary_part.done":
 					case "response.web_search_call.in_progress":
 					case "response.web_search_call.searching":
 					case "response.web_search_call.completed":
@@ -943,11 +952,33 @@ export function transformStreamingToOpenai(
 						};
 						break;
 
+					case "response.output_text.annotation.added":
 					case "response.output_item.annotations.added":
 					case "response.content_part.annotations.added": {
-						// Handle web search annotations/citations from OpenAI Responses API
-						const annotations =
-							data.annotations ?? data.part?.annotations ?? [];
+						// Handle web search annotations/citations from OpenAI Responses API.
+						// Annotations arrive flat ({type, url, title, ...}) and must be
+						// mapped to the chat-completions nested url_citation shape.
+						const rawAnnotations = data.annotation
+							? [data.annotation]
+							: (data.annotations ?? data.part?.annotations ?? []);
+						const annotations: Annotation[] = [];
+						for (const annotation of rawAnnotations) {
+							if (annotation?.type !== "url_citation") {
+								continue;
+							}
+							annotations.push({
+								type: "url_citation",
+								url_citation: {
+									url: annotation.url ?? annotation.url_citation?.url ?? "",
+									title: annotation.title ?? annotation.url_citation?.title,
+									start_index:
+										annotation.start_index ??
+										annotation.url_citation?.start_index,
+									end_index:
+										annotation.end_index ?? annotation.url_citation?.end_index,
+								},
+							});
+						}
 						transformedData = {
 							id: data.response?.id ?? `chatcmpl-${Date.now()}`,
 							object: "chat.completion.chunk",
@@ -1003,6 +1034,9 @@ export function transformStreamingToOpenai(
 								},
 							],
 							usage,
+							...(typeof data.response?.service_tier === "string" && {
+								service_tier: data.response.service_tier,
+							}),
 						};
 						break;
 					}
@@ -1045,6 +1079,9 @@ export function transformStreamingToOpenai(
 								},
 							],
 							usage,
+							...(typeof data.response?.service_tier === "string" && {
+								service_tier: data.response.service_tier,
+							}),
 						};
 						break;
 					}
@@ -1217,7 +1254,10 @@ export function transformStreamingToOpenai(
 					finishReason = "length";
 				} else if (stopReason === "tool_use") {
 					finishReason = "tool_calls";
-				} else if (stopReason === "content_filtered") {
+				} else if (
+					stopReason === "content_filtered" ||
+					stopReason === "refusal"
+				) {
 					finishReason = "content_filter";
 				}
 
@@ -1311,11 +1351,14 @@ export function transformStreamingToOpenai(
 		case "canopywave":
 		case "inference.net":
 		case "together-ai":
+		case "deepinfra":
 		case "custom":
 		case "nanogpt":
 		case "bytedance":
 		case "minimax":
 		case "embercloud":
+		case "granite":
+		case "tundra":
 		case "xiaomi":
 		case "azure-ai-foundry":
 		case "vertex-openai":
@@ -1351,7 +1394,9 @@ export function transformStreamingToOpenai(
 					model: usedModel,
 					chunk: data,
 				});
-				transformedData.choices[0].finish_reason = "canceled";
+				// "abort" is an upstream-initiated interruption, not a client
+				// cancellation, so it counts as an upstream error.
+				transformedData.choices[0].finish_reason = "upstream_error";
 			} else if (transformedData?.choices?.[0]?.finish_reason === "tool_use") {
 				transformedData.choices[0].finish_reason = "tool_calls";
 			}

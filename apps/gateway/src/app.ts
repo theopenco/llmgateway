@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import {
 	InvalidFileContentError,
+	RequestError,
 	UnsupportedAudioFormatError,
 	UnsupportedDocumentFormatError,
 } from "@llmgateway/actions";
@@ -17,16 +18,17 @@ import { db } from "@llmgateway/db";
 import {
 	createHonoRequestLogger,
 	createRequestLifecycleMiddleware,
-	getMetrics,
-	getMetricsContentType,
 } from "@llmgateway/instrumentation";
 import { logger, toError } from "@llmgateway/logger";
 import { HealthChecker } from "@llmgateway/shared";
 
 import { anthropic } from "./anthropic/anthropic.js";
 import { chat } from "./chat/chat.js";
+import { extractErrorCause } from "./chat/tools/extract-error-cause.js";
+import { isUpstreamTermination } from "./chat/tools/normalize-streaming-error.js";
 import { embeddingsRoute } from "./embeddings/route.js";
 import { imagesRoute } from "./images/route.js";
+import { keyRoute } from "./key/route.js";
 import {
 	buildAnthropicErrorBody,
 	buildOpenAIErrorBody,
@@ -35,7 +37,9 @@ import { mcpHandler, registerMcpOAuthRoutes } from "./mcp/mcp.js";
 import { tracingMiddleware } from "./middleware/tracing.js";
 import { models } from "./models/route.js";
 import { moderationsRoute } from "./moderations/route.js";
+import { ocrRoute } from "./ocr/route.js";
 import { responses } from "./responses/responses.js";
+import { speechRoute } from "./speech/route.js";
 import { videosRoute } from "./videos/route.js";
 
 import type { ServerTypes } from "./vars.js";
@@ -163,10 +167,27 @@ app.onError((error, c) => {
 		return renderGatewayError(c, 400, error.message);
 	}
 
+	if (error instanceof RequestError) {
+		logger.warn("Invalid request", {
+			message: error.message,
+			statusCode: error.statusCode,
+		});
+		return renderGatewayError(c, error.statusCode, error.message);
+	}
+
 	if (error instanceof HTTPException) {
 		const status = error.status;
 
-		if (status >= 500) {
+		// 502/503/504 are upstream/gateway conditions (e.g. a provider
+		// terminating the connection), not application bugs. They are already
+		// recorded as request logs via insertLog by the chat handler, so log
+		// them at warn level instead of error to avoid alerting noise.
+		if (status === 502 || status === 503 || status === 504) {
+			logger.warn("Upstream gateway error", {
+				status,
+				message: error.message,
+			});
+		} else if (status >= 500) {
 			logger.error("HTTP 500 exception", error);
 		} else {
 			logger.warn("HTTP client error", { status, message: error.message });
@@ -195,6 +216,20 @@ app.onError((error, c) => {
 			method: c.req.method,
 		});
 		return renderGatewayError(c, 499, "Client Closed Request");
+	}
+
+	// An upstream-side socket close (e.g. undici "terminated: other side
+	// closed" / ECONNRESET) that escaped the chat handler's own classification
+	// is an expected provider/client disconnect, not a gateway bug. Log it at
+	// warn to avoid raising server-error alerts.
+	if (isUpstreamTermination(error)) {
+		logger.warn("Upstream connection terminated", {
+			message: error instanceof Error ? error.message : String(error),
+			cause: extractErrorCause(error),
+			path: c.req.path,
+			method: c.req.method,
+		});
+		return renderGatewayError(c, 502, "Upstream connection terminated");
 	}
 
 	// For any other errors (non-HTTPException), return 500 Internal Server Error
@@ -302,41 +337,18 @@ app.openapi(root, async (c) => {
 	return c.json(response, statusCode as 200 | 503);
 });
 
-// Prometheus metrics endpoint
-const metricsRoute = createRoute({
-	summary: "Prometheus metrics",
-	description: "Prometheus metrics endpoint for scraping.",
-	operationId: "metrics",
-	method: "get",
-	path: "/metrics",
-	responses: {
-		200: {
-			content: {
-				"text/plain": {
-					schema: z.string(),
-				},
-			},
-			description: "Prometheus metrics in exposition format.",
-		},
-	},
-});
-
-app.openapi(metricsRoute, async (c) => {
-	const metrics = await getMetrics();
-	return c.text(metrics, 200, {
-		"Content-Type": getMetricsContentType(),
-	});
-});
-
 const v1 = new OpenAPIHono<ServerTypes>();
 
 v1.route("/chat", chat);
 v1.route("/embeddings", embeddingsRoute);
 v1.route("/images", imagesRoute);
+v1.route("/key", keyRoute);
 v1.route("/models", models);
 v1.route("/moderations", moderationsRoute);
+v1.route("/ocr", ocrRoute);
 v1.route("/messages", anthropic);
 v1.route("/responses", responses);
+v1.route("/audio/speech", speechRoute);
 v1.route("/videos", videosRoute);
 
 app.route("/v1", v1);
@@ -351,3 +363,9 @@ registerMcpOAuthRoutes(app);
 app.doc("/json", config);
 
 app.get("/docs", swaggerUI({ url: "/json" }));
+
+// The gateway is an API, not a website: keep search engines from crawling and
+// indexing its endpoints (GSC keeps reporting api.llmgateway.io URLs).
+app.get("/robots.txt", (c) => {
+	return c.text("User-agent: *\nDisallow: /\n");
+});

@@ -1,11 +1,16 @@
 "use client";
 
 import { format, formatDistanceToNowStrict } from "date-fns";
-import { Activity, Coins, Cpu, TrendingUp } from "lucide-react";
+import { Activity, Coins, Cpu, Gem, TrendingUp } from "lucide-react";
+import { usePostHog } from "posthog-js/react";
+import { useEffect } from "react";
 
+import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
 import { AgentModelUsageChart } from "./AgentModelUsageChart";
+import AllowanceExhaustedCard from "./AllowanceExhaustedCard";
+import ResetPassCard from "./ResetPassCard";
 
 import type { paths } from "@/lib/api/v1";
 import type { DevPlanCycle } from "@llmgateway/shared";
@@ -16,11 +21,20 @@ type ActivityItem = ActivityResponse["activity"][number];
 
 interface UsageOverviewProps {
 	projectId: string | null;
+	organizationId: string | null;
 	creditsUsed: number;
 	creditsLimit: number;
+	premiumCreditsUsed: number;
+	premiumWeeklyLimit: number;
+	premiumWeekResetsAt: string | null;
+	resetPasses: number;
+	includedResetPasses: number;
+	includedResetPassesRemaining: number;
+	resetPassPrice: number | null;
 	planName: string;
 	planPrice?: number;
 	billingCycleStart: string | null;
+	currentPeriodEnd: string | null;
 	cancelledAtPeriodEnd: boolean;
 	cycle?: DevPlanCycle;
 }
@@ -52,7 +66,92 @@ function MetricCard({
 	);
 }
 
-function UsageBar({ used, limit }: { used: number; limit: number }) {
+// Weekly premium allowance meter: "$X.XX spent" with the reset date on the
+// left, a slim track in the middle, "N% used" on the right.
+function WeeklyAllowanceMeter({
+	used,
+	limit,
+	resetsAt,
+	resetPassAvailable,
+}: {
+	used: number;
+	limit: number;
+	resetsAt: string | null;
+	// False when the monthly pool is exhausted: the Reset Pass card below is
+	// replaced by the upgrade/PAYG promo, so don't point at a card that isn't
+	// there — and "standard models keep working" no longer holds either.
+	resetPassAvailable: boolean;
+}) {
+	const percentage = limit > 0 ? (used / limit) * 100 : 0;
+	const clamped = Math.min(100, percentage);
+	const isLow = percentage > 80;
+	const isExhausted = percentage >= 100;
+
+	return (
+		<div className="space-y-3">
+			<div className="flex items-center gap-4 sm:gap-6">
+				<div className="w-44 shrink-0">
+					<div className="text-base font-semibold tracking-tight tabular-nums">
+						${used.toFixed(2)}{" "}
+						<span className="font-normal text-muted-foreground">spent</span>
+					</div>
+					<div className="mt-0.5 text-xs text-muted-foreground">
+						{resetsAt
+							? `Resets ${format(new Date(resetsAt), "MMM d")}`
+							: "Window starts with your first premium request"}
+					</div>
+				</div>
+				<div
+					role="progressbar"
+					aria-label="Weekly premium allowance used"
+					aria-valuenow={Math.round(clamped)}
+					aria-valuemin={0}
+					aria-valuemax={100}
+					className="relative h-2 flex-1 overflow-hidden rounded-full border border-border/60 bg-muted"
+				>
+					<div
+						className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${
+							isExhausted
+								? "bg-destructive"
+								: isLow
+									? "bg-yellow-500"
+									: "bg-foreground"
+						}`}
+						style={{ width: `${clamped}%` }}
+					/>
+				</div>
+				<div className="w-20 shrink-0 text-right text-sm text-muted-foreground tabular-nums">
+					{Math.round(percentage)}% used
+				</div>
+			</div>
+			{isLow && !isExhausted && (
+				<p className="text-xs text-yellow-700 dark:text-yellow-400">
+					Above 80% of your weekly premium allowance. Standard models stay
+					available.
+				</p>
+			)}
+			{isExhausted && (
+				<p className="text-xs text-destructive">
+					{resetPassAvailable
+						? "Weekly premium allowance reached — redeem a Reset Pass below for an instant reset, or standard models keep working until the window resets."
+						: "Weekly premium allowance reached for this window."}
+				</p>
+			)}
+		</div>
+	);
+}
+
+function UsageBar({
+	used,
+	limit,
+	lowMessage = "Above 80% of your monthly allowance. Consider upgrading or wait for the next reset.",
+	exhaustedMessage = "Allowance reached for this billing cycle. Upgrade to keep coding.",
+}: {
+	used: number;
+	limit: number;
+	lowMessage?: string;
+	exhaustedMessage?: string;
+}) {
 	const percentage = limit > 0 ? (used / limit) * 100 : 0;
 	const clamped = Math.min(100, percentage);
 	const isLow = percentage > 80;
@@ -65,10 +164,10 @@ function UsageBar({ used, limit }: { used: number; limit: number }) {
 				<div className="min-w-0">
 					<div className="flex items-baseline gap-2">
 						<span className="text-3xl font-bold tracking-tight tabular-nums">
-							${remaining.toFixed(2)}
+							${used.toFixed(2)}
 						</span>
 						<span className="text-sm text-muted-foreground">
-							of ${limit.toFixed(0)} remaining
+							of ${limit.toFixed(limit % 1 === 0 ? 0 : 2)} spent
 						</span>
 					</div>
 				</div>
@@ -76,7 +175,7 @@ function UsageBar({ used, limit }: { used: number; limit: number }) {
 					<div className="tabular-nums font-medium text-foreground">
 						{Math.round(percentage)}% used
 					</div>
-					<div className="tabular-nums">${used.toFixed(2)} this period</div>
+					<div className="tabular-nums">${remaining.toFixed(2)} remaining</div>
 				</div>
 			</div>
 			<div className="relative h-2.5 overflow-hidden rounded-full bg-muted">
@@ -93,14 +192,11 @@ function UsageBar({ used, limit }: { used: number; limit: number }) {
 			</div>
 			{isLow && !isExhausted && (
 				<p className="text-xs text-yellow-700 dark:text-yellow-400">
-					Above 80% of your monthly allowance. Consider upgrading or wait for
-					the next reset.
+					{lowMessage}
 				</p>
 			)}
 			{isExhausted && (
-				<p className="text-xs text-destructive">
-					Allowance reached for this billing cycle. Upgrade to keep coding.
-				</p>
+				<p className="text-xs text-destructive">{exhaustedMessage}</p>
 			)}
 		</div>
 	);
@@ -108,15 +204,54 @@ function UsageBar({ used, limit }: { used: number; limit: number }) {
 
 export default function UsageOverview({
 	projectId,
+	organizationId,
 	creditsUsed,
 	creditsLimit,
+	premiumCreditsUsed,
+	premiumWeeklyLimit,
+	premiumWeekResetsAt,
+	resetPasses,
+	includedResetPasses,
+	includedResetPassesRemaining,
+	resetPassPrice,
 	planName,
 	planPrice,
 	billingCycleStart,
+	currentPeriodEnd,
 	cancelledAtPeriodEnd,
 	cycle = "monthly",
 }: UsageOverviewProps) {
 	const api = useApi();
+	const posthog = usePostHog();
+	const { posthogKey } = useAppConfig();
+
+	const tierKey = planName.toLowerCase();
+	// The monthly credit pool (not the weekly premium allowance) is the hard
+	// ceiling: once it's gone, Reset Passes can't unlock anything, so the pass
+	// card gives way to the upgrade/PAYG promo.
+	const monthlyExhausted = creditsLimit > 0 && creditsUsed >= creditsLimit;
+
+	// Top of the Reset Pass upsell funnel: the user sees the exhausted weekly
+	// premium meter. reset_pass_purchased/redeemed are captured server-side,
+	// so without this event the funnel has a bottom but no top.
+	const weeklyExhausted =
+		premiumWeeklyLimit > 0 && premiumCreditsUsed >= premiumWeeklyLimit;
+	useEffect(() => {
+		if (!posthogKey || !weeklyExhausted) {
+			return;
+		}
+		posthog.capture("devpass_weekly_cap_hit_viewed", {
+			tier: tierKey,
+			weeklyLimit: premiumWeeklyLimit,
+			weeklyUsed: premiumCreditsUsed,
+			resetsAt: premiumWeekResetsAt,
+			purchasedPasses: resetPasses,
+			includedPassesRemaining: includedResetPassesRemaining,
+			monthlyExhausted,
+		});
+		// Fire once per exhausted dashboard view, not on every prop tick.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [posthogKey, weeklyExhausted]);
 
 	const { data: activity } = api.useQuery(
 		"get",
@@ -170,18 +305,34 @@ export default function UsageOverview({
 		? `Since ${format(new Date(billingCycleStart), "MMM d, yyyy")}`
 		: "Active";
 
-	const cycleEndsHint = cancelledAtPeriodEnd
-		? "Cancels at period end"
+	// The renewal/period-end date must come from Stripe's actual
+	// `current_period_end` (surfaced as `currentPeriodEnd`), not from
+	// `billingCycleStart + 1 cycle`. The derived value diverges from the real
+	// billing schedule whenever the cycle anchor and the stored cycle start drift
+	// apart — most visibly after a mid-cycle proration upgrade, where the anchor
+	// is preserved but the dashboard would otherwise project a full cycle from the
+	// upgrade date. Fall back to the derived estimate only for legacy rows where
+	// the real period end hasn't been recorded yet.
+	const renewAt = currentPeriodEnd
+		? new Date(currentPeriodEnd)
 		: billingCycleStart
 			? (() => {
-					const renewAt = new Date(billingCycleStart);
+					const d = new Date(billingCycleStart);
 					if (cycle === "annual") {
-						renewAt.setFullYear(renewAt.getFullYear() + 1);
+						d.setFullYear(d.getFullYear() + 1);
 					} else {
-						renewAt.setMonth(renewAt.getMonth() + 1);
+						d.setMonth(d.getMonth() + 1);
 					}
-					return `Renews in ${formatDistanceToNowStrict(renewAt)}`;
+					return d;
 				})()
+			: null;
+
+	const cycleEndsHint = cancelledAtPeriodEnd
+		? renewAt
+			? `Cancels ${format(renewAt, "MMM d, yyyy")}`
+			: "Cancels at period end"
+		: renewAt
+			? `Renews in ${formatDistanceToNowStrict(renewAt)}`
 			: "—";
 
 	return (
@@ -207,7 +358,54 @@ export default function UsageOverview({
 
 			{/* Usage progress */}
 			<div className="rounded-xl border bg-card p-6">
-				<UsageBar used={creditsUsed} limit={creditsLimit} />
+				<UsageBar
+					used={creditsUsed}
+					limit={creditsLimit}
+					exhaustedMessage={
+						tierKey === "max"
+							? "Allowance reached for this billing cycle. Switch to pay-as-you-go credits below to keep coding."
+							: undefined
+					}
+				/>
+				{premiumWeeklyLimit > 0 && (
+					<div className="mt-6 border-t pt-6">
+						<div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+							<div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground/70">
+								<Gem className="h-3.5 w-3.5 text-amber-500" />
+								Premium models · weekly allowance
+							</div>
+							<span className="text-xs text-muted-foreground tabular-nums">
+								${premiumWeeklyLimit.toFixed(2)}/week
+							</span>
+						</div>
+						<WeeklyAllowanceMeter
+							used={premiumCreditsUsed}
+							limit={premiumWeeklyLimit}
+							resetsAt={premiumWeekResetsAt}
+							resetPassAvailable={!monthlyExhausted}
+						/>
+						{!monthlyExhausted && (
+							<ResetPassCard
+								tier={tierKey}
+								organizationId={organizationId}
+								purchased={resetPasses}
+								includedTotal={includedResetPasses}
+								includedRemaining={includedResetPassesRemaining}
+								price={resetPassPrice}
+								premiumCreditsUsed={premiumCreditsUsed}
+								premiumWeeklyLimit={premiumWeeklyLimit}
+								cycleCreditsUsed={creditsUsed}
+								cycleCreditsLimit={creditsLimit}
+							/>
+						)}
+					</div>
+				)}
+				{monthlyExhausted && (
+					<AllowanceExhaustedCard
+						tier={tierKey}
+						organizationId={organizationId}
+					/>
+				)}
 			</div>
 
 			{/* Metrics strip — scoped to the current billing cycle so they

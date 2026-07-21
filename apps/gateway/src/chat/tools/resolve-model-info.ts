@@ -41,11 +41,14 @@ export function resolveModelInfo(
 					externalId: requestedModel,
 					inputPrice: "0",
 					outputPrice: "0",
-					contextSize: 8192,
-					maxOutput: 4096,
+					// Custom providers have no catalog entry, so the gateway cannot
+					// know their limits (contextSize, maxOutput) or capabilities
+					// (vision, jsonOutput, ...). Leave them unset rather than
+					// guessing — capability validation is skipped for custom
+					// providers and the upstream provider enforces its own limits.
+					// `streaming` is required by the type but is never read for
+					// custom providers (streaming support comes from the catalog).
 					streaming: true,
-					vision: false,
-					jsonOutput: true,
 				},
 			],
 		};
@@ -60,7 +63,9 @@ export function resolveModelInfo(
 				? requestedModel.slice(0, lastColonIdx)
 				: requestedModel;
 
-		// First try to find by model ID
+		// Resolve strictly by catalog id. externalId is the upstream provider's
+		// model name and must never be used to identify a catalog entry — two
+		// entries (e.g. a free and a paid sibling) can share the same externalId.
 		// When a specific provider is requested, prefer the definition that includes that provider
 		let foundModel = requestedProvider
 			? models.find(
@@ -70,29 +75,6 @@ export function resolveModelInfo(
 				)
 			: undefined;
 		foundModel ??= models.find((m) => m.id === baseRequestedModel);
-
-		// If not found, search by provider external id
-		// If a specific provider is requested, match both externalId and providerId
-		if (!foundModel) {
-			if (requestedProvider) {
-				foundModel = models.find((m) =>
-					m.providers.find(
-						(p) =>
-							(p.externalId === requestedModel ||
-								p.externalId === baseRequestedModel) &&
-							p.providerId === requestedProvider,
-					),
-				);
-			} else {
-				foundModel = models.find((m) =>
-					m.providers.find(
-						(p) =>
-							p.externalId === requestedModel ||
-							p.externalId === baseRequestedModel,
-					),
-				);
-			}
-		}
 
 		if (!foundModel) {
 			throw new HTTPException(400, {

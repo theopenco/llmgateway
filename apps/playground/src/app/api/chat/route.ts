@@ -22,6 +22,7 @@ import {
 	readString,
 	type PlaygroundMessageMetadata,
 } from "@/lib/message-metadata";
+import { fetchServerData } from "@/lib/server-api";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 
@@ -180,8 +181,53 @@ function mergeGatewayResponseMetadata(
 	};
 }
 
+interface GatewaySourceCitation {
+	url: string;
+	title?: string;
+}
+
+// The gateway surfaces web search results as OpenAI-style `url_citation`
+// annotations, which the AI SDK provider does not forward as source parts
+// when streaming — so they are captured here from the raw SSE side-channel.
+function extractUrlCitations(value: unknown): GatewaySourceCitation[] {
+	if (!isRecord(value) || !Array.isArray(value.choices)) {
+		return [];
+	}
+
+	const citations: GatewaySourceCitation[] = [];
+	for (const choice of value.choices) {
+		if (!isRecord(choice)) {
+			continue;
+		}
+		for (const container of [choice.delta, choice.message]) {
+			if (!isRecord(container) || !Array.isArray(container.annotations)) {
+				continue;
+			}
+			for (const annotation of container.annotations) {
+				if (
+					!isRecord(annotation) ||
+					annotation.type !== "url_citation" ||
+					!isRecord(annotation.url_citation)
+				) {
+					continue;
+				}
+				const url = readString(annotation.url_citation.url);
+				if (url) {
+					citations.push({
+						url,
+						title: readString(annotation.url_citation.title),
+					});
+				}
+			}
+		}
+	}
+
+	return citations;
+}
+
 function createGatewayMetadataCaptureStream(
 	onMetadata: (metadata: GatewayResponseMetadata) => void,
+	onCitations?: (citations: GatewaySourceCitation[]) => void,
 ): TransformStream<Uint8Array, Uint8Array> {
 	const decoder = new TextDecoder();
 	let buffer = "";
@@ -202,6 +248,12 @@ function createGatewayMetadataCaptureStream(
 				const metadata = extractGatewayResponseMetadata(parsed);
 				if (metadata) {
 					onMetadata(metadata);
+				}
+				if (onCitations) {
+					const citations = extractUrlCitations(parsed);
+					if (citations.length > 0) {
+						onCitations(citations);
+					}
 				}
 			} catch {
 				// Ignore non-JSON stream events.
@@ -472,6 +524,21 @@ function isImageFilePart(value: unknown): value is ImageFilePart {
 	);
 }
 
+// Joined text parts of the latest user message, e.g. for image prompts and
+// knowledge base retrieval queries.
+function getLastUserText(messages: UIMessage[]): string {
+	const lastUserMessage = [...messages]
+		.reverse()
+		.find((m) => m.role === "user");
+	if (!Array.isArray(lastUserMessage?.parts)) {
+		return "";
+	}
+	return lastUserMessage.parts
+		.filter((p): p is { type: "text"; text: string } => p.type === "text")
+		.map((p) => p.text)
+		.join("\n");
+}
+
 interface ChatRequestBody {
 	messages: UIMessage[];
 	model?: string;
@@ -505,6 +572,22 @@ interface ChatRequestBody {
 	is_image_gen?: boolean;
 	temporary_chat?: boolean;
 	skill_instructions?: string;
+	project_id?: string;
+}
+
+interface ProjectRetrievalResponse {
+	project: {
+		id: string;
+		name: string;
+		instructions: string;
+	};
+	chunks: {
+		content: string;
+		score: number;
+		fileId: string;
+		fileName: string;
+	}[];
+	memories: string[];
 }
 
 interface McpClientWrapper {
@@ -533,6 +616,7 @@ export async function POST(req: Request) {
 		mcp_servers,
 		is_image_gen,
 		skill_instructions,
+		project_id,
 	}: ChatRequestBody = body;
 
 	if (!messages || !Array.isArray(messages)) {
@@ -558,6 +642,12 @@ export async function POST(req: Request) {
 			JSON.stringify({ error: "Invalid skill_instructions" }),
 			{ status: 400 },
 		);
+	}
+
+	if (project_id !== undefined && typeof project_id !== "string") {
+		return new Response(JSON.stringify({ error: "Invalid project_id" }), {
+			status: 400,
+		});
 	}
 
 	const headerApiKey = req.headers.get("x-llmgateway-key") ?? undefined;
@@ -588,13 +678,26 @@ export async function POST(req: Request) {
 			...metadata,
 		};
 	};
+	const collectedCitations: GatewaySourceCitation[] = [];
+	const seenCitationUrls = new Set<string>();
+	const captureGatewayCitations = (citations: GatewaySourceCitation[]) => {
+		for (const citation of citations) {
+			if (!seenCitationUrls.has(citation.url)) {
+				seenCitationUrls.add(citation.url);
+				collectedCitations.push(citation);
+			}
+		}
+	};
 	const gatewayFetch: typeof fetch = async (input, init) => {
 		const response = await fetch(input, init);
 		const contentType = response.headers.get("content-type") ?? "";
 
 		if (contentType.includes("text/event-stream") && response.body) {
 			const providerStream = response.body.pipeThrough(
-				createGatewayMetadataCaptureStream(captureGatewayMetadata),
+				createGatewayMetadataCaptureStream(
+					captureGatewayMetadata,
+					captureGatewayCitations,
+				),
 			);
 
 			return new Response(providerStream, {
@@ -660,12 +763,7 @@ export async function POST(req: Request) {
 			const fileParts: { url: string; mediaType: string }[] = [];
 			if (lastUserMessage) {
 				if (Array.isArray(lastUserMessage.parts)) {
-					prompt = lastUserMessage.parts
-						.filter(
-							(p): p is { type: "text"; text: string } => p.type === "text",
-						)
-						.map((p) => p.text)
-						.join("\n");
+					prompt = getLastUserText(messages);
 					for (const p of lastUserMessage.parts) {
 						if (fileParts.length >= maxInputImages) {
 							break;
@@ -791,6 +889,57 @@ export async function POST(req: Request) {
 				JSON.stringify({ error: detailedMessage ?? message }),
 				{ status },
 			);
+		}
+	}
+
+	// Project (knowledge base) context: retrieve the chunks most relevant to
+	// the latest user message plus the project's instructions and memories, and
+	// prepend them to the system prompt. Retrieval failures degrade to a normal
+	// chat.
+	let projectContext: string | undefined;
+	// Kept for memory extraction after the stream finishes.
+	let projectQueryText = "";
+	if (project_id) {
+		projectQueryText = getLastUserText(messages).slice(0, 10_000);
+		const retrieval = await fetchServerData<ProjectRetrievalResponse>(
+			"POST",
+			"/chat-projects/{id}/retrieve",
+			{
+				params: { path: { id: project_id } },
+				body: {
+					query: projectQueryText.trim() || "Project knowledge base overview",
+				},
+				// Bill the query embedding to the same gateway key as the chat.
+				headers: { "x-llmgateway-key": finalApiKey },
+				// Don't let a slow retrieval stall the chat; on timeout the
+				// request proceeds without project context.
+				signal: AbortSignal.timeout(15_000),
+			},
+		);
+		if (retrieval) {
+			const sections: string[] = [];
+			if (retrieval.project.instructions.trim()) {
+				sections.push(
+					`Project instructions:\n${retrieval.project.instructions}`,
+				);
+			}
+			if (retrieval.memories?.length) {
+				sections.push(
+					`Project memory — durable facts saved from earlier chats in this project:\n${retrieval.memories
+						.map((memory) => `- ${memory}`)
+						.join("\n")}`,
+				);
+			}
+			if (retrieval.chunks.length) {
+				sections.push(
+					`Relevant excerpts from the project's knowledge base files. Ground your answer in these excerpts and mention the source file when you use one:\n\n${retrieval.chunks
+						.map((chunk) => `[Source: ${chunk.fileName}]\n${chunk.content}`)
+						.join("\n\n---\n\n")}`,
+				);
+			}
+			if (sections.length) {
+				projectContext = `You are answering inside the project "${retrieval.project.name}".\n\n${sections.join("\n\n")}`;
+			}
 		}
 	}
 
@@ -1070,8 +1219,9 @@ export async function POST(req: Request) {
 			)
 			.join("\n\n");
 		const resolvedSystem =
-			[existingSystem, skill_instructions].filter(Boolean).join("\n\n") ||
-			undefined;
+			[existingSystem, skill_instructions, projectContext]
+				.filter(Boolean)
+				.join("\n\n") || undefined;
 		const result = streamText({
 			model: llmgateway.chat(selectedModel, { usage: { include: true } }),
 			messages: await convertToModelMessages(
@@ -1079,7 +1229,7 @@ export async function POST(req: Request) {
 			),
 			...(resolvedSystem ? { system: resolvedSystem } : {}),
 			...(hasTools ? { tools: allTools, maxSteps: 10 } : {}),
-			onFinish: async () => {
+			onFinish: async ({ text }) => {
 				// Clean up MCP clients when streaming is done
 				for (const { client } of mcpClients) {
 					try {
@@ -1087,6 +1237,27 @@ export async function POST(req: Request) {
 					} catch {
 						// Ignore close errors
 					}
+				}
+
+				// Fire-and-forget memory extraction from this exchange; failures
+				// never affect the chat response.
+				if (
+					project_id &&
+					body.temporary_chat !== true &&
+					projectQueryText.trim() &&
+					text?.trim()
+				) {
+					void fetchServerData("POST", "/chat-projects/{id}/memories/extract", {
+						params: { path: { id: project_id } },
+						body: {
+							userMessage: projectQueryText.slice(0, 8000),
+							assistantMessage: text.slice(0, 8000),
+						},
+						// Bill the extraction model call to the same gateway key
+						// as the chat.
+						headers: { "x-llmgateway-key": finalApiKey },
+						signal: AbortSignal.timeout(90_000),
+					});
 				}
 			},
 		});
@@ -1113,7 +1284,34 @@ export async function POST(req: Request) {
 				return undefined;
 			},
 		});
-		const sseStream = uiStream.pipeThrough(new JsonToSseTransformStream());
+		// The provider drops gateway web-search annotations when streaming, so
+		// citations captured from the raw SSE are re-emitted as source-url parts
+		// at the end of each step, where the UI renders them as Sources.
+		type PlaygroundUIMessageChunk =
+			typeof uiStream extends ReadableStream<infer TChunk> ? TChunk : never;
+		let emittedCitationCount = 0;
+		const uiStreamWithSources = uiStream.pipeThrough(
+			new TransformStream<PlaygroundUIMessageChunk, PlaygroundUIMessageChunk>({
+				transform(chunk, controller) {
+					if (chunk.type === "finish-step") {
+						while (emittedCitationCount < collectedCitations.length) {
+							const citation = collectedCitations[emittedCitationCount];
+							controller.enqueue({
+								type: "source-url",
+								sourceId: `gateway-citation-${emittedCitationCount}`,
+								url: citation.url,
+								...(citation.title ? { title: citation.title } : {}),
+							} as PlaygroundUIMessageChunk);
+							emittedCitationCount++;
+						}
+					}
+					controller.enqueue(chunk);
+				},
+			}),
+		);
+		const sseStream = uiStreamWithSources.pipeThrough(
+			new JsonToSseTransformStream(),
+		);
 
 		// Add SSE keepalive comments (`: ping`) to prevent proxy/load balancer
 		// timeouts on long-running requests (e.g. tool calls, reasoning).

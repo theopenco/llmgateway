@@ -50,18 +50,20 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 
 ### Custom Provider Name
 
-- **Format**: Lowercase letters only (`a-z`)
-- **Examples**: `mycompany`, `internal`, `testing`
-- **Invalid**: `MyCompany`, `my-company`, `my_company`, `123test`
+- **Format**: Lowercase letters (`a-z`) with optional single hyphens between them
+- **Examples**: `mycompany`, `internal`, `my-company`, `eu-west`
+- **Invalid**: `MyCompany`, `my_company`, `123test`, `-mycompany`, `my-`, `my--company`
 
 <Callout type="warn">
-	The custom provider name must match the regex pattern `/^[a-z]+$/` exactly.
+	The custom provider name must match the regex pattern `/^[a-z]+(-[a-z]+)*$/`
+	exactly.
 </Callout>
 
 ### Base URL
 
-- Must be a valid HTTPS URL
-- Should point to your provider's base endpoint
+- Must be a valid URL pointing to your provider's base endpoint
+- Use an `https://` URL for hosted providers; an `http://` URL is allowed when
+  self-hosting (for example a service on your own network)
 - LLMGateway will append `/v1/chat/completions` automatically
 - **Example**: `https://api.example.com` → `https://api.example.com/v1/chat/completions`
 
@@ -78,3 +80,72 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 ## Supported Features
 
 Custom providers inherit full LLMGateway functionality.
+
+## Custom Model Catalog
+
+<Callout type="info">
+	The custom model catalog is an **Enterprise** feature. Managing entries
+	requires an enterprise plan, but the gateway always honors catalog entries
+	that already exist.
+</Callout>
+
+By default, requests through a custom provider are **not billed** and have **no
+enforced limits** — LLMGateway has no catalog entry for the model, so it cannot
+know its pricing, context window, or capabilities. The **custom model catalog**
+lets you define that information per custom provider key, so LLMGateway can
+attribute cost, enforce limits, and report usage just like a built-in model.
+
+Custom catalog models are **text-output** models. Multi-modal _input_ (images,
+audio) is still supported and can be priced via the input fields below; output
+generation (images, video, audio) is intentionally out of scope because it is
+too provider-specific to bill generically.
+
+### Defining a model
+
+Open **Organization → Custom Models**, pick the custom provider key, and add a
+catalog entry. Every field except the model id is optional:
+
+| Field                    | Purpose                                                                                                                         |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| **Model id**             | The id used after the provider prefix (e.g. `gpt-5.5` in `mycompany/gpt-5.5`).                                                  |
+| **Display name**         | Optional human-readable label.                                                                                                  |
+| **Context size**         | Maximum input window in tokens. Enforced per request.                                                                           |
+| **Max output**           | Maximum completion tokens. Enforced against `max_tokens`.                                                                       |
+| **Token prices**         | Input, output, cached input, cache read, cache write (5m and 1h), per-request, web search, image input, and audio input prices. |
+| **Capabilities**         | `streaming`, `vision`, `tools`, `reasoning`, `jsonOutput`, `audio`.                                                             |
+| **Supported parameters** | Advisory list of accepted request parameters.                                                                                   |
+
+Prices are in **USD per token** and accept either decimal (`0.000003`) or
+exponent (`3.0e-6`) notation.
+
+### Cost attribution
+
+When a request matches a catalog entry, LLMGateway bills it using the entry's
+token prices and records the cost on the activity log. Without a matching entry
+the request stays unbilled (zero/null cost).
+
+<Callout type="warn">
+	A known model id (for example `gpt-5.5`) routed through a custom provider is
+	**not** billed at that model's public pricing — only the prices you define in
+	the catalog apply. Define the model in the catalog to attribute cost.
+</Callout>
+
+### Limit and capability enforcement
+
+When an entry defines limits or capabilities, LLMGateway enforces them before
+forwarding the request:
+
+- **Context size / max output** — requests that would exceed the configured
+  window or output budget are rejected with `400`.
+- **Capabilities** — when a flag is explicitly set to disabled, requests that use
+  that feature are rejected (e.g. images against a non-`vision` model, tools
+  against a non-`tools` model, streaming against a non-streaming model). Flags
+  left unset stay permissive and the upstream provider enforces them.
+
+### Restricting to the catalog
+
+Each custom provider key has an **Only allow catalog models** switch. When
+enabled, requests through that provider must reference a defined catalog model —
+undefined models are rejected with `400`. This guarantees that every request has
+known cost attribution and enforced limits. When disabled, undefined models
+still work but remain unbilled, as before.

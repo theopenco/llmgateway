@@ -16,6 +16,7 @@ import {
 	getProviderIcon,
 	GoogleStudioAIIconStatic,
 	MinimaxIconStatic,
+	XAIIconStatic,
 } from "@llmgateway/shared/components";
 
 export const size = {
@@ -110,15 +111,17 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 					? AWSBedrockIconStatic
 					: selectedMapping.providerId === "google-ai-studio"
 						? GoogleStudioAIIconStatic
-						: getProviderIcon(selectedMapping.providerId)
+						: selectedMapping.providerId === "xai"
+							? XAIIconStatic
+							: getProviderIcon(selectedMapping.providerId)
 			: null;
 		const discounts = await fetchModelDiscounts(decodedName);
 		const effectiveDiscount = selectedMapping
-			? (getEffectiveProviderDiscount(
+			? getEffectiveProviderDiscount(
 					discounts,
 					selectedMapping.providerId,
 					decodedName,
-				) ?? selectedMapping.discount)
+				)
 			: undefined;
 		const discountNum = discountFraction(effectiveDiscount);
 
@@ -138,8 +141,15 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 			: undefined;
 		const isVideoGen = selectedMapping?.videoGenerations === true;
 		const isImageGen = selectedMapping?.imageGenerations === true;
+		const isOcr = selectedMapping?.ocr === true;
+		const ocrPagePrice =
+			selectedMapping?.ocrPagePrice !== undefined &&
+			selectedMapping?.ocrPagePrice !== null
+				? Number(selectedMapping.ocrPagePrice)
+				: undefined;
+		const hasOcrPricing = ocrPagePrice !== undefined && ocrPagePrice > 0;
 		const hasTokenPricing =
-			pricing?.input ?? pricing?.output ?? pricing?.cachedInput;
+			!isOcr && (pricing?.input ?? pricing?.output ?? pricing?.cachedInput);
 
 		const contextSize = selectedMapping?.contextSize ?? 0;
 
@@ -155,7 +165,9 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 							? MinimaxIconStatic
 							: providerId === "google-ai-studio"
 								? GoogleStudioAIIconStatic
-								: getProviderIcon(providerId);
+								: providerId === "xai"
+									? XAIIconStatic
+									: getProviderIcon(providerId);
 				const info = providerDefinitions.find((p) => p.id === providerId);
 				return {
 					id: providerId,
@@ -359,9 +371,10 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 							gap: 28,
 						}}
 					>
-						{(hasTokenPricing ??
-							(requestPrice !== undefined && requestPrice !== 0) ??
-							(perSecondPrice && Object.keys(perSecondPrice).length > 0)) && (
+						{(hasTokenPricing ||
+							(requestPrice !== undefined && requestPrice !== 0) ||
+							(perSecondPrice && Object.keys(perSecondPrice).length > 0) ||
+							hasOcrPricing) && (
 							<span
 								style={{
 									color: "#6B7280",
@@ -373,14 +386,16 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 							>
 								{isVideoGen && perSecondPrice
 									? "Pricing per second"
-									: isImageGen &&
-										  requestPrice !== undefined &&
-										  requestPrice !== 0 &&
-										  !hasTokenPricing
-										? "Pricing per request"
-										: requestPrice !== undefined && requestPrice !== 0
-											? "Pricing"
-											: "Pricing per 1M tokens"}
+									: hasOcrPricing
+										? "Pricing per 1K pages"
+										: isImageGen &&
+											  requestPrice !== undefined &&
+											  requestPrice !== 0 &&
+											  !hasTokenPricing
+											? "Pricing per request"
+											: requestPrice !== undefined && requestPrice !== 0
+												? "Pricing"
+												: "Pricing per 1M tokens"}
 							</span>
 						)}
 						<div
@@ -481,6 +496,36 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 									</span>
 									<span style={{ fontWeight: 700, fontSize: 56 }}>
 										${requestPrice.toFixed(4)}
+									</span>
+								</div>
+							)}
+
+							{/* OCR per-1K-pages price */}
+							{ocrPagePrice !== undefined && ocrPagePrice > 0 && (
+								<div
+									style={{
+										display: "flex",
+										flexDirection: "column",
+										gap: 10,
+										padding: "28px 36px",
+										backgroundColor: "#0A0A0A",
+										borderRadius: 20,
+										border: "1px solid #1F2937",
+									}}
+								>
+									<span
+										style={{
+											color: "#9CA3AF",
+											fontSize: 20,
+											fontWeight: 500,
+											textTransform: "uppercase",
+											letterSpacing: "0.05em",
+										}}
+									>
+										Per 1K Pages
+									</span>
+									<span style={{ fontWeight: 700, fontSize: 56 }}>
+										${(ocrPagePrice * 1000).toFixed(2)}
 									</span>
 								</div>
 							)}

@@ -11,6 +11,7 @@ import {
 } from "@/chat-helpers.e2e.js";
 
 import { app } from "./app.js";
+import { waitForLogByRequestId } from "./test-utils/test-helpers.js";
 
 // Generate a system prompt long enough to cross Anthropic's minimum cacheable
 // threshold for Haiku 4.5 (>= ~2k tokens). 500 repeats produces ~6.5k tokens.
@@ -596,6 +597,82 @@ describeCache(
 			},
 		);
 
+		// Regression: a caller-supplied ttl:"1h" marker in the *messages* (e.g.
+		// RisuAI's rolling "Automatic Cache Point") must suppress the gateway's
+		// heuristic 5m markers (long-system + turn-boundary). Anthropic requires
+		// longer TTLs before shorter ones, so an injected 5m marker ahead of the
+		// caller's 1h marker used to fail the whole request with "a ttl='1h'
+		// cache_control block must not come after a ttl='5m' cache_control block".
+		(hasAnthropicKey ? test : test.skip)(
+			"native messages defers to caller 1h ttl markers in multi-turn conversations",
+			getTestOptions(),
+			async () => {
+				const longText = buildLongSystemPrompt();
+				const body = {
+					model: "anthropic/claude-haiku-4-5",
+					max_tokens: 50,
+					system: longText,
+					messages: [
+						{ role: "user" as const, content: "Hello, who are you?" },
+						{
+							role: "assistant" as const,
+							content: "I'm an assistant. How can I help?",
+						},
+						{
+							role: "user" as const,
+							content: [
+								{
+									type: "text" as const,
+									text: "Just reply OK.",
+									cache_control: {
+										type: "ephemeral" as const,
+										ttl: "1h" as const,
+									},
+								},
+							],
+						},
+					],
+				};
+
+				const send = async () => {
+					const requestId = generateTestRequestId();
+					const res = await app.request("/v1/messages", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							"x-request-id": requestId,
+							Authorization: `Bearer real-token`,
+						},
+						body: JSON.stringify(body),
+					});
+					const json = await res.json();
+					if (logMode) {
+						console.log(
+							"native /v1/messages multi-turn 1h",
+							requestId,
+							"status",
+							res.status,
+							"usage",
+							JSON.stringify(json.usage),
+						);
+					}
+					return { status: res.status, json };
+				};
+
+				const first = await send();
+				expect(first.status).toBe(200);
+				// With auto-injection deferred, the only breakpoint is the caller's
+				// 1h marker, so any cache write must be attributed entirely to the
+				// 1h tier.
+				const firstBreakdown = first.json.usage?.cache_creation;
+				if (first.json.usage?.cache_creation_input_tokens > 0) {
+					expect(firstBreakdown).toBeDefined();
+					expect(firstBreakdown.ephemeral_1h_input_tokens).toBeGreaterThan(0);
+					expect(firstBreakdown.ephemeral_5m_input_tokens).toBe(0);
+				}
+			},
+		);
+
 		// 1h cache TTL via Bedrock /v1/chat/completions: opts into Bedrock's 1h
 		// cache write rate (2x base) on a model that supports it (Haiku 4.5) and
 		// asserts the gateway forwards ttl:"1h" to the Converse API cachePoint and
@@ -747,6 +824,116 @@ describeCache(
 					"aws-bedrock/claude-haiku-4-5",
 					"streaming /v1/messages bedrock usage",
 				);
+			},
+		);
+
+		// Log persistence of the per-TTL cache write breakdown. The response has
+		// always carried usage.cache_creation, but the log record previously only
+		// stored the total cacheWriteTokens, so the dashboard couldn't attribute
+		// spend across the 1.25x (5m) and 2x (1h) write rates after the fact.
+		// A unique run tag guarantees a cache WRITE (not a read) on every run.
+		const logBreakdownRunTag = `log-breakdown-${Date.now()}`;
+
+		function buildUniqueLongSystemPrompt(tag: string): string {
+			return (
+				`You are a helpful AI assistant. Run tag: ${tag}. ` +
+				"This is detailed context information that should be cached for optimal efficiency. ".repeat(
+					400,
+				) +
+				"Please analyze carefully."
+			);
+		}
+
+		(hasAnthropicKey ? test : test.skip)(
+			"non-streaming /v1/messages 1h write persists cacheWrite1hTokens in the log",
+			getTestOptions(),
+			async () => {
+				const requestId = generateTestRequestId();
+				const res = await app.request("/v1/messages", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"x-request-id": requestId,
+						Authorization: `Bearer real-token`,
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-haiku-4-5",
+						max_tokens: 50,
+						system: [
+							{
+								type: "text" as const,
+								text: buildUniqueLongSystemPrompt(`${logBreakdownRunTag}-1h`),
+								cache_control: {
+									type: "ephemeral" as const,
+									ttl: "1h" as const,
+								},
+							},
+						],
+						messages: [{ role: "user" as const, content: "Just reply OK." }],
+					}),
+				});
+				const json = await res.json();
+				expect(res.status).toBe(200);
+				expect(json.usage.cache_creation_input_tokens).toBeGreaterThan(0);
+
+				const logRow = await waitForLogByRequestId(requestId);
+				if (logMode) {
+					console.log("1h breakdown log row", {
+						cacheWriteTokens: logRow.cacheWriteTokens,
+						cacheWrite5mTokens: logRow.cacheWrite5mTokens,
+						cacheWrite1hTokens: logRow.cacheWrite1hTokens,
+					});
+				}
+				expect(Number(logRow.cacheWriteTokens)).toBeGreaterThan(0);
+				expect(Number(logRow.cacheWrite1hTokens)).toBe(
+					Number(logRow.cacheWriteTokens),
+				);
+				expect(Number(logRow.cacheWrite5mTokens ?? 0)).toBe(0);
+			},
+		);
+
+		(hasAnthropicKey ? test : test.skip)(
+			"streaming /v1/chat/completions 5m write persists cacheWrite5mTokens in the log",
+			getTestOptions(),
+			async () => {
+				const requestId = generateTestRequestId();
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"x-request-id": requestId,
+						Authorization: `Bearer real-token`,
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-haiku-4-5",
+						stream: true,
+						messages: [
+							{
+								role: "system",
+								content: buildUniqueLongSystemPrompt(
+									`${logBreakdownRunTag}-5m`,
+								),
+							},
+							{ role: "user", content: "Just reply OK." },
+						],
+					}),
+				});
+				expect(res.status).toBe(200);
+				await readSseChunks(res.body);
+
+				const logRow = await waitForLogByRequestId(requestId);
+				if (logMode) {
+					console.log("5m streaming breakdown log row", {
+						cacheWriteTokens: logRow.cacheWriteTokens,
+						cacheWrite5mTokens: logRow.cacheWrite5mTokens,
+						cacheWrite1hTokens: logRow.cacheWrite1hTokens,
+					});
+				}
+				expect(Number(logRow.cacheWriteTokens)).toBeGreaterThan(0);
+				expect(Number(logRow.cacheWrite5mTokens)).toBe(
+					Number(logRow.cacheWriteTokens),
+				);
+				expect(Number(logRow.cacheWrite1hTokens ?? 0)).toBe(0);
 			},
 		);
 	},

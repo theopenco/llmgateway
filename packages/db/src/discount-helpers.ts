@@ -1,4 +1,4 @@
-import { and, eq, gte, isNull, or } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 
 import { logger } from "@llmgateway/logger";
 
@@ -19,7 +19,6 @@ export interface EffectiveDiscount {
 		| "global_provider_model"
 		| "global_provider"
 		| "global_model"
-		| "hardcoded"
 		| "none";
 	/** The discount record ID if from database */
 	discountId?: string;
@@ -36,7 +35,6 @@ export interface EffectiveDiscount {
  * 4. Global + Provider + Model discount
  * 5. Global + Provider discount
  * 6. Global + Model discount
- * 7. Hardcoded model discount (fallback)
  *
  * Discounts are always keyed by the root model ID — provider-specific model
  * names are reserved for upstream requests and are never persisted as a
@@ -45,35 +43,33 @@ export interface EffectiveDiscount {
  * @param organizationId - The organization ID (null for global only)
  * @param provider - The provider ID
  * @param model - The root model ID (e.g., "gpt-4o-mini")
- * @param hardcodedDiscount - The hardcoded discount from model definition (0-1)
  * @returns The effective discount to apply
  */
 export async function getEffectiveDiscount(
 	organizationId: string | null,
 	provider: string,
 	model: string,
-	hardcodedDiscount: string = "0",
 ): Promise<EffectiveDiscount> {
 	try {
-		const now = new Date();
-
-		const notExpiredCondition = or(
-			isNull(discountTable.expiresAt),
-			gte(discountTable.expiresAt, now),
-		);
-
-		const discounts = await cdb
+		// The expiry filter is applied in JS below, NOT in SQL: a `now` Date in the
+		// WHERE clause becomes a query parameter, and the cached client keys its
+		// cache on hashQuery(sql, params). A per-request millisecond `now` would
+		// make that key unique every call, so the cache would never hit and this
+		// (hot, per-provider-candidate) lookup would query Postgres on every
+		// request. Keeping the SQL time-independent lets the cache key stay stable
+		// while expiry is still evaluated fresh on each call.
+		const rows = await cdb
 			.select({
 				id: discountTable.id,
 				organizationId: discountTable.organizationId,
 				provider: discountTable.provider,
 				model: discountTable.model,
 				discountPercent: discountTable.discountPercent,
+				expiresAt: discountTable.expiresAt,
 			})
 			.from(discountTable)
 			.where(
 				and(
-					notExpiredCondition,
 					or(
 						isNull(discountTable.organizationId),
 						organizationId
@@ -87,6 +83,15 @@ export async function getEffectiveDiscount(
 					or(eq(discountTable.model, model), isNull(discountTable.model)),
 				),
 			);
+
+		const now = Date.now();
+		const discounts = rows.filter(
+			// expiresAt is a Date on both a fresh query and a Drizzle cache hit (the
+			// cache stores the raw pg result and re-applies the timestamp parser on
+			// restore). Wrap in new Date() defensively so the compare is robust even
+			// if a serialized value ever reaches here.
+			(d) => d.expiresAt === null || new Date(d.expiresAt).getTime() >= now,
+		);
 
 		const modelMatches = (discountModel: string | null): boolean =>
 			discountModel !== null && discountModel === model;
@@ -186,24 +191,15 @@ export async function getEffectiveDiscount(
 			};
 		}
 
-		// 7. Fall back to hardcoded discount
-		if (Number(hardcodedDiscount) > 0) {
-			return {
-				discount: hardcodedDiscount,
-				source: "hardcoded",
-			};
-		}
-
 		return {
 			discount: "0",
 			source: "none",
 		};
 	} catch (error) {
 		logger.error("Error fetching effective discount:", error as Error);
-		// On error, fall back to hardcoded discount
 		return {
-			discount: hardcodedDiscount,
-			source: "hardcoded",
+			discount: "0",
+			source: "none",
 		};
 	}
 }

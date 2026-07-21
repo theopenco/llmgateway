@@ -2,8 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { invalidateSwrByTables } from "@llmgateway/cache";
-import { db, eq, getTableName, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 import {
 	buildProviderPriorityDefaults,
 	DEFAULT_ROUTING_HISTORY,
@@ -30,12 +29,6 @@ import type {
 } from "@llmgateway/db";
 
 export const routingConfig = new OpenAPIHono<ServerTypes>();
-
-const routingConfigTableName = getTableName(tables.routingConfig);
-
-async function invalidateRoutingConfigCache(): Promise<void> {
-	await invalidateSwrByTables([routingConfigTableName]);
-}
 
 async function checkProjectEnterpriseAccess(
 	userId: string,
@@ -167,6 +160,8 @@ const stickySchema = z
 const sessionSchema = z
 	.object({
 		enabled: z.boolean().optional(),
+		ttlSeconds: z.number().int().min(1).max(86_400).optional(),
+		uptimeThreshold: z.number().min(0).max(100).optional(),
 	})
 	.strict();
 
@@ -242,6 +237,8 @@ const resolvedConfigSchema = z.object({
 	}),
 	session: z.object({
 		enabled: z.boolean(),
+		ttlSeconds: z.number(),
+		uptimeThreshold: z.number(),
 	}),
 	providerPriorities: z.record(z.string(), z.number()),
 });
@@ -351,7 +348,10 @@ routingConfig.openapi(updateConfig, async (c) => {
 			null) as ProviderPriorityOverrides | null,
 	};
 
-	const builder = db.insert(tables.routingConfig).values(insertValues);
+	// Write through the cached client so onMutate busts the gateway's cached
+	// routing-config lookups (Drizzle cache + SWR mirror); otherwise changes
+	// only take effect once the cache expires.
+	const builder = cdb.insert(tables.routingConfig).values(insertValues);
 	const [row] =
 		Object.keys(conflictSet).length === 0
 			? await builder
@@ -373,7 +373,6 @@ routingConfig.openapi(updateConfig, async (c) => {
 			where: { projectId: { eq: projectId } },
 		}));
 
-	await invalidateRoutingConfigCache();
 	return c.json(result);
 });
 
@@ -399,11 +398,10 @@ routingConfig.openapi(resetConfig, async (c) => {
 	const { projectId } = c.req.param();
 	await checkProjectEnterpriseAccess(user.id, projectId);
 
-	await db
+	await cdb
 		.delete(tables.routingConfig)
 		.where(eq(tables.routingConfig.projectId, projectId));
 
-	await invalidateRoutingConfigCache();
 	return c.json({ ok: true });
 });
 
@@ -503,6 +501,8 @@ const getDefaults = createRoute({
 						}),
 						session: z.object({
 							enabled: z.boolean(),
+							ttlSeconds: z.number(),
+							uptimeThreshold: z.number(),
 						}),
 						providerPriorities: z.record(z.string(), z.number()),
 					}),

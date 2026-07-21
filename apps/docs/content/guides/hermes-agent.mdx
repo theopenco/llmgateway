@@ -1,13 +1,13 @@
 ---
 title: Hermes Agent Integration
-description: Use any model with Hermes Agent through LLM Gateway. One config change, full cost tracking, 210+ models.
+description: Use any model with Hermes Agent through LLM Gateway. One config change, full cost tracking, 200+ models.
 icon: Hermes
 ---
 
 import { Step, Steps } from "fumadocs-ui/components/steps";
 import { Callout } from "fumadocs-ui/components/callout";
 
-[Hermes Agent](https://github.com/nousresearch/hermes-agent) is an open-source AI coding agent for your terminal built by Nous Research. It supports tool use, browser automation, multi-provider routing, skills, and MCP servers. By pointing it at LLM Gateway you get access to 210+ models from 60+ providers, all tracked in one dashboard.
+[Hermes Agent](https://github.com/nousresearch/hermes-agent) is an open-source AI coding agent for your terminal built by Nous Research. It supports tool use, browser automation, multi-provider routing, skills, and MCP servers. By pointing it at LLM Gateway you get access to 200+ models from 40+ providers, all tracked in one dashboard.
 
 One config change. No code changes. Full cost tracking.
 
@@ -124,6 +124,23 @@ Once you press `Y`, Hermes launches a full agent session connected to LLM Gatewa
 </Step>
 </Steps>
 
+## DevPass Compatibility
+
+Hermes Agent is fully compatible with [DevPass coding plans](/features/coding-agents). The gateway automatically detects Hermes via multiple signals:
+
+- **X-Source header** — Hermes sends `X-Source: https://hermes-agent.nousresearch.com` (auto-detected)
+- **User-Agent** — `HermesAgent/<version>` is recognized
+- **X-Title** — Title containing "hermes agent" is matched
+- **HTTP-Referer** — Any referer URL containing `hermes-agent.nousresearch.com`
+
+No configuration is needed on your side — DevPass plans automatically allow Hermes traffic.
+
+<Callout type="info">
+	Native LLM Gateway provider support is being added to Hermes Agent upstream.
+	Once merged, you'll be able to select "LLM Gateway" directly as a provider in
+	`hermes setup` instead of using "Custom OpenAI-compatible endpoint".
+</Callout>
+
 ## Using Hermes with LLM Gateway
 
 Once configured, all requests route through LLM Gateway. You'll see the provider name (e.g., "LLMGATEWAY") in the Hermes status bar.
@@ -154,7 +171,7 @@ hermes chat --model claude-opus-4-6
 
 ## Why Use LLM Gateway with Hermes Agent
 
-- **210+ models** — Claude, GPT, Gemini, Llama, DeepSeek, and more
+- **200+ models** — Claude, GPT, Gemini, Llama, DeepSeek, and more
 - **One API key** — Stop managing separate keys for each provider
 - **Cost tracking** — See exactly what each session costs in your dashboard
 - **Response caching** — Repeated requests hit cache automatically
@@ -196,7 +213,7 @@ By default, LLM Gateway automatically fails over to alternative providers if you
 
 <Callout type="warn">
 	Disabling fallback means requests will fail if the chosen provider is down.
-	See the [routing docs](/docs/features/routing) for details.
+	See the [routing docs](/features/routing) for details.
 </Callout>
 
 ## Troubleshooting

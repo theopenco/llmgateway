@@ -1,7 +1,9 @@
 import { alibabaModels } from "./models/alibaba.js";
 import { anthropicModels } from "./models/anthropic.js";
+import { atlascloudModels } from "./models/atlascloud.js";
 import { bytedanceModels } from "./models/bytedance.js";
 import { deepseekModels } from "./models/deepseek.js";
+import { elevenlabsModels } from "./models/elevenlabs.js";
 import { googleModels } from "./models/google.js";
 import { llmgatewayModels } from "./models/llmgateway.js";
 import { metaModels } from "./models/meta.js";
@@ -10,8 +12,11 @@ import { minimaxModels } from "./models/minimax.js";
 import { mistralModels } from "./models/mistral.js";
 import { moonshotModels } from "./models/moonshot.js";
 import { nousresearchModels } from "./models/nousresearch.js";
+import { nvidiaModels } from "./models/nvidia.js";
 import { openaiModels } from "./models/openai.js";
 import { perplexityModels } from "./models/perplexity.js";
+import { reveModels } from "./models/reve.js";
+import { sakanaModels } from "./models/sakana.js";
 import { xaiModels } from "./models/xai.js";
 import { xiaomiModels } from "./models/xiaomi.js";
 import { zaiModels } from "./models/zai.js";
@@ -20,7 +25,7 @@ import type { providers } from "./providers.js";
 
 export type Provider = (typeof providers)[number]["id"];
 
-export type Model = (typeof models)[number]["providers"][number]["externalId"];
+export type Model = (typeof models)[number]["id"];
 
 /**
  * Decimal-safe price representation. Always a string so values are preserved
@@ -28,6 +33,20 @@ export type Model = (typeof models)[number]["providers"][number]["externalId"];
  * the Decimal-based cost engine.
  */
 export type Price = string;
+
+/**
+ * Reasoning effort tiers accepted by the unified reasoning_effort parameter,
+ * in ascending order of effort. Which subset a given provider mapping
+ * actually supports is declared per mapping via `reasoningEfforts`.
+ */
+export type ReasoningEffort =
+	| "none"
+	| "minimal"
+	| "low"
+	| "medium"
+	| "high"
+	| "xhigh"
+	| "max";
 
 /**
  * Pricing tier for models with context-length based pricing
@@ -123,11 +142,6 @@ export interface ProviderRegion {
 	 */
 	pricingTiers?: PricingTier[];
 	/**
-	 * Discount multiplier (0-1) for this region.
-	 * When absent, falls back to the mapping-level discount.
-	 */
-	discount?: Price;
-	/**
 	 * Price per request in USD for this region.
 	 * When absent, falls back to the mapping-level requestPrice.
 	 */
@@ -159,6 +173,12 @@ export interface ProviderRegion {
 	test?: "skip" | "only";
 }
 
+/**
+ * The distinct `tool_choice` modes a provider/model mapping may accept.
+ * "function" represents a named function choice (`{type:"function",...}`).
+ */
+export type ToolChoiceMode = "auto" | "none" | "required" | "function";
+
 export interface ProviderModelMapping {
 	providerId: (typeof providers)[number]["id"];
 	/**
@@ -175,6 +195,18 @@ export interface ProviderModelMapping {
 	 * Price per output token in USD
 	 */
 	outputPrice?: Price;
+	/**
+	 * Price per output audio token in USD (for speech generation / text-to-speech
+	 * models where audio output is billed separately from text). When unset,
+	 * audio output tokens fall back to `outputPrice`.
+	 */
+	outputAudioPrice?: Price;
+	/**
+	 * Price per input character in USD. Used by speech generation models that
+	 * bill on input characters rather than tokens (e.g. OpenAI `tts-1`), since
+	 * the OpenAI speech endpoint returns audio bytes without token usage.
+	 */
+	inputCharacterPrice?: Price;
 	/**
 	 * Price per image output token in USD (for models with separate text/image output pricing)
 	 */
@@ -254,15 +286,16 @@ export interface ProviderModelMapping {
 	 */
 	requestPrice?: Price;
 	/**
+	 * Price per page processed in USD for OCR models. Billed against the
+	 * `usage_info.pages_processed` count returned by the /v1/ocr endpoint.
+	 */
+	ocrPagePrice?: Price;
+	/**
 	 * Price per second in USD for video generation models.
 	 * Maps billing keys like "default", "4k", "default_audio", "4k_audio",
 	 * "default_video", and "4k_video" to per-second pricing.
 	 */
 	perSecondPrice?: Record<string, Price>;
-	/**
-	 * Discount multiplier (0-1), where 0.5 = 50% off
-	 */
-	discount?: Price;
 	/**
 	 * Pricing tiers for models with context-length based pricing.
 	 * When set, inputPrice and outputPrice represent the base tier.
@@ -277,6 +310,12 @@ export interface ProviderModelMapping {
 	 * Maximum output size in tokens
 	 */
 	maxOutput?: number;
+	/**
+	 * Weight quantization the provider serves this model at (e.g. "fp8").
+	 * Only set when the provider explicitly documents the serving precision;
+	 * when absent, the quantization is unknown or undisclosed.
+	 */
+	quantization?: Quantization;
 	/**
 	 * Whether this specific model supports streaming for this provider.
 	 * - true: supports both streaming and non-streaming
@@ -311,6 +350,11 @@ export interface ProviderModelMapping {
 	 */
 	reasoning?: boolean;
 	/**
+	 * Whether this model supports the OpenAI `verbosity` parameter
+	 * (low/medium/high response detail control, GPT-5 and later)
+	 */
+	verbosity?: boolean;
+	/**
 	 * Whether the provider returns reasoning inside tagged content (e.g. &lt;think&gt;...&lt;/think&gt;)
 	 * that needs to be split into separate reasoning and content fields
 	 */
@@ -328,14 +372,48 @@ export interface ProviderModelMapping {
 	 */
 	supportsResponsesApi?: boolean;
 	/**
+	 * Provider-specific request/endpoint format when a provider has multiple API
+	 * surfaces for different models. Defaults to the provider's native format.
+	 */
+	apiFormat?: "openai-chat-completions";
+	/**
+	 * Provider service tier IDs supported by this specific model mapping.
+	 * Provider definitions own the tier metadata and default multipliers;
+	 * mappings opt in to the subset actually supported by the upstream model.
+	 */
+	serviceTiers?: string[];
+	/**
+	 * Optional per-tier multiplier overrides for provider/model combinations whose
+	 * tier pricing differs from the provider default while still being expressed
+	 * as a multiplier over this mapping's standard token prices.
+	 */
+	serviceTierMultipliers?: Partial<Record<string, number>>;
+	/**
+	 * Regions where the mapping supports service tiers. When omitted, the mapping
+	 * supports its service tiers across all regions.
+	 */
+	serviceTierRegions?: string[];
+	/**
 	 * Whether this provider mapping accepts the OpenAI-style `n` parameter
 	 * (multiple completion choices per request) natively. When true, the gateway
 	 * forwards `n` to the upstream provider; when false/unset, requests with
 	 * `n > 1` are rejected with a 400 error. Only set this for providers that
 	 * actually accumulate input tokens once and bill output tokens across all
-	 * choices upstream (e.g. OpenAI Chat Completions).
+	 * choices upstream (e.g. OpenAI Chat Completions, Google `candidateCount`).
 	 */
 	supportsN?: boolean;
+	/**
+	 * Whether this mapping supports `n > 1` on streaming requests. Only
+	 * meaningful when supportsN is true; unset means streaming is allowed.
+	 * Google accepts candidateCount on generateContent but rejects it on
+	 * streamGenerateContent, so Google mappings set this to false.
+	 */
+	supportsNStreaming?: boolean;
+	/**
+	 * Upper bound the upstream enforces for `n` (e.g. Google caps
+	 * candidateCount at 8). When unset, only the request-schema cap applies.
+	 */
+	maxN?: number;
 	/**
 	 * Controls whether reasoning output is expected from the model.
 	 * - undefined: Expect reasoning output if reasoning is true (default behavior)
@@ -357,6 +435,17 @@ export interface ProviderModelMapping {
 	 */
 	reasoningMode?: "enabled" | "adaptive";
 	/**
+	 * Exact `reasoning_effort` values this provider mapping supports, in
+	 * ascending order of effort. Effort tiers differ per model generation
+	 * (e.g. GPT-5 accepts `minimal`..`high`, GPT-5.6 accepts `none`..`max`,
+	 * Anthropic thinking models accept `low`..`max`), so each mapping declares
+	 * its own list. The gateway forwards effort values to the provider as-is
+	 * (unsupported values fail upstream); this metadata is exposed via the
+	 * models APIs so clients can present valid options. When unset, the
+	 * supported values are not (yet) declared for this mapping.
+	 */
+	reasoningEfforts?: ReasoningEffort[];
+	/**
 	 * Whether this specific model supports tool calling for this provider
 	 */
 	tools?: boolean;
@@ -368,6 +457,13 @@ export interface ProviderModelMapping {
 	 * Whether this specific model supports JSON output mode for this provider
 	 */
 	jsonOutput?: boolean;
+	/**
+	 * Whether JSON-mode streaming output for this provider mapping should be
+	 * buffered and healed before being sent downstream. Use this for providers
+	 * that support JSON mode but may stream reasoning or explanatory text as
+	 * content before the final JSON object.
+	 */
+	healStreamingJsonOutput?: boolean;
 	/**
 	 * Whether this provider supports JSON schema output mode (json_schema response format)
 	 */
@@ -390,6 +486,22 @@ export interface ProviderModelMapping {
 	 * List of supported API parameters for this model/provider combination
 	 */
 	supportedParameters?: string[];
+	/**
+	 * Which `tool_choice` modes the upstream accepts for this mapping. When
+	 * omitted or empty, all modes are assumed supported. When set, a requested
+	 * `tool_choice` whose mode is not listed is downgraded to "auto" so
+	 * forced-tool requests still succeed instead of erroring upstream.
+	 * Modes: "auto", "none", "required", "function" (a named function choice).
+	 */
+	supportedToolChoices?: ToolChoiceMode[];
+	/**
+	 * Whether this mapping's upstream accepts the OpenAI-only `developer` message
+	 * role. Defaults to `true` (assumed supported). When set to `false`, the
+	 * gateway rewrites `developer` messages to `system` before forwarding, since
+	 * some OpenAI-compatible providers reject `developer` with a 400 ("developer
+	 * is not one of ['system', 'assistant', 'user', 'tool', 'function']").
+	 */
+	supportsDeveloperRole?: boolean;
 	/**
 	 * Test skip/only functionality
 	 */
@@ -421,6 +533,24 @@ export interface ProviderModelMapping {
 	 * and pricing is computed against input tokens only (no completion tokens).
 	 */
 	embeddings?: boolean;
+	/**
+	 * Whether this model uses a dedicated speech generation API.
+	 * When true, requests are routed to the gateway's /v1/audio/speech endpoint
+	 * which returns binary audio rather than a chat completion.
+	 */
+	speechGenerations?: boolean;
+	/**
+	 * Whether this model uses a dedicated OCR (optical character recognition)
+	 * API. When true, requests are routed to the gateway's /v1/ocr endpoint,
+	 * which extracts text/markdown from documents and images rather than
+	 * returning a chat completion. Billed per page processed via ocrPagePrice.
+	 */
+	ocr?: boolean;
+	/**
+	 * Prebuilt voices supported for speech generation models. The first entry is
+	 * used as the default when the caller does not specify a `voice`.
+	 */
+	supportedVoices?: string[];
 	/**
 	 * Geographic region for this provider mapping.
 	 * Set automatically when a mapping with `regions` is expanded into flat entries.
@@ -464,6 +594,16 @@ export interface ProviderModelMapping {
 
 export type StabilityLevel = "stable" | "beta" | "unstable" | "experimental";
 
+export type Quantization =
+	| "int4"
+	| "int8"
+	| "fp4"
+	| "fp6"
+	| "fp8"
+	| "fp16"
+	| "bf16"
+	| "fp32";
+
 export interface ModelDefinition {
 	/**
 	 * Unique identifier for the model
@@ -499,7 +639,7 @@ export interface ModelDefinition {
 	/**
 	 * Output formats supported by the model (defaults to ['text'] if not specified)
 	 */
-	output?: ("text" | "image" | "video" | "embedding")[];
+	output?: ("text" | "image" | "video" | "embedding" | "audio" | "ocr")[];
 	/**
 	 * Whether this model requires an image input to function (e.g. image editing models).
 	 */
@@ -545,7 +685,12 @@ export const models = [
 	...minimaxModels,
 	...moonshotModels,
 	...alibabaModels,
+	...atlascloudModels,
 	...bytedanceModels,
 	...nousresearchModels,
+	...reveModels,
+	...sakanaModels,
+	...nvidiaModels,
 	...zaiModels,
+	...elevenlabsModels,
 ] as const satisfies ModelDefinition[];

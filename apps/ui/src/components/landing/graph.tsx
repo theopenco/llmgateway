@@ -2,7 +2,7 @@
 import { DotsHorizontalIcon } from "@radix-ui/react-icons";
 import { MonitorSmartphone, HelpCircle, Plus } from "lucide-react";
 import Link from "next/link";
-import React, { useId, useRef } from "react";
+import React, { useRef } from "react";
 
 import { Button } from "@/lib/components/button";
 import {
@@ -14,6 +14,7 @@ import {
 import Logo from "@/lib/icons/Logo";
 import { cn } from "@/lib/utils";
 
+import { MARKETING_STATS } from "@llmgateway/shared";
 import { ProviderIcons } from "@llmgateway/shared/components";
 
 import { AnimatedBeam } from "./animated-beam";
@@ -41,9 +42,9 @@ const Circle = ({
 Circle.displayName = "Circle";
 
 const stats = [
-	{ value: "40+", label: "Providers" },
-	{ value: "400+", label: "Models" },
-	{ value: "100B+", label: "Tokens routed" },
+	{ value: MARKETING_STATS.providers, label: "Providers" },
+	{ value: MARKETING_STATS.models, label: "Models" },
+	{ value: MARKETING_STATS.tokensRouted, label: "Tokens routed" },
 ];
 
 export function Graph() {
@@ -57,7 +58,6 @@ export function Graph() {
 		useRef<HTMLDivElement>(null),
 		useRef<HTMLDivElement>(null),
 		useRef<HTMLDivElement>(null),
-		useRef<HTMLDivElement>(null),
 	];
 
 	const OpenAIIcon = ProviderIcons.openai;
@@ -65,12 +65,32 @@ export function Graph() {
 	const XAIIcon = ProviderIcons.xai;
 	const DeepseekIcon = ProviderIcons.deepseek;
 
-	const logos = [
-		<OpenAIIcon key={useId()} className="w-6 h-6 object-contain" />,
-		<AnthropicIcon key={useId()} className="w-6 h-6 object-contain" />,
-		<XAIIcon key={useId()} className="w-6 h-6 object-contain" />,
-		<DotsHorizontalIcon key={useId()} />,
-		<DeepseekIcon key={useId()} className="w-6 h-6 object-contain" />,
+	const providerNodes = [
+		{
+			href: "/providers/openai",
+			label: "View OpenAI models",
+			icon: <OpenAIIcon className="w-6 h-6 object-contain" />,
+		},
+		{
+			href: "/providers/anthropic",
+			label: "View Anthropic models",
+			icon: <AnthropicIcon className="w-6 h-6 object-contain" />,
+		},
+		{
+			href: "/providers/xai",
+			label: "View xAI models",
+			icon: <XAIIcon className="w-6 h-6 object-contain" />,
+		},
+		{
+			href: "/providers",
+			label: "View all providers",
+			icon: <DotsHorizontalIcon className="w-6 h-6 object-contain" />,
+		},
+		{
+			href: "/providers/deepseek",
+			label: "View DeepSeek models",
+			icon: <DeepseekIcon className="w-6 h-6 object-contain" />,
+		},
 	];
 
 	return (
@@ -93,8 +113,8 @@ export function Graph() {
 							</h2>
 							<p className="mt-4 text-muted-foreground max-w-xl">
 								Your app sends one request. We route it to OpenAI, Anthropic,
-								Google, or any of 40+ providers—automatically picking the best
-								path.
+								Google, or any of {MARKETING_STATS.providers}{" "}
+								providers—automatically picking the best path.
 							</p>
 						</div>
 						<div className="flex gap-8 lg:gap-12">
@@ -134,17 +154,32 @@ export function Graph() {
 						</div>
 
 						<div className="absolute right-10 top-1/2 flex -translate-y-1/2 flex-col items-center justify-center gap-6 z-10">
-							{logos.map((LogoIcon, index) => (
-								<Circle key={index} ref={rightRefs[index]}>
-									{LogoIcon}
-								</Circle>
-							))}
+							<TooltipProvider delayDuration={100}>
+								{providerNodes.map((node, index) => (
+									<Tooltip key={node.href}>
+										<TooltipTrigger asChild>
+											<Link
+												href={node.href}
+												prefetch={true}
+												aria-label={node.label}
+												className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+											>
+												<Circle
+													ref={rightRefs[index]}
+													className="cursor-pointer transition-all duration-200 hover:scale-110 hover:border-neutral-300 dark:hover:border-neutral-600"
+												>
+													{node.icon}
+												</Circle>
+											</Link>
+										</TooltipTrigger>
+										<TooltipContent>{node.label}</TooltipContent>
+									</Tooltip>
+								))}
 
-							<div className="relative group">
-								<TooltipProvider delayDuration={100}>
+								<div className="relative group">
 									<Tooltip>
-										<TooltipTrigger>
-											<Circle ref={rightRefs[6]}>
+										<TooltipTrigger aria-label="More providers — could be your model">
+											<Circle ref={rightRefs[5]}>
 												<HelpCircle className="text-muted-foreground dark:text-neutral-400" />
 											</Circle>
 										</TooltipTrigger>
@@ -160,8 +195,8 @@ export function Graph() {
 											</a>
 										</TooltipContent>
 									</Tooltip>
-								</TooltipProvider>
-							</div>
+								</div>
+							</TooltipProvider>
 						</div>
 
 						<AnimatedBeam

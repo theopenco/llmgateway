@@ -71,7 +71,7 @@ export async function renderPlaygroundShell({
 	}
 
 	const initialOrganizationsData = await fetchServerData("GET", "/orgs");
-	const organizations = (
+	const allOrganizations = (
 		initialOrganizationsData &&
 		typeof initialOrganizationsData === "object" &&
 		"organizations" in initialOrganizationsData
@@ -79,6 +79,57 @@ export async function renderPlaygroundShell({
 					.organizations
 			: []
 	) as Organization[];
+
+	const organizations = allOrganizations.filter((o) => o.kind === "default");
+
+	// The Chat plan context is only the right default for subscribers (or users
+	// who topped up the Chat org). Unsubscribed users with a funded dashboard
+	// org land on that org instead; the Chat plan context stays the default only
+	// when no org has credits, so the plan upsell can take over. Runs before the
+	// chat-org fetch so redirected users never get a Chat org provisioned.
+	if (!orgId && !orgShareView) {
+		const chatPlanStatusData = await fetchServerData(
+			"GET",
+			"/chat-plans/status",
+		);
+		const chatPlanStatus =
+			chatPlanStatusData &&
+			typeof chatPlanStatusData === "object" &&
+			"chatPlan" in chatPlanStatusData
+				? (chatPlanStatusData as { chatPlan: string; regularCredits: string })
+				: null;
+		const hasChatPlanAccess =
+			!chatPlanStatus ||
+			chatPlanStatus.chatPlan !== "none" ||
+			Number(chatPlanStatus.regularCredits) > 0;
+		if (!hasChatPlanAccess) {
+			const fundedOrganization = organizations.find(
+				(o) => Number(o.credits) > 0,
+			);
+			if (fundedOrganization) {
+				const nextParams = new URLSearchParams();
+				for (const [key, value] of Object.entries(searchParams)) {
+					if (typeof value === "string") {
+						nextParams.set(key, value);
+					}
+				}
+				nextParams.set("orgId", fundedOrganization.id);
+				redirect(`/?${nextParams.toString()}`);
+			}
+		}
+	}
+
+	// The dedicated Chat org backs the "Personal" context
+	// (selectedOrganization === null): generation, billing, and top-ups all run
+	// under it. It is created on demand and never appears in the org switcher,
+	// which lists real dashboard orgs for shared-chat views only.
+	const chatOrgData = await fetchServerData("GET", "/playground/chat-org");
+	const chatOrg =
+		chatOrgData &&
+		typeof chatOrgData === "object" &&
+		"organizationId" in chatOrgData
+			? (chatOrgData as { organizationId: string; projectId: string })
+			: null;
 
 	if (
 		orgShareView &&
@@ -123,9 +174,13 @@ export async function renderPlaygroundShell({
 	const selectedOrganization =
 		(orgId ? organizations.find((o) => o.id === orgId) : null) ?? null;
 
-	const projectOrg = selectedOrganization ?? organizations[0] ?? null;
+	// Personal context (no org selected): generation + billing run under the
+	// dedicated Chat org, so resolve its project instead of falling back to the
+	// first dashboard org — that fallback silently billed the wrong organization.
+	const projectOrgId =
+		selectedOrganization?.id ?? chatOrg?.organizationId ?? null;
 
-	if (!initialProjectsData && projectOrg?.id) {
+	if (!initialProjectsData && projectOrgId) {
 		try {
 			initialProjectsData = (await fetchServerData(
 				"GET",
@@ -133,7 +188,7 @@ export async function renderPlaygroundShell({
 				{
 					params: {
 						path: {
-							id: projectOrg.id,
+							id: projectOrgId,
 						},
 					},
 				},
@@ -141,7 +196,7 @@ export async function renderPlaygroundShell({
 		} catch (error) {
 			console.warn(
 				"Failed to fetch projects for organization:",
-				projectOrg?.id,
+				projectOrgId,
 				error,
 			);
 		}
@@ -159,12 +214,16 @@ export async function renderPlaygroundShell({
 		if (projectId && !selectedProject && projectId.length > 0) {
 			notFound();
 		}
-	} else if (projectOrg?.id) {
-		const cookieName = `llmgateway-last-used-project-${projectOrg.id}`;
+	} else if (projectOrgId) {
+		const cookieName = `llmgateway-last-used-project-${projectOrgId}`;
 		const lastUsed = cookieStore.get(cookieName)?.value;
 		if (lastUsed) {
 			selectedProject = projects.find((p) => p.id === lastUsed) ?? null;
 		}
+	}
+	// In the personal (chat) context, prefer the chat org's resolved project.
+	if (!selectedProject && !selectedOrganization && chatOrg) {
+		selectedProject = projects.find((p) => p.id === chatOrg.projectId) ?? null;
 	}
 	selectedProject ??= projects[0] ?? null;
 
@@ -181,9 +240,9 @@ export async function renderPlaygroundShell({
 
 	return (
 		<>
-			{projectOrg?.id && selectedProject?.id ? (
+			{projectOrgId && selectedProject?.id ? (
 				<LastUsedProjectTracker
-					orgId={projectOrg.id}
+					orgId={projectOrgId}
 					projectId={selectedProject.id}
 				/>
 			) : null}

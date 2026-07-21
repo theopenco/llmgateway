@@ -11,6 +11,7 @@ import {
 	GitFork,
 	Loader2,
 	ExternalLinkIcon,
+	MapPin,
 	PlusIcon,
 	ScrollTextIcon,
 	TrendingDown,
@@ -100,9 +101,21 @@ import {
 	parsePlaygroundMessageMetadata,
 	type PlaygroundMessageMetadata,
 } from "@/lib/message-metadata";
+import { getFallbackReasoningEffortOptions } from "@/lib/model-utils";
 import { cn } from "@/lib/utils";
 
+import type { ReasoningEffortOption } from "@/lib/fetch-models";
 import type { UIMessage, ChatRequestOptions, ChatStatus } from "ai";
+
+const REASONING_EFFORT_LABELS: Record<ReasoningEffortOption, string> = {
+	none: "None",
+	minimal: "Minimal",
+	low: "Low",
+	medium: "Medium",
+	high: "High",
+	xhigh: "X-High",
+	max: "Max",
+};
 
 function getCaretCoordinates(
 	textarea: HTMLTextAreaElement,
@@ -169,11 +182,15 @@ interface ChatUIProps {
 	status: ChatStatus;
 	stop: () => void;
 	regenerate: () => void;
-	reasoningEffort: "" | "minimal" | "low" | "medium" | "high";
-	setReasoningEffort: (
-		value: "" | "minimal" | "low" | "medium" | "high",
-	) => void;
+	reasoningEffort: "" | ReasoningEffortOption;
+	setReasoningEffort: (value: "" | ReasoningEffortOption) => void;
 	supportsReasoning: boolean;
+	/**
+	 * Exact reasoning_effort values the selected model supports (from the model
+	 * catalog). Null/undefined when the model doesn't declare them, in which
+	 * case a generic default set is shown.
+	 */
+	reasoningEfforts?: ReasoningEffortOption[] | null;
 	imageAspectRatio:
 		| "auto"
 		| "1:1"
@@ -219,6 +236,9 @@ interface ChatUIProps {
 	supportsWebSearch: boolean;
 	webSearchEnabled: boolean;
 	setWebSearchEnabled: (value: boolean) => void;
+	availableRegions?: string[];
+	selectedRegion?: string;
+	onRegionChange?: (region: string) => void;
 	onUserMessage?: (
 		content: string,
 		images?: Array<{
@@ -241,6 +261,14 @@ interface ChatUIProps {
 		}>,
 	) => Promise<{ id: string } | undefined>;
 	onEditUserMessage?: (message: UIMessage, content: string) => Promise<void>;
+	isOcr?: boolean;
+	onOcrMessage?: (
+		document:
+			| { type: "document_url"; document_url: string; document_name?: string }
+			| { type: "image_url"; image_url: string },
+		userMessage: { id: string; parts: UIMessage["parts"] },
+	) => Promise<void>;
+	ocrPending?: boolean;
 	isLoading?: boolean;
 	error?: string | null;
 	finishReason?: string | null;
@@ -496,6 +524,7 @@ const AssistantMessage = memo(
 		isLastMessage,
 		status,
 		regenerate,
+		isOcr,
 		finishReason,
 		forkChat,
 		isForkingChat,
@@ -504,6 +533,7 @@ const AssistantMessage = memo(
 		isLastMessage: boolean;
 		status: string;
 		regenerate: () => void;
+		isOcr?: boolean;
 		finishReason?: string | null;
 		forkChat?: () => void | Promise<void>;
 		isForkingChat?: boolean;
@@ -587,11 +617,15 @@ const AssistantMessage = memo(
 				{sourceParts.length > 0 ? (
 					<Sources>
 						<SourcesTrigger count={sourceParts.length} />
-						{sourceParts.map((part, i) => (
-							<SourcesContent key={`${message.id}-${i}`}>
-								<Source href={part.url} title={part.url} />
-							</SourcesContent>
-						))}
+						<SourcesContent>
+							{sourceParts.map((part, i) => (
+								<Source
+									key={`${message.id}-source-${i}`}
+									href={part.url}
+									title={part.title ?? part.url}
+								/>
+							))}
+						</SourcesContent>
 					</Sources>
 				) : null}
 
@@ -607,13 +641,15 @@ const AssistantMessage = memo(
 						{metadata ? <MessageMetadataPopover metadata={metadata} /> : null}
 						{isLastMessage && status !== "streaming" ? (
 							<>
-								<Action
-									onClick={() => regenerate()}
-									label="Retry"
-									tooltip="Regenerate response"
-								>
-									<RefreshCcw className="size-3" />
-								</Action>
+								{!isOcr ? (
+									<Action
+										onClick={() => regenerate()}
+										label="Retry"
+										tooltip="Regenerate response"
+									>
+										<RefreshCcw className="size-3" />
+									</Action>
+								) : null}
 								{forkChat ? (
 									<Action
 										disabled={isForkingChat}
@@ -657,13 +693,14 @@ const AssistantMessage = memo(
 const UserMessage = memo(
 	({
 		message,
-		isLastMessage,
-		status,
+		isLastMessage: _isLastMessage,
+		status: _status,
 		canEdit,
 		isEditing,
 		onEditStart,
 		onEditCancel,
 		onEditConfirm,
+		isOcr,
 	}: {
 		message: UIMessage;
 		isLastMessage: boolean;
@@ -673,6 +710,7 @@ const UserMessage = memo(
 		onEditStart?: () => void;
 		onEditCancel?: () => void;
 		onEditConfirm?: (content: string) => Promise<void>;
+		isOcr?: boolean;
 	}) => {
 		const { textParts, imageParts, audioParts, documentParts } = useMemo(
 			() => extractMessageParts(message.parts),
@@ -820,7 +858,7 @@ const UserMessage = memo(
 							</div>
 						)}
 					</MessageContent>
-					{!isEditing ? (
+					{!isEditing && !isOcr ? (
 						<Actions className="mt-2 opacity-0 transition-opacity group-hover/user-message:opacity-100 focus-within:opacity-100">
 							{canEdit ? (
 								<Action
@@ -862,6 +900,7 @@ const VirtualUserMessageItem = memo(
 		editingMessageId,
 		setEditingMessageId,
 		onEditUserMessage,
+		isOcr,
 	}: {
 		message: UIMessage;
 		isLastMessage: boolean;
@@ -870,6 +909,7 @@ const VirtualUserMessageItem = memo(
 		editingMessageId: string | null;
 		setEditingMessageId: (id: string | null) => void;
 		onEditUserMessage?: (message: UIMessage, content: string) => Promise<void>;
+		isOcr?: boolean;
 	}) => {
 		const handleEditStart = useCallback(
 			() => setEditingMessageId(message.id),
@@ -904,6 +944,7 @@ const VirtualUserMessageItem = memo(
 				onEditStart={handleEditStart}
 				onEditCancel={handleEditCancel}
 				onEditConfirm={handleEditConfirm}
+				isOcr={isOcr}
 			/>
 		);
 	},
@@ -988,6 +1029,7 @@ export const ChatUI = ({
 	reasoningEffort,
 	setReasoningEffort,
 	supportsReasoning,
+	reasoningEfforts,
 	imageAspectRatio,
 	setImageAspectRatio,
 	imageSize,
@@ -1001,8 +1043,14 @@ export const ChatUI = ({
 	supportsWebSearch,
 	webSearchEnabled,
 	setWebSearchEnabled,
+	availableRegions = [],
+	selectedRegion,
+	onRegionChange,
 	onUserMessage,
 	onEditUserMessage,
+	isOcr = false,
+	onOcrMessage,
+	ocrPending = false,
 	isLoading = false,
 	error = null,
 	finishReason = null,
@@ -1037,11 +1085,17 @@ export const ChatUI = ({
 		.toLowerCase()
 		.includes("gemini-3.1-flash-image");
 
+	const isGemini31FlashLiteImage = selectedModel
+		.toLowerCase()
+		.includes("gemini-3.1-flash-lite-image");
+
 	const availableSizes = isSeedream
 		? (["2K", "4K"] as const)
-		: isGemini31FlashImage
-			? (["0.5K", "1K", "2K", "4K"] as const)
-			: (["1K", "2K", "4K"] as const);
+		: isGemini31FlashLiteImage
+			? (["1K"] as const)
+			: isGemini31FlashImage
+				? (["0.5K", "1K", "2K", "4K"] as const)
+				: (["1K", "2K", "4K"] as const);
 
 	const qualityOptions = ["auto", "low", "medium", "high"] as const;
 
@@ -1170,7 +1224,7 @@ export const ChatUI = ({
 	// Centralized busy/active gates: isBusy blocks new submissions; isActive
 	// governs the Stop button which should only show while a request is in flight.
 	const isActive = status === "streaming" || status === "submitted";
-	const isBusy = isLoading || isActive;
+	const isBusy = isLoading || isActive || ocrPending;
 	const canEditUserMessages =
 		!isBusy && !isTemporaryChat && !!onEditUserMessage;
 
@@ -1279,6 +1333,54 @@ export const ChatUI = ({
 				}
 			}
 
+			// OCR models do not use the chat-completions stream. Require an attached
+			// PDF/image, persist the user message, then run OCR via the dedicated
+			// /v1/ocr endpoint with the same message parts so the upload renders
+			// immediately instead of only after a reload.
+			if (isOcr && onOcrMessage) {
+				// Only a PDF/document or image can be OCR'd — reject audio/other.
+				const ocrFile = files?.find(
+					(f) =>
+						f.url &&
+						(isDocumentMediaType(f.mediaType) ||
+							f.mediaType?.startsWith("image/")),
+				);
+				if (!ocrFile?.url) {
+					toast.error("Attach a PDF or image to run OCR.");
+					return;
+				}
+
+				const document = isDocumentMediaType(ocrFile.mediaType)
+					? {
+							type: "document_url" as const,
+							document_url: ocrFile.url,
+							...(ocrFile.filename ? { document_name: ocrFile.filename } : {}),
+						}
+					: { type: "image_url" as const, image_url: ocrFile.url };
+
+				const savedMessage = onUserMessage
+					? await onUserMessage(
+							content,
+							imagesToSave,
+							audioToSave,
+							documentsToSave,
+						)
+					: undefined;
+
+				// Mirror the normal send path's stop gate: if persistence was
+				// expected (persistent chat) but returned nothing, a limit/credit
+				// stop was hit — don't run OCR.
+				if (onUserMessage && !savedMessage && !isTemporaryChat) {
+					return;
+				}
+
+				await onOcrMessage(document, {
+					id: savedMessage?.id ?? crypto.randomUUID(),
+					parts,
+				});
+				return;
+			}
+
 			if (parts.length === 0) {
 				return;
 			}
@@ -1331,8 +1433,9 @@ export const ChatUI = ({
 		}
 	};
 	const virtualItems = virtualizer.getVirtualItems();
+	const totalSize = virtualizer.getTotalSize();
 
-	const showSubmittedLoader = status === "submitted";
+	const showSubmittedLoader = status === "submitted" || ocrPending;
 	const showErrorBanner =
 		messages.length > 0 &&
 		messages[messages.length - 1]!.role === "user" &&
@@ -1347,7 +1450,7 @@ export const ChatUI = ({
 		if (messages.length > 0 && wasAtEndRef.current) {
 			requestAnimationFrame(() => virtualizerRef.current.scrollToEnd());
 		}
-	}, [virtualizer.getTotalSize(), messages.length, inputHeight]);
+	}, [totalSize, messages.length, inputHeight]);
 
 	useEffect(() => {
 		if (status === "submitted") {
@@ -1386,7 +1489,11 @@ export const ChatUI = ({
 						transition={{ duration: 0.14, ease: "easeOut" }}
 					>
 						<h2 className="text-3xl font-semibold tracking-tight">
-							{isTemporaryChat ? "Temporary Chat" : "How can I help you?"}
+							{isTemporaryChat
+								? "Temporary Chat"
+								: isOcr
+									? "Extract text from documents"
+									: "How can I help you?"}
 						</h2>
 						<AnimatePresence initial={false}>
 							{isTemporaryChat ? (
@@ -1403,11 +1510,26 @@ export const ChatUI = ({
 								>
 									Temporary chats will not appear in your chat history.
 								</motion.p>
+							) : isOcr ? (
+								<motion.p
+									key="ocr-subtitle"
+									initial={{ opacity: 0, scale: 0.97 }}
+									animate={{ opacity: 1, scale: 1 }}
+									exit={{ opacity: 0, scale: 0.97 }}
+									transition={{
+										opacity: { duration: 0.06, ease: "easeOut" },
+										scale: { duration: 0.12, ease: "easeOut" },
+									}}
+									className="mt-2 text-sm text-muted-foreground"
+								>
+									Upload a PDF or image and the text will be extracted as
+									markdown.
+								</motion.p>
 							) : null}
 						</AnimatePresence>
 					</motion.div>
 					<AnimatePresence initial={false}>
-						{isTemporaryChat ? null : (
+						{isTemporaryChat || isOcr ? null : (
 							<motion.div
 								key="regular-chat-suggestions"
 								initial={{ opacity: 0, height: 0, scale: 0.97 }}
@@ -1504,9 +1626,12 @@ export const ChatUI = ({
 									isLastMessage={isLastMessage}
 									status={isLastMessage ? status : "ready"}
 									regenerate={regenerate}
+									isOcr={isOcr}
 									finishReason={isLastMessage ? finishReason : null}
 									forkChat={
-										isLastMessage && status === "ready" ? forkChat : undefined
+										isLastMessage && status === "ready" && !isOcr
+											? forkChat
+											: undefined
 									}
 									isForkingChat={isForkingChat}
 								/>
@@ -1519,12 +1644,13 @@ export const ChatUI = ({
 									editingMessageId={editingMessageId}
 									setEditingMessageId={setEditingMessageId}
 									onEditUserMessage={onEditUserMessage}
+									isOcr={isOcr}
 								/>
 							)}
 						</div>
 					);
 				})}
-				{status === "submitted" && (
+				{(status === "submitted" || ocrPending) && (
 					<div
 						style={{
 							position: "absolute",
@@ -1615,42 +1741,48 @@ export const ChatUI = ({
 						<PromptInputAttachments>
 							{(attachment) => <PromptInputAttachment data={attachment} />}
 						</PromptInputAttachments>
-						<PromptInputTextarea
-							ref={textareaRef}
-							value={text}
-							onChange={(e) => {
-								const value = e.currentTarget.value;
-								const cursor = e.currentTarget.selectionStart ?? value.length;
-								setText(value);
-								const textUpToCursor = value.slice(0, cursor);
-								const match = textUpToCursor.match(
-									/(?:^|(?<=\s))@([a-zA-Z_-]*)$/,
-								);
-								if (match) {
-									const idx = cursor - match[0].length;
-									skillTriggerIndexRef.current = idx;
-									setSkillTriggerFilter(match[1].toLowerCase());
-									setSkillTriggerOpen(true);
-									if (textareaRef.current) {
-										const coords = getCaretCoordinates(
-											textareaRef.current,
-											idx,
-										);
-										const rect = textareaRef.current.getBoundingClientRect();
-										setSkillTriggerPos({
-											top:
-												rect.top + coords.top - textareaRef.current.scrollTop,
-											left: rect.left + coords.left,
-										});
+						{isOcr ? (
+							<p className="w-full px-3 py-3 text-left text-sm text-muted-foreground">
+								Upload a PDF or image to extract its text.
+							</p>
+						) : (
+							<PromptInputTextarea
+								ref={textareaRef}
+								value={text}
+								onChange={(e) => {
+									const value = e.currentTarget.value;
+									const cursor = e.currentTarget.selectionStart ?? value.length;
+									setText(value);
+									const textUpToCursor = value.slice(0, cursor);
+									const match = textUpToCursor.match(
+										/(?:^|(?<=\s))@([a-zA-Z_-]*)$/,
+									);
+									if (match) {
+										const idx = cursor - match[0].length;
+										skillTriggerIndexRef.current = idx;
+										setSkillTriggerFilter(match[1].toLowerCase());
+										setSkillTriggerOpen(true);
+										if (textareaRef.current) {
+											const coords = getCaretCoordinates(
+												textareaRef.current,
+												idx,
+											);
+											const rect = textareaRef.current.getBoundingClientRect();
+											setSkillTriggerPos({
+												top:
+													rect.top + coords.top - textareaRef.current.scrollTop,
+												left: rect.left + coords.left,
+											});
+										}
+									} else {
+										setSkillTriggerOpen(false);
+										skillTriggerIndexRef.current = -1;
 									}
-								} else {
-									setSkillTriggerOpen(false);
-									skillTriggerIndexRef.current = -1;
-								}
-							}}
-							placeholder="Message"
-							disabled={isLoading}
-						/>
+								}}
+								placeholder="Message"
+								disabled={isLoading}
+							/>
+						)}
 					</PromptInputBody>
 					<PromptInputToolbar>
 						<PromptInputTools>
@@ -1683,10 +1815,12 @@ export const ChatUI = ({
 									</PromptInputActionMenuContent>
 								</PromptInputActionMenu>
 							)}
-							<PromptInputSpeechButton
-								onTranscriptionChange={setText}
-								textareaRef={textareaRef}
-							/>
+							{!isOcr && (
+								<PromptInputSpeechButton
+									onTranscriptionChange={setText}
+									textareaRef={textareaRef}
+								/>
+							)}
 							{supportsWebSearch && (
 								<PromptInputButton
 									variant={webSearchEnabled ? "default" : "ghost"}
@@ -1695,12 +1829,41 @@ export const ChatUI = ({
 									<GlobeIcon size={16} />
 								</PromptInputButton>
 							)}
-							<SkillPickerButton
-								onSelectSkill={onSelectSkill}
-								activeSkills={activeSkills}
-							/>
+							{!isOcr && (
+								<SkillPickerButton
+									onSelectSkill={onSelectSkill}
+									activeSkills={activeSkills}
+								/>
+							)}
 						</PromptInputTools>
 						<div className="flex items-center gap-2">
+							{availableRegions.length > 0 && (
+								<Select
+									value={selectedRegion ?? "__default__"}
+									onValueChange={(val) =>
+										onRegionChange?.(val === "__default__" ? "" : val)
+									}
+								>
+									<SelectTrigger
+										size="sm"
+										className="min-w-0 sm:min-w-[120px]"
+										aria-label="Region"
+									>
+										<MapPin size={16} className="shrink-0" />
+										<span className="hidden sm:contents">
+											<SelectValue placeholder="Default" />
+										</span>
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="__default__">Default</SelectItem>
+										{availableRegions.map((r) => (
+											<SelectItem key={r} value={r}>
+												{r}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							)}
 							{supportsReasoning && (
 								<Select
 									value={reasoningEffort ? reasoningEffort : "off"}
@@ -1708,23 +1871,30 @@ export const ChatUI = ({
 										setReasoningEffort(
 											val === "off"
 												? ""
-												: ((val as "minimal" | "low" | "medium" | "high") ??
-														""),
+												: ((val as ReasoningEffortOption) ?? ""),
 										)
 									}
 								>
-									<SelectTrigger size="sm" className="min-w-[120px]">
-										<Brain size={16} />
-										<SelectValue placeholder="Reasoning" />
+									<SelectTrigger
+										size="sm"
+										className="min-w-0 sm:min-w-[120px]"
+										aria-label="Reasoning effort"
+									>
+										<Brain size={16} className="shrink-0" />
+										<span className="hidden sm:contents">
+											<SelectValue placeholder="Reasoning" />
+										</span>
 									</SelectTrigger>
 									<SelectContent>
 										<SelectItem value="off">Auto</SelectItem>
-										{selectedModel.includes("gpt-5") && (
-											<SelectItem value="minimal">Minimal</SelectItem>
-										)}
-										<SelectItem value="low">Low</SelectItem>
-										<SelectItem value="medium">Medium</SelectItem>
-										<SelectItem value="high">High</SelectItem>
+										{(
+											reasoningEfforts ??
+											getFallbackReasoningEffortOptions(selectedModel)
+										).map((effort) => (
+											<SelectItem key={effort} value={effort}>
+												{REASONING_EFFORT_LABELS[effort]}
+											</SelectItem>
+										))}
 									</SelectContent>
 								</Select>
 							)}
@@ -1869,7 +2039,7 @@ export const ChatUI = ({
 								status={
 									status === "streaming"
 										? "streaming"
-										: status === "submitted"
+										: status === "submitted" || ocrPending
 											? "submitted"
 											: "ready"
 								}

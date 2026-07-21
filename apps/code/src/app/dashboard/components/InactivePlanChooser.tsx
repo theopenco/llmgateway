@@ -1,8 +1,11 @@
 "use client";
 
-import { ArrowRight, Check, Loader2 } from "lucide-react";
+import { Check, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { formatUsageRatio } from "@/lib/utils";
+
+import BillingDetailsDialog from "./BillingDetailsDialog";
 
 import type { PlanOption, PlanTier } from "@/app/dashboard/types";
 
@@ -21,6 +24,7 @@ export default function InactivePlanChooser({
 		<div className="space-y-8">
 			<div className="grid gap-5 md:grid-cols-3 max-w-4xl mx-auto">
 				{plans.map((plan) => {
+					const ratioLabel = formatUsageRatio(plan.usage, plan.price);
 					return (
 						<div
 							key={plan.tier}
@@ -50,13 +54,13 @@ export default function InactivePlanChooser({
 								<span className="text-sm text-muted-foreground">/mo</span>
 							</div>
 							<div className="mb-5 flex items-center gap-1.5 text-sm">
-								<ArrowRight className="h-3 w-3 text-muted-foreground" />
-								<span className="font-medium">${plan.usage}</span>
-								<span className="text-muted-foreground">in usage</span>
+								<span className="rounded-full bg-foreground/10 px-2 py-0.5 text-xs font-semibold tabular-nums">
+									{ratioLabel} usage value
+								</span>
 							</div>
 							<ul className="mb-6 flex-1 space-y-2.5">
 								{[
-									`$${plan.usage} model usage`,
+									`${ratioLabel} your payment in model usage`,
 									"All 200+ models",
 									"Resets monthly",
 								].map((feature) => (
@@ -84,6 +88,24 @@ export default function InactivePlanChooser({
 					);
 				})}
 			</div>
+			<InvoiceInfoLabel />
 		</div>
+	);
+}
+
+function InvoiceInfoLabel() {
+	return (
+		<p className="mx-auto mt-4 max-w-2xl text-center text-[11px] leading-relaxed text-muted-foreground">
+			Need company/address details on your invoice?{" "}
+			<BillingDetailsDialog>
+				<button
+					type="button"
+					className="font-medium underline underline-offset-2 hover:text-foreground"
+				>
+					Update billing settings
+				</button>
+			</BillingDetailsDialog>{" "}
+			before purchase. We email the invoice automatically after payment.
+		</p>
 	);
 }

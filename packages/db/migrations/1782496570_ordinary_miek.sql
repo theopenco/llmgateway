@@ -1,0 +1,2 @@
+ALTER TABLE "enterprise_contact_submission" ADD COLUMN "deployment" text;--> statement-breakpoint
+ALTER TABLE "enterprise_contact_submission" ADD CONSTRAINT "enterprise_contact_submission_deployment_check" CHECK ("deployment" IS NULL OR "deployment" IN ('self_host', 'cloud', 'not_sure'));

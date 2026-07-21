@@ -2,6 +2,41 @@ import type { ModelDefinition } from "@/models.js";
 
 export const metaModels = [
 	{
+		id: "muse-spark-1.1",
+		name: "Muse Spark 1.1",
+		description:
+			"Meta's multimodal reasoning model built for agentic tool calling, coding, structured output, and long-context workflows with image and video understanding.",
+		family: "meta",
+		releasedAt: new Date("2026-07-09"),
+		providers: [
+			{
+				providerId: "meta",
+				externalId: "muse-spark-1.1",
+				stability: "beta",
+				inputPrice: "1.25e-6",
+				cachedInputPrice: "0.15e-6",
+				outputPrice: "4.25e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"],
+				reasoningMode: "adaptive",
+				reasoningOutput: "omit",
+				supportsResponsesApi: true,
+				vision: true,
+				tools: true,
+				// Muse Spark's endpoint only accepts tool_choice="auto"; it rejects
+				// "none", "required", and named function choices with
+				// invalid_request_error (verified live)
+				supportedToolChoices: ["auto"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+		],
+	},
+	{
 		id: "llama-3.1-8b-instruct",
 		name: "Llama 3.1 8B Instruct",
 		description: "Compact Llama 3.1 for efficient text generation.",
@@ -97,6 +132,7 @@ export const metaModels = [
 				requestPrice: "0",
 				contextSize: 16384,
 				maxOutput: 16384,
+				quantization: "fp8",
 				streaming: true,
 				vision: false,
 				tools: false,
@@ -115,6 +151,9 @@ export const metaModels = [
 			{
 				providerId: "aws-bedrock",
 				externalId: "meta.llama3-1-70b-instruct-v1:0",
+				// Meta Llama has no `global.` Bedrock inference profile, so pin the
+				// `us.` cross-region profile explicitly (the gateway's default
+				// `global.` prefix yields an invalid model id for Meta models).
 				stability: "unstable",
 				inputPrice: "0.72e-6",
 				outputPrice: "0.72e-6",
@@ -125,6 +164,7 @@ export const metaModels = [
 				vision: false,
 				tools: false,
 				jsonOutput: false,
+				regions: [{ id: "us" }],
 			},
 		],
 	},
@@ -166,6 +206,7 @@ export const metaModels = [
 				requestPrice: "0",
 				contextSize: 128000,
 				maxOutput: undefined,
+				quantization: "fp8",
 				streaming: true,
 				vision: false,
 				tools: false,
@@ -212,6 +253,7 @@ export const metaModels = [
 				requestPrice: "0",
 				contextSize: 128000,
 				maxOutput: undefined,
+				quantization: "fp8",
 				streaming: true,
 				vision: false,
 				tools: true,
@@ -259,6 +301,7 @@ export const metaModels = [
 				requestPrice: "0",
 				contextSize: 131072,
 				maxOutput: 120000,
+				quantization: "bf16",
 				streaming: true,
 				vision: false,
 				tools: true,
@@ -347,6 +390,8 @@ export const metaModels = [
 				stability: "unstable",
 				providerId: "aws-bedrock",
 				externalId: "meta.llama4-scout-17b-instruct-v1:0",
+				// Meta Llama has no `global.` Bedrock inference profile, so pin the
+				// `us.` cross-region profile explicitly.
 				inputPrice: "0.17e-6",
 				outputPrice: "0.66e-6",
 				requestPrice: "0",
@@ -357,6 +402,7 @@ export const metaModels = [
 				vision: true,
 				tools: false,
 				jsonOutput: false,
+				regions: [{ id: "us" }],
 			},
 			{
 				stability: "unstable",
@@ -367,6 +413,7 @@ export const metaModels = [
 				requestPrice: "0",
 				contextSize: 131072,
 				maxOutput: 131072,
+				quantization: "bf16",
 				streaming: true,
 				vision: true,
 				tools: false,
@@ -385,6 +432,8 @@ export const metaModels = [
 				stability: "unstable",
 				providerId: "aws-bedrock",
 				externalId: "meta.llama4-maverick-17b-instruct-v1:0",
+				// Meta Llama has no `global.` Bedrock inference profile, so pin the
+				// `us.` cross-region profile explicitly.
 				inputPrice: "0.24e-6",
 				outputPrice: "0.97e-6",
 				requestPrice: "0",
@@ -395,6 +444,7 @@ export const metaModels = [
 				vision: true,
 				tools: false,
 				jsonOutput: false,
+				regions: [{ id: "us" }],
 			},
 			{
 				providerId: "novita",
@@ -404,6 +454,7 @@ export const metaModels = [
 				requestPrice: "0",
 				contextSize: 1048576,
 				maxOutput: 8192,
+				quantization: "fp8",
 				streaming: true,
 				vision: true,
 				tools: false,
@@ -421,6 +472,7 @@ export const metaModels = [
 			{
 				providerId: "novita",
 				externalId: "meta-llama/llama-3-8b-instruct",
+				deactivatedAt: new Date("2026-07-11"),
 				inputPrice: "0.04e-6",
 				outputPrice: "0.04e-6",
 				requestPrice: "0",
@@ -472,6 +524,7 @@ export const metaModels = [
 				requestPrice: "0",
 				contextSize: 32768,
 				maxOutput: 32000,
+				quantization: "bf16",
 				streaming: true,
 				vision: false,
 				tools: false,

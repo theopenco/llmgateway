@@ -1,5 +1,6 @@
 "use client";
 
+import { WebAuthnAbortService } from "@simplewebauthn/browser";
 import { Github, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -12,6 +13,7 @@ interface SocialAuthButtonsProps {
 	setIsLoading: (loading: boolean) => void;
 	callbackPath: string;
 	errorCallbackPath: string;
+	newUserCallbackPath?: string;
 }
 
 export function SocialAuthButtons({
@@ -19,6 +21,7 @@ export function SocialAuthButtons({
 	setIsLoading,
 	callbackPath,
 	errorCallbackPath,
+	newUserCallbackPath,
 }: SocialAuthButtonsProps) {
 	const { signIn } = useAuth();
 	const { githubAuth, googleAuth } = useAppConfig();
@@ -29,12 +32,25 @@ export function SocialAuthButtons({
 
 	async function handleSocialSignIn(provider: "github" | "google") {
 		setIsLoading(true);
+		// Abort the pending conditional (autofill) passkey ceremony so it can't pop a
+		// native passkey/biometric prompt after a successful social sign-in + redirect.
+		WebAuthnAbortService.cancelCeremony();
 		try {
+			const origin = location.protocol + "//" + location.host;
 			const res = await signIn.social({
 				provider,
-				callbackURL: location.protocol + "//" + location.host + callbackPath,
-				errorCallbackURL:
-					location.protocol + "//" + location.host + errorCallbackPath,
+				callbackURL: origin + callbackPath,
+				errorCallbackURL: origin + errorCallbackPath,
+				// New accounts land with a signup_method param so DashboardShell can
+				// fire the signup analytics + ads conversion that the email path
+				// fires inline (OAuth redirects away before we could capture here).
+				newUserCallbackURL: newUserCallbackPath
+					? origin +
+						newUserCallbackPath +
+						(newUserCallbackPath.includes("?") ? "&" : "?") +
+						"signup_method=" +
+						provider
+					: undefined,
 			});
 			if (res?.error) {
 				toast.error(res.error.message ?? `Failed to sign in with ${provider}`, {

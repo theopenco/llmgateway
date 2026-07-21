@@ -44,6 +44,11 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+import {
+	formatServiceTierMultiplier,
+	getServiceTier,
+} from "@llmgateway/models";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -149,6 +154,8 @@ export interface LogCardData {
 	audioInputCost?: number | string | null;
 	discount?: number | null;
 	pricingTier?: string | null;
+	requestedServiceTier?: string | null;
+	usedServiceTier?: string | null;
 	dataStorageCost?: number | string | null;
 	createdAt: string | Date;
 	requestId?: string | null;
@@ -184,6 +191,7 @@ export interface LogCardData {
 	responseFormat?: unknown;
 	params?: unknown;
 	customHeaders?: unknown;
+	userAgent?: string | null;
 }
 
 export interface LogCardProps {
@@ -1039,6 +1047,37 @@ export function LogCard({
 												<div>{log.pricingTier}</div>
 											</>
 										)}
+										{log.requestedServiceTier && (
+											<>
+												<div>Requested Service Tier</div>
+												<div>
+													<span className="capitalize">
+														{log.requestedServiceTier}
+													</span>
+												</div>
+											</>
+										)}
+										{log.usedServiceTier && (
+											<>
+												<div>Used Service Tier</div>
+												<div>
+													<span className="capitalize">
+														{log.usedServiceTier}
+													</span>
+													{(() => {
+														const tier = getServiceTier(
+															log.usedProvider ?? "",
+															log.usedServiceTier,
+														);
+														return tier ? (
+															<span className="ml-1 text-muted-foreground">
+																({formatServiceTierMultiplier(tier.multiplier)})
+															</span>
+														) : null;
+													})()}
+												</div>
+											</>
+										)}
 									</div>
 								</div>
 								<div className="border-t pt-3">
@@ -1113,6 +1152,14 @@ export function LogCard({
 								<div className="font-mono text-xs break-all">
 									{log.source ?? "-"}
 								</div>
+								{log.userAgent && (
+									<>
+										<div className="text-muted-foreground">User Agent</div>
+										<div className="font-mono text-xs break-all">
+											{log.userAgent}
+										</div>
+									</>
+								)}
 								<div className="text-muted-foreground">Project</div>
 								<RelatedResourceValue
 									id={log.projectId}

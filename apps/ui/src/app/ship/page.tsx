@@ -8,15 +8,25 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
 	title: "Ship an AI App in 10 Minutes",
 	description:
-		"Clone a production-ready AI template, connect to 300+ models, and deploy. Ship your AI app in minutes with LLM Gateway.",
+		"Clone a production-ready AI template, connect to 200+ models, and deploy. Ship your AI app in minutes with LLM Gateway.",
+	alternates: { canonical: "/ship" },
 	openGraph: {
 		title: "Ship an AI App in 10 Minutes | LLM Gateway",
 		description:
-			"Clone a production-ready AI template, connect to 300+ models, and deploy. Ship your AI app in minutes with LLM Gateway.",
+			"Clone a production-ready AI template, connect to 200+ models, and deploy. Ship your AI app in minutes with LLM Gateway.",
+		url: "https://llmgateway.io/ship",
+		type: "website",
 	},
 };
 
 const templates = [
+	{
+		name: "Embeddable Credits",
+		description:
+			"Monetize your AI app — a drop-in wallet and checkout so end-users buy credits and use AI in-app.",
+		command: "npx @llmgateway/cli init --template embeddable-credits",
+		tags: ["Next.js", "Embeddable SDK", "Monetization"],
+	},
 	{
 		name: "AI Chatbot",
 		description:
@@ -59,6 +69,13 @@ const templates = [
 		command: "npx @llmgateway/cli init --template qa-agent",
 		tags: ["Next.js", "AI SDK", "Browser Automation"],
 	},
+	{
+		name: "Showcase",
+		description:
+			"A static, deployable gallery of apps built with LLM Gateway templates, with filtering and submissions.",
+		command: "npx @llmgateway/cli init --template showcase",
+		tags: ["Next.js", "Tailwind CSS", "Static"],
+	},
 ];
 
 const steps = [
@@ -96,7 +113,7 @@ export default function ShipPage() {
 						</h1>
 						<p className="text-lg text-muted-foreground leading-relaxed">
 							Production-ready templates powered by LLM Gateway. Clone,
-							configure, and deploy — with access to 300+ models from every
+							configure, and deploy — with access to 200+ models from every
 							major provider.
 						</p>
 						<div className="mt-8 flex flex-col sm:flex-row gap-4 justify-center">
@@ -196,7 +213,7 @@ export default function ShipPage() {
 						</h2>
 						<p className="text-lg text-muted-foreground">
 							Create a free LLM Gateway account, grab an API key, and start
-							building with any of our 300+ supported models.
+							building with any of our 200+ supported models.
 						</p>
 						<div className="flex flex-col sm:flex-row gap-4 justify-center">
 							<Link

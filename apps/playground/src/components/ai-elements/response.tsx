@@ -25,6 +25,28 @@ const code = createCodePlugin({
 	themes: ["github-light", "github-dark"],
 });
 
+const TRUSTED_LINK_HOSTS = ["llmgateway.io"];
+
+// Trusted links open directly; everything else goes through Streamdown's
+// open/cancel confirmation gate.
+const isTrustedLink = (url: string): boolean => {
+	try {
+		const parsed = new URL(url, window.location.origin);
+		if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+			return false;
+		}
+		if (parsed.origin === window.location.origin) {
+			return true;
+		}
+		return TRUSTED_LINK_HOSTS.some(
+			(host) =>
+				parsed.hostname === host || parsed.hostname.endsWith(`.${host}`),
+		);
+	} catch {
+		return false;
+	}
+};
+
 export const Response = memo(
 	({ className, isStreaming = false, ...props }: ResponseProps) => (
 		<Streamdown
@@ -35,6 +57,7 @@ export const Response = memo(
 			isAnimating={isStreaming}
 			plugins={{ code, mermaid, math, cjk }}
 			shikiTheme={shikiTheme}
+			linkSafety={{ enabled: true, onLinkCheck: isTrustedLink }}
 			{...props}
 		/>
 	),

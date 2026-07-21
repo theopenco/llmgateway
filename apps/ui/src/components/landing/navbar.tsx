@@ -30,11 +30,12 @@ import {
 	Zap,
 } from "lucide-react";
 import Link from "next/link";
+import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
 
 import { AuthLink } from "@/components/shared/auth-link";
 import { ModelSearch } from "@/components/shared/model-search";
-import { useUser } from "@/hooks/useUser";
+import { useSessionStatus } from "@/hooks/useUser";
 import { Button } from "@/lib/components/button";
 import {
 	NavigationMenu,
@@ -47,6 +48,8 @@ import {
 import { useAppConfig } from "@/lib/config";
 import Logo from "@/lib/icons/Logo";
 import { cn } from "@/lib/utils";
+
+import { MARKETING_STATS } from "@llmgateway/shared";
 
 import { ThemeToggle } from "./theme-toggle";
 
@@ -68,8 +71,12 @@ function IconMenuItem({
 	gradient: string;
 	external?: boolean;
 }) {
+	const posthog = usePostHog();
 	const linkClassName = cn(
-		"group/product flex items-start gap-3 select-none rounded-lg p-3 no-underline outline-none transition-all duration-300 bg-linear-to-br from-transparent to-transparent",
+		// flex-row is load-bearing: NavigationMenuLink's base classes include
+		// flex-col and are concatenated onto this link via Radix Slot, so the
+		// direction must be asserted explicitly or the card stacks vertically.
+		"group/product flex flex-row items-start gap-3 select-none rounded-lg p-3 no-underline outline-none transition-all duration-300 bg-linear-to-br from-transparent to-transparent",
 		gradient,
 		"hover:shadow-lg focus:shadow-md",
 	);
@@ -94,6 +101,10 @@ function IconMenuItem({
 		</>
 	);
 
+	const handleClick = () => {
+		posthog.capture("nav_link_clicked", { link: title, area: "dropdown" });
+	};
+
 	return (
 		<li>
 			<NavigationMenuLink asChild>
@@ -103,11 +114,17 @@ function IconMenuItem({
 						target="_blank"
 						rel="noopener noreferrer"
 						className={linkClassName}
+						onClick={handleClick}
 					>
 						{inner}
 					</a>
 				) : (
-					<Link href={href as Route} prefetch={true} className={linkClassName}>
+					<Link
+						href={href as Route}
+						prefetch={true}
+						className={linkClassName}
+						onClick={handleClick}
+					>
 						{inner}
 					</Link>
 				)}
@@ -128,8 +145,13 @@ export const Navbar = ({
 	providers?: ApiProvider[];
 }) => {
 	const config = useAppConfig();
-	const { user, isLoading } = useUser();
-	const isAuthenticated = !!user && !isLoading;
+	const posthog = usePostHog();
+	const { isAuthenticated: hasSession, isLoading } = useSessionStatus();
+	const isAuthenticated = hasSession && !isLoading;
+
+	const trackNav = (link: string) => {
+		posthog.capture("nav_link_clicked", { link, area: "navbar" });
+	};
 
 	const productsLinks: Array<{
 		title: string;
@@ -142,8 +164,7 @@ export const Navbar = ({
 		{
 			title: "AI Gateway",
 			href: "/features/unified-api-interface",
-			description:
-				"Route requests to 200+ LLMs through a single, unified API endpoint.",
+			description: `Route requests to ${MARKETING_STATS.models} LLMs through a single, unified API endpoint.`,
 			icon: Network,
 			gradient:
 				"hover:from-violet-500/20 hover:to-purple-600/30 hover:shadow-violet-500/10 group-hover/product:text-violet-500 dark:group-hover/product:text-violet-400",
@@ -308,7 +329,7 @@ export const Navbar = ({
 		{
 			title: "MCP Server",
 			href: "/mcp",
-			description: "Connect AI assistants to 200+ LLMs via MCP protocol.",
+			description: `Connect AI assistants to ${MARKETING_STATS.models} LLMs via MCP protocol.`,
 			icon: Server,
 			gradient:
 				"hover:from-cyan-500/20 hover:to-blue-600/30 hover:shadow-cyan-500/10 group-hover/product:text-cyan-500 dark:group-hover/product:text-cyan-400",
@@ -416,12 +437,11 @@ export const Navbar = ({
 						<div className="flex w-full justify-between nav:w-auto">
 							<Link
 								href="/"
-								aria-label="home"
 								className="flex items-center space-x-2"
 								prefetch={true}
 							>
 								<Logo className="h-8 w-8 rounded-full text-black dark:text-white" />
-								<span className="text-xl font-bold tracking-tight text-zinc-900 dark:text-white">
+								<span className="text-xl font-bold tracking-tight text-zinc-900 dark:text-white whitespace-nowrap">
 									LLM Gateway
 								</span>
 							</Link>
@@ -437,18 +457,58 @@ export const Navbar = ({
 						</div>
 
 						{/* Desktop center nav */}
-						<div className="m-auto hidden items-center gap-2 nav:flex min-w-0">
-							<div className="w-[140px] lg:w-[160px]">
+						<div className="m-auto hidden items-center gap-1 nav:flex min-w-0">
+							<div className="w-[140px] xl:w-[160px]">
 								<ModelSearch models={models} providers={providers} />
 							</div>
 							<NavigationMenu viewport={false} delayDuration={300}>
-								<NavigationMenuList className="flex gap-1 text-sm">
+								<NavigationMenuList className="flex gap-0.5 text-sm">
+									{/* Most-clicked destinations surfaced as direct links —
+									    DevPass (top product) and Models (top resource) per
+									    PostHog page traffic; Chat joins on wider screens. */}
+									<NavigationMenuItem>
+										<NavigationMenuLink asChild>
+											<a
+												href="https://devpass.llmgateway.io"
+												onClick={() => trackNav("DevPass")}
+												className="text-muted-foreground hover:text-accent-foreground block duration-150 px-3 py-2 whitespace-nowrap"
+											>
+												DevPass
+											</a>
+										</NavigationMenuLink>
+									</NavigationMenuItem>
+
+									<NavigationMenuItem className="hidden min-[1360px]:block">
+										<NavigationMenuLink asChild>
+											<a
+												href={config.playgroundUrl ?? "#"}
+												onClick={() => trackNav("Chat")}
+												className="text-muted-foreground hover:text-accent-foreground block duration-150 px-3 py-2 whitespace-nowrap"
+											>
+												Chat
+											</a>
+										</NavigationMenuLink>
+									</NavigationMenuItem>
+
+									<NavigationMenuItem>
+										<NavigationMenuLink asChild>
+											<Link
+												href="/models"
+												prefetch={true}
+												onClick={() => trackNav("Models")}
+												className="text-muted-foreground hover:text-accent-foreground block duration-150 px-3 py-2 whitespace-nowrap"
+											>
+												Models
+											</Link>
+										</NavigationMenuLink>
+									</NavigationMenuItem>
+
 									{/* Products dropdown */}
 									<NavigationMenuItem>
-										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-4 py-2 bg-transparent">
+										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-3 py-2 bg-transparent">
 											Products
 										</NavigationMenuTrigger>
-										<NavigationMenuContent>
+										<NavigationMenuContent className="md:left-1/2 md:-translate-x-1/2">
 											<ul className="grid grid-cols-2 gap-2 p-4 md:w-[520px] lg:w-[580px]">
 												{productsLinks.map((product) => (
 													<IconMenuItem
@@ -467,10 +527,10 @@ export const Navbar = ({
 
 									{/* Resources dropdown */}
 									<NavigationMenuItem>
-										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-4 py-2 bg-transparent">
+										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-3 py-2 bg-transparent">
 											Resources
 										</NavigationMenuTrigger>
-										<NavigationMenuContent>
+										<NavigationMenuContent className="md:left-1/2 md:-translate-x-1/2">
 											<ul className="grid grid-cols-2 gap-2 p-4 md:w-[680px] lg:w-[820px] lg:grid-cols-3">
 												{resourcesLinks.map((link) => (
 													<IconMenuItem
@@ -487,26 +547,12 @@ export const Navbar = ({
 										</NavigationMenuContent>
 									</NavigationMenuItem>
 
-									{/* Docs link */}
-									<NavigationMenuItem>
-										<NavigationMenuLink asChild>
-											<a
-												href={config.docsUrl ?? ""}
-												target="_blank"
-												rel="noopener noreferrer"
-												className="text-muted-foreground hover:text-accent-foreground block duration-150 px-4 py-2"
-											>
-												Docs
-											</a>
-										</NavigationMenuLink>
-									</NavigationMenuItem>
-
 									{/* AI dropdown */}
 									<NavigationMenuItem>
-										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-4 py-2 bg-transparent">
+										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-3 py-2 bg-transparent">
 											AI
 										</NavigationMenuTrigger>
-										<NavigationMenuContent>
+										<NavigationMenuContent className="md:left-1/2 md:-translate-x-1/2">
 											<ul className="grid grid-cols-2 gap-2 p-4 md:w-[520px] lg:w-[580px]">
 												{aiLinks.map((item) => (
 													<IconMenuItem
@@ -523,13 +569,29 @@ export const Navbar = ({
 										</NavigationMenuContent>
 									</NavigationMenuItem>
 
+									{/* Docs link */}
+									<NavigationMenuItem>
+										<NavigationMenuLink asChild>
+											<a
+												href={config.docsUrl ?? ""}
+												target="_blank"
+												rel="noopener noreferrer"
+												onClick={() => trackNav("Docs")}
+												className="text-muted-foreground hover:text-accent-foreground block duration-150 px-3 py-2"
+											>
+												Docs
+											</a>
+										</NavigationMenuLink>
+									</NavigationMenuItem>
+
 									{/* Pricing link */}
 									<NavigationMenuItem>
 										<NavigationMenuLink asChild>
 											<Link
 												href="/pricing"
 												prefetch={true}
-												className="text-muted-foreground hover:text-accent-foreground block duration-150 px-4 py-2"
+												onClick={() => trackNav("Pricing")}
+												className="text-muted-foreground hover:text-accent-foreground block duration-150 px-3 py-2"
 											>
 												Pricing
 											</Link>
@@ -540,17 +602,35 @@ export const Navbar = ({
 						</div>
 
 						{/* Right side */}
-						<div className="bg-background group-data-[state=active]:block nav:group-data-[state=active]:flex mb-6 hidden w-full flex-wrap items-center justify-end space-y-8 rounded-3xl border p-6 shadow-2xl shadow-zinc-300/20 md:flex-nowrap nav:m-0 nav:flex nav:w-fit nav:shrink-0 nav:gap-3 nav:space-y-0 nav:border-transparent nav:bg-transparent nav:p-0 nav:shadow-none dark:shadow-none dark:nav:bg-transparent">
+						<div className="bg-background group-data-[state=active]:block nav:group-data-[state=active]:flex mb-6 hidden max-h-[calc(100dvh-7rem)] w-full flex-wrap items-center justify-end space-y-6 overflow-y-auto overscroll-contain rounded-3xl border p-6 shadow-2xl shadow-zinc-300/20 md:flex-nowrap nav:m-0 nav:flex nav:max-h-none nav:w-fit nav:shrink-0 nav:gap-3 nav:space-y-0 nav:overflow-visible nav:border-transparent nav:bg-transparent nav:p-0 nav:shadow-none dark:shadow-none dark:nav:bg-transparent">
 							{/* Mobile nav */}
 							<div className="nav:hidden">
-								<div className="mb-6">
+								<div className="mb-4">
 									<ModelSearch models={models} providers={providers} />
 								</div>
-								<ul className="space-y-6 text-base">
+								<ul className="text-base">
+									<li>
+										<a
+											href="https://devpass.llmgateway.io"
+											onClick={() => trackNav("DevPass")}
+											className="text-muted-foreground hover:text-accent-foreground block py-2.5 duration-150"
+										>
+											DevPass
+										</a>
+									</li>
+									<li>
+										<a
+											href={config.playgroundUrl ?? "#"}
+											onClick={() => trackNav("Chat")}
+											className="text-muted-foreground hover:text-accent-foreground block py-2.5 duration-150"
+										>
+											Chat
+										</a>
+									</li>
 									<li>
 										<Link
 											href="/pricing"
-											className="text-muted-foreground hover:text-accent-foreground block duration-150"
+											className="text-muted-foreground hover:text-accent-foreground block py-2.5 duration-150"
 											prefetch={true}
 										>
 											Pricing
@@ -561,7 +641,7 @@ export const Navbar = ({
 											href={config.docsUrl ?? ""}
 											target="_blank"
 											rel="noopener noreferrer"
-											className="text-muted-foreground hover:text-accent-foreground block duration-150"
+											className="text-muted-foreground hover:text-accent-foreground block py-2.5 duration-150"
 										>
 											Docs
 										</a>
@@ -569,7 +649,7 @@ export const Navbar = ({
 									<li>
 										<Link
 											href="/models"
-											className="text-muted-foreground hover:text-accent-foreground block duration-150"
+											className="text-muted-foreground hover:text-accent-foreground block py-2.5 duration-150"
 											prefetch={true}
 										>
 											Models
@@ -577,7 +657,7 @@ export const Navbar = ({
 									</li>
 
 									{mobileSections.map((section) => (
-										<li key={section.label} className="space-y-2">
+										<li key={section.label}>
 											<button
 												type="button"
 												onClick={() =>
@@ -587,10 +667,10 @@ export const Navbar = ({
 															: section.label,
 													)
 												}
-												className="flex w-full items-center justify-between gap-2 text-left"
+												className="flex w-full items-center justify-between gap-2 py-2.5 text-left"
 												aria-expanded={openMobileSection === section.label}
 											>
-												<span className="text-muted-foreground text-sm font-medium">
+												<span className="text-muted-foreground">
 													{section.label}
 												</span>
 												<ChevronDown
@@ -600,36 +680,39 @@ export const Navbar = ({
 													)}
 												/>
 											</button>
-											{openMobileSection === section.label ? (
-												<ul className="space-y-3 pl-4 pt-1">
-													{section.items.map((item) => (
-														<li key={item.name}>
-															{item.external ? (
-																<a
-																	href={item.href}
-																	target="_blank"
-																	rel="noopener noreferrer"
-																	className="text-muted-foreground hover:text-accent-foreground block duration-150 text-sm"
-																>
-																	{item.name}
-																</a>
-															) : (
-																<Link
-																	href={item.href as Route}
-																	className="text-muted-foreground hover:text-accent-foreground block duration-150 text-sm"
-																	prefetch={true}
-																>
-																	{item.name}
-																</Link>
-															)}
-														</li>
-													))}
-												</ul>
-											) : null}
+											<ul
+												className={cn(
+													"grid grid-cols-2 gap-x-4 rounded-xl bg-muted/40 px-3 py-2 mb-2",
+													openMobileSection !== section.label && "hidden",
+												)}
+											>
+												{section.items.map((item) => (
+													<li key={item.name}>
+														{item.external ? (
+															<a
+																href={item.href}
+																target="_blank"
+																rel="noopener noreferrer"
+																className="text-muted-foreground hover:text-accent-foreground block py-2 duration-150 text-sm"
+															>
+																{item.name}
+															</a>
+														) : (
+															<Link
+																href={item.href as Route}
+																className="text-muted-foreground hover:text-accent-foreground block py-2 duration-150 text-sm"
+																prefetch={true}
+															>
+																{item.name}
+															</Link>
+														)}
+													</li>
+												))}
+											</ul>
 										</li>
 									))}
 
-									<li className="flex items-center gap-4 pt-4 border-t border-border">
+									<li className="flex items-center gap-4 pt-3 mt-2 border-t border-border">
 										<a
 											href={config.githubUrl}
 											target="_blank"
@@ -659,8 +742,10 @@ export const Navbar = ({
 							</div>
 
 							<div className="flex w-full flex-col space-y-3 sm:flex-row sm:gap-3 sm:space-y-0 md:w-fit items-center">
-								{/* GitHub stars (compact) + Discord */}
-								<div className="hidden nav:flex items-center gap-1">
+								{/* GitHub stars (compact) + Discord — hidden in the narrow
+								    band above the nav breakpoint so the promoted nav links
+								    don't collide with the right-side controls. */}
+								<div className="hidden min-[1280px]:flex items-center gap-1">
 									{children}
 									<a
 										href={config.discordUrl}

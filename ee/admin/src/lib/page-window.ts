@@ -9,7 +9,10 @@ export type PageWindow =
 	| "12h"
 	| "24h"
 	| "2d"
-	| "7d";
+	| "3d"
+	| "7d"
+	| "30d"
+	| "90d";
 
 export const pageWindowOptions: { value: PageWindow; label: string }[] = [
 	{ value: "1h", label: "1h" },
@@ -18,7 +21,10 @@ export const pageWindowOptions: { value: PageWindow; label: string }[] = [
 	{ value: "12h", label: "12h" },
 	{ value: "24h", label: "24h" },
 	{ value: "2d", label: "2d" },
+	{ value: "3d", label: "3d" },
 	{ value: "7d", label: "7d" },
+	{ value: "30d", label: "30d" },
+	{ value: "90d", label: "90d" },
 ];
 
 export const pageWindowOptionsWithMinutes: {
@@ -43,8 +49,25 @@ const allValidWindows = new Set<PageWindow>([
 	"12h",
 	"24h",
 	"2d",
+	"3d",
 	"7d",
+	"30d",
+	"90d",
 ]);
+
+// Windows longer than 24h are aggregated from the hourly rollup tables; 24h and
+// below from the per-minute history tables. Mirrors the API's hourly threshold.
+const HOURLY_PAGE_WINDOWS = new Set<PageWindow>([
+	"2d",
+	"3d",
+	"7d",
+	"30d",
+	"90d",
+]);
+
+export function pageBucketSource(window: PageWindow): "hourly" | "minute" {
+	return HOURLY_PAGE_WINDOWS.has(window) ? "hourly" : "minute";
+}
 
 export function parsePageWindow(value: string | undefined): PageWindow {
 	if (value && allValidWindows.has(value as PageWindow)) {
@@ -69,7 +92,10 @@ export function windowToFromTo(window: PageWindow): {
 		"12h": 720,
 		"24h": 1440,
 		"2d": 2880,
+		"3d": 4320,
 		"7d": 10080,
+		"30d": 43200,
+		"90d": 129600,
 	};
 	const minutes = windowMinutes[window];
 	const ms = minutes * 60 * 1000;

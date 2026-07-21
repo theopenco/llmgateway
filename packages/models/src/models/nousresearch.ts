@@ -40,6 +40,7 @@ export const nousresearchModels = [
 				requestPrice: "0",
 				contextSize: 8192,
 				maxOutput: 8192,
+				quantization: "fp16",
 				streaming: true,
 				vision: false,
 				tools: false,

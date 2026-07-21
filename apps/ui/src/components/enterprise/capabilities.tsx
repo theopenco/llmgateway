@@ -1,11 +1,14 @@
 import {
 	ArrowUpRight,
+	BadgeCheck,
+	BarChart3,
 	Bell,
 	FileSearch,
 	GitBranch,
 	Lock,
 	Paintbrush,
 	ShieldCheck,
+	Users,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -13,11 +16,14 @@ import { enterpriseFeatures } from "@/lib/enterprise-features";
 
 const iconMap = {
 	"shield-check": ShieldCheck,
+	"badge-check": BadgeCheck,
 	"git-branch": GitBranch,
 	audit: FileSearch,
 	bell: Bell,
 	lock: Lock,
 	paintbrush: Paintbrush,
+	chart: BarChart3,
+	users: Users,
 } as const;
 
 const accentMap: Record<string, string> = {
@@ -56,7 +62,7 @@ export function EnterpriseCapabilities() {
 						</span>
 					</span>
 					<h2 className="text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl text-balance">
-						Six capabilities your security team will actually approve
+						Nine capabilities your security team will actually approve
 					</h2>
 					<p className="text-lg text-muted-foreground leading-relaxed text-balance">
 						The pieces that turn LLM Gateway from a developer tool into an

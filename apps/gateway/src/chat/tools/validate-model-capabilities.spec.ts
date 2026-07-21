@@ -27,6 +27,40 @@ const mixedVisionModel = getModel("qwen3-max");
 
 const embeddingModel = getModel("text-embedding-3-small");
 
+// Pick a stable fixture for each single-output capability straight from the
+// registry so the tests don't pin to a specific model id that may churn.
+function getModelByOutput(output: string): ModelDefinition {
+	const m = (models as readonly ModelDefinition[]).find(
+		(model) =>
+			Array.isArray(model.output) &&
+			model.output.length === 1 &&
+			model.output[0] === output,
+	);
+	if (!m) {
+		throw new Error(`Test fixture missing: no model with output ["${output}"]`);
+	}
+	return m;
+}
+
+const ocrModel = getModelByOutput("ocr");
+const videoModel = getModelByOutput("video");
+const audioModel = getModelByOutput("audio");
+const imageOnlyModel = getModelByOutput("image");
+const textImageModel = (() => {
+	const m = (models as readonly ModelDefinition[]).find(
+		(model) =>
+			Array.isArray(model.output) &&
+			model.output.includes("text") &&
+			model.output.includes("image"),
+	);
+	if (!m) {
+		throw new Error(
+			'Test fixture missing: no model with output ["text","image"]',
+		);
+	}
+	return m;
+})();
+
 describe("validateModelCapabilities - vision", () => {
 	it("rejects when explicit provider does not support vision", () => {
 		expect(() =>
@@ -98,6 +132,73 @@ describe("validateModelCapabilities - vision", () => {
 	});
 });
 
+describe("validateModelCapabilities - verbosity", () => {
+	const verbosityModel = getModel("gpt-5.6-terra");
+
+	it("allows verbosity for models that support it", () => {
+		expect(() =>
+			validateModelCapabilities(verbosityModel, "gpt-5.6-terra", undefined, {
+				verbosity: "low",
+			}),
+		).not.toThrow();
+	});
+
+	it("allows verbosity for older GPT-5 models that support it", () => {
+		const olderModel = getModel("gpt-5.1");
+		expect(() =>
+			validateModelCapabilities(olderModel, "gpt-5.1", undefined, {
+				verbosity: "high",
+			}),
+		).not.toThrow();
+	});
+
+	it("rejects verbosity for models without support", () => {
+		expect(() =>
+			validateModelCapabilities(noVisionModel, "deepseek-v4-flash", undefined, {
+				verbosity: "low",
+			}),
+		).toThrow(HTTPException);
+	});
+
+	it("skips the verbosity check for auto and custom models", () => {
+		expect(() =>
+			validateModelCapabilities(noVisionModel, "auto", undefined, {
+				verbosity: "low",
+			}),
+		).not.toThrow();
+		expect(() =>
+			validateModelCapabilities(noVisionModel, "custom", undefined, {
+				verbosity: "low",
+			}),
+		).not.toThrow();
+	});
+
+	it("does not check verbosity when it is not specified", () => {
+		expect(() =>
+			validateModelCapabilities(
+				noVisionModel,
+				"deepseek-v4-flash",
+				undefined,
+				{},
+			),
+		).not.toThrow();
+	});
+});
+
+describe("validateModelCapabilities - custom providers", () => {
+	it("skips all capability checks when the provider is custom", () => {
+		expect(() =>
+			validateModelCapabilities(noVisionModel, "qwen3.6-plus", "custom", {
+				hasImages: true,
+				hasDocuments: true,
+				response_format: { type: "json_object" },
+				reasoning_effort: "high",
+				tools: [{ type: "function" }],
+			}),
+		).not.toThrow();
+	});
+});
+
 describe("validateModelCapabilities - embeddings", () => {
 	it("rejects embedding-only models on chat completions", () => {
 		expect(() =>
@@ -138,6 +239,45 @@ describe("validateModelCapabilities - embeddings", () => {
 		).not.toThrow();
 		expect(() =>
 			validateModelCapabilities(embeddingModel, "custom", undefined, {}),
+		).not.toThrow();
+	});
+});
+
+describe("validateModelCapabilities - output capability", () => {
+	it("rejects OCR models on chat completions", () => {
+		expect(() =>
+			validateModelCapabilities(ocrModel, ocrModel.id, undefined, {}),
+		).toThrow(HTTPException);
+	});
+
+	it("rejects video models on chat completions", () => {
+		expect(() =>
+			validateModelCapabilities(videoModel, videoModel.id, undefined, {}),
+		).toThrow(HTTPException);
+	});
+
+	it("rejects audio (speech) models on chat completions", () => {
+		expect(() =>
+			validateModelCapabilities(audioModel, audioModel.id, undefined, {}),
+		).toThrow(HTTPException);
+	});
+
+	it("allows image-output models (image generation routes through chat)", () => {
+		expect(() =>
+			validateModelCapabilities(
+				imageOnlyModel,
+				imageOnlyModel.id,
+				undefined,
+				{},
+			),
+		).not.toThrow();
+		expect(() =>
+			validateModelCapabilities(
+				textImageModel,
+				textImageModel.id,
+				undefined,
+				{},
+			),
 		).not.toThrow();
 	});
 });

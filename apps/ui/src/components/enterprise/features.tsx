@@ -23,9 +23,9 @@ const features = [
 	},
 	{
 		icon: Wallet,
-		title: "Lowest Fees on Credits",
+		title: "Volume-Discounted Fees",
 		description:
-			"Only 1% platform fee on credit purchases. Keep more of your budget for actual usage.",
+			"Custom volume pricing cuts the standard 5% platform fee on credits as your usage scales.",
 	},
 	{
 		icon: BarChart3,
@@ -55,7 +55,7 @@ const features = [
 		icon: Headphones,
 		title: "24/7 Premium Support",
 		description:
-			"Round-the-clock access to our engineering team. Priority response for any issues.",
+			"Round-the-clock access to our engineering team through a dedicated Slack or Discord channel. Priority response for any issues.",
 	},
 	{
 		icon: MessageSquare,
@@ -77,9 +77,9 @@ const features = [
 	},
 	{
 		icon: ShieldCheck,
-		title: "SOC 2 Type II (In Progress)",
+		title: "SOC 2 Type II Compliant",
 		description:
-			"We are actively pursuing SOC 2 Type II certification to meet the highest standards of security, availability, and confidentiality for your data.",
+			"LLM Gateway is SOC 2 Type II compliant, independently audited against the highest standards of security, availability, and confidentiality. Request our report at security.llmgateway.io.",
 	},
 ];
 

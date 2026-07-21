@@ -10,16 +10,6 @@ export interface OpenAIErrorBody {
 		param: string | null;
 		code: string | null;
 	};
-	/**
-	 * @deprecated Backwards-compat mirror of the legacy `{ error, status, message }`
-	 * shape. Read `error.message` instead; this top-level field will be removed soon.
-	 */
-	message: string;
-	/**
-	 * @deprecated Backwards-compat mirror of the legacy `{ error, status, message }`
-	 * shape. Use the HTTP response status instead; this field will be removed soon.
-	 */
-	status: number;
 }
 
 export interface AnthropicErrorBody {
@@ -28,16 +18,6 @@ export interface AnthropicErrorBody {
 		type: string;
 		message: string;
 	};
-	/**
-	 * @deprecated Backwards-compat mirror of the legacy `{ error, status, message }`
-	 * shape. Read `error.message` instead; this top-level field will be removed soon.
-	 */
-	message: string;
-	/**
-	 * @deprecated Backwards-compat mirror of the legacy `{ error, status, message }`
-	 * shape. Use the HTTP response status instead; this field will be removed soon.
-	 */
-	status: number;
 }
 
 // Maps an HTTP status code to the canonical OpenAI `error.type`/`error.code`
@@ -122,9 +102,6 @@ export function buildOpenAIErrorBody(opts: {
 			param: opts.param ?? null,
 			code: opts.code !== undefined ? opts.code : meta.code,
 		},
-		// Deprecated legacy fields, kept temporarily for backwards compatibility.
-		message: opts.message,
-		status: opts.status,
 	};
 }
 
@@ -139,8 +116,5 @@ export function buildAnthropicErrorBody(opts: {
 			type: opts.type ?? getAnthropicErrorType(opts.status),
 			message: opts.message,
 		},
-		// Deprecated legacy fields, kept temporarily for backwards compatibility.
-		message: opts.message,
-		status: opts.status,
 	};
 }

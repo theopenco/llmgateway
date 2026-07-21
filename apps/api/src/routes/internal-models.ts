@@ -67,6 +67,8 @@ const modelProviderMappingSchema = z.object({
 	imageOutputPrice: z.string().nullable(),
 	imageInputTokensByResolution: z.record(z.number()).nullable(),
 	imageOutputTokensByResolution: z.record(z.number()).nullable(),
+	inputCharacterPrice: z.string().nullable(),
+	outputAudioPrice: z.string().nullable(),
 	requestPrice: z.string().nullable(),
 	contextSize: z.number().nullable(),
 	maxOutput: z.number().nullable(),
@@ -75,6 +77,9 @@ const modelProviderMappingSchema = z.object({
 	audio: z.boolean().nullable(),
 	document: z.boolean().nullable(),
 	reasoning: z.boolean().nullable(),
+	reasoningEfforts: z
+		.array(z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"]))
+		.nullable(),
 	reasoningOutput: z.string().nullable(),
 	tools: z.boolean().nullable(),
 	jsonOutput: z.boolean().nullable(),
@@ -91,6 +96,7 @@ const modelProviderMappingSchema = z.object({
 	supportsVideoWithoutAudio: z.boolean().nullable(),
 	perSecondPrice: z.record(z.string()).nullable(),
 	pricingTiers: z.array(pricingTierSchema).nullable(),
+	serviceTiers: z.array(z.string()).nullable(),
 	deprecatedAt: z.coerce.date().nullable(),
 	deactivatedAt: z.coerce.date().nullable(),
 	status: z.enum(["active", "inactive"]),
@@ -139,20 +145,18 @@ const getModelsRoute = createRoute({
 internalModels.openapi(getModelsRoute, async (c) => {
 	const now = new Date();
 
-	const [models, globalDiscounts] = await Promise.all([
+	const [models, activeMappings, globalDiscounts] = await Promise.all([
 		db.query.model.findMany({
 			where: {
 				status: { eq: "active" },
 			},
-			with: {
-				modelProviderMappings: {
-					where: {
-						status: { eq: "active" },
-					},
-				},
-			},
 			orderBy: {
 				createdAt: "desc",
+			},
+		}),
+		db.query.modelProviderMapping.findMany({
+			where: {
+				status: { eq: "active" },
 			},
 		}),
 		db
@@ -172,6 +176,16 @@ internalModels.openapi(getModelsRoute, async (c) => {
 				),
 			),
 	]);
+
+	const mappingsByModelId = new Map<string, typeof activeMappings>();
+	for (const mapping of activeMappings) {
+		const existing = mappingsByModelId.get(mapping.modelId);
+		if (existing) {
+			existing.push(mapping);
+		} else {
+			mappingsByModelId.set(mapping.modelId, [mapping]);
+		}
+	}
 
 	// Find the best global discount for a given provider+model. Discounts are
 	// always keyed by the root model ID.
@@ -215,19 +229,17 @@ internalModels.openapi(getModelsRoute, async (c) => {
 	// Transform and apply effective discount
 	const transformedModels = models.map((model) => ({
 		...model,
-		mappings: model.modelProviderMappings.map((mapping) => {
+		mappings: (mappingsByModelId.get(model.id) ?? []).map((mapping) => {
 			const sharedMapping: ProviderModelMapping | null =
 				modelDefinitions
 					.find((modelDefinition) => modelDefinition.id === model.id)
 					?.providers.find(
 						(provider) => provider.providerId === mapping.providerId,
 					) ?? null;
-			const globalDiscount = getGlobalDiscount(mapping.providerId, model.id);
-			// Global discount takes precedence over hardcoded mapping discount
-			const effectiveDiscount = globalDiscount ?? mapping.discount;
 			return {
 				...mapping,
-				discount: effectiveDiscount,
+				discount: getGlobalDiscount(mapping.providerId, model.id),
+				reasoningEfforts: sharedMapping?.reasoningEfforts ?? null,
 				audio: sharedMapping?.audio ?? null,
 				document: sharedMapping?.document ?? null,
 				imageOutputPrice:
@@ -238,6 +250,14 @@ internalModels.openapi(getModelsRoute, async (c) => {
 					sharedMapping?.imageInputTokensByResolution ?? null,
 				imageOutputTokensByResolution:
 					sharedMapping?.imageOutputTokensByResolution ?? null,
+				inputCharacterPrice:
+					sharedMapping?.inputCharacterPrice !== undefined
+						? String(sharedMapping.inputCharacterPrice)
+						: null,
+				outputAudioPrice:
+					sharedMapping?.outputAudioPrice !== undefined
+						? String(sharedMapping.outputAudioPrice)
+						: null,
 				supportedVideoSizes: sharedMapping?.supportedVideoSizes ?? null,
 				supportedVideoDurationsSeconds:
 					sharedMapping?.supportedVideoDurationsSeconds ?? null,
@@ -284,6 +304,22 @@ internalModels.openapi(getModelsRoute, async (c) => {
 								? String(t.cacheWriteInputPrice1h)
 								: null,
 					}));
+				})(),
+				serviceTiers: (() => {
+					const tiers = sharedMapping?.serviceTiers ?? null;
+					if (!tiers || tiers.length === 0) {
+						return null;
+					}
+					const tierRegions = sharedMapping?.serviceTierRegions;
+					if (tierRegions && tierRegions.length > 0) {
+						const effectiveRegion =
+							mapping.region ??
+							(tierRegions.includes("global") ? "global" : undefined);
+						if (!effectiveRegion || !tierRegions.includes(effectiveRegion)) {
+							return null;
+						}
+					}
+					return tiers;
 				})(),
 			};
 		}),
@@ -418,9 +454,9 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalDuration}), 0)`.as(
 					"totalDuration",
 				),
-			totalTokens:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalTokens}), 0)`.as(
-					"totalTokens",
+			totalOutputTokens:
+				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalOutputTokens}), 0)`.as(
+					"totalOutputTokens",
 				),
 		})
 		.from(modelProviderMappingHistory)
@@ -442,7 +478,7 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 		const upstreamErrorsCount = Number(m.upstreamErrorsCount);
 		const cachedCount = Number(m.cachedCount);
 		const totalDuration = Number(m.totalDuration);
-		const totalTokens = Number(m.totalTokens);
+		const totalOutputTokens = Number(m.totalOutputTokens);
 		// Uptime only counts upstream/provider-side failures against the provider —
 		// client errors (4xx from user) or gateway errors aren't the provider's fault.
 		const uptime =
@@ -450,9 +486,12 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 				? Math.round(((logsCount - upstreamErrorsCount) / logsCount) * 1000) /
 					10
 				: null;
+		// Throughput = generated (output) tokens per second of request time.
+		// Prompt tokens must not be counted — they inflate the number by the
+		// prompt/output ratio, which is 30-60x for coding-agent traffic.
 		const tokensPerSecond =
-			totalDuration > 0 && totalTokens > 0
-				? Math.round(totalTokens / (totalDuration / 1000))
+			totalDuration > 0 && totalOutputTokens > 0
+				? Math.round(totalOutputTokens / (totalDuration / 1000))
 				: null;
 		return {
 			providerId: m.providerId,
@@ -623,6 +662,10 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalTokens}), 0)`.as(
 						"total_tokens",
 					),
+				totalOutputTokens:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalOutputTokens}), 0)`.as(
+						"total_output_tokens",
+					),
 			})
 			.from(modelProviderMappingHistory)
 			.innerJoin(
@@ -659,6 +702,7 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 				totalDuration: number;
 				totalTimeToFirstToken: number;
 				totalTokens: number;
+				totalOutputTokens: number;
 			}>;
 		}
 	>();
@@ -692,6 +736,7 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			totalDuration: Number(r.totalDuration),
 			totalTimeToFirstToken: Number(r.totalTimeToFirstToken),
 			totalTokens: Number(r.totalTokens),
+			totalOutputTokens: Number(r.totalOutputTokens),
 		});
 		byProvider.set(key, entry);
 	}
@@ -703,7 +748,7 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 		let totalCached = 0;
 		let totalDuration = 0;
 		let totalTtft = 0;
-		let totalTokens = 0;
+		let totalOutputTokens = 0;
 
 		const points = p.points.map((pt) => {
 			totalLogs += pt.logsCount;
@@ -712,7 +757,7 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			totalCached += pt.cachedCount;
 			totalDuration += pt.totalDuration;
 			totalTtft += pt.totalTimeToFirstToken;
-			totalTokens += pt.totalTokens;
+			totalOutputTokens += pt.totalOutputTokens;
 			const nonCached = pt.logsCount - pt.cachedCount;
 			return {
 				timestamp: pt.timestamp,
@@ -738,9 +783,11 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 				? Math.round(((totalLogs - totalUpstreamErrors) / totalLogs) * 1000) /
 					10
 				: null;
+		// Output tokens only — including prompt tokens would inflate throughput
+		// by the prompt/output ratio (see the benchmarks endpoint above).
 		const tokensPerSecond =
 			totalDuration > 0
-				? Math.round(totalTokens / (totalDuration / 1000))
+				? Math.round(totalOutputTokens / (totalDuration / 1000))
 				: null;
 
 		return {

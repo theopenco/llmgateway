@@ -442,6 +442,7 @@ export default function GroupChatClient({
 												}
 											}}
 											placeholder="Add a model..."
+											showRegionalVariants
 										/>
 									)}
 								</div>

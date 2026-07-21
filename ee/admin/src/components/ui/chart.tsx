@@ -123,6 +123,7 @@ const ChartTooltipContent = ({
 	color,
 	nameKey,
 	labelKey,
+	sortByValue = false,
 }: React.ComponentProps<typeof RechartsPrimitive.Tooltip> &
 	React.ComponentProps<"div"> & {
 		hideLabel?: boolean;
@@ -130,6 +131,7 @@ const ChartTooltipContent = ({
 		indicator?: "line" | "dot" | "dashed";
 		nameKey?: string;
 		labelKey?: string;
+		sortByValue?: boolean;
 	} & { ref?: React.RefObject<HTMLDivElement | null> }) => {
 	const { config } = useChart();
 
@@ -187,6 +189,7 @@ const ChartTooltipContent = ({
 			<div className="grid gap-1.5">
 				{payload
 					.filter((item) => item.type !== "none")
+					.sort((a, b) => (sortByValue ? Number(b.value) - Number(a.value) : 0))
 					.map((item, index) => {
 						const key = `${nameKey ?? item.name ?? item.dataKey ?? "value"}`;
 						const itemConfig = getPayloadConfigFromPayload(config, item, key);

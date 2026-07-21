@@ -112,11 +112,48 @@ describe("mightBeCompleteJson", () => {
 			expect(mightBeCompleteJson(json)).toBe(true);
 		});
 
-		it("returns false for large nested object with unbalanced braces", () => {
+		it("defers to JSON.parse for beyond-window structural imbalance (never a false negative)", () => {
 			const base64Data = "A".repeat(LARGE_SIZE);
-			// Extra opening brace
+			// Extra opening brace. The imbalance cannot be proven cheaply once the
+			// structure extends past the bounded scan window, so the heuristic must
+			// NOT return a false negative here — it returns true and lets JSON.parse
+			// make the final (correct) rejection. Returning false would make the SSE
+			// scanner over-consume and merge two events.
 			const json = `{"outer":{{"inner":{"data":"${base64Data}"}}}`;
-			expect(mightBeCompleteJson(json)).toBe(false);
+			expect(mightBeCompleteJson(json)).toBe(true);
+			expect(() => JSON.parse(json)).toThrow();
+		});
+
+		it("returns true for large, densely-structured valid JSON (OpenAI response.created regression)", () => {
+			// A 100KB+ payload whose bulk is nested structure (a big tools array),
+			// not one opaque string. The old skeleton heuristic returned a false
+			// negative here, causing the gateway SSE scanner to merge two events and
+			// throw "Unexpected non-whitespace character after JSON".
+			const tools = [];
+			for (let i = 0; i < 400; i++) {
+				tools.push({
+					type: "function",
+					description: `Apply a patch to files number ${i}`,
+					name: `tool_${i}`,
+					parameters: {
+						$schema: "https://json-schema.org/draft/2020-12/schema",
+						type: "object",
+						properties: {
+							patchText: { type: "string", description: "The full patch text" },
+						},
+						required: ["patchText"],
+						additionalProperties: false,
+					},
+					strict: true,
+				});
+			}
+			const json = JSON.stringify({
+				type: "response.created",
+				response: { id: "resp_x", object: "response", output: [], tools },
+			});
+			expect(json.length).toBeGreaterThan(100 * 1024);
+			expect(mightBeCompleteJson(json)).toBe(true);
+			expect(() => JSON.parse(json)).not.toThrow();
 		});
 
 		it("handles large payload performance efficiently", () => {

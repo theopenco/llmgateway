@@ -133,6 +133,7 @@ describe("user accounts and email editability", () => {
 
 	afterEach(async () => {
 		await db.delete(tables.passkey);
+		await db.delete(tables.ssoProvider);
 		await deleteAll();
 	});
 
@@ -147,6 +148,41 @@ describe("user accounts and email editability", () => {
 		expect(json.user.accounts).toBeDefined();
 		expect(Array.isArray(json.user.accounts)).toBe(true);
 		expect(json.user.accounts).toContainEqual({ providerId: "credential" });
+	});
+
+	it("GET /user/me should return isSsoUser false for a non-SSO user", async () => {
+		const res = await app.request("/user/me", {
+			method: "GET",
+			headers: { Cookie: token },
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.user.isSsoUser).toBe(false);
+	});
+
+	it("GET /user/me should return isSsoUser true when an account matches an SSO connection", async () => {
+		await db.insert(tables.ssoProvider).values({
+			id: "sso-provider-test",
+			issuer: "https://idp.example.com",
+			domain: "example.com",
+			providerId: "acme-okta",
+		});
+		await db.insert(tables.account).values({
+			id: "sso-account-id",
+			providerId: "acme-okta",
+			accountId: "acme-okta-123",
+			userId: "test-user-id",
+		});
+
+		const res = await app.request("/user/me", {
+			method: "GET",
+			headers: { Cookie: token },
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.user.isSsoUser).toBe(true);
 	});
 
 	it("GET /user/me should return hasPasskeys false when no passkeys exist", async () => {

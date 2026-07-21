@@ -86,3 +86,8 @@ export function useUpdateUser() {
 		},
 	});
 }
+
+export function useDeleteAccount() {
+	const api = useApi();
+	return api.useMutation("delete", "/user/me");
+}

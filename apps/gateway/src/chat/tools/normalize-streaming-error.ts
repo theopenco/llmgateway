@@ -14,6 +14,13 @@ export interface NormalizeStreamingErrorOptions {
 }
 
 export interface NormalizedStreamingError {
+	/**
+	 * True when the failure is an expected upstream-side disconnect (the provider
+	 * closed the socket mid-stream, e.g. "terminated: other side closed"), rather
+	 * than a gateway-side streaming read fault. Callers use this to avoid logging
+	 * the error at server-error severity and to classify it as an upstream error.
+	 */
+	terminated: boolean;
 	client: {
 		message: string;
 		type: "gateway_error";
@@ -118,13 +125,20 @@ function safeStringifyError(error: unknown): string {
 	return `[unserializable ${ctorName}]`;
 }
 
-function isUpstreamTermination(error: unknown, cause?: string): boolean {
+/**
+ * True when the failure is an expected upstream-side socket close (the provider
+ * or client closed the connection mid-request, e.g. undici's
+ * "terminated: other side closed" / ECONNRESET), rather than a gateway bug.
+ * Callers use this to log such disconnects at warn severity instead of raising
+ * server-error alerts.
+ */
+export function isUpstreamTermination(error: unknown): boolean {
 	if (!(error instanceof Error)) {
 		return false;
 	}
 
 	const normalizedMessage = error.message.trim().toLowerCase();
-	const normalizedCause = cause?.toLowerCase() ?? "";
+	const normalizedCause = extractErrorCause(error)?.toLowerCase() ?? "";
 
 	return (
 		(error.name === "TypeError" && normalizedMessage === "terminated") ||
@@ -152,7 +166,7 @@ export function normalizeStreamingError(
 	const cause = extractErrorCause(error);
 	const errorCode = getErrorCode(error);
 
-	const terminated = isUpstreamTermination(error, cause);
+	const terminated = isUpstreamTermination(error);
 	const statusCode = terminated ? 502 : 500;
 	const statusText = terminated
 		? "Upstream Stream Terminated"
@@ -163,6 +177,7 @@ export function normalizeStreamingError(
 	const responseText = cause ? `${rawMessage} | cause: ${cause}` : rawMessage;
 
 	return {
+		terminated,
 		client: {
 			message,
 			type: "gateway_error",

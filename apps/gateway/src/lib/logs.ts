@@ -8,6 +8,11 @@ import {
 import { recordChatCompletionMetrics } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 
+import {
+	redactErrorDetails,
+	shouldRedactProviderError,
+} from "./stealth-provider-errors.js";
+
 import type { InferInsertModel } from "@llmgateway/db";
 
 /**
@@ -21,13 +26,14 @@ export function isExpectedUnknownFinishReason(
 	if (!finishReason) {
 		return false;
 	}
-	// Google's "OTHER" finish reason is expected and maps to UNKNOWN
+	// Google's "OTHER" and "MALFORMED_RESPONSE" finish reasons are expected and
+	// map to UNKNOWN
 	if (
 		(provider === "google-ai-studio" ||
 			provider === "glacier" ||
 			provider === "google-vertex" ||
 			provider === "quartz") &&
-		finishReason === "OTHER"
+		(finishReason === "OTHER" || finishReason === "MALFORMED_RESPONSE")
 	) {
 		return true;
 	}
@@ -48,6 +54,14 @@ export function getUnifiedFinishReason(
 	if (finishReason === "canceled") {
 		return UnifiedFinishReason.CANCELED;
 	}
+	// Some OpenAI-compatible providers (e.g. MiniMax) emit "abort" when they
+	// interrupt generation on their side. CANCELED is reserved for requests
+	// canceled by the gateway's own client, so an upstream-initiated abort is
+	// an upstream error. The streaming log path records the provider's raw
+	// finish reason, so classify the raw value here as well.
+	if (finishReason === "abort") {
+		return UnifiedFinishReason.UPSTREAM_ERROR;
+	}
 	if (finishReason === "gateway_error") {
 		return UnifiedFinishReason.GATEWAY_ERROR;
 	}
@@ -61,6 +75,13 @@ export function getUnifiedFinishReason(
 		return UnifiedFinishReason.CLIENT_ERROR;
 	}
 	if (finishReason === "llmgateway_content_filter") {
+		return UnifiedFinishReason.CONTENT_FILTER;
+	}
+	// Anthropic-family safety-classifier refusals surface as `stop_reason:
+	// "refusal"` across the direct API, Vertex, and Bedrock. Map it uniformly
+	// here so providers handled by the default branch below (e.g. aws-bedrock)
+	// classify refusals as content filtering rather than UNKNOWN.
+	if (finishReason === "refusal") {
 		return UnifiedFinishReason.CONTENT_FILTER;
 	}
 
@@ -117,7 +138,7 @@ export function getUnifiedFinishReason(
 			) {
 				return UnifiedFinishReason.CONTENT_FILTER;
 			}
-			if (finishReason === "OTHER") {
+			if (finishReason === "OTHER" || finishReason === "MALFORMED_RESPONSE") {
 				return UnifiedFinishReason.UNKNOWN;
 			}
 			break;
@@ -187,6 +208,23 @@ export function isContentFilterFinishReason(
 }
 
 /**
+ * Whether the finish reason indicates the model stopped because it reached the
+ * token limit (e.g. a small `max_tokens`). With a tiny limit (such as
+ * `max_tokens: 1`) providers like Google can legitimately return no content at
+ * all, so an empty response with this finish reason is expected behavior, not an
+ * upstream error.
+ */
+export function isLengthLimitFinishReason(
+	finishReason: string | null | undefined,
+	provider: string | null | undefined,
+): boolean {
+	return (
+		getUnifiedFinishReason(finishReason, provider) ===
+		UnifiedFinishReason.LENGTH_LIMIT
+	);
+}
+
+/**
  * Map unified finish reason to an error type for metrics (if applicable)
  */
 function getErrorTypeFromUnifiedFinishReason(
@@ -249,6 +287,15 @@ export async function insertLog(
 	logData: LogInsertData,
 	options?: { syncInsert?: boolean },
 ): Promise<unknown> {
+	// Stealth providers: the raw upstream error may reveal the underlying
+	// platform, so it survives only in internalErrorDetails — a column excluded
+	// from public API routes and the UI — while the public errorDetails keeps
+	// just the upstream status code.
+	if (logData.errorDetails && shouldRedactProviderError(logData.usedProvider)) {
+		logData.internalErrorDetails = logData.errorDetails;
+		logData.errorDetails = redactErrorDetails(logData.errorDetails);
+	}
+
 	if (logData.unifiedFinishReason === undefined) {
 		if (logData.canceled) {
 			logData.unifiedFinishReason = UnifiedFinishReason.CANCELED;

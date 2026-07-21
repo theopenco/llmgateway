@@ -16,6 +16,7 @@ import {
 	type ChatSidebarHandle,
 } from "@/components/playground/chat-sidebar";
 import { ChatUI } from "@/components/playground/chat-ui";
+import { ProjectContextBanner } from "@/components/playground/project-context-banner";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -33,11 +34,14 @@ import {
 	useDataChat,
 	useDeleteChat,
 	useForkChat,
+	useUpdateChat,
 	useUpdateMessage,
 } from "@/hooks/useChats";
 import { useMcpServers } from "@/hooks/useMcpServers";
+import { useOrganization } from "@/hooks/useOrganization";
 import { useSkills, type Skill } from "@/hooks/useSkills";
 import { useUser } from "@/hooks/useUser";
+import { useApi } from "@/lib/fetch-client";
 import { getModelImageConfig } from "@/lib/image-gen";
 import { parseImageFile } from "@/lib/image-utils";
 import { mapModels } from "@/lib/mapmodels";
@@ -47,6 +51,10 @@ import {
 	getModelPreferenceCookie,
 	setModelPreferenceCookie,
 } from "@/lib/model-preferences";
+import {
+	getFallbackReasoningEffortOptions,
+	getReasoningEffortOptions,
+} from "@/lib/model-utils";
 import { shouldDisableFallback } from "@/lib/no-fallback";
 import { getErrorMessage } from "@/lib/utils";
 
@@ -54,6 +62,7 @@ import type {
 	ApiModel,
 	ApiModelProviderMapping,
 	ApiProvider,
+	ReasoningEffortOption,
 } from "@/lib/fetch-models";
 import type { ComboboxModel, Organization, Project } from "@/lib/types";
 import type { UIMessage } from "ai";
@@ -77,6 +86,19 @@ function isToolPart(obj: unknown): obj is ToolPart {
 		typeof (obj as ToolPart).type === "string" &&
 		(obj as ToolPart).type.startsWith("tool-")
 	);
+}
+
+// Serialize web search source-url parts for persistence alongside the message.
+function extractSourcePartsJson(parts: UIMessage["parts"]): string | undefined {
+	const sourceParts = (parts as { type: string; [key: string]: unknown }[])
+		.filter((p) => p.type === "source-url" && typeof p.url === "string")
+		.map((p) => ({
+			type: "source-url" as const,
+			sourceId: p.sourceId,
+			url: p.url,
+			...(p.title ? { title: p.title } : {}),
+		}));
+	return sourceParts.length > 0 ? JSON.stringify(sourceParts) : undefined;
 }
 
 function getFirstUserMessageText(
@@ -104,6 +126,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function readString(value: unknown): string | undefined {
 	return typeof value === "string" ? value : undefined;
+}
+
+// Mistral OCR embeds detected figures as markdown image references
+// (e.g. `![img-0.jpeg](img-0.jpeg)`). The chat's markdown renderer can only
+// load real http(s) images — it blocks relative refs and strips inline data
+// URLs during sanitization — so OCR figures would only ever show as an
+// "[Image blocked]" placeholder. Drop those references and leave the
+// extracted text clean (any genuine http(s) image is kept).
+function stripOcrImages(markdown: string): string {
+	return markdown.replace(/!\[[^\]]*\]\((?!https?:\/\/)[^)]*\)/g, "");
 }
 
 function getImagePartsForMessage(message: UIMessage): unknown[] {
@@ -277,6 +309,9 @@ export default function ChatPageClient({
 	initialModelPreference,
 }: ChatPageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
+	// In the personal context selectedOrganization is null; billing + top-ups run
+	// under the dedicated Chat org resolved here.
+	const { organization: chatOrg } = useOrganization();
 	const posthog = usePostHog();
 	const router = useRouter();
 	const pathname = usePathname();
@@ -303,7 +338,7 @@ export default function ChatPageClient({
 
 	const [selectedModel, setSelectedModel] = useState(() => getInitialModel());
 	const [reasoningEffort, setReasoningEffort] = useState<
-		"" | "minimal" | "low" | "medium" | "high"
+		"" | ReasoningEffortOption
 	>("");
 	const [imageAspectRatio, setImageAspectRatio] = useState<
 		| "auto"
@@ -337,9 +372,13 @@ export default function ChatPageClient({
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [finishReason, setFinishReason] = useState<string | null>(null);
+	const [ocrPending, setOcrPending] = useState(false);
 	const [showTopUp, setShowTopUp] = useState(false);
 	const [isTemporaryChat, setIsTemporaryChat] = useState(false);
 	const [pendingVideoModel, setPendingVideoModel] = useState<string | null>(
+		null,
+	);
+	const [pendingAudioModel, setPendingAudioModel] = useState<string | null>(
 		null,
 	);
 
@@ -371,6 +410,13 @@ export default function ChatPageClient({
 
 	// Get chat ID from URL search params
 	const chatIdFromUrl = searchParams.get("id");
+	// Chat project (knowledge base) context: seeded from the ?project= param
+	// when starting a chat from a project page, then kept in sync with the
+	// loaded chat's own projectId.
+	const projectIdFromUrl = searchParams.get("project");
+	const [activeProjectId, setActiveProjectId] = useState<string | null>(
+		projectIdFromUrl,
+	);
 	const [currentChatId, setCurrentChatId] = useState<string | null>(
 		chatIdFromUrl,
 	);
@@ -529,6 +575,7 @@ export default function ChatPageClient({
 					images: images.length > 0 ? JSON.stringify(images) : undefined,
 					reasoning: reasoningContent || undefined,
 					tools: toolParts.length > 0 ? JSON.stringify(toolParts) : undefined,
+					sources: extractSourcePartsJson(message.parts),
 					...(metadata ? { metadata } : {}),
 				};
 
@@ -617,9 +664,21 @@ export default function ChatPageClient({
 		return !!model?.audio;
 	}, [availableModels, selectedModel]);
 
+	const isOcrModel = useMemo(() => {
+		if (!selectedModel) {
+			return false;
+		}
+		const { modelId } = parseModelSelectorValue(selectedModel);
+		const def = models.find((m) => m.id === modelId);
+		return !!def?.output?.includes("ocr");
+	}, [models, selectedModel]);
+
 	const supportsDocuments = useMemo(() => {
 		if (!selectedModel) {
 			return false;
+		}
+		if (isOcrModel) {
+			return true;
 		}
 		const { providerId, modelId, region } =
 			parseModelSelectorValue(selectedModel);
@@ -632,7 +691,7 @@ export default function ChatPageClient({
 		}
 		const mapping = getSelectedMapping(def, providerId, region);
 		return !!mapping?.document;
-	}, [models, selectedModel]);
+	}, [models, selectedModel, isOcrModel]);
 
 	const supportsImageGen = useMemo(() => {
 		if (!selectedModel) {
@@ -658,6 +717,25 @@ export default function ChatPageClient({
 		}
 		const mapping = getSelectedMapping(def, providerId, region);
 		return !!mapping?.reasoning;
+	}, [models, selectedModel]);
+
+	const reasoningEfforts = useMemo(() => {
+		if (!selectedModel) {
+			return null;
+		}
+		const { providerId, modelId, region } =
+			parseModelSelectorValue(selectedModel);
+		const def = models.find((m) => m.id === modelId);
+		if (!def) {
+			return null;
+		}
+		if (!providerId) {
+			return getReasoningEffortOptions(
+				def.mappings.filter((p: ApiModelProviderMapping) => p.reasoning),
+			);
+		}
+		const mapping = getSelectedMapping(def, providerId, region);
+		return getReasoningEffortOptions(mapping ? [mapping] : []);
 	}, [models, selectedModel]);
 
 	const supportsWebSearch = useMemo(() => {
@@ -746,6 +824,9 @@ export default function ChatPageClient({
 						? { mcp_servers: enabledMcpServers }
 						: {}),
 					...(isTemporaryChat ? { temporary_chat: true } : {}),
+					...(activeProjectId && !isTemporaryChat
+						? { project_id: activeProjectId }
+						: {}),
 					...(activeSkills.length > 0
 						? {
 								skill_instructions: activeSkills
@@ -771,6 +852,7 @@ export default function ChatPageClient({
 			supportsWebSearch,
 			getEnabledMcpServers,
 			isTemporaryChat,
+			activeProjectId,
 			activeSkills,
 		],
 	);
@@ -836,13 +918,42 @@ export default function ChatPageClient({
 	// Chat API hooks
 	const createChat = useCreateChat();
 	const addMessage = useAddMessage();
+	const api = useApi();
+	const { data: chatPlanStatus } = api.useQuery(
+		"get",
+		"/chat-plans/status",
+		undefined,
+		{ enabled: !!user, staleTime: 30_000 },
+	);
+	const isChatPlanStatusLoaded = chatPlanStatus !== undefined;
+	const hasChatPlanCredits =
+		isChatPlanStatusLoaded &&
+		Number(chatPlanStatus.chatPlanCreditsRemaining) > 0;
 	const updateMessage = useUpdateMessage();
+	const updateChat = useUpdateChat({ silent: true });
 	const deleteChat = useDeleteChat();
 	const deleteComparisonChat = useDeleteChat({ silent: true });
 	const forkChat = useForkChat();
 	const { data: currentChatData, isLoading: isChatLoading } = useDataChat(
 		currentChatId ?? "",
 	);
+
+	// Keep the project context in sync: an existing chat's own projectId wins;
+	// without a chat, fall back to the ?project= param (new chat from a project).
+	useEffect(() => {
+		if (currentChatId) {
+			if (currentChatData?.chat?.id === currentChatId) {
+				setActiveProjectId(currentChatData.chat.projectId ?? null);
+			} else if (!pendingNewChatRef.current) {
+				// Navigating to a different chat whose data hasn't loaded yet —
+				// don't keep showing the previous chat's project context. A chat
+				// just created here (pendingNewChatRef) keeps the ?project= value.
+				setActiveProjectId(null);
+			}
+		} else {
+			setActiveProjectId(projectIdFromUrl);
+		}
+	}, [currentChatId, currentChatData?.chat, projectIdFromUrl]);
 
 	useEffect(() => {
 		// Use `status` from useChat (reactive) instead of the isSendingRef ref so
@@ -1000,6 +1111,17 @@ export default function ChatPageClient({
 					}
 				}
 
+				if ((msg as any).sources) {
+					try {
+						const parsedSources = JSON.parse((msg as any).sources);
+						if (Array.isArray(parsedSources)) {
+							parts.push(...parsedSources.map((s: any) => ({ ...s })));
+						}
+					} catch (error) {
+						toast.error("Failed to parse sources: " + getErrorMessage(error));
+					}
+				}
+
 				return {
 					id: msg.id,
 					role: msg.role,
@@ -1077,6 +1199,8 @@ export default function ChatPageClient({
 					model: selectedModel,
 					webSearch: webSearchEnabled,
 					comparisonEnabled,
+					organizationId: selectedOrganization?.id ?? chatOrg?.id,
+					...(activeProjectId ? { projectId: activeProjectId } : {}),
 				},
 			});
 			const newChatId = chatData.chat.id;
@@ -1102,6 +1226,34 @@ export default function ChatPageClient({
 		}
 	};
 
+	// Billing runs under the selected dashboard org, or the dedicated Chat org
+	// in the Chat plan context (matching ensureCurrentChat's
+	// selectedOrganization?.id ?? chatOrg?.id). Without resolving the Chat org
+	// here, the Chat plan context skipped credit gating entirely and
+	// unsubscribed users without credits could keep generating.
+	const ensureBillableContext = () => {
+		if (selectedOrganization) {
+			// Chat plan credits live on the Chat org and never fund dashboard-org
+			// requests, so only the org's own credits count here.
+			if (Number(selectedOrganization.credits) <= 0) {
+				setShowTopUp(true);
+				return false;
+			}
+			return true;
+		}
+		if (
+			chatOrg &&
+			Number(chatOrg.credits) <= 0 &&
+			isChatPlanStatusLoaded &&
+			!hasChatPlanCredits
+		) {
+			// Chat plan context has no top-ups — promote the subscription plans.
+			router.push("/pricing");
+			return false;
+		}
+		return true;
+	};
+
 	const handleUserMessage = async (
 		content: string,
 		images?: Array<{
@@ -1121,8 +1273,7 @@ export default function ChatPageClient({
 			name?: string;
 		}>,
 	) => {
-		if (selectedOrganization && Number(selectedOrganization.credits) <= 0) {
-			setShowTopUp(true);
+		if (!ensureBillableContext()) {
 			return undefined;
 		}
 
@@ -1274,6 +1425,141 @@ export default function ChatPageClient({
 		return savedUserMessage;
 	};
 
+	const handleOcrMessage = async (
+		document:
+			| { type: "document_url"; document_url: string; document_name?: string }
+			| { type: "image_url"; image_url: string },
+		userMessage: { id: string; parts: UIMessage["parts"] },
+	) => {
+		const chatId = chatIdRef.current;
+		// Capture before appending: an empty list means this is the chat's first
+		// exchange, so the auto-title should be derived only now (not on later
+		// sends, which would otherwise keep overwriting the title).
+		const isFirstMessage = messages.length === 0;
+		setError(null);
+		setFinishReason(null);
+		setOcrPending(true);
+
+		// Mirror the user's upload into the live message list so it renders
+		// immediately; persistence already happened via handleUserMessage.
+		setMessages((prev) => [
+			...prev,
+			{ id: userMessage.id, role: "user", parts: userMessage.parts },
+		]);
+
+		const { providerId, modelId } = parseModelSelectorValue(selectedModel);
+		const ocrModel = providerId ? `${providerId}/${modelId}` : modelId;
+		const noFallback = shouldDisableFallback(selectedModel);
+
+		// The OCR result must only land in the chat it was sent from — the user
+		// may switch chats while the request is in flight.
+		const stillOnChat = () => chatIdRef.current === chatId;
+
+		posthog.capture("playground_chat_sent", {
+			model: selectedModel,
+			ocr: true,
+		});
+
+		try {
+			const response = await fetch("/api/ocr", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					...(noFallback ? { "x-no-fallback": "true" } : {}),
+				},
+				body: JSON.stringify({ model: ocrModel, document }),
+			});
+			const data = await response.json();
+
+			if (!response.ok) {
+				const message =
+					(data?.error?.message as string | undefined) ??
+					(typeof data?.error === "string" ? data.error : undefined) ??
+					"OCR request failed";
+				if (stillOnChat()) {
+					setError(message);
+				}
+				toast.error(message);
+				return;
+			}
+
+			const pages: Array<{ markdown?: string }> = Array.isArray(data?.pages)
+				? data.pages
+				: [];
+			const markdown = pages
+				.map((page) => stripOcrImages(page?.markdown ?? ""))
+				.filter((text) => text.trim().length > 0)
+				.join("\n\n---\n\n");
+			const content = markdown || "_No text was extracted from the document._";
+
+			// Only mirror into the live view if the user hasn't navigated away;
+			// persistence below still saves to the original chat regardless.
+			if (stillOnChat()) {
+				setMessages((prev) => [
+					...prev,
+					{
+						id: crypto.randomUUID(),
+						role: "assistant",
+						parts: [{ type: "text", text: content }],
+					},
+				]);
+			}
+
+			if (chatId) {
+				try {
+					await addMessage.mutateAsync({
+						params: { path: { id: chatId } },
+						body: { role: "assistant", content },
+					});
+				} catch (error) {
+					toast.error(`Failed to save OCR response: ${getErrorMessage(error)}`);
+				}
+
+				// OCR sends carry no user text, so the chat would otherwise stay
+				// "New Chat". Derive a title from the first OCR result only (the
+				// chat's first message), leaving later sends and manual renames
+				// untouched.
+				const currentTitle = currentChatData?.chat?.title;
+				if (
+					markdown &&
+					isFirstMessage &&
+					(!currentTitle || currentTitle === "New Chat")
+				) {
+					const firstLine =
+						content
+							.split("\n")
+							.map((line) =>
+								line
+									.replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+									.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+									.replace(/[*_~`]/g, "")
+									.replace(/^#+\s*/, "")
+									.trim(),
+							)
+							.find((line) => line.length > 0) ?? "";
+					if (firstLine) {
+						const title =
+							firstLine.length > 50
+								? `${firstLine.slice(0, 50)}...`
+								: firstLine;
+						updateChat.mutate({
+							params: { path: { id: chatId } },
+							body: { title },
+						});
+					}
+				}
+			}
+		} catch (error) {
+			const message = getErrorMessage(error);
+			if (stillOnChat()) {
+				setError(message);
+			}
+			toast.error(message);
+		} finally {
+			setOcrPending(false);
+		}
+	};
+
 	const handleSyncedSubmitFromExtraPanel = async (content: string) => {
 		const savedMessage = await handleUserMessage(content);
 		if (!savedMessage) {
@@ -1293,8 +1579,7 @@ export default function ChatPageClient({
 			return;
 		}
 
-		if (selectedOrganization && Number(selectedOrganization.credits) <= 0) {
-			setShowTopUp(true);
+		if (!ensureBillableContext()) {
 			return;
 		}
 
@@ -1504,6 +1789,10 @@ export default function ChatPageClient({
 				setPendingVideoModel(modelId);
 				return;
 			}
+			if (def?.output?.includes("audio")) {
+				setPendingAudioModel(modelId);
+				return;
+			}
 			setSelectedModel(model);
 			if (model) {
 				setModelPreferenceCookie(CHAT_MODEL_COOKIE, model);
@@ -1523,6 +1812,28 @@ export default function ChatPageClient({
 		},
 		[pathname, router, comparisonEnabled, extraPanelModels, models],
 	);
+
+	const {
+		providerId: selectedProviderId,
+		modelId: selectedModelId,
+		region: selectedRegion,
+	} = parseModelSelectorValue(selectedModel);
+
+	const availableRegions = selectedProviderId
+		? (models
+				.find((m) => m.id === selectedModelId)
+				?.mappings.filter(
+					(m) => m.providerId === selectedProviderId && m.region,
+				)
+				.map((m) => m.region as string) ?? [])
+		: [];
+
+	const handleRegionChange = (region: string) => {
+		const newValue = region
+			? `${selectedProviderId}/${selectedModelId}:${region}`
+			: `${selectedProviderId}/${selectedModelId}`;
+		handleSelectModel(newValue);
+	};
 
 	const handleExtraPanelModelChange = useCallback(
 		(index: number, model: string) => {
@@ -1581,12 +1892,19 @@ export default function ChatPageClient({
 		setText(value);
 	};
 
-	// Reset reasoning effort when switching to a non-reasoning model
+	// Reset reasoning effort when switching to a model that doesn't support
+	// it. The effective options mirror what the selector renders: the model's
+	// declared efforts, or the generic fallback set when undeclared.
 	useEffect(() => {
-		if (!supportsReasoning && reasoningEffort) {
+		if (!reasoningEffort) {
+			return;
+		}
+		const effortOptions =
+			reasoningEfforts ?? getFallbackReasoningEffortOptions(selectedModel);
+		if (!supportsReasoning || !effortOptions.includes(reasoningEffort)) {
 			setReasoningEffort("");
 		}
-	}, [supportsReasoning, reasoningEffort]);
+	}, [supportsReasoning, reasoningEffort, reasoningEfforts, selectedModel]);
 
 	// Reset image size/quality only when the selected model changes and the
 	// current value is not valid for the new model. Including alibabaImageSize
@@ -1610,11 +1928,15 @@ export default function ChatPageClient({
 	}, [selectedModel]);
 
 	const handleSelectOrganization = (org: Organization | null) => {
+		// Switching org changes the billing context: chats run under the selected
+		// org's project key. Route to the full chat experience (not the read-only
+		// shared-chats view) so New Chat works and credits resolve to that org.
+		const params = new URLSearchParams();
+		params.set("model", selectedModel);
 		if (org?.id) {
-			router.push(`/org/${org.id}`);
-			return;
+			params.set("orgId", org.id);
 		}
-		router.push("/");
+		router.push(`/?${params.toString()}`);
 	};
 
 	const handleOrganizationCreated = (org: Organization) => {
@@ -1646,9 +1968,9 @@ export default function ChatPageClient({
 
 	return (
 		<SidebarProvider>
-			<h1 className="sr-only">
-				LLM Gateway Playground - Chat with 210+ AI Models
-			</h1>
+			<h2 className="sr-only">
+				LLM Gateway Playground - Chat with 200+ AI Models
+			</h2>
 			<div className="flex h-svh bg-background w-full overflow-hidden">
 				{isTemporaryChat ? null : (
 					<ChatSidebar
@@ -1713,6 +2035,9 @@ export default function ChatPageClient({
 							previewPrompt={getFirstUserMessageText(messages)}
 						/>
 					</header>
+					{activeProjectId && !isTemporaryChat ? (
+						<ProjectContextBanner projectId={activeProjectId} />
+					) : null}
 					{comparisonEnabled && !isTemporaryChat ? (
 						<div className="hidden md:flex shrink-0 border-b bg-muted/40 px-4 py-2 items-center justify-between gap-3">
 							<div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -1825,6 +2150,7 @@ export default function ChatPageClient({
 											reasoningEffort={reasoningEffort}
 											setReasoningEffort={setReasoningEffort}
 											supportsReasoning={supportsReasoning}
+											reasoningEfforts={reasoningEfforts}
 											imageAspectRatio={imageAspectRatio}
 											setImageAspectRatio={setImageAspectRatio}
 											imageSize={imageSize}
@@ -1835,7 +2161,13 @@ export default function ChatPageClient({
 											setImageQuality={setImageQuality}
 											imageCount={imageCount}
 											setImageCount={setImageCount}
+											availableRegions={availableRegions}
+											selectedRegion={selectedRegion}
+											onRegionChange={handleRegionChange}
 											onUserMessage={handleUserMessage}
+											isOcr={isOcrModel}
+											onOcrMessage={handleOcrMessage}
+											ocrPending={ocrPending}
 											isLoading={isLoading || isChatLoading}
 											error={error}
 											finishReason={finishReason}
@@ -1879,6 +2211,7 @@ export default function ChatPageClient({
 										reasoningEffort={reasoningEffort}
 										setReasoningEffort={setReasoningEffort}
 										supportsReasoning={supportsReasoning}
+										reasoningEfforts={reasoningEfforts}
 										imageAspectRatio={imageAspectRatio}
 										setImageAspectRatio={setImageAspectRatio}
 										imageSize={imageSize}
@@ -1892,8 +2225,14 @@ export default function ChatPageClient({
 										supportsWebSearch={supportsWebSearch}
 										webSearchEnabled={webSearchEnabled}
 										setWebSearchEnabled={setWebSearchEnabled}
+										availableRegions={availableRegions}
+										selectedRegion={selectedRegion}
+										onRegionChange={handleRegionChange}
 										onUserMessage={handleUserMessage}
 										onEditUserMessage={handleEditUserMessage}
+										isOcr={isOcrModel}
+										onOcrMessage={handleOcrMessage}
+										ocrPending={ocrPending}
 										isLoading={isLoading || isChatLoading}
 										error={error}
 										finishReason={finishReason}
@@ -1946,6 +2285,7 @@ export default function ChatPageClient({
 													handleExtraPanelModelChange(index, model)
 												}
 												onVideoModelSelected={setPendingVideoModel}
+												onAudioModelSelected={setPendingAudioModel}
 												resetToken={comparisonResetToken}
 												primaryChatId={currentChatId}
 												primaryChatIdRef={chatIdRef}
@@ -1959,7 +2299,11 @@ export default function ChatPageClient({
 					</section>
 				</main>
 			</div>
-			<TopUpCreditsDialog open={showTopUp} onOpenChange={setShowTopUp} />
+			<TopUpCreditsDialog
+				open={showTopUp}
+				onOpenChange={setShowTopUp}
+				organizationId={selectedOrganization?.id ?? chatOrg?.id}
+			/>
 			<AuthDialog open={showAuthDialog} returnUrl={returnUrl} />
 			<Dialog
 				open={pendingVideoModel !== null}
@@ -2001,6 +2345,46 @@ export default function ChatPageClient({
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>
+			<Dialog
+				open={pendingAudioModel !== null}
+				onOpenChange={(open) => {
+					if (!open) {
+						setPendingAudioModel(null);
+					}
+				}}
+			>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Switch to Audio Studio?</DialogTitle>
+						<DialogDescription>
+							{pendingAudioModel
+								? (models.find((m) => m.id === pendingAudioModel)?.name ??
+									pendingAudioModel)
+								: ""}{" "}
+							is a speech generation model. Would you like to open it in Audio
+							Studio?
+						</DialogDescription>
+					</DialogHeader>
+					<DialogFooter>
+						<Button
+							variant="outline"
+							onClick={() => setPendingAudioModel(null)}
+						>
+							Cancel
+						</Button>
+						<Button
+							onClick={() => {
+								if (pendingAudioModel) {
+									router.push(`/audio?model=${pendingAudioModel}`);
+								}
+								setPendingAudioModel(null);
+							}}
+						>
+							Open Audio Studio
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</SidebarProvider>
 	);
 }
@@ -2018,6 +2402,7 @@ interface ExtraChatPanelProps {
 	) => void;
 	onModelChange?: (model: string) => void;
 	onVideoModelSelected?: (modelId: string) => void;
+	onAudioModelSelected?: (modelId: string) => void;
 	resetToken: number;
 	primaryChatId: string | null;
 	primaryChatIdRef: React.RefObject<string | null>;
@@ -2040,6 +2425,7 @@ function ExtraChatPanel({
 	onRegisterExternalSubmit,
 	onModelChange,
 	onVideoModelSelected,
+	onAudioModelSelected,
 	resetToken,
 	primaryChatId,
 	primaryChatIdRef,
@@ -2052,18 +2438,22 @@ function ExtraChatPanel({
 	const [selectedModel, setSelectedModel] = useState(initialModel);
 	const handleModelChange = useCallback(
 		(model: string) => {
-			const modelId = model.includes("/")
-				? (model.split("/")[1] ?? model)
-				: model;
+			const modelId = (
+				model.includes("/") ? (model.split("/")[1] ?? model) : model
+			).split(":")[0];
 			const def = models.find((m) => m.id === modelId);
 			if (def?.output?.includes("video")) {
 				onVideoModelSelected?.(modelId);
 				return;
 			}
+			if (def?.output?.includes("audio")) {
+				onAudioModelSelected?.(modelId);
+				return;
+			}
 			setSelectedModel(model);
 			onModelChange?.(model);
 		},
-		[onModelChange, onVideoModelSelected, models],
+		[onModelChange, onVideoModelSelected, onAudioModelSelected, models],
 	);
 	const [comparisonChatId, setComparisonChatId] = useState<string | null>(
 		initialChatId,
@@ -2071,7 +2461,7 @@ function ExtraChatPanel({
 	const comparisonChatIdRef = useRef<string | null>(initialChatId);
 	const loadedComparisonChatIdRef = useRef<string | null>(null);
 	const [reasoningEffort, setReasoningEffort] = useState<
-		"" | "minimal" | "low" | "medium" | "high"
+		"" | ReasoningEffortOption
 	>("");
 	const [imageAspectRatio, setImageAspectRatio] = useState<
 		| "auto"
@@ -2128,6 +2518,8 @@ function ExtraChatPanel({
 				body: {
 					title,
 					model: selectedModel,
+					// Child comparison chats are never listed in history, so they
+					// don't need an organization context.
 					parentChatId: parentId,
 				},
 			});
@@ -2136,7 +2528,7 @@ function ExtraChatPanel({
 			comparisonChatIdRef.current = id;
 			return id;
 		},
-		[createChat, selectedModel, primaryChatId],
+		[createChat, selectedModel, primaryChatId, primaryChatIdRef],
 	);
 
 	const { messages, setMessages, sendMessage, status, stop, regenerate } =
@@ -2169,6 +2561,7 @@ function ExtraChatPanel({
 					content: textContent || undefined,
 					reasoning: reasoningContent || undefined,
 					tools: toolParts.length > 0 ? JSON.stringify(toolParts) : undefined,
+					sources: extractSourcePartsJson(message.parts),
 					...(metadata ? { metadata } : {}),
 				};
 
@@ -2281,6 +2674,39 @@ function ExtraChatPanel({
 		return !!mapping?.reasoning;
 	}, [models, selectedModel]);
 
+	const reasoningEfforts = useMemo(() => {
+		if (!selectedModel) {
+			return null;
+		}
+		const { providerId, modelId, region } =
+			parseModelSelectorValue(selectedModel);
+		const def = models.find((m) => m.id === modelId);
+		if (!def) {
+			return null;
+		}
+		if (!providerId) {
+			return getReasoningEffortOptions(
+				def.mappings.filter((p: ApiModelProviderMapping) => p.reasoning),
+			);
+		}
+		const mapping = getSelectedMapping(def, providerId, region);
+		return getReasoningEffortOptions(mapping ? [mapping] : []);
+	}, [models, selectedModel]);
+
+	// Reset reasoning effort when switching to a model that doesn't support
+	// it. The effective options mirror what the selector renders: the model's
+	// declared efforts, or the generic fallback set when undeclared.
+	useEffect(() => {
+		if (!reasoningEffort) {
+			return;
+		}
+		const effortOptions =
+			reasoningEfforts ?? getFallbackReasoningEffortOptions(selectedModel);
+		if (!supportsReasoning || !effortOptions.includes(reasoningEffort)) {
+			setReasoningEffort("");
+		}
+	}, [supportsReasoning, reasoningEffort, reasoningEfforts, selectedModel]);
+
 	const supportsWebSearch = useMemo(() => {
 		if (!selectedModel) {
 			return false;
@@ -2297,6 +2723,26 @@ function ExtraChatPanel({
 		const mapping = getSelectedMapping(def, providerId, region);
 		return !!mapping?.webSearch;
 	}, [models, selectedModel]);
+
+	const {
+		providerId: panelProviderId,
+		modelId: panelModelId,
+		region: panelSelectedRegion,
+	} = parseModelSelectorValue(selectedModel);
+
+	const panelAvailableRegions = panelProviderId
+		? (models
+				.find((m) => m.id === panelModelId)
+				?.mappings.filter((m) => m.providerId === panelProviderId && m.region)
+				.map((m) => m.region as string) ?? [])
+		: [];
+
+	const handlePanelRegionChange = (region: string) => {
+		const newValue = region
+			? `${panelProviderId}/${panelModelId}:${region}`
+			: `${panelProviderId}/${panelModelId}`;
+		handleModelChange(newValue);
+	};
 
 	useEffect(() => {
 		const config = getModelImageConfig(selectedModel);
@@ -2524,6 +2970,16 @@ function ExtraChatPanel({
 						// ignore malformed tools
 					}
 				}
+				if ((msg as any).sources) {
+					try {
+						const parsedSources = JSON.parse((msg as any).sources);
+						if (Array.isArray(parsedSources)) {
+							parts.push(...parsedSources.map((s: any) => ({ ...s })));
+						}
+					} catch {
+						// ignore malformed sources
+					}
+				}
 				const metadata = parsePlaygroundMessageMetadata((msg as any).metadata);
 				return {
 					id: msg.id,
@@ -2594,7 +3050,7 @@ function ExtraChatPanel({
 				<span className="text-xs font-medium text-muted-foreground">
 					Model {panelIndex}
 				</span>
-				<div className="w-full max-w-xs">
+				<div className="w-full min-w-0 max-w-xs">
 					<ModelSelector
 						models={models}
 						providers={providers}
@@ -2621,6 +3077,7 @@ function ExtraChatPanel({
 					reasoningEffort={reasoningEffort}
 					setReasoningEffort={setReasoningEffort}
 					supportsReasoning={supportsReasoning}
+					reasoningEfforts={reasoningEfforts}
 					imageAspectRatio={imageAspectRatio}
 					setImageAspectRatio={setImageAspectRatio}
 					imageSize={imageSize}
@@ -2634,6 +3091,9 @@ function ExtraChatPanel({
 					supportsWebSearch={supportsWebSearch}
 					webSearchEnabled={webSearchEnabled}
 					setWebSearchEnabled={setWebSearchEnabled}
+					availableRegions={panelAvailableRegions}
+					selectedRegion={panelSelectedRegion}
+					onRegionChange={handlePanelRegionChange}
 					onUserMessage={handlePanelUserMessage}
 					forkChat={
 						comparisonChatId && status === "ready"

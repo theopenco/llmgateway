@@ -19,7 +19,19 @@ export default function sitemap(): MetadataRoute.Sitemap {
 			priority: 0.8,
 		},
 		{
+			url: `${baseUrl}/models`,
+			lastModified: new Date(),
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
 			url: `${baseUrl}/pricing`,
+			lastModified: new Date(),
+			changeFrequency: "weekly",
+			priority: 0.9,
+		},
+		{
+			url: `${baseUrl}/claude-code-alternative`,
 			lastModified: new Date(),
 			changeFrequency: "weekly",
 			priority: 0.9,
@@ -35,6 +47,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
 			lastModified: new Date(),
 			changeFrequency: "weekly",
 			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/leaderboard`,
+			lastModified: new Date(),
+			changeFrequency: "daily",
+			priority: 0.7,
 		},
 		{
 			url: `${baseUrl}/legal/privacy`,

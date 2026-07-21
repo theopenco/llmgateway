@@ -5,7 +5,7 @@ export const minimaxModels = [
 		id: "minimax-m3",
 		name: "MiniMax M3",
 		description:
-			"MiniMax M3 is a multimodal foundation model with 1M token context, native multimodal understanding, and MiniMax Sparse Attention (MSA) for efficient long-context inference.",
+			"MiniMax M3 is a multimodal foundation model with 512K token context, native multimodal understanding, and MiniMax Sparse Attention (MSA) for efficient long-context inference.",
 		family: "minimax",
 		releasedAt: new Date("2026-06-01"),
 		providers: [
@@ -16,14 +16,42 @@ export const minimaxModels = [
 				cachedInputPrice: "0.12e-6",
 				outputPrice: "2.4e-6",
 				requestPrice: "0",
-				contextSize: 1048576,
+				contextSize: 512000,
 				maxOutput: 131072,
 				streaming: true,
 				reasoning: true,
+				// MiniMax thinking is a binary toggle (`thinking.type`), not a
+				// graduated effort: none/minimal disable it, low..max enable it.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				splitTaggedReasoning: true,
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+			},
+			{
+				providerId: "together-ai",
+				externalId: "MiniMaxAI/MiniMax-M3",
+				inputPrice: "0.3e-6",
+				cachedInputPrice: "0.06e-6",
+				outputPrice: "1.2e-6",
+				requestPrice: "0",
+				contextSize: 524288,
+				maxOutput: 131072,
+				quantization: "fp4",
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: false,
+				jsonOutput: true,
+				jsonOutputSchema: true,
 			},
 		],
 	},
@@ -33,6 +61,7 @@ export const minimaxModels = [
 		description:
 			"MiniMax M2.7 with stronger reasoning and coding performance for complex tasks.",
 		family: "minimax",
+		releasedAt: new Date("2026-03-18"),
 		providers: [
 			{
 				providerId: "minimax",
@@ -45,6 +74,10 @@ export const minimaxModels = [
 				maxOutput: 131100,
 				streaming: true,
 				reasoning: true,
+				// Thinking cannot be disabled for the M2.x family (`thinking.type:
+				// "disabled"` is silently ignored upstream), so `none`/`minimal` are
+				// not offered and thinking stays on at every tier.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				splitTaggedReasoning: true,
 				vision: false,
 				tools: true,
@@ -59,6 +92,7 @@ export const minimaxModels = [
 				requestPrice: "0",
 				contextSize: 204800,
 				maxOutput: 131100,
+				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
 				vision: false,
@@ -66,6 +100,9 @@ export const minimaxModels = [
 				jsonOutput: true,
 			},
 			{
+				// Together AI deprecates this serverless model on 2026-07-27,
+				// recommending MiniMaxAI/MiniMax-M3 as the replacement.
+				deactivatedAt: new Date("2026-07-27"),
 				providerId: "together-ai",
 				externalId: "MiniMaxAI/MiniMax-M2.7",
 				inputPrice: "0.3e-6",
@@ -89,6 +126,7 @@ export const minimaxModels = [
 		description:
 			"Highspeed MiniMax M2.7 variant with the same model quality and lower latency.",
 		family: "minimax",
+		releasedAt: new Date("2026-03-18"),
 		providers: [
 			{
 				providerId: "minimax",
@@ -101,6 +139,10 @@ export const minimaxModels = [
 				maxOutput: 131100,
 				streaming: true,
 				reasoning: true,
+				// Thinking cannot be disabled for the M2.x family (`thinking.type:
+				// "disabled"` is silently ignored upstream), so `none`/`minimal` are
+				// not offered and thinking stays on at every tier.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				splitTaggedReasoning: true,
 				vision: false,
 				tools: true,
@@ -126,6 +168,10 @@ export const minimaxModels = [
 				maxOutput: 131100,
 				streaming: true,
 				reasoning: true,
+				// Thinking cannot be disabled for the M2.x family (`thinking.type:
+				// "disabled"` is silently ignored upstream), so `none`/`minimal` are
+				// not offered and thinking stays on at every tier.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				splitTaggedReasoning: true,
 				vision: false,
 				tools: true,
@@ -140,6 +186,7 @@ export const minimaxModels = [
 				requestPrice: "0",
 				contextSize: 204800,
 				maxOutput: 131100,
+				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
 				vision: false,
@@ -209,6 +256,7 @@ export const minimaxModels = [
 				requestPrice: "0",
 				contextSize: 204800,
 				maxOutput: 131100,
+				quantization: "fp4",
 				streaming: true,
 				reasoning: true,
 				vision: false,
@@ -223,6 +271,7 @@ export const minimaxModels = [
 		description:
 			"Highspeed MiniMax M2.5 variant with the same model quality and lower latency.",
 		family: "minimax",
+		releasedAt: new Date("2026-02-15"),
 		providers: [
 			{
 				providerId: "minimax",
@@ -235,6 +284,10 @@ export const minimaxModels = [
 				maxOutput: 131100,
 				streaming: true,
 				reasoning: true,
+				// Thinking cannot be disabled for the M2.x family (`thinking.type:
+				// "disabled"` is silently ignored upstream), so `none`/`minimal` are
+				// not offered and thinking stays on at every tier.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				splitTaggedReasoning: true,
 				vision: false,
 				tools: true,
@@ -260,6 +313,10 @@ export const minimaxModels = [
 				maxOutput: 131072,
 				streaming: true,
 				reasoning: true,
+				// Thinking cannot be disabled for the M2.x family (`thinking.type:
+				// "disabled"` is silently ignored upstream), so `none`/`minimal` are
+				// not offered and thinking stays on at every tier.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				splitTaggedReasoning: true,
 				vision: false,
 				tools: true,
@@ -285,6 +342,10 @@ export const minimaxModels = [
 				maxOutput: 131072,
 				streaming: true,
 				reasoning: true,
+				// Thinking cannot be disabled for the M2.x family (`thinking.type:
+				// "disabled"` is silently ignored upstream), so `none`/`minimal` are
+				// not offered and thinking stays on at every tier.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				splitTaggedReasoning: true,
 				vision: false,
 				tools: true,
@@ -300,6 +361,7 @@ export const minimaxModels = [
 				requestPrice: "0",
 				contextSize: 204800,
 				maxOutput: 131072,
+				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
 				vision: false,
@@ -327,6 +389,10 @@ export const minimaxModels = [
 				maxOutput: 131072,
 				streaming: true,
 				reasoning: true,
+				// Thinking cannot be disabled for the M2.x family (`thinking.type:
+				// "disabled"` is silently ignored upstream), so `none`/`minimal` are
+				// not offered and thinking stays on at every tier.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				splitTaggedReasoning: true,
 				vision: false,
 				tools: true,
@@ -357,6 +423,42 @@ export const minimaxModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: false,
+			},
+		],
+	},
+	{
+		id: "minimax-hailuo-2-3",
+		name: "MiniMax Hailuo 2.3",
+		description:
+			"MiniMax's video generation model supporting text-to-video and image-to-video up to 10 seconds at 768p or 1080p resolution.",
+		family: "minimax",
+		output: ["video"],
+		releasedAt: new Date("2025-11-07"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "minimax",
+				externalId: "MiniMax-Hailuo-2.3",
+				inputPrice: "0",
+				outputPrice: "0",
+				requestPrice: "0",
+				perSecondPrice: {
+					"720p": "0.0467",
+					"768p": "0.0467",
+					"1080p": "0.0817",
+				},
+				contextSize: 2000,
+				maxOutput: 1,
+				streaming: false,
+				vision: true,
+				tools: false,
+				jsonOutput: false,
+				videoGenerations: true,
+				supportedVideoSizes: ["1280x720", "1366x768", "1920x1080"],
+				supportedVideoDurationsSeconds: [6, 10],
+				supportedVideoDurationsSecondsImageToVideo: [6, 10],
+				supportsVideoAudio: false,
+				supportsVideoWithoutAudio: true,
 			},
 		],
 	},

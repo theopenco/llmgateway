@@ -1,9 +1,10 @@
 "use client";
-import { useQueryClient } from "@tanstack/react-query";
-import { usePathname, useRouter } from "next/navigation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useEffect } from "react";
 
+import { useAuthClient } from "@/lib/auth-client";
 import { useApi } from "@/lib/fetch-client";
 
 import type { Route } from "next";
@@ -22,13 +23,39 @@ export interface UseUserOptions {
 	redirectTo?: string;
 	redirectWhen?: "authenticated" | "unauthenticated";
 	checkOnboarding?: boolean;
+	enabled?: boolean;
+}
+
+/**
+ * Lightweight session check for marketing/auth surfaces. Uses better-auth's
+ * get-session endpoint, which returns 200 with null for anonymous visitors,
+ * so it never logs a 401 console error like /user/me does.
+ */
+export function useSessionStatus() {
+	const authClient = useAuthClient();
+
+	const { data, isLoading } = useQuery({
+		queryKey: ["auth-session-status"],
+		queryFn: async () => {
+			const { data: session } = await authClient.getSession();
+			return session ?? null;
+		},
+		retry: 0,
+		staleTime: 60 * 1000,
+		refetchOnWindowFocus: false,
+	});
+
+	return {
+		isAuthenticated: !!data?.user,
+		isLoading,
+		session: data ?? null,
+	};
 }
 
 export function useUser(options?: UseUserOptions) {
 	const posthog = usePostHog();
 	const router = useRouter();
 	const api = useApi();
-	const pathname = usePathname();
 
 	const { data, isLoading, error } = api.useQuery(
 		"get",
@@ -38,6 +65,7 @@ export function useUser(options?: UseUserOptions) {
 			retry: 0,
 			staleTime: 5 * 60 * 1000, // 5 minutes
 			refetchOnWindowFocus: false,
+			enabled: options?.enabled ?? true,
 		},
 	);
 
@@ -48,29 +76,6 @@ export function useUser(options?: UseUserOptions) {
 			onboarding_completed: data.user.onboardingCompleted,
 		});
 	}
-
-	// Check for onboarding completion for all authenticated users
-	useEffect(() => {
-		if (!data?.user || isLoading) {
-			return;
-		}
-
-		const currentPath = pathname;
-		const isAuthPage = ["/login", "/signup", "/onboarding"].includes(
-			currentPath,
-		);
-		const isLandingPage = currentPath === "/";
-
-		// Don't redirect if already on auth pages
-		if (isAuthPage || isLandingPage) {
-			return;
-		}
-
-		// Redirect to onboarding if user hasn't completed it
-		if (!data.user.onboardingCompleted) {
-			router.push("/onboarding");
-		}
-	}, [data?.user, isLoading, router, pathname]);
 
 	// Handle existing redirect logic
 	useEffect(() => {

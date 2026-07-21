@@ -1,0 +1,6 @@
+{
+	"title": "SSO",
+	"icon": "ShieldCheck",
+	"defaultOpen": true,
+	"pages": ["entra", "google"]
+}

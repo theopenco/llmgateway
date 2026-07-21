@@ -1,7 +1,16 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { BarChart3, Code, CreditCard, LogOut, Settings } from "lucide-react";
+import {
+	BarChart3,
+	Code,
+	CreditCard,
+	ExternalLink,
+	Loader2,
+	LogOut,
+	Settings,
+	UserRound,
+} from "lucide-react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -25,6 +34,11 @@ import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
+import {
+	trackPurchaseConversion,
+	trackSignupConversion,
+} from "@/lib/google-tag";
+import { useStripe } from "@/lib/stripe";
 import { cn } from "@/lib/utils";
 
 import { plans } from "./plans";
@@ -43,8 +57,74 @@ const navItems: Array<{ label: string; href: Route; icon: typeof BarChart3 }> =
 	[
 		{ label: "Usage", href: "/dashboard" as Route, icon: BarChart3 },
 		{ label: "Billing", href: "/dashboard/billing" as Route, icon: CreditCard },
+		{ label: "Profile", href: "/dashboard/profile" as Route, icon: UserRound },
 		{ label: "Settings", href: "/dashboard/settings" as Route, icon: Settings },
 	];
+
+// Pages that live on the DevPass site but outside the dashboard shell, so
+// they're rendered in their own subtle nav section with a link-out marker.
+const resourceNavItems: Array<{
+	label: string;
+	href: Route;
+	icon: typeof BarChart3;
+}> = [{ label: "Coding models", href: "/coding-models" as Route, icon: Code }];
+
+type SetupActivationStatus =
+	| "loading_stripe"
+	| "finalizing"
+	| "authenticating"
+	| "processing"
+	| "success"
+	| "error";
+
+const setupActivationCopy: Record<
+	SetupActivationStatus,
+	{ title: string; description: string }
+> = {
+	loading_stripe: {
+		title: "Preparing payment",
+		description: "Loading secure payment confirmation.",
+	},
+	finalizing: {
+		title: "Activating DevPass",
+		description: "Creating your subscription and checking payment status.",
+	},
+	authenticating: {
+		title: "Confirming payment",
+		description: "Complete the secure authentication prompt to continue.",
+	},
+	processing: {
+		title: "Payment is processing",
+		description:
+			"DevPass will activate as soon as Stripe confirms the payment.",
+	},
+	success: {
+		title: "DevPass activated",
+		description: "Refreshing your dashboard.",
+	},
+	error: {
+		title: "Activation failed",
+		description: "Refresh this page to retry DevPass activation.",
+	},
+};
+
+const wait = async (ms: number, signal: AbortSignal) => {
+	if (signal.aborted) {
+		throw new DOMException("Aborted", "AbortError");
+	}
+
+	await new Promise<void>((resolve, reject) => {
+		const timeoutId = window.setTimeout(() => {
+			signal.removeEventListener("abort", handleAbort);
+			resolve();
+		}, ms);
+		function handleAbort() {
+			window.clearTimeout(timeoutId);
+			reject(new DOMException("Aborted", "AbortError"));
+		}
+		signal.addEventListener("abort", handleAbort, { once: true });
+	});
+};
 
 export default function DashboardShell({
 	children,
@@ -61,8 +141,10 @@ export default function DashboardShell({
 	const posthog = usePostHog();
 	const { signOut } = useAuth();
 	const config = useAppConfig();
-	const { posthogKey } = config;
+	const { posthogKey, googleAdsPurchaseConversion, googleAdsSignupConversion } =
+		config;
 	const api = useApi();
+	const { stripe, isLoading: stripeLoading } = useStripe();
 	const queryClient = useQueryClient();
 
 	const { user } = useUser({
@@ -76,19 +158,87 @@ export default function DashboardShell({
 
 	const subscribeMutation = api.useMutation("post", "/dev-plans/subscribe");
 	const finalizeMutation = api.useMutation("post", "/dev-plans/finalize");
+	const setupSessionId = searchParams.get("setup_session_id");
+	const signupMethod = searchParams.get("signup_method");
+	const signupTracked = useRef(false);
+
+	// OAuth signups redirect away from /signup before it can capture anything,
+	// so better-auth sends brand-new accounts here with ?signup_method=<provider>
+	// (see SocialAuthButtons) and we fire the same analytics as the email path.
+	useEffect(() => {
+		if (!signupMethod || !user || signupTracked.current) {
+			return;
+		}
+		signupTracked.current = true;
+		if (posthogKey) {
+			posthog.capture("user_signed_up", {
+				email: user.email,
+				name: user.name,
+				method: signupMethod,
+			});
+		}
+		trackSignupConversion({
+			email: user.email,
+			method: signupMethod,
+			sendTo: googleAdsSignupConversion,
+		});
+		const params = new URLSearchParams(searchParams.toString());
+		params.delete("signup_method");
+		const query = params.toString();
+		router.replace((query ? `${pathname}?${query}` : pathname) as Route);
+	}, [
+		signupMethod,
+		user,
+		posthog,
+		posthogKey,
+		googleAdsSignupConversion,
+		searchParams,
+		router,
+		pathname,
+	]);
 
 	const [subscribingTier, setSubscribingTier] = useState<PlanTier | null>(null);
 	const [duplicateCardError, setDuplicateCardError] = useState<string | null>(
 		null,
 	);
-	const finalizedSessions = useRef<Set<string>>(new Set());
+	const [setupActivationStatus, setSetupActivationStatus] =
+		useState<SetupActivationStatus | null>(null);
+	const activeSetupSession = useRef<string | null>(null);
+	const finalizeDevPlanRef = useRef(finalizeMutation.mutateAsync);
+	const purchaseTrackedSession = useRef<string | null>(null);
+	const devPlanStatusRef = useRef(devPlanStatus);
+	const userEmailRef = useRef(user?.email);
 
 	useEffect(() => {
-		const sessionId = searchParams.get("setup_session_id");
-		if (!sessionId || finalizedSessions.current.has(sessionId)) {
+		finalizeDevPlanRef.current = finalizeMutation.mutateAsync;
+	}, [finalizeMutation.mutateAsync]);
+
+	useEffect(() => {
+		devPlanStatusRef.current = devPlanStatus;
+	}, [devPlanStatus]);
+
+	useEffect(() => {
+		userEmailRef.current = user?.email;
+	}, [user?.email]);
+
+	useEffect(() => {
+		const sessionId = setupSessionId;
+		if (!sessionId) {
+			setSetupActivationStatus(null);
 			return;
 		}
-		finalizedSessions.current.add(sessionId);
+		if (stripeLoading) {
+			setSetupActivationStatus("loading_stripe");
+			return;
+		}
+		if (activeSetupSession.current === sessionId) {
+			return;
+		}
+		activeSetupSession.current = sessionId;
+		setSetupActivationStatus("finalizing");
+		const abortController = new AbortController();
+		const { signal } = abortController;
+		let shouldClearSetupParam = true;
 
 		const clearParam = () => {
 			const params = new URLSearchParams(searchParams.toString());
@@ -97,20 +247,91 @@ export default function DashboardShell({
 			router.replace(query ? `/dashboard?${query}` : "/dashboard");
 		};
 
-		finalizeMutation
-			.mutateAsync({ body: { sessionId } })
+		const finalizeOnce = async () => {
+			return await finalizeDevPlanRef.current({
+				body: { sessionId },
+			});
+		};
+
+		const waitForFinalization = async (
+			initialResult: Awaited<ReturnType<typeof finalizeOnce>>,
+		) => {
+			let result = initialResult;
+			for (let attempt = 0; attempt < 60; attempt++) {
+				if (result?.status !== "payment_pending") {
+					return result;
+				}
+				setSetupActivationStatus("processing");
+				await wait(2000, signal);
+				result = await finalizeOnce();
+			}
+			return result;
+		};
+
+		const finalizeDevPlan = async () => {
+			const result = await finalizeOnce();
+			if (result?.status === "requires_action") {
+				if (!stripe) {
+					throw new Error("Stripe is not ready. Please refresh and try again.");
+				}
+				setSetupActivationStatus("authenticating");
+				const confirmation = await stripe.confirmCardPayment(
+					result.clientSecret,
+					result.paymentMethodId
+						? { payment_method: result.paymentMethodId }
+						: undefined,
+				);
+				if (confirmation.error) {
+					throw new Error(
+						confirmation.error.message ?? "Payment authentication failed",
+					);
+				}
+
+				setSetupActivationStatus("processing");
+				return await waitForFinalization(await finalizeOnce());
+			}
+			return await waitForFinalization(result);
+		};
+
+		finalizeDevPlan()
 			.then((result) => {
+				if (signal.aborted) {
+					return;
+				}
 				if (result?.status === "ok" || result?.status === "already_processed") {
+					setSetupActivationStatus("success");
 					toast.success("DevPass activated");
+					if (purchaseTrackedSession.current !== sessionId) {
+						purchaseTrackedSession.current = sessionId;
+						const tier = devPlanStatusRef.current?.devPlan;
+						const planData =
+							tier && tier !== "none"
+								? plans.find((plan) => plan.tier === tier)
+								: undefined;
+						trackPurchaseConversion({
+							email: userEmailRef.current ?? "",
+							value: planData?.price,
+							currency: "USD",
+							transactionId: sessionId,
+							sendTo: googleAdsPurchaseConversion,
+						});
+					}
 					void queryClient.invalidateQueries({
 						predicate: (query) => {
 							const key = query.queryKey;
 							return Array.isArray(key) && key[1] === "/dev-plans/status";
 						},
 					});
+				} else if (result?.status === "payment_pending") {
+					shouldClearSetupParam = false;
+					setSetupActivationStatus("processing");
+					toast.info("Payment is processing. DevPass will activate shortly.");
 				}
 			})
 			.catch((error: unknown) => {
+				if (signal.aborted) {
+					return;
+				}
 				const errCode =
 					error && typeof error === "object" && "error" in error
 						? (error as { error?: unknown }).error
@@ -126,6 +347,8 @@ export default function DashboardShell({
 							: "This card is already associated with another DevPass account. Please use a different payment method.",
 					);
 				} else {
+					shouldClearSetupParam = false;
+					setSetupActivationStatus("error");
 					const apiMessage =
 						error && typeof error === "object" && "message" in error
 							? (error as { message?: unknown }).message
@@ -138,9 +361,29 @@ export default function DashboardShell({
 				}
 			})
 			.finally(() => {
-				clearParam();
+				if (!signal.aborted && shouldClearSetupParam) {
+					clearParam();
+				}
+				if (activeSetupSession.current === sessionId) {
+					activeSetupSession.current = null;
+				}
 			});
-	}, [searchParams, finalizeMutation, queryClient, router]);
+
+		return () => {
+			abortController.abort();
+			if (activeSetupSession.current === sessionId) {
+				activeSetupSession.current = null;
+			}
+		};
+	}, [
+		setupSessionId,
+		searchParams,
+		queryClient,
+		router,
+		stripe,
+		stripeLoading,
+		googleAdsPurchaseConversion,
+	]);
 
 	const handleSubscribe = async (tier: PlanTier): Promise<void> => {
 		setSubscribingTier(tier);
@@ -181,6 +424,11 @@ export default function DashboardShell({
 	const hasActivePlan =
 		devPlanStatus?.devPlan && devPlanStatus.devPlan !== "none";
 	const currentPlanName = devPlanStatus?.devPlan?.toUpperCase() ?? "";
+	const activeSetupActivationStatus =
+		setupActivationStatus ?? (setupSessionId ? "finalizing" : null);
+	const activeSetupActivationCopy = activeSetupActivationStatus
+		? setupActivationCopy[activeSetupActivationStatus]
+		: null;
 
 	return (
 		<div className="min-h-screen bg-background">
@@ -245,11 +493,30 @@ export default function DashboardShell({
 
 			<EmailVerificationBanner />
 
-			{statusLoading ? (
+			{activeSetupActivationCopy ? (
+				<main className="container mx-auto flex min-h-[calc(100vh-120px)] max-w-3xl items-center justify-center px-4 py-12">
+					<div className="w-full rounded-xl border bg-background p-8 text-center shadow-sm sm:p-12">
+						<div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-muted">
+							<Loader2
+								className={cn(
+									"h-10 w-10 text-foreground",
+									activeSetupActivationStatus !== "error" && "animate-spin",
+								)}
+							/>
+						</div>
+						<h1 className="text-2xl font-semibold sm:text-3xl">
+							{activeSetupActivationCopy.title}
+						</h1>
+						<p className="mx-auto mt-3 max-w-md text-sm leading-6 text-muted-foreground sm:text-base">
+							{activeSetupActivationCopy.description}
+						</p>
+					</div>
+				</main>
+			) : statusLoading ? (
 				<div className="container mx-auto flex flex-col gap-8 px-4 py-8 lg:flex-row">
 					<aside className="lg:w-56 lg:shrink-0">
 						<div className="flex gap-1 lg:flex-col">
-							{navItems.map((item) => (
+							{[...navItems, ...resourceNavItems].map((item) => (
 								<Skeleton key={item.href} className="h-9 w-full lg:w-full" />
 							))}
 						</div>
@@ -285,6 +552,22 @@ export default function DashboardShell({
 									>
 										<Icon className="h-4 w-4" />
 										{item.label}
+									</Link>
+								);
+							})}
+							<div className="my-1 hidden border-t border-border/50 lg:block" />
+							{resourceNavItems.map((item) => {
+								const Icon = item.icon;
+								return (
+									<Link
+										key={item.href}
+										href={item.href}
+										prefetch
+										className="flex shrink-0 items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+									>
+										<Icon className="h-4 w-4" />
+										{item.label}
+										<ExternalLink className="ml-auto h-3 w-3 text-muted-foreground/60" />
 									</Link>
 								);
 							})}

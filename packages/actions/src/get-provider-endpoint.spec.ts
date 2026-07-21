@@ -7,10 +7,12 @@ const originalGlacierBaseUrl = process.env.LLM_GLACIER_BASE_URL;
 const originalVertexBaseUrl = process.env.LLM_GOOGLE_VERTEX_BASE_URL;
 const originalVertexProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 const originalVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
+const originalVertexTokenType = process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE;
 const originalAzureFoundryResource = process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE;
 const originalAzureFoundryApiVersion =
 	process.env.LLM_AZURE_AI_FOUNDRY_API_VERSION;
 const originalXiaomiBaseUrl = process.env.LLM_XIAOMI_BASE_URL;
+const originalOpenaiBaseUrl = process.env.LLM_OPENAI_BASE_URL;
 const originalBedrockBaseUrl = process.env.LLM_AWS_BEDROCK_BASE_URL;
 const originalBedrockRegion = process.env.LLM_AWS_BEDROCK_REGION;
 
@@ -45,6 +47,12 @@ afterEach(() => {
 		process.env.LLM_GOOGLE_VERTEX_REGION = originalVertexRegion;
 	}
 
+	if (originalVertexTokenType === undefined) {
+		delete process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE;
+	} else {
+		process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE = originalVertexTokenType;
+	}
+
 	if (originalAzureFoundryResource === undefined) {
 		delete process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE;
 	} else {
@@ -62,6 +70,12 @@ afterEach(() => {
 		delete process.env.LLM_XIAOMI_BASE_URL;
 	} else {
 		process.env.LLM_XIAOMI_BASE_URL = originalXiaomiBaseUrl;
+	}
+
+	if (originalOpenaiBaseUrl === undefined) {
+		delete process.env.LLM_OPENAI_BASE_URL;
+	} else {
+		process.env.LLM_OPENAI_BASE_URL = originalOpenaiBaseUrl;
 	}
 
 	if (originalBedrockBaseUrl === undefined) {
@@ -100,6 +114,22 @@ describe("getProviderEndpoint", () => {
 		expect(() => getProviderEndpoint("glacier")).toThrow(
 			"Glacier provider requires LLM_GLACIER_BASE_URL environment variable",
 		);
+	});
+
+	it("uses the OpenAI base URL override when configured", () => {
+		process.env.LLM_OPENAI_BASE_URL = "http://localhost:8787/openai";
+
+		const endpoint = getProviderEndpoint("openai", undefined, "gpt-4o");
+
+		expect(endpoint).toBe("http://localhost:8787/openai/v1/chat/completions");
+	});
+
+	it("defaults to api.openai.com when no OpenAI base URL is configured", () => {
+		delete process.env.LLM_OPENAI_BASE_URL;
+
+		const endpoint = getProviderEndpoint("openai", undefined, "gpt-4o");
+
+		expect(endpoint).toBe("https://api.openai.com/v1/chat/completions");
 	});
 
 	it("uses the AI Studio base URL override when configured", () => {
@@ -208,6 +238,87 @@ describe("getProviderEndpoint", () => {
 		);
 	});
 
+	describe("vertex oauth token type", () => {
+		it("omits ?key= when token type is oauth via env var", () => {
+			process.env.LLM_GOOGLE_CLOUD_PROJECT = "project-a";
+			process.env.LLM_GOOGLE_VERTEX_REGION = "us-central1";
+			process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE = "oauth";
+
+			const endpoint = getProviderEndpoint(
+				"google-vertex",
+				undefined,
+				"gemini-2.5-pro",
+				"ya29.oauth-token",
+			);
+
+			expect(endpoint).toBe(
+				"https://aiplatform.googleapis.com/v1/projects/project-a/locations/us-central1/publishers/google/models/gemini-2.5-pro:generateContent",
+			);
+		});
+
+		it("includes ?key= when token type is api-key (default)", () => {
+			process.env.LLM_GOOGLE_CLOUD_PROJECT = "project-a";
+			process.env.LLM_GOOGLE_VERTEX_REGION = "us-central1";
+
+			const endpoint = getProviderEndpoint(
+				"google-vertex",
+				undefined,
+				"gemini-2.5-pro",
+				"AIzaSyExample",
+			);
+
+			expect(endpoint).toBe(
+				"https://aiplatform.googleapis.com/v1/projects/project-a/locations/us-central1/publishers/google/models/gemini-2.5-pro:generateContent?key=AIzaSyExample",
+			);
+		});
+
+		it("honors per-key providerKeyOptions over env var", () => {
+			process.env.LLM_GOOGLE_CLOUD_PROJECT = "project-a";
+			process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE = "api-key";
+
+			const endpoint = getProviderEndpoint(
+				"google-vertex",
+				undefined,
+				"gemini-2.5-pro",
+				"ya29.oauth-token",
+				false,
+				undefined,
+				undefined,
+				{ google_vertex_token_type: "oauth" },
+			);
+
+			expect(endpoint).toBe(
+				"https://aiplatform.googleapis.com/v1/projects/project-a/locations/global/publishers/google/models/gemini-2.5-pro:generateContent",
+			);
+		});
+
+		it("uses a pre-resolved vertexTokenType over options and env var", () => {
+			process.env.LLM_GOOGLE_CLOUD_PROJECT = "project-a";
+			process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE = "api-key";
+
+			const endpoint = getProviderEndpoint(
+				"google-vertex",
+				undefined,
+				"gemini-2.5-pro",
+				"ya29.oauth-token",
+				false,
+				undefined,
+				undefined,
+				{ google_vertex_token_type: "api-key" },
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"oauth", // vertexTokenType override
+			);
+
+			expect(endpoint).toBe(
+				"https://aiplatform.googleapis.com/v1/projects/project-a/locations/global/publishers/google/models/gemini-2.5-pro:generateContent",
+			);
+		});
+	});
+
 	describe("azure-ai-foundry", () => {
 		it("builds the Azure AI Foundry endpoint from the resource env var", () => {
 			process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE = "gkapitech";
@@ -235,6 +346,20 @@ describe("getProviderEndpoint", () => {
 
 			expect(endpoint).toBe(
 				"https://gkapitech.services.ai.azure.com/models/chat/completions?api-version=2025-01-01-preview",
+			);
+		});
+
+		it("routes Grok 4.3 through the Azure AI Foundry endpoint", () => {
+			process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE = "gkapitech";
+
+			const endpoint = getProviderEndpoint(
+				"azure-ai-foundry",
+				undefined,
+				"grok-4-3",
+			);
+
+			expect(endpoint).toBe(
+				"https://gkapitech.services.ai.azure.com/models/chat/completions?api-version=2024-05-01-preview",
 			);
 		});
 
@@ -336,7 +461,31 @@ describe("getProviderEndpoint", () => {
 			);
 		});
 
+		it("ignores LLM_GOOGLE_VERTEX_TOKEN_TYPE env var when skipEnvVars is true", () => {
+			process.env.LLM_GOOGLE_CLOUD_PROJECT = "project-a";
+			process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE = "oauth";
+
+			const endpoint = getProviderEndpoint(
+				"google-vertex",
+				undefined,
+				"gemini-2.5-pro",
+				"AIzaSyExample",
+				false,
+				undefined,
+				undefined,
+				undefined, // no providerKeyOptions
+				undefined,
+				undefined,
+				undefined,
+				true, // skipEnvVars
+			);
+
+			expect(endpoint).toContain("?key=AIzaSyExample");
+		});
+
 		it("uses hardcoded default for openai regardless of skipEnvVars", () => {
+			process.env.LLM_OPENAI_BASE_URL = "http://localhost:8787/openai";
+
 			const endpoint = getProviderEndpoint(
 				"openai",
 				undefined,
@@ -616,6 +765,72 @@ describe("getProviderEndpoint", () => {
 			// Falls back to the hardcoded "global." prefix, not the env "us."
 			expect(endpoint).toBe(
 				"https://bedrock-runtime.us-east-1.amazonaws.com/model/global.anthropic.claude-haiku-4-5-20251001-v1:0/converse",
+			);
+		});
+
+		it.each([
+			{
+				region: undefined,
+				endpoint:
+					"https://bedrock-mantle.us-west-2.api.aws/openai/v1/chat/completions",
+			},
+			{
+				region: "global",
+				endpoint:
+					"https://bedrock-mantle.us-west-2.api.aws/openai/v1/chat/completions",
+			},
+			{
+				region: "us",
+				endpoint:
+					"https://bedrock-mantle.us-west-2.api.aws/openai/v1/chat/completions",
+			},
+			{
+				region: "us-west-2",
+				endpoint:
+					"https://bedrock-mantle.us-west-2.api.aws/openai/v1/chat/completions",
+			},
+		])(
+			"routes Grok 4.3 through the Bedrock Mantle OpenAI endpoint for $region",
+			({ region, endpoint: expectedEndpoint }) => {
+				const endpoint = getProviderEndpoint(
+					"aws-bedrock",
+					undefined,
+					"grok-4-3",
+					undefined,
+					false,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					region,
+					true,
+					"grok-4-3",
+				);
+
+				expect(endpoint).toBe(expectedEndpoint);
+			},
+		);
+
+		it("keeps a custom Grok 4.3 Bedrock Mantle base URL", () => {
+			const endpoint = getProviderEndpoint(
+				"aws-bedrock",
+				"https://bedrock-proxy.internal/openai/v1",
+				"grok-4-3",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"us-west-2",
+				true,
+				"grok-4-3",
+			);
+
+			expect(endpoint).toBe(
+				"https://bedrock-proxy.internal/openai/v1/chat/completions",
 			);
 		});
 	});

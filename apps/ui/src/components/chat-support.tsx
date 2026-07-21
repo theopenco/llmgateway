@@ -16,10 +16,11 @@ import {
 	Star,
 	CheckCircle2,
 } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Streamdown } from "streamdown";
 
-import { useUser } from "@/hooks/useUser";
+import { useSessionStatus, useUser } from "@/hooks/useUser";
 import { Button } from "@/lib/components/button";
 import { useFetchClient } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
@@ -48,6 +49,27 @@ const linkSafety: LinkSafetyConfig = {
 const ESCALATION_THRESHOLD = 3;
 
 const CLIENT_ID_KEY = "chat_support_client_id";
+const PRIVACY_DISMISSED_KEY = "chat_support_privacy_dismissed";
+
+// Client-side anti-spam guard. The backend is authoritative (see
+// public-chat-support.ts), but blocking rapid-fire sends here gives instant
+// feedback and avoids burning the server quota on obvious spam.
+const CLIENT_RATE_MAX = 5;
+const CLIENT_RATE_WINDOW_MS = 20_000;
+
+const SUGGESTED_QUESTIONS = [
+	"How do I get started with LLM Gateway?",
+	"Which models and providers are supported?",
+	"How does pricing and billing work?",
+];
+
+// Phrases that signal the visitor wants a human rather than the AI assistant.
+const HUMAN_REQUEST_PATTERN =
+	/\b(?:human|real|live)\s+(?:operator|person|agent|help|support|being|rep(?:resentative)?)\b|\b(?:talk|speak|connect|chat)\s+(?:to|with)\s+(?:a\s+)?(?:human|person|someone|agent|operator|rep(?:resentative)?|support|staff)\b|\b(?:need|want|get|reach)\s+(?:a\s+)?(?:human|real\s+person|live\s+agent|person)\b|\bhuman\s+operator\b/i;
+
+function wantsHuman(text: string): boolean {
+	return HUMAN_REQUEST_PATTERN.test(text);
+}
 
 interface ConversationMessage {
 	id: string;
@@ -95,7 +117,8 @@ function getTextFromParts(message: UIMessage): string {
 export function ChatSupport() {
 	const fetchClient = useFetchClient();
 	const queryClient = useQueryClient();
-	const { user } = useUser();
+	const { isAuthenticated } = useSessionStatus();
+	const { user } = useUser({ enabled: isAuthenticated });
 	const [isOpen, setIsOpen] = useState(false);
 	const [hasUnread, setHasUnread] = useState(false);
 	const [text, setText] = useState("");
@@ -108,15 +131,26 @@ export function ChatSupport() {
 	const [reactionOverrides, setReactionOverrides] = useState<
 		Record<number, "like" | "dislike">
 	>({});
+	const [privacyDismissed, setPrivacyDismissed] = useState(false);
+	const [rateLimitNotice, setRateLimitNotice] = useState<string | null>(null);
+	const lastUserMessageRef = useRef<HTMLDivElement>(null);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 	const prevMessageCountRef = useRef(0);
+	const prevUserCountRef = useRef(0);
+	const prevAdminCountRef = useRef(0);
+	const sendTimestampsRef = useRef<number[]>([]);
 	const [clientId, setClientId] = useState("");
 	const [mounted, setMounted] = useState(false);
 
 	useEffect(() => {
 		setClientId(getOrCreateClientId());
 		setMounted(true);
+		if (typeof window !== "undefined") {
+			setPrivacyDismissed(
+				localStorage.getItem(PRIVACY_DISMISSED_KEY) === "true",
+			);
+		}
 	}, []);
 
 	const isLoggedIn = mounted && !!user;
@@ -219,9 +253,38 @@ export function ChatSupport() {
 	const hasConversation = (convData?.messages.length ?? 0) > 0;
 	const isIdentified = isLoggedIn || hasIdentified || hasConversation;
 
+	// Reposition only on discrete new turns — never on streaming tokens, so the
+	// view stays fixed while the assistant types and the visitor reads at their
+	// own pace. When the visitor sends, anchor their question to the top so the
+	// answer fills in below (top-to-bottom). When a human (admin) reply arrives
+	// via the poll, bring it into view since it's the newest message.
 	useEffect(() => {
-		messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+		const userCount = messages.filter((m) => m.role === "user").length;
+		const adminCount = messages.filter(
+			(m) => (m.metadata as MessageMeta | undefined)?.admin === true,
+		).length;
+		if (userCount > prevUserCountRef.current) {
+			lastUserMessageRef.current?.scrollIntoView({
+				behavior: "smooth",
+				block: "start",
+			});
+		} else if (adminCount > prevAdminCountRef.current) {
+			messagesEndRef.current?.scrollIntoView({
+				behavior: "smooth",
+				block: "end",
+			});
+		}
+		prevUserCountRef.current = userCount;
+		prevAdminCountRef.current = adminCount;
 	}, [messages]);
+
+	useEffect(() => {
+		if (!rateLimitNotice) {
+			return;
+		}
+		const id = setTimeout(() => setRateLimitNotice(null), 4000);
+		return () => clearTimeout(id);
+	}, [rateLimitNotice]);
 
 	useEffect(() => {
 		if (isOpen && isIdentified && inputRef.current) {
@@ -268,7 +331,20 @@ export function ChatSupport() {
 	};
 
 	const userMessageCount = messages.filter((m) => m.role === "user").length;
-	const showEscalation = !escalated && userMessageCount >= ESCALATION_THRESHOLD;
+	const lastUserIndex = messages.reduce(
+		(acc, m, i) => (m.role === "user" ? i : acc),
+		-1,
+	);
+	const showSuggestions = messages.length === 0 && !escalated && !isResolved;
+	const requestedHuman = useMemo(
+		() =>
+			messages.some(
+				(m) => m.role === "user" && wantsHuman(getTextFromParts(m)),
+			),
+		[messages],
+	);
+	const showEscalation =
+		!escalated && (userMessageCount >= ESCALATION_THRESHOLD || requestedHuman);
 	const canResolve = !isResolved && userMessageCount >= 1;
 
 	const escalateMutation = useMutation({
@@ -378,13 +454,52 @@ export function ChatSupport() {
 		setHasIdentified(true);
 	};
 
+	const handleDismissPrivacy = () => {
+		setPrivacyDismissed(true);
+		if (typeof window !== "undefined") {
+			localStorage.setItem(PRIVACY_DISMISSED_KEY, "true");
+		}
+	};
+
+	// Returns false (and surfaces a notice) when the visitor is sending too fast.
+	const canSend = (): boolean => {
+		const now = Date.now();
+		const recent = sendTimestampsRef.current.filter(
+			(t) => now - t < CLIENT_RATE_WINDOW_MS,
+		);
+		if (recent.length >= CLIENT_RATE_MAX) {
+			setRateLimitNotice(
+				"You're sending messages too quickly. Please wait a few seconds.",
+			);
+			return false;
+		}
+		recent.push(now);
+		sendTimestampsRef.current = recent;
+		setRateLimitNotice(null);
+		return true;
+	};
+
 	const handleSubmit = (e: React.FormEvent) => {
 		e.preventDefault();
 		const trimmed = text.trim();
 		if (!trimmed || isLoading) {
 			return;
 		}
+		if (!canSend()) {
+			return;
+		}
 		void sendMessage({ text: trimmed });
+		setText("");
+	};
+
+	const handleSuggestion = (question: string) => {
+		if (isLoading) {
+			return;
+		}
+		if (!canSend()) {
+			return;
+		}
+		void sendMessage({ text: question });
 		setText("");
 	};
 
@@ -403,7 +518,7 @@ export function ChatSupport() {
 				className={cn(
 					"fixed z-[60] flex flex-col overflow-hidden border-border bg-background shadow-2xl transition-all duration-200 ease-out",
 					"inset-0 rounded-none border-0",
-					"sm:inset-auto sm:bottom-[calc(5rem+env(safe-area-inset-bottom,0px))] sm:right-6 sm:h-[min(32rem,calc(100svh-7rem))] sm:w-[24rem] sm:rounded-xl sm:border",
+					"sm:inset-auto sm:bottom-[calc(5rem+env(safe-area-inset-bottom,0px))] sm:right-6 sm:h-[min(42rem,calc(100svh-6rem))] sm:w-[28rem] sm:rounded-xl sm:border",
 					isOpen
 						? "visible translate-y-0 opacity-100"
 						: "invisible pointer-events-none translate-y-4 opacity-0",
@@ -517,8 +632,11 @@ export function ChatSupport() {
 									return (
 										<div
 											key={message.id}
+											ref={
+												index === lastUserIndex ? lastUserMessageRef : undefined
+											}
 											className={cn(
-												"flex flex-col gap-1",
+												"flex scroll-mt-2 flex-col gap-1",
 												message.role === "user" ? "items-end" : "items-start",
 											)}
 										>
@@ -613,6 +731,23 @@ export function ChatSupport() {
 								<div ref={messagesEndRef} />
 							</div>
 						</div>
+
+						{showSuggestions && (
+							<div className="flex shrink-0 flex-col items-end gap-2 px-4 pb-1">
+								{SUGGESTED_QUESTIONS.map((question) => (
+									<button
+										key={question}
+										type="button"
+										onClick={() => handleSuggestion(question)}
+										disabled={isLoading}
+										className="max-w-[90%] rounded-2xl border border-border bg-background px-3.5 py-2 text-right text-sm leading-relaxed text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+										style={{ touchAction: "manipulation" }}
+									>
+										{question}
+									</button>
+								))}
+							</div>
+						)}
 
 						{isResolved ? (
 							<div className="shrink-0 border-t border-border bg-emerald-50 px-4 py-2.5 dark:bg-emerald-950/30">
@@ -721,19 +856,53 @@ export function ChatSupport() {
 							</div>
 						)}
 
+						{!privacyDismissed && (
+							<div className="flex shrink-0 items-center justify-between gap-2 border-t border-border bg-muted/50 px-4 py-2">
+								<p className="text-xs text-muted-foreground">
+									By chatting, you agree to our{" "}
+									<Link
+										href="/legal/privacy"
+										target="_blank"
+										className="font-medium text-foreground underline underline-offset-2 hover:text-primary"
+									>
+										privacy policy
+									</Link>
+									.
+								</p>
+								<button
+									type="button"
+									onClick={handleDismissPrivacy}
+									aria-label="Dismiss privacy notice"
+									className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+									style={{ touchAction: "manipulation" }}
+								>
+									<X className="size-3.5" />
+								</button>
+							</div>
+						)}
+
 						<div
 							className="shrink-0 border-t border-border bg-background p-3"
 							style={{
 								paddingBottom: "max(env(safe-area-inset-bottom, 0px), 0.75rem)",
 							}}
 						>
+							{rateLimitNotice && (
+								<p className="mb-2 px-1 text-xs text-amber-600 dark:text-amber-400">
+									{rateLimitNotice}
+								</p>
+							)}
 							<form onSubmit={handleSubmit} className="flex items-end gap-2">
 								<textarea
 									ref={inputRef}
 									value={text}
 									onChange={(e) => setText(e.target.value)}
 									onKeyDown={handleKeyDown}
-									placeholder="Ask about LLM Gateway..."
+									placeholder={
+										escalated
+											? "Message the support team..."
+											: "Ask about LLM Gateway..."
+									}
 									rows={1}
 									className="field-sizing-content max-h-32 min-h-[2.5rem] flex-1 resize-none rounded-lg border border-input bg-background px-3 py-2 text-base outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring sm:text-sm"
 								/>

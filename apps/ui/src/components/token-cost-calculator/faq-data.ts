@@ -10,9 +10,19 @@ export interface CalculatorFaqItem {
  */
 export const CALCULATOR_FAQ: CalculatorFaqItem[] = [
 	{
+		question: "How do I count the tokens in my prompt?",
+		answer:
+			"Paste your text into the calculator and it counts the exact tokens in your browser using a real BPE tokenizer (the GPT-4o / o200k_base encoding), the same kind of tokenizer the models use to bill you. Nothing is uploaded — the counting happens locally. You instantly see the token count alongside characters and words, plus what that text costs on every major model.",
+	},
+	{
+		question: "How many tokens is 1,000 words or one page of text?",
+		answer:
+			"As a rule of thumb, 1,000 English words is roughly 1,300–1,500 tokens, and one token is about four characters, so 1,000 tokens is around 750 words. Code, JSON, and non-English text tokenize less efficiently and use more tokens per word, which is exactly why pasting your real text into the tokenizer gives a far more accurate count than a word-based estimate.",
+	},
+	{
 		question: "How is the cost of LLM tokens calculated?",
 		answer:
-			"Providers bill separately for input tokens (your prompt) and output tokens (the model's response), priced per million tokens. Your total cost is (input tokens × input price) + (output tokens × output price). This calculator runs that math for every model you add and sums the result.",
+			"Providers bill separately for input tokens (your prompt) and output tokens (the model's response), priced per million tokens. Your total cost is (input tokens × input price) + (output tokens × output price). This calculator counts your input tokens exactly, lets you set an expected output length, and runs that math for every model.",
 	},
 	{
 		question: "What is the difference between input and output tokens?",
@@ -32,7 +42,12 @@ export const CALCULATOR_FAQ: CalculatorFaqItem[] = [
 	{
 		question: "How accurate are these cost estimates?",
 		answer:
-			"Estimates use current published per-token prices for each model and provider. Real-world cost depends on your exact token counts, caching, and any negotiated rates, so treat the numbers as a close planning estimate rather than a final invoice.",
+			"Input token counts come from a real BPE tokenizer running on your exact text, so they closely match what providers measure. Costs use each model's current published per-token prices. The main variables are output length (you estimate it, since it isn't known until the model responds), prompt caching, reasoning tokens on thinking models, and any negotiated rates. Treat the numbers as a tight planning estimate rather than a final invoice.",
+	},
+	{
+		question: "Do different models count tokens differently?",
+		answer:
+			"Yes. Each model family has its own tokenizer, so the same text can produce slightly different counts. This tool standardizes on the GPT-4o (o200k_base) tokenizer, which is the modern OpenAI standard and lands within roughly ±15% of other families like Claude, Gemini, and Llama — close enough for accurate budgeting, since none of those providers ship a tokenizer that runs in the browser.",
 	},
 	{
 		question:

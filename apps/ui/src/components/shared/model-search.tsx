@@ -20,17 +20,24 @@ import {
 } from "@/lib/components/popover";
 import { useAppConfig } from "@/lib/config";
 
-import { getProviderIcon } from "@llmgateway/shared/components";
+import {
+	getModelFamilyIcon,
+	getProviderIcon,
+} from "@llmgateway/shared/components";
 
 import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 
 interface ModelSearchEntry {
 	id: string;
 	name: string;
-	providerId: string;
-	providerName: string;
+	family: string;
 	createdAt?: Date;
 	free?: boolean;
+	searchText: string;
+}
+
+function normalizeForSearch(value: string) {
+	return value.toLowerCase().replace(/[-_\s]+/g, "");
 }
 
 function formatMonthLabel(date?: Date) {
@@ -58,8 +65,12 @@ export function ModelSearch({
 	const [search, setSearch] = useState("");
 	const listRef = useRef<HTMLDivElement>(null);
 
-	// Fetch models/providers via React Query if not provided as props
-	const { data: fetchedModels = [] } = useQuery<ApiModel[]>({
+	// Fetch models/providers via React Query if not provided as props. The
+	// fetch is deferred until the palette is opened so pages don't pay for the
+	// full catalogue (~700KB JSON) on load.
+	const { data: fetchedModels = [], isLoading: isLoadingModels } = useQuery<
+		ApiModel[]
+	>({
 		queryKey: ["internal-models"],
 		queryFn: async () => {
 			const response = await fetch(`${config.apiUrl}/internal/models`);
@@ -70,7 +81,7 @@ export function ModelSearch({
 			return data.models ?? [];
 		},
 		staleTime: 60 * 1000,
-		enabled: propModels === undefined,
+		enabled: propModels === undefined && open,
 	});
 
 	const { data: fetchedProviders = [] } = useQuery<ApiProvider[]>({
@@ -84,7 +95,7 @@ export function ModelSearch({
 			return data.providers ?? [];
 		},
 		staleTime: 60 * 1000,
-		enabled: propProviders === undefined,
+		enabled: propProviders === undefined && open,
 	});
 
 	const models = propModels ?? fetchedModels;
@@ -117,16 +128,6 @@ export function ModelSearch({
 		}
 	}, [search]);
 
-	const aliasMap = useMemo(() => {
-		const map = new Map<string, string[]>();
-		for (const model of models) {
-			if (model.aliases?.length) {
-				map.set(model.id, model.aliases);
-			}
-		}
-		return map;
-	}, [models]);
-
 	const entries = useMemo<ModelSearchEntry[]>(() => {
 		const now = new Date();
 		const map = new Map<string, ModelSearchEntry>();
@@ -143,32 +144,51 @@ export function ModelSearch({
 					? new Date(model.releasedAt)
 					: undefined;
 
-			for (const mapping of model.mappings) {
+			const activeMappings = model.mappings.filter((mapping) => {
 				const isDeactivated =
 					mapping.deactivatedAt &&
 					new Date(mapping.deactivatedAt).getTime() <= now.getTime();
-				if (isDeactivated) {
-					continue;
-				}
+				return !isDeactivated;
+			});
 
-				const provider = providers.find((p) => p.id === mapping.providerId);
-
-				const key = `${String(mapping.providerId)}-${String(model.id)}`;
-				if (!map.has(key)) {
-					map.set(key, {
-						id: String(model.id),
-						name: model.name ?? String(model.id),
-						providerId: String(mapping.providerId),
-						providerName: provider?.name ?? String(mapping.providerId),
-						createdAt,
-						free:
-							model.free === true &&
-							(mapping.requestPrice === undefined ||
-								mapping.requestPrice === null ||
-								parseFloat(mapping.requestPrice) === 0),
-					});
-				}
+			if (activeMappings.length === 0) {
+				continue;
 			}
+
+			const key = String(model.id);
+			if (map.has(key)) {
+				continue;
+			}
+
+			const entryName = model.name ?? String(model.id);
+			const providerNames = activeMappings.map(
+				(mapping) =>
+					providers.find((p) => p.id === mapping.providerId)?.name ??
+					String(mapping.providerId),
+			);
+			map.set(key, {
+				id: String(model.id),
+				name: entryName,
+				family: model.family,
+				createdAt,
+				searchText: normalizeForSearch(
+					[
+						...providerNames,
+						entryName,
+						String(model.id),
+						model.family ?? "",
+						model.aliases?.join(" ") ?? "",
+					].join(" "),
+				),
+				free:
+					model.free === true &&
+					activeMappings.some(
+						(mapping) =>
+							mapping.requestPrice === undefined ||
+							mapping.requestPrice === null ||
+							parseFloat(mapping.requestPrice) === 0,
+					),
+			});
 		}
 
 		const list = Array.from(map.values());
@@ -185,9 +205,40 @@ export function ModelSearch({
 		return list;
 	}, [models, providers]);
 
+	const searchTokens = useMemo(
+		() =>
+			search
+				.toLowerCase()
+				.split(/[-_\s]+/)
+				.filter(Boolean),
+		[search],
+	);
+
+	const filteredEntries = useMemo(() => {
+		if (searchTokens.length === 0) {
+			return entries;
+		}
+		return entries.filter((entry) =>
+			searchTokens.every((token) => entry.searchText.includes(token)),
+		);
+	}, [entries, searchTokens]);
+
+	const filteredProviders = useMemo(() => {
+		if (searchTokens.length === 0) {
+			return [];
+		}
+		return providers.filter((p) => {
+			if (p.name === "LLM Gateway") {
+				return false;
+			}
+			const text = normalizeForSearch(`${p.name ?? p.id} ${p.id}`);
+			return searchTokens.every((token) => text.includes(token));
+		});
+	}, [providers, searchTokens]);
+
 	const groups: [string, ModelSearchEntry[]][] = useMemo(() => {
 		const byMonth = new Map<string, ModelSearchEntry[]>();
-		for (const entry of entries as ModelSearchEntry[]) {
+		for (const entry of filteredEntries) {
 			const label = formatMonthLabel(entry.createdAt);
 			if (!byMonth.has(label)) {
 				byMonth.set(label, []);
@@ -195,7 +246,7 @@ export function ModelSearch({
 			byMonth.get(label)!.push(entry);
 		}
 		return Array.from(byMonth.entries());
-	}, [entries]);
+	}, [filteredEntries]);
 
 	return (
 		<Popover
@@ -226,64 +277,26 @@ export function ModelSearch({
 				side="bottom"
 				align="center"
 			>
-				<Command>
+				<Command shouldFilter={false}>
 					<CommandInput
 						placeholder="Search models…"
 						value={search}
 						onValueChange={setSearch}
 					/>
 					<CommandList ref={listRef} className="max-h-[400px]">
-						<CommandEmpty>No results found.</CommandEmpty>
-						{search.trim().length > 0 && providers.length > 0 && (
+						<CommandEmpty>
+							{isLoadingModels ? "Loading models…" : "No results found."}
+						</CommandEmpty>
+						{filteredProviders.length > 0 && (
 							<CommandGroup heading="Providers">
-								{providers
-									.filter((p) => p.name !== "LLM Gateway")
-									.map((p) => {
-										const ProviderIcon = getProviderIcon(p.id);
-										return (
-											<CommandItem
-												key={`provider-${p.id}`}
-												value={`${p.name ?? p.id} ${p.id} provider`}
-												onSelect={() => {
-													router.push(`/providers/${encodeURIComponent(p.id)}`);
-													setOpen(false);
-												}}
-											>
-												<div className="flex items-center gap-3">
-													<div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted">
-														{ProviderIcon ? (
-															<ProviderIcon className="h-5 w-5" />
-														) : (
-															<span className="text-xs font-medium uppercase text-muted-foreground">
-																{(p.name ?? p.id).charAt(0)}
-															</span>
-														)}
-													</div>
-													<div className="flex flex-col items-start">
-														<span className="text-sm font-medium">
-															{p.name ?? p.id}
-														</span>
-														<span className="text-xs text-muted-foreground">
-															{p.id}
-														</span>
-													</div>
-												</div>
-											</CommandItem>
-										);
-									})}
-							</CommandGroup>
-						)}
-						{groups.map(([label, items]) => (
-							<CommandGroup key={label} heading={label}>
-								{items.map((entry) => {
-									const ProviderIcon = getProviderIcon(entry.providerId);
-
+								{filteredProviders.map((p) => {
+									const ProviderIcon = getProviderIcon(p.id);
 									return (
 										<CommandItem
-											key={`${entry.providerId}-${entry.id}`}
-											value={`${entry.providerName} ${entry.name} ${entry.id}${aliasMap.has(entry.id) ? ` ${aliasMap.get(entry.id)!.join(" ")}` : ""}`}
+											key={`provider-${p.id}`}
+											value={`provider-${p.id}`}
 											onSelect={() => {
-												router.push(`/models/${encodeURIComponent(entry.id)}`);
+												router.push(`/providers/${encodeURIComponent(p.id)}`);
 												setOpen(false);
 											}}
 										>
@@ -293,13 +306,45 @@ export function ModelSearch({
 														<ProviderIcon className="h-5 w-5" />
 													) : (
 														<span className="text-xs font-medium uppercase text-muted-foreground">
-															{entry.providerName.charAt(0)}
+															{(p.name ?? p.id).charAt(0)}
 														</span>
 													)}
 												</div>
 												<div className="flex flex-col items-start">
 													<span className="text-sm font-medium">
-														{entry.providerName}: {entry.name}
+														{p.name ?? p.id}
+													</span>
+													<span className="text-xs text-muted-foreground">
+														{p.id}
+													</span>
+												</div>
+											</div>
+										</CommandItem>
+									);
+								})}
+							</CommandGroup>
+						)}
+						{groups.map(([label, items]) => (
+							<CommandGroup key={label} heading={label}>
+								{items.map((entry) => {
+									const FamilyIcon = getModelFamilyIcon(entry.family);
+
+									return (
+										<CommandItem
+											key={entry.id}
+											value={entry.id}
+											onSelect={() => {
+												router.push(`/models/${encodeURIComponent(entry.id)}`);
+												setOpen(false);
+											}}
+										>
+											<div className="flex items-center gap-3">
+												<div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted">
+													<FamilyIcon className="h-5 w-5" />
+												</div>
+												<div className="flex flex-col items-start">
+													<span className="text-sm font-medium">
+														{entry.name}
 													</span>
 													<span className="text-xs text-muted-foreground">
 														{entry.id}

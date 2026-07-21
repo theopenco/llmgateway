@@ -332,6 +332,35 @@ let failOnceCounter = 0;
 let currentMockServerUrl = "";
 let videoCounter = 0;
 
+// Checkpoint waiters let tests synchronize with the mock reaching a specific
+// point inside a request (e.g. the partial body of a hang trigger has been
+// flushed to the socket) instead of guessing with fixed sleeps, which flake on
+// slow CI runners. Register the waiter BEFORE issuing the request, then await
+// it to know the gateway's upstream request has verifiably reached that point.
+const mockCheckpointWaiters = new Map<string, Array<() => void>>();
+
+export function waitForMockCheckpoint(name: string): Promise<void> {
+	return new Promise((resolve) => {
+		const waiters = mockCheckpointWaiters.get(name) ?? [];
+		waiters.push(resolve);
+		mockCheckpointWaiters.set(name, waiters);
+	});
+}
+
+function notifyMockCheckpoint(name: string) {
+	const waiters = mockCheckpointWaiters.get(name);
+	if (waiters) {
+		mockCheckpointWaiters.delete(name);
+		for (const resolve of waiters) {
+			resolve();
+		}
+	}
+}
+
+export function resetMockCheckpoints() {
+	mockCheckpointWaiters.clear();
+}
+
 interface MockVideoJobState {
 	id: string;
 	object: "video";
@@ -351,10 +380,13 @@ interface MockVideoJobState {
 		mimeType: string;
 		referenceType: string;
 	}>;
+	referenceVideoUrls?: string[];
 	imageUrls?: string[];
 	generationType?: string;
+	requestBody?: unknown;
 	size?: string;
 	duration?: number;
+	ratio?: string;
 	resolution?: string;
 	width?: number;
 	height?: number;
@@ -388,6 +420,13 @@ function getMockVideoSizeMetadata(size: unknown): {
 	height: number;
 } {
 	switch (size) {
+		case "848x480":
+			return {
+				size,
+				resolution: "480p",
+				width: 848,
+				height: 480,
+			};
 		case "720x1280":
 			return {
 				size,
@@ -570,19 +609,23 @@ function delay(ms: number): Promise<void> {
 mockOpenAIServer.post("/v1/responses", async (c) => {
 	const body = await c.req.json();
 
-	// Check if this request should trigger an error response
-	const shouldError = body.input?.some?.(
-		(msg: any) =>
-			msg.role === "user" && msg.content?.includes?.("TRIGGER_ERROR"),
-	);
+	// Get the user's message to include in the response. Used for both the error
+	// triggers below and the echoed assistant content. Responses-API input
+	// content is an array of parts, so extract the text rather than calling
+	// `.includes` on the raw content (which would miss array-form messages).
+	const userMessage = getResponsesApiUserMessage(body.input);
 
-	if (shouldError) {
+	// Check if this request should trigger an error response
+	const statusTrigger = extractStatusCodeTrigger(userMessage);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+
+	if (userMessage.includes("TRIGGER_ERROR")) {
 		c.status(500);
 		return c.json(sampleErrorResponse);
 	}
-
-	// Get the user's message to include in the response
-	const userMessage = getResponsesApiUserMessage(body.input);
 	const shouldEndAfterDoneEvent = userMessage.includes(
 		"TRIGGER_RESPONSES_DONE_WITHOUT_COMPLETED",
 	);
@@ -599,6 +642,9 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 				object: "response",
 				created_at: Math.floor(Date.now() / 1000),
 				model: body.model ?? "gpt-5-nano",
+				...(typeof body.service_tier === "string"
+					? { service_tier: body.service_tier }
+					: {}),
 			};
 
 			await stream.writeSSE({
@@ -721,6 +767,9 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 			output_tokens: 20,
 			total_tokens: 30,
 		},
+		...(typeof body.service_tier === "string"
+			? { service_tier: body.service_tier }
+			: {}),
 		status: "completed",
 	};
 
@@ -822,6 +871,7 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 	// Check if this request should trigger a timeout (delay response)
 	const timeoutDelay = extractTimeoutDelay(userMessage);
 	if (timeoutDelay) {
+		notifyMockCheckpoint("TRIGGER_TIMEOUT");
 		await delay(timeoutDelay);
 	}
 
@@ -830,6 +880,11 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		chatMessages,
 		"ZERO_TOKENS",
 	);
+	const shouldReturnReasoning = hasUserMessageTrigger(
+		chatMessages,
+		"TRIGGER_REASONING",
+	);
+	const reasoningContent = "Let me think about this step by step.";
 	const shouldTruncateStream = hasUserMessageTrigger(
 		chatMessages,
 		"TRIGGER_TRUNCATED_STREAM",
@@ -959,6 +1014,28 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 				return;
 			}
 
+			// Reasoning chunks (emitted before content, like real providers).
+			if (shouldReturnReasoning) {
+				for (let index = 0; index < requestedN; index++) {
+					await stream.writeSSE({
+						data: JSON.stringify({
+							id: "chatcmpl-123",
+							object: "chat.completion.chunk",
+							created: Math.floor(Date.now() / 1000),
+							model: body.model ?? "gpt-4o-mini",
+							choices: [
+								{
+									index,
+									delta: { reasoning: reasoningContent },
+									finish_reason: null,
+								},
+							],
+						}),
+						id: String(eventId++),
+					});
+				}
+			}
+
 			// Content chunks: one per choice index. For n > 1 each variant tags
 			// the content so the test can assert that no two choice streams
 			// were merged into one buffer.
@@ -1040,6 +1117,91 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 			});
 		});
 	}
+
+	// Simulate an upstream that returns response headers (200) and a partial
+	// body, then closes the socket before the body completes. The gateway's
+	// res.json() then throws undici's "terminated: other side closed"
+	// TypeError, exercising the non-streaming body-read failure path.
+	if (hasUserMessageTrigger(chatMessages, "TRIGGER_BODY_ABORT")) {
+		const encoder = new TextEncoder();
+		let sentPartialBody = false;
+		const abortedBody = new ReadableStream({
+			pull(controller) {
+				if (!sentPartialBody) {
+					sentPartialBody = true;
+					// Flush a partial JSON body so headers are written first.
+					controller.enqueue(
+						encoder.encode('{"id":"chatcmpl-123","object":"chat.completion"'),
+					);
+					return;
+				}
+				controller.error(new Error("simulated upstream socket close"));
+			},
+		});
+		return new Response(abortedBody, {
+			status: 200,
+			headers: { "Content-Type": "application/json" },
+		});
+	}
+
+	// Simulate an upstream that returns response headers (200) and a partial
+	// body, then hangs forever without finishing it. The gateway's res.json()
+	// blocks waiting for the rest, letting a test abort the client mid-read to
+	// exercise the non-streaming body-read cancellation path.
+	if (hasUserMessageTrigger(chatMessages, "TRIGGER_BODY_HANG")) {
+		const encoder = new TextEncoder();
+		let sentPartialBody = false;
+		const hangingBody = new ReadableStream({
+			pull(controller) {
+				if (!sentPartialBody) {
+					sentPartialBody = true;
+					// Flush a partial JSON body so headers are written first.
+					controller.enqueue(
+						encoder.encode('{"id":"chatcmpl-123","object":"chat.completion"'),
+					);
+					notifyMockCheckpoint("TRIGGER_BODY_HANG");
+					return;
+				}
+				// Never enqueue more and never close: the body read hangs until the
+				// client disconnects.
+				return new Promise<void>(() => {});
+			},
+		});
+		return new Response(hangingBody, {
+			status: 200,
+			headers: { "Content-Type": "application/json" },
+		});
+	}
+
+	// Simulate an upstream that returns a non-OK status (500) plus a partial
+	// error body, then hangs without finishing it. The gateway's res.text() on
+	// the error path blocks waiting for the rest, letting a test abort the
+	// client mid-read to exercise the non-streaming error-body cancellation
+	// path. The trigger deliberately avoids the "TRIGGER_ERROR" substring so the
+	// generic-error handler above doesn't short-circuit it.
+	if (hasUserMessageTrigger(chatMessages, "TRIGGER_5XX_BODY_HANG")) {
+		const encoder = new TextEncoder();
+		let sentPartialBody = false;
+		const hangingErrorBody = new ReadableStream({
+			pull(controller) {
+				if (!sentPartialBody) {
+					sentPartialBody = true;
+					// Flush a partial JSON body so headers are written first.
+					controller.enqueue(encoder.encode('{"error":{"message":"partial'));
+					notifyMockCheckpoint("TRIGGER_5XX_BODY_HANG");
+					return;
+				}
+				// Never enqueue more and never close: the body read hangs until the
+				// client disconnects.
+				return new Promise<void>(() => {});
+			},
+		});
+		return new Response(hangingErrorBody, {
+			status: 500,
+			headers: { "Content-Type": "application/json" },
+		});
+	}
+
 	const baseChoice = sampleChatCompletionResponse.choices[0];
 	const choices = Array.from({ length: requestedN }, (_, index) => ({
 		...baseChoice,
@@ -1050,6 +1212,7 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 				requestedN > 1
 					? `${assistantContent} (variant ${index + 1})`
 					: assistantContent,
+			...(shouldReturnReasoning && { reasoning: reasoningContent }),
 		},
 	}));
 
@@ -1122,6 +1285,122 @@ mockOpenAIServer.post("/v1/moderations", async (c) => {
 			},
 		],
 	});
+});
+
+mockOpenAIServer.post("/v1/ocr", async (c) => {
+	const body = await c.req.json();
+	const document = body.document ?? {};
+	const documentUrl =
+		typeof document.document_url === "string"
+			? document.document_url
+			: typeof document.image_url === "string"
+				? document.image_url
+				: typeof document?.image_url?.url === "string"
+					? document.image_url.url
+					: "";
+
+	const statusTrigger = extractStatusCodeTrigger(documentUrl);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+	if (documentUrl.includes("TRIGGER_ERROR")) {
+		c.status(500);
+		return c.json(sampleErrorResponse);
+	}
+
+	// Allow tests to control the billed page count via the URL marker
+	// "PAGES_<n>"; default to a single page.
+	const pagesMatch = documentUrl.match(/PAGES_(\d+)/);
+	const pageCount = pagesMatch ? Number(pagesMatch[1]) : 1;
+
+	return c.json({
+		pages: Array.from({ length: pageCount }, (_, index) => ({
+			index,
+			markdown: `# Mock OCR page ${index}`,
+			images: [],
+			dimensions: { dpi: 200, height: 1024, width: 1024 },
+		})),
+		model: body.model ?? "mistral-ocr-latest",
+		document_annotation: null,
+		usage_info: { pages_processed: pageCount, doc_size_bytes: 12345 },
+	});
+});
+
+mockOpenAIServer.post("/v1/audio/speech", async (c) => {
+	const body = await c.req.json();
+	const input = typeof body.input === "string" ? body.input : "";
+
+	const statusTrigger = extractStatusCodeTrigger(input);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+	if (input.includes("TRIGGER_ERROR")) {
+		c.status(500);
+		return c.json(sampleErrorResponse);
+	}
+
+	const format =
+		typeof body.response_format === "string" ? body.response_format : "mp3";
+	const contentTypes: Record<string, string> = {
+		mp3: "audio/mpeg",
+		opus: "audio/opus",
+		aac: "audio/aac",
+		flac: "audio/flac",
+		wav: "audio/wav",
+		pcm: "audio/pcm",
+	};
+	// Deterministic mock audio payload (not a real encoded stream).
+	const audio = Buffer.from("MOCK_OPENAI_AUDIO");
+
+	// gpt-4o-mini-tts requests stream_format=sse: emit audio deltas followed by a
+	// done event carrying token usage, mirroring OpenAI's SSE schema.
+	if (body.stream_format === "sse") {
+		const half = Math.ceil(audio.length / 2);
+		const delta1 = audio.subarray(0, half).toString("base64");
+		const delta2 = audio.subarray(half).toString("base64");
+		const usage = { input_tokens: 7, output_tokens: 42, total_tokens: 49 };
+		const sse =
+			`data: ${JSON.stringify({ type: "speech.audio.delta", audio: delta1 })}\n\n` +
+			`data: ${JSON.stringify({ type: "speech.audio.delta", audio: delta2 })}\n\n` +
+			`data: ${JSON.stringify({ type: "speech.audio.done", usage })}\n\n`;
+		return c.body(sse, 200, { "Content-Type": "text/event-stream" });
+	}
+
+	return c.body(audio, 200, {
+		"Content-Type": contentTypes[format] ?? "audio/mpeg",
+	});
+});
+
+// ElevenLabs text-to-speech: POST /v1/text-to-speech/{voice_id}?output_format=…
+// Returns the audio already encoded; the content type is derived from the
+// requested output_format query param.
+mockOpenAIServer.post("/v1/text-to-speech/:voiceId", async (c) => {
+	const body = await c.req.json();
+	const text = typeof body.text === "string" ? body.text : "";
+
+	const statusTrigger = extractStatusCodeTrigger(text);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+	if (text.includes("TRIGGER_ERROR")) {
+		c.status(500);
+		return c.json(sampleErrorResponse);
+	}
+
+	const outputFormat = c.req.query("output_format") ?? "mp3_44100_128";
+	const contentType = outputFormat.startsWith("wav")
+		? "audio/wav"
+		: outputFormat.startsWith("pcm")
+			? "audio/pcm"
+			: outputFormat.startsWith("opus")
+				? "audio/opus"
+				: "audio/mpeg";
+	const audio = Buffer.from("MOCK_ELEVENLABS_AUDIO");
+
+	return c.body(audio, 200, { "Content-Type": contentType });
 });
 
 mockOpenAIServer.post("/v1/embeddings", async (c) => {
@@ -1351,9 +1630,113 @@ async function handleGoogleGenerateContent(c: Context) {
 			},
 		});
 	}
+	// First call with TRIGGER_FAIL_ONCE fails with 500, subsequent calls
+	// succeed. Uses the shared failOnceCounter (reset via resetFailOnceCounter)
+	// so retry behavior can be exercised on the Gemini-format endpoint too.
+	const failOnce = body.contents?.some?.((content: any) =>
+		content.parts?.some?.((part: any) =>
+			part.text?.includes?.("TRIGGER_FAIL_ONCE"),
+		),
+	);
+	if (failOnce) {
+		failOnceCounter++;
+		if (failOnceCounter === 1) {
+			c.status(500);
+			return c.json({
+				error: {
+					code: 500,
+					message: "Internal server error (fail once)",
+					status: "INTERNAL",
+				},
+			});
+		}
+	}
+	// Speech generation: when the caller requests AUDIO output, return an
+	// inlineData audio part (base64-encoded PCM) like Gemini TTS models do.
+	const responseModalities: string[] =
+		body.generationConfig?.responseModalities ?? [];
+	if (responseModalities.includes("AUDIO")) {
+		// 8 samples of 16-bit silence as a deterministic PCM payload.
+		const pcm = Buffer.alloc(16);
+		return c.json({
+			candidates: [
+				{
+					content: {
+						parts: [
+							{
+								inlineData: {
+									mimeType: "audio/L16;codec=pcm;rate=24000",
+									data: pcm.toString("base64"),
+								},
+							},
+						],
+						role: "model",
+					},
+					finishReason: "STOP",
+					index: 0,
+				},
+			],
+			usageMetadata: {
+				promptTokenCount: 5,
+				candidatesTokenCount: 42,
+				totalTokenCount: 47,
+			},
+		});
+	}
+
 	const userMessage =
 		body.contents?.find?.((entry: any) => entry.role === "user")?.parts?.[0]
 			?.text ?? "";
+
+	const candidateCount =
+		typeof body.generationConfig?.candidateCount === "number"
+			? body.generationConfig.candidateCount
+			: 1;
+	if (candidateCount > 8 || candidateCount < 1) {
+		c.status(400);
+		return c.json({
+			error: {
+				code: 400,
+				message:
+					"* GenerateContentRequest.generation_config.candidate_count: candidate_count must be in the range [1, 8].\n",
+				status: "INVALID_ARGUMENT",
+			},
+		});
+	}
+	if (candidateCount > 1) {
+		// Mirror the real AI Studio quirk: candidate 0's parts contain its own
+		// output followed by a verbatim copy of every other candidate's parts,
+		// so tests exercise the gateway's de-duplication.
+		const variantPart = (i: number) => ({
+			text: `Google variant ${i + 1} for: "${userMessage}"`,
+		});
+		const candidates = Array.from({ length: candidateCount }, (_, i) => ({
+			content: {
+				parts:
+					i === 0
+						? [
+								variantPart(0),
+								...Array.from({ length: candidateCount - 1 }, (__, j) =>
+									variantPart(j + 1),
+								),
+							]
+						: [variantPart(i)],
+				role: "model",
+			},
+			finishReason: "STOP",
+			index: i,
+		}));
+		const candidatesTokenCount = 20 * candidateCount;
+		return c.json({
+			candidates,
+			usageMetadata: {
+				promptTokenCount: 10,
+				candidatesTokenCount,
+				totalTokenCount: 10 + candidatesTokenCount,
+			},
+		});
+	}
+
 	return c.json({
 		candidates: [
 			{
@@ -1446,6 +1829,45 @@ mockOpenAIServer.post("/v1/videos", async (c) => {
 				? Number(body.seconds)
 				: typeof body.seconds === "number"
 					? body.seconds
+					: 8,
+		resolution: videoSize.resolution,
+		width: videoSize.width,
+		height: videoSize.height,
+		created_at: Math.floor(Date.now() / 1000),
+		completed_at: null,
+		expires_at: null,
+		error: null,
+	};
+
+	videoJobs.set(id, job);
+
+	return c.json(job);
+});
+
+mockOpenAIServer.post("/v1/videos/generations", async (c) => {
+	const body = await c.req.json();
+	const prompt = typeof body.prompt === "string" ? body.prompt : "";
+	const statusTrigger = extractStatusCodeTrigger(prompt);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as Parameters<typeof c.status>[0]);
+		return c.json(statusTrigger.errorResponse);
+	}
+	videoCounter++;
+	const id = `video_${videoCounter}`;
+	const videoSize = getMockVideoSizeMetadata(body.size);
+	const job: MockVideoJobState = {
+		id,
+		object: "video",
+		model: body.model ?? "grok-imagine-video-1.5",
+		status: "queued",
+		progress: 0,
+		firstFrame: extractMockVideoImage(body.image),
+		size: videoSize.size,
+		duration:
+			typeof body.duration === "number"
+				? body.duration
+				: typeof body.duration === "string"
+					? Number(body.duration)
 					: 8,
 		resolution: videoSize.resolution,
 		width: videoSize.width,
@@ -1591,6 +2013,213 @@ mockOpenAIServer.post("/api/v1/jobs/createTask", async (c) => {
 		msg: "success",
 		data: {
 			taskId: id,
+		},
+	});
+});
+
+mockOpenAIServer.post("/contents/generations/tasks", async (c) => {
+	const body = await c.req.json();
+	const content = Array.isArray(body.content) ? body.content : [];
+	const promptItem = content.find(
+		(item: unknown): item is { text: string } =>
+			!!item &&
+			typeof item === "object" &&
+			(item as Record<string, unknown>).type === "text",
+	);
+	const prompt =
+		promptItem && typeof promptItem.text === "string" ? promptItem.text : "";
+	const statusTrigger = extractStatusCodeTrigger(prompt);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+
+	const parseFrameByRole = (role: string) => {
+		const item = content.find(
+			(entry: unknown): entry is Record<string, unknown> =>
+				!!entry &&
+				typeof entry === "object" &&
+				(entry as Record<string, unknown>).role === role,
+		);
+		const url =
+			item &&
+			typeof item.image_url === "object" &&
+			item.image_url !== null &&
+			typeof (item.image_url as Record<string, unknown>).url === "string"
+				? ((item.image_url as Record<string, unknown>).url as string)
+				: undefined;
+		if (!url) {
+			return undefined;
+		}
+		const match = url.match(/^data:([^;]+);base64,(.*)$/);
+		if (!match) {
+			return undefined;
+		}
+		return {
+			mimeType: match[1],
+			bytesBase64Encoded: match[2],
+		};
+	};
+
+	const referenceImages: Array<{
+		mimeType: string;
+		bytesBase64Encoded: string;
+		referenceType: string;
+	}> = [];
+	for (const entry of content) {
+		if (
+			!entry ||
+			typeof entry !== "object" ||
+			(entry as Record<string, unknown>).role !== "reference_image"
+		) {
+			continue;
+		}
+		const imageUrl = (entry as Record<string, unknown>).image_url;
+		const url =
+			typeof imageUrl === "object" &&
+			imageUrl !== null &&
+			typeof (imageUrl as Record<string, unknown>).url === "string"
+				? ((imageUrl as Record<string, unknown>).url as string)
+				: undefined;
+		const match = url?.match(/^data:([^;]+);base64,(.*)$/);
+		if (!match) {
+			continue;
+		}
+		referenceImages.push({
+			mimeType: match[1],
+			bytesBase64Encoded: match[2],
+			referenceType: "reference_image",
+		});
+	}
+
+	videoCounter++;
+	const id = `bytedance_task_${videoCounter}`;
+	const job: MockVideoJobState = {
+		id,
+		object: "video",
+		model: typeof body.model === "string" ? body.model : "seedance-2-0",
+		status: "queued",
+		progress: 0,
+		firstFrame: parseFrameByRole("first_frame"),
+		lastFrame: parseFrameByRole("last_frame"),
+		referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
+		duration: typeof body.duration === "number" ? body.duration : undefined,
+		ratio: typeof body.ratio === "string" ? body.ratio : undefined,
+		resolution:
+			typeof body.resolution === "string" ? body.resolution : undefined,
+		created_at: Math.floor(Date.now() / 1000),
+		completed_at: null,
+		expires_at: null,
+		error: null,
+	};
+
+	videoJobs.set(id, job);
+
+	return c.json({
+		id,
+		status: "queued",
+	});
+});
+
+mockOpenAIServer.post("/api/v1/model/uploadMedia", async (c) => {
+	const authHeader = c.req.header("Authorization");
+	if (!authHeader?.startsWith("Bearer ")) {
+		c.status(401);
+		return c.json({
+			error: {
+				message: "Unauthorized",
+			},
+		});
+	}
+
+	const formData = await c.req.formData();
+	const file = formData.get("file");
+	if (!(file instanceof File)) {
+		c.status(400);
+		return c.json({
+			error: {
+				message: "file is required",
+			},
+		});
+	}
+
+	videoCounter++;
+	const url = `${currentMockServerUrl}/uploads/atlascloud-media-${videoCounter}.png`;
+	if (videoCounter % 2 === 0) {
+		return c.json({
+			data: url,
+		});
+	}
+	return c.json({
+		data: {
+			temporary_url: url,
+		},
+	});
+});
+
+mockOpenAIServer.post("/api/v1/model/generateVideo", async (c) => {
+	const body = await c.req.json();
+	const prompt = typeof body.prompt === "string" ? body.prompt : "";
+	const statusTrigger = extractStatusCodeTrigger(prompt);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+
+	videoCounter++;
+	const id = `atlascloud_prediction_${videoCounter}`;
+	const videoSize =
+		body.aspect_ratio === "9:16"
+			? getMockVideoSizeMetadata("720x1280")
+			: getMockVideoSizeMetadata("1280x720");
+	const imageUrls = [
+		typeof body.image === "string" ? body.image : null,
+		typeof body.end_image === "string" ? body.end_image : null,
+		typeof body.image_url === "string" ? body.image_url : null,
+		typeof body.end_image_url === "string" ? body.end_image_url : null,
+		...(Array.isArray(body.reference_image_urls)
+			? body.reference_image_urls.filter(
+					(value: unknown): value is string => typeof value === "string",
+				)
+			: []),
+	].filter((value): value is string => value !== null);
+	const referenceVideoUrls = Array.isArray(body.reference_video_urls)
+		? body.reference_video_urls.filter(
+				(value: unknown): value is string => typeof value === "string",
+			)
+		: [];
+	const job: MockVideoJobState = {
+		id,
+		object: "video",
+		model: typeof body.model === "string" ? body.model : "atlascloud-video",
+		status: "queued",
+		progress: 0,
+		imageUrls,
+		referenceVideoUrls,
+		requestBody: body,
+		size: videoSize.size,
+		duration: typeof body.duration === "number" ? body.duration : undefined,
+		resolution: videoSize.resolution,
+		width: videoSize.width,
+		height: videoSize.height,
+		generateAudio:
+			typeof body.sound === "boolean"
+				? body.sound
+				: typeof body.audio === "boolean"
+					? body.audio
+					: undefined,
+		created_at: Math.floor(Date.now() / 1000),
+		completed_at: null,
+		expires_at: null,
+		error: null,
+	};
+
+	videoJobs.set(id, job);
+
+	return c.json({
+		data: {
+			id,
+			status: "created",
 		},
 	});
 });
@@ -2174,6 +2803,36 @@ mockOpenAIServer.get("/api/v1/jobs/recordInfo", async (c) => {
 	});
 });
 
+mockOpenAIServer.get("/api/v1/model/prediction/:id", async (c) => {
+	const id = c.req.param("id");
+	const job = videoJobs.get(id);
+	if (!job) {
+		c.status(404);
+		return c.json({
+			error: {
+				message: "prediction not found",
+			},
+		});
+	}
+
+	return c.json({
+		data: {
+			id,
+			status:
+				job.status === "queued"
+					? "created"
+					: job.status === "in_progress"
+						? "processing"
+						: job.status,
+			outputs:
+				job.status === "completed"
+					? [`${currentMockServerUrl}/mock-assets/${id}`]
+					: [],
+			error: job.status === "failed" ? job.error?.message : null,
+		},
+	});
+});
+
 mockOpenAIServer.get("/api/v1/veo/get-1080p-video", async (c) => {
 	const taskId = c.req.query("taskId");
 	if (!taskId) {
@@ -2294,6 +2953,39 @@ mockOpenAIServer.post(
 					code: 500,
 					message: "Internal server error",
 					status: "INTERNAL",
+				},
+			});
+		}
+
+		// Speech generation: when the caller requests AUDIO output, return an
+		// inlineData audio part (base64-encoded PCM) like Gemini TTS models do.
+		const vertexResponseModalities: string[] =
+			body.generationConfig?.responseModalities ?? [];
+		if (vertexResponseModalities.includes("AUDIO")) {
+			// 8 samples of 16-bit silence as a deterministic PCM payload.
+			const pcm = Buffer.alloc(16);
+			return c.json({
+				candidates: [
+					{
+						content: {
+							parts: [
+								{
+									inlineData: {
+										mimeType: "audio/L16;codec=pcm;rate=24000",
+										data: pcm.toString("base64"),
+									},
+								},
+							],
+							role: "model",
+						},
+						finishReason: "STOP",
+						index: 0,
+					},
+				],
+				usageMetadata: {
+					promptTokenCount: 5,
+					candidatesTokenCount: 42,
+					totalTokenCount: 47,
 				},
 			});
 		}

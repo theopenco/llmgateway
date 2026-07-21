@@ -3,13 +3,14 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { maskToken } from "@/lib/maskToken.js";
-import { getActiveUserOrganizationIds } from "@/utils/authorization.js";
+import { getAdminOrganizationIds } from "@/utils/authorization.js";
 
 import { validateProviderKey } from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
-import { db, eq, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { providers } from "@llmgateway/models";
+import { isStealthProvider, providers } from "@llmgateway/models";
+import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderId } from "@llmgateway/models";
@@ -61,10 +62,34 @@ const providerKeySchema = z.object({
 		})
 		.nullable(),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
+	customModelsOnly: z.boolean(),
 	organizationId: z.string(),
 });
 
 // Schema for creating a new provider key
+// Regular API keys must be printable ASCII without whitespace, but
+// service-account keys (Vertex providers) are JSON blobs that may be
+// pretty-printed, so ASCII whitespace is allowed when the value parses as a
+// JSON object.
+function isValidProviderToken(value: string): boolean {
+	if (/^[\x21-\x7E]+$/.test(value)) {
+		return true;
+	}
+	if (!/^[\t\n\r\x20-\x7E]+$/.test(value)) {
+		return false;
+	}
+	const trimmed = value.trim();
+	if (!trimmed.startsWith("{")) {
+		return false;
+	}
+	try {
+		JSON.parse(trimmed);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 const createProviderKeySchema = z.object({
 	provider: z
 		.string()
@@ -72,16 +97,16 @@ const createProviderKeySchema = z.object({
 			message:
 				"Invalid provider. Must be one of the supported providers or 'custom'.",
 		}),
-	token: z
-		.string()
-		.min(1, "API key is required")
-		.regex(
-			/^[\x21-\x7E]+$/,
+	token: z.string().min(1, "API key is required").refine(isValidProviderToken, {
+		message:
 			"API key contains invalid characters. Make sure you copied the actual key, not a masked version.",
-		),
+	}),
 	name: z
 		.string()
-		.regex(/^[a-z]+$/, "Name must contain only lowercase letters a-z")
+		.regex(
+			/^[a-z]+(-[a-z]+)*$/,
+			"Name must contain only lowercase letters a-z and single hyphens between them",
+		)
 		.optional(),
 	baseUrl: z.string().url().optional(),
 	options: z
@@ -122,10 +147,16 @@ const createProviderKeySchema = z.object({
 	organizationId: z.string().min(1, "Organization ID is required"),
 });
 
-// Schema for updating a provider key status
-const updateProviderKeyStatusSchema = z.object({
-	status: z.enum(["active", "inactive"]),
-});
+// Schema for updating a provider key status / settings
+const updateProviderKeyStatusSchema = z
+	.object({
+		status: z.enum(["active", "inactive"]).optional(),
+		// Custom providers only: restrict requests to catalog-defined models.
+		customModelsOnly: z.boolean().optional(),
+	})
+	.refine((v) => v.status !== undefined || v.customModelsOnly !== undefined, {
+		message: "No updatable fields provided",
+	});
 
 // Create a new provider key
 const create = createRoute({
@@ -206,10 +237,44 @@ keysProvider.openapi(create, async (c) => {
 		});
 	}
 
+	// Provider (BYOK) keys are an org-level resource; project-scoped "developer"
+	// members cannot manage them.
+	const creatorRole = userOrgs[0]?.role;
+	if (creatorRole !== "owner" && creatorRole !== "admin") {
+		throw new HTTPException(403, {
+			message: "Only organization owners and admins can manage provider keys",
+		});
+	}
+
 	if (provider === "custom" && (!name || !baseUrl)) {
 		throw new HTTPException(400, {
 			message: "Custom providers require both a name and base URL",
 		});
+	}
+
+	// Stealth providers have no default base URL and an undisclosed platform, so
+	// users can't self-configure a working key for them. They are hidden from the
+	// UI selector; reject here too as defense in depth against direct API calls.
+	if (provider !== "custom" && isStealthProvider(provider as ProviderId)) {
+		throw new HTTPException(400, {
+			message: `Provider ${provider} cannot be configured with a provider key`,
+		});
+	}
+
+	// SSRF guard: reject base URLs that resolve to internal/reserved addresses
+	// before they are stored or used as an outbound fetch target. No-op unless
+	// the hosted provider URL guard is enabled.
+	if (baseUrl) {
+		try {
+			await assertSafeProviderUrl(baseUrl);
+		} catch (error) {
+			throw new HTTPException(400, {
+				message:
+					error instanceof Error
+						? error.message
+						: "Provider base URL is not allowed",
+			});
+		}
 	}
 
 	if (provider === "custom" && name) {
@@ -294,7 +359,7 @@ keysProvider.openapi(create, async (c) => {
 
 	// Use the user-provided token
 	// Create the provider key
-	const [providerKey] = await db
+	const [providerKey] = await cdb
 		.insert(tables.providerKey)
 		.values({
 			token: userToken,
@@ -362,7 +427,7 @@ keysProvider.openapi(list, async (c) => {
 	}
 
 	// Get all active organization IDs the user has access to
-	const organizationIds = await getActiveUserOrganizationIds(user.id);
+	const organizationIds = await getAdminOrganizationIds(user.id);
 
 	if (!organizationIds.length) {
 		return c.json({ providerKeys: [] });
@@ -420,7 +485,7 @@ keysProvider.openapi(listActive, async (c) => {
 		});
 	}
 
-	const organizationIds = await getActiveUserOrganizationIds(user.id);
+	const organizationIds = await getAdminOrganizationIds(user.id);
 
 	if (!organizationIds.length) {
 		return c.json({ providerKeys: [] });
@@ -498,7 +563,7 @@ keysProvider.openapi(deleteKey, async (c) => {
 	const { id } = c.req.param();
 
 	// Get all active organization IDs the user has access to
-	const organizationIds = await getActiveUserOrganizationIds(user.id);
+	const organizationIds = await getAdminOrganizationIds(user.id);
 
 	// Find the provider key
 	const providerKey = await db.query.providerKey.findFirst({
@@ -518,7 +583,7 @@ keysProvider.openapi(deleteKey, async (c) => {
 		});
 	}
 
-	await db
+	await cdb
 		.update(tables.providerKey)
 		.set({
 			status: "deleted",
@@ -606,10 +671,10 @@ keysProvider.openapi(updateStatus, async (c) => {
 	}
 
 	const { id } = c.req.param();
-	const { status } = c.req.valid("json");
+	const { status, customModelsOnly } = c.req.valid("json");
 
 	// Get all active organization IDs the user has access to
-	const organizationIds = await getActiveUserOrganizationIds(user.id);
+	const organizationIds = await getAdminOrganizationIds(user.id);
 
 	// Find the provider key
 	const providerKey = await db.query.providerKey.findFirst({
@@ -621,6 +686,9 @@ keysProvider.openapi(updateStatus, async (c) => {
 				in: organizationIds,
 			},
 		},
+		with: {
+			organization: true,
+		},
 	});
 
 	if (!providerKey) {
@@ -629,16 +697,53 @@ keysProvider.openapi(updateStatus, async (c) => {
 		});
 	}
 
-	// Update the provider key status
-	const [updatedProviderKey] = await db
+	if (customModelsOnly !== undefined) {
+		if (providerKey.provider !== "custom") {
+			throw new HTTPException(400, {
+				message: "customModelsOnly can only be set on custom provider keys",
+			});
+		}
+		// Restricting to a custom catalog is an enterprise feature.
+		if (providerKey.organization?.plan !== "enterprise") {
+			throw new HTTPException(403, {
+				message: "Custom models require an enterprise plan",
+			});
+		}
+	}
+
+	const updates: {
+		status?: "active" | "inactive";
+		customModelsOnly?: boolean;
+	} = {};
+	if (status !== undefined) {
+		updates.status = status;
+	}
+	if (customModelsOnly !== undefined) {
+		updates.customModelsOnly = customModelsOnly;
+	}
+
+	// Update the provider key
+	const [updatedProviderKey] = await cdb
 		.update(tables.providerKey)
-		.set({
-			status,
-		})
+		.set(updates)
 		.where(eq(tables.providerKey.id, id))
 		.returning();
 
-	if (providerKey.status !== status) {
+	const changes: Record<string, { old: unknown; new: unknown }> = {};
+	if (status !== undefined && providerKey.status !== status) {
+		changes.status = { old: providerKey.status, new: status };
+	}
+	if (
+		customModelsOnly !== undefined &&
+		providerKey.customModelsOnly !== customModelsOnly
+	) {
+		changes.customModelsOnly = {
+			old: providerKey.customModelsOnly,
+			new: customModelsOnly,
+		};
+	}
+
+	if (Object.keys(changes).length > 0) {
 		await logAuditEvent({
 			organizationId: providerKey.organizationId,
 			userId: user.id,
@@ -647,15 +752,13 @@ keysProvider.openapi(updateStatus, async (c) => {
 			resourceId: id,
 			metadata: {
 				provider: providerKey.provider,
-				changes: {
-					status: { old: providerKey.status, new: status },
-				},
+				changes,
 			},
 		});
 	}
 
 	return c.json({
-		message: `Provider key status updated to ${status}`,
+		message: "Provider key updated",
 		providerKey: {
 			...updatedProviderKey,
 			maskedToken: maskToken(updatedProviderKey.token),

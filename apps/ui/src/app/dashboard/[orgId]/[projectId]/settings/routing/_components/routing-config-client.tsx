@@ -21,6 +21,7 @@ import { Switch } from "@/lib/components/switch";
 import { useFetchClient } from "@/lib/fetch-client";
 
 import { RoutingContactSalesCard } from "./routing-contact-sales-card";
+import { RoutingStrategyCard } from "./routing-strategy-card";
 
 type NumericFieldGroup = Record<string, number | undefined>;
 
@@ -296,7 +297,13 @@ function NumericFieldRow({
 	);
 }
 
-export function RoutingConfigClient({ projectId }: { projectId: string }) {
+export function RoutingConfigClient({
+	orgId,
+	projectId,
+}: {
+	orgId: string;
+	projectId: string;
+}) {
 	const fetchClient = useFetchClient();
 	const { selectedOrganization } = useDashboardNavigation();
 	const { user } = useUser();
@@ -374,7 +381,26 @@ export function RoutingConfigClient({ projectId }: { projectId: string }) {
 	}, [defaults]);
 
 	if (!canManage) {
-		return <RoutingContactSalesCard />;
+		return (
+			<div className="flex flex-col">
+				<div className="flex-1 space-y-4 p-4 pt-6 md:p-8">
+					<div className="max-w-4xl mx-auto space-y-6">
+						<div>
+							<h2 className="text-2xl md:text-3xl font-bold tracking-tight">
+								Routing
+							</h2>
+							<p className="text-sm text-muted-foreground">
+								Choose how the gateway selects a provider for this project.
+							</p>
+						</div>
+
+						<RoutingStrategyCard orgId={orgId} projectId={projectId} />
+
+						<RoutingContactSalesCard />
+					</div>
+				</div>
+			</div>
+		);
 	}
 
 	const updateGroup = (
@@ -537,6 +563,8 @@ export function RoutingConfigClient({ projectId }: { projectId: string }) {
 							</CardContent>
 						</Card>
 					) : null}
+
+					<RoutingStrategyCard orgId={orgId} projectId={projectId} />
 
 					<Card>
 						<CardHeader className="flex flex-row items-center justify-between">

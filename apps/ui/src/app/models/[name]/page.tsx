@@ -22,6 +22,7 @@ import { DetailProviderCards } from "@/components/models/detail-provider-cards";
 import { GlobalDiscountBanner } from "@/components/models/global-discount-banner";
 import { ModelBenchmarks } from "@/components/models/model-benchmarks";
 import { ModelCtaButton } from "@/components/models/model-cta-button";
+import { ModelRating } from "@/components/models/model-rating";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { Badge } from "@/lib/components/badge";
@@ -32,6 +33,8 @@ import {
 	perMillion,
 } from "@/lib/discount";
 import { fetchModelDiscounts } from "@/lib/fetch-models";
+import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
+import { fetchServerData } from "@/lib/server-api";
 
 import {
 	models as modelDefinitions,
@@ -90,7 +93,12 @@ export default async function ModelPage({ params }: PageProps) {
 		return stability && ["unstable", "experimental"].includes(stability);
 	};
 
-	const allDiscounts = await fetchModelDiscounts(decodedName);
+	const [allDiscounts, ratingsData] = await Promise.all([
+		fetchModelDiscounts(decodedName),
+		fetchServerData<ModelRatingsData>("GET", "/public/model-ratings", {
+			params: { query: { modelId: decodedName } },
+		}),
+	]);
 	const expandedProviders = expandAllProviderRegions(modelDef.providers);
 	const modelProviders = expandedProviders.map((provider) => {
 		const providerInfo = providerDefinitions.find(
@@ -104,8 +112,7 @@ export default async function ModelPage({ params }: PageProps) {
 		return {
 			...provider,
 			providerInfo,
-			// Global discount takes precedence over hardcoded
-			discount: globalDiscount ?? provider.discount,
+			discount: globalDiscount,
 		};
 	});
 	const currentModelDiscount = getBestDiscount(allDiscounts, decodedName);
@@ -143,6 +150,7 @@ export default async function ModelPage({ params }: PageProps) {
 	const lowestInputPrice = Math.min(...providerPrices);
 	const highestInputPrice = Math.max(...providerPrices);
 
+	const primaryProviderId = modelDef.providers[0]?.providerId || "default";
 	const productSchema = {
 		"@context": "https://schema.org",
 		"@type": "Product",
@@ -150,6 +158,7 @@ export default async function ModelPage({ params }: PageProps) {
 		description:
 			modelDef.description ??
 			`Access ${modelDef.name ?? modelDef.id} through LLM Gateway's unified API.`,
+		image: `https://llmgateway.io/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(primaryProviderId)}/opengraph-image`,
 		brand: {
 			"@type": "Brand",
 			name: modelDef.family || "LLM Gateway",
@@ -161,8 +170,10 @@ export default async function ModelPage({ params }: PageProps) {
 			highPrice: isFinite(highestInputPrice) ? highestInputPrice : 0,
 			offerCount: modelProviders.length,
 			availability: "https://schema.org/InStock",
+			url: `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`,
 		},
 		category: "AI/ML API Service",
+		...buildRatingSchema(ratingsData),
 	};
 
 	return (
@@ -252,6 +263,7 @@ export default async function ModelPage({ params }: PageProps) {
 
 							<ModelCtaButton
 								modelId={decodedName}
+								output={modelDef.output}
 								size="sm"
 								className="gap-2"
 								iconClassName="h-3 w-3"
@@ -273,70 +285,70 @@ export default async function ModelPage({ params }: PageProps) {
 								).toLocaleString()}{" "}
 								context
 							</div>
-							<div>
-								Starting at{" "}
-								{(() => {
-									const inputPrices = modelProviders
-										.filter((p) => p.inputPrice)
-										.map((p) => ({
-											price: applyDiscount(
-												perMillion(p.inputPrice)!,
-												p.discount,
-											),
-											originalPrice: perMillion(p.inputPrice)!,
-											discount: p.discount,
-										}));
-									if (inputPrices.length === 0) {
-										return "Free";
-									}
-									const minPrice = Math.min(...inputPrices.map((p) => p.price));
-									const minPriceItem = inputPrices.find(
-										(p) => p.price === minPrice,
-									);
-									return Number(minPriceItem?.discount ?? "0") > 0
-										? `$${minPrice.toFixed(2)}/M (${(Number(minPriceItem!.discount) * 100).toFixed(0)}% off)`
-										: `$${minPrice.toFixed(2)}/M`;
-								})()}{" "}
-								input tokens
-								{modelProviders.some(
-									(p) => (p.pricingTiers?.length ?? 0) > 1,
-								) && (
-									<span className="text-muted-foreground/70"> (tiered)</span>
-								)}
-							</div>
-							<div>
-								Starting at{" "}
-								{(() => {
-									const outputPrices = modelProviders
-										.filter((p) => p.outputPrice)
-										.map((p) => ({
-											price: applyDiscount(
-												perMillion(p.outputPrice)!,
-												p.discount,
-											),
-											originalPrice: perMillion(p.outputPrice)!,
-											discount: p.discount,
-										}));
-									if (outputPrices.length === 0) {
-										return "Free";
-									}
-									const minPrice = Math.min(
-										...outputPrices.map((p) => p.price),
-									);
-									const minPriceItem = outputPrices.find(
-										(p) => p.price === minPrice,
-									);
-									return Number(minPriceItem?.discount ?? "0") > 0
-										? `$${minPrice.toFixed(2)}/M (${(Number(minPriceItem!.discount) * 100).toFixed(0)}% off)`
-										: `$${minPrice.toFixed(2)}/M`;
-								})()}{" "}
-								output tokens
-								{modelProviders.some(
-									(p) => (p.pricingTiers?.length ?? 0) > 1,
-								) && (
-									<span className="text-muted-foreground/70"> (tiered)</span>
-								)}
-							</div>
+							{modelProviders.some((p) => p.inputPrice) && (
+								<div>
+									Starting at{" "}
+									{(() => {
+										const inputPrices = modelProviders
+											.filter((p) => p.inputPrice)
+											.map((p) => ({
+												price: applyDiscount(
+													perMillion(p.inputPrice)!,
+													p.discount,
+												),
+												originalPrice: perMillion(p.inputPrice)!,
+												discount: p.discount,
+											}));
+										const minPrice = Math.min(
+											...inputPrices.map((p) => p.price),
+										);
+										const minPriceItem = inputPrices.find(
+											(p) => p.price === minPrice,
+										);
+										return Number(minPriceItem?.discount ?? "0") > 0
+											? `$${minPrice.toFixed(2)}/M (${(Number(minPriceItem!.discount) * 100).toFixed(0)}% off)`
+											: `$${minPrice.toFixed(2)}/M`;
+									})()}{" "}
+									input tokens
+									{modelProviders.some(
+										(p) => (p.pricingTiers?.length ?? 0) > 1,
+									) && (
+										<span className="text-muted-foreground/70"> (tiered)</span>
+									)}
+								</div>
+							)}
+							{modelProviders.some((p) => p.outputPrice) && (
+								<div>
+									Starting at{" "}
+									{(() => {
+										const outputPrices = modelProviders
+											.filter((p) => p.outputPrice)
+											.map((p) => ({
+												price: applyDiscount(
+													perMillion(p.outputPrice)!,
+													p.discount,
+												),
+												originalPrice: perMillion(p.outputPrice)!,
+												discount: p.discount,
+											}));
+										const minPrice = Math.min(
+											...outputPrices.map((p) => p.price),
+										);
+										const minPriceItem = outputPrices.find(
+											(p) => p.price === minPrice,
+										);
+										return Number(minPriceItem?.discount ?? "0") > 0
+											? `$${minPrice.toFixed(2)}/M (${(Number(minPriceItem!.discount) * 100).toFixed(0)}% off)`
+											: `$${minPrice.toFixed(2)}/M`;
+									})()}{" "}
+									output tokens
+									{modelProviders.some(
+										(p) => (p.pricingTiers?.length ?? 0) > 1,
+									) && (
+										<span className="text-muted-foreground/70"> (tiered)</span>
+									)}
+								</div>
+							)}
 							{modelProviders.some((p) => p.imageOutputPrice !== undefined) && (
 								<div>
 									Starting at{" "}
@@ -397,6 +409,23 @@ export default async function ModelPage({ params }: PageProps) {
 											: "Unknown";
 									})()}{" "}
 									video generation
+								</div>
+							)}
+							{modelProviders.some((p) => p.ocrPagePrice !== undefined) && (
+								<div>
+									Starting at{" "}
+									{(() => {
+										const pagePrices = modelProviders
+											.filter((p) => p.ocrPagePrice !== undefined)
+											.map((p) => Number(p.ocrPagePrice))
+											.filter((n) => Number.isFinite(n));
+										if (pagePrices.length === 0) {
+											return "Unknown";
+										}
+										const minPrice = Math.min(...pagePrices);
+										return `$${(minPrice * 1000).toFixed(2)}`;
+									})()}{" "}
+									per 1,000 OCR pages
 								</div>
 							)}
 						</div>
@@ -501,6 +530,8 @@ export default async function ModelPage({ params }: PageProps) {
 								));
 							})()}
 						</div>
+
+						<ModelRating modelId={decodedName} />
 					</div>
 
 					{currentModelDiscount && (
@@ -565,10 +596,12 @@ export async function generateMetadata({
 		return {};
 	}
 
-	const title = `${model.name ?? model.id} — AI Model Pricing & Capabilities`;
+	const title = `${model.name ?? model.id} — Pricing, Providers & Benchmarks`;
+	const pitch = `Use ${model.name ?? model.id} via one OpenAI-compatible API with live per-token pricing across providers.`;
 	const description =
-		model.description ??
-		`Details, pricing, and capabilities for ${model.name ?? model.id} on LLM Gateway.`;
+		model.description && model.description.length + pitch.length <= 250
+			? `${model.description} ${pitch}`
+			: (model.description ?? pitch);
 
 	const primaryProvider = model.providers[0]?.providerId || "default";
 	const ogImageUrl = `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(primaryProvider)}/opengraph-image`;

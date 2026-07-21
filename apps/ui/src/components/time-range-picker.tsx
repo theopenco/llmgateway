@@ -51,14 +51,14 @@ export function TimeRangePicker({
 
 	return (
 		<TooltipProvider>
-			<div className="inline-flex items-center rounded-md border bg-muted p-0.5">
+			<div className="flex w-full items-center rounded-md border bg-muted p-0.5 sm:inline-flex sm:w-auto">
 				{freeRanges.map((range) => (
 					<button
 						key={range.value}
 						type="button"
 						onClick={() => onChange(range.value)}
 						className={cn(
-							"px-3 py-1 text-sm font-medium rounded-sm transition-colors",
+							"flex-1 px-3 py-1 text-sm font-medium rounded-sm transition-colors sm:flex-none",
 							value === range.value
 								? "bg-background text-foreground shadow-sm"
 								: "text-muted-foreground hover:text-foreground",
@@ -75,7 +75,7 @@ export function TimeRangePicker({
 									type="button"
 									disabled
 									aria-disabled="true"
-									className="px-3 py-1 text-sm font-medium rounded-sm text-muted-foreground/40 cursor-not-allowed inline-flex items-center gap-1"
+									className="flex-1 px-3 py-1 text-sm font-medium rounded-sm text-muted-foreground/40 cursor-not-allowed inline-flex items-center justify-center gap-1 sm:flex-none"
 								>
 									{range.label}
 									<Lock className="h-3 w-3" />
@@ -97,7 +97,7 @@ export function TimeRangePicker({
 							type="button"
 							onClick={() => onChange(range.value)}
 							className={cn(
-								"px-3 py-1 text-sm font-medium rounded-sm transition-colors",
+								"flex-1 px-3 py-1 text-sm font-medium rounded-sm transition-colors sm:flex-none",
 								value === range.value
 									? "bg-background text-foreground shadow-sm"
 									: "text-muted-foreground hover:text-foreground",

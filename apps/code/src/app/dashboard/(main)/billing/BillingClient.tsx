@@ -1,5 +1,6 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import { format, formatDistanceToNowStrict } from "date-fns";
 import { Info, Loader2 } from "lucide-react";
 import dynamic from "next/dynamic";
@@ -24,7 +25,9 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
+import { cn } from "@/lib/utils";
 
+import type { TierChangeTiming } from "@/app/dashboard/components/ActivePlanChangeTier";
 import type { PlanTier } from "@/app/dashboard/types";
 import type { DevPlanStatus } from "@/app/dashboard/useDevPlanStatus";
 import type { paths } from "@/lib/api/v1";
@@ -40,6 +43,14 @@ const DevPassPaymentMethod = dynamic(
 	() => import("@/app/dashboard/components/DevPassPaymentMethod"),
 );
 
+const DevPassBillingDetails = dynamic(
+	() => import("@/app/dashboard/components/DevPassBillingDetails"),
+);
+
+const DevPassInvoices = dynamic(
+	() => import("@/app/dashboard/components/DevPassInvoices"),
+);
+
 interface BillingClientProps {
 	initialDevPlanStatus?: DevPlanStatus | null;
 	initialPaymentMethod?: PaymentMethod | null;
@@ -53,32 +64,94 @@ export default function BillingClient({
 	const { posthogKey } = config;
 	const posthog = usePostHog();
 	const api = useApi();
+	const queryClient = useQueryClient();
 
 	const { data: devPlanStatus } = useDevPlanStatus(initialDevPlanStatus);
+
+	const invalidateInvoices = () =>
+		queryClient.invalidateQueries({
+			predicate: (query) => {
+				const key = query.queryKey;
+				return Array.isArray(key) && key[1] === "/dev-plans/invoices";
+			},
+		});
+
+	const invalidateStatus = () =>
+		queryClient.invalidateQueries({
+			predicate: (query) => {
+				const key = query.queryKey;
+				return Array.isArray(key) && key[1] === "/dev-plans/status";
+			},
+		});
 
 	const cancelMutation = api.useMutation("post", "/dev-plans/cancel");
 	const resumeMutation = api.useMutation("post", "/dev-plans/resume");
 	const changeTierMutation = api.useMutation("post", "/dev-plans/change-tier");
+	const cancelDowngradeMutation = api.useMutation(
+		"post",
+		"/dev-plans/cancel-downgrade",
+	);
 
 	const [subscribingTier, setSubscribingTier] = useState<PlanTier | null>(null);
 	const [isCancelling, setIsCancelling] = useState(false);
 	const [isResuming, setIsResuming] = useState(false);
+	const [isCancellingDowngrade, setIsCancellingDowngrade] = useState(false);
 
-	const handleChangeTier = async (newTier: PlanTier): Promise<void> => {
+	const handleChangeTier = async (
+		newTier: PlanTier,
+		expectedAmountDueCents?: number,
+		timing?: TierChangeTiming,
+	): Promise<void> => {
 		// Cycle is intentionally not sent — the server preserves the existing
 		// monthly/annual cadence by reading it from the org's stored devPlanCycle
 		// and looks up the matching annual or monthly Stripe price ID.
 		setSubscribingTier(newTier);
 		try {
-			await changeTierMutation.mutateAsync({ body: { newTier } });
+			await changeTierMutation.mutateAsync({
+				body: { newTier, expectedAmountDueCents, timing },
+			});
+			// An immediate upgrade records a new dev_plan_upgrade invoice
+			// server-side; refetch so the Invoices section reflects the just-paid
+			// charge immediately, and refresh status so the current tier /
+			// pending-change state updates.
+			await Promise.all([invalidateInvoices(), invalidateStatus()]);
 			if (posthogKey) {
-				posthog.capture("dev_plan_tier_changed", { newTier });
+				posthog.capture("dev_plan_tier_changed", { newTier, timing });
 			}
-			toast.success("Plan updated");
-		} catch {
-			toast.error("Failed to change plan");
+			toast.success(
+				timing === "next_cycle"
+					? "Plan change scheduled for your next renewal"
+					: "Plan updated",
+			);
+		} catch (error) {
+			const message =
+				error && typeof error === "object" && "message" in error
+					? String((error as { message: unknown }).message)
+					: undefined;
+			toast.error("Failed to change plan", {
+				description: message,
+			});
 		} finally {
 			setSubscribingTier(null);
+		}
+	};
+
+	const handleCancelDowngrade = async (): Promise<void> => {
+		setIsCancellingDowngrade(true);
+		try {
+			await cancelDowngradeMutation.mutateAsync({});
+			await invalidateStatus();
+			toast.success("Scheduled plan change cancelled");
+		} catch (error) {
+			const message =
+				error && typeof error === "object" && "message" in error
+					? String((error as { message: unknown }).message)
+					: undefined;
+			toast.error("Failed to cancel plan change", {
+				description: message,
+			});
+		} finally {
+			setIsCancellingDowngrade(false);
 		}
 	};
 
@@ -103,7 +176,18 @@ export default function BillingClient({
 	const handleResume = async (): Promise<void> => {
 		setIsResuming(true);
 		try {
-			await resumeMutation.mutateAsync({});
+			const result = await resumeMutation.mutateAsync({});
+			// The subscription had already fully ended, so it can't be resumed — the
+			// server reset the plan to "none". Refresh status so the dashboard swaps
+			// to the plan chooser and the user can subscribe again.
+			if (result.ended) {
+				await invalidateStatus();
+				toast.info("Your subscription has ended", {
+					description: "Choose a plan to subscribe again.",
+				});
+				return;
+			}
+			await invalidateStatus();
 			if (posthogKey) {
 				posthog.capture("dev_plan_resumed");
 			}
@@ -121,25 +205,54 @@ export default function BillingClient({
 
 	const currentPlan = devPlanStatus.devPlan ?? null;
 	const currentPlanData = plans.find((p) => p.tier === currentPlan);
+	const pendingTier = devPlanStatus.devPlanPendingTier ?? null;
+	const pendingPlanData = plans.find((p) => p.tier === pendingTier);
 	const cycle = devPlanStatus.devPlanCycle ?? "monthly";
 	const cancelled = devPlanStatus.devPlanCancelled ?? false;
+	// A cancelled subscription ends before its next renewal, so a scheduled
+	// tier change would never take effect — surfacing it alongside "Cancelling"
+	// is confusing. Hide the pending-change UI while cancelled; the tier is kept
+	// in the DB (cancel/resume don't clear it), so it reappears if the user
+	// resumes.
+	const showPendingChange = pendingTier !== null && !cancelled;
+	const pendingIsUpgrade =
+		(pendingPlanData?.price ?? 0) > (currentPlanData?.price ?? 0);
 	const billingCycleStart = devPlanStatus.devPlanBillingCycleStart ?? null;
+	const currentPeriodEnd = devPlanStatus.devPlanExpiresAt ?? null;
 
-	const renewalHint = (() => {
-		if (!billingCycleStart) {
-			return "—";
-		}
-		const renewAt = new Date(billingCycleStart);
-		if (cycle === "annual") {
-			renewAt.setFullYear(renewAt.getFullYear() + 1);
-		} else {
-			renewAt.setMonth(renewAt.getMonth() + 1);
-		}
-		const when = format(renewAt, "MMM d, yyyy");
-		return cancelled
-			? `Ends ${when}`
-			: `Renews ${when} (in ${formatDistanceToNowStrict(renewAt)})`;
-	})();
+	// Prefer Stripe's real `current_period_end`; only fall back to projecting a
+	// cycle from `billingCycleStart` for legacy rows missing the recorded end.
+	// The projection diverges from the actual schedule after a mid-cycle
+	// proration upgrade (the anchor is preserved, the cycle start is not).
+	const renewAt = currentPeriodEnd
+		? new Date(currentPeriodEnd)
+		: billingCycleStart
+			? (() => {
+					const d = new Date(billingCycleStart);
+					if (cycle === "annual") {
+						d.setFullYear(d.getFullYear() + 1);
+					} else {
+						d.setMonth(d.getMonth() + 1);
+					}
+					return d;
+				})()
+			: null;
+	const renewWhen = renewAt ? format(renewAt, "MMM d, yyyy") : null;
+
+	const renewalHint = !renewAt
+		? "—"
+		: cancelled
+			? `Ends ${renewWhen}`
+			: `Renews ${renewWhen} (in ${formatDistanceToNowStrict(renewAt)})`;
+
+	// A scheduled tier change keeps the current tier active until renewal, then
+	// switches. Surface both the pending tier and the date it applies.
+	const pendingChangeNotice =
+		showPendingChange && pendingPlanData
+			? `Your plan ${pendingIsUpgrade ? "upgrades" : "switches"} to ${pendingPlanData.name}${
+					renewWhen ? ` on ${renewWhen}` : " at your next renewal"
+				}. You keep your current allowance until then.`
+			: null;
 
 	return (
 		<div className="space-y-10">
@@ -166,6 +279,19 @@ export default function BillingClient({
 									Cancelling
 								</span>
 							)}
+							{showPendingChange && pendingPlanData && (
+								<span
+									className={cn(
+										"rounded-md px-1.5 py-0.5 text-xs font-medium",
+										pendingIsUpgrade
+											? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+											: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
+									)}
+								>
+									{pendingIsUpgrade ? "Upgrading" : "Downgrading"} to{" "}
+									{pendingPlanData.name}
+								</span>
+							)}
 						</div>
 						<p className="mt-1 text-sm text-muted-foreground">
 							${currentPlanData?.price ?? 0}/mo · ${currentPlanData?.usage ?? 0}{" "}
@@ -174,6 +300,18 @@ export default function BillingClient({
 						<p className="mt-0.5 text-xs text-muted-foreground">
 							{renewalHint}
 						</p>
+						{pendingChangeNotice && (
+							<p
+								className={cn(
+									"mt-0.5 text-xs",
+									pendingIsUpgrade
+										? "text-emerald-700 dark:text-emerald-400"
+										: "text-amber-700 dark:text-amber-400",
+								)}
+							>
+								{pendingChangeNotice}
+							</p>
+						)}
 					</div>
 
 					{cancelled ? (
@@ -242,9 +380,19 @@ export default function BillingClient({
 			<ActivePlanChangeTier
 				plans={plans}
 				currentPlan={currentPlan}
+				pendingTier={showPendingChange ? pendingTier : null}
+				cancelled={cancelled}
 				subscribingTier={subscribingTier}
+				isCancellingDowngrade={isCancellingDowngrade}
 				onChangeTier={handleChangeTier}
+				onCancelDowngrade={handleCancelDowngrade}
 			/>
+
+			{/* Past invoices */}
+			<DevPassInvoices />
+
+			{/* Billing details (invoice details) */}
+			<DevPassBillingDetails />
 		</div>
 	);
 }

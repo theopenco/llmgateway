@@ -2,7 +2,16 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { getUserOrganizationIds } from "@/utils/authorization.js";
+import {
+	getUserProjectIds,
+	userHasProjectAccess,
+} from "@/utils/authorization.js";
+import {
+	bucketDate,
+	generateTimeSlots,
+	isValidTimeZone,
+	zonedTimeToUtc,
+} from "@/utils/timezone.js";
 
 import {
 	db,
@@ -84,56 +93,6 @@ const dailyActivitySchema = z.object({
 
 type ActivityRow = z.infer<typeof dailyActivitySchema>;
 
-function generateTimeSlots(
-	startDate: Date,
-	endDate: Date,
-	isHourly: boolean,
-): string[] {
-	const slots: string[] = [];
-	if (isHourly) {
-		const cur = new Date(
-			Date.UTC(
-				startDate.getUTCFullYear(),
-				startDate.getUTCMonth(),
-				startDate.getUTCDate(),
-				startDate.getUTCHours(),
-			),
-		);
-		const end = new Date(
-			Date.UTC(
-				endDate.getUTCFullYear(),
-				endDate.getUTCMonth(),
-				endDate.getUTCDate(),
-				endDate.getUTCHours(),
-			),
-		);
-		while (cur.getTime() <= end.getTime()) {
-			slots.push(cur.toISOString().slice(0, 19));
-			cur.setUTCHours(cur.getUTCHours() + 1);
-		}
-	} else {
-		const cur = new Date(
-			Date.UTC(
-				startDate.getUTCFullYear(),
-				startDate.getUTCMonth(),
-				startDate.getUTCDate(),
-			),
-		);
-		const end = new Date(
-			Date.UTC(
-				endDate.getUTCFullYear(),
-				endDate.getUTCMonth(),
-				endDate.getUTCDate(),
-			),
-		);
-		while (cur.getTime() <= end.getTime()) {
-			slots.push(cur.toISOString().slice(0, 10));
-			cur.setUTCDate(cur.getUTCDate() + 1);
-		}
-	}
-	return slots;
-}
-
 function buildEmptyActivityRow(date: string): ActivityRow {
 	return {
 		date,
@@ -175,8 +134,9 @@ function padActivity(
 	startDate: Date,
 	endDate: Date,
 	isHourly: boolean,
+	timeZone: string,
 ): ActivityRow[] {
-	const slots = generateTimeSlots(startDate, endDate, isHourly);
+	const slots = generateTimeSlots(startDate, endDate, isHourly, timeZone);
 	const byDate = new Map(rows.map((r) => [r.date, r]));
 	return slots.map((slot) => byDate.get(slot) ?? buildEmptyActivityRow(slot));
 }
@@ -198,6 +158,11 @@ const getActivity = createRoute({
 			apiKeyId: z.string().optional(),
 			timeRange: z.enum(["1h", "4h", "24h", "7d", "30d", "365d"]).optional(),
 			groupBy: z.enum(["model", "apiKey"]).optional(),
+			timezone: z
+				.string()
+				.max(64)
+				.refine(isValidTimeZone, { message: "Invalid IANA timezone" })
+				.optional(),
 		}),
 	},
 	responses: {
@@ -225,9 +190,10 @@ activity.openapi(getActivity, async (c) => {
 	}
 
 	// Get the query parameters
-	const { days, from, to, projectId, apiKeyId, timeRange, groupBy } =
+	const { days, from, to, projectId, apiKeyId, timeRange, groupBy, timezone } =
 		c.req.valid("query");
 	const breakdownByApiKey = groupBy === "apiKey";
+	const timeZone = timezone ?? "UTC";
 
 	// Calculate the date range and granularity
 	let startDate: Date;
@@ -264,8 +230,8 @@ activity.openapi(getActivity, async (c) => {
 				break;
 		}
 	} else if (from && to) {
-		startDate = new Date(from + "T00:00:00");
-		endDate = new Date(to + "T23:59:59.999");
+		startDate = zonedTimeToUtc(from + "T00:00:00.000", timeZone);
+		endDate = zonedTimeToUtc(to + "T23:59:59.999", timeZone);
 	} else {
 		const effectiveDays = days ?? 7;
 		endDate = new Date();
@@ -276,39 +242,27 @@ activity.openapi(getActivity, async (c) => {
 	// SQL expressions that change based on granularity
 	const isHourly = granularity === "hourly";
 
-	// Get all organizations the user is a member of
-	const organizationIds = await getUserOrganizationIds(user.id);
+	// Projects the user can access (RBAC-aware: developers are limited to their
+	// granted projects).
+	const accessibleProjectIds = await getUserProjectIds(user.id);
 
-	if (!organizationIds.length) {
+	if (!accessibleProjectIds.length) {
 		return c.json({
 			activity: [],
 		});
 	}
 
-	// Get all projects associated with the user's organizations
-	const projects = await db.query.project.findMany({
-		where: {
-			organizationId: {
-				in: organizationIds,
-			},
-			status: {
-				ne: "deleted",
-			},
-			...(projectId ? { id: projectId } : {}),
-		},
-	});
-
-	if (!projects.length) {
-		return c.json({
-			activity: [],
-		});
-	}
-
-	const projectIds = projects.map((project) => project.id);
-
-	if (projectId && !projectIds.includes(projectId)) {
+	if (projectId && !accessibleProjectIds.includes(projectId)) {
 		throw new HTTPException(403, {
 			message: "You don't have access to this project",
+		});
+	}
+
+	const projectIds = projectId ? [projectId] : accessibleProjectIds;
+
+	if (!projectIds.length) {
+		return c.json({
+			activity: [],
 		});
 	}
 
@@ -317,11 +271,11 @@ activity.openapi(getActivity, async (c) => {
 		// Query aggregated data from apiKeyHourlyStats table
 		const hourlyAggregates = await db
 			.select({
-				date: isHourly
-					? sql<string>`to_char(${apiKeyHourlyStats.hourTimestamp}, 'YYYY-MM-DD"T"HH24:MI:SS')`.as(
-							"date",
-						)
-					: sql<string>`DATE(${apiKeyHourlyStats.hourTimestamp})`.as("date"),
+				date: bucketDate(
+					apiKeyHourlyStats.hourTimestamp,
+					timeZone,
+					isHourly,
+				).as("date"),
 				requestCount:
 					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCount}), 0)`.as(
 						"requestCount",
@@ -435,27 +389,17 @@ activity.openapi(getActivity, async (c) => {
 					lte(apiKeyHourlyStats.hourTimestamp, endDate),
 				),
 			)
-			.groupBy(
-				isHourly
-					? sql`${apiKeyHourlyStats.hourTimestamp}`
-					: sql`DATE(${apiKeyHourlyStats.hourTimestamp})`,
-			)
-			.orderBy(
-				isHourly
-					? sql`${apiKeyHourlyStats.hourTimestamp} ASC`
-					: sql`DATE(${apiKeyHourlyStats.hourTimestamp}) ASC`,
-			);
+			.groupBy(sql`1`)
+			.orderBy(sql`1 ASC`);
 
 		// Query model breakdown from apiKeyHourlyModelStats table
 		const modelBreakdowns = await db
 			.select({
-				date: isHourly
-					? sql<string>`to_char(${apiKeyHourlyModelStats.hourTimestamp}, 'YYYY-MM-DD"T"HH24:MI:SS')`.as(
-							"date",
-						)
-					: sql<string>`DATE(${apiKeyHourlyModelStats.hourTimestamp})`.as(
-							"date",
-						),
+				date: bucketDate(
+					apiKeyHourlyModelStats.hourTimestamp,
+					timeZone,
+					isHourly,
+				).as("date"),
 				usedModel: apiKeyHourlyModelStats.usedModel,
 				usedProvider: apiKeyHourlyModelStats.usedProvider,
 				requestCount:
@@ -488,15 +432,9 @@ activity.openapi(getActivity, async (c) => {
 				),
 			)
 			.groupBy(
-				isHourly
-					? sql`${apiKeyHourlyModelStats.hourTimestamp}, ${apiKeyHourlyModelStats.usedModel}, ${apiKeyHourlyModelStats.usedProvider}`
-					: sql`DATE(${apiKeyHourlyModelStats.hourTimestamp}), ${apiKeyHourlyModelStats.usedModel}, ${apiKeyHourlyModelStats.usedProvider}`,
+				sql`1, ${apiKeyHourlyModelStats.usedModel}, ${apiKeyHourlyModelStats.usedProvider}`,
 			)
-			.orderBy(
-				isHourly
-					? sql`${apiKeyHourlyModelStats.hourTimestamp} ASC, ${apiKeyHourlyModelStats.usedModel} ASC`
-					: sql`DATE(${apiKeyHourlyModelStats.hourTimestamp}) ASC, ${apiKeyHourlyModelStats.usedModel} ASC`,
-			);
+			.orderBy(sql`1 ASC, ${apiKeyHourlyModelStats.usedModel} ASC`);
 
 		const modelBreakdownByDate = new Map<
 			string,
@@ -587,9 +525,10 @@ activity.openapi(getActivity, async (c) => {
 			};
 		});
 
-		const paddedActivity = timeRange
-			? padActivity(activityData, startDate, endDate, isHourly)
-			: activityData;
+		const paddedActivity =
+			timeRange || (from && to)
+				? padActivity(activityData, startDate, endDate, isHourly, timeZone)
+				: activityData;
 
 		return c.json({
 			activity: paddedActivity,
@@ -601,11 +540,9 @@ activity.openapi(getActivity, async (c) => {
 	// Query aggregated data from projectHourlyStats table
 	const hourlyAggregates = await db
 		.select({
-			date: isHourly
-				? sql<string>`to_char(${projectHourlyStats.hourTimestamp}, 'YYYY-MM-DD"T"HH24:MI:SS')`.as(
-						"date",
-					)
-				: sql<string>`DATE(${projectHourlyStats.hourTimestamp})`.as("date"),
+			date: bucketDate(projectHourlyStats.hourTimestamp, timeZone, isHourly).as(
+				"date",
+			),
 			requestCount:
 				sql<number>`COALESCE(SUM(${projectHourlyStats.requestCount}), 0)`.as(
 					"requestCount",
@@ -718,16 +655,8 @@ activity.openapi(getActivity, async (c) => {
 				lte(projectHourlyStats.hourTimestamp, endDate),
 			),
 		)
-		.groupBy(
-			isHourly
-				? sql`${projectHourlyStats.hourTimestamp}`
-				: sql`DATE(${projectHourlyStats.hourTimestamp})`,
-		)
-		.orderBy(
-			isHourly
-				? sql`${projectHourlyStats.hourTimestamp} ASC`
-				: sql`DATE(${projectHourlyStats.hourTimestamp}) ASC`,
-		);
+		.groupBy(sql`1`)
+		.orderBy(sql`1 ASC`);
 
 	// Create a map to organize model breakdowns by date.
 	// Only query when not breaking down by api key — saves an aggregate scan
@@ -739,13 +668,11 @@ activity.openapi(getActivity, async (c) => {
 	if (!breakdownByApiKey) {
 		const modelBreakdowns = await db
 			.select({
-				date: isHourly
-					? sql<string>`to_char(${projectHourlyModelStats.hourTimestamp}, 'YYYY-MM-DD"T"HH24:MI:SS')`.as(
-							"date",
-						)
-					: sql<string>`DATE(${projectHourlyModelStats.hourTimestamp})`.as(
-							"date",
-						),
+				date: bucketDate(
+					projectHourlyModelStats.hourTimestamp,
+					timeZone,
+					isHourly,
+				).as("date"),
 				usedModel: projectHourlyModelStats.usedModel,
 				usedProvider: projectHourlyModelStats.usedProvider,
 				requestCount:
@@ -777,15 +704,9 @@ activity.openapi(getActivity, async (c) => {
 				),
 			)
 			.groupBy(
-				isHourly
-					? sql`${projectHourlyModelStats.hourTimestamp}, ${projectHourlyModelStats.usedModel}, ${projectHourlyModelStats.usedProvider}`
-					: sql`DATE(${projectHourlyModelStats.hourTimestamp}), ${projectHourlyModelStats.usedModel}, ${projectHourlyModelStats.usedProvider}`,
+				sql`1, ${projectHourlyModelStats.usedModel}, ${projectHourlyModelStats.usedProvider}`,
 			)
-			.orderBy(
-				isHourly
-					? sql`${projectHourlyModelStats.hourTimestamp} ASC, ${projectHourlyModelStats.usedModel} ASC`
-					: sql`DATE(${projectHourlyModelStats.hourTimestamp}) ASC, ${projectHourlyModelStats.usedModel} ASC`,
-			);
+			.orderBy(sql`1 ASC, ${projectHourlyModelStats.usedModel} ASC`);
 
 		for (const breakdown of modelBreakdowns) {
 			if (!modelBreakdownByDate.has(breakdown.date)) {
@@ -811,11 +732,11 @@ activity.openapi(getActivity, async (c) => {
 	if (breakdownByApiKey) {
 		const apiKeyBreakdowns = await db
 			.select({
-				date: isHourly
-					? sql<string>`to_char(${apiKeyHourlyStats.hourTimestamp}, 'YYYY-MM-DD"T"HH24:MI:SS')`.as(
-							"date",
-						)
-					: sql<string>`DATE(${apiKeyHourlyStats.hourTimestamp})`.as("date"),
+				date: bucketDate(
+					apiKeyHourlyStats.hourTimestamp,
+					timeZone,
+					isHourly,
+				).as("date"),
 				apiKeyId: apiKeyHourlyStats.apiKeyId,
 				description: apiKey.description,
 				requestCount:
@@ -843,20 +764,13 @@ activity.openapi(getActivity, async (c) => {
 			.where(
 				and(
 					inArray(apiKeyHourlyStats.projectId, projectIds),
+					inArray(apiKey.keyType, ["user", "end_user_customer"]),
 					gte(apiKeyHourlyStats.hourTimestamp, startDate),
 					lte(apiKeyHourlyStats.hourTimestamp, endDate),
 				),
 			)
-			.groupBy(
-				isHourly
-					? sql`${apiKeyHourlyStats.hourTimestamp}, ${apiKeyHourlyStats.apiKeyId}, ${apiKey.description}`
-					: sql`DATE(${apiKeyHourlyStats.hourTimestamp}), ${apiKeyHourlyStats.apiKeyId}, ${apiKey.description}`,
-			)
-			.orderBy(
-				isHourly
-					? sql`${apiKeyHourlyStats.hourTimestamp} ASC, ${apiKeyHourlyStats.apiKeyId} ASC`
-					: sql`DATE(${apiKeyHourlyStats.hourTimestamp}) ASC, ${apiKeyHourlyStats.apiKeyId} ASC`,
-			);
+			.groupBy(sql`1, ${apiKeyHourlyStats.apiKeyId}, ${apiKey.description}`)
+			.orderBy(sql`1 ASC, ${apiKeyHourlyStats.apiKeyId} ASC`);
 
 		for (const breakdown of apiKeyBreakdowns) {
 			if (!apiKeyBreakdownByDate.has(breakdown.date)) {
@@ -943,9 +857,10 @@ activity.openapi(getActivity, async (c) => {
 		};
 	});
 
-	const paddedActivity = timeRange
-		? padActivity(activityData, startDate, endDate, isHourly)
-		: activityData;
+	const paddedActivity =
+		timeRange || (from && to)
+			? padActivity(activityData, startDate, endDate, isHourly, timeZone)
+			: activityData;
 
 	return c.json({
 		activity: paddedActivity,
@@ -1014,16 +929,15 @@ activity.openapi(getSourceActivity, async (c) => {
 		startDate.setDate(startDate.getDate() - (timeRange === "30d" ? 30 : 7));
 	}
 
-	const organizationIds = await getUserOrganizationIds(user.id);
-
-	if (!organizationIds.length) {
-		return c.json({ sources: [] });
+	if (!(await userHasProjectAccess(user.id, projectId))) {
+		throw new HTTPException(403, {
+			message: "You don't have access to this project",
+		});
 	}
 
 	const project = await db.query.project.findFirst({
 		where: {
 			id: projectId,
-			organizationId: { in: organizationIds },
 			status: { ne: "deleted" },
 		},
 	});

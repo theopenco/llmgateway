@@ -10,6 +10,7 @@ import {
 	AnthropicIcon,
 	ClineIcon,
 	CursorIcon,
+	DevPassCodeIcon,
 	OpenCodeIcon,
 } from "@llmgateway/shared/components";
 
@@ -17,6 +18,7 @@ const APP_LOGOS: Array<{
 	name: string;
 	Icon: React.FC<React.SVGProps<SVGSVGElement>>;
 }> = [
+	{ name: "DevPass Code", Icon: DevPassCodeIcon },
 	{ name: "Claude Code", Icon: AnthropicIcon },
 	{ name: "Cursor", Icon: CursorIcon },
 	{ name: "Cline", Icon: ClineIcon },

@@ -209,14 +209,16 @@ export default async function DevpassDetailPage({
 						<Badge variant={getStatusBadgeVariant(sub.status)}>
 							{formatStatus(sub.status)}
 						</Badge>
+						{sub.pendingTier && (
+							<Badge variant="outline">
+								Downgrading to {sub.pendingTier} next cycle
+							</Badge>
+						)}
 						{sub.hasPaymentIssue && (
 							<Badge variant="destructive" className="gap-1">
 								<AlertCircle className="h-3 w-3" />
 								payment issue
 							</Badge>
-						)}
-						{sub.allowAllModels && (
-							<Badge variant="outline">all-models access</Badge>
 						)}
 					</div>
 				</div>
@@ -261,6 +263,11 @@ export default async function DevpassDetailPage({
 					<div className="mt-1 text-xs text-muted-foreground">
 						Renews {formatDate(sub.expiresAt)}
 					</div>
+					{sub.pendingTier && (
+						<div className="mt-1 text-xs text-amber-600">
+							Switches to {sub.pendingTier} on renewal
+						</div>
+					)}
 				</div>
 				<div className="rounded-lg border border-border/60 bg-card p-4">
 					<div className="text-xs uppercase tracking-wide text-muted-foreground">

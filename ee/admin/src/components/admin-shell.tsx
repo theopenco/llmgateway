@@ -2,6 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import {
+	Activity,
 	AlertTriangle,
 	BarChart3,
 	Building2,
@@ -13,6 +14,7 @@ import {
 	Mail,
 	Menu,
 	MessageCircle,
+	MessageSquare,
 	Percent,
 	Server,
 	Sparkles,
@@ -86,13 +88,18 @@ export function AdminShell({ children }: AdminShellProps) {
 	const isDashboard = pathname === "/" || pathname === "";
 	const isOrganizations = pathname.startsWith("/organizations");
 	const isDevpass = pathname.startsWith("/devpass");
+	const isChatPlans = pathname.startsWith("/chat-plans");
 	const isGlobalStats = pathname.startsWith("/global-stats");
 	const isDiscounts = pathname === "/discounts";
 	const isRateLimits = pathname === "/rate-limits";
 	const isProviders = pathname === "/providers";
 	const isModels = pathname === "/models";
 	const isModelProviderMappings = pathname === "/model-provider-mappings";
+	const isUnstableMappings = pathname.startsWith("/unstable-mappings");
 	const isContactSubmissions = pathname.startsWith("/contact-submissions");
+	const isProviderListingRequests = pathname.startsWith(
+		"/provider-listing-requests",
+	);
 	const isChatSupportLogs = pathname.startsWith("/chat-support-logs");
 	const isPaymentFailures = pathname.startsWith("/payment-failures");
 
@@ -157,6 +164,14 @@ export function AdminShell({ children }: AdminShellProps) {
 								</Link>
 							</SidebarMenuItem>
 							<SidebarMenuItem>
+								<Link href="/chat-plans" className="block">
+									<SidebarMenuButton isActive={isChatPlans} size="lg">
+										<MessageSquare className="h-4 w-4" />
+										<span>Chat Plans</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
 								<Link href="/global-stats" className="block">
 									<SidebarMenuButton isActive={isGlobalStats} size="lg">
 										<BarChart3 className="h-4 w-4" />
@@ -168,7 +183,7 @@ export function AdminShell({ children }: AdminShellProps) {
 								<Link href="/discounts" className="block">
 									<SidebarMenuButton isActive={isDiscounts} size="lg">
 										<Percent className="h-4 w-4" />
-										<span>Global Discounts</span>
+										<span>Discounts</span>
 									</SidebarMenuButton>
 								</Link>
 							</SidebarMenuItem>
@@ -208,10 +223,29 @@ export function AdminShell({ children }: AdminShellProps) {
 								</Link>
 							</SidebarMenuItem>
 							<SidebarMenuItem>
+								<Link href="/unstable-mappings" className="block">
+									<SidebarMenuButton isActive={isUnstableMappings} size="lg">
+										<Activity className="h-4 w-4" />
+										<span>Unstable Mappings</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
 								<Link href="/contact-submissions" className="block">
 									<SidebarMenuButton isActive={isContactSubmissions} size="lg">
 										<Mail className="h-4 w-4" />
 										<span>Contact Submissions</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<Link href="/provider-listing-requests" className="block">
+									<SidebarMenuButton
+										isActive={isProviderListingRequests}
+										size="lg"
+									>
+										<Building2 className="h-4 w-4" />
+										<span>Provider Requests</span>
 									</SidebarMenuButton>
 								</Link>
 							</SidebarMenuItem>

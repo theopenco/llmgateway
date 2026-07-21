@@ -22,12 +22,14 @@ import {
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useApi } from "@/lib/fetch-client";
 
+import { CODING_AGENTS } from "@llmgateway/shared";
 import {
 	AnthropicIcon,
 	AutohandIcon,
 	ClineIcon,
 	CodexIcon,
 	CursorIcon,
+	DevPassCodeIcon,
 	N8nIcon,
 	OpenClawIcon,
 	OpenCodeIcon,
@@ -51,62 +53,26 @@ interface AgentDefinition {
 	sources: string[];
 }
 
-const AGENTS: AgentDefinition[] = [
-	{
-		id: "claude-code",
-		label: "Claude Code",
-		icon: AnthropicIcon,
-		sources: ["claude.com/claude-code"],
-	},
-	{
-		id: "opencode",
-		label: "OpenCode",
-		icon: OpenCodeIcon,
-		sources: ["opencode", "open-code"],
-	},
-	{
-		id: "cursor",
-		label: "Cursor",
-		icon: CursorIcon,
-		sources: ["cursor"],
-	},
-	{
-		id: "autohand",
-		label: "Autohand Code",
-		icon: AutohandIcon,
-		sources: ["autohand"],
-	},
-	{
-		id: "soulforge",
-		label: "SoulForge",
-		icon: SoulForgeIcon,
-		sources: ["soulforge"],
-	},
-	{
-		id: "cline",
-		label: "Cline",
-		icon: ClineIcon,
-		sources: ["cline"],
-	},
-	{
-		id: "codex",
-		label: "Codex CLI",
-		icon: CodexIcon,
-		sources: ["codex"],
-	},
-	{
-		id: "n8n",
-		label: "n8n",
-		icon: N8nIcon,
-		sources: ["n8n"],
-	},
-	{
-		id: "openclaw",
-		label: "OpenClaw",
-		icon: OpenClawIcon,
-		sources: ["openclaw"],
-	},
-];
+const AGENT_ICONS: Record<string, IconComponent> = {
+	"devpass-code": DevPassCodeIcon,
+	"claude.com/claude-code": AnthropicIcon,
+	opencode: OpenCodeIcon,
+	cursor: CursorIcon,
+	autohand: AutohandIcon,
+	soulforge: SoulForgeIcon,
+	cline: ClineIcon,
+	"roo-code": ClineIcon,
+	codex: CodexIcon,
+	n8n: N8nIcon,
+	openclaw: OpenClawIcon,
+};
+
+const AGENTS: AgentDefinition[] = CODING_AGENTS.map((agent) => ({
+	id: agent.id,
+	label: agent.label,
+	icon: AGENT_ICONS[agent.id] ?? Terminal,
+	sources: agent.xSourceValues,
+}));
 
 const AGENTS_TIME_RANGES = ["7d", "30d"] as const;
 
@@ -560,7 +526,7 @@ function EmptyState() {
 				No agent activity yet
 			</h3>
 			<p className="text-sm text-muted-foreground max-w-sm text-center mb-6">
-				Activity appears when coding agents like Claude Code, Autohand Code,
+				Activity appears when coding agents like DevPass Code, Claude Code,
 				OpenCode, Cursor, or Cline make API requests through the gateway.
 			</p>
 			<div className="flex flex-wrap items-center justify-center gap-4">

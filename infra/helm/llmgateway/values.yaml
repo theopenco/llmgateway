@@ -116,6 +116,9 @@ gateway:
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
+  # -- Internal-only port for the Prometheus /metrics endpoint. Exposed via the
+  # ClusterIP Service for in-cluster scraping; never routed by the ingress.
+  metricsPort: 9090
   resources:
     requests:
       cpu: 100m

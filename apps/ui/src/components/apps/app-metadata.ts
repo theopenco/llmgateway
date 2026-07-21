@@ -4,6 +4,9 @@ import {
 	ClineIcon,
 	CodexIcon,
 	CursorIcon,
+	DevPassCodeIcon,
+	KimiIcon,
+	MimoCodeIcon,
 	N8nIcon,
 	OpenClawIcon,
 	OpenCodeIcon,
@@ -21,6 +24,14 @@ export interface AppMetadata {
 }
 
 export const APP_METADATA: Record<string, AppMetadata> = {
+	"devpass-code": {
+		displayName: "DevPass Code",
+		url: "https://github.com/theopenco/devpass-code",
+		description:
+			"LLM Gateway's first-party terminal coding agent. One-click browser login connects it straight to your DevPass — no keys to copy.",
+		category: "coding",
+		Icon: DevPassCodeIcon,
+	},
 	"claude.com/claude-code": {
 		displayName: "Claude Code",
 		url: "https://claude.com/claude-code",
@@ -96,6 +107,22 @@ export const APP_METADATA: Record<string, AppMetadata> = {
 			"Open-source AI coding agent for VS Code. Works with any provider via LLM Gateway.",
 		category: "coding",
 	},
+	"kimi-code": {
+		displayName: "Kimi Code",
+		url: "https://github.com/MoonshotAI/kimi-code",
+		description:
+			"Open-source AI coding agent CLI by Moonshot AI. Point it at LLM Gateway to code with any model.",
+		category: "coding",
+		Icon: KimiIcon,
+	},
+	"mimo-code": {
+		displayName: "MiMo Code",
+		url: "https://mimo.xiaomi.com/mimocode",
+		description:
+			"AI-powered coding agent CLI by Xiaomi. Point it at LLM Gateway to code with any model.",
+		category: "coding",
+		Icon: MimoCodeIcon,
+	},
 	zed: {
 		displayName: "Zed",
 		url: "https://zed.dev",
@@ -136,7 +163,7 @@ export const APP_METADATA: Record<string, AppMetadata> = {
 		displayName: "SoulForge",
 		url: "https://soulforge.proxysoul.com/",
 		description:
-			"Graph-powered coding agent. Treats code as structure, not strings. Roughly half the tokens on multi-turn coding sessions.",
+			"Graph-powered coding agent. Treats code as structure, not strings.",
 		category: "coding",
 		Icon: SoulForgeIcon,
 	},

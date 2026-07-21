@@ -118,7 +118,7 @@ export default function ApiKeySection({
 					<ArrowRight className="h-3 w-3" />
 				</Link>
 				<a
-					href={`${uiUrl}/models?coding=true`}
+					href={`${uiUrl}/models?coding=true&from=devpass`}
 					target="_blank"
 					rel="noopener noreferrer"
 					className="inline-flex items-center gap-1 hover:text-foreground transition-colors"

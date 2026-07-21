@@ -232,6 +232,29 @@ export function extractTokenUsage(
 				}
 			}
 			break;
+		case "sakana":
+			// Fugu streams over Chat Completions and bills the orchestration tokens
+			// consumed by its underlying agent pool on top of the user-visible
+			// input/output tokens. They arrive in the *_tokens_details and are real
+			// billable usage, so fold them into the prompt/completion (and cached)
+			// counts the cost engine sees.
+			if (data.usage) {
+				const promptDetails = data.usage.prompt_tokens_details ?? {};
+				const completionDetails = data.usage.completion_tokens_details ?? {};
+				promptTokens =
+					(data.usage.prompt_tokens ?? 0) +
+					(promptDetails.orchestration_input_tokens ?? 0);
+				completionTokens =
+					(data.usage.completion_tokens ?? 0) +
+					(completionDetails.orchestration_output_tokens ?? 0);
+				reasoningTokens = completionDetails.reasoning_tokens ?? null;
+				cachedTokens =
+					(promptDetails.cached_tokens ?? 0) +
+					(promptDetails.orchestration_input_cached_tokens ?? 0);
+				totalTokens =
+					data.usage.total_tokens ?? promptTokens + completionTokens;
+			}
+			break;
 		default: // OpenAI format
 			if (data.response?.usage) {
 				// OpenAI Responses API format (response.completed events)
@@ -242,6 +265,13 @@ export function extractTokenUsage(
 				totalTokens = ru.total_tokens ?? null;
 				reasoningTokens = ru.output_tokens_details?.reasoning_tokens ?? null;
 				cachedTokens = ru.input_tokens_details?.cached_tokens ?? null;
+				// GPT-5.6+ bills prompt-cache writes at 1.25x and reports them in
+				// `cache_write_tokens` (a subset of input_tokens, like cached_tokens).
+				const responsesCacheWrite =
+					ru.input_tokens_details?.cache_write_tokens ?? 0;
+				if (responsesCacheWrite > 0) {
+					cacheCreationTokens = responsesCacheWrite;
+				}
 			} else if (data.usage) {
 				// Standard OpenAI Chat Completions format
 				promptTokens = data.usage.prompt_tokens ?? null;
@@ -249,6 +279,13 @@ export function extractTokenUsage(
 				totalTokens = data.usage.total_tokens ?? null;
 				reasoningTokens = data.usage.reasoning_tokens ?? null;
 				cachedTokens = data.usage.prompt_tokens_details?.cached_tokens ?? null;
+				// GPT-5.6+ bills prompt-cache writes at 1.25x and reports them in
+				// `cache_write_tokens` (a subset of prompt_tokens, like cached_tokens).
+				const chatCacheWrite =
+					data.usage.prompt_tokens_details?.cache_write_tokens ?? 0;
+				if (chatCacheWrite > 0) {
+					cacheCreationTokens = chatCacheWrite;
+				}
 			}
 			break;
 	}

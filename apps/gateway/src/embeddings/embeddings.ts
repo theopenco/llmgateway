@@ -19,7 +19,10 @@ import {
 	reportTrackedKeyError,
 	reportTrackedKeySuccess,
 } from "@/lib/api-key-health.js";
-import { assertApiKeyWithinUsageLimits } from "@/lib/api-key-usage-limits.js";
+import {
+	assertApiKeyWithinUsageLimits,
+	assertMemberWithinBudget,
+} from "@/lib/api-key-usage-limits.js";
 import {
 	findApiKeyByToken,
 	findOrganizationById,
@@ -27,10 +30,20 @@ import {
 	findProviderKey,
 } from "@/lib/cached-queries.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
+import { assertProviderCompliant } from "@/lib/compliance.js";
+import {
+	applyEndUserSession,
+	assertTestWalletModelAllowed,
+} from "@/lib/end-user-session.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
-import { throwIamException, validateModelAccess } from "@/lib/iam.js";
+import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import {
+	clientFacingUpstreamFailureMessage,
+	redactedProviderErrorText,
+	shouldRedactProviderError,
+} from "@/lib/stealth-provider-errors.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
 import { getProviderHeaders } from "@llmgateway/actions";
@@ -39,6 +52,8 @@ import { logger } from "@llmgateway/logger";
 import {
 	getProviderEnvValue,
 	models as modelDefinitions,
+	resolveVertexTokenType,
+	type VertexTokenType,
 } from "@llmgateway/models";
 
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
@@ -223,7 +238,7 @@ function findEmbeddingMapping(modelId: string): {
 			if (requestedProvider && candidate.providerId !== requestedProvider) {
 				continue;
 			}
-			if (model.id === modelKey || candidate.externalId === modelKey) {
+			if (model.id === modelKey) {
 				return {
 					mapping: candidate,
 					modelDef: model,
@@ -245,10 +260,17 @@ function getAvailableCredits(
 			? parseFloat(organization.devPlanCreditsLimit ?? "0") -
 				parseFloat(organization.devPlanCreditsUsed ?? "0")
 			: 0;
+	const chatPlanCreditsRemaining =
+		organization.chatPlan !== "none"
+			? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
+				parseFloat(organization.chatPlanCreditsUsed ?? "0")
+			: 0;
 
 	return {
 		devPlanCreditsRemaining,
-		totalAvailableCredits: regularCredits + devPlanCreditsRemaining,
+		chatPlanCreditsRemaining,
+		totalAvailableCredits:
+			regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining,
 	};
 }
 
@@ -258,8 +280,11 @@ function assertCreditsAvailableForEmbedding(
 	insufficientCreditsMessage: string,
 	devPlanCreditLimitMessage: (renewalDate: string) => string,
 ) {
-	const { devPlanCreditsRemaining, totalAvailableCredits } =
-		getAvailableCredits(organization);
+	const {
+		devPlanCreditsRemaining,
+		chatPlanCreditsRemaining,
+		totalAvailableCredits,
+	} = getAvailableCredits(organization);
 
 	if (totalAvailableCredits > 0 || modelDef.free) {
 		return;
@@ -271,6 +296,15 @@ function assertCreditsAvailableForEmbedding(
 			: "your next billing date";
 		throw new HTTPException(402, {
 			message: devPlanCreditLimitMessage(renewalDate),
+		});
+	}
+
+	if (organization.chatPlan !== "none" && chatPlanCreditsRemaining <= 0) {
+		const renewalDate = organization.chatPlanExpiresAt
+			? new Date(organization.chatPlanExpiresAt).toLocaleDateString()
+			: "your next billing date";
+		throw new HTTPException(402, {
+			message: `Chat Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
 		});
 	}
 
@@ -507,42 +541,69 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 	const token = extractApiToken(c);
 	const apiKey = await findApiKeyByToken(token);
 
-	if (!apiKey || apiKey.status !== "active") {
+	if (!apiKey) {
 		throw new HTTPException(401, {
 			message:
-				"Unauthorized: Invalid LLMGateway API token. Please make sure the token is not deleted or disabled. Go to the LLMGateway 'API Keys' page to generate a new token.",
+				"Unauthorized: Invalid LLMGateway API token. The token could not be found. Go to the LLMGateway 'API Keys' page to generate a new token.",
 		});
 	}
 
-	assertApiKeyWithinUsageLimits(apiKey);
+	if (apiKey.status !== "active") {
+		throw new HTTPException(401, {
+			message:
+				"Unauthorized: This LLMGateway API token is not active (it may be disabled or deleted). Go to the LLMGateway 'API Keys' page to generate a new token.",
+		});
+	}
 
-	const project = await findProjectById(apiKey.projectId);
-	if (!project) {
+	const baseProject = await findProjectById(apiKey.projectId);
+	if (!baseProject) {
 		throw new HTTPException(500, {
 			message: "Could not find project",
 		});
 	}
 
-	if (project.status === "deleted") {
+	if (baseProject.status === "deleted") {
 		throw new HTTPException(410, {
 			message: "Project has been archived and is no longer accessible",
 		});
 	}
 
-	const organization = await findOrganizationById(project.organizationId);
-	if (!organization) {
+	// User-level limits take priority: enforce the per-member budget (set on the
+	// Teams page; fails open on read errors) before the per-key usage limits, so a
+	// member who is over budget is denied even if the key itself is within limits.
+	await assertMemberWithinBudget(apiKey.createdBy, baseProject.organizationId);
+	assertApiKeyWithinUsageLimits(apiKey);
+
+	const baseOrganization = await findOrganizationById(
+		baseProject.organizationId,
+	);
+	if (!baseOrganization) {
 		throw new HTTPException(500, {
 			message: "Could not find organization",
 		});
 	}
 
-	if (organization.status === "deleted") {
+	if (baseOrganization.status === "deleted") {
 		throw new HTTPException(410, {
 			message: "Organization has been disabled and is no longer accessible",
 		});
 	}
 
-	if (organization.isPersonal && organization.devPlan !== "none") {
+	// LLM SDK: ephemeral end-user sessions bill the bound wallet instead
+	// of the developer's org credits (the log's endCustomerWalletId redirects the
+	// worker's debit). For normal keys this is a no-op.
+	const { project, organization, wallet } = await applyEndUserSession(
+		c,
+		apiKey,
+		baseProject,
+		baseOrganization,
+	);
+
+	// Sandbox wallets can only spend on free models (none for embeddings today),
+	// so this rejects paid embedding requests from test-mode end-user sessions.
+	assertTestWalletModelAllowed(wallet, modelDef);
+
+	if (organization.kind === "devpass" && organization.devPlan !== "none") {
 		throw new HTTPException(403, {
 			message:
 				"Embeddings are not available for coding plans. Coding plans only include text-based inference.",
@@ -550,8 +611,8 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 	}
 
 	const retentionLevel = organization.retentionLevel ?? "none";
-	const iamValidation = await validateModelAccess(
-		apiKey.id,
+	const iamValidation = await validateRequestModelAccess(
+		apiKey,
 		modelDefId,
 		providerId,
 		modelDef,
@@ -560,6 +621,16 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 	if (!iamValidation.allowed) {
 		throwIamException(iamValidation.reason ?? "Model access denied");
 	}
+
+	// Enterprise provider compliance policy: embeddings resolve to a single
+	// provider, so block the request before any data is sent if that provider
+	// doesn't meet the org's required certifications/data policies.
+	await assertProviderCompliant(organization, providerId, {
+		organizationId: project.organizationId,
+		modelId: modelDefId,
+		apiKeyId: apiKey.id,
+		model: requestedModel,
+	});
 
 	const finalLogId = shortid();
 	const failedKeys = createFailedKeyTracker();
@@ -612,6 +683,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		envVarName: string | undefined;
 		upstreamUrl: string;
 		requestBody: Record<string, unknown>;
+		vertexTokenType?: VertexTokenType;
 	}
 
 	type ResolveResult =
@@ -734,6 +806,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 
 		let upstreamUrl: string;
 		let requestBody: Record<string, unknown>;
+		let vertexTokenType: VertexTokenType | undefined;
 
 		if (isGoogleAiStudio) {
 			const endpoint =
@@ -803,7 +876,21 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				getProviderEnvValue("google-vertex", "region", configIndex, "global") ??
 				"global";
 
-			upstreamUrl = `${resolvedBaseUrl}/v1/projects/${vertexProjectId}/locations/${vertexRegion}/publishers/google/models/${upstreamModel}:predict?key=${encodeURIComponent(usedToken)}`;
+			// OAuth tokens are sent via the Authorization header (below); only API
+			// keys go in the `?key=` query param. Resolve once so the header and
+			// the query param agree. No region-env override here, so providerKey
+			// presence is an accurate BYOK signal.
+			vertexTokenType = resolveVertexTokenType(
+				"google-vertex",
+				providerKey?.options ?? undefined,
+				configIndex,
+				providerKey !== undefined,
+			);
+			const vertexAuthQuery =
+				vertexTokenType === "oauth"
+					? ""
+					: `?key=${encodeURIComponent(usedToken)}`;
+			upstreamUrl = `${resolvedBaseUrl}/v1/projects/${vertexProjectId}/locations/${vertexRegion}/publishers/google/models/${upstreamModel}:predict${vertexAuthQuery}`;
 			requestBody = {
 				instances: googleInputs.map((text) => ({ content: text })),
 			};
@@ -836,6 +923,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				envVarName,
 				upstreamUrl,
 				requestBody,
+				vertexTokenType,
 			},
 		};
 	}
@@ -913,9 +1001,16 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				const fetchSignal = createCombinedSignal(controller);
 				upstreamResponse = await fetch(attempt.upstreamUrl, {
 					method: "POST",
+					// SSRF: never follow redirects on an authenticated provider request. A
+					// tenant-supplied baseUrl could 3xx to an internal host at request
+					// time, and a redirect would also leak the upstream token.
+					redirect: "error",
 					headers: {
 						"Content-Type": "application/json",
-						...getProviderHeaders(providerId, attempt.usedToken, { requestId }),
+						...getProviderHeaders(providerId, attempt.usedToken, {
+							requestId,
+							tokenType: attempt.vertexTokenType,
+						}),
 					},
 					body: JSON.stringify(attempt.requestBody),
 					signal: fetchSignal,
@@ -1054,9 +1149,13 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				return c.json(
 					{
 						error: {
-							message: isTimeout
-								? `Upstream provider timeout: ${fetchError.message}`
-								: `Failed to connect to provider: ${fetchError.message}`,
+							message: clientFacingUpstreamFailureMessage(
+								providerId,
+								isTimeout
+									? "Upstream provider timeout"
+									: "Failed to connect to provider",
+								fetchError.message,
+							),
 							type: isTimeout ? "upstream_timeout" : "upstream_error",
 							param: null,
 							code: isTimeout ? "timeout" : "fetch_failed",
@@ -1176,6 +1275,22 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				if (willRetry && nextAttempt) {
 					attempt = nextAttempt;
 					continue;
+				}
+
+				// Stealth providers: never pass the raw upstream error body through
+				// to the client — only the upstream status code may be surfaced.
+				if (shouldRedactProviderError(providerId)) {
+					return c.json(
+						{
+							error: {
+								message: redactedProviderErrorText(status),
+								type: "upstream_error",
+								param: null,
+								code: "upstream_error",
+							},
+						} satisfies z.infer<typeof embeddingErrorSchema>,
+						status as 400 | 401 | 403 | 404 | 410 | 429 | 500 | 502 | 503 | 504,
+					);
 				}
 
 				const normalizedUpstreamError: z.infer<typeof embeddingErrorSchema> = {

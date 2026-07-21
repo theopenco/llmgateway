@@ -6,9 +6,12 @@ import {
 	projectHourlySourceStats,
 	apiKeyHourlyStats,
 	apiKeyHourlyModelStats,
+	apiKey,
 	sql,
 	and,
 	isNull,
+	eq,
+	inArray,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
@@ -356,11 +359,13 @@ async function recalculateApiKeyHourlyStats(
 			...getCommonAggregationFields(),
 		})
 		.from(log)
+		.innerJoin(apiKey, eq(apiKey.id, log.apiKeyId))
 		.where(
 			and(
 				sql`${log.projectId} = ${projectId}`,
 				sql`${log.createdAt} >= ${hourTimestamp}::timestamp`,
 				sql`${log.createdAt} < ${hourTimestamp}::timestamp + interval '1 hour'`,
+				inArray(apiKey.keyType, ["user", "end_user_customer"]),
 			),
 		)
 		.groupBy(log.apiKeyId);
@@ -402,11 +407,13 @@ async function recalculateApiKeyHourlyModelStats(
 			...getCommonAggregationFields(),
 		})
 		.from(log)
+		.innerJoin(apiKey, eq(apiKey.id, log.apiKeyId))
 		.where(
 			and(
 				sql`${log.projectId} = ${projectId}`,
 				sql`${log.createdAt} >= ${hourTimestamp}::timestamp`,
 				sql`${log.createdAt} < ${hourTimestamp}::timestamp + interval '1 hour'`,
+				inArray(apiKey.keyType, ["user", "end_user_customer"]),
 			),
 		)
 		.groupBy(log.apiKeyId, log.usedModel, log.usedProvider);
@@ -496,6 +503,13 @@ export async function aggregateHistoricalStats() {
 						staleStart
 							? sql`${projectHourlyStats.hourTimestamp} >= ${staleStart}::timestamp`
 							: undefined,
+						// A bucket can only be stale if it was last aggregated before its
+						// hour ended: a log in [hour, hour+1h) can only be newer than
+						// updatedAt when updatedAt < hour+1h. This is implied by the EXISTS
+						// below, but stating it as a single-table predicate lets Postgres
+						// prune settled buckets during the scan instead of running the
+						// correlated log lookup for every recent bucket.
+						sql`${projectHourlyStats.updatedAt} < ${projectHourlyStats.hourTimestamp} + interval '1 hour'`,
 						sql`EXISTS (
 							SELECT 1 FROM ${log}
 							WHERE ${log.projectId} = ${projectHourlyStats.projectId}

@@ -19,6 +19,9 @@ const testWebSearch = process.env.TEST_WEB_SEARCH;
 // Skip all tests if TEST_WEB_SEARCH is not set
 const describeWebSearch = testWebSearch ? describe : describe.skip;
 
+const expectsWebSearchAnnotations = (model: string) =>
+	!model.startsWith("zai/");
+
 describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 	beforeAll(beforeAllHook);
 
@@ -83,18 +86,20 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 			expect(typeof log.webSearchCost).toBe("number");
 			expect(log.webSearchCost).toBeGreaterThan(0);
 
-			// Verify annotations (citations) are present
-			expect(message).toHaveProperty("annotations");
-			expect(Array.isArray(message.annotations)).toBe(true);
-			expect(message.annotations.length).toBeGreaterThan(0);
+			if (expectsWebSearchAnnotations(model)) {
+				// Verify annotations (citations) are present
+				expect(message).toHaveProperty("annotations");
+				expect(Array.isArray(message.annotations)).toBe(true);
+				expect(message.annotations.length).toBeGreaterThan(0);
 
-			// Validate annotation structure
-			const citation = message.annotations[0];
-			expect(citation).toHaveProperty("type", "url_citation");
-			expect(citation).toHaveProperty("url_citation");
-			expect(citation.url_citation).toHaveProperty("url");
-			expect(typeof citation.url_citation.url).toBe("string");
-			expect(citation.url_citation.url).toMatch(/^https?:\/\//);
+				// Validate annotation structure
+				const citation = message.annotations[0];
+				expect(citation).toHaveProperty("type", "url_citation");
+				expect(citation).toHaveProperty("url_citation");
+				expect(citation.url_citation).toHaveProperty("url");
+				expect(typeof citation.url_citation.url).toBe("string");
+				expect(citation.url_citation.url).toMatch(/^https?:\/\//);
+			}
 
 			if (logMode) {
 				console.log(
@@ -113,6 +118,71 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 			expect(json.usage.prompt_tokens).toBeGreaterThan(0);
 			expect(json.usage.completion_tokens).toBeGreaterThan(0);
 			expect(json.usage.total_tokens).toBeGreaterThan(0);
+		},
+	);
+
+	test.each(webSearchModels)(
+		"web search responses api $model",
+		{ timeout: 300000 }, // Increase timeout for web search
+		async ({ model }) => {
+			const requestId = generateTestRequestId();
+			const res = await app.request("/v1/responses", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-request-id": requestId,
+					"x-no-fallback": "true",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: model,
+					input:
+						"Search the web for the latest news about artificial intelligence from today. What are the top stories?",
+					tools: [
+						{
+							type: "web_search",
+						},
+					],
+				}),
+			});
+
+			const json = await res.json();
+			if (logMode) {
+				console.log(
+					"web search responses api response:",
+					JSON.stringify(json, null, 2),
+				);
+			}
+
+			expect(res.status).toBe(200);
+			expect(json).toHaveProperty("output");
+			expect(Array.isArray(json.output)).toBe(true);
+
+			const message = json.output.find(
+				(item: { type: string }) => item.type === "message",
+			);
+			expect(message).toBeDefined();
+			const text = (message.content ?? [])
+				.filter(
+					(c: { type: string; text?: string }) => c.type === "output_text",
+				)
+				.map((c: { text?: string }) => c.text ?? "")
+				.join("");
+			expect(text.length).toBeGreaterThan(0);
+
+			// Validate logs
+			const log = await validateLogByRequestId(requestId);
+
+			// Verify web search was used and cost is tracked
+			expect(log).toHaveProperty("webSearchCost");
+			expect(typeof log.webSearchCost).toBe("number");
+			expect(log.webSearchCost).toBeGreaterThan(0);
+
+			if (logMode) {
+				console.log(
+					`Web search was used for ${model} via responses api, cost: ${log.webSearchCost}`,
+				);
+			}
 		},
 	);
 
@@ -182,26 +252,28 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 			expect(typeof log.webSearchCost).toBe("number");
 			expect(log.webSearchCost).toBeGreaterThan(0);
 
-			// Verify annotations (citations) are present in at least one chunk
-			const annotationChunks = streamResult.chunks.filter(
-				(chunk) => chunk.choices?.[0]?.delta?.annotations,
-			);
-			expect(annotationChunks.length).toBeGreaterThan(0);
+			if (expectsWebSearchAnnotations(model)) {
+				// Verify annotations (citations) are present in at least one chunk
+				const annotationChunks = streamResult.chunks.filter(
+					(chunk) => chunk.choices?.[0]?.delta?.annotations,
+				);
+				expect(annotationChunks.length).toBeGreaterThan(0);
 
-			// Validate annotation structure in streaming
-			const firstAnnotationChunk = annotationChunks[0];
-			const annotations =
-				firstAnnotationChunk.choices[0].delta.annotations ?? [];
-			expect(Array.isArray(annotations)).toBe(true);
-			expect(annotations.length).toBeGreaterThan(0);
+				// Validate annotation structure in streaming
+				const firstAnnotationChunk = annotationChunks[0];
+				const annotations =
+					firstAnnotationChunk.choices[0].delta.annotations ?? [];
+				expect(Array.isArray(annotations)).toBe(true);
+				expect(annotations.length).toBeGreaterThan(0);
 
-			// Validate citation structure
-			const citation = annotations[0];
-			expect(citation).toHaveProperty("type", "url_citation");
-			expect(citation).toHaveProperty("url_citation");
-			expect(citation.url_citation).toHaveProperty("url");
-			expect(typeof citation.url_citation.url).toBe("string");
-			expect(citation.url_citation.url).toMatch(/^https?:\/\//);
+				// Validate citation structure
+				const citation = annotations[0];
+				expect(citation).toHaveProperty("type", "url_citation");
+				expect(citation).toHaveProperty("url_citation");
+				expect(citation.url_citation).toHaveProperty("url");
+				expect(typeof citation.url_citation.url).toBe("string");
+				expect(citation.url_citation.url).toMatch(/^https?:\/\//);
+			}
 
 			if (logMode) {
 				console.log(

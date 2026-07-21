@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { models } from "@llmgateway/models";
+import { models, type ProviderModelMapping } from "@llmgateway/models";
 
 import {
 	applyDiscount,
@@ -11,7 +11,9 @@ import {
 } from "./discount";
 
 const qwen = models.find((m) => m.id === "qwen3.7-max")!;
-const alibaba = qwen.providers.find((p) => p.providerId === "alibaba")!;
+const alibaba = qwen.providers.find(
+	(p) => p.providerId === "alibaba",
+)! as ProviderModelMapping;
 const novita = qwen.providers.find((p) => p.providerId === "novita")!;
 
 // Mocked global 50% discount on qwen3.7-max, as configured in the admin

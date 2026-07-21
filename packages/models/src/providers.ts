@@ -46,14 +46,74 @@ export interface ProviderRegionConfig {
 	sharedCredentialAcrossRegions?: boolean;
 }
 
+/**
+ * A selectable processing tier offered by a provider that trades latency
+ * against price relative to the standard on-demand rate. Selected per-request
+ * via the OpenAI-compatible `service_tier` field. Currently used by OpenAI,
+ * Google Vertex AI, and Google AI Studio.
+ */
+export interface ServiceTier {
+	/** Value the client passes via `service_tier` to select this tier (e.g. "flex", "priority") */
+	id: string;
+	/** Human-readable tier name (e.g. "Flex", "Priority") */
+	name: string;
+	/**
+	 * Multiplier applied to the standard input/output token prices for this
+	 * tier. 0.5 means 50% cheaper, 2.5 means 2.5x standard pricing. Multipliers are
+	 * uniform for provider tiers that publish a tier-wide multiplier.
+	 */
+	multiplier: number;
+	/** Short description of the latency/availability trade-off */
+	description?: string;
+}
+
 export interface ProviderDataPolicy {
 	apiTraining: boolean | null;
 	consumerTraining: boolean | null;
 	promptLogging: boolean | null;
 	retentionPeriod?: string | null;
-	soc2?: boolean | null;
+	/**
+	 * SOC 2 report type the provider holds: `1` for Type 1, `2` for Type 2.
+	 * `null`/omitted means the provider is not SOC 2 certified.
+	 */
+	soc2?: 1 | 2 | null;
 	iso27001?: boolean | null;
 	gdpr?: boolean | null;
+}
+
+export interface ProviderAdditionalLink {
+	desc: string;
+	link: string;
+}
+
+/**
+ * Organization-level compliance policy. When enabled, the gateway only routes
+ * to providers whose {@link ProviderDataPolicy} explicitly satisfies every
+ * active requirement (fail-closed: unknown/`null` attributes never satisfy a
+ * requirement). Configurable on enterprise plans only.
+ */
+export interface ProviderCompliancePolicy {
+	enabled: boolean;
+	/** Require a SOC 2 report of any type (Type 1 or Type 2). */
+	requireSoc2?: boolean;
+	/** Require specifically a SOC 2 Type 2 report (the stricter attestation). */
+	requireSoc2Type2?: boolean;
+	requireIso27001?: boolean;
+	/** Require either a SOC 2 Type 2 report or ISO 27001 certification. */
+	requireSoc2OrIso27001?: boolean;
+	requireGdpr?: boolean;
+	/** Require the provider to NOT train on API prompts (apiTraining === false). */
+	blockApiTraining?: boolean;
+	/** Require the provider to NOT log prompts (promptLogging === false). */
+	blockPromptLogging?: boolean;
+	/**
+	 * Restrict routing to providers headquartered in one of these ISO 3166-1
+	 * alpha-2 country codes. Empty/omitted means no country restriction. Only
+	 * codes present in the catalogue (see {@link getProviderCountries}) are
+	 * meaningful; a provider with an unknown or `null` headquarters is blocked
+	 * whenever this list is non-empty (fail-closed).
+	 */
+	allowedCountries?: string[];
 }
 
 export interface ProviderDefinition {
@@ -70,6 +130,8 @@ export interface ProviderDefinition {
 	color?: string;
 	// Website URL
 	website?: string | null;
+	// Provider-owned service status URL
+	statusPageUrl?: string | null;
 	// Announcement text
 	announcement?: string | null;
 	// Instructions for creating an API key
@@ -84,12 +146,20 @@ export interface ProviderDefinition {
 	contentFilter?: boolean;
 	/** Region routing config - when set, provider supports multiple geographic endpoints */
 	regionConfig?: ProviderRegionConfig;
+	/**
+	 * Selectable processing tiers (e.g. Flex / Priority) offered by this
+	 * provider. Chosen per-request via the `service_tier` field. When unset,
+	 * the provider only offers the standard on-demand tier.
+	 */
+	serviceTiers?: ServiceTier[];
 	termsUrl?: string | null;
 	privacyPolicyUrl?: string | null;
 	/** ISO 3166-1 alpha-2 country code for provider headquarters */
 	headquarters?: string | null;
 	/** Data usage and privacy policy details */
 	dataPolicy?: ProviderDataPolicy | null;
+	/** Additional provider policy links shown in the Data & Privacy card */
+	additionalLinks?: ProviderAdditionalLink[];
 }
 
 export const providers: ProviderDefinition[] = [
@@ -107,6 +177,7 @@ export const providers: ProviderDefinition[] = [
 		cancellation: true,
 		color: "#6366f1",
 		website: "https://llmgateway.io",
+		statusPageUrl: "https://status.llmgateway.io",
 		announcement: null,
 		termsUrl: "https://llmgateway.io/terms",
 		privacyPolicyUrl: "https://llmgateway.io/privacy",
@@ -116,7 +187,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: false,
+			soc2: null,
 			iso27001: false,
 			gdpr: false,
 		},
@@ -130,11 +201,15 @@ export const providers: ProviderDefinition[] = [
 			required: {
 				apiKey: "LLM_OPENAI_API_KEY",
 			},
+			optional: {
+				baseUrl: "LLM_OPENAI_BASE_URL",
+			},
 		},
 		streaming: true,
 		cancellation: true,
 		color: "#0ea5e9",
 		website: "https://openai.com",
+		statusPageUrl: "https://status.openai.com",
 		announcement: null,
 		termsUrl: "https://openai.com/policies/terms-of-use",
 		privacyPolicyUrl: "https://openai.com/policies/privacy-policy",
@@ -144,10 +219,26 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: true,
 			promptLogging: true,
 			retentionPeriod: null,
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
+		serviceTiers: [
+			{
+				id: "flex",
+				name: "Flex",
+				multiplier: 0.5,
+				description:
+					"50% lower cost in exchange for slower responses and occasional resource unavailability.",
+			},
+			{
+				id: "priority",
+				name: "Priority",
+				multiplier: 2.5,
+				description:
+					"Premium low-latency tier with faster, more consistent processing.",
+			},
+		],
 	},
 	{
 		id: "anthropic",
@@ -163,6 +254,7 @@ export const providers: ProviderDefinition[] = [
 		cancellation: true,
 		color: "#8b5cf6",
 		website: "https://anthropic.com",
+		statusPageUrl: "https://status.claude.com",
 		announcement: null,
 		termsUrl: "https://www.anthropic.com/terms",
 		privacyPolicyUrl: "https://www.anthropic.com/privacy",
@@ -172,7 +264,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: true,
 			promptLogging: true,
 			retentionPeriod: "30 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -194,7 +286,25 @@ export const providers: ProviderDefinition[] = [
 		cancellation: true,
 		color: "#4285f4",
 		website: "https://ai.google.com",
+		statusPageUrl: "https://aistudio.google.com/status",
 		announcement: null,
+		priority: 0.8,
+		serviceTiers: [
+			{
+				id: "flex",
+				name: "Flex",
+				multiplier: 0.5,
+				description:
+					"50% lower cost in exchange for variable latency and best-effort availability.",
+			},
+			{
+				id: "priority",
+				name: "Priority",
+				multiplier: 1.8,
+				description:
+					"Premium low-latency tier prioritized above standard and flex traffic, at an 80% premium.",
+			},
+		],
 		termsUrl: "https://ai.google.dev/gemini-api/terms",
 		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
 		headquarters: "US",
@@ -203,7 +313,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: true,
 			promptLogging: true,
 			retentionPeriod: "55 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -223,11 +333,36 @@ export const providers: ProviderDefinition[] = [
 		cancellation: true,
 		color: "#4285f4",
 		website: null,
+		statusPageUrl: null,
 		announcement: null,
 		termsUrl: null,
 		privacyPolicyUrl: null,
 		headquarters: null,
 		dataPolicy: null,
+		priority: 1.2,
+	},
+	{
+		id: "granite",
+		name: "Granite",
+		description:
+			"Granite is a stealth provider with OpenAI-compatible chat completions endpoints.",
+		env: {
+			required: {
+				apiKey: "LLM_GRANITE_API_KEY",
+				baseUrl: "LLM_GRANITE_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#4285f4",
+		website: null,
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: null,
+		privacyPolicyUrl: null,
+		headquarters: null,
+		dataPolicy: null,
+		priority: 1.5,
 	},
 	{
 		id: "google-vertex",
@@ -242,14 +377,31 @@ export const providers: ProviderDefinition[] = [
 			optional: {
 				baseUrl: "LLM_GOOGLE_VERTEX_BASE_URL",
 				region: "LLM_GOOGLE_VERTEX_REGION",
+				tokenType: "LLM_GOOGLE_VERTEX_TOKEN_TYPE",
 			},
 		},
 		streaming: true,
 		cancellation: true,
 		color: "#4285f4",
 		website: "https://cloud.google.com/vertex-ai",
+		statusPageUrl: "https://status.cloud.google.com",
 		announcement: null,
-		priority: 0.8,
+		serviceTiers: [
+			{
+				id: "flex",
+				name: "Flex",
+				multiplier: 0.5,
+				description:
+					"50% lower cost in exchange for variable latency and best-effort availability. Served on the global endpoint.",
+			},
+			{
+				id: "priority",
+				name: "Priority",
+				multiplier: 1.8,
+				description:
+					"Premium low-latency tier prioritized above standard and flex traffic, at an 80% premium. Served on the global endpoint.",
+			},
+		],
 		termsUrl: "https://cloud.google.com/terms/service-terms",
 		privacyPolicyUrl: "https://policies.google.com/privacy",
 		headquarters: "US",
@@ -258,7 +410,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -282,8 +434,17 @@ export const providers: ProviderDefinition[] = [
 		cancellation: true,
 		color: "#4285f4",
 		website: "https://cloud.google.com/vertex-ai",
+		statusPageUrl: "https://status.cloud.google.com",
 		announcement: null,
-		priority: 0.9,
+		priority: 0.2,
+		regionConfig: {
+			optionsKey: "vertex_openai_region",
+			defaultRegion: "global",
+			regions: [{ id: "global", label: "Global (default)" }],
+			endpointMap: {
+				global: "https://aiplatform.googleapis.com",
+			},
+		},
 		termsUrl: "https://cloud.google.com/terms/service-terms",
 		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
 		headquarters: "US",
@@ -292,7 +453,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -315,8 +476,9 @@ export const providers: ProviderDefinition[] = [
 		cancellation: true,
 		color: "#4285f4",
 		website: "https://cloud.google.com/vertex-ai",
+		statusPageUrl: "https://status.cloud.google.com",
 		announcement: null,
-		priority: 0.9,
+		priority: 0.2,
 		termsUrl: "https://cloud.google.com/terms/service-terms",
 		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
 		headquarters: "US",
@@ -325,7 +487,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -349,6 +511,7 @@ export const providers: ProviderDefinition[] = [
 		cancellation: true,
 		color: "#4285f4",
 		website: null,
+		statusPageUrl: null,
 		announcement: null,
 		priority: 0.9,
 		termsUrl: null,
@@ -373,6 +536,7 @@ export const providers: ProviderDefinition[] = [
 		cancellation: false,
 		color: "#0f766e",
 		website: null,
+		statusPageUrl: null,
 		announcement: null,
 		termsUrl: null,
 		privacyPolicyUrl: null,
@@ -392,6 +556,7 @@ export const providers: ProviderDefinition[] = [
 		cancellation: true,
 		color: "#F55036",
 		website: "https://groq.com",
+		statusPageUrl: "https://groqstatus.com",
 		announcement: null,
 		termsUrl: "https://groq.com/terms-of-use",
 		privacyPolicyUrl: "https://groq.com/privacy-policy",
@@ -401,7 +566,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			gdpr: true,
 		},
 	},
@@ -419,6 +584,7 @@ export const providers: ProviderDefinition[] = [
 		cancellation: true,
 		color: "#6b46c1",
 		website: "https://cerebras.ai",
+		statusPageUrl: "https://status.cerebras.ai",
 		announcement: null,
 		termsUrl: "https://cerebras.ai/terms-of-service",
 		privacyPolicyUrl: "https://cerebras.ai/privacy-policy",
@@ -428,7 +594,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			gdpr: true,
 		},
 	},
@@ -445,8 +611,8 @@ export const providers: ProviderDefinition[] = [
 		cancellation: true,
 		color: "#000000",
 		website: "https://x.ai",
+		statusPageUrl: "https://status.x.ai",
 		announcement: null,
-		priority: 0.1,
 		termsUrl: "https://x.ai/legal/terms-of-service",
 		privacyPolicyUrl: "https://x.ai/legal/privacy-policy",
 		headquarters: "US",
@@ -455,7 +621,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: true,
 			retentionPeriod: "30 days",
-			soc2: true,
+			soc2: 2,
 			gdpr: true,
 		},
 	},
@@ -473,6 +639,7 @@ export const providers: ProviderDefinition[] = [
 		cancellation: true,
 		color: "#FF6B00",
 		website: "https://deepseek.com",
+		statusPageUrl: "https://status.deepseek.com",
 		announcement: null,
 		termsUrl:
 			"https://cdn.deepseek.com/policies/en-US/deepseek-terms-of-use.html",
@@ -485,7 +652,7 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: true,
 			retentionPeriod: null,
 		},
-		priority: 1.5,
+		priority: 1.2,
 	},
 	{
 		id: "alibaba",
@@ -504,6 +671,7 @@ export const providers: ProviderDefinition[] = [
 		cancellation: true,
 		color: "#FF6A00",
 		website: "https://www.alibabacloud.com",
+		statusPageUrl: "https://status.alibabacloud.com",
 		announcement: null,
 		regionConfig: {
 			optionsKey: "alibaba_region",
@@ -545,6 +713,7 @@ export const providers: ProviderDefinition[] = [
 		cancellation: true,
 		color: "#9333ea",
 		website: "https://novita.ai",
+		statusPageUrl: "https://status.novita.ai",
 		announcement: null,
 		termsUrl: "https://novita.ai/legal/terms-of-service",
 		privacyPolicyUrl: "https://novita.ai/legal/privacy-policy",
@@ -555,6 +724,47 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
+	},
+	{
+		id: "atlascloud",
+		name: "AtlasCloud",
+		description:
+			"AtlasCloud provides unified APIs for video, image, audio, and language generation models.",
+		env: {
+			required: {
+				apiKey: "LLM_ATLASCLOUD_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_ATLASCLOUD_BASE_URL",
+			},
+		},
+		streaming: false,
+		cancellation: false,
+		color: "#0F766E",
+		website: "https://www.atlascloud.ai",
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: "https://atlascloud.ai/privacy",
+		privacyPolicyUrl: "https://www.atlascloud.ai/privacy",
+		headquarters: null,
+		dataPolicy: {
+			apiTraining: null,
+			consumerTraining: null,
+			promptLogging: null,
+			retentionPeriod: "varies by service; Enterprise ZDR available",
+			soc2: 2,
+			gdpr: true,
+		},
+		additionalLinks: [
+			{
+				desc: "Zero Data Retention and DPA",
+				link: "https://www.atlascloud.ai/zero-data-retention",
+			},
+			{
+				desc: "Data deletion policy",
+				link: "https://www.atlascloud.ai/data-deletion-policy",
+			},
+		],
 	},
 	{
 		id: "aws-bedrock",
@@ -569,11 +779,12 @@ export const providers: ProviderDefinition[] = [
 				region: "LLM_AWS_BEDROCK_REGION",
 			},
 		},
-		priority: 0.9,
+		priority: 2,
 		streaming: true,
 		cancellation: true,
 		color: "#FF9900",
 		website: "https://aws.amazon.com/bedrock",
+		statusPageUrl: "https://health.aws.amazon.com/health/status",
 		announcement: null,
 		apiKeyInstructions:
 			"Use AWS Bedrock Long-Term API Keys (not IAM service account or private keys)",
@@ -590,51 +801,61 @@ export const providers: ProviderDefinition[] = [
 				{ id: "us", label: "US" },
 				{ id: "eu", label: "EU" },
 				{ id: "apac", label: "Asia Pacific" },
-				// Specific AWS regions for data-residency requirements. Only models
-				// that support direct invocation in the chosen region will work —
-				// Claude 4+ requires an inference profile and will reject these.
+				{ id: "au", label: "Australia" },
+				{ id: "jp", label: "Japan" },
+				// Specific AWS regions for data-residency requirements.
 				{ id: "us-east-1", label: "US East (N. Virginia)" },
 				{ id: "us-east-2", label: "US East (Ohio)" },
 				{ id: "us-west-2", label: "US West (Oregon)" },
 				{ id: "eu-central-1", label: "EU (Frankfurt)" },
+				{ id: "eu-north-1", label: "EU (Stockholm)" },
 				{ id: "eu-west-1", label: "EU (Ireland)" },
+				{ id: "eu-west-2", label: "EU (London)" },
+				{ id: "eu-west-3", label: "EU (Paris)" },
 				{ id: "ap-northeast-1", label: "Asia Pacific (Tokyo)" },
+				{ id: "ap-northeast-2", label: "Asia Pacific (Seoul)" },
 				{ id: "ap-southeast-1", label: "Asia Pacific (Singapore)" },
-				{ id: "ap-southeast-2", label: "Asia Pacific (Sydney)" },
 			],
 			endpointMap: {
 				global: "https://bedrock-runtime.us-east-1.amazonaws.com",
 				us: "https://bedrock-runtime.us-east-1.amazonaws.com",
 				eu: "https://bedrock-runtime.eu-central-1.amazonaws.com",
 				apac: "https://bedrock-runtime.ap-northeast-1.amazonaws.com",
+				au: "https://bedrock-runtime.ap-southeast-2.amazonaws.com",
+				jp: "https://bedrock-runtime.ap-northeast-1.amazonaws.com",
 				"us-east-1": "https://bedrock-runtime.us-east-1.amazonaws.com",
 				"us-east-2": "https://bedrock-runtime.us-east-2.amazonaws.com",
 				"us-west-2": "https://bedrock-runtime.us-west-2.amazonaws.com",
 				"eu-central-1": "https://bedrock-runtime.eu-central-1.amazonaws.com",
+				"eu-north-1": "https://bedrock-runtime.eu-north-1.amazonaws.com",
 				"eu-west-1": "https://bedrock-runtime.eu-west-1.amazonaws.com",
+				"eu-west-2": "https://bedrock-runtime.eu-west-2.amazonaws.com",
+				"eu-west-3": "https://bedrock-runtime.eu-west-3.amazonaws.com",
 				"ap-northeast-1":
 					"https://bedrock-runtime.ap-northeast-1.amazonaws.com",
+				"ap-northeast-2":
+					"https://bedrock-runtime.ap-northeast-2.amazonaws.com",
 				"ap-southeast-1":
 					"https://bedrock-runtime.ap-southeast-1.amazonaws.com",
-				"ap-southeast-2":
-					"https://bedrock-runtime.ap-southeast-2.amazonaws.com",
 			},
 			modelPrefixMap: {
 				global: "global.",
 				us: "us.",
 				eu: "eu.",
 				apac: "apac.",
-				// Specific AWS regions invoke the bare model ID for true single-region
-				// residency. Empty string (not undefined) so it short-circuits the
-				// `aws_bedrock_region_prefix` env-var default of "global.".
+				au: "au.",
+				jp: "jp.",
 				"us-east-1": "",
 				"us-east-2": "",
 				"us-west-2": "",
 				"eu-central-1": "",
+				"eu-north-1": "",
 				"eu-west-1": "",
+				"eu-west-2": "",
+				"eu-west-3": "",
 				"ap-northeast-1": "",
+				"ap-northeast-2": "",
 				"ap-southeast-1": "",
-				"ap-southeast-2": "",
 			},
 		},
 		termsUrl: "https://aws.amazon.com/service-terms",
@@ -645,7 +866,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -670,10 +891,12 @@ export const providers: ProviderDefinition[] = [
 		color: "#0078D4",
 		website:
 			"https://azure.microsoft.com/en-us/products/ai-services/openai-service",
+		statusPageUrl: "https://status.ai.azure.com",
 		announcement: null,
 		apiKeyInstructions:
 			"The resource name can be found in your Azure base URL: https://<resource-name>.openai.azure.com",
 		learnMore: "https://docs.llmgateway.io/integrations/azure",
+		priority: 2,
 		termsUrl: "https://www.microsoft.com/licensing/terms",
 		privacyPolicyUrl: "https://privacy.microsoft.com/privacystatement",
 		headquarters: "US",
@@ -682,7 +905,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -705,10 +928,12 @@ export const providers: ProviderDefinition[] = [
 		cancellation: true,
 		color: "#0078D4",
 		website: "https://azure.microsoft.com/en-us/products/ai-foundry",
+		statusPageUrl: "https://status.ai.azure.com",
 		announcement: null,
 		apiKeyInstructions:
 			"The resource name can be found in your Azure AI Foundry base URL: https://<resource-name>.services.ai.azure.com",
 		learnMore: "https://docs.llmgateway.io/integrations/azure",
+		priority: 1.5,
 		termsUrl: "https://www.microsoft.com/licensing/terms",
 		privacyPolicyUrl: "https://privacy.microsoft.com/privacystatement",
 		headquarters: "US",
@@ -717,7 +942,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -735,17 +960,18 @@ export const providers: ProviderDefinition[] = [
 		cancellation: true,
 		color: "#22c55e",
 		website: "https://z.ai",
+		statusPageUrl: null,
 		announcement: null,
 		termsUrl: "https://docs.z.ai/legal-agreement/terms-of-use",
 		privacyPolicyUrl: "https://docs.z.ai/legal-agreement/privacy-policy",
 		headquarters: "CN",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: null,
+			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
-		priority: 1.5,
+		priority: 1.2,
 	},
 	{
 		id: "moonshot",
@@ -760,6 +986,7 @@ export const providers: ProviderDefinition[] = [
 		cancellation: true,
 		color: "#4B9EFF",
 		website: "https://moonshot.ai",
+		statusPageUrl: "https://status.moonshot.cn",
 		announcement: null,
 		termsUrl: "https://www.kimi.com/user/agreement/modelUse?version=v2",
 		privacyPolicyUrl:
@@ -771,7 +998,7 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
-		priority: 1.5,
+		priority: 1.2,
 	},
 	{
 		id: "perplexity",
@@ -787,6 +1014,7 @@ export const providers: ProviderDefinition[] = [
 		cancellation: true,
 		color: "#20B2AA",
 		website: "https://perplexity.ai",
+		statusPageUrl: "https://status.perplexity.com",
 		announcement: null,
 		termsUrl: "https://www.perplexity.ai/hub/legal/terms-of-service",
 		privacyPolicyUrl: "https://www.perplexity.ai/hub/legal/privacy-policy",
@@ -796,7 +1024,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			gdpr: true,
 		},
 	},
@@ -814,6 +1042,7 @@ export const providers: ProviderDefinition[] = [
 		cancellation: true,
 		color: "#3b82f6",
 		website: "https://nebius.com",
+		statusPageUrl: "https://status.nebius.com",
 		announcement: null,
 		termsUrl: "https://docs.nebius.com/legal/terms-of-use",
 		privacyPolicyUrl: "https://docs.nebius.com/legal/privacy",
@@ -823,7 +1052,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 		},
 	},
@@ -840,6 +1069,7 @@ export const providers: ProviderDefinition[] = [
 		cancellation: true,
 		color: "#FF7000",
 		website: "https://mistral.ai",
+		statusPageUrl: "https://status.mistral.ai",
 		announcement: null,
 		termsUrl: "https://legal.mistral.ai/terms/commercial-terms-of-service",
 		privacyPolicyUrl: "https://mistral.ai/terms/#privacy-policy",
@@ -849,7 +1079,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: true,
 			retentionPeriod: "30 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -867,10 +1097,21 @@ export const providers: ProviderDefinition[] = [
 		streaming: true,
 		cancellation: true,
 		color: "#10b981",
-		website: "https://canopywave.io",
+		website: "https://canopywave.com",
+		statusPageUrl: null,
 		announcement: null,
-		termsUrl: "https://canopywave.io/terms",
-		privacyPolicyUrl: "https://canopywave.io/privacy",
+		termsUrl: "https://canopywave.com/terms",
+		privacyPolicyUrl: "https://canopywave.com/privacy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: 1,
+			iso27001: false,
+			gdpr: false,
+		},
 	},
 	{
 		id: "inference.net",
@@ -886,6 +1127,7 @@ export const providers: ProviderDefinition[] = [
 		cancellation: true,
 		color: "#10b981",
 		website: "https://inference.net",
+		statusPageUrl: null,
 		announcement: null,
 		termsUrl: "https://inference.net/terms-of-service",
 		privacyPolicyUrl: "https://inference.net/privacy-policy",
@@ -895,7 +1137,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: null,
 			promptLogging: null,
 			retentionPeriod: null,
-			soc2: true,
+			soc2: 2,
 		},
 	},
 	{
@@ -912,6 +1154,7 @@ export const providers: ProviderDefinition[] = [
 		cancellation: true,
 		color: "#ff6b35",
 		website: "https://together.ai",
+		statusPageUrl: "https://status.together.ai",
 		announcement: null,
 		termsUrl: "https://www.together.ai/terms-of-service",
 		privacyPolicyUrl: "https://www.together.ai/privacy",
@@ -921,7 +1164,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 		},
 	},
 	{
@@ -935,6 +1178,7 @@ export const providers: ProviderDefinition[] = [
 		cancellation: true,
 		color: "#6b7280",
 		website: null,
+		statusPageUrl: null,
 		announcement: null,
 		termsUrl: null,
 		privacyPolicyUrl: null,
@@ -954,6 +1198,7 @@ export const providers: ProviderDefinition[] = [
 		cancellation: true,
 		color: "#10b981",
 		website: "https://nano-gpt.com",
+		statusPageUrl: "https://status.nano-gpt.com",
 		announcement: null,
 		termsUrl: "https://nano-gpt.com/legal/terms-of-service",
 		privacyPolicyUrl: "https://nano-gpt.com/legal/privacy-policy",
@@ -979,6 +1224,7 @@ export const providers: ProviderDefinition[] = [
 		cancellation: true,
 		color: "#FF4757",
 		website: "https://www.byteplus.com/en/product/modelark",
+		statusPageUrl: "https://status.volcengine.com",
 		announcement: null,
 		termsUrl: "https://docs.byteplus.com/en/docs/legal/docs-terms-of-service",
 		privacyPolicyUrl:
@@ -988,9 +1234,15 @@ export const providers: ProviderDefinition[] = [
 			apiTraining: false,
 			consumerTraining: null,
 			promptLogging: false,
-			retentionPeriod: "0 days",
-			soc2: true,
+			retentionPeriod: "24 hours",
+			soc2: 2,
 		},
+		additionalLinks: [
+			{
+				desc: "AI Terms",
+				link: "https://docs.byteplus.com/en/docs/legal/docs-service-specific-terms",
+			},
+		],
 	},
 	{
 		id: "minimax",
@@ -1006,6 +1258,7 @@ export const providers: ProviderDefinition[] = [
 		cancellation: true,
 		color: "#7C3AED",
 		website: "https://minimax.io",
+		statusPageUrl: "https://status.minimaxi.com",
 		announcement: null,
 		termsUrl: "https://intl.minimaxi.com/protocol/terms-of-service",
 		privacyPolicyUrl: "https://intl.minimaxi.com/protocol/privacy-policy",
@@ -1016,7 +1269,7 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: true,
 			retentionPeriod: null,
 		},
-		priority: 1.5,
+		priority: 1.2,
 	},
 	{
 		id: "embercloud",
@@ -1032,6 +1285,7 @@ export const providers: ProviderDefinition[] = [
 		cancellation: true,
 		color: "#FF6047",
 		website: "https://www.embercloud.ai",
+		statusPageUrl: "https://www.embercloud.ai/status",
 		announcement: null,
 		termsUrl: "https://www.embercloud.ai/terms",
 		privacyPolicyUrl: "https://www.embercloud.ai/privacy",
@@ -1042,6 +1296,93 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: true,
 			retentionPeriod: null,
 		},
+	},
+	{
+		id: "meta",
+		name: "Meta",
+		description:
+			"Meta's Model API serving the Muse Spark multimodal reasoning models via an OpenAI-compatible API",
+		env: {
+			required: {
+				apiKey: "LLM_META_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#0668E1",
+		website: "https://dev.meta.ai",
+		statusPageUrl: null,
+		announcement: null,
+		apiKeyInstructions:
+			"Create an API key in the API keys tab of the Meta Model API dashboard.",
+		learnMore: "https://dev.meta.ai/docs/getting-started/authentication",
+		termsUrl: "https://dev.meta.ai/legal/terms-of-service",
+		privacyPolicyUrl: "https://www.facebook.com/privacy/policy/",
+		headquarters: "US",
+		dataPolicy: {
+			// Paid (pay-as-you-go) services are never trained on; only the free
+			// unpaid tier may be used for training per the Data Commitments page.
+			apiTraining: false,
+			consumerTraining: true,
+			promptLogging: true,
+			retentionPeriod: null,
+			soc2: null,
+			iso27001: null,
+			gdpr: true,
+		},
+		additionalLinks: [
+			{
+				desc: "Data Commitments",
+				link: "https://dev.meta.ai/legal/commitments",
+			},
+			{
+				desc: "Acceptable Use Policy",
+				link: "https://dev.meta.ai/legal/acceptable-use-policy",
+			},
+		],
+	},
+	{
+		id: "sakana",
+		name: "Sakana AI",
+		description:
+			"Sakana AI's Fugu multi-agent orchestration models, served through a single OpenAI-compatible API.",
+		env: {
+			required: {
+				apiKey: "LLM_SAKANA_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#FF5A5F",
+		website: "https://sakana.ai",
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: "https://console.sakana.ai/terms-of-service",
+		privacyPolicyUrl: "https://console.sakana.ai/privacy-policy",
+		headquarters: "JP",
+		dataPolicy: null,
+	},
+	{
+		id: "tundra",
+		name: "Tundra",
+		description: "Tundra is a stealth provider with an OpenAI-compatible API.",
+		env: {
+			required: {
+				apiKey: "LLM_TUNDRA_API_KEY",
+				baseUrl: "LLM_TUNDRA_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#5b8db8",
+		website: null,
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: null,
+		privacyPolicyUrl: null,
+		headquarters: null,
+		dataPolicy: null,
+		priority: 1.1,
 	},
 	{
 		id: "xiaomi",
@@ -1060,6 +1401,7 @@ export const providers: ProviderDefinition[] = [
 		cancellation: true,
 		color: "#FF6900",
 		website: "https://platform.xiaomimimo.com",
+		statusPageUrl: null,
 		announcement: null,
 		termsUrl: "https://platform.xiaomimimo.com/docs/terms/user-agreement",
 		privacyPolicyUrl:
@@ -1089,6 +1431,7 @@ export const providers: ProviderDefinition[] = [
 		cancellation: true,
 		color: "#6366F1",
 		website: "https://deepinfra.com",
+		statusPageUrl: "https://status.deepinfra.com",
 		announcement: null,
 		termsUrl: "https://deepinfra.com/terms",
 		privacyPolicyUrl: "https://deepinfra.com/privacy",
@@ -1098,8 +1441,63 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
+			gdpr: true,
+		},
+	},
+	{
+		id: "reve",
+		name: "Reve",
+		description:
+			"Reve's image generation models with native 4K resolution and code-based controllable image creation.",
+		env: {
+			required: {
+				apiKey: "LLM_REVE_API_KEY",
+			},
+		},
+		streaming: false,
+		cancellation: false,
+		color: "#1a1a2e",
+		website: "https://reve.com",
+		statusPageUrl: "https://status.reve.com",
+		announcement: null,
+		termsUrl:
+			"https://help.reve.com/hc/en-us/articles/46731550696468-Terms-of-service",
+		privacyPolicyUrl:
+			"https://help.reve.com/hc/en-us/articles/46731763484692-Privacy-policy",
+		headquarters: "US",
+		dataPolicy: null,
+	},
+	{
+		id: "elevenlabs",
+		name: "ElevenLabs",
+		description:
+			"ElevenLabs provides lifelike, low-latency text-to-speech models in 70+ languages.",
+		env: {
+			required: {
+				apiKey: "LLM_ELEVENLABS_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_ELEVENLABS_BASE_URL",
+			},
+		},
+		streaming: false,
+		cancellation: true,
+		color: "#000000",
+		website: "https://elevenlabs.io",
+		statusPageUrl: "https://status.elevenlabs.io",
+		announcement: null,
+		termsUrl: "https://elevenlabs.io/terms-of-use",
+		privacyPolicyUrl: "https://elevenlabs.io/privacy-policy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: true,
+			retentionPeriod: null,
+			soc2: 2,
+			iso27001: false,
 			gdpr: true,
 		},
 	},
@@ -1111,4 +1509,135 @@ export function getProviderDefinition(
 	providerId: ProviderId | string,
 ): ProviderDefinition | undefined {
 	return providers.find((p) => p.id === providerId);
+}
+
+/**
+ * Look up a provider's configured service tier (e.g. Flex / Priority) by id.
+ */
+export function getServiceTier(
+	providerId: ProviderId | string,
+	tierId: string,
+): ServiceTier | undefined {
+	return getProviderDefinition(providerId)?.serviceTiers?.find(
+		(t) => t.id === tierId,
+	);
+}
+
+/**
+ * Whether a provider satisfies an organization's compliance policy. Fail-closed:
+ * any active requirement that the provider's {@link ProviderDataPolicy} does not
+ * explicitly satisfy (including a missing `dataPolicy`) makes the provider
+ * non-compliant. A disabled policy treats every provider as compliant.
+ */
+export function isProviderCompliant(
+	provider: ProviderDefinition,
+	policy: ProviderCompliancePolicy,
+): boolean {
+	if (!policy.enabled) {
+		return true;
+	}
+	const dataPolicy = provider.dataPolicy;
+	if (policy.requireSoc2 && !dataPolicy?.soc2) {
+		return false;
+	}
+	if (policy.requireSoc2Type2 && dataPolicy?.soc2 !== 2) {
+		return false;
+	}
+	if (policy.requireIso27001 && dataPolicy?.iso27001 !== true) {
+		return false;
+	}
+	if (
+		policy.requireSoc2OrIso27001 &&
+		!(dataPolicy?.soc2 === 2 || dataPolicy?.iso27001 === true)
+	) {
+		return false;
+	}
+	if (policy.requireGdpr && dataPolicy?.gdpr !== true) {
+		return false;
+	}
+	if (policy.blockApiTraining && dataPolicy?.apiTraining !== false) {
+		return false;
+	}
+	if (policy.blockPromptLogging && dataPolicy?.promptLogging !== false) {
+		return false;
+	}
+	if (
+		policy.allowedCountries &&
+		policy.allowedCountries.length > 0 &&
+		(!provider.headquarters ||
+			!policy.allowedCountries.includes(provider.headquarters))
+	) {
+		return false;
+	}
+	return true;
+}
+
+export interface ProviderCountry {
+	/** ISO 3166-1 alpha-2 country code */
+	code: string;
+	/** Human-readable country name */
+	name: string;
+	/** Unicode flag emoji derived from the country code */
+	flag: string;
+}
+
+/**
+ * English display names for the country codes that appear as provider
+ * headquarters in the catalogue. Kept intentionally small: the site only ever
+ * surfaces countries that are actually referenced by a provider definition.
+ * Every distinct `headquarters` value in {@link providers} MUST have an entry
+ * here — enforced by a unit test so new country additions can't ship without
+ * a display name.
+ */
+export const PROVIDER_COUNTRY_NAMES: Record<string, string> = {
+	US: "United States",
+	CN: "China",
+	NL: "Netherlands",
+	FR: "France",
+	JP: "Japan",
+};
+
+/** Convert an ISO 3166-1 alpha-2 country code to its Unicode flag emoji. */
+export function countryCodeToFlag(code: string): string {
+	return code
+		.toUpperCase()
+		.replace(/[^A-Z]/g, "")
+		.replace(/./g, (char) => String.fromCodePoint(127397 + char.charCodeAt(0)));
+}
+
+/**
+ * Distinct provider-headquarters countries defined in the catalogue, sorted by
+ * name. This is the authoritative, closed set of countries the compliance
+ * country selector may offer.
+ */
+export function getProviderCountries(): ProviderCountry[] {
+	const codes = new Set<string>();
+	for (const provider of providers) {
+		if (provider.headquarters) {
+			codes.add(provider.headquarters);
+		}
+	}
+	return Array.from(codes)
+		.map((code) => ({
+			code,
+			name: PROVIDER_COUNTRY_NAMES[code] ?? code,
+			flag: countryCodeToFlag(code),
+		}))
+		.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Format a service tier's price multiplier relative to standard for display,
+ * e.g. 1.8 → "1.8× (+80%)", 0.5 → "0.5× (−50%)". Returns an empty string for
+ * the standard multiplier (1).
+ */
+export function formatServiceTierMultiplier(multiplier: number): string {
+	if (multiplier === 1) {
+		return "";
+	}
+	const delta =
+		multiplier < 1
+			? `−${Math.round((1 - multiplier) * 100)}%`
+			: `+${Math.round((multiplier - 1) * 100)}%`;
+	return `${multiplier}× (${delta})`;
 }

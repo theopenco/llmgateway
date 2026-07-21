@@ -35,6 +35,7 @@ import {
 	type ProviderId,
 	type StabilityLevel,
 } from "@llmgateway/models";
+import { isPremiumModel } from "@llmgateway/shared";
 import {
 	getProviderIcon,
 	providerLogoUrls,
@@ -91,6 +92,7 @@ const convertToApiModel = (
 	const provider = providerDefinitions.find((p) => p.id === map.providerId)!;
 	return {
 		id: def.id,
+		premium: isPremiumModel(def.id),
 		createdAt: new Date().toISOString(),
 		releasedAt: def.releasedAt?.toISOString() ?? null,
 		name: def.name ?? null,
@@ -118,6 +120,8 @@ const convertToApiModel = (
 						map.cacheWriteInputPrice1h?.toString() ?? null,
 					imageInputPrice: map.imageInputPrice?.toString() ?? null,
 					imageOutputPrice: map.imageOutputPrice?.toString() ?? null,
+					inputCharacterPrice: map.inputCharacterPrice?.toString() ?? null,
+					outputAudioPrice: map.outputAudioPrice?.toString() ?? null,
 					imageInputTokensByResolution:
 						map.imageInputTokensByResolution ?? null,
 					imageOutputTokensByResolution:
@@ -172,7 +176,7 @@ const convertToApiModel = (
 										: null,
 							}))
 						: null,
-					discount: map.discount?.toString() ?? null,
+					discount: null,
 					stability: map.stability ?? null,
 					supportedParameters: map.supportedParameters ?? null,
 					deprecatedAt: map.deprecatedAt?.toISOString() ?? null,

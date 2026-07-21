@@ -1,6 +1,7 @@
 "use client";
 
 import {
+	AudioLines,
 	ChevronUp,
 	Edit2,
 	ExternalLink,
@@ -10,13 +11,11 @@ import {
 	MessageSquare,
 	MoreVerticalIcon,
 	PenTool,
-	Plus,
 	Trash2,
 	Users,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { useTheme } from "next-themes";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { List, type RowComponentProps } from "react-window";
@@ -54,14 +53,21 @@ import { useUser } from "@/hooks/useUser";
 import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
 import { useAuth } from "@/lib/auth-client";
 
+import { HistorySkeleton } from "./history-skeleton";
+import { OrganizationSwitcher } from "./organization-switcher";
+import { SidebarChatSearch, SidebarNewAction } from "./sidebar-actions";
+
 import type { GalleryItem } from "@/lib/image-gen";
 import type { Organization } from "@/lib/types";
 
 interface ImageSidebarProps {
 	galleryItems: GalleryItem[];
+	isHistoryLoading?: boolean;
 	onNewChat: () => void;
 	onItemClick: (itemId: string) => void;
+	organizations: Organization[];
 	selectedOrganization: Organization | null;
+	onSelectOrganization: (organization: Organization | null) => void;
 	currentItemId?: string | null;
 	className?: string;
 }
@@ -206,9 +212,11 @@ function ImageHistoryRowComponent({
 	const isActive = currentItemId === item.id;
 	const isSaved = item.models.every((m) => !m.isLoading);
 	const firstImage = item.models[0]?.images[0];
-	const thumbnailSrc = firstImage
-		? `data:${firstImage.mediaType};base64,${firstImage.base64}`
-		: null;
+	const thumbnailSrc =
+		item.thumbnailUrl ??
+		(firstImage
+			? `data:${firstImage.mediaType};base64,${firstImage.base64}`
+			: null);
 
 	return (
 		<div {...ariaAttributes} style={style}>
@@ -239,6 +247,7 @@ function ImageHistoryRowComponent({
 									<img
 										src={thumbnailSrc}
 										alt="Generated image thumbnail"
+										loading="lazy"
 										className="h-8 w-8 shrink-0 rounded border object-cover mt-0.5"
 									/>
 								)}
@@ -333,15 +342,30 @@ function groupItemsByDate(items: GalleryItem[]) {
 
 export function ImageSidebar({
 	galleryItems,
+	isHistoryLoading = false,
 	onNewChat,
 	onItemClick,
-	selectedOrganization: _selectedOrganization,
+	organizations,
+	selectedOrganization,
+	onSelectOrganization,
 	currentItemId,
 	className,
 }: ImageSidebarProps) {
+	const switcherOrganizations = organizations.filter(
+		(org) => org.kind === "default",
+	);
+	const switcherSelectedOrganization =
+		switcherOrganizations.find((org) => org.id === selectedOrganization?.id) ??
+		null;
 	const listContainerRef = useRef<HTMLDivElement | null>(null);
 	const router = useRouter();
 	const pathname = usePathname();
+	const searchParams = useSearchParams();
+	// Preserve the selected organization across playground navigation so users
+	// don't have to re-pick their org on every page.
+	const orgIdParam = searchParams.get("orgId");
+	const withOrg = (path: string) =>
+		orgIdParam ? `${path}?orgId=${orgIdParam}` : path;
 	const posthog = usePostHog();
 	const { state: sidebarState, isMobile } = useSidebar();
 	const { user, isLoading: isUserLoading } = useUser();
@@ -367,12 +391,6 @@ export function ImageSidebar({
 			},
 		});
 	};
-
-	const { theme, setTheme, systemTheme } = useTheme();
-	const currentTheme = theme === "system" ? systemTheme : theme;
-	const toggleTheme = useCallback(() => {
-		setTheme(currentTheme === "dark" ? "light" : "dark");
-	}, [currentTheme, setTheme]);
 
 	const renameItem = useRenameImageHistory();
 	const deleteItem = useDeleteImageHistory();
@@ -559,33 +577,31 @@ export function ImageSidebar({
 				<SidebarMenu>
 					<SidebarMenuItem>
 						<SidebarMenuButton size="lg" asChild tooltip="LLM Gateway">
-							<Link href="/" prefetch={true}>
+							<Link href={withOrg("/")} prefetch={true}>
 								<div className="flex aspect-square size-8 items-center justify-center">
 									<Logo className="size-6" />
 								</div>
 								<span className="text-lg font-bold tracking-tight">
 									LLM Gateway
 								</span>
+								<Badge
+									variant="secondary"
+									className="group-data-[collapsible=icon]:hidden"
+								>
+									Chat
+								</Badge>
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							onClick={onNewChat}
-							tooltip="New Generation"
-							className="border border-border"
-						>
-							<Plus className="h-4 w-4" />
-							<span>New Generation</span>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
+					<SidebarChatSearch disabled />
+					<SidebarNewAction label="New Generation" onAction={onNewChat} />
 					<SidebarMenuItem>
 						<SidebarMenuButton
 							asChild
 							tooltip="Chat"
 							isActive={pathname === "/"}
 						>
-							<Link href="/">
+							<Link href={withOrg("/")} prefetch={true}>
 								<MessageSquare className="h-4 w-4" />
 								<span>Chat</span>
 							</Link>
@@ -597,7 +613,7 @@ export function ImageSidebar({
 							tooltip="Group Chat"
 							isActive={pathname === "/group"}
 						>
-							<Link href="/group">
+							<Link href={withOrg("/group")} prefetch={true}>
 								<Users className="h-4 w-4" />
 								<span>Group Chat</span>
 							</Link>
@@ -609,7 +625,7 @@ export function ImageSidebar({
 							tooltip="Image Studio"
 							isActive={pathname === "/image"}
 						>
-							<Link href="/image">
+							<Link href={withOrg("/image")} prefetch={true}>
 								<ImageIcon className="h-4 w-4" />
 								<span>Image Studio</span>
 							</Link>
@@ -621,9 +637,21 @@ export function ImageSidebar({
 							tooltip="Video Studio"
 							isActive={pathname === "/video"}
 						>
-							<Link href="/video">
+							<Link href={withOrg("/video")} prefetch={true}>
 								<Film className="h-4 w-4" />
 								<span>Video Studio</span>
+							</Link>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<SidebarMenuButton
+							asChild
+							tooltip="Audio Studio"
+							isActive={pathname === "/audio"}
+						>
+							<Link href={withOrg("/audio")} prefetch={true}>
+								<AudioLines className="h-4 w-4" />
+								<span>Audio Studio</span>
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
@@ -633,7 +661,7 @@ export function ImageSidebar({
 							tooltip="Canvas"
 							isActive={pathname === "/canvas"}
 						>
-							<Link href="/canvas">
+							<Link href={withOrg("/canvas")} prefetch={true}>
 								<PenTool className="h-4 w-4" />
 								<span>Canvas</span>
 							</Link>
@@ -645,13 +673,26 @@ export function ImageSidebar({
 			<SidebarContent className="overflow-hidden pb-2">
 				<div>
 					<div className="mx-2 mb-2 border-t border-sidebar-border" />
+					{switcherOrganizations.length > 0 ? (
+						<SidebarMenu className="px-2 pb-2 group-data-[collapsible=icon]:hidden">
+							<SidebarMenuItem>
+								<OrganizationSwitcher
+									organizations={switcherOrganizations}
+									selectedOrganization={switcherSelectedOrganization}
+									onSelectOrganization={onSelectOrganization}
+								/>
+							</SidebarMenuItem>
+						</SidebarMenu>
+					) : null}
 				</div>
 				<div
 					ref={listContainerRef}
 					aria-hidden={isHistoryHidden}
 					className="flex min-h-0 flex-1 flex-col transition-opacity duration-200 ease-linear group-data-[collapsible=icon]:pointer-events-none group-data-[collapsible=icon]:opacity-0"
 				>
-					{galleryItems.length === 0 ? (
+					{isHistoryLoading && galleryItems.length === 0 ? (
+						<HistorySkeleton withThumbnail />
+					) : galleryItems.length === 0 ? (
 						<div className="flex flex-col items-center justify-center py-8 text-center">
 							<ImageIcon className="h-12 w-12 text-muted-foreground/50 mb-4" />
 							<p className="text-sm text-muted-foreground mb-2">
@@ -678,8 +719,9 @@ export function ImageSidebar({
 			<SidebarFooter>
 				<div className="group-data-[collapsible=icon]:hidden">
 					<CreditsDisplay
-						organization={organization}
+						organization={switcherSelectedOrganization ?? organization}
 						isLoading={isOrgLoading}
+						isChatPlanOrg={!switcherSelectedOrganization}
 					/>
 				</div>
 				<SidebarMenu>
@@ -733,10 +775,7 @@ export function ImageSidebar({
 								<DropdownMenuSeparator />
 								<DropdownMenuItem
 									className="justify-between gap-3"
-									onSelect={(event) => {
-										event.preventDefault();
-										toggleTheme();
-									}}
+									onSelect={(event) => event.preventDefault()}
 								>
 									<span>Theme</span>
 									<div

@@ -5,15 +5,16 @@ import { JSONUIProvider, Renderer } from "@json-render/react";
 import {
 	Code,
 	Download,
-	Eye,
 	FileImage,
 	FileText,
 	LayoutTemplate,
 	Loader2,
+	PenTool,
 	Play,
 	Square,
 } from "lucide-react";
-import { usePathname } from "next/navigation";
+import { AnimatePresence, motion } from "motion/react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
 	memo,
 	type RefObject,
@@ -65,6 +66,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useUser } from "@/hooks/useUser";
 import { registry } from "@/lib/canvas/registry";
 import { emptySpec, templates } from "@/lib/canvas/templates";
+import { canvasSuggestions, sampleSuggestions } from "@/lib/hero-suggestions";
 import {
 	CANVAS_MODEL_COOKIE,
 	getModelPreferenceCookie,
@@ -165,6 +167,58 @@ function CanvasPreviewSkeleton() {
 	);
 }
 
+function CanvasEmptyState({
+	onSuggestionClick,
+}: {
+	onSuggestionClick: (prompt: string) => void;
+}) {
+	const [suggestions, setSuggestions] = useState<readonly string[] | null>(
+		null,
+	);
+	useEffect(() => setSuggestions(sampleSuggestions(canvasSuggestions, 6)), []);
+
+	return (
+		<div className="flex h-full flex-col items-center justify-center py-20 text-center">
+			<PenTool className="h-16 w-16 text-muted-foreground/30 mb-6" />
+			<h3 className="text-lg font-medium mb-2">No canvas yet</h3>
+			<p className="text-sm text-muted-foreground mb-8 max-w-md">
+				Describe the UI you want to build and watch it render live, or pick a
+				template above.
+			</p>
+			<AnimatePresence>
+				{suggestions ? (
+					<motion.div
+						key="suggestions"
+						initial={{ opacity: 0 }}
+						animate={{ opacity: 1 }}
+						exit={{ opacity: 0 }}
+						transition={{ duration: 0.07, ease: "easeOut" }}
+						className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-2xl w-full"
+					>
+						{suggestions.map((s, index) => (
+							<motion.button
+								key={s}
+								type="button"
+								initial={{ opacity: 0, y: -6 }}
+								animate={{ opacity: 1, y: 0 }}
+								transition={{
+									duration: 0.12,
+									delay: index * 0.025,
+									ease: "easeOut",
+								}}
+								onClick={() => onSuggestionClick(s)}
+								className="rounded-md border px-4 py-3 text-left text-sm hover:bg-muted/60 transition-colors"
+							>
+								{s}
+							</motion.button>
+						))}
+					</motion.div>
+				) : null}
+			</AnimatePresence>
+		</div>
+	);
+}
+
 async function getResponseErrorMessage(response: Response): Promise<string> {
 	const fallback = `HTTP ${response.status}: ${response.statusText}`;
 	const text = await response.text().catch(() => "");
@@ -240,6 +294,7 @@ const CanvasPromptInput = memo(function CanvasPromptInput({
 export default function CanvasPageClient({
 	models,
 	providers,
+	organizations,
 	selectedOrganization,
 	selectedProject,
 	initialModelPreference,
@@ -264,7 +319,9 @@ export default function CanvasPageClient({
 	const promptRef = useRef<HTMLTextAreaElement>(null);
 	const [isGenerating, setIsGenerating] = useState(false);
 	const [hasStreamingSpec, setHasStreamingSpec] = useState(false);
-	const [showEditor, setShowEditor] = useState(true);
+	// The JSON spec is an advanced feature — hidden by default so the canvas
+	// reads as prompt → live preview.
+	const [showEditor, setShowEditor] = useState(false);
 	const [previewExpanded, _setPreviewExpanded] = useState(false);
 	const [exporting, setExporting] = useState<"pdf" | "image" | null>(null);
 	const previewRef = useRef<HTMLDivElement>(null);
@@ -274,6 +331,23 @@ export default function CanvasPageClient({
 
 	const { user, isLoading: isUserLoading } = useUser();
 	const pathname = usePathname();
+	const router = useRouter();
+	const searchParams = useSearchParams();
+	const handleSelectOrganization = useCallback(
+		(org: Organization | null) => {
+			const params = new URLSearchParams(Array.from(searchParams.entries()));
+			if (org?.id) {
+				params.set("orgId", org.id);
+			} else {
+				params.delete("orgId");
+			}
+			params.delete("projectId");
+			router.push(
+				params.toString() ? `/canvas?${params.toString()}` : "/canvas",
+			);
+		},
+		[router, searchParams],
+	);
 	const isAuthenticated = !isUserLoading && !!user;
 	const showAuthDialog = !isAuthenticated && !isUserLoading && !user;
 	const ensuredProjectRef = useRef<string | null>(null);
@@ -583,7 +657,9 @@ export default function CanvasPageClient({
 			<SidebarProvider>
 				<div className="flex h-dvh w-full">
 					<CanvasSidebar
+						organizations={organizations}
 						selectedOrganization={selectedOrganization}
+						onSelectOrganization={handleSelectOrganization}
 						onNewCanvas={handleNewCanvas}
 					/>
 					<div className="flex min-w-0 flex-1 flex-col">
@@ -759,13 +835,9 @@ export default function CanvasPageClient({
 											size="sm"
 											onClick={() => setShowEditor(!showEditor)}
 										>
-											{showEditor ? (
-												<Eye className="h-3.5 w-3.5 sm:mr-1.5" />
-											) : (
-												<Code className="h-3.5 w-3.5 sm:mr-1.5" />
-											)}
+											<Code className="h-3.5 w-3.5 sm:mr-1.5" />
 											<span className="hidden sm:inline">
-												{showEditor ? "Preview" : "Editor"}
+												{showEditor ? "Hide JSON" : "Show JSON"}
 											</span>
 										</Button>
 										{/* Hidden: expand/collapse button is redundant for now */}
@@ -792,6 +864,12 @@ export default function CanvasPageClient({
 								<div ref={previewRef} className="flex-1 overflow-auto p-6">
 									{showGenerationLoading ? (
 										<CanvasPreviewSkeleton />
+									) : isDefaultSpec && !isGenerating ? (
+										<CanvasEmptyState
+											onSuggestionClick={(suggestion) => {
+												void handleGenerate(suggestion);
+											}}
+										/>
 									) : (
 										<JSONUIProvider
 											key={specStateKey}

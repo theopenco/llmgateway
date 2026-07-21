@@ -47,13 +47,14 @@ docker compose -f infra/docker-compose.split.yml up -d
 
 Once running, your services are available at:
 
-| Service | URL                   | Description                    |
-| ------- | --------------------- | ------------------------------ |
-| Web UI  | http://localhost:3002 | Dashboard and analytics        |
-| Docs    | http://localhost:3005 | Local documentation            |
-| Admin   | http://localhost:3006 | Platform administration        |
-| API     | http://localhost:4002 | Management API                 |
-| Gateway | http://localhost:4001 | LLM request gateway (use this) |
+| Service    | URL                   | Description                    |
+| ---------- | --------------------- | ------------------------------ |
+| Web UI     | http://localhost:3002 | Dashboard and analytics        |
+| Playground | http://localhost:3003 | Chat playground                |
+| Docs       | http://localhost:3005 | Local documentation            |
+| Admin      | http://localhost:3006 | Platform administration        |
+| API        | http://localhost:4002 | Management API                 |
+| Gateway    | http://localhost:4001 | LLM request gateway (use this) |
 
 ## What You Get
 

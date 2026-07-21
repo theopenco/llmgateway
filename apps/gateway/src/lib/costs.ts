@@ -11,12 +11,102 @@ import {
 	type PricingTier,
 	type ToolCall,
 	expandAllProviderRegions,
+	getSupportedServiceTiers,
 } from "@llmgateway/models";
+
+/**
+ * Resolve the price multiplier for a served processing tier (Flex / Priority).
+ * The tier is what the provider actually served — Vertex reports it via
+ * `usageMetadata.trafficType`, AI Studio via the `x-gemini-service-tier`
+ * response header — NOT what the caller requested, since Google silently
+ * downgrades unsupported tiers to standard. Returns 1 (no change) for the
+ * standard tier, unknown tiers, or model mappings without configured support.
+ */
+function getServiceTierMultiplier(
+	model: string,
+	provider: string,
+	region: string | null,
+	servedServiceTier: string | null | undefined,
+	providerMapping?: ProviderModelMapping,
+): number {
+	if (!servedServiceTier) {
+		return 1;
+	}
+	const mappingMultiplier =
+		providerMapping?.serviceTierMultipliers?.[servedServiceTier];
+	if (mappingMultiplier !== undefined) {
+		return mappingMultiplier;
+	}
+	const tier = getSupportedServiceTiers(model, provider, region).find(
+		(t) => t.id === servedServiceTier,
+	);
+	return tier?.multiplier ?? 1;
+}
 
 interface ChatMessage {
 	role: "user" | "system" | "assistant" | undefined;
 	content: string;
 	name?: string;
+}
+
+/**
+ * True when a provider's terminal reason is a safety-classifier "refusal".
+ *
+ * Anthropic-family models (the direct Anthropic API, Anthropic on Vertex, and
+ * Anthropic on AWS Bedrock) emit `stop_reason: "refusal"` when a streaming
+ * classifier intervenes on a potential policy violation. Per Anthropic's
+ * documented billing policy, a refusal that arrives before any output is
+ * generated is not billed (the usage counts in that response are informational
+ * only). Callers pair this with an "any output generated?" check to decide
+ * whether to zero the cost — see {@link zeroInferenceCosts}.
+ */
+export function isRefusalFinishReason(
+	finishReason: string | null | undefined,
+	provider: string | null | undefined,
+): boolean {
+	if (finishReason !== "refusal") {
+		return false;
+	}
+	return (
+		provider === "anthropic" ||
+		provider === "vertex-anthropic" ||
+		provider === "aws-bedrock"
+	);
+}
+
+interface MutableInferenceCosts {
+	inputCost: number | null;
+	outputCost: number | null;
+	cachedInputCost: number | null;
+	cacheWriteInputCost: number | null;
+	requestCost: number | null;
+	webSearchCost: number | null;
+	contentFilterCost: number | null;
+	imageInputCost: number | null;
+	imageOutputCost: number | null;
+	audioInputCost: number | null;
+	totalCost: number | null;
+}
+
+/**
+ * Zero out every inference cost field in-place. Used for unbilled refusals (a
+ * refusal that arrives before any output is generated) so the request is still
+ * recorded with full token usage for analytics but is not charged. Data
+ * storage cost is intentionally left untouched since retention is billed
+ * separately from inference.
+ */
+export function zeroInferenceCosts(costs: MutableInferenceCosts): void {
+	costs.inputCost = 0;
+	costs.outputCost = 0;
+	costs.cachedInputCost = 0;
+	costs.cacheWriteInputCost = 0;
+	costs.requestCost = 0;
+	costs.webSearchCost = 0;
+	costs.contentFilterCost = 0;
+	costs.imageInputCost = 0;
+	costs.imageOutputCost = 0;
+	costs.audioInputCost = 0;
+	costs.totalCost = 0;
 }
 
 /**
@@ -146,6 +236,25 @@ export async function calculateCosts(
 		 * that rate for cached read tokens when this flag is set.
 		 */
 		explicitCacheUsed?: boolean;
+		/**
+		 * The processing tier the provider actually served (e.g. "flex" /
+		 * "priority"), resolved from the upstream response — Vertex's
+		 * `usageMetadata.trafficType` or AI Studio's `x-gemini-service-tier`
+		 * header. Token costs are scaled by the tier's multiplier. Null/undefined
+		 * (the standard tier) leaves pricing unchanged. We deliberately bill on the
+		 * served tier rather than the requested one because Google downgrades
+		 * unsupported tiers to standard.
+		 */
+		servedServiceTier?: string | null;
+		/**
+		 * Pricing override for custom-provider requests backed by an enterprise
+		 * custom model catalog entry. Custom models are not in the static catalog,
+		 * so when present this synthetic provider mapping (providerId "custom")
+		 * supplies pricing directly instead of the `models.find` lookup. Undefined
+		 * for all non-custom requests and for custom requests without a catalog
+		 * entry (which remain unbilled).
+		 */
+		customPricing?: ProviderModelMapping;
 	},
 	contentFilterTriggered = false,
 ) {
@@ -154,11 +263,22 @@ export async function calculateCosts(
 	const audioInputTokens = options?.audioInputTokens ?? null;
 	const cachedAudioInputTokens = options?.cachedAudioInputTokens ?? null;
 	const explicitCacheUsed = options?.explicitCacheUsed ?? false;
+	const servedServiceTier = options?.servedServiceTier ?? null;
+	const customPricing = options?.customPricing;
 
 	// Look up the model definition by the canonical root id only.
 	// externalId-based lookups are intentionally not supported here — the
 	// upstream provider id must never leak into pricing/discount lookups.
-	const modelInfo = models.find((m) => m.id === model) as ModelDefinition;
+	// For custom-provider requests with a catalog override, use a synthetic
+	// model whose single provider mapping (providerId "custom") matches the
+	// `provider` argument, so the existing provider-pricing path applies.
+	const modelInfo = customPricing
+		? ({
+				id: model,
+				family: "custom",
+				providers: [customPricing],
+			} as ModelDefinition)
+		: (models.find((m) => m.id === model) as ModelDefinition);
 
 	if (!modelInfo) {
 		return {
@@ -360,17 +480,32 @@ export async function calculateCosts(
 			: cacheWriteInputPrice;
 	const requestPrice = new Decimal(providerInfo.requestPrice ?? "0");
 
-	// Get effective discount (checks org-specific, global, then hardcoded).
 	// Discounts are keyed by the root model ID only.
-	const hardcodedDiscount = providerInfo.discount ?? "0";
 	const effectiveDiscountResult = await getEffectiveDiscount(
 		organizationId,
 		provider,
 		model,
-		hardcodedDiscount,
 	);
 	const discount = effectiveDiscountResult.discount;
 	const discountMultiplier = new Decimal(1).minus(discount);
+
+	// Flex / Priority processing tiers scale every per-token price uniformly.
+	// They do NOT affect per-request, web-search, or content-filter fees, so token
+	// costs use `tokenDiscountMultiplier` while those flat fees keep the plain
+	// `discountMultiplier`. When the served tier is standard/unknown the
+	// multiplier is 1 and behavior is unchanged.
+	const serviceTierMultiplier = new Decimal(
+		getServiceTierMultiplier(
+			model,
+			provider,
+			region,
+			servedServiceTier,
+			providerInfo,
+		),
+	);
+	const tokenDiscountMultiplier = discountMultiplier.times(
+		serviceTierMultiplier,
+	);
 
 	// Resolve the tokens-per-image for the given imageSize from a resolution map.
 	function resolveTokensPerImage(
@@ -470,7 +605,7 @@ export async function calculateCosts(
 	if (imageInputTokens && imageInputPricePerToken) {
 		imageInputCost = new Decimal(uncachedImageTokens)
 			.times(imageInputPricePerToken)
-			.times(discountMultiplier);
+			.times(tokenDiscountMultiplier);
 	}
 	// Audio input tokens are reported separately by Google and OpenAI but are
 	// included in the upstream prompt-token total, so we subtract them from the
@@ -486,7 +621,7 @@ export async function calculateCosts(
 	if (billableAudioInputTokens > 0 && audioInputPricePerToken) {
 		audioInputCost = new Decimal(billableAudioInputTokens)
 			.times(audioInputPricePerToken)
-			.times(discountMultiplier);
+			.times(tokenDiscountMultiplier);
 	}
 	const billableTextPromptTokens = Math.max(
 		0,
@@ -497,18 +632,25 @@ export async function calculateCosts(
 	// inputCost includes text, image, and audio input costs when applicable
 	const inputCost = new Decimal(billableTextPromptTokens)
 		.times(inputPrice)
-		.times(discountMultiplier)
+		.times(tokenDiscountMultiplier)
 		.plus(imageInputCost ?? 0)
 		.plus(audioInputCost ?? 0);
 
 	// For Google models, completionTokens already includes reasoning tokens
-	// (merged during extraction). For other providers, add reasoning separately.
-	const isGoogleProvider =
+	// (merged during extraction). The same holds for OpenAI-style Responses API
+	// providers (OpenAI, Azure, Sakana, Meta), whose `output_tokens` counts
+	// reasoning — their `reasoning_tokens` detail is informational only. For
+	// remaining providers, add reasoning separately.
+	const completionIncludesReasoning =
 		provider === "google-ai-studio" ||
 		provider === "glacier" ||
 		provider === "google-vertex" ||
-		provider === "quartz";
-	const totalOutputTokens = isGoogleProvider
+		provider === "quartz" ||
+		provider === "openai" ||
+		provider === "azure" ||
+		provider === "sakana" ||
+		provider === "meta";
+	const totalOutputTokens = completionIncludesReasoning
 		? calculatedCompletionTokens
 		: calculatedCompletionTokens + (reasoningTokens ?? 0);
 
@@ -539,15 +681,15 @@ export async function calculateCosts(
 
 		imageOutputCost = new Decimal(imageOutputTokens)
 			.times(imageOutputPricePerToken)
-			.times(discountMultiplier);
+			.times(tokenDiscountMultiplier);
 		outputCost = new Decimal(textTokens)
 			.times(outputPrice)
-			.times(discountMultiplier)
+			.times(tokenDiscountMultiplier)
 			.plus(imageOutputCost);
 	} else {
 		outputCost = new Decimal(totalOutputTokens)
 			.times(outputPrice)
-			.times(discountMultiplier);
+			.times(tokenDiscountMultiplier);
 	}
 	const cachedImageInputPriceDecimal =
 		cachedImageInputPricePerToken !== undefined
@@ -568,7 +710,7 @@ export async function calculateCosts(
 						cachedInputAudioPriceDecimal,
 					),
 				)
-				.times(discountMultiplier)
+				.times(tokenDiscountMultiplier)
 		: new Decimal(0);
 	// `cacheWriteTokens` is the total cache-creation tokens (5m + 1h).
 	// `cacheWrite1hTokens` is the 1h subset; the remainder is treated as 5m.
@@ -591,7 +733,7 @@ export async function calculateCosts(
 						cacheWriteInputPrice1h ?? cacheWriteInputPrice,
 					),
 				)
-				.times(discountMultiplier)
+				.times(tokenDiscountMultiplier)
 		: new Decimal(0);
 	const requestCost = requestPrice.times(discountMultiplier);
 

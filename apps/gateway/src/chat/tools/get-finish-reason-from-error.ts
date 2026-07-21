@@ -8,6 +8,7 @@ import { isContentFilterErrorText } from "@llmgateway/shared";
  * 429 status codes indicate upstream rate limiting (treated as upstream error)
  * 404 status codes indicate model/endpoint not found at provider (treated as upstream error)
  * 401/403 status codes indicate authentication/authorization issues (gateway configuration errors)
+ * 405 status codes indicate the upstream rejected the request method (gateway endpoint mapping error)
  * Other 4xx status codes indicate client errors
  * Special client errors (like JSON format validation) are classified as client_error
  *
@@ -31,6 +32,22 @@ export function getFinishReasonFromError(
 	// 404 from upstream provider indicates model/endpoint not found at provider
 	if (statusCode === 404) {
 		return "upstream_error";
+	}
+
+	// 402 Payment Required indicates the gateway's provider account is out of
+	// funds (e.g. DeepSeek "Insufficient Balance"). This is a gateway-side
+	// account problem, not a client error, so classify as gateway_error to allow
+	// fallback to another provider.
+	if (statusCode === 402) {
+		return "gateway_error";
+	}
+
+	// 405 Method Not Allowed means the upstream rejected the HTTP method the
+	// gateway used — a gateway-side endpoint/method mapping problem for the
+	// selected provider or key, never a client fault, so classify as
+	// gateway_error so the request can be retried with another key or provider.
+	if (statusCode === 405) {
+		return "gateway_error";
 	}
 
 	// Provider content-moderation / safety blocks (Azure ResponsibleAIPolicyViolation,
@@ -65,6 +82,14 @@ export function getFinishReasonFromError(
 		return "gateway_error";
 	}
 
+	// Aggregator providers (e.g. embercloud) report transient failures of THEIR
+	// upstreams as a 400 "Temporary routing error (400)." — a provider-side
+	// failure, not a client error, so classify as upstream_error so the request
+	// can be retried with another provider instead of passing the 400 through.
+	if (errorText && /temporary routing error/i.test(errorText)) {
+		return "upstream_error";
+	}
+
 	// Some providers return a bare "Not Found" body on non-404 status codes when
 	// the model/endpoint mapping is wrong on our side. Treat as gateway_error so
 	// the request can be retried with another provider.
@@ -72,13 +97,16 @@ export function getFinishReasonFromError(
 		return "gateway_error";
 	}
 
-	// zai content filter
+	// Azure returns a 400 when the resolved deployment does not exist for the
+	// account behind the selected key (e.g. "Could not find an existing
+	// deployment to match the model in the request."). This is a per-key/account
+	// configuration gap rather than a client problem, so classify as
+	// gateway_error so the request can be retried with another key or provider.
 	if (
-		errorText?.includes(
-			"System detected potentially unsafe or sensitive content in input or generation",
-		)
+		errorText &&
+		/could not find an existing deployment to match the model/i.test(errorText)
 	) {
-		return "client_error";
+		return "gateway_error";
 	}
 
 	// Check for specific client validation errors from providers

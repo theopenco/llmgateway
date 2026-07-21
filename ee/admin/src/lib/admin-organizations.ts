@@ -36,6 +36,7 @@ export async function loadProjectLogsAction(
 		model?: string;
 		source?: string;
 		unifiedFinishReason?: string;
+		hasError?: string;
 	},
 ) {
 	const $api = await createServerApiClient();
@@ -88,6 +89,33 @@ export async function updateReferralBonus(
 		const message =
 			(error as { message?: string } | undefined)?.message ??
 			"Failed to update referral bonus";
+		return { success: false, error: message };
+	}
+
+	return { success: true };
+}
+
+export async function manageOrganization(
+	orgId: string,
+	body: {
+		plan: "free" | "pro" | "enterprise";
+		seats: number | null;
+		apiKeyLimit: number | null;
+	},
+): Promise<{ success: boolean; error?: string }> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.PATCH(
+		"/admin/organizations/{orgId}/manage",
+		{
+			params: { path: { orgId } },
+			body,
+		},
+	);
+
+	if (error || !data) {
+		const message =
+			(error as { message?: string } | undefined)?.message ??
+			"Failed to update organization";
 		return { success: false, error: message };
 	}
 

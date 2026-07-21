@@ -3,6 +3,7 @@ import "dotenv/config";
 
 import { swaggerUI } from "@hono/swagger-ui";
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { APICallError } from "ai";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -21,18 +22,30 @@ import { tracingMiddleware } from "./middleware/tracing.js";
 import { beacon } from "./routes/beacon.js";
 import { routes } from "./routes/index.js";
 import { internalModels } from "./routes/internal-models.js";
+import { platformConnect } from "./routes/platform-connect.js";
+import { platformCustomers } from "./routes/platform-customers.js";
+import { platformSessionRefresh } from "./routes/platform-session-refresh.js";
+import { platformSessions } from "./routes/platform-sessions.js";
+import { platformWallet } from "./routes/platform-wallet.js";
+import { platformWebhooks } from "./routes/platform-webhooks.js";
 import { publicApps } from "./routes/public-apps.js";
 import { publicChatShares } from "./routes/public-chat-shares.js";
 import { publicChatSupport } from "./routes/public-chat-support.js";
+import { publicConfig } from "./routes/public-config.js";
 import { publicContact } from "./routes/public-contact.js";
 import { publicDiscounts } from "./routes/public-discounts.js";
+import { publicLeaderboard } from "./routes/public-leaderboard.js";
+import { publicModelRatings } from "./routes/public-model-ratings.js";
 import { publicNewsletter } from "./routes/public-newsletter.js";
+import { publicProfile } from "./routes/public-profile.js";
 import { publicProvidersStats } from "./routes/public-providers-stats.js";
 import { referral } from "./routes/referral.js";
+import { scim } from "./routes/scim.js";
 import { v1Master } from "./routes/v1-master.js";
 import { stripeRoutes } from "./stripe.js";
 
 import type { ServerTypes } from "./vars.js";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 
 export const config = {
 	servers: [
@@ -60,17 +73,41 @@ app.use("*", tracingMiddleware);
 app.use("*", requestLifecycleMiddleware);
 app.use("*", honoRequestLogger);
 
+const corsAllowList = process.env.ORIGIN_URLS?.split(",") ?? [
+	"http://localhost:3002",
+	"http://localhost:3003",
+	"http://localhost:3004",
+	"http://localhost:3005",
+	"http://localhost:3006",
+];
+
+// LLM SDK endpoints are called cross-origin from arbitrary developer
+// frontends with a bearer session token (no cookies), so they reflect the
+// request origin. The per-project `allowedOrigins` allowlist is enforced
+// server-side in the end-user session middleware / gateway handler.
+const EMBEDDABLE_CORS_PREFIXES = ["/v1/wallet", "/v1/sessions", "/v1/config"];
+
 app.use(
 	"*",
 	cors({
-		origin: process.env.ORIGIN_URLS?.split(",") ?? [
-			"http://localhost:3002",
-			"http://localhost:3003",
-			"http://localhost:3004",
-			"http://localhost:3005",
-			"http://localhost:3006",
+		origin: (origin, c) => {
+			if (!origin) {
+				return corsAllowList[0];
+			}
+			if (corsAllowList.includes(origin)) {
+				return origin;
+			}
+			if (EMBEDDABLE_CORS_PREFIXES.some((p) => c.req.path.startsWith(p))) {
+				return origin;
+			}
+			return corsAllowList[0];
+		},
+		allowHeaders: [
+			"Content-Type",
+			"Authorization",
+			"Cache-Control",
+			"x-api-key",
 		],
-		allowHeaders: ["Content-Type", "Authorization", "Cache-Control"],
 		allowMethods: ["POST", "GET", "OPTIONS", "PUT", "PATCH", "DELETE"],
 		exposeHeaders: ["Content-Length"],
 		maxAge: 600,
@@ -94,6 +131,44 @@ app.onError((error, c) => {
 				...(error.res ? { details: error.res } : {}),
 			},
 			status,
+		);
+	}
+
+	// Upstream gateway call failures from the AI SDK (e.g. skill generation,
+	// memory extraction). 4xx statuses are expected user-facing conditions
+	// (insufficient credits, rate limits), not backend bugs — forward them to
+	// the client instead of logging an internal error.
+	if (APICallError.isInstance(error)) {
+		const status = error.statusCode;
+		if (status && status >= 400 && status < 500) {
+			logger.warn("Upstream gateway client error", {
+				status,
+				message: error.message,
+				path: c.req.path,
+				method: c.req.method,
+			});
+			return c.json(
+				{
+					error: true,
+					status,
+					message: error.message,
+					...(error.data !== undefined ? { details: error.data } : {}),
+				},
+				status as ContentfulStatusCode,
+			);
+		}
+		logger.error("Upstream gateway error", error, {
+			status,
+			path: c.req.path,
+			method: c.req.method,
+		});
+		return c.json(
+			{
+				error: true,
+				status: 502,
+				message: "Upstream gateway request failed",
+			},
+			502,
 		);
 	}
 
@@ -234,7 +309,10 @@ app.route("/public/newsletter", publicNewsletter);
 app.route("/public/chat-support", publicChatSupport);
 app.route("/public/chats/share", publicChatShares);
 app.route("/public/apps", publicApps);
+app.route("/public/profile", publicProfile);
+app.route("/public/leaderboard", publicLeaderboard);
 app.route("/public/providers/stats", publicProvidersStats);
+app.route("/public/model-ratings", publicModelRatings);
 
 app.doc("/json", config);
 
@@ -243,5 +321,23 @@ app.get("/docs", swaggerUI({ url: "./json" }));
 app.route("/", authHandler);
 
 app.route("/v1/master", v1Master);
+
+app.route("/v1", platformSessions);
+
+app.route("/v1/sessions", platformSessionRefresh);
+
+app.route("/v1/wallet", platformWallet);
+
+app.route("/v1/customers", platformCustomers);
+
+app.route("/v1/connect", platformConnect);
+
+app.route("/v1/webhooks", platformWebhooks);
+
+app.route("/v1/config", publicConfig);
+
+// SCIM 2.0 provisioning (Okta → us). Bearer-token auth inside the router; mounted
+// before the session-guarded `routes` group so it stays outside session auth.
+app.route("/scim/v2", scim);
 
 app.route("/", routes);

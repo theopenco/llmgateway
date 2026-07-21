@@ -11,6 +11,7 @@ import {
 	Coins,
 	Copy,
 	Check,
+	Filter,
 	Globe,
 	Info,
 	Package,
@@ -34,6 +35,11 @@ import {
 } from "@/lib/components/tooltip";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
+
+import {
+	formatServiceTierMultiplier,
+	getServiceTier,
+} from "@llmgateway/models";
 
 import type { LogDetailData } from "@/types/activity";
 import type { Log } from "@llmgateway/db";
@@ -200,16 +206,19 @@ function formatDuration(ms: number) {
 
 // Selection reasons where the weighted-score formula is bypassed entirely, so
 // every provider's score is a hardcoded 0 placeholder rather than a real value.
+// "session-sticky" is intentionally excluded: it scores providers with the
+// normal weighted algorithm and pins the result for the session, so the logged
+// scores are real values worth surfacing. The all-zero fallback below hides
+// those scores when they couldn't be computed (no metrics available).
 const SCORE_BYPASSED_SELECTION_REASONS = new Set([
-	"session-sticky",
 	"random-exploration",
 	"price-only-no-metrics",
 ]);
 
 // The per-provider score only carries information when scoring actually ran.
-// Sticky/exploration/price-only paths emit 0 for every provider, and
-// "stable-preferred" can layer on top of a sticky pick (also all zeros), so
-// treat an all-zero set as "scoring did not run" regardless of the reason.
+// Exploration/price-only paths emit 0 for every provider, and "stable-preferred"
+// can layer on top of a sticky pick, so treat an all-zero set as "scoring did
+// not run" regardless of the reason.
 function isProviderScoreMeaningful(
 	selectionReason: string | null | undefined,
 	providerScores: { score: number }[],
@@ -461,8 +470,8 @@ export function LogDetailClient({
 		Number(log.dataStorageCost) > 0;
 
 	const throughput =
-		log.duration && log.totalTokens
-			? (Number(log.totalTokens) / (log.duration / 1000)).toFixed(1)
+		log.duration && log.completionTokens
+			? (Number(log.completionTokens) / (log.duration / 1000)).toFixed(1)
 			: null;
 
 	return (
@@ -803,6 +812,43 @@ export function LogDetailClient({
 												</div>
 											</div>
 										)}
+									{log.routingMetadata.filteredProviders &&
+										log.routingMetadata.filteredProviders.length > 0 && (
+											<div className="mt-3 pt-3 border-t border-border/50">
+												<p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
+													<Filter className="h-3 w-3" />
+													Filtered Providers
+												</p>
+												<div className="space-y-1.5">
+													{log.routingMetadata.filteredProviders.map(
+														(filtered) => (
+															<div
+																key={filtered.providerId}
+																className="flex items-center justify-between text-xs font-mono"
+															>
+																<span className="text-amber-600">
+																	{filtered.providerId}
+																</span>
+																<span className="text-muted-foreground text-right">
+																	{filtered.reasons.join(", ")}
+																</span>
+															</div>
+														),
+													)}
+												</div>
+											</div>
+										)}
+									{log.routingMetadata.strippedParameters &&
+										log.routingMetadata.strippedParameters.length > 0 && (
+											<div className="mt-3 pt-3 border-t border-border/50">
+												<p className="text-xs text-muted-foreground mb-2">
+													Stripped Parameters
+												</p>
+												<p className="text-xs font-mono text-amber-600">
+													{log.routingMetadata.strippedParameters.join(", ")}
+												</p>
+											</div>
+										)}
 								</div>
 							</Section>
 						)}
@@ -918,6 +964,38 @@ export function LogDetailClient({
 										{log.pricingTier && (
 											<Field label="Pricing Tier" value={log.pricingTier} />
 										)}
+										{log.requestedServiceTier && (
+											<Field
+												label="Requested Service Tier"
+												value={
+													log.requestedServiceTier.charAt(0).toUpperCase() +
+													log.requestedServiceTier.slice(1)
+												}
+											/>
+										)}
+										{log.usedServiceTier &&
+											(() => {
+												const tierName =
+													log.usedServiceTier.charAt(0).toUpperCase() +
+													log.usedServiceTier.slice(1);
+												const tier = getServiceTier(
+													log.usedProvider ?? "",
+													log.usedServiceTier,
+												);
+												const multiplier = tier
+													? formatServiceTierMultiplier(tier.multiplier)
+													: "";
+												return (
+													<Field
+														label="Used Service Tier"
+														value={
+															multiplier
+																? `${tierName} (${multiplier})`
+																: tierName
+														}
+													/>
+												);
+											})()}
 									</div>
 								</div>
 								<div className="border-t border-border/50 pt-4">
@@ -953,6 +1031,20 @@ export function LogDetailClient({
 										value={log.cacheWriteTokens}
 									/>
 								)}
+								{log.cacheWrite5mTokens &&
+									Number(log.cacheWrite5mTokens) > 0 && (
+										<Field
+											label="Cache Write Tokens (5m TTL)"
+											value={log.cacheWrite5mTokens}
+										/>
+									)}
+								{log.cacheWrite1hTokens &&
+									Number(log.cacheWrite1hTokens) > 0 && (
+										<Field
+											label="Cache Write Tokens (1h TTL)"
+											value={log.cacheWrite1hTokens}
+										/>
+									)}
 								{log.reasoningTokens && (
 									<Field label="Reasoning Tokens" value={log.reasoningTokens} />
 								)}

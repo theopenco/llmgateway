@@ -1,9 +1,8 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { WebAuthnAbortService } from "@simplewebauthn/browser";
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2, Terminal, Code2, Cpu, KeySquare } from "lucide-react";
+import { Loader2, Terminal, Code2, Cpu } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -27,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
 import { useAppConfig } from "@/lib/config";
+import { trackSignupConversion } from "@/lib/google-tag";
 
 const formSchema = z.object({
 	name: z.string().optional(),
@@ -51,9 +51,9 @@ function SignupForm() {
 	const queryClient = useQueryClient();
 	const router = useRouter();
 	const posthog = usePostHog();
-	const { posthogKey } = useAppConfig();
+	const { posthogKey, googleAdsSignupConversion } = useAppConfig();
 	const [isLoading, setIsLoading] = useState(false);
-	const { signIn, signUp } = useAuth();
+	const { signUp } = useAuth();
 	const returnUrl = getSafeRedirectUrl(searchParams.get("returnUrl"));
 	const selectedPlan = searchParams.get("plan");
 
@@ -99,8 +99,14 @@ function SignupForm() {
 							email: values.email,
 							name: values.name,
 							plan: selectedPlan,
+							method: "email",
 						});
 					}
+					trackSignupConversion({
+						email: values.email,
+						method: "email",
+						sendTo: googleAdsSignupConversion,
+					});
 					toast.success("Account created", {
 						description:
 							"Please check your email to verify your account before signing in.",
@@ -128,43 +134,6 @@ function SignupForm() {
 		}
 
 		setIsLoading(false);
-	}
-
-	async function handlePasskeySignIn() {
-		setIsLoading(true);
-		try {
-			// Cancel any pending conditional (autofill) ceremony so it doesn't
-			// collide with this modal request and abort it as "cancelled".
-			WebAuthnAbortService.cancelCeremony();
-			const res = await signIn.passkey();
-			if (res?.error) {
-				toast.error(res.error.message ?? "Failed to sign in with passkey", {
-					style: {
-						backgroundColor: "var(--destructive)",
-						color: "var(--destructive-foreground)",
-					},
-				});
-				return;
-			}
-			queryClient.clear();
-			if (posthogKey) {
-				posthog.capture("user_logged_in", { method: "passkey" });
-			}
-			toast.success("Login successful");
-			router.push(returnUrl);
-		} catch (error: unknown) {
-			toast.error(
-				(error as Error)?.message || "Failed to sign in with passkey",
-				{
-					style: {
-						backgroundColor: "var(--destructive)",
-						color: "var(--destructive-foreground)",
-					},
-				},
-			);
-		} finally {
-			setIsLoading(false);
-		}
 	}
 
 	return (
@@ -285,7 +254,7 @@ function SignupForm() {
 						</p>
 					</div>
 
-					<div className="mt-8">
+					<div className="mt-8 space-y-4">
 						<Form {...form}>
 							<form
 								onSubmit={form.handleSubmit(onSubmit)}
@@ -355,39 +324,24 @@ function SignupForm() {
 							</form>
 						</Form>
 
-						<div className="mt-4 space-y-4">
-							<div className="relative">
-								<div className="absolute inset-0 flex items-center">
-									<span className="w-full border-t" />
-								</div>
-								<div className="relative flex justify-center text-xs uppercase">
-									<span className="bg-background px-2 text-muted-foreground">
-										Or
-									</span>
-								</div>
+						<div className="relative">
+							<div className="absolute inset-0 flex items-center">
+								<span className="w-full border-t" />
 							</div>
-
-							<SocialAuthButtons
-								isLoading={isLoading}
-								setIsLoading={setIsLoading}
-								callbackPath={returnUrl}
-								errorCallbackPath="/signup"
-							/>
-
-							<Button
-								onClick={handlePasskeySignIn}
-								variant="outline"
-								className="w-full"
-								disabled={isLoading}
-							>
-								{isLoading ? (
-									<Loader2 className="mr-2 h-4 w-4 animate-spin" />
-								) : (
-									<KeySquare className="mr-2 h-4 w-4" />
-								)}
-								Sign in with passkey
-							</Button>
+							<div className="relative flex justify-center text-xs uppercase">
+								<span className="bg-background px-2 text-muted-foreground">
+									Or
+								</span>
+							</div>
 						</div>
+
+						<SocialAuthButtons
+							isLoading={isLoading}
+							setIsLoading={setIsLoading}
+							callbackPath={returnUrl}
+							errorCallbackPath="/signup"
+							newUserCallbackPath={returnUrl}
+						/>
 					</div>
 
 					<p className="mt-6 text-center text-sm text-muted-foreground">

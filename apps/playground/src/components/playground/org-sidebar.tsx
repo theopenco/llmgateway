@@ -3,6 +3,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import {
+	AudioLines,
 	MessageSquare,
 	ChevronUp,
 	LogOut,
@@ -16,7 +17,6 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useTheme } from "next-themes";
 import { usePostHog } from "posthog-js/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { List, type RowComponentProps } from "react-window";
@@ -224,12 +224,6 @@ export function OrgSidebar({
 	const { data: orgSharesData, isLoading: isSharesLoading } =
 		useOrgShares(organizationId);
 
-	const { theme, setTheme, systemTheme } = useTheme();
-	const currentTheme = theme === "system" ? systemTheme : theme;
-	const toggleTheme = useCallback(() => {
-		setTheme(currentTheme === "dark" ? "light" : "dark");
-	}, [currentTheme, setTheme]);
-
 	const [isSearchOpen, setIsSearchOpen] = useState(false);
 	const [isMac, setIsMac] = useState(false);
 
@@ -421,7 +415,7 @@ export function OrgSidebar({
 					</SidebarMenuItem>
 					<SidebarMenuItem>
 						<SidebarMenuButton asChild tooltip="Chat">
-							<Link href="/">
+							<Link href="/" prefetch={true}>
 								<MessageSquare className="h-4 w-4" />
 								<span>Chat</span>
 							</Link>
@@ -429,7 +423,7 @@ export function OrgSidebar({
 					</SidebarMenuItem>
 					<SidebarMenuItem>
 						<SidebarMenuButton asChild tooltip="Group Chat">
-							<Link href="/group">
+							<Link href="/group" prefetch={true}>
 								<Users className="h-4 w-4" />
 								<span>Group Chat</span>
 							</Link>
@@ -437,7 +431,7 @@ export function OrgSidebar({
 					</SidebarMenuItem>
 					<SidebarMenuItem>
 						<SidebarMenuButton asChild tooltip="Image Studio">
-							<Link href="/image">
+							<Link href="/image" prefetch={true}>
 								<ImagePlus className="h-4 w-4" />
 								<span>Image Studio</span>
 							</Link>
@@ -445,15 +439,23 @@ export function OrgSidebar({
 					</SidebarMenuItem>
 					<SidebarMenuItem>
 						<SidebarMenuButton asChild tooltip="Video Studio">
-							<Link href="/video">
+							<Link href="/video" prefetch={true}>
 								<Film className="h-4 w-4" />
 								<span>Video Studio</span>
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
 					<SidebarMenuItem>
+						<SidebarMenuButton asChild tooltip="Audio Studio">
+							<Link href="/audio" prefetch={true}>
+								<AudioLines className="h-4 w-4" />
+								<span>Audio Studio</span>
+							</Link>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
 						<SidebarMenuButton asChild tooltip="Canvas">
-							<Link href="/canvas">
+							<Link href="/canvas" prefetch={true}>
 								<PenTool className="h-4 w-4" />
 								<span>Canvas</span>
 							</Link>
@@ -579,10 +581,7 @@ export function OrgSidebar({
 								<DropdownMenuSeparator />
 								<DropdownMenuItem
 									className="justify-between gap-3"
-									onSelect={(event) => {
-										event.preventDefault();
-										toggleTheme();
-									}}
+									onSelect={(event) => event.preventDefault()}
 								>
 									<span>Theme</span>
 									<div
