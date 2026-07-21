@@ -54,6 +54,7 @@ const KNOWN_SOURCES = [
 	"opencode",
 	"cursor",
 	"autohand",
+	"empryo",
 	"soulforge",
 ] as const;
 
@@ -63,6 +64,7 @@ const SOURCE_OPTIONS = [
 	{ value: "opencode", label: "OpenCode" },
 	{ value: "cursor", label: "Cursor" },
 	{ value: "autohand", label: "Autohand Code" },
+	{ value: "empryo", label: "Empryo" },
 	{ value: "soulforge", label: "SoulForge" },
 ] as const;
 
@@ -165,6 +167,8 @@ function formatSourceLabel(source: string): string {
 			return "Cursor";
 		case "autohand":
 			return "Autohand Code";
+		case "empryo":
+			return "Empryo";
 		case "soulforge":
 			return "SoulForge";
 		case "chatbox":
@@ -395,6 +399,10 @@ export function SessionsView({
 								<div className="flex items-center gap-1.5">
 									<div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
 									OpenCode
+								</div>
+								<div className="flex items-center gap-1.5">
+									<div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
+									Empryo
 								</div>
 								<div className="flex items-center gap-1.5">
 									<div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
