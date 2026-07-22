@@ -170,8 +170,8 @@ function SignupForm() {
 							with AI.
 						</h1>
 						<p className="mt-4 max-w-md text-lg text-zinc-400">
-							Dev plans, coding tools, and AI-powered workflows for modern
-							development teams.
+							Dev plans, coding tools, and AI-powered workflows for individual
+							developers.
 						</p>
 					</motion.div>
 
