@@ -2,20 +2,22 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import {
+	createIamRuleSchema,
+	iamRuleStatusEnum,
+	iamRuleTypeEnum,
+	iamRuleValueSchema,
+	validateIamRuleInput,
+} from "@/lib/iam-rules.js";
 import { maskToken } from "@/lib/maskToken.js";
 import {
 	buildApiKeyLimitAuditChanges,
 	createApiKeyForProject,
-	createIamRuleSchema,
 	hasPeriodConfigChanged,
 	iamRuleSchema,
-	iamRuleStatusEnum,
-	iamRuleTypeEnum,
-	iamRuleValueSchema,
 	isPlaygroundApiKey,
 	mergeApiKeyLimitConfig,
 	parseApiKeyPeriodConfig,
-	validateIamRuleInput,
 	type PartialApiKeyLimitConfig,
 } from "@/routes/keys-api.js";
 import { createProjectForOrg } from "@/routes/projects.js";

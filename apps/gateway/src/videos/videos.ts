@@ -4377,13 +4377,14 @@ videos.openapi(createVideo, async (c) => {
 		request.seconds,
 	);
 
-	const iamValidation = await validateRequestModelAccess(
+	const iamValidation = await validateRequestModelAccess({
 		apiKey,
-		normalizedModel,
+		organizationId: project.organizationId,
+		requestedModel: normalizedModel,
 		requestedProvider,
-		modelInfo,
-		getClientIpFromRequest(c),
-	);
+		activeModelInfo: modelInfo,
+		clientIp: getClientIpFromRequest(c),
+	});
 
 	if (!iamValidation.allowed) {
 		throw new HTTPException(403, {

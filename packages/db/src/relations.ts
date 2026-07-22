@@ -134,6 +134,16 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.userOrganization.id,
 			to: r.userProject.userOrganizationId,
 		}),
+		iamRules: r.many.userIamRule({
+			from: r.userOrganization.id,
+			to: r.userIamRule.userOrganizationId,
+		}),
+	},
+	userIamRule: {
+		userOrganization: r.one.userOrganization({
+			from: r.userIamRule.userOrganizationId,
+			to: r.userOrganization.id,
+		}),
 	},
 	userProject: {
 		userOrganization: r.one.userOrganization({
