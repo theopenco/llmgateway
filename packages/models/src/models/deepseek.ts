@@ -292,9 +292,15 @@ export const deepseekModels = [
 				maxOutput: 384000,
 				streaming: true,
 				reasoning: true,
+				// Runware maps reasoning_effort onto its thinkingLevel setting and
+				// 400s minimal/low/medium for this model.
+				reasoningEfforts: ["none", "high", "xhigh", "max"],
 				vision: false,
 				tools: true,
-				jsonOutput: true,
+				// Runware rejects json_object for this model ("Missing required
+				// parameter: 'jsonSchema'"); only schema-based output is supported.
+				jsonOutput: false,
+				jsonOutputSchema: true,
 			},
 			{
 				providerId: "together-ai",
@@ -423,9 +429,15 @@ export const deepseekModels = [
 				maxOutput: 384000,
 				streaming: true,
 				reasoning: true,
+				// Runware maps reasoning_effort onto its thinkingLevel setting and
+				// 400s minimal/low/medium for this model.
+				reasoningEfforts: ["none", "high", "xhigh", "max"],
 				vision: false,
 				tools: true,
-				jsonOutput: true,
+				// Runware rejects json_object for this model ("Missing required
+				// parameter: 'jsonSchema'"); only schema-based output is supported.
+				jsonOutput: false,
+				jsonOutputSchema: true,
 			},
 			{
 				providerId: "novita",

@@ -142,6 +142,10 @@ export const zaiModels = [
 			},
 			{
 				providerId: "runware",
+				// Runware's GLM backend intermittently hangs on tool-call requests
+				// until its own 60s inference timeout ("Inference request timed out
+				// waiting for response"), depending on the exact prompt/tool text.
+				stability: "unstable",
 				externalId: "zai-glm-5-2",
 				inputPrice: "0.8e-6",
 				outputPrice: "2.55e-6",
