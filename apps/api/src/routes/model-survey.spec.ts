@@ -398,7 +398,7 @@ describe("public model survey results", () => {
 		});
 	});
 
-	it("hides models below the anonymity threshold but counts them in totals", async () => {
+	it("suppresses models below the anonymity threshold from results and totals", async () => {
 		await insertResponses("survey-coder-small", [
 			{ valueScore: 5 },
 			{ valueScore: 4 },
@@ -408,8 +408,9 @@ describe("public model survey results", () => {
 
 		const res = await app.request(`/public/model-survey/results?year=${YEAR}`);
 		const json = await res.json();
-		expect(json.totalResponses).toBe(4);
-		expect(json.totalModelsRated).toBe(1);
+		expect(json.totalResponses).toBe(0);
+		expect(json.totalRespondents).toBe(0);
+		expect(json.totalModelsRated).toBe(0);
 		expect(json.models).toEqual([]);
 	});
 

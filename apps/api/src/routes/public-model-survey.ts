@@ -2,10 +2,12 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import {
+	and,
 	count,
 	countDistinct,
 	db,
 	eq,
+	inArray,
 	MODEL_SURVEY_USE_CASES,
 	sql,
 	tables,
@@ -72,15 +74,6 @@ publicModelSurvey.openapi(getResults, async (c) => {
 	const round2 = (value: string | number | null) =>
 		Math.round(Number(value ?? 0) * 100) / 100;
 
-	const [totals] = await db
-		.select({
-			totalResponses: count(),
-			totalRespondents: countDistinct(tables.modelSurveyResponse.userId),
-			totalModelsRated: countDistinct(tables.modelSurveyResponse.modelId),
-		})
-		.from(tables.modelSurveyResponse)
-		.where(eq(tables.modelSurveyResponse.year, year));
-
 	const modelRows = await db
 		.select({
 			modelId: tables.modelSurveyResponse.modelId,
@@ -100,6 +93,28 @@ publicModelSurvey.openapi(getResults, async (c) => {
 		);
 
 	const publishedModelIds = modelRows.map((row) => row.modelId);
+
+	// Every published number — the stat tiles included — is derived from the
+	// published registry only, so sub-threshold models never leak through the
+	// totals and the tiles always agree with the table below them.
+	const totalResponses = modelRows.reduce(
+		(sum, row) => sum + Number(row.responseCount),
+		0,
+	);
+	const [respondents] = publishedModelIds.length
+		? await db
+				.select({
+					value: countDistinct(tables.modelSurveyResponse.userId),
+				})
+				.from(tables.modelSurveyResponse)
+				.where(
+					and(
+						eq(tables.modelSurveyResponse.year, year),
+						inArray(tables.modelSurveyResponse.modelId, publishedModelIds),
+					),
+				)
+		: [{ value: 0 }];
+
 	const useCaseRows = publishedModelIds.length
 		? await db
 				.select({
@@ -134,9 +149,9 @@ publicModelSurvey.openapi(getResults, async (c) => {
 	return c.json({
 		year,
 		minResponses: MIN_PUBLIC_RESPONSES,
-		totalResponses: Number(totals?.totalResponses ?? 0),
-		totalRespondents: Number(totals?.totalRespondents ?? 0),
-		totalModelsRated: Number(totals?.totalModelsRated ?? 0),
+		totalResponses,
+		totalRespondents: Number(respondents?.value ?? 0),
+		totalModelsRated: modelRows.length,
 		models: modelRows.map((row) => {
 			const responseCount = Number(row.responseCount);
 			return {
