@@ -14,7 +14,7 @@ image:
 
 Every AI gateway adds a hop between your app and the model. The question that matters is what that hop costs at the moment your user is staring at a blank chat window: the time to first token. Most gateway latency debates skip the measurement and argue architecture — so we measured it.
 
-We ran an open-source TTFT benchmark against **LLM Gateway** and OpenRouter, interleaved, from the same machine, on the same model. The medians over 75 runs each: LLM Gateway got the first content token in 906ms on a cold connection and 814ms on a warm one. OpenRouter took 1392ms and 1232ms. That is roughly 35% faster cold and 34% faster warm, with zero errors across all 300 requests. The raw per-run data is [published in full](https://gist.github.com/smakosh/0ca360230fb267d375b91dbd50548b67).
+We ran an open-source TTFT benchmark against **LLM Gateway** and OpenRouter, interleaved, from the same machine, on the same model. The medians over 75 runs each: LLM Gateway got the first content token in 906ms on a cold connection and 814ms on a warm one. OpenRouter took 1392ms and 1232ms. That is roughly 35% faster cold and 34% faster warm, with zero errors across the 300 measured runs — 450 HTTP requests in total, counting the throwaway warm-up call that precedes each warm measurement, every one of which returned HTTP 200. The raw per-run data is [published in full](https://gist.github.com/smakosh/0ca360230fb267d375b91dbd50548b67).
 
 ## How we measured AI gateway performance
 
@@ -28,16 +28,16 @@ Our setup, on July 22, 2026:
 - **75 cold + 75 warm runs per gateway**, interleaved round-robin so time-of-day drift hits both equally
 - **Cold** = a fresh connection paying full DNS + TCP + TLS with a new TLS context (no session resumption)
 - **Warm** = a second request on an already-open socket — the connection-pool case your production traffic mostly lives in
-- One residential vantage point, zero errors on either gateway across all 300 requests
+- One residential vantage point, zero errors on either gateway across all 450 HTTP requests (including warm-ups)
 
 ## Results: LLM Gateway vs OpenRouter
 
 Medians of n=75 per cell. Cold TTFT is end-to-end: DNS + TCP + TLS + time to first content token — what a short-lived process pays.
 
-| Medians             | TTFB   | TTFT (cold) | TTFT (warm) |
-| ------------------- | ------ | ----------- | ----------- |
-| LLM Gateway         | 201ms  | 906ms       | 814ms       |
-| OpenRouter (direct) | 1369ms | 1392ms      | 1232ms      |
+| Medians             | TTFB (cold) | TTFT (cold) | TTFT (warm) |
+| ------------------- | ----------- | ----------- | ----------- |
+| LLM Gateway         | 201ms       | 906ms       | 814ms       |
+| OpenRouter (direct) | 1369ms      | 1392ms      | 1232ms      |
 
 The spread, as median with p10–p90 range:
 
@@ -123,7 +123,7 @@ It prints per-run lines while it works, then a medians table, and dumps raw per-
 
 A gateway earns its hop with failover, unified billing, and one API across [every model it routes](https://llmgateway.io/models). But you pay its latency on every single request, forever. That makes time to first token one of the few gateway properties worth measuring before you commit — and one of the easiest, since the tooling is open source and takes minutes to run.
 
-If you are on OpenRouter today, LLM Gateway speaks the same OpenAI-compatible API — switching is a base URL change, covered in the [OpenRouter migration guide](https://docs.llmgateway.io/migrations/openrouter).
+If you are on OpenRouter today, LLM Gateway speaks the same OpenAI-compatible API — switching means changing the base URL and swapping in an LLM Gateway API key, covered in the [OpenRouter migration guide](https://docs.llmgateway.io/migrations/openrouter).
 
 ## Frequently Asked Questions
 
@@ -148,5 +148,5 @@ LLM Gateway routes an overlapping catalogue — the full list is on the [models 
 **Measure it yourself:**
 
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** — one key, streaming from day one
-- **[Migrate from OpenRouter](https://docs.llmgateway.io/migrations/openrouter)** — a base URL change
+- **[Migrate from OpenRouter](https://docs.llmgateway.io/migrations/openrouter)** — a base URL and API key change
 - **[What is an LLM gateway?](/blog/what-is-an-llm-gateway)** — where the hop pays for itself
