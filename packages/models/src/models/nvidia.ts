@@ -53,9 +53,9 @@ export const nvidiaModels = [
 			{
 				providerId: "nebius",
 				externalId: "nvidia/nemotron-3-super-120b-a12b",
-				// The deployment rejects forced tool_choice with a 400
-				// ("Input should be 'none' or 'auto'", verified 2026-07-22).
-				supportedToolChoices: ["auto", "none"],
+				// The deployment rejects tool_choice="required" with a 400, but
+				// named function choices work (verified 2026-07-22).
+				supportedToolChoices: ["auto", "none", "function"],
 				inputPrice: "0.3e-6",
 				outputPrice: "0.9e-6",
 				requestPrice: "0",
@@ -114,9 +114,7 @@ export const nvidiaModels = [
 				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
-				// The Nebius deployment is text-only (modality text->text per
-				// /v1/models), so image input is not offered here.
-				vision: false,
+				vision: true,
 				tools: true,
 				jsonOutput: true,
 			},

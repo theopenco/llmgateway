@@ -489,14 +489,11 @@ export const moonshotModels = [
 			{
 				providerId: "nebius",
 				externalId: "moonshotai/Kimi-K2.6",
-				// Streaming tool calls are unreliable on this deployment (spurious
-				// empty tool-call deltas corrupt argument streams) and responses
-				// intermittently stall past 60s (verified 2026-07-22), so keep it
-				// out of auto-routing.
+				// Streaming tool calls are unreliable on this deployment: required
+				// choices can end without a tool call, while named choices can leak raw
+				// control tokens into argument deltas (verified 2026-07-22).
 				stability: "unstable",
-				// Forced tool_choice is unreliable on this always-thinking Kimi
-				// deployment (intermittently returns no tool call), matching the
-				// native moonshot mapping's restriction.
+				// Only auto and none produced consistently valid streaming responses.
 				supportedToolChoices: ["auto", "none"],
 				inputPrice: "0.95e-6",
 				outputPrice: "4.0e-6",
@@ -509,8 +506,8 @@ export const moonshotModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
-				// JSON mode returns markdown-fenced JSON (```json ... ```) on this
-				// deployment (verified 2026-07-22), so heal it in both modes.
+				// JSON mode has intermittently returned markdown-fenced JSON, so
+				// normalize it defensively in both modes.
 				healStreamingJsonOutput: true,
 			},
 		],
@@ -554,20 +551,11 @@ export const moonshotModels = [
 			{
 				providerId: "nebius",
 				externalId: "moonshotai/Kimi-K2.7-Code",
-				// Streaming tool calls are unreliable on this deployment (duplicate
-				// or spurious tool-call deltas corrupt argument streams, verified
-				// 2026-07-22), so keep it out of auto-routing.
-				stability: "unstable",
-				// Forced tool_choice is unreliable on this always-thinking Kimi
-				// deployment (duplicate or missing tool-call deltas, verified
-				// 2026-07-22), matching the native moonshot mapping's restriction.
-				supportedToolChoices: ["auto", "none"],
 				inputPrice: "0.95e-6",
 				outputPrice: "4.0e-6",
 				requestPrice: "0",
-				// The Nebius /v1/models metadata reports context_length 8000, but
-				// the endpoint page advertises 256K and >36K-token prompts were
-				// accepted live (verified 2026-07-22).
+				// The model card advertises 256K context, and Nebius accepted an
+				// 84K-token prompt live (verified 2026-07-22).
 				contextSize: 262144,
 				maxOutput: undefined,
 				quantization: "fp4",

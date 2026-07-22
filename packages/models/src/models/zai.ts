@@ -146,9 +146,8 @@ export const zaiModels = [
 				inputPrice: "1.4e-6",
 				outputPrice: "4.4e-6",
 				requestPrice: "0",
-				// The Nebius /v1/models metadata reports context_length 8000, but
-				// the endpoint page advertises 1,024K and >20K-token prompts were
-				// accepted live (verified 2026-07-22).
+				// The model card advertises 1,024K context, and Nebius accepted a
+				// 52K-token prompt live (verified 2026-07-22).
 				contextSize: 1048576,
 				maxOutput: undefined,
 				quantization: "fp4",
