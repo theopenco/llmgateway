@@ -1351,6 +1351,7 @@ export function transformStreamingToOpenai(
 		case "canopywave":
 		case "inference.net":
 		case "together-ai":
+		case "scx-ai":
 		case "deepinfra":
 		case "custom":
 		case "nanogpt":

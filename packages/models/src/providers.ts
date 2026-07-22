@@ -1168,6 +1168,32 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
+		id: "scx-ai",
+		name: "SCX.ai",
+		description:
+			"SCX.ai is an Australian sovereign AI platform providing OpenAI-compatible Turbo inference endpoints — up to 4x faster than comparable providers — for a range of open models and SCX's own models, hosted on renewable-powered infrastructure.",
+		env: {
+			required: {
+				apiKey: "LLM_SCX_AI_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#1a1a2e",
+		website: "https://scx.ai",
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: "https://scx.ai/terms",
+		privacyPolicyUrl: "https://scx.ai/privacy",
+		headquarters: "AU",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: null,
+		},
+	},
+	{
 		id: "custom",
 		name: "Custom",
 		description: "Custom OpenAI-compatible provider with configurable base URL",
@@ -1595,6 +1621,7 @@ export const PROVIDER_COUNTRY_NAMES: Record<string, string> = {
 	NL: "Netherlands",
 	FR: "France",
 	JP: "Japan",
+	AU: "Australia",
 };
 
 /** Convert an ISO 3166-1 alpha-2 country code to its Unicode flag emoji. */
