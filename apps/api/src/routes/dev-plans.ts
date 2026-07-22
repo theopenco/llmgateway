@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { voidPendingCycleRenewalInvoices } from "@/lib/pending-renewal.js";
 import {
 	computeSelfRefundEligibility,
 	executeSelfRefund,
@@ -1193,6 +1194,13 @@ devPlans.openapi(changeTier, async (c) => {
 		}
 
 		if (applyNow) {
+			// If the previous cycle just ended, its renewal invoice may still be
+			// pending (Stripe drafts it at the period boundary and charges ~an hour
+			// later). Void it before re-anchoring — otherwise it would later charge
+			// for a cycle this upgrade replaces and its webhook would clobber the
+			// fresh allowance granted below.
+			await voidPendingCycleRenewalInvoices(subscriptionId);
+
 			// Swap to the new price, reset the billing cycle to now
 			// (`billing_cycle_anchor: "now"`) so Stripe immediately invoices the full
 			// new-tier price and starts a fresh period, and suppress proration

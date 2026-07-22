@@ -71,7 +71,11 @@ function getTransactionTypeBadgeVariant(
 	if (type.includes("cancel") || type.includes("end")) {
 		return "destructive";
 	}
-	if (type.includes("start") || type.includes("renewal")) {
+	if (
+		type.includes("start") ||
+		type.includes("renewal") ||
+		type.includes("resume")
+	) {
 		return "default";
 	}
 	if (type.includes("upgrade") || type.includes("downgrade")) {

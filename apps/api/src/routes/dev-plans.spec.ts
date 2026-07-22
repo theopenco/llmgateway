@@ -15,6 +15,11 @@ const stripeMock = vi.hoisted(() => ({
 		retrieve: vi.fn(),
 		update: vi.fn(),
 	},
+	invoices: {
+		list: vi.fn(),
+		finalizeInvoice: vi.fn(),
+		voidInvoice: vi.fn(),
+	},
 }));
 
 vi.mock("@/routes/payments.js", async (importOriginal) => {
@@ -72,6 +77,9 @@ describe("dev plan tier changes", () => {
 
 	beforeEach(async () => {
 		vi.clearAllMocks();
+		// No pending cycle-renewal invoices by default; upgrades list them to
+		// void any the old cycle left behind.
+		stripeMock.invoices.list.mockResolvedValue({ data: [] });
 		process.env.STRIPE_DEV_PLAN_PRO_PRICE_ID = "price_pro";
 		token = await createTestUser();
 		nowSeconds = Math.floor(Date.now() / 1000);
@@ -256,6 +264,79 @@ describe("dev plan tier changes", () => {
 		expect(transaction?.creditAmount).toBe("311.5");
 		expect(transaction?.stripeInvoiceId).toBe("in_upgrade");
 		expect(transaction?.stripePaymentIntentId).toBe("pi_upgrade");
+	});
+
+	it("voids a pending cycle-renewal invoice before re-anchoring the cycle", async () => {
+		// The old cycle just ended: Stripe drafted its renewal invoice but has
+		// not charged it yet (that happens ~1h after drafting). The upgrade must
+		// kill it before re-anchoring, or it would later double-charge for a
+		// cycle the upgrade replaces.
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(),
+		);
+		stripeMock.prices.retrieve.mockResolvedValue({ unit_amount: 7900 });
+		stripeMock.invoices.list.mockImplementation((params: { status: string }) =>
+			Promise.resolve({
+				data:
+					params.status === "draft"
+						? [
+								{
+									id: "in_pending_renewal",
+									status: "draft",
+									billing_reason: "subscription_cycle",
+								},
+							]
+						: [],
+			}),
+		);
+		stripeMock.invoices.finalizeInvoice.mockResolvedValue({
+			id: "in_pending_renewal",
+			status: "open",
+		});
+		stripeMock.subscriptions.update.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "active",
+			metadata: { devPlan: "pro" },
+			latest_invoice: {
+				id: "in_upgrade_void",
+				amount_paid: 7900,
+				payment_intent: { id: "pi_upgrade_void" },
+			},
+			items: {
+				data: [
+					{
+						id: "si_dev_plan",
+						current_period_end: nowSeconds + THIRTY_DAYS,
+					},
+				],
+			},
+		});
+
+		const res = await app.request("/dev-plans/change-tier", {
+			method: "POST",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				newTier: "pro",
+				expectedAmountDueCents: 7900,
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(stripeMock.invoices.finalizeInvoice).toHaveBeenCalledWith(
+			"in_pending_renewal",
+			{ auto_advance: false },
+		);
+		expect(stripeMock.invoices.voidInvoice).toHaveBeenCalledWith(
+			"in_pending_renewal",
+		);
+		// The void happens before the cycle is re-anchored.
+		expect(
+			stripeMock.invoices.voidInvoice.mock.invocationCallOrder[0],
+		).toBeLessThan(stripeMock.subscriptions.update.mock.invocationCallOrder[0]);
 	});
 
 	it("rolls over a fractional remainder without float artifacts", async () => {

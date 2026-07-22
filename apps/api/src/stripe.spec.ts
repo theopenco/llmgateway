@@ -190,6 +190,73 @@ describe("handleSubscriptionUpdated — dev plan cancellation feedback email", (
 		expect(sendEmailMock).not.toHaveBeenCalled();
 	});
 
+	test("records a resume row when a cancelled dev plan is reactivated", async () => {
+		await seedDevPlanOrg({ devPlanCancelled: true });
+
+		await handleSubscriptionUpdated(
+			makeUpdatedEvent({ cancelAtPeriodEnd: false }),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlanCancelled).toBe(false);
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+		expect(txns[0].type).toBe("dev_plan_resume");
+		expect(txns[0].amount).toBeNull();
+		expect(txns[0].description).toBe("Dev Plan PRO resumed");
+	});
+
+	test("does not record a resume row on a routine active update", async () => {
+		await seedDevPlanOrg({ devPlanCancelled: false });
+
+		await handleSubscriptionUpdated(
+			makeUpdatedEvent({ cancelAtPeriodEnd: false }),
+		);
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(0);
+	});
+
+	test("records a resume row when a cancelled chat plan is reactivated", async () => {
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			chatPlan: "plus",
+			chatPlanStripeSubscriptionId: SUB_ID,
+			chatPlanCancelled: true,
+		});
+
+		await handleSubscriptionUpdated(
+			makeUpdatedEvent({
+				cancelAtPeriodEnd: false,
+				metadata: {
+					organizationId: ORG_ID,
+					subscriptionType: "chat_plan",
+				},
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.chatPlanCancelled).toBe(false);
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+		expect(txns[0].type).toBe("chat_plan_resume");
+		expect(txns[0].description).toBe("Chat Plan PLUS resumed");
+	});
+
 	test("does not send dev-plan feedback email for a Pro (non-dev-plan) subscription cancel", async () => {
 		await db.insert(tables.organization).values({
 			id: ORG_ID,
@@ -502,6 +569,98 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		expect(txns[0].creditAmount).toBe("624");
 		expect(txns[0].amount).toBe("179");
 		expect(txns[0].stripeInvoiceId).toBe("in_upgrade_001");
+	});
+
+	test("does not reset credits or apply a pending downgrade on a stale renewal invoice", async () => {
+		// Repro of a production incident: the old cycle's renewal invoice was
+		// drafted at the period boundary but only charged ~1h later — AFTER the
+		// customer had upgraded to pro (re-anchoring the billing cycle) and
+		// scheduled a downgrade back to lite. The stale charge must not wipe the
+		// freshly purchased pro allowance nor apply the pending downgrade early.
+		const nowSeconds = Math.floor(Date.now() / 1000);
+		const thirtyDaysSeconds = 30 * 86400;
+		const upgradedExpiry = new Date((nowSeconds + thirtyDaysSeconds) * 1000);
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			devPlan: "pro",
+			devPlanPendingTier: "lite",
+			devPlanCreditsLimit: "237",
+			devPlanCreditsUsed: "10",
+			devPlanExpiresAt: upgradedExpiry,
+			devPlanStripeSubscriptionId: SUB_ID,
+			devPlanCancelled: false,
+		});
+
+		// The stale invoice's period ends 40 minutes before the re-anchored
+		// cycle's expiry (the upgrade happened 40 minutes after the old period
+		// boundary).
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_cycle",
+				amountPaid: 2900,
+				invoiceId: "in_cycle_stale_001",
+				periodEnd: nowSeconds + thirtyDaysSeconds - 2400,
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlan).toBe("pro");
+		expect(org?.devPlanPendingTier).toBe("lite");
+		expect(org?.devPlanCreditsUsed).toBe("10");
+		expect(org?.devPlanCreditsLimit).toBe("237");
+		expect(org?.devPlanExpiresAt?.getTime()).toBe(upgradedExpiry.getTime());
+
+		// The charge is still recorded for the audit trail (it is a refund
+		// candidate), but grants no credits.
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+		expect(txns[0].type).toBe("dev_plan_renewal");
+		expect(txns[0].amount).toBe("29");
+		expect(txns[0].creditAmount).toBeNull();
+		expect(txns[0].description).toContain("superseded");
+
+		// No renewal invoice email claiming fresh credits were granted.
+		expect(sendEmailMock).not.toHaveBeenCalled();
+	});
+
+	test("still applies the renewal when the invoice period matches the stored expiry", async () => {
+		// At a normal renewal the `customer.subscription.updated` event can land
+		// first and stamp the org's expiry to the new period end. An invoice whose
+		// period matches the stored expiry IS the current cycle's renewal and must
+		// reset credits as usual.
+		const periodEnd = Math.floor(Date.now() / 1000) + SECONDS_IN_TWO_WEEKS;
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			devPlan: "pro",
+			devPlanCreditsLimit: "237",
+			devPlanCreditsUsed: "150",
+			devPlanExpiresAt: new Date(periodEnd * 1000),
+			devPlanStripeSubscriptionId: SUB_ID,
+			devPlanCancelled: false,
+		});
+
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_cycle",
+				amountPaid: 7900,
+				invoiceId: "in_cycle_current_001",
+				periodEnd,
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlanCreditsUsed).toBe("0");
+		expect(org?.devPlanCreditsLimit).toBe("237");
 	});
 
 	test("skips processing an invoice that was already recorded", async () => {

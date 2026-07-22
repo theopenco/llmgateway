@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { voidPendingCycleRenewalInvoices } from "@/lib/pending-renewal.js";
 import { ensureStripeCustomer } from "@/stripe.js";
 import { getOrCreateChatOrg } from "@/utils/personal-org.js";
 
@@ -435,6 +436,15 @@ chatPlans.openapi(changeTier, async (c) => {
 		const newCreditsLimit = getChatPlanCreditsLimit(newTier);
 
 		if (isUpgrade) {
+			// If the previous cycle just ended, its renewal invoice may still be
+			// pending (Stripe drafts it at the period boundary and charges ~an hour
+			// later). Void it before re-anchoring — otherwise it would later charge
+			// for a cycle this upgrade replaces and its webhook would clobber the
+			// fresh allowance granted below.
+			await voidPendingCycleRenewalInvoices(
+				personalOrg.chatPlanStripeSubscriptionId,
+			);
+
 			// Charge the full new-tier price today and start a fresh billing cycle
 			// (`billing_cycle_anchor: "now"`) with no proration
 			// (`proration_behavior: "none"`). `error_if_incomplete` makes the update
