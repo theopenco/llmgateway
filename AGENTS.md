@@ -140,6 +140,8 @@ NOTE: these commands can only be run in the root directory of the repository, no
 
 - **Gateway** (`apps/gateway`) - LLM request routing and provider management (Hono + Zod + OpenAPI)
 - **API** (`apps/api`) - Backend API for user management, billing, analytics (Hono + Zod + OpenAPI)
+
+Production domain mapping (counterintuitive — do not mix these up): `api.llmgateway.io` serves `apps/gateway` (the LLM gateway, :4001 in dev), and `internal.llmgateway.io` serves `apps/api` (the backend API, :4002 in dev).
 - **UI** (`apps/ui`) - Frontend dashboard (Next.js App Router)
 - **Playground** (`apps/playground`) - Interactive LLM testing environment (Next.js App Router)
 - **Code** (`apps/code`) - Dev plans + coding tools landing & dashboard (Next.js App Router)
