@@ -149,6 +149,7 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 					color: providerInfo.color ?? null,
 					website: providerInfo.website ?? null,
 					announcement: providerInfo.announcement ?? null,
+					modelCardBadge: providerInfo.modelCardBadge ?? null,
 					status: "active",
 				},
 			},
