@@ -466,9 +466,16 @@ export function transformStreamingToOpenai(
 				? data.candidates[0]
 				: undefined;
 
+			// Google streams may end with a usage-only chunk (usageMetadata +
+			// modelVersion/responseId, no candidates) — that's expected, not an error.
+			const isUsageOnlyChunk =
+				(!data.candidates || data.candidates.length === 0) &&
+				!!data.usageMetadata;
+
 			if (
 				(!data.candidates || data.candidates.length === 0) &&
-				!data.promptFeedback?.blockReason
+				!data.promptFeedback?.blockReason &&
+				!isUsageOnlyChunk
 			) {
 				logger.error(
 					"[transform-streaming-to-openai] Google streaming chunk missing candidates",
@@ -704,17 +711,21 @@ export function transformStreamingToOpenai(
 					usage: buildUsage(data.usageMetadata, messages),
 				};
 			} else {
-				logger.warn("[streaming] Google chunk with no content", {
-					provider: usedProvider,
-					model: usedModel,
-					hasCandidates: hasCandidatesArray,
-					candidatesCount: candidates.length,
-					firstCandidateKeys: firstCandidate ? Object.keys(firstCandidate) : [],
-					hasContentParts: !!(firstCandidate?.content?.parts?.length > 0),
-					partsCount: firstCandidate?.content?.parts?.length ?? 0,
-					hasUsageMetadata: !!data.usageMetadata,
-					dataKeys: Object.keys(data),
-				});
+				if (!isUsageOnlyChunk) {
+					logger.warn("[streaming] Google chunk with no content", {
+						provider: usedProvider,
+						model: usedModel,
+						hasCandidates: hasCandidatesArray,
+						candidatesCount: candidates.length,
+						firstCandidateKeys: firstCandidate
+							? Object.keys(firstCandidate)
+							: [],
+						hasContentParts: !!(firstCandidate?.content?.parts?.length > 0),
+						partsCount: firstCandidate?.content?.parts?.length ?? 0,
+						hasUsageMetadata: !!data.usageMetadata,
+						dataKeys: Object.keys(data),
+					});
+				}
 				transformedData = {
 					id: data.responseId ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
