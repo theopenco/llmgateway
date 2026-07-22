@@ -324,9 +324,21 @@ function convertOpenAISchemaToGoogle(schema: any): any {
 
 	const converted: any = {};
 
-	// Convert type to uppercase
+	// Convert type to uppercase. JSON Schema allows `type` to be an array
+	// (e.g. ["string", "null"] for nullable fields); Google expects a single
+	// uppercase type plus a `nullable` flag instead.
 	if (schema.type) {
-		converted.type = schema.type.toUpperCase();
+		if (Array.isArray(schema.type)) {
+			const nonNullTypes = schema.type.filter((t: unknown) => t !== "null");
+			if (nonNullTypes.length !== schema.type.length) {
+				converted.nullable = true;
+			}
+			if (typeof nonNullTypes[0] === "string") {
+				converted.type = nonNullTypes[0].toUpperCase();
+			}
+		} else if (typeof schema.type === "string") {
+			converted.type = schema.type.toUpperCase();
+		}
 	}
 
 	// Copy description if present

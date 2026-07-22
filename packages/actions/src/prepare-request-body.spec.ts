@@ -1445,6 +1445,54 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		]);
 	});
 
+	test("converts json_schema with array type (nullable) to Google schema", async () => {
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.5-flash",
+			null,
+			"gemini-2.5-flash",
+			[{ role: "user", content: "Extract the user info" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				type: "json_schema",
+				json_schema: {
+					name: "user_info",
+					schema: {
+						type: "object",
+						properties: {
+							name: { type: "string" },
+							nickname: { type: ["string", "null"] },
+							tags: { type: ["array", "null"], items: { type: "string" } },
+						},
+						required: ["name", "nickname"],
+					},
+				},
+			},
+		)) as any;
+
+		expect(requestBody.generationConfig.responseMimeType).toBe(
+			"application/json",
+		);
+		expect(requestBody.generationConfig.responseSchema).toEqual({
+			type: "OBJECT",
+			properties: {
+				name: { type: "STRING" },
+				nickname: { type: "STRING", nullable: true },
+				tags: {
+					type: "ARRAY",
+					nullable: true,
+					items: { type: "STRING" },
+				},
+			},
+			required: ["name", "nickname"],
+		});
+	});
+
 	test("should map gateway 0.5K image size to Google 512 for Vertex", async () => {
 		const requestBody = (await prepareRequestBody(
 			"google-vertex",
