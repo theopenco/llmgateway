@@ -1,13 +1,13 @@
 ---
 title: Crush Integration
-description: Use GPT-5, Claude, Gemini, or any model with Charm's Crush coding agent. One provider entry, 200+ models, full cost tracking.
+description: Connect Charm's Crush coding agent to 200+ models through LLM Gateway's built-in provider. No config files needed — just select, authenticate, and code.
 icon: Crush
 ---
 
 import { Step, Steps } from "fumadocs-ui/components/steps";
 import { Callout } from "fumadocs-ui/components/callout";
 
-[Crush](https://github.com/charmbracelet/crush) is Charm's glamorous open-source AI coding agent for your terminal. Connecting it to LLM Gateway gives you access to 200+ models from 40+ providers through a single API key, with every request tracked in your dashboard.
+[Crush](https://github.com/charmbracelet/crush) is Charm's glamorous open-source AI coding agent for your terminal. LLM Gateway is a built-in provider in Crush, so setup takes under a minute — export your API key, pick LLM Gateway from the provider list, and you have access to 200+ models from 40+ providers, all tracked in one dashboard.
 
 ## Prerequisites
 
@@ -44,20 +44,35 @@ Add it to your shell profile (`~/.zshrc` or `~/.bashrc`) to make it permanent.
 <Step>
 ### Select LLM Gateway
 
-Launch Crush and pick LLM Gateway from the provider list — it's a built-in provider in Crush's provider catalog:
+Launch Crush:
 
 ```bash
 crush
 ```
 
-If LLM Gateway doesn't appear in your provider list yet (the catalog rolls out gradually), add it manually with the config in the next step.
+LLM Gateway is listed as a built-in provider. Select "LLM Gateway" from the provider list — with `LLMGATEWAY_API_KEY` set, Crush picks up your credentials automatically.
 
 </Step>
 
 <Step>
-### Or Configure It Manually
+### Start Coding
 
-Create a `crush.json` in your project directory (or `~/.config/crush/crush.json` for a global setup):
+Select a model and start building. You can switch models at any time from within Crush.
+
+</Step>
+</Steps>
+
+## Why Use LLM Gateway with Crush
+
+- **200+ models** — GPT-5, Claude, Gemini, Kimi, GLM, and more from 40+ providers
+- **One API key** — Stop juggling credentials for every provider
+- **Cost tracking** — See what each coding session costs in your dashboard
+- **Automatic fallback** — Requests route to a healthy provider if one is down
+- **Volume discounts** — The more you use, the more you save
+
+## Manual Configuration
+
+The built-in provider needs no config files. If you want to customize the setup — for example to pin request headers or maintain an explicit model list — you can define the provider yourself in a `crush.json` in your project directory (or `~/.config/crush/crush.json` for a global setup):
 
 ```json
 {
@@ -75,27 +90,9 @@ Create a `crush.json` in your project directory (or `~/.config/crush/crush.json`
 
 Crush auto-discovers all available models from LLM Gateway's `/v1/models` endpoint, so there is no model list to maintain.
 
-</Step>
-
-<Step>
-### Start Coding
-
-Restart Crush, select a model, and start building. You can switch models at any time from within Crush.
-
-</Step>
-</Steps>
-
-## Why Use LLM Gateway with Crush
-
-- **200+ models** — GPT-5, Claude, Gemini, Kimi, GLM, and more from 40+ providers
-- **One API key** — Stop juggling credentials for every provider
-- **Cost tracking** — See what each coding session costs in your dashboard
-- **Automatic fallback** — Requests route to a healthy provider if one is down
-- **Volume discounts** — The more you use, the more you save
-
 ## Locking to a Specific Provider
 
-By default, LLM Gateway automatically fails over to alternative providers if your chosen provider is experiencing downtime. If you want to lock into a specific provider/model mapping — for example to guarantee a fixed price or to always use a single provider — pass the `X-No-Fallback` header and pin the provider in the model name:
+By default, LLM Gateway automatically fails over to alternative providers if your chosen provider is experiencing downtime. If you want to lock into a specific provider/model mapping — for example to guarantee a fixed price or to always use a single provider — use a manual provider config and pass the `X-No-Fallback` header:
 
 ```json
 {
