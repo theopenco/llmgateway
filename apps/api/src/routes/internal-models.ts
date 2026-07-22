@@ -17,6 +17,7 @@ import {
 } from "@llmgateway/db";
 import {
 	models as modelDefinitions,
+	providers as providerDefinitions,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
 
@@ -35,6 +36,7 @@ const providerSchema = z.object({
 	color: z.string().nullable(),
 	website: z.string().nullable(),
 	announcement: z.string().nullable(),
+	modelCardBadge: z.string().nullable(),
 	status: z.enum(["active", "inactive"]),
 });
 
@@ -360,7 +362,15 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 		},
 	});
 
-	return c.json({ providers });
+	// modelCardBadge only exists in the catalogue, not the provider table
+	return c.json({
+		providers: providers.map((provider) => ({
+			...provider,
+			modelCardBadge:
+				providerDefinitions.find((p) => p.id === provider.id)?.modelCardBadge ??
+				null,
+		})),
+	});
 });
 
 // GET /internal/models/{modelId}/benchmarks - Per-provider performance stats

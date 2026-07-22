@@ -126,6 +126,7 @@ export function adaptProviderMapping(
 			color: p.providerInfo?.color ?? null,
 			website: p.providerInfo?.website ?? null,
 			announcement: null,
+			modelCardBadge: p.providerInfo?.modelCardBadge ?? null,
 			serviceTiers,
 			status: "active" as const,
 		},
