@@ -458,6 +458,21 @@ export const moonshotModels = [
 				jsonOutput: false,
 			},
 			{
+				providerId: "gonka24",
+				externalId: "kimi-k2.6",
+				inputPrice: "0.22e-6",
+				cachedInputPrice: "0.048e-6",
+				outputPrice: "1.137e-6",
+				requestPrice: "0",
+				contextSize: 262144,
+				maxOutput: 98304,
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
 				providerId: "tundra",
 				externalId: "kimi-k2.6",
 				// Tundra rejects tool_choice="required" with a 400; named/forced

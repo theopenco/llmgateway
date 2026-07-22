@@ -1358,6 +1358,7 @@ export function transformStreamingToOpenai(
 		case "bytedance":
 		case "minimax":
 		case "embercloud":
+		case "gonka24":
 		case "granite":
 		case "tundra":
 		case "xiaomi":

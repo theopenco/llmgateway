@@ -1527,6 +1527,27 @@ export const providers: ProviderDefinition[] = [
 			gdpr: true,
 		},
 	},
+	{
+		id: "gonka24",
+		name: "Gonka24",
+		description:
+			"Gonka24 serves open-weight large language models via an OpenAI-compatible inference gateway.",
+		env: {
+			required: {
+				apiKey: "LLM_GONKA_24_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#000000",
+		website: "https://gonka24.com",
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: null,
+		privacyPolicyUrl: null,
+		headquarters: null,
+		dataPolicy: null,
+	},
 ] as const satisfies ProviderDefinition[];
 
 export type ProviderId = (typeof providers)[number]["id"];
