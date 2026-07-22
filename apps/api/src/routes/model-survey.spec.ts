@@ -383,7 +383,7 @@ describe("public model survey results", () => {
 			{ valueScore: 4 },
 			{ valueScore: 5 },
 			{ valueScore: 5 },
-			{ valueScore: 4, wouldRecommend: false },
+			{ valueScore: 4, wouldRecommend: false, primaryUseCase: "code_review" },
 		]);
 
 		const res = await app.request(`/public/model-survey/results?year=${YEAR}`);
@@ -397,6 +397,8 @@ describe("public model survey results", () => {
 		expect(first.responseCount).toBe(5);
 		expect(first.avgValueScore).toBe(4.6);
 		expect(first.recommendPercent).toBe(80);
+		// The lone code_review response stays suppressed from the buckets.
+		expect(first.useCases).toEqual([{ useCase: "agentic_coding", count: 4 }]);
 		expect(second.modelId).toBe("survey-coder-small");
 		expect(second.avgValueScore).toBe(3.2);
 		expect(second.useCases).toEqual([

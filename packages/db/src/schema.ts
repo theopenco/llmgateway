@@ -557,6 +557,20 @@ export const chatPlanCancellationFeedback = pgTable(
 	],
 );
 
+// Shared literals for the model survey, consumed by the table below and the
+// zod schemas in the API's model-survey routes.
+export const MODEL_SURVEY_USE_CASES = [
+	"agentic_coding",
+	"code_completion",
+	"code_review",
+	"debugging",
+	"writing_tests",
+	"docs_and_explanations",
+	"other",
+] as const;
+
+export const MODEL_SURVEY_TIERS = ["lite", "pro", "max"] as const;
+
 // One DevPass member's yearly-survey verdict on a coding model they have
 // genuinely used through the gateway. Powers the annual public model-value
 // report (/data/<year> on the DevPass site). Responses are usage-verified:
@@ -587,25 +601,15 @@ export const modelSurveyResponse = pgTable(
 		// 1-5: satisfaction with generation speed.
 		speedScore: integer().notNull(),
 		wouldRecommend: boolean().notNull(),
-		primaryUseCase: text({
-			enum: [
-				"agentic_coding",
-				"code_completion",
-				"code_review",
-				"debugging",
-				"writing_tests",
-				"docs_and_explanations",
-				"other",
-			],
-		}).notNull(),
+		primaryUseCase: text({ enum: MODEL_SURVEY_USE_CASES }).notNull(),
 		comment: text(),
 		// Requests the org had made on the model within the qualifying window
 		// at submission time.
 		requestCount: integer().notNull(),
-		devPlanTier: text({ enum: ["lite", "pro", "max"] }).notNull(),
+		devPlanTier: text({ enum: MODEL_SURVEY_TIERS }).notNull(),
 		// Tier of the free Reset Pass granted for this response. Null when no
 		// pass was granted (only the org's first response each year rewards).
-		rewardTier: text({ enum: ["lite", "pro", "max"] }),
+		rewardTier: text({ enum: MODEL_SURVEY_TIERS }),
 	},
 	(table) => [
 		uniqueIndex("model_survey_response_user_model_year_unique").on(
@@ -613,6 +617,11 @@ export const modelSurveyResponse = pgTable(
 			table.modelId,
 			table.year,
 		),
+		// DB-level backstop for the one-reward-per-org-per-year invariant the
+		// submit route enforces under a row lock.
+		uniqueIndex("model_survey_response_org_year_reward_unique")
+			.on(table.organizationId, table.year)
+			.where(sql`${table.rewardTier} IS NOT NULL`),
 		index("model_survey_response_year_model_idx").on(table.year, table.modelId),
 		index("model_survey_response_organization_id_idx").on(table.organizationId),
 		check(

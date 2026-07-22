@@ -1,7 +1,15 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
-import { count, countDistinct, db, eq, sql, tables } from "@llmgateway/db";
+import {
+	count,
+	countDistinct,
+	db,
+	eq,
+	MODEL_SURVEY_USE_CASES,
+	sql,
+	tables,
+} from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -11,15 +19,11 @@ const publicModelSurvey = new OpenAPIHono<ServerTypes>();
 // so no individual respondent's answers can be inferred from the report.
 export const MIN_PUBLIC_RESPONSES = 5;
 
-const useCaseEnum = z.enum([
-	"agentic_coding",
-	"code_completion",
-	"code_review",
-	"debugging",
-	"writing_tests",
-	"docs_and_explanations",
-	"other",
-]);
+// Per-use-case buckets inside a published model are additionally suppressed
+// below this count, so a bucket never describes a single respondent.
+export const MIN_USE_CASE_BUCKET = 2;
+
+const useCaseEnum = z.enum(MODEL_SURVEY_USE_CASES);
 
 const modelResultSchema = z.object({
 	modelId: z.string(),
@@ -116,7 +120,10 @@ publicModelSurvey.openapi(getResults, async (c) => {
 		{ useCase: (typeof useCaseRows)[number]["useCase"]; count: number }[]
 	>();
 	for (const row of useCaseRows) {
-		if (!publishedModelIds.includes(row.modelId)) {
+		if (
+			!publishedModelIds.includes(row.modelId) ||
+			Number(row.count) < MIN_USE_CASE_BUCKET
+		) {
 			continue;
 		}
 		const list = useCasesByModel.get(row.modelId) ?? [];

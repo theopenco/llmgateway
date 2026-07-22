@@ -234,6 +234,11 @@ export default function SurveyClient({
 		const next = eligibility.topModels.find((m) => !m.alreadySubmitted);
 		form.reset({
 			modelId: next?.modelId ?? "",
+			valueScore: undefined,
+			qualityScore: undefined,
+			speedScore: undefined,
+			wouldRecommend: undefined,
+			primaryUseCase: undefined,
 			comment: "",
 		});
 		setResult(null);

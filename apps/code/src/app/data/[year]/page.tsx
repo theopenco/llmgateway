@@ -263,14 +263,13 @@ export default async function CensusPage({
 							<div className="rounded-lg border border-dashed border-stone-400/70 bg-stone-50/70 p-10 text-center dark:border-stone-600/70 dark:bg-stone-900/30">
 								<div className="mx-auto inline-block rounded-md border-4 border-double border-stone-400/70 px-6 py-2 font-mono uppercase text-stone-500 dark:border-stone-600 dark:text-stone-400">
 									<div className="text-sm font-bold tracking-[0.3em]">
-										Registry open
+										{results ? "Registry open" : "Registry offline"}
 									</div>
 								</div>
 								<p className="mx-auto mt-4 max-w-md text-sm text-muted-foreground">
-									Models appear here once {results?.minResponses ?? 5}{" "}
-									developers have filed verified entries on them. DevPass
-									members: your census entry gets the registry moving — and
-									earns you a free Reset Pass.
+									{results
+										? `Models appear here once ${results.minResponses} developers have filed verified entries on them. DevPass members: your census entry gets the registry moving — and earns you a free Reset Pass.`
+										: "The registry couldn't be reached just now — the entries are safe. Check back in a few minutes."}
 								</p>
 							</div>
 						)}

@@ -16,7 +16,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import SurveyReminderDialog from "@/app/dashboard/components/SurveyReminderDialog";
@@ -65,18 +65,12 @@ const navItems: Array<{ label: string; href: Route; icon: typeof BarChart3 }> =
 
 // Pages that live on the DevPass site but outside the dashboard shell, so
 // they're rendered in their own subtle nav section with a link-out marker.
-const resourceNavItems: Array<{
+// The census link is appended per render so its year stays current.
+const staticResourceNavItems: Array<{
 	label: string;
 	href: Route;
 	icon: typeof BarChart3;
-}> = [
-	{ label: "Coding models", href: "/coding-models" as Route, icon: Code },
-	{
-		label: "Model census",
-		href: `/data/${new Date().getUTCFullYear()}` as Route,
-		icon: Stamp,
-	},
-];
+}> = [{ label: "Coding models", href: "/coding-models" as Route, icon: Code }];
 
 type SetupActivationStatus =
 	| "loading_stripe"
@@ -144,6 +138,17 @@ export default function DashboardShell({
 	initialUser?: UserMe | null;
 	initialDevPlanStatus?: DevPlanStatus | null;
 }) {
+	const resourceNavItems = useMemo(
+		() => [
+			...staticResourceNavItems,
+			{
+				label: "Model census",
+				href: `/data/${new Date().getUTCFullYear()}` as Route,
+				icon: Stamp,
+			},
+		],
+		[],
+	);
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();

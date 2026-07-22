@@ -12,6 +12,8 @@ import {
 	gte,
 	inArray,
 	isNotNull,
+	MODEL_SURVEY_TIERS,
+	MODEL_SURVEY_USE_CASES,
 	sql,
 	tables,
 } from "@llmgateway/db";
@@ -28,17 +30,9 @@ export const SURVEY_WINDOW_DAYS = 30;
 // How many qualifying models eligibility returns, most-used first.
 const TOP_MODELS_LIMIT = 5;
 
-const useCaseEnum = z.enum([
-	"agentic_coding",
-	"code_completion",
-	"code_review",
-	"debugging",
-	"writing_tests",
-	"docs_and_explanations",
-	"other",
-]);
+const useCaseEnum = z.enum(MODEL_SURVEY_USE_CASES);
 
-const tierEnum = z.enum(["lite", "pro", "max"]);
+const tierEnum = z.enum(MODEL_SURVEY_TIERS);
 
 function surveyYear(): number {
 	return new Date().getUTCFullYear();
