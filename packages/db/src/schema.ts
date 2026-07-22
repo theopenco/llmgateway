@@ -1375,6 +1375,59 @@ export const apiKeyIamRule = pgTable(
 	],
 );
 
+// Member-level IAM ceiling: rules set by org owners/admins on a member. A
+// member's API-key rules can only further restrict within these, never expand.
+export const userIamRule = pgTable(
+	"user_iam_rule",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		userOrganizationId: text()
+			.notNull()
+			.references(() => userOrganization.id, { onDelete: "cascade" }),
+		ruleType: text({
+			enum: [
+				"allow_models",
+				"deny_models",
+				"allow_pricing",
+				"deny_pricing",
+				"allow_providers",
+				"deny_providers",
+				"allow_ip_cidrs",
+				"deny_ip_cidrs",
+			],
+		}).notNull(),
+		ruleValue: json()
+			.$type<{
+				models?: string[];
+				providers?: string[];
+				pricingType?: "free" | "paid";
+				maxInputPrice?: number;
+				maxOutputPrice?: number;
+				ipCidrs?: string[];
+			}>()
+			.notNull(),
+		status: text({
+			enum: ["active", "inactive"],
+		})
+			.notNull()
+			.default("active"),
+	},
+	(table) => [
+		index("user_iam_rule_user_organization_id_idx").on(
+			table.userOrganizationId,
+		),
+		index("user_iam_rule_user_organization_id_status_idx").on(
+			table.userOrganizationId,
+			table.status,
+		),
+	],
+);
+
 export const masterKey = pgTable(
 	"master_key",
 	{
@@ -2912,6 +2965,9 @@ export const auditLogActions = [
 	"team_member.invite_accept",
 	"team_member.invite_revoke",
 	"team_member.auto_join",
+	"team_member.iam_rule.create",
+	"team_member.iam_rule.update",
+	"team_member.iam_rule.delete",
 	// API Key
 	"api_key.create",
 	"api_key.roll",

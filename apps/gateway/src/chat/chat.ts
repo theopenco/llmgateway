@@ -2632,13 +2632,14 @@ chat.openapi(completions, async (c) => {
 	// when the only remaining active provider is a denied one but deactivated providers
 	// are still "allowed" by the IAM rules.
 	const clientIp = getClientIpFromRequest(c);
-	const iamValidation = await validateRequestModelAccess(
+	const iamValidation = await validateRequestModelAccess({
 		apiKey,
-		modelInfo.id,
+		organizationId: project.organizationId,
+		requestedModel: modelInfo.id,
 		requestedProvider,
-		modelInfo,
+		activeModelInfo: modelInfo,
 		clientIp,
-	);
+	});
 	if (!iamValidation.allowed) {
 		throwIamException(iamValidation.reason ?? "Model access denied");
 	}
@@ -3046,14 +3047,14 @@ chat.openapi(completions, async (c) => {
 			// Validate IAM rules for this candidate model and filter providers.
 			// We must re-evaluate per model because iamAllowedProviders was computed
 			// for the "auto" model which only has the "llmgateway" provider.
-			const candidateIam = await validateRequestModelAccess(
+			const candidateIam = await validateRequestModelAccess({
 				apiKey,
-				modelDef.id,
-				undefined,
-				modelDef,
+				organizationId: project.organizationId,
+				requestedModel: modelDef.id,
+				activeModelInfo: modelDef,
 				clientIp,
-				{ autoRouting: true },
-			);
+				autoRouting: true,
+			});
 			if (!candidateIam.allowed) {
 				continue;
 			}
@@ -3281,14 +3282,14 @@ chat.openapi(completions, async (c) => {
 		// shortcut.  The original iamAllowedProviders was computed for the "auto"
 		// model (which only has the "llmgateway" provider) and is not meaningful
 		// for the resolved model.
-		const resolvedIamValidation = await validateRequestModelAccess(
+		const resolvedIamValidation = await validateRequestModelAccess({
 			apiKey,
-			modelInfo.id,
-			undefined,
-			modelInfo,
+			organizationId: project.organizationId,
+			requestedModel: modelInfo.id,
+			activeModelInfo: modelInfo,
 			clientIp,
-			{ autoRouting: true },
-		);
+			autoRouting: true,
+		});
 		if (!resolvedIamValidation.allowed) {
 			throwIamException(resolvedIamValidation.reason ?? "Model access denied");
 		}
