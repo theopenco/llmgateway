@@ -3509,12 +3509,45 @@ async function handleSetupIntentSucceeded(
 		return;
 	}
 
-	await getStripe().paymentMethods.attach(paymentMethodId, {
-		customer: stripeCustomerId,
-	});
-
 	const paymentMethod =
 		await getStripe().paymentMethods.retrieve(paymentMethodId);
+
+	// Setup intents created with a customer come out of confirmation already
+	// attached; only PMs from legacy customer-less setup intents still need the
+	// manual attach here.
+	const attachedCustomerId =
+		typeof paymentMethod.customer === "string"
+			? paymentMethod.customer
+			: (paymentMethod.customer?.id ?? null);
+
+	if (!attachedCustomerId) {
+		try {
+			await getStripe().paymentMethods.attach(paymentMethodId, {
+				customer: stripeCustomerId,
+			});
+		} catch (error) {
+			// A PM consumed by a payment (or detached) before this webhook ran can
+			// never be attached — failing the webhook would only make Stripe retry
+			// a permanently invalid request for days.
+			if (error instanceof Stripe.errors.StripeInvalidRequestError) {
+				logger.warn("Skipping unattachable payment method from setup intent", {
+					paymentMethodId,
+					organizationId,
+					stripeMessage: error.message,
+				});
+				return;
+			}
+			throw error;
+		}
+	} else if (attachedCustomerId !== stripeCustomerId) {
+		logger.warn("Setup intent payment method is attached to another customer", {
+			paymentMethodId,
+			organizationId,
+			attachedCustomerId,
+			expectedCustomerId: stripeCustomerId,
+		});
+		return;
+	}
 
 	// Check for duplicate card by fingerprint
 	if (paymentMethod.type === "card" && paymentMethod.card?.fingerprint) {
