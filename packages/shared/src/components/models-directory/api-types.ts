@@ -10,6 +10,7 @@ export interface ApiProvider {
 	color: string | null;
 	website: string | null;
 	announcement: string | null;
+	modelCardBadge?: string | null;
 	serviceTiers?: Array<{
 		id: string;
 		name: string;
