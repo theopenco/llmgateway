@@ -134,6 +134,8 @@ export interface ProviderDefinition {
 	statusPageUrl?: string | null;
 	// Announcement text
 	announcement?: string | null;
+	// Short marketing badge shown on this provider's model cards (e.g. "Up to 4x faster")
+	modelCardBadge?: string | null;
 	// Instructions for creating an API key
 	apiKeyInstructions?: string;
 	// Learn more URL for API key creation
@@ -1180,6 +1182,7 @@ export const providers: ProviderDefinition[] = [
 		streaming: true,
 		cancellation: true,
 		color: "#1a1a2e",
+		modelCardBadge: "Up to 4x faster",
 		website: "https://scx.ai",
 		statusPageUrl: null,
 		announcement: null,
