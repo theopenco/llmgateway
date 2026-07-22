@@ -20,7 +20,8 @@
 		"format": "eslint --fix . && prettier --write .",
 		"generate": "tsx ./src/scripts/generate-openapi.ts",
 		"lint": "eslint . && prettier --check .",
-		"start": "node --enable-source-maps dist/serve.js"
+		"start": "node --enable-source-maps dist/serve.js",
+		"start:realtime": "node --enable-source-maps dist/realtime/serve.js"
 	},
 	"dependencies": {
 		"@hono/node-server": "^1.19.13",
@@ -46,7 +47,11 @@
 		"ipaddr.js": "2.2.0",
 		"redis": "5.9.0",
 		"worker": "workspace:*",
+		"ws": "8.18.3",
 		"zod": "3.25.75",
 		"zod-openapi": "^5.4.3"
+	},
+	"devDependencies": {
+		"@types/ws": "8.18.1"
 	}
 }

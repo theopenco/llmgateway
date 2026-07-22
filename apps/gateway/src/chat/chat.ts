@@ -1740,6 +1740,18 @@ chat.openapi(completions, async (c) => {
 	// chat-completions image flow.
 	validateModelOutput(modelInfo, requestedModel, ["text", "image"]);
 
+	// Realtime models declare text output but are only served over the
+	// dedicated WebSocket endpoint, so the output-based gate above doesn't
+	// catch them. Reject them here with the correct endpoint pointer.
+	if (
+		modelInfo.providers.length > 0 &&
+		modelInfo.providers.every((p) => p.realtime === true)
+	) {
+		throw new HTTPException(400, {
+			message: `Model ${requestedModel} is a realtime model and cannot be used with /v1/chat/completions. Connect to the /v1/realtime WebSocket endpoint instead.`,
+		});
+	}
+
 	// Validate that models requiring image input have at least one image in the request
 	if (
 		modelInfo.imageInputRequired &&

@@ -209,6 +209,7 @@ const schema = z.object({
 	organization_id: z.string(),
 	project_id: z.string(),
 	cost: z.number().nullable(),
+	billing_cost: z.string().nullable(),
 	cached: z.boolean(),
 	api_key_id: z.string(),
 	end_user_session_id: z.string().nullable(),
@@ -916,6 +917,7 @@ export async function batchProcessLogs(): Promise<number> {
 					organization_id: log.organizationId,
 					project_id: log.projectId,
 					cost: log.cost,
+					billing_cost: log.billingCost,
 					cached: log.cached,
 					api_key_id: log.apiKeyId,
 					end_user_session_id: log.endUserSessionId,
@@ -1031,8 +1033,17 @@ export async function batchProcessLogs(): Promise<number> {
 					unifiedFinishReason: row.unified_finish_reason,
 				});
 
-				if (row.cost && row.cost > 0 && !row.cached) {
-					const apiKeyCost = new Decimal(row.cost);
+				// Prefer the exact decimal billingCost (realtime and other
+				// decimal-billed rows) over the legacy float cost column.
+				const effectiveCost =
+					row.billing_cost !== null
+						? new Decimal(row.billing_cost)
+						: row.cost !== null
+							? new Decimal(row.cost)
+							: null;
+
+				if (effectiveCost && effectiveCost.greaterThan(0) && !row.cached) {
+					const apiKeyCost = effectiveCost;
 					const usageEvent = {
 						cost: apiKeyCost,
 						createdAt: row.created_at,
@@ -1319,14 +1330,14 @@ export async function batchProcessLogs(): Promise<number> {
 				if (!totalCost.greaterThan(0)) {
 					continue;
 				}
-				const costNumber = totalCost.toNumber();
+				const costStr = totalCost.toString();
 				// Debit atomically and derive the resulting balance from the row we
 				// actually updated, so a concurrent top-up/reversal can't make
 				// balanceAfter or the low-balance crossing check stale.
 				const [updatedWallet] = await tx
 					.update(tables.wallet)
 					.set({
-						balance: sql`${tables.wallet.balance} - ${costNumber}`,
+						balance: sql`${tables.wallet.balance} - ${costStr}`,
 					})
 					.where(eq(tables.wallet.id, walletId))
 					.returning();
@@ -1365,7 +1376,7 @@ export async function batchProcessLogs(): Promise<number> {
 					description: "AI usage",
 				});
 
-				logger.debug(`Debited ${costNumber} from end-user wallet ${walletId}`);
+				logger.debug(`Debited ${costStr} from end-user wallet ${walletId}`);
 			}
 
 			// Apply referral earnings to referrer organizations
@@ -1420,12 +1431,12 @@ export async function batchProcessLogs(): Promise<number> {
 					}
 
 					const usageUpdate = buildApiKeyUsageUpdate(apiKeyRecord, events);
-					const costNumber = usageUpdate.totalUsageCost.toNumber();
+					const costStr = usageUpdate.totalUsageCost.toString();
 
 					await tx
 						.update(apiKey)
 						.set({
-							usage: sql`${apiKey.usage} + ${costNumber}`,
+							usage: sql`${apiKey.usage} + ${costStr}`,
 							...(usageUpdate.hasPeriodUsageUpdate && {
 								currentPeriodUsage: usageUpdate.currentPeriodUsage,
 								currentPeriodStartedAt: usageUpdate.currentPeriodStartedAt,
@@ -1433,7 +1444,7 @@ export async function batchProcessLogs(): Promise<number> {
 						})
 						.where(eq(apiKey.id, apiKeyId));
 
-					logger.debug(`Added ${costNumber} usage to API key ${apiKeyId}`);
+					logger.debug(`Added ${costStr} usage to API key ${apiKeyId}`);
 				}
 			}
 
@@ -1471,12 +1482,12 @@ export async function batchProcessLogs(): Promise<number> {
 					}
 
 					const usageUpdate = buildApiKeyUsageUpdate(sessionRecord, events);
-					const costNumber = usageUpdate.totalUsageCost.toNumber();
+					const costStr = usageUpdate.totalUsageCost.toString();
 
 					await tx
 						.update(tables.endUserSession)
 						.set({
-							usage: sql`${tables.endUserSession.usage} + ${costNumber}`,
+							usage: sql`${tables.endUserSession.usage} + ${costStr}`,
 							...(usageUpdate.hasPeriodUsageUpdate && {
 								currentPeriodUsage: usageUpdate.currentPeriodUsage,
 								currentPeriodStartedAt: usageUpdate.currentPeriodStartedAt,
@@ -1485,7 +1496,7 @@ export async function batchProcessLogs(): Promise<number> {
 						.where(eq(tables.endUserSession.id, sessionId));
 
 					logger.debug(
-						`Added ${costNumber} usage to end-user session ${sessionId}`,
+						`Added ${costStr} usage to end-user session ${sessionId}`,
 					);
 				}
 			}

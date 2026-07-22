@@ -1598,6 +1598,25 @@ export const log = pgTable(
 			jsonb().$type<z.infer<typeof gatewayContentFilterResponseSchema>>(),
 		responsesApiId: text(),
 		responsesApiData: jsonb(),
+		// Realtime WebSocket sessions: one log row per billable terminal event
+		// (e.g. one per response.done). realtimeUsageKey is a semantic identity
+		// such as "response:<upstream_response_id>" so redelivered provider
+		// events cannot double-bill (enforced by the partial unique index below).
+		realtimeSessionId: text(),
+		realtimeUsageKey: text(),
+		// Exact billing amount as a decimal string. When set, the worker debits
+		// this instead of the float `cost` column, which stays populated for
+		// dashboards and legacy queries.
+		billingCost: decimal(),
+		audioOutputTokens: decimal(),
+		audioOutputCost: real(),
+		// Sanitized normalized usage plus the exact price snapshot (decimal
+		// strings) used to compute billingCost, for billing auditability.
+		realtimeUsage: jsonb().$type<{
+			usage?: Record<string, number>;
+			pricing?: Record<string, string>;
+			status?: string;
+		}>(),
 	},
 	(table) => [
 		index("log_project_id_created_at_idx").on(table.projectId, table.createdAt),
@@ -1632,6 +1651,72 @@ export const log = pgTable(
 		index("log_processed_at_null_idx")
 			.on(table.createdAt)
 			.where(sql`processed_at IS NULL`),
+		// Idempotent realtime billing: one row per (session, usage key) even if
+		// the upstream provider redelivers a terminal usage event.
+		uniqueIndex("log_realtime_session_usage_key_unique")
+			.on(table.realtimeSessionId, table.realtimeUsageKey)
+			.where(sql`realtime_usage_key IS NOT NULL`),
+	],
+);
+
+export const realtimeSession = pgTable(
+	"realtime_session",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		projectId: text()
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+		apiKeyId: text()
+			.notNull()
+			.references(() => apiKey.id, { onDelete: "cascade" }),
+		requestedModel: text().notNull(),
+		usedModel: text().notNull(),
+		usedModelMapping: text(),
+		usedProvider: text().notNull(),
+		mode: text({
+			enum: ["api-keys", "credits", "hybrid"],
+		}).notNull(),
+		usedMode: text({
+			enum: ["api-keys", "credits"],
+		}).notNull(),
+		// Session id reported by the upstream provider (session.created).
+		upstreamSessionId: text(),
+		status: text({
+			enum: ["open", "closed", "error"],
+		})
+			.notNull()
+			.default("open"),
+		closeReason: text(),
+		responseCount: integer().notNull().default(0),
+		// Running total of exact billed cost across this session's log rows.
+		totalCost: decimal().notNull().default("0"),
+		bytesIn: integer().notNull().default(0),
+		bytesOut: integer().notNull().default(0),
+		connectedAt: timestamp().notNull().defaultNow(),
+		closedAt: timestamp(),
+		lastActivityAt: timestamp(),
+	},
+	(table) => [
+		index("realtime_session_organization_id_created_at_idx").on(
+			table.organizationId,
+			table.createdAt,
+		),
+		index("realtime_session_project_id_created_at_idx").on(
+			table.projectId,
+			table.createdAt,
+		),
+		index("realtime_session_api_key_id_created_at_idx").on(
+			table.apiKeyId,
+			table.createdAt,
+		),
 	],
 );
 

@@ -52,6 +52,19 @@ spec:
     - host: {{ .Values.ingress.hosts.gateway | quote }}
       http:
         paths:
+          {{- if .Values.realtime.enabled }}
+          # Realtime WebSocket sessions route to the dedicated realtime
+          # deployment, independently of the normal HTTP gateway. The ingress
+          # controller's proxy/idle timeouts must exceed the configured maximum
+          # realtime session duration.
+          - path: /v1/realtime
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "llmgateway.fullname" . }}-realtime
+                port:
+                  name: http
+          {{- end }}
           - path: /
             pathType: Prefix
             backend:

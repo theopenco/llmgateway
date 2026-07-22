@@ -140,6 +140,51 @@ gateway:
   tolerations: []
 
 # =============================================================================
+# Realtime Service (WebSocket proxy for /v1/realtime)
+# =============================================================================
+# Dedicated deployment for long-lived realtime sessions, isolated from the
+# HTTP gateway. Disabled by default (staged rollout); runs the same gateway
+# image with the realtime entrypoint. Scale on active sessions and network
+# throughput, not CPU alone.
+realtime:
+  enabled: false
+  replicas: 1
+  image:
+    registry: ""
+    repository: theopenco/llmgateway-gateway
+    tag: ""
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  config:
+    # Hard per-session duration cap in seconds (OpenAI caps sessions at 60m).
+    maxSessionSeconds: 3600
+    # Hard per-session spend cap in USD.
+    maxSessionSpendUsd: "10"
+    # Redis-leased concurrency caps.
+    maxSessionsPerOrg: 20
+    maxSessionsPerKey: 10
+  # Must exceed maxSessionSeconds plus drain time so rolling deploys never
+  # force-kill active sessions.
+  terminationGracePeriodSeconds: 3720
+  # Blocks voluntary evictions (node drains) from killing active sessions.
+  # Enable once replicas > 1; with a single replica it blocks node drains
+  # entirely.
+  podDisruptionBudget:
+    enabled: false
+    maxUnavailable: 0
+  extraEnv: []
+  nodeSelector: {}
+  tolerations: []
+
+# =============================================================================
 # UI Dashboard (Next.js)
 # =============================================================================
 ui:
