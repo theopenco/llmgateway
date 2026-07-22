@@ -4,6 +4,7 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
+import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 const ORG_ID = "iam-test-org";
 const OWNER_UO_ID = "iam-owner-uo";
@@ -259,5 +260,198 @@ describe("team member IAM rules", () => {
 			where: { userOrganizationId: { eq: MEMBER_UO_ID } },
 		});
 		expect(remaining).toHaveLength(0);
+	});
+});
+
+describe("master key member IAM rules", () => {
+	let masterToken: string;
+
+	beforeEach(async () => {
+		await createTestUser();
+
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "IAM Test Organization",
+			plan: "enterprise",
+			billingEmail: "billing@example.com",
+			autoTopUpEnabled: false,
+			autoTopUpThreshold: "10",
+			autoTopUpAmount: "10",
+		});
+
+		await db.insert(tables.userOrganization).values({
+			id: OWNER_UO_ID,
+			userId: "test-user-id",
+			organizationId: ORG_ID,
+			role: "owner",
+		});
+
+		await createAccountFor(MEMBER_USER_ID, MEMBER_EMAIL);
+		await db.insert(tables.userOrganization).values({
+			id: MEMBER_UO_ID,
+			userId: MEMBER_USER_ID,
+			organizationId: ORG_ID,
+			role: "developer",
+		});
+
+		masterToken = `mk-${crypto.randomUUID()}`;
+		await db.insert(tables.masterKey).values({
+			id: "iam-master-key-id",
+			tokenHash: getApiKeyFingerprint(masterToken),
+			maskedToken: "mk-****",
+			description: "IAM Test Master Key",
+			status: "active",
+			organizationId: ORG_ID,
+			createdBy: "test-user-id",
+		});
+	});
+
+	afterEach(async () => {
+		await deleteAll();
+	});
+
+	function authHeaders(extra: Record<string, string> = {}) {
+		return {
+			Authorization: `Bearer ${masterToken}`,
+			"Content-Type": "application/json",
+			...extra,
+		};
+	}
+
+	async function masterCreateRule(
+		memberRef: string,
+		body: Record<string, unknown> = {
+			ruleType: "allow_providers",
+			ruleValue: { providers: ["openai"] },
+		},
+	) {
+		return await app.request(
+			`/v1/master/members/${encodeURIComponent(memberRef)}/iam`,
+			{
+				method: "POST",
+				headers: authHeaders(),
+				body: JSON.stringify(body),
+			},
+		);
+	}
+
+	test("creates and lists member rules by membership id", async () => {
+		const createRes = await masterCreateRule(MEMBER_UO_ID);
+		expect(createRes.status).toBe(201);
+		const created = await createRes.json();
+		expect(created.rule).toMatchObject({
+			userOrganizationId: MEMBER_UO_ID,
+			ruleType: "allow_providers",
+		});
+
+		const listRes = await app.request(
+			`/v1/master/members/${MEMBER_UO_ID}/iam`,
+			{ headers: authHeaders() },
+		);
+		expect(listRes.status).toBe(200);
+		const listed = await listRes.json();
+		expect(listed.rules).toHaveLength(1);
+
+		const auditLogs = await db.query.auditLog.findMany({
+			where: {
+				organizationId: { eq: ORG_ID },
+				action: { eq: "team_member.iam_rule.create" },
+			},
+		});
+		expect(auditLogs).toHaveLength(1);
+	});
+
+	test("full CRUD by member email, case-insensitively", async () => {
+		const createRes = await masterCreateRule("IAM-Member@Example.com");
+		expect(createRes.status).toBe(201);
+		const created = await createRes.json();
+		expect(created.rule.userOrganizationId).toBe(MEMBER_UO_ID);
+
+		const listRes = await app.request(
+			`/v1/master/members/${encodeURIComponent(MEMBER_EMAIL)}/iam`,
+			{ headers: authHeaders() },
+		);
+		expect(listRes.status).toBe(200);
+		expect((await listRes.json()).rules).toHaveLength(1);
+
+		const updateRes = await app.request(
+			`/v1/master/members/${encodeURIComponent(MEMBER_EMAIL)}/iam/${created.rule.id}`,
+			{
+				method: "PATCH",
+				headers: authHeaders(),
+				body: JSON.stringify({ status: "inactive" }),
+			},
+		);
+		expect(updateRes.status).toBe(200);
+		expect((await updateRes.json()).rule.status).toBe("inactive");
+
+		const deleteRes = await app.request(
+			`/v1/master/members/${encodeURIComponent(MEMBER_EMAIL)}/iam/${created.rule.id}`,
+			{
+				method: "DELETE",
+				headers: authHeaders(),
+			},
+		);
+		expect(deleteRes.status).toBe(200);
+
+		const remaining = await db.query.userIamRule.findMany({
+			where: { userOrganizationId: { eq: MEMBER_UO_ID } },
+		});
+		expect(remaining).toHaveLength(0);
+	});
+
+	test("email of a user outside the org 404s", async () => {
+		await createAccountFor("outside-user", "outside@example.com");
+
+		const res = await masterCreateRule("outside@example.com");
+		expect(res.status).toBe(404);
+	});
+
+	test("unknown email and unknown membership id 404", async () => {
+		const byEmail = await masterCreateRule("nobody@example.com");
+		expect(byEmail.status).toBe(404);
+
+		const byId = await masterCreateRule("nonexistent-member-id");
+		expect(byId.status).toBe(404);
+	});
+
+	test("requests without a valid master key are rejected", async () => {
+		const res = await app.request(`/v1/master/members/${MEMBER_UO_ID}/iam`, {
+			headers: { Authorization: "Bearer not-a-master-key" },
+		});
+		expect(res.status).toBe(401);
+	});
+
+	test("a master key from another org cannot reach this org's members", async () => {
+		await db.insert(tables.organization).values({
+			id: "other-master-org",
+			name: "Other Org",
+			plan: "enterprise",
+			billingEmail: "other@example.com",
+			autoTopUpEnabled: false,
+			autoTopUpThreshold: "10",
+			autoTopUpAmount: "10",
+		});
+		const otherToken = `mk-${crypto.randomUUID()}`;
+		await db.insert(tables.masterKey).values({
+			id: "other-master-key-id",
+			tokenHash: getApiKeyFingerprint(otherToken),
+			maskedToken: "mk-****",
+			description: "Other Master Key",
+			status: "active",
+			organizationId: "other-master-org",
+			createdBy: "test-user-id",
+		});
+
+		const byId = await app.request(`/v1/master/members/${MEMBER_UO_ID}/iam`, {
+			headers: { Authorization: `Bearer ${otherToken}` },
+		});
+		expect(byId.status).toBe(404);
+
+		const byEmail = await app.request(
+			`/v1/master/members/${encodeURIComponent(MEMBER_EMAIL)}/iam`,
+			{ headers: { Authorization: `Bearer ${otherToken}` } },
+		);
+		expect(byEmail.status).toBe(404);
 	});
 });

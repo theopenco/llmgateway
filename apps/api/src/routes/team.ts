@@ -1727,7 +1727,7 @@ team.openapi(removeMember, async (c) => {
 	});
 });
 
-const memberIamRuleSchema = z.object({
+export const memberIamRuleSchema = z.object({
 	id: z.string(),
 	createdAt: z.date(),
 	updatedAt: z.date(),
