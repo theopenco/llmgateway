@@ -422,6 +422,11 @@ export const transaction = pgTable(
 				"dev_plan_upgrade",
 				"dev_plan_downgrade",
 				"dev_plan_cancel",
+				// Written when a cancelled-at-period-end dev plan is resumed, so
+				// cancel/resume flip-flops read as pairs in the subscription history
+				// instead of a run of bare cancels. Bookkeeping only: no amount, no
+				// credits.
+				"dev_plan_resume",
 				"dev_plan_end",
 				"dev_plan_renewal",
 				// One-time purchase of a DevPass Reset Pass (weekly premium
@@ -437,6 +442,7 @@ export const transaction = pgTable(
 				"chat_plan_upgrade",
 				"chat_plan_downgrade",
 				"chat_plan_cancel",
+				"chat_plan_resume",
 				"chat_plan_end",
 				"chat_plan_renewal",
 				// LLM SDK end-user wallet flows.

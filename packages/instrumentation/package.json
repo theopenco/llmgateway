@@ -31,7 +31,7 @@
 		"@opentelemetry/resources": "2.1.0",
 		"@opentelemetry/sdk-node": "0.218.0",
 		"@opentelemetry/sdk-trace-base": "2.2.0",
-		"hono": "^4.12.25",
+		"hono": "^4.12.27",
 		"prom-client": "15.1.3"
 	}
 }

@@ -12,6 +12,7 @@ export const planExcludedTypes = [
 	"dev_plan_downgrade",
 	"dev_plan_renewal",
 	"dev_plan_cancel",
+	"dev_plan_resume",
 	"dev_plan_end",
 	// Reset Pass purchases are DevPass revenue (real dollars in `amount`, no
 	// creditAmount), reported with the other dev plan rows — not part of the
@@ -31,6 +32,7 @@ export const planExcludedTypes = [
 	"chat_plan_downgrade",
 	"chat_plan_renewal",
 	"chat_plan_cancel",
+	"chat_plan_resume",
 	"chat_plan_end",
 ] as const;
 
