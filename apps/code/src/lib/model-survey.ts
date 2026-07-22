@@ -1,4 +1,4 @@
-import { getConfig } from "@/lib/config-server";
+import { createPublicServerApiClient } from "@/lib/server-api";
 
 import type { paths } from "@/lib/api/v1";
 
@@ -17,16 +17,13 @@ export const FIRST_SURVEY_YEAR = 2026;
 export async function fetchModelSurveyResults(
 	year: number,
 ): Promise<ModelSurveyResults | null> {
-	const config = getConfig();
+	const client = createPublicServerApiClient();
 	try {
-		const res = await fetch(
-			`${config.apiBackendUrl}/public/model-survey/results?year=${year}`,
-			{ next: { revalidate: 300 } },
-		);
-		if (!res.ok) {
-			return null;
-		}
-		return (await res.json()) as ModelSurveyResults;
+		const { data } = await client.GET("/public/model-survey/results", {
+			params: { query: { year } },
+			next: { revalidate: 300 },
+		});
+		return data ?? null;
 	} catch {
 		return null;
 	}
