@@ -585,8 +585,10 @@ export const modelSurveyResponse = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
-		// Campaign year the response counts toward (the survey runs all year).
+		// Campaign period the response counts toward. The census runs in
+		// quarterly waves; the yearly report aggregates all four quarters.
 		year: integer().notNull(),
+		quarter: integer().notNull(),
 		userId: text()
 			.notNull()
 			.references(() => user.id, { onDelete: "cascade" }),
@@ -612,18 +614,23 @@ export const modelSurveyResponse = pgTable(
 		rewardTier: text({ enum: MODEL_SURVEY_TIERS }),
 	},
 	(table) => [
-		uniqueIndex("model_survey_response_user_model_year_unique").on(
+		uniqueIndex("model_survey_response_user_model_period_unique").on(
 			table.userId,
 			table.modelId,
 			table.year,
+			table.quarter,
 		),
-		// DB-level backstop for the one-reward-per-org-per-year invariant the
-		// submit route enforces under a row lock.
-		uniqueIndex("model_survey_response_org_year_reward_unique")
-			.on(table.organizationId, table.year)
+		// DB-level backstop for the one-reward-per-org-per-quarter invariant
+		// the submit route enforces under a row lock.
+		uniqueIndex("model_survey_response_org_period_reward_unique")
+			.on(table.organizationId, table.year, table.quarter)
 			.where(sql`${table.rewardTier} IS NOT NULL`),
 		index("model_survey_response_year_model_idx").on(table.year, table.modelId),
 		index("model_survey_response_organization_id_idx").on(table.organizationId),
+		check(
+			"model_survey_response_quarter_check",
+			sql`${table.quarter} >= 1 AND ${table.quarter} <= 4`,
+		),
 		check(
 			"model_survey_response_value_score_check",
 			sql`${table.valueScore} >= 1 AND ${table.valueScore} <= 5`,

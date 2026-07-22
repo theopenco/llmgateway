@@ -34,8 +34,14 @@ const useCaseEnum = z.enum(MODEL_SURVEY_USE_CASES);
 
 const tierEnum = z.enum(MODEL_SURVEY_TIERS);
 
-function surveyYear(): number {
-	return new Date().getUTCFullYear();
+// The census runs in quarterly waves: responses and rewards are scoped to a
+// (year, quarter) period, and the public report aggregates the whole year.
+function surveyPeriod(): { year: number; quarter: number } {
+	const now = new Date();
+	return {
+		year: now.getUTCFullYear(),
+		quarter: Math.floor(now.getUTCMonth() / 3) + 1,
+	};
 }
 
 async function findUserDevpassOrg(userId: string) {
@@ -132,6 +138,7 @@ async function findRewardedResponse(
 	dbOrTx: Pick<typeof db, "select">,
 	organizationId: string,
 	year: number,
+	quarter: number,
 ) {
 	const [row] = await dbOrTx
 		.select({ id: tables.modelSurveyResponse.id })
@@ -140,6 +147,7 @@ async function findRewardedResponse(
 			and(
 				eq(tables.modelSurveyResponse.organizationId, organizationId),
 				eq(tables.modelSurveyResponse.year, year),
+				eq(tables.modelSurveyResponse.quarter, quarter),
 				isNotNull(tables.modelSurveyResponse.rewardTier),
 			),
 		)
@@ -156,6 +164,7 @@ const topModelSchema = z.object({
 
 const eligibilitySchema = z.object({
 	year: z.number().int(),
+	quarter: z.number().int().min(1).max(4),
 	eligible: z.boolean(),
 	devPlan: z.enum(["none", "lite", "pro", "max"]).nullable(),
 	rewardAvailable: z.boolean(),
@@ -174,7 +183,7 @@ const getEligibility = createRoute({
 				"application/json": { schema: eligibilitySchema },
 			},
 			description:
-				"Whether the user can take this year's DevPass model survey, and for which models.",
+				"Whether the user can take this quarter's DevPass model survey wave, and for which models.",
 		},
 	},
 });
@@ -185,12 +194,13 @@ modelSurvey.openapi(getEligibility, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 
-	const year = surveyYear();
+	const { year, quarter } = surveyPeriod();
 	const org = await findUserDevpassOrg(user.id);
 
 	if (!org || org.devPlan === "none") {
 		return c.json({
 			year,
+			quarter,
 			eligible: false,
 			devPlan: org?.devPlan ?? null,
 			rewardAvailable: false,
@@ -203,10 +213,14 @@ modelSurvey.openapi(getEligibility, async (c) => {
 	const [models, ownResponses, rewardedRow] = await Promise.all([
 		getQualifyingModels(org.id),
 		db.query.modelSurveyResponse.findMany({
-			where: { userId: { eq: user.id }, year: { eq: year } },
+			where: {
+				userId: { eq: user.id },
+				year: { eq: year },
+				quarter: { eq: quarter },
+			},
 			columns: { modelId: true },
 		}),
-		findRewardedResponse(db, org.id, year),
+		findRewardedResponse(db, org.id, year, quarter),
 	]);
 
 	const submitted = new Set(ownResponses.map((r) => r.modelId));
@@ -217,6 +231,7 @@ modelSurvey.openapi(getEligibility, async (c) => {
 
 	return c.json({
 		year,
+		quarter,
 		eligible: topModels.some((m) => !m.alreadySubmitted),
 		devPlan: org.devPlan,
 		rewardAvailable: !rewardedRow,
@@ -229,6 +244,7 @@ modelSurvey.openapi(getEligibility, async (c) => {
 const responseSchema = z.object({
 	modelId: z.string(),
 	year: z.number().int(),
+	quarter: z.number().int().min(1).max(4),
 	valueScore: z.number().int().min(1).max(5),
 	qualityScore: z.number().int().min(1).max(5),
 	speedScore: z.number().int().min(1).max(5),
@@ -308,27 +324,28 @@ modelSurvey.openapi(submitSurvey, async (c) => {
 		});
 	}
 
-	const year = surveyYear();
+	const { year, quarter } = surveyPeriod();
 
 	let row: typeof tables.modelSurveyResponse.$inferSelect;
 	let rewardTier: "lite" | "pro" | "max" | null = null;
 	try {
 		({ row, rewardTier } = await db.transaction(async (tx) => {
 			// Lock the org row so concurrent submissions can't both claim the
-			// one-per-year reward.
+			// one-per-quarter reward.
 			await tx
 				.select({ id: tables.organization.id })
 				.from(tables.organization)
 				.where(eq(tables.organization.id, org.id))
 				.for("update");
 
-			const rewardedRow = await findRewardedResponse(tx, org.id, year);
+			const rewardedRow = await findRewardedResponse(tx, org.id, year, quarter);
 			const grantTier = rewardedRow ? null : tier;
 
 			const [inserted] = await tx
 				.insert(tables.modelSurveyResponse)
 				.values({
 					year,
+					quarter,
 					userId: user.id,
 					organizationId: org.id,
 					modelId,
@@ -369,7 +386,7 @@ modelSurvey.openapi(submitSurvey, async (c) => {
 					amount: "0",
 					currency: "USD",
 					status: "completed",
-					description: `DevPass Reset Pass (${grantTier.toUpperCase()}) — ${year} model survey reward`,
+					description: `DevPass Reset Pass (${grantTier.toUpperCase()}) — ${year} Q${quarter} model survey reward`,
 				});
 			}
 
@@ -382,7 +399,7 @@ modelSurvey.openapi(submitSurvey, async (c) => {
 			(error.cause as { code?: string } | undefined)?.code === "23505"
 		) {
 			throw new HTTPException(409, {
-				message: `You already rated this model in the ${year} survey.`,
+				message: `You already rated this model in the Q${quarter} ${year} wave.`,
 			});
 		}
 		throw error;
@@ -395,7 +412,7 @@ modelSurvey.openapi(submitSurvey, async (c) => {
 			action: "dev_plan.reset_pass_reward",
 			resourceType: "dev_plan",
 			resourceId: row.id,
-			metadata: { tier: rewardTier, year, modelId },
+			metadata: { tier: rewardTier, year, quarter, modelId },
 		});
 	}
 
@@ -405,6 +422,7 @@ modelSurvey.openapi(submitSurvey, async (c) => {
 		groups: { organization: org.id },
 		properties: {
 			year,
+			quarter,
 			modelId,
 			devPlan: tier,
 			rewardGranted: rewardTier !== null,
@@ -423,6 +441,7 @@ modelSurvey.openapi(submitSurvey, async (c) => {
 		response: {
 			modelId: row.modelId,
 			year: row.year,
+			quarter: row.quarter,
 			valueScore: row.valueScore,
 			qualityScore: row.qualityScore,
 			speedScore: row.speedScore,

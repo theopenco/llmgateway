@@ -186,7 +186,8 @@ export default function SurveyClient({
 
 	const selectedModel = form.watch("modelId");
 	const comment = form.watch("comment");
-	const serial = `CS-${eligibility.year}-${(selectedModel || "X").slice(0, 6).toUpperCase()}`;
+	const period = `Q${eligibility.quarter} ${eligibility.year}`;
+	const serial = `CS-${eligibility.year}Q${eligibility.quarter}-${(selectedModel || "X").slice(0, 6).toUpperCase()}`;
 
 	async function onSubmit(values: FormValues) {
 		const trimmedComment = values.comment.trim();
@@ -205,6 +206,7 @@ export default function SurveyClient({
 			if (posthogKey) {
 				posthog.capture("model_survey_completed", {
 					year: eligibility.year,
+					quarter: eligibility.quarter,
 					model: values.modelId,
 					reward_granted: response.rewardGranted,
 				});
@@ -259,7 +261,7 @@ export default function SurveyClient({
 				>
 					<div className="text-lg font-bold tracking-[0.3em]">Census filed</div>
 					<div className="mt-1 text-[10px] tracking-[0.25em]">
-						{result.modelId} · {eligibility.year}
+						{result.modelId} · {period}
 					</div>
 				</motion.div>
 
@@ -282,7 +284,8 @@ export default function SurveyClient({
 				) : (
 					<p className="mt-6 text-sm text-muted-foreground">
 						Thanks — your verdict is in the {eligibility.year} registry. Your
-						passport already holds this year&apos;s census pass.
+						passport already holds this quarter&apos;s census pass; a fresh one
+						comes with the next wave.
 					</p>
 				)}
 
@@ -312,7 +315,7 @@ export default function SurveyClient({
 				<div className="space-y-2">
 					<div className="flex items-baseline justify-between">
 						<div className="font-mono text-[10px] uppercase tracking-[0.35em] text-stone-500 dark:text-stone-400">
-							DevPass Model Census · {eligibility.year}
+							DevPass Model Census · {period}
 						</div>
 						<div className="font-mono text-[9px] tracking-[0.25em] text-stone-400 dark:text-stone-500">
 							No. {serial}
@@ -324,9 +327,9 @@ export default function SurveyClient({
 					<p className="text-sm text-muted-foreground">
 						Which coding models are actually worth their price? Your answers are
 						anonymous, aggregated into the public census, and your first entry
-						of the year stamps a free Reset Pass into your passport.
+						of each quarterly wave stamps a free Reset Pass into your passport.
 						{!eligibility.rewardAvailable &&
-							" (This year's pass is already in your passport.)"}
+							" (This quarter's pass is already in your passport.)"}
 					</p>
 				</div>
 
@@ -521,8 +524,8 @@ export default function SurveyClient({
 							exit={{ opacity: 0 }}
 							className="font-mono text-[10px] uppercase tracking-[0.2em] text-stone-400 dark:text-stone-500"
 						>
-							Reward on file: 1 free Reset Pass · granted on your first entry of{" "}
-							{eligibility.year}
+							Reward on file: 1 free Reset Pass · granted on your first entry of
+							the {period} wave
 						</motion.p>
 					)}
 				</AnimatePresence>

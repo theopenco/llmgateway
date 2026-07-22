@@ -2370,9 +2370,11 @@ async function seed() {
 	for (const model of censusModels) {
 		model.responses.forEach((response, i) => {
 			const respondent = censusRespondents[i % censusRespondents.length];
+			const createdAt = daysAgo(randomInt(1, 20));
 			censusResponses.push({
 				id: `census-${model.modelId}-${i}`,
 				year: censusYear,
+				quarter: Math.floor(createdAt.getUTCMonth() / 3) + 1,
 				userId: respondent.userId,
 				organizationId: respondent.organizationId,
 				modelId: model.modelId,
@@ -2381,7 +2383,7 @@ async function seed() {
 				requestCount: randomInt(60, 900),
 				devPlanTier: "pro",
 				rewardTier: null,
-				createdAt: daysAgo(randomInt(1, 20)),
+				createdAt,
 			});
 		});
 	}

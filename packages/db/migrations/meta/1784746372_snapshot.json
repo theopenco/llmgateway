@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "2984b96a-0d73-47eb-abf7-b12b2abac3f3",
-  "prevId": "05a76ab5-df94-46e9-95f9-325344ddabdb",
+  "id": "994582eb-9fff-483a-b752-8a2c3a03615c",
+  "prevId": "2076928b-4a72-4fac-9eb6-0bc7e40350fc",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -11545,6 +11545,19 @@
       "table": "model_survey_response"
     },
     {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "quarter",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_survey_response"
+    },
+    {
       "type": "text",
       "typeSchema": null,
       "notNull": true,
@@ -22930,6 +22943,13 @@
           "asc": true,
           "nullsFirst": false,
           "opclass": null
+        },
+        {
+          "value": "quarter",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
         }
       ],
       "isUnique": true,
@@ -22937,7 +22957,7 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "model_survey_response_user_model_year_unique",
+      "name": "model_survey_response_user_model_period_unique",
       "entityType": "indexes",
       "schema": "public",
       "table": "model_survey_response"
@@ -22958,6 +22978,13 @@
           "asc": true,
           "nullsFirst": false,
           "opclass": null
+        },
+        {
+          "value": "quarter",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
         }
       ],
       "isUnique": true,
@@ -22965,7 +22992,7 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "model_survey_response_org_year_reward_unique",
+      "name": "model_survey_response_org_period_reward_unique",
       "entityType": "indexes",
       "schema": "public",
       "table": "model_survey_response"
@@ -27790,6 +27817,13 @@
       "entityType": "checks",
       "schema": "public",
       "table": "model_rating"
+    },
+    {
+      "value": "\"quarter\" >= 1 AND \"quarter\" <= 4",
+      "name": "model_survey_response_quarter_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "model_survey_response"
     },
     {
       "value": "\"value_score\" >= 1 AND \"value_score\" <= 5",

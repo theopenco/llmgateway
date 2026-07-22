@@ -8,6 +8,12 @@ import { db, desc, eq, tables } from "@llmgateway/db";
 const ORG_ID = "test-survey-org";
 const PROJECT_ID = "test-survey-project";
 const YEAR = new Date().getUTCFullYear();
+const QUARTER = Math.floor(new Date().getUTCMonth() / 3) + 1;
+// The wave immediately before the current one, crossing years when needed.
+const PREV_PERIOD =
+	QUARTER > 1
+		? { year: YEAR, quarter: QUARTER - 1 }
+		: { year: YEAR - 1, quarter: 4 };
 const HOUR_MS = 60 * 60 * 1000;
 
 async function insertOrg(
@@ -229,6 +235,7 @@ describe("model survey submit", () => {
 		});
 		expect(stored).toMatchObject({
 			year: YEAR,
+			quarter: QUARTER,
 			organizationId: ORG_ID,
 			valueScore: 5,
 			qualityScore: 4,
@@ -274,13 +281,48 @@ describe("model survey submit", () => {
 		).toBe(true);
 	});
 
-	it("rejects a duplicate response for the same model and year", async () => {
+	it("rejects a duplicate response for the same model and quarter", async () => {
 		await insertOrg();
 		await seedModelStats("survey-coder-large", "openai", 80);
 
 		expect((await submitRequest(validBody, token)).status).toBe(200);
 		const res = await submitRequest(validBody, token);
 		expect(res.status).toBe(409);
+	});
+
+	it("re-opens ratings and the reward in a new quarter", async () => {
+		await insertOrg();
+		await seedModelStats("survey-coder-large", "openai", 80);
+
+		// Last wave: same model already rated AND the org's reward already spent.
+		await db.insert(tables.modelSurveyResponse).values({
+			year: PREV_PERIOD.year,
+			quarter: PREV_PERIOD.quarter,
+			userId: "test-user-id",
+			organizationId: ORG_ID,
+			modelId: "survey-coder-large",
+			valueScore: 3,
+			qualityScore: 3,
+			speedScore: 3,
+			wouldRecommend: false,
+			primaryUseCase: "debugging",
+			comment: "Last wave verdict.",
+			requestCount: 90,
+			devPlanTier: "pro",
+			rewardTier: "pro",
+		});
+
+		const eligibility = await (await eligibilityRequest(token)).json();
+		expect(eligibility.quarter).toBe(QUARTER);
+		expect(eligibility.eligible).toBe(true);
+		expect(eligibility.rewardAvailable).toBe(true);
+
+		const res = await submitRequest(validBody, token);
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.response.quarter).toBe(QUARTER);
+		expect(json.rewardGranted).toBe(true);
+		expect((await getOrg()).devPlanResetPassesPro).toBe(1);
 	});
 
 	it("grants the pass on the org's current tier", async () => {
@@ -327,6 +369,7 @@ describe("public model survey results", () => {
 			});
 			await db.insert(tables.modelSurveyResponse).values({
 				year: YEAR,
+				quarter: QUARTER,
 				userId,
 				organizationId: ORG_ID,
 				modelId,

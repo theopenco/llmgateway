@@ -182,7 +182,7 @@ export default async function CensusPage({
 						<div className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-1.5 font-mono text-xs font-medium uppercase tracking-[0.15em] text-emerald-600 dark:text-emerald-400">
 							<ClipboardCheck className="h-3.5 w-3.5" />
 							{isCurrentYear
-								? "Census open · updates as entries are filed"
+								? `Census open · Q${Math.floor(new Date().getUTCMonth() / 3) + 1} wave filing now`
 								: `Final ${year} registry`}
 						</div>
 						<h1 className="text-4xl font-bold tracking-tight text-balance sm:text-5xl">
@@ -301,8 +301,8 @@ export default async function CensusPage({
 									body: "A model is published only after 5 or more developers rate it, and only aggregates ever leave the building.",
 								},
 								{
-									title: "One reward per member per year",
-									body: "Your first entry of the year earns a free Reset Pass — rate as many models as you use, but nobody can farm passes.",
+									title: "One reward per member per quarter",
+									body: "The census runs in quarterly waves. Your first entry of each wave earns a free Reset Pass — rate as many models as you use, but nobody can farm passes.",
 								},
 							].map((rule, index) => (
 								<div

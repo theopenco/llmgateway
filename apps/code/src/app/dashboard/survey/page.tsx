@@ -41,8 +41,8 @@ export default async function SurveyPage() {
 							The census asks about models you genuinely use: at least{" "}
 							{eligibility?.minimumRequests ?? 50} requests on a model in the
 							last {eligibility?.windowDays ?? 30} days qualifies it. Keep
-							shipping and check back — your first entry of the year earns a
-							free Reset Pass.
+							shipping and check back — your first entry of each quarterly wave
+							earns a free Reset Pass.
 						</p>
 						<Button asChild variant="outline">
 							<Link href="/dashboard">Back to dashboard</Link>

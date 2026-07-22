@@ -19,10 +19,13 @@ import { useAppConfig } from "@/lib/config";
 import { getCookie, setCookie } from "@/lib/cookies";
 import { useApi } from "@/lib/fetch-client";
 
-// "Maybe later" keeps the census quiet for two weeks; a submission silences it
-// for the rest of the year server-side (eligibility flips to false).
+// "Maybe later" keeps the census quiet for two weeks within the current
+// quarterly wave; a submission silences it for the rest of the quarter
+// server-side (eligibility flips to false). The cookie is scoped per wave so
+// a dismissal never bleeds into the next quarter's census.
 const SNOOZE_DAYS = 14;
-const snoozeCookie = (year: number) => `devpass_census_snooze_${year}`;
+const snoozeCookie = (year: number, quarter: number) =>
+	`devpass_census_snooze_${year}_q${quarter}`;
 
 export default function SurveyReminderDialog({ active }: { active: boolean }) {
 	const api = useApi();
@@ -45,7 +48,7 @@ export default function SurveyReminderDialog({ active }: { active: boolean }) {
 		if (!data?.eligible || !data.rewardAvailable || !topModel) {
 			return;
 		}
-		if (getCookie(snoozeCookie(data.year))) {
+		if (getCookie(snoozeCookie(data.year, data.quarter))) {
 			return;
 		}
 		const timer = setTimeout(() => {
@@ -54,6 +57,7 @@ export default function SurveyReminderDialog({ active }: { active: boolean }) {
 				shownTracked.current = true;
 				posthog.capture("model_survey_prompt_shown", {
 					year: data.year,
+					quarter: data.quarter,
 					model: topModel.modelId,
 					request_count: topModel.requestCount,
 				});
@@ -68,10 +72,11 @@ export default function SurveyReminderDialog({ active }: { active: boolean }) {
 
 	const dismiss = () => {
 		setOpen(false);
-		setCookie(snoozeCookie(data.year), "1", SNOOZE_DAYS);
+		setCookie(snoozeCookie(data.year, data.quarter), "1", SNOOZE_DAYS);
 		if (posthogKey) {
 			posthog.capture("model_survey_prompt_dismissed", {
 				year: data.year,
+				quarter: data.quarter,
 				model: topModel.modelId,
 			});
 		}
@@ -81,6 +86,7 @@ export default function SurveyReminderDialog({ active }: { active: boolean }) {
 		if (posthogKey) {
 			posthog.capture("model_survey_prompt_accepted", {
 				year: data.year,
+				quarter: data.quarter,
 				model: topModel.modelId,
 			});
 		}
@@ -115,22 +121,22 @@ export default function SurveyReminderDialog({ active }: { active: boolean }) {
 					</span>
 					<Stamp className="my-1 h-4 w-4" />
 					<span className="text-[8px] leading-none tracking-[0.2em]">
-						{data.year}
+						Q{data.quarter} {data.year}
 					</span>
 				</motion.div>
 
 				<DialogHeader>
 					<div className="font-mono text-[10px] uppercase tracking-[0.35em] text-stone-500 dark:text-stone-400">
-						DevPass Model Census · {data.year}
+						DevPass Model Census · Q{data.quarter} {data.year}
 					</div>
 					<DialogTitle className="pr-16 text-balance">
 						You and {topModel.modelId} have been logging serious miles
 					</DialogTitle>
 					<DialogDescription className="pr-10">
 						{topModel.requestCount.toLocaleString()} requests in the last{" "}
-						{data.windowDays} days. Got a minute to rate it for the {data.year}{" "}
-						census? A free Reset Pass is stamped into your passport the moment
-						you do.
+						{data.windowDays} days. Got a minute to rate it for the Q
+						{data.quarter} census wave? A free Reset Pass is stamped into your
+						passport the moment you do — every quarter you take part.
 					</DialogDescription>
 				</DialogHeader>
 				<DialogFooter className="gap-2 sm:gap-0">

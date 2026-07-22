@@ -1,1 +1,0 @@
-CREATE UNIQUE INDEX "model_survey_response_org_year_reward_unique" ON "model_survey_response" ("organization_id","year") WHERE "reward_tier" IS NOT NULL;
