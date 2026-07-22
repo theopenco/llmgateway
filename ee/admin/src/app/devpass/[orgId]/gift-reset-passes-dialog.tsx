@@ -51,7 +51,7 @@ export function GiftResetPassesDialog({
 	const [comment, setComment] = useState("");
 
 	const handleSubmit = async () => {
-		const parsedCount = parseInt(count, 10);
+		const parsedCount = Number(count);
 		if (!Number.isInteger(parsedCount) || parsedCount < 1 || parsedCount > 10) {
 			setError("Count must be a whole number between 1 and 10");
 			return;
