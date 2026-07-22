@@ -428,6 +428,11 @@ export const transaction = pgTable(
 				// allowance reset). `amount` is the real dollars paid;
 				// `creditAmount` is null (no credits are granted).
 				"dev_plan_reset_pass",
+				// DevPass Reset Pass(es) gifted by an administrator. Pure
+				// bookkeeping: `amount` and `creditAmount` are both null — no
+				// dollars change hands and no credits are granted, so the row
+				// never counts toward revenue or the credits economy.
+				"dev_plan_reset_pass_gift",
 				"chat_plan_start",
 				"chat_plan_upgrade",
 				"chat_plan_downgrade",
@@ -2857,6 +2862,7 @@ export const auditLogActions = [
 	"dev_plan.update_payment_method",
 	"dev_plan.reset_pass_purchase",
 	"dev_plan.reset_pass_redeem",
+	"dev_plan.reset_pass_gift",
 	// Chat Plan
 	"chat_plan.subscribe",
 	"chat_plan.cancel",
