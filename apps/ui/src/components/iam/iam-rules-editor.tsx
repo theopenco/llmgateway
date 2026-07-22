@@ -108,7 +108,7 @@ export function formatRuleValue(rule: Pick<IamRule, "ruleType" | "ruleValue">) {
 }
 
 function getRuleTypeLabel(ruleType: string) {
-	return ruleType.replace("_", " ").toUpperCase();
+	return ruleType.replaceAll("_", " ").toUpperCase();
 }
 
 function getRuleTypeColor(ruleType: string) {
@@ -565,7 +565,7 @@ export function IamRulesEditor({
 													variant="ghost"
 													size="sm"
 													onClick={() => onDeleteRule(rule.id)}
-													className="h-8 w-8 shrink-0 p-0 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+													className="h-8 w-8 shrink-0 p-0 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
 												>
 													<Trash2 className="h-4 w-4" />
 													<span className="sr-only">Delete rule</span>

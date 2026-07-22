@@ -1923,14 +1923,15 @@ team.openapi(createMemberIamRule, async (c) => {
 	const { organizationId, memberId } = c.req.param();
 	const ruleData = c.req.valid("json");
 
-	validateIamRuleInput(ruleData);
-
+	// Authorization first: unauthorized callers must not receive
+	// input-validation feedback from a management endpoint.
 	const { userOrganization, targetMember } = await requireMemberIamAccess(
 		authUser.id,
 		organizationId,
 		memberId,
 	);
 
+	validateIamRuleInput(ruleData);
 	assertEnterpriseForIpCidrRule(
 		ruleData.ruleType,
 		userOrganization.organization?.plan,

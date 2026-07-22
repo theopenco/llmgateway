@@ -41,9 +41,9 @@ Each member row has an actions menu:
 
 ## Member IAM Rules
 
-Owners and admins can set IAM rules on a member — the same allow/deny rules for models, providers, pricing, and IP ranges that exist on individual API keys, applied organization-wide to that member.
+Owners and admins can set IAM rules on a member — the same allow/deny rules for models, providers, pricing, and IP ranges that exist on individual API keys, applied organization-wide to that member. As with roles and budgets, admins cannot modify an owner's rules.
 
-Member-level rules are a **ceiling**: they apply to every API key the member creates, and the member's own key rules can only narrow access further, never expand it. For example, if you restrict a member to the `openai` provider, they can still create a key limited to a single OpenAI model, but no key of theirs can reach another provider.
+Member-level rules are a **ceiling**: they apply to every API key the member creates, and the member's own key rules can only narrow access further, never expand it. For example, if you restrict a member to a single approved [provider](https://llmgateway.io/providers), they can still create a key limited to one of that provider's models, but no key of theirs can reach any other provider.
 
 Members can view (but not edit) their own rules — the per-key IAM page shows a notice when organization-level restrictions apply, and denied requests state that the restriction was set by the org admin.
 

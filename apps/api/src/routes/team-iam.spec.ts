@@ -415,6 +415,16 @@ describe("master key member IAM rules", () => {
 		expect(byId.status).toBe(404);
 	});
 
+	test("personal organizations are blocked from master member IAM", async () => {
+		await db
+			.update(tables.organization)
+			.set({ kind: "devpass" })
+			.where(eq(tables.organization.id, ORG_ID));
+
+		const res = await masterCreateRule(MEMBER_UO_ID);
+		expect(res.status).toBe(403);
+	});
+
 	test("requests without a valid master key are rejected", async () => {
 		const res = await app.request(`/v1/master/members/${MEMBER_UO_ID}/iam`, {
 			headers: { Authorization: "Bearer not-a-master-key" },

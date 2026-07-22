@@ -1123,6 +1123,18 @@ v1Master.openapi(deleteIamRule, async (c) => {
 // ids never do). Email lookups still require the user to be a member of the
 // master key's organization.
 async function loadMemberForOrg(memberRef: string, organizationId: string) {
+	// Personal orgs have no team management (mirrors the team routes); the
+	// master-key middleware only checks plan, not kind, so guard here too.
+	const organization = await db.query.organization.findFirst({
+		where: { id: { eq: organizationId } },
+		columns: { kind: true },
+	});
+	if (organization?.kind === "devpass" || organization?.kind === "chat") {
+		throw new HTTPException(403, {
+			message: "Team management is not available for personal organizations.",
+		});
+	}
+
 	let membership;
 	if (memberRef.includes("@")) {
 		const user = await db.query.user.findFirst({

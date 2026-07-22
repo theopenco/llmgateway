@@ -160,7 +160,9 @@ async function evaluateIamRuleSet(
 	if (allowedProviders.size === 0) {
 		return {
 			allowed: false,
-			reason: `No providers are allowed for model ${modelDef.id} due to IAM rules`,
+			reason:
+				`No providers are allowed for model ${modelDef.id} due to IAM rules.` +
+				scopeDenialSuffix[scope],
 		};
 	}
 
