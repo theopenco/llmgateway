@@ -180,6 +180,37 @@ describe("IAM rule evaluation per endpoint", () => {
 		expect(body).toContain("denied providers list");
 	});
 
+	test("/v1/moderations ignores model and pricing allowlists (backward compat)", async () => {
+		// Existing orgs commonly have allow_models rules that predate member IAM.
+		// The moderation pseudo-model is not in the catalogue and can never be
+		// added to an allowlist, so model/pricing rules must not gate moderation.
+		await seedApiKey("iam-moderations-compat-token");
+		await seedProviderKeys(["openai"]);
+		await seedMemberRule("iam-moderations-compat-member", "allow_models", {
+			models: ["gpt-4o-mini"],
+		});
+		await db.insert(tables.apiKeyIamRule).values({
+			id: "iam-moderations-compat-key",
+			apiKeyId: "key-iam-moderations-compat-token",
+			ruleType: "allow_models",
+			ruleValue: { models: ["gpt-4o-mini"] },
+			status: "active",
+		});
+
+		const res = await app.request("/v1/moderations", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer iam-moderations-compat-token",
+			},
+			body: JSON.stringify({
+				input: "I want to attack someone.",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+	});
+
 	test("/v1/messages evaluates member IAM rules (via chat delegation)", async () => {
 		await seedApiKey("iam-messages-token");
 		await seedProviderKeys(["openai"]);

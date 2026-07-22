@@ -418,11 +418,12 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 	);
 
 	// IAM rules (member-level ceiling + key rules) apply to moderation like any
-	// other endpoint. The moderation model is not in the catalogue, so evaluate
-	// against a synthetic definition pinned to the logged "openai-moderation" id
-	// and the openai provider (deny_providers ["openai"] blocks moderation).
-	// End-user sessions are exempt: their model allowlists target chat models
-	// and must not accidentally block the free moderation endpoint.
+	// other endpoint, but only provider and IP rule types: the moderation model
+	// is a fixed pseudo-model outside the catalogue, so model/pricing allowlists
+	// can never name it and evaluating them would deny existing keys with no way
+	// to allowlist it. deny/allow_providers ["openai"] and IP CIDR rules still
+	// gate moderation. End-user sessions are exempt: their model allowlists
+	// target chat models and must not block the free moderation endpoint.
 	if (!apiKey.endUserSession) {
 		const iamValidation = await validateRequestModelAccess({
 			apiKey,
@@ -441,6 +442,12 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 				],
 			},
 			clientIp: getClientIpFromRequest(c),
+			applicableRuleTypes: [
+				"allow_providers",
+				"deny_providers",
+				"allow_ip_cidrs",
+				"deny_ip_cidrs",
+			],
 		});
 		if (!iamValidation.allowed) {
 			throwIamException(iamValidation.reason ?? "Model access denied");

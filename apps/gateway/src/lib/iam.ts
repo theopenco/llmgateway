@@ -203,6 +203,11 @@ export async function validateRequestModelAccess(params: {
 	activeModelInfo?: ModelDefinition;
 	clientIp?: string;
 	autoRouting?: boolean;
+	// When set, only rules of these types are evaluated (member and key level).
+	// Used by endpoints running a fixed pseudo-model outside the catalogue
+	// (moderations): model/pricing allowlists can never name that model, so
+	// evaluating them would deny with no way to allowlist it.
+	applicableRuleTypes?: readonly IamRule["ruleType"][];
 }): Promise<IamValidationResult> {
 	const {
 		apiKey,
@@ -212,7 +217,13 @@ export async function validateRequestModelAccess(params: {
 		activeModelInfo,
 		clientIp,
 		autoRouting,
+		applicableRuleTypes,
 	} = params;
+
+	const filterRules = (rules: IamRule[]) =>
+		applicableRuleTypes
+			? rules.filter((rule) => applicableRuleTypes.includes(rule.ruleType))
+			: rules;
 
 	const sessionValidation = validateEndUserSessionModelAccess(
 		apiKey,
@@ -252,7 +263,7 @@ export async function validateRequestModelAccess(params: {
 			: [];
 
 	const memberResult = await evaluateIamRuleSet(
-		memberRules,
+		filterRules(memberRules),
 		modelDef,
 		requestedProvider,
 		new Set(modelDef.providers.map((p) => p.providerId)),
@@ -265,7 +276,7 @@ export async function validateRequestModelAccess(params: {
 
 	const keyRules = await findActiveIamRules(apiKey.id);
 	return await evaluateIamRuleSet(
-		keyRules,
+		filterRules(keyRules),
 		modelDef,
 		requestedProvider,
 		new Set(memberResult.allowedProviders),

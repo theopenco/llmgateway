@@ -158,6 +158,7 @@ The gateway reads the client IP from the first entry in the `X-Forwarded-For` he
 - **Allow rules of the same type are unioned**: a request passes if it matches _any_ of them. For example, one `allow_models` rule with `["claude-opus-4-6"]` and another with `["claude-fable-5"]` allow both models — exactly as if you had a single rule listing both.
 - **Allow rules of different types are combined with AND**: the request must satisfy every configured allow rule type (e.g. the model must be in the allowed models _and_ served by an allowed provider).
 - **Deny rules always apply**: a request matching any deny rule is rejected, regardless of allow rules.
+- **Moderation is special-cased**: `/v1/moderations` runs a fixed moderation model that cannot appear in model allowlists, so only provider and IP rules apply to it — model and pricing rules are skipped.
 
 ## Member-Level IAM Rules
 
