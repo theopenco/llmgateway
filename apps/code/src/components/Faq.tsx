@@ -90,6 +90,29 @@ const faqData: FaqItem[] = [
 		answer: `Both work. DevPass plans turn every dollar into $3 of model usage. If you'd rather not subscribe, LLM Gateway offers pay-as-you-go: top up credits and pay per token at provider rates with a flat ${MARKETING_STATS.platformFee} platform fee, or bring your own provider keys for free.`,
 	},
 	{
+		question: "Can my team or company use DevPass?",
+		answer:
+			"No. DevPass is intended for private, personal use by individual developers — one developer, one account. It can't be purchased or shared as a team or company, and there are no team plans. For teams and companies, use LLM Gateway's pay-as-you-go product instead, and reach out to contact@llmgateway.io for custom solutions and volume discounts.",
+		content: (
+			<>
+				<p>
+					No. DevPass is intended for{" "}
+					<strong>private, personal use by individual developers</strong> — one
+					developer, one account. It can&apos;t be purchased or shared as a team
+					or company, and there are no team plans.
+				</p>
+				<p className="mt-3">
+					For teams and companies, use LLM Gateway&apos;s pay-as-you-go product
+					instead — and reach out to{" "}
+					<Link href="mailto:contact@llmgateway.io" className="underline">
+						contact@llmgateway.io
+					</Link>{" "}
+					for custom solutions and volume discounts.
+				</p>
+			</>
+		),
+	},
+	{
 		question: "Which tools and SDKs work with DevPass?",
 		answer:
 			"Anything that speaks the OpenAI or Anthropic API — Claude Code, Empryo, SoulForge, Cursor, Cline, Continue, Aider, the OpenAI and Anthropic SDKs, and more. Set two environment variables and you're in.",

@@ -711,7 +711,15 @@ export const xaiModels = [
 				reasoningEfforts: ["none", "low", "medium", "high"],
 				tools: true,
 				jsonOutput: true,
-				supportedParameters: xaiSupportedParamsNoFreqPresence,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
 			},
 			{
 				providerId: "aws-bedrock",
