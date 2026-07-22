@@ -189,71 +189,22 @@ payments.openapi(createPaymentIntent, async (c) => {
 		isInternational,
 	});
 
-	let paymentIntent: Stripe.PaymentIntent;
-	try {
-		paymentIntent = await getStripe().paymentIntents.create({
-			amount: Math.round(feeBreakdown.totalAmount * 100),
-			currency: "usd",
-			description: `Credit purchase for ${amount} USD (including fees)`,
-			customer: stripeCustomerId,
-			...(stripePaymentMethodId
-				? { payment_method: stripePaymentMethodId }
-				: {}),
-			metadata: {
-				organizationId,
-				baseAmount: amount.toString(),
-				platformFee: feeBreakdown.platformFee.toString(),
-				internationalFee: feeBreakdown.internationalFee.toString(),
-				isInternational: isInternational.toString(),
-				userEmail: user.email,
-				userId: user.id,
-			},
-		});
-	} catch (err) {
-		// A single-use PaymentMethod can be dead by the time it reaches us: the
-		// client double-submitted with an already-consumed PM, or the
-		// setup_intent.succeeded webhook's duplicate-card check detached it
-		// mid-flow. Stripe rejects with "The provided PaymentMethod cannot be
-		// attached..." — a user-recoverable state, not a server fault.
-		if (
-			err instanceof Stripe.errors.StripeInvalidRequestError &&
-			err.param === "payment_method"
-		) {
-			logger.warn("Stripe rejected payment method on top-up intent", {
-				organizationId,
-				userId: user.id,
-				stripeCode: err.code,
-				stripeMessage: err.message,
-				stripeRequestId: err.requestId,
-			});
-			throw new HTTPException(400, {
-				message:
-					"This card can no longer be used for this payment. Please re-enter your card details and try again.",
-			});
-		}
-
-		if (err instanceof Stripe.errors.StripeError) {
-			logger.error("Stripe error on payment intent creation", err, {
-				organizationId,
-				userId: user.id,
-				stripeType: err.type,
-				stripeCode: err.code,
-				stripeStatusCode: err.statusCode,
-				stripeRequestId: err.requestId,
-			});
-
-			throw new HTTPException(
-				(err.statusCode ?? 400) as
-					| ClientErrorStatusCode
-					| ServerErrorStatusCode,
-				{
-					message: err.message,
-				},
-			);
-		}
-
-		throw err;
-	}
+	const paymentIntent = await getStripe().paymentIntents.create({
+		amount: Math.round(feeBreakdown.totalAmount * 100),
+		currency: "usd",
+		description: `Credit purchase for ${amount} USD (including fees)`,
+		customer: stripeCustomerId,
+		...(stripePaymentMethodId ? { payment_method: stripePaymentMethodId } : {}),
+		metadata: {
+			organizationId,
+			baseAmount: amount.toString(),
+			platformFee: feeBreakdown.platformFee.toString(),
+			internationalFee: feeBreakdown.internationalFee.toString(),
+			isInternational: isInternational.toString(),
+			userEmail: user.email,
+			userId: user.id,
+		},
+	});
 
 	return c.json({
 		clientSecret: paymentIntent.client_secret ?? "",
