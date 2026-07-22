@@ -3,7 +3,6 @@ import "dotenv/config";
 
 import { swaggerUI } from "@hono/swagger-ui";
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
-import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -90,23 +89,6 @@ const requestLifecycleMiddleware = createRequestLifecycleMiddleware({
 app.use("*", tracingMiddleware);
 app.use("*", requestLifecycleMiddleware);
 app.use("*", honoRequestLogger);
-
-app.use(
-	"*",
-	cors({
-		origin: "*",
-		allowHeaders: [
-			"Content-Type",
-			"Authorization",
-			"Cache-Control",
-			"x-api-key",
-			"mcp-session-id",
-		],
-		allowMethods: ["POST", "GET", "OPTIONS", "PUT", "PATCH", "DELETE"],
-		exposeHeaders: ["Content-Length", "mcp-session-id"],
-		maxAge: 600,
-	}),
-);
 
 // Middleware to check for application/json content type on POST requests
 // Excludes /mcp endpoint which handles its own content type validation

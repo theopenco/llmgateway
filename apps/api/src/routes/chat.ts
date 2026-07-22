@@ -2,6 +2,8 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 
+import { getGatewayUrl } from "@/utils/playground-key.js";
+
 import { logger } from "@llmgateway/logger";
 
 import type { ServerTypes } from "@/vars.js";
@@ -18,6 +20,8 @@ const chatCompletionSchema = z.object({
 	model: z.string(),
 	stream: z.boolean().optional().default(false),
 	apiKey: z.string().optional(), // Optional user API key
+	free_models_only: z.boolean().optional(),
+	onboarding: z.boolean().optional(),
 });
 
 const completionRoute = createRoute({
@@ -42,7 +46,8 @@ const completionRoute = createRoute({
 chat.openapi(completionRoute, async (c) => {
 	try {
 		const body = c.req.valid("json");
-		const { messages, model, stream, apiKey } = body;
+		const { messages, model, stream, apiKey, free_models_only, onboarding } =
+			body;
 
 		// Require user to provide their own API key
 		if (!apiKey) {
@@ -50,23 +55,20 @@ chat.openapi(completionRoute, async (c) => {
 		}
 		const authToken = apiKey;
 
-		const response = await fetch(
-			process.env.NODE_ENV === "production"
-				? "https://api.llmgateway.io/v1/chat/completions"
-				: "http://localhost:4001/v1/chat/completions",
-			{
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: `Bearer ${authToken}`,
-				},
-				body: JSON.stringify({
-					model,
-					messages,
-					stream,
-				}),
+		const response = await fetch(`${getGatewayUrl()}/chat/completions`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${authToken}`,
 			},
-		);
+			body: JSON.stringify({
+				model,
+				messages,
+				stream,
+				...(free_models_only !== undefined && { free_models_only }),
+				...(onboarding !== undefined && { onboarding }),
+			}),
+		});
 
 		if (!response.ok) {
 			const errorText = await response.text();
