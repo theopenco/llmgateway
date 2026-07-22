@@ -3509,9 +3509,24 @@ async function handleSetupIntentSucceeded(
 		return;
 	}
 
-	await getStripe().paymentMethods.attach(paymentMethodId, {
-		customer: stripeCustomerId,
-	});
+	try {
+		await getStripe().paymentMethods.attach(paymentMethodId, {
+			customer: stripeCustomerId,
+		});
+	} catch (error) {
+		// A PM consumed by a payment (or detached) before this webhook ran can
+		// never be attached — failing the webhook would only make Stripe retry
+		// a permanently invalid request for days.
+		if (error instanceof Stripe.errors.StripeInvalidRequestError) {
+			logger.warn("Skipping unattachable payment method from setup intent", {
+				paymentMethodId,
+				organizationId,
+				stripeMessage: error.message,
+			});
+			return;
+		}
+		throw error;
+	}
 
 	const paymentMethod =
 		await getStripe().paymentMethods.retrieve(paymentMethodId);
