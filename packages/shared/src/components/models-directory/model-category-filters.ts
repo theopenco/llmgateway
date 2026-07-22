@@ -159,6 +159,7 @@ export const OPEN_SOURCE_FAMILIES: ReadonlySet<string> = new Set([
 	"minimax",
 	"nousresearch",
 	"nvidia",
+	"openbmb",
 	"xiaomi",
 	"zai",
 ]);

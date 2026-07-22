@@ -540,6 +540,9 @@ export const alibabaModels = [
 			{
 				providerId: "nebius",
 				externalId: "Qwen/Qwen3-235B-A22B-Thinking-2507",
+				// Endpoint removed upstream: 404 "The model does not exist"
+				// (verified 2026-07-22)
+				deactivatedAt: new Date("2026-07-22"),
 				inputPrice: "0.2e-6",
 				outputPrice: "0.6e-6",
 				requestPrice: "0",
@@ -682,7 +685,7 @@ export const alibabaModels = [
 				inputPrice: "0.1e-6",
 				outputPrice: "0.3e-6",
 				requestPrice: "0",
-				contextSize: 32768,
+				contextSize: 40960,
 				maxOutput: 8192,
 				quantization: "fp8",
 				streaming: true,
@@ -859,10 +862,10 @@ export const alibabaModels = [
 			{
 				providerId: "nebius",
 				externalId: "Qwen/Qwen2.5-VL-72B-Instruct",
-				inputPrice: "0.13e-6",
-				outputPrice: "0.4e-6",
+				inputPrice: "0.25e-6",
+				outputPrice: "0.75e-6",
 				requestPrice: "0",
-				contextSize: 32768,
+				contextSize: 32000,
 				maxOutput: 8192,
 				quantization: "fp8",
 				streaming: true,
@@ -906,6 +909,9 @@ export const alibabaModels = [
 				providerId: "nebius",
 				stability: "unstable",
 				externalId: "Qwen/Qwen3-Coder-480B-A35B-Instruct",
+				// Endpoint removed upstream: 404 "The model does not exist"
+				// (verified 2026-07-22)
+				deactivatedAt: new Date("2026-07-22"),
 				inputPrice: "0.4e-6",
 				outputPrice: "1.8e-6",
 				requestPrice: "0",
@@ -2852,6 +2858,29 @@ export const alibabaModels = [
 					"tools",
 					"reasoning_effort",
 				],
+			},
+		],
+	},
+	{
+		id: "qwen3-embedding-8b",
+		name: "Qwen3 Embedding 8B",
+		description:
+			"Qwen3-based text embedding model with strong multilingual retrieval performance. Output dimension 4096; supports the `dimensions` parameter to shorten output.",
+		family: "alibaba",
+		output: ["embedding"],
+		releasedAt: new Date("2025-06-05"),
+		providers: [
+			{
+				providerId: "nebius",
+				externalId: "Qwen/Qwen3-Embedding-8B",
+				inputPrice: "0.01e-6",
+				outputPrice: "0",
+				requestPrice: "0",
+				contextSize: 40960,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				embeddings: true,
 			},
 		],
 	},

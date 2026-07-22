@@ -14,6 +14,7 @@ import { moonshotModels } from "./models/moonshot.js";
 import { nousresearchModels } from "./models/nousresearch.js";
 import { nvidiaModels } from "./models/nvidia.js";
 import { openaiModels } from "./models/openai.js";
+import { openbmbModels } from "./models/openbmb.js";
 import { perplexityModels } from "./models/perplexity.js";
 import { reveModels } from "./models/reve.js";
 import { sakanaModels } from "./models/sakana.js";
@@ -691,6 +692,7 @@ export const models = [
 	...reveModels,
 	...sakanaModels,
 	...nvidiaModels,
+	...openbmbModels,
 	...zaiModels,
 	...elevenlabsModels,
 ] as const satisfies ModelDefinition[];

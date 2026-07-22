@@ -46,7 +46,10 @@ import {
 } from "@/lib/stealth-provider-errors.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
-import { getProviderHeaders } from "@llmgateway/actions";
+import {
+	getProviderDefaultBaseUrl,
+	getProviderHeaders,
+} from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
@@ -88,7 +91,7 @@ const embeddingRequestSchema = z.object({
 	}),
 	dimensions: z.number().int().positive().optional().openapi({
 		description:
-			"Number of dimensions for the output embeddings. Only supported on `text-embedding-3-*` models.",
+			"Number of dimensions for the output embeddings. Only supported by models that allow shortening output (e.g. `text-embedding-3-*`, `gemini-embedding-*`, `qwen3-embedding-8b`).",
 		example: 1536,
 	}),
 	user: z.string().optional().openapi({
@@ -670,12 +673,6 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				: [input as string]
 			: [];
 
-	const providerBaseUrlDefaults: Partial<Record<string, string>> = {
-		openai: "https://api.openai.com",
-		"google-ai-studio": "https://generativelanguage.googleapis.com",
-		"google-vertex": "https://aiplatform.googleapis.com",
-	};
-
 	interface EmbeddingAttempt {
 		providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
 		usedToken: string;
@@ -801,7 +798,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		const resolvedBaseUrl =
 			providerKey?.baseUrl ??
 			envBaseUrl ??
-			providerBaseUrlDefaults[providerId] ??
+			getProviderDefaultBaseUrl(providerId) ??
 			"https://api.openai.com";
 
 		let upstreamUrl: string;

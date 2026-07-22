@@ -2187,17 +2187,21 @@ export const googleModels = [
 			{
 				providerId: "nebius",
 				externalId: "google/gemma-3-27b-it",
-				inputPrice: "0.27e-6",
-				outputPrice: "0.27e-6",
+				inputPrice: "0.1e-6",
+				outputPrice: "0.3e-6",
 				requestPrice: "0",
-				contextSize: 128000,
+				contextSize: 110000,
 				maxOutput: undefined,
 				quantization: "fp8",
 				streaming: true,
+				// Image input works despite the /v1/models modality claiming
+				// text-only (verified 2026-07-22).
 				vision: true,
+				// The catalogue advertises tools, but the deployment emits
+				// ```tool_code``` text instead of OpenAI tool_calls (verified
+				// 2026-07-22).
 				tools: false,
 				jsonOutput: false,
-				deactivatedAt: new Date("2026-04-30"),
 			},
 		],
 	},
