@@ -918,6 +918,37 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 			? body.n
 			: 1;
 
+	// Simulate an upstream that returns a non-OK status (500) plus a partial
+	// error body, then hangs without finishing it. The gateway's res.text() on
+	// the error path blocks waiting for the rest, letting a test abort the
+	// client mid-read to exercise the error-body cancellation path. Checked
+	// before the stream branch so streaming requests hit it too: a non-OK
+	// upstream response is a plain (non-SSE) body in both modes. The trigger
+	// deliberately avoids the "TRIGGER_ERROR" substring so the generic-error
+	// handler above doesn't short-circuit it.
+	if (hasUserMessageTrigger(chatMessages, "TRIGGER_5XX_BODY_HANG")) {
+		const encoder = new TextEncoder();
+		let sentPartialBody = false;
+		const hangingErrorBody = new ReadableStream({
+			pull(controller) {
+				if (!sentPartialBody) {
+					sentPartialBody = true;
+					// Flush a partial JSON body so headers are written first.
+					controller.enqueue(encoder.encode('{"error":{"message":"partial'));
+					notifyMockCheckpoint("TRIGGER_5XX_BODY_HANG");
+					return;
+				}
+				// Never enqueue more and never close: the body read hangs until the
+				// client disconnects.
+				return new Promise<void>(() => {});
+			},
+		});
+		return new Response(hangingErrorBody, {
+			status: 500,
+			headers: { "Content-Type": "application/json" },
+		});
+	}
+
 	if (body.stream === true) {
 		return streamSSE(c, async (stream) => {
 			let eventId = 0;
@@ -1169,35 +1200,6 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		});
 		return new Response(hangingBody, {
 			status: 200,
-			headers: { "Content-Type": "application/json" },
-		});
-	}
-
-	// Simulate an upstream that returns a non-OK status (500) plus a partial
-	// error body, then hangs without finishing it. The gateway's res.text() on
-	// the error path blocks waiting for the rest, letting a test abort the
-	// client mid-read to exercise the non-streaming error-body cancellation
-	// path. The trigger deliberately avoids the "TRIGGER_ERROR" substring so the
-	// generic-error handler above doesn't short-circuit it.
-	if (hasUserMessageTrigger(chatMessages, "TRIGGER_5XX_BODY_HANG")) {
-		const encoder = new TextEncoder();
-		let sentPartialBody = false;
-		const hangingErrorBody = new ReadableStream({
-			pull(controller) {
-				if (!sentPartialBody) {
-					sentPartialBody = true;
-					// Flush a partial JSON body so headers are written first.
-					controller.enqueue(encoder.encode('{"error":{"message":"partial'));
-					notifyMockCheckpoint("TRIGGER_5XX_BODY_HANG");
-					return;
-				}
-				// Never enqueue more and never close: the body read hangs until the
-				// client disconnects.
-				return new Promise<void>(() => {});
-			},
-		});
-		return new Response(hangingErrorBody, {
-			status: 500,
 			headers: { "Content-Type": "application/json" },
 		});
 	}

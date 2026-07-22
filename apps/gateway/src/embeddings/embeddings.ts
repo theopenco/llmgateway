@@ -29,6 +29,7 @@ import {
 	findProjectById,
 	findProviderKey,
 } from "@/lib/cached-queries.js";
+import { raceClientAbort } from "@/lib/client-abort.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import { assertProviderCompliant } from "@/lib/compliance.js";
 import {
@@ -996,6 +997,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			});
 
 			let upstreamResponse: Response;
+			let upstreamText = "";
 			let fetchError: Error | null = null;
 			try {
 				const fetchSignal = createCombinedSignal(controller);
@@ -1015,9 +1017,22 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 					body: JSON.stringify(attempt.requestBody),
 					signal: fetchSignal,
 				});
+				// Settle the body read immediately on a client disconnect instead of
+				// relying on the fetch AbortSignal to propagate into undici's
+				// in-flight body machinery, where a late abort can be missed.
+				upstreamText = await raceClientAbort(
+					upstreamResponse.text(),
+					c.req.raw.signal,
+					controller,
+				);
 			} catch (error) {
+				// The abort can also surface as a generic failure (undici
+				// "terminated" TypeError, or a TimeoutError when the abort never
+				// reached the read), so any failure after the client already
+				// disconnected counts as canceled too.
 				const isCanceled =
-					error instanceof Error && error.name === "AbortError";
+					error instanceof Error &&
+					(error.name === "AbortError" || c.req.raw.signal.aborted);
 				const isTimeout = isTimeoutError(error);
 				const isNetworkError = error instanceof TypeError;
 				if (!isCanceled && !isTimeout && !isNetworkError) {
@@ -1028,7 +1043,8 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			}
 
 			if (fetchError !== null) {
-				const isCanceled = fetchError.name === "AbortError";
+				const isCanceled =
+					fetchError.name === "AbortError" || c.req.raw.signal.aborted;
 				const isTimeout = isTimeoutError(fetchError);
 
 				const duration = Date.now() - startedAt;
@@ -1165,7 +1181,6 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				);
 			}
 
-			const upstreamText = await upstreamResponse.text();
 			const duration = Date.now() - startedAt;
 			const responseSize = upstreamText.length;
 

@@ -15,6 +15,11 @@
  * When `upstreamController` is undefined (the provider does not support
  * cancellation), the read is returned unchanged: the gateway deliberately
  * finishes reading the upstream response so it can be logged and billed.
+ *
+ * Aborting `upstreamController` here may overlap a caller's own client-abort
+ * listener aborting the same controller; the double abort is intentional
+ * (AbortController.abort() is idempotent) so the helper stays safe to use
+ * without any external listener wiring.
  */
 export function raceClientAbort<T>(
 	bodyPromise: Promise<T>,

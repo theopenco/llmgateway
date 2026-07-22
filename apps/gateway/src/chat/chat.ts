@@ -6018,6 +6018,18 @@ chat.openapi(completions, async (c) => {
 	let requestCanBeCanceled =
 		providers.find((p) => p.id === usedProvider)?.cancellation === true;
 
+	// Classify a failed upstream body read as a client cancellation. A client
+	// disconnect usually surfaces as an AbortError (raceClientAbort guarantees
+	// one when cancellation is supported), but the abort can also surface as a
+	// generic failure (undici "terminated" TypeError, or a TimeoutError when
+	// the abort never reached the body read), so any read failure after the
+	// client already disconnected counts as canceled too.
+	// requestCanBeCanceled is read at call time: retries can switch providers,
+	// flipping whether cancellation is supported.
+	const isClientAbortError = (bodyError: Error): boolean =>
+		bodyError.name === "AbortError" ||
+		(requestCanBeCanceled && c.req.raw.signal.aborted);
+
 	// For Google providers, enrich messages with cached thought_signatures
 	// This is needed for multi-turn tool call conversations with Gemini 3+
 	if (isGoogleCompatibleProvider(usedProvider)) {
@@ -6641,6 +6653,183 @@ chat.openapi(completions, async (c) => {
 				// Add event listener for the abort event on the connection
 				c.req.raw.signal.addEventListener("abort", onAbort);
 
+				// Streaming twin of the non-streaming readBodyWithClientAbort: settle
+				// an upstream body read immediately on client disconnect instead of
+				// relying on the fetch AbortSignal to propagate into undici's
+				// in-flight body machinery, where a late abort can be missed.
+				const readBodyWithClientAbort = <T>(
+					bodyPromise: Promise<T>,
+				): Promise<T> =>
+					raceClientAbort(
+						bodyPromise,
+						c.req.raw.signal,
+						requestCanBeCanceled ? controller : undefined,
+					);
+
+				// Build and persist the canceled-request log, then emit the canceled
+				// SSE events. Shared by the in-loop fetch-cancellation path and the
+				// error-body-read cancellation path so a client disconnect is always
+				// recorded as canceled rather than escaping as a stream error.
+				const respondCanceledStreaming = async (
+					perAttemptStartTime: number,
+				) => {
+					// Extract plugin IDs for logging (canceled request)
+					const canceledPluginIds = plugins?.map((p) => p.id) ?? [];
+
+					// Calculate costs for cancelled request if billing is enabled
+					const billCancelled = shouldBillCancelledRequests();
+					let cancelledCosts: Awaited<
+						ReturnType<typeof calculateCosts>
+					> | null = null;
+					let estimatedPromptTokens: number | null = null;
+
+					if (billCancelled) {
+						// Estimate prompt tokens from messages
+						const tokenEstimation = estimateTokens(
+							usedProvider!,
+							messages,
+							null,
+							null,
+							null,
+						);
+						estimatedPromptTokens = tokenEstimation.calculatedPromptTokens;
+
+						// Calculate costs based on prompt tokens only (no completion yet)
+						// If web search tool was enabled, count it as 1 search for billing
+						cancelledCosts = await calculateCosts(
+							usedInternalModel,
+							usedProvider!,
+							usedRegion ?? null,
+							estimatedPromptTokens,
+							0, // No completion tokens yet
+							null, // No cached tokens
+							{
+								prompt: messages
+									.map((m) => messageContentToString(m.content))
+									.join("\n"),
+								completion: "",
+							},
+							null, // No reasoning tokens
+							0, // No output images
+							undefined,
+							inputImageCount,
+							webSearchTool ? 1 : null, // Bill for web search if it was enabled
+							project.organizationId,
+							undefined, // imageQuality
+							null, // reportedImageInputTokens
+							null, // reportedImageOutputTokens
+							{ servedServiceTier, customPricing: customPricingMapping },
+						);
+					}
+
+					const baseLogEntry = createLogEntry(
+						requestId,
+						project,
+						apiKey,
+						providerKey?.id,
+						usedModelFormatted!,
+						usedModelMapping!,
+						usedProvider!,
+						initialRequestedModel,
+						requestedProvider,
+						messages,
+						temperature,
+						max_tokens,
+						top_p,
+						frequency_penalty,
+						presence_penalty,
+						reasoning_effort,
+						reasoning_max_tokens,
+						effort,
+						response_format,
+						tools,
+						tool_choice,
+						source,
+						customHeaders,
+						debugMode,
+						userAgent,
+						image_config,
+						routingMetadata,
+						rawBody,
+						null, // No response for canceled request
+						requestBody, // The request that was sent before cancellation
+						null, // No upstream response for canceled request
+						canceledPluginIds,
+						undefined, // No plugin results for canceled request
+					);
+
+					await insertLogEntry({
+						...baseLogEntry,
+						duration: Date.now() - perAttemptStartTime,
+						timeToFirstToken: null, // Not applicable for canceled request
+						timeToFirstReasoningToken: null, // Not applicable for canceled request
+						responseSize: 0,
+						content: null,
+						reasoningContent: null,
+						finishReason: "canceled",
+						promptTokens: billCancelled
+							? (
+									cancelledCosts?.promptTokens ?? estimatedPromptTokens
+								)?.toString()
+							: null,
+						completionTokens: billCancelled ? "0" : null,
+						totalTokens: billCancelled
+							? (
+									cancelledCosts?.promptTokens ?? estimatedPromptTokens
+								)?.toString()
+							: null,
+						reasoningTokens: null,
+						cachedTokens: null,
+						hasError: false,
+						streamed: true,
+						canceled: true,
+						errorDetails: null,
+						inputCost: cancelledCosts?.inputCost ?? null,
+						outputCost: cancelledCosts?.outputCost ?? null,
+						cachedInputCost: cancelledCosts?.cachedInputCost ?? null,
+						requestCost: cancelledCosts?.requestCost ?? null,
+						webSearchCost: cancelledCosts?.webSearchCost ?? null,
+						imageInputTokens:
+							cancelledCosts?.imageInputTokens?.toString() ?? null,
+						imageOutputTokens:
+							cancelledCosts?.imageOutputTokens?.toString() ?? null,
+						imageInputCost: cancelledCosts?.imageInputCost ?? null,
+						imageOutputCost: cancelledCosts?.imageOutputCost ?? null,
+						audioInputTokens:
+							cancelledCosts?.audioInputTokens?.toString() ?? null,
+						audioInputCost: cancelledCosts?.audioInputCost ?? null,
+						cost: cancelledCosts?.totalCost ?? null,
+						estimatedCost: cancelledCosts?.estimatedCost ?? false,
+						discount: cancelledCosts?.discount ?? null,
+						dataStorageCost: billCancelled
+							? calculateDataStorageCost(
+									cancelledCosts?.promptTokens ?? estimatedPromptTokens,
+									null,
+									0,
+									null,
+									retentionLevel,
+								)
+							: "0",
+						cached: false,
+						toolResults: null,
+					});
+
+					// Send a cancellation event to the client
+					await writeSSEAndCache({
+						event: "canceled",
+						data: JSON.stringify({
+							message: "Request canceled by client",
+						}),
+						id: String(eventId++),
+					});
+					await writeSSEAndCache({
+						event: "done",
+						data: "[DONE]",
+						id: String(eventId++),
+					});
+					clearKeepalive();
+				};
+
 				// --- Retry loop for provider fallback ---
 				const routingAttempts: RoutingAttempt[] = [];
 				const failedProviderIds = new Set<string>();
@@ -7033,162 +7222,7 @@ chat.openapi(completions, async (c) => {
 							});
 							return;
 						} else if (error instanceof Error && error.name === "AbortError") {
-							// Log the canceled request
-							// Extract plugin IDs for logging (canceled request)
-							const canceledPluginIds = plugins?.map((p) => p.id) ?? [];
-
-							// Calculate costs for cancelled request if billing is enabled
-							const billCancelled = shouldBillCancelledRequests();
-							let cancelledCosts: Awaited<
-								ReturnType<typeof calculateCosts>
-							> | null = null;
-							let estimatedPromptTokens: number | null = null;
-
-							if (billCancelled) {
-								// Estimate prompt tokens from messages
-								const tokenEstimation = estimateTokens(
-									usedProvider,
-									messages,
-									null,
-									null,
-									null,
-								);
-								estimatedPromptTokens = tokenEstimation.calculatedPromptTokens;
-
-								// Calculate costs based on prompt tokens only (no completion yet)
-								// If web search tool was enabled, count it as 1 search for billing
-								cancelledCosts = await calculateCosts(
-									usedInternalModel,
-									usedProvider,
-									usedRegion ?? null,
-									estimatedPromptTokens,
-									0, // No completion tokens yet
-									null, // No cached tokens
-									{
-										prompt: messages
-											.map((m) => messageContentToString(m.content))
-											.join("\n"),
-										completion: "",
-									},
-									null, // No reasoning tokens
-									0, // No output images
-									undefined,
-									inputImageCount,
-									webSearchTool ? 1 : null, // Bill for web search if it was enabled
-									project.organizationId,
-									undefined, // imageQuality
-									null, // reportedImageInputTokens
-									null, // reportedImageOutputTokens
-									{ servedServiceTier, customPricing: customPricingMapping },
-								);
-							}
-
-							const baseLogEntry = createLogEntry(
-								requestId,
-								project,
-								apiKey,
-								providerKey?.id,
-								usedModelFormatted,
-								usedModelMapping,
-								usedProvider,
-								initialRequestedModel,
-								requestedProvider,
-								messages,
-								temperature,
-								max_tokens,
-								top_p,
-								frequency_penalty,
-								presence_penalty,
-								reasoning_effort,
-								reasoning_max_tokens,
-								effort,
-								response_format,
-								tools,
-								tool_choice,
-								source,
-								customHeaders,
-								debugMode,
-								userAgent,
-								image_config,
-								routingMetadata,
-								rawBody,
-								null, // No response for canceled request
-								requestBody, // The request that was sent before cancellation
-								null, // No upstream response for canceled request
-								canceledPluginIds,
-								undefined, // No plugin results for canceled request
-							);
-
-							await insertLogEntry({
-								...baseLogEntry,
-								duration: Date.now() - perAttemptStartTime,
-								timeToFirstToken: null, // Not applicable for canceled request
-								timeToFirstReasoningToken: null, // Not applicable for canceled request
-								responseSize: 0,
-								content: null,
-								reasoningContent: null,
-								finishReason: "canceled",
-								promptTokens: billCancelled
-									? (
-											cancelledCosts?.promptTokens ?? estimatedPromptTokens
-										)?.toString()
-									: null,
-								completionTokens: billCancelled ? "0" : null,
-								totalTokens: billCancelled
-									? (
-											cancelledCosts?.promptTokens ?? estimatedPromptTokens
-										)?.toString()
-									: null,
-								reasoningTokens: null,
-								cachedTokens: null,
-								hasError: false,
-								streamed: true,
-								canceled: true,
-								errorDetails: null,
-								inputCost: cancelledCosts?.inputCost ?? null,
-								outputCost: cancelledCosts?.outputCost ?? null,
-								cachedInputCost: cancelledCosts?.cachedInputCost ?? null,
-								requestCost: cancelledCosts?.requestCost ?? null,
-								webSearchCost: cancelledCosts?.webSearchCost ?? null,
-								imageInputTokens:
-									cancelledCosts?.imageInputTokens?.toString() ?? null,
-								imageOutputTokens:
-									cancelledCosts?.imageOutputTokens?.toString() ?? null,
-								imageInputCost: cancelledCosts?.imageInputCost ?? null,
-								imageOutputCost: cancelledCosts?.imageOutputCost ?? null,
-								audioInputTokens:
-									cancelledCosts?.audioInputTokens?.toString() ?? null,
-								audioInputCost: cancelledCosts?.audioInputCost ?? null,
-								cost: cancelledCosts?.totalCost ?? null,
-								estimatedCost: cancelledCosts?.estimatedCost ?? false,
-								discount: cancelledCosts?.discount ?? null,
-								dataStorageCost: billCancelled
-									? calculateDataStorageCost(
-											cancelledCosts?.promptTokens ?? estimatedPromptTokens,
-											null,
-											0,
-											null,
-											retentionLevel,
-										)
-									: "0",
-								cached: false,
-								toolResults: null,
-							});
-
-							// Send a cancellation event to the client
-							await writeSSEAndCache({
-								event: "canceled",
-								data: JSON.stringify({
-									message: "Request canceled by client",
-								}),
-								id: String(eventId++),
-							});
-							await writeSSEAndCache({
-								event: "done",
-								data: "[DONE]",
-								id: String(eventId++),
-							});
-							clearKeepalive();
+							await respondCanceledStreaming(perAttemptStartTime);
 							return;
 						} else if (error instanceof Error) {
 							// Handle fetch errors (timeout, connection failures, etc.)
@@ -7457,7 +7491,24 @@ chat.openapi(completions, async (c) => {
 					}
 
 					if (!res.ok) {
-						const rawErrorResponseText = await res.text();
+						let rawErrorResponseText: string;
+						try {
+							rawErrorResponseText = await readBodyWithClientAbort(res.text());
+						} catch (bodyError) {
+							// Re-throw non-Error values (mirrors the fetch catch above).
+							if (!(bodyError instanceof Error)) {
+								throw bodyError;
+							}
+							// A client disconnect aborts the in-flight error-body read;
+							// record it as a canceled request (same log shape as the
+							// fetch-cancellation path) instead of escaping as a stream
+							// error.
+							if (isClientAbortError(bodyError)) {
+								await respondCanceledStreaming(perAttemptStartTime);
+								return;
+							}
+							throw bodyError;
+						}
 						const errorResponseText = usesAwsBedrockConverse()
 							? extractAwsBedrockHttpError(res, rawErrorResponseText)
 							: rawErrorResponseText;
@@ -11494,14 +11545,8 @@ chat.openapi(completions, async (c) => {
 				// A client disconnect aborts the in-flight error-body read; record
 				// it as a canceled request (same log shape as the fetch-
 				// cancellation path) instead of misreporting it as an upstream
-				// failure or a bare 499. The abort can also surface as a generic
-				// failure (undici "terminated" TypeError, or a TimeoutError when
-				// the abort never reached the body read), so any read failure
-				// after the client already disconnected counts as canceled too.
-				if (
-					bodyError.name === "AbortError" ||
-					(requestCanBeCanceled && c.req.raw.signal.aborted)
-				) {
+				// failure or a bare 499.
+				if (isClientAbortError(bodyError)) {
 					return await respondCanceled();
 				}
 				// A read timeout or a mid-body socket failure (e.g. undici
@@ -12375,14 +12420,7 @@ chat.openapi(completions, async (c) => {
 		// A client disconnect aborts the in-flight body read; record it as a
 		// canceled request (same log shape as the fetch-cancellation path)
 		// instead of misreporting it as an upstream failure or a bare 499.
-		// The abort can also surface as a generic failure (undici "terminated"
-		// TypeError, or a TimeoutError when the abort never reached the body
-		// read), so any read failure after the client already disconnected
-		// counts as canceled too.
-		if (
-			bodyError.name === "AbortError" ||
-			(requestCanBeCanceled && c.req.raw.signal.aborted)
-		) {
+		if (isClientAbortError(bodyError)) {
 			// The post-loop success append already recorded this provider as a
 			// succeeded routing attempt. Drop it before logging the cancellation
 			// so a client disconnect isn't counted as a provider success in the
