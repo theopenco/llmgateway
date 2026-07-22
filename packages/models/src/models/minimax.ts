@@ -115,6 +115,21 @@ export const minimaxModels = [
 				jsonOutput: true,
 			},
 			{
+				providerId: "gonka24",
+				externalId: "minimax-m2.7",
+				inputPrice: "0.08e-6",
+				cachedInputPrice: "0.017e-6",
+				outputPrice: "0.32e-6",
+				requestPrice: "0",
+				contextSize: 204800,
+				maxOutput: 131100,
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
 				// Together AI deprecates this serverless model on 2026-07-27,
 				// recommending MiniMaxAI/MiniMax-M3 as the replacement.
 				deactivatedAt: new Date("2026-07-27"),

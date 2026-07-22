@@ -428,11 +428,16 @@ export const transaction = pgTable(
 				// allowance reset). `amount` is the real dollars paid;
 				// `creditAmount` is null (no credits are granted).
 				"dev_plan_reset_pass",
-				// Free Reset Pass granted as the reward for a yearly model-survey
+				// Free Reset Pass granted as the reward for a quarterly model-survey
 				// response. `amount` is "0" (nothing is charged) and `creditAmount`
 				// is null. A separate type so reset-pass revenue analytics, which
 				// count "dev_plan_reset_pass", are unaffected by reward grants.
 				"dev_plan_reset_pass_reward",
+				// DevPass Reset Pass(es) gifted by an administrator. Pure
+				// bookkeeping: `amount` and `creditAmount` are both null — no
+				// dollars change hands and no credits are granted, so the row
+				// never counts toward revenue or the credits economy.
+				"dev_plan_reset_pass_gift",
 				"chat_plan_start",
 				"chat_plan_upgrade",
 				"chat_plan_downgrade",
@@ -2951,8 +2956,9 @@ export const auditLogActions = [
 	"dev_plan.update_payment_method",
 	"dev_plan.reset_pass_purchase",
 	"dev_plan.reset_pass_redeem",
-	// Free Reset Pass granted for a yearly model-survey response.
+	// Free Reset Pass granted for a quarterly model-survey response.
 	"dev_plan.reset_pass_reward",
+	"dev_plan.reset_pass_gift",
 	// Chat Plan
 	"chat_plan.subscribe",
 	"chat_plan.cancel",

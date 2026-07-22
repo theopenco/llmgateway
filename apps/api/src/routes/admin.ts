@@ -63,6 +63,7 @@ import {
 	DEV_PLAN_PRICES,
 	type DevPlanTier,
 	getDevPlanPremiumWeeklyLimit,
+	getIncludedResetPassesRemaining,
 } from "@llmgateway/shared";
 import {
 	getResendClient,
@@ -10540,8 +10541,16 @@ const devpassPaymentFailureSchema = z.object({
 	source: z.string().nullable(),
 });
 
+const devpassResetPassesSchema = z.object({
+	lite: z.number(),
+	pro: z.number(),
+	max: z.number(),
+	includedRemaining: z.number(),
+});
+
 const devpassDetailSchema = z.object({
 	subscriber: devpassSubscriberSchema,
+	resetPasses: devpassResetPassesSchema,
 	transactions: z.array(devpassTransactionSchema),
 	paymentFailures: z.array(devpassPaymentFailureSchema),
 });
@@ -10564,6 +10573,57 @@ const getDevpassSubscriber = createRoute({
 			description: "DevPass subscriber detail.",
 		},
 		404: {
+			description: "Subscriber not found.",
+		},
+	},
+});
+
+// Gift Reset Passes to a DevPass subscriber. Increments the tier-bound
+// purchased-pass inventory, so gifted passes behave exactly like bought ones:
+// redeemable only while the org is on that tier, surviving plan changes.
+const giftResetPassesRoute = createRoute({
+	method: "post",
+	path: "/devpass/{orgId}/gift-reset-passes",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						tier: z.enum(["lite", "pro", "max"]),
+						count: z.number().int().min(1).max(10),
+						comment: z.string().max(500).optional(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						resetPasses: z.object({
+							lite: z.number(),
+							pro: z.number(),
+							max: z.number(),
+						}),
+					}),
+				},
+			},
+			description: "Reset Passes gifted successfully.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
 			description: "Subscriber not found.",
 		},
 	},
@@ -12073,6 +12133,8 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 					"dev_plan_cancel",
 					"dev_plan_end",
 					"dev_plan_renewal",
+					"dev_plan_reset_pass",
+					"dev_plan_reset_pass_gift",
 					// Legacy types — pre dev_plan_* rename, still in DB for older
 					// dev plan subscribers; without these their history reads as empty.
 					"subscription_start",
@@ -12101,6 +12163,18 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 
 	return c.json({
 		subscriber,
+		resetPasses: {
+			lite: org.devPlanResetPassesLite,
+			pro: org.devPlanResetPassesPro,
+			max: org.devPlanResetPassesMax,
+			includedRemaining:
+				org.devPlan === "none"
+					? 0
+					: getIncludedResetPassesRemaining(
+							org.devPlan as DevPlanTier,
+							org.devPlanIncludedResetPassesUsed,
+						),
+		},
 		transactions: transactions.map((t) => ({
 			id: t.id,
 			createdAt: t.createdAt.toISOString(),
@@ -12120,6 +12194,79 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 			failureMessage: p.failureMessage ?? null,
 			source: p.source ?? null,
 		})),
+	});
+});
+
+admin.openapi(giftResetPassesRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+	const { tier, count, comment } = c.req.valid("json");
+
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: orgId }, kind: { eq: "devpass" } },
+	});
+
+	if (!org || org.status === "deleted") {
+		throw new HTTPException(404, { message: "Subscriber not found" });
+	}
+
+	const base = `${count}× ${tier} Reset Pass${count === 1 ? "" : "es"} gifted by Administrator`;
+	const description = comment ? `${base}: ${comment}` : base;
+
+	const { transactionId, resetPasses } = await db.transaction(async (tx) => {
+		const [txn] = await tx
+			.insert(tables.transaction)
+			.values({
+				organizationId: orgId,
+				type: "dev_plan_reset_pass_gift",
+				currency: "USD",
+				status: "completed",
+				description,
+			})
+			.returning({ id: tables.transaction.id });
+
+		const [updatedOrg] = await tx
+			.update(tables.organization)
+			.set(
+				tier === "lite"
+					? {
+							devPlanResetPassesLite: sql`${tables.organization.devPlanResetPassesLite} + ${count}`,
+						}
+					: tier === "pro"
+						? {
+								devPlanResetPassesPro: sql`${tables.organization.devPlanResetPassesPro} + ${count}`,
+							}
+						: {
+								devPlanResetPassesMax: sql`${tables.organization.devPlanResetPassesMax} + ${count}`,
+							},
+			)
+			.where(eq(tables.organization.id, orgId))
+			.returning({
+				lite: tables.organization.devPlanResetPassesLite,
+				pro: tables.organization.devPlanResetPassesPro,
+				max: tables.organization.devPlanResetPassesMax,
+			});
+
+		return { transactionId: txn.id, resetPasses: updatedOrg };
+	});
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "dev_plan.reset_pass_gift",
+		resourceType: "organization",
+		resourceId: orgId,
+		metadata: {
+			tier,
+			count,
+			comment,
+			transactionId,
+		},
+	});
+
+	return c.json({
+		message: "Reset Passes gifted successfully",
+		resetPasses,
 	});
 });
 

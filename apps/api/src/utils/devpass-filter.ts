@@ -19,6 +19,9 @@ export const planExcludedTypes = [
 	"dev_plan_reset_pass",
 	// Free survey-reward passes carry amount "0" and are never revenue.
 	"dev_plan_reset_pass_reward",
+	// Admin-gifted Reset Passes: bookkeeping rows with no amount and no
+	// creditAmount, never revenue or credits.
+	"dev_plan_reset_pass_gift",
 	"subscription_start",
 	"subscription_cancel",
 	"subscription_end",

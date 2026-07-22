@@ -219,6 +219,7 @@ const transactionSchema = z.object({
 		"dev_plan_renewal",
 		"dev_plan_reset_pass",
 		"dev_plan_reset_pass_reward",
+		"dev_plan_reset_pass_gift",
 		"chat_plan_start",
 		"chat_plan_upgrade",
 		"chat_plan_downgrade",

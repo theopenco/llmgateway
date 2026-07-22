@@ -4,6 +4,7 @@ import {
 	Building2,
 	CreditCard,
 	Receipt,
+	Ticket,
 } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -20,9 +21,12 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { giftResetPasses } from "@/lib/admin-devpass";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
+
+import { GiftResetPassesDialog } from "./gift-reset-passes-dialog";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
 	style: "currency",
@@ -297,6 +301,66 @@ export default async function DevpassDetailPage({
 					<div className="mt-1 text-xs text-muted-foreground">
 						{sub.tierChanges} tier change
 						{sub.tierChanges === 1 ? "" : "s"} all time
+					</div>
+				</div>
+			</section>
+
+			<section className="space-y-3">
+				<div className="flex items-center justify-between gap-2">
+					<div className="flex items-center gap-2">
+						<Ticket className="h-4 w-4 text-muted-foreground" />
+						<h2 className="text-sm font-semibold tracking-tight">
+							Reset Passes
+						</h2>
+						<span className="text-xs text-muted-foreground">
+							Purchased and gifted passes are tier-bound; included passes renew
+							each cycle
+						</span>
+					</div>
+					<GiftResetPassesDialog
+						orgName={sub.name}
+						defaultTier={sub.tier === "none" ? "pro" : sub.tier}
+						onGift={async (giftData) => {
+							"use server";
+							return await giftResetPasses(orgId, giftData);
+						}}
+					/>
+				</div>
+				<div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+					<div className="rounded-lg border border-border/60 bg-card p-4">
+						<div className="text-xs uppercase tracking-wide text-muted-foreground">
+							Lite passes
+						</div>
+						<div className="mt-2 text-2xl font-semibold tabular-nums">
+							{data.resetPasses.lite}
+						</div>
+					</div>
+					<div className="rounded-lg border border-border/60 bg-card p-4">
+						<div className="text-xs uppercase tracking-wide text-muted-foreground">
+							Pro passes
+						</div>
+						<div className="mt-2 text-2xl font-semibold tabular-nums">
+							{data.resetPasses.pro}
+						</div>
+					</div>
+					<div className="rounded-lg border border-border/60 bg-card p-4">
+						<div className="text-xs uppercase tracking-wide text-muted-foreground">
+							Max passes
+						</div>
+						<div className="mt-2 text-2xl font-semibold tabular-nums">
+							{data.resetPasses.max}
+						</div>
+					</div>
+					<div className="rounded-lg border border-border/60 bg-card p-4">
+						<div className="text-xs uppercase tracking-wide text-muted-foreground">
+							Included remaining
+						</div>
+						<div className="mt-2 text-2xl font-semibold tabular-nums">
+							{data.resetPasses.includedRemaining}
+						</div>
+						<div className="mt-1 text-xs text-muted-foreground">
+							This billing cycle, on the current tier
+						</div>
 					</div>
 				</div>
 			</section>

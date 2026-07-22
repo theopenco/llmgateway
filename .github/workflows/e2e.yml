@@ -92,6 +92,7 @@ jobs:
           LLM_DEEPINFRA_API_KEY: ${{ secrets.LLM_DEEPINFRA_API_KEY }}
           LLM_SAKANA_API_KEY: ${{ secrets.LLM_SAKANA_API_KEY }}
           LLM_META_API_KEY: ${{ secrets.LLM_META_API_KEY }}
+          LLM_GONKA_24_API_KEY: ${{ secrets.LLM_GONKA_24_API_KEY }}
 
       - name: Upload shard results
         if: always()
