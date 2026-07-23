@@ -548,6 +548,11 @@ export interface ProviderModelMapping {
 	 */
 	ocr?: boolean;
 	/**
+	 * Whether this model uses a dedicated rerank API.
+	 * When true, requests are routed to the gateway's /v1/rerank endpoint.
+	 */
+	rerank?: boolean;
+	/**
 	 * Prebuilt voices supported for speech generation models. The first entry is
 	 * used as the default when the caller does not specify a `voice`.
 	 */
@@ -640,7 +645,15 @@ export interface ModelDefinition {
 	/**
 	 * Output formats supported by the model (defaults to ['text'] if not specified)
 	 */
-	output?: ("text" | "image" | "video" | "embedding" | "audio" | "ocr")[];
+	output?: (
+		| "text"
+		| "image"
+		| "video"
+		| "embedding"
+		| "audio"
+		| "ocr"
+		| "rerank"
+	)[];
 	/**
 	 * Whether this model requires an image input to function (e.g. image editing models).
 	 */

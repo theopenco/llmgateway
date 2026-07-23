@@ -2922,4 +2922,73 @@ export const alibabaModels = [
 			},
 		],
 	},
+	{
+		id: "qwen3-reranker-8b",
+		name: "Qwen3 Reranker 8B",
+		description:
+			"Qwen3 cross-encoder reranker with 32K context for search and RAG pipelines. Delivers accurate relevance scoring by jointly encoding query-document pairs. 8B size.",
+		family: "alibaba",
+		output: ["rerank"],
+		releasedAt: new Date("2025-06-06"),
+		providers: [
+			{
+				providerId: "deepinfra",
+				externalId: "Qwen/Qwen3-Reranker-8B",
+				inputPrice: "0.05e-6",
+				outputPrice: "0",
+				requestPrice: "0",
+				contextSize: 32768,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				rerank: true,
+			},
+		],
+	},
+	{
+		id: "qwen3-reranker-4b",
+		name: "Qwen3 Reranker 4B",
+		description:
+			"Mid-size Qwen3 cross-encoder reranker with 32K context, balancing speed and accuracy for document relevance scoring in search and RAG workloads. 4B size.",
+		family: "alibaba",
+		output: ["rerank"],
+		releasedAt: new Date("2025-06-06"),
+		providers: [
+			{
+				providerId: "deepinfra",
+				externalId: "Qwen/Qwen3-Reranker-4B",
+				inputPrice: "0.03e-6",
+				outputPrice: "0",
+				requestPrice: "0",
+				contextSize: 32768,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				rerank: true,
+			},
+		],
+	},
+	{
+		id: "qwen3-reranker-0.6b",
+		name: "Qwen3 Reranker 0.6B",
+		description:
+			"Lightweight Qwen3 cross-encoder reranker with 32K context for latency-sensitive search and RAG applications. Fast scoring at minimal cost. 0.6B size.",
+		family: "alibaba",
+		output: ["rerank"],
+		releasedAt: new Date("2025-06-06"),
+		providers: [
+			{
+				providerId: "deepinfra",
+				externalId: "Qwen/Qwen3-Reranker-0.6B",
+				inputPrice: "0.01e-6",
+				outputPrice: "0",
+				requestPrice: "0",
+				contextSize: 32768,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				rerank: true,
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];

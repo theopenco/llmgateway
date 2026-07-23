@@ -26,7 +26,9 @@ export function ModelCtaButton({
 	const { user, isLoading } = useUser({ enabled: isAuthenticated });
 	const isLoggedIn = !!user && !isLoading;
 
-	if (isLoggedIn) {
+	// Rerank models have no playground studio — logged-in users see the
+	// "Get Started" CTA too (no chat playground to link to).
+	if (isLoggedIn && !output?.includes("rerank")) {
 		const studioPath = output?.includes("video")
 			? "/video"
 			: output?.includes("image")
