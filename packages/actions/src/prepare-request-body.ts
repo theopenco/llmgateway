@@ -1757,6 +1757,14 @@ export async function prepareRequestBody(
 								},
 				};
 
+				if (usedProvider === "aws-mantle") {
+					// Mantle stores responses for 30 days by default (store: true).
+					// The gateway reconstructs conversations itself and never reads
+					// provider-stored responses, so opt out to keep the provider's
+					// zero-retention data policy accurate.
+					responsesBody.store = false;
+				}
+
 				if (usedProvider === "openai") {
 					if (supportedServiceTier) {
 						responsesBody.service_tier = supportedServiceTier;
