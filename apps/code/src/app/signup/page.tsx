@@ -33,7 +33,7 @@ const formSchema = z.object({
 	email: z.string().email({ message: "Please enter a valid email address" }),
 	password: z
 		.string()
-		.min(8, { message: "Password must be at least 8 characters" }),
+		.min(12, { message: "Password must be at least 12 characters" }),
 });
 
 function getSafeRedirectUrl(url: string | null): string {
