@@ -7,6 +7,7 @@ import {
 	deleteResendContact,
 	updateResendContact,
 } from "@/auth/config.js";
+import { notifyUserAccountDeleted } from "@/utils/discord.js";
 import { computeProfileData, profileSchema } from "@/utils/profile.js";
 
 import { and, db, eq, tables } from "@llmgateway/db";
@@ -502,6 +503,8 @@ user.openapi(deleteUser, async (c) => {
 	}
 
 	await db.delete(tables.user).where(eq(tables.user.id, authUser.id));
+
+	await notifyUserAccountDeleted(userRecord.email, userRecord.name);
 
 	await deleteResendContact(userRecord.email);
 
