@@ -40,14 +40,14 @@ That puts K3 on the hard reasoning and a $0 model on the housekeeping.
 
 ## Kimi K3 in Cursor
 
-Cursor routes its **chat / plan panel** (Cmd/Ctrl + L) through a custom OpenAI-compatible endpoint. Setup:
+Cursor routes its **AI panel** (Cmd/Ctrl + L) — both plan mode and agent mode — through a custom OpenAI-compatible endpoint. Setup:
 
 1. Open **Cursor Settings → Models**
 2. Add your LLM Gateway key under **OpenAI API Key**
 3. Enable **Override OpenAI Base URL** and set it to `https://api.llmgateway.io/v1`
 4. Add `kimi-k3` as a custom model and select it
 
-Be aware of the boundary: Cursor's Composer, inline edit (Cmd/Ctrl + K), and autocomplete are locked to Cursor's own backend and will not route through any external endpoint. Plan and chat with K3's full 1M context in Cursor; if you want K3 driving the actual agent loop, use Claude Code or Cline instead.
+Be aware of the boundary: Cursor's inline edit (Cmd/Ctrl + K) and tab autocomplete are locked to Cursor's own backend and will not route through any external endpoint. Plan, chat, and run agent tasks with K3's full 1M context in Cursor; for completions and inline edits on K3, use Claude Code or Cline instead.
 
 ## Kimi K3 in Cline
 
