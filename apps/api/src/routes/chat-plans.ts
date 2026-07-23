@@ -554,6 +554,18 @@ chatPlans.openapi(changeTier, async (c) => {
 					"Upgrade payment could not be collected. Update your payment method and try again.",
 			});
 		}
+		// `error_if_incomplete` throws this when the bank demands 3DS/SCA
+		// authentication, which can't be completed server-side; the subscription
+		// is left unchanged. Also an expected user-facing outcome, so 402 + warn.
+		if (errCode === "subscription_payment_intent_requires_action") {
+			logger.warn("Chat plan tier change requires payment authentication", {
+				code: errCode,
+			});
+			throw new HTTPException(402, {
+				message:
+					"Your bank requires additional verification to complete this payment. Update or re-add your payment method and try again.",
+			});
+		}
 		logger.error(
 			"Stripe chat plan tier change error",
 			error instanceof Error ? error : new Error(String(error)),
