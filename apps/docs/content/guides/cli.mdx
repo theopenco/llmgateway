@@ -124,24 +124,7 @@ npx @llmgateway/cli launch --list
 npx @llmgateway/cli launch --dry-run codex
 ```
 
-Every supported agent also works as a direct shortcut, e.g. `npx @llmgateway/cli claude` or `npx @llmgateway/cli devpass-code`.
-
-**Supported agents and how they're configured:**
-
-| Agent         | Launch                    | Configuration                                                                      |
-| ------------- | ------------------------- | ---------------------------------------------------------------------------------- |
-| DevPass Code  | `llmgateway devpass-code` | First-party agent — key refreshed in its `auth.json` + `LLMGATEWAY_API_KEY`        |
-| Claude Code   | `llmgateway claude`       | `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` env vars                             |
-| OpenCode      | `llmgateway opencode`     | Built-in `llmgateway` provider — key refreshed in its `auth.json`                  |
-| Empryo        | `llmgateway empryo`       | Registers your key via `empryo --set-key llmgateway` (finds the desktop app's CLI) |
-| SoulForge     | `llmgateway soulforge`    | Registers your key via `soulforge --set-key llmgateway`                            |
-| Codex CLI     | `llmgateway codex`        | Per-session `-c` provider overrides (no config file changes)                       |
-| Autohand Code | `llmgateway autohand`     | `OPENAI_BASE_URL` + `OPENAI_API_KEY` env vars                                      |
-| Pi            | `llmgateway pi`           | Adds an `llmgateway` provider to `~/.pi/agent/models.json`                         |
-| Kimi Code     | `llmgateway kimi`         | Adds an `llmgateway` provider to `~/.kimi-code/config.toml`                        |
-| MiMo Code     | `llmgateway mimo`         | Routes the provider through the gateway in `mimocode.json`                         |
-| OpenClaw      | `llmgateway openclaw`     | Adds an `llmgateway` provider to `~/.openclaw/openclaw.json`                       |
-| Hermes Agent  | `llmgateway hermes`       | Runs `hermes setup` with gateway values on first launch                            |
+Every supported agent also works as a direct shortcut, e.g. `npx @llmgateway/cli claude` or `npx @llmgateway/cli devpass-code`. The launcher configures each agent automatically — environment variables, config files, or the agent's own key-registration command, whichever that agent needs — without overwriting your existing setup.
 
 The API key is resolved from `--key`, the `LLMGATEWAY_API_KEY` environment variable, or the key stored by `llmgateway auth login --key` — in that order. Before launching, the key is verified against the gateway; a stale key (e.g. one you rolled or deleted) is reported with its exact source and the launcher falls back to the next valid one, prompting you for a fresh key if none works. If an agent isn't installed, the launcher prints its official install command and exits.
 
