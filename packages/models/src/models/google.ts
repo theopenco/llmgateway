@@ -2284,10 +2284,8 @@ export const googleModels = [
 			{
 				providerId: "scx-ai",
 				externalId: "gemma-4-31B-it",
-				// 0.54 AUD / 1.63 AUD per 1M tokens at 0.692662 AUD/USD
-				inputPrice: "0.374e-6",
-				cachedInputPrice: "0.0561e-6",
-				outputPrice: "1.129e-6",
+				inputPrice: "0.30e-6",
+				outputPrice: "0.91e-6",
 				requestPrice: "0",
 				contextSize: 131072,
 				maxOutput: 8192,

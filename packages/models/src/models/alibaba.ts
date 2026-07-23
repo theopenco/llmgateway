@@ -719,10 +719,8 @@ export const alibabaModels = [
 			{
 				providerId: "scx-ai",
 				externalId: "Qwen3-32B",
-				// 1.105 AUD / 2.635 AUD per 1M tokens at 0.692662 AUD/USD
-				inputPrice: "0.7654e-6",
-				cachedInputPrice: "0.11481e-6",
-				outputPrice: "1.8252e-6",
+				inputPrice: "0.36e-6",
+				outputPrice: "0.87e-6",
 				requestPrice: "0",
 				contextSize: 32768,
 				maxOutput: 8192,
