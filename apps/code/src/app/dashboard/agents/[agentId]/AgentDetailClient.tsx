@@ -77,7 +77,11 @@ function escapeCsvValue(value: unknown): string {
 	if (value === null || value === undefined) {
 		return "";
 	}
-	const str = String(value);
+	let str = String(value);
+	// Guard against spreadsheet formula injection for string values.
+	if (typeof value === "string" && /^[=+\-@\t\r]/.test(str)) {
+		str = `'${str}`;
+	}
 	if (/[",\n]/.test(str)) {
 		return `"${str.replace(/"/g, '""')}"`;
 	}
@@ -121,6 +125,7 @@ function TimeRangePicker({
 				<button
 					key={range}
 					type="button"
+					aria-pressed={value === range}
 					onClick={() => onChange(range)}
 					className={`rounded-sm px-2.5 py-1 text-xs font-medium transition-colors ${
 						value === range
@@ -594,7 +599,7 @@ function AgentDetailBody({
 						to try again.
 					</p>
 				</div>
-			) : logs.length === 0 ? (
+			) : logs.length === 0 && !hasNextPage ? (
 				<div className="rounded-xl border bg-card/50 p-8 text-center">
 					<div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
 						<Icon className="h-5 w-5 text-muted-foreground" />
