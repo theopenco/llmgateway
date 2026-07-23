@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 
 import { AgentsView } from "@/components/activity/agents-view";
 import { DevPassCard } from "@/components/dashboard/devpass-card";
+import { parseAgentTimeRange } from "@/lib/agent-time-ranges";
 import { DEVPASS_CARD_COLLAPSED_COOKIE } from "@/lib/cookies";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -17,11 +18,7 @@ export default async function AgentsPage({
 	const { orgId, projectId } = await params;
 	const searchParamsData = await searchParams;
 
-	const validTimeRanges = ["1h", "4h", "24h", "7d", "30d"];
-	const rawTimeRange = searchParamsData?.timeRange;
-	const timeRange = validTimeRanges.includes(rawTimeRange ?? "")
-		? (rawTimeRange as "1h" | "4h" | "24h" | "7d" | "30d")
-		: "7d";
+	const timeRange = parseAgentTimeRange(searchParamsData?.timeRange);
 
 	const initialData = await fetchServerData<SourceActivityData>(
 		"GET",

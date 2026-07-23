@@ -20,6 +20,12 @@ import {
 	type TimeRangeValue,
 } from "@/components/time-range-picker";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
+import {
+	AGENT_TIME_RANGE_HOURS,
+	AGENT_TIME_RANGES,
+	parseAgentTimeRange,
+} from "@/lib/agent-time-ranges";
+import { useToast } from "@/lib/components/use-toast";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
 
 import { CODING_AGENTS } from "@llmgateway/shared";
@@ -76,14 +82,6 @@ const AGENTS: AgentDefinition[] = CODING_AGENTS.map((agent) => ({
 	sources: agent.xSourceValues,
 }));
 
-const AGENT_TIME_RANGES: readonly TimeRangeValue[] = [
-	"1h",
-	"4h",
-	"24h",
-	"7d",
-	"30d",
-];
-
 interface AgentStats {
 	agent: AgentDefinition;
 	requestCount: number;
@@ -111,19 +109,61 @@ function getTimeRangeWindow(timeRange: TimeRangeValue): {
 	to: Date;
 } {
 	const to = new Date();
-	const from = new Date(to);
-	const hours =
-		timeRange === "1h"
-			? 1
-			: timeRange === "4h"
-				? 4
-				: timeRange === "24h"
-					? 24
-					: timeRange === "30d"
-						? 30 * 24
-						: 7 * 24;
-	from.setTime(to.getTime() - hours * 60 * 60 * 1000);
+	const windowMs = AGENT_TIME_RANGE_HOURS[timeRange] * 60 * 60 * 1000;
+	const from = new Date(to.getTime() - windowMs);
 	return { from, to };
+}
+
+const CSV_HEADERS = [
+	"createdAt",
+	"usedProvider",
+	"usedModel",
+	"finishReason",
+	"promptTokens",
+	"completionTokens",
+	"totalTokens",
+	"cachedTokens",
+	"cost",
+	"hasError",
+	"streamed",
+	"duration",
+	"requestId",
+	"id",
+];
+
+function escapeCsvValue(value: unknown): string {
+	if (value === null || value === undefined) {
+		return "";
+	}
+	const str = String(value);
+	if (/[",\n]/.test(str)) {
+		return `"${str.replace(/"/g, '""')}"`;
+	}
+	return str;
+}
+
+function buildLogsCsv(logs: ApiLog[]): string {
+	const rows = logs.map((log) =>
+		[
+			log.createdAt,
+			log.usedProvider,
+			log.usedModel,
+			log.unifiedFinishReason ?? log.finishReason ?? "",
+			log.promptTokens,
+			log.completionTokens,
+			log.totalTokens,
+			log.cachedTokens ?? "",
+			log.cost,
+			log.hasError,
+			log.streamed,
+			log.duration,
+			log.requestId,
+			log.id,
+		]
+			.map(escapeCsvValue)
+			.join(","),
+	);
+	return [CSV_HEADERS.join(","), ...rows].join("\n");
 }
 
 function toUiLog(log: ApiLog): Partial<Log> {
@@ -418,6 +458,18 @@ function AgentDetail({
 		return { from: from.toISOString(), to: to.toISOString() };
 	}, [timeRange]);
 
+	const logsQuery = useMemo(
+		() => ({
+			orderBy: "createdAt_desc" as const,
+			projectId,
+			limit: "100",
+			source: stats.agent.sources.join(","),
+			startDate: range.from,
+			endDate: range.to,
+		}),
+		[projectId, stats.agent.sources, range.from, range.to],
+	);
+
 	const {
 		data,
 		isLoading,
@@ -430,14 +482,7 @@ function AgentDetail({
 		"/logs",
 		{
 			params: {
-				query: {
-					orderBy: "createdAt_desc",
-					projectId,
-					limit: "100",
-					source: stats.agent.sources.join(","),
-					startDate: range.from,
-					endDate: range.to,
-				},
+				query: logsQuery,
 			},
 		},
 		{
@@ -473,7 +518,7 @@ function AgentDetail({
 		const observer = new IntersectionObserver(
 			(entries) => {
 				if (entries[0]?.isIntersecting) {
-					fetchNextPage();
+					void fetchNextPage();
 				}
 			},
 			{ rootMargin: "400px" },
@@ -483,100 +528,37 @@ function AgentDetail({
 	}, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
 	const fetchClient = useFetchClient();
+	const { toast } = useToast();
 	const [isExporting, setIsExporting] = useState(false);
 
 	const handleExportCsv = useCallback(async () => {
 		setIsExporting(true);
 		try {
-			const collected: ApiLog[] = [];
 			// Pages already loaded via the infinite query are reused to avoid
-			// re-fetching them; remaining pages are fetched directly.
+			// re-fetching them; remaining pages are fetched directly. Any failed
+			// page fetch aborts the export so a partial CSV is never downloaded.
 			const pages = data?.pages ?? [];
-			for (const page of pages) {
-				for (const log of page?.logs ?? []) {
-					collected.push(log);
-				}
-			}
+			const collected: ApiLog[] = pages.flatMap((page) => page?.logs ?? []);
 			const lastPage = pages[pages.length - 1];
-			let cursor = lastPage?.pagination
-				?.nextCursor as string | undefined;
-			let hasMore = !!lastPage?.pagination?.hasMore;
-			if (hasMore && cursor) {
-				while (cursor) {
-					const res = await fetchClient.GET("/logs", {
-						params: {
-							query: {
-								orderBy: "createdAt_desc",
-								projectId,
-								limit: "100",
-								source: stats.agent.sources.join(","),
-								startDate: range.from,
-								endDate: range.to,
-								cursor,
-							},
-						},
-					});
-					const body = res.data;
-					if (!body) {
-						break;
-					}
-					for (const log of body.logs) {
-						collected.push(log);
-					}
-					if (!body.pagination.hasMore || !body.pagination.nextCursor) {
-						break;
-					}
-					cursor = body.pagination.nextCursor;
+			let cursor = lastPage?.pagination?.hasMore
+				? (lastPage.pagination.nextCursor ?? undefined)
+				: undefined;
+			while (cursor) {
+				const res = await fetchClient.GET("/logs", {
+					params: {
+						query: { ...logsQuery, cursor },
+					},
+				});
+				const body = res.data;
+				if (!body) {
+					throw new Error("Failed to fetch logs for export");
 				}
+				collected.push(...body.logs);
+				cursor = body.pagination.hasMore
+					? (body.pagination.nextCursor ?? undefined)
+					: undefined;
 			}
-			const exportLogs = collected.filter((log) => !log.retriedByLogId);
-			const headers = [
-				"createdAt",
-				"usedProvider",
-				"usedModel",
-				"finishReason",
-				"promptTokens",
-				"completionTokens",
-				"totalTokens",
-				"cachedTokens",
-				"cost",
-				"hasError",
-				"streamed",
-				"duration",
-				"requestId",
-				"id",
-			];
-			const escape = (value: unknown) => {
-				if (value === null || value === undefined) {
-					return "";
-				}
-				const str = String(value);
-				if (/[",\n]/.test(str)) {
-					return `"${str.replace(/"/g, '""')}"`;
-				}
-				return str;
-			};
-			const rows = exportLogs.map((log) =>
-				[
-					log.createdAt,
-					log.usedProvider,
-					log.usedModel,
-					log.unifiedFinishReason ?? log.finishReason ?? "",
-					log.promptTokens,
-					log.completionTokens,
-					log.totalTokens,
-					log.cachedTokens ?? "",
-					log.cost,
-					log.hasError,
-					log.streamed,
-					log.duration,
-					log.requestId,
-					log.id,
-				]
-					.map(escape)
-					.join(","),
-			);
-			const csv = [headers.join(","), ...rows].join("\n");
+			const csv = buildLogsCsv(collected.filter((log) => !log.retriedByLogId));
 			const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
 			const url = URL.createObjectURL(blob);
 			const a = document.createElement("a");
@@ -586,19 +568,17 @@ function AgentDetail({
 			a.click();
 			document.body.removeChild(a);
 			URL.revokeObjectURL(url);
+		} catch {
+			toast({
+				title: "Export failed",
+				description:
+					"Could not fetch all requests for this period. Please try again.",
+				variant: "destructive",
+			});
 		} finally {
 			setIsExporting(false);
 		}
-	}, [
-		data,
-		fetchClient,
-		projectId,
-		stats.agent.id,
-		stats.agent.sources,
-		range.from,
-		range.to,
-		timeRange,
-	]);
+	}, [data, fetchClient, logsQuery, stats.agent.id, timeRange, toast]);
 
 	return (
 		<div className="space-y-4">
@@ -611,39 +591,39 @@ function AgentDetail({
 				Back to agents
 			</button>
 
-		<div className="flex items-center justify-between gap-4 pb-2">
-			<div className="flex items-center gap-4">
-				<div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-muted">
-					<Icon className="h-6 w-6" />
-				</div>
-				<div>
-					<h3 className="text-lg font-semibold tracking-tight">
-						{stats.agent.label}
-					</h3>
-					<div className="flex items-center gap-3 text-sm text-muted-foreground">
-						<span>
-							{logs.length.toLocaleString()} of{" "}
-							{stats.requestCount.toLocaleString()} request
-							{stats.requestCount !== 1 ? "s" : ""}
-						</span>
-						<span className="text-border">&middot;</span>
-						<span>${stats.totalCost.toFixed(2)}</span>
-						<span className="text-border">&middot;</span>
-						<span>{formatTokens(stats.totalTokens)} tokens</span>
+			<div className="flex items-center justify-between gap-4 pb-2">
+				<div className="flex items-center gap-4">
+					<div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-muted">
+						<Icon className="h-6 w-6" />
+					</div>
+					<div>
+						<h3 className="text-lg font-semibold tracking-tight">
+							{stats.agent.label}
+						</h3>
+						<div className="flex items-center gap-3 text-sm text-muted-foreground">
+							<span>
+								{logs.length.toLocaleString()} of{" "}
+								{stats.requestCount.toLocaleString()} request
+								{stats.requestCount !== 1 ? "s" : ""}
+							</span>
+							<span className="text-border">&middot;</span>
+							<span>${stats.totalCost.toFixed(2)}</span>
+							<span className="text-border">&middot;</span>
+							<span>{formatTokens(stats.totalTokens)} tokens</span>
+						</div>
 					</div>
 				</div>
+				<button
+					type="button"
+					onClick={handleExportCsv}
+					disabled={isExporting || logs.length === 0}
+					className="inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/50 disabled:opacity-50"
+					title="Export all requests in this period to CSV"
+				>
+					<Download className="h-4 w-4" />
+					{isExporting ? "Exporting..." : "Export CSV"}
+				</button>
 			</div>
-			<button
-				type="button"
-				onClick={handleExportCsv}
-				disabled={isExporting || logs.length === 0}
-				className="inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/50 disabled:opacity-50"
-				title="Export all requests in this period to CSV"
-			>
-				<Download className="h-4 w-4" />
-				{isExporting ? "Exporting..." : "Export CSV"}
-			</button>
-		</div>
 
 			<div className="space-y-3">
 				{isLoading ? (
@@ -668,23 +648,23 @@ function AgentDetail({
 							projectId={projectId}
 						/>
 					))
-			)}
+				)}
 
-			{/* Auto-load sentinel: fetches the next page when scrolled into view. */}
-			<div ref={sentinelRef} className="h-1" />
-			{hasNextPage && (
-				<div className="flex justify-center pt-2">
-					<button
-						type="button"
-						onClick={() => fetchNextPage()}
-						disabled={isFetchingNextPage}
-						className="rounded-md border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/50 disabled:opacity-50"
-					>
-						{isFetchingNextPage ? "Loading more..." : "Load more sessions"}
-					</button>
-				</div>
-			)}
-		</div>
+				{/* Auto-load sentinel: fetches the next page when scrolled into view. */}
+				<div ref={sentinelRef} className="h-1" />
+				{hasNextPage && (
+					<div className="flex justify-center pt-2">
+						<button
+							type="button"
+							onClick={() => fetchNextPage()}
+							disabled={isFetchingNextPage}
+							className="rounded-md border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/50 disabled:opacity-50"
+						>
+							{isFetchingNextPage ? "Loading more..." : "Load more sessions"}
+						</button>
+					</div>
+				)}
+			</div>
 		</div>
 	);
 }
@@ -737,12 +717,7 @@ export function AgentsView({
 	const { buildUrl } = useDashboardNavigation();
 	const api = useApi();
 
-	const timeRangeParam = searchParams.get("timeRange");
-	const timeRange: TimeRangeValue = AGENT_TIME_RANGES.includes(
-		timeRangeParam as TimeRangeValue,
-	)
-		? (timeRangeParam as TimeRangeValue)
-		: "7d";
+	const timeRange = parseAgentTimeRange(searchParams.get("timeRange"));
 
 	const updateTimeRange = (newTimeRange: TimeRangeValue) => {
 		const params = new URLSearchParams(searchParams);
