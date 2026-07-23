@@ -73,13 +73,13 @@ function ScoreMeter({ label, value }: { label: string; value: number }) {
 			<span className="w-14 shrink-0 font-mono text-[9px] uppercase tracking-[0.15em] text-muted-foreground">
 				{label}
 			</span>
-			<div className="h-1.5 w-24 overflow-hidden rounded-full bg-stone-200 dark:bg-stone-800">
+			<div className="h-1.5 flex-1 overflow-hidden rounded-full bg-stone-200 dark:bg-stone-800 sm:w-24 sm:flex-none">
 				<div
 					className="h-full rounded-full bg-emerald-600 dark:bg-emerald-400"
 					style={{ width: `${(value / 5) * 100}%` }}
 				/>
 			</div>
-			<span className="w-8 text-right font-mono text-xs tabular-nums">
+			<span className="w-8 shrink-0 text-right font-mono text-xs tabular-nums">
 				{value.toFixed(1)}
 			</span>
 		</div>
@@ -89,8 +89,8 @@ function ScoreMeter({ label, value }: { label: string; value: number }) {
 function ModelRow({ model, rank }: { model: ModelSurveyModel; rank: number }) {
 	const topUseCase = model.useCases[0];
 	return (
-		<div className="flex flex-wrap items-center gap-x-6 gap-y-4 border-b border-dashed border-stone-300/80 px-4 py-5 last:border-b-0 dark:border-stone-700/80 sm:px-6">
-			<div className="flex min-w-0 flex-1 items-center gap-4">
+		<div className="border-b border-dashed border-stone-300/80 px-4 py-5 last:border-b-0 dark:border-stone-700/80 sm:flex sm:flex-wrap sm:items-center sm:gap-x-6 sm:gap-y-4 sm:px-6">
+			<div className="flex min-w-0 items-center gap-4 sm:flex-1">
 				<div
 					className={
 						rank === 1
@@ -100,7 +100,7 @@ function ModelRow({ model, rank }: { model: ModelSurveyModel; rank: number }) {
 				>
 					{rank}
 				</div>
-				<div className="min-w-0">
+				<div className="min-w-0 flex-1">
 					<div className="truncate font-mono text-sm font-semibold">
 						{model.modelId}
 					</div>
@@ -111,13 +111,21 @@ function ModelRow({ model, rank }: { model: ModelSurveyModel; rank: number }) {
 							: ""}
 					</div>
 				</div>
+				<div className="shrink-0 text-right sm:hidden">
+					<div className="font-mono text-xl font-bold tabular-nums">
+						{model.recommendPercent}%
+					</div>
+					<div className="font-mono text-[9px] uppercase tracking-[0.15em] text-muted-foreground">
+						recommend
+					</div>
+				</div>
 			</div>
-			<div className="space-y-1.5">
+			<div className="mt-4 space-y-1.5 sm:mt-0">
 				<ScoreMeter label="Value" value={model.avgValueScore} />
 				<ScoreMeter label="Quality" value={model.avgQualityScore} />
 				<ScoreMeter label="Speed" value={model.avgSpeedScore} />
 			</div>
-			<div className="w-24 text-right">
+			<div className="hidden w-24 text-right sm:block">
 				<div className="font-mono text-xl font-bold tabular-nums">
 					{model.recommendPercent}%
 				</div>
@@ -226,10 +234,10 @@ export default async function CensusPage({
 								},
 							].map((stat) => (
 								<div key={stat.label}>
-									<div className="font-mono text-3xl font-bold tabular-nums">
+									<div className="font-mono text-2xl font-bold tabular-nums sm:text-3xl">
 										{stat.value.toLocaleString()}
 									</div>
-									<div className="mt-1 font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+									<div className="mt-1 font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground sm:tracking-[0.2em]">
 										{stat.label}
 									</div>
 								</div>
@@ -241,11 +249,11 @@ export default async function CensusPage({
 				{/* Registry */}
 				<section className="px-4 py-12">
 					<div className="container mx-auto max-w-3xl">
-						<div className="mb-4 flex items-baseline justify-between">
-							<h2 className="font-mono text-[10px] uppercase tracking-[0.35em] text-stone-500 dark:text-stone-400">
+						<div className="mb-4 flex items-baseline justify-between gap-4">
+							<h2 className="font-mono text-[10px] uppercase tracking-[0.25em] text-stone-500 sm:tracking-[0.35em] dark:text-stone-400">
 								The registry · ranked by value score
 							</h2>
-							<span className="font-mono text-[9px] tracking-[0.25em] text-stone-400 dark:text-stone-500">
+							<span className="shrink-0 font-mono text-[9px] tracking-[0.25em] whitespace-nowrap text-stone-400 dark:text-stone-500">
 								Doc. CS-{year}
 							</span>
 						</div>
