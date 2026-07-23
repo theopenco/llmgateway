@@ -56,6 +56,7 @@ const modelSchema = z.object({
 					input_cache_write: z.string().optional(),
 					input_cache_write_1h: z.string().optional(),
 					ocr_page: z.string().optional(),
+					input_audio_hour: z.string().optional(),
 				})
 				.optional(),
 			streaming: z.union([z.boolean(), z.literal("only")]),
@@ -94,6 +95,7 @@ const modelSchema = z.object({
 		web_search: z.string().optional(),
 		internal_reasoning: z.string().optional(),
 		ocr_page: z.string().optional(),
+		input_audio_hour: z.string().optional(),
 	}),
 	context_length: z.number().optional(),
 	per_request_limits: z.record(z.string()).optional(),
@@ -349,7 +351,8 @@ function hasPricing(p: ProviderModelMapping): boolean {
 		p.outputPrice !== undefined ||
 		p.imageInputPrice !== undefined ||
 		p.perSecondPrice !== undefined ||
-		p.ocrPagePrice !== undefined
+		p.ocrPagePrice !== undefined ||
+		p.inputAudioHourPrice !== undefined
 	);
 }
 
@@ -375,6 +378,7 @@ function buildPricingFields(p: ProviderModelMapping | undefined) {
 		input_cache_write: p?.cacheWriteInputPrice?.toString() ?? "0",
 		input_cache_write_1h: p?.cacheWriteInputPrice1h?.toString() ?? "0",
 		ocr_page: p?.ocrPagePrice?.toString(),
+		input_audio_hour: p?.inputAudioHourPrice?.toString(),
 	};
 }
 
@@ -391,6 +395,9 @@ function pricingScore(p: ProviderModelMapping): number {
 	}
 	if (p.ocrPagePrice !== undefined) {
 		return Number(p.ocrPagePrice);
+	}
+	if (p.inputAudioHourPrice !== undefined) {
+		return Number(p.inputAudioHourPrice);
 	}
 	if (p.perSecondPrice) {
 		const values = Object.values(p.perSecondPrice).map(Number);

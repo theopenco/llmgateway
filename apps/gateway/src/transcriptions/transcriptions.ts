@@ -315,6 +315,9 @@ const createTranscription = createRoute({
 	},
 });
 
+// Promise<any> like the OCR route: the handler passes upstream JSON through
+// with runtime-determined status codes, which cannot satisfy OpenAPIHono's
+// RouteConfigToTypedResponse union derived from the declared schemas.
 transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 	const requestId = c.req.header("x-request-id")?.trim() || shortid(40);
 	c.header("x-request-id", requestId);
