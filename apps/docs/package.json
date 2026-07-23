@@ -34,7 +34,7 @@
 		"gateway": "workspace:*",
 		"hast-util-to-jsx-runtime": "2.3.6",
 		"lucide-react": "^0.544.0",
-		"next": "16.2.10",
+		"next": "16.2.11",
 		"posthog-js": "1.372.1",
 		"react": "^19.2.7",
 		"react-dom": "^19.2.7",
