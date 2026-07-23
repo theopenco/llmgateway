@@ -1,5 +1,6 @@
 import { Code, LogOut } from "lucide-react";
 import Link from "next/link";
+import { Suspense } from "react";
 
 import AgentDetailClient from "./AgentDetailClient";
 
@@ -34,7 +35,9 @@ export default async function AgentDetailPage({
 				</div>
 			</header>
 			<main className="container mx-auto max-w-6xl px-4 py-8">
-				<AgentDetailClient agentId={agentId} />
+				<Suspense>
+					<AgentDetailClient agentId={agentId} />
+				</Suspense>
 			</main>
 		</div>
 	);
