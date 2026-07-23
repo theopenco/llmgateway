@@ -209,6 +209,13 @@ export interface ProviderModelMapping {
 	 */
 	inputCharacterPrice?: Price;
 	/**
+	 * Price per hour of input audio in USD. Used by transcription
+	 * (speech-to-text) models that bill on audio duration rather than tokens
+	 * (e.g. xAI STT at $0.10/hour). Cost is computed against the `duration`
+	 * (seconds) reported by the upstream transcription response.
+	 */
+	inputAudioHourPrice?: Price;
+	/**
 	 * Price per image output token in USD (for models with separate text/image output pricing)
 	 */
 	imageOutputPrice?: Price;
@@ -541,6 +548,13 @@ export interface ProviderModelMapping {
 	 */
 	speechGenerations?: boolean;
 	/**
+	 * Whether this model uses a dedicated transcription (speech-to-text) API.
+	 * When true, requests are routed to the gateway's /v1/audio/transcriptions
+	 * endpoint, which turns audio into text rather than returning a chat
+	 * completion. Billed on audio duration via inputAudioHourPrice.
+	 */
+	transcriptions?: boolean;
+	/**
 	 * Whether this model uses a dedicated OCR (optical character recognition)
 	 * API. When true, requests are routed to the gateway's /v1/ocr endpoint,
 	 * which extracts text/markdown from documents and images rather than
@@ -640,7 +654,15 @@ export interface ModelDefinition {
 	/**
 	 * Output formats supported by the model (defaults to ['text'] if not specified)
 	 */
-	output?: ("text" | "image" | "video" | "embedding" | "audio" | "ocr")[];
+	output?: (
+		| "text"
+		| "image"
+		| "video"
+		| "embedding"
+		| "audio"
+		| "ocr"
+		| "transcription"
+	)[];
 	/**
 	 * Whether this model requires an image input to function (e.g. image editing models).
 	 */

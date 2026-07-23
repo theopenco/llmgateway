@@ -1,5 +1,62 @@
 import type { ModelDefinition } from "@/models.js";
 
+/**
+ * Preset voices for the Qwen TTS family, passed through 1:1 as the upstream
+ * DashScope `voice` parameter. The first entry ("Cherry") is the documented
+ * default voice and is used when the caller omits `voice`.
+ * Ref: https://www.alibabacloud.com/help/en/model-studio/qwen-tts-voice-list
+ */
+const QWEN_TTS_VOICES = [
+	"Cherry",
+	"Serena",
+	"Ethan",
+	"Chelsie",
+	"Momo",
+	"Vivian",
+	"Moon",
+	"Maia",
+	"Kai",
+	"Nofish",
+	"Bella",
+	"Jennifer",
+	"Ryan",
+	"Katerina",
+	"Aiden",
+	"Eldric Sage",
+	"Mia",
+	"Mochi",
+	"Bellona",
+	"Vincent",
+	"Bunny",
+	"Neil",
+	"Elias",
+	"Arthur",
+	"Nini",
+	"Seren",
+	"Pip",
+	"Stella",
+	"Bodega",
+	"Sonrisa",
+	"Alek",
+	"Dolce",
+	"Sohee",
+	"Ono Anna",
+	"Lenn",
+	"Emilien",
+	"Andre",
+	"Radio Gol",
+	"Jada",
+	"Dylan",
+	"Li",
+	"Marcus",
+	"Roy",
+	"Peter",
+	"Sunny",
+	"Eric",
+	"Rocky",
+	"Kiki",
+];
+
 export const alibabaModels = [
 	{
 		id: "qwen-max",
@@ -2917,6 +2974,60 @@ export const alibabaModels = [
 				],
 				supportsVideoAudio: true,
 				supportsVideoWithoutAudio: false,
+			},
+		],
+	},
+	{
+		id: "qwen-audio-3.0-tts-plus",
+		name: "Qwen-Audio-3.0-TTS Plus",
+		description:
+			"Alibaba's high-quality Qwen-Audio-3.0 text-to-speech model with natural prosody and contextually appropriate intonation across 16 languages. Generates speech via the /v1/audio/speech endpoint.",
+		family: "alibaba",
+		output: ["audio"],
+		releasedAt: new Date("2026-07-20"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "alibaba",
+				externalId: "qwen-audio-3.0-tts-plus",
+				inputPrice: "0",
+				outputPrice: "0",
+				// Billed per input character: $27.59 per million characters.
+				inputCharacterPrice: "27.59e-6",
+				requestPrice: "0",
+				contextSize: 20000,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				speechGenerations: true,
+				supportedVoices: QWEN_TTS_VOICES,
+			},
+		],
+	},
+	{
+		id: "qwen-audio-3.0-tts-flash",
+		name: "Qwen-Audio-3.0-TTS Flash",
+		description:
+			"Alibaba's low-latency Qwen-Audio-3.0 text-to-speech model optimized for real-time interaction across 16 languages. Generates speech via the /v1/audio/speech endpoint.",
+		family: "alibaba",
+		output: ["audio"],
+		releasedAt: new Date("2026-07-20"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "alibaba",
+				externalId: "qwen-audio-3.0-tts-flash",
+				inputPrice: "0",
+				outputPrice: "0",
+				// Billed per input character: $27.59 per million characters.
+				inputCharacterPrice: "27.59e-6",
+				requestPrice: "0",
+				contextSize: 20000,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				speechGenerations: true,
+				supportedVoices: QWEN_TTS_VOICES,
 			},
 		],
 	},

@@ -23,7 +23,15 @@ const modelSchema = z.object({
 	architecture: z.object({
 		input_modalities: z.array(z.enum(["text", "image", "video", "embedding"])),
 		output_modalities: z.array(
-			z.enum(["text", "image", "video", "embedding", "audio", "ocr"]),
+			z.enum([
+				"text",
+				"image",
+				"video",
+				"embedding",
+				"audio",
+				"ocr",
+				"transcription",
+			]),
 		),
 		tokenizer: z.string().optional(),
 	}),
@@ -224,6 +232,7 @@ modelsApi.openapi(listModels, async (c) => {
 				| "embedding"
 				| "audio"
 				| "ocr"
+				| "transcription"
 			)[] = model.output ?? ["text"];
 
 			// Source the model-level pricing from the cheapest provider mapping
