@@ -1,60 +1,19 @@
 import type { ModelDefinition } from "@/models.js";
 
 /**
- * Preset voices for the Qwen TTS family, passed through 1:1 as the upstream
- * DashScope `voice` parameter. The first entry ("Cherry") is the documented
- * default voice and is used when the caller omits `voice`.
- * Ref: https://www.alibabacloud.com/help/en/model-studio/qwen-tts-voice-list
+ * Preset system voices for the Qwen-Audio-3.0-TTS models, passed through 1:1
+ * as the upstream DashScope `voice` parameter. Each model only supports its
+ * own voice set (voices cannot be mixed between models), and the first entry
+ * is used as the default when the caller omits `voice`. Both models also
+ * accept cloned/custom voice ids, which the gateway does not enumerate.
+ * Ref: https://help.aliyun.com/zh/model-studio/qwen-audio-tts-voice-list
  */
-const QWEN_TTS_VOICES = [
-	"Cherry",
-	"Serena",
-	"Ethan",
-	"Chelsie",
-	"Momo",
-	"Vivian",
-	"Moon",
-	"Maia",
-	"Kai",
-	"Nofish",
-	"Bella",
-	"Jennifer",
-	"Ryan",
-	"Katerina",
-	"Aiden",
-	"Eldric Sage",
-	"Mia",
-	"Mochi",
-	"Bellona",
-	"Vincent",
-	"Bunny",
-	"Neil",
-	"Elias",
-	"Arthur",
-	"Nini",
-	"Seren",
-	"Pip",
-	"Stella",
-	"Bodega",
-	"Sonrisa",
-	"Alek",
-	"Dolce",
-	"Sohee",
-	"Ono Anna",
-	"Lenn",
-	"Emilien",
-	"Andre",
-	"Radio Gol",
-	"Jada",
-	"Dylan",
-	"Li",
-	"Marcus",
-	"Roy",
-	"Peter",
-	"Sunny",
-	"Eric",
-	"Rocky",
-	"Kiki",
+const QWEN_AUDIO_TTS_PLUS_VOICES = ["longanlingxin", "longanlufeng"];
+const QWEN_AUDIO_TTS_FLASH_VOICES = [
+	"longanhuan_v3.6",
+	"longjielidou_v3.6",
+	"loongeva_v3.6",
+	"loongjohn",
 ];
 
 export const alibabaModels = [
@@ -3000,7 +2959,7 @@ export const alibabaModels = [
 				tools: false,
 				jsonOutput: false,
 				speechGenerations: true,
-				supportedVoices: QWEN_TTS_VOICES,
+				supportedVoices: QWEN_AUDIO_TTS_PLUS_VOICES,
 			},
 		],
 	},
@@ -3027,7 +2986,7 @@ export const alibabaModels = [
 				tools: false,
 				jsonOutput: false,
 				speechGenerations: true,
-				supportedVoices: QWEN_TTS_VOICES,
+				supportedVoices: QWEN_AUDIO_TTS_FLASH_VOICES,
 			},
 		],
 	},

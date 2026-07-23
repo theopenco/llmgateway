@@ -1375,11 +1375,12 @@ mockOpenAIServer.post("/v1/audio/speech", async (c) => {
 	});
 });
 
-// Alibaba DashScope non-streaming TTS: the response carries a short-lived URL
-// to the synthesized WAV file rather than inline audio, so the mock points the
-// URL back at this server's /mock-dashscope-audio.wav endpoint.
+// Alibaba DashScope non-streaming TTS (SpeechSynthesizer): the response
+// carries a short-lived URL to the synthesized WAV file rather than inline
+// audio, so the mock points the URL back at this server's
+// /mock-dashscope-audio.wav endpoint.
 mockOpenAIServer.post(
-	"/api/v1/services/aigc/multimodal-generation/generation",
+	"/api/v1/services/audio/tts/SpeechSynthesizer",
 	async (c) => {
 		const body = await c.req.json();
 		const text = typeof body.input?.text === "string" ? body.input.text : "";

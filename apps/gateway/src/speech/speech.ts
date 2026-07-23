@@ -719,14 +719,16 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				}
 			: isAlibaba
 				? {
-						// DashScope multimodal-generation TTS shape. Language is
-						// auto-detected; `instructions` and `speed` have no upstream
-						// equivalent on Qwen TTS, matching the tts-1 behavior of
-						// forwarding only what the model accepts.
+						// DashScope SpeechSynthesizer shape: format and sample rate live
+						// inside `input`. Language is auto-detected; `instructions` and
+						// `speed` have no upstream equivalent on Qwen-Audio-TTS, matching
+						// the tts-1 behavior of forwarding only what the model accepts.
 						model: upstreamModel,
 						input: {
 							text: request.input,
 							voice,
+							format: responseFormat,
+							sample_rate: 24000,
 						},
 					}
 				: {
@@ -869,7 +871,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		} else if (isElevenLabs) {
 			upstreamUrl = `${resolvedBaseUrl}/v1/text-to-speech/${encodeURIComponent(elevenLabsVoiceId)}?output_format=${elevenLabsOutputFormat}`;
 		} else if (isAlibaba) {
-			upstreamUrl = `${resolvedBaseUrl}/api/v1/services/aigc/multimodal-generation/generation`;
+			upstreamUrl = `${resolvedBaseUrl}/api/v1/services/audio/tts/SpeechSynthesizer`;
 		} else if (isGoogleVertex) {
 			const vertexProjectId =
 				providerKey?.options?.google_vertex_project_id ??

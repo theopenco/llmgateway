@@ -444,7 +444,7 @@ describe("speech", () => {
 			body: JSON.stringify({
 				model: "qwen-audio-3.0-tts-plus",
 				input,
-				voice: "Cherry",
+				voice: "longanlingxin",
 			}),
 		});
 
