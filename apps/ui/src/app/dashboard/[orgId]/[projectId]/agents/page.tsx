@@ -17,7 +17,11 @@ export default async function AgentsPage({
 	const { orgId, projectId } = await params;
 	const searchParamsData = await searchParams;
 
-	const timeRange = searchParamsData?.timeRange === "30d" ? "30d" : "7d";
+	const validTimeRanges = ["1h", "4h", "24h", "7d", "30d"];
+	const rawTimeRange = searchParamsData?.timeRange;
+	const timeRange = validTimeRanges.includes(rawTimeRange ?? "")
+		? (rawTimeRange as "1h" | "4h" | "24h" | "7d" | "30d")
+		: "7d";
 
 	const initialData = await fetchServerData<SourceActivityData>(
 		"GET",

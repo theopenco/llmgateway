@@ -1,6 +1,5 @@
 "use client";
 
-import { subDays } from "date-fns";
 import {
 	ArrowLeft,
 	ChevronDown,
@@ -8,11 +7,12 @@ import {
 	Clock,
 	Coins,
 	Cpu,
+	Download,
 	Terminal,
 	Zap,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { LogCard } from "@/components/dashboard/log-card";
 import {
@@ -20,7 +20,7 @@ import {
 	type TimeRangeValue,
 } from "@/components/time-range-picker";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
-import { useApi } from "@/lib/fetch-client";
+import { useApi, useFetchClient } from "@/lib/fetch-client";
 
 import { CODING_AGENTS } from "@llmgateway/shared";
 import {
@@ -76,7 +76,13 @@ const AGENTS: AgentDefinition[] = CODING_AGENTS.map((agent) => ({
 	sources: agent.xSourceValues,
 }));
 
-const AGENTS_TIME_RANGES = ["7d", "30d"] as const;
+const AGENT_TIME_RANGES: readonly TimeRangeValue[] = [
+	"1h",
+	"4h",
+	"24h",
+	"7d",
+	"30d",
+];
 
 interface AgentStats {
 	agent: AgentDefinition;
@@ -100,8 +106,24 @@ interface Session {
 
 const SESSION_GAP_MS = 30 * 60 * 1000;
 
-function timeRangeToDays(timeRange: TimeRangeValue): number {
-	return timeRange === "30d" ? 30 : 7;
+function getTimeRangeWindow(timeRange: TimeRangeValue): {
+	from: Date;
+	to: Date;
+} {
+	const to = new Date();
+	const from = new Date(to);
+	const hours =
+		timeRange === "1h"
+			? 1
+			: timeRange === "4h"
+				? 4
+				: timeRange === "24h"
+					? 24
+					: timeRange === "30d"
+						? 30 * 24
+						: 7 * 24;
+	from.setTime(to.getTime() - hours * 60 * 60 * 1000);
+	return { from, to };
 }
 
 function toUiLog(log: ApiLog): Partial<Log> {
@@ -392,8 +414,7 @@ function AgentDetail({
 	const api = useApi();
 
 	const range = useMemo(() => {
-		const to = new Date();
-		const from = subDays(to, timeRangeToDays(timeRange));
+		const { from, to } = getTimeRangeWindow(timeRange);
 		return { from: from.toISOString(), to: to.toISOString() };
 	}, [timeRange]);
 
@@ -441,6 +462,144 @@ function AgentDetail({
 
 	const sessions = useMemo(() => groupLogsIntoSessions(logs), [logs]);
 
+	const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+	// Auto-load next page when the sentinel scrolls into view.
+	useEffect(() => {
+		const node = sentinelRef.current;
+		if (!node || !hasNextPage || isFetchingNextPage) {
+			return;
+		}
+		const observer = new IntersectionObserver(
+			(entries) => {
+				if (entries[0]?.isIntersecting) {
+					fetchNextPage();
+				}
+			},
+			{ rootMargin: "400px" },
+		);
+		observer.observe(node);
+		return () => observer.disconnect();
+	}, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+	const fetchClient = useFetchClient();
+	const [isExporting, setIsExporting] = useState(false);
+
+	const handleExportCsv = useCallback(async () => {
+		setIsExporting(true);
+		try {
+			const collected: ApiLog[] = [];
+			// Pages already loaded via the infinite query are reused to avoid
+			// re-fetching them; remaining pages are fetched directly.
+			const pages = data?.pages ?? [];
+			for (const page of pages) {
+				for (const log of page?.logs ?? []) {
+					collected.push(log);
+				}
+			}
+			const lastPage = pages[pages.length - 1];
+			let cursor = lastPage?.pagination
+				?.nextCursor as string | undefined;
+			let hasMore = !!lastPage?.pagination?.hasMore;
+			if (hasMore && cursor) {
+				while (cursor) {
+					const res = await fetchClient.GET("/logs", {
+						params: {
+							query: {
+								orderBy: "createdAt_desc",
+								projectId,
+								limit: "100",
+								source: stats.agent.sources.join(","),
+								startDate: range.from,
+								endDate: range.to,
+								cursor,
+							},
+						},
+					});
+					const body = res.data;
+					if (!body) {
+						break;
+					}
+					for (const log of body.logs) {
+						collected.push(log);
+					}
+					if (!body.pagination.hasMore || !body.pagination.nextCursor) {
+						break;
+					}
+					cursor = body.pagination.nextCursor;
+				}
+			}
+			const exportLogs = collected.filter((log) => !log.retriedByLogId);
+			const headers = [
+				"createdAt",
+				"usedProvider",
+				"usedModel",
+				"finishReason",
+				"promptTokens",
+				"completionTokens",
+				"totalTokens",
+				"cachedTokens",
+				"cost",
+				"hasError",
+				"streamed",
+				"duration",
+				"requestId",
+				"id",
+			];
+			const escape = (value: unknown) => {
+				if (value === null || value === undefined) {
+					return "";
+				}
+				const str = String(value);
+				if (/[",\n]/.test(str)) {
+					return `"${str.replace(/"/g, '""')}"`;
+				}
+				return str;
+			};
+			const rows = exportLogs.map((log) =>
+				[
+					log.createdAt,
+					log.usedProvider,
+					log.usedModel,
+					log.unifiedFinishReason ?? log.finishReason ?? "",
+					log.promptTokens,
+					log.completionTokens,
+					log.totalTokens,
+					log.cachedTokens ?? "",
+					log.cost,
+					log.hasError,
+					log.streamed,
+					log.duration,
+					log.requestId,
+					log.id,
+				]
+					.map(escape)
+					.join(","),
+			);
+			const csv = [headers.join(","), ...rows].join("\n");
+			const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement("a");
+			a.href = url;
+			a.download = `${stats.agent.id}-requests-${timeRange}.csv`;
+			document.body.appendChild(a);
+			a.click();
+			document.body.removeChild(a);
+			URL.revokeObjectURL(url);
+		} finally {
+			setIsExporting(false);
+		}
+	}, [
+		data,
+		fetchClient,
+		projectId,
+		stats.agent.id,
+		stats.agent.sources,
+		range.from,
+		range.to,
+		timeRange,
+	]);
+
 	return (
 		<div className="space-y-4">
 			<button
@@ -452,7 +611,8 @@ function AgentDetail({
 				Back to agents
 			</button>
 
-			<div className="flex items-center gap-4 pb-2">
+		<div className="flex items-center justify-between gap-4 pb-2">
+			<div className="flex items-center gap-4">
 				<div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-muted">
 					<Icon className="h-6 w-6" />
 				</div>
@@ -462,6 +622,7 @@ function AgentDetail({
 					</h3>
 					<div className="flex items-center gap-3 text-sm text-muted-foreground">
 						<span>
+							{logs.length.toLocaleString()} of{" "}
 							{stats.requestCount.toLocaleString()} request
 							{stats.requestCount !== 1 ? "s" : ""}
 						</span>
@@ -472,6 +633,17 @@ function AgentDetail({
 					</div>
 				</div>
 			</div>
+			<button
+				type="button"
+				onClick={handleExportCsv}
+				disabled={isExporting || logs.length === 0}
+				className="inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/50 disabled:opacity-50"
+				title="Export all requests in this period to CSV"
+			>
+				<Download className="h-4 w-4" />
+				{isExporting ? "Exporting..." : "Export CSV"}
+			</button>
+		</div>
 
 			<div className="space-y-3">
 				{isLoading ? (
@@ -496,21 +668,23 @@ function AgentDetail({
 							projectId={projectId}
 						/>
 					))
-				)}
+			)}
 
-				{hasNextPage && (
-					<div className="flex justify-center pt-2">
-						<button
-							type="button"
-							onClick={() => fetchNextPage()}
-							disabled={isFetchingNextPage}
-							className="rounded-md border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/50 disabled:opacity-50"
-						>
-							{isFetchingNextPage ? "Loading more..." : "Load more sessions"}
-						</button>
-					</div>
-				)}
-			</div>
+			{/* Auto-load sentinel: fetches the next page when scrolled into view. */}
+			<div ref={sentinelRef} className="h-1" />
+			{hasNextPage && (
+				<div className="flex justify-center pt-2">
+					<button
+						type="button"
+						onClick={() => fetchNextPage()}
+						disabled={isFetchingNextPage}
+						className="rounded-md border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/50 disabled:opacity-50"
+					>
+						{isFetchingNextPage ? "Loading more..." : "Load more sessions"}
+					</button>
+				</div>
+			)}
+		</div>
 		</div>
 	);
 }
@@ -563,8 +737,12 @@ export function AgentsView({
 	const { buildUrl } = useDashboardNavigation();
 	const api = useApi();
 
-	const timeRange: TimeRangeValue =
-		searchParams.get("timeRange") === "30d" ? "30d" : "7d";
+	const timeRangeParam = searchParams.get("timeRange");
+	const timeRange: TimeRangeValue = AGENT_TIME_RANGES.includes(
+		timeRangeParam as TimeRangeValue,
+	)
+		? (timeRangeParam as TimeRangeValue)
+		: "7d";
 
 	const updateTimeRange = (newTimeRange: TimeRangeValue) => {
 		const params = new URLSearchParams(searchParams);
@@ -609,7 +787,7 @@ export function AgentsView({
 				<TimeRangePicker
 					value={timeRange}
 					onChange={updateTimeRange}
-					allowedValues={AGENTS_TIME_RANGES}
+					allowedValues={AGENT_TIME_RANGES}
 				/>
 				{!selectedStats && agentStats.length > 0 && (
 					<div className="flex items-center gap-3 text-sm text-muted-foreground">

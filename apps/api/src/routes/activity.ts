@@ -887,7 +887,7 @@ const getSourceActivity = createRoute({
 	request: {
 		query: z.object({
 			projectId: z.string(),
-			timeRange: z.enum(["7d", "30d"]).optional(),
+			timeRange: z.enum(["1h", "4h", "24h", "7d", "30d"]).optional(),
 			from: z.string().optional(),
 			to: z.string().optional(),
 		}),
@@ -926,7 +926,17 @@ activity.openapi(getSourceActivity, async (c) => {
 	} else {
 		endDate = new Date();
 		startDate = new Date();
-		startDate.setDate(startDate.getDate() - (timeRange === "30d" ? 30 : 7));
+		const hours =
+			timeRange === "1h"
+				? 1
+				: timeRange === "4h"
+					? 4
+					: timeRange === "24h"
+						? 24
+						: timeRange === "30d"
+							? 30 * 24
+							: 7 * 24;
+		startDate.setTime(startDate.getTime() - hours * 60 * 60 * 1000);
 	}
 
 	if (!(await userHasProjectAccess(user.id, projectId))) {
