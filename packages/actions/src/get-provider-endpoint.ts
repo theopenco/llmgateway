@@ -108,6 +108,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	groq: "https://api.groq.com/openai",
 	cerebras: "https://api.cerebras.ai",
 	deepseek: "https://api.deepseek.com",
+	edenai: "https://api.edenai.run/v3",
 	perplexity: "https://api.perplexity.ai",
 	novita: "https://api.novita.ai/v3/openai",
 	moonshot: "https://api.moonshot.ai",
@@ -499,6 +500,8 @@ export function getProviderEndpoint(
 			const vaEndpoint = stream ? "streamRawPredict" : "rawPredict";
 			return `${url}/v1/projects/${vaProjectId}/locations/${vaRegion}/publishers/anthropic/models/${vaModel}:${vaEndpoint}`;
 		}
+		case "edenai":
+			return `${url}/chat/completions`;
 		case "perplexity":
 			return `${url}/chat/completions`;
 		case "novita":

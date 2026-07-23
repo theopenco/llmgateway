@@ -657,6 +657,33 @@ export const providers: ProviderDefinition[] = [
 		priority: 1.2,
 	},
 	{
+		id: "edenai",
+		name: "Eden AI",
+		description:
+			"Eden AI's unified API routing to many providers via an OpenAI-compatible interface",
+		env: {
+			required: {
+				apiKey: "LLM_EDENAI_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#4318D1",
+		website: "https://www.edenai.co",
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: "https://www.edenai.co/terms",
+		privacyPolicyUrl: "https://www.edenai.co/privacy-policy",
+		headquarters: "FR",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: null,
+			gdpr: true,
+		},
+	},
+	{
 		id: "alibaba",
 		name: "Alibaba Cloud",
 		description:
