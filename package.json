@@ -92,11 +92,11 @@
 			"lodash-es@<4.18.0": "^4.18.1",
 			"picomatch@<2.3.2": "^2.3.2",
 			"picomatch@>=4 <4.0.4": "^4.0.4",
-			"fast-uri@<3.1.2": "^3.1.2",
+			"fast-uri@<3.1.4": "^3.1.4",
 			"fast-xml-builder@<1.1.7": "^1.1.7",
 			"uuid@<11.1.1": "^11.1.1",
 			"dompurify@<3.4.11": "^3.4.11",
-			"fast-xml-parser@<5.7.0": "^5.7.0",
+			"fast-xml-parser@<5.10.1": "^5.10.1",
 			"postcss@<8.5.10": "^8.5.10",
 			"ip-address@<10.1.1": "^10.1.1",
 			"qs@<6.15.2": "^6.15.2",
@@ -116,6 +116,8 @@
 			"form-data@>=4.0.0 <4.0.6": "^4.0.6",
 			"undici@<6.27.0": "^6.27.0",
 			"@opentelemetry/core@<2.8.0": "^2.8.0",
+			"@opentelemetry/propagator-jaeger@<2.9.0": "^2.9.0",
+			"sharp@<0.35.0": "^0.35.0",
 			"@babel/core@<=7.29.0": "^7.29.6"
 		},
 		"packageExtensions": {

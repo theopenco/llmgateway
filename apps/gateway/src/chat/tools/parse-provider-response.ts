@@ -980,6 +980,18 @@ export function parseProviderResponse(
 					}
 				}
 
+				// SCX returns finish_reason "stop" even when the message contains
+				// tool calls; normalize to "tool_calls" so downstream consumers see
+				// the OpenAI-standard value.
+				if (
+					usedProvider === "scx-ai" &&
+					finishReason === "stop" &&
+					Array.isArray(toolResults) &&
+					toolResults.length > 0
+				) {
+					finishReason = "tool_calls";
+				}
+
 				// Standard OpenAI-style token parsing
 				promptTokens = json.usage?.prompt_tokens ?? null;
 				completionTokens = json.usage?.completion_tokens ?? null;

@@ -458,6 +458,21 @@ export const moonshotModels = [
 				jsonOutput: false,
 			},
 			{
+				providerId: "gonka24",
+				externalId: "kimi-k2.6",
+				inputPrice: "0.22e-6",
+				cachedInputPrice: "0.048e-6",
+				outputPrice: "1.137e-6",
+				requestPrice: "0",
+				contextSize: 262144,
+				maxOutput: 98304,
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
 				providerId: "tundra",
 				externalId: "kimi-k2.6",
 				// Tundra rejects tool_choice="required" with a 400; named/forced
@@ -485,6 +500,30 @@ export const moonshotModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+			},
+			{
+				providerId: "nebius",
+				externalId: "moonshotai/Kimi-K2.6",
+				// Streaming tool calls are unreliable on this deployment: required
+				// choices can end without a tool call, while named choices can leak raw
+				// control tokens into argument deltas (verified 2026-07-22).
+				stability: "unstable",
+				// Only auto and none produced consistently valid streaming responses.
+				supportedToolChoices: ["auto", "none"],
+				inputPrice: "0.95e-6",
+				outputPrice: "4.0e-6",
+				requestPrice: "0",
+				contextSize: 262144,
+				maxOutput: undefined,
+				quantization: "int4",
+				streaming: true,
+				reasoning: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				// JSON mode has intermittently returned markdown-fenced JSON, so
+				// normalize it defensively in both modes.
+				healStreamingJsonOutput: true,
 			},
 		],
 	},
@@ -523,6 +562,25 @@ export const moonshotModels = [
 					"tool_choice",
 					"reasoning_effort",
 				],
+			},
+			{
+				providerId: "nebius",
+				externalId: "moonshotai/Kimi-K2.7-Code",
+				inputPrice: "0.95e-6",
+				outputPrice: "4.0e-6",
+				requestPrice: "0",
+				// The model card advertises 256K context, and Nebius accepted an
+				// 84K-token prompt live (verified 2026-07-22).
+				contextSize: 262144,
+				maxOutput: undefined,
+				quantization: "fp4",
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: true,
+				// JSON mode returns the object in reasoning_content with empty
+				// content on this deployment (verified 2026-07-22).
+				jsonOutput: false,
 			},
 		],
 	},

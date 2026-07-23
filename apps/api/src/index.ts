@@ -36,6 +36,7 @@ import { publicContact } from "./routes/public-contact.js";
 import { publicDiscounts } from "./routes/public-discounts.js";
 import { publicLeaderboard } from "./routes/public-leaderboard.js";
 import { publicModelRatings } from "./routes/public-model-ratings.js";
+import { publicModelSurvey } from "./routes/public-model-survey.js";
 import { publicNewsletter } from "./routes/public-newsletter.js";
 import { publicProfile } from "./routes/public-profile.js";
 import { publicProvidersStats } from "./routes/public-providers-stats.js";
@@ -313,6 +314,7 @@ app.route("/public/profile", publicProfile);
 app.route("/public/leaderboard", publicLeaderboard);
 app.route("/public/providers/stats", publicProvidersStats);
 app.route("/public/model-ratings", publicModelRatings);
+app.route("/public/model-survey", publicModelSurvey);
 
 app.doc("/json", config);
 

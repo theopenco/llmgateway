@@ -10,6 +10,7 @@ export default defineConfig({
 			"**/dist/**",
 			"**/*.e2e.ts",
 			".conductor/**",
+			".claude/**",
 		],
 		environment: "node",
 		testTimeout: 30000, // Increased timeout for tests

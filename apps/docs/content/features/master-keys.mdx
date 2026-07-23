@@ -8,7 +8,7 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 # Master Keys
 
-Master keys are org-scoped bearer tokens that let you create projects and gateway API keys programmatically — without going through the dashboard. They are intended for server-to-server provisioning (e.g. multi-tenant onboarding from your own backend).
+Master keys are org-scoped bearer tokens that let you create projects, gateway API keys, and IAM rules (both per key and per organization member) programmatically — without going through the dashboard. They are intended for server-to-server provisioning (e.g. multi-tenant onboarding from your own backend).
 
 <Callout type="info">
 	Master keys are available on the **Enterprise** plan only. Contact us at
@@ -485,4 +485,91 @@ Response (200):
 
 ```json
 { "message": "IAM rule deleted successfully" }
+```
+
+## Member IAM rules
+
+The same rule types can be applied to an **organization member** instead of a single API key. Member-level rules are an organization-wide ceiling: a request must pass both the member's rules and the key's rules, so key rules can only narrow access further, never expand it. They apply to all regular API keys created by that member. See [Member-Level IAM Rules](/features/api-keys#member-level-iam-rules) for the full semantics.
+
+The `{member}` path parameter accepts either the **membership id** or the member's **email address** (matched case-insensitively). Email references must resolve to a user who is a member of the master key's organization — an email belonging to a user outside the organization, or an unknown reference, returns a `404`.
+
+The `ruleType`, `ruleValue`, and `status` fields are identical to the per-key IAM endpoints above.
+
+### List member IAM rules
+
+`GET /v1/master/members/{member}/iam`
+
+```bash
+curl https://internal.llmgateway.io/v1/master/members/jane@example.com/iam \
+  -H "Authorization: Bearer $MASTER_KEY"
+```
+
+Response (200):
+
+```json
+{
+	"rules": [
+		{
+			"id": "iam_...",
+			"userOrganizationId": "uo_...",
+			"ruleType": "allow_providers",
+			"ruleValue": {
+				"providers": ["openai"]
+			},
+			"status": "active",
+			"createdAt": "...",
+			"updatedAt": "..."
+		}
+	]
+}
+```
+
+### Create a member IAM rule
+
+`POST /v1/master/members/{member}/iam`
+
+```bash
+curl -X POST https://internal.llmgateway.io/v1/master/members/jane@example.com/iam \
+  -H "Authorization: Bearer $MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ruleType": "allow_providers",
+    "ruleValue": {
+      "providers": ["openai"]
+    }
+  }'
+```
+
+Response (201): the created member IAM rule.
+
+### Update a member IAM rule
+
+`PATCH /v1/master/members/{member}/iam/{ruleId}`
+
+All body fields are optional; provide only the ones you want to change.
+
+```bash
+curl -X PATCH https://internal.llmgateway.io/v1/master/members/uo_.../iam/iam_... \
+  -H "Authorization: Bearer $MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "status": "inactive"
+  }'
+```
+
+Response (200): the updated member IAM rule.
+
+### Delete a member IAM rule
+
+`DELETE /v1/master/members/{member}/iam/{ruleId}`
+
+```bash
+curl -X DELETE https://internal.llmgateway.io/v1/master/members/uo_.../iam/iam_... \
+  -H "Authorization: Bearer $MASTER_KEY"
+```
+
+Response (200):
+
+```json
+{ "message": "Member IAM rule deleted successfully" }
 ```

@@ -11,6 +11,7 @@ import {
 	Globe,
 	Linkedin,
 	Share2,
+	Zap,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
@@ -219,7 +220,12 @@ export function ModelCard({
 			}
 			map.get(key)!.mappings.push(provider);
 		}
-		return Array.from(map.values());
+		// Providers with a marketing badge (e.g. SCX.ai "Up to 4x faster") first
+		return Array.from(map.values()).sort(
+			(a, b) =>
+				Number(Boolean(b.providerInfo?.modelCardBadge)) -
+				Number(Boolean(a.providerInfo?.modelCardBadge)),
+		);
 	}, [model.providerDetails]);
 
 	// Determine the best discount across all providers for the header badge
@@ -593,6 +599,12 @@ export function ProviderSection({
 					<StabilityDot stability={activeMapping.stability} />
 					{hasProviderStabilityWarning(activeMapping) && (
 						<AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+					)}
+					{providerInfo?.modelCardBadge && (
+						<Badge className="text-[10px] px-1.5 py-0 h-4 gap-1 font-semibold whitespace-nowrap shrink-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+							<Zap className="h-2.5 w-2.5" />
+							{providerInfo.modelCardBadge}
+						</Badge>
 					)}
 				</div>
 				<div className="flex items-center gap-1 shrink-0">

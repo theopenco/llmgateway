@@ -134,6 +134,8 @@ export interface ProviderDefinition {
 	statusPageUrl?: string | null;
 	// Announcement text
 	announcement?: string | null;
+	// Short marketing badge shown on this provider's model cards (e.g. "Up to 4x faster")
+	modelCardBadge?: string | null;
 	// Instructions for creating an API key
 	apiKeyInstructions?: string;
 	// Learn more URL for API key creation
@@ -1204,6 +1206,33 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
+		id: "scx-ai",
+		name: "SCX.ai",
+		description:
+			"SCX.ai is an Australian sovereign AI platform providing OpenAI-compatible Turbo inference endpoints — up to 4x faster than comparable providers — for a range of open models and SCX's own models, hosted on renewable-powered infrastructure.",
+		env: {
+			required: {
+				apiKey: "LLM_SCX_AI_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#1a1a2e",
+		modelCardBadge: "Up to 4x faster",
+		website: "https://scx.ai",
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: "https://scx.ai/terms",
+		privacyPolicyUrl: "https://scx.ai/privacy",
+		headquarters: "AU",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+		},
+	},
+	{
 		id: "custom",
 		name: "Custom",
 		description: "Custom OpenAI-compatible provider with configurable base URL",
@@ -1537,6 +1566,27 @@ export const providers: ProviderDefinition[] = [
 			gdpr: true,
 		},
 	},
+	{
+		id: "gonka24",
+		name: "Gonka24",
+		description:
+			"Gonka24 serves open-weight large language models via an OpenAI-compatible inference gateway.",
+		env: {
+			required: {
+				apiKey: "LLM_GONKA_24_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#000000",
+		website: "https://gonka24.com",
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: null,
+		privacyPolicyUrl: null,
+		headquarters: null,
+		dataPolicy: null,
+	},
 ] as const satisfies ProviderDefinition[];
 
 export type ProviderId = (typeof providers)[number]["id"];
@@ -1631,6 +1681,7 @@ export const PROVIDER_COUNTRY_NAMES: Record<string, string> = {
 	NL: "Netherlands",
 	FR: "France",
 	JP: "Japan",
+	AU: "Australia",
 };
 
 /** Convert an ISO 3166-1 alpha-2 country code to its Unicode flag emoji. */
