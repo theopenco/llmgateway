@@ -54,6 +54,7 @@ import {
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
+	getOrganizationEnvVariant,
 	getProviderEnvValue,
 	models as modelDefinitions,
 	resolveVertexTokenType,
@@ -666,6 +667,10 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 	};
 	const retryOrganization = organization;
 
+	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
+	// this org's env-credential reads. Undefined = base vars only.
+	const envVariant = getOrganizationEnvVariant(retryOrganization);
+
 	const isGoogleAiStudio = providerId === "google-ai-studio";
 	const isGoogleVertex = providerId === "google-vertex";
 	const googleInputs: string[] =
@@ -737,6 +742,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			const envResult = getProviderEnv(providerId, {
 				selectionScope: upstreamModel,
 				excludedIndices: excludedEnvKeyIndices,
+				variant: envVariant,
 			});
 			usedToken = envResult.token;
 			configIndex = envResult.configIndex;
@@ -762,6 +768,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				const envResult = getProviderEnv(providerId, {
 					selectionScope: upstreamModel,
 					excludedIndices: excludedEnvKeyIndices,
+					variant: envVariant,
 				});
 				usedToken = envResult.token;
 				configIndex = envResult.configIndex;
@@ -796,7 +803,13 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		// that don't declare a baseUrl env in packages/models/src/providers.ts,
 		// so the ?? chain falls through safely. providerKey.baseUrl still wins
 		// when set, so BYOK callers can opt out by configuring their own.
-		const envBaseUrl = getProviderEnvValue(providerId, "baseUrl", configIndex);
+		const envBaseUrl = getProviderEnvValue(
+			providerId,
+			"baseUrl",
+			configIndex,
+			undefined,
+			envVariant,
+		);
 		const resolvedBaseUrl =
 			providerKey?.baseUrl ??
 			envBaseUrl ??
@@ -855,7 +868,13 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			}
 			const vertexProjectId =
 				providerKey?.options?.google_vertex_project_id ??
-				getProviderEnvValue("google-vertex", "project", configIndex);
+				getProviderEnvValue(
+					"google-vertex",
+					"project",
+					configIndex,
+					undefined,
+					envVariant,
+				);
 			if (!vertexProjectId) {
 				return {
 					kind: "json_error",
@@ -872,8 +891,13 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				};
 			}
 			const vertexRegion =
-				getProviderEnvValue("google-vertex", "region", configIndex, "global") ??
-				"global";
+				getProviderEnvValue(
+					"google-vertex",
+					"region",
+					configIndex,
+					"global",
+					envVariant,
+				) ?? "global";
 
 			// OAuth tokens are sent via the Authorization header (below); only API
 			// keys go in the `?key=` query param. Resolve once so the header and
@@ -884,6 +908,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				providerKey?.options ?? undefined,
 				configIndex,
 				providerKey !== undefined,
+				envVariant,
 			);
 			const vertexAuthQuery =
 				vertexTokenType === "oauth"

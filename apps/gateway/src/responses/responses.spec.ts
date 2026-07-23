@@ -779,6 +779,235 @@ describe("streaming conversion", () => {
 		expect(JSON.parse(fcDone!.data).item.name).toBe("get_weather");
 	});
 
+	it("gives the message and a following tool call distinct output_index values", () => {
+		const state = createStreamingState("gpt-4o-mini");
+		const contentEvents = processStreamChunk(
+			{ choices: [{ delta: { content: "Let me check" } }] },
+			state,
+		);
+		const toolEvents = processStreamChunk(
+			{
+				choices: [
+					{
+						delta: {
+							tool_calls: [
+								{
+									index: 0,
+									id: "call_1",
+									function: { name: "get_weather", arguments: "{}" },
+								},
+							],
+						},
+					},
+				],
+			},
+			state,
+		);
+
+		const msgAdded = JSON.parse(
+			contentEvents.find(
+				(e) =>
+					e.event === "response.output_item.added" &&
+					JSON.parse(e.data).item.type === "message",
+			)!.data,
+		);
+		const fcAdded = JSON.parse(
+			toolEvents.find(
+				(e) =>
+					e.event === "response.output_item.added" &&
+					JSON.parse(e.data).item.type === "function_call",
+			)!.data,
+		);
+		expect(msgAdded.output_index).not.toBe(fcAdded.output_index);
+
+		const events = createCompletionEvents(state);
+		const msgDone = JSON.parse(
+			events.find(
+				(e) =>
+					e.event === "response.output_item.done" &&
+					JSON.parse(e.data).item.type === "message",
+			)!.data,
+		);
+		// The message keeps the same output_index across added and done.
+		expect(msgDone.output_index).toBe(msgAdded.output_index);
+
+		// The final output array is ordered by output_index (message before tool).
+		const completed = JSON.parse(
+			events.find((e) => e.event === "response.completed")!.data,
+		);
+		const types = completed.response.output.map(
+			(o: Record<string, unknown>) => o.type,
+		);
+		expect(types).toEqual(["message", "function_call"]);
+	});
+
+	it("gives reasoning and a following message distinct output_index values", () => {
+		const state = createStreamingState("gpt-4o-mini");
+		const reasoningEvents = processStreamChunk(
+			{ choices: [{ delta: { reasoning: "let me think" } }] },
+			state,
+		);
+		const contentEvents = processStreamChunk(
+			{ choices: [{ delta: { content: "Here is the answer" } }] },
+			state,
+		);
+
+		const reasoningAdded = JSON.parse(
+			reasoningEvents.find(
+				(e) =>
+					e.event === "response.output_item.added" &&
+					JSON.parse(e.data).item.type === "reasoning",
+			)!.data,
+		);
+		const msgAdded = JSON.parse(
+			contentEvents.find(
+				(e) =>
+					e.event === "response.output_item.added" &&
+					JSON.parse(e.data).item.type === "message",
+			)!.data,
+		);
+		expect(reasoningAdded.output_index).not.toBe(msgAdded.output_index);
+
+		const events = createCompletionEvents(state);
+		const completed = JSON.parse(
+			events.find((e) => e.event === "response.completed")!.data,
+		);
+		const types = completed.response.output.map(
+			(o: Record<string, unknown>) => o.type,
+		);
+		expect(types).toEqual(["reasoning", "message"]);
+	});
+
+	it("keeps tool-call output_index aligned when reasoning precedes multi-chunk tool calls", () => {
+		const state = createStreamingState("gpt-4o-mini");
+		processStreamChunk(
+			{ choices: [{ delta: { reasoning: "thinking" } }] },
+			state,
+		);
+		// First tool call opens.
+		processStreamChunk(
+			{
+				choices: [
+					{
+						delta: {
+							tool_calls: [
+								{
+									index: 0,
+									id: "call_a",
+									function: { name: "get_weather", arguments: "" },
+								},
+							],
+						},
+					},
+				],
+			},
+			state,
+		);
+		// Extra argument chunk for the same tool call — previously this
+		// bumped the shared index on every chunk, inflating later slots.
+		processStreamChunk(
+			{
+				choices: [
+					{
+						delta: {
+							tool_calls: [
+								{ index: 0, function: { arguments: '{"city":"NYC"}' } },
+							],
+						},
+					},
+				],
+			},
+			state,
+		);
+		// Second tool call opens.
+		const secondToolEvents = processStreamChunk(
+			{
+				choices: [
+					{
+						delta: {
+							tool_calls: [
+								{
+									index: 1,
+									id: "call_b",
+									function: { name: "get_time", arguments: "{}" },
+								},
+							],
+						},
+					},
+				],
+			},
+			state,
+		);
+
+		const secondAdded = JSON.parse(
+			secondToolEvents.find(
+				(e) =>
+					e.event === "response.output_item.added" &&
+					JSON.parse(e.data).item.type === "function_call",
+			)!.data,
+		);
+
+		const events = createCompletionEvents(state);
+		const completed = JSON.parse(
+			events.find((e) => e.event === "response.completed")!.data,
+		);
+		const output = completed.response.output as Record<string, unknown>[];
+
+		// The streamed output_index for the second tool call must match its
+		// position in the final, index-sorted response.output array.
+		const finalPos = output.findIndex(
+			(o) => o.type === "function_call" && o.name === "get_time",
+		);
+		expect(secondAdded.output_index).toBe(finalPos);
+
+		const types = output.map((o) => o.type);
+		expect(types).toEqual(["reasoning", "function_call", "function_call"]);
+	});
+
+	it("emits annotation events with the message's output_index", () => {
+		const state = createStreamingState("gpt-4o-mini");
+		const contentEvents = processStreamChunk(
+			{ choices: [{ delta: { content: "According to the docs" } }] },
+			state,
+		);
+		const annotationEvents = processStreamChunk(
+			{
+				choices: [
+					{
+						delta: {
+							annotations: [
+								{
+									type: "url_citation",
+									url_citation: {
+										url: "https://example.com",
+										title: "Example",
+										start_index: 0,
+										end_index: 10,
+									},
+								},
+							],
+						},
+					},
+				],
+			},
+			state,
+		);
+
+		const msgAdded = JSON.parse(
+			contentEvents.find(
+				(e) =>
+					e.event === "response.output_item.added" &&
+					JSON.parse(e.data).item.type === "message",
+			)!.data,
+		);
+		const annAdded = JSON.parse(
+			annotationEvents.find(
+				(e) => e.event === "response.output_text.annotation.added",
+			)!.data,
+		);
+		expect(annAdded.output_index).toBe(msgAdded.output_index);
+	});
+
 	it("maps length finish_reason to incomplete status in streaming", () => {
 		const state = createStreamingState("gpt-4o-mini");
 		processStreamChunk(

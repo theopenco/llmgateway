@@ -45,6 +45,7 @@ import { getProviderHeaders } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
+	getOrganizationEnvVariant,
 	getProviderEnvValue,
 	models as modelDefinitions,
 } from "@llmgateway/models";
@@ -553,6 +554,10 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 	};
 	const retryOrganization = organization;
 
+	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
+	// this org's env-credential reads. Undefined = base vars only.
+	const envVariant = getOrganizationEnvVariant(retryOrganization);
+
 	const upstreamRequestBody: Record<string, unknown> = {
 		...ocrParams,
 		model: upstreamModel,
@@ -606,6 +611,7 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 			const envResult = getProviderEnv(providerId, {
 				selectionScope: upstreamModel,
 				excludedIndices: excludedEnvKeyIndices,
+				variant: envVariant,
 			});
 			usedToken = envResult.token;
 			configIndex = envResult.configIndex;
@@ -631,6 +637,7 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 				const envResult = getProviderEnv(providerId, {
 					selectionScope: upstreamModel,
 					excludedIndices: excludedEnvKeyIndices,
+					variant: envVariant,
 				});
 				usedToken = envResult.token;
 				configIndex = envResult.configIndex;
@@ -658,7 +665,13 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 			});
 		}
 
-		const envBaseUrl = getProviderEnvValue(providerId, "baseUrl", configIndex);
+		const envBaseUrl = getProviderEnvValue(
+			providerId,
+			"baseUrl",
+			configIndex,
+			undefined,
+			envVariant,
+		);
 		const resolvedBaseUrl =
 			providerKey?.baseUrl ?? envBaseUrl ?? "https://api.mistral.ai";
 

@@ -159,6 +159,8 @@ import {
 	supportsServiceTier,
 	type WebSearchTool,
 	expandAllProviderRegions,
+	type EnvVarVariant,
+	getOrganizationEnvVariant,
 	getProviderDefinition,
 	getRegionSpecificEnvVarName,
 	getProviderEnvValue,
@@ -843,6 +845,7 @@ function getForwardedServiceTier(
 	region: string | undefined,
 	serviceTier: "auto" | "default" | "flex" | "priority" | undefined,
 	configIndex?: number,
+	variant?: EnvVarVariant,
 ): "flex" | "priority" | undefined {
 	if (serviceTier !== "flex" && serviceTier !== "priority") {
 		return undefined;
@@ -850,7 +853,13 @@ function getForwardedServiceTier(
 	const effectiveRegion =
 		provider === "google-vertex"
 			? (region ??
-				getProviderEnvValue("google-vertex", "region", configIndex, "global") ??
+				getProviderEnvValue(
+					"google-vertex",
+					"region",
+					configIndex,
+					"global",
+					variant,
+				) ??
 				"global")
 			: region;
 	return supportsServiceTier(
@@ -885,11 +894,18 @@ function mappingSupportsRequestedServiceTier(
 	mapping: ProviderModelMapping,
 	serviceTier: "flex" | "priority",
 	configIndex?: number,
+	variant?: EnvVarVariant,
 ): boolean {
 	const effectiveRegion =
 		mapping.providerId === "google-vertex"
 			? (mapping.region ??
-				getProviderEnvValue("google-vertex", "region", configIndex, "global") ??
+				getProviderEnvValue(
+					"google-vertex",
+					"region",
+					configIndex,
+					"global",
+					variant,
+				) ??
 				"global")
 			: mapping.region;
 	return supportsServiceTier(
@@ -1973,6 +1989,10 @@ chat.openapi(completions, async (c) => {
 		organization?.kind === "devpass" && organization.devPlan !== "none",
 	);
 
+	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
+	// this org's env-credential reads. Undefined = base vars only.
+	const envVariant = getOrganizationEnvVariant(organization);
+
 	// Dev-plan (DevPass) orgs can default routing to cheaper flex processing via
 	// their dashboard settings to save on plan credits. Applied softly, and only
 	// when the request itself doesn't specify a service_tier: the tier kicks in
@@ -2014,6 +2034,7 @@ chat.openapi(completions, async (c) => {
 					mapping,
 					"flex",
 					configIndex,
+					envVariant,
 				) &&
 				providerHasEligibleTierCredential(mapping.providerId),
 		);
@@ -2033,6 +2054,7 @@ chat.openapi(completions, async (c) => {
 					mapping,
 					service_tier,
 					configIndex,
+					envVariant,
 				),
 		);
 
@@ -2146,6 +2168,7 @@ chat.openapi(completions, async (c) => {
 				mapping,
 				service_tier,
 				configIndex,
+				envVariant,
 			);
 		modelInfo = {
 			...modelInfo,
@@ -2236,6 +2259,8 @@ chat.openapi(completions, async (c) => {
 	const retryOrganizationContext = {
 		id: organization.id,
 		credits: organization.credits,
+		plan: organization.plan,
+		kind: organization.kind,
 		devPlan: organization.devPlan,
 		devPlanCreditsLimit: organization.devPlanCreditsLimit,
 		devPlanCreditsUsed: organization.devPlanCreditsUsed,
@@ -4712,8 +4737,12 @@ chat.openapi(completions, async (c) => {
 		const envResult = getProviderEnv(usedProvider, {
 			selectionScope: usedInternalModel,
 			excludedIndices: isRequestedServiceTier(service_tier)
-				? getServiceTierIneligibleEnvIndices(usedProvider as Provider)
+				? getServiceTierIneligibleEnvIndices(
+						usedProvider as Provider,
+						envVariant,
+					)
 				: undefined,
+			variant: envVariant,
 		});
 		usedToken = envResult.token;
 		configIndex = envResult.configIndex;
@@ -4725,6 +4754,7 @@ chat.openapi(completions, async (c) => {
 			const regionEnvVarName = getRegionSpecificEnvVarName(
 				usedProvider,
 				usedRegion,
+				envVariant,
 			);
 			if (regionEnvVarName) {
 				const regionToken = process.env[regionEnvVarName];
@@ -4842,8 +4872,12 @@ chat.openapi(completions, async (c) => {
 			const envResult = getProviderEnv(usedProvider, {
 				selectionScope: usedInternalModel,
 				excludedIndices: isRequestedServiceTier(service_tier)
-					? getServiceTierIneligibleEnvIndices(usedProvider as Provider)
+					? getServiceTierIneligibleEnvIndices(
+							usedProvider as Provider,
+							envVariant,
+						)
 					: undefined,
+				variant: envVariant,
 			});
 			usedToken = envResult.token;
 			configIndex = envResult.configIndex;
@@ -4855,6 +4889,7 @@ chat.openapi(completions, async (c) => {
 				const regionEnvVarName = getRegionSpecificEnvVarName(
 					usedProvider,
 					usedRegion,
+					envVariant,
 				);
 				if (regionEnvVarName) {
 					const regionToken = process.env[regionEnvVarName];
@@ -4873,7 +4908,9 @@ chat.openapi(completions, async (c) => {
 	}
 
 	if (usedProvider === "vertex-anthropic") {
-		const gcpToken = await getGcpAccessToken();
+		const gcpToken = await getGcpAccessToken(
+			providerKey ? undefined : envVariant,
+		);
 		if (gcpToken) {
 			usedToken = gcpToken;
 		}
@@ -5218,6 +5255,7 @@ chat.openapi(completions, async (c) => {
 			dbKeyIsActiveCredential ? (providerKey?.options ?? undefined) : undefined,
 			configIndex,
 			dbKeyIsActiveCredential,
+			envVariant,
 		);
 	}
 
@@ -5243,6 +5281,7 @@ chat.openapi(completions, async (c) => {
 			providerKey !== undefined,
 			usedInternalModel,
 			resolveActiveVertexTokenType(),
+			envVariant,
 		);
 
 		// If region is still unset but the provider supports regions, resolve the
@@ -6107,6 +6146,7 @@ chat.openapi(completions, async (c) => {
 				usedRegion,
 				service_tier,
 				configIndex,
+				envVariant,
 			),
 			verbosity,
 			prompt_cache_options,
@@ -6918,6 +6958,7 @@ chat.openapi(completions, async (c) => {
 							usedRegion,
 							service_tier,
 							configIndex,
+							envVariant,
 						);
 						const headers = getProviderHeaders(usedProvider, usedToken, {
 							requestId,
@@ -9270,6 +9311,7 @@ chat.openapi(completions, async (c) => {
 											usedRegion,
 											service_tier,
 											configIndex,
+											envVariant,
 										),
 										data,
 									);
@@ -11161,6 +11203,7 @@ chat.openapi(completions, async (c) => {
 				usedRegion,
 				service_tier,
 				configIndex,
+				envVariant,
 			);
 			const headers = getProviderHeaders(usedProvider, usedToken, {
 				requestId,
@@ -12639,6 +12682,7 @@ chat.openapi(completions, async (c) => {
 			usedRegion,
 			service_tier,
 			configIndex,
+			envVariant,
 		),
 		json,
 	);
