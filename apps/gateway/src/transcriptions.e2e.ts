@@ -69,6 +69,11 @@ describe("e2e transcriptions", getConcurrentTestOptions(), () => {
 				console.log("transcription response:", JSON.stringify(json));
 			}
 			expect(typeof json.text).toBe("string");
+			// The fixture is a spoken English sentence ("The quick brown fox
+			// jumps over the lazy dog."), so a working model returns a non-empty
+			// transcript rather than just a well-formed empty response.
+			expect(json.text.length).toBeGreaterThan(0);
+			expect(json.text.toLowerCase()).toContain("fox");
 			expect(typeof json.duration).toBe("number");
 			expect(json.duration).toBeGreaterThan(0);
 		},

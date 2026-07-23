@@ -461,8 +461,8 @@ describe("speech", () => {
 		expect(log).toBeDefined();
 		expect(log?.hasError).toBe(false);
 		expect(log?.finishReason).toBe("stop");
-		// qwen-audio-3.0-tts-plus bills $27.59 / 1M input characters.
-		expect(Number(log?.inputCost)).toBeCloseTo(input.length * 27.59e-6, 12);
+		// qwen-audio-3.0-tts-plus bills $20.00 / 1M input characters.
+		expect(Number(log?.inputCost)).toBeCloseTo(input.length * 20e-6, 12);
 	});
 
 	test("/v1/audio/speech rejects unsupported Qwen TTS response_format", async () => {
