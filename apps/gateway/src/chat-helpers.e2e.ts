@@ -208,6 +208,12 @@ export const filteredModels = models
 				(p) => (p as ProviderModelMapping).embeddings === true,
 			),
 	)
+	// Filter out rerank models (they use the dedicated /v1/rerank
+	// endpoint, not chat completions, and are covered by rerank.e2e.ts)
+	.filter(
+		(model) =>
+			!model.providers.some((p) => (p as ProviderModelMapping).rerank === true),
+	)
 	// Filter out unstable models if not in full mode, unless they have test: "only" or are in TEST_MODELS
 	// Note: This only filters models with model-level stability, not provider-level stability
 	.filter((model) => {
@@ -675,6 +681,7 @@ export const speechModels = models
 		return testCases;
 	});
 
+
 // Transcription (speech-to-text) models are likewise excluded from
 // filteredModels (transcription-only output, served by the dedicated
 // /v1/audio/transcriptions endpoint). Build a separate list of transcription
@@ -762,6 +769,91 @@ export const transcriptionModels = models
 		return testCases;
 	});
 
+// Rerank models are excluded from filteredModels above (they use the
+// dedicated /v1/rerank endpoint). Build a separate list of rerank
+// provider/model mappings for rerank.e2e.ts, applying the same
+// TEST_MODELS/TEST_PROVIDERS, deactivation, env-var, and stability filters
+// as embeddingModels.
+export const rerankModels = models
+	.filter((model) => !["custom", "auto"].includes(model.id))
+	.filter((model) =>
+		model.providers.some(
+			(provider: ProviderModelMapping) => provider.rerank === true,
+		),
+	)
+	// If any model has test: "only", only include those models
+	.filter((model) => {
+		if (hasOnlyModels) {
+			return model.providers.some(
+				(provider: ProviderModelMapping) => provider.test === "only",
+			);
+		}
+		return true;
+	})
+	.flatMap((model) => {
+		const testCases = [];
+		const expandedProviders = expandAllProviderRegions(
+			model.providers as ProviderModelMapping[],
+		);
+		for (const provider of expandedProviders) {
+			if (!provider.rerank) {
+				continue;
+			}
+
+			// Skip deactivated / deprecated provider mappings
+			if (provider.deactivatedAt && new Date() > provider.deactivatedAt) {
+				continue;
+			}
+			if (provider.deprecatedAt && new Date() > provider.deprecatedAt) {
+				continue;
+			}
+
+			if (specifiedModels || specifiedProviders) {
+				if (specifiedProviders) {
+					if (!specifiedProviders.includes(provider.providerId)) {
+						continue;
+					}
+				} else {
+					if (
+						!matchesTestModel(provider.providerId, model.id, provider.region)
+					) {
+						continue;
+					}
+				}
+			} else {
+				if (provider.test === "skip") {
+					continue;
+				}
+				if (
+					provider.test !== "only" &&
+					!hasAllRequiredProviderEnvVars(provider.providerId)
+				) {
+					continue;
+				}
+				if (
+					(provider.stability === "unstable" ||
+						provider.stability === "experimental") &&
+					!fullMode &&
+					provider.test !== "only"
+				) {
+					continue;
+				}
+			}
+
+			// If we have any "only" providers, skip those not marked as "only"
+			if (hasOnlyModels && provider.test !== "only") {
+				continue;
+			}
+
+			testCases.push({
+				model: `${provider.providerId}/${model.id}${provider.region ? `:${provider.region}` : ""}`,
+				provider,
+				originalModel: model.id,
+			});
+		}
+		return testCases;
+	});
+
 // Log the number of test models after filtering
 console.log(`Testing ${testModels.length} model configurations`);
 console.log(`Testing ${providerModels.length} provider model configurations`);
@@ -770,6 +862,7 @@ console.log(`Testing ${speechModels.length} speech model configurations`);
 console.log(
 	`Testing ${transcriptionModels.length} transcription model configurations`,
 );
+console.log(`Testing ${rerankModels.length} rerank model configurations`);
 
 export const streamingModels = testModels.filter((m) =>
 	m.providers.some((p: ProviderModelMapping) => {
