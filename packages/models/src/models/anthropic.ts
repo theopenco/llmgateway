@@ -1422,4 +1422,67 @@ export const anthropicModels = [
 			},
 		],
 	},
+	{
+		id: "claude-opus-5",
+		name: "Claude Opus 5",
+		description:
+			"Claude Opus 5 is Anthropic's model for complex agentic coding and enterprise work, with state-of-the-art reasoning and agentic capabilities.",
+		family: "anthropic",
+		releasedAt: new Date("2026-07-24"),
+		providers: [
+			{
+				providerId: "anthropic",
+				externalId: "claude-opus-5",
+				inputPrice: "5.0e-6",
+				outputPrice: "25.0e-6",
+				cachedInputPrice: "0.5e-6",
+				cacheWriteInputPrice: "6.25e-6",
+				cacheWriteInputPrice1h: "10.0e-6",
+				minCacheableTokens: 4096,
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 128000,
+				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+				reasoningMode: "adaptive",
+				reasoningOutput: "omit",
+				streaming: true,
+				vision: true,
+				tools: true,
+				jsonOutputSchema: true,
+				supportedParameters: ["max_tokens", "effort"],
+				webSearch: true,
+				webSearchPrice: "0.01",
+			},
+			{
+				providerId: "aws-bedrock",
+				externalId: "anthropic.claude-opus-5",
+				inputPrice: "5.0e-6",
+				outputPrice: "25.0e-6",
+				cachedInputPrice: "0.5e-6",
+				cacheWriteInputPrice: "6.25e-6",
+				cacheWriteInputPrice1h: "10.0e-6",
+				minCacheableTokens: 4096,
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 128000,
+				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+				reasoningMode: "adaptive",
+				reasoningOutput: "omit",
+				streaming: true,
+				vision: true,
+				tools: true,
+				// `temperature` and `top_p` are deprecated for Opus 5 on Bedrock
+				// and rejected with a 400, so they are excluded here to strip them
+				// from forwarded requests. `effort` drives adaptive thinking via the
+				// Bedrock Converse builder (output_config.effort).
+				supportedParameters: ["max_tokens", "effort"],
+				// Opus 5 is provisioned on Bedrock in global/us/eu at launch; the
+				// jp and au regions return 503 (not yet available) and are omitted
+				// until Bedrock rolls the model out there.
+				regions: [{ id: "global" }, { id: "us" }, { id: "eu" }],
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];
