@@ -16,7 +16,7 @@ export function UsTile({ size = 44, radius = 12, className }: TileProps) {
 				className,
 			)}
 			style={{ width: size, height: size, borderRadius: radius }}
-			aria-label="LLM Gateway Chat"
+			aria-label="Lounge"
 		>
 			<Logo style={{ width: size * 0.42, height: size * 0.42 }} />
 		</div>

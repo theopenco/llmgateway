@@ -1,4 +1,4 @@
-import { Inter, Geist_Mono } from "next/font/google";
+import { Fraunces, Inter, Geist_Mono } from "next/font/google";
 
 import { Providers } from "@/components/providers";
 import { getConfig } from "@/lib/config-server";
@@ -14,6 +14,13 @@ const inter = Inter({
 	display: "swap",
 });
 
+const fraunces = Fraunces({
+	variable: "--font-fraunces",
+	subsets: ["latin"],
+	display: "swap",
+	axes: ["opsz"],
+});
+
 const geistMono = Geist_Mono({
 	variable: "--font-mono",
 	subsets: ["latin"],
@@ -25,11 +32,11 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
 	metadataBase: new URL("https://chat.llmgateway.io"),
 	title: {
-		default: "AI Playground — Chat with 200+ Models (GPT, Claude, Gemini)",
-		template: "%s | LLM Gateway Playground",
+		default: "Lounge — Chat with 200+ AI Models (GPT, Claude, Gemini)",
+		template: "%s | Lounge by LLM Gateway",
 	},
 	description:
-		"Test and compare 200+ AI models from one account. Chat with GPT, Claude, and Gemini, generate images and video, and run multi-model group chats.",
+		"The members' lounge for AI. Chat with GPT, Claude, and Gemini, generate images and video, and run multi-model group chats — every frontier model, one membership.",
 	icons: {
 		icon: "/favicon/favicon.ico?v=2",
 	},
@@ -45,21 +52,21 @@ export const metadata: Metadata = {
 		},
 	},
 	openGraph: {
-		title: "AI Playground — Chat with 200+ Models (GPT, Claude, Gemini)",
+		title: "Lounge — Chat with 200+ AI Models (GPT, Claude, Gemini)",
 		description:
-			"Test and compare 200+ AI models from one account. Chat, generate images and videos, and run multi-model group chats — pay-as-you-go.",
-		images: ["/opengraph.png?v=2"],
+			"The members' lounge for AI. Chat, generate images and videos, and run multi-model group chats — every frontier model, one membership.",
+		images: ["/opengraph.png?v=3"],
 		type: "website",
 		url: "https://chat.llmgateway.io",
-		siteName: "LLM Gateway Playground",
+		siteName: "Lounge by LLM Gateway",
 		locale: "en_US",
 	},
 	twitter: {
 		card: "summary_large_image",
-		title: "AI Playground — Chat with 200+ Models (GPT, Claude, Gemini)",
+		title: "Lounge — Chat with 200+ AI Models (GPT, Claude, Gemini)",
 		description:
-			"Test and compare 200+ AI models from one account. Chat, generate images and videos, and run multi-model group chats — pay-as-you-go.",
-		images: ["/opengraph.png?v=2"],
+			"The members' lounge for AI. Chat, generate images and videos, and run multi-model group chats — every frontier model, one membership.",
+		images: ["/opengraph.png?v=3"],
 		creator: "@llmgateway",
 	},
 };
@@ -67,10 +74,10 @@ export const metadata: Metadata = {
 const webSiteSchema = {
 	"@context": "https://schema.org",
 	"@type": "WebSite",
-	name: "LLM Gateway Playground",
+	name: "Lounge by LLM Gateway",
 	url: "https://chat.llmgateway.io",
 	description:
-		"Test and compare 200+ AI models in one playground. Chat, generate images and videos, and run multi-model group chats.",
+		"The members' lounge for AI — chat with 200+ models, generate images and videos, and run multi-model group chats.",
 	publisher: {
 		"@type": "Organization",
 		name: "LLM Gateway",
@@ -81,12 +88,12 @@ const webSiteSchema = {
 const softwareApplicationSchema = {
 	"@context": "https://schema.org",
 	"@type": "SoftwareApplication",
-	name: "LLM Gateway Playground",
+	name: "Lounge by LLM Gateway",
 	url: "https://chat.llmgateway.io",
 	applicationCategory: "DeveloperApplication",
 	operatingSystem: "Web",
 	description:
-		"Web playground to chat with 200+ AI models including GPT, Claude, Gemini, plus image and video generation. Pay-as-you-go from a single credit balance.",
+		"Chat with 200+ AI models including GPT, Claude, and Gemini, plus image and video generation — one membership, every frontier model.",
 	publisher: {
 		"@type": "Organization",
 		name: "LLM Gateway",
@@ -100,7 +107,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 	return (
 		<html
 			lang="en"
-			className={`${inter.variable} ${geistMono.variable}`}
+			className={`${inter.variable} ${fraunces.variable} ${geistMono.variable}`}
 			suppressHydrationWarning
 		>
 			<head>

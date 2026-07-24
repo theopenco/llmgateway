@@ -200,7 +200,7 @@ export function ChatPricingPlans({
 	async function handleCancel() {
 		if (
 			!confirm(
-				"Cancel your chat plan? You'll keep access until the end of the current cycle.",
+				"Cancel your Lounge membership? You'll keep access until the end of the current cycle.",
 			)
 		) {
 			return;
@@ -212,7 +212,7 @@ export function ChatPricingPlans({
 				toast.error("Cancellation failed");
 				return;
 			}
-			toast.success("Plan cancelled — access continues until period end");
+			toast.success("Membership cancelled — access continues until period end");
 			await refresh();
 		} finally {
 			setPendingAction(null);
@@ -227,7 +227,7 @@ export function ChatPricingPlans({
 				toast.error("Resume failed");
 				return;
 			}
-			toast.success("Plan resumed");
+			toast.success("Membership resumed");
 			await refresh();
 		} finally {
 			setPendingAction(null);
@@ -241,7 +241,7 @@ export function ChatPricingPlans({
 					<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 						<div>
 							<div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-								Current plan
+								Your membership
 							</div>
 							<div className="mt-1 text-lg font-semibold">
 								{activeTier[0].toUpperCase() + activeTier.slice(1)}
@@ -280,7 +280,7 @@ export function ChatPricingPlans({
 									{pendingAction === "cancel" ? (
 										<Loader2 className="h-4 w-4 animate-spin" />
 									) : (
-										"Cancel plan"
+										"Cancel membership"
 									)}
 								</Button>
 							)}
@@ -318,7 +318,7 @@ export function ChatPricingPlans({
 							{isCurrent && (
 								<div className="absolute -top-3 left-6">
 									<span className="rounded-full bg-emerald-500 px-3 py-1 text-xs font-medium text-white">
-										Your plan
+										Your membership
 									</span>
 								</div>
 							)}
@@ -470,8 +470,8 @@ export function ChatPricingPlans({
 					<span className="font-medium text-foreground">
 						7-day money-back guarantee.
 					</span>{" "}
-					If you&apos;ve barely used your plan, email us within 7 days for a
-					full refund.
+					If you&apos;ve barely used your membership, email us within 7 days for
+					a full refund.
 				</span>
 			</div>
 
