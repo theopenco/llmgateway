@@ -65,6 +65,7 @@ export function adaptProviderMapping(
 			imageOutputTokensByResolution: p.imageOutputTokensByResolution ?? null,
 			requestPrice: toStr(p.requestPrice),
 			ocrPagePrice: toStr(p.ocrPagePrice),
+			inputAudioHourPrice: toStr(p.inputAudioHourPrice),
 			contextSize: p.contextSize ?? null,
 			maxOutput: p.maxOutput ?? null,
 			quantization: p.quantization ?? null,

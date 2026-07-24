@@ -941,6 +941,47 @@ export function ProviderSection({
 							})()}
 						</div>
 					</div>
+				) : activeMapping.inputAudioHourPrice &&
+				  parseFloat(activeMapping.inputAudioHourPrice) > 0 &&
+				  !(parseFloat(activeMapping.inputPrice ?? "0") > 0) &&
+				  !(parseFloat(activeMapping.outputPrice ?? "0") > 0) ? (
+					(() => {
+						const discountNum = activeMapping.discount
+							? parseFloat(activeMapping.discount)
+							: 0;
+						const perHour =
+							parseFloat(activeMapping.inputAudioHourPrice!) *
+							serviceTierMultiplier;
+						const formatHour = (value: number) =>
+							`$${parseFloat(value.toFixed(4))}`;
+						return (
+							<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
+								<div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
+									Audio Transcription Pricing
+								</div>
+								<div className="flex justify-between text-sm">
+									<span className="text-muted-foreground">Input audio</span>
+									<span className="font-semibold tabular-nums">
+										{discountNum > 0 ? (
+											<>
+												<span className="line-through text-muted-foreground mr-1 text-xs">
+													{formatHour(perHour)}
+												</span>
+												<span className="text-green-600">
+													{formatHour(perHour * (1 - discountNum))}
+												</span>
+											</>
+										) : (
+											formatHour(perHour)
+										)}
+										<span className="text-muted-foreground text-xs ml-0.5">
+											/hour
+										</span>
+									</span>
+								</div>
+							</div>
+						);
+					})()
 				) : (
 					<div className="space-y-2">
 						<div className="grid grid-cols-3 gap-px rounded-md bg-border/30 border border-border/30 overflow-hidden">

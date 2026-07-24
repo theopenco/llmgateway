@@ -72,6 +72,7 @@ const modelProviderMappingSchema = z.object({
 	inputCharacterPrice: z.string().nullable(),
 	outputAudioPrice: z.string().nullable(),
 	requestPrice: z.string().nullable(),
+	inputAudioHourPrice: z.string().nullable(),
 	contextSize: z.number().nullable(),
 	maxOutput: z.number().nullable(),
 	streaming: z.boolean(),
@@ -259,6 +260,10 @@ internalModels.openapi(getModelsRoute, async (c) => {
 				outputAudioPrice:
 					sharedMapping?.outputAudioPrice !== undefined
 						? String(sharedMapping.outputAudioPrice)
+						: null,
+				inputAudioHourPrice:
+					sharedMapping?.inputAudioHourPrice !== undefined
+						? String(sharedMapping.inputAudioHourPrice)
 						: null,
 				supportedVideoSizes: sharedMapping?.supportedVideoSizes ?? null,
 				supportedVideoDurationsSeconds:
