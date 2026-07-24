@@ -464,16 +464,14 @@ export function ChatPricingPlans({
 				})}
 			</div>
 
-			<div className="mx-auto mt-8 flex max-w-2xl items-center justify-center gap-2 text-center text-sm text-muted-foreground">
-				<ShieldCheck className="h-4 w-4 shrink-0 text-foreground/70" />
-				<span>
-					<span className="font-medium text-foreground">
-						7-day money-back guarantee.
-					</span>{" "}
-					If you&apos;ve barely used your membership, email us within 7 days for
-					a full refund.
-				</span>
-			</div>
+			<p className="mx-auto mt-8 max-w-2xl text-center text-sm text-muted-foreground">
+				<ShieldCheck className="mr-1.5 inline-block h-4 w-4 -translate-y-px align-middle text-foreground/70" />
+				<span className="font-medium text-foreground">
+					7-day money-back guarantee.
+				</span>{" "}
+				If you&apos;ve barely used your membership, email us within 7 days for a
+				full refund.
+			</p>
 
 			<p className="mt-4 text-center text-xs text-muted-foreground">
 				Your allowance refills in full every cycle and any unspent credits
