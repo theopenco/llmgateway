@@ -104,6 +104,7 @@ export function getValidationModel(
 				providerMapping.videoGenerations ||
 				providerMapping.embeddings ||
 				providerMapping.speechGenerations ||
+				providerMapping.transcriptions ||
 				providerMapping.ocr
 			) {
 				return [];

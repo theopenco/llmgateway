@@ -38,6 +38,7 @@ import {
 	PenTool,
 	Sliders,
 	Volume2,
+	Mic,
 } from "lucide-react";
 import Link from "next/link.js";
 import { usePathname, useRouter, useSearchParams } from "next/navigation.js";
@@ -225,6 +226,13 @@ function computeCapabilities(
 			icon: Volume2,
 			label: "Speech Generation",
 			color: "text-rose-500",
+		});
+	}
+	if (model?.output?.includes("transcription")) {
+		capabilities.push({
+			icon: Mic,
+			label: "Transcription",
+			color: "text-sky-500",
 		});
 	}
 	if (model?.output?.includes("embedding")) {

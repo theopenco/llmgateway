@@ -142,6 +142,15 @@ function escapeCsvValue(value: unknown): string {
 	return str;
 }
 
+// String(number) switches to exponent notation below 1e-6 (e.g. "3.5e-7"),
+// which spreadsheets don't reliably parse as a float.
+function formatCostForCsv(cost: number | null | undefined): string {
+	if (cost === null || cost === undefined) {
+		return "";
+	}
+	return cost.toFixed(15).replace(/\.?0+$/, "");
+}
+
 function buildLogsCsv(logs: ApiLog[]): string {
 	const rows = logs.map((log) =>
 		[
@@ -153,7 +162,7 @@ function buildLogsCsv(logs: ApiLog[]): string {
 			log.completionTokens,
 			log.totalTokens,
 			log.cachedTokens ?? "",
-			log.cost,
+			formatCostForCsv(log.cost),
 			log.hasError,
 			log.streamed,
 			log.duration,

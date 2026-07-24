@@ -1,6 +1,6 @@
 ---
 title: Speech Generation
-description: Generate speech (text-to-speech) using ElevenLabs, Gemini, and OpenAI models through the OpenAI-compatible audio API
+description: Generate speech (text-to-speech) using ElevenLabs, Gemini, OpenAI, and Qwen models through the OpenAI-compatible audio API
 icon: Volume2
 ---
 
@@ -9,8 +9,8 @@ import { Callout } from "fumadocs-ui/components/callout";
 # Speech Generation
 
 LLMGateway supports text-to-speech (TTS) through the OpenAI-compatible
-**`/v1/audio/speech`** endpoint, powered by ElevenLabs, Google Gemini, and
-OpenAI speech models.
+**`/v1/audio/speech`** endpoint, powered by ElevenLabs, Google Gemini, OpenAI,
+and Alibaba Qwen speech models.
 
 <Callout type="info">
 	Want to hear the voices before writing code? The [Audio
@@ -35,14 +35,14 @@ Browse all speech generation models, with up-to-date pricing, on the
 
 ## Parameters
 
-| Parameter         | Type   | Default  | Description                                                                                                                                                   |
-| ----------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `model`           | string | required | The speech model to use                                                                                                                                       |
-| `input`           | string | required | The text to synthesize into speech                                                                                                                            |
-| `voice`           | string | model    | A prebuilt voice. Defaults to `Kore` (Gemini), `alloy` (OpenAI), or `Sarah` (ElevenLabs)                                                                      |
-| `response_format` | string | model    | Audio format. OpenAI: `mp3` (default), `opus`, `aac`, `flac`, `wav`, `pcm`. ElevenLabs: `mp3` (default), `wav`, `pcm`, `opus`. Gemini: `wav` (default), `pcm` |
-| `instructions`    | string | —        | Optional style/delivery directive prepended to the input (e.g. `"Say cheerfully"`)                                                                            |
-| `speed`           | number | —        | Accepted for OpenAI compatibility, but not applied by Gemini speech models                                                                                    |
+| Parameter         | Type   | Default  | Description                                                                                                                                                                     |
+| ----------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `model`           | string | required | The speech model to use                                                                                                                                                         |
+| `input`           | string | required | The text to synthesize into speech                                                                                                                                              |
+| `voice`           | string | model    | A prebuilt voice. Defaults to `Kore` (Gemini), `alloy` (OpenAI), `Sarah` (ElevenLabs), or the model's first voice on Qwen (`longanlingxin` on Plus, `longanhuan_v3.6` on Flash) |
+| `response_format` | string | model    | Audio format. OpenAI: `mp3` (default), `opus`, `aac`, `flac`, `wav`, `pcm`. ElevenLabs: `mp3` (default), `wav`, `pcm`, `opus`. Gemini: `wav` (default), `pcm`. Qwen: `wav`      |
+| `instructions`    | string | —        | Optional style/delivery directive prepended to the input (e.g. `"Say cheerfully"`)                                                                                              |
+| `speed`           | number | —        | Accepted for OpenAI compatibility, but not applied by Gemini speech models                                                                                                      |
 
 <Callout type="info">
 	Gemini speech models return raw PCM audio. LLMGateway wraps it in a WAV
@@ -112,6 +112,11 @@ ElevenLabs models accept 20 named voices, including `Sarah`, `Aria`, `Roger`,
 `Laura`, `Charlie`, `George`, `Charlotte`, `Jessica`, `Brian`, and `Lily`. When
 `voice` is omitted on an ElevenLabs model, `Sarah` is used. A raw ElevenLabs
 voice id is also accepted directly.
+
+Qwen-Audio-3.0-TTS voices are model-specific and cannot be mixed between
+models: `longanlingxin` and `longanlufeng` on Plus (default `longanlingxin`),
+and `longanhuan_v3.6`, `longjielidou_v3.6`, `loongeva_v3.6`, and `loongjohn` on
+Flash (default `longanhuan_v3.6`).
 
 ## ElevenLabs
 
