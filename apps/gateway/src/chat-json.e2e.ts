@@ -104,7 +104,8 @@ describe("e2e", getConcurrentTestOptions(), () => {
 					},
 					{
 						role: "user",
-						content: "What is the weather like today?",
+						content:
+							"What is the weather like today in San Francisco? If you don't have live data, respond with your best estimate — never leave a field blank.",
 					},
 				],
 				response_format: {
@@ -261,7 +262,8 @@ describe("e2e", getConcurrentTestOptions(), () => {
 						},
 						{
 							role: "user",
-							content: "What is the weather like today?",
+							content:
+								"What is the weather like today in San Francisco? If you don't have live data, respond with your best estimate — never leave a field blank.",
 						},
 					],
 					response_format: {
