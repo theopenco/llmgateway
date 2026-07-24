@@ -1,4 +1,5 @@
 import { Logo } from "@/components/ui/logo";
+import { BRAND } from "@/lib/brand";
 import { cn } from "@/lib/utils";
 
 interface WordmarkProps {
@@ -27,7 +28,7 @@ export function Wordmark({
 	return (
 		<span
 			className={cn("flex min-w-0 items-center gap-2", className)}
-			aria-label="Lounge by LLM Gateway"
+			aria-label={BRAND.fullName}
 		>
 			{iconBox ? (
 				<span className="flex aspect-square size-8 shrink-0 items-center justify-center">
@@ -43,11 +44,11 @@ export function Wordmark({
 						size === "md" ? "text-xl" : "text-lg",
 					)}
 				>
-					Lounge
+					{BRAND.name}
 				</span>
 				{byline && (
 					<span className="mt-1 whitespace-nowrap text-[9px] font-medium uppercase leading-none tracking-[0.22em] text-muted-foreground">
-						by LLM Gateway
+						by {BRAND.publisher}
 					</span>
 				)}
 			</span>

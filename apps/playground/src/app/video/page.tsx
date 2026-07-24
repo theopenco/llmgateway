@@ -17,7 +17,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
 	title: "AI Video Generator — Compare Veo, Wan & More in One Place",
 	description:
-		"Generate videos with Veo, Wan, and other AI video models. Preview results and compare providers in one playground.",
+		"Generate videos with Veo, Wan, and other AI video models. Preview results and compare providers in Lounge.",
 	alternates: { canonical: "/video" },
 };
 

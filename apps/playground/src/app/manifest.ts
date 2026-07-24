@@ -1,9 +1,11 @@
+import { BRAND } from "@/lib/brand";
+
 import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
 	return {
-		name: "Lounge by LLM Gateway",
-		short_name: "Lounge",
+		name: BRAND.fullName,
+		short_name: BRAND.name,
 		description:
 			"The members' lounge for AI — chat with 200+ models, generate images, video and audio, and run multi-model group chats.",
 		start_url: "/",

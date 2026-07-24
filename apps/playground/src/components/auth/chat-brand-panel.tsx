@@ -3,8 +3,6 @@
 import { AudioLines, Film, ImagePlus, MessageSquare } from "lucide-react";
 import { motion } from "motion/react";
 
-const GOLD = "#d4b06a";
-
 export function ChatBrandBadge() {
 	return (
 		<div className="inline-flex items-center gap-2 rounded-full border border-[#d4b06a]/30 bg-[#d4b06a]/10 px-3 py-1">
@@ -107,7 +105,7 @@ export function ChatBrandPanel({
 					className="mt-8 flex items-center gap-6"
 				>
 					<div className="flex items-center gap-2 text-zinc-500">
-						<MessageSquare className="h-4 w-4" style={{ color: GOLD }} />
+						<MessageSquare className="h-4 w-4 text-[#d4b06a]" />
 						<span className="text-xs">Chat</span>
 					</div>
 					<div className="flex items-center gap-2 text-zinc-500">
