@@ -82,7 +82,7 @@ chatPlans.openapi(subscribe, async (c) => {
 	) {
 		throw new HTTPException(400, {
 			message:
-				"Already have an active chat plan. Please upgrade or cancel first.",
+				"Already have an active Lounge membership. Please upgrade or cancel first.",
 		});
 	}
 
@@ -208,7 +208,7 @@ chatPlans.openapi(cancel, async (c) => {
 
 	if (!personalOrg.chatPlanStripeSubscriptionId) {
 		throw new HTTPException(400, {
-			message: "No active chat plan subscription found",
+			message: "No active Lounge membership found",
 		});
 	}
 
@@ -244,7 +244,7 @@ chatPlans.openapi(cancel, async (c) => {
 			error instanceof Error ? error : new Error(String(error)),
 		);
 		throw new HTTPException(500, {
-			message: "Failed to cancel chat plan subscription",
+			message: "Failed to cancel Lounge membership",
 		});
 	}
 });
@@ -297,7 +297,7 @@ chatPlans.openapi(resume, async (c) => {
 
 	if (!personalOrg.chatPlanStripeSubscriptionId) {
 		throw new HTTPException(400, {
-			message: "No chat plan subscription found",
+			message: "No Lounge membership found",
 		});
 	}
 
@@ -343,7 +343,7 @@ chatPlans.openapi(resume, async (c) => {
 			error instanceof Error ? error : new Error(String(error)),
 		);
 		throw new HTTPException(500, {
-			message: "Failed to resume chat plan subscription",
+			message: "Failed to resume Lounge membership",
 		});
 	}
 });
@@ -407,7 +407,7 @@ chatPlans.openapi(changeTier, async (c) => {
 
 	if (!personalOrg.chatPlanStripeSubscriptionId) {
 		throw new HTTPException(400, {
-			message: "No active chat plan subscription found",
+			message: "No active Lounge membership found",
 		});
 	}
 
@@ -559,7 +559,7 @@ chatPlans.openapi(changeTier, async (c) => {
 			error instanceof Error ? error : new Error(String(error)),
 		);
 		throw new HTTPException(500, {
-			message: "Failed to change chat plan tier",
+			message: "Failed to change Lounge membership tier",
 		});
 	}
 });

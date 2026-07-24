@@ -11,10 +11,10 @@ const screenshots = [
 	},
 	{
 		slug: "playground",
-		alt: "LLM Gateway Chat Playground",
-		title: "Chat Playground",
+		alt: "Lounge by LLM Gateway",
+		title: "Lounge",
 		description:
-			"Interactive testing environment with model comparison, prompt engineering, and conversation management.",
+			"The members' lounge for AI — every frontier model in one chat, with projects, group chat, and media studios.",
 	},
 	{
 		slug: "image-studio",

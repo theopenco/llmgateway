@@ -76,7 +76,7 @@ export function ChatPlansTimeseriesChart({
 		<Card>
 			<CardHeader className="flex flex-col items-stretch space-y-0 border-b p-0 sm:flex-row">
 				<div className="flex flex-1 flex-col justify-center gap-1 px-6 py-5 sm:py-6">
-					<CardTitle>Chat Plans revenue & usage</CardTitle>
+					<CardTitle>Lounge (chat) plans revenue & usage</CardTitle>
 					<CardDescription>
 						Daily revenue from Chat Plan transactions, real provider cost across
 						current and former subscribers, and the resulting margin. Totals

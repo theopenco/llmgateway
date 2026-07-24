@@ -89,8 +89,8 @@ function PlaygroundKeyNote() {
 			<div className="text-muted-foreground flex max-w-52 items-start gap-2 px-2 py-1.5 text-xs">
 				<InfoIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
 				<span>
-					The auto-generated playground key is managed by LLM Gateway and can't
-					be edited.
+					The auto-generated Lounge key is managed by LLM Gateway and can't be
+					edited.
 				</span>
 			</div>
 		</>

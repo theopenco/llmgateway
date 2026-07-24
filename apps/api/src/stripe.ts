@@ -1371,7 +1371,7 @@ async function handleCheckoutSessionCompleted(
 						currency: (session.currency ?? "USD").toUpperCase(),
 						status: "completed",
 						stripeInvoiceId: stripeInvoiceId,
-						description: `Chat Plan ${chatPlanTier.toUpperCase()} started via Stripe Checkout`,
+						description: `Lounge ${chatPlanTier.toUpperCase()} membership started via Stripe Checkout`,
 					})
 					.returning();
 
@@ -1386,7 +1386,7 @@ async function handleCheckoutSessionCompleted(
 						...billingDetails,
 						lineItems: [
 							{
-								description: `Chat Plan ${chatPlanTier.toUpperCase()} ($${creditsLimit} credits included)`,
+								description: `Lounge ${chatPlanTier.toUpperCase()} membership ($${creditsLimit} credits included)`,
 								amount: (session.amount_total ?? 0) / 100,
 							},
 						],
@@ -3139,7 +3139,7 @@ function refundProductLabel(type: string): string {
 		return "DevPass";
 	}
 	if (type.startsWith("chat_plan")) {
-		return "Chat Plan";
+		return "Lounge";
 	}
 	return "Subscription";
 }
@@ -3862,7 +3862,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 				status: "completed",
 				stripePaymentIntentId: (invoice as any).payment_intent,
 				stripeInvoiceId: invoice.id,
-				description: `Chat Plan ${organization.chatPlan?.toUpperCase()} renewal charge for a superseded cycle (credits not reset)`,
+				description: `Lounge ${organization.chatPlan?.toUpperCase()} membership renewal charge for a superseded cycle (credits not reset)`,
 			});
 			logger.warn(
 				`Skipped stale chat plan renewal invoice ${invoice.id} for organization ${organizationId}: invoice period ends ${new Date(renewedPeriodEnd * 1000).toISOString()} but the current cycle ends ${organization.chatPlanExpiresAt.toISOString()} — the customer was charged for a cycle replaced by a mid-cycle upgrade; consider a refund`,
@@ -3885,7 +3885,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 				status: "completed",
 				stripePaymentIntentId: (invoice as any).payment_intent,
 				stripeInvoiceId: invoice.id,
-				description: `Chat Plan ${organization.chatPlan?.toUpperCase()} renewed`,
+				description: `Lounge ${organization.chatPlan?.toUpperCase()} membership renewed`,
 			})
 			.returning();
 
@@ -3912,7 +3912,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 				...billingDetails,
 				lineItems: [
 					{
-						description: `Chat Plan ${organization.chatPlan?.toUpperCase()} renewal ($${creditsLimit} credits included)`,
+						description: `Lounge ${organization.chatPlan?.toUpperCase()} membership renewal ($${creditsLimit} credits included)`,
 						amount: invoice.amount_paid / 100,
 					},
 				],
@@ -4254,7 +4254,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 					status: "completed",
 					stripePaymentIntentId: (invoice as any).payment_intent,
 					stripeInvoiceId: invoice.id,
-					description: `Chat Plan ${toTier.toUpperCase()} upgrade`,
+					description: `Lounge ${toTier.toUpperCase()} membership upgrade`,
 				})
 				.onConflictDoNothing()
 				.returning();
@@ -4286,7 +4286,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 					...billingDetails,
 					lineItems: [
 						{
-							description: `Chat Plan ${toTier.toUpperCase()} upgrade`,
+							description: `Lounge ${toTier.toUpperCase()} membership upgrade`,
 							amount: invoice.amount_paid / 100,
 						},
 					],
@@ -4714,7 +4714,7 @@ export async function handleSubscriptionUpdated(
 				type: "chat_plan_cancel",
 				currency: "USD",
 				status: "completed",
-				description: `Chat Plan ${organization.chatPlan?.toUpperCase()} cancelled`,
+				description: `Lounge ${organization.chatPlan?.toUpperCase()} membership cancelled`,
 			});
 
 			const cancelEmail =
@@ -4772,7 +4772,7 @@ export async function handleSubscriptionUpdated(
 				type: "chat_plan_resume",
 				currency: "USD",
 				status: "completed",
-				description: `Chat Plan ${organization.chatPlan?.toUpperCase()} resumed`,
+				description: `Lounge ${organization.chatPlan?.toUpperCase()} membership resumed`,
 			});
 
 			posthog.capture({
@@ -5038,7 +5038,7 @@ export async function handleSubscriptionDeleted(
 			type: "chat_plan_end",
 			currency: "USD",
 			status: "completed",
-			description: `Chat Plan ${previousChatPlan?.toUpperCase()} ended`,
+			description: `Lounge ${previousChatPlan?.toUpperCase()} membership ended`,
 		});
 
 		await db
@@ -5060,7 +5060,7 @@ export async function handleSubscriptionDeleted(
 		await sendTransactionalEmail({
 			to: organization.billingEmail,
 			organizationId: organization.id,
-			subject: "Your LLMGateway Chat Plan Has Been Cancelled",
+			subject: "Your Lounge Membership Has Been Cancelled",
 			html: generateSubscriptionCancelledEmailHtml(organization.name),
 		});
 

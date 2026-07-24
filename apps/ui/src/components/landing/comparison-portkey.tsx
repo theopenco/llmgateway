@@ -118,7 +118,7 @@ const comparisonData = [
 			{
 				title: "Versioned prompt management",
 				description: "Prompt registry, templates, and deployments",
-				llmgateway: "Playground only",
+				llmgateway: "Lounge only",
 				portkey: true,
 			},
 			{
