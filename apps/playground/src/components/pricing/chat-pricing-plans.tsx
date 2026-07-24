@@ -478,7 +478,7 @@ export function ChatPricingPlans({
 											{isChangeTarget ? "Switching…" : "Redirecting…"}
 										</>
 									) : isCurrent ? (
-										"Current membership"
+										"Your membership"
 									) : isChangeTarget ? (
 										`Switch to ${plan.name}`
 									) : (

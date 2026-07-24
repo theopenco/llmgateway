@@ -66,15 +66,19 @@ test("signed-in chat shows the Lounge wordmark in the sidebar", async ({
 	baseURL,
 }) => {
 	// The seeded admin credentials only exist on a locally seeded stack —
-	// never type them into a non-local PW_BASE_URL target.
+	// never type them into a non-local PW_BASE_URL target. Override with
+	// PW_TEST_EMAIL / PW_TEST_PASSWORD to run against another isolated stack.
 	test.skip(
-		!/^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(baseURL ?? ""),
-		"login test requires a locally seeded stack",
+		!/^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(baseURL ?? "") &&
+			!process.env.PW_TEST_EMAIL,
+		"login test requires a locally seeded stack or PW_TEST_* credentials",
 	);
+	const email = process.env.PW_TEST_EMAIL ?? "admin@example.com";
+	const password = process.env.PW_TEST_PASSWORD ?? email;
 
 	await page.goto("/login");
-	await page.fill('input[type="email"]', "admin@example.com");
-	await page.fill('input[type="password"]', "admin@example.com");
+	await page.fill('input[type="email"]', email);
+	await page.fill('input[type="password"]', password);
 	await page.click('button[type="submit"]');
 	await page.waitForURL(/\/($|\?)/, { timeout: 45_000 });
 
