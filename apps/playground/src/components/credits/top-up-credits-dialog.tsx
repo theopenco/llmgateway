@@ -180,6 +180,63 @@ export function TopUpCreditsDialog({
 	);
 }
 
+interface FeeData {
+	baseAmount: number;
+	platformFee: number;
+	internationalFee: number;
+	totalAmount: number;
+}
+
+function FeeBreakdownReceipt({
+	feeData,
+	feeDataLoading,
+	amount,
+}: {
+	feeData: FeeData | undefined;
+	feeDataLoading: boolean;
+	/** Shown as a plain fallback when fee data is unavailable. */
+	amount?: number;
+}) {
+	return (
+		<div className="rounded-lg border border-dashed bg-muted/40 p-4 font-mono">
+			<p className="mb-2 text-center text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+				· Lounge bar receipt ·
+			</p>
+			{feeDataLoading ? (
+				<div className="flex items-center justify-center py-4">
+					<div className="h-5 w-5 animate-spin border-2 border-muted-foreground border-t-transparent rounded-full" />
+					<span className="ml-2 text-sm text-muted-foreground">
+						Calculating fees...
+					</span>
+				</div>
+			) : feeData ? (
+				<div className="space-y-2 text-sm tabular-nums">
+					<div className="flex justify-between">
+						<span>Credits</span>
+						<span>${feeData.baseAmount.toFixed(2)}</span>
+					</div>
+					<div className="flex justify-between">
+						<span>Platform fee (5%)</span>
+						<span>${feeData.platformFee.toFixed(2)}</span>
+					</div>
+					{feeData.internationalFee > 0 ? (
+						<div className="flex justify-between">
+							<span>Intl. card fee (1.5%)</span>
+							<span>${feeData.internationalFee.toFixed(2)}</span>
+						</div>
+					) : null}
+					<div className="flex justify-between border-t border-dashed pt-2 font-semibold">
+						<span>Total</span>
+						<span>${feeData.totalAmount.toFixed(2)}</span>
+					</div>
+				</div>
+			) : amount !== undefined ? (
+				<p className="text-sm text-muted-foreground">Amount: ${amount}</p>
+			) : null}
+		</div>
+	);
+}
+
 function AmountStep({
 	amount,
 	setAmount,
@@ -296,40 +353,10 @@ function AmountStep({
 				</div>
 
 				{isAmountValid && (
-					<div className="rounded-lg border border-dashed bg-muted/40 p-4 font-mono">
-						<p className="mb-2 text-center text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">
-							· Lounge bar receipt ·
-						</p>
-						{feeDataLoading ? (
-							<div className="flex items-center justify-center py-4">
-								<div className="h-5 w-5 animate-spin border-2 border-muted-foreground border-t-transparent rounded-full" />
-								<span className="ml-2 text-sm text-muted-foreground">
-									Calculating fees...
-								</span>
-							</div>
-						) : feeData ? (
-							<div className="space-y-1 text-sm tabular-nums">
-								<div className="flex justify-between">
-									<span>Credits</span>
-									<span>${feeData.baseAmount.toFixed(2)}</span>
-								</div>
-								<div className="flex justify-between">
-									<span>Platform fee (5%)</span>
-									<span>${feeData.platformFee.toFixed(2)}</span>
-								</div>
-								{feeData.internationalFee > 0 ? (
-									<div className="flex justify-between">
-										<span>Intl. card fee (1.5%)</span>
-										<span>${feeData.internationalFee.toFixed(2)}</span>
-									</div>
-								) : null}
-								<div className="flex justify-between border-t border-dashed pt-1 font-semibold">
-									<span>Total</span>
-									<span>${feeData.totalAmount.toFixed(2)}</span>
-								</div>
-							</div>
-						) : null}
-					</div>
+					<FeeBreakdownReceipt
+						feeData={feeData}
+						feeDataLoading={Boolean(feeDataLoading)}
+					/>
 				)}
 			</div>
 			<DialogFooter className="flex flex-col gap-3 sm:flex-col">
@@ -746,42 +773,11 @@ function ConfirmPaymentStep({
 				</DialogDescription>
 			</DialogHeader>
 			<form onSubmit={handleSubmit} className="space-y-4 py-4">
-				<div className="rounded-lg border border-dashed bg-muted/40 p-4 font-mono">
-					<p className="mb-3 text-center text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">
-						· Lounge bar receipt ·
-					</p>
-					{feeDataLoading ? (
-						<div className="flex items-center justify-center py-4">
-							<div className="h-5 w-5 animate-spin border-2 border-muted-foreground border-t-transparent rounded-full" />
-							<span className="ml-2 text-sm text-muted-foreground">
-								Calculating fees...
-							</span>
-						</div>
-					) : feeData ? (
-						<div className="space-y-2 text-sm tabular-nums">
-							<div className="flex justify-between">
-								<span>Credits</span>
-								<span>${feeData.baseAmount.toFixed(2)}</span>
-							</div>
-							<div className="flex justify-between">
-								<span>Platform fee (5%)</span>
-								<span>${feeData.platformFee.toFixed(2)}</span>
-							</div>
-							{feeData.internationalFee > 0 ? (
-								<div className="flex justify-between">
-									<span>Intl. card fee (1.5%)</span>
-									<span>${feeData.internationalFee.toFixed(2)}</span>
-								</div>
-							) : null}
-							<div className="flex justify-between border-t border-dashed pt-2 font-semibold">
-								<span>Total</span>
-								<span>${feeData.totalAmount.toFixed(2)}</span>
-							</div>
-						</div>
-					) : (
-						<p className="text-sm text-muted-foreground">Amount: ${amount}</p>
-					)}
-				</div>
+				<FeeBreakdownReceipt
+					feeData={feeData}
+					feeDataLoading={Boolean(feeDataLoading)}
+					amount={amount}
+				/>
 				<DialogFooter className="flex space-x-2 justify-end">
 					<Button
 						type="button"

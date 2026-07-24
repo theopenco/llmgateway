@@ -63,7 +63,15 @@ test("compare hub positions Lounge against competitors", async ({ page }) => {
 
 test("signed-in chat shows the Lounge wordmark in the sidebar", async ({
 	page,
+	baseURL,
 }) => {
+	// The seeded admin credentials only exist on a locally seeded stack —
+	// never type them into a non-local PW_BASE_URL target.
+	test.skip(
+		!/^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(baseURL ?? ""),
+		"login test requires a locally seeded stack",
+	);
+
 	await page.goto("/login");
 	await page.fill('input[type="email"]', "admin@example.com");
 	await page.fill('input[type="password"]', "admin@example.com");

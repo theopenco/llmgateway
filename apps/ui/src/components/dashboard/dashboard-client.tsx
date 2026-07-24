@@ -628,7 +628,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 														<CardDescription className="mt-1">
 															Add credits to your organization to unlock all
 															paid models. Free models are always available via
-															the playground.
+															the Lounge.
 														</CardDescription>
 													</div>
 												</div>

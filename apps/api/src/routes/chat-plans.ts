@@ -173,7 +173,7 @@ const cancel = createRoute({
 					}),
 				},
 			},
-			description: "Chat plan subscription cancelled successfully",
+			description: "Lounge membership cancelled successfully",
 		},
 	},
 });
@@ -262,7 +262,7 @@ const resume = createRoute({
 					}),
 				},
 			},
-			description: "Chat plan subscription resumed successfully",
+			description: "Lounge membership resumed successfully",
 		},
 	},
 });
@@ -371,7 +371,7 @@ const changeTier = createRoute({
 					}),
 				},
 			},
-			description: "Chat plan tier changed successfully",
+			description: "Lounge membership tier changed successfully",
 		},
 	},
 });
@@ -513,7 +513,7 @@ chatPlans.openapi(changeTier, async (c) => {
 			await db.insert(tables.transaction).values({
 				organizationId: personalOrg.id,
 				type: "chat_plan_downgrade",
-				description: `Changed from ${personalOrg.chatPlan} to ${newTier} plan`,
+				description: `Changed Lounge membership from ${personalOrg.chatPlan} to ${newTier}`,
 				status: "completed",
 			});
 		}
@@ -587,7 +587,7 @@ const getStatus = createRoute({
 					}),
 				},
 			},
-			description: "Chat plan status retrieved successfully",
+			description: "Lounge membership status retrieved successfully",
 		},
 	},
 });
