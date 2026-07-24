@@ -13,6 +13,7 @@ import {
 	ensureStripeCustomer,
 	finalizeDevPlanSetupSession,
 	fulfillResetPassPurchase,
+	getSubscriptionPaymentConfirmation,
 	isDevPlanCardDedupeEnforced,
 } from "@/stripe.js";
 import { findDefaultOrganization } from "@/utils/default-org.js";
@@ -86,6 +87,15 @@ async function releaseTierChangeLease(organizationId: string) {
 					: new Error(String(releaseError)),
 			);
 		});
+}
+
+// Stripe errors carry a machine-readable `code` (e.g. `card_declined`,
+// `subscription_payment_intent_requires_action`) but the SDK types them as
+// `unknown` at the catch site, so narrow to the string code (or undefined).
+function getStripeErrorCode(error: unknown): string | undefined {
+	return typeof error === "object" && error !== null && "code" in error
+		? String((error as { code?: unknown }).code)
+		: undefined;
 }
 
 // Helper to get or create API key for personal org
@@ -987,12 +997,19 @@ const changeTier = createRoute({
 		200: {
 			content: {
 				"application/json": {
-					schema: z.object({
-						success: z.boolean(),
-					}),
+					schema: z.union([
+						z.object({
+							success: z.boolean(),
+						}),
+						z.object({
+							status: z.literal("requires_action"),
+							clientSecret: z.string(),
+						}),
+					]),
 				},
 			},
-			description: "Dev plan tier changed successfully",
+			description:
+				"Dev plan tier changed successfully, or the upgrade payment requires customer authentication (3DS) — confirm the returned client secret with Stripe.js to complete it",
 		},
 	},
 });
@@ -1208,23 +1225,89 @@ devPlans.openapi(changeTier, async (c) => {
 			// `error_if_incomplete` makes the update atomic: if the charge can't be
 			// collected Stripe throws and leaves the subscription on the old tier, so
 			// there's no half-applied upgrade to roll back.
-			const updated = await getStripe().subscriptions.update(subscriptionId, {
-				items: [
-					{
-						id: subscriptionItemId,
-						price: newPriceId,
+			let updated: Stripe.Subscription;
+			try {
+				updated = await getStripe().subscriptions.update(subscriptionId, {
+					items: [
+						{
+							id: subscriptionItemId,
+							price: newPriceId,
+						},
+					],
+					proration_behavior: "none",
+					billing_cycle_anchor: "now",
+					payment_behavior: "error_if_incomplete",
+					expand: ["latest_invoice.payment_intent"],
+					metadata: {
+						...subscription.metadata,
+						devPlan: newTier,
+						devPlanCycle: existingCycle,
 					},
-				],
-				proration_behavior: "none",
-				billing_cycle_anchor: "now",
-				payment_behavior: "error_if_incomplete",
-				expand: ["latest_invoice.payment_intent"],
-				metadata: {
-					...subscription.metadata,
-					devPlan: newTier,
-					devPlanCycle: existingCycle,
-				},
-			});
+				});
+			} catch (updateError) {
+				const updateErrCode = getStripeErrorCode(updateError);
+				if (updateErrCode !== "subscription_payment_intent_requires_action") {
+					throw updateError;
+				}
+				// The bank demands 3DS/SCA authentication, which only the customer can
+				// complete in the browser. Re-issue the update as a Stripe pending
+				// update (`pending_if_incomplete`): nothing — price, cycle anchor, or
+				// metadata — is applied until the invoice is paid, and if the customer
+				// abandons the challenge Stripe voids the invoice and discards the
+				// update after at most 23 hours, leaving the subscription untouched.
+				// The client confirms the returned payment intent secret with
+				// Stripe.js; on success the `invoice.payment_succeeded` webhook's
+				// `subscription_update` fallback applies the tier change, credit
+				// rollover, transaction row and invoice email idempotently.
+				const pending = await getStripe().subscriptions.update(subscriptionId, {
+					items: [
+						{
+							id: subscriptionItemId,
+							price: newPriceId,
+						},
+					],
+					proration_behavior: "none",
+					billing_cycle_anchor: "now",
+					payment_behavior: "pending_if_incomplete",
+					expand: ["latest_invoice.payment_intent"],
+					metadata: {
+						...subscription.metadata,
+						devPlan: newTier,
+						devPlanCycle: existingCycle,
+					},
+				});
+				const { clientSecret } =
+					await getSubscriptionPaymentConfirmation(pending);
+				if (!clientSecret) {
+					// No confirmable payment intent to hand to the client; surface the
+					// original failure through the shared catch below.
+					throw updateError;
+				}
+				logger.info("Dev plan tier change pending customer authentication", {
+					organizationId: personalOrg.id,
+					subscriptionId,
+					newTier,
+				});
+				// Release the lease: the charge is no longer in flight server-side, and
+				// the webhook completes (or Stripe discards) the change out-of-band.
+				// Releasing here — rather than holding until the webhook resolves — keeps
+				// the common "abandon the 3DS challenge, then retry" path unblocked (the
+				// completion webhook lives in the Stripe handler and never touches the
+				// lease, so a held lease would only clear on the 15-minute staleness
+				// window). A concurrent retry during the challenge cannot double-charge:
+				// a subscription holds at most one pending update, so re-issuing simply
+				// voids the prior invoice and replaces it — last write wins.
+				if (claimedLeaseThisCall) {
+					await releaseTierChangeLease(personalOrg.id);
+				}
+				return c.json(
+					{
+						status: "requires_action" as const,
+						clientSecret,
+					},
+					200,
+				);
+			}
 
 			if (updated.status !== "active" && updated.status !== "trialing") {
 				throw new HTTPException(402, {
@@ -1422,10 +1505,7 @@ devPlans.openapi(changeTier, async (c) => {
 		// so the UI can prompt the user to update billing. This is an expected
 		// user-facing outcome, not a server fault, so log it at warn — never
 		// error — to avoid noisy alerts for declined cards.
-		const errCode =
-			typeof error === "object" && error !== null && "code" in error
-				? String((error as { code?: unknown }).code)
-				: undefined;
+		const errCode = getStripeErrorCode(error);
 		if (errCode === "card_declined" || errCode === "invoice_payment_required") {
 			logger.warn("Dev plan tier change payment declined", {
 				code: errCode,
@@ -1433,6 +1513,18 @@ devPlans.openapi(changeTier, async (c) => {
 			throw new HTTPException(402, {
 				message:
 					"Upgrade payment could not be collected. Update your payment method and try again.",
+			});
+		}
+		// `error_if_incomplete` throws this when the bank demands 3DS/SCA
+		// authentication, which can't be completed server-side; the subscription
+		// is left unchanged. Also an expected user-facing outcome, so 402 + warn.
+		if (errCode === "subscription_payment_intent_requires_action") {
+			logger.warn("Dev plan tier change requires payment authentication", {
+				code: errCode,
+			});
+			throw new HTTPException(402, {
+				message:
+					"Your bank requires additional verification to complete this payment. Update or re-add your payment method and try again.",
 			});
 		}
 		logger.error(

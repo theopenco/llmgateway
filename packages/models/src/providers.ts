@@ -344,6 +344,29 @@ export const providers: ProviderDefinition[] = [
 		priority: 1.2,
 	},
 	{
+		id: "iceberg",
+		name: "Iceberg",
+		description:
+			"Iceberg is a stealth provider with Google AI Studio-compatible Gemini endpoints.",
+		env: {
+			required: {
+				apiKey: "LLM_ICEBERG_API_KEY",
+				baseUrl: "LLM_ICEBERG_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#4285f4",
+		website: null,
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: null,
+		privacyPolicyUrl: null,
+		headquarters: null,
+		dataPolicy: null,
+		priority: 1.2,
+	},
+	{
 		id: "granite",
 		name: "Granite",
 		description:

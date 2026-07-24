@@ -673,6 +673,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 
 	const isGoogleAiStudio = providerId === "google-ai-studio";
 	const isGoogleVertex = providerId === "google-vertex";
+	const isDeepInfra = providerId === "deepinfra";
 	const googleInputs: string[] =
 		isGoogleAiStudio || isGoogleVertex
 			? Array.isArray(input)
@@ -920,6 +921,24 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			};
 			if (dimensions !== undefined) {
 				requestBody.parameters = { outputDimensionality: dimensions };
+			}
+		} else if (isDeepInfra) {
+			// DeepInfra's base URL is https://api.deepinfra.com/v1/openai so the
+			// embeddings path is /embeddings (not /v1/embeddings, which would
+			// double up to /v1/openai/v1/embeddings and 404).
+			upstreamUrl = `${resolvedBaseUrl}/embeddings`;
+			requestBody = {
+				input,
+				model: upstreamModel,
+			};
+			if (encoding_format !== undefined) {
+				requestBody.encoding_format = encoding_format;
+			}
+			if (dimensions !== undefined) {
+				requestBody.dimensions = dimensions;
+			}
+			if (user !== undefined) {
+				requestBody.user = user;
 			}
 		} else {
 			upstreamUrl = `${resolvedBaseUrl}/v1/embeddings`;

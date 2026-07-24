@@ -255,6 +255,22 @@ export function getProviderEndpoint(
 					);
 				}
 				break;
+			case "iceberg":
+				url = skipEnvVars
+					? undefined
+					: getProviderEnvValue(
+							"iceberg",
+							"baseUrl",
+							configIndex,
+							undefined,
+							variant,
+						);
+				if (!url) {
+					throw new Error(
+						"Iceberg provider requires LLM_ICEBERG_BASE_URL environment variable",
+					);
+				}
+				break;
 			case "granite":
 				url = skipEnvVars
 					? undefined
@@ -455,7 +471,8 @@ export function getProviderEndpoint(
 				? `${baseEndpoint}?${queryParams.join("&")}`
 				: baseEndpoint;
 		}
-		case "glacier": {
+		case "glacier":
+		case "iceberg": {
 			const endpoint = stream ? "streamGenerateContent" : "generateContent";
 			const baseEndpoint = externalId
 				? `${url}/v1beta/models/${externalId}:${endpoint}`

@@ -627,7 +627,7 @@ async function getSubscriptionInvoice(
 	});
 }
 
-async function getSubscriptionPaymentConfirmation(
+export async function getSubscriptionPaymentConfirmation(
 	subscription: Stripe.Subscription,
 ): Promise<{
 	paymentIntent: Stripe.PaymentIntent | null;
