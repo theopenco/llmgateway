@@ -4,8 +4,10 @@ import type { ModelDefinition } from "@/models.js";
  * Preset system voices for the Qwen-Audio-3.0-TTS models, passed through 1:1
  * as the upstream DashScope `voice` parameter. Each model only supports its
  * own voice set (voices cannot be mixed between models), and the first entry
- * is used as the default when the caller omits `voice`. Both models also
- * accept cloned/custom voice ids, which the gateway does not enumerate.
+ * is used as the default when the caller omits `voice`. The gateway validates
+ * `voice` against this allowlist, so only these system voices are accepted;
+ * Alibaba's cloned/custom voice ids are not supported through the speech
+ * endpoint today.
  * Ref: https://help.aliyun.com/zh/model-studio/qwen-audio-tts-voice-list
  */
 const QWEN_AUDIO_TTS_PLUS_VOICES = ["longanlingxin", "longanlufeng"];
