@@ -5,12 +5,25 @@ import { insertLog } from "./logs.js";
 import type { LogInsertData } from "@llmgateway/db";
 
 const publishToQueue = vi.fn();
+const dbInsertValues = vi.fn();
 
 vi.mock(import("@llmgateway/cache"), async (importOriginal) => {
 	const actual = await importOriginal();
 	return {
 		...actual,
 		publishToQueue: (...args: unknown[]) => publishToQueue(...args),
+	};
+});
+
+vi.mock(import("@llmgateway/db"), async (importOriginal) => {
+	const actual = await importOriginal();
+	return {
+		...actual,
+		db: {
+			insert: () => ({
+				values: (...args: unknown[]) => dbInsertValues(...args),
+			}),
+		} as unknown as typeof actual.db,
 	};
 });
 
@@ -47,6 +60,7 @@ function baseLogData(overrides: Partial<LogInsertData>): LogInsertData {
 describe("insertLog retention stripping", () => {
 	beforeEach(() => {
 		publishToQueue.mockClear();
+		dbInsertValues.mockClear();
 	});
 
 	it("strips payload fields before publishing when retention is none", async () => {
@@ -82,5 +96,30 @@ describe("insertLog retention stripping", () => {
 
 		const published = publishToQueue.mock.calls[0][1] as LogInsertData;
 		expect(published.content).toBe("secret completion");
+	});
+
+	it("strips before a synchronous DB insert when retention is none", async () => {
+		await insertLog(baseLogData({}), {
+			syncInsert: true,
+			retentionLevel: "none",
+		});
+
+		expect(dbInsertValues).toHaveBeenCalledTimes(1);
+		expect(publishToQueue).not.toHaveBeenCalled();
+		const inserted = dbInsertValues.mock.calls[0][0] as LogInsertData;
+		expect(inserted.messages).toBeNull();
+		expect(inserted.content).toBeNull();
+		expect(inserted.tools).toBeNull();
+		expect(inserted.responsesApiData).toBeNull();
+	});
+
+	it("keeps payload on a synchronous DB insert when retention is retain", async () => {
+		await insertLog(baseLogData({}), {
+			syncInsert: true,
+			retentionLevel: "retain",
+		});
+
+		const inserted = dbInsertValues.mock.calls[0][0] as LogInsertData;
+		expect(inserted.content).toBe("secret completion");
 	});
 });

@@ -11,9 +11,11 @@ import {
 	type InferSelectModel,
 	inArray,
 	isNull,
+	type LogInsertData,
 	lte,
 	or,
 	shortid,
+	stripRetentionSensitiveLogFields,
 	tables,
 	UnifiedFinishReason,
 } from "@llmgateway/db";
@@ -1822,15 +1824,6 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 			const totalCost = Number((videoOutputCost + imageInputCost).toFixed(6));
 			const responsePayload = await serializeVideoJob(jobToLog, logId);
 			const responseSize = JSON.stringify(responsePayload).length;
-			const messages =
-				organization?.retentionLevel === "retain"
-					? [
-							{
-								role: "user",
-								content: jobToLog.prompt,
-							},
-						]
-					: null;
 
 			const isContentFilterFailure =
 				jobToLog.status === "failed" &&
@@ -1846,7 +1839,7 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				? UnifiedFinishReason.CONTENT_FILTER
 				: UnifiedFinishReason.UPSTREAM_ERROR;
 
-			await tx.insert(tables.log).values({
+			const logValues: LogInsertData = {
 				id: logId,
 				requestId: jobToLog.requestId,
 				organizationId: jobToLog.organizationId,
@@ -1884,7 +1877,12 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				imageInputCost,
 				videoOutputCost,
 				estimatedCost: false,
-				messages,
+				messages: [
+					{
+						role: "user",
+						content: jobToLog.prompt,
+					},
+				],
 				mode: jobToLog.mode,
 				usedMode: jobToLog.usedMode,
 				routingMetadata: jobToLog.routingMetadata ?? null,
@@ -1900,7 +1898,17 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				upstreamResponse: jobToLog.upstreamStatusResponse,
 				processedAt: null,
 				dataStorageCost: "0",
-			});
+			};
+
+			// Strip request/response payload fields for orgs that don't retain data,
+			// keeping the video log consistent with every other endpoint's policy.
+			await tx
+				.insert(tables.log)
+				.values(
+					organization?.retentionLevel === "retain"
+						? logValues
+						: stripRetentionSensitiveLogFields(logValues),
+				);
 
 			await tx
 				.update(tables.videoJob)

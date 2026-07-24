@@ -32,7 +32,10 @@ import {
 import { buildOpenAIErrorBody } from "@/lib/error-response.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
-import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import {
+	calculateDataStorageCost,
+	insertLog as _insertLog,
+} from "@/lib/logs.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
 import { getProviderHeaders } from "@llmgateway/actions";
@@ -464,6 +467,13 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 	});
 
 	const retentionLevel = organization.retentionLevel ?? "none";
+
+	// Strip request/response payload fields before publishing to the log queue
+	// for orgs that don't retain data, so payloads never travel through Redis.
+	const insertLog = (
+		logData: Parameters<typeof _insertLog>[0],
+		options?: Parameters<typeof _insertLog>[1],
+	) => _insertLog(logData, { retentionLevel, ...options });
 
 	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
 	// this org's env-credential reads. Undefined = base vars only.
