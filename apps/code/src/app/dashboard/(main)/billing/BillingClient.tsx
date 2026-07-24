@@ -119,6 +119,18 @@ export default function BillingClient({
 		return false;
 	};
 
+	// Shared post-change refresh: pull the just-recorded upgrade invoice and the
+	// new current tier / pending-change state, and record the analytics event.
+	const refreshAfterTierChange = async (
+		newTier: PlanTier,
+		timing?: TierChangeTiming,
+	): Promise<void> => {
+		await Promise.all([invalidateInvoices(), invalidateStatus()]);
+		if (posthogKey) {
+			posthog.capture("dev_plan_tier_changed", { newTier, timing });
+		}
+	};
+
 	const handleChangeTier = async (
 		newTier: PlanTier,
 		expectedAmountDueCents?: number,
@@ -149,10 +161,7 @@ export default function BillingClient({
 					);
 				}
 				const applied = await waitForTierChange(newTier);
-				await Promise.all([invalidateInvoices(), invalidateStatus()]);
-				if (posthogKey) {
-					posthog.capture("dev_plan_tier_changed", { newTier, timing });
-				}
+				await refreshAfterTierChange(newTier, timing);
 				if (applied) {
 					toast.success("Plan updated");
 				} else {
@@ -166,10 +175,7 @@ export default function BillingClient({
 			// server-side; refetch so the Invoices section reflects the just-paid
 			// charge immediately, and refresh status so the current tier /
 			// pending-change state updates.
-			await Promise.all([invalidateInvoices(), invalidateStatus()]);
-			if (posthogKey) {
-				posthog.capture("dev_plan_tier_changed", { newTier, timing });
-			}
+			await refreshAfterTierChange(newTier, timing);
 			toast.success(
 				timing === "next_cycle"
 					? "Plan change scheduled for your next renewal"

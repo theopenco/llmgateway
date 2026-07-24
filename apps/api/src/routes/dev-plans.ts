@@ -89,6 +89,15 @@ async function releaseTierChangeLease(organizationId: string) {
 		});
 }
 
+// Stripe errors carry a machine-readable `code` (e.g. `card_declined`,
+// `subscription_payment_intent_requires_action`) but the SDK types them as
+// `unknown` at the catch site, so narrow to the string code (or undefined).
+function getStripeErrorCode(error: unknown): string | undefined {
+	return typeof error === "object" && error !== null && "code" in error
+		? String((error as { code?: unknown }).code)
+		: undefined;
+}
+
 // Helper to get or create API key for personal org
 async function getOrCreatePersonalOrgApiKey(
 	orgId: string,
@@ -1236,12 +1245,7 @@ devPlans.openapi(changeTier, async (c) => {
 					},
 				});
 			} catch (updateError) {
-				const updateErrCode =
-					typeof updateError === "object" &&
-					updateError !== null &&
-					"code" in updateError
-						? String((updateError as { code?: unknown }).code)
-						: undefined;
+				const updateErrCode = getStripeErrorCode(updateError);
 				if (updateErrCode !== "subscription_payment_intent_requires_action") {
 					throw updateError;
 				}
@@ -1286,6 +1290,13 @@ devPlans.openapi(changeTier, async (c) => {
 				});
 				// Release the lease: the charge is no longer in flight server-side, and
 				// the webhook completes (or Stripe discards) the change out-of-band.
+				// Releasing here — rather than holding until the webhook resolves — keeps
+				// the common "abandon the 3DS challenge, then retry" path unblocked (the
+				// completion webhook lives in the Stripe handler and never touches the
+				// lease, so a held lease would only clear on the 15-minute staleness
+				// window). A concurrent retry during the challenge cannot double-charge:
+				// a subscription holds at most one pending update, so re-issuing simply
+				// voids the prior invoice and replaces it — last write wins.
 				if (claimedLeaseThisCall) {
 					await releaseTierChangeLease(personalOrg.id);
 				}
@@ -1494,10 +1505,7 @@ devPlans.openapi(changeTier, async (c) => {
 		// so the UI can prompt the user to update billing. This is an expected
 		// user-facing outcome, not a server fault, so log it at warn — never
 		// error — to avoid noisy alerts for declined cards.
-		const errCode =
-			typeof error === "object" && error !== null && "code" in error
-				? String((error as { code?: unknown }).code)
-				: undefined;
+		const errCode = getStripeErrorCode(error);
 		if (errCode === "card_declined" || errCode === "invoice_payment_required") {
 			logger.warn("Dev plan tier change payment declined", {
 				code: errCode,
