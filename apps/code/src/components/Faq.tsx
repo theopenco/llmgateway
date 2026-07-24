@@ -9,7 +9,13 @@ import {
 	AccordionItem,
 } from "@/components/ui/accordion";
 
-import { MARKETING_STATS } from "@llmgateway/shared";
+import {
+	DEV_PLAN_INCLUDED_RESET_PASSES,
+	DEV_PLAN_RESET_PASS_PRICES,
+	HIGH_COST_INPUT_PRICE,
+	HIGH_COST_OUTPUT_PRICE,
+	MARKETING_STATS,
+} from "@llmgateway/shared";
 
 import type { ReactNode } from "react";
 
@@ -20,6 +26,9 @@ interface FaqItem {
 	answer: string;
 	content?: ReactNode;
 }
+
+const premiumInputPerM = Math.round(HIGH_COST_INPUT_PRICE * 1_000_000);
+const premiumOutputPerM = Math.round(HIGH_COST_OUTPUT_PRICE * 1_000_000);
 
 const faqData: FaqItem[] = [
 	{
@@ -58,29 +67,55 @@ const faqData: FaqItem[] = [
 	{
 		question: "What happens if I hit my monthly limit?",
 		answer:
-			"Requests pause until your allowance resets at the start of the next billing cycle. You can upgrade to a higher tier at any time for an immediate, prorated boost to your available usage.",
+			"Requests pause until your allowance resets at the start of the next billing cycle. Or upgrade to a higher tier at any time: an immediate upgrade charges the new tier's full price, restarts your billing cycle, and grants the new tier's full monthly allowance right away — plus anything left of your current allowance rolls over. Credits only roll over on an immediate upgrade, never at a regular renewal.",
 		content: (
 			<>
 				Requests pause until your allowance resets at the start of the next
-				billing cycle. You can{" "}
-				<strong>upgrade to a higher tier at any time</strong> for an immediate,
-				prorated boost to your available usage.
+				billing cycle. Or <strong>upgrade to a higher tier at any time</strong>:
+				an immediate upgrade charges the new tier&apos;s full price, restarts
+				your billing cycle, and grants the new tier&apos;s full monthly
+				allowance right away — plus anything left of your current allowance
+				rolls over. Credits only roll over on an immediate upgrade, never at a
+				regular renewal.
 			</>
 		),
 	},
 	{
 		question: "Can I change plans anytime?",
 		answer:
-			"Yes. Upgrade or downgrade whenever you like — changes are prorated and take effect immediately. There's no lock-in and no cancellation fee.",
+			"Yes. Upgrades can take effect immediately — you're charged the new tier's full price, your billing cycle restarts, and you get the new tier's full allowance right away, plus any unspent credits from the cycle being replaced roll over until your next renewal — or you can schedule the upgrade for your next renewal instead. Downgrades take effect at your next renewal. There's no lock-in and no cancellation fee.",
 	},
 	{
 		question: "Do I need a subscription, or is there pay-as-you-go?",
 		answer: `Both work. DevPass plans turn every dollar into $3 of model usage. If you'd rather not subscribe, LLM Gateway offers pay-as-you-go: top up credits and pay per token at provider rates with a flat ${MARKETING_STATS.platformFee} platform fee, or bring your own provider keys for free.`,
 	},
 	{
+		question: "Can my team or company use DevPass?",
+		answer:
+			"No. DevPass is intended for private, personal use by individual developers — one developer, one account. It can't be purchased or shared as a team or company, and there are no team plans. For teams and companies, use LLM Gateway's pay-as-you-go product instead, and reach out to contact@llmgateway.io for custom solutions and volume discounts.",
+		content: (
+			<>
+				<p>
+					No. DevPass is intended for{" "}
+					<strong>private, personal use by individual developers</strong> — one
+					developer, one account. It can&apos;t be purchased or shared as a team
+					or company, and there are no team plans.
+				</p>
+				<p className="mt-3">
+					For teams and companies, use LLM Gateway&apos;s pay-as-you-go product
+					instead — and reach out to{" "}
+					<Link href="mailto:contact@llmgateway.io" className="underline">
+						contact@llmgateway.io
+					</Link>{" "}
+					for custom solutions and volume discounts.
+				</p>
+			</>
+		),
+	},
+	{
 		question: "Which tools and SDKs work with DevPass?",
 		answer:
-			"Anything that speaks the OpenAI or Anthropic API — Claude Code, SoulForge, Cursor, Cline, Continue, Aider, the OpenAI and Anthropic SDKs, and more. Set two environment variables and you're in.",
+			"Anything that speaks the OpenAI or Anthropic API — Claude Code, Empryo, SoulForge, Cursor, Cline, Continue, Aider, the OpenAI and Anthropic SDKs, and more. Set two environment variables and you're in.",
 	},
 	{
 		question: "Are all 200+ models included on every plan?",
@@ -89,29 +124,69 @@ const faqData: FaqItem[] = [
 	},
 	{
 		question: "Are there limits on premium models?",
-		answer:
-			"Premium frontier models — Anthropic Opus, OpenAI Pro/reasoning, Gemini Pro, and Grok 4 — are subject to a weekly fair-use allowance in addition to your monthly allowance: $10/week on Lite, $50/week on Pro, and $140/week on Max. Every other model draws on your full monthly allowance. The exact numbers are published on the plan cards — no hidden throttling.",
+		answer: `Premium models — any model priced at $${premiumInputPerM}+ per million input tokens or $${premiumOutputPerM}+ per million output tokens — are subject to a weekly fair-use allowance in addition to your monthly allowance: 12% of your monthly credits on Lite, 15% on Pro, and 18% on Max. Every other model draws on your full monthly allowance. The exact numbers are published on the plan cards — no hidden throttling.`,
 		content: (
 			<>
 				<p>
-					Premium frontier models — Anthropic Opus, OpenAI Pro/reasoning, Gemini
-					Pro, and Grok 4 — are subject to a weekly fair-use allowance in
-					addition to your monthly allowance:
+					Premium models — any model priced at ${premiumInputPerM}+ per million
+					input tokens or ${premiumOutputPerM}+ per million output tokens — are
+					subject to a weekly fair-use allowance in addition to your monthly
+					allowance:
 				</p>
 				<ul className="list-disc pl-6 mt-2 space-y-1">
 					<li>
-						<strong>Lite:</strong> $10/week
+						<strong>Lite:</strong> 12% of monthly credits
 					</li>
 					<li>
-						<strong>Pro:</strong> $50/week
+						<strong>Pro:</strong> 15% of monthly credits
 					</li>
 					<li>
-						<strong>Max:</strong> $140/week
+						<strong>Max:</strong> 18% of monthly credits
 					</li>
 				</ul>
 				<p className="mt-3">
 					Every other model draws on your full monthly allowance. The exact
-					numbers are published on the plan cards — no hidden throttling.
+					numbers are published on the plan cards — no hidden throttling. See{" "}
+					<Link
+						href="https://docs.llmgateway.io/learn/model-categories"
+						className="underline"
+					>
+						model categories &amp; fair use
+					</Link>{" "}
+					for how models are classified.
+				</p>
+			</>
+		),
+	},
+	{
+		question: "What if I hit the weekly premium allowance mid-week?",
+		answer: `Redeem a Reset Pass: it instantly restores your full weekly premium allowance and starts a fresh 7-day window. A pass removes the weekly limit only — it doesn't add credits, so usage still draws from your monthly allowance. Pro includes ${DEV_PLAN_INCLUDED_RESET_PASSES.pro} pass per billing cycle and Max includes ${DEV_PLAN_INCLUDED_RESET_PASSES.max}; extra passes are a one-time purchase from your dashboard ($${DEV_PLAN_RESET_PASS_PRICES.lite} on Lite, $${DEV_PLAN_RESET_PASS_PRICES.pro} on Pro, $${DEV_PLAN_RESET_PASS_PRICES.max} on Max). Standard models keep working the whole time, and if you're resetting every week, upgrading a tier is usually the better deal.`,
+	},
+	{
+		question: "Does the weekly premium allowance reset when my plan renews?",
+		answer:
+			"Yes. Every monthly renewal resets everything at once: your monthly credits, your weekly premium allowance (a fresh 7-day window starts at renewal), and your included Reset Passes. Between renewals the window is rolling — when 7 days end, the next window starts with your next premium request, and redeeming a Reset Pass clears the window so the next request starts a fresh one. There's no reset schedule to manage — neither the weekly window nor unused included passes carry into the next cycle. Purchased Reset Passes are separate: they persist until redeemed.",
+		content: (
+			<>
+				<p>
+					Yes. Every monthly renewal resets everything at once: your monthly
+					credits, your weekly premium allowance (a fresh 7-day window starts at
+					renewal), and your included Reset Passes.
+				</p>
+				<p className="mt-3">
+					Between renewals the window is rolling — when 7 days end, the next
+					window starts with your next premium request, and redeeming a Reset
+					Pass clears the window so the next request starts a fresh one.
+					There&apos;s no reset schedule to manage — neither the weekly window
+					nor unused included passes carry into the next cycle. Purchased Reset
+					Passes are separate: they persist until redeemed. See{" "}
+					<Link
+						href="https://docs.llmgateway.io/learn/reset-passes"
+						className="underline"
+					>
+						Reset Passes
+					</Link>{" "}
+					for the full mechanics.
 				</p>
 			</>
 		),
@@ -119,7 +194,7 @@ const faqData: FaqItem[] = [
 	{
 		question: "Can I get a refund?",
 		answer:
-			"Yes — DevPass comes with a first-month guarantee. Cancel within 7 days of your first purchase and email contact@llmgateway.io: we'll refund your first month minus the usage you consumed at provider rates. Plan changes are prorated, and there's no cancellation fee.",
+			"Yes — DevPass comes with a first-month guarantee. Cancel within 7 days of your first purchase and email contact@llmgateway.io: we'll refund your first month minus the usage you consumed at provider rates. There's no cancellation fee.",
 		content: (
 			<>
 				Yes — DevPass comes with a <strong>first-month guarantee</strong>.
@@ -128,8 +203,7 @@ const faqData: FaqItem[] = [
 					contact@llmgateway.io
 				</Link>
 				: we&apos;ll refund your first month minus the usage you consumed at
-				provider rates. Plan changes are prorated, and there&apos;s no
-				cancellation fee.
+				provider rates. There&apos;s no cancellation fee.
 			</>
 		),
 	},

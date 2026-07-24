@@ -22,13 +22,20 @@ export {
 } from "./fees.js";
 
 export {
+	DEV_PLAN_INCLUDED_RESET_PASSES,
 	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
-	DEV_PLAN_PREMIUM_WEEKLY_LIMITS,
+	DEV_PLAN_PREMIUM_WEEKLY_PERCENT,
 	DEV_PLAN_PRICES,
+	DEV_PLAN_RESET_PASS_PRICES,
+	DEV_PLAN_RESET_PASS_PURCHASE_MAX_CYCLE_USAGE,
+	DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE,
 	type DevPlanCycle,
 	type DevPlanTier,
 	getDevPlanCreditsLimit,
+	getDevPlanCycleUsageFraction,
 	getDevPlanPremiumWeeklyLimit,
+	getDevPlanUpgradeCredits,
+	getIncludedResetPassesRemaining,
 	getRemainingPremiumWeeklyAllowance,
 	isPremiumWeekExpired,
 } from "./dev-plans.js";
@@ -52,6 +59,7 @@ export {
 	HIGH_COST_INPUT_PRICE,
 	HIGH_COST_OUTPUT_PRICE,
 	isPremiumModel,
+	isPremiumUsedModel,
 	type ModelCategory,
 } from "./model-categories.js";
 

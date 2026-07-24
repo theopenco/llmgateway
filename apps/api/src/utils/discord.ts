@@ -126,6 +126,47 @@ export async function notifyCreditsPurchased(
 	});
 }
 
+export async function notifyRefund(
+	email: string,
+	name: string | null | undefined,
+	refundAmount: number,
+	product: string,
+): Promise<void> {
+	const displayName = name ?? "Unknown";
+
+	await sendDiscordNotification({
+		embeds: [
+			{
+				title: "Refund Processed",
+				color: 0xf97316, // Orange
+				fields: [
+					{
+						name: "Email",
+						value: email,
+						inline: true,
+					},
+					{
+						name: "Name",
+						value: displayName,
+						inline: true,
+					},
+					{
+						name: "Product",
+						value: product,
+						inline: true,
+					},
+					{
+						name: "Amount",
+						value: `$${refundAmount.toFixed(2)}`,
+						inline: true,
+					},
+				],
+				timestamp: new Date().toISOString(),
+			},
+		],
+	});
+}
+
 export async function notifyDevPlanSubscribed(
 	email: string,
 	name: string | null | undefined,
@@ -153,6 +194,47 @@ export async function notifyDevPlanSubscribed(
 					{
 						name: "Plan",
 						value: `${devPlan.toUpperCase()} (${cycle})`,
+						inline: true,
+					},
+				],
+				timestamp: new Date().toISOString(),
+			},
+		],
+	});
+}
+
+export async function notifyResetPassPurchased(
+	email: string,
+	name: string | null | undefined,
+	devPlan: string,
+	amount: number,
+): Promise<void> {
+	const displayName = name ?? "Unknown";
+
+	await sendDiscordNotification({
+		embeds: [
+			{
+				title: "Reset Pass Purchased",
+				color: 0x06b6d4, // Cyan
+				fields: [
+					{
+						name: "Email",
+						value: email,
+						inline: true,
+					},
+					{
+						name: "Name",
+						value: displayName,
+						inline: true,
+					},
+					{
+						name: "Tier",
+						value: devPlan.toUpperCase(),
+						inline: true,
+					},
+					{
+						name: "Amount",
+						value: `$${amount.toFixed(2)}`,
 						inline: true,
 					},
 				],
@@ -293,6 +375,9 @@ export async function notifyProviderContact(args: {
 	providerName: string;
 	email: string;
 	url: string;
+	termsUrl: string;
+	privacyUrl: string;
+	statusPageUrl?: string | null;
 	country: string;
 	compliance: string;
 	dataRetentionDays: number;
@@ -303,6 +388,9 @@ export async function notifyProviderContact(args: {
 		providerName,
 		email,
 		url,
+		termsUrl,
+		privacyUrl,
+		statusPageUrl,
 		country,
 		compliance,
 		dataRetentionDays,
@@ -321,6 +409,11 @@ export async function notifyProviderContact(args: {
 						{ name: "Provider", value: providerName, inline: true },
 						{ name: "Email", value: email, inline: true },
 						{ name: "URL", value: url, inline: false },
+						{ name: "Terms of Service", value: termsUrl, inline: false },
+						{ name: "Privacy Policy", value: privacyUrl, inline: false },
+						...(statusPageUrl
+							? [{ name: "Status Page", value: statusPageUrl, inline: false }]
+							: []),
 						{ name: "HQ Country", value: country, inline: true },
 						{
 							name: "Data Retention",
@@ -448,6 +541,27 @@ export async function notifyChatPlanRenewed(
 					{ name: "Email", value: email, inline: true },
 					{ name: "Name", value: displayName, inline: true },
 					{ name: "Plan", value: chatPlan.toUpperCase(), inline: true },
+				],
+				timestamp: new Date().toISOString(),
+			},
+		],
+	});
+}
+
+export async function notifyUserAccountDeleted(
+	email: string,
+	name: string | null | undefined,
+): Promise<void> {
+	const displayName = name ?? "Unknown";
+
+	await sendDiscordNotification({
+		embeds: [
+			{
+				title: "Account Deleted",
+				color: 0xef4444, // Red
+				fields: [
+					{ name: "Email", value: email, inline: true },
+					{ name: "Name", value: displayName, inline: true },
 				],
 				timestamp: new Date().toISOString(),
 			},

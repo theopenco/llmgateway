@@ -3,7 +3,8 @@ import { expect, test, beforeEach, describe, afterEach } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db, tables } from "@llmgateway/db";
+import { redisClient, SWR_PREFIX, swrWrap } from "@llmgateway/cache";
+import { and, cdb, db, eq, getTableName, tables } from "@llmgateway/db";
 
 describe("provider keys route", () => {
 	let token: string;
@@ -292,5 +293,120 @@ describe("provider keys route", () => {
 		});
 		expect(providerKey).not.toBeNull();
 		expect(providerKey?.status).toBe("deleted");
+	});
+
+	// The gateway resolves provider keys through a cached select (cdb) wrapped
+	// in an SWR fallback mirror, both indexed by the provider_key table (see
+	// apps/gateway/src/lib/cached-queries.ts). Mutations must go through cdb so
+	// its onMutate busts both layers; otherwise the gateway serves stale keys
+	// until the cache TTL expires.
+	//
+	// Each test uses its own org so the cache keys (SWR key and Drizzle query
+	// hash, which includes the bind params) are unique per run — cached entries
+	// in Redis outlive deleteAll() and would otherwise leak between runs.
+	async function createCacheTestOrg() {
+		const orgId = `cache-test-org-${crypto.randomUUID()}`;
+		await db.insert(tables.organization).values({
+			id: orgId,
+			name: "Cache Test Organization",
+			billingEmail: "cache-test@example.com",
+			plan: "pro",
+		});
+		await db.insert(tables.userOrganization).values({
+			id: `${orgId}-membership`,
+			userId: "test-user-id",
+			organizationId: orgId,
+			role: "owner",
+		});
+		await db.insert(tables.project).values({
+			id: `${orgId}-project`,
+			name: "Cache Test Project",
+			organizationId: orgId,
+		});
+		return orgId;
+	}
+
+	function readActiveProviderKeys(orgId: string, provider: string) {
+		return swrWrap(
+			`providerKey:${orgId}:${provider}`,
+			[getTableName(tables.providerKey)],
+			async () =>
+				await cdb
+					.select()
+					.from(tables.providerKey)
+					.where(
+						and(
+							eq(tables.providerKey.status, "active"),
+							eq(tables.providerKey.organizationId, orgId),
+							eq(tables.providerKey.provider, provider),
+						),
+					),
+		);
+	}
+
+	test("POST /keys/provider makes the new key visible to cached lookups", async () => {
+		const orgId = await createCacheTestOrg();
+
+		// Prime both cache layers with the "no key" result.
+		expect(await readActiveProviderKeys(orgId, "anthropic")).toHaveLength(0);
+		expect(
+			await redisClient.get(SWR_PREFIX + `providerKey:${orgId}:anthropic`),
+		).not.toBeNull();
+
+		const res = await app.request("/keys/provider", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				provider: "anthropic",
+				token: "anthropic-test-token",
+				organizationId: orgId,
+			}),
+		});
+		expect(res.status).toBe(200);
+
+		// The SWR mirror for the provider_key table must be gone...
+		expect(
+			await redisClient.get(SWR_PREFIX + `providerKey:${orgId}:anthropic`),
+		).toBeNull();
+		// ...and the cached select must serve the new key, not the stale miss.
+		expect(await readActiveProviderKeys(orgId, "anthropic")).toHaveLength(1);
+	});
+
+	test("PATCH /keys/provider/{id} busts cached lookups of the key", async () => {
+		const orgId = await createCacheTestOrg();
+		await db.insert(tables.providerKey).values({
+			id: `${orgId}-provider-key`,
+			token: "cache-test-provider-token",
+			provider: "openai",
+			organizationId: orgId,
+		});
+
+		// Prime both cache layers with the key still active.
+		expect(await readActiveProviderKeys(orgId, "openai")).toHaveLength(1);
+		expect(
+			await redisClient.get(SWR_PREFIX + `providerKey:${orgId}:openai`),
+		).not.toBeNull();
+
+		const res = await app.request(`/keys/provider/${orgId}-provider-key`, {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				status: "inactive",
+			}),
+		});
+		expect(res.status).toBe(200);
+
+		// The SWR mirror for the provider_key table must be gone...
+		expect(
+			await redisClient.get(SWR_PREFIX + `providerKey:${orgId}:openai`),
+		).toBeNull();
+		// ...and the cached select must reflect the deactivation immediately.
+		expect(await readActiveProviderKeys(orgId, "openai")).toHaveLength(0);
 	});
 });

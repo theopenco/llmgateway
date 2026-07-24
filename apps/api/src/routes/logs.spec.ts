@@ -593,4 +593,93 @@ describe("logs route", () => {
 			expect(intersection.length).toBe(0);
 		});
 	});
+
+	// internalErrorDetails stores the raw upstream error for stealth providers
+	// and must never be returned by any public log endpoint, regardless of what
+	// the UI chooses to display.
+	describe("internal error details are never exposed", () => {
+		const SECRET = "SecretVendor";
+
+		beforeEach(async () => {
+			await db.insert(tables.log).values({
+				id: "stealth-error-log-id",
+				requestId: "stealth-error-log-id",
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "test-api-key-id",
+				duration: 100,
+				requestedModel: "glm-5.2",
+				requestedProvider: "granite",
+				usedModel: "glm-5.2",
+				usedProvider: "granite",
+				responseSize: 0,
+				finishReason: "upstream_error",
+				unifiedFinishReason: "upstream_error",
+				hasError: true,
+				errorDetails: {
+					statusCode: 500,
+					statusText: "Internal Server Error",
+					responseText: "Upstream provider error (500 Internal Server Error)",
+				},
+				internalErrorDetails: {
+					statusCode: 500,
+					statusText: `${SECRET} exploded`,
+					responseText: `{"error":{"message":"${SECRET} quota exceeded on api.secretvendor.com"}}`,
+				},
+				messages: JSON.stringify([{ role: "user", content: "Hello" }]),
+				mode: "credits",
+				usedMode: "credits",
+			});
+		});
+
+		test("list endpoint omits internalErrorDetails and its content", async () => {
+			const params = new URLSearchParams({ projectId: "test-project-id" });
+			const res = await app.request("/logs?" + params, {
+				method: "GET",
+				headers: {
+					Cookie: token,
+				},
+			});
+
+			expect(res.status).toBe(200);
+			const text = await res.text();
+			expect(text).not.toContain("internalErrorDetails");
+			expect(text).not.toContain(SECRET);
+			expect(text).not.toContain("secretvendor.com");
+
+			const json = JSON.parse(text);
+			const log = json.logs.find(
+				(entry: { id: string }) => entry.id === "stealth-error-log-id",
+			);
+			expect(log).toBeTruthy();
+			expect("internalErrorDetails" in log).toBe(false);
+			// The redacted public error details are still served.
+			expect(log.errorDetails).toEqual({
+				statusCode: 500,
+				statusText: "Internal Server Error",
+				responseText: "Upstream provider error (500 Internal Server Error)",
+			});
+		});
+
+		test("detail endpoint omits internalErrorDetails and its content", async () => {
+			const res = await app.request("/logs/stealth-error-log-id", {
+				method: "GET",
+				headers: {
+					Cookie: token,
+				},
+			});
+
+			expect(res.status).toBe(200);
+			const text = await res.text();
+			expect(text).not.toContain("internalErrorDetails");
+			expect(text).not.toContain(SECRET);
+			expect(text).not.toContain("secretvendor.com");
+
+			const json = JSON.parse(text);
+			expect("internalErrorDetails" in json.log).toBe(false);
+			expect(json.log.errorDetails.responseText).toBe(
+				"Upstream provider error (500 Internal Server Error)",
+			);
+		});
+	});
 });

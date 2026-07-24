@@ -5,6 +5,7 @@ import {
 	CodexIcon,
 	CursorIcon,
 	DevPassCodeIcon,
+	EmpryoIcon,
 	KimiIcon,
 	MimoCodeIcon,
 	N8nIcon,
@@ -158,6 +159,13 @@ export const APP_METADATA: Record<string, AppMetadata> = {
 			"Browser-based coding agent. Hands you a working app from a single prompt.",
 		category: "coding",
 		Icon: AutohandIcon,
+	},
+	empryo: {
+		displayName: "Empryo",
+		url: "https://empryo.com/",
+		description: "The AI coding agent that edits symbols, not strings.",
+		category: "coding",
+		Icon: EmpryoIcon,
 	},
 	soulforge: {
 		displayName: "SoulForge",

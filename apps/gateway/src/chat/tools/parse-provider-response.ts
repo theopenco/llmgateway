@@ -311,6 +311,7 @@ export function parseProviderResponse(
 		}
 		case "google-ai-studio":
 		case "glacier":
+		case "iceberg":
 		case "google-vertex":
 		case "quartz": {
 			// Check if response is missing candidates - treat as content filter
@@ -584,7 +585,9 @@ export function parseProviderResponse(
 					nativeFinishReason: json.choices?.[0]?.native_finish_reason,
 					usage: json.usage,
 				});
-				finishReason = "canceled";
+				// "abort" is an upstream-initiated interruption, not a client
+				// cancellation, so it counts as an upstream error.
+				finishReason = "upstream_error";
 			} else if (finishReason === "tool_use") {
 				finishReason = "tool_calls";
 			}
@@ -1065,6 +1068,9 @@ export function parseProviderResponse(
 						nativeFinishReason: json.choices?.[0]?.native_finish_reason,
 						usage: json.usage,
 					});
+					// "abort" is an upstream-initiated interruption, not a client
+					// cancellation, so it counts as an upstream error.
+					finishReason = "upstream_error";
 				}
 
 				// ZAI-specific fix for incorrect finish_reason in tool response scenarios
@@ -1094,6 +1100,18 @@ export function parseProviderResponse(
 							}
 						}
 					}
+				}
+
+				// SCX returns finish_reason "stop" even when the message contains
+				// tool calls; normalize to "tool_calls" so downstream consumers see
+				// the OpenAI-standard value.
+				if (
+					usedProvider === "scx-ai" &&
+					finishReason === "stop" &&
+					Array.isArray(toolResults) &&
+					toolResults.length > 0
+				) {
+					finishReason = "tool_calls";
 				}
 
 				// Standard OpenAI-style token parsing

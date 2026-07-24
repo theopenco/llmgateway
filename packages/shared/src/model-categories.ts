@@ -48,3 +48,19 @@ export function isPremiumModel(modelId: string): boolean {
 export function getModelCategory(modelId: string): ModelCategory {
 	return isPremiumModel(modelId) ? "premium" : "standard";
 }
+
+/**
+ * Variant of {@link isPremiumModel} for the log `usedModel` column, which
+ * stores `provider/model` optionally suffixed with a region
+ * (e.g. `anthropic/claude-fable-5` or `aws-bedrock/claude-fable-5:global`),
+ * not the bare catalog model id.
+ */
+export function isPremiumUsedModel(usedModel: string): boolean {
+	const slashIndex = usedModel.indexOf("/");
+	const withoutProvider =
+		slashIndex === -1 ? usedModel : usedModel.slice(slashIndex + 1);
+	const colonIndex = withoutProvider.indexOf(":");
+	const baseModelId =
+		colonIndex === -1 ? withoutProvider : withoutProvider.slice(0, colonIndex);
+	return isPremiumModel(baseModelId);
+}

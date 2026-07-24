@@ -16,6 +16,7 @@ import {
 	getProviderIcon,
 	GoogleStudioAIIconStatic,
 	MinimaxIconStatic,
+	XAIIconStatic,
 } from "@llmgateway/shared/components";
 
 export const size = {
@@ -110,7 +111,9 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 					? AWSBedrockIconStatic
 					: selectedMapping.providerId === "google-ai-studio"
 						? GoogleStudioAIIconStatic
-						: getProviderIcon(selectedMapping.providerId)
+						: selectedMapping.providerId === "xai"
+							? XAIIconStatic
+							: getProviderIcon(selectedMapping.providerId)
 			: null;
 		const discounts = await fetchModelDiscounts(decodedName);
 		const effectiveDiscount = selectedMapping
@@ -162,7 +165,9 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 							? MinimaxIconStatic
 							: providerId === "google-ai-studio"
 								? GoogleStudioAIIconStatic
-								: getProviderIcon(providerId);
+								: providerId === "xai"
+									? XAIIconStatic
+									: getProviderIcon(providerId);
 				const info = providerDefinitions.find((p) => p.id === providerId);
 				return {
 					id: providerId,

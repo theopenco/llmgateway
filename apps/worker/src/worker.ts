@@ -37,7 +37,7 @@ import {
 	assertSafeWebhookUrl,
 	calculateFees,
 	isCreditTopUpAmountInRange,
-	isPremiumModel,
+	isPremiumUsedModel,
 	isPremiumWeekExpired,
 	isPrivateOrReservedIp,
 } from "@llmgateway/shared";
@@ -1088,7 +1088,7 @@ export async function batchProcessLogs(): Promise<number> {
 					if (row.used_mode === "credits") {
 						addToBucket(
 							apiKeyCost,
-							Boolean(row.used_model && isPremiumModel(row.used_model)),
+							Boolean(row.used_model && isPremiumUsedModel(row.used_model)),
 						);
 					} else if (row.used_mode === "api-keys") {
 						if (row.data_storage_cost) {

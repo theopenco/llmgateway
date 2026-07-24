@@ -12,7 +12,12 @@ describe("speech", () => {
 	async function seedKeys(
 		token: string,
 		apiKeyId: string,
-		provider: "google-ai-studio" | "openai" | "elevenlabs" = "google-ai-studio",
+		provider:
+			| "google-ai-studio"
+			| "google-vertex"
+			| "openai"
+			| "elevenlabs"
+			| "alibaba" = "google-ai-studio",
 	) {
 		await db.insert(tables.apiKey).values({
 			id: apiKeyId,
@@ -26,13 +31,18 @@ describe("speech", () => {
 				? "openai-test-key"
 				: provider === "elevenlabs"
 					? "elevenlabs-test-key"
-					: "google-test-key";
+					: provider === "alibaba"
+						? "alibaba-test-key"
+						: "google-test-key";
 		await db.insert(tables.providerKey).values({
 			id: `provider-key-${provider}-${apiKeyId}`,
 			token: providerToken,
 			provider,
 			organizationId: "org-id",
 			baseUrl: harness.mockServerUrl,
+			...(provider === "google-vertex"
+				? { options: { google_vertex_project_id: "test-project" } }
+				: {}),
 		});
 	}
 
@@ -161,7 +171,7 @@ describe("speech", () => {
 
 	test("/v1/audio/speech rejects coding-plan personal orgs with 403", async () => {
 		await seedKeys("real-token-speech-coding", "token-id-speech-coding");
-		await harness.setDevPlan({ devPlan: "pro", allowAllModels: true });
+		await harness.setDevPlan({ devPlan: "pro" });
 
 		const res = await app.request("/v1/audio/speech", {
 			method: "POST",
@@ -271,6 +281,82 @@ describe("speech", () => {
 		}
 	});
 
+	test("/v1/audio/speech returns a WAV file via Google Vertex", async () => {
+		await seedKeys(
+			"real-token-speech-vertex",
+			"token-id-speech-vertex",
+			"google-vertex",
+		);
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-vertex",
+			},
+			body: JSON.stringify({
+				model: "google-vertex/gemini-2.5-pro-preview-tts",
+				input: "Hello there",
+				voice: "Kore",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toBe("audio/wav");
+
+		const bytes = Buffer.from(await res.arrayBuffer());
+		expect(bytes.subarray(0, 4).toString("ascii")).toBe("RIFF");
+		expect(bytes.subarray(8, 12).toString("ascii")).toBe("WAVE");
+		expect(bytes.length).toBe(44 + 16);
+
+		const logs = await waitForLogs(1);
+		const log = logs.find(
+			(l) => l.usedModel === "google-vertex/gemini-2.5-pro-preview-tts",
+		);
+		expect(log).toBeDefined();
+		expect(log?.hasError).toBe(false);
+		expect(log?.finishReason).toBe("stop");
+		expect(log?.usedModelMapping).toBe("gemini-2.5-pro-tts");
+		expect(log?.promptTokens).toBe("5");
+		expect(log?.completionTokens).toBe("42");
+		// 42 audio output tokens * $20/1M.
+		expect(Number(log?.outputCost)).toBeCloseTo(42 * 20e-6, 10);
+	});
+
+	test("/v1/audio/speech serves gemini-3.1-flash-tts-preview via Vertex", async () => {
+		await seedKeys(
+			"real-token-speech-vertex-31",
+			"token-id-speech-vertex-31",
+			"google-vertex",
+		);
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-vertex-31",
+			},
+			body: JSON.stringify({
+				model: "google-vertex/gemini-3.1-flash-tts-preview",
+				input: "Hello there",
+				response_format: "pcm",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toBe("audio/pcm");
+		const bytes = Buffer.from(await res.arrayBuffer());
+		expect(bytes.length).toBe(16);
+
+		const logs = await waitForLogs(1);
+		const log = logs.find(
+			(l) => l.usedModel === "google-vertex/gemini-3.1-flash-tts-preview",
+		);
+		expect(log).toBeDefined();
+		expect(log?.hasError).toBe(false);
+		expect(log?.finishReason).toBe("stop");
+	});
+
 	test("/v1/audio/speech proxies OpenAI tts-1 and bills by characters", async () => {
 		await seedKeys(
 			"real-token-speech-openai",
@@ -343,6 +429,90 @@ describe("speech", () => {
 		expect(log?.finishReason).toBe("stop");
 		// eleven-multilingual-v2 bills $110 / 1M input characters.
 		expect(Number(log?.inputCost)).toBeCloseTo(input.length * 110e-6, 12);
+	});
+
+	test("/v1/audio/speech proxies Qwen TTS via DashScope and bills by characters", async () => {
+		await seedKeys("real-token-speech-qwen", "token-id-speech-qwen", "alibaba");
+
+		const input = "Hello from Qwen TTS";
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-qwen",
+			},
+			body: JSON.stringify({
+				model: "qwen-audio-3.0-tts-plus",
+				input,
+				voice: "longanlingxin",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		// DashScope emits a WAV file URL which the gateway downloads and returns.
+		expect(res.headers.get("Content-Type")).toBe("audio/wav");
+		const bytes = Buffer.from(await res.arrayBuffer());
+		expect(bytes.toString("ascii")).toBe("MOCK_DASHSCOPE_AUDIO");
+
+		const logs = await waitForLogs(1);
+		const log = logs.find(
+			(l) => l.usedModel === "alibaba/qwen-audio-3.0-tts-plus",
+		);
+		expect(log).toBeDefined();
+		expect(log?.hasError).toBe(false);
+		expect(log?.finishReason).toBe("stop");
+		// qwen-audio-3.0-tts-plus bills $20.00 / 1M input characters.
+		expect(Number(log?.inputCost)).toBeCloseTo(input.length * 20e-6, 12);
+	});
+
+	test("/v1/audio/speech rejects unsupported Qwen TTS response_format", async () => {
+		await seedKeys(
+			"real-token-speech-qwen-mp3",
+			"token-id-speech-qwen-mp3",
+			"alibaba",
+		);
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-qwen-mp3",
+			},
+			body: JSON.stringify({
+				model: "qwen-audio-3.0-tts-flash",
+				input: "Hello there",
+				response_format: "mp3",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain("Unsupported response_format");
+	});
+
+	test("/v1/audio/speech rejects unsupported Qwen TTS voice", async () => {
+		await seedKeys(
+			"real-token-speech-qwen-voice",
+			"token-id-speech-qwen-voice",
+			"alibaba",
+		);
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-qwen-voice",
+			},
+			body: JSON.stringify({
+				model: "qwen-audio-3.0-tts-plus",
+				input: "Hello there",
+				voice: "NotARealVoice",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain("Unsupported voice");
 	});
 
 	test("/v1/audio/speech returns a WAV file from ElevenLabs", async () => {

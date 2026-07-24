@@ -1,3 +1,5 @@
+import { BlogCta } from "@/components/blog/blog-cta";
+
 import { SyntaxHighlightedPre } from "./markdown-code-block";
 
 export interface ChangelogFrontmatter {
@@ -22,6 +24,9 @@ export interface ChangelogEntry extends ChangelogFrontmatter {
 export function getMarkdownOptions() {
 	return {
 		overrides: {
+			BlogCta: {
+				component: BlogCta,
+			},
 			h1: {
 				props: {
 					className:

@@ -33,7 +33,11 @@ export interface ResponseMetadataExtras {
 	 * standard requests, which omit the fields entirely.
 	 */
 	requestedServiceTier?: "flex" | "priority" | null;
-	/** The tier actually served upstream (null when downgraded to standard). */
+	/**
+	 * The tier actually served upstream (null when downgraded to standard).
+	 * Surfaced on its own even without a requested tier, so a tier applied by
+	 * an org-level default (e.g. the DevPass flex setting) stays visible.
+	 */
 	usedServiceTier?: "flex" | "priority" | null;
 }
 
@@ -52,10 +56,10 @@ export function toResponseMetadataExtras(
 		...(extras.projectId ? { project_id: extras.projectId } : {}),
 		discount: extras.discount ?? null,
 		...(extras.requestedServiceTier
-			? {
-					requested_service_tier: extras.requestedServiceTier,
-					used_service_tier: extras.usedServiceTier ?? null,
-				}
+			? { requested_service_tier: extras.requestedServiceTier }
+			: {}),
+		...(extras.requestedServiceTier || extras.usedServiceTier
+			? { used_service_tier: extras.usedServiceTier ?? null }
 			: {}),
 	};
 }
@@ -381,6 +385,7 @@ export function transformResponseToOpenai(
 	switch (usedProvider) {
 		case "google-ai-studio":
 		case "glacier":
+		case "iceberg":
 		case "google-vertex":
 		case "quartz": {
 			// Multi-candidate responses (n > 1 via candidateCount) map each Google
@@ -564,6 +569,7 @@ export function transformResponseToOpenai(
 		}
 		case "inference.net":
 		case "together-ai":
+		case "scx-ai":
 		case "groq": {
 			if (!transformedResponse.id) {
 				transformedResponse = {

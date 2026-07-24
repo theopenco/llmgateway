@@ -3,6 +3,11 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import {
+	computeSelfRefundEligibility,
+	executeSelfRefund,
+	isSelfRefundCandidateType,
+} from "@/lib/self-refund.js";
+import {
 	getUserProjectIds,
 	userHasOrganizationAccess,
 } from "@/utils/authorization.js";
@@ -96,9 +101,13 @@ const organizationSchema = z.object({
 	devPlanCreditsLimit: z.string(),
 	devPlanPremiumCreditsUsed: z.string(),
 	devPlanPremiumWeekStart: z.date().nullable(),
+	devPlanResetPassesLite: z.number(),
+	devPlanResetPassesPro: z.number(),
+	devPlanResetPassesMax: z.number(),
+	devPlanIncludedResetPassesUsed: z.number(),
 	devPlanBillingCycleStart: z.date().nullable(),
 	devPlanExpiresAt: z.date().nullable(),
-	devPlanAllowAllModels: z.boolean(),
+	devPlanServiceTier: z.enum(["default", "flex"]),
 	devPlanBillingOverride: z.boolean(),
 	// Chat Plans fields
 	chatPlan: z.enum(["none", "starter", "plus", "pro"]),
@@ -172,6 +181,24 @@ const AUTO_TOP_UP_AUDIT_FIELDS = [
 	"autoTopUpAmount",
 ] as const;
 
+const refundEligibilitySchema = z.object({
+	eligible: z.boolean(),
+	reason: z
+		.enum([
+			"unsupported_type",
+			"not_completed",
+			"already_refunded",
+			"window_expired",
+			"not_owner",
+			"not_latest_purchase",
+			"plan_inactive",
+			"credits_frozen",
+			"usage_exceeded",
+			"pass_already_used",
+		])
+		.optional(),
+});
+
 const transactionSchema = z.object({
 	id: z.string(),
 	createdAt: z.date(),
@@ -188,12 +215,17 @@ const transactionSchema = z.object({
 		"dev_plan_upgrade",
 		"dev_plan_downgrade",
 		"dev_plan_cancel",
+		"dev_plan_resume",
 		"dev_plan_end",
 		"dev_plan_renewal",
+		"dev_plan_reset_pass",
+		"dev_plan_reset_pass_reward",
+		"dev_plan_reset_pass_gift",
 		"chat_plan_start",
 		"chat_plan_upgrade",
 		"chat_plan_downgrade",
 		"chat_plan_cancel",
+		"chat_plan_resume",
 		"chat_plan_end",
 		"chat_plan_renewal",
 		"end_user_topup",
@@ -211,6 +243,8 @@ const transactionSchema = z.object({
 	description: z.string().nullable(),
 	relatedTransactionId: z.string().nullable(),
 	refundReason: z.string().nullable(),
+	// Self-refund eligibility, present only on refund-candidate purchase types.
+	refund: refundEligibilitySchema.optional(),
 });
 
 const getOrganizations = createRoute({
@@ -652,23 +686,29 @@ organization.openapi(updateOrganization, async (c) => {
 		updateData.autoTopUpAmount = autoTopUpAmount.toString();
 	}
 
+	// An empty PATCH body is a valid no-op; drizzle throws "No values to set"
+	// on an empty update, so skip the query and return the org unchanged.
 	let updatedOrganization;
-	try {
-		[updatedOrganization] = await db
-			.update(tables.organization)
-			.set(updateData)
-			.where(eq(tables.organization.id, id))
-			.returning();
-	} catch (err) {
-		const code =
-			(err as { code?: string; cause?: { code?: string } })?.code ??
-			(err as { cause?: { code?: string } })?.cause?.code;
-		if (code === "23505" && normalizedSsoDomain) {
-			throw new HTTPException(409, {
-				message: "This domain is already configured by another organization.",
-			});
+	if (Object.keys(updateData).length === 0) {
+		updatedOrganization = userOrganization.organization!;
+	} else {
+		try {
+			[updatedOrganization] = await db
+				.update(tables.organization)
+				.set(updateData)
+				.where(eq(tables.organization.id, id))
+				.returning();
+		} catch (err) {
+			const code =
+				(err as { code?: string; cause?: { code?: string } })?.code ??
+				(err as { cause?: { code?: string } })?.cause?.code;
+			if (code === "23505" && normalizedSsoDomain) {
+				throw new HTTPException(409, {
+					message: "This domain is already configured by another organization.",
+				});
+			}
+			throw err;
 		}
-		throw err;
 	}
 
 	// Build changes metadata for audit log
@@ -954,8 +994,16 @@ organization.openapi(getTransactions, async (c) => {
 
 	const { id } = c.req.param();
 
-	const hasAccess = await userHasOrganizationAccess(user.id, id);
-	if (!hasAccess) {
+	const userOrganization = await db.query.userOrganization.findFirst({
+		where: {
+			userId: { eq: user.id },
+			organizationId: { eq: id },
+		},
+		with: {
+			organization: true,
+		},
+	});
+	if (!userOrganization?.organization) {
 		throw new HTTPException(403, {
 			message: "You do not have access to this organization",
 		});
@@ -972,8 +1020,112 @@ organization.openapi(getTransactions, async (c) => {
 		},
 	});
 
+	const org = userOrganization.organization;
 	return c.json({
+		transactions: transactions.map((t) =>
+			isSelfRefundCandidateType(t.type)
+				? {
+						...t,
+						refund: computeSelfRefundEligibility({
+							organization: org,
+							role: userOrganization.role,
+							transactions,
+							transaction: t,
+						}),
+					}
+				: t,
+		),
+	});
+});
+
+const selfRefundTransaction = createRoute({
+	method: "post",
+	path: "/{id}/transactions/{transactionId}/refund",
+	request: {
+		params: z.object({
+			id: z.string(),
+			transactionId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						status: z.literal("refund_processing"),
+						stripeRefundId: z.string(),
+					}),
+				},
+			},
+			description:
+				"Refund created; the transaction and credit adjustments are applied when Stripe confirms via webhook",
+		},
+	},
+});
+
+organization.openapi(selfRefundTransaction, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { id, transactionId } = c.req.param();
+
+	const userOrganization = await db.query.userOrganization.findFirst({
+		where: {
+			userId: { eq: user.id },
+			organizationId: { eq: id },
+		},
+		with: {
+			organization: true,
+		},
+	});
+	if (!userOrganization?.organization) {
+		throw new HTTPException(403, {
+			message: "You do not have access to this organization",
+		});
+	}
+
+	const transactions = await db.query.transaction.findMany({
+		where: {
+			organizationId: { eq: id },
+		},
+	});
+	const transaction = transactions.find((t) => t.id === transactionId);
+	if (!transaction) {
+		throw new HTTPException(404, {
+			message: "Transaction not found",
+		});
+	}
+
+	const eligibility = computeSelfRefundEligibility({
+		organization: userOrganization.organization,
+		role: userOrganization.role,
 		transactions,
+		transaction,
+	});
+	if (!eligibility.eligible) {
+		if (eligibility.reason === "not_owner") {
+			throw new HTTPException(403, {
+				message: "Only the organization owner can request a refund",
+			});
+		}
+		throw new HTTPException(400, {
+			message: `This transaction is not eligible for a self-service refund: ${eligibility.reason}`,
+		});
+	}
+
+	const { stripeRefundId } = await executeSelfRefund({
+		organization: userOrganization.organization,
+		transaction,
+		userId: user.id,
+	});
+
+	return c.json({
+		status: "refund_processing" as const,
+		stripeRefundId,
 	});
 });
 

@@ -5,7 +5,7 @@ import { Star } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
-import { useUser } from "@/hooks/useUser";
+import { useSessionStatus, useUser } from "@/hooks/useUser";
 import { Button } from "@/lib/components/button";
 import { Textarea } from "@/lib/components/textarea";
 import { toast } from "@/lib/components/use-toast";
@@ -18,7 +18,8 @@ interface ModelRatingProps {
 export function ModelRating({ modelId }: ModelRatingProps) {
 	const api = useApi();
 	const queryClient = useQueryClient();
-	const { user } = useUser();
+	const { isAuthenticated } = useSessionStatus();
+	const { user } = useUser({ enabled: isAuthenticated });
 
 	const [editing, setEditing] = useState(false);
 	const [selected, setSelected] = useState(0);

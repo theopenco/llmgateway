@@ -41,16 +41,23 @@ export function Providers({ children, config }: ProvidersProps) {
 		const host = config.posthogHost;
 		const init = () => {
 			posthog.init(key, {
-				api_host: host,
+				// Ingest through our own origin (see the /ingest rewrites in
+				// next.config.ts) so ad blockers that block *.posthog.com don't
+				// silently drop client events.
+				api_host: "/ingest",
+				ui_host: host,
 				capture_pageview: "history_change",
 				autocapture: true,
 			});
 		};
+		// Captures fired before init() are dropped by posthog-js, so the idle
+		// deferral must be bounded — a busy main thread (e.g. the chat page)
+		// can starve requestIdleCallback long enough for a user to act.
 		if (typeof requestIdleCallback !== "undefined") {
-			const id = requestIdleCallback(init);
+			const id = requestIdleCallback(init, { timeout: 800 });
 			return () => cancelIdleCallback(id);
 		}
-		const timer = setTimeout(init, 1000);
+		const timer = setTimeout(init, 300);
 		return () => clearTimeout(timer);
 	}, [config.posthogKey, config.posthogHost]);
 

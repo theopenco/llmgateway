@@ -678,6 +678,9 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 			],
 			emailAndPassword: {
 				enabled: true,
+				// Enforced on sign-up/reset/change/set-password only, never on
+				// sign-in, so existing accounts with shorter passwords keep working.
+				minPasswordLength: 12,
 				sendResetPassword: async ({
 					user,
 					url,

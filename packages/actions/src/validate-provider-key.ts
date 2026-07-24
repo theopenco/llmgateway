@@ -9,6 +9,7 @@ import {
 	providers,
 } from "@llmgateway/models";
 
+import { getGcpServiceAccountAccessToken } from "./gcp-access-token.js";
 import { getProviderEndpoint } from "./get-provider-endpoint.js";
 import { getProviderHeaders } from "./get-provider-headers.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
@@ -103,6 +104,7 @@ export function getValidationModel(
 				providerMapping.videoGenerations ||
 				providerMapping.embeddings ||
 				providerMapping.speechGenerations ||
+				providerMapping.transcriptions ||
 				providerMapping.ocr
 			) {
 				return [];
@@ -189,7 +191,15 @@ export async function validateProviderKey(
 		};
 		const messages: BaseMessage[] = [systemMessage, minimalMessage];
 
-		const headers = getProviderHeaders(provider, token, {
+		// Vertex provider keys are service-account JSON blobs; the upstream API
+		// expects an OAuth access token, so exchange the key before building
+		// headers.
+		let requestToken = token;
+		if (provider === "vertex-anthropic" || provider === "vertex-openai") {
+			requestToken = await getGcpServiceAccountAccessToken(token);
+		}
+
+		const headers = getProviderHeaders(provider, requestToken, {
 			providerKeyOptions,
 			skipEnvVars: true, // provider key validation is always BYOK context
 		});
@@ -221,8 +231,10 @@ export async function validateProviderKey(
 			effectiveModelId, // Pass model ID for providers that need it in the URL (e.g., aws-bedrock, azure)
 			provider === "google-ai-studio" ||
 				provider === "glacier" ||
+				provider === "iceberg" ||
 				provider === "google-vertex" ||
-				provider === "quartz"
+				provider === "quartz" ||
+				provider === "vertex-anthropic"
 				? token
 				: undefined,
 			false, // validation doesn't need streaming

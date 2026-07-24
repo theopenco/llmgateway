@@ -66,6 +66,7 @@ export const user = pgTable("user", {
 	// (/profiles/:username) and is null until the user claims one.
 	username: text().unique(),
 	profilePublic: boolean().notNull().default(false),
+	profileHidePicture: boolean().notNull().default(false),
 	bio: text(),
 	githubUsername: text(),
 	xUsername: text(),
@@ -258,17 +259,33 @@ export const organization = pgTable(
 		devPlanCreditsLimit: decimal().notNull().default("0"),
 		devPlanPremiumCreditsUsed: decimal().notNull().default("0"),
 		devPlanPremiumWeekStart: timestamp(),
+		// Purchased Reset Passes still unredeemed, tracked per tier bought.
+		// Redeeming one instantly restores the full weekly premium-model
+		// allowance, but a pass is only redeemable while the org is on the
+		// tier it was purchased for — a $9 Lite pass can't reset the larger
+		// Pro/Max allowance. Purchases survive plan changes and even a plan
+		// ending (they apply again on resubscribing to that tier).
+		devPlanResetPassesLite: integer().notNull().default(0),
+		devPlanResetPassesPro: integer().notNull().default(0),
+		devPlanResetPassesMax: integer().notNull().default(0),
+		// Plan-included Reset Passes consumed in the current billing cycle.
+		// The per-cycle grant comes from DEV_PLAN_INCLUDED_RESET_PASSES; this
+		// counter clears on subscribe/upgrade/renewal (included passes don't
+		// roll over).
+		devPlanIncludedResetPassesUsed: integer().notNull().default(0),
 		// Set when dunning freezes dev-plan spend (limit capped to used). The
 		// pre-freeze limit is preserved so recovery restores the exact value
 		// (which may be a prorated mid-cycle amount), not a full tier cap.
 		devPlanCreditsFrozen: boolean().notNull().default(false),
 		devPlanCreditsLimitBeforeFreeze: decimal(),
 		devPlanBillingCycleStart: timestamp(),
-		// Stripe current_period_start of the cycle in which the last tier change
-		// was claimed. A tier change atomically advances this to the current cycle
-		// start only if it hasn't been claimed yet, enforcing one change per cycle
-		// without a read-then-write race.
-		devPlanLastTierChangeCycleStart: timestamp(),
+		// Lease held while a dev plan upgrade request is in flight, guarding
+		// against a double charge from racing requests (e.g. a double-clicked
+		// confirm). Claimed atomically before any Stripe call and cleared when the
+		// request completes (success or failure). A lease leaked by a request that
+		// died mid-flight expires after a staleness window, so it can never block
+		// upgrades until the next billing cycle.
+		devPlanTierChangeClaimedAt: timestamp(),
 		devPlanStripeSubscriptionId: text().unique(),
 		devPlanCancelled: boolean().notNull().default(false),
 		devPlanExpiresAt: timestamp(),
@@ -282,7 +299,13 @@ export const organization = pgTable(
 		devPlanCycle: text({ enum: ["monthly", "annual"] })
 			.notNull()
 			.default("monthly"),
-		devPlanAllowAllModels: boolean().notNull().default(false),
+		// Default processing tier for dev-plan (DevPass) routing. "flex" opts
+		// requests into cheaper flex processing (where the selected provider
+		// supports it) to save on plan credits; "default" is standard processing.
+		// A service_tier set explicitly on the request always wins.
+		devPlanServiceTier: text({ enum: ["default", "flex"] })
+			.notNull()
+			.default("default"),
 		// When false (default), DevPass invoices use the owner's default-org
 		// billing details. When true, the DevPass org's own billing* fields below
 		// are used as a custom override for DevPass invoices.
@@ -399,12 +422,32 @@ export const transaction = pgTable(
 				"dev_plan_upgrade",
 				"dev_plan_downgrade",
 				"dev_plan_cancel",
+				// Written when a cancelled-at-period-end dev plan is resumed, so
+				// cancel/resume flip-flops read as pairs in the subscription history
+				// instead of a run of bare cancels. Bookkeeping only: no amount, no
+				// credits.
+				"dev_plan_resume",
 				"dev_plan_end",
 				"dev_plan_renewal",
+				// One-time purchase of a DevPass Reset Pass (weekly premium
+				// allowance reset). `amount` is the real dollars paid;
+				// `creditAmount` is null (no credits are granted).
+				"dev_plan_reset_pass",
+				// Free Reset Pass granted as the reward for a quarterly model-survey
+				// response. `amount` is "0" (nothing is charged) and `creditAmount`
+				// is null. A separate type so reset-pass revenue analytics, which
+				// count "dev_plan_reset_pass", are unaffected by reward grants.
+				"dev_plan_reset_pass_reward",
+				// DevPass Reset Pass(es) gifted by an administrator. Pure
+				// bookkeeping: `amount` and `creditAmount` are both null — no
+				// dollars change hands and no credits are granted, so the row
+				// never counts toward revenue or the credits economy.
+				"dev_plan_reset_pass_gift",
 				"chat_plan_start",
 				"chat_plan_upgrade",
 				"chat_plan_downgrade",
 				"chat_plan_cancel",
+				"chat_plan_resume",
 				"chat_plan_end",
 				"chat_plan_renewal",
 				// LLM SDK end-user wallet flows.
@@ -525,6 +568,95 @@ export const chatPlanCancellationFeedback = pgTable(
 	],
 );
 
+// Shared literals for the model survey, consumed by the table below and the
+// zod schemas in the API's model-survey routes.
+export const MODEL_SURVEY_USE_CASES = [
+	"agentic_coding",
+	"code_completion",
+	"code_review",
+	"debugging",
+	"writing_tests",
+	"docs_and_explanations",
+	"other",
+] as const;
+
+export const MODEL_SURVEY_TIERS = ["lite", "pro", "max"] as const;
+
+// One DevPass member's yearly-survey verdict on a coding model they have
+// genuinely used through the gateway. Powers the annual public model-value
+// report (/data/<year> on the DevPass site). Responses are usage-verified:
+// the API only accepts one when the member's DevPass org has enough recent
+// requests on the model, and `requestCount` snapshots that usage.
+export const modelSurveyResponse = pgTable(
+	"model_survey_response",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		// Campaign period the response counts toward. The census runs in
+		// quarterly waves; the yearly report aggregates all four quarters.
+		year: integer().notNull(),
+		quarter: integer().notNull(),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		modelId: text().notNull(),
+		// 1-5: was the output worth what the model costs.
+		valueScore: integer().notNull(),
+		// 1-5: quality of the generated code/output.
+		qualityScore: integer().notNull(),
+		// 1-5: satisfaction with generation speed.
+		speedScore: integer().notNull(),
+		wouldRecommend: boolean().notNull(),
+		primaryUseCase: text({ enum: MODEL_SURVEY_USE_CASES }).notNull(),
+		comment: text(),
+		// Requests the org had made on the model within the qualifying window
+		// at submission time.
+		requestCount: integer().notNull(),
+		devPlanTier: text({ enum: MODEL_SURVEY_TIERS }).notNull(),
+		// Tier of the free Reset Pass granted for this response. Null when no
+		// pass was granted (only the org's first response each year rewards).
+		rewardTier: text({ enum: MODEL_SURVEY_TIERS }),
+	},
+	(table) => [
+		uniqueIndex("model_survey_response_user_model_period_unique").on(
+			table.userId,
+			table.modelId,
+			table.year,
+			table.quarter,
+		),
+		// DB-level backstop for the one-reward-per-org-per-quarter invariant
+		// the submit route enforces under a row lock.
+		uniqueIndex("model_survey_response_org_period_reward_unique")
+			.on(table.organizationId, table.year, table.quarter)
+			.where(sql`${table.rewardTier} IS NOT NULL`),
+		index("model_survey_response_year_model_idx").on(table.year, table.modelId),
+		index("model_survey_response_organization_id_idx").on(table.organizationId),
+		check(
+			"model_survey_response_quarter_check",
+			sql`${table.quarter} >= 1 AND ${table.quarter} <= 4`,
+		),
+		check(
+			"model_survey_response_value_score_check",
+			sql`${table.valueScore} >= 1 AND ${table.valueScore} <= 5`,
+		),
+		check(
+			"model_survey_response_quality_score_check",
+			sql`${table.qualityScore} >= 1 AND ${table.qualityScore} <= 5`,
+		),
+		check(
+			"model_survey_response_speed_score_check",
+			sql`${table.speedScore} >= 1 AND ${table.speedScore} <= 5`,
+		),
+	],
+);
+
 export const followUpEmail = pgTable(
 	"follow_up_email",
 	{
@@ -629,6 +761,9 @@ export const providerListingRequest = pgTable(
 		providerName: text().notNull(),
 		email: text().notNull(),
 		url: text().notNull(),
+		termsUrl: text(),
+		privacyUrl: text(),
+		statusPageUrl: text(),
 		country: text().notNull(),
 		complianceSoc2Type2: boolean().notNull().default(false),
 		complianceIso27001: boolean().notNull().default(false),
@@ -1240,6 +1375,59 @@ export const apiKeyIamRule = pgTable(
 	],
 );
 
+// Member-level IAM ceiling: rules set by org owners/admins on a member. A
+// member's API-key rules can only further restrict within these, never expand.
+export const userIamRule = pgTable(
+	"user_iam_rule",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		userOrganizationId: text()
+			.notNull()
+			.references(() => userOrganization.id, { onDelete: "cascade" }),
+		ruleType: text({
+			enum: [
+				"allow_models",
+				"deny_models",
+				"allow_pricing",
+				"deny_pricing",
+				"allow_providers",
+				"deny_providers",
+				"allow_ip_cidrs",
+				"deny_ip_cidrs",
+			],
+		}).notNull(),
+		ruleValue: json()
+			.$type<{
+				models?: string[];
+				providers?: string[];
+				pricingType?: "free" | "paid";
+				maxInputPrice?: number;
+				maxOutputPrice?: number;
+				ipCidrs?: string[];
+			}>()
+			.notNull(),
+		status: text({
+			enum: ["active", "inactive"],
+		})
+			.notNull()
+			.default("active"),
+	},
+	(table) => [
+		index("user_iam_rule_user_organization_id_idx").on(
+			table.userOrganizationId,
+		),
+		index("user_iam_rule_user_organization_id_status_idx").on(
+			table.userOrganizationId,
+			table.status,
+		),
+	],
+);
+
 export const masterKey = pgTable(
 	"master_key",
 	{
@@ -1450,6 +1638,10 @@ export const log = pgTable(
 		responseFormat: json(),
 		hasError: boolean().default(false),
 		errorDetails: json().$type<z.infer<typeof errorDetails>>(),
+		// Raw upstream error for stealth providers, whose public-facing
+		// errorDetails are redacted to hide the underlying platform. Internal
+		// only: must never be exposed through public API routes or the UI.
+		internalErrorDetails: json().$type<z.infer<typeof errorDetails>>(),
 		cost: real(),
 		inputCost: real(),
 		outputCost: real(),
@@ -1529,6 +1721,11 @@ export const log = pgTable(
 				apiKeyHash?: string;
 				logId?: string;
 			}>;
+			filteredProviders?: Array<{
+				providerId: string;
+				reasons: string[];
+			}>;
+			strippedParameters?: string[];
 		}>(),
 		processedAt: timestamp(),
 		rawRequest: jsonb(),
@@ -2768,6 +2965,9 @@ export const auditLogActions = [
 	"team_member.invite_accept",
 	"team_member.invite_revoke",
 	"team_member.auto_join",
+	"team_member.iam_rule.create",
+	"team_member.iam_rule.update",
+	"team_member.iam_rule.delete",
 	// API Key
 	"api_key.create",
 	"api_key.roll",
@@ -2801,6 +3001,7 @@ export const auditLogActions = [
 	"payment.credit_topup",
 	"payment.auto_topup.update",
 	"payment.auto_topup.disable",
+	"payment.self_refund",
 	// Credits
 	"credits.gift",
 	// Referral
@@ -2815,6 +3016,11 @@ export const auditLogActions = [
 	"dev_plan.update_billing_details",
 	"dev_plan.rotate_api_key",
 	"dev_plan.update_payment_method",
+	"dev_plan.reset_pass_purchase",
+	"dev_plan.reset_pass_redeem",
+	// Free Reset Pass granted for a quarterly model-survey response.
+	"dev_plan.reset_pass_reward",
+	"dev_plan.reset_pass_gift",
 	// Chat Plan
 	"chat_plan.subscribe",
 	"chat_plan.cancel",
@@ -3226,6 +3432,36 @@ export const rateLimit = pgTable(
 		index("rate_limit_organization_id_idx").on(table.organizationId),
 		index("rate_limit_provider_idx").on(table.provider),
 		index("rate_limit_model_idx").on(table.model),
+	],
+);
+
+// Matchers for expected upstream errors. The unstable-mappings admin
+// dashboard treats errors matching any of these as non-errors so known-benign
+// upstream failures don't drown out real instability. A matcher targets a
+// case-insensitive substring of the error details, an upstream status code, or
+// both (both must match).
+export const ignoredErrorMatcher = pgTable(
+	"ignored_error_matcher",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		// Case-insensitive substring matched against the serialized error details.
+		pattern: text(),
+		// Upstream HTTP status code from the error details.
+		statusCode: integer(),
+	},
+	(table) => [
+		// One row per pattern/status combination. Coalesce nulls to sentinels so
+		// Postgres treats them as equal.
+		uniqueIndex("ignored_error_matcher_pattern_status_code_unique").using(
+			"btree",
+			sql`coalesce(${table.pattern}, '')`,
+			sql`coalesce(${table.statusCode}, -1)`,
+		),
+		check(
+			"ignored_error_matcher_target_check",
+			sql`${table.pattern} IS NOT NULL OR ${table.statusCode} IS NOT NULL`,
+		),
 	],
 );
 

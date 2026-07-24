@@ -1,12 +1,17 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { Check, Copy, ExternalLink, Globe, Lock } from "lucide-react";
+import { ExternalLink, Globe, Image as ImageIcon, Lock } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 
 import { ProfileReadmeBadge } from "@/components/profile/ProfileReadmeBadge";
+import {
+	PROFILE_SITE_URL,
+	ProfileShareActions,
+} from "@/components/profile/ProfileShareActions";
 import {
 	ProfileView,
 	type ProfileData,
@@ -18,10 +23,9 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useApi } from "@/lib/fetch-client";
 
-import type { paths } from "@/lib/api/v1";
+import type { UserMe as UserMeResponse } from "@/hooks/useUser";
 
-type UserMe =
-	paths["/user/me"]["get"]["responses"][200]["content"]["application/json"]["user"];
+type UserMe = UserMeResponse["user"];
 
 interface ProfilePageClientProps {
 	initialProfile: ProfileData | null;
@@ -34,22 +38,26 @@ export function ProfilePageClient({
 }: ProfilePageClientProps) {
 	const api = useApi();
 	const queryClient = useQueryClient();
+	const router = useRouter();
 
 	const [username, setUsername] = useState(initialUser.username ?? "");
 	const [savedUsername, setSavedUsername] = useState(
 		initialUser.username ?? "",
 	);
 	const [profilePublic, setProfilePublic] = useState(initialUser.profilePublic);
+	const [showPicture, setShowPicture] = useState(
+		!initialUser.profileHidePicture,
+	);
 	const [name, setName] = useState(initialUser.name ?? "");
 	const [bio, setBio] = useState(initialUser.bio ?? "");
 	const [github, setGithub] = useState(initialUser.githubUsername ?? "");
 	const [x, setX] = useState(initialUser.xUsername ?? "");
-	const [copied, setCopied] = useState(false);
 
 	const updateUser = api.useMutation("patch", "/user/me");
 
-	const origin = typeof window !== "undefined" ? window.location.origin : "";
-	const shareUrl = savedUsername ? `${origin}/profiles/${savedUsername}` : "";
+	const shareUrl = savedUsername
+		? `${PROFILE_SITE_URL}/profiles/${savedUsername}`
+		: "";
 
 	const invalidate = async () => {
 		await queryClient.invalidateQueries({
@@ -71,6 +79,7 @@ export function ProfilePageClient({
 					name: name.trim() || undefined,
 					username: trimmedUsername ? trimmedUsername : null,
 					profilePublic,
+					profileHidePicture: !showPicture,
 					bio: bio.trim() ? bio.trim() : null,
 					githubUsername: github.trim() ? github.trim() : null,
 					xUsername: x.trim() ? x.trim() : null,
@@ -78,7 +87,11 @@ export function ProfilePageClient({
 			});
 			setSavedUsername(result.user.username ?? "");
 			setProfilePublic(result.user.profilePublic);
+			setShowPicture(!result.user.profileHidePicture);
 			await invalidate();
+			// Refresh the server-provided props so the Preview section below
+			// reflects the just-saved values without a full page reload.
+			router.refresh();
 			toast.success("Profile saved");
 		} catch (error) {
 			const message =
@@ -87,18 +100,8 @@ export function ProfilePageClient({
 		}
 	};
 
-	const handleCopy = async () => {
-		if (!shareUrl) {
-			return;
-		}
-		await navigator.clipboard.writeText(shareUrl);
-		setCopied(true);
-		toast.success("Link copied");
-		setTimeout(() => setCopied(false), 1500);
-	};
-
 	return (
-		<div className="mx-auto w-full max-w-5xl space-y-10">
+		<div className="space-y-10">
 			<div>
 				<h1 className="text-lg font-semibold tracking-tight">Your profile</h1>
 				<p className="mt-0.5 text-sm text-muted-foreground">
@@ -132,6 +135,38 @@ export function ProfilePageClient({
 						id="profile-public"
 						checked={profilePublic}
 						onCheckedChange={setProfilePublic}
+					/>
+				</div>
+
+				<div className="flex items-start justify-between gap-4 border-b p-5">
+					<div className="flex items-start gap-3">
+						<div className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 ring-1 ring-emerald-500/20">
+							<ImageIcon
+								className={
+									showPicture
+										? "h-4 w-4 text-emerald-500"
+										: "h-4 w-4 text-muted-foreground"
+								}
+							/>
+						</div>
+						<div className="space-y-0.5">
+							<Label
+								htmlFor="profile-show-picture"
+								className="text-sm font-medium"
+							>
+								Show profile picture
+							</Label>
+							<p className="text-xs text-muted-foreground">
+								{showPicture
+									? "Your profile picture is shown on your public profile."
+									: "Your initials are shown instead of your picture."}
+							</p>
+						</div>
+					</div>
+					<Switch
+						id="profile-show-picture"
+						checked={showPicture}
+						onCheckedChange={setShowPicture}
 					/>
 				</div>
 
@@ -204,41 +239,44 @@ export function ProfilePageClient({
 						</Button>
 
 						{profilePublic && shareUrl && (
-							<div className="flex items-center gap-2">
-								<code className="rounded-md border bg-muted/50 px-2.5 py-1.5 text-xs text-muted-foreground">
-									{shareUrl}
-								</code>
-								<Button
-									variant="outline"
-									size="sm"
-									onClick={handleCopy}
-									className="gap-1.5"
+							<Button variant="ghost" size="sm" asChild className="gap-1.5">
+								<Link
+									href={`/profiles/${savedUsername}`}
+									target="_blank"
+									rel="noopener noreferrer"
 								>
-									{copied ? (
-										<Check className="h-3.5 w-3.5" />
-									) : (
-										<Copy className="h-3.5 w-3.5" />
-									)}
-									Copy
-								</Button>
-								<Button variant="ghost" size="sm" asChild className="gap-1.5">
-									<Link
-										href={`/profiles/${savedUsername}`}
-										target="_blank"
-										rel="noopener noreferrer"
-									>
-										<ExternalLink className="h-3.5 w-3.5" />
-										View
-									</Link>
-								</Button>
-							</div>
+									<ExternalLink className="h-3.5 w-3.5" />
+									View public profile
+								</Link>
+							</Button>
 						)}
 					</div>
+
+					{profilePublic && savedUsername && initialProfile && (
+						<div className="space-y-3 border-t pt-5">
+							<div className="space-y-0.5">
+								<Label>Share your profile</Label>
+								<p className="text-xs text-muted-foreground">
+									Post your stats to X or LinkedIn, or copy your public link.
+								</p>
+							</div>
+							<ProfileShareActions
+								profile={{ ...initialProfile, username: savedUsername }}
+								location="profile_settings"
+							/>
+							<code className="block w-fit rounded-md border bg-muted/50 px-2.5 py-1.5 text-xs text-muted-foreground">
+								{shareUrl}
+							</code>
+						</div>
+					)}
 
 					{profilePublic && savedUsername && (
 						<div className="space-y-2 border-t pt-5">
 							<Label>README badge</Label>
-							<ProfileReadmeBadge username={savedUsername} baseUrl={origin} />
+							<ProfileReadmeBadge
+								username={savedUsername}
+								baseUrl={PROFILE_SITE_URL}
+							/>
 						</div>
 					)}
 				</div>

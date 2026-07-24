@@ -1,18 +1,19 @@
 "use client";
 
-import { ArrowRight, Check, ShieldCheck } from "lucide-react";
+import { ArrowRight, Check, ShieldCheck, Zap } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 
 import { CodeCTATracker, CodePlanTracker } from "@/components/LandingTracker";
 import { BorderBeam } from "@/components/ui/border-beam";
 import { Button } from "@/components/ui/button";
-import { NumberTicker } from "@/components/ui/number-ticker";
-import { formatUsd } from "@/lib/utils";
+import { formatUsageRatio } from "@/lib/utils";
 
 import {
-	DEV_PLAN_PREMIUM_WEEKLY_LIMITS,
+	DEV_PLAN_PREMIUM_WEEKLY_PERCENT,
 	DEV_PLAN_PRICES,
+	HIGH_COST_INPUT_PRICE,
+	HIGH_COST_OUTPUT_PRICE,
 	MARKETING_STATS,
 	type DevPlanTier,
 } from "@llmgateway/shared";
@@ -36,7 +37,7 @@ const plans: PlanContent[] = [
 		support: "Email",
 		features: [
 			"All 200+ models — Claude, GPT-5, Gemini, GLM, Qwen, …",
-			"DevPass Code, Claude Code, OpenCode, SoulForge & any OpenAI-compatible tool",
+			"DevPass Code, Claude Code, OpenCode, Empryo, SoulForge & any OpenAI-compatible tool",
 			"Real-time dashboard with per-request cost",
 		],
 	},
@@ -49,7 +50,7 @@ const plans: PlanContent[] = [
 		features: [
 			"Everything in Lite",
 			"Headroom for a full agent session every day",
-			"5× the frontier fair-use of Lite",
+			"More frontier fair-use headroom than Lite",
 			"Priority routing on flagship models",
 		],
 	},
@@ -77,12 +78,7 @@ export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 			<div className="grid items-stretch gap-6 md:grid-cols-3">
 				{plans.map((plan, idx) => {
 					const monthlyPrice = DEV_PLAN_PRICES[plan.tier];
-					const usageValue = credits[plan.tier];
-					const ratio = usageValue / monthlyPrice;
-					const ratioLabel = Number.isInteger(ratio)
-						? `${ratio}`
-						: ratio.toFixed(1);
-					const paidShare = `${(100 / ratio).toFixed(2)}%`;
+					const ratioLabel = formatUsageRatio(credits[plan.tier], monthlyPrice);
 					const perDay = (monthlyPrice / 30).toFixed(2);
 					const revealDelay = idx * 0.08;
 
@@ -138,65 +134,15 @@ export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 								≈ ${perDay}/day · switch or cancel anytime
 							</p>
 
-							{/* The meter: what you pay vs. what you actually get */}
-							<div className="mb-5 rounded-xl border border-emerald-500/25 bg-emerald-500/[0.05] p-4">
-								<div className="mb-2.5 flex items-center justify-between">
-									<span className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-700 dark:text-emerald-400">
-										Usage meter
-									</span>
-									<span className="rounded-full bg-emerald-600 px-2 py-0.5 font-mono text-[10px] font-bold tabular-nums text-white dark:bg-emerald-500 dark:text-emerald-950">
-										{ratioLabel}× value
-									</span>
-								</div>
-								<div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-									<span className="font-mono text-sm font-semibold tabular-nums text-muted-foreground">
-										${monthlyPrice} in
-									</span>
-									<span
-										aria-hidden="true"
-										className="font-mono text-xs text-muted-foreground"
-									>
-										→
-									</span>
-									<span className="font-display text-3xl font-bold tabular-nums text-emerald-600 dark:text-emerald-400">
-										$
-										<NumberTicker
-											value={usageValue}
-											className="text-emerald-600 dark:text-emerald-400"
-										/>
-									</span>
-									<span className="text-xs text-muted-foreground">
-										/mo of model usage
-									</span>
-								</div>
-								<div className="mt-3">
-									<div className="relative h-2.5 overflow-hidden rounded-full bg-emerald-500/15">
-										<motion.div
-											className="absolute inset-y-0 left-0 rounded-full bg-emerald-500/80"
-											initial={{ width: paidShare }}
-											whileInView={{ width: "100%" }}
-											viewport={{ once: true, amount: 0.6 }}
-											transition={{
-												duration: 1.1,
-												ease: "easeOut",
-												delay: revealDelay + 0.2,
-											}}
-										/>
-										<div
-											className="absolute inset-y-0 left-0 rounded-l-full bg-foreground/75"
-											style={{ width: paidShare }}
-										/>
-									</div>
-									<div className="mt-1.5 flex items-center justify-between font-mono text-[10px] tabular-nums text-muted-foreground">
-										<span>${monthlyPrice} you pay</span>
-										<span className="font-semibold text-emerald-700 dark:text-emerald-400">
-											{formatUsd(usageValue)} you use
-										</span>
-									</div>
-								</div>
-								<p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
-									Metered at provider list rates — the same usage costs{" "}
-									{formatUsd(usageValue)} pay-as-you-go.
+							{/* Value multiplier */}
+							<div className="mb-5 flex items-center gap-3 rounded-xl border border-emerald-500/25 bg-emerald-500/[0.05] p-4">
+								<span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-600 px-2.5 py-1 font-mono text-xs font-bold tabular-nums text-white dark:bg-emerald-500 dark:text-emerald-950">
+									<Zap className="h-3 w-3" strokeWidth={2.5} />
+									{ratioLabel} usage
+								</span>
+								<p className="text-xs leading-relaxed text-muted-foreground">
+									Worth {ratioLabel} what you pay in model usage, metered at
+									provider list rates.
 								</p>
 							</div>
 
@@ -215,7 +161,10 @@ export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 										Frontier fair-use
 									</dt>
 									<dd className="font-mono text-xs font-semibold tabular-nums">
-										${DEV_PLAN_PREMIUM_WEEKLY_LIMITS[plan.tier]} / week
+										{Math.round(
+											DEV_PLAN_PREMIUM_WEEKLY_PERCENT[plan.tier] * 100,
+										)}
+										% of credits
 									</dd>
 								</div>
 								<div className="flex items-center justify-between gap-3 px-3.5 py-2">
@@ -262,8 +211,10 @@ export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 			</div>
 
 			<p className="mx-auto mt-6 max-w-3xl text-center text-xs leading-relaxed text-muted-foreground">
-				Frontier fair-use covers Anthropic Opus, OpenAI Pro/reasoning-tier,
-				Gemini Pro, and Grok — a weekly allowance on top of your monthly usage,
+				Frontier fair-use covers premium models — any model priced at $
+				{Math.round(HIGH_COST_INPUT_PRICE * 1_000_000)}+ per million input
+				tokens or ${Math.round(HIGH_COST_OUTPUT_PRICE * 1_000_000)}+ per million
+				output tokens — as a weekly allowance on top of your monthly usage,
 				published right on the card. Every other model draws on your full
 				monthly allowance. No hidden throttling.
 			</p>

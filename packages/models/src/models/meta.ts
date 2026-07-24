@@ -21,11 +21,16 @@ export const metaModels = [
 				maxOutput: 131072,
 				streaming: true,
 				reasoning: true,
+				reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"],
 				reasoningMode: "adaptive",
 				reasoningOutput: "omit",
 				supportsResponsesApi: true,
 				vision: true,
 				tools: true,
+				// Muse Spark's endpoint only accepts tool_choice="auto"; it rejects
+				// "none", "required", and named function choices with
+				// invalid_request_error (verified live)
+				supportedToolChoices: ["auto"],
 				jsonOutput: true,
 				jsonOutputSchema: true,
 			},
@@ -455,6 +460,20 @@ export const metaModels = [
 				tools: false,
 				jsonOutput: true,
 			},
+			{
+				providerId: "scx-ai",
+				externalId: "Llama-4-Maverick-17B-128E-Instruct",
+				inputPrice: "0.53e-6",
+				outputPrice: "1.62e-6",
+				requestPrice: "0",
+				contextSize: 131072,
+				maxOutput: 8192,
+				quantization: "fp8",
+				streaming: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
 		],
 	},
 	{
@@ -467,6 +486,7 @@ export const metaModels = [
 			{
 				providerId: "novita",
 				externalId: "meta-llama/llama-3-8b-instruct",
+				deactivatedAt: new Date("2026-07-11"),
 				inputPrice: "0.04e-6",
 				outputPrice: "0.04e-6",
 				requestPrice: "0",

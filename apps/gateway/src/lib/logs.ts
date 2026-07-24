@@ -8,6 +8,11 @@ import {
 import { recordChatCompletionMetrics } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 
+import {
+	redactErrorDetails,
+	shouldRedactProviderError,
+} from "./stealth-provider-errors.js";
+
 import type { InferInsertModel } from "@llmgateway/db";
 
 /**
@@ -26,6 +31,7 @@ export function isExpectedUnknownFinishReason(
 	if (
 		(provider === "google-ai-studio" ||
 			provider === "glacier" ||
+			provider === "iceberg" ||
 			provider === "google-vertex" ||
 			provider === "quartz") &&
 		(finishReason === "OTHER" || finishReason === "MALFORMED_RESPONSE")
@@ -48,6 +54,14 @@ export function getUnifiedFinishReason(
 
 	if (finishReason === "canceled") {
 		return UnifiedFinishReason.CANCELED;
+	}
+	// Some OpenAI-compatible providers (e.g. MiniMax) emit "abort" when they
+	// interrupt generation on their side. CANCELED is reserved for requests
+	// canceled by the gateway's own client, so an upstream-initiated abort is
+	// an upstream error. The streaming log path records the provider's raw
+	// finish reason, so classify the raw value here as well.
+	if (finishReason === "abort") {
+		return UnifiedFinishReason.UPSTREAM_ERROR;
 	}
 	if (finishReason === "gateway_error") {
 		return UnifiedFinishReason.GATEWAY_ERROR;
@@ -93,6 +107,7 @@ export function getUnifiedFinishReason(
 			break;
 		case "google-ai-studio":
 		case "glacier":
+		case "iceberg":
 		case "google-vertex":
 		case "quartz":
 			// Google finish reasons (original format, not mapped to OpenAI)
@@ -274,6 +289,15 @@ export async function insertLog(
 	logData: LogInsertData,
 	options?: { syncInsert?: boolean },
 ): Promise<unknown> {
+	// Stealth providers: the raw upstream error may reveal the underlying
+	// platform, so it survives only in internalErrorDetails — a column excluded
+	// from public API routes and the UI — while the public errorDetails keeps
+	// just the upstream status code.
+	if (logData.errorDetails && shouldRedactProviderError(logData.usedProvider)) {
+		logData.internalErrorDetails = logData.errorDetails;
+		logData.errorDetails = redactErrorDetails(logData.errorDetails);
+	}
+
 	if (logData.unifiedFinishReason === undefined) {
 		if (logData.canceled) {
 			logData.unifiedFinishReason = UnifiedFinishReason.CANCELED;

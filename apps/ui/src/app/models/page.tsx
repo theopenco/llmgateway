@@ -15,6 +15,7 @@ const CATEGORY_LINKS: ReadonlyArray<{ href: string; label: string }> = [
 	{ href: "/models/math", label: "Best models for math" },
 	{ href: "/models/long-context", label: "Long context models" },
 	{ href: "/models/cheapest", label: "Cheapest models" },
+	{ href: "/models/premium", label: "Premium models" },
 	{ href: "/models/open-source", label: "Open source models" },
 	{ href: "/models/vision", label: "Vision models" },
 	{ href: "/models/tools", label: "Tool-calling models" },

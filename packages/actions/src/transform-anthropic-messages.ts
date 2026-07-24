@@ -10,6 +10,7 @@ import {
 	type ToolUseContent,
 } from "@llmgateway/models";
 
+import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
 import { processImageUrl } from "./process-image-url.js";
 
 /**
@@ -203,7 +204,7 @@ export async function transformAnthropicMessages(
 						type: "tool_use",
 						id: uniqueId,
 						name: toolCall.function.name,
-						input: JSON.parse(toolCall.function.arguments),
+						input: parseToolCallArguments(toolCall),
 					};
 				},
 			);

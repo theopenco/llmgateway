@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { voidPendingCycleRenewalInvoices } from "@/lib/pending-renewal.js";
 import { ensureStripeCustomer } from "@/stripe.js";
 import { getOrCreateChatOrg } from "@/utils/personal-org.js";
 
@@ -435,6 +436,15 @@ chatPlans.openapi(changeTier, async (c) => {
 		const newCreditsLimit = getChatPlanCreditsLimit(newTier);
 
 		if (isUpgrade) {
+			// If the previous cycle just ended, its renewal invoice may still be
+			// pending (Stripe drafts it at the period boundary and charges ~an hour
+			// later). Void it before re-anchoring — otherwise it would later charge
+			// for a cycle this upgrade replaces and its webhook would clobber the
+			// fresh allowance granted below.
+			await voidPendingCycleRenewalInvoices(
+				personalOrg.chatPlanStripeSubscriptionId,
+			);
+
 			// Charge the full new-tier price today and start a fresh billing cycle
 			// (`billing_cycle_anchor: "now"`) with no proration
 			// (`proration_behavior: "none"`). `error_if_incomplete` makes the update
@@ -542,6 +552,18 @@ chatPlans.openapi(changeTier, async (c) => {
 			throw new HTTPException(402, {
 				message:
 					"Upgrade payment could not be collected. Update your payment method and try again.",
+			});
+		}
+		// `error_if_incomplete` throws this when the bank demands 3DS/SCA
+		// authentication, which can't be completed server-side; the subscription
+		// is left unchanged. Also an expected user-facing outcome, so 402 + warn.
+		if (errCode === "subscription_payment_intent_requires_action") {
+			logger.warn("Chat plan tier change requires payment authentication", {
+				code: errCode,
+			});
+			throw new HTTPException(402, {
+				message:
+					"Your bank requires additional verification to complete this payment. Update or re-add your payment method and try again.",
 			});
 		}
 		logger.error(

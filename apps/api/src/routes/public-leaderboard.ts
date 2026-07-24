@@ -76,6 +76,7 @@ publicLeaderboard.openapi(getLeaderboard, async (c) => {
 			username: user.username,
 			name: user.name,
 			image: user.image,
+			profileHidePicture: user.profileHidePicture,
 			totalTokens: totalTokensExpr.as("totalTokens"),
 			totalRequests:
 				sql<number>`COALESCE(SUM(${projectHourlyStats.requestCount}), 0)`.as(
@@ -107,7 +108,13 @@ publicLeaderboard.openapi(getLeaderboard, async (c) => {
 			),
 		)
 		.where(and(eq(user.profilePublic, true), isNotNull(user.username)))
-		.groupBy(user.id, user.username, user.name, user.image)
+		.groupBy(
+			user.id,
+			user.username,
+			user.name,
+			user.image,
+			user.profileHidePicture,
+		)
 		.orderBy(desc(totalTokensExpr))
 		.limit(take);
 
@@ -170,7 +177,7 @@ publicLeaderboard.openapi(getLeaderboard, async (c) => {
 		rank: index + 1,
 		username: row.username as string,
 		name: row.name,
-		image: row.image,
+		image: row.profileHidePicture ? null : row.image,
 		totalTokens: Number(row.totalTokens),
 		totalRequests: Number(row.totalRequests),
 		topAgent: topAgentByUser.get(row.userId) ?? null,

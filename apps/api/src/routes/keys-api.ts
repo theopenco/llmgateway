@@ -1,8 +1,15 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
-import ipaddr from "ipaddr.js";
 import { z } from "zod";
 
+import {
+	assertEnterpriseForIpCidrRule,
+	createIamRuleSchema,
+	iamRuleStatusEnum,
+	iamRuleTypeEnum,
+	iamRuleValueSchema,
+	validateIamRuleInput,
+} from "@/lib/iam-rules.js";
 import { maskToken } from "@/lib/maskToken.js";
 import { platformKeyMode } from "@/lib/platform-secret-auth.js";
 import { getUserProjectIds } from "@/utils/authorization.js";
@@ -380,12 +387,15 @@ const listApiKeysQuerySchema = z.object({
 	}),
 });
 
-// Schema for updating an API key status
+// Schema for updating an API key status and/or metadata
 const updateApiKeyStatusSchema = z.object({
-	status: z.enum(["active", "inactive"]),
+	status: z.enum(["active", "inactive"]).optional(),
 	expiresAt: z.string().datetime().nullable().optional().openapi({
 		description:
 			"ISO 8601 timestamp when the key expires (TTL). Required to reactivate a key whose TTL has already passed; pass null to remove the TTL. Omit to leave the existing expiry unchanged.",
+	}),
+	description: z.string().trim().min(1).max(255).optional().openapi({
+		description: "New display name for the API key. Omit to leave unchanged.",
 	}),
 });
 
@@ -489,26 +499,6 @@ async function assertPlatformKeyAdminAccess(
 	return project;
 }
 
-export const iamRuleTypeEnum = z.enum([
-	"allow_models",
-	"deny_models",
-	"allow_pricing",
-	"deny_pricing",
-	"allow_providers",
-	"deny_providers",
-	"allow_ip_cidrs",
-	"deny_ip_cidrs",
-]);
-
-export const iamRuleValueSchema = z.object({
-	models: z.array(z.string()).optional(),
-	providers: z.array(z.string()).optional(),
-	pricingType: z.enum(["free", "paid"]).optional(),
-	maxInputPrice: z.number().optional(),
-	maxOutputPrice: z.number().optional(),
-	ipCidrs: z.array(z.string()).optional(),
-});
-
 const listPlatformKeys = createRoute({
 	method: "get",
 	path: "/platform",
@@ -607,7 +597,7 @@ keysApi.openapi(createPlatformKey, async (c) => {
 	});
 	const token = `sk_${test ? "test" : "live"}_${shortid(40)}`;
 
-	const [platformKey] = await db
+	const [platformKey] = await cdb
 		.insert(tables.apiKey)
 		.values({
 			token,
@@ -726,59 +716,6 @@ keysApi.openapi(deletePlatformKey, async (c) => {
 	});
 });
 
-function isValidCidr(cidr: string): boolean {
-	try {
-		const parsed = ipaddr.parseCIDR(cidr);
-		return Array.isArray(parsed) && parsed.length === 2;
-	} catch {
-		return false;
-	}
-}
-
-export function isIpCidrRuleType(
-	ruleType?: z.infer<typeof iamRuleTypeEnum>,
-): boolean {
-	return ruleType === "allow_ip_cidrs" || ruleType === "deny_ip_cidrs";
-}
-
-export function assertEnterpriseForIpCidrRule(
-	ruleType: z.infer<typeof iamRuleTypeEnum> | undefined,
-	plan: string | null | undefined,
-): void {
-	if (isIpCidrRuleType(ruleType) && plan !== "enterprise") {
-		throw new HTTPException(403, {
-			message: "IP address IAM rules require an enterprise plan",
-		});
-	}
-}
-
-export function validateIamRuleInput(input: {
-	ruleType?: z.infer<typeof iamRuleTypeEnum>;
-	ruleValue?: z.infer<typeof iamRuleValueSchema>;
-}): void {
-	const { ruleType, ruleValue } = input;
-	if (!ruleType || !ruleValue) {
-		return;
-	}
-	if (ruleType === "allow_ip_cidrs" || ruleType === "deny_ip_cidrs") {
-		const cidrs = ruleValue.ipCidrs;
-		if (!cidrs || cidrs.length === 0) {
-			throw new HTTPException(400, {
-				message: `ruleValue.ipCidrs is required for ruleType ${ruleType}`,
-			});
-		}
-		for (const cidr of cidrs) {
-			if (!isValidCidr(cidr)) {
-				throw new HTTPException(400, {
-					message: `Invalid CIDR: ${cidr}. Expected IPv4 (e.g. 192.0.2.0/24) or IPv6 (e.g. 2001:db8::/32).`,
-				});
-			}
-		}
-	}
-}
-
-export const iamRuleStatusEnum = z.enum(["active", "inactive"]);
-
 export const iamRuleSchema = z.object({
 	id: z.string(),
 	createdAt: z.date(),
@@ -787,12 +724,6 @@ export const iamRuleSchema = z.object({
 	ruleType: iamRuleTypeEnum,
 	ruleValue: iamRuleValueSchema,
 	status: iamRuleStatusEnum,
-});
-
-export const createIamRuleSchema = z.object({
-	ruleType: iamRuleTypeEnum,
-	ruleValue: iamRuleValueSchema,
-	status: iamRuleStatusEnum.default("active"),
 });
 
 // Org-wide cap on active developer API keys. An explicit `organization.apiKeyLimit`
@@ -1060,7 +991,7 @@ export async function createApiKeyForProject(
 		process.env.NODE_ENV === "development" ? `llmgdev_` : "llmgtwy_";
 	const token = prefix + shortid(40);
 
-	const [apiKey] = await db
+	const [apiKey] = await cdb
 		.insert(tables.apiKey)
 		.values({
 			token,
@@ -1525,7 +1456,11 @@ keysApi.openapi(updateStatus, async (c) => {
 	}
 
 	const { id } = c.req.param();
-	const { status, expiresAt: expiresAtInput } = c.req.valid("json");
+	const {
+		status,
+		expiresAt: expiresAtInput,
+		description: descriptionInput,
+	} = c.req.valid("json");
 
 	// Get the user's projects
 	const userOrgs = await db.query.userOrganization.findMany({
@@ -1577,11 +1512,37 @@ keysApi.openapi(updateStatus, async (c) => {
 		});
 	}
 
+	if (
+		status === undefined &&
+		expiresAtInput === undefined &&
+		descriptionInput === undefined
+	) {
+		throw new HTTPException(400, {
+			message: "No changes provided",
+		});
+	}
+
 	// Prevent deactivation of the auto-generated playground key
 	if (isPlaygroundApiKey(apiKey) && status === "inactive") {
 		throw new HTTPException(403, {
 			message:
 				"Cannot deactivate the playground API key. This key is required for the playground to function.",
+		});
+	}
+
+	// Renaming the auto-generated playground key would break the UI's lookup
+	// of it by its fixed description.
+	if (isPlaygroundApiKey(apiKey) && descriptionInput !== undefined) {
+		throw new HTTPException(403, {
+			message: "Cannot rename the playground API key.",
+		});
+	}
+
+	// A regular key must not take on the reserved playground description,
+	// or it would collide with the playground key's fixed-description lookup.
+	if (descriptionInput === PLAYGROUND_API_KEY_DESCRIPTION) {
+		throw new HTTPException(403, {
+			message: "This name is reserved for the playground API key.",
 		});
 	}
 
@@ -1628,19 +1589,24 @@ keysApi.openapi(updateStatus, async (c) => {
 	const [updatedApiKey] = await cdb
 		.update(tables.apiKey)
 		.set({
-			status,
+			...(status !== undefined ? { status } : {}),
 			...(expiresAtProvided ? { expiresAt: nextExpiresAt } : {}),
+			...(descriptionInput !== undefined
+				? { description: descriptionInput }
+				: {}),
 		})
 		.where(eq(tables.apiKey.id, id))
 		.returning();
 
-	const statusChanged = apiKey.status !== status;
+	const statusChanged = status !== undefined && apiKey.status !== status;
 	const expiryChanged =
 		expiresAtProvided &&
 		(apiKey.expiresAt?.getTime() ?? null) !==
 			(nextExpiresAt?.getTime() ?? null);
+	const descriptionChanged =
+		descriptionInput !== undefined && apiKey.description !== descriptionInput;
 
-	if (statusChanged || expiryChanged) {
+	if (statusChanged || expiryChanged || descriptionChanged) {
 		const changes: Record<string, { old: unknown; new: unknown }> = {};
 		if (statusChanged) {
 			changes.status = { old: apiKey.status, new: status };
@@ -1649,6 +1615,12 @@ keysApi.openapi(updateStatus, async (c) => {
 			changes.expiresAt = {
 				old: apiKey.expiresAt?.toISOString() ?? null,
 				new: nextExpiresAt?.toISOString() ?? null,
+			};
+		}
+		if (descriptionChanged) {
+			changes.description = {
+				old: apiKey.description,
+				new: descriptionInput,
 			};
 		}
 
@@ -1666,7 +1638,10 @@ keysApi.openapi(updateStatus, async (c) => {
 	}
 
 	return c.json({
-		message: `API key status updated to ${status}`,
+		message:
+			status !== undefined
+				? `API key status updated to ${status}`
+				: "API key updated",
 		apiKey: {
 			...serializeApiKey(updatedApiKey),
 			maskedToken: maskToken(updatedApiKey.token),
@@ -2163,7 +2138,7 @@ keysApi.openapi(createIamRule, async (c) => {
 	);
 
 	// Create the IAM rule
-	const [rule] = await db
+	const [rule] = await cdb
 		.insert(tables.apiKeyIamRule)
 		.values({
 			apiKeyId: id,
@@ -2421,12 +2396,16 @@ keysApi.openapi(updateIamRule, async (c) => {
 		apiKey.project.organization?.plan,
 	);
 
-	// Update the IAM rule
-	const [updatedRule] = await db
-		.update(tables.apiKeyIamRule)
-		.set(updateData)
-		.where(eq(tables.apiKeyIamRule.id, ruleId))
-		.returning();
+	// An empty PATCH body is a valid no-op; drizzle throws "No values to set"
+	// on an empty update, so skip the query and return the rule unchanged.
+	let updatedRule = existingRule;
+	if (Object.keys(updateData).length > 0) {
+		[updatedRule] = await cdb
+			.update(tables.apiKeyIamRule)
+			.set(updateData)
+			.where(eq(tables.apiKeyIamRule.id, ruleId))
+			.returning();
+	}
 
 	if (!updatedRule) {
 		throw new HTTPException(404, {
@@ -2562,7 +2541,7 @@ keysApi.openapi(deleteIamRule, async (c) => {
 	}
 
 	// Delete the IAM rule
-	const result = await db
+	const result = await cdb
 		.delete(tables.apiKeyIamRule)
 		.where(eq(tables.apiKeyIamRule.id, ruleId))
 		.returning();

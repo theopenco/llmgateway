@@ -1,41 +1,26 @@
 "use client";
 
-import { Check, Flame, Link2, Sparkles } from "lucide-react";
-import { useState } from "react";
+import { Flame, Sparkles } from "lucide-react";
 
 import {
 	AGENTS,
 	formatTokens,
 	type AgentDefinition,
 } from "@/app/dashboard/components/coding-agents-shared";
+import {
+	PROFILE_SITE_URL,
+	ProfileShareActions,
+} from "@/components/profile/ProfileShareActions";
 import { Button } from "@/components/ui/button";
+import { useUser } from "@/hooks/useUser";
 
 import type { ProfileData } from "@/components/profile/ProfileView";
-
-const SITE_URL = "https://devpass.llmgateway.io";
 
 const AGENT_BY_SOURCE = new Map<string, AgentDefinition>();
 for (const agent of AGENTS) {
 	for (const source of agent.sources) {
 		AGENT_BY_SOURCE.set(source.toLowerCase(), agent);
 	}
-}
-
-function useCopy() {
-	const [copied, setCopied] = useState(false);
-	const copy = async (text: string) => {
-		if (!navigator.clipboard?.writeText) {
-			return;
-		}
-		try {
-			await navigator.clipboard.writeText(text);
-			setCopied(true);
-			setTimeout(() => setCopied(false), 1500);
-		} catch {
-			setCopied(false);
-		}
-	};
-	return { copied, copy };
 }
 
 function WrappedStat({ value, label }: { value: string; label: string }) {
@@ -52,24 +37,15 @@ function WrappedStat({ value, label }: { value: string; label: string }) {
 }
 
 export function ProfileWrapped({ profile }: { profile: ProfileData }) {
-	const linkCopy = useCopy();
+	const { user } = useUser();
 
 	const handle = profile.username ?? "";
 	const displayName = profile.name?.trim() || handle || "DevPass user";
-	const profileUrl = `${SITE_URL}/profiles/${handle}`;
+	const isOwner = !!user && (user.username ?? "") === handle;
 	const topAgent =
 		profile.agents.length > 0
 			? AGENT_BY_SOURCE.get(profile.agents[0].source.toLowerCase())
 			: undefined;
-
-	const tweetText = `My DevPass coding profile: ${formatTokens(
-		profile.stats.totalTokens,
-	)} tokens routed, ${profile.stats.activeDays} active days, ${
-		profile.stats.currentStreak
-	}-day streak. One key, every model.`;
-	const tweetUrl = `https://x.com/intent/tweet?text=${encodeURIComponent(
-		tweetText,
-	)}&url=${encodeURIComponent(profileUrl)}`;
 
 	return (
 		<div className="space-y-3">
@@ -116,39 +92,43 @@ export function ProfileWrapped({ profile }: { profile: ProfileData }) {
 
 					<div className="mt-6 flex items-center gap-1.5 border-t border-white/10 pt-4 text-xs text-white/50">
 						<Flame className="h-3.5 w-3.5 text-emerald-400" />
-						devpass.llmgateway.io/profiles/{handle}
+						{handle
+							? `${PROFILE_SITE_URL.replace("https://", "")}/profiles/${handle}`
+							: PROFILE_SITE_URL.replace("https://", "")}
 					</div>
 				</div>
 			</div>
 
 			{/* Share toolkit */}
 			<div className="rounded-2xl border bg-card p-4 sm:p-5">
-				<div className="flex flex-wrap gap-2">
-					<Button className="gap-2" asChild>
-						<a href={tweetUrl} target="_blank" rel="noopener noreferrer">
-							<svg
-								viewBox="0 0 24 24"
-								className="h-4 w-4 fill-current"
-								aria-hidden="true"
-							>
-								<path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-							</svg>
-							Share on X
-						</a>
-					</Button>
-					<Button
-						variant="outline"
-						className="gap-2"
-						onClick={() => linkCopy.copy(profileUrl)}
-					>
-						{linkCopy.copied ? (
-							<Check className="h-4 w-4 text-emerald-500" />
-						) : (
-							<Link2 className="h-4 w-4" />
-						)}
-						{linkCopy.copied ? "Copied" : "Copy link"}
-					</Button>
-				</div>
+				{handle ? (
+					<div className="flex flex-wrap items-center justify-between gap-3">
+						<div className="space-y-0.5">
+							<p className="text-sm font-semibold">
+								{isOwner ? "Share your stats" : "Share this profile"}
+							</p>
+							<p className="text-xs text-muted-foreground">
+								{isOwner
+									? "Post your wrapped to X or LinkedIn, or copy your link."
+									: "Post these stats to X or LinkedIn, or copy the link."}
+							</p>
+						</div>
+						<ProfileShareActions profile={profile} location="profile_wrapped" />
+					</div>
+				) : (
+					<div className="flex flex-wrap items-center justify-between gap-3">
+						<div className="space-y-0.5">
+							<p className="text-sm font-semibold">Share your stats</p>
+							<p className="text-xs text-muted-foreground">
+								Claim your handle to get a public link you can share on X and
+								LinkedIn.
+							</p>
+						</div>
+						<Button variant="outline" asChild>
+							<a href="#username">Choose a username</a>
+						</Button>
+					</div>
+				)}
 			</div>
 		</div>
 	);

@@ -33,7 +33,7 @@ const formSchema = z.object({
 	email: z.string().email({ message: "Please enter a valid email address" }),
 	password: z
 		.string()
-		.min(8, { message: "Password must be at least 8 characters" }),
+		.min(12, { message: "Password must be at least 12 characters" }),
 });
 
 function getSafeRedirectUrl(url: string | null): string {
@@ -170,8 +170,8 @@ function SignupForm() {
 							with AI.
 						</h1>
 						<p className="mt-4 max-w-md text-lg text-zinc-400">
-							Dev plans, coding tools, and AI-powered workflows for modern
-							development teams.
+							Dev plans, coding tools, and AI-powered workflows for individual
+							developers.
 						</p>
 					</motion.div>
 
