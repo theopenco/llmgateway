@@ -5719,7 +5719,7 @@ const manageOrganizationRoute = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
-						name: z.string().min(1).max(255),
+						name: z.string().trim().min(1).max(255),
 						plan: z.enum(["free", "pro", "enterprise"]),
 						// Null clears the override and reverts to the plan default.
 						seats: z.number().int().min(0).max(100000).nullable(),
