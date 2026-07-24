@@ -3,7 +3,12 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { redisClient, SWR_PREFIX, swrWrap } from "@llmgateway/cache";
+import {
+	redisClient,
+	SWR_PREFIX,
+	swrWrap,
+	waitForSwrMirrorWrites,
+} from "@llmgateway/cache";
 import { and, cdb, db, eq, getTableName, tables } from "@llmgateway/db";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
@@ -18,6 +23,7 @@ import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 // Seed an SWR mirror entry the way the gateway would and confirm it landed.
 async function primeSwrEntry<T>(key: string, table: string, value: T) {
 	await swrWrap(key, [table], async () => value);
+	await waitForSwrMirrorWrites();
 	expect(await redisClient.get(SWR_PREFIX + key)).not.toBeNull();
 }
 
@@ -25,8 +31,8 @@ async function assertSwrCleared(key: string) {
 	expect(await redisClient.get(SWR_PREFIX + key)).toBeNull();
 }
 
-function readActiveIamRules(apiKeyId: string) {
-	return swrWrap(
+async function readActiveIamRules(apiKeyId: string) {
+	const rules = await swrWrap(
 		`iamRules:${apiKeyId}`,
 		[getTableName(tables.apiKeyIamRule)],
 		async () =>
@@ -40,6 +46,8 @@ function readActiveIamRules(apiKeyId: string) {
 					),
 				),
 	);
+	await waitForSwrMirrorWrites();
+	return rules;
 }
 
 describe("v1/master cache invalidation", () => {
