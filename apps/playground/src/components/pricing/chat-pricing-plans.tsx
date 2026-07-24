@@ -302,15 +302,15 @@ export function ChatPricingPlans({
 					return (
 						<div
 							key={plan.tier}
-							className={`relative flex flex-col rounded-2xl border bg-card p-7 transition-all ${
+							className={`relative flex flex-col rounded-2xl border bg-card transition-all ${
 								plan.popular
-									? "border-foreground/30 shadow-lg ring-1 ring-foreground/10"
+									? "border-lounge-gold/45 shadow-lg ring-1 ring-lounge-gold/20"
 									: "hover:shadow-md"
 							} ${isCurrent ? "ring-2 ring-emerald-500/40" : ""}`}
 						>
 							{plan.popular && !isCurrent && (
 								<div className="absolute -top-3 left-6">
-									<span className="rounded-full bg-foreground px-3 py-1 text-xs font-medium text-background">
+									<span className="rounded-full bg-lounge-gold px-3 py-1 text-xs font-semibold text-zinc-950">
 										Most popular
 									</span>
 								</div>
@@ -323,142 +323,183 @@ export function ChatPricingPlans({
 								</div>
 							)}
 
-							<div className="mb-5">
-								<h3 className="text-lg font-semibold">{plan.name}</h3>
-								<p className="mt-1 text-sm text-muted-foreground">
-									{plan.description}
-								</p>
-							</div>
-
-							<div className="mb-1 flex items-baseline gap-1.5">
-								<span className="text-5xl font-bold tracking-tight tabular-nums">
-									${monthlyPrice}
+							<div className="flex items-center justify-between border-b border-dashed border-foreground/15 px-7 pb-3 pt-5 text-[10px] font-semibold uppercase tracking-[0.24em]">
+								<span
+									className={
+										plan.frontierIncluded
+											? "text-lounge-gold"
+											: "text-muted-foreground"
+									}
+								>
+									The Lounge · Member Pass
 								</span>
-								<span className="text-muted-foreground">/mo</span>
-							</div>
-							<div className="mb-5 min-h-[20px] text-xs text-muted-foreground">
-								{plan.tagline}
+								<span className="font-mono text-muted-foreground">
+									LNG-{plan.tier.slice(0, 2).toUpperCase()}
+								</span>
 							</div>
 
-							{plan.replacesSubsUsd && (
-								<div className="mb-5 rounded-xl border border-foreground/15 bg-foreground/[0.04] px-4 py-3 text-sm">
-									<span className="font-semibold text-foreground">
-										Replaces ~${plan.replacesSubsUsd}/mo
-									</span>{" "}
-									<span className="text-muted-foreground">
-										of ChatGPT Plus + Claude Pro + Gemini — for ${monthlyPrice}.
+							<div className="flex flex-col px-7 pt-5">
+								<div className="mb-5">
+									<h3 className="font-display text-2xl font-semibold">
+										{plan.name}
+									</h3>
+									<p className="mt-1 text-sm text-muted-foreground">
+										{plan.description}
+									</p>
+								</div>
+
+								<div className="mb-1 flex items-baseline gap-1.5">
+									<span className="text-5xl font-bold tracking-tight tabular-nums">
+										${monthlyPrice}
 									</span>
+									<span className="text-muted-foreground">/mo</span>
 								</div>
-							)}
+								<div className="mb-5 min-h-[20px] text-xs text-muted-foreground">
+									{plan.tagline}
+								</div>
 
-							<div className="mb-5 rounded-xl border border-dashed bg-muted/40 p-4">
-								<div className="mb-3 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-									<span>What you actually get</span>
-									<span className="rounded-full bg-foreground/90 px-2 py-0.5 text-[10px] font-bold tabular-nums text-background">
-										{creditsMultiplier}× value
-									</span>
-								</div>
-								<div className="space-y-2.5 text-sm">
-									<div className="flex items-baseline justify-between">
-										<span className="text-muted-foreground">You pay</span>
-										<span className="font-mono font-semibold tabular-nums">
-											${monthlyPrice}
-											<span className="text-xs font-normal text-muted-foreground">
-												/mo
-											</span>
+								{plan.replacesSubsUsd && (
+									<div className="mb-5 rounded-xl border border-foreground/15 bg-foreground/[0.04] px-4 py-3 text-sm">
+										<span className="font-semibold text-foreground">
+											Replaces ~${plan.replacesSubsUsd}/mo
+										</span>{" "}
+										<span className="text-muted-foreground">
+											of ChatGPT Plus + Claude Pro + Gemini — for $
+											{monthlyPrice}.
 										</span>
 									</div>
-									<div className="flex items-baseline justify-between">
-										<span className="text-muted-foreground">You use</span>
-										<span className="font-mono font-semibold tabular-nums text-foreground">
-											{formatUsd(usageValue)}
-											<span className="text-xs font-normal text-muted-foreground">
-												{" "}
-												at provider rates
-											</span>
-										</span>
-									</div>
-									<div className="pt-1">
-										<div className="relative h-2 overflow-hidden rounded-full bg-foreground/10">
-											<div
-												className="absolute left-0 top-0 h-full rounded-full bg-foreground/30"
-												style={{
-													width: `${(1 / creditsMultiplier) * 100}%`,
-												}}
-											/>
-											<div className="absolute left-0 top-0 h-full w-full rounded-full ring-1 ring-inset ring-foreground/10" />
-										</div>
-										<div className="mt-1.5 flex items-center justify-between text-[10px] text-muted-foreground tabular-nums">
-											<span>${monthlyPrice} paid</span>
-											<span>{formatUsd(usageValue)} used</span>
-										</div>
-									</div>
-									<div className="border-t border-dashed pt-2.5 text-xs leading-relaxed text-muted-foreground">
-										{plan.frontierIncluded ? (
-											<>
-												≈{" "}
-												<span className="font-semibold text-foreground tabular-nums">
-													{formatCount(estimate.frontier)}
-												</span>{" "}
-												messages/mo on frontier models —{" "}
-												<span className="font-semibold text-foreground tabular-nums">
-													{formatCount(estimate.fast)}
-												</span>{" "}
-												on fast ones
-											</>
-										) : (
-											<>
-												≈{" "}
-												<span className="font-semibold text-foreground tabular-nums">
-													{formatCount(estimate.fast)}
-												</span>{" "}
-												messages/mo on fast models —{" "}
-												<span className="font-semibold text-foreground tabular-nums">
-													{formatCount(estimate.frontier)}
-												</span>{" "}
-												on Claude Sonnet
-											</>
-										)}
-									</div>
-								</div>
-							</div>
-
-							<ul className="mb-7 flex-1 space-y-2.5">
-								{plan.features.map((feature) => (
-									<li key={feature} className="flex items-start gap-2.5">
-										<Check className="mt-0.5 h-4 w-4 shrink-0 text-foreground/70" />
-										<span className="text-sm text-muted-foreground">
-											{feature}
-										</span>
-									</li>
-								))}
-							</ul>
-
-							<Button
-								className="w-full"
-								size="lg"
-								variant={plan.popular && !isCurrent ? "default" : "outline"}
-								disabled={isPending || isCurrent}
-								onClick={() =>
-									isChangeTarget
-										? handleChangeTier(plan.tier)
-										: handleSubscribe(plan.tier)
-								}
-							>
-								{isPending ? (
-									<>
-										<Loader2 className="mr-2 h-4 w-4 animate-spin" />
-										{isChangeTarget ? "Switching…" : "Redirecting…"}
-									</>
-								) : isCurrent ? (
-									"Current plan"
-								) : isChangeTarget ? (
-									`Switch to ${plan.name}`
-								) : (
-									`Get ${plan.name}`
 								)}
-							</Button>
-							<InvoiceInfoLabel />
+
+								<div className="mb-5 rounded-xl border border-dashed bg-muted/40 p-4">
+									<div className="mb-3 flex items-center justify-between font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+										<span>What you actually get</span>
+										<span className="rounded-full bg-foreground/90 px-2 py-0.5 text-[10px] font-bold tabular-nums text-background">
+											{creditsMultiplier}× value
+										</span>
+									</div>
+									<div className="space-y-2.5 text-sm">
+										<div className="flex items-baseline justify-between">
+											<span className="text-muted-foreground">You pay</span>
+											<span className="font-mono font-semibold tabular-nums">
+												${monthlyPrice}
+												<span className="text-xs font-normal text-muted-foreground">
+													/mo
+												</span>
+											</span>
+										</div>
+										<div className="flex items-baseline justify-between">
+											<span className="text-muted-foreground">You use</span>
+											<span className="font-mono font-semibold tabular-nums text-foreground">
+												{formatUsd(usageValue)}
+												<span className="text-xs font-normal text-muted-foreground">
+													{" "}
+													at provider rates
+												</span>
+											</span>
+										</div>
+										<div className="pt-1">
+											<div className="relative h-2 overflow-hidden rounded-full bg-foreground/10">
+												<div
+													className="absolute left-0 top-0 h-full rounded-full bg-foreground/30"
+													style={{
+														width: `${(1 / creditsMultiplier) * 100}%`,
+													}}
+												/>
+												<div className="absolute left-0 top-0 h-full w-full rounded-full ring-1 ring-inset ring-foreground/10" />
+											</div>
+											<div className="mt-1.5 flex items-center justify-between text-[10px] text-muted-foreground tabular-nums">
+												<span>${monthlyPrice} paid</span>
+												<span>{formatUsd(usageValue)} used</span>
+											</div>
+										</div>
+										<div className="border-t border-dashed pt-2.5 text-xs leading-relaxed text-muted-foreground">
+											{plan.frontierIncluded ? (
+												<>
+													≈{" "}
+													<span className="font-semibold text-foreground tabular-nums">
+														{formatCount(estimate.frontier)}
+													</span>{" "}
+													messages/mo on frontier models —{" "}
+													<span className="font-semibold text-foreground tabular-nums">
+														{formatCount(estimate.fast)}
+													</span>{" "}
+													on fast ones
+												</>
+											) : (
+												<>
+													≈{" "}
+													<span className="font-semibold text-foreground tabular-nums">
+														{formatCount(estimate.fast)}
+													</span>{" "}
+													messages/mo on fast models —{" "}
+													<span className="font-semibold text-foreground tabular-nums">
+														{formatCount(estimate.frontier)}
+													</span>{" "}
+													on Claude Sonnet
+												</>
+											)}
+										</div>
+									</div>
+								</div>
+							</div>
+
+							<div className="relative" aria-hidden>
+								<div className="mx-7 border-t border-dashed border-foreground/20" />
+								<span className="absolute -left-3 top-1/2 size-6 -translate-y-1/2 rounded-full border bg-background" />
+								<span className="absolute -right-3 top-1/2 size-6 -translate-y-1/2 rounded-full border bg-background" />
+							</div>
+
+							<div className="flex flex-1 flex-col px-7 pb-7 pt-5">
+								<ul className="mb-7 flex-1 space-y-2.5">
+									{plan.features.map((feature) => (
+										<li key={feature} className="flex items-start gap-2.5">
+											<Check className="mt-0.5 h-4 w-4 shrink-0 text-foreground/70" />
+											<span className="text-sm text-muted-foreground">
+												{feature}
+											</span>
+										</li>
+									))}
+								</ul>
+
+								<Button
+									className="w-full"
+									size="lg"
+									variant={plan.popular && !isCurrent ? "default" : "outline"}
+									disabled={isPending || isCurrent}
+									onClick={() =>
+										isChangeTarget
+											? handleChangeTier(plan.tier)
+											: handleSubscribe(plan.tier)
+									}
+								>
+									{isPending ? (
+										<>
+											<Loader2 className="mr-2 h-4 w-4 animate-spin" />
+											{isChangeTarget ? "Switching…" : "Redirecting…"}
+										</>
+									) : isCurrent ? (
+										"Current plan"
+									) : isChangeTarget ? (
+										`Switch to ${plan.name}`
+									) : (
+										`Get ${plan.name}`
+									)}
+								</Button>
+								<InvoiceInfoLabel />
+								<div aria-hidden className="mt-5">
+									<div
+										className="h-8 text-foreground/60"
+										style={{
+											backgroundImage:
+												"repeating-linear-gradient(90deg, currentColor 0 2px, transparent 2px 4px, currentColor 4px 7px, transparent 7px 9px, currentColor 9px 10px, transparent 10px 14px, currentColor 14px 15px, transparent 15px 18px)",
+										}}
+									/>
+									<div className="mt-1.5 flex items-center justify-between font-mono text-[9px] uppercase tracking-[0.28em] text-muted-foreground">
+										<span>chat.llmgateway.io</span>
+										<span>{plan.tier} · monthly</span>
+									</div>
+								</div>
+							</div>
 						</div>
 					);
 				})}

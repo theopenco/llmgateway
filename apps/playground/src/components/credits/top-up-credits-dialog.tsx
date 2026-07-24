@@ -247,7 +247,13 @@ function AmountStep({
 	return (
 		<>
 			<DialogHeader>
-				<DialogTitle>Top Up Credits</DialogTitle>
+				<p className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.28em] text-lounge-gold">
+					<span aria-hidden className="h-px w-5 bg-lounge-gold/50" />
+					The Lounge · Pay as you go
+				</p>
+				<DialogTitle className="font-display text-2xl font-semibold">
+					Top Up Credits
+				</DialogTitle>
 				<DialogDescription>
 					Add credits to your organization account. Confirm details on the next
 					step.
@@ -290,8 +296,10 @@ function AmountStep({
 				</div>
 
 				{isAmountValid && (
-					<div className="border rounded-lg p-4 bg-muted/50">
-						<p className="font-medium mb-2">Fee Breakdown</p>
+					<div className="rounded-lg border border-dashed bg-muted/40 p-4 font-mono">
+						<p className="mb-2 text-center text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+							· Lounge bar receipt ·
+						</p>
 						{feeDataLoading ? (
 							<div className="flex items-center justify-center py-4">
 								<div className="h-5 w-5 animate-spin border-2 border-muted-foreground border-t-transparent rounded-full" />
@@ -300,7 +308,7 @@ function AmountStep({
 								</span>
 							</div>
 						) : feeData ? (
-							<div className="space-y-1 text-sm">
+							<div className="space-y-1 text-sm tabular-nums">
 								<div className="flex justify-between">
 									<span>Credits</span>
 									<span>${feeData.baseAmount.toFixed(2)}</span>
@@ -311,11 +319,11 @@ function AmountStep({
 								</div>
 								{feeData.internationalFee > 0 ? (
 									<div className="flex justify-between">
-										<span>International card fee (1.5%)</span>
+										<span>Intl. card fee (1.5%)</span>
 										<span>${feeData.internationalFee.toFixed(2)}</span>
 									</div>
 								) : null}
-								<div className="border-t pt-1 flex justify-between font-medium">
+								<div className="flex justify-between border-t border-dashed pt-1 font-semibold">
 									<span>Total</span>
 									<span>${feeData.totalAmount.toFixed(2)}</span>
 								</div>
@@ -371,13 +379,21 @@ function SuccessStep({ onClose }: { onClose: () => void }) {
 	return (
 		<>
 			<DialogHeader>
-				<DialogTitle>Payment Successful</DialogTitle>
+				<DialogTitle className="font-display text-2xl font-semibold">
+					Payment Successful
+				</DialogTitle>
 				<DialogDescription>
 					Your credits have been added to your account.
 				</DialogDescription>
 			</DialogHeader>
-			<div className="py-4">
-				<p>
+			<div className="flex flex-col items-center gap-4 py-4">
+				<span
+					aria-hidden
+					className="-rotate-6 rounded border-2 border-lounge-gold/60 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.3em] text-lounge-gold"
+				>
+					Credits added
+				</span>
+				<p className="text-center">
 					Thank you for your purchase. Your credits are now available for use.
 				</p>
 			</div>
@@ -730,8 +746,10 @@ function ConfirmPaymentStep({
 				</DialogDescription>
 			</DialogHeader>
 			<form onSubmit={handleSubmit} className="space-y-4 py-4">
-				<div className="border rounded-lg p-4">
-					<p className="font-medium mb-3">Payment Summary</p>
+				<div className="rounded-lg border border-dashed bg-muted/40 p-4 font-mono">
+					<p className="mb-3 text-center text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+						· Lounge bar receipt ·
+					</p>
 					{feeDataLoading ? (
 						<div className="flex items-center justify-center py-4">
 							<div className="h-5 w-5 animate-spin border-2 border-muted-foreground border-t-transparent rounded-full" />
@@ -740,7 +758,7 @@ function ConfirmPaymentStep({
 							</span>
 						</div>
 					) : feeData ? (
-						<div className="space-y-2 text-sm">
+						<div className="space-y-2 text-sm tabular-nums">
 							<div className="flex justify-between">
 								<span>Credits</span>
 								<span>${feeData.baseAmount.toFixed(2)}</span>
@@ -751,11 +769,11 @@ function ConfirmPaymentStep({
 							</div>
 							{feeData.internationalFee > 0 ? (
 								<div className="flex justify-between">
-									<span>International card fee (1.5%)</span>
+									<span>Intl. card fee (1.5%)</span>
 									<span>${feeData.internationalFee.toFixed(2)}</span>
 								</div>
 							) : null}
-							<div className="border-t pt-2 flex justify-between font-medium">
+							<div className="flex justify-between border-t border-dashed pt-2 font-semibold">
 								<span>Total</span>
 								<span>${feeData.totalAmount.toFixed(2)}</span>
 							</div>

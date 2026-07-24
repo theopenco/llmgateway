@@ -61,17 +61,18 @@ export default async function PricingPage() {
 				</h2>
 				<ul className="space-y-2">
 					<li>
-						<strong>Fresh allowance every cycle.</strong> Your full credit
+						<strong>{"Fresh allowance every cycle. "}</strong>Your full credit
 						allowance refills at the start of each billing cycle, and any
 						unspent credits don&apos;t roll over.
 					</li>
 					<li>
-						<strong>7-day money-back guarantee.</strong> If you&apos;ve barely
-						used your membership, email us within 7 days for a full refund.
+						<strong>{"7-day money-back guarantee. "}</strong>If you&apos;ve
+						barely used your membership, email us within 7 days for a full
+						refund.
 					</li>
 					<li>
-						<strong>Cancel anytime.</strong> Your membership stays active until
-						the end of the period you already paid for.
+						<strong>{"Cancel anytime. "}</strong>Your membership stays active
+						until the end of the period you already paid for.
 					</li>
 					<li>
 						<strong>Starter covers the fast models</strong> (Claude Sonnet,
