@@ -34,7 +34,7 @@ const plans = [
 			"Enterprise SSO integration",
 			"Provider configuration UI",
 			"Terraform modules for AWS, GCP, bare metal",
-			"White label gateway & chat playground",
+			"White label gateway & chat app",
 			"Prioritized feature requests",
 			"On-boarding assistance",
 			"Dedicated support channel",

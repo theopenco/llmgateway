@@ -327,7 +327,7 @@ export default async function Page({
 									),
 								},
 								{
-									label: "Chat plans",
+									label: "Lounge plans",
 									value: currencyFormatter.format(
 										metrics.grossChatPlansRevenue,
 									),

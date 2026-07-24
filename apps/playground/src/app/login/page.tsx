@@ -194,9 +194,9 @@ function Login() {
 			<ChatBrandPanel
 				headline={
 					<>
-						Welcome back.
+						Welcome back
 						<br />
-						Pick up the thread.
+						to the Lounge.
 					</>
 				}
 				subline="Your chats, studios, and favorite models are right where you left them."

@@ -174,7 +174,7 @@ function formatSourceLabel(source: string): string {
 		case "chatbox":
 			return "Chatbox";
 		case "llmgateway.io/playground":
-			return "Playground";
+			return "Lounge";
 		default:
 			return source;
 	}
