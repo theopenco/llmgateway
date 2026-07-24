@@ -2,6 +2,7 @@ import { publishToQueue, LOG_QUEUE } from "@llmgateway/cache";
 import {
 	db,
 	log,
+	stripRetentionSensitiveLogFields,
 	UnifiedFinishReason,
 	type LogInsertData,
 } from "@llmgateway/db";
@@ -285,8 +286,17 @@ export type LogData = InferInsertModel<typeof log>;
 
 export async function insertLog(
 	logData: LogInsertData,
-	options?: { syncInsert?: boolean },
+	options?: { syncInsert?: boolean; retentionLevel?: "retain" | "none" | null },
 ): Promise<unknown> {
+	// When the organization doesn't retain request/response data, strip the
+	// payload fields here — before the row is ever published to the log queue —
+	// so large prompts, completions, and tool payloads never travel through
+	// Redis. The worker performs the same strip as a safety net for any log whose
+	// retention level wasn't resolved at publish time.
+	if (options?.retentionLevel === "none") {
+		logData = stripRetentionSensitiveLogFields(logData);
+	}
+
 	// Stealth providers: the raw upstream error may reveal the underlying
 	// platform, so it survives only in internalErrorDetails — a column excluded
 	// from public API routes and the UI — while the public errorDetails keeps

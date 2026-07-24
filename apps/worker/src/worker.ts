@@ -29,6 +29,7 @@ import {
 	resolveVerifiedOrgRecipient,
 	shortid,
 	sql,
+	stripRetentionSensitiveLogFields,
 	tables,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -1758,22 +1759,12 @@ export async function processLogQueue(): Promise<number> {
 				: new Map<string, "retain" | "none">();
 		const selectMs = Date.now() - selectStart;
 
-		const processedLogData: (
-			| LogInsertData
-			| Omit<LogInsertData, "messages" | "content">
-		)[] = logData.map((data) => {
+		// Safety net: the gateway already strips payload fields before publishing
+		// for non-retaining orgs, so this only re-strips logs whose retention level
+		// wasn't resolved at publish time (already-stripped logs are unaffected).
+		const processedLogData: LogInsertData[] = logData.map((data) => {
 			if (retentionByOrg.get(data.organizationId) === "none") {
-				const {
-					messages: _messages,
-					content: _content,
-					reasoningContent: _reasoningContent,
-					tools: _tools,
-					toolChoice: _toolChoice,
-					toolResults: _toolResults,
-					responsesApiData: _responsesApiData,
-					...metadataOnly
-				} = data;
-				return metadataOnly;
+				return stripRetentionSensitiveLogFields(data);
 			}
 
 			return data;
@@ -1783,9 +1774,8 @@ export async function processLogQueue(): Promise<number> {
 		let lastError: Error | undefined;
 		for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
 			try {
-				// Type assertion is safe here as both LogInsertData and its subset are compatible with the log insert schema
 				const insertStart = Date.now();
-				await db.insert(log).values(processedLogData as LogInsertData[]);
+				await db.insert(log).values(processedLogData);
 				const insertMs = Date.now() - insertStart;
 				recordLogInsertSuccess();
 				logger.info(
