@@ -54,7 +54,7 @@ const SOURCE_OPTIONS = [
 	{ value: "open-code", label: "Open Code" },
 	{ value: "cursor", label: "Cursor" },
 	{ value: "chatbox", label: "Chatbox" },
-	{ value: "llmgateway.io/playground", label: "Playground" },
+	{ value: "llmgateway.io/playground", label: "Lounge" },
 ] as const;
 
 interface ProviderOption {

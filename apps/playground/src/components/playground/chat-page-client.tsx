@@ -1969,7 +1969,7 @@ export default function ChatPageClient({
 	return (
 		<SidebarProvider>
 			<h2 className="sr-only">
-				LLM Gateway Playground - Chat with 200+ AI Models
+				Lounge by LLM Gateway — chat with 200+ AI models
 			</h2>
 			<div className="flex h-svh bg-background w-full overflow-hidden">
 				{isTemporaryChat ? null : (

@@ -3,7 +3,12 @@ import { expect, test, beforeEach, describe, afterEach } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { redisClient, SWR_PREFIX, swrWrap } from "@llmgateway/cache";
+import {
+	redisClient,
+	SWR_PREFIX,
+	swrWrap,
+	waitForSwrMirrorWrites,
+} from "@llmgateway/cache";
 import { and, cdb, db, eq, getTableName, tables } from "@llmgateway/db";
 
 describe("provider keys route", () => {
@@ -326,8 +331,8 @@ describe("provider keys route", () => {
 		return orgId;
 	}
 
-	function readActiveProviderKeys(orgId: string, provider: string) {
-		return swrWrap(
+	async function readActiveProviderKeys(orgId: string, provider: string) {
+		const keys = await swrWrap(
 			`providerKey:${orgId}:${provider}`,
 			[getTableName(tables.providerKey)],
 			async () =>
@@ -342,6 +347,8 @@ describe("provider keys route", () => {
 						),
 					),
 		);
+		await waitForSwrMirrorWrites();
+		return keys;
 	}
 
 	test("POST /keys/provider makes the new key visible to cached lookups", async () => {

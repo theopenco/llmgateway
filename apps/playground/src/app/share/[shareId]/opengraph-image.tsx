@@ -182,7 +182,7 @@ function BrandHeader() {
 						fontWeight: 700,
 					}}
 				>
-					LLM Gateway
+					Lounge
 				</span>
 				<span
 					style={{
@@ -498,7 +498,7 @@ export default async function ShareOgImage({ params }: OgImageProps) {
 							"system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
 					}}
 				>
-					LLM Gateway · Shared chat
+					Lounge · Shared chat
 				</div>
 			),
 			size,

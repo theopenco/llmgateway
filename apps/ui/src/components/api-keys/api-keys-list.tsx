@@ -89,8 +89,8 @@ function PlaygroundKeyNote() {
 			<div className="text-muted-foreground flex max-w-52 items-start gap-2 px-2 py-1.5 text-xs">
 				<InfoIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
 				<span>
-					The auto-generated playground key is managed by LLM Gateway and can't
-					be edited.
+					The auto-generated Lounge key is managed by LLM Gateway and can't be
+					edited.
 				</span>
 			</div>
 		</>
@@ -642,7 +642,9 @@ export function ApiKeysList({
 								>
 									<TableCell className="font-medium">
 										<span className="text-sm font-medium">
-											{key.description}
+											{isPlaygroundKey
+												? "Auto-generated Lounge key"
+												: key.description}
 										</span>
 									</TableCell>
 									<TableCell className="min-w-40 max-w-40">
@@ -857,7 +859,11 @@ export function ApiKeysList({
 							<div className="flex items-start justify-between">
 								<div className="flex-1 min-w-0">
 									<div className="flex items-center gap-2">
-										<h3 className="font-medium text-sm">{key.description}</h3>
+										<h3 className="font-medium text-sm">
+											{isPlaygroundKey
+												? "Auto-generated Lounge key"
+												: key.description}
+										</h3>
 										<StatusBadge status={key.status} />
 									</div>
 									{renderExpiry(key)}

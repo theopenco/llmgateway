@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { useDeleteAccount, useUpdateUser } from "@/hooks/useUser";
@@ -44,6 +45,7 @@ function formatProviderName(providerId: string): string {
 
 export function AccountClient() {
 	const { user } = useUser();
+	const router = useRouter();
 
 	const [name, setName] = useState(user?.name ?? "");
 	const [email, setEmail] = useState(user?.email ?? "");
@@ -97,6 +99,8 @@ export function AccountClient() {
 				title: "Account Deleted",
 				description: "Your account has been successfully deleted.",
 			});
+
+			router.refresh();
 		} catch (error) {
 			toast({
 				title: "Error",

@@ -29,6 +29,7 @@ const VERTEX_FAMILY: ReadonlySet<string> = new Set(["google-vertex", "quartz"]);
 const AI_STUDIO_FAMILY: ReadonlySet<string> = new Set([
 	"google-ai-studio",
 	"glacier",
+	"iceberg",
 ]);
 
 const AI_STUDIO_AUDIO_MIME: Partial<Record<GoogleAudioFormat, string>> = {

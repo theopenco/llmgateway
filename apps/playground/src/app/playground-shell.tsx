@@ -5,6 +5,7 @@ import { LastUsedProjectTracker } from "@/components/last-used-project-tracker";
 import ChatPageClient from "@/components/playground/chat-page-client";
 import OrgPageClient from "@/components/playground/org-page-client";
 import { PlaygroundSeoSection } from "@/components/seo/playground-seo-section";
+import { CHAT_CONTEXT_COOKIE } from "@/lib/constants";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import {
 	CHAT_MODEL_COOKIE,
@@ -87,7 +88,9 @@ export async function renderPlaygroundShell({
 	// org land on that org instead; the Chat plan context stays the default only
 	// when no org has credits, so the plan upsell can take over. Runs before the
 	// chat-org fetch so redirected users never get a Chat org provisioned.
-	if (!orgId && !orgShareView) {
+	// Skipped when the user explicitly picked the Chat plan context in the org
+	// switcher (cookie) — this fallback must not override an explicit choice.
+	if (!orgId && !orgShareView && !cookieStore.get(CHAT_CONTEXT_COOKIE)) {
 		const chatPlanStatusData = await fetchServerData(
 			"GET",
 			"/chat-plans/status",

@@ -13,7 +13,8 @@ export type ModelOutput =
 	| "video"
 	| "embedding"
 	| "audio"
-	| "ocr";
+	| "ocr"
+	| "transcription";
 
 const OUTPUT_ENDPOINT: Record<
 	ModelOutput,
@@ -25,6 +26,10 @@ const OUTPUT_ENDPOINT: Record<
 	embedding: { label: "an embeddings", endpoint: "/v1/embeddings" },
 	audio: { label: "a speech", endpoint: "/v1/audio/speech" },
 	ocr: { label: "an OCR", endpoint: "/v1/ocr" },
+	transcription: {
+		label: "a transcription",
+		endpoint: "/v1/audio/transcriptions",
+	},
 };
 
 /**

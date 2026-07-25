@@ -283,7 +283,7 @@ export async function POST(req: Request) {
 		return result.toUIMessageStreamResponse();
 	} catch {
 		return new Response(
-			JSON.stringify({ error: "LLM Gateway Chat request failed" }),
+			JSON.stringify({ error: "LLM Gateway request failed" }),
 			{
 				status: 500,
 			},

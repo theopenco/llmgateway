@@ -293,7 +293,7 @@ export function ProviderModelCard({
 							rel="noopener noreferrer"
 						>
 							<Play className="h-4 w-4" />
-							Try in Playground
+							Try in Lounge
 						</a>
 					</Button>
 				</div>

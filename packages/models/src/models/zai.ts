@@ -20,7 +20,7 @@ export const zaiModels = [
 				maxOutput: 128000,
 				streaming: true,
 				reasoning: true,
-				reasoningEfforts: ["high", "max"],
+				reasoningEfforts: ["none", "high", "max"],
 				vision: false,
 				tools: true,
 				webSearch: true,

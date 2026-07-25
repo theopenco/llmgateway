@@ -900,7 +900,7 @@ export function ModelComparison() {
 											target="_blank"
 											rel="noopener noreferrer"
 										>
-											Try in Chat
+											Try in Lounge
 										</a>
 									</Button>
 								</>
@@ -924,7 +924,7 @@ export function ModelComparison() {
 											target="_blank"
 											rel="noopener noreferrer"
 										>
-											Try in Chat
+											Try in Lounge
 										</a>
 									</Button>
 								</>

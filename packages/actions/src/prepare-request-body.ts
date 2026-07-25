@@ -1044,23 +1044,26 @@ export async function prepareRequestBody(
 
 	// `none` reasoning effort is handled natively by a few providers:
 	// OpenAI/Azure forward it (their newer models accept it to turn reasoning
-	// off), and Google, Moonshot, Alibaba, MiniMax, and Xiaomi reason by
-	// default so they must explicitly disable thinking when asked. Every other
-	// provider treats the absence of reasoning_effort as "off" already, so
-	// normalize `none` away for them to avoid forwarding an unsupported enum
-	// value.
+	// off), and Google, Moonshot, Alibaba, MiniMax, Xiaomi, DeepSeek, and
+	// Z.ai reason by default so they must explicitly disable thinking when
+	// asked. Every other provider treats the absence of reasoning_effort as
+	// "off" already, so normalize `none` away for them to avoid forwarding an
+	// unsupported enum value.
 	const handlesNoneNatively =
 		usedProvider === "openai" ||
 		usedProvider === "azure" ||
 		usedProvider === "aws-mantle" ||
 		usedProvider === "google-ai-studio" ||
 		usedProvider === "glacier" ||
+		usedProvider === "iceberg" ||
 		usedProvider === "google-vertex" ||
 		usedProvider === "quartz" ||
 		usedProvider === "moonshot" ||
 		usedProvider === "alibaba" ||
 		usedProvider === "minimax" ||
 		usedProvider === "xiaomi" ||
+		usedProvider === "deepseek" ||
+		usedProvider === "zai" ||
 		providerMappingForOptions?.apiFormat === "openai-chat-completions";
 	if (reasoning_effort === "none" && !handlesNoneNatively) {
 		reasoning_effort = undefined;
@@ -2082,19 +2085,24 @@ export async function prepareRequestBody(
 			}
 			// ZAI/GLM models use a `thinking` parameter instead of `reasoning_effort`.
 			// Mirror the OpenAI/Anthropic/Google contract: thinking is opt-in via
-			// `reasoning_effort`. Unset or `minimal` => disabled, anything else => enabled.
-			// Exception: disabling thinking corrupts GLM structured output
-			// (verified live: glm-4.5 emits tool calls as raw <tool_call> text,
-			// glm-4.6v-flashx appends a stray "End" token after JSON output), so
-			// for requests with tools or a response_format leave the provider
-			// default (enabled) rather than disabling.
+			// `reasoning_effort`. "none" explicitly disables thinking, "minimal" and
+			// unset also disable, anything else enables. Exception: disabling
+			// thinking corrupts GLM structured output (verified live: glm-4.5 emits
+			// tool calls as raw <tool_call> text, glm-4.6v-flashx appends a stray
+			// "End" token after JSON output), so for requests with tools or a
+			// response_format leave the provider default rather than disabling —
+			// unless the caller explicitly asked for "none".
 			if (supportsReasoning) {
-				const wantsThinking =
-					reasoning_effort !== undefined && reasoning_effort !== "minimal";
-				if (wantsThinking || (!requestBody.tools && !response_format)) {
-					requestBody.thinking = {
-						type: wantsThinking ? "enabled" : "disabled",
-					};
+				if (reasoning_effort === "none") {
+					requestBody.thinking = { type: "disabled" };
+				} else {
+					const wantsThinking =
+						reasoning_effort !== undefined && reasoning_effort !== "minimal";
+					if (wantsThinking || (!requestBody.tools && !response_format)) {
+						requestBody.thinking = {
+							type: wantsThinking ? "enabled" : "disabled",
+						};
+					}
 				}
 			}
 			// Add sensitive_word_check if provided (Z.ai specific)
@@ -3278,6 +3286,7 @@ export async function prepareRequestBody(
 		}
 		case "google-ai-studio":
 		case "glacier":
+		case "iceberg":
 		case "google-vertex":
 		case "quartz": {
 			delete requestBody.model; // Not used in body
@@ -3660,6 +3669,52 @@ export async function prepareRequestBody(
 			}
 			break;
 		}
+
+		case "deepseek": {
+			if (stream) {
+				requestBody.stream_options = {
+					include_usage: true,
+				};
+			}
+			if (response_format) {
+				requestBody.response_format = response_format;
+			}
+
+			// Add optional parameters if they are provided
+			if (temperature !== undefined) {
+				requestBody.temperature = temperature;
+			}
+			if (max_tokens !== undefined) {
+				requestBody.max_tokens = max_tokens;
+			}
+			if (top_p !== undefined) {
+				requestBody.top_p = top_p;
+			}
+			if (frequency_penalty !== undefined) {
+				requestBody.frequency_penalty = frequency_penalty;
+			}
+			if (presence_penalty !== undefined) {
+				requestBody.presence_penalty = presence_penalty;
+			}
+
+			// DeepSeek V4 models think by default. Translate reasoning_effort "none"
+			// to the documented binary disable (thinking: { type: "disabled" },
+			// verified to zero out reasoning tokens). Mappings that can turn thinking
+			// off declare none in reasoningEfforts; elsewhere none sends
+			// nothing and the provider default is kept.
+			if (reasoning_effort === "none") {
+				const canDisableThinking =
+					providerMappingForOptions?.reasoningEfforts?.includes("none") ??
+					false;
+				if (supportsReasoning && canDisableThinking) {
+					requestBody.thinking = { type: "disabled" };
+				}
+			} else if (reasoning_effort !== undefined) {
+				requestBody.reasoning_effort = reasoning_effort;
+			}
+			break;
+		}
+
 		default: {
 			if (stream) {
 				requestBody.stream_options = {

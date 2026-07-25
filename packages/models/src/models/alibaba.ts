@@ -1,5 +1,23 @@
 import type { ModelDefinition } from "@/models.js";
 
+/**
+ * Preset system voices for the Qwen-Audio-3.0-TTS models, passed through 1:1
+ * as the upstream DashScope `voice` parameter. Each model only supports its
+ * own voice set (voices cannot be mixed between models), and the first entry
+ * is used as the default when the caller omits `voice`. The gateway validates
+ * `voice` against this allowlist, so only these system voices are accepted;
+ * Alibaba's cloned/custom voice ids are not supported through the speech
+ * endpoint today.
+ * Ref: https://help.aliyun.com/zh/model-studio/qwen-audio-tts-voice-list
+ */
+const QWEN_AUDIO_TTS_PLUS_VOICES = ["longanlingxin", "longanlufeng"];
+const QWEN_AUDIO_TTS_FLASH_VOICES = [
+	"longanhuan_v3.6",
+	"longjielidou_v3.6",
+	"loongeva_v3.6",
+	"loongjohn",
+];
+
 export const alibabaModels = [
 	{
 		id: "qwen-max",
@@ -719,10 +737,8 @@ export const alibabaModels = [
 			{
 				providerId: "scx-ai",
 				externalId: "Qwen3-32B",
-				// 1.105 AUD / 2.635 AUD per 1M tokens at 0.692662 AUD/USD
-				inputPrice: "0.7654e-6",
-				cachedInputPrice: "0.11481e-6",
-				outputPrice: "1.8252e-6",
+				inputPrice: "0.36e-6",
+				outputPrice: "0.87e-6",
 				requestPrice: "0",
 				contextSize: 32768,
 				maxOutput: 8192,
@@ -2865,7 +2881,7 @@ export const alibabaModels = [
 		id: "qwen3-embedding-8b",
 		name: "Qwen3 Embedding 8B",
 		description:
-			"Qwen3-based text embedding model with strong multilingual retrieval performance. Output dimension 4096; supports the `dimensions` parameter to shorten output.",
+			"Qwen3 embedding model with 32K context and configurable output dimensions (32–4096) via Matryoshka representation learning. No. 1 on the MTEB multilingual leaderboard as of June 2025 (score 70.58), supporting 100+ languages. Apache 2.0 license.",
 		family: "alibaba",
 		output: ["embedding"],
 		releasedAt: new Date("2025-06-05"),
@@ -2877,6 +2893,18 @@ export const alibabaModels = [
 				outputPrice: "0",
 				requestPrice: "0",
 				contextSize: 40960,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				embeddings: true,
+			},
+			{
+				providerId: "deepinfra",
+				externalId: "Qwen/Qwen3-Embedding-8B",
+				inputPrice: "0.01e-6",
+				outputPrice: "0",
+				requestPrice: "0",
+				contextSize: 32768,
 				streaming: false,
 				tools: false,
 				jsonOutput: false,
@@ -2919,6 +2947,62 @@ export const alibabaModels = [
 				],
 				supportsVideoAudio: true,
 				supportsVideoWithoutAudio: false,
+			},
+		],
+	},
+	{
+		id: "qwen-audio-3.0-tts-plus",
+		name: "Qwen-Audio-3.0-TTS Plus",
+		description:
+			"Alibaba's high-quality Qwen-Audio-3.0 text-to-speech model with natural prosody and contextually appropriate intonation across 16 languages. Generates speech via the /v1/audio/speech endpoint.",
+		family: "alibaba",
+		output: ["audio"],
+		releasedAt: new Date("2026-07-20"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "alibaba",
+				externalId: "qwen-audio-3.0-tts-plus",
+				inputPrice: "0",
+				outputPrice: "0",
+				// Billed per input character: $20.00 per million characters
+				// ($0.20 per 10,000 characters).
+				inputCharacterPrice: "20e-6",
+				requestPrice: "0",
+				contextSize: 20000,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				speechGenerations: true,
+				supportedVoices: QWEN_AUDIO_TTS_PLUS_VOICES,
+			},
+		],
+	},
+	{
+		id: "qwen-audio-3.0-tts-flash",
+		name: "Qwen-Audio-3.0-TTS Flash",
+		description:
+			"Alibaba's low-latency Qwen-Audio-3.0 text-to-speech model optimized for real-time interaction across 16 languages. Generates speech via the /v1/audio/speech endpoint.",
+		family: "alibaba",
+		output: ["audio"],
+		releasedAt: new Date("2026-07-20"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "alibaba",
+				externalId: "qwen-audio-3.0-tts-flash",
+				inputPrice: "0",
+				outputPrice: "0",
+				// Billed per input character: $15.00 per million characters
+				// ($0.15 per 10,000 characters).
+				inputCharacterPrice: "15e-6",
+				requestPrice: "0",
+				contextSize: 20000,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				speechGenerations: true,
+				supportedVoices: QWEN_AUDIO_TTS_FLASH_VOICES,
 			},
 		],
 	},

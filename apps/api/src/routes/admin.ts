@@ -5719,6 +5719,7 @@ const manageOrganizationRoute = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
+						name: z.string().trim().min(1).max(255),
 						plan: z.enum(["free", "pro", "enterprise"]),
 						// Null clears the override and reverts to the plan default.
 						seats: z.number().int().min(0).max(100000).nullable(),
@@ -5735,6 +5736,7 @@ const manageOrganizationRoute = createRoute({
 				"application/json": {
 					schema: z.object({
 						message: z.string(),
+						name: z.string(),
 						plan: z.string(),
 						seats: z.number().int().nullable(),
 						apiKeyLimit: z.number().int().nullable(),
@@ -5759,7 +5761,7 @@ const manageOrganizationRoute = createRoute({
 admin.openapi(manageOrganizationRoute, async (c) => {
 	const user = c.get("user");
 	const { orgId } = c.req.valid("param");
-	const { plan, seats, apiKeyLimit } = c.req.valid("json");
+	const { name, plan, seats, apiKeyLimit } = c.req.valid("json");
 
 	const org = await db.query.organization.findFirst({
 		where: {
@@ -5776,6 +5778,7 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 	await db
 		.update(tables.organization)
 		.set({
+			name,
 			plan,
 			seats,
 			apiKeyLimit,
@@ -5789,6 +5792,8 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 		resourceType: "organization",
 		resourceId: orgId,
 		metadata: {
+			previousName: org.name,
+			newName: name,
 			previousPlan: org.plan,
 			newPlan: plan,
 			previousSeats: org.seats,
@@ -5800,6 +5805,7 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 
 	return c.json({
 		message: "Organization updated successfully",
+		name,
 		plan,
 		seats,
 		apiKeyLimit,
