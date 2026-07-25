@@ -1179,7 +1179,6 @@ export const providers: ProviderDefinition[] = [
 		apiKeyInstructions:
 			"The resource name can be found in your Microsoft Foundry base URL: https://<resource-name>.services.ai.azure.com",
 		learnMore: "https://docs.llmgateway.io/integrations/azure",
-		priority: 1.5,
 		termsUrl: "https://www.microsoft.com/licensing/terms",
 		privacyPolicyUrl: "https://privacy.microsoft.com/privacystatement",
 		headquarters: "US",
