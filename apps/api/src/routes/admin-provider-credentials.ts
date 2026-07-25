@@ -18,7 +18,11 @@ import {
 } from "@llmgateway/actions";
 import { and, cdb, db, eq, shortid, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { getProviderEnvKeys, providers } from "@llmgateway/models";
+import {
+	getProviderApiKeyEnvCounts,
+	getProviderEnvKeys,
+	providers,
+} from "@llmgateway/models";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import type { ServerTypes } from "@/vars.js";
@@ -65,6 +69,15 @@ const catalogEntrySchema = z.object({
 	apiKeyEnvVar: z.string().nullable(),
 	/** Whether that env var is currently set on this deployment. */
 	apiKeyEnvConfigured: z.boolean(),
+	/**
+	 * API keys configured through env vars per audience, so the form can show
+	 * what a managed credential would be replacing for each one.
+	 */
+	apiKeyEnvCounts: z.object({
+		default: z.number(),
+		enterprise: z.number(),
+		plans: z.number(),
+	}),
 	configKeys: z.array(configKeySchema),
 });
 
@@ -232,6 +245,7 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 				apiKeyEnvConfigured: apiKeyEnvVar
 					? Boolean(process.env[apiKeyEnvVar])
 					: false,
+				apiKeyEnvCounts: getProviderApiKeyEnvCounts(provider.id),
 				configKeys: getManagedCredentialConfigKeys(provider.id),
 			};
 		});

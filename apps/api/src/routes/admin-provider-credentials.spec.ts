@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
@@ -26,6 +26,7 @@ describe("admin provider credentials", () => {
 	});
 
 	afterEach(async () => {
+		vi.unstubAllEnvs();
 		await deleteAll();
 	});
 
@@ -277,6 +278,11 @@ describe("admin provider credentials", () => {
 		const json = (await res.json()) as {
 			providers: {
 				id: string;
+				apiKeyEnvCounts: {
+					default: number;
+					enterprise: number;
+					plans: number;
+				};
 				configKeys: { key: string; envVar: string; required: boolean }[];
 			}[];
 		};
@@ -289,5 +295,33 @@ describe("admin provider credentials", () => {
 		});
 		expect(vertex?.configKeys.map((k) => k.key)).not.toContain("apiKey");
 		expect(json.providers.some((p) => p.id === "custom")).toBe(false);
+	});
+
+	test("catalog reports env-var key counts per audience", async () => {
+		vi.stubEnv("LLM_ALIBABA_API_KEY", "key-a,key-b");
+		vi.stubEnv("LLM_ALIBABA_API_KEY__ENTERPRISE", "ent-key");
+		vi.stubEnv("LLM_ALIBABA_API_KEY__PLANS", "");
+
+		const res = await app.request("/admin/provider-credentials/catalog", {
+			headers: { Cookie: cookie },
+		});
+		expect(res.status).toBe(200);
+		const json = (await res.json()) as {
+			providers: {
+				id: string;
+				apiKeyEnvCounts: {
+					default: number;
+					enterprise: number;
+					plans: number;
+				};
+			}[];
+		};
+
+		const alibaba = json.providers.find((p) => p.id === "alibaba");
+		expect(alibaba?.apiKeyEnvCounts).toEqual({
+			default: 2,
+			enterprise: 1,
+			plans: 0,
+		});
 	});
 });

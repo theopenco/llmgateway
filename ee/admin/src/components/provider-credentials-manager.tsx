@@ -1,12 +1,27 @@
 "use client";
 
-import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import {
+	Check,
+	ChevronsUpDown,
+	Loader2,
+	Pencil,
+	Plus,
+	Trash2,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+	Command,
+	CommandEmpty,
+	CommandGroup,
+	CommandInput,
+	CommandItem,
+	CommandList,
+} from "@/components/ui/command";
 import {
 	Dialog,
 	DialogContent,
@@ -17,6 +32,11 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from "@/components/ui/popover";
 import {
 	Select,
 	SelectContent,
@@ -33,6 +53,7 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 
 import { getProviderIcon } from "@llmgateway/shared";
 
@@ -58,6 +79,20 @@ const VARIANT_ENV_SUFFIXES: Record<Variant, string | null> = {
 	enterprise: "__ENTERPRISE",
 	plans: "__PLANS",
 };
+
+const VARIANT_ORDER: Variant[] = ["default", "enterprise", "plans"];
+
+type VariantCounts = Record<Variant, number>;
+
+const NO_CREDENTIALS: VariantCounts = {
+	default: 0,
+	enterprise: 0,
+	plans: 0,
+};
+
+function totalOf(counts: VariantCounts): number {
+	return counts.default + counts.enterprise + counts.plans;
+}
 
 interface MutationResult {
 	success: boolean;
@@ -91,11 +126,15 @@ interface ProviderCredentialsManagerProps {
 	onDelete: (id: string) => Promise<MutationResult>;
 }
 
-function ProviderCell({ provider }: { provider: string }) {
+function ProviderIcon({ provider }: { provider: string }) {
 	const Icon = getProviderIcon(provider);
+	return Icon ? <Icon className="h-4 w-4 shrink-0" /> : null;
+}
+
+function ProviderCell({ provider }: { provider: string }) {
 	return (
 		<div className="flex items-center gap-2">
-			{Icon ? <Icon className="h-4 w-4" /> : null}
+			<ProviderIcon provider={provider} />
 			<span className="font-medium">{provider}</span>
 		</div>
 	);
@@ -119,6 +158,26 @@ export function ProviderCredentialsManager({
 		() => new Map(catalog.map((entry) => [entry.id, entry])),
 		[catalog],
 	);
+
+	// Shown against each provider in the picker so an admin adding a key can see
+	// at a glance which providers are already covered and which are still bare,
+	// broken down by audience to pair with each one's env-var count.
+	const credentialCounts = useMemo(() => {
+		const counts = new Map<string, VariantCounts>();
+		for (const credential of credentials) {
+			const current = counts.get(credential.provider) ?? {
+				default: 0,
+				enterprise: 0,
+				plans: 0,
+			};
+			const variant = credential.variant as Variant;
+			counts.set(credential.provider, {
+				...current,
+				[variant]: (current[variant] ?? 0) + 1,
+			});
+		}
+		return counts;
+	}, [credentials]);
 
 	async function confirmDelete() {
 		if (!deleting) {
@@ -252,6 +311,7 @@ export function ProviderCredentialsManager({
 			{creating ? (
 				<CredentialDialog
 					catalog={catalog}
+					credentialCounts={credentialCounts}
 					onClose={() => setCreating(false)}
 					onSubmit={async (values) => {
 						const result = await onCreate({
@@ -277,6 +337,7 @@ export function ProviderCredentialsManager({
 					catalog={catalog}
 					credential={editing}
 					catalogEntry={catalogById.get(editing.provider)}
+					credentialCounts={credentialCounts}
 					onClose={() => setEditing(null)}
 					onSubmit={async (values) => {
 						const result = await onUpdate(editing.id, {
@@ -353,12 +414,15 @@ function CredentialDialog({
 	catalog,
 	credential,
 	catalogEntry,
+	credentialCounts,
 	onClose,
 	onSubmit,
 }: {
 	catalog: ProviderCredentialCatalogEntry[];
 	credential?: ProviderCredential;
 	catalogEntry?: ProviderCredentialCatalogEntry;
+	/** Credentials already stored per provider and audience, keyed by provider id. */
+	credentialCounts: Map<string, VariantCounts>;
 	onClose: () => void;
 	onSubmit: (values: CredentialFormValues) => Promise<MutationResult>;
 }) {
@@ -366,6 +430,7 @@ function CredentialDialog({
 	const [provider, setProvider] = useState(
 		credential?.provider ?? catalog[0]?.id ?? "",
 	);
+	const [providerOpen, setProviderOpen] = useState(false);
 	const [token, setToken] = useState("");
 	const [comment, setComment] = useState(credential?.comment ?? "");
 	const [variant, setVariant] = useState<Variant>(
@@ -428,33 +493,127 @@ function CredentialDialog({
 				<div className="flex flex-col gap-4">
 					<div className="flex flex-col gap-2">
 						<Label htmlFor="provider">Provider</Label>
-						<Select
-							value={provider}
-							onValueChange={(value) => {
-								setProvider(value);
-								setConfig({});
-							}}
-							disabled={isEdit}
-						>
-							<SelectTrigger id="provider">
-								<SelectValue placeholder="Select a provider" />
-							</SelectTrigger>
-							<SelectContent>
-								{catalog.map((entry) => (
-									<SelectItem key={entry.id} value={entry.id}>
-										{entry.name}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
-						{selectedEntry?.apiKeyEnvVar ? (
-							<p className="text-xs text-muted-foreground">
-								Replaces <code>{selectedEntry.apiKeyEnvVar}</code> and its
-								companion variables.
-								{selectedEntry.apiKeyEnvConfigured
-									? " Those are currently set on this deployment; credentials here take precedence and the variables are ignored entirely once one exists."
-									: ""}
-							</p>
+						<Popover open={providerOpen} onOpenChange={setProviderOpen}>
+							<PopoverTrigger asChild>
+								<Button
+									id="provider"
+									type="button"
+									variant="outline"
+									role="combobox"
+									aria-expanded={providerOpen}
+									disabled={isEdit}
+									className="w-full justify-between font-normal"
+								>
+									{selectedEntry ? (
+										<span className="flex min-w-0 items-center gap-2">
+											<ProviderIcon provider={selectedEntry.id} />
+											<span className="truncate">{selectedEntry.name}</span>
+										</span>
+									) : (
+										<span className="text-muted-foreground">
+											Select a provider
+										</span>
+									)}
+									<ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+								</Button>
+							</PopoverTrigger>
+							<PopoverContent
+								className="w-[--radix-popover-trigger-width] p-0"
+								align="start"
+							>
+								<Command>
+									<CommandInput placeholder="Search providers..." />
+									<CommandList>
+										<CommandEmpty>No providers found.</CommandEmpty>
+										<CommandGroup>
+											{catalog.map((entry) => {
+												const count = totalOf(
+													credentialCounts.get(entry.id) ?? NO_CREDENTIALS,
+												);
+												return (
+													<CommandItem
+														key={entry.id}
+														// Searchable by display name and by provider id, so
+														// "vertex" finds it whichever the admin remembers.
+														value={`${entry.name} ${entry.id}`}
+														onSelect={() => {
+															setProvider(entry.id);
+															setConfig({});
+															setProviderOpen(false);
+														}}
+													>
+														<ProviderIcon provider={entry.id} />
+														<span className="truncate">{entry.name}</span>
+														<span className="ml-auto flex shrink-0 items-center gap-2">
+															{count > 0 ? (
+																<Badge
+																	variant="secondary"
+																	className="text-[11px]"
+																	title={`${count} credential${count === 1 ? "" : "s"} already configured`}
+																>
+																	{count}
+																</Badge>
+															) : null}
+															<Check
+																className={cn(
+																	"h-4 w-4",
+																	provider === entry.id
+																		? "opacity-100"
+																		: "opacity-0",
+																)}
+															/>
+														</span>
+													</CommandItem>
+												);
+											})}
+										</CommandGroup>
+									</CommandList>
+								</Command>
+							</PopoverContent>
+						</Popover>
+						{selectedEntry ? (
+							<div className="flex flex-col gap-2 rounded-md border border-border/60 p-3">
+								<p className="text-xs font-medium">
+									{selectedEntry.name} coverage today
+								</p>
+								<dl className="flex flex-col gap-1 text-xs text-muted-foreground">
+									{VARIANT_ORDER.map((audience) => {
+										const stored =
+											credentialCounts.get(selectedEntry.id) ?? NO_CREDENTIALS;
+										const envCount = selectedEntry.apiKeyEnvCounts[audience];
+										return (
+											<div
+												key={audience}
+												className="flex items-baseline justify-between gap-3"
+											>
+												<dt className="truncate">
+													{VARIANT_LABELS[audience]}
+													{VARIANT_ENV_SUFFIXES[audience] ? (
+														<code className="ml-1 text-[11px]">
+															{VARIANT_ENV_SUFFIXES[audience]}
+														</code>
+													) : null}
+												</dt>
+												<dd className="shrink-0 tabular-nums">
+													{stored[audience]} credential
+													{stored[audience] === 1 ? "" : "s"} ·{" "}
+													{envCount === 0
+														? "no env keys"
+														: `${envCount} env key${envCount === 1 ? "" : "s"}`}
+												</dd>
+											</div>
+										);
+									})}
+								</dl>
+								{selectedEntry.apiKeyEnvVar ? (
+									<p className="text-xs text-muted-foreground">
+										Env keys come from <code>{selectedEntry.apiKeyEnvVar}</code>{" "}
+										(comma-separated) and its variant overrides. A credential
+										here takes precedence for its audience and the variable is
+										ignored entirely once one exists.
+									</p>
+								) : null}
+							</div>
 						) : null}
 					</div>
 
