@@ -610,6 +610,12 @@ function CredentialDialog({
 							id="token"
 							value={token}
 							rows={3}
+							// API keys and service-account JSON have no spaces to wrap at,
+							// and the base Textarea uses `field-sizing: content`, which
+							// sizes the box to the longest unbroken line — a long key
+							// stretches it past the dialog and scrolls the whole thing
+							// sideways. Breaking anywhere keeps it inside its column.
+							className="break-all"
 							onChange={(event) => setToken(event.target.value)}
 							placeholder={
 								isEdit
