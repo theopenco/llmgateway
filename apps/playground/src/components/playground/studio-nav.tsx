@@ -40,7 +40,7 @@ export function StudioNav() {
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
 	const orgIdParam = searchParams.get("orgId");
-	const { isMobile, setOpenMobile } = useSidebar();
+	const { state, isMobile, setOpenMobile } = useSidebar();
 
 	const withOrg = (path: string) =>
 		orgIdParam ? `${path}?orgId=${orgIdParam}` : path;
@@ -77,7 +77,12 @@ export function StudioNav() {
 								</span>
 							</Link>
 						</TooltipTrigger>
-						<TooltipContent side="right" hidden={isMobile}>
+						{/* Expanded tiles already show a label; a hover tooltip there
+						    covers the neighboring tile and steals its clicks. */}
+						<TooltipContent
+							side="right"
+							hidden={state !== "collapsed" || isMobile}
+						>
 							{item.tooltip}
 						</TooltipContent>
 					</Tooltip>
