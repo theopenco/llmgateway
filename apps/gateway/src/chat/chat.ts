@@ -2000,10 +2000,11 @@ chat.openapi(completions, async (c) => {
 	// this org's env-credential reads. Undefined = base vars only.
 	const envVariant = getOrganizationEnvVariant(organization);
 
-	// Providers LLM Gateway holds a managed credential for. Routing treats these
-	// as available in credits mode even when the provider's LLM_* env var is
-	// unset, which is what lets a deployment drop the env vars entirely.
-	const managedProviderIds = await findManagedProviderIds();
+	// Providers LLM Gateway holds a managed credential for that this org can
+	// actually use. Routing treats these as available in credits mode even when
+	// the provider's LLM_* env var is unset, which is what lets a deployment
+	// drop the env vars entirely.
+	const managedProviderIds = await findManagedProviderIds(envVariant);
 
 	// Dev-plan (DevPass) orgs can default routing to cheaper flex processing via
 	// their dashboard settings to save on plan credits. Applied softly, and only

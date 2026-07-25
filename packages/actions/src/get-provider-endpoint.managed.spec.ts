@@ -11,6 +11,8 @@ const ENV_VARS = [
 	"LLM_OPENAI_BASE_URL",
 	"LLM_AZURE_RESOURCE",
 	"LLM_AZURE_DEPLOYMENT_TYPE",
+	"LLM_VERTEX_ANTHROPIC_REGION",
+	"LLM_VERTEX_ANTHROPIC_BASE_URL",
 ] as const;
 
 const originals = new Map(ENV_VARS.map((name) => [name, process.env[name]]));
@@ -145,6 +147,30 @@ describe("managed credential config in getProviderEndpoint", () => {
 
 		expect(url).toBe(
 			"https://managed-resource.openai.azure.com/openai/deployments/gpt-4o-mini/chat/completions?api-version=2025-01-01",
+		);
+	});
+
+	it("keeps the Vertex Anthropic host and path on the same region", () => {
+		delete process.env.LLM_VERTEX_ANTHROPIC_REGION;
+		delete process.env.LLM_VERTEX_ANTHROPIC_BASE_URL;
+
+		const url = getProviderEndpoint(
+			"vertex-anthropic",
+			undefined,
+			"claude-sonnet-4-6",
+			JSON.stringify({ project_id: "managed-project" }),
+			false,
+			false,
+			false,
+			managed({ region: "us-east5" }),
+			0,
+			false,
+			undefined,
+			true,
+		);
+
+		expect(url).toBe(
+			"https://us-east5-aiplatform.googleapis.com/v1/projects/managed-project/locations/us-east5/publishers/anthropic/models/claude-sonnet-4-6:rawPredict",
 		);
 	});
 

@@ -66,6 +66,7 @@ import type {
 	userOrganization,
 	wallet,
 } from "@llmgateway/db";
+import type { ProviderKeyVariant } from "@llmgateway/db";
 import type { EnvVarVariant } from "@llmgateway/models";
 
 // Type aliases for cleaner function signatures
@@ -626,16 +627,30 @@ export async function findManagedProviderKey(
 }
 
 /**
- * Providers that have at least one active managed credential (cacheable).
+ * Providers holding an active managed credential this request could actually
+ * use (cacheable).
  *
  * Routing uses this alongside the `LLM_*` environment variables to decide
  * which providers can serve credits-mode traffic, so a deployment that has
  * moved a provider into the database no longer needs its env var set for the
  * provider to be routable.
+ *
+ * Scoped to the request's variant, matching how `findManagedProviderKey`
+ * selects: an `enterprise`/`plans` request may fall back to a `default`
+ * credential, but a `default` request can never use a variant-scoped one.
+ * Without this scoping a provider whose only credential is, say, enterprise
+ * would be advertised to every organization; routing would pick it, no
+ * credential would match, and `getProviderEnv` would throw a 500 for a
+ * provider that should simply not have been a candidate.
  */
-export async function findManagedProviderIds(): Promise<Set<string>> {
+export async function findManagedProviderIds(
+	variant?: EnvVarVariant,
+): Promise<Set<string>> {
+	const usableVariants: ProviderKeyVariant[] =
+		variant === undefined ? ["default"] : [variant, "default"];
+
 	const rows = await swrWrap(
-		`providerKey:managedProviders`,
+		`providerKey:managedProviders:${variant ?? "default"}`,
 		[providerKeyTableName],
 		async () =>
 			await db
@@ -645,6 +660,7 @@ export async function findManagedProviderIds(): Promise<Set<string>> {
 					and(
 						eq(providerKeyTable.status, "active"),
 						eq(providerKeyTable.managed, true),
+						inArray(providerKeyTable.variant, usableVariants),
 					),
 				),
 	);

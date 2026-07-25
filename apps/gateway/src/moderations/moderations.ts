@@ -548,6 +548,8 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		requestId,
 		project,
 		apiKey,
+		// Deliberately the BYOK key only: this drives `usedMode`, and a managed
+		// credential is the platform's own key serving credits-mode traffic.
 		providerKeyId: providerKey?.id,
 		usedModel: "openai-moderation",
 		usedModelMapping: upstreamModel,
@@ -576,9 +578,38 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 	// keys: every tried index is excluded from re-selection.
 	const finalLogId = shortid();
 	const triedEnvIndices = new Set<number>();
-	const rotateToNextEnvKey = (): boolean => {
-		// Only the env-var path has sibling credentials to rotate through; a
-		// managed credential is a single row and leaves envVarName unset.
+	const triedManagedKeyIds = new Set<string>();
+	const rotateToNextCredential = async (): Promise<boolean> => {
+		// A BYOK key is the organization's single credential for the provider;
+		// there is nothing else to rotate to.
+		if (providerKey) {
+			return false;
+		}
+
+		// A provider can have several active managed credentials, so re-resolve
+		// with the failed ones excluded before falling back to env rotation —
+		// mirroring the alternate-key retry in chat, embeddings, speech,
+		// transcriptions and OCR.
+		if (managedKey) {
+			triedManagedKeyIds.add(managedKey.id);
+			const next = await resolvePlatformCredential("openai", {
+				selectionScope: upstreamModel,
+				variant: envVariant,
+				region: undefined,
+				requiresServiceTier: false,
+				excludedProviderKeyIds: triedManagedKeyIds,
+			}).catch(() => undefined);
+
+			if (!next?.token) {
+				return false;
+			}
+			managedKey = next.managedKey;
+			usedToken = next.token;
+			configIndex = next.configIndex;
+			envVarName = next.envVarName;
+			return true;
+		}
+
 		if (envVarName === undefined) {
 			return false;
 		}
@@ -627,14 +658,15 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 				if (envVarName !== undefined) {
 					reportKeyError(envVarName, configIndex, 0);
 				}
-				if (providerKey?.id) {
-					reportTrackedKeyError(providerKey.id, 0);
+				const failedKeyId = providerKey?.id ?? managedKey?.id;
+				if (failedKeyId) {
+					reportTrackedKeyError(failedKeyId, 0);
 				}
 
 				const isCanceled =
 					error instanceof Error && error.name === "AbortError";
 				const isTimeout = isTimeoutError(error);
-				const willRetry = !isCanceled && rotateToNextEnvKey();
+				const willRetry = !isCanceled && (await rotateToNextCredential());
 
 				await insertLog({
 					...baseLogEntry,
@@ -744,9 +776,10 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 						upstreamText,
 					);
 				}
-				if (providerKey?.id) {
+				const failedKeyId = providerKey?.id ?? managedKey?.id;
+				if (failedKeyId) {
 					reportTrackedKeyError(
-						providerKey.id,
+						failedKeyId,
 						upstreamResponse.status,
 						upstreamText,
 					);
@@ -761,7 +794,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 						finishReason,
 						upstreamResponse.status,
 						upstreamText,
-					) && rotateToNextEnvKey();
+					) && (await rotateToNextCredential());
 
 				await insertLog({
 					...baseLogEntry,
@@ -843,8 +876,9 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 			if (envVarName !== undefined) {
 				reportKeySuccess(envVarName, configIndex);
 			}
-			if (providerKey?.id) {
-				reportTrackedKeySuccess(providerKey.id);
+			const succeededKeyId = providerKey?.id ?? managedKey?.id;
+			if (succeededKeyId) {
+				reportTrackedKeySuccess(succeededKeyId);
 			}
 
 			await insertLog({

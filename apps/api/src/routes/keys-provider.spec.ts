@@ -3,6 +3,7 @@ import { expect, test, beforeEach, describe, afterEach } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
+import { decryptProviderKey } from "@llmgateway/actions";
 import {
 	redisClient,
 	SWR_PREFIX,
@@ -163,9 +164,6 @@ describe("provider keys route", () => {
 			where: { provider: { eq: "inference.net" } },
 		});
 		expect(row?.tokenCiphertext).toMatch(/^llmgw:v1:/);
-
-		// Importing locally to avoid pulling crypto into the top of the spec file.
-		const { decryptProviderKey } = await import("@llmgateway/actions");
 
 		// Correct row id + org → decrypts.
 		expect(

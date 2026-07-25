@@ -595,7 +595,11 @@ export function getProviderEndpoint(
 					}
 				}
 			}
+			// Same precedence as vaDefaultRegion above, which picks the host: the
+			// two must agree or the request goes to one region's host with another
+			// region in its path.
 			const vaRegion =
+				credentialConfig?.region ??
 				providerKeyOptions?.vertex_anthropic_region ??
 				getProviderEnvValue(
 					"vertex-anthropic",

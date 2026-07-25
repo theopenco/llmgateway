@@ -307,6 +307,7 @@ export function ProviderCredentialsManager({
 												<Button
 													variant="ghost"
 													size="sm"
+													aria-label={`Edit ${credential.provider} credential ${credential.maskedToken}`}
 													onClick={() => setEditing(credential)}
 												>
 													<Pencil className="h-4 w-4" />
@@ -314,6 +315,7 @@ export function ProviderCredentialsManager({
 												<Button
 													variant="ghost"
 													size="sm"
+													aria-label={`Remove ${credential.provider} credential ${credential.maskedToken}`}
 													onClick={() => {
 														setDeleteError(null);
 														setDeleting(credential);

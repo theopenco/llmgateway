@@ -9,7 +9,11 @@ import {
 } from "@llmgateway/db";
 
 import { resetKeyHealth } from "./api-key-health.js";
-import { findManagedProviderKey, findProviderKey } from "./cached-queries.js";
+import {
+	findManagedProviderIds,
+	findManagedProviderKey,
+	findProviderKey,
+} from "./cached-queries.js";
 
 const ORG_ID = "test-org-managed-keys";
 
@@ -151,5 +155,57 @@ describe("findManagedProviderKey", () => {
 			region: "us-central1",
 		});
 		expect(key?.comment).toBe("shared vertex quota");
+	});
+});
+
+/**
+ * Routing consults this to decide which providers can serve credits-mode
+ * traffic. It must answer "does this org have a usable credential here?", not
+ * merely "does any credential exist?": advertising a provider whose only
+ * credential belongs to another audience makes routing pick it, find nothing,
+ * and fall through to an env var that a migrated deployment no longer sets.
+ */
+describe("findManagedProviderIds", () => {
+	beforeEach(async () => {
+		resetKeyHealth();
+		await waitForSwrMirrorWrites();
+		await db.delete(providerKey);
+		await db.delete(organization);
+		await redisClient.flushdb();
+	});
+
+	afterEach(async () => {
+		await db.delete(providerKey);
+	});
+
+	it("offers a default credential to every audience", async () => {
+		await insertManaged({ id: "default-key", variant: "default" });
+
+		expect(await findManagedProviderIds()).toContain("openai");
+		expect(await findManagedProviderIds("enterprise")).toContain("openai");
+		expect(await findManagedProviderIds("plans")).toContain("openai");
+	});
+
+	it("hides a variant-scoped credential from other audiences", async () => {
+		await insertManaged({ id: "enterprise-key", variant: "enterprise" });
+
+		expect(await findManagedProviderIds("enterprise")).toContain("openai");
+		// A PAYG org (no variant) and a plans org cannot use it.
+		expect(await findManagedProviderIds()).not.toContain("openai");
+		expect(await findManagedProviderIds("plans")).not.toContain("openai");
+	});
+
+	it("offers the provider once any audience-usable credential exists", async () => {
+		await insertManaged({ id: "enterprise-key", variant: "enterprise" });
+		await insertManaged({ id: "default-key", variant: "default" });
+
+		expect(await findManagedProviderIds()).toContain("openai");
+		expect(await findManagedProviderIds("enterprise")).toContain("openai");
+	});
+
+	it("ignores inactive credentials", async () => {
+		await insertManaged({ id: "inactive-key", status: "inactive" });
+
+		expect(await findManagedProviderIds()).not.toContain("openai");
 	});
 });

@@ -324,4 +324,102 @@ describe("managed provider credentials", () => {
 		);
 		expect(captured[0].url).toContain("key=vertex-managed-key");
 	});
+
+	/**
+	 * A provider can hold several active managed credentials, so a failing one
+	 * must be rotated away from rather than failing the request — the same
+	 * alternate-key retry chat, embeddings, speech, transcriptions and OCR do.
+	 */
+	test("moderations rotates to another managed credential when one fails", async () => {
+		await seedApiKey();
+		await seedManagedCredential({
+			id: "managed-openai-a",
+			provider: "openai",
+			token: "sk-managed-a",
+		});
+		await seedManagedCredential({
+			id: "managed-openai-b",
+			provider: "openai",
+			token: "sk-managed-b",
+		});
+
+		const previousEnvKey = process.env.LLM_OPENAI_API_KEY;
+		delete process.env.LLM_OPENAI_API_KEY;
+
+		const seen: (string | null)[] = [];
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+			const authorization = new Headers(init?.headers).get("authorization");
+			seen.push(authorization);
+			// Whichever credential is tried first is rejected; the other works.
+			if (seen.length === 1) {
+				return new Response(
+					JSON.stringify({ error: { message: "Invalid API key" } }),
+					{ status: 401, headers: { "Content-Type": "application/json" } },
+				);
+			}
+			return new Response(
+				JSON.stringify({
+					id: "modr-1",
+					model: "omni-moderation-latest",
+					results: [{ flagged: false }],
+				}),
+				{ status: 200, headers: { "Content-Type": "application/json" } },
+			);
+		});
+
+		try {
+			const res = await app.request("/v1/moderations", {
+				method: "POST",
+				headers: {
+					Authorization: "Bearer real-token",
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({ input: "hello" }),
+			});
+			expect(res.status).toBe(200);
+		} finally {
+			if (previousEnvKey !== undefined) {
+				process.env.LLM_OPENAI_API_KEY = previousEnvKey;
+			}
+		}
+
+		// Both credentials were tried, and they were different ones.
+		expect(seen).toHaveLength(2);
+		expect(new Set(seen).size).toBe(2);
+		expect(new Set(seen)).toEqual(
+			new Set(["Bearer sk-managed-a", "Bearer sk-managed-b"]),
+		);
+	});
+
+	test("routes a PAYG org to a default credential alongside a variant one", async () => {
+		await seedApiKey();
+		await seedManagedCredential({
+			id: "managed-openai-ent",
+			provider: "openai",
+			token: "sk-managed-enterprise",
+			variant: "enterprise",
+		});
+		await seedManagedCredential({
+			id: "managed-openai-def",
+			provider: "openai",
+			token: "sk-managed-default",
+			variant: "default",
+		});
+
+		const previousEnvKey = process.env.LLM_OPENAI_API_KEY;
+		delete process.env.LLM_OPENAI_API_KEY;
+		const captured = captureUpstream(chatCompletion);
+
+		try {
+			const res = await completions("openai/gpt-4o-mini");
+			expect(res.status).toBe(200);
+		} finally {
+			if (previousEnvKey !== undefined) {
+				process.env.LLM_OPENAI_API_KEY = previousEnvKey;
+			}
+		}
+
+		expect(captured).toHaveLength(1);
+		expect(captured[0].authorization).toBe("Bearer sk-managed-default");
+	});
 });
