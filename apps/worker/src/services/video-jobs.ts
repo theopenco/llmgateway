@@ -2,7 +2,7 @@ import { createHmac } from "node:crypto";
 
 import { getStopSignal, isStopRequested } from "@/shutdown.js";
 
-import { readProviderKey } from "@llmgateway/actions";
+import { managedCredentialOptions, readProviderKey } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import {
 	and,
@@ -302,9 +302,41 @@ async function resolveVideoProviderContext(
 		};
 	}
 
-	// Polls must use the same credential class as job creation: some providers
-	// scope job visibility to the creating API key, so an enterprise/plan
-	// org's job created with a variant env override must also be polled with it.
+	// Polls must use the same credential as job creation: some providers scope
+	// job visibility to the creating API key. A managed credential is pinned by
+	// id on the job, so it is re-read directly rather than re-selected.
+	if (job.managedProviderKeyId) {
+		const managedKey = await db.query.providerKey.findFirst({
+			where: {
+				id: { eq: job.managedProviderKeyId },
+				managed: { eq: true },
+			},
+		});
+		if (!managedKey) {
+			throw new Error(
+				`The managed credential that created this ${providerId} job no longer exists`,
+			);
+		}
+		const baseUrl = managedKey.config?.baseUrl ?? defaultBaseUrl;
+		if (!baseUrl) {
+			throw new Error(`No base URL set for provider: ${job.usedProvider}`);
+		}
+		return {
+			baseUrl,
+			token: readProviderKey(managedKey),
+			vertexTokenType: isGoogleVertexVideoProvider(providerId)
+				? resolveVertexTokenType(
+						"google-vertex",
+						managedCredentialOptions(managedKey),
+						undefined,
+						true,
+					)
+				: undefined,
+		};
+	}
+
+	// Env credentials are re-resolved with the org's variant so an
+	// enterprise/plan org's job created with a variant override is polled with it.
 	const organization = await db.query.organization.findFirst({
 		where: {
 			id: { eq: job.organizationId },

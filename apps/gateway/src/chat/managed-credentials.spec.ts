@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { app } from "@/app.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 
-import { cdb, db, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 
 /**
  * Credits-mode traffic served by platform-managed provider credentials — the
@@ -187,6 +187,83 @@ describe("managed provider credentials", () => {
 		expect(captured).toHaveLength(1);
 		expect(captured[0].url).toBe("https://api.openai.com/v1/chat/completions");
 		expect(captured[0].authorization).toBe("Bearer sk-from-env");
+	});
+
+	test("serves an enterprise org its enterprise credential over the env override", async () => {
+		await seedApiKey();
+		await db
+			.update(tables.organization)
+			.set({ plan: "enterprise" })
+			.where(eq(tables.organization.id, "org-id"));
+		await seedManagedCredential({
+			id: "managed-shared",
+			provider: "openai",
+			token: "sk-managed-shared",
+		});
+		await seedManagedCredential({
+			id: "managed-enterprise",
+			provider: "openai",
+			token: "sk-managed-enterprise",
+			variant: "enterprise",
+		});
+
+		const previousEnvKey = process.env.LLM_OPENAI_API_KEY;
+		const previousEnterpriseEnvKey = process.env.LLM_OPENAI_API_KEY__ENTERPRISE;
+		process.env.LLM_OPENAI_API_KEY = "sk-from-env";
+		process.env.LLM_OPENAI_API_KEY__ENTERPRISE = "sk-from-enterprise-env";
+		const captured = captureUpstream(chatCompletion);
+
+		try {
+			const res = await completions("openai/gpt-4o-mini");
+			expect(res.status).toBe(200);
+		} finally {
+			if (previousEnvKey === undefined) {
+				delete process.env.LLM_OPENAI_API_KEY;
+			} else {
+				process.env.LLM_OPENAI_API_KEY = previousEnvKey;
+			}
+			if (previousEnterpriseEnvKey === undefined) {
+				delete process.env.LLM_OPENAI_API_KEY__ENTERPRISE;
+			} else {
+				process.env.LLM_OPENAI_API_KEY__ENTERPRISE = previousEnterpriseEnvKey;
+			}
+		}
+
+		expect(captured).toHaveLength(1);
+		// The enterprise env override loses to the managed credential, and the
+		// enterprise-variant credential wins over the shared one.
+		expect(captured[0].authorization).toBe("Bearer sk-managed-enterprise");
+	});
+
+	test("serves an enterprise org the shared credential when it has no variant of its own", async () => {
+		await seedApiKey();
+		await db
+			.update(tables.organization)
+			.set({ plan: "enterprise" })
+			.where(eq(tables.organization.id, "org-id"));
+		await seedManagedCredential({
+			id: "managed-shared-only",
+			provider: "openai",
+			token: "sk-managed-shared",
+		});
+
+		const previousEnterpriseEnvKey = process.env.LLM_OPENAI_API_KEY__ENTERPRISE;
+		process.env.LLM_OPENAI_API_KEY__ENTERPRISE = "sk-from-enterprise-env";
+		const captured = captureUpstream(chatCompletion);
+
+		try {
+			const res = await completions("openai/gpt-4o-mini");
+			expect(res.status).toBe(200);
+		} finally {
+			if (previousEnterpriseEnvKey === undefined) {
+				delete process.env.LLM_OPENAI_API_KEY__ENTERPRISE;
+			} else {
+				process.env.LLM_OPENAI_API_KEY__ENTERPRISE = previousEnterpriseEnvKey;
+			}
+		}
+
+		expect(captured).toHaveLength(1);
+		expect(captured[0].authorization).toBe("Bearer sk-managed-shared");
 	});
 
 	test("supplies the multi-setting credentials Google Vertex needs", async () => {

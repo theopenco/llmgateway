@@ -61,6 +61,16 @@ function supportsServiceTier(key: ProviderKeyRow): boolean {
 	return true;
 }
 
+function combineFilters(
+	...filters: (((key: ProviderKeyRow) => boolean) | undefined)[]
+): ((key: ProviderKeyRow) => boolean) | undefined {
+	const active = filters.filter((filter) => filter !== undefined);
+	if (active.length === 0) {
+		return undefined;
+	}
+	return (key) => active.every((filter) => filter(key));
+}
+
 export interface ResolvePlatformCredentialOptions {
 	selectionScope: string;
 	variant: EnvVarVariant | undefined;
@@ -69,6 +79,13 @@ export interface ResolvePlatformCredentialOptions {
 	requiresServiceTier: boolean;
 	excludedEnvIndices?: ReadonlySet<number>;
 	excludedProviderKeyIds?: ReadonlySet<string>;
+	/**
+	 * Extra constraint on which managed credentials may serve the request, for
+	 * callers whose endpoint needs more than the credential merely existing
+	 * (e.g. video generation, which needs the credential's GCP project to match
+	 * the output bucket's).
+	 */
+	filter?: (key: ProviderKeyRow) => boolean;
 }
 
 /**
@@ -89,7 +106,10 @@ export async function resolvePlatformCredential(
 		region: options.region,
 		selectionScope: options.selectionScope,
 		excludedKeyIds: options.excludedProviderKeyIds,
-		filter: options.requiresServiceTier ? supportsServiceTier : undefined,
+		filter: combineFilters(
+			options.filter,
+			options.requiresServiceTier ? supportsServiceTier : undefined,
+		),
 	});
 
 	if (managedKey) {

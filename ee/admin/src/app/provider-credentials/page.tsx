@@ -53,11 +53,6 @@ export default async function ProviderCredentialsPage() {
 					one keep reading the environment, so migrating can be done a provider
 					at a time.
 				</p>
-				<p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-					Video generation still resolves its credentials from the environment,
-					so keep the <code>LLM_*</code> variables set for any provider you
-					generate video with.
-				</p>
 			</header>
 
 			<ProviderCredentialsManager

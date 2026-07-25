@@ -106,12 +106,12 @@ Managed credentials cover the same axes as the environment variables they replac
   Chat plans), mirroring the `__ENTERPRISE` and `__PLANS` suffixes below.
 - An optional region, mirroring the `{ENV_VAR}__{REGION}` overrides.
 
-Two things to know:
+Video generation pins the credential that created a job onto the job itself, so
+polling and content retrieval hours later go back through the same credential
+rather than re-selecting one.
 
-- Credential tokens are encrypted at rest, so `PROVIDER_KEY_ENCRYPTION_KEY` must
-  be set on every service.
-- Video generation still resolves its credentials from the environment. Keep the
-  `LLM_*` variables set for any provider you generate video with.
+Credential tokens are encrypted at rest, so `PROVIDER_KEY_ENCRYPTION_KEY` must be
+set on every service.
 
 ## Multiple API keys and load balancing
 

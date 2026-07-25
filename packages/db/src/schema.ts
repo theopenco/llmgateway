@@ -1901,6 +1901,16 @@ export const videoJob = pgTable(
 		usedProvider: text().notNull(),
 		usedModel: text().notNull(),
 		providerConfigIndex: integer(),
+		// Managed provider credential that created the job, when one served it.
+		// Polling, cancellation and content retrieval happen minutes to hours
+		// later — often from the worker — and some providers scope job
+		// visibility to the creating credential, so the exact row is pinned here
+		// rather than re-selected. NULL means the job was created from an
+		// organization's BYOK key or from the provider's LLM_* env vars, both of
+		// which are re-resolved the way they always were.
+		managedProviderKeyId: text().references(() => providerKey.id, {
+			onDelete: "set null",
+		}),
 		upstreamId: text().notNull(),
 		prompt: text().notNull(),
 		status: text({

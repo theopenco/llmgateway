@@ -93,6 +93,17 @@ describe("findManagedProviderKey", () => {
 		).toBe("shared-key");
 	});
 
+	it("keeps each variant's credentials to itself", async () => {
+		await insertManaged({ id: "enterprise-key", variant: "enterprise" });
+
+		// A PAYG org must never be served the enterprise credential, exactly as
+		// it never reads LLM_OPENAI_API_KEY__ENTERPRISE.
+		expect(await findManagedProviderKey("openai")).toBeUndefined();
+		expect(
+			await findManagedProviderKey("openai", { variant: "plans" }),
+		).toBeUndefined();
+	});
+
 	it("prefers a credential scoped to the requested region", async () => {
 		await insertManaged({ id: "any-region-key" });
 		await insertManaged({ id: "singapore-key", region: "singapore" });

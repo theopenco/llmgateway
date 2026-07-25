@@ -1,0 +1,2 @@
+ALTER TABLE "video_job" ADD COLUMN "managed_provider_key_id" text;--> statement-breakpoint
+ALTER TABLE "video_job" ADD CONSTRAINT "video_job_managed_provider_key_id_provider_key_id_fkey" FOREIGN KEY ("managed_provider_key_id") REFERENCES "provider_key"("id") ON DELETE SET NULL;

@@ -48,6 +48,16 @@ const VARIANT_LABELS: Record<Variant, string> = {
 	plans: "DevPass / Chat plans",
 };
 
+/**
+ * Env var each audience corresponds to, so an admin migrating a deployment can
+ * match a credential to the variable it replaces.
+ */
+const VARIANT_ENV_SUFFIXES: Record<Variant, string | null> = {
+	default: null,
+	enterprise: "__ENTERPRISE",
+	plans: "__PLANS",
+};
+
 interface MutationResult {
 	success: boolean;
 	error?: string;
@@ -431,9 +441,10 @@ function CredentialDialog({
 						</Select>
 						{selectedEntry?.apiKeyEnvVar ? (
 							<p className="text-xs text-muted-foreground">
-								Replaces <code>{selectedEntry.apiKeyEnvVar}</code>
+								Replaces <code>{selectedEntry.apiKeyEnvVar}</code> and its
+								companion variables.
 								{selectedEntry.apiKeyEnvConfigured
-									? " — currently also set as an environment variable, which is only used while no managed credential exists."
+									? " Those are currently set on this deployment; credentials here take precedence and the variables are ignored entirely once one exists."
 									: ""}
 							</p>
 						) : null}
@@ -511,10 +522,22 @@ function CredentialDialog({
 									{(Object.keys(VARIANT_LABELS) as Variant[]).map((value) => (
 										<SelectItem key={value} value={value}>
 											{VARIANT_LABELS[value]}
+											{VARIANT_ENV_SUFFIXES[value]
+												? ` (${VARIANT_ENV_SUFFIXES[value]})`
+												: ""}
 										</SelectItem>
 									))}
 								</SelectContent>
 							</Select>
+							<p className="text-xs text-muted-foreground">
+								{variant === "default"
+									? "Serves every organization that has no credential for its own audience."
+									: `Serves only these organizations, the way ${
+											selectedEntry?.apiKeyEnvVar
+												? `${selectedEntry.apiKeyEnvVar}${VARIANT_ENV_SUFFIXES[variant]}`
+												: `an ${VARIANT_ENV_SUFFIXES[variant]} env var`
+										} would. They fall back to an "All organizations" credential when none is set here.`}
+							</p>
 						</div>
 						<div className="flex flex-col gap-2">
 							<Label htmlFor="region">Region</Label>
