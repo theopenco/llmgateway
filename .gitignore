@@ -4,7 +4,7 @@ dist/
 .env
 packages/**/*.js
 apps/**/*.js
-!apps/*/public/**/*.js
+!apps/playground/public/worklets/*.js
 *spec.yaml
 .turbo/
 .pnpm-store/
