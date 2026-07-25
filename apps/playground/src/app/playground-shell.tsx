@@ -7,10 +7,6 @@ import OrgPageClient from "@/components/playground/org-page-client";
 import { PlaygroundSeoSection } from "@/components/seo/playground-seo-section";
 import { CHAT_CONTEXT_COOKIE } from "@/lib/constants";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
-import {
-	CHAT_MODEL_COOKIE,
-	decodeModelPreference,
-} from "@/lib/model-preferences";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { Organization, Project } from "@/lib/types";
@@ -48,9 +44,6 @@ export async function renderPlaygroundShell({
 	const { projectId } = searchParams;
 	let { model } = searchParams;
 	const cookieStore = await cookies();
-	const initialModelPreference = decodeModelPreference(
-		cookieStore.get(CHAT_MODEL_COOKIE)?.value,
-	);
 
 	if (hints === "search" && !model) {
 		model = "google-ai-studio/gemini-3-flash-preview";
@@ -259,7 +252,6 @@ export async function renderPlaygroundShell({
 				selectedProject={selectedProject}
 				initialPrompt={q}
 				enableWebSearch={hints === "search"}
-				initialModelPreference={initialModelPreference}
 			/>
 		</>
 	);
