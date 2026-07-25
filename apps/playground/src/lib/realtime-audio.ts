@@ -86,6 +86,32 @@ export function base64ByteLength(base64: string): number {
 	return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
 }
 
+/**
+ * Root-mean-square amplitude of a mono Float32 buffer.
+ */
+export function computeRms(samples: Float32Array): number {
+	if (samples.length === 0) {
+		return 0;
+	}
+	const sumOfSquares = samples.reduce((total, sample) => {
+		const square = sample * sample;
+		return total + square;
+	}, 0);
+	return Math.sqrt(sumOfSquares / samples.length);
+}
+
+/**
+ * Map an RMS amplitude onto a 0..1 meter scale. Conversational speech sits
+ * around 0.02–0.2 RMS, so a linear mapping would leave the meter visually
+ * dead; the square root spreads that range across the full bar height.
+ */
+export function rmsToLevel(rms: number): number {
+	if (!Number.isFinite(rms) || rms <= 0) {
+		return 0;
+	}
+	return Math.min(1, Math.sqrt(rms / 0.3));
+}
+
 export interface FlushResult {
 	itemId: string | null;
 	contentIndex: number;
@@ -100,10 +126,13 @@ export interface FlushResult {
  * Sample-accurate scheduler for assistant PCM16 output. Buffers are chained
  * onto a running clock; timing is tracked per assistant item so barge-in
  * truncation uses the duration the listener actually heard rather than the
- * duration received.
+ * duration received. Everything is routed through an analyser so the UI can
+ * meter what the assistant is actually saying.
  */
 export class RealtimePlayback {
 	private readonly context: AudioContext;
+	private readonly analyser: AnalyserNode;
+	private readonly levelSamples: Float32Array<ArrayBuffer>;
 	private sources: AudioBufferSourceNode[] = [];
 	private nextStartTime = 0;
 	private currentItemId: string | null = null;
@@ -113,6 +142,22 @@ export class RealtimePlayback {
 
 	public constructor(context: AudioContext) {
 		this.context = context;
+		this.analyser = context.createAnalyser();
+		this.analyser.fftSize = 1024;
+		this.analyser.smoothingTimeConstant = 0.6;
+		this.analyser.connect(context.destination);
+		this.levelSamples = new Float32Array(this.analyser.fftSize);
+	}
+
+	/**
+	 * Current output loudness on the same 0..1 scale as the microphone meter.
+	 */
+	public getLevel(): number {
+		if (this.sources.length === 0) {
+			return 0;
+		}
+		this.analyser.getFloatTimeDomainData(this.levelSamples);
+		return rmsToLevel(computeRms(this.levelSamples));
 	}
 
 	public enqueue(
@@ -141,7 +186,7 @@ export class RealtimePlayback {
 		buffer.copyToChannel(samples as Float32Array<ArrayBuffer>, 0);
 		const source = this.context.createBufferSource();
 		source.buffer = buffer;
-		source.connect(this.context.destination);
+		source.connect(this.analyser);
 		const startAt = Math.max(this.nextStartTime, this.context.currentTime);
 		source.start(startAt);
 		this.nextStartTime = startAt + buffer.duration;

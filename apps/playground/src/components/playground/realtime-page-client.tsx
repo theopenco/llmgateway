@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { ModelSelector } from "@/components/model-selector";
 import { AuthDialog } from "@/components/playground/auth-dialog";
 import { RealtimeSidebar } from "@/components/playground/realtime-sidebar";
+import { VoiceActivityIndicator } from "@/components/playground/voice-activity-indicator";
 import { Button } from "@/components/ui/button";
 import {
 	Collapsible,
@@ -170,6 +171,10 @@ export default function RealtimePageClient({
 		transcript,
 		usage,
 		events,
+		userSpeaking,
+		assistantSpeaking,
+		inputLevel,
+		outputLevel,
 		start,
 		end,
 	} = useRealtimeCall({
@@ -377,6 +382,18 @@ export default function RealtimePageClient({
 								</div>
 
 								<div className="border-t">
+									{status === "live" && (
+										<div className="mx-auto flex w-full max-w-3xl items-center justify-center pt-5">
+											<VoiceActivityIndicator
+												live
+												muted={muted}
+												userSpeaking={userSpeaking}
+												assistantSpeaking={assistantSpeaking}
+												inputLevel={inputLevel}
+												outputLevel={outputLevel}
+											/>
+										</div>
+									)}
 									<div className="mx-auto flex w-full max-w-3xl items-center justify-center gap-4 p-6">
 										{!inCall ? (
 											<Button

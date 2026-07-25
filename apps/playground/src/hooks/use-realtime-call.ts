@@ -4,9 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
 	base64ByteLength,
+	computeRms,
 	floatToPcm16Base64,
 	RealtimePlayback,
 	resampleLinear,
+	rmsToLevel,
 	startMicrophoneCapture,
 	type MicrophoneCaptureHandles,
 } from "@/lib/realtime-audio";
@@ -57,6 +59,15 @@ const EMPTY_USAGE: RealtimeUsageTotals = {
 
 const MAX_LOGGED_EVENTS = 500;
 const MAX_WS_BUFFERED_BYTES = 1024 * 1024;
+/** Meter refresh cadence — fast enough to look live, slow enough to be cheap. */
+const METER_INTERVAL_MS = 80;
+/** Ignore level changes below this so the meter does not re-render on noise. */
+const METER_EPSILON = 0.02;
+/**
+ * Assistant playback drains buffer-by-buffer, so a momentary gap between
+ * queued deltas would otherwise flicker the "speaking" state off and on.
+ */
+const SPEAKING_HOLD_MS = 300;
 
 interface UseRealtimeCallOptions {
 	model: string | null;
@@ -105,6 +116,10 @@ export function useRealtimeCall({
 	const [transcript, setTranscript] = useState<RealtimeTranscriptEntry[]>([]);
 	const [usage, setUsage] = useState<RealtimeUsageTotals>(EMPTY_USAGE);
 	const [events, setEvents] = useState<RealtimeLoggedEvent[]>([]);
+	const [userSpeaking, setUserSpeaking] = useState(false);
+	const [assistantSpeaking, setAssistantSpeaking] = useState(false);
+	const [inputLevel, setInputLevel] = useState(0);
+	const [outputLevel, setOutputLevel] = useState(0);
 
 	const statusRef = useRef<RealtimeCallStatus>("idle");
 	const mutedRef = useRef(false);
@@ -116,6 +131,9 @@ export function useRealtimeCall({
 	const playbackRef = useRef<RealtimePlayback | null>(null);
 	const wsRef = useRef<WebSocket | null>(null);
 	const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+	const meterTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+	const inputLevelRef = useRef(0);
+	const speakingUntilRef = useRef(0);
 	const responseActiveRef = useRef(false);
 	const transcriptionModelRef = useRef<string | null>(null);
 	const voiceRef = useRef<string | null>(voice);
@@ -166,6 +184,38 @@ export function useRealtimeCall({
 	);
 
 	/**
+	 * Sample both meters on one timer so a live call costs a bounded number of
+	 * renders per second regardless of how fast audio chunks arrive.
+	 */
+	const startMeterLoop = useCallback(() => {
+		if (meterTimerRef.current) {
+			return;
+		}
+		meterTimerRef.current = setInterval(() => {
+			const nextInput = inputLevelRef.current;
+			setInputLevel((prev) =>
+				Math.abs(prev - nextInput) >= METER_EPSILON || nextInput === 0
+					? nextInput
+					: prev,
+			);
+
+			const playback = playbackRef.current;
+			const nextOutput = playback?.getLevel() ?? 0;
+			setOutputLevel((prev) =>
+				Math.abs(prev - nextOutput) >= METER_EPSILON || nextOutput === 0
+					? nextOutput
+					: prev,
+			);
+
+			const now = Date.now();
+			if (playback?.isPlaying) {
+				speakingUntilRef.current = now + SPEAKING_HOLD_MS;
+			}
+			setAssistantSpeaking(speakingUntilRef.current > now);
+		}, METER_INTERVAL_MS);
+	}, []);
+
+	/**
 	 * Tear down every media/audio/network resource. Safe to call from any
 	 * state and idempotent per call attempt.
 	 */
@@ -175,6 +225,16 @@ export function useRealtimeCall({
 			clearInterval(elapsedTimerRef.current);
 			elapsedTimerRef.current = null;
 		}
+		if (meterTimerRef.current) {
+			clearInterval(meterTimerRef.current);
+			meterTimerRef.current = null;
+		}
+		inputLevelRef.current = 0;
+		speakingUntilRef.current = 0;
+		setInputLevel(0);
+		setOutputLevel(0);
+		setUserSpeaking(false);
+		setAssistantSpeaking(false);
 		captureRef.current?.stop();
 		captureRef.current = null;
 		if (streamRef.current) {
@@ -332,6 +392,7 @@ export function useRealtimeCall({
 						elapsedTimerRef.current = setInterval(() => {
 							setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
 						}, 1000);
+						startMeterLoop();
 					}
 					return;
 				case "response.created":
@@ -442,7 +503,14 @@ export function useRealtimeCall({
 					return;
 				}
 				case "input_audio_buffer.speech_started":
+					// Server-side VAD is the authoritative "we hear you" signal: it is
+					// what actually decides when a turn is captured.
+					setUserSpeaking(true);
 					handleBargeIn();
+					return;
+				case "input_audio_buffer.speech_stopped":
+				case "input_audio_buffer.committed":
+					setUserSpeaking(false);
 					return;
 				case "error": {
 					const error =
@@ -459,7 +527,14 @@ export function useRealtimeCall({
 				default:
 			}
 		},
-		[handleBargeIn, logEvent, sendEvent, updateStatus, upsertTranscript],
+		[
+			handleBargeIn,
+			logEvent,
+			sendEvent,
+			startMeterLoop,
+			updateStatus,
+			upsertTranscript,
+		],
 	);
 
 	const runStart = useCallback(
@@ -597,9 +672,14 @@ export function useRealtimeCall({
 					stream,
 					(samples) => {
 						const socket = wsRef.current;
+						const capturing = statusRef.current === "live" && !mutedRef.current;
+						// Metered before the send guards so the level still reflects a
+						// dropped chunk, and reads zero the moment the mic is muted.
+						inputLevelRef.current = capturing
+							? rmsToLevel(computeRms(samples))
+							: 0;
 						if (
-							statusRef.current !== "live" ||
-							mutedRef.current ||
+							!capturing ||
 							!socket ||
 							socket.readyState !== WebSocket.OPEN ||
 							socket.bufferedAmount > MAX_WS_BUFFERED_BYTES
@@ -653,6 +733,11 @@ export function useRealtimeCall({
 	const setMuted = useCallback((next: boolean) => {
 		mutedRef.current = next;
 		setMutedState(next);
+		if (next) {
+			inputLevelRef.current = 0;
+			setInputLevel(0);
+			setUserSpeaking(false);
+		}
 	}, []);
 
 	// Unmount safety net: never leave the mic or socket running.
@@ -670,6 +755,10 @@ export function useRealtimeCall({
 		transcript,
 		usage,
 		events,
+		userSpeaking,
+		assistantSpeaking,
+		inputLevel,
+		outputLevel,
 		start,
 		end,
 	};

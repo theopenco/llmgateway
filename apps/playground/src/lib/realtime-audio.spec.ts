@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
 	base64ByteLength,
+	computeRms,
 	floatToPcm16Base64,
 	pcm16Base64ToFloat,
 	resampleLinear,
+	rmsToLevel,
 } from "./realtime-audio";
 
 describe("resampleLinear", () => {
@@ -69,6 +71,54 @@ describe("PCM16 base64 round trip", () => {
 		const binary = atob(base64);
 		expect(binary.charCodeAt(0)).toBe(0x00);
 		expect(binary.charCodeAt(1)).toBe(0x40);
+	});
+});
+
+describe("computeRms", () => {
+	it("returns zero for an empty buffer", () => {
+		expect(computeRms(new Float32Array(0))).toBe(0);
+	});
+
+	it("returns zero for silence", () => {
+		expect(computeRms(new Float32Array(128))).toBe(0);
+	});
+
+	it("returns the amplitude of a constant signal", () => {
+		expect(computeRms(new Float32Array(64).fill(0.5))).toBeCloseTo(0.5, 6);
+	});
+
+	it("ignores sign", () => {
+		expect(computeRms(new Float32Array([0.5, -0.5]))).toBeCloseTo(0.5, 6);
+	});
+});
+
+describe("rmsToLevel", () => {
+	it("maps silence to zero", () => {
+		expect(rmsToLevel(0)).toBe(0);
+	});
+
+	it("clamps negative and non-finite input to zero", () => {
+		expect(rmsToLevel(-1)).toBe(0);
+		expect(rmsToLevel(Number.NaN)).toBe(0);
+	});
+
+	it("clamps loud input to one", () => {
+		expect(rmsToLevel(1)).toBe(1);
+	});
+
+	it("lifts quiet speech into a visible range", () => {
+		// A linear mapping would put 0.02 RMS at 0.07 of the meter.
+		expect(rmsToLevel(0.02)).toBeGreaterThan(0.2);
+		expect(rmsToLevel(0.02)).toBeLessThan(rmsToLevel(0.1));
+	});
+
+	it("increases monotonically", () => {
+		let previous = 0;
+		for (const rms of [0.01, 0.05, 0.1, 0.2, 0.3]) {
+			const level = rmsToLevel(rms);
+			expect(level).toBeGreaterThan(previous);
+			previous = level;
+		}
 	});
 });
 
