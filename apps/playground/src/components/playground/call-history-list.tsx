@@ -351,8 +351,10 @@ export function CallHistoryList({
 
 	const handleDeleteItem = useCallback(
 		(id: string) => {
-			deleteItem.mutate({ params: { path: { id } } });
-			onItemDeleted?.(id);
+			deleteItem.mutate(
+				{ params: { path: { id } } },
+				{ onSuccess: () => onItemDeleted?.(id) },
+			);
 		},
 		[deleteItem, onItemDeleted],
 	);

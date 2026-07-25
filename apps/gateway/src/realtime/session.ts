@@ -19,7 +19,7 @@ import { logger } from "@llmgateway/logger";
 
 import {
 	closeRealtimeSessionRecord,
-	getUnsettledRealtimeSessionSpend,
+	getUnsettledRealtimeOrganizationSpend,
 	markRealtimeSessionUpstream,
 	recordRealtimeResponse,
 	recordRealtimeTranscription,
@@ -48,6 +48,8 @@ import {
 import type { RealtimeMappingMatch } from "./catalog.js";
 import type { RealtimePreflightResult } from "./preflight.js";
 import type { RawData } from "ws";
+
+type AccountOrganization = Awaited<ReturnType<typeof findOrganizationById>>;
 
 const maxSessionMs = () =>
 	(Number(process.env.REALTIME_MAX_SESSION_SECONDS) || 3600) * 1000;
@@ -401,13 +403,22 @@ export class RealtimeProxySession {
 			? audioInput.transcription
 			: session.input_audio_transcription;
 		let rewrittenTranscriptionModel: string | null = null;
+		// Transcription state is only committed once the whole update has been
+		// accepted below: a later rejected field aborts the update without
+		// forwarding it, so pinning or enabling transcription here would leave the
+		// session tracking state the provider never applied.
+		let nextTranscription: {
+			match: RealtimeMappingMatch;
+			requestedModel: string;
+		} | null = null;
+		let nextTranscriptionEnabled: boolean | null = null;
 		if (requestedTranscription !== undefined) {
 			if (requestedTranscription === null) {
 				// Disabling transcription is always allowed. The pinned mapping is
 				// deliberately kept: items committed while transcription was on still
 				// produce transcription events, and they can only be priced (rather
 				// than killing the session as unbillable) while the mapping survives.
-				this.transcriptionEnabled = false;
+				nextTranscriptionEnabled = false;
 			} else if (typeof requestedTranscription === "object") {
 				const config = requestedTranscription as Record<string, unknown>;
 				const requestedModel =
@@ -481,8 +492,8 @@ export class RealtimeProxySession {
 					);
 					return;
 				}
-				this.transcription = { match, requestedModel };
-				this.transcriptionEnabled = true;
+				nextTranscription = { match, requestedModel };
+				nextTranscriptionEnabled = true;
 				rewrittenTranscriptionModel = match.mapping.externalId;
 			} else {
 				this.sendToClientRaw(
@@ -511,6 +522,15 @@ export class RealtimeProxySession {
 		if (session.prompt !== undefined && session.prompt !== null) {
 			this.sendToClientRaw(buildErrorEvent(...PROMPT_NOT_SUPPORTED));
 			return;
+		}
+
+		// Every validation passed, so the update will be forwarded: commit the
+		// transcription state it asked for.
+		if (nextTranscription) {
+			this.transcription = nextTranscription;
+		}
+		if (nextTranscriptionEnabled !== null) {
+			this.transcriptionEnabled = nextTranscriptionEnabled;
 		}
 
 		// Remember the caller's desired auto-response behavior, then force it off
@@ -686,6 +706,145 @@ export class RealtimeProxySession {
 		}
 	}
 
+	/**
+	 * Account-level authorization for one billable unit of work against `match`:
+	 * fresh key/org/project state, per-key usage limits, IAM access to the model,
+	 * the org's compliance policy, and the member's spend budget. Shared by the
+	 * per-response gate and the post-transcription re-check so both react to a
+	 * revoked key, budget or model within one turn.
+	 *
+	 * `severity` tells the caller what a failure means: "transient" when the
+	 * state could not be read at all, "deny" when only this unit of work is
+	 * refused, "close" when the session must not continue.
+	 */
+	private async authorizeAccount(match: RealtimeMappingMatch): Promise<
+		| { ok: true; organization: NonNullable<AccountOrganization> }
+		| {
+				ok: false;
+				code: string;
+				message: string;
+				severity: "transient" | "deny" | "close";
+		  }
+	> {
+		let freshKey;
+		let freshOrg;
+		let freshProject;
+		try {
+			freshKey = await findApiKeyByToken(this.gatewayToken);
+			freshOrg = await findOrganizationById(
+				this.preflight.project.organizationId,
+			);
+			freshProject = await findProjectById(this.preflight.project.id);
+		} catch (error) {
+			logger.error("Realtime authorization lookup failed", error as Error);
+			return {
+				ok: false,
+				code: "gate_unavailable",
+				message:
+					"Unable to verify account state; generation is temporarily unavailable.",
+				severity: "transient",
+			};
+		}
+
+		if (!freshKey || freshKey.status !== "active") {
+			return {
+				ok: false,
+				code: "api_key_revoked",
+				message: "The LLMGateway API key for this session is no longer active.",
+				severity: "close",
+			};
+		}
+		try {
+			assertApiKeyWithinUsageLimits(freshKey);
+		} catch (error) {
+			return {
+				ok: false,
+				code: "api_key_limit",
+				message:
+					error instanceof Error
+						? error.message
+						: "API key usage limit reached.",
+				severity: "deny",
+			};
+		}
+
+		if (!freshOrg || freshOrg.status === "deleted") {
+			return {
+				ok: false,
+				code: "organization_unavailable",
+				message: "The organization for this session is no longer active.",
+				severity: "close",
+			};
+		}
+
+		if (!freshProject || freshProject.status === "deleted") {
+			return {
+				ok: false,
+				code: "project_archived",
+				message: "The project for this session has been archived.",
+				severity: "close",
+			};
+		}
+
+		// IAM rules and the organization's compliance policy can change while a
+		// session is open, and a session may live for the whole duration limit.
+		// Re-evaluating them per billable unit makes a revoked model, IP range or
+		// provider take effect within one turn, as it would for HTTP requests.
+		const iamValidation = await validateRequestModelAccess({
+			apiKey: freshKey,
+			organizationId: this.preflight.project.organizationId,
+			requestedModel: match.modelId,
+			requestedProvider: match.mapping.providerId,
+			activeModelInfo: match.modelDef,
+			clientIp: this.preflight.clientIp,
+		});
+		if (!iamValidation.allowed) {
+			return {
+				ok: false,
+				code: "model_access_denied",
+				message: iamValidation.reason ?? "Model access denied.",
+				severity: "close",
+			};
+		}
+		try {
+			await assertProviderCompliant(freshOrg, match.mapping.providerId, {
+				organizationId: this.preflight.project.organizationId,
+				modelId: match.modelId,
+				apiKeyId: freshKey.id,
+				model: this.requestedModel,
+			});
+		} catch (error) {
+			return {
+				ok: false,
+				code: "compliance_blocked",
+				message:
+					error instanceof Error
+						? error.message
+						: "This provider is blocked by the organization's compliance policy.",
+				severity: "close",
+			};
+		}
+
+		try {
+			await assertMemberWithinBudget(
+				freshKey.createdBy,
+				this.preflight.project.organizationId,
+			);
+		} catch (error) {
+			return {
+				ok: false,
+				code: "member_budget_exceeded",
+				message:
+					error instanceof Error
+						? error.message
+						: "Member spend budget reached.",
+				severity: "deny",
+			};
+		}
+
+		return { ok: true, organization: freshOrg };
+	}
+
 	private async runGenerationGatesInner(): Promise<boolean> {
 		if (this.sessionSpend.greaterThanOrEqualTo(maxSessionSpendUsd())) {
 			this.sendToClientRaw(
@@ -697,138 +856,19 @@ export class RealtimeProxySession {
 			return false;
 		}
 
-		let freshKey;
-		let freshOrg;
-		let freshProject;
-		try {
-			freshKey = await findApiKeyByToken(this.gatewayToken);
-			freshOrg = await findOrganizationById(
-				this.preflight.project.organizationId,
-			);
-			freshProject = await findProjectById(this.preflight.project.id);
-		} catch (error) {
-			// Fail closed for new billable work when billing state is unreadable.
-			logger.error("Realtime generation gate lookup failed", error as Error);
+		const authorization = await this.authorizeAccount(this.preflight.match);
+		if (!authorization.ok) {
 			this.sendToClientRaw(
-				buildErrorEvent(
-					"gate_unavailable",
-					"Unable to verify account state; generation is temporarily unavailable.",
-				),
+				buildErrorEvent(authorization.code, authorization.message),
 			);
-			return false;
-		}
-
-		if (!freshKey || freshKey.status !== "active") {
-			this.sendToClientRaw(
-				buildErrorEvent(
-					"api_key_revoked",
-					"The LLMGateway API key for this session is no longer active.",
-				),
-			);
-			this.shutdown(1008, "api_key_revoked");
-			return false;
-		}
-		try {
-			assertApiKeyWithinUsageLimits(freshKey);
-		} catch (error) {
-			this.sendToClientRaw(
-				buildErrorEvent(
-					"api_key_limit",
-					error instanceof Error
-						? error.message
-						: "API key usage limit reached.",
-				),
-			);
-			return false;
-		}
-
-		if (!freshOrg || freshOrg.status === "deleted") {
-			this.sendToClientRaw(
-				buildErrorEvent(
-					"organization_unavailable",
-					"The organization for this session is no longer active.",
-				),
-			);
-			this.shutdown(1008, "organization_unavailable");
-			return false;
-		}
-
-		if (!freshProject || freshProject.status === "deleted") {
-			this.sendToClientRaw(
-				buildErrorEvent(
-					"project_archived",
-					"The project for this session has been archived.",
-				),
-			);
-			this.shutdown(1008, "project_archived");
-			return false;
-		}
-
-		// IAM rules and the organization's compliance policy can change while a
-		// session is open, and a session may live for the whole duration limit.
-		// Re-evaluating them per generation makes a revoked model, IP range or
-		// provider take effect within one turn, as it would for HTTP requests.
-		const iamValidation = await validateRequestModelAccess({
-			apiKey: freshKey,
-			organizationId: this.preflight.project.organizationId,
-			requestedModel: this.preflight.match.modelId,
-			requestedProvider: this.preflight.match.mapping.providerId,
-			activeModelInfo: this.preflight.match.modelDef,
-			clientIp: this.preflight.clientIp,
-		});
-		if (!iamValidation.allowed) {
-			this.sendToClientRaw(
-				buildErrorEvent(
-					"model_access_denied",
-					iamValidation.reason ?? "Model access denied.",
-				),
-			);
-			this.shutdown(1008, "model_access_denied");
-			return false;
-		}
-		try {
-			await assertProviderCompliant(
-				freshOrg,
-				this.preflight.match.mapping.providerId,
-				{
-					organizationId: this.preflight.project.organizationId,
-					modelId: this.preflight.match.modelId,
-					apiKeyId: freshKey.id,
-					model: this.requestedModel,
-				},
-			);
-		} catch (error) {
-			this.sendToClientRaw(
-				buildErrorEvent(
-					"compliance_blocked",
-					error instanceof Error
-						? error.message
-						: "This provider is blocked by the organization's compliance policy.",
-				),
-			);
-			this.shutdown(1008, "compliance_blocked");
-			return false;
-		}
-
-		try {
-			await assertMemberWithinBudget(
-				freshKey.createdBy,
-				this.preflight.project.organizationId,
-			);
-		} catch (error) {
-			this.sendToClientRaw(
-				buildErrorEvent(
-					"member_budget_exceeded",
-					error instanceof Error
-						? error.message
-						: "Member spend budget reached.",
-				),
-			);
+			if (authorization.severity === "close") {
+				this.shutdown(1008, authorization.code);
+			}
 			return false;
 		}
 
 		if (this.preflight.usedMode === "credits") {
-			const available = await this.availableCredits(freshOrg);
+			const available = await this.availableCredits(authorization.organization);
 			if (available === null) {
 				this.sendToClientRaw(
 					buildErrorEvent(
@@ -869,18 +909,21 @@ export class RealtimeProxySession {
 
 	/**
 	 * Credits still available to this session: the organization's balance minus
-	 * only this session's spend the worker has NOT yet settled (once the worker
-	 * debits a row the organization balance already reflects it, so subtracting
-	 * it again would double-count). Null when billing state is unreadable.
+	 * its realtime spend the worker has NOT yet settled (once the worker debits
+	 * a row the organization balance already reflects it, so subtracting it
+	 * again would double-count). The unsettled sum spans the organization's
+	 * sessions, not just this one, so concurrent sessions cannot each authorize
+	 * work against the same undebited balance. Null when billing state is
+	 * unreadable.
 	 */
 	private async availableCredits(
 		organization: Parameters<typeof getAvailableCredits>[0],
 	): Promise<Decimal | null> {
-		const unsettled = await getUnsettledRealtimeSessionSpend(
-			this.sessionRecordId,
+		const unsettled = await getUnsettledRealtimeOrganizationSpend(
+			this.preflight.project.organizationId,
 		).catch((error: unknown) => {
 			logger.error(
-				"Failed to read unsettled realtime session spend",
+				"Failed to read unsettled realtime organization spend",
 				error as Error,
 			);
 			return null;
@@ -893,11 +936,19 @@ export class RealtimeProxySession {
 
 	/**
 	 * Transcription is billed off the provider's own commit-driven events, so it
-	 * cannot be authorized up front the way response.create is. Re-check the
-	 * session spend cap and the organization's credits right after each
-	 * transcription is billed instead: a session with no room left is closed, so
-	 * an exhausted account can overrun by at most one turn rather than streaming
-	 * mic audio against an empty balance indefinitely.
+	 * cannot be authorized up front the way response.create is. Re-run the same
+	 * authorization gates right after each transcription is billed instead — the
+	 * session spend cap, account state for the pinned ASR model, and the
+	 * organization's credits. A session that no longer clears them is closed, so
+	 * a revoked key or exhausted account can overrun by at most one turn rather
+	 * than streaming mic audio indefinitely on a transcription-only session that
+	 * never sends response.create.
+	 *
+	 * Every failure closes the session: unlike response.create there is no
+	 * single unit of work to refuse, so "deny" and "close" are the same action
+	 * here. Only an unreadable account state is tolerated, matching the
+	 * generation gate, which lets the caller retry rather than dropping the
+	 * session on a transient database error.
 	 */
 	private async enforceLimitsAfterTranscription(): Promise<void> {
 		if (this.finalized) {
@@ -913,22 +964,23 @@ export class RealtimeProxySession {
 			this.shutdown(1008, "session_spend_limit");
 			return;
 		}
+		const authorization = await this.authorizeAccount(
+			this.transcription?.match ?? this.preflight.match,
+		);
+		if (!authorization.ok) {
+			if (authorization.severity === "transient") {
+				return;
+			}
+			this.sendToClientRaw(
+				buildErrorEvent(authorization.code, authorization.message),
+			);
+			this.shutdown(1008, authorization.code);
+			return;
+		}
 		if (this.preflight.usedMode !== "credits") {
 			return;
 		}
-		const organization = await findOrganizationById(
-			this.preflight.project.organizationId,
-		).catch((error: unknown) => {
-			logger.error(
-				"Failed to re-check organization credits after transcription",
-				error as Error,
-			);
-			return undefined;
-		});
-		if (!organization) {
-			return;
-		}
-		const available = await this.availableCredits(organization);
+		const available = await this.availableCredits(authorization.organization);
 		if (available === null || available.greaterThan(0)) {
 			return;
 		}

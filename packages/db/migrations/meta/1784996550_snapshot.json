@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "809cd6ab-4c07-4cae-9e99-768d2fe7dc73",
+  "id": "544558a5-d900-479f-8023-16a705dde637",
   "prevId": "ca898c4f-668f-4620-9484-16a22f15229f",
   "ddl": [
     {
@@ -23057,7 +23057,7 @@
       "nameExplicit": true,
       "columns": [
         {
-          "value": "realtime_session_id",
+          "value": "organization_id",
           "isExpression": false,
           "asc": true,
           "nullsFirst": false,
@@ -23065,11 +23065,11 @@
         }
       ],
       "isUnique": false,
-      "where": "realtime_session_id IS NOT NULL",
+      "where": "realtime_session_id IS NOT NULL AND processed_at IS NULL",
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "log_realtime_session_id_idx",
+      "name": "log_realtime_unsettled_organization_id_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "log"

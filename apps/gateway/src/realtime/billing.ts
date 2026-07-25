@@ -4,6 +4,7 @@ import {
 	and,
 	db,
 	eq,
+	isNotNull,
 	isNull,
 	log,
 	realtimeSession,
@@ -80,13 +81,16 @@ export async function closeRealtimeSessionRecord(
 }
 
 /**
- * Sum of this session's billed costs the worker has NOT yet debited from the
- * organization. Used by the credit gate so spend is never double-counted:
- * once the worker settles a row (processedAt set), the organization balance
- * already reflects it.
+ * Sum of the organization's realtime costs the worker has NOT yet debited from
+ * its balance. Used by the credit gate so spend is never double-counted: once
+ * the worker settles a row (processedAt set), the organization balance already
+ * reflects it. Scoped to the organization rather than the current session
+ * because an organization may run several concurrent sessions, and a
+ * session-scoped sum would let each of them authorize work against the same
+ * undebited balance.
  */
-export async function getUnsettledRealtimeSessionSpend(
-	sessionId: string,
+export async function getUnsettledRealtimeOrganizationSpend(
+	organizationId: string,
 ): Promise<Decimal> {
 	const [row] = await db
 		.select({
@@ -97,7 +101,8 @@ export async function getUnsettledRealtimeSessionSpend(
 		.from(log)
 		.where(
 			and(
-				eq(log.realtimeSessionId, sessionId),
+				eq(log.organizationId, organizationId),
+				isNotNull(log.realtimeSessionId),
 				isNull(log.processedAt),
 				eq(log.cached, false),
 			),

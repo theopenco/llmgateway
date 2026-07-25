@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { Decimal } from "decimal.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { findApiKeyByToken } from "@/lib/cached-queries.js";
 import { validateRequestModelAccess } from "@/lib/iam.js";
 
 import {
@@ -57,7 +58,7 @@ vi.mock("@llmgateway/db", () => ({
 
 vi.mock("./billing.js", () => ({
 	closeRealtimeSessionRecord: vi.fn(async () => {}),
-	getUnsettledRealtimeSessionSpend: vi.fn(async () => new Decimal(0)),
+	getUnsettledRealtimeOrganizationSpend: vi.fn(async () => new Decimal(0)),
 	markRealtimeSessionUpstream: vi.fn(async () => {}),
 	recordRealtimeResponse: vi.fn(async () => ({ inserted: true })),
 	recordRealtimeTranscription: vi.fn(async () => ({ inserted: true })),
@@ -554,6 +555,132 @@ describe("RealtimeProxySession transcription", () => {
 		expect(
 			upstream.sent.filter((m) => m.includes('"response.create"')),
 		).toHaveLength(0);
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("does not pin transcription when a later field of the same update is rejected", async () => {
+		const { client, upstream, session, clientSends } = createSession();
+
+		clientSends({
+			type: "session.update",
+			session: {
+				type: "realtime",
+				audio: {
+					input: { transcription: { model: "gpt-4o-mini-transcribe" } },
+				},
+				prompt: { id: "pmpt_123" },
+			},
+		});
+		await flush();
+
+		expect(client.sent.some((m) => m.includes("prompt_not_supported"))).toBe(
+			true,
+		);
+		expect(upstream.sent).toHaveLength(0);
+
+		// The rejected update was never forwarded, so it must not have pinned an
+		// ASR mapping: a different model is still accepted afterwards.
+		clientSends({
+			type: "session.update",
+			session: {
+				type: "realtime",
+				audio: { input: { transcription: { model: "gpt-4o-transcribe" } } },
+			},
+		});
+		await flush();
+
+		expect(
+			client.sent.some((m) => m.includes("transcription_model_locked")),
+		).toBe(false);
+		expect(upstream.sent).toHaveLength(1);
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("does not track commits as pending when the enabling update was rejected", async () => {
+		const { client, session, clientSends, upstreamSends } = createSession();
+
+		clientSends({
+			type: "session.update",
+			session: { type: "realtime", turn_detection: null },
+		});
+		await flush();
+
+		clientSends({
+			type: "session.update",
+			session: {
+				type: "realtime",
+				audio: {
+					input: { transcription: { model: "gpt-4o-mini-transcribe" } },
+				},
+				prompt: { id: "pmpt_123" },
+			},
+		});
+		await flush();
+
+		// Transcription was never enabled upstream, so the commit produces no
+		// billable transcription event and must not hold a disconnect open.
+		upstreamSends({ type: "input_audio_buffer.committed", item_id: "item_1" });
+		await flush();
+		client.emit("close");
+		await flush();
+
+		expect(closeRealtimeSessionRecord).toHaveBeenCalledWith(
+			"rts_1",
+			"closed",
+			"client_disconnected",
+			expect.anything(),
+		);
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("closes the session when the API key is revoked between transcriptions", async () => {
+		const { client, session, clientSends, upstreamSends } = createSession();
+
+		clientSends({
+			type: "session.update",
+			session: {
+				type: "realtime",
+				turn_detection: null,
+				audio: {
+					input: { transcription: { model: "gpt-4o-mini-transcribe" } },
+				},
+			},
+		});
+		await flush();
+
+		vi.mocked(findApiKeyByToken).mockResolvedValueOnce({
+			id: "key_1",
+			status: "revoked",
+			createdBy: "user_1",
+		} as unknown as Awaited<ReturnType<typeof findApiKeyByToken>>);
+		upstreamSends({
+			type: "conversation.item.input_audio_transcription.completed",
+			item_id: "item_1",
+			content_index: 0,
+			transcript: "hello there",
+			usage: {
+				type: "tokens",
+				total_tokens: 30,
+				input_tokens: 20,
+				output_tokens: 10,
+				input_token_details: { text_tokens: 2, audio_tokens: 18 },
+			},
+		});
+		await flush();
+
+		// The transcription itself is still billed, but the session is closed so a
+		// revoked key cannot keep producing billable transcriptions.
+		expect(recordRealtimeTranscription).toHaveBeenCalledTimes(1);
+		expect(client.sent.some((m) => m.includes("api_key_revoked"))).toBe(true);
+		expect(closeRealtimeSessionRecord).toHaveBeenCalledWith(
+			"rts_1",
+			"closed",
+			"api_key_revoked",
+			expect.anything(),
+		);
 
 		session.shutdown(1000, "test_done");
 	});
