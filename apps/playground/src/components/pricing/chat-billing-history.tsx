@@ -271,14 +271,15 @@ function RefundButton({
 			</AlertDialogTrigger>
 			<AlertDialogContent className="max-h-[85vh] overflow-y-auto">
 				<AlertDialogHeader>
-					<AlertDialogTitle>Refund this payment?</AlertDialogTitle>
-					<AlertDialogDescription>
-						{formatAmount(transaction.amount, transaction.currency)} will be
-						refunded to your payment method.{" "}
+					<AlertDialogTitle>
 						{isPlanPayment(transaction.type)
-							? "Your chat plan will be cancelled immediately. "
-							: "The purchased credits will be removed from your balance. "}
-						This cannot be undone.
+							? "Refund and cancel your membership?"
+							: "Refund this payment?"}
+					</AlertDialogTitle>
+					<AlertDialogDescription>
+						{isPlanPayment(transaction.type)
+							? `Refunding cancels your Lounge membership completely: ${formatAmount(transaction.amount, transaction.currency)} goes back to your payment method and your access ends right away — not at the end of the billing period — so the rest of this cycle's credits are lost. To keep using the Lounge you would have to subscribe again. This cannot be undone.`
+							: `${formatAmount(transaction.amount, transaction.currency)} will be refunded to your payment method. The purchased credits will be removed from your balance. This cannot be undone.`}
 					</AlertDialogDescription>
 				</AlertDialogHeader>
 				<fieldset className="space-y-3" disabled={refundMutation.isPending}>
@@ -329,7 +330,9 @@ function RefundButton({
 				</fieldset>
 				<AlertDialogFooter>
 					<AlertDialogCancel disabled={refundMutation.isPending}>
-						Never mind
+						{isPlanPayment(transaction.type)
+							? "Keep my membership"
+							: "Never mind"}
 					</AlertDialogCancel>
 					<AlertDialogAction
 						disabled={refundMutation.isPending || !canSubmit}
@@ -346,7 +349,9 @@ function RefundButton({
 							});
 						}}
 					>
-						Request refund
+						{isPlanPayment(transaction.type)
+							? "Refund and cancel"
+							: "Request refund"}
 					</AlertDialogAction>
 				</AlertDialogFooter>
 			</AlertDialogContent>
