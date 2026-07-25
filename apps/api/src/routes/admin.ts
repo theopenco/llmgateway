@@ -296,7 +296,10 @@ const apiKeysListSchema = z.object({
 
 const providerKeyAdminSchema = z.object({
 	id: z.string(),
+	/** Masked token. The plaintext is never returned. */
 	token: z.string(),
+	/** HMAC fingerprint, matching `log.usedApiKeyHash` on requests this key served. */
+	tokenHash: z.string().nullable(),
 	provider: z.string(),
 	name: z.string().nullable(),
 	baseUrl: z.string().nullable(),
@@ -2652,8 +2655,11 @@ admin.openapi(getOrganizationProviderKeys, async (c) => {
 	const providerKeys = await db
 		.select({
 			id: tables.providerKey.id,
-			token: tables.providerKey.token,
+			// Legacy pre-encryption rows still carry plaintext here; it is selected
+			// only to compute the mask below and must never reach the response.
+			legacyToken: tables.providerKey.token,
 			tokenMasked: tables.providerKey.tokenMasked,
+			tokenHash: tables.providerKey.tokenHash,
 			provider: tables.providerKey.provider,
 			name: tables.providerKey.name,
 			baseUrl: tables.providerKey.baseUrl,
@@ -2666,9 +2672,17 @@ admin.openapi(getOrganizationProviderKeys, async (c) => {
 		.orderBy(desc(tables.providerKey.createdAt));
 
 	return c.json({
-		providerKeys: providerKeys.map(({ tokenMasked, ...k }) => ({
-			...k,
-			token: tokenMasked ?? maskToken(k.token ?? "", 6),
+		// Explicit allowlist, never a spread of the row: a provider token is
+		// write-only once stored, and an admin identifies a key by its mask and
+		// its `tokenHash` (which matches `log.usedApiKeyHash`).
+		providerKeys: providerKeys.map((k) => ({
+			id: k.id,
+			token: k.tokenMasked ?? maskToken(k.legacyToken ?? "", 6),
+			tokenHash: k.tokenHash,
+			provider: k.provider,
+			name: k.name,
+			baseUrl: k.baseUrl,
+			status: k.status,
 			createdAt: k.createdAt.toISOString(),
 			updatedAt: k.updatedAt.toISOString(),
 		})),

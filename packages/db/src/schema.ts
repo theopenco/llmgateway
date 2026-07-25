@@ -1523,6 +1523,13 @@ export const providerKey = pgTable(
 		token: text(),
 		tokenCiphertext: text(),
 		tokenMasked: text(),
+		// HMAC-SHA256 fingerprint of the plaintext token, computed at write time
+		// with the same helper the gateway uses for `log.usedApiKeyHash`. Lets an
+		// operator tie a credential to the requests it served without the
+		// plaintext ever being readable back: the admin dashboard shows this and
+		// the mask, and never decrypts. NULL for rows written before this column
+		// existed; it is filled on the next token write.
+		tokenHash: text(),
 		provider: text().notNull(),
 		name: text(), // Optional name for custom providers (lowercase a-z with single hyphens)
 		baseUrl: text(), // Optional base URL for custom providers

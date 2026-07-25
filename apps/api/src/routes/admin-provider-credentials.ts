@@ -23,11 +23,12 @@ import {
 	getProviderEnvKeys,
 	providers,
 } from "@llmgateway/models";
+import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderKeyVariant } from "@llmgateway/db";
-import type { ProviderId } from "@llmgateway/models";
+import type { ProviderDefinition, ProviderId } from "@llmgateway/models";
 
 export const adminProviderCredentials = new OpenAPIHono<ServerTypes>();
 
@@ -54,6 +55,11 @@ const credentialSchema = z.object({
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	config: z.record(z.string(), z.string()),
 	maskedToken: z.string(),
+	/**
+	 * HMAC fingerprint of the token, identical to `log.usedApiKeyHash` on the
+	 * requests this credential served. The token itself is never returned.
+	 */
+	tokenHash: z.string().nullable(),
 });
 
 const configKeySchema = z.object({
@@ -78,11 +84,27 @@ const catalogEntrySchema = z.object({
 		enterprise: z.number(),
 		plans: z.number(),
 	}),
+	/**
+	 * Regions the provider's catalogue declares. Empty for providers that are
+	 * not region-scoped, in which case a credential must not carry a region at
+	 * all — there is nothing for it to select against.
+	 */
+	regions: z.array(z.object({ id: z.string(), label: z.string() })),
+	/** Region used when a credential does not pin one. Null when not region-scoped. */
+	defaultRegion: z.string().nullable(),
 	configKeys: z.array(configKeySchema),
 });
 
 type CredentialRow = typeof tables.providerKey.$inferSelect;
 
+/**
+ * Serializes a credential for the admin dashboard. Deliberately an explicit
+ * allowlist rather than a spread: `row` is a full `provider_key` record
+ * carrying `token`/`tokenCiphertext`, and neither may ever leave this process.
+ * Once stored, a token is write-only — an operator identifies a credential by
+ * its mask, its note, and `tokenHash`, which matches `log.usedApiKeyHash` on
+ * the requests it served.
+ */
 function toCredential(row: CredentialRow) {
 	return {
 		id: row.id,
@@ -95,6 +117,7 @@ function toCredential(row: CredentialRow) {
 		status: row.status,
 		config: row.config ?? {},
 		maskedToken: row.tokenMasked ?? maskToken(row.token ?? ""),
+		tokenHash: row.tokenHash,
 	};
 }
 
@@ -150,6 +173,36 @@ async function validateConfig(
 		if (key.toLowerCase().includes("url")) {
 			await assertSafeProviderUrl(value);
 		}
+	}
+}
+
+/**
+ * A credential's region selects which region's traffic it serves, so it only
+ * means anything for a provider whose catalogue declares regions, and only for
+ * a region that catalogue actually lists. Anything else would produce a
+ * credential that silently never matches a request.
+ */
+function validateRegion(provider: string, region: string | null): void {
+	if (!region) {
+		return;
+	}
+
+	const regions =
+		(providers.find((p) => p.id === provider) as ProviderDefinition | undefined)
+			?.regionConfig?.regions ?? [];
+
+	if (regions.length === 0) {
+		throw new HTTPException(400, {
+			message: `${provider} is not region-scoped, so its credentials cannot pin a region`,
+		});
+	}
+
+	if (!regions.some((entry) => entry.id === region)) {
+		throw new HTTPException(400, {
+			message: `Unknown region "${region}" for ${provider}. Available: ${regions
+				.map((entry) => entry.id)
+				.join(", ")}`,
+		});
 	}
 }
 
@@ -238,6 +291,7 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 			const apiKeyEnvVar =
 				getProviderEnvKeys(provider.id).find((entry) => entry.key === "apiKey")
 					?.envVar ?? null;
+			const regionConfig = (provider as ProviderDefinition).regionConfig;
 			return {
 				id: provider.id,
 				name: provider.name,
@@ -245,6 +299,8 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 				apiKeyEnvConfigured: apiKeyEnvVar
 					? Boolean(process.env[apiKeyEnvVar])
 					: false,
+				regions: regionConfig?.regions ?? [],
+				defaultRegion: regionConfig?.defaultRegion ?? null,
 				apiKeyEnvCounts: getProviderApiKeyEnvCounts(provider.id),
 				configKeys: getManagedCredentialConfigKeys(provider.id),
 			};
@@ -331,6 +387,7 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 	const config = normalizeConfig(body.config);
 
 	await validateConfig(body.provider, config);
+	validateRegion(body.provider, body.region?.trim() || null);
 
 	if (!body.skipValidation) {
 		await validateCredentialToken(
@@ -358,6 +415,7 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 				providerKeyEncryptionScope(null),
 			),
 			tokenMasked: maskToken(body.token),
+			tokenHash: getApiKeyFingerprint(body.token),
 			comment: body.comment?.trim() || null,
 			variant: body.variant ?? "default",
 			region: body.region?.trim() || null,
@@ -434,6 +492,10 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 		updates.config = config;
 	}
 
+	if (body.region !== undefined) {
+		validateRegion(existing.provider, body.region?.trim() || null);
+	}
+
 	// A new token and a changed config both alter what the gateway will send
 	// upstream, so revalidate on either. Config-only edits are checked against
 	// the stored token, which is the pair that will actually serve traffic.
@@ -457,6 +519,7 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 			providerKeyEncryptionScope(existing.organizationId),
 		);
 		updates.tokenMasked = maskToken(body.token);
+		updates.tokenHash = getApiKeyFingerprint(body.token);
 	}
 
 	if (body.comment !== undefined) {

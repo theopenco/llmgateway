@@ -5,6 +5,7 @@ import { createTestUser, deleteAll } from "@/testing.js";
 
 import { decryptProviderKey } from "@llmgateway/actions";
 import { db, tables } from "@llmgateway/db";
+import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 interface Credential {
 	id: string;
@@ -15,6 +16,7 @@ interface Credential {
 	status: string | null;
 	config: Record<string, string>;
 	maskedToken: string;
+	tokenHash: string | null;
 }
 
 describe("admin provider credentials", () => {
@@ -323,5 +325,181 @@ describe("admin provider credentials", () => {
 			enterprise: 1,
 			plans: 0,
 		});
+	});
+});
+
+describe("managed credential region scoping", () => {
+	let cookie: string;
+
+	beforeEach(async () => {
+		process.env.ADMIN_EMAILS = "admin@example.com";
+		cookie = await createTestUser();
+	});
+
+	afterEach(async () => {
+		await deleteAll();
+	});
+
+	async function create(body: Record<string, unknown>) {
+		return await app.request("/admin/provider-credentials", {
+			method: "POST",
+			headers: { Cookie: cookie, "Content-Type": "application/json" },
+			body: JSON.stringify(body),
+		});
+	}
+
+	test("accepts a region the provider's catalogue declares", async () => {
+		const res = await create({
+			provider: "aws-bedrock",
+			token: "bedrock-token",
+			region: "eu-central-1",
+		});
+		expect(res.status).toBe(201);
+		const json = (await res.json()) as {
+			credential: { region: string | null };
+		};
+		expect(json.credential.region).toBe("eu-central-1");
+	});
+
+	test("rejects a region the provider does not declare", async () => {
+		const res = await create({
+			provider: "aws-bedrock",
+			token: "bedrock-token",
+			region: "mars-north-1",
+		});
+		expect(res.status).toBe(400);
+		expect(await res.text()).toContain("Unknown region");
+	});
+
+	test("lists the available regions when rejecting an unknown one", async () => {
+		const res = await create({
+			provider: "aws-bedrock",
+			token: "bedrock-token",
+			region: "mars-north-1",
+		});
+		expect(await res.text()).toContain("eu-central-1");
+	});
+
+	test("rejects any region for a provider that is not region-scoped", async () => {
+		const res = await create({
+			provider: "openai",
+			token: "sk-openai",
+			region: "us-east-1",
+		});
+		expect(res.status).toBe(400);
+		expect(await res.text()).toContain("not region-scoped");
+	});
+
+	test("allows an unpinned region on a non-region-scoped provider", async () => {
+		const res = await create({ provider: "openai", token: "sk-openai" });
+		expect(res.status).toBe(201);
+	});
+
+	test("rejects an unknown region on update", async () => {
+		const created = await create({
+			provider: "aws-bedrock",
+			token: "bedrock-token",
+			region: "us-east-1",
+		});
+		expect(created.status).toBe(201);
+		const { credential } = (await created.json()) as {
+			credential: { id: string };
+		};
+
+		const res = await app.request(
+			`/admin/provider-credentials/${credential.id}`,
+			{
+				method: "PATCH",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({ region: "atlantis-1" }),
+			},
+		);
+		expect(res.status).toBe(400);
+	});
+});
+
+describe("managed credential token confidentiality", () => {
+	let cookie: string;
+
+	beforeEach(async () => {
+		process.env.ADMIN_EMAILS = "admin@example.com";
+		cookie = await createTestUser();
+	});
+
+	afterEach(async () => {
+		await deleteAll();
+	});
+
+	const TOKEN = "sk-super-secret-managed-token";
+
+	async function create(body: Record<string, unknown>) {
+		return await app.request("/admin/provider-credentials", {
+			method: "POST",
+			headers: { Cookie: cookie, "Content-Type": "application/json" },
+			body: JSON.stringify(body),
+		});
+	}
+
+	test("no admin response ever contains the plaintext token", async () => {
+		const created = await create({ provider: "openai", token: TOKEN });
+		expect(created.status).toBe(201);
+		const createdBody = await created.text();
+		expect(createdBody).not.toContain(TOKEN);
+		expect(createdBody).not.toContain("tokenCiphertext");
+
+		const listed = await app.request("/admin/provider-credentials", {
+			headers: { Cookie: cookie },
+		});
+		const listedBody = await listed.text();
+		expect(listedBody).not.toContain(TOKEN);
+		expect(listedBody).not.toContain("tokenCiphertext");
+
+		const { credential } = JSON.parse(createdBody) as {
+			credential: { id: string };
+		};
+		const patched = await app.request(
+			`/admin/provider-credentials/${credential.id}`,
+			{
+				method: "PATCH",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({ comment: "renamed" }),
+			},
+		);
+		const patchedBody = await patched.text();
+		expect(patchedBody).not.toContain(TOKEN);
+		expect(patchedBody).not.toContain("tokenCiphertext");
+	});
+
+	test("exposes the same hash the gateway logs as usedApiKeyHash", async () => {
+		const created = await create({ provider: "openai", token: TOKEN });
+		expect(created.status).toBe(201);
+		const { credential } = (await created.json()) as {
+			credential: { tokenHash: string };
+		};
+		expect(credential.tokenHash).toBe(getApiKeyFingerprint(TOKEN));
+	});
+
+	test("re-stamps the hash when the token is rotated", async () => {
+		const created = await create({ provider: "openai", token: TOKEN });
+		const { credential } = (await created.json()) as {
+			credential: { id: string; tokenHash: string };
+		};
+
+		const rotated = await app.request(
+			`/admin/provider-credentials/${credential.id}`,
+			{
+				method: "PATCH",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({ token: "sk-rotated-token" }),
+			},
+		);
+		expect(rotated.status).toBe(200);
+		const json = (await rotated.json()) as {
+			credential: { tokenHash: string };
+		};
+		expect(json.credential.tokenHash).toBe(
+			getApiKeyFingerprint("sk-rotated-token"),
+		);
+		expect(json.credential.tokenHash).not.toBe(credential.tokenHash);
 	});
 });

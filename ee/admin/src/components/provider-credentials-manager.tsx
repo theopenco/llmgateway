@@ -82,6 +82,12 @@ const VARIANT_ENV_SUFFIXES: Record<Variant, string | null> = {
 
 const VARIANT_ORDER: Variant[] = ["default", "enterprise", "plans"];
 
+/**
+ * Sentinel for "no region pinned". Radix Select cannot hold an empty string as
+ * an item value, and the API models an unpinned credential as a null region.
+ */
+const ANY_REGION = "__any__";
+
 type VariantCounts = Record<Variant, number>;
 
 const NO_CREDENTIALS: VariantCounts = {
@@ -179,6 +185,15 @@ export function ProviderCredentialsManager({
 		return counts;
 	}, [credentials]);
 
+	const regionsInUse = useMemo(
+		() =>
+			credentials.map((credential) => ({
+				provider: credential.provider,
+				region: credential.region,
+			})),
+		[credentials],
+	);
+
 	async function confirmDelete() {
 		if (!deleting) {
 			return;
@@ -238,7 +253,15 @@ export function ProviderCredentialsManager({
 											<ProviderCell provider={credential.provider} />
 										</TableCell>
 										<TableCell className="font-mono text-xs">
-											{credential.maskedToken}
+											<div>{credential.maskedToken}</div>
+											{credential.tokenHash ? (
+												<div
+													className="text-[11px] text-muted-foreground"
+													title={`Matches usedApiKeyHash on logs served by this credential: ${credential.tokenHash}`}
+												>
+													{credential.tokenHash.slice(0, 12)}
+												</div>
+											) : null}
 										</TableCell>
 										<TableCell className="max-w-[260px] text-sm text-muted-foreground">
 											{credential.comment || "—"}
@@ -312,6 +335,7 @@ export function ProviderCredentialsManager({
 				<CredentialDialog
 					catalog={catalog}
 					credentialCounts={credentialCounts}
+					regionsInUse={regionsInUse}
 					onClose={() => setCreating(false)}
 					onSubmit={async (values) => {
 						const result = await onCreate({
@@ -338,6 +362,7 @@ export function ProviderCredentialsManager({
 					credential={editing}
 					catalogEntry={catalogById.get(editing.provider)}
 					credentialCounts={credentialCounts}
+					regionsInUse={regionsInUse}
 					onClose={() => setEditing(null)}
 					onSubmit={async (values) => {
 						const result = await onUpdate(editing.id, {
@@ -415,6 +440,7 @@ function CredentialDialog({
 	credential,
 	catalogEntry,
 	credentialCounts,
+	regionsInUse,
 	onClose,
 	onSubmit,
 }: {
@@ -423,6 +449,8 @@ function CredentialDialog({
 	catalogEntry?: ProviderCredentialCatalogEntry;
 	/** Credentials already stored per provider and audience, keyed by provider id. */
 	credentialCounts: Map<string, VariantCounts>;
+	/** Provider/region pairs already claimed, for annotating the region options. */
+	regionsInUse: { provider: string; region: string | null }[];
 	onClose: () => void;
 	onSubmit: (values: CredentialFormValues) => Promise<MutationResult>;
 }) {
@@ -449,6 +477,19 @@ function CredentialDialog({
 
 	const selectedEntry =
 		catalogEntry ?? catalog.find((entry) => entry.id === provider);
+	const isRegionScoped = (selectedEntry?.regions.length ?? 0) > 0;
+
+	// Regions already claimed for this provider, so an admin can see which are
+	// covered before pinning another credential to one.
+	const regionUsage = useMemo(() => {
+		const usage = new Map<string, number>();
+		for (const entry of regionsInUse) {
+			if (entry.provider === provider && entry.region) {
+				usage.set(entry.region, (usage.get(entry.region) ?? 0) + 1);
+			}
+		}
+		return usage;
+	}, [regionsInUse, provider]);
 
 	async function handleSubmit() {
 		setLoading(true);
@@ -539,6 +580,9 @@ function CredentialDialog({
 														onSelect={() => {
 															setProvider(entry.id);
 															setConfig({});
+															// Regions are per-provider; carrying one
+															// over would be rejected by the server.
+															setRegion("");
 															setProviderOpen(false);
 														}}
 													>
@@ -708,12 +752,47 @@ function CredentialDialog({
 						</div>
 						<div className="flex flex-col gap-2">
 							<Label htmlFor="region">Region</Label>
-							<Input
-								id="region"
-								value={region}
-								onChange={(event) => setRegion(event.target.value)}
-								placeholder="Any region"
-							/>
+							<Select
+								value={region || ANY_REGION}
+								onValueChange={(value) =>
+									setRegion(value === ANY_REGION ? "" : value)
+								}
+								disabled={!isRegionScoped}
+							>
+								<SelectTrigger id="region">
+									{/* A controlled Select always resolves to an item's text,
+									    so the not-scoped case is rendered directly instead of
+									    via the placeholder, which would never show. */}
+									{isRegionScoped ? (
+										<SelectValue placeholder="Any region" />
+									) : (
+										<span className="text-muted-foreground">
+											Not region-scoped
+										</span>
+									)}
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value={ANY_REGION}>Any region</SelectItem>
+									{selectedEntry?.regions.map((entry) => {
+										const used = regionUsage.get(entry.id) ?? 0;
+										return (
+											<SelectItem key={entry.id} value={entry.id}>
+												{/* The catalogue's own label already marks the
+												    default region, so it is not repeated here. */}
+												{entry.label}
+												{used > 0 ? ` · ${used} configured` : ""}
+											</SelectItem>
+										);
+									})}
+								</SelectContent>
+							</Select>
+							<p className="text-xs text-muted-foreground">
+								{!isRegionScoped
+									? `${selectedEntry?.name ?? "This provider"} serves one endpoint for every request, so its credentials are not region-scoped.`
+									: region
+										? "Only requests routed to this region use this credential."
+										: "Serves every region the provider covers."}
+							</p>
 						</div>
 					</div>
 

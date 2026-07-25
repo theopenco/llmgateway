@@ -15,6 +15,7 @@ import { logAuditEvent } from "@llmgateway/audit";
 import { cdb, db, eq, shortid, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { isStealthProvider, providers } from "@llmgateway/models";
+import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import type { ServerTypes } from "@/vars.js";
@@ -421,6 +422,7 @@ keysProvider.openapi(create, async (c) => {
 			token: null,
 			tokenCiphertext,
 			tokenMasked,
+			tokenHash: getApiKeyFingerprint(userToken),
 			organizationId,
 			provider,
 			name,
