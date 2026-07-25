@@ -11,6 +11,7 @@ import {
 	getProviderEndpoint,
 	getProviderHeaders,
 	isPremiumServiceTier,
+	managedCredentialOptions,
 	prepareRequestBody,
 	providerKeyBaseUrlSupportsServiceTier,
 	readProviderKey,
@@ -42,10 +43,7 @@ import {
 	isPremiumModel,
 } from "@llmgateway/shared";
 
-import {
-	getProviderEnv,
-	getServiceTierIneligibleEnvIndices,
-} from "./get-provider-env.js";
+import { resolvePlatformCredential } from "./resolve-platform-credential.js";
 
 import type { InferSelectModel, tables } from "@llmgateway/db";
 
@@ -67,6 +65,12 @@ export interface ProviderContext {
 	usedToken: string;
 	usedApiKeyHash: string;
 	providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
+	/**
+	 * Platform-managed credential serving this credits-mode request, when one
+	 * is configured. Distinct from `providerKey`, which is always the
+	 * organization's own BYOK key.
+	 */
+	managedKey: InferSelectModel<typeof tables.providerKey> | undefined;
 	/**
 	 * Provider-key id to attribute health failures to via reportTrackedKey*.
 	 * Equal to `providerKey.id` when the BYOK key is the credential actually
@@ -339,6 +343,7 @@ export async function resolveProviderContext(
 
 	// --- Token resolution ---
 	let providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
+	let managedKey: InferSelectModel<typeof tables.providerKey> | undefined;
 	let usedToken: string | undefined;
 	let configIndex = 0;
 	let envVarName: string | undefined;
@@ -358,20 +363,6 @@ export async function resolveProviderContext(
 					key.baseUrl,
 				)
 		: undefined;
-	// Exclude env credential indices whose base URL can't honor the tier, merged
-	// with any already-failed indices, so env fallback also lands on the upstream.
-	const serviceTierEnvExcludedIndices = (
-		provider: Provider,
-	): ReadonlySet<number> | undefined => {
-		if (!serviceTierKeyFilter) {
-			return options.excludedEnvKeyIndices;
-		}
-		const ineligible = getServiceTierIneligibleEnvIndices(provider, envVariant);
-		if (ineligible.size === 0) {
-			return options.excludedEnvKeyIndices;
-		}
-		return new Set([...(options.excludedEnvKeyIndices ?? []), ...ineligible]);
-	};
 
 	if (project.mode === "api-keys") {
 		if (usedProvider === "custom" && options.customProviderName) {
@@ -400,14 +391,21 @@ export async function resolveProviderContext(
 		usedToken = readProviderKey(providerKey);
 	} else if (project.mode === "credits") {
 		assertOrganizationHasCreditsForEnvFallback(organization, modelInfo);
-		const envResult = getProviderEnv(usedProvider as Provider, {
-			excludedIndices: serviceTierEnvExcludedIndices(usedProvider as Provider),
-			selectionScope: usedInternalModel,
-			variant: envVariant,
-		});
-		usedToken = envResult.token;
-		configIndex = envResult.configIndex;
-		envVarName = envResult.envVarName;
+		const platformCredential = await resolvePlatformCredential(
+			usedProvider as Provider,
+			{
+				selectionScope: usedInternalModel,
+				variant: envVariant,
+				region: providerMapping.region,
+				requiresServiceTier: serviceTierKeyFilter !== undefined,
+				excludedEnvIndices: options.excludedEnvKeyIndices,
+				excludedProviderKeyIds: options.excludedProviderKeyIds,
+			},
+		);
+		managedKey = platformCredential.managedKey;
+		usedToken = platformCredential.token;
+		configIndex = platformCredential.configIndex;
+		envVarName = platformCredential.envVarName;
 	} else if (project.mode === "hybrid") {
 		if (usedProvider === "custom" && options.customProviderName) {
 			providerKey = await findCustomProviderKey(
@@ -430,16 +428,21 @@ export async function resolveProviderContext(
 			usedToken = readProviderKey(providerKey);
 		} else {
 			assertOrganizationHasCreditsForEnvFallback(organization, modelInfo);
-			const envResult = getProviderEnv(usedProvider as Provider, {
-				excludedIndices: serviceTierEnvExcludedIndices(
-					usedProvider as Provider,
-				),
-				selectionScope: usedInternalModel,
-				variant: envVariant,
-			});
-			usedToken = envResult.token;
-			configIndex = envResult.configIndex;
-			envVarName = envResult.envVarName;
+			const platformCredential = await resolvePlatformCredential(
+				usedProvider as Provider,
+				{
+					selectionScope: usedInternalModel,
+					variant: envVariant,
+					region: providerMapping.region,
+					requiresServiceTier: serviceTierKeyFilter !== undefined,
+					excludedEnvIndices: options.excludedEnvKeyIndices,
+					excludedProviderKeyIds: options.excludedProviderKeyIds,
+				},
+			);
+			managedKey = platformCredential.managedKey;
+			usedToken = platformCredential.token;
+			configIndex = platformCredential.configIndex;
+			envVarName = platformCredential.envVarName;
 		}
 	}
 
@@ -476,9 +479,10 @@ export async function resolveProviderContext(
 	}
 
 	// Override with region-specific env var if a non-default region is selected
-	// (credits/hybrid mode). Health attribution must follow the credential we
-	// actually send.
-	if (usedRegion && !providerKey) {
+	// (credits/hybrid mode). Managed credentials are already selected per
+	// region, so this only applies to the env-var path. Health attribution must
+	// follow the credential we actually send.
+	if (usedRegion && !providerKey && !managedKey) {
 		const regionEnvVarName = getRegionSpecificEnvVarName(
 			usedProvider,
 			usedRegion,
@@ -507,37 +511,46 @@ export async function resolveProviderContext(
 	const isImageGeneration =
 		providerMappingForSelected?.imageGenerations === true;
 
+	// When a database-backed credential is used — the organization's BYOK key
+	// or the platform-managed credential — env vars are skipped entirely. Only
+	// that credential's own settings and the hardcoded provider defaults apply.
+	const isBYOK = providerKey !== undefined;
+	const usesDatabaseCredential = isBYOK || managedKey !== undefined;
+	const credentialOptions = isBYOK
+		? (providerKey?.options ?? undefined)
+		: managedCredentialOptions(managedKey);
+	const credentialBaseUrl = isBYOK
+		? (providerKey?.baseUrl ?? undefined)
+		: undefined;
+
 	// Apply azure_deployment_name override (if set) to the upstream model
 	// name. Must run after providerKey is resolved so retry fallbacks also
 	// pick up the override.
 	const azureDeploymentName =
 		usedProvider === "azure"
-			? providerKey?.options?.azure_deployment_name
+			? credentialOptions?.azure_deployment_name
 			: undefined;
 	const upstreamModelName = azureDeploymentName || usedExternalId;
 
 	// --- URL resolution ---
-	// When using a provider key (BYOK), skip env vars entirely —
-	// only the provider key's baseUrl or hardcoded provider defaults should be used.
-	const isBYOK = providerKey !== undefined;
 	// Resolve the Google Vertex token type once and feed it to both the endpoint
 	// (`?key=` query param) and the headers (`Authorization: Bearer`) so they
-	// never disagree. There is no BYOK region-env override here (the override
-	// above only runs when `!providerKey`), so `isBYOK` correctly reflects
-	// whether the DB key is the active credential.
+	// never disagree. There is no region-env override here for database-backed
+	// credentials (the override above only runs when neither is set), so
+	// `usesDatabaseCredential` correctly reflects whether the DB key is active.
 	const vertexTokenType: VertexTokenType | undefined =
 		usedProvider === "google-vertex"
 			? resolveVertexTokenType(
 					usedProvider,
-					providerKey?.options ?? undefined,
+					credentialOptions,
 					configIndex,
-					isBYOK,
+					usesDatabaseCredential,
 					envVariant,
 				)
 			: undefined;
 	const url = getProviderEndpoint(
 		usedProvider as Provider,
-		providerKey?.baseUrl ?? undefined,
+		credentialBaseUrl,
 		upstreamModelName,
 		usedProvider === "google-ai-studio" ||
 			usedProvider === "glacier" ||
@@ -550,11 +563,11 @@ export async function resolveProviderContext(
 		options.stream,
 		supportsReasoning,
 		options.hasExistingToolCalls,
-		providerKey?.options ?? undefined,
+		credentialOptions,
 		configIndex,
 		isImageGeneration,
 		usedRegion,
-		isBYOK,
+		usesDatabaseCredential,
 		usedInternalModel,
 		vertexTokenType,
 		envVariant,
@@ -725,7 +738,7 @@ export async function resolveProviderContext(
 	// Read the env var directly to bypass round-robin comma-splitting (an SA
 	// JSON value contains commas and would otherwise be truncated).
 	if (usedProvider === "vertex-openai") {
-		const fullSaJson = providerKey
+		const fullSaJson = usesDatabaseCredential
 			? usedToken
 			: (process.env[
 					getVariantEnvVarNameFor(
@@ -770,7 +783,8 @@ export async function resolveProviderContext(
 		usedToken,
 		usedApiKeyHash,
 		providerKey,
-		trackedKeyHealthId: providerKey?.id,
+		managedKey,
+		trackedKeyHealthId: providerKey?.id ?? managedKey?.id,
 		configIndex,
 		envVarName,
 		url,

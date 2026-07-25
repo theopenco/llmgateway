@@ -66,6 +66,7 @@ import type {
 	userOrganization,
 	wallet,
 } from "@llmgateway/db";
+import type { EnvVarVariant } from "@llmgateway/models";
 
 // Type aliases for cleaner function signatures
 type ApiKey = InferSelectModel<typeof apiKey>;
@@ -547,6 +548,107 @@ export async function findProviderKeysByProviders(
 				)
 				.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id)),
 	);
+}
+
+export interface FindManagedProviderKeyOptions {
+	/**
+	 * Env-var variant the organization maps to. A credential configured for the
+	 * variant wins; when none exists the shared `default` credentials serve the
+	 * request, mirroring how `{ENV}__ENTERPRISE` falls back to `{ENV}`.
+	 */
+	variant?: EnvVarVariant;
+	/**
+	 * Region the request routes to. Region-scoped credentials win for their own
+	 * region; region-agnostic ones (region IS NULL) serve everything else,
+	 * mirroring `{ENV}__{REGION}` falling back to `{ENV}`.
+	 */
+	region?: string;
+	selectionScope?: string;
+	excludedKeyIds?: ReadonlySet<string>;
+	filter?: (key: ProviderKey) => boolean;
+}
+
+/**
+ * Find a platform-managed provider credential for credits-mode traffic
+ * (cacheable). These rows are the database-backed replacement for the `LLM_*`
+ * environment variables: they are not owned by any organization and carry
+ * their own base URL, project, region and other provider settings.
+ *
+ * Returns undefined when no managed credential is configured for the provider,
+ * which is the signal for callers to fall back to the environment variables.
+ */
+export async function findManagedProviderKey(
+	provider: string,
+	options: FindManagedProviderKeyOptions = {},
+): Promise<ProviderKey | undefined> {
+	const results = await swrWrap(
+		`providerKey:managed:${provider}`,
+		[providerKeyTableName],
+		async () =>
+			await db
+				.select()
+				.from(providerKeyTable)
+				.where(
+					and(
+						eq(providerKeyTable.status, "active"),
+						eq(providerKeyTable.managed, true),
+						eq(providerKeyTable.provider, provider),
+					),
+				)
+				.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id)),
+	);
+
+	const candidates = options.filter ? results.filter(options.filter) : results;
+	if (candidates.length === 0) {
+		return undefined;
+	}
+
+	const variant = options.variant ?? "default";
+	const variantMatches = candidates.filter((key) => key.variant === variant);
+	const byVariant =
+		variantMatches.length > 0
+			? variantMatches
+			: candidates.filter((key) => key.variant === "default");
+
+	const regionMatches = options.region
+		? byVariant.filter((key) => key.region === options.region)
+		: [];
+	const byRegion =
+		regionMatches.length > 0
+			? regionMatches
+			: byVariant.filter((key) => !key.region);
+
+	return selectProviderKeyWithFailover(
+		byRegion,
+		options.selectionScope,
+		options.excludedKeyIds,
+	);
+}
+
+/**
+ * Providers that have at least one active managed credential (cacheable).
+ *
+ * Routing uses this alongside the `LLM_*` environment variables to decide
+ * which providers can serve credits-mode traffic, so a deployment that has
+ * moved a provider into the database no longer needs its env var set for the
+ * provider to be routable.
+ */
+export async function findManagedProviderIds(): Promise<Set<string>> {
+	const rows = await swrWrap(
+		`providerKey:managedProviders`,
+		[providerKeyTableName],
+		async () =>
+			await db
+				.selectDistinct({ provider: providerKeyTable.provider })
+				.from(providerKeyTable)
+				.where(
+					and(
+						eq(providerKeyTable.status, "active"),
+						eq(providerKeyTable.managed, true),
+					),
+				),
+	);
+	return new Set(rows.map((row) => row.provider));
 }
 
 /**

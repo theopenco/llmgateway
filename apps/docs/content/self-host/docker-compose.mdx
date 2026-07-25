@@ -85,6 +85,34 @@ docker compose -f infra/docker-compose.split.yml restart
 docker compose -f infra/docker-compose.split.yml down
 ```
 
+## Managing provider credentials from the admin dashboard
+
+Provider credentials can also live in the database instead of the environment.
+The admin dashboard's **Provider Credentials** page lets you add, edit and remove
+them without redeploying, and each credential carries every setting the provider
+needs — API key, base URL, project, region, resource, API version — plus a free-form
+note so several keys for the same provider stay tellable apart.
+
+Resolution is per provider: as soon as a provider has at least one managed
+credential, credits-mode requests to it use those credentials and its `LLM_*`
+environment variables are ignored entirely. Providers with no managed credential
+keep reading the environment, so you can migrate one provider at a time.
+
+Managed credentials cover the same axes as the environment variables they replace:
+
+- Several credentials per provider, selected with the same health-aware routing
+  as the comma-separated env lists.
+- A per-credential audience (all organizations / enterprise plans / DevPass and
+  Chat plans), mirroring the `__ENTERPRISE` and `__PLANS` suffixes below.
+- An optional region, mirroring the `{ENV_VAR}__{REGION}` overrides.
+
+Two things to know:
+
+- Credential tokens are encrypted at rest, so `PROVIDER_KEY_ENCRYPTION_KEY` must
+  be set on every service.
+- Video generation still resolves its credentials from the environment. Keep the
+  `LLM_*` variables set for any provider you generate video with.
+
 ## Multiple API keys and load balancing
 
 LLM Gateway supports multiple API keys per provider for load balancing and increased availability. Provide comma-separated values:

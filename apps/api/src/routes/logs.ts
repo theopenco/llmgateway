@@ -520,8 +520,13 @@ logs.openapi(get, async (c) => {
 			});
 		}
 
-		// Check if the provider key belongs to one of the user's organizations
-		if (!organizationIds.includes(providerKey.organizationId)) {
+		// Check if the provider key belongs to one of the user's organizations.
+		// Platform-managed credentials have no owning organization, so they are
+		// never accessible here.
+		if (
+			!providerKey.organizationId ||
+			!organizationIds.includes(providerKey.organizationId)
+		) {
 			throw new HTTPException(403, {
 				message: "You don't have access to this provider key",
 			});

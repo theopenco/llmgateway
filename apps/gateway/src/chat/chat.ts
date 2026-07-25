@@ -19,6 +19,7 @@ import {
 } from "@/lib/api-key-usage-limits.js";
 import {
 	findApiKeyByToken,
+	findManagedProviderIds,
 	findProjectById,
 	findOrganizationById,
 	findCustomProviderKey,
@@ -112,6 +113,7 @@ import {
 	googleProviderSupportsAudioFormat,
 	hasProviderKey,
 	InvalidFileContentError,
+	managedCredentialOptions,
 	parseGoogleUpstreamDocumentError,
 	prepareRequestBody,
 	readProviderKey,
@@ -209,8 +211,6 @@ import { extractToolCalls } from "./tools/extract-tool-calls.js";
 import { getFinishReasonFromError } from "./tools/get-finish-reason-from-error.js";
 import {
 	getEnvKeyCount,
-	getProviderEnv,
-	getServiceTierIneligibleEnvIndices,
 	hasServiceTierEligibleEnvCredential,
 } from "./tools/get-provider-env.js";
 import { hasMeaningfulAssistantOutput } from "./tools/has-meaningful-assistant-output.js";
@@ -248,6 +248,7 @@ import {
 	splitReasoningFromTaggedContent,
 } from "./tools/reasoning-details.js";
 import { resolveModelInfo } from "./tools/resolve-model-info.js";
+import { resolvePlatformCredential } from "./tools/resolve-platform-credential.js";
 import {
 	assertDevPlanPremiumCapNotExceeded,
 	formatUsedModelForDisplay,
@@ -1999,6 +2000,11 @@ chat.openapi(completions, async (c) => {
 	// this org's env-credential reads. Undefined = base vars only.
 	const envVariant = getOrganizationEnvVariant(organization);
 
+	// Providers LLM Gateway holds a managed credential for. Routing treats these
+	// as available in credits mode even when the provider's LLM_* env var is
+	// unset, which is what lets a deployment drop the env vars entirely.
+	const managedProviderIds = await findManagedProviderIds();
+
 	// Dev-plan (DevPass) orgs can default routing to cheaper flex processing via
 	// their dashboard settings to save on plan credits. Applied softly, and only
 	// when the request itself doesn't specify a service_tier: the tier kicks in
@@ -2983,6 +2989,7 @@ chat.openapi(completions, async (c) => {
 				project.mode,
 				providerKeys,
 				supportedProviderIds,
+				managedProviderIds,
 			);
 		// Region locks from DB provider keys, so auto-routing honors an org's
 		// configured region (e.g. aws_bedrock_region: "eu") instead of being
@@ -3595,6 +3602,7 @@ chat.openapi(completions, async (c) => {
 						project.mode,
 						providerKeys,
 						providerIds,
+						managedProviderIds,
 					);
 
 				const availableModelProviders = preferConcreteRegionalMappings(
@@ -3812,6 +3820,7 @@ chat.openapi(completions, async (c) => {
 						project.mode,
 						providerKeys,
 						providerIds,
+						managedProviderIds,
 					);
 
 				// Filter model providers to only those available (excluding the low-uptime one)
@@ -4025,6 +4034,7 @@ chat.openapi(completions, async (c) => {
 					project.mode,
 					providerKeys,
 					providerIds,
+					managedProviderIds,
 				);
 
 			// Build a map of provider → locked region from DB provider keys.
@@ -4596,6 +4606,11 @@ chat.openapi(completions, async (c) => {
 	// Get the provider key for the selected provider based on project mode
 
 	let providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
+	// Platform-managed credential (credits mode): the database-backed
+	// replacement for the provider's LLM_* env vars. Kept separate from
+	// `providerKey` so BYOK-only behaviour (free-model gating, billing) keeps
+	// treating a credits-mode request as a credits-mode request.
+	let managedKey: InferSelectModel<typeof tables.providerKey> | undefined;
 	let usedToken: string | undefined;
 	let usedApiKeyHash: string | undefined;
 	let envVarName: string | undefined; // Environment variable name for health tracking
@@ -4740,23 +4755,23 @@ chat.openapi(completions, async (c) => {
 			});
 		}
 
-		const envResult = getProviderEnv(usedProvider, {
+		const platformCredential = await resolvePlatformCredential(usedProvider, {
 			selectionScope: usedInternalModel,
-			excludedIndices: isRequestedServiceTier(service_tier)
-				? getServiceTierIneligibleEnvIndices(
-						usedProvider as Provider,
-						envVariant,
-					)
-				: undefined,
 			variant: envVariant,
+			region: usedRegion,
+			requiresServiceTier: isRequestedServiceTier(service_tier),
 		});
-		usedToken = envResult.token;
-		configIndex = envResult.configIndex;
-		envVarName = envResult.envVarName;
+		managedKey = platformCredential.managedKey;
+		usedToken = platformCredential.token;
+		configIndex = platformCredential.configIndex;
+		envVarName = platformCredential.envVarName;
+		trackedKeyHealthId = managedKey?.id;
 
 		// Override with region-specific env var if a non-default region is selected.
-		// Health attribution must follow the credential we actually send.
-		if (usedRegion) {
+		// Managed credentials are already selected per region, so this only
+		// applies to the env-var path. Health attribution must follow the
+		// credential we actually send.
+		if (usedRegion && !managedKey) {
 			const regionEnvVarName = getRegionSpecificEnvVarName(
 				usedProvider,
 				usedRegion,
@@ -4875,23 +4890,23 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 
-			const envResult = getProviderEnv(usedProvider, {
+			const platformCredential = await resolvePlatformCredential(usedProvider, {
 				selectionScope: usedInternalModel,
-				excludedIndices: isRequestedServiceTier(service_tier)
-					? getServiceTierIneligibleEnvIndices(
-							usedProvider as Provider,
-							envVariant,
-						)
-					: undefined,
 				variant: envVariant,
+				region: usedRegion,
+				requiresServiceTier: isRequestedServiceTier(service_tier),
 			});
-			usedToken = envResult.token;
-			configIndex = envResult.configIndex;
-			envVarName = envResult.envVarName;
+			managedKey = platformCredential.managedKey;
+			usedToken = platformCredential.token;
+			configIndex = platformCredential.configIndex;
+			envVarName = platformCredential.envVarName;
+			trackedKeyHealthId = managedKey?.id;
 
 			// Override with region-specific env var if a non-default region is selected.
-			// Health attribution must follow the credential we actually send.
-			if (usedRegion) {
+			// Managed credentials are already selected per region, so this only
+			// applies to the env-var path. Health attribution must follow the
+			// credential we actually send.
+			if (usedRegion && !managedKey) {
 				const regionEnvVarName = getRegionSpecificEnvVarName(
 					usedProvider,
 					usedRegion,
@@ -4914,11 +4929,17 @@ chat.openapi(completions, async (c) => {
 	}
 
 	if (usedProvider === "vertex-anthropic") {
-		const gcpToken = await getGcpAccessToken(
-			providerKey ? undefined : envVariant,
-		);
-		if (gcpToken) {
-			usedToken = gcpToken;
+		if (managedKey) {
+			// The managed credential's token is the service-account JSON, so
+			// exchange it directly instead of reading the deployment's env var.
+			usedToken = await getGcpServiceAccountAccessToken(usedToken);
+		} else {
+			const gcpToken = await getGcpAccessToken(
+				providerKey ? undefined : envVariant,
+			);
+			if (gcpToken) {
+				usedToken = gcpToken;
+			}
 		}
 	}
 
@@ -5233,11 +5254,25 @@ chat.openapi(completions, async (c) => {
 		(msg: any) => msg.tool_calls ?? msg.role === "tool",
 	);
 
+	// Settings of whichever database-backed credential is active: the BYOK
+	// provider key, or the platform-managed credential serving credits mode
+	// (whose `config` column replaces the provider's LLM_* env vars).
+	const credentialOptions = providerKey
+		? (providerKey.options ?? undefined)
+		: managedCredentialOptions(managedKey);
+	const credentialBaseUrl = providerKey
+		? (providerKey.baseUrl ?? undefined)
+		: undefined;
+	// A managed credential describes itself completely, so env vars must not
+	// leak into its endpoint resolution any more than they do for BYOK.
+	const usesDatabaseCredential =
+		providerKey !== undefined || managedKey !== undefined;
+
 	// Strip :region suffix, then apply azure_deployment_name override if set
 	// so users can target deployments whose names differ from the registry.
 	const azureDeploymentName =
 		usedProvider === "azure"
-			? providerKey?.options?.azure_deployment_name
+			? credentialOptions?.azure_deployment_name
 			: undefined;
 	const upstreamModelName = azureDeploymentName || usedExternalId;
 
@@ -5258,7 +5293,7 @@ chat.openapi(completions, async (c) => {
 		const dbKeyIsActiveCredential = trackedKeyHealthId !== undefined;
 		return resolveVertexTokenType(
 			usedProvider,
-			dbKeyIsActiveCredential ? (providerKey?.options ?? undefined) : undefined,
+			dbKeyIsActiveCredential ? credentialOptions : undefined,
 			configIndex,
 			dbKeyIsActiveCredential,
 			envVariant,
@@ -5274,17 +5309,17 @@ chat.openapi(completions, async (c) => {
 
 		url = getProviderEndpoint(
 			usedProvider,
-			providerKey?.baseUrl ?? undefined,
+			credentialBaseUrl,
 			upstreamModelName,
 			usesGoogleQueryToken(usedProvider) ? usedToken : undefined,
 			stream,
 			supportsReasoning,
 			hasExistingToolCalls,
-			providerKey?.options ?? undefined,
+			credentialOptions,
 			configIndex,
 			isImageGeneration,
 			usedRegion,
-			providerKey !== undefined,
+			usesDatabaseCredential,
 			usedInternalModel,
 			resolveActiveVertexTokenType(),
 			envVariant,
@@ -6382,6 +6417,7 @@ chat.openapi(completions, async (c) => {
 		usedToken = ctx.usedToken;
 		usedApiKeyHash = ctx.usedApiKeyHash;
 		providerKey = ctx.providerKey;
+		managedKey = ctx.managedKey;
 		trackedKeyHealthId = ctx.trackedKeyHealthId;
 		configIndex = ctx.configIndex;
 		envVarName = ctx.envVarName;
@@ -7063,7 +7099,7 @@ chat.openapi(completions, async (c) => {
 							rememberFailedKey(usedProvider, usedRegion, {
 								envVarName,
 								configIndex,
-								providerKeyId: providerKey?.id,
+								providerKeyId: providerKey?.id ?? managedKey?.id,
 							});
 							sameProviderRetryContext =
 								await tryResolveAlternateKeyForCurrentProvider(true);
@@ -7300,7 +7336,7 @@ chat.openapi(completions, async (c) => {
 								rememberFailedKey(usedProvider, usedRegion, {
 									envVarName,
 									configIndex,
-									providerKeyId: providerKey?.id,
+									providerKeyId: providerKey?.id ?? managedKey?.id,
 								});
 								sameProviderRetryContext =
 									await tryResolveAlternateKeyForCurrentProvider(true);
@@ -7615,7 +7651,7 @@ chat.openapi(completions, async (c) => {
 							rememberFailedKey(usedProvider, usedRegion, {
 								envVarName,
 								configIndex,
-								providerKeyId: providerKey?.id,
+								providerKeyId: providerKey?.id ?? managedKey?.id,
 							});
 							sameProviderRetryContext =
 								await tryResolveAlternateKeyForCurrentProvider(true);
@@ -7988,7 +8024,7 @@ chat.openapi(completions, async (c) => {
 							rememberFailedKey(usedProvider, usedRegion, {
 								envVarName,
 								configIndex,
-								providerKeyId: providerKey?.id,
+								providerKeyId: providerKey?.id ?? managedKey?.id,
 							});
 							sameProviderRetryContext =
 								await tryResolveAlternateKeyForCurrentProvider(true);
@@ -11338,7 +11374,7 @@ chat.openapi(completions, async (c) => {
 				rememberFailedKey(usedProvider, usedRegion, {
 					envVarName,
 					configIndex,
-					providerKeyId: providerKey?.id,
+					providerKeyId: providerKey?.id ?? managedKey?.id,
 				});
 				sameProviderRetryContext =
 					await tryResolveAlternateKeyForCurrentProvider(stream);
@@ -11778,7 +11814,7 @@ chat.openapi(completions, async (c) => {
 				rememberFailedKey(usedProvider, usedRegion, {
 					envVarName,
 					configIndex,
-					providerKeyId: providerKey?.id,
+					providerKeyId: providerKey?.id ?? managedKey?.id,
 				});
 				sameProviderRetryContext =
 					await tryResolveAlternateKeyForCurrentProvider(stream);

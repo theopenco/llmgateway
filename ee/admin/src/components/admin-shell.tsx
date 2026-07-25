@@ -9,6 +9,7 @@ import {
 	Cpu,
 	Gauge,
 	GitMerge,
+	KeyRound,
 	LayoutDashboard,
 	LogOut,
 	Mail,
@@ -93,6 +94,7 @@ export function AdminShell({ children }: AdminShellProps) {
 	const isDiscounts = pathname === "/discounts";
 	const isRateLimits = pathname === "/rate-limits";
 	const isProviders = pathname === "/providers";
+	const isProviderCredentials = pathname.startsWith("/provider-credentials");
 	const isModels = pathname === "/models";
 	const isModelProviderMappings = pathname === "/model-provider-mappings";
 	const isUnstableMappings = pathname.startsWith("/unstable-mappings");
@@ -200,6 +202,14 @@ export function AdminShell({ children }: AdminShellProps) {
 									<SidebarMenuButton isActive={isProviders} size="lg">
 										<Server className="h-4 w-4" />
 										<span>Providers</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<Link href="/provider-credentials" className="block">
+									<SidebarMenuButton isActive={isProviderCredentials} size="lg">
+										<KeyRound className="h-4 w-4" />
+										<span>Provider Credentials</span>
 									</SidebarMenuButton>
 								</Link>
 							</SidebarMenuItem>

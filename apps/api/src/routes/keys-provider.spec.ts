@@ -169,7 +169,7 @@ describe("provider keys route", () => {
 
 		// Correct row id + org → decrypts.
 		expect(
-			decryptProviderKey(row!.tokenCiphertext!, row!.id, row!.organizationId),
+			decryptProviderKey(row!.tokenCiphertext!, row!.id, row!.organizationId!),
 		).toBe("aad-bound-token");
 
 		// Tampered row id → throws (cross-row copy fails).
@@ -177,7 +177,7 @@ describe("provider keys route", () => {
 			decryptProviderKey(
 				row!.tokenCiphertext!,
 				"different-row-id",
-				row!.organizationId,
+				row!.organizationId!,
 			),
 		).toThrow();
 

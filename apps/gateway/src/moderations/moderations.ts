@@ -5,6 +5,7 @@ import { createLogEntry } from "@/chat/tools/create-log-entry.js";
 import { extractCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
 import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
 import { getProviderEnv } from "@/chat/tools/get-provider-env.js";
+import { resolvePlatformCredential } from "@/chat/tools/resolve-platform-credential.js";
 import { shouldRetryAlternateKey } from "@/chat/tools/retry-with-fallback.js";
 import { validateSource } from "@/chat/tools/validate-source.js";
 import {
@@ -470,6 +471,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 	const envVariant = getOrganizationEnvVariant(organization);
 
 	let providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
+	let managedKey: InferSelectModel<typeof tables.providerKey> | undefined;
 	let usedToken: string | undefined;
 	let configIndex = 0;
 	let envVarName: string | undefined;
@@ -488,13 +490,16 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		}
 		usedToken = readProviderKey(providerKey);
 	} else if (project.mode === "credits") {
-		const envResult = getProviderEnv("openai", {
+		const platformCredential = await resolvePlatformCredential("openai", {
 			selectionScope: upstreamModel,
 			variant: envVariant,
+			region: undefined,
+			requiresServiceTier: false,
 		});
-		usedToken = envResult.token;
-		configIndex = envResult.configIndex;
-		envVarName = envResult.envVarName;
+		managedKey = platformCredential.managedKey;
+		usedToken = platformCredential.token;
+		configIndex = platformCredential.configIndex;
+		envVarName = platformCredential.envVarName;
 	} else if (project.mode === "hybrid") {
 		providerKey = await findProviderKey(
 			project.organizationId,
@@ -504,13 +509,16 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		if (providerKey) {
 			usedToken = readProviderKey(providerKey);
 		} else {
-			const envResult = getProviderEnv("openai", {
+			const platformCredential = await resolvePlatformCredential("openai", {
 				selectionScope: upstreamModel,
 				variant: envVariant,
+				region: undefined,
+				requiresServiceTier: false,
 			});
-			usedToken = envResult.token;
-			configIndex = envResult.configIndex;
-			envVarName = envResult.envVarName;
+			managedKey = platformCredential.managedKey;
+			usedToken = platformCredential.token;
+			configIndex = platformCredential.configIndex;
+			envVarName = platformCredential.envVarName;
 		}
 	} else {
 		throw new HTTPException(400, {
@@ -524,7 +532,13 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		});
 	}
 
-	const upstreamUrl = `${providerKey?.baseUrl ?? "https://api.openai.com"}/v1/moderations`;
+	// Moderation has never honored LLM_OPENAI_BASE_URL, so only the credential's
+	// own base URL overrides the default here.
+	const resolvedBaseUrl =
+		providerKey?.baseUrl ??
+		managedKey?.config?.baseUrl ??
+		"https://api.openai.com";
+	const upstreamUrl = `${resolvedBaseUrl}/v1/moderations`;
 	const requestBody = {
 		input,
 		model: upstreamModel,
@@ -563,6 +577,8 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 	const finalLogId = shortid();
 	const triedEnvIndices = new Set<number>();
 	const rotateToNextEnvKey = (): boolean => {
+		// Only the env-var path has sibling credentials to rotate through; a
+		// managed credential is a single row and leaves envVarName unset.
 		if (envVarName === undefined) {
 			return false;
 		}

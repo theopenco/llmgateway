@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { maskToken } from "@/lib/maskToken.js";
+import { assertOrganizationProviderKey } from "@/lib/organization-provider-key.js";
 import { getAdminOrganizationIds } from "@/utils/authorization.js";
 
 import {
@@ -89,7 +90,11 @@ const providerKeyPublicSchema = z.object({
 
 type ProviderKeyRow = typeof tables.providerKey.$inferSelect;
 
+// Every row served by these routes is organization-owned: they all query by
+// organizationId. Platform-managed credentials (organizationId NULL) are
+// administered from the admin dashboard and never surface here.
 function toPublicProviderKey(row: ProviderKeyRow) {
+	assertOrganizationProviderKey(row);
 	return {
 		id: row.id,
 		createdAt: row.createdAt,
@@ -621,6 +626,8 @@ keysProvider.openapi(deleteKey, async (c) => {
 		});
 	}
 
+	assertOrganizationProviderKey(providerKey);
+
 	await cdb
 		.update(tables.providerKey)
 		.set({
@@ -729,6 +736,8 @@ keysProvider.openapi(updateStatus, async (c) => {
 			message: "Provider key not found",
 		});
 	}
+
+	assertOrganizationProviderKey(providerKey);
 
 	if (customModelsOnly !== undefined) {
 		if (providerKey.provider !== "custom") {

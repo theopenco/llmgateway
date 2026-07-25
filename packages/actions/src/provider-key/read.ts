@@ -12,9 +12,23 @@ import { decryptProviderKey } from "./crypto.js";
  */
 export interface ProviderKeyRowLike {
 	id: string;
-	organizationId: string;
+	organizationId: string | null;
 	token?: string | null;
 	tokenCiphertext?: string | null;
+}
+
+/**
+ * AAD organization scope used for platform-managed credentials, which have no
+ * owning organization. Binding them to a fixed sentinel keeps the ciphertext
+ * tied to a scope that an org-owned row can never claim, so a managed
+ * ciphertext cannot be replayed into an organization's key row (or vice versa).
+ */
+export const MANAGED_PROVIDER_KEY_ORG_SCOPE = "llmgateway:managed";
+
+export function providerKeyEncryptionScope(
+	organizationId: string | null | undefined,
+): string {
+	return organizationId ?? MANAGED_PROVIDER_KEY_ORG_SCOPE;
 }
 
 function isAbsent(value: string | null | undefined): value is null | undefined {
@@ -40,7 +54,11 @@ function isAbsent(value: string | null | undefined): value is null | undefined {
  */
 export function readProviderKey(row: ProviderKeyRowLike): string {
 	if (!isAbsent(row.tokenCiphertext)) {
-		return decryptProviderKey(row.tokenCiphertext, row.id, row.organizationId);
+		return decryptProviderKey(
+			row.tokenCiphertext,
+			row.id,
+			providerKeyEncryptionScope(row.organizationId),
+		);
 	}
 	if (isAbsent(row.token)) {
 		throw new Error(`provider_key ${row.id}: no token available`);

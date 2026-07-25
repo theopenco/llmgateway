@@ -1486,7 +1486,26 @@ export interface ProviderKeyOptions {
 	vertex_openai_project_id?: string;
 	vertex_openai_region?: "global";
 	vertex_anthropic_region?: string;
+	/**
+	 * Managed (platform-owned) credential settings, keyed by the logical env
+	 * keys a provider declares in its catalogue `env` block (`baseUrl`,
+	 * `region`, `project`, `tokenType`, `resource`, `apiVersion`, …). Populated
+	 * from `provider_key.config` for managed credentials and consulted before
+	 * the corresponding `LLM_*` environment variable, so a managed credential
+	 * fully describes itself without any env var being set.
+	 *
+	 * Never set on organization-owned (BYOK) keys.
+	 */
+	env_config?: Record<string, string>;
 }
+
+/**
+ * Variant a managed provider credential applies to, mirroring the `__ENTERPRISE`
+ * / `__PLANS` env-var suffixes: `default` credentials serve regular PAYG orgs,
+ * `enterprise` serves enterprise-plan orgs, and `plans` serves DevPass/Chat
+ * plan orgs. A variant with no credential of its own falls back to `default`.
+ */
+export type ProviderKeyVariant = "default" | "enterprise" | "plans";
 
 export const providerKey = pgTable(
 	"provider_key",
@@ -1514,16 +1533,50 @@ export const providerKey = pgTable(
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
-		organizationId: text()
+		// When true this is a platform-managed credential used to serve
+		// credits-mode traffic (the DB-backed replacement for the `LLM_*` env
+		// vars) instead of an organization-owned BYOK key. Managed rows have a
+		// NULL organizationId; BYOK rows always have one.
+		managed: boolean().notNull().default(false),
+		// Free-form note shown in the admin dashboard, e.g. which account or
+		// quota pool a managed credential belongs to. Providers routinely have
+		// several credentials and the token itself is masked, so this is the
+		// only way to tell them apart.
+		comment: text(),
+		// Managed-credential settings keyed by the provider's logical env keys
+		// (see ProviderKeyOptions.env_config). Mirrors everything the provider's
+		// `LLM_*` vars would carry apart from the API key itself, which lives in
+		// the encrypted token columns.
+		config: jsonb().$type<Record<string, string>>(),
+		// Which organizations a managed credential serves, mirroring the
+		// `__ENTERPRISE` / `__PLANS` env-var suffixes. Always "default" for BYOK.
+		variant: text({ enum: ["default", "enterprise", "plans"] })
 			.notNull()
-			.references(() => organization.id, { onDelete: "cascade" }),
+			.default("default"),
+		// Region a managed credential is scoped to, mirroring the
+		// `{ENV_VAR}__{REGION}` overrides. NULL means it serves every region the
+		// provider's credential covers.
+		region: text(),
+		organizationId: text().references(() => organization.id, {
+			onDelete: "cascade",
+		}),
 	},
 	(table) => [
 		unique().on(table.organizationId, table.name),
 		index("provider_key_organization_id_idx").on(table.organizationId),
+		index("provider_key_managed_provider_idx").on(
+			table.managed,
+			table.provider,
+		),
 		check(
 			"provider_key_token_xor",
 			sql`${table.token} IS NULL OR ${table.tokenCiphertext} IS NULL`,
+		),
+		// Managed credentials are platform-owned and never belong to an org;
+		// every other row must be org-scoped.
+		check(
+			"provider_key_managed_org_scope",
+			sql`(${table.managed} = true AND ${table.organizationId} IS NULL) OR (${table.managed} = false AND ${table.organizationId} IS NOT NULL)`,
 		),
 	],
 );
