@@ -67,24 +67,32 @@ export async function awardLoungePoints(
 	const points = LOUNGE_POINT_VALUES[kind];
 
 	try {
-		const [row] = await db
-			.select({
-				earned: sql<number>`COALESCE(SUM(${tables.loungePointEvent.points}), 0)`,
-			})
-			.from(tables.loungePointEvent)
-			.where(
-				and(
-					eq(tables.loungePointEvent.userId, userId),
-					eq(tables.loungePointEvent.kind, kind),
-					gte(tables.loungePointEvent.createdAt, startOfUtcDay()),
-				),
+		// Advisory lock serializes concurrent awards for the same user+kind so
+		// parallel requests can't both pass the cap check and overshoot it.
+		await db.transaction(async (tx) => {
+			await tx.execute(
+				sql`SELECT pg_advisory_xact_lock(hashtext(${`lounge:${userId}:${kind}`}))`,
 			);
 
-		if (Number(row?.earned ?? 0) + points > DAILY_POINT_CAPS[kind]) {
-			return;
-		}
+			const [row] = await tx
+				.select({
+					earned: sql<number>`COALESCE(SUM(${tables.loungePointEvent.points}), 0)`,
+				})
+				.from(tables.loungePointEvent)
+				.where(
+					and(
+						eq(tables.loungePointEvent.userId, userId),
+						eq(tables.loungePointEvent.kind, kind),
+						gte(tables.loungePointEvent.createdAt, startOfUtcDay()),
+					),
+				);
 
-		await db.insert(tables.loungePointEvent).values({ userId, kind, points });
+			if (Number(row?.earned ?? 0) + points > DAILY_POINT_CAPS[kind]) {
+				return;
+			}
+
+			await tx.insert(tables.loungePointEvent).values({ userId, kind, points });
+		});
 	} catch (error) {
 		// Points are a non-critical side effect; never fail the calling request.
 		logger.error("Failed to award lounge points", toError(error), {

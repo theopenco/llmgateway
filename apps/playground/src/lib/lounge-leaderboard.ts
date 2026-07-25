@@ -18,7 +18,7 @@ export async function fetchLoungeLeaderboard(
 	try {
 		const res = await fetch(
 			`${config.apiBackendUrl}/public/lounge-leaderboard?limit=${limit}`,
-			{ next: { revalidate: 300 } },
+			{ next: { revalidate: 300 }, signal: AbortSignal.timeout(10_000) },
 		);
 		if (!res.ok) {
 			return [];

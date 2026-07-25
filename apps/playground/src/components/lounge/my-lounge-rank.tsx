@@ -3,26 +3,14 @@
 import { Flame, Sparkles } from "lucide-react";
 import Link from "next/link";
 
+import { useLoungePoints } from "@/hooks/useLoungePoints";
 import { useUser } from "@/hooks/useUser";
-import { useApi } from "@/lib/fetch-client";
 
 // Signed-in banner above the public leaderboard: your points, level, and
 // global rank, plus the opt-in nudge when the profile is still private.
 export function MyLoungeRank() {
 	const { user } = useUser();
-	const api = useApi();
-
-	const { data } = api.useQuery(
-		"get",
-		"/lounge/points/me",
-		{},
-		{
-			enabled: !!user,
-			retry: 0,
-			staleTime: 60 * 1000,
-			refetchOnWindowFocus: false,
-		},
-	);
+	const { data } = useLoungePoints();
 
 	if (!user || !data) {
 		return null;

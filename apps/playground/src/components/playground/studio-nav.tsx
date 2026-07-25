@@ -19,7 +19,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
+import { cn, withOrgParam } from "@/lib/utils";
 
 export const STUDIO_NAV_ITEMS = [
 	{ href: "/", label: "Chat", tooltip: "Chat", icon: MessageSquare },
@@ -42,8 +42,7 @@ export function StudioNav() {
 	const orgIdParam = searchParams.get("orgId");
 	const { state, isMobile, setOpenMobile } = useSidebar();
 
-	const withOrg = (path: string) =>
-		orgIdParam ? `${path}?orgId=${orgIdParam}` : path;
+	const withOrg = (path: string) => withOrgParam(path, orgIdParam);
 
 	return (
 		<nav
@@ -58,6 +57,7 @@ export function StudioNav() {
 							<Link
 								href={withOrg(item.href)}
 								prefetch={true}
+								aria-label={item.tooltip}
 								aria-current={isActive ? "page" : undefined}
 								data-active={isActive}
 								onClick={() => {

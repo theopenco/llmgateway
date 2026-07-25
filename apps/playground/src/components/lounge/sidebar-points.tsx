@@ -3,25 +3,13 @@
 import { Flame, Trophy } from "lucide-react";
 import Link from "next/link";
 
+import { useLoungePoints } from "@/hooks/useLoungePoints";
 import { useUser } from "@/hooks/useUser";
-import { useApi } from "@/lib/fetch-client";
 
 // Compact points pill for sidebar footers; links to the member profile.
 export function SidebarLoungePoints() {
 	const { user } = useUser();
-	const api = useApi();
-
-	const { data } = api.useQuery(
-		"get",
-		"/lounge/points/me",
-		{},
-		{
-			enabled: !!user,
-			retry: 0,
-			staleTime: 60 * 1000,
-			refetchOnWindowFocus: false,
-		},
-	);
+	const { data } = useLoungePoints();
 
 	if (!user || !data) {
 		return null;

@@ -4,12 +4,13 @@ import { expect, test, type Page } from "@playwright/test";
 // seeded database (`pnpm setup`): the signed-in tests log in as the seeded
 // admin. See lounge-rebrand.pw.ts for the same convention.
 
+// Accessible names (aria-label) of the studio tiles.
 const STUDIO_LABELS = [
 	"Chat",
-	"Group",
-	"Image",
-	"Video",
-	"Audio",
+	"Group Chat",
+	"Image Studio",
+	"Video Studio",
+	"Audio Studio",
 	"Canvas",
 	"Projects",
 	"Skills",
@@ -42,14 +43,15 @@ test("studio nav renders every destination as a compact tile", async ({
 	await expect(nav).toBeVisible();
 
 	for (const label of STUDIO_LABELS) {
-		await expect(nav.getByRole("link", { name: label })).toBeVisible();
+		await expect(
+			nav.getByRole("link", { name: label, exact: true }),
+		).toBeVisible();
 	}
 
 	// The chat route is the active tile on the landing page.
-	await expect(nav.getByRole("link", { name: "Chat" })).toHaveAttribute(
-		"aria-current",
-		"page",
-	);
+	await expect(
+		nav.getByRole("link", { name: "Chat", exact: true }),
+	).toHaveAttribute("aria-current", "page");
 });
 
 test("chat model selector defaults to Auto Route", async ({ page }) => {
@@ -74,13 +76,17 @@ test("projects page keeps the Projects tile visible and active", async ({
 	const nav = page.getByRole("navigation", { name: "Studios" });
 	await expect(nav).toBeVisible({ timeout: 30_000 });
 
-	const projectsTile = nav.getByRole("link", { name: "Projects" });
+	const projectsTile = nav.getByRole("link", { name: "Projects", exact: true });
 	await expect(projectsTile).toBeVisible();
 	await expect(projectsTile).toHaveAttribute("aria-current", "page");
 
 	// Every other studio stays reachable from the projects sidebar.
-	await expect(nav.getByRole("link", { name: "Chat" })).toBeVisible();
-	await expect(nav.getByRole("link", { name: "Canvas" })).toBeVisible();
+	await expect(
+		nav.getByRole("link", { name: "Chat", exact: true }),
+	).toBeVisible();
+	await expect(
+		nav.getByRole("link", { name: "Canvas", exact: true }),
+	).toBeVisible();
 });
 
 test("signed-in sidebar shows the Lounge points pill", async ({
@@ -93,7 +99,7 @@ test("signed-in sidebar shows the Lounge points pill", async ({
 	);
 	await signIn(page);
 
-	await expect(page.getByText(/pts · Lv \d+/).first()).toBeVisible({
+	await expect(page.getByText(/points · Lv \d+/).first()).toBeVisible({
 		timeout: 30_000,
 	});
 });

@@ -19,6 +19,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useLoungePoints } from "@/hooks/useLoungePoints";
 import { useUpdateUser, useUser } from "@/hooks/useUser";
 import { useApi } from "@/lib/fetch-client";
 
@@ -68,16 +69,7 @@ export function LoungeProfileClient() {
 	const updateUser = useUpdateUser();
 	const [usernameInput, setUsernameInput] = useState("");
 
-	const { data, isLoading: isStatsLoading } = api.useQuery(
-		"get",
-		"/lounge/points/me",
-		{},
-		{
-			enabled: !!user,
-			retry: 0,
-			refetchOnWindowFocus: false,
-		},
-	);
+	const { data, isLoading: isStatsLoading } = useLoungePoints();
 
 	if (isUserLoading || (user && isStatsLoading)) {
 		return (
@@ -123,7 +115,12 @@ export function LoungeProfileClient() {
 			{
 				onSuccess: () => {
 					toast.success("You're on the leaderboard!");
-					void queryClient.invalidateQueries();
+					void queryClient.invalidateQueries({
+						queryKey: api.queryOptions("get", "/user/me").queryKey,
+					});
+					void queryClient.invalidateQueries({
+						queryKey: api.queryOptions("get", "/lounge/points/me").queryKey,
+					});
 				},
 				onError: (error) => {
 					const message =

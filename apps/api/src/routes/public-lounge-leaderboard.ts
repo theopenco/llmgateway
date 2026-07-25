@@ -5,6 +5,7 @@ import { getLoungeLevel } from "@/utils/lounge-points.js";
 
 import {
 	and,
+	asc,
 	db,
 	desc,
 	eq,
@@ -58,6 +59,9 @@ publicLoungeLeaderboard.openapi(getLoungeLeaderboard, async (c) => {
 	const take = limit ?? 50;
 
 	const totalPointsExpr = sql<number>`COALESCE(SUM(${loungePointEvent.points}), 0)`;
+	// RANK() so tied totals share a rank, matching the rank users see on their
+	// own profile (computeLoungeStats counts strictly-greater totals).
+	const rankExpr = sql<number>`RANK() OVER (ORDER BY ${totalPointsExpr} DESC)`;
 
 	const rankedRows = await db
 		.select({
@@ -67,10 +71,17 @@ publicLoungeLeaderboard.openapi(getLoungeLeaderboard, async (c) => {
 			image: user.image,
 			profileHidePicture: user.profileHidePicture,
 			points: totalPointsExpr.as("points"),
+			rank: rankExpr.as("rank"),
 		})
 		.from(user)
 		.innerJoin(loungePointEvent, eq(loungePointEvent.userId, user.id))
-		.where(and(eq(user.profilePublic, true), isNotNull(user.username)))
+		.where(
+			and(
+				eq(user.profilePublic, true),
+				isNotNull(user.username),
+				eq(user.status, "active"),
+			),
+		)
 		.groupBy(
 			user.id,
 			user.username,
@@ -78,16 +89,16 @@ publicLoungeLeaderboard.openapi(getLoungeLeaderboard, async (c) => {
 			user.image,
 			user.profileHidePicture,
 		)
-		.orderBy(desc(totalPointsExpr))
+		.orderBy(desc(totalPointsExpr), asc(user.username))
 		.limit(take);
 
 	const entries = rankedRows
 		.filter((row) => row.username !== null)
-		.map((row, index) => {
+		.map((row) => {
 			const points = Number(row.points);
 			const { level, title } = getLoungeLevel(points);
 			return {
-				rank: index + 1,
+				rank: Number(row.rank),
 				username: row.username as string,
 				name: row.name,
 				image: row.profileHidePicture ? null : row.image,

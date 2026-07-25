@@ -5,6 +5,17 @@ export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs));
 }
 
+// Preserve the selected organization context across playground navigation.
+export function withOrgParam(
+	path: string,
+	orgId: string | null | undefined,
+): string {
+	if (!orgId) {
+		return path;
+	}
+	return `${path}${path.includes("?") ? "&" : "?"}orgId=${orgId}`;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
 }
