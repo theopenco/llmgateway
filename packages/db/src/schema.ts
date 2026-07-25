@@ -4238,3 +4238,50 @@ export const playgroundVideoHistory = pgTable(
 	},
 	(table) => [index("playground_video_history_user_id_idx").on(table.userId)],
 );
+
+// Transcript history for playground realtime voice calls. The gateway
+// deliberately does not persist realtime conversation content (see
+// apps/gateway/src/realtime/billing.ts), so the playground stores the
+// transcript its own client assembled, scoped to the user who spoke it.
+export const playgroundRealtimeHistory = pgTable(
+	"playground_realtime_history",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		// Organization context the call was placed under. Null means the
+		// default "Chat plan" context. Used to separate history per organization.
+		organizationId: text().references(() => organization.id, {
+			onDelete: "set null",
+		}),
+		title: text().notNull(),
+		model: text().notNull(),
+		voice: text(),
+		durationSeconds: integer().notNull().default(0),
+		transcript: jsonb().notNull().$type<
+			{
+				role: "user" | "assistant";
+				text: string;
+				status: "partial" | "final" | "interrupted";
+				timestamp: number;
+			}[]
+		>(),
+		usage: jsonb().$type<{
+			responses: number;
+			inputTokens: number;
+			outputTokens: number;
+			totalTokens: number;
+			audioInputTokens: number;
+			audioOutputTokens: number;
+		}>(),
+	},
+	(table) => [
+		index("playground_realtime_history_user_id_idx").on(table.userId),
+	],
+);

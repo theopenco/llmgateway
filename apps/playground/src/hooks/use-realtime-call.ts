@@ -704,14 +704,22 @@ export function useRealtimeCall({
 		[failCall, handleServerEvent, model, updateStatus],
 	);
 
-	const start = useCallback(() => {
-		if (statusRef.current !== "idle" || !model) {
+	/** Clear the finished call from view. No-op while a call is in progress. */
+	const reset = useCallback(() => {
+		if (statusRef.current !== "idle") {
 			return;
 		}
 		setTranscript([]);
 		setUsage(EMPTY_USAGE);
 		setEvents([]);
 		setElapsedSeconds(0);
+	}, []);
+
+	const start = useCallback(() => {
+		if (statusRef.current !== "idle" || !model) {
+			return;
+		}
+		reset();
 		// The AudioContext must be created and resumed synchronously inside the
 		// click gesture (before any await) or Safari drops the user activation.
 		const context = new AudioContext();
@@ -720,7 +728,7 @@ export function useRealtimeCall({
 		updateStatus("preparing-audio");
 		const callId = callIdRef.current;
 		void runStart(context, callId);
-	}, [model, runStart, updateStatus]);
+	}, [model, reset, runStart, updateStatus]);
 
 	const end = useCallback(() => {
 		if (statusRef.current === "idle") {
@@ -761,5 +769,6 @@ export function useRealtimeCall({
 		outputLevel,
 		start,
 		end,
+		reset,
 	};
 }

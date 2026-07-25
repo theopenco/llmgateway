@@ -36,20 +36,30 @@ import {
 	SidebarMenu,
 	SidebarMenuButton,
 	SidebarMenuItem,
+	useSidebar,
 } from "@/components/ui/sidebar";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useUser } from "@/hooks/useUser";
 import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
 import { useAuth } from "@/lib/auth-client";
 
+import { CallHistoryList } from "./call-history-list";
 import { OrganizationSwitcher } from "./organization-switcher";
+import { SidebarNewAction } from "./sidebar-actions";
 
+import type { CallHistoryItem } from "./call-history-list";
 import type { Organization } from "@/lib/types";
 
 interface RealtimeSidebarProps {
 	organizations: Organization[];
 	selectedOrganization: Organization | null;
 	onSelectOrganization: (organization: Organization | null) => void;
+	historyItems: CallHistoryItem[];
+	isHistoryLoading?: boolean;
+	currentItemId?: string | null;
+	onNewCall: () => void;
+	onItemClick: (itemId: string) => void;
+	onItemDeleted?: (itemId: string) => void;
 	className?: string;
 }
 
@@ -57,6 +67,12 @@ export function RealtimeSidebar({
 	organizations,
 	selectedOrganization,
 	onSelectOrganization,
+	historyItems,
+	isHistoryLoading = false,
+	currentItemId,
+	onNewCall,
+	onItemClick,
+	onItemDeleted,
 	className,
 }: RealtimeSidebarProps) {
 	const switcherOrganizations = organizations.filter(
@@ -74,6 +90,7 @@ export function RealtimeSidebar({
 	const withOrg = (path: string) =>
 		orgIdParam ? `${path}?orgId=${orgIdParam}` : path;
 	const posthog = usePostHog();
+	const { state: sidebarState, isMobile } = useSidebar();
 	const { user, isLoading: isUserLoading } = useUser();
 	const { signOut } = useAuth();
 	const { organization, isLoading: isOrgLoading } = useOrganization();
@@ -177,6 +194,7 @@ export function RealtimeSidebar({
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
+					<SidebarNewAction label="New Call" onAction={onNewCall} />
 					<SidebarMenuItem>
 						<SidebarMenuButton
 							asChild
@@ -278,6 +296,18 @@ export function RealtimeSidebar({
 							</SidebarMenuItem>
 						</SidebarMenu>
 					) : null}
+				</div>
+				<div
+					aria-hidden={sidebarState === "collapsed" && !isMobile}
+					className="flex min-h-0 flex-1 flex-col transition-opacity duration-200 ease-linear group-data-[collapsible=icon]:pointer-events-none group-data-[collapsible=icon]:opacity-0"
+				>
+					<CallHistoryList
+						items={historyItems}
+						isLoading={isHistoryLoading}
+						currentItemId={currentItemId}
+						onItemClick={onItemClick}
+						onItemDeleted={onItemDeleted}
+					/>
 				</div>
 			</SidebarContent>
 

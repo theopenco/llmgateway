@@ -36,7 +36,13 @@ import {
 	useRealtimeCall,
 	type RealtimeCallStatus,
 } from "@/hooks/use-realtime-call";
+import {
+	useRealtimeHistory,
+	useRealtimeHistoryItem,
+	useSaveRealtimeHistory,
+} from "@/hooks/usePlaygroundHistory";
 import { useUser } from "@/hooks/useUser";
+import { deriveCallTitle, formatCallDuration } from "@/lib/call-history";
 import {
 	getModelPreferenceCookie,
 	REALTIME_MODEL_COOKIE,
@@ -66,12 +72,6 @@ const STATUS_LABELS: Record<RealtimeCallStatus, string> = {
 	live: "Live",
 	ending: "Ending…",
 };
-
-function formatElapsed(totalSeconds: number): string {
-	const minutes = Math.floor(totalSeconds / 60);
-	const seconds = totalSeconds % 60;
-	return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-}
 
 /**
  * Restrict the catalogue to models that have at least one active realtime
@@ -177,6 +177,7 @@ export default function RealtimePageClient({
 		outputLevel,
 		start,
 		end,
+		reset,
 	} = useRealtimeCall({
 		model: selectedModel || null,
 		voice: voice || null,
@@ -187,6 +188,113 @@ export default function RealtimePageClient({
 	const showAuthDialog = !isAuthenticated && !isUserLoading && !user;
 	const inCall = status !== "idle";
 	const controlsLocked = inCall;
+
+	const { data: historyData, isLoading: isHistoryLoading } = useRealtimeHistory(
+		isAuthenticated,
+		selectedOrganization?.id,
+	);
+	const { mutate: saveCallHistory } = useSaveRealtimeHistory();
+	const [viewedCallId, setViewedCallId] = useState<string | null>(null);
+	const { data: viewedCallData, isLoading: isViewedCallLoading } =
+		useRealtimeHistoryItem(inCall ? null : viewedCallId);
+
+	// Persist the transcript once per call, when the call returns to idle. The
+	// browser is the only place a realtime transcript exists — the gateway
+	// deliberately does not store conversation content.
+	const savedCallRef = useRef(false);
+	const previousStatusRef = useRef<RealtimeCallStatus>("idle");
+	useEffect(() => {
+		const previous = previousStatusRef.current;
+		previousStatusRef.current = status;
+		if (status !== "idle" || previous === "idle" || savedCallRef.current) {
+			return;
+		}
+		const spoken = transcript.filter((entry) => entry.text.trim().length > 0);
+		if (spoken.length === 0 || !selectedModel) {
+			return;
+		}
+		savedCallRef.current = true;
+		saveCallHistory({
+			body: {
+				title: deriveCallTitle(spoken),
+				model: selectedModel,
+				durationSeconds: elapsedSeconds,
+				// Upstream item ids are dropped: they identify a session that no
+				// longer exists and are not needed to replay the conversation.
+				transcript: spoken.map((entry) => ({
+					role: entry.role,
+					text: entry.text,
+					status: entry.status,
+					timestamp: entry.timestamp,
+				})),
+				usage,
+				...(voice ? { voice } : {}),
+				...(selectedOrganization?.id
+					? { organizationId: selectedOrganization.id }
+					: {}),
+			},
+		});
+	}, [
+		elapsedSeconds,
+		saveCallHistory,
+		selectedModel,
+		selectedOrganization?.id,
+		status,
+		transcript,
+		usage,
+		voice,
+	]);
+
+	const historyItems = useMemo(
+		() => historyData?.items ?? [],
+		[historyData?.items],
+	);
+	const viewedCall = viewedCallData?.item ?? null;
+	const isViewingHistory = !inCall && !!viewedCallId;
+
+	// Saved turns carry no upstream item id, so they are keyed by position.
+	const displayedTurns = useMemo(() => {
+		if (isViewingHistory) {
+			return (viewedCall?.transcript ?? []).map((entry, index) => ({
+				key: `saved-${index}`,
+				role: entry.role,
+				text: entry.text,
+				status: entry.status,
+			}));
+		}
+		return transcript.map((entry) => ({
+			key: `${entry.role}-${entry.id}`,
+			role: entry.role,
+			text: entry.text,
+			status: entry.status,
+		}));
+	}, [isViewingHistory, transcript, viewedCall]);
+
+	const displayedUsage = isViewingHistory
+		? viewedCall?.usage
+		: usage.responses > 0 || inCall
+			? usage
+			: null;
+
+	const handleSelectCall = useCallback(
+		(itemId: string) => {
+			if (inCall) {
+				toast.error("End the current call before opening a past one.");
+				return;
+			}
+			setViewedCallId(itemId);
+		},
+		[inCall],
+	);
+
+	const handleNewCall = useCallback(() => {
+		setViewedCallId(null);
+		reset();
+	}, [reset]);
+
+	const handleCallDeleted = useCallback((itemId: string) => {
+		setViewedCallId((current) => (current === itemId ? null : current));
+	}, []);
 
 	const returnUrl = useMemo(() => {
 		const search = searchParams.toString();
@@ -246,6 +354,8 @@ export default function RealtimePageClient({
 			model: selectedModel,
 			voice,
 		});
+		savedCallRef.current = false;
+		setViewedCallId(null);
 		start();
 	}, [posthog, selectedModel, start, voice]);
 
@@ -258,6 +368,12 @@ export default function RealtimePageClient({
 					organizations={organizations}
 					selectedOrganization={selectedOrganization}
 					onSelectOrganization={handleSelectOrganization}
+					historyItems={historyItems}
+					isHistoryLoading={isHistoryLoading}
+					currentItemId={viewedCallId}
+					onNewCall={handleNewCall}
+					onItemClick={handleSelectCall}
+					onItemDeleted={handleCallDeleted}
 				/>
 				<div className="flex flex-1 flex-col min-w-0">
 					<header className="bg-background flex items-center gap-3 border-b p-4">
@@ -314,7 +430,7 @@ export default function RealtimePageClient({
 							</span>
 							{inCall && (
 								<span className="text-muted-foreground tabular-nums">
-									{formatElapsed(elapsedSeconds)}
+									{formatCallDuration(elapsedSeconds)}
 								</span>
 							)}
 						</div>
@@ -349,28 +465,55 @@ export default function RealtimePageClient({
 						) : (
 							<>
 								<div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-3 p-4">
-									{transcript.length === 0 ? (
+									{isViewingHistory && viewedCall && (
+										<div className="bg-muted/40 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-4 py-2.5 text-xs">
+											<span className="text-sm font-medium">
+												{viewedCall.title}
+											</span>
+											<span className="text-muted-foreground">
+												{new Date(viewedCall.createdAt).toLocaleString()}
+											</span>
+											<span className="text-muted-foreground tabular-nums">
+												{formatCallDuration(viewedCall.durationSeconds)}
+											</span>
+											<span className="text-muted-foreground">
+												{viewedCall.model}
+												{viewedCall.voice ? ` · ${viewedCall.voice}` : ""}
+											</span>
+											<Button
+												variant="ghost"
+												size="sm"
+												className="text-muted-foreground ml-auto h-7 text-xs"
+												onClick={handleNewCall}
+											>
+												Close
+											</Button>
+										</div>
+									)}
+									{displayedTurns.length === 0 ? (
 										<div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
 											<Phone className="text-muted-foreground/50 h-12 w-12" />
 											<p className="text-muted-foreground text-sm">
-												{inCall
-													? "Say something — the transcript appears here."
-													: "Start a call to have a live voice conversation."}
+												{isViewedCallLoading
+													? "Loading transcript…"
+													: inCall
+														? "Say something — the transcript appears here."
+														: "Start a call to have a live voice conversation."}
 											</p>
 										</div>
 									) : (
 										<div className="flex flex-col gap-3 pb-4">
-											{transcript.map((entry) => (
+											{displayedTurns.map((turn) => (
 												<div
-													key={`${entry.role}-${entry.id}`}
+													key={turn.key}
 													className={
-														entry.role === "user"
+														turn.role === "user"
 															? "self-end max-w-[80%] rounded-2xl rounded-br-sm bg-primary px-4 py-2 text-sm text-primary-foreground"
 															: "self-start max-w-[80%] rounded-2xl rounded-bl-sm bg-muted px-4 py-2 text-sm"
 													}
 												>
-													{entry.text || "…"}
-													{entry.status === "interrupted" && (
+													{turn.text || "…"}
+													{turn.status === "interrupted" && (
 														<span className="text-muted-foreground ml-2 text-xs italic">
 															(interrupted)
 														</span>
@@ -437,14 +580,14 @@ export default function RealtimePageClient({
 											</>
 										)}
 									</div>
-									{(usage.responses > 0 || inCall) && (
+									{displayedUsage && (
 										<div className="text-muted-foreground mx-auto w-full max-w-3xl px-6 pb-3 text-center text-xs">
-											{usage.responses} response
-											{usage.responses === 1 ? "" : "s"} ·{" "}
-											{usage.inputTokens.toLocaleString()} in /{" "}
-											{usage.outputTokens.toLocaleString()} out tokens (
-											{usage.audioInputTokens.toLocaleString()} /{" "}
-											{usage.audioOutputTokens.toLocaleString()} audio)
+											{displayedUsage.responses} response
+											{displayedUsage.responses === 1 ? "" : "s"} ·{" "}
+											{displayedUsage.inputTokens.toLocaleString()} in /{" "}
+											{displayedUsage.outputTokens.toLocaleString()} out tokens
+											({displayedUsage.audioInputTokens.toLocaleString()} /{" "}
+											{displayedUsage.audioOutputTokens.toLocaleString()} audio)
 										</div>
 									)}
 									<Collapsible>
