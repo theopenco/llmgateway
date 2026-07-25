@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "b541cfed-0088-460d-b4ba-c575d41ec807",
-  "prevId": "b5c2b4bc-a261-47ab-828c-6a87059b8c9e",
+  "id": "cf228806-158f-44c7-84a5-b06eab58b962",
+  "prevId": "ca898c4f-668f-4620-9484-16a22f15229f",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -19556,6 +19556,19 @@
     {
       "type": "text",
       "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "managed_provider_key_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "video_job"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
       "default": null,
@@ -26684,6 +26697,23 @@
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
       "name": "video_job_end_customer_wallet_id_wallet_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "video_job"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "managed_provider_key_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "provider_key",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "name": "video_job_managed_provider_key_id_provider_key_id_fkey",
       "entityType": "fks",
       "schema": "public",
       "table": "video_job"
