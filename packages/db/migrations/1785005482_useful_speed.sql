@@ -1,5 +1,6 @@
 ALTER TABLE "provider_key" ADD COLUMN "token_ciphertext" text;--> statement-breakpoint
 ALTER TABLE "provider_key" ADD COLUMN "token_masked" text;--> statement-breakpoint
+ALTER TABLE "provider_key" ADD COLUMN "token_hash" text;--> statement-breakpoint
 ALTER TABLE "provider_key" ADD COLUMN "managed" boolean DEFAULT false NOT NULL;--> statement-breakpoint
 ALTER TABLE "provider_key" ADD COLUMN "comment" text;--> statement-breakpoint
 ALTER TABLE "provider_key" ADD COLUMN "config" jsonb;--> statement-breakpoint
