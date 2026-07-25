@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
-	base64ByteLength,
 	computeRms,
 	floatToPcm16Base64,
 	RealtimePlayback,
@@ -40,14 +39,6 @@ export interface RealtimeUsageTotals {
 	audioOutputTokens: number;
 }
 
-export interface RealtimeLoggedEvent {
-	id: number;
-	direction: "sent" | "received";
-	type: string;
-	payload: string;
-	timestamp: number;
-}
-
 const EMPTY_USAGE: RealtimeUsageTotals = {
 	responses: 0,
 	inputTokens: 0,
@@ -57,7 +48,6 @@ const EMPTY_USAGE: RealtimeUsageTotals = {
 	audioOutputTokens: 0,
 };
 
-const MAX_LOGGED_EVENTS = 500;
 const MAX_WS_BUFFERED_BYTES = 1024 * 1024;
 /** Meter refresh cadence — fast enough to look live, slow enough to be cheap. */
 const METER_INTERVAL_MS = 80;
@@ -82,25 +72,6 @@ interface MintResponse {
 	ws_url: string;
 }
 
-/**
- * Replace base64 audio payloads with byte-count placeholders so the event
- * log never holds megabytes of audio (or anything resembling a credential).
- */
-function sanitizeEventPayload(event: Record<string, unknown>): string {
-	const clone: Record<string, unknown> = { ...event };
-	if (
-		typeof clone.delta === "string" &&
-		typeof clone.type === "string" &&
-		clone.type.includes("audio.delta")
-	) {
-		clone.delta = `<${base64ByteLength(clone.delta)} audio bytes>`;
-	}
-	if (typeof clone.audio === "string") {
-		clone.audio = `<${base64ByteLength(clone.audio)} audio bytes>`;
-	}
-	return JSON.stringify(clone);
-}
-
 function readCount(value: unknown): number {
 	return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
@@ -115,7 +86,6 @@ export function useRealtimeCall({
 	const [elapsedSeconds, setElapsedSeconds] = useState(0);
 	const [transcript, setTranscript] = useState<RealtimeTranscriptEntry[]>([]);
 	const [usage, setUsage] = useState<RealtimeUsageTotals>(EMPTY_USAGE);
-	const [events, setEvents] = useState<RealtimeLoggedEvent[]>([]);
 	const [userSpeaking, setUserSpeaking] = useState(false);
 	const [assistantSpeaking, setAssistantSpeaking] = useState(false);
 	const [inputLevel, setInputLevel] = useState(0);
@@ -124,7 +94,6 @@ export function useRealtimeCall({
 	const statusRef = useRef<RealtimeCallStatus>("idle");
 	const mutedRef = useRef(false);
 	const callIdRef = useRef(0);
-	const eventIdRef = useRef(0);
 	const audioContextRef = useRef<AudioContext | null>(null);
 	const streamRef = useRef<MediaStream | null>(null);
 	const captureRef = useRef<MicrophoneCaptureHandles | null>(null);
@@ -146,42 +115,13 @@ export function useRealtimeCall({
 		setStatus(next);
 	}, []);
 
-	const logEvent = useCallback(
-		(direction: "sent" | "received", event: Record<string, unknown>) => {
-			const type = typeof event.type === "string" ? event.type : "unknown";
-			// Microphone appends are far too chatty for a debugging log.
-			if (type === "input_audio_buffer.append") {
-				return;
-			}
-			eventIdRef.current += 1;
-			const entry: RealtimeLoggedEvent = {
-				id: eventIdRef.current,
-				direction,
-				type,
-				payload: sanitizeEventPayload(event),
-				timestamp: Date.now(),
-			};
-			setEvents((prev) => {
-				const next = [...prev, entry];
-				return next.length > MAX_LOGGED_EVENTS
-					? next.slice(next.length - MAX_LOGGED_EVENTS)
-					: next;
-			});
-		},
-		[],
-	);
-
-	const sendEvent = useCallback(
-		(event: Record<string, unknown>) => {
-			const ws = wsRef.current;
-			if (!ws || ws.readyState !== WebSocket.OPEN) {
-				return;
-			}
-			ws.send(JSON.stringify(event));
-			logEvent("sent", event);
-		},
-		[logEvent],
-	);
+	const sendEvent = useCallback((event: Record<string, unknown>) => {
+		const ws = wsRef.current;
+		if (!ws || ws.readyState !== WebSocket.OPEN) {
+			return;
+		}
+		ws.send(JSON.stringify(event));
+	}, []);
 
 	/**
 	 * Sample both meters on one timer so a live call costs a bounded number of
@@ -349,7 +289,6 @@ export function useRealtimeCall({
 
 	const handleServerEvent = useCallback(
 		(event: Record<string, unknown>) => {
-			logEvent("received", event);
 			const type = typeof event.type === "string" ? event.type : "";
 			switch (type) {
 				case "session.created": {
@@ -527,14 +466,7 @@ export function useRealtimeCall({
 				default:
 			}
 		},
-		[
-			handleBargeIn,
-			logEvent,
-			sendEvent,
-			startMeterLoop,
-			updateStatus,
-			upsertTranscript,
-		],
+		[handleBargeIn, sendEvent, startMeterLoop, updateStatus, upsertTranscript],
 	);
 
 	const runStart = useCallback(
@@ -711,7 +643,6 @@ export function useRealtimeCall({
 		}
 		setTranscript([]);
 		setUsage(EMPTY_USAGE);
-		setEvents([]);
 		setElapsedSeconds(0);
 	}, []);
 
@@ -762,7 +693,6 @@ export function useRealtimeCall({
 		elapsedSeconds,
 		transcript,
 		usage,
-		events,
 		userSpeaking,
 		assistantSpeaking,
 		inputLevel,

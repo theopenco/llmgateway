@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-	base64ByteLength,
 	computeRms,
 	floatToPcm16Base64,
 	pcm16Base64ToFloat,
@@ -119,15 +118,5 @@ describe("rmsToLevel", () => {
 			expect(level).toBeGreaterThan(previous);
 			previous = level;
 		}
-	});
-});
-
-describe("base64ByteLength", () => {
-	it("computes decoded lengths without decoding", () => {
-		expect(base64ByteLength(btoa("a"))).toBe(1);
-		expect(base64ByteLength(btoa("ab"))).toBe(2);
-		expect(base64ByteLength(btoa("abc"))).toBe(3);
-		expect(base64ByteLength(btoa("abcd"))).toBe(4);
-		expect(base64ByteLength("")).toBe(0);
 	});
 });

@@ -1,13 +1,6 @@
 "use client";
 
-import {
-	ChevronDown,
-	Mic,
-	MicOff,
-	Phone,
-	PhoneOff,
-	Terminal,
-} from "lucide-react";
+import { Mic, MicOff, Phone, PhoneOff } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -18,11 +11,6 @@ import { AuthDialog } from "@/components/playground/auth-dialog";
 import { RealtimeSidebar } from "@/components/playground/realtime-sidebar";
 import { VoiceActivityIndicator } from "@/components/playground/voice-activity-indicator";
 import { Button } from "@/components/ui/button";
-import {
-	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import { Label } from "@/components/ui/label";
 import {
 	Select,
@@ -170,7 +158,6 @@ export default function RealtimePageClient({
 		elapsedSeconds,
 		transcript,
 		usage,
-		events,
 		userSpeaking,
 		assistantSpeaking,
 		inputLevel,
@@ -590,49 +577,6 @@ export default function RealtimePageClient({
 											{displayedUsage.audioOutputTokens.toLocaleString()} audio)
 										</div>
 									)}
-									<Collapsible>
-										<div className="mx-auto w-full max-w-3xl px-6 pb-4">
-											<CollapsibleTrigger asChild>
-												<Button
-													variant="ghost"
-													size="sm"
-													className="text-muted-foreground gap-2 text-xs"
-												>
-													<Terminal className="h-3.5 w-3.5" />
-													Event log ({events.length})
-													<ChevronDown className="h-3.5 w-3.5" />
-												</Button>
-											</CollapsibleTrigger>
-											<CollapsibleContent>
-												<div className="bg-muted/50 mt-2 max-h-64 overflow-y-auto rounded-md border p-2 font-mono text-[11px] leading-relaxed">
-													{events.length === 0 ? (
-														<div className="text-muted-foreground p-2">
-															No events yet.
-														</div>
-													) : (
-														events.map((event) => (
-															<div
-																key={event.id}
-																className="whitespace-pre-wrap break-all"
-															>
-																<span
-																	className={
-																		event.direction === "sent"
-																			? "text-blue-600 dark:text-blue-400"
-																			: "text-muted-foreground"
-																	}
-																>
-																	{event.direction === "sent" ? "→" : "←"}{" "}
-																	{event.type}
-																</span>{" "}
-																{event.payload}
-															</div>
-														))
-													)}
-												</div>
-											</CollapsibleContent>
-										</div>
-									</Collapsible>
 								</div>
 							</>
 						)}

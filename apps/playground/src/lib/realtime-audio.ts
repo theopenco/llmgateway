@@ -78,15 +78,6 @@ export function pcm16Base64ToFloat(base64: string): Float32Array {
 }
 
 /**
- * Byte length of a base64 payload without decoding it (for the sanitized
- * event log).
- */
-export function base64ByteLength(base64: string): number {
-	const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
-	return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
-}
-
-/**
  * Root-mean-square amplitude of a mono Float32 buffer.
  */
 export function computeRms(samples: Float32Array): number {
