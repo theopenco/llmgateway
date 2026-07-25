@@ -253,14 +253,15 @@ function RefundButton({
 			</AlertDialogTrigger>
 			<AlertDialogContent>
 				<AlertDialogHeader>
-					<AlertDialogTitle>Refund this payment?</AlertDialogTitle>
-					<AlertDialogDescription>
-						{formatAmount(transaction.amount, transaction.currency)} will be
-						refunded to your payment method.{" "}
+					<AlertDialogTitle>
 						{isPlanPayment(transaction.type)
-							? "Your chat plan will be cancelled immediately. "
-							: "The purchased credits will be removed from your balance. "}
-						This cannot be undone.
+							? "Refund and cancel your membership?"
+							: "Refund this payment?"}
+					</AlertDialogTitle>
+					<AlertDialogDescription>
+						{isPlanPayment(transaction.type)
+							? `Refunding cancels your Lounge membership completely: ${formatAmount(transaction.amount, transaction.currency)} goes back to your payment method and your access ends right away — not at the end of the billing period — so the rest of this cycle's credits are lost. To keep using the Lounge you would have to subscribe again. This cannot be undone.`
+							: `${formatAmount(transaction.amount, transaction.currency)} will be refunded to your payment method. The purchased credits will be removed from your balance. This cannot be undone.`}
 					</AlertDialogDescription>
 				</AlertDialogHeader>
 				<div className="space-y-2">
@@ -286,7 +287,7 @@ function RefundButton({
 				</div>
 				<AlertDialogFooter>
 					<AlertDialogCancel disabled={refundMutation.isPending}>
-						Cancel
+						{isPlanPayment(transaction.type) ? "Keep my membership" : "Cancel"}
 					</AlertDialogCancel>
 					<AlertDialogAction
 						disabled={refundMutation.isPending || reason.trim().length === 0}
@@ -300,7 +301,9 @@ function RefundButton({
 							});
 						}}
 					>
-						Request refund
+						{isPlanPayment(transaction.type)
+							? "Refund and cancel"
+							: "Request refund"}
 					</AlertDialogAction>
 				</AlertDialogFooter>
 			</AlertDialogContent>
