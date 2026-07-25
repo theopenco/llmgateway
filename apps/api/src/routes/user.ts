@@ -2,7 +2,12 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { apiAuth as auth, updateResendContact } from "@/auth/config.js";
+import {
+	apiAuth as auth,
+	deleteResendContact,
+	updateResendContact,
+} from "@/auth/config.js";
+import { notifyUserAccountDeleted } from "@/utils/discord.js";
 import { computeProfileData, profileSchema } from "@/utils/profile.js";
 
 import { and, db, eq, tables } from "@llmgateway/db";
@@ -498,6 +503,10 @@ user.openapi(deleteUser, async (c) => {
 	}
 
 	await db.delete(tables.user).where(eq(tables.user.id, authUser.id));
+
+	await notifyUserAccountDeleted(userRecord.email, userRecord.name);
+
+	await deleteResendContact(userRecord.email);
 
 	await auth.api.signOut({
 		headers: c.req.raw.headers,

@@ -210,19 +210,27 @@ async function runRealtimePreflightInner(
 
 	const providerId = match.mapping.providerId;
 
-	const iamValidation = await validateRequestModelAccess(
+	const iamValidation = await validateRequestModelAccess({
 		apiKey,
-		match.modelId,
-		providerId,
-		match.modelDef,
-		input.clientIp,
-	);
+		organizationId: project.organizationId,
+		requestedModel: match.modelId,
+		requestedProvider: providerId,
+		activeModelInfo: match.modelDef,
+		clientIp: input.clientIp,
+	});
 	if (!iamValidation.allowed) {
 		try {
 			throwIamException(iamValidation.reason ?? "Model access denied");
 		} catch (error) {
 			throw toConnectError(error);
 		}
+		// Defense in depth: never fall through to credential resolution if
+		// throwIamException ever stops throwing.
+		throw new RealtimeConnectError(
+			403,
+			"model_access_denied",
+			iamValidation.reason ?? "Model access denied",
+		);
 	}
 
 	await assertProviderCompliant(organization, providerId, {
@@ -238,13 +246,14 @@ async function runRealtimePreflightInner(
 	// restricted by model, price or IP cannot reach a pricier ASR model.
 	const allowedTranscriptionModelIds: string[] = [];
 	for (const candidate of listRealtimeTranscriptionMappings(providerId)) {
-		const validation = await validateRequestModelAccess(
+		const validation = await validateRequestModelAccess({
 			apiKey,
-			candidate.modelId,
-			providerId,
-			candidate.modelDef,
-			input.clientIp,
-		);
+			organizationId: project.organizationId,
+			requestedModel: candidate.modelId,
+			requestedProvider: providerId,
+			activeModelInfo: candidate.modelDef,
+			clientIp: input.clientIp,
+		});
 		if (validation.allowed) {
 			allowedTranscriptionModelIds.push(candidate.modelId);
 		}

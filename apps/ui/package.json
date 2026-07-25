@@ -70,7 +70,7 @@
 		"lucide-react": "^0.548.0",
 		"markdown-to-jsx": "7.7.17",
 		"motion": "12.23.24",
-		"next": "16.2.10",
+		"next": "16.2.11",
 		"next-themes": "^0.4.6",
 		"openapi-fetch": "0.15.0",
 		"openapi-react-query": "0.5.1",
@@ -98,7 +98,7 @@
 		"@types/react-dom": "^19.2.3",
 		"autoprefixer": "^10.4.21",
 		"openapi-typescript": "7.10.1",
-		"postcss": "^8.5.10",
+		"postcss": "^8.5.23",
 		"tailwindcss": "^4.1.12",
 		"zod": "3.25.75"
 	}

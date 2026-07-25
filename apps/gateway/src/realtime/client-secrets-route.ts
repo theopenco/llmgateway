@@ -18,10 +18,19 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 export const realtimeClientSecretsRoute = new OpenAPIHono<ServerTypes>();
 
 export function isRealtimeEnabled(): boolean {
-	return (
-		process.env.REALTIME_ENABLED !== "false" &&
-		process.env.REALTIME_DISABLED !== "true"
-	);
+	// Kill switch, independent of how realtime is deployed.
+	if (process.env.REALTIME_DISABLED === "true") {
+		return false;
+	}
+	// Set explicitly by deployments that route /v1/realtime to a dedicated
+	// realtime service (the Helm chart mirrors realtime.enabled here).
+	if (process.env.REALTIME_ENABLED !== undefined) {
+		return process.env.REALTIME_ENABLED !== "false";
+	}
+	// Otherwise the only realtime backend this process can vouch for is its own
+	// inline listener. Minting without one hands out secrets for a WebSocket
+	// path that nothing serves.
+	return process.env.REALTIME_INLINE === "true";
 }
 
 // Only the session fields this gateway actually honors are accepted; unknown

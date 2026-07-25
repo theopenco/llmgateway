@@ -711,7 +711,15 @@ export const xaiModels = [
 				reasoningEfforts: ["none", "low", "medium", "high"],
 				tools: true,
 				jsonOutput: true,
-				supportedParameters: xaiSupportedParamsNoFreqPresence,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
 			},
 			{
 				providerId: "aws-bedrock",
@@ -975,6 +983,31 @@ export const xaiModels = [
 				jsonOutput: true,
 				reasoning: true,
 				supportedParameters: xaiSupportedParamsNoFreqPresence,
+			},
+		],
+	},
+	{
+		id: "grok-stt-1-0",
+		name: "Grok STT 1.0",
+		description:
+			"xAI's speech-to-text model. Transcribes audio files into text with word-level timestamps, speaker diarization, multichannel transcription, and inverse text normalization across 25 languages via the /v1/audio/transcriptions endpoint.",
+		family: "xai",
+		output: ["transcription"],
+		releasedAt: new Date("2026-07-23"),
+		providers: [
+			{
+				providerId: "xai",
+				externalId: "grok-stt-1.0",
+				inputPrice: "0",
+				outputPrice: "0",
+				// Billed on input audio duration at $0.10 per hour, against the
+				// `duration` (seconds) reported by the xAI /v1/stt response.
+				inputAudioHourPrice: "0.10",
+				requestPrice: "0",
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				transcriptions: true,
 			},
 		],
 	},

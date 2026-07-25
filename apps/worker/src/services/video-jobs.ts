@@ -19,9 +19,12 @@ import {
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
+	type EnvVarVariant,
+	getOrganizationEnvVariant,
 	getProviderEnvConfig,
 	getProviderEnvValue,
 	getProviderEnvVar,
+	getVariantEnvVarName,
 	models,
 	type Provider,
 	type ProviderModelMapping,
@@ -212,8 +215,10 @@ function getVideoProviderKeyFilter(
 function resolveProviderEnvToken(
 	providerId: Provider,
 	configIndex: number | null,
+	variant?: EnvVarVariant,
 ): string {
-	const envVarName = getProviderEnvVar(providerId);
+	const envVarName =
+		getVariantEnvVarName(providerId, variant) ?? getProviderEnvVar(providerId);
 	if (!envVarName) {
 		throw new Error(`No environment variable set for provider: ${providerId}`);
 	}
@@ -296,12 +301,28 @@ async function resolveVideoProviderContext(
 		};
 	}
 
-	const token = resolveProviderEnvToken(providerId, job.providerConfigIndex);
+	// Polls must use the same credential class as job creation: some providers
+	// scope job visibility to the creating API key, so an enterprise/plan
+	// org's job created with a variant env override must also be polled with it.
+	const organization = await db.query.organization.findFirst({
+		where: {
+			id: { eq: job.organizationId },
+		},
+	});
+	const envVariant = getOrganizationEnvVariant(organization);
+
+	const token = resolveProviderEnvToken(
+		providerId,
+		job.providerConfigIndex,
+		envVariant,
+	);
 	const baseUrl =
 		getProviderEnvValue(
 			providerId,
 			"baseUrl",
 			job.providerConfigIndex ?? undefined,
+			undefined,
+			envVariant,
 		) ?? defaultBaseUrl;
 	if (!baseUrl) {
 		throw new Error(`No base URL set for provider: ${job.usedProvider}`);
@@ -316,6 +337,7 @@ async function resolveVideoProviderContext(
 					undefined,
 					job.providerConfigIndex ?? undefined,
 					false,
+					envVariant,
 				)
 			: undefined,
 	};

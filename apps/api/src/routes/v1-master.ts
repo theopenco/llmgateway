@@ -2,23 +2,26 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import {
+	createIamRuleSchema,
+	iamRuleStatusEnum,
+	iamRuleTypeEnum,
+	iamRuleValueSchema,
+	validateIamRuleInput,
+} from "@/lib/iam-rules.js";
 import { maskToken } from "@/lib/maskToken.js";
 import {
 	buildApiKeyLimitAuditChanges,
 	createApiKeyForProject,
-	createIamRuleSchema,
 	hasPeriodConfigChanged,
 	iamRuleSchema,
-	iamRuleStatusEnum,
-	iamRuleTypeEnum,
-	iamRuleValueSchema,
 	isPlaygroundApiKey,
 	mergeApiKeyLimitConfig,
 	parseApiKeyPeriodConfig,
-	validateIamRuleInput,
 	type PartialApiKeyLimitConfig,
 } from "@/routes/keys-api.js";
 import { createProjectForOrg } from "@/routes/projects.js";
+import { memberIamRuleSchema } from "@/routes/team.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -1113,6 +1116,313 @@ v1Master.openapi(deleteIamRule, async (c) => {
 	});
 
 	return c.json({ message: "IAM rule deleted successfully" });
+});
+
+// Resolve a member reference to the membership row in this org. The reference
+// is a userOrganization id, or a user email when it contains "@" (generated
+// ids never do). Email lookups still require the user to be a member of the
+// master key's organization.
+async function loadMemberForOrg(memberRef: string, organizationId: string) {
+	// Personal orgs have no team management (mirrors the team routes); the
+	// master-key middleware only checks plan, not kind, so guard here too.
+	const organization = await db.query.organization.findFirst({
+		where: { id: { eq: organizationId } },
+		columns: { kind: true },
+	});
+	if (organization?.kind === "devpass" || organization?.kind === "chat") {
+		throw new HTTPException(403, {
+			message: "Team management is not available for personal organizations.",
+		});
+	}
+
+	let membership;
+	if (memberRef.includes("@")) {
+		const user = await db.query.user.findFirst({
+			where: { email: { eq: memberRef.toLowerCase() } },
+		});
+		membership = user
+			? await db.query.userOrganization.findFirst({
+					where: {
+						userId: { eq: user.id },
+						organizationId: { eq: organizationId },
+					},
+					with: { user: { columns: { id: true, email: true } } },
+				})
+			: undefined;
+	} else {
+		membership = await db.query.userOrganization.findFirst({
+			where: {
+				id: { eq: memberRef },
+				organizationId: { eq: organizationId },
+			},
+			with: { user: { columns: { id: true, email: true } } },
+		});
+	}
+
+	if (!membership) {
+		throw new HTTPException(404, {
+			message: "Member not found in this organization",
+		});
+	}
+
+	return membership;
+}
+
+const memberParamDescription =
+	"Member reference: a membership id or the member's email address";
+
+const createMemberIamRule = createRoute({
+	method: "post",
+	path: "/members/{member}/iam",
+	request: {
+		params: z.object({
+			member: z.string().openapi({ description: memberParamDescription }),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: createIamRuleSchema,
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: z.object({ rule: memberIamRuleSchema.openapi({}) }),
+				},
+			},
+			description: "Member IAM rule created successfully via master key.",
+		},
+	},
+});
+
+v1Master.openapi(createMemberIamRule, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { member } = c.req.param();
+	const ruleData = c.req.valid("json");
+
+	validateIamRuleInput(ruleData);
+
+	const membership = await loadMemberForOrg(member, masterKey.organizationId);
+
+	const [rule] = await cdb
+		.insert(tables.userIamRule)
+		.values({
+			userOrganizationId: membership.id,
+			...ruleData,
+		})
+		.returning();
+
+	await logAuditEvent({
+		organizationId: masterKey.organizationId,
+		userId: masterKey.createdBy,
+		action: "team_member.iam_rule.create",
+		resourceType: "iam_rule",
+		resourceId: rule.id,
+		metadata: {
+			memberId: membership.id,
+			targetUserId: membership.userId,
+			targetUserEmail: membership.user?.email,
+			ruleType: ruleData.ruleType,
+			ruleValue: ruleData.ruleValue,
+		},
+	});
+
+	return c.json({ rule }, 201);
+});
+
+const listMemberIamRules = createRoute({
+	method: "get",
+	path: "/members/{member}/iam",
+	request: {
+		params: z.object({
+			member: z.string().openapi({ description: memberParamDescription }),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						rules: z.array(memberIamRuleSchema).openapi({}),
+					}),
+				},
+			},
+			description: "List IAM rules for an org member via master key.",
+		},
+	},
+});
+
+v1Master.openapi(listMemberIamRules, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { member } = c.req.param();
+
+	const membership = await loadMemberForOrg(member, masterKey.organizationId);
+
+	const rules = await db.query.userIamRule.findMany({
+		where: { userOrganizationId: { eq: membership.id } },
+	});
+
+	return c.json({ rules });
+});
+
+const updateMemberIamRule = createRoute({
+	method: "patch",
+	path: "/members/{member}/iam/{ruleId}",
+	request: {
+		params: z.object({
+			member: z.string().openapi({ description: memberParamDescription }),
+			ruleId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: updateIamRuleBody,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ rule: memberIamRuleSchema.openapi({}) }),
+				},
+			},
+			description: "Member IAM rule updated successfully via master key.",
+		},
+	},
+});
+
+v1Master.openapi(updateMemberIamRule, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { member, ruleId } = c.req.param();
+	const updates = c.req.valid("json");
+
+	const membership = await loadMemberForOrg(member, masterKey.organizationId);
+
+	const existingRule = await db.query.userIamRule.findFirst({
+		where: { id: { eq: ruleId }, userOrganizationId: { eq: membership.id } },
+	});
+
+	if (!existingRule) {
+		throw new HTTPException(404, {
+			message: "IAM rule not found for this member",
+		});
+	}
+
+	if (updates.ruleType || updates.ruleValue) {
+		validateIamRuleInput({
+			ruleType: updates.ruleType ?? existingRule.ruleType,
+			ruleValue: updates.ruleValue ?? existingRule.ruleValue,
+		});
+	}
+
+	const [updated] = await cdb
+		.update(tables.userIamRule)
+		.set(updates)
+		.where(eq(tables.userIamRule.id, ruleId))
+		.returning();
+
+	const changes: Record<string, { old: unknown; new: unknown }> = {};
+	for (const [key, value] of Object.entries(updates)) {
+		const before = (existingRule as Record<string, unknown>)[key];
+		if (JSON.stringify(before) !== JSON.stringify(value)) {
+			changes[key] = { old: before, new: value };
+		}
+	}
+
+	if (Object.keys(changes).length > 0) {
+		await logAuditEvent({
+			organizationId: masterKey.organizationId,
+			userId: masterKey.createdBy,
+			action: "team_member.iam_rule.update",
+			resourceType: "iam_rule",
+			resourceId: ruleId,
+			metadata: {
+				memberId: membership.id,
+				targetUserId: membership.userId,
+				targetUserEmail: membership.user?.email,
+				changes,
+			},
+		});
+	}
+
+	return c.json({ rule: updated });
+});
+
+const deleteMemberIamRule = createRoute({
+	method: "delete",
+	path: "/members/{member}/iam/{ruleId}",
+	request: {
+		params: z.object({
+			member: z.string().openapi({ description: memberParamDescription }),
+			ruleId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "Member IAM rule deleted successfully via master key.",
+		},
+	},
+});
+
+v1Master.openapi(deleteMemberIamRule, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { member, ruleId } = c.req.param();
+
+	const membership = await loadMemberForOrg(member, masterKey.organizationId);
+
+	const existingRule = await db.query.userIamRule.findFirst({
+		where: { id: { eq: ruleId }, userOrganizationId: { eq: membership.id } },
+	});
+
+	if (!existingRule) {
+		throw new HTTPException(404, {
+			message: "IAM rule not found for this member",
+		});
+	}
+
+	await cdb.delete(tables.userIamRule).where(eq(tables.userIamRule.id, ruleId));
+
+	await logAuditEvent({
+		organizationId: masterKey.organizationId,
+		userId: masterKey.createdBy,
+		action: "team_member.iam_rule.delete",
+		resourceType: "iam_rule",
+		resourceId: ruleId,
+		metadata: {
+			memberId: membership.id,
+			targetUserId: membership.userId,
+			targetUserEmail: membership.user?.email,
+			ruleType: existingRule.ruleType,
+		},
+	});
+
+	return c.json({ message: "Member IAM rule deleted successfully" });
 });
 
 export default v1Master;

@@ -41,7 +41,7 @@ const stamps: StampSpec[] = [
 		delay: 0.3,
 	},
 	{
-		name: "SoulForge",
+		name: "Empryo",
 		sub: "ADMITTED · /KEYS",
 		shape: "oval",
 		color: "text-violet-800 border-violet-800",
@@ -50,6 +50,17 @@ const stamps: StampSpec[] = [
 		left: "14%",
 		width: "40%",
 		delay: 0.45,
+	},
+	{
+		name: "SoulForge",
+		sub: "ADMITTED · /KEYS",
+		shape: "round",
+		color: "text-lime-700 border-lime-700",
+		rotation: 4,
+		top: "40%",
+		left: "56%",
+		width: "36%",
+		delay: 0.6,
 	},
 	{
 		name: "Cline",

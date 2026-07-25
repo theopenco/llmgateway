@@ -16,7 +16,8 @@ describe("speech", () => {
 			| "google-ai-studio"
 			| "google-vertex"
 			| "openai"
-			| "elevenlabs" = "google-ai-studio",
+			| "elevenlabs"
+			| "alibaba" = "google-ai-studio",
 	) {
 		await db.insert(tables.apiKey).values({
 			id: apiKeyId,
@@ -30,7 +31,9 @@ describe("speech", () => {
 				? "openai-test-key"
 				: provider === "elevenlabs"
 					? "elevenlabs-test-key"
-					: "google-test-key";
+					: provider === "alibaba"
+						? "alibaba-test-key"
+						: "google-test-key";
 		await db.insert(tables.providerKey).values({
 			id: `provider-key-${provider}-${apiKeyId}`,
 			token: providerToken,
@@ -426,6 +429,90 @@ describe("speech", () => {
 		expect(log?.finishReason).toBe("stop");
 		// eleven-multilingual-v2 bills $110 / 1M input characters.
 		expect(Number(log?.inputCost)).toBeCloseTo(input.length * 110e-6, 12);
+	});
+
+	test("/v1/audio/speech proxies Qwen TTS via DashScope and bills by characters", async () => {
+		await seedKeys("real-token-speech-qwen", "token-id-speech-qwen", "alibaba");
+
+		const input = "Hello from Qwen TTS";
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-qwen",
+			},
+			body: JSON.stringify({
+				model: "qwen-audio-3.0-tts-plus",
+				input,
+				voice: "longanlingxin",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		// DashScope emits a WAV file URL which the gateway downloads and returns.
+		expect(res.headers.get("Content-Type")).toBe("audio/wav");
+		const bytes = Buffer.from(await res.arrayBuffer());
+		expect(bytes.toString("ascii")).toBe("MOCK_DASHSCOPE_AUDIO");
+
+		const logs = await waitForLogs(1);
+		const log = logs.find(
+			(l) => l.usedModel === "alibaba/qwen-audio-3.0-tts-plus",
+		);
+		expect(log).toBeDefined();
+		expect(log?.hasError).toBe(false);
+		expect(log?.finishReason).toBe("stop");
+		// qwen-audio-3.0-tts-plus bills $20.00 / 1M input characters.
+		expect(Number(log?.inputCost)).toBeCloseTo(input.length * 20e-6, 12);
+	});
+
+	test("/v1/audio/speech rejects unsupported Qwen TTS response_format", async () => {
+		await seedKeys(
+			"real-token-speech-qwen-mp3",
+			"token-id-speech-qwen-mp3",
+			"alibaba",
+		);
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-qwen-mp3",
+			},
+			body: JSON.stringify({
+				model: "qwen-audio-3.0-tts-flash",
+				input: "Hello there",
+				response_format: "mp3",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain("Unsupported response_format");
+	});
+
+	test("/v1/audio/speech rejects unsupported Qwen TTS voice", async () => {
+		await seedKeys(
+			"real-token-speech-qwen-voice",
+			"token-id-speech-qwen-voice",
+			"alibaba",
+		);
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-qwen-voice",
+			},
+			body: JSON.stringify({
+				model: "qwen-audio-3.0-tts-plus",
+				input: "Hello there",
+				voice: "NotARealVoice",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain("Unsupported voice");
 	});
 
 	test("/v1/audio/speech returns a WAV file from ElevenLabs", async () => {

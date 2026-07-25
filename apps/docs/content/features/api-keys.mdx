@@ -158,6 +158,20 @@ The gateway reads the client IP from the first entry in the `X-Forwarded-For` he
 - **Allow rules of the same type are unioned**: a request passes if it matches _any_ of them. For example, one `allow_models` rule with `["claude-opus-4-6"]` and another with `["claude-fable-5"]` allow both models — exactly as if you had a single rule listing both.
 - **Allow rules of different types are combined with AND**: the request must satisfy every configured allow rule type (e.g. the model must be in the allowed models _and_ served by an allowed provider).
 - **Deny rules always apply**: a request matching any deny rule is rejected, regardless of allow rules.
+- **Moderation is special-cased**: `/v1/moderations` runs a fixed moderation model that cannot appear in model allowlists, so only provider and IP rules apply to it — model and pricing rules are skipped.
+
+## Member-Level IAM Rules
+
+The same rule types can also be configured **per organization member** by owners and admins on the [Team page](/learn/team) (admins cannot modify an owner's rules). Member-level rules act as an organization-wide ceiling for that member:
+
+- A request must pass **both** the member's rules and the API key's rules. Within each level, rules combine exactly as described above.
+- Key rules can only **narrow** access further — they can never grant anything the member's rules deny. For example, if an admin restricts a member to a single approved [provider](https://llmgateway.io/providers) with an `allow_providers` rule, the member can create a key rule allowing only a specific model from that provider, but a key rule allowing any other provider has no effect.
+- A key with **no rules of its own** is still fully constrained by its owner's member-level rules.
+- Member-level rules apply to all regular API keys created by that member, across every project in the organization.
+
+When a request is denied by a member-level rule, the `403` error message states that the restriction is an organization member IAM rule set by the org admin (rather than the key's own IAM configuration), so key holders know who to contact.
+
+Member-level rules can also be managed programmatically via the [master key API](/features/master-keys#member-iam-rules), addressing members by membership id or email.
 
 ## Error Handling
 

@@ -224,7 +224,14 @@ export async function recordRealtimeResponse(
 				// no data-retention storage fee applies.
 				dataStorageCost: "0",
 			})
-			.onConflictDoNothing()
+			.onConflictDoNothing({
+				target: [log.realtimeSessionId, log.realtimeUsageKey],
+				// Pinning the arbiter keeps any other unique violation loud rather
+				// than reporting it as an already-billed duplicate. The predicate
+				// repeats the index's own: PostgreSQL will not infer a partial
+				// unique index without it.
+				where: sql`realtime_usage_key is not null`,
+			})
 			.returning({ id: log.id });
 
 		if (rows.length === 0) {
@@ -364,7 +371,10 @@ export async function recordRealtimeTranscription(
 				},
 				dataStorageCost: "0",
 			})
-			.onConflictDoNothing()
+			.onConflictDoNothing({
+				target: [log.realtimeSessionId, log.realtimeUsageKey],
+				where: sql`realtime_usage_key is not null`,
+			})
 			.returning({ id: log.id });
 
 		if (rows.length === 0) {

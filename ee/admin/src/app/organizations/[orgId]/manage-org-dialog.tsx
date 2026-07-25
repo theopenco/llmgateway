@@ -32,6 +32,7 @@ interface ManageOrgDialogProps {
 	seats: number | null;
 	apiKeyLimit: number | null;
 	onSave: (data: {
+		name: string;
 		plan: Plan;
 		seats: number | null;
 		apiKeyLimit: number | null;
@@ -61,6 +62,7 @@ export function ManageOrgDialog({
 	const [open, setOpen] = useState(false);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [nameValue, setNameValue] = useState(orgName);
 	const [planValue, setPlanValue] = useState<Plan>(
 		plan === "pro" || plan === "enterprise" ? plan : "free",
 	);
@@ -72,6 +74,12 @@ export function ManageOrgDialog({
 	);
 
 	const handleSubmit = async () => {
+		const trimmedName = nameValue.trim();
+		if (trimmedName === "") {
+			setError("Organization name is required");
+			return;
+		}
+
 		let seatsToSave: number | null = null;
 		const trimmed = seatsValue.trim();
 		if (trimmed !== "") {
@@ -98,6 +106,7 @@ export function ManageOrgDialog({
 		setError(null);
 
 		const result = await onSave({
+			name: trimmedName,
 			plan: planValue,
 			seats: seatsToSave,
 			apiKeyLimit: apiKeyLimitToSave,
@@ -131,6 +140,17 @@ export function ManageOrgDialog({
 				</DialogHeader>
 
 				<div className="space-y-4 py-4">
+					<div className="space-y-2">
+						<Label htmlFor="manageName">Organization name</Label>
+						<Input
+							id="manageName"
+							value={nameValue}
+							onChange={(e) => setNameValue(e.target.value)}
+							placeholder="Organization name"
+							maxLength={255}
+						/>
+					</div>
+
 					<div className="space-y-2">
 						<Label htmlFor="managePlan">Plan tier</Label>
 						<Select

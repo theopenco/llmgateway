@@ -2,12 +2,14 @@ import {
 	models,
 	providers,
 	expandAllProviderRegions,
+	type EnvVarVariant,
 	type ProviderDefinition,
 	type ProviderModelMapping,
 	type ProviderId,
 	type VertexTokenType,
 	getProviderEnvValue,
 	getProviderEnvConfig,
+	getVariantEnvVarNameFor,
 	resolveVertexTokenType,
 } from "@llmgateway/models";
 
@@ -44,15 +46,17 @@ function buildVertexCompatibleEndpoint(
 	providerKeyOptions?: ProviderKeyOptions,
 	skipEnvVars?: boolean,
 	vertexTokenType?: VertexTokenType,
+	variant?: EnvVarVariant,
 ): string {
 	const endpoint = stream ? "streamGenerateContent" : "generateContent";
 	const model = externalId ?? "gemini-2.5-flash-lite";
 
 	const projectId =
 		providerKeyOptions?.google_vertex_project_id ??
-		getProviderEnvValue(provider, "project", configIndex);
+		getProviderEnvValue(provider, "project", configIndex, undefined, variant);
 	const region =
-		getProviderEnvValue(provider, "region", configIndex, "global") ?? "global";
+		getProviderEnvValue(provider, "region", configIndex, "global", variant) ??
+		"global";
 
 	if (!projectId) {
 		const providerEnv = getProviderEnvConfig(provider);
@@ -71,6 +75,7 @@ function buildVertexCompatibleEndpoint(
 					providerKeyOptions,
 					configIndex,
 					skipEnvVars,
+					variant,
 				))
 			: "api-key";
 	const baseEndpoint = `${url}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model}:${endpoint}`;
@@ -102,6 +107,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	"google-vertex": "https://aiplatform.googleapis.com",
 	"inference.net": "https://api.inference.net",
 	"together-ai": "https://api.together.ai",
+	"scx-ai": "https://api.scx.ai",
 	mistral: "https://api.mistral.ai",
 	xai: "https://api.x.ai",
 	groq: "https://api.groq.com/openai",
@@ -122,6 +128,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	canopywave: "https://inference.canopywave.io",
 	embercloud: "https://api.embercloud.ai",
 	deepinfra: "https://api.deepinfra.com/v1/openai",
+	gonka24: "https://api.gonka24.com",
 };
 
 export function getProviderDefaultBaseUrl(
@@ -157,6 +164,7 @@ export function getProviderEndpoint(
 	skipEnvVars?: boolean,
 	modelId?: string,
 	vertexTokenType?: VertexTokenType,
+	variant?: EnvVarVariant,
 ): string {
 	let externalId = model;
 	let providerMapping: ProviderModelMapping | undefined;
@@ -192,7 +200,7 @@ export function getProviderEndpoint(
 	): string | undefined =>
 		skipEnvVars
 			? defaultValue
-			: (getProviderEnvValue(p, key, configIndex, defaultValue) ??
+			: (getProviderEnvValue(p, key, configIndex, defaultValue, variant) ??
 				defaultValue);
 
 	// Generic region-based base URL resolution.
@@ -234,17 +242,45 @@ export function getProviderEndpoint(
 			case "glacier":
 				url = skipEnvVars
 					? undefined
-					: getProviderEnvValue("glacier", "baseUrl", configIndex);
+					: getProviderEnvValue(
+							"glacier",
+							"baseUrl",
+							configIndex,
+							undefined,
+							variant,
+						);
 				if (!url) {
 					throw new Error(
 						"Glacier provider requires LLM_GLACIER_BASE_URL environment variable",
 					);
 				}
 				break;
+			case "iceberg":
+				url = skipEnvVars
+					? undefined
+					: getProviderEnvValue(
+							"iceberg",
+							"baseUrl",
+							configIndex,
+							undefined,
+							variant,
+						);
+				if (!url) {
+					throw new Error(
+						"Iceberg provider requires LLM_ICEBERG_BASE_URL environment variable",
+					);
+				}
+				break;
 			case "granite":
 				url = skipEnvVars
 					? undefined
-					: getProviderEnvValue("granite", "baseUrl", configIndex);
+					: getProviderEnvValue(
+							"granite",
+							"baseUrl",
+							configIndex,
+							undefined,
+							variant,
+						);
 				if (!url) {
 					throw new Error(
 						"Granite provider requires LLM_GRANITE_BASE_URL environment variable",
@@ -270,6 +306,7 @@ export function getProviderEndpoint(
 						"region",
 						configIndex,
 						"global",
+						variant,
 					) ??
 					"global";
 				const vaDefaultHost =
@@ -284,7 +321,13 @@ export function getProviderEndpoint(
 			case "quartz":
 				url = skipEnvVars
 					? undefined
-					: getProviderEnvValue("quartz", "baseUrl", configIndex);
+					: getProviderEnvValue(
+							"quartz",
+							"baseUrl",
+							configIndex,
+							undefined,
+							variant,
+						);
 				if (!url) {
 					throw new Error(
 						"Quartz provider requires LLM_QUARTZ_BASE_URL environment variable",
@@ -294,7 +337,13 @@ export function getProviderEndpoint(
 			case "tundra":
 				url = skipEnvVars
 					? undefined
-					: getProviderEnvValue("tundra", "baseUrl", configIndex);
+					: getProviderEnvValue(
+							"tundra",
+							"baseUrl",
+							configIndex,
+							undefined,
+							variant,
+						);
 				if (!url) {
 					throw new Error(
 						"Tundra provider requires LLM_TUNDRA_BASE_URL environment variable",
@@ -319,7 +368,13 @@ export function getProviderEndpoint(
 				// over the region endpoint so regional requests don't bypass it.
 				const envBaseUrl = skipEnvVars
 					? undefined
-					: getProviderEnvValue("aws-bedrock", "baseUrl", configIndex);
+					: getProviderEnvValue(
+							"aws-bedrock",
+							"baseUrl",
+							configIndex,
+							undefined,
+							variant,
+						);
 				url =
 					envBaseUrl ??
 					regionBaseUrl ??
@@ -331,7 +386,13 @@ export function getProviderEndpoint(
 					providerKeyOptions?.azure_resource ??
 					(skipEnvVars
 						? undefined
-						: getProviderEnvValue("azure", "resource", configIndex));
+						: getProviderEnvValue(
+								"azure",
+								"resource",
+								configIndex,
+								undefined,
+								variant,
+							));
 
 				if (!resource) {
 					const azureEnv = getProviderEnvConfig("azure");
@@ -347,7 +408,13 @@ export function getProviderEndpoint(
 					providerKeyOptions?.azure_ai_foundry_resource ??
 					(skipEnvVars
 						? undefined
-						: getProviderEnvValue("azure-ai-foundry", "resource", configIndex));
+						: getProviderEnvValue(
+								"azure-ai-foundry",
+								"resource",
+								configIndex,
+								undefined,
+								variant,
+							));
 
 				if (!resource) {
 					const azureFoundryEnv = getProviderEnvConfig("azure-ai-foundry");
@@ -404,7 +471,8 @@ export function getProviderEndpoint(
 				? `${baseEndpoint}?${queryParams.join("&")}`
 				: baseEndpoint;
 		}
-		case "glacier": {
+		case "glacier":
+		case "iceberg": {
 			const endpoint = stream ? "streamGenerateContent" : "generateContent";
 			const baseEndpoint = externalId
 				? `${url}/v1beta/models/${externalId}:${endpoint}`
@@ -432,11 +500,18 @@ export function getProviderEndpoint(
 				providerKeyOptions,
 				skipEnvVars,
 				vertexTokenType,
+				variant,
 			);
 		case "vertex-openai": {
 			const projectId =
 				providerKeyOptions?.vertex_openai_project_id ??
-				getProviderEnvValue("vertex-openai", "project", configIndex);
+				getProviderEnvValue(
+					"vertex-openai",
+					"project",
+					configIndex,
+					undefined,
+					variant,
+				);
 			if (!projectId) {
 				const providerEnv = getProviderEnvConfig("vertex-openai");
 				throw new Error(
@@ -446,7 +521,13 @@ export function getProviderEndpoint(
 			const vertexRegion =
 				region ??
 				providerKeyOptions?.vertex_openai_region ??
-				getProviderEnvValue("vertex-openai", "region", configIndex, "global") ??
+				getProviderEnvValue(
+					"vertex-openai",
+					"region",
+					configIndex,
+					"global",
+					variant,
+				) ??
 				"global";
 			return `${url}/v1/projects/${projectId}/locations/${vertexRegion}/endpoints/openapi/chat/completions`;
 		}
@@ -464,10 +545,20 @@ export function getProviderEndpoint(
 				}
 			}
 			if (!vaProjectId) {
-				vaProjectId = process.env.LLM_VERTEX_ANTHROPIC_PROJECT;
+				vaProjectId =
+					process.env[
+						getVariantEnvVarNameFor("LLM_VERTEX_ANTHROPIC_PROJECT", variant) ??
+							"LLM_VERTEX_ANTHROPIC_PROJECT"
+					];
 			}
 			if (!vaProjectId) {
-				const saJson = process.env.LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON;
+				const saJson =
+					process.env[
+						getVariantEnvVarNameFor(
+							"LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON",
+							variant,
+						) ?? "LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON"
+					];
 				if (saJson) {
 					try {
 						const sa = JSON.parse(saJson) as { project_id?: string };
@@ -484,6 +575,7 @@ export function getProviderEndpoint(
 					"region",
 					configIndex,
 					"global",
+					variant,
 				) ??
 				"global";
 
@@ -538,6 +630,7 @@ export function getProviderEndpoint(
 					"deploymentType",
 					configIndex,
 					"ai-foundry",
+					variant,
 				) ??
 				"ai-foundry";
 
@@ -550,6 +643,7 @@ export function getProviderEndpoint(
 						"apiVersion",
 						configIndex,
 						"2024-10-21",
+						variant,
 					) ??
 					"2024-10-21";
 
@@ -557,7 +651,13 @@ export function getProviderEndpoint(
 					// gpt-image models require a preview api-version
 					const imageApiVersion =
 						providerKeyOptions?.azure_api_version ??
-						getProviderEnvValue("azure", "apiVersion", configIndex) ??
+						getProviderEnvValue(
+							"azure",
+							"apiVersion",
+							configIndex,
+							undefined,
+							variant,
+						) ??
 						"2025-04-01-preview";
 					return `${url}/openai/deployments/${externalId}/images/generations?api-version=${imageApiVersion}`;
 				}
@@ -574,6 +674,7 @@ export function getProviderEndpoint(
 					"useResponsesApi",
 					configIndex,
 					"true",
+					variant,
 				);
 
 				if (model && useResponsesApiEnv !== "false") {
@@ -600,6 +701,7 @@ export function getProviderEndpoint(
 					"apiVersion",
 					configIndex,
 					"2024-05-01-preview",
+					variant,
 				) ??
 				"2024-05-01-preview";
 			return `${url}/models/chat/completions?api-version=${apiVersion}`;
@@ -697,6 +799,7 @@ export function getProviderEndpoint(
 		case "xiaomi":
 		case "embercloud":
 		case "tundra":
+		case "scx-ai":
 		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;

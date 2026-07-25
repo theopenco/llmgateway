@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "17d8a336-1e7d-4907-bf9d-ec69cdcc272d",
-  "prevId": "2076928b-4a72-4fac-9eb6-0bc7e40350fc",
+  "id": "8709ad4b-99ed-418a-95e4-b56a514d5d9c",
+  "prevId": "ca898c4f-668f-4620-9484-16a22f15229f",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -258,6 +258,12 @@
     },
     {
       "isRlsEnabled": false,
+      "name": "model_survey_response",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
       "name": "organization",
       "entityType": "tables",
       "schema": "public"
@@ -445,6 +451,12 @@
     {
       "isRlsEnabled": false,
       "name": "user_favorite_model",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "user_iam_rule",
       "entityType": "tables",
       "schema": "public"
     },
@@ -1508,6 +1520,22 @@
       },
       "generated": null,
       "identity": null,
+      "name": "audio_output_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_model_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
       "name": "video_output_cost",
       "entityType": "columns",
       "schema": "public",
@@ -2185,6 +2213,22 @@
       "generated": null,
       "identity": null,
       "name": "audio_input_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key_hourly_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "audio_output_cost",
       "entityType": "columns",
       "schema": "public",
       "table": "api_key_hourly_stats"
@@ -5735,6 +5779,22 @@
       },
       "generated": null,
       "identity": null,
+      "name": "audio_output_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "global_model_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
       "name": "video_output_cost",
       "entityType": "columns",
       "schema": "public",
@@ -6399,6 +6459,22 @@
       "generated": null,
       "identity": null,
       "name": "audio_input_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "global_source_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "audio_output_cost",
       "entityType": "columns",
       "schema": "public",
       "table": "global_source_stats"
@@ -11575,6 +11651,233 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
+      "table": "model_survey_response"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_survey_response"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_survey_response"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "year",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_survey_response"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "quarter",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_survey_response"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_survey_response"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "organization_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_survey_response"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "model_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_survey_response"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "value_score",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_survey_response"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "quality_score",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_survey_response"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "speed_score",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_survey_response"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "would_recommend",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_survey_response"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "primary_use_case",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_survey_response"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "comment",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_survey_response"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "request_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_survey_response"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "dev_plan_tier",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_survey_response"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "reward_tier",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_survey_response"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
       "table": "organization"
     },
     {
@@ -14640,6 +14943,22 @@
       },
       "generated": null,
       "identity": null,
+      "name": "audio_output_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_model_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
       "name": "video_output_cost",
       "entityType": "columns",
       "schema": "public",
@@ -15332,6 +15651,22 @@
       },
       "generated": null,
       "identity": null,
+      "name": "audio_output_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_source_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
       "name": "video_output_cost",
       "entityType": "columns",
       "schema": "public",
@@ -15996,6 +16331,22 @@
       "generated": null,
       "identity": null,
       "name": "audio_input_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "audio_output_cost",
       "entityType": "columns",
       "schema": "public",
       "table": "project_hourly_stats"
@@ -18966,6 +19317,106 @@
       "entityType": "columns",
       "schema": "public",
       "table": "user_favorite_model"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "user_iam_rule"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "user_iam_rule"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "user_iam_rule"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "user_organization_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "user_iam_rule"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "rule_type",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "user_iam_rule"
+    },
+    {
+      "type": "json",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "rule_value",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "user_iam_rule"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'active'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "status",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "user_iam_rule"
     },
     {
       "type": "text",
@@ -22448,6 +22899,27 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "realtime_session_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": "realtime_session_id IS NOT NULL",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "log_realtime_session_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "organization_id",
           "isExpression": false,
           "asc": true,
@@ -23108,6 +23580,132 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "model_rating"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "user_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "model_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "year",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "quarter",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "model_survey_response_user_model_period_unique",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "model_survey_response"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "organization_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "year",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "quarter",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": "\"reward_tier\" IS NOT NULL",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "model_survey_response_org_period_reward_unique",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "model_survey_response"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "year",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "model_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "model_survey_response_year_model_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "model_survey_response"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "organization_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "model_survey_response_organization_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "model_survey_response"
     },
     {
       "nameExplicit": true,
@@ -24443,6 +25041,55 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "user_organization_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "user_iam_rule_user_organization_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "user_iam_rule"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "user_organization_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "status",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "user_iam_rule_user_organization_id_status_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "user_iam_rule"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "user_id",
           "isExpression": false,
           "asc": true,
@@ -25759,6 +26406,40 @@
     {
       "nameExplicit": false,
       "columns": [
+        "user_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "user",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "model_survey_response_user_id_user_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "model_survey_response"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "organization_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "organization",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "model_survey_response_organization_id_organization_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "model_survey_response"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "organization_id"
       ],
       "schemaTo": "public",
@@ -26384,6 +27065,23 @@
       "entityType": "fks",
       "schema": "public",
       "table": "user_favorite_model"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "user_organization_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "user_organization",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "user_iam_rule_user_organization_id_user_organization_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "user_iam_rule"
     },
     {
       "nameExplicit": false,
@@ -27133,6 +27831,16 @@
         "id"
       ],
       "nameExplicit": false,
+      "name": "model_survey_response_pkey",
+      "schema": "public",
+      "table": "model_survey_response",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
       "name": "organization_pkey",
       "schema": "public",
       "table": "organization",
@@ -27446,6 +28154,16 @@
       "name": "user_favorite_model_pkey",
       "schema": "public",
       "table": "user_favorite_model",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "user_iam_rule_pkey",
+      "schema": "public",
+      "table": "user_iam_rule",
       "entityType": "pks"
     },
     {
@@ -27981,6 +28699,34 @@
       "entityType": "checks",
       "schema": "public",
       "table": "model_rating"
+    },
+    {
+      "value": "\"quarter\" >= 1 AND \"quarter\" <= 4",
+      "name": "model_survey_response_quarter_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "model_survey_response"
+    },
+    {
+      "value": "\"value_score\" >= 1 AND \"value_score\" <= 5",
+      "name": "model_survey_response_value_score_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "model_survey_response"
+    },
+    {
+      "value": "\"quality_score\" >= 1 AND \"quality_score\" <= 5",
+      "name": "model_survey_response_quality_score_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "model_survey_response"
+    },
+    {
+      "value": "\"speed_score\" >= 1 AND \"speed_score\" <= 5",
+      "name": "model_survey_response_speed_score_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "model_survey_response"
     },
     {
       "value": "\"payment_status\" IN ('unpaid', 'paid', 'refunded')",

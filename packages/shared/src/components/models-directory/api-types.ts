@@ -10,6 +10,7 @@ export interface ApiProvider {
 	color: string | null;
 	website: string | null;
 	announcement: string | null;
+	modelCardBadge?: string | null;
 	serviceTiers?: Array<{
 		id: string;
 		name: string;
@@ -39,6 +40,7 @@ export interface ApiModelProviderMapping {
 	outputAudioPrice: string | null;
 	requestPrice: string | null;
 	ocrPagePrice?: string | null;
+	inputAudioHourPrice?: string | null;
 	contextSize: number | null;
 	maxOutput: number | null;
 	quantization?: string | null;

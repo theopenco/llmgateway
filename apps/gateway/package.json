@@ -24,7 +24,7 @@
 		"start:realtime": "node --enable-source-maps dist/realtime/serve.js"
 	},
 	"dependencies": {
-		"@hono/node-server": "^1.19.13",
+		"@hono/node-server": "^2.0.10",
 		"@hono/swagger-ui": "^0.5.2",
 		"@hono/zod-openapi": "^0.19.6",
 		"@hono/zod-validator": "^0.7.2",
@@ -41,7 +41,7 @@
 		"@opentelemetry/sdk-node": "0.218.0",
 		"decimal.js": "10.5.0",
 		"dotenv": "17.4.2",
-		"hono": "^4.12.25",
+		"hono": "^4.12.27",
 		"hono-openapi": "^1.1.1",
 		"ioredis": "5.7.0",
 		"ipaddr.js": "2.2.0",

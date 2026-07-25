@@ -113,3 +113,36 @@ LLM_GOOGLE_VERTEX_REGION=us-central1,europe-west1,asia-east1
 ```
 
 When the gateway selects `key2`, it automatically uses `project-b` and `europe-west1`. If you have fewer configuration values than keys, the last value is reused for the remaining keys.
+
+## Enterprise and plan provider env overrides
+
+Any provider env var — API keys, base URLs, regions, Google Cloud projects, Azure resources, and other provider-specific settings — supports optional per-audience overrides:
+
+- `__ENTERPRISE` suffix: used instead of the base var for organizations on the enterprise plan
+- `__PLANS` suffix: used instead of the base var for plan-based (non-PAYG) organizations — DevPass coding plans and Chat plans
+
+```bash
+# Shared key for all organizations
+LLM_OPENAI_API_KEY=sk-shared-key
+
+# Used instead of the shared key, but only for enterprise-plan organizations
+LLM_OPENAI_API_KEY__ENTERPRISE=sk-enterprise-key
+
+# Used instead of the shared key, but only for plan-based (DevPass/Chat plan)
+# organizations
+LLM_OPENAI_API_KEY__PLANS=sk-plans-key
+
+# Companion settings can be overridden the same way, e.g. a dedicated
+# Google Cloud project and base URL per audience
+LLM_GOOGLE_CLOUD_PROJECT__ENTERPRISE=enterprise-gcp-project
+LLM_OPENAI_BASE_URL__PLANS=https://plans-proxy.internal
+```
+
+Notes:
+
+- Overrides are optional — matching organizations fall back to the base var when an override is unset. All other organizations never read the override vars.
+- The base API key is still what makes a provider available for routing, so set it even when you route all enterprise or plan traffic through dedicated keys.
+- Comma-separated values, load balancing, and health-aware routing work exactly like the base key; each override key list gets its own independent health tracking.
+- A set override replaces the base var wholesale, including its comma-separated list. Indexed companion values (like `LLM_GOOGLE_CLOUD_PROJECT`) resolve at the selected key index from the override list when one is set, otherwise from the base list — so keep an override key list index-compatible with its companion lists (or use single values).
+- Region-specific overrides compose with the variant suffix. For matching organizations the API-key lookup order is `{BASE}__ENTERPRISE__{REGION}` → `{BASE}__{REGION}` → `{BASE}__ENTERPRISE` → `{BASE}` (same pattern with `__PLANS`).
+- If an organization is both on the enterprise plan and a plan-based org, the enterprise overrides win.

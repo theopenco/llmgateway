@@ -257,6 +257,10 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 		socket.on("error", (error: Error) => {
 			logger.warn("Realtime upgrade socket error", { error: error.message });
 		});
+		// Tracked out here so the terminal catch can tell a pre-handshake failure
+		// (answerable with an HTTP error) from a post-101 one (where the socket
+		// already carries WebSocket frames).
+		let upgraded = false;
 		void (async () => {
 			const url = new URL(req.url ?? "/", "http://localhost");
 			if (url.pathname !== "/v1/realtime") {
@@ -524,7 +528,6 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 
 			// From here on, an unexpected failure must not orphan the upstream
 			// socket, the lease, or the session record.
-			let upgraded = false;
 			try {
 				wss.handleUpgrade(req, socket, head, (clientSocket) => {
 					upgraded = true;
@@ -577,6 +580,12 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 			}
 		})().catch((error: unknown) => {
 			logger.error("Realtime upgrade handling failed", error as Error);
+			if (upgraded) {
+				// ws already wrote the 101 response; an HTTP body here would be
+				// framed as WebSocket data.
+				socket.destroy();
+				return;
+			}
 			writeHttpError(socket, 500, "internal_error", "Internal server error");
 		});
 	});

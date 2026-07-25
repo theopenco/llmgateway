@@ -23,13 +23,21 @@ CREATE TABLE "realtime_session" (
 	"last_activity_at" timestamp
 );
 --> statement-breakpoint
+ALTER TABLE "api_key_hourly_model_stats" ADD COLUMN "audio_output_cost" real DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "api_key_hourly_stats" ADD COLUMN "audio_output_cost" real DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "global_model_stats" ADD COLUMN "audio_output_cost" real DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "global_source_stats" ADD COLUMN "audio_output_cost" real DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE "log" ADD COLUMN "realtime_session_id" text;--> statement-breakpoint
 ALTER TABLE "log" ADD COLUMN "realtime_usage_key" text;--> statement-breakpoint
 ALTER TABLE "log" ADD COLUMN "billing_cost" numeric;--> statement-breakpoint
 ALTER TABLE "log" ADD COLUMN "audio_output_tokens" numeric;--> statement-breakpoint
 ALTER TABLE "log" ADD COLUMN "audio_output_cost" real;--> statement-breakpoint
 ALTER TABLE "log" ADD COLUMN "realtime_usage" jsonb;--> statement-breakpoint
+ALTER TABLE "project_hourly_model_stats" ADD COLUMN "audio_output_cost" real DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "project_hourly_source_stats" ADD COLUMN "audio_output_cost" real DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "project_hourly_stats" ADD COLUMN "audio_output_cost" real DEFAULT 0 NOT NULL;--> statement-breakpoint
 CREATE UNIQUE INDEX "log_realtime_session_usage_key_unique" ON "log" ("realtime_session_id","realtime_usage_key") WHERE realtime_usage_key IS NOT NULL;--> statement-breakpoint
+CREATE INDEX "log_realtime_session_id_idx" ON "log" ("realtime_session_id") WHERE realtime_session_id IS NOT NULL;--> statement-breakpoint
 CREATE INDEX "realtime_session_organization_id_created_at_idx" ON "realtime_session" ("organization_id","created_at");--> statement-breakpoint
 CREATE INDEX "realtime_session_project_id_created_at_idx" ON "realtime_session" ("project_id","created_at");--> statement-breakpoint
 CREATE INDEX "realtime_session_api_key_id_created_at_idx" ON "realtime_session" ("api_key_id","created_at");--> statement-breakpoint

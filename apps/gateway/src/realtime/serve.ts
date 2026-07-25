@@ -50,7 +50,7 @@ httpServer.listen(port, () => {
 
 let isShuttingDown = false;
 
-async function gracefulShutdown(signal: string): Promise<void> {
+async function gracefulShutdown(signal: string, exitCode = 0): Promise<void> {
 	if (isShuttingDown) {
 		logger.warn("Shutdown already in progress, ignoring signal", { signal });
 		return;
@@ -86,16 +86,18 @@ async function gracefulShutdown(signal: string): Promise<void> {
 		logger.error("Error during realtime shutdown cleanup", toError(error));
 	}
 	logger.info("Realtime graceful shutdown completed");
-	process.exit(0);
+	process.exit(exitCode);
 }
 
 process.on("SIGTERM", () => void gracefulShutdown("SIGTERM"));
 process.on("SIGINT", () => void gracefulShutdown("SIGINT"));
+// Fatal paths must exit non-zero: a zero exit reads as an intentional stop to
+// orchestrators and alerting.
 process.on("uncaughtException", (error) => {
 	logger.fatal("Uncaught exception in realtime server", error);
-	void gracefulShutdown("uncaughtException");
+	void gracefulShutdown("uncaughtException", 1);
 });
 process.on("unhandledRejection", (reason) => {
-	logger.fatal("Unhandled rejection in realtime server", reason);
-	void gracefulShutdown("unhandledRejection");
+	logger.fatal("Unhandled rejection in realtime server", toError(reason));
+	void gracefulShutdown("unhandledRejection", 1);
 });

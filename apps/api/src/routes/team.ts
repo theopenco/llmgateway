@@ -2,6 +2,14 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import {
+	assertEnterpriseForIpCidrRule,
+	createIamRuleSchema,
+	iamRuleStatusEnum,
+	iamRuleTypeEnum,
+	iamRuleValueSchema,
+	validateIamRuleInput,
+} from "@/lib/iam-rules.js";
 import { revokeMemberApiKeys } from "@/lib/revoke-member-api-keys.js";
 import { resolveSeatLimit } from "@/lib/seat-limit.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
@@ -11,6 +19,7 @@ import {
 	addApiKeyPeriodDuration,
 	and,
 	apiKeyPeriodDurationUnits,
+	cdb,
 	db,
 	eq,
 	gte,
@@ -1715,6 +1724,503 @@ team.openapi(removeMember, async (c) => {
 
 	return c.json({
 		message: "Member removed successfully",
+	});
+});
+
+export const memberIamRuleSchema = z.object({
+	id: z.string(),
+	createdAt: z.date(),
+	updatedAt: z.date(),
+	userOrganizationId: z.string(),
+	ruleType: iamRuleTypeEnum,
+	ruleValue: iamRuleValueSchema,
+	status: iamRuleStatusEnum,
+});
+
+// Shared guard for member-level IAM rule management: caller must be an
+// owner/admin of a non-personal org, and admins may not touch owners' rules
+// (mirrors the budget/role/remove endpoints).
+async function requireMemberIamAccess(
+	authUserId: string,
+	organizationId: string,
+	memberId: string,
+) {
+	const userOrganization = await db.query.userOrganization.findFirst({
+		where: {
+			userId: {
+				eq: authUserId,
+			},
+			organizationId: {
+				eq: organizationId,
+			},
+		},
+		with: {
+			organization: true,
+		},
+	});
+
+	if (!userOrganization) {
+		throw new HTTPException(403, {
+			message: "You do not have access to this organization",
+		});
+	}
+
+	if (
+		userOrganization.organization?.kind === "devpass" ||
+		userOrganization.organization?.kind === "chat"
+	) {
+		throw new HTTPException(403, {
+			message:
+				"Team management is not available for personal organizations. Please create a regular organization to invite team members.",
+		});
+	}
+
+	if (userOrganization.role !== "owner" && userOrganization.role !== "admin") {
+		throw new HTTPException(403, {
+			message: "Only owners and admins can manage member IAM rules",
+		});
+	}
+
+	const targetMember = await db.query.userOrganization.findFirst({
+		where: {
+			id: {
+				eq: memberId,
+			},
+			organizationId: {
+				eq: organizationId,
+			},
+		},
+		with: {
+			user: {
+				columns: {
+					id: true,
+					email: true,
+				},
+			},
+		},
+	});
+
+	if (!targetMember) {
+		throw new HTTPException(404, {
+			message: "Member not found",
+		});
+	}
+
+	if (userOrganization.role === "admin" && targetMember.role === "owner") {
+		throw new HTTPException(403, {
+			message: "Admins cannot modify owner IAM rules",
+		});
+	}
+
+	return { userOrganization, targetMember };
+}
+
+const getMyIamRules = createRoute({
+	method: "get",
+	path: "/{organizationId}/members/me/iam",
+	request: {
+		params: z.object({
+			organizationId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						rules: z.array(memberIamRuleSchema),
+					}),
+				},
+			},
+			description:
+				"The authenticated member's own member-level IAM rules (the ceiling their API-key rules can only narrow)",
+		},
+	},
+});
+
+// Self-service: any member can read their OWN member-level rules (no admin
+// gate), so they can understand why the gateway denies their requests.
+team.openapi(getMyIamRules, async (c) => {
+	const authUser = c.get("user");
+	if (!authUser) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { organizationId } = c.req.param();
+
+	const membership = await db.query.userOrganization.findFirst({
+		where: {
+			userId: {
+				eq: authUser.id,
+			},
+			organizationId: {
+				eq: organizationId,
+			},
+		},
+	});
+
+	if (!membership) {
+		throw new HTTPException(403, {
+			message: "You do not have access to this organization",
+		});
+	}
+
+	const rules = await db.query.userIamRule.findMany({
+		where: {
+			userOrganizationId: {
+				eq: membership.id,
+			},
+		},
+		orderBy: {
+			createdAt: "asc",
+		},
+	});
+
+	return c.json({ rules });
+});
+
+const createMemberIamRule = createRoute({
+	method: "post",
+	path: "/{organizationId}/members/{memberId}/iam",
+	request: {
+		params: z.object({
+			organizationId: z.string(),
+			memberId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: createIamRuleSchema,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						rule: memberIamRuleSchema,
+					}),
+				},
+			},
+			description: "Member IAM rule created successfully",
+		},
+	},
+});
+
+team.openapi(createMemberIamRule, async (c) => {
+	const authUser = c.get("user");
+	if (!authUser) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { organizationId, memberId } = c.req.param();
+	const ruleData = c.req.valid("json");
+
+	// Authorization first: unauthorized callers must not receive
+	// input-validation feedback from a management endpoint.
+	const { userOrganization, targetMember } = await requireMemberIamAccess(
+		authUser.id,
+		organizationId,
+		memberId,
+	);
+
+	validateIamRuleInput(ruleData);
+	assertEnterpriseForIpCidrRule(
+		ruleData.ruleType,
+		userOrganization.organization?.plan,
+	);
+
+	const [rule] = await cdb
+		.insert(tables.userIamRule)
+		.values({
+			userOrganizationId: memberId,
+			...ruleData,
+		})
+		.returning();
+
+	await logAuditEvent({
+		organizationId,
+		userId: authUser.id,
+		action: "team_member.iam_rule.create",
+		resourceType: "iam_rule",
+		resourceId: rule.id,
+		metadata: {
+			memberId,
+			targetUserId: targetMember.userId,
+			targetUserEmail: targetMember.user?.email,
+			ruleType: ruleData.ruleType,
+			ruleValue: ruleData.ruleValue,
+		},
+	});
+
+	return c.json({
+		message: "Member IAM rule created successfully",
+		rule,
+	});
+});
+
+const listMemberIamRules = createRoute({
+	method: "get",
+	path: "/{organizationId}/members/{memberId}/iam",
+	request: {
+		params: z.object({
+			organizationId: z.string(),
+			memberId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						rules: z.array(memberIamRuleSchema),
+					}),
+				},
+			},
+			description: "List a member's member-level IAM rules",
+		},
+	},
+});
+
+team.openapi(listMemberIamRules, async (c) => {
+	const authUser = c.get("user");
+	if (!authUser) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { organizationId, memberId } = c.req.param();
+
+	await requireMemberIamAccess(authUser.id, organizationId, memberId);
+
+	const rules = await db.query.userIamRule.findMany({
+		where: {
+			userOrganizationId: {
+				eq: memberId,
+			},
+		},
+		orderBy: {
+			createdAt: "asc",
+		},
+	});
+
+	return c.json({ rules });
+});
+
+const updateMemberIamRule = createRoute({
+	method: "patch",
+	path: "/{organizationId}/members/{memberId}/iam/{ruleId}",
+	request: {
+		params: z.object({
+			organizationId: z.string(),
+			memberId: z.string(),
+			ruleId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: createIamRuleSchema.partial(),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						rule: memberIamRuleSchema,
+					}),
+				},
+			},
+			description: "Member IAM rule updated successfully",
+		},
+	},
+});
+
+team.openapi(updateMemberIamRule, async (c) => {
+	const authUser = c.get("user");
+	if (!authUser) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { organizationId, memberId, ruleId } = c.req.param();
+	const updateData = c.req.valid("json");
+
+	const { userOrganization, targetMember } = await requireMemberIamAccess(
+		authUser.id,
+		organizationId,
+		memberId,
+	);
+
+	const existingRule = await db.query.userIamRule.findFirst({
+		where: {
+			id: {
+				eq: ruleId,
+			},
+			userOrganizationId: {
+				eq: memberId,
+			},
+		},
+	});
+
+	if (!existingRule) {
+		throw new HTTPException(404, {
+			message: "IAM rule not found",
+		});
+	}
+
+	// Re-validate using the effective ruleType + ruleValue after merging with
+	// the existing rule, so partial updates can't bypass CIDR checks.
+	if (updateData.ruleType || updateData.ruleValue) {
+		validateIamRuleInput({
+			ruleType: updateData.ruleType ?? existingRule.ruleType,
+			ruleValue: updateData.ruleValue ?? existingRule.ruleValue,
+		});
+	}
+
+	assertEnterpriseForIpCidrRule(
+		updateData.ruleType ?? existingRule.ruleType,
+		userOrganization.organization?.plan,
+	);
+
+	// An empty PATCH body is a valid no-op; drizzle throws "No values to set"
+	// on an empty update, so skip the query and return the rule unchanged.
+	let updatedRule = existingRule;
+	if (Object.keys(updateData).length > 0) {
+		[updatedRule] = await cdb
+			.update(tables.userIamRule)
+			.set(updateData)
+			.where(eq(tables.userIamRule.id, ruleId))
+			.returning();
+	}
+
+	await logAuditEvent({
+		organizationId,
+		userId: authUser.id,
+		action: "team_member.iam_rule.update",
+		resourceType: "iam_rule",
+		resourceId: ruleId,
+		metadata: {
+			memberId,
+			targetUserId: targetMember.userId,
+			targetUserEmail: targetMember.user?.email,
+			changes: {
+				...(updateData.ruleType !== undefined &&
+				existingRule.ruleType !== updateData.ruleType
+					? {
+							ruleType: {
+								old: existingRule.ruleType,
+								new: updateData.ruleType,
+							},
+						}
+					: {}),
+				...(updateData.ruleValue !== undefined
+					? {
+							ruleValue: {
+								old: existingRule.ruleValue,
+								new: updateData.ruleValue,
+							},
+						}
+					: {}),
+				...(updateData.status !== undefined &&
+				existingRule.status !== updateData.status
+					? { status: { old: existingRule.status, new: updateData.status } }
+					: {}),
+			},
+		},
+	});
+
+	return c.json({
+		message: "Member IAM rule updated successfully",
+		rule: updatedRule,
+	});
+});
+
+const deleteMemberIamRule = createRoute({
+	method: "delete",
+	path: "/{organizationId}/members/{memberId}/iam/{ruleId}",
+	request: {
+		params: z.object({
+			organizationId: z.string(),
+			memberId: z.string(),
+			ruleId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Member IAM rule deleted successfully",
+		},
+	},
+});
+
+team.openapi(deleteMemberIamRule, async (c) => {
+	const authUser = c.get("user");
+	if (!authUser) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { organizationId, memberId, ruleId } = c.req.param();
+
+	const { targetMember } = await requireMemberIamAccess(
+		authUser.id,
+		organizationId,
+		memberId,
+	);
+
+	const [deletedRule] = await cdb
+		.delete(tables.userIamRule)
+		.where(
+			and(
+				eq(tables.userIamRule.id, ruleId),
+				eq(tables.userIamRule.userOrganizationId, memberId),
+			),
+		)
+		.returning();
+
+	if (!deletedRule) {
+		throw new HTTPException(404, {
+			message: "IAM rule not found",
+		});
+	}
+
+	await logAuditEvent({
+		organizationId,
+		userId: authUser.id,
+		action: "team_member.iam_rule.delete",
+		resourceType: "iam_rule",
+		resourceId: ruleId,
+		metadata: {
+			memberId,
+			targetUserId: targetMember.userId,
+			targetUserEmail: targetMember.user?.email,
+			ruleType: deletedRule.ruleType,
+			ruleValue: deletedRule.ruleValue,
+		},
+	});
+
+	return c.json({
+		message: "Member IAM rule deleted successfully",
 	});
 });
 

@@ -29,6 +29,7 @@ import {
 	findProviderKeysByProviders,
 	type CustomModel,
 } from "@/lib/cached-queries.js";
+import { raceClientAbort } from "@/lib/client-abort.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import {
 	isCodingModel,
@@ -158,6 +159,8 @@ import {
 	supportsServiceTier,
 	type WebSearchTool,
 	expandAllProviderRegions,
+	type EnvVarVariant,
+	getOrganizationEnvVariant,
 	getProviderDefinition,
 	getRegionSpecificEnvVarName,
 	getProviderEnvValue,
@@ -731,6 +734,7 @@ function usesGoogleQueryToken(provider: string): boolean {
 	return (
 		provider === "google-ai-studio" ||
 		provider === "glacier" ||
+		provider === "iceberg" ||
 		provider === "google-vertex" ||
 		provider === "quartz"
 	);
@@ -740,6 +744,7 @@ function isGoogleCompatibleProvider(provider: string): boolean {
 	return (
 		provider === "google-ai-studio" ||
 		provider === "glacier" ||
+		provider === "iceberg" ||
 		provider === "google-vertex" ||
 		provider === "quartz"
 	);
@@ -842,6 +847,7 @@ function getForwardedServiceTier(
 	region: string | undefined,
 	serviceTier: "auto" | "default" | "flex" | "priority" | undefined,
 	configIndex?: number,
+	variant?: EnvVarVariant,
 ): "flex" | "priority" | undefined {
 	if (serviceTier !== "flex" && serviceTier !== "priority") {
 		return undefined;
@@ -849,7 +855,13 @@ function getForwardedServiceTier(
 	const effectiveRegion =
 		provider === "google-vertex"
 			? (region ??
-				getProviderEnvValue("google-vertex", "region", configIndex, "global") ??
+				getProviderEnvValue(
+					"google-vertex",
+					"region",
+					configIndex,
+					"global",
+					variant,
+				) ??
 				"global")
 			: region;
 	return supportsServiceTier(
@@ -884,11 +896,18 @@ function mappingSupportsRequestedServiceTier(
 	mapping: ProviderModelMapping,
 	serviceTier: "flex" | "priority",
 	configIndex?: number,
+	variant?: EnvVarVariant,
 ): boolean {
 	const effectiveRegion =
 		mapping.providerId === "google-vertex"
 			? (mapping.region ??
-				getProviderEnvValue("google-vertex", "region", configIndex, "global") ??
+				getProviderEnvValue(
+					"google-vertex",
+					"region",
+					configIndex,
+					"global",
+					variant,
+				) ??
 				"global")
 			: mapping.region;
 	return supportsServiceTier(
@@ -1984,6 +2003,10 @@ chat.openapi(completions, async (c) => {
 		organization?.kind === "devpass" && organization.devPlan !== "none",
 	);
 
+	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
+	// this org's env-credential reads. Undefined = base vars only.
+	const envVariant = getOrganizationEnvVariant(organization);
+
 	// Dev-plan (DevPass) orgs can default routing to cheaper flex processing via
 	// their dashboard settings to save on plan credits. Applied softly, and only
 	// when the request itself doesn't specify a service_tier: the tier kicks in
@@ -2025,6 +2048,7 @@ chat.openapi(completions, async (c) => {
 					mapping,
 					"flex",
 					configIndex,
+					envVariant,
 				) &&
 				providerHasEligibleTierCredential(mapping.providerId),
 		);
@@ -2044,6 +2068,7 @@ chat.openapi(completions, async (c) => {
 					mapping,
 					service_tier,
 					configIndex,
+					envVariant,
 				),
 		);
 
@@ -2157,6 +2182,7 @@ chat.openapi(completions, async (c) => {
 				mapping,
 				service_tier,
 				configIndex,
+				envVariant,
 			);
 		modelInfo = {
 			...modelInfo,
@@ -2247,6 +2273,8 @@ chat.openapi(completions, async (c) => {
 	const retryOrganizationContext = {
 		id: organization.id,
 		credits: organization.credits,
+		plan: organization.plan,
+		kind: organization.kind,
 		devPlan: organization.devPlan,
 		devPlanCreditsLimit: organization.devPlanCreditsLimit,
 		devPlanCreditsUsed: organization.devPlanCreditsUsed,
@@ -2643,13 +2671,14 @@ chat.openapi(completions, async (c) => {
 	// when the only remaining active provider is a denied one but deactivated providers
 	// are still "allowed" by the IAM rules.
 	const clientIp = getClientIpFromRequest(c);
-	const iamValidation = await validateRequestModelAccess(
+	const iamValidation = await validateRequestModelAccess({
 		apiKey,
-		modelInfo.id,
+		organizationId: project.organizationId,
+		requestedModel: modelInfo.id,
 		requestedProvider,
-		modelInfo,
+		activeModelInfo: modelInfo,
 		clientIp,
-	);
+	});
 	if (!iamValidation.allowed) {
 		throwIamException(iamValidation.reason ?? "Model access denied");
 	}
@@ -3057,14 +3086,14 @@ chat.openapi(completions, async (c) => {
 			// Validate IAM rules for this candidate model and filter providers.
 			// We must re-evaluate per model because iamAllowedProviders was computed
 			// for the "auto" model which only has the "llmgateway" provider.
-			const candidateIam = await validateRequestModelAccess(
+			const candidateIam = await validateRequestModelAccess({
 				apiKey,
-				modelDef.id,
-				undefined,
-				modelDef,
+				organizationId: project.organizationId,
+				requestedModel: modelDef.id,
+				activeModelInfo: modelDef,
 				clientIp,
-				{ autoRouting: true },
-			);
+				autoRouting: true,
+			});
 			if (!candidateIam.allowed) {
 				continue;
 			}
@@ -3292,14 +3321,14 @@ chat.openapi(completions, async (c) => {
 		// shortcut.  The original iamAllowedProviders was computed for the "auto"
 		// model (which only has the "llmgateway" provider) and is not meaningful
 		// for the resolved model.
-		const resolvedIamValidation = await validateRequestModelAccess(
+		const resolvedIamValidation = await validateRequestModelAccess({
 			apiKey,
-			modelInfo.id,
-			undefined,
-			modelInfo,
+			organizationId: project.organizationId,
+			requestedModel: modelInfo.id,
+			activeModelInfo: modelInfo,
 			clientIp,
-			{ autoRouting: true },
-		);
+			autoRouting: true,
+		});
 		if (!resolvedIamValidation.allowed) {
 			throwIamException(resolvedIamValidation.reason ?? "Model access denied");
 		}
@@ -4722,8 +4751,12 @@ chat.openapi(completions, async (c) => {
 		const envResult = getProviderEnv(usedProvider, {
 			selectionScope: usedInternalModel,
 			excludedIndices: isRequestedServiceTier(service_tier)
-				? getServiceTierIneligibleEnvIndices(usedProvider as Provider)
+				? getServiceTierIneligibleEnvIndices(
+						usedProvider as Provider,
+						envVariant,
+					)
 				: undefined,
+			variant: envVariant,
 		});
 		usedToken = envResult.token;
 		configIndex = envResult.configIndex;
@@ -4735,6 +4768,7 @@ chat.openapi(completions, async (c) => {
 			const regionEnvVarName = getRegionSpecificEnvVarName(
 				usedProvider,
 				usedRegion,
+				envVariant,
 			);
 			if (regionEnvVarName) {
 				const regionToken = process.env[regionEnvVarName];
@@ -4852,8 +4886,12 @@ chat.openapi(completions, async (c) => {
 			const envResult = getProviderEnv(usedProvider, {
 				selectionScope: usedInternalModel,
 				excludedIndices: isRequestedServiceTier(service_tier)
-					? getServiceTierIneligibleEnvIndices(usedProvider as Provider)
+					? getServiceTierIneligibleEnvIndices(
+							usedProvider as Provider,
+							envVariant,
+						)
 					: undefined,
+				variant: envVariant,
 			});
 			usedToken = envResult.token;
 			configIndex = envResult.configIndex;
@@ -4865,6 +4903,7 @@ chat.openapi(completions, async (c) => {
 				const regionEnvVarName = getRegionSpecificEnvVarName(
 					usedProvider,
 					usedRegion,
+					envVariant,
 				);
 				if (regionEnvVarName) {
 					const regionToken = process.env[regionEnvVarName];
@@ -4883,7 +4922,9 @@ chat.openapi(completions, async (c) => {
 	}
 
 	if (usedProvider === "vertex-anthropic") {
-		const gcpToken = await getGcpAccessToken();
+		const gcpToken = await getGcpAccessToken(
+			providerKey ? undefined : envVariant,
+		);
 		if (gcpToken) {
 			usedToken = gcpToken;
 		}
@@ -5228,6 +5269,7 @@ chat.openapi(completions, async (c) => {
 			dbKeyIsActiveCredential ? (providerKey?.options ?? undefined) : undefined,
 			configIndex,
 			dbKeyIsActiveCredential,
+			envVariant,
 		);
 	}
 
@@ -5253,6 +5295,7 @@ chat.openapi(completions, async (c) => {
 			providerKey !== undefined,
 			usedInternalModel,
 			resolveActiveVertexTokenType(),
+			envVariant,
 		);
 
 		// If region is still unset but the provider supports regions, resolve the
@@ -6029,6 +6072,18 @@ chat.openapi(completions, async (c) => {
 	let requestCanBeCanceled =
 		providers.find((p) => p.id === usedProvider)?.cancellation === true;
 
+	// Classify a failed upstream body read as a client cancellation. A client
+	// disconnect usually surfaces as an AbortError (raceClientAbort guarantees
+	// one when cancellation is supported), but the abort can also surface as a
+	// generic failure (undici "terminated" TypeError, or a TimeoutError when
+	// the abort never reached the body read), so any read failure after the
+	// client already disconnected counts as canceled too.
+	// requestCanBeCanceled is read at call time: retries can switch providers,
+	// flipping whether cancellation is supported.
+	const isClientAbortError = (bodyError: Error): boolean =>
+		bodyError.name === "AbortError" ||
+		(requestCanBeCanceled && c.req.raw.signal.aborted);
+
 	// For Google providers, enrich messages with cached thought_signatures
 	// This is needed for multi-turn tool call conversations with Gemini 3+
 	if (isGoogleCompatibleProvider(usedProvider)) {
@@ -6105,6 +6160,7 @@ chat.openapi(completions, async (c) => {
 				usedRegion,
 				service_tier,
 				configIndex,
+				envVariant,
 			),
 			verbosity,
 			prompt_cache_options,
@@ -6652,6 +6708,183 @@ chat.openapi(completions, async (c) => {
 				// Add event listener for the abort event on the connection
 				c.req.raw.signal.addEventListener("abort", onAbort);
 
+				// Streaming twin of the non-streaming readBodyWithClientAbort: settle
+				// an upstream body read immediately on client disconnect instead of
+				// relying on the fetch AbortSignal to propagate into undici's
+				// in-flight body machinery, where a late abort can be missed.
+				const readBodyWithClientAbort = <T>(
+					bodyPromise: Promise<T>,
+				): Promise<T> =>
+					raceClientAbort(
+						bodyPromise,
+						c.req.raw.signal,
+						requestCanBeCanceled ? controller : undefined,
+					);
+
+				// Build and persist the canceled-request log, then emit the canceled
+				// SSE events. Shared by the in-loop fetch-cancellation path and the
+				// error-body-read cancellation path so a client disconnect is always
+				// recorded as canceled rather than escaping as a stream error.
+				const respondCanceledStreaming = async (
+					perAttemptStartTime: number,
+				) => {
+					// Extract plugin IDs for logging (canceled request)
+					const canceledPluginIds = plugins?.map((p) => p.id) ?? [];
+
+					// Calculate costs for cancelled request if billing is enabled
+					const billCancelled = shouldBillCancelledRequests();
+					let cancelledCosts: Awaited<
+						ReturnType<typeof calculateCosts>
+					> | null = null;
+					let estimatedPromptTokens: number | null = null;
+
+					if (billCancelled) {
+						// Estimate prompt tokens from messages
+						const tokenEstimation = estimateTokens(
+							usedProvider!,
+							messages,
+							null,
+							null,
+							null,
+						);
+						estimatedPromptTokens = tokenEstimation.calculatedPromptTokens;
+
+						// Calculate costs based on prompt tokens only (no completion yet)
+						// If web search tool was enabled, count it as 1 search for billing
+						cancelledCosts = await calculateCosts(
+							usedInternalModel,
+							usedProvider!,
+							usedRegion ?? null,
+							estimatedPromptTokens,
+							0, // No completion tokens yet
+							null, // No cached tokens
+							{
+								prompt: messages
+									.map((m) => messageContentToString(m.content))
+									.join("\n"),
+								completion: "",
+							},
+							null, // No reasoning tokens
+							0, // No output images
+							undefined,
+							inputImageCount,
+							webSearchTool ? 1 : null, // Bill for web search if it was enabled
+							project.organizationId,
+							undefined, // imageQuality
+							null, // reportedImageInputTokens
+							null, // reportedImageOutputTokens
+							{ servedServiceTier, customPricing: customPricingMapping },
+						);
+					}
+
+					const baseLogEntry = createLogEntry(
+						requestId,
+						project,
+						apiKey,
+						providerKey?.id,
+						usedModelFormatted!,
+						usedModelMapping!,
+						usedProvider!,
+						initialRequestedModel,
+						requestedProvider,
+						messages,
+						temperature,
+						max_tokens,
+						top_p,
+						frequency_penalty,
+						presence_penalty,
+						reasoning_effort,
+						reasoning_max_tokens,
+						effort,
+						response_format,
+						tools,
+						tool_choice,
+						source,
+						customHeaders,
+						debugMode,
+						userAgent,
+						image_config,
+						routingMetadata,
+						rawBody,
+						null, // No response for canceled request
+						requestBody, // The request that was sent before cancellation
+						null, // No upstream response for canceled request
+						canceledPluginIds,
+						undefined, // No plugin results for canceled request
+					);
+
+					await insertLogEntry({
+						...baseLogEntry,
+						duration: Date.now() - perAttemptStartTime,
+						timeToFirstToken: null, // Not applicable for canceled request
+						timeToFirstReasoningToken: null, // Not applicable for canceled request
+						responseSize: 0,
+						content: null,
+						reasoningContent: null,
+						finishReason: "canceled",
+						promptTokens: billCancelled
+							? (
+									cancelledCosts?.promptTokens ?? estimatedPromptTokens
+								)?.toString()
+							: null,
+						completionTokens: billCancelled ? "0" : null,
+						totalTokens: billCancelled
+							? (
+									cancelledCosts?.promptTokens ?? estimatedPromptTokens
+								)?.toString()
+							: null,
+						reasoningTokens: null,
+						cachedTokens: null,
+						hasError: false,
+						streamed: true,
+						canceled: true,
+						errorDetails: null,
+						inputCost: cancelledCosts?.inputCost ?? null,
+						outputCost: cancelledCosts?.outputCost ?? null,
+						cachedInputCost: cancelledCosts?.cachedInputCost ?? null,
+						requestCost: cancelledCosts?.requestCost ?? null,
+						webSearchCost: cancelledCosts?.webSearchCost ?? null,
+						imageInputTokens:
+							cancelledCosts?.imageInputTokens?.toString() ?? null,
+						imageOutputTokens:
+							cancelledCosts?.imageOutputTokens?.toString() ?? null,
+						imageInputCost: cancelledCosts?.imageInputCost ?? null,
+						imageOutputCost: cancelledCosts?.imageOutputCost ?? null,
+						audioInputTokens:
+							cancelledCosts?.audioInputTokens?.toString() ?? null,
+						audioInputCost: cancelledCosts?.audioInputCost ?? null,
+						cost: cancelledCosts?.totalCost ?? null,
+						estimatedCost: cancelledCosts?.estimatedCost ?? false,
+						discount: cancelledCosts?.discount ?? null,
+						dataStorageCost: billCancelled
+							? calculateDataStorageCost(
+									cancelledCosts?.promptTokens ?? estimatedPromptTokens,
+									null,
+									0,
+									null,
+									retentionLevel,
+								)
+							: "0",
+						cached: false,
+						toolResults: null,
+					});
+
+					// Send a cancellation event to the client
+					await writeSSEAndCache({
+						event: "canceled",
+						data: JSON.stringify({
+							message: "Request canceled by client",
+						}),
+						id: String(eventId++),
+					});
+					await writeSSEAndCache({
+						event: "done",
+						data: "[DONE]",
+						id: String(eventId++),
+					});
+					clearKeepalive();
+				};
+
 				// --- Retry loop for provider fallback ---
 				const routingAttempts: RoutingAttempt[] = [];
 				const failedProviderIds = new Set<string>();
@@ -6739,6 +6972,7 @@ chat.openapi(completions, async (c) => {
 							usedRegion,
 							service_tier,
 							configIndex,
+							envVariant,
 						);
 						const headers = getProviderHeaders(usedProvider, usedToken, {
 							requestId,
@@ -7044,162 +7278,7 @@ chat.openapi(completions, async (c) => {
 							});
 							return;
 						} else if (error instanceof Error && error.name === "AbortError") {
-							// Log the canceled request
-							// Extract plugin IDs for logging (canceled request)
-							const canceledPluginIds = plugins?.map((p) => p.id) ?? [];
-
-							// Calculate costs for cancelled request if billing is enabled
-							const billCancelled = shouldBillCancelledRequests();
-							let cancelledCosts: Awaited<
-								ReturnType<typeof calculateCosts>
-							> | null = null;
-							let estimatedPromptTokens: number | null = null;
-
-							if (billCancelled) {
-								// Estimate prompt tokens from messages
-								const tokenEstimation = estimateTokens(
-									usedProvider,
-									messages,
-									null,
-									null,
-									null,
-								);
-								estimatedPromptTokens = tokenEstimation.calculatedPromptTokens;
-
-								// Calculate costs based on prompt tokens only (no completion yet)
-								// If web search tool was enabled, count it as 1 search for billing
-								cancelledCosts = await calculateCosts(
-									usedInternalModel,
-									usedProvider,
-									usedRegion ?? null,
-									estimatedPromptTokens,
-									0, // No completion tokens yet
-									null, // No cached tokens
-									{
-										prompt: messages
-											.map((m) => messageContentToString(m.content))
-											.join("\n"),
-										completion: "",
-									},
-									null, // No reasoning tokens
-									0, // No output images
-									undefined,
-									inputImageCount,
-									webSearchTool ? 1 : null, // Bill for web search if it was enabled
-									project.organizationId,
-									undefined, // imageQuality
-									null, // reportedImageInputTokens
-									null, // reportedImageOutputTokens
-									{ servedServiceTier, customPricing: customPricingMapping },
-								);
-							}
-
-							const baseLogEntry = createLogEntry(
-								requestId,
-								project,
-								apiKey,
-								providerKey?.id,
-								usedModelFormatted,
-								usedModelMapping,
-								usedProvider,
-								initialRequestedModel,
-								requestedProvider,
-								messages,
-								temperature,
-								max_tokens,
-								top_p,
-								frequency_penalty,
-								presence_penalty,
-								reasoning_effort,
-								reasoning_max_tokens,
-								effort,
-								response_format,
-								tools,
-								tool_choice,
-								source,
-								customHeaders,
-								debugMode,
-								userAgent,
-								image_config,
-								routingMetadata,
-								rawBody,
-								null, // No response for canceled request
-								requestBody, // The request that was sent before cancellation
-								null, // No upstream response for canceled request
-								canceledPluginIds,
-								undefined, // No plugin results for canceled request
-							);
-
-							await insertLogEntry({
-								...baseLogEntry,
-								duration: Date.now() - perAttemptStartTime,
-								timeToFirstToken: null, // Not applicable for canceled request
-								timeToFirstReasoningToken: null, // Not applicable for canceled request
-								responseSize: 0,
-								content: null,
-								reasoningContent: null,
-								finishReason: "canceled",
-								promptTokens: billCancelled
-									? (
-											cancelledCosts?.promptTokens ?? estimatedPromptTokens
-										)?.toString()
-									: null,
-								completionTokens: billCancelled ? "0" : null,
-								totalTokens: billCancelled
-									? (
-											cancelledCosts?.promptTokens ?? estimatedPromptTokens
-										)?.toString()
-									: null,
-								reasoningTokens: null,
-								cachedTokens: null,
-								hasError: false,
-								streamed: true,
-								canceled: true,
-								errorDetails: null,
-								inputCost: cancelledCosts?.inputCost ?? null,
-								outputCost: cancelledCosts?.outputCost ?? null,
-								cachedInputCost: cancelledCosts?.cachedInputCost ?? null,
-								requestCost: cancelledCosts?.requestCost ?? null,
-								webSearchCost: cancelledCosts?.webSearchCost ?? null,
-								imageInputTokens:
-									cancelledCosts?.imageInputTokens?.toString() ?? null,
-								imageOutputTokens:
-									cancelledCosts?.imageOutputTokens?.toString() ?? null,
-								imageInputCost: cancelledCosts?.imageInputCost ?? null,
-								imageOutputCost: cancelledCosts?.imageOutputCost ?? null,
-								audioInputTokens:
-									cancelledCosts?.audioInputTokens?.toString() ?? null,
-								audioInputCost: cancelledCosts?.audioInputCost ?? null,
-								cost: cancelledCosts?.totalCost ?? null,
-								estimatedCost: cancelledCosts?.estimatedCost ?? false,
-								discount: cancelledCosts?.discount ?? null,
-								dataStorageCost: billCancelled
-									? calculateDataStorageCost(
-											cancelledCosts?.promptTokens ?? estimatedPromptTokens,
-											null,
-											0,
-											null,
-											retentionLevel,
-										)
-									: "0",
-								cached: false,
-								toolResults: null,
-							});
-
-							// Send a cancellation event to the client
-							await writeSSEAndCache({
-								event: "canceled",
-								data: JSON.stringify({
-									message: "Request canceled by client",
-								}),
-								id: String(eventId++),
-							});
-							await writeSSEAndCache({
-								event: "done",
-								data: "[DONE]",
-								id: String(eventId++),
-							});
-							clearKeepalive();
+							await respondCanceledStreaming(perAttemptStartTime);
 							return;
 						} else if (error instanceof Error) {
 							// Handle fetch errors (timeout, connection failures, etc.)
@@ -7468,7 +7547,24 @@ chat.openapi(completions, async (c) => {
 					}
 
 					if (!res.ok) {
-						const rawErrorResponseText = await res.text();
+						let rawErrorResponseText: string;
+						try {
+							rawErrorResponseText = await readBodyWithClientAbort(res.text());
+						} catch (bodyError) {
+							// Re-throw non-Error values (mirrors the fetch catch above).
+							if (!(bodyError instanceof Error)) {
+								throw bodyError;
+							}
+							// A client disconnect aborts the in-flight error-body read;
+							// record it as a canceled request (same log shape as the
+							// fetch-cancellation path) instead of escaping as a stream
+							// error.
+							if (isClientAbortError(bodyError)) {
+								await respondCanceledStreaming(perAttemptStartTime);
+								return;
+							}
+							throw bodyError;
+						}
 						const errorResponseText = usesAwsBedrockConverse()
 							? extractAwsBedrockHttpError(res, rawErrorResponseText)
 							: rawErrorResponseText;
@@ -9229,6 +9325,7 @@ chat.openapi(completions, async (c) => {
 											usedRegion,
 											service_tier,
 											configIndex,
+											envVariant,
 										),
 										data,
 									);
@@ -9568,6 +9665,7 @@ chat.openapi(completions, async (c) => {
 								switch (streamFormatProvider) {
 									case "google-ai-studio":
 									case "glacier":
+									case "iceberg":
 									case "google-vertex":
 									case "quartz":
 										// Preserve original Google finish reason for logging
@@ -11014,6 +11112,20 @@ chat.openapi(completions, async (c) => {
 		); // Using 400 status code for client closed request
 	};
 
+	// Wrap an upstream body read (res.text()/res.json()) so a client disconnect
+	// settles it immediately instead of relying on the fetch AbortSignal to
+	// propagate into undici's in-flight body machinery — a late abort can be
+	// missed there, leaving the read blocked until the fetch timeout and the
+	// request mislogged as an upstream error instead of canceled.
+	// requestCanBeCanceled is read at call time: retries can switch providers,
+	// flipping whether cancellation is supported.
+	const readBodyWithClientAbort = <T>(bodyPromise: Promise<T>): Promise<T> =>
+		raceClientAbort(
+			bodyPromise,
+			c.req.raw.signal,
+			requestCanBeCanceled ? controller : undefined,
+		);
+
 	// --- Retry loop for provider fallback ---
 	const routingAttempts: RoutingAttempt[] = [];
 	const failedProviderIds = new Set<string>();
@@ -11106,6 +11218,7 @@ chat.openapi(completions, async (c) => {
 				usedRegion,
 				service_tier,
 				configIndex,
+				envVariant,
 			);
 			const headers = getProviderHeaders(usedProvider, usedToken, {
 				requestId,
@@ -11479,7 +11592,7 @@ chat.openapi(completions, async (c) => {
 				onAbort();
 			}
 			try {
-				const rawErrorResponseText = await res.text();
+				const rawErrorResponseText = await readBodyWithClientAbort(res.text());
 				errorResponseText = usesAwsBedrockConverse()
 					? extractAwsBedrockHttpError(res, rawErrorResponseText)
 					: rawErrorResponseText;
@@ -11492,7 +11605,7 @@ chat.openapi(completions, async (c) => {
 				// it as a canceled request (same log shape as the fetch-
 				// cancellation path) instead of misreporting it as an upstream
 				// failure or a bare 499.
-				if (bodyError.name === "AbortError") {
+				if (isClientAbortError(bodyError)) {
 					return await respondCanceled();
 				}
 				// A read timeout or a mid-body socket failure (e.g. undici
@@ -12124,7 +12237,7 @@ chat.openapi(completions, async (c) => {
 		if (forceStream && res.body) {
 			// Stream-only model: upstream returned SSE but client expects JSON.
 			// Read the full stream and assemble a non-streaming response.
-			const text = await res.text();
+			const text = await readBodyWithClientAbort(res.text());
 			const lines = text.split("\n");
 			let content = "";
 			const toolCalls: any[] = [];
@@ -12208,7 +12321,7 @@ chat.openapi(completions, async (c) => {
 			// Upstream is openai/azure gpt-image-* and we forced stream=true
 			// to dodge the 122s sync wall. Collapse the SSE back into the
 			// normal { data: [{ b64_json }], usage } shape.
-			const text = await res.text();
+			const text = await readBodyWithClientAbort(res.text());
 			const collapsed = collapseImageGenSse(text);
 			if ("error" in collapsed) {
 				const sseErrorText = JSON.stringify(collapsed.error);
@@ -12356,7 +12469,7 @@ chat.openapi(completions, async (c) => {
 			}
 			json = collapsed.json;
 		} else {
-			json = await res.json();
+			json = await readBodyWithClientAbort(res.json());
 		}
 	} catch (bodyError) {
 		// Re-throw non-Error values (mirrors the fetch catch above).
@@ -12366,7 +12479,7 @@ chat.openapi(completions, async (c) => {
 		// A client disconnect aborts the in-flight body read; record it as a
 		// canceled request (same log shape as the fetch-cancellation path)
 		// instead of misreporting it as an upstream failure or a bare 499.
-		if (bodyError.name === "AbortError") {
+		if (isClientAbortError(bodyError)) {
 			// The post-loop success append already recorded this provider as a
 			// succeeded routing attempt. Drop it before logging the cancellation
 			// so a client disconnect isn't counted as a provider success in the
@@ -12584,6 +12697,7 @@ chat.openapi(completions, async (c) => {
 			usedRegion,
 			service_tier,
 			configIndex,
+			envVariant,
 		),
 		json,
 	);

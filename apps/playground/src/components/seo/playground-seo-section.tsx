@@ -31,7 +31,7 @@ const variants: Record<SeoVariant, VariantContent> = {
 			{ href: "/audio", label: "AI audio generation" },
 			{ href: "/group", label: "Compare models side by side" },
 			{ href: "/canvas", label: "Canvas — UI from JSON" },
-			{ href: "/compare", label: "LLM Gateway Chat vs ChatGPT, Claude & more" },
+			{ href: "/compare", label: "Lounge vs ChatGPT, Claude & more" },
 		],
 	},
 	image: {
@@ -52,12 +52,12 @@ const variants: Record<SeoVariant, VariantContent> = {
 		],
 	},
 	video: {
-		h1: "AI video generation — compare Veo, Wan, and more in one playground",
+		h1: "AI video generation — compare Veo, Wan, and more in one place",
 		intro:
 			"Generate short videos from text prompts using the newest AI video models. Preview results inline, compare providers, and download the output.",
 		bullets: [
 			"Models include Google Veo, Alibaba Wan, and other text-to-video providers.",
-			"Preview generated videos in the browser without leaving the playground.",
+			"Preview generated videos in the browser without leaving the Lounge.",
 			"Routes through LLM Gateway for cost tracking across providers.",
 		],
 		related: [

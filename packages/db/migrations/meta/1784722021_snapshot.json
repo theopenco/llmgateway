@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "c736be2f-c1e1-4cc1-bb85-3f3d80908ccb",
-  "prevId": "1b2504bf-6a90-40ab-8a19-c264769d8417",
+  "id": "967ce110-caa0-44b8-abe1-6556ca834556",
+  "prevId": "2076928b-4a72-4fac-9eb6-0bc7e40350fc",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -366,12 +366,6 @@
     },
     {
       "isRlsEnabled": false,
-      "name": "realtime_session",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
       "name": "referral",
       "entityType": "tables",
       "schema": "public"
@@ -445,6 +439,12 @@
     {
       "isRlsEnabled": false,
       "name": "user_favorite_model",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "user_iam_rule",
       "entityType": "tables",
       "schema": "public"
     },
@@ -1508,22 +1508,6 @@
       },
       "generated": null,
       "identity": null,
-      "name": "audio_output_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_model_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
       "name": "video_output_cost",
       "entityType": "columns",
       "schema": "public",
@@ -2201,22 +2185,6 @@
       "generated": null,
       "identity": null,
       "name": "audio_input_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "audio_output_cost",
       "entityType": "columns",
       "schema": "public",
       "table": "api_key_hourly_stats"
@@ -5767,22 +5735,6 @@
       },
       "generated": null,
       "identity": null,
-      "name": "audio_output_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "global_model_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
       "name": "video_output_cost",
       "entityType": "columns",
       "schema": "public",
@@ -6447,22 +6399,6 @@
       "generated": null,
       "identity": null,
       "name": "audio_input_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "global_source_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "audio_output_cost",
       "entityType": "columns",
       "schema": "public",
       "table": "global_source_stats"
@@ -8527,84 +8463,6 @@
       "generated": null,
       "identity": null,
       "name": "responses_api_data",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "log"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "realtime_session_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "log"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "realtime_usage_key",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "log"
-    },
-    {
-      "type": "numeric",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "billing_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "log"
-    },
-    {
-      "type": "numeric",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "audio_output_tokens",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "log"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "audio_output_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "log"
-    },
-    {
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "realtime_usage",
       "entityType": "columns",
       "schema": "public",
       "table": "log"
@@ -14704,22 +14562,6 @@
       },
       "generated": null,
       "identity": null,
-      "name": "audio_output_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_model_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
       "name": "video_output_cost",
       "entityType": "columns",
       "schema": "public",
@@ -15412,22 +15254,6 @@
       },
       "generated": null,
       "identity": null,
-      "name": "audio_output_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_source_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
       "name": "video_output_cost",
       "entityType": "columns",
       "schema": "public",
@@ -16092,22 +15918,6 @@
       "generated": null,
       "identity": null,
       "name": "audio_input_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "audio_output_cost",
       "entityType": "columns",
       "schema": "public",
       "table": "project_hourly_stats"
@@ -17182,316 +16992,6 @@
       "entityType": "columns",
       "schema": "public",
       "table": "rate_limit"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "organization_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "project_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "api_key_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "requested_model",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "used_model",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "used_model_mapping",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "used_provider",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "mode",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "used_mode",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "upstream_session_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'open'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "status",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "close_reason",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "response_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "numeric",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'0'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "bytes_in",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "bytes_out",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "connected_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "closed_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "last_activity_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
     },
     {
       "type": "text",
@@ -19078,6 +18578,106 @@
       "entityType": "columns",
       "schema": "public",
       "table": "user_favorite_model"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "user_iam_rule"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "user_iam_rule"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "user_iam_rule"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "user_organization_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "user_iam_rule"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "rule_type",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "user_iam_rule"
+    },
+    {
+      "type": "json",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "rule_value",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "user_iam_rule"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'active'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "status",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "user_iam_rule"
     },
     {
       "type": "text",
@@ -22532,55 +22132,6 @@
       "nameExplicit": true,
       "columns": [
         {
-          "value": "realtime_session_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "realtime_usage_key",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": true,
-      "where": "realtime_usage_key IS NOT NULL",
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "log_realtime_session_usage_key_unique",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "log"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "realtime_session_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": "realtime_session_id IS NOT NULL",
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "log_realtime_session_id_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "log"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
           "value": "organization_id",
           "isExpression": false,
           "asc": true,
@@ -24037,90 +23588,6 @@
       "nameExplicit": true,
       "columns": [
         {
-          "value": "organization_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "created_at",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "realtime_session_organization_id_created_at_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "project_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "created_at",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "realtime_session_project_id_created_at_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "api_key_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "created_at",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "realtime_session_api_key_id_created_at_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
           "value": "referrer_organization_id",
           "isExpression": false,
           "asc": true,
@@ -24571,6 +24038,55 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "user_favorite_model"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "user_organization_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "user_iam_rule_user_organization_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "user_iam_rule"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "user_organization_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "status",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "user_iam_rule_user_organization_id_status_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "user_iam_rule"
     },
     {
       "nameExplicit": true,
@@ -26181,57 +25697,6 @@
     {
       "nameExplicit": false,
       "columns": [
-        "organization_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "organization",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "realtime_session_organization_id_organization_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "project_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "project",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "realtime_session_project_id_project_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "api_key_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "api_key",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "realtime_session_api_key_id_api_key_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
         "referrer_organization_id"
       ],
       "schemaTo": "public",
@@ -26517,6 +25982,23 @@
       "entityType": "fks",
       "schema": "public",
       "table": "user_favorite_model"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "user_organization_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "user_organization",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "user_iam_rule_user_organization_id_user_organization_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "user_iam_rule"
     },
     {
       "nameExplicit": false,
@@ -27446,16 +26928,6 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "realtime_session_pkey",
-      "schema": "public",
-      "table": "realtime_session",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
       "name": "referral_pkey",
       "schema": "public",
       "table": "referral",
@@ -27579,6 +27051,16 @@
       "name": "user_favorite_model_pkey",
       "schema": "public",
       "table": "user_favorite_model",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "user_iam_rule_pkey",
+      "schema": "public",
+      "table": "user_iam_rule",
       "entityType": "pks"
     },
     {

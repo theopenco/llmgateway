@@ -918,6 +918,37 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 			? body.n
 			: 1;
 
+	// Simulate an upstream that returns a non-OK status (500) plus a partial
+	// error body, then hangs without finishing it. The gateway's res.text() on
+	// the error path blocks waiting for the rest, letting a test abort the
+	// client mid-read to exercise the error-body cancellation path. Checked
+	// before the stream branch so streaming requests hit it too: a non-OK
+	// upstream response is a plain (non-SSE) body in both modes. The trigger
+	// deliberately avoids the "TRIGGER_ERROR" substring so the generic-error
+	// handler above doesn't short-circuit it.
+	if (hasUserMessageTrigger(chatMessages, "TRIGGER_5XX_BODY_HANG")) {
+		const encoder = new TextEncoder();
+		let sentPartialBody = false;
+		const hangingErrorBody = new ReadableStream({
+			pull(controller) {
+				if (!sentPartialBody) {
+					sentPartialBody = true;
+					// Flush a partial JSON body so headers are written first.
+					controller.enqueue(encoder.encode('{"error":{"message":"partial'));
+					notifyMockCheckpoint("TRIGGER_5XX_BODY_HANG");
+					return;
+				}
+				// Never enqueue more and never close: the body read hangs until the
+				// client disconnects.
+				return new Promise<void>(() => {});
+			},
+		});
+		return new Response(hangingErrorBody, {
+			status: 500,
+			headers: { "Content-Type": "application/json" },
+		});
+	}
+
 	if (body.stream === true) {
 		return streamSSE(c, async (stream) => {
 			let eventId = 0;
@@ -1173,35 +1204,6 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		});
 	}
 
-	// Simulate an upstream that returns a non-OK status (500) plus a partial
-	// error body, then hangs without finishing it. The gateway's res.text() on
-	// the error path blocks waiting for the rest, letting a test abort the
-	// client mid-read to exercise the non-streaming error-body cancellation
-	// path. The trigger deliberately avoids the "TRIGGER_ERROR" substring so the
-	// generic-error handler above doesn't short-circuit it.
-	if (hasUserMessageTrigger(chatMessages, "TRIGGER_5XX_BODY_HANG")) {
-		const encoder = new TextEncoder();
-		let sentPartialBody = false;
-		const hangingErrorBody = new ReadableStream({
-			pull(controller) {
-				if (!sentPartialBody) {
-					sentPartialBody = true;
-					// Flush a partial JSON body so headers are written first.
-					controller.enqueue(encoder.encode('{"error":{"message":"partial'));
-					notifyMockCheckpoint("TRIGGER_5XX_BODY_HANG");
-					return;
-				}
-				// Never enqueue more and never close: the body read hangs until the
-				// client disconnects.
-				return new Promise<void>(() => {});
-			},
-		});
-		return new Response(hangingErrorBody, {
-			status: 500,
-			headers: { "Content-Type": "application/json" },
-		});
-	}
-
 	const baseChoice = sampleChatCompletionResponse.choices[0];
 	const choices = Array.from({ length: requestedN }, (_, index) => ({
 		...baseChoice,
@@ -1370,6 +1372,79 @@ mockOpenAIServer.post("/v1/audio/speech", async (c) => {
 
 	return c.body(audio, 200, {
 		"Content-Type": contentTypes[format] ?? "audio/mpeg",
+	});
+});
+
+// Alibaba DashScope non-streaming TTS (SpeechSynthesizer): the response
+// carries a short-lived URL to the synthesized WAV file rather than inline
+// audio, so the mock points the URL back at this server's
+// /mock-dashscope-audio.wav endpoint.
+mockOpenAIServer.post(
+	"/api/v1/services/audio/tts/SpeechSynthesizer",
+	async (c) => {
+		const body = await c.req.json();
+		const text = typeof body.input?.text === "string" ? body.input.text : "";
+
+		const statusTrigger = extractStatusCodeTrigger(text);
+		if (statusTrigger) {
+			c.status(statusTrigger.statusCode as any);
+			return c.json(statusTrigger.errorResponse);
+		}
+		if (text.includes("TRIGGER_ERROR")) {
+			c.status(500);
+			return c.json(sampleErrorResponse);
+		}
+
+		const origin = new URL(c.req.url).origin;
+		return c.json({
+			output: {
+				audio: { url: `${origin}/mock-dashscope-audio.wav` },
+				finish_reason: "stop",
+			},
+			request_id: "mock-dashscope-request-id",
+		});
+	},
+);
+
+mockOpenAIServer.get("/mock-dashscope-audio.wav", (c) => {
+	const audio = Buffer.from("MOCK_DASHSCOPE_AUDIO");
+	return c.body(audio, 200, { "Content-Type": "audio/wav" });
+});
+
+// xAI speech-to-text: POST /v1/stt accepts a multipart form with the audio
+// file (or a url field) and returns the transcript with word-level timestamps
+// and the billed audio duration in seconds.
+mockOpenAIServer.post("/v1/stt", async (c) => {
+	const form = await c.req.formData();
+	const file = form.get("file");
+	const url = form.get("url");
+	const fileName = file instanceof File ? file.name : "";
+	const marker = typeof url === "string" ? url : fileName;
+
+	const statusTrigger = extractStatusCodeTrigger(marker);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+	if (marker.includes("TRIGGER_ERROR")) {
+		c.status(500);
+		return c.json(sampleErrorResponse);
+	}
+	if (!(file instanceof File) && typeof url !== "string") {
+		c.status(400);
+		return c.json(sampleErrorResponse);
+	}
+
+	return c.json({
+		text: "The balance is $167,983.15.",
+		language: "English",
+		duration: 3.45,
+		words: [
+			{ text: "The", start: 0.24, end: 0.48 },
+			{ text: "balance", start: 0.48, end: 0.96 },
+			{ text: "is", start: 0.96, end: 1.12 },
+			{ text: "$167,983.15.", start: 1.12, end: 3.2 },
+		],
 	});
 });
 

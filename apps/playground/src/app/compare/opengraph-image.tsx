@@ -12,8 +12,7 @@ import { comparisons, US } from "@/lib/comparisons";
 
 export const size = OG_SIZE;
 export const contentType = OG_CONTENT_TYPE;
-export const alt =
-	"Compare LLM Gateway Chat vs ChatGPT, Claude, Gemini and more";
+export const alt = "Compare Lounge vs ChatGPT, Claude, Gemini and more";
 
 function monogramOf(name: string): string {
 	return name
@@ -53,7 +52,7 @@ export default function CompareIndexOgImage() {
 					<div style={{ display: "flex", alignItems: "center", gap: 16 }}>
 						<LgMark size={44} />
 						<div style={{ display: "flex", flexDirection: "column" }}>
-							<span style={{ fontSize: 26, fontWeight: 700 }}>LLM Gateway</span>
+							<span style={{ fontSize: 26, fontWeight: 700 }}>Lounge</span>
 							<span
 								style={{
 									fontSize: 16,
@@ -61,7 +60,7 @@ export default function CompareIndexOgImage() {
 									letterSpacing: "0.02em",
 								}}
 							>
-								Comparisons
+								by LLM Gateway
 							</span>
 						</div>
 					</div>
@@ -79,7 +78,7 @@ export default function CompareIndexOgImage() {
 							color: "#FAFAFA",
 						}}
 					>
-						Compare LLM Gateway Chat
+						Compare Lounge
 					</span>
 					<span
 						style={{

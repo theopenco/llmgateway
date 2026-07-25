@@ -4,6 +4,7 @@ import {
 	sql,
 	projectHourlyStats,
 	projectHourlyModelStats,
+	projectHourlySourceStats,
 	apiKeyHourlyStats,
 	apiKeyHourlyModelStats,
 	eq,
@@ -42,6 +43,7 @@ export async function deleteAll() {
 			await db.delete(tables.auditLog);
 			await db.delete(projectHourlyStats);
 			await db.delete(projectHourlyModelStats);
+			await db.delete(projectHourlySourceStats);
 			await db.delete(apiKeyHourlyStats);
 			await db.delete(apiKeyHourlyModelStats);
 			await db.delete(tables.apiKey);

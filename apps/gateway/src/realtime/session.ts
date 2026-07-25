@@ -180,6 +180,13 @@ export class RealtimeProxySession {
 	private readonly timers: NodeJS.Timeout[] = [];
 	private backpressurePoller: NodeJS.Timeout | null = null;
 	private drainTimer: NodeJS.Timeout | null = null;
+	// Handling is asynchronous on the billing-critical paths (response.create
+	// awaits the generation gates, response.done awaits its usage row) while
+	// every other event forwards synchronously. Frames are therefore chained
+	// rather than dispatched concurrently: otherwise a later frame overtakes
+	// the one still awaiting and reaches the peer out of order.
+	private clientQueue: Promise<void> = Promise.resolve();
+	private upstreamQueue: Promise<void> = Promise.resolve();
 
 	public constructor(options: RealtimeProxySessionOptions) {
 		this.client = options.clientSocket;
@@ -195,10 +202,26 @@ export class RealtimeProxySession {
 		this.onClosed = options.onClosed;
 
 		this.client.on("message", (data, isBinary) => {
-			void this.handleClientMessage(data, isBinary);
+			this.clientQueue = this.clientQueue
+				.then(() => this.handleClientMessage(data, isBinary))
+				.catch((error: unknown) => {
+					logger.error(
+						"Failed to handle realtime client event; closing session",
+						error as Error,
+					);
+					this.shutdown(1011, "internal_error");
+				});
 		});
 		this.upstream.on("message", (data) => {
-			void this.handleUpstreamMessage(data);
+			this.upstreamQueue = this.upstreamQueue
+				.then(() => this.handleUpstreamMessage(data))
+				.catch((error: unknown) => {
+					logger.error(
+						"Failed to handle realtime upstream event; closing session",
+						error as Error,
+					);
+					this.shutdown(1011, "internal_error");
+				});
 		});
 
 		this.client.on("close", () => {
@@ -745,13 +768,14 @@ export class RealtimeProxySession {
 		// session is open, and a session may live for the whole duration limit.
 		// Re-evaluating them per generation makes a revoked model, IP range or
 		// provider take effect within one turn, as it would for HTTP requests.
-		const iamValidation = await validateRequestModelAccess(
-			freshKey,
-			this.preflight.match.modelId,
-			this.preflight.match.mapping.providerId,
-			this.preflight.match.modelDef,
-			this.preflight.clientIp,
-		);
+		const iamValidation = await validateRequestModelAccess({
+			apiKey: freshKey,
+			organizationId: this.preflight.project.organizationId,
+			requestedModel: this.preflight.match.modelId,
+			requestedProvider: this.preflight.match.mapping.providerId,
+			activeModelInfo: this.preflight.match.modelDef,
+			clientIp: this.preflight.clientIp,
+		});
 		if (!iamValidation.allowed) {
 			this.sendToClientRaw(
 				buildErrorEvent(

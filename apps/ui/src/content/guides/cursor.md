@@ -2,13 +2,13 @@
 id: cursor
 slug: cursor
 title: Cursor Integration
-description: Point Cursor's chat at any of 200+ models through LLM Gateway. One base URL override, full cost tracking — with an honest look at what Cursor does and doesn't allow.
+description: Point Cursor's plan and agent modes at any of 200+ models through LLM Gateway. One base URL override, full cost tracking — with an honest look at what still stays on Cursor's backend.
 date: 2026-07-03
 ---
 
-Cursor is an AI-powered code editor built on VS Code. It supports a custom OpenAI base URL, which means you can point its chat panel at LLM Gateway and use any model from our catalog — GPT-5, Claude, Gemini, DeepSeek, or 200+ others — with every request tracked in your dashboard.
+Cursor is an AI-powered code editor built on VS Code. It supports a custom OpenAI base URL, which means you can point its AI panel at LLM Gateway and use any model from our catalog — GPT-5, Claude, Gemini, DeepSeek, or 200+ others — with every request tracked in your dashboard.
 
-One thing up front, because most guides skip it: **the base URL override only applies to Cursor's chat / plan mode.** Composer, inline edit (Cmd/Ctrl + K), and autocomplete are locked to Cursor's own backend and will not route through any external endpoint. If you want a full coding agent running through LLM Gateway, use [Claude Code](/guides/claude-code), [Codex CLI](/guides/codex-cli), [Cline](/guides/cline), or [OpenCode](/guides/opencode) instead.
+One thing up front, because most guides skip it: **the base URL override applies to Cursor's AI panel — both plan mode and agent mode.** Inline edit (Cmd/Ctrl + K) and tab autocomplete are locked to Cursor's own backend and will not route through any external endpoint. If you want every request in your workflow — including edits and completions — running through LLM Gateway, use [Claude Code](/guides/claude-code), [Codex CLI](/guides/codex-cli), [Cline](/guides/cline), or [OpenCode](/guides/opencode) instead.
 
 ## Quick Start
 
@@ -38,18 +38,18 @@ Add any model ID from the [models catalog](https://llmgateway.io/models) — for
 
 ![Cursor Model Selection](https://docs.llmgateway.io/guides/cursor/model-selection.png)
 
-Open the chat panel (Cmd/Ctrl + L) and every request now routes through LLM Gateway.
+Open the AI panel (Cmd/Ctrl + L) and every plan and agent request now routes through LLM Gateway.
 
 ## What works and what doesn't
 
 | Cursor feature                  | Routes through LLM Gateway |
 | ------------------------------- | -------------------------- |
 | Chat / plan mode (Cmd/Ctrl + L) | ✅ Yes                     |
-| Composer / coding agent         | ❌ Cursor backend only     |
+| Agent mode                      | ✅ Yes                     |
 | Inline edit (Cmd/Ctrl + K)      | ❌ Cursor backend only     |
 | Autocomplete / tab              | ❌ Cursor backend only     |
 
-This is a Cursor limitation, not an LLM Gateway one — external OpenAI-compatible endpoints are only honored by the chat panel.
+The remaining gaps are a Cursor limitation, not an LLM Gateway one — external OpenAI-compatible endpoints are honored by the AI panel (plan and agent mode), while inline edit and tab completion stay on Cursor's backend.
 
 ## Model selection tips
 
@@ -64,14 +64,14 @@ This is a Cursor limitation, not an LLM Gateway one — external OpenAI-compatib
 
 **Model not found** — Confirm the model ID exists in the [catalog](https://llmgateway.io/models) and is spelled exactly as shown.
 
-**Composer or autocomplete still uses Cursor's models** — Expected; see the table above.
+**Inline edit or autocomplete still uses Cursor's models** — Expected; see the table above.
 
 Need help? Join our [Discord](https://llmgateway.io/discord).
 
 ## Why route Cursor through LLM Gateway
 
-- **Any model in the chat panel** — OpenAI, Anthropic, Google, Meta, DeepSeek, and open-source models through one key
-- **Cost tracking** — every chat request appears in your [dashboard](/dashboard) with per-model cost breakdowns
+- **Any model in plan and agent mode** — OpenAI, Anthropic, Google, Meta, DeepSeek, and open-source models through one key
+- **Cost tracking** — every plan and agent request appears in your [dashboard](/dashboard) with per-model cost breakdowns
 - **Caching** — repeated prompts hit the cache instead of the provider
 - **One bill** — no juggling separate provider accounts
 

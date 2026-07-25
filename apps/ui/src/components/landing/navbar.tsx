@@ -180,10 +180,10 @@ export const Navbar = ({
 			external: true,
 		},
 		{
-			title: "Chat Playground",
+			title: "Lounge",
 			href: config.playgroundUrl ?? "#",
 			description:
-				"Test prompts and compare model responses side by side, instantly.",
+				"Every frontier model in one chat — plus image, video and audio studios.",
 			icon: MessagesSquare,
 			gradient:
 				"hover:from-blue-500/20 hover:to-cyan-600/30 hover:shadow-blue-500/10 group-hover/product:text-blue-500 dark:group-hover/product:text-blue-400",
@@ -485,7 +485,7 @@ export const Navbar = ({
 												onClick={() => trackNav("Chat")}
 												className="text-muted-foreground hover:text-accent-foreground block duration-150 px-3 py-2 whitespace-nowrap"
 											>
-												Chat
+												Lounge
 											</a>
 										</NavigationMenuLink>
 									</NavigationMenuItem>
@@ -624,7 +624,7 @@ export const Navbar = ({
 											onClick={() => trackNav("Chat")}
 											className="text-muted-foreground hover:text-accent-foreground block py-2.5 duration-150"
 										>
-											Chat
+											Lounge
 										</a>
 									</li>
 									<li>

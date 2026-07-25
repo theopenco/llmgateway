@@ -136,11 +136,16 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 		// their WebSocket connections don't hold the HTTP server open for the
 		// full grace period.
 		if (realtime) {
-			logger.info("Draining realtime sessions", {
-				activeSessions: realtime.sessionCount(),
-			});
+			const activeSessions = realtime.sessionCount();
+			logger.info("Draining realtime sessions", { activeSessions });
 			realtime.stopAccepting();
 			realtime.closeAll(1001, "server_shutdown");
+			if (activeSessions > 0) {
+				// Session finalization and its final billing writes are
+				// fire-and-forget; give them the same window the dedicated
+				// realtime entrypoint allows before closeDatabase() below.
+				await new Promise((resolve) => setTimeout(resolve, 2000));
+			}
 		}
 
 		logger.info("Closing HTTP server");

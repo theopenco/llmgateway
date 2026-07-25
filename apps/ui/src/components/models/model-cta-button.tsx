@@ -46,7 +46,7 @@ export function ModelCtaButton({
 					rel="noopener noreferrer"
 				>
 					<Play className={iconClassName} />
-					Try in Playground
+					Try in Lounge
 				</a>
 			</Button>
 		);

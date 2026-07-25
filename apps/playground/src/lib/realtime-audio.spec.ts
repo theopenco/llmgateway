@@ -26,6 +26,15 @@ describe("resampleLinear", () => {
 		expect(output[0]).toBe(0);
 	});
 
+	// The downsampling case above lands on whole source indices, so only a
+	// fractional position actually exercises the blend.
+	it("blends fractional source positions", () => {
+		const input = new Float32Array([0, 1]);
+		const output = resampleLinear(input, 12000, 24000);
+		expect(output.length).toBe(4);
+		expect(output[1]).toBeCloseTo(0.5, 6);
+	});
+
 	it("preserves a constant signal", () => {
 		const input = new Float32Array(441).fill(0.25);
 		const output = resampleLinear(input, 44100, 24000);
