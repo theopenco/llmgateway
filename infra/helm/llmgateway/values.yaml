@@ -135,54 +135,37 @@ gateway:
     healthCheckSkipDatabase: ""
     healthCheckTimeoutMs: 15000
     maxStreamingBufferMb: 50
+  # Hard deadline for pod shutdown; caps every in-process drain above. Defaults
+  # to 120s, or realtime.config.maxSessionSeconds + 120 when realtime.enabled.
+  # Set explicitly only to override that.
+  terminationGracePeriodSeconds: ""
   extraEnv: []
   nodeSelector: {}
   tolerations: []
 
 # =============================================================================
-# Realtime Service (WebSocket proxy for /v1/realtime)
+# Realtime (/v1/realtime WebSocket proxy)
 # =============================================================================
-# Dedicated deployment for long-lived realtime sessions, isolated from the
-# HTTP gateway. Disabled by default (staged rollout); runs the same gateway
-# image with the realtime entrypoint. Scale on active sessions and network
-# throughput, not CPU alone.
+# Hosted inside the gateway process, not as its own deployment: a separate
+# deployment would need the same drain-before-shutdown behaviour anyway, so it
+# buys isolation at the cost of another service to operate. Disabled by default
+# (staged rollout).
+#
+# Enabling this raises the gateway's terminationGracePeriodSeconds to cover
+# maxSessionSeconds, because a rolling deploy waits for live calls to hang up
+# before retiring a pod. Sessions also pin a caller to one pod for their whole
+# duration, so watch gateway memory as concurrency grows.
 realtime:
   enabled: false
-  replicas: 1
-  image:
-    registry: ""
-    repository: theopenco/llmgateway-gateway
-    tag: ""
-    pullPolicy: IfNotPresent
-  service:
-    type: ClusterIP
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      cpu: 500m
-      memory: 512Mi
   config:
     # Hard per-session duration cap in seconds (OpenAI caps sessions at 60m).
+    # Also sets how long a gateway pod may spend draining on shutdown.
     maxSessionSeconds: 3600
     # Hard per-session spend cap in USD.
     maxSessionSpendUsd: "10"
     # Redis-leased concurrency caps.
     maxSessionsPerOrg: 20
     maxSessionsPerKey: 10
-  # Must exceed maxSessionSeconds plus drain time so rolling deploys never
-  # force-kill active sessions.
-  terminationGracePeriodSeconds: 3720
-  # Blocks voluntary evictions (node drains) from killing active sessions.
-  # Enable once replicas > 1; with a single replica it blocks node drains
-  # entirely.
-  podDisruptionBudget:
-    enabled: false
-    maxUnavailable: 0
-  extraEnv: []
-  nodeSelector: {}
-  tolerations: []
 
 # =============================================================================
 # UI Dashboard (Next.js)

@@ -58,10 +58,19 @@ data:
   # Internal-only Prometheus metrics port (served separately from the public API)
   METRICS_PORT: {{ .Values.gateway.metricsPort | default 9090 | quote }}
 
-  # Whether the dedicated realtime service is deployed. When "false", the
-  # gateway's client-secret mint endpoint fails with 503 realtime_disabled
-  # instead of minting secrets for a WebSocket path that isn't routed.
-  REALTIME_ENABLED: {{ .Values.realtime.enabled | quote }}
+  # Realtime (/v1/realtime) is hosted inside the gateway process rather than as
+  # its own deployment. When "false" the gateway attaches no WebSocket listener
+  # and its client-secret mint endpoint fails with 503 realtime_disabled instead
+  # of minting secrets for a path nothing serves.
+  REALTIME_INLINE: {{ .Values.realtime.enabled | quote }}
+  {{- if .Values.realtime.enabled }}
+  {{- with .Values.realtime.config }}
+  REALTIME_MAX_SESSION_SECONDS: {{ .maxSessionSeconds | default 3600 | quote }}
+  REALTIME_MAX_SESSION_SPEND_USD: {{ .maxSessionSpendUsd | default "10" | quote }}
+  REALTIME_MAX_SESSIONS_PER_ORG: {{ .maxSessionsPerOrg | default 20 | quote }}
+  REALTIME_MAX_SESSIONS_PER_KEY: {{ .maxSessionsPerKey | default 10 | quote }}
+  {{- end }}
+  {{- end }}
 
   # Gateway timeouts
   {{- with .Values.gateway.config }}

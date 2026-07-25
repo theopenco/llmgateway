@@ -33,11 +33,10 @@ const metricsPort = Number(process.env.METRICS_PORT) || 9090;
 // Default to 620s (above GCP's 600s) to ensure the LB closes first.
 const keepAliveTimeoutS = Number(process.env.KEEP_ALIVE_TIMEOUT_S) || 620;
 
-// Host the /v1/realtime WebSocket proxy inside this process instead of the
-// dedicated realtime deployment (apps/gateway/src/realtime/serve.ts). This lets
-// `pnpm dev` bring up realtime sessions on the main gateway port with no extra
-// command. Production keeps them split (a separate deployment scales long-lived
-// sessions independently), so this stays opt-in via REALTIME_INLINE.
+// Host the /v1/realtime WebSocket proxy inside this process, so realtime
+// sessions are served on the gateway port with no extra deployment to operate.
+// Opt-in because a process that mints client secrets without an attached
+// listener would hand out credentials for a path nothing serves.
 const realtimeInline = process.env.REALTIME_INLINE === "true";
 
 let sdk: NodeSDK | null = null;
@@ -92,6 +91,17 @@ let isShuttingDown = false;
 const shutdownGracePeriodMs =
 	Number(process.env.SHUTDOWN_GRACE_PERIOD_MS) || 1200000;
 
+// Realtime sessions are long-lived WebSockets rather than request/response, so
+// closeServer()'s idle-connection draining never retires them: a live call is
+// "idle" between audio frames. They get their own explicit drain, bounded by
+// the session-duration cap plus a minute so a rolling deploy converges even if
+// a session runs to its limit. Must stay <= the pod's
+// terminationGracePeriodSeconds, or the orchestrator SIGKILLs mid-call and the
+// wait accomplishes nothing.
+const realtimeShutdownGracePeriodMs =
+	Number(process.env.REALTIME_SHUTDOWN_GRACE_PERIOD_MS) ||
+	((Number(process.env.REALTIME_MAX_SESSION_SECONDS) || 3600) + 60) * 1000;
+
 const closeServer = (server: ServerType): Promise<void> => {
 	return new Promise((resolve, reject) => {
 		const httpServer = server as Server;
@@ -138,20 +148,32 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 	});
 
 	try {
-		// Stop accepting new realtime sessions and force-close any live ones so
-		// their WebSocket connections don't hold the HTTP server open for the
-		// full grace period.
+		// Stop accepting new realtime sessions, then let the live calls hang up
+		// on their own rather than cutting them off mid-conversation. This runs
+		// before closeServer() because the WebSockets would otherwise keep the
+		// HTTP server open past its own grace period anyway.
 		if (realtime) {
-			const activeSessions = realtime.sessionCount();
-			logger.info("Draining realtime sessions", { activeSessions });
+			logger.info("Draining realtime sessions", {
+				activeSessions: realtime.sessionCount(),
+				gracePeriodMs: realtimeShutdownGracePeriodMs,
+			});
 			realtime.stopAccepting();
-			realtime.closeAll(1001, "server_shutdown");
-			if (activeSessions > 0) {
+
+			const deadline = Date.now() + realtimeShutdownGracePeriodMs;
+			while (realtime.sessionCount() > 0 && Date.now() < deadline) {
+				await new Promise((resolve) => setTimeout(resolve, 1000));
+			}
+
+			if (realtime.sessionCount() > 0) {
+				logger.warn("Force-closing remaining realtime sessions", {
+					remaining: realtime.sessionCount(),
+				});
+				realtime.closeAll(1001, "server_shutdown");
 				// Session finalization and its final billing writes are
-				// fire-and-forget; give them the same window the dedicated
-				// realtime entrypoint allows before closeDatabase() below.
+				// fire-and-forget; let them flush before closeDatabase() below.
 				await new Promise((resolve) => setTimeout(resolve, 2000));
 			}
+			logger.info("Realtime sessions drained");
 		}
 
 		logger.info("Closing HTTP server");

@@ -22,8 +22,8 @@ export function isRealtimeEnabled(): boolean {
 	if (process.env.REALTIME_DISABLED === "true") {
 		return false;
 	}
-	// Set explicitly by deployments that route /v1/realtime to a dedicated
-	// realtime service (the Helm chart mirrors realtime.enabled here).
+	// Escape hatch for deployments that front /v1/realtime with something other
+	// than this process.
 	if (process.env.REALTIME_ENABLED !== undefined) {
 		return process.env.REALTIME_ENABLED !== "false";
 	}

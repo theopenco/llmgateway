@@ -20,8 +20,7 @@
 		"format": "eslint --fix . && prettier --write .",
 		"generate": "tsx ./src/scripts/generate-openapi.ts",
 		"lint": "eslint . && prettier --check .",
-		"start": "node --enable-source-maps dist/serve.js",
-		"start:realtime": "node --enable-source-maps dist/realtime/serve.js"
+		"start": "node --enable-source-maps dist/serve.js"
 	},
 	"dependencies": {
 		"@hono/node-server": "^2.0.10",
