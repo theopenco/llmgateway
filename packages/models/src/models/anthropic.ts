@@ -707,30 +707,6 @@ export const anthropicModels = [
 				jsonOutput: true,
 				jsonOutputSchema: true,
 			},
-			{
-				providerId: "azure-anthropic",
-				externalId: "claude-haiku-4-5",
-				inputPrice: "1.0e-6",
-				outputPrice: "5.0e-6",
-				cachedInputPrice: "0.1e-6",
-				cacheWriteInputPrice: "1.25e-6",
-				cacheWriteInputPrice1h: "2.0e-6",
-				minCacheableTokens: 4096,
-				requestPrice: "0",
-				contextSize: 200000,
-				maxOutput: 64000,
-				reasoning: true,
-				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
-				reasoningMaxTokens: true,
-				streaming: true,
-				vision: true,
-				tools: true,
-				jsonOutput: true,
-				// Foundry rejects Anthropic structured outputs ("structured_outputs
-				// not supported in your workspace"), so schema-constrained JSON is
-				// unavailable here even though the direct Anthropic API supports it.
-				jsonOutputSchema: false,
-			},
 		],
 	},
 	{
