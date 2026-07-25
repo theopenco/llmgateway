@@ -56,6 +56,7 @@ import {
 	getIncludedResetPassesRemaining,
 	getRemainingPremiumWeeklyAllowance,
 	isPremiumWeekExpired,
+	REFUND_REASON_MAX_LENGTH,
 	type DevPlanCycle,
 	type DevPlanTier,
 } from "@llmgateway/shared";
@@ -2372,6 +2373,22 @@ const selfRefundInvoice = createRoute({
 		params: z.object({
 			invoiceId: z.string(),
 		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						reason: z
+							.string()
+							.trim()
+							.min(1)
+							.max(REFUND_REASON_MAX_LENGTH)
+							.openapi({
+								description: "Why the customer is requesting the refund",
+							}),
+					}),
+				},
+			},
+		},
 	},
 	responses: {
 		200: {
@@ -2396,6 +2413,7 @@ devPlans.openapi(selfRefundInvoice, async (c) => {
 	}
 
 	const { invoiceId } = c.req.param();
+	const { reason } = c.req.valid("json");
 
 	const personalOrg = await findPersonalOrg(user.id);
 	if (!personalOrg) {
@@ -2435,6 +2453,7 @@ devPlans.openapi(selfRefundInvoice, async (c) => {
 		organization: personalOrg,
 		transaction,
 		userId: user.id,
+		reason,
 	});
 
 	return c.json({

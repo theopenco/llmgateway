@@ -34,7 +34,10 @@ import {
 	projectHourlyStats,
 } from "@llmgateway/db";
 import { getProviderCountries } from "@llmgateway/models";
-import { CREDIT_TOP_UP_MAX_AMOUNT } from "@llmgateway/shared";
+import {
+	CREDIT_TOP_UP_MAX_AMOUNT,
+	REFUND_REASON_MAX_LENGTH,
+} from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -1046,6 +1049,22 @@ const selfRefundTransaction = createRoute({
 			id: z.string(),
 			transactionId: z.string(),
 		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						reason: z
+							.string()
+							.trim()
+							.min(1)
+							.max(REFUND_REASON_MAX_LENGTH)
+							.openapi({
+								description: "Why the customer is requesting the refund",
+							}),
+					}),
+				},
+			},
+		},
 	},
 	responses: {
 		200: {
@@ -1072,6 +1091,7 @@ organization.openapi(selfRefundTransaction, async (c) => {
 	}
 
 	const { id, transactionId } = c.req.param();
+	const { reason } = c.req.valid("json");
 
 	const userOrganization = await db.query.userOrganization.findFirst({
 		where: {
@@ -1121,6 +1141,7 @@ organization.openapi(selfRefundTransaction, async (c) => {
 		organization: userOrganization.organization,
 		transaction,
 		userId: user.id,
+		reason,
 	});
 
 	return c.json({

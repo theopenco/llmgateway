@@ -26,6 +26,8 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
+import { Label } from "@/lib/components/label";
+import { Textarea } from "@/lib/components/textarea";
 import {
 	Tooltip,
 	TooltipContent,
@@ -34,6 +36,8 @@ import {
 } from "@/lib/components/tooltip";
 import { useToast } from "@/lib/components/use-toast";
 import { useFetchClient } from "@/lib/fetch-client";
+
+import { REFUND_REASON_MAX_LENGTH } from "@llmgateway/shared";
 
 interface RefundEligibility {
 	eligible: boolean;
@@ -94,6 +98,8 @@ function RefundButton({
 	const router = useRouter();
 	const { toast } = useToast();
 	const [loading, setLoading] = useState(false);
+	const [open, setOpen] = useState(false);
+	const [reason, setReason] = useState("");
 
 	const refund = transaction.refund;
 	if (!refund) {
@@ -107,6 +113,7 @@ function RefundButton({
 				"/orgs/{id}/transactions/{transactionId}/refund",
 				{
 					params: { path: { id: orgId, transactionId: transaction.id } },
+					body: { reason: reason.trim() },
 				},
 			);
 			if (!response.ok) {
@@ -117,6 +124,8 @@ function RefundButton({
 				description:
 					"Your refund has been submitted and will appear in your transaction history shortly.",
 			});
+			setOpen(false);
+			setReason("");
 			router.refresh();
 		} catch {
 			toast({
@@ -151,7 +160,7 @@ function RefundButton({
 	}
 
 	return (
-		<AlertDialog>
+		<AlertDialog open={open} onOpenChange={setOpen}>
 			<AlertDialogTrigger asChild>
 				<Button variant="outline" size="sm" disabled={loading}>
 					{loading ? (
@@ -172,9 +181,36 @@ function RefundButton({
 						removed from your balance. This cannot be undone.
 					</AlertDialogDescription>
 				</AlertDialogHeader>
+				<div className="space-y-2">
+					<Label htmlFor={`refund-reason-${transaction.id}`}>
+						Why are you refunding?{" "}
+						<span className="text-destructive" aria-hidden="true">
+							*
+						</span>
+					</Label>
+					<Textarea
+						id={`refund-reason-${transaction.id}`}
+						value={reason}
+						onChange={(e) => setReason(e.target.value)}
+						maxLength={REFUND_REASON_MAX_LENGTH}
+						rows={4}
+						required
+						placeholder="Tell us what went wrong or what you were missing."
+						disabled={loading}
+					/>
+					<p className="text-muted-foreground text-xs">
+						Required. Your feedback helps us improve.
+					</p>
+				</div>
 				<AlertDialogFooter>
-					<AlertDialogCancel>Cancel</AlertDialogCancel>
-					<AlertDialogAction onClick={handleRefund}>
+					<AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
+					<AlertDialogAction
+						disabled={loading || reason.trim().length === 0}
+						onClick={(e) => {
+							e.preventDefault();
+							void handleRefund();
+						}}
+					>
 						Request refund
 					</AlertDialogAction>
 				</AlertDialogFooter>

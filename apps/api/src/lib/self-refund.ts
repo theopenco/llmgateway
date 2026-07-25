@@ -5,6 +5,7 @@ import { getStripe } from "@/routes/payments.js";
 import { getPaymentIntentFromInvoicePayments } from "@/stripe.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
+import { db, tables } from "@llmgateway/db";
 import {
 	CHAT_PLAN_PRICES,
 	DEV_PLAN_PRICES,
@@ -13,7 +14,7 @@ import {
 	type DevPlanTier,
 } from "@llmgateway/shared";
 
-import type { tables } from "@llmgateway/db";
+import type { RefundFeedbackKind } from "@llmgateway/db";
 
 type OrganizationRow = typeof tables.organization.$inferSelect;
 type TransactionRow = typeof tables.transaction.$inferSelect;
@@ -77,6 +78,24 @@ export function isSelfRefundCandidateType(
 	type: string,
 ): type is SelfRefundableType {
 	return (SELF_REFUNDABLE_TYPES as readonly string[]).includes(type);
+}
+
+const REFUND_FEEDBACK_KIND_BY_TYPE: Record<
+	SelfRefundableType,
+	RefundFeedbackKind
+> = {
+	credit_topup: "credits",
+	dev_plan_start: "devpass",
+	dev_plan_renewal: "devpass",
+	dev_plan_reset_pass: "devpass",
+	chat_plan_start: "chat",
+	chat_plan_renewal: "chat",
+};
+
+export function refundFeedbackKindForType(type: string): RefundFeedbackKind {
+	return isSelfRefundCandidateType(type)
+		? REFUND_FEEDBACK_KIND_BY_TYPE[type]
+		: "credits";
 }
 
 function ineligible(
@@ -382,16 +401,36 @@ export function computeSelfRefundEligibility({
  * the resulting customer.subscription.deleted resets the plan fields. Keeping
  * the cancellation in the webhook means it fires for every refund source, not
  * just this endpoint.
+ *
+ * `reason` is the freeform answer the user gave for why they are refunding; it
+ * is stored before the refund is issued so the feedback survives a Stripe
+ * failure.
  */
 export async function executeSelfRefund({
 	organization,
 	transaction,
 	userId,
+	reason,
 }: {
 	organization: OrganizationRow;
 	transaction: TransactionRow;
 	userId: string;
+	reason: string;
 }): Promise<{ stripeRefundId: string }> {
+	await db
+		.insert(tables.refundFeedback)
+		.values({
+			organizationId: organization.id,
+			userId,
+			transactionId: transaction.id,
+			kind: refundFeedbackKindForType(transaction.type),
+			reason,
+		})
+		.onConflictDoUpdate({
+			target: tables.refundFeedback.transactionId,
+			set: { reason, userId },
+		});
+
 	const stripe = getStripe();
 
 	let paymentIntentId = transaction.stripePaymentIntentId;

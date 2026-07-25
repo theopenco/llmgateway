@@ -18,6 +18,8 @@ import {
 	AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
 	Tooltip,
 	TooltipContent,
@@ -25,6 +27,8 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
+
+import { REFUND_REASON_MAX_LENGTH } from "@llmgateway/shared";
 
 import type { paths } from "@/lib/api/v1";
 
@@ -174,12 +178,16 @@ function RefundButton({
 }) {
 	const api = useApi();
 	const queryClient = useQueryClient();
+	const [open, setOpen] = useState(false);
+	const [reason, setReason] = useState("");
 
 	const refundMutation = api.useMutation(
 		"post",
 		"/orgs/{id}/transactions/{transactionId}/refund",
 		{
 			onSuccess: () => {
+				setOpen(false);
+				setReason("");
 				toast.success(
 					isPlanPayment(transaction.type)
 						? "Refund processing. Your chat plan has been cancelled and the refund will arrive within a few business days."
@@ -232,7 +240,7 @@ function RefundButton({
 	}
 
 	return (
-		<AlertDialog>
+		<AlertDialog open={open} onOpenChange={setOpen}>
 			<AlertDialogTrigger asChild>
 				<Button variant="outline" size="sm" disabled={refundMutation.isPending}>
 					{refundMutation.isPending ? (
@@ -255,16 +263,42 @@ function RefundButton({
 						This cannot be undone.
 					</AlertDialogDescription>
 				</AlertDialogHeader>
+				<div className="space-y-2">
+					<Label htmlFor={`refund-reason-${transaction.id}`}>
+						Why are you refunding?{" "}
+						<span className="text-destructive" aria-hidden="true">
+							*
+						</span>
+					</Label>
+					<Textarea
+						id={`refund-reason-${transaction.id}`}
+						value={reason}
+						onChange={(e) => setReason(e.target.value)}
+						maxLength={REFUND_REASON_MAX_LENGTH}
+						rows={4}
+						required
+						placeholder="Tell us what went wrong or what you were missing."
+						disabled={refundMutation.isPending}
+					/>
+					<p className="text-muted-foreground text-xs">
+						Required. Your feedback helps us improve.
+					</p>
+				</div>
 				<AlertDialogFooter>
-					<AlertDialogCancel>Cancel</AlertDialogCancel>
+					<AlertDialogCancel disabled={refundMutation.isPending}>
+						Cancel
+					</AlertDialogCancel>
 					<AlertDialogAction
-						onClick={() =>
+						disabled={refundMutation.isPending || reason.trim().length === 0}
+						onClick={(e) => {
+							e.preventDefault();
 							refundMutation.mutate({
 								params: {
 									path: { id: orgId, transactionId: transaction.id },
 								},
-							})
-						}
+								body: { reason: reason.trim() },
+							});
+						}}
 					>
 						Request refund
 					</AlertDialogAction>

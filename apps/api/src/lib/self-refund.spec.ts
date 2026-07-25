@@ -671,7 +671,11 @@ describe("self-refund endpoints", () => {
 
 		const response = await app.request(
 			`/orgs/${ORG_ID}/transactions/${tx.id}/refund`,
-			{ method: "POST", headers: { Cookie: token } },
+			{
+				method: "POST",
+				headers: { Cookie: token, "Content-Type": "application/json" },
+				body: JSON.stringify({ reason: "Too expensive for my usage" }),
+			},
 		);
 
 		expect(response.status).toBe(200);
@@ -693,6 +697,49 @@ describe("self-refund endpoints", () => {
 		});
 		expect(auditLogs).toHaveLength(1);
 		expect(auditLogs[0]?.resourceId).toBe(tx.id);
+
+		const feedback = await db.query.refundFeedback.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(feedback).toHaveLength(1);
+		expect(feedback[0]).toMatchObject({
+			transactionId: tx.id,
+			userId: "test-user-id",
+			kind: "credits",
+			reason: "Too expensive for my usage",
+		});
+	});
+
+	test("rejects a missing or blank reason without calling Stripe", async () => {
+		await seedOrg({ credits: "100" });
+		const tx = await seedTransaction();
+
+		const missing = await app.request(
+			`/orgs/${ORG_ID}/transactions/${tx.id}/refund`,
+			{
+				method: "POST",
+				headers: { Cookie: token, "Content-Type": "application/json" },
+				body: JSON.stringify({}),
+			},
+		);
+		expect(missing.status).toBe(400);
+
+		const blank = await app.request(
+			`/orgs/${ORG_ID}/transactions/${tx.id}/refund`,
+			{
+				method: "POST",
+				headers: { Cookie: token, "Content-Type": "application/json" },
+				body: JSON.stringify({ reason: "   " }),
+			},
+		);
+		expect(blank.status).toBe(400);
+
+		expect(stripeMock.refunds.create).not.toHaveBeenCalled();
+		expect(
+			await db.query.refundFeedback.findMany({
+				where: { organizationId: { eq: ORG_ID } },
+			}),
+		).toHaveLength(0);
 	});
 
 	test("refunding a dev plan resolves the invoice payment and issues the refund", async () => {
@@ -727,7 +774,11 @@ describe("self-refund endpoints", () => {
 
 		const response = await app.request(
 			`/orgs/${ORG_ID}/transactions/${tx.id}/refund`,
-			{ method: "POST", headers: { Cookie: token } },
+			{
+				method: "POST",
+				headers: { Cookie: token, "Content-Type": "application/json" },
+				body: JSON.stringify({ reason: "Too expensive for my usage" }),
+			},
 		);
 
 		expect(response.status).toBe(200);
@@ -739,6 +790,12 @@ describe("self-refund endpoints", () => {
 		// charge.refunded webhook (handleChargeRefunded), covering every refund
 		// source, not just this endpoint.
 		expect(stripeMock.subscriptions.cancel).not.toHaveBeenCalled();
+
+		const feedback = await db.query.refundFeedback.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(feedback).toHaveLength(1);
+		expect(feedback[0]?.kind).toBe("devpass");
 	});
 
 	test("rejects ineligible transactions with 400 and does not call Stripe", async () => {
@@ -747,7 +804,11 @@ describe("self-refund endpoints", () => {
 
 		const response = await app.request(
 			`/orgs/${ORG_ID}/transactions/${tx.id}/refund`,
-			{ method: "POST", headers: { Cookie: token } },
+			{
+				method: "POST",
+				headers: { Cookie: token, "Content-Type": "application/json" },
+				body: JSON.stringify({ reason: "Too expensive for my usage" }),
+			},
 		);
 
 		expect(response.status).toBe(400);
@@ -764,7 +825,11 @@ describe("self-refund endpoints", () => {
 
 		const response = await app.request(
 			`/orgs/${ORG_ID}/transactions/${tx.id}/refund`,
-			{ method: "POST", headers: { Cookie: token } },
+			{
+				method: "POST",
+				headers: { Cookie: token, "Content-Type": "application/json" },
+				body: JSON.stringify({ reason: "Too expensive for my usage" }),
+			},
 		);
 
 		expect(response.status).toBe(403);
