@@ -27,7 +27,6 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Logo } from "@/components/ui/logo";
 import {
 	Sidebar,
 	SidebarContent,
@@ -38,6 +37,7 @@ import {
 	SidebarMenuItem,
 	useSidebar,
 } from "@/components/ui/sidebar";
+import { Wordmark } from "@/components/ui/wordmark";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useUser } from "@/hooks/useUser";
 import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
@@ -125,8 +125,7 @@ export function RealtimeSidebar({
 							className="flex self-start items-center gap-2 my-2"
 							prefetch={true}
 						>
-							<Logo className="size-6" />
-							<h1 className="text-xl font-semibold">LLM Gateway</h1>
+							<Wordmark />
 							<Badge>Voice</Badge>
 						</Link>
 					</div>
@@ -145,8 +144,7 @@ export function RealtimeSidebar({
 							className="flex self-start items-center gap-2 my-2"
 							prefetch={true}
 						>
-							<Logo className="size-6" />
-							<h1 className="text-xl font-semibold">LLM Gateway</h1>
+							<Wordmark />
 							<Badge>Voice</Badge>
 						</Link>
 						<div className="w-full rounded-md border p-4 text-sm">
@@ -177,20 +175,9 @@ export function RealtimeSidebar({
 			<SidebarHeader>
 				<SidebarMenu>
 					<SidebarMenuItem>
-						<SidebarMenuButton size="lg" asChild tooltip="LLM Gateway">
+						<SidebarMenuButton size="lg" asChild tooltip="Lounge">
 							<Link href={withOrg("/")} prefetch={true}>
-								<div className="flex aspect-square size-8 items-center justify-center">
-									<Logo className="size-6" />
-								</div>
-								<span className="text-lg font-bold tracking-tight">
-									LLM Gateway
-								</span>
-								<Badge
-									variant="secondary"
-									className="group-data-[collapsible=icon]:hidden"
-								>
-									Chat
-								</Badge>
+								<Wordmark size="sm" iconBox />
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
