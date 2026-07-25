@@ -301,6 +301,7 @@ export function parseProviderResponse(
 		}
 		case "google-ai-studio":
 		case "glacier":
+		case "iceberg":
 		case "google-vertex":
 		case "quartz": {
 			// Check if response is missing candidates - treat as content filter
@@ -978,6 +979,18 @@ export function parseProviderResponse(
 							}
 						}
 					}
+				}
+
+				// SCX returns finish_reason "stop" even when the message contains
+				// tool calls; normalize to "tool_calls" so downstream consumers see
+				// the OpenAI-standard value.
+				if (
+					usedProvider === "scx-ai" &&
+					finishReason === "stop" &&
+					Array.isArray(toolResults) &&
+					toolResults.length > 0
+				) {
+					finishReason = "tool_calls";
 				}
 
 				// Standard OpenAI-style token parsing

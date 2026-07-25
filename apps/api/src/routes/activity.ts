@@ -880,14 +880,23 @@ const sourceUsageSchema = z.object({
 });
 
 // Aggregated source usage for a single project, read from the per-project
-// hourly source rollup. Powers the agents dashboard. Limited to 7d/30d ranges.
+// hourly source rollup. Powers the agents dashboard. Supports 1h/4h/24h/7d/30d
+// ranges.
+const sourceActivityRangeHours = {
+	"1h": 1,
+	"4h": 4,
+	"24h": 24,
+	"7d": 7 * 24,
+	"30d": 30 * 24,
+} as const;
+
 const getSourceActivity = createRoute({
 	method: "get",
 	path: "/sources",
 	request: {
 		query: z.object({
 			projectId: z.string(),
-			timeRange: z.enum(["7d", "30d"]).optional(),
+			timeRange: z.enum(["1h", "4h", "24h", "7d", "30d"]).optional(),
 			from: z.string().optional(),
 			to: z.string().optional(),
 		}),
@@ -925,8 +934,9 @@ activity.openapi(getSourceActivity, async (c) => {
 		endDate = new Date(to + "T23:59:59.999");
 	} else {
 		endDate = new Date();
-		startDate = new Date();
-		startDate.setDate(startDate.getDate() - (timeRange === "30d" ? 30 : 7));
+		const windowMs =
+			sourceActivityRangeHours[timeRange ?? "7d"] * 60 * 60 * 1000;
+		startDate = new Date(endDate.getTime() - windowMs);
 	}
 
 	if (!(await userHasProjectAccess(user.id, projectId))) {

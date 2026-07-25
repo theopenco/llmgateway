@@ -1,6 +1,7 @@
 import { alibabaModels } from "./models/alibaba.js";
 import { anthropicModels } from "./models/anthropic.js";
 import { atlascloudModels } from "./models/atlascloud.js";
+import { baaiModels } from "./models/baai.js";
 import { bytedanceModels } from "./models/bytedance.js";
 import { deepseekModels } from "./models/deepseek.js";
 import { elevenlabsModels } from "./models/elevenlabs.js";
@@ -14,6 +15,7 @@ import { moonshotModels } from "./models/moonshot.js";
 import { nousresearchModels } from "./models/nousresearch.js";
 import { nvidiaModels } from "./models/nvidia.js";
 import { openaiModels } from "./models/openai.js";
+import { openbmbModels } from "./models/openbmb.js";
 import { perplexityModels } from "./models/perplexity.js";
 import { reveModels } from "./models/reve.js";
 import { sakanaModels } from "./models/sakana.js";
@@ -207,6 +209,13 @@ export interface ProviderModelMapping {
 	 * the OpenAI speech endpoint returns audio bytes without token usage.
 	 */
 	inputCharacterPrice?: Price;
+	/**
+	 * Price per hour of input audio in USD. Used by transcription
+	 * (speech-to-text) models that bill on audio duration rather than tokens
+	 * (e.g. xAI STT at $0.10/hour). Cost is computed against the `duration`
+	 * (seconds) reported by the upstream transcription response.
+	 */
+	inputAudioHourPrice?: Price;
 	/**
 	 * Price per image output token in USD (for models with separate text/image output pricing)
 	 */
@@ -540,6 +549,13 @@ export interface ProviderModelMapping {
 	 */
 	speechGenerations?: boolean;
 	/**
+	 * Whether this model uses a dedicated transcription (speech-to-text) API.
+	 * When true, requests are routed to the gateway's /v1/audio/transcriptions
+	 * endpoint, which turns audio into text rather than returning a chat
+	 * completion. Billed on audio duration via inputAudioHourPrice.
+	 */
+	transcriptions?: boolean;
+	/**
 	 * Whether this model uses a dedicated OCR (optical character recognition)
 	 * API. When true, requests are routed to the gateway's /v1/ocr endpoint,
 	 * which extracts text/markdown from documents and images rather than
@@ -639,7 +655,15 @@ export interface ModelDefinition {
 	/**
 	 * Output formats supported by the model (defaults to ['text'] if not specified)
 	 */
-	output?: ("text" | "image" | "video" | "embedding" | "audio" | "ocr")[];
+	output?: (
+		| "text"
+		| "image"
+		| "video"
+		| "embedding"
+		| "audio"
+		| "ocr"
+		| "transcription"
+	)[];
 	/**
 	 * Whether this model requires an image input to function (e.g. image editing models).
 	 */
@@ -686,11 +710,13 @@ export const models = [
 	...moonshotModels,
 	...alibabaModels,
 	...atlascloudModels,
+	...baaiModels,
 	...bytedanceModels,
 	...nousresearchModels,
 	...reveModels,
 	...sakanaModels,
 	...nvidiaModels,
+	...openbmbModels,
 	...zaiModels,
 	...elevenlabsModels,
 ] as const satisfies ModelDefinition[];

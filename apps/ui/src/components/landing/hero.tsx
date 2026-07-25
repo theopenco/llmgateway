@@ -39,6 +39,8 @@ const PROVIDER_LOGOS: { name: string; providerId: ProviderId }[] = [
 	{ name: "Cerebras", providerId: "cerebras" },
 	{ name: "Google Vertex", providerId: "google-vertex" },
 	{ name: "MiniMax", providerId: "minimax" },
+	{ name: "SCX.ai", providerId: "scx-ai" },
+	{ name: "Gonka24", providerId: "gonka24" },
 ];
 
 interface MigrationData {

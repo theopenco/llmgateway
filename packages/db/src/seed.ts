@@ -2167,6 +2167,228 @@ async function seed() {
 		});
 	}
 
+	// Yearly model-survey (census) responses so the public /data/<year>
+	// registry has content locally. Three models cross the 5-response
+	// anonymity threshold; gpt-4o-mini stays below it to exercise the
+	// hidden-model state.
+	const censusYear = new Date().getUTCFullYear();
+	const censusRespondents = [
+		{ userId: "user-alice", organizationId: "org-personal-alice" },
+		{ userId: "user-bob", organizationId: "org-personal-alice" },
+		{ userId: "user-carol", organizationId: "org-personal-dave" },
+		{ userId: "user-dave", organizationId: "org-personal-dave" },
+		{ userId: "user-elena", organizationId: "org-personal-maya" },
+		{ userId: "user-frank", organizationId: "org-personal-maya" },
+		{ userId: "user-grace", organizationId: "org-personal-alice" },
+	];
+	const censusModels: Array<{
+		modelId: string;
+		responses: Array<{
+			valueScore: number;
+			qualityScore: number;
+			speedScore: number;
+			wouldRecommend: boolean;
+			primaryUseCase: string;
+		}>;
+	}> = [
+		{
+			modelId: "claude-3.5-sonnet",
+			responses: [
+				{
+					valueScore: 5,
+					qualityScore: 5,
+					speedScore: 4,
+					wouldRecommend: true,
+					primaryUseCase: "agentic_coding",
+				},
+				{
+					valueScore: 4,
+					qualityScore: 5,
+					speedScore: 4,
+					wouldRecommend: true,
+					primaryUseCase: "agentic_coding",
+				},
+				{
+					valueScore: 5,
+					qualityScore: 4,
+					speedScore: 3,
+					wouldRecommend: true,
+					primaryUseCase: "code_review",
+				},
+				{
+					valueScore: 4,
+					qualityScore: 5,
+					speedScore: 4,
+					wouldRecommend: true,
+					primaryUseCase: "agentic_coding",
+				},
+				{
+					valueScore: 5,
+					qualityScore: 4,
+					speedScore: 4,
+					wouldRecommend: true,
+					primaryUseCase: "debugging",
+				},
+				{
+					valueScore: 4,
+					qualityScore: 5,
+					speedScore: 3,
+					wouldRecommend: true,
+					primaryUseCase: "agentic_coding",
+				},
+				{
+					valueScore: 5,
+					qualityScore: 5,
+					speedScore: 4,
+					wouldRecommend: true,
+					primaryUseCase: "writing_tests",
+				},
+			],
+		},
+		{
+			modelId: "gpt-4o",
+			responses: [
+				{
+					valueScore: 4,
+					qualityScore: 4,
+					speedScore: 4,
+					wouldRecommend: true,
+					primaryUseCase: "agentic_coding",
+				},
+				{
+					valueScore: 4,
+					qualityScore: 4,
+					speedScore: 5,
+					wouldRecommend: true,
+					primaryUseCase: "debugging",
+				},
+				{
+					valueScore: 3,
+					qualityScore: 4,
+					speedScore: 4,
+					wouldRecommend: false,
+					primaryUseCase: "code_completion",
+				},
+				{
+					valueScore: 4,
+					qualityScore: 5,
+					speedScore: 4,
+					wouldRecommend: true,
+					primaryUseCase: "agentic_coding",
+				},
+				{
+					valueScore: 4,
+					qualityScore: 4,
+					speedScore: 5,
+					wouldRecommend: true,
+					primaryUseCase: "docs_and_explanations",
+				},
+				{
+					valueScore: 3,
+					qualityScore: 4,
+					speedScore: 4,
+					wouldRecommend: true,
+					primaryUseCase: "code_review",
+				},
+			],
+		},
+		{
+			modelId: "claude-3-haiku",
+			responses: [
+				{
+					valueScore: 5,
+					qualityScore: 3,
+					speedScore: 5,
+					wouldRecommend: true,
+					primaryUseCase: "code_completion",
+				},
+				{
+					valueScore: 4,
+					qualityScore: 3,
+					speedScore: 5,
+					wouldRecommend: true,
+					primaryUseCase: "code_completion",
+				},
+				{
+					valueScore: 4,
+					qualityScore: 4,
+					speedScore: 5,
+					wouldRecommend: true,
+					primaryUseCase: "docs_and_explanations",
+				},
+				{
+					valueScore: 5,
+					qualityScore: 3,
+					speedScore: 5,
+					wouldRecommend: false,
+					primaryUseCase: "debugging",
+				},
+				{
+					valueScore: 4,
+					qualityScore: 3,
+					speedScore: 5,
+					wouldRecommend: true,
+					primaryUseCase: "code_completion",
+				},
+			],
+		},
+		{
+			modelId: "gpt-4o-mini",
+			responses: [
+				{
+					valueScore: 4,
+					qualityScore: 3,
+					speedScore: 5,
+					wouldRecommend: true,
+					primaryUseCase: "code_completion",
+				},
+				{
+					valueScore: 3,
+					qualityScore: 3,
+					speedScore: 5,
+					wouldRecommend: false,
+					primaryUseCase: "other",
+				},
+				{
+					valueScore: 4,
+					qualityScore: 3,
+					speedScore: 4,
+					wouldRecommend: true,
+					primaryUseCase: "docs_and_explanations",
+				},
+				{
+					valueScore: 4,
+					qualityScore: 2,
+					speedScore: 5,
+					wouldRecommend: true,
+					primaryUseCase: "code_completion",
+				},
+			],
+		},
+	];
+	const censusResponses: Array<Record<string, any>> = [];
+	for (const model of censusModels) {
+		model.responses.forEach((response, i) => {
+			const respondent = censusRespondents[i % censusRespondents.length];
+			const createdAt = daysAgo(randomInt(1, 20));
+			censusResponses.push({
+				id: `census-${model.modelId}-${i}`,
+				year: censusYear,
+				quarter: Math.floor(createdAt.getUTCMonth() / 3) + 1,
+				userId: respondent.userId,
+				organizationId: respondent.organizationId,
+				modelId: model.modelId,
+				...response,
+				comment: null,
+				requestCount: randomInt(60, 900),
+				devPlanTier: "pro",
+				rewardTier: null,
+				createdAt,
+			});
+		});
+	}
+	await bulkInsert(tables.modelSurveyResponse, censusResponses);
+
 	const projects = generateProjects();
 	for (const proj of projects) {
 		await upsert(tables.project, {

@@ -17,6 +17,7 @@ import {
 } from "@llmgateway/db";
 import {
 	models as modelDefinitions,
+	providers as providerDefinitions,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
 
@@ -35,6 +36,7 @@ const providerSchema = z.object({
 	color: z.string().nullable(),
 	website: z.string().nullable(),
 	announcement: z.string().nullable(),
+	modelCardBadge: z.string().nullable(),
 	status: z.enum(["active", "inactive"]),
 });
 
@@ -70,6 +72,7 @@ const modelProviderMappingSchema = z.object({
 	inputCharacterPrice: z.string().nullable(),
 	outputAudioPrice: z.string().nullable(),
 	requestPrice: z.string().nullable(),
+	inputAudioHourPrice: z.string().nullable(),
 	contextSize: z.number().nullable(),
 	maxOutput: z.number().nullable(),
 	streaming: z.boolean(),
@@ -258,6 +261,10 @@ internalModels.openapi(getModelsRoute, async (c) => {
 					sharedMapping?.outputAudioPrice !== undefined
 						? String(sharedMapping.outputAudioPrice)
 						: null,
+				inputAudioHourPrice:
+					sharedMapping?.inputAudioHourPrice !== undefined
+						? String(sharedMapping.inputAudioHourPrice)
+						: null,
 				supportedVideoSizes: sharedMapping?.supportedVideoSizes ?? null,
 				supportedVideoDurationsSeconds:
 					sharedMapping?.supportedVideoDurationsSeconds ?? null,
@@ -360,7 +367,15 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 		},
 	});
 
-	return c.json({ providers });
+	// modelCardBadge only exists in the catalogue, not the provider table
+	return c.json({
+		providers: providers.map((provider) => ({
+			...provider,
+			modelCardBadge:
+				providerDefinitions.find((p) => p.id === provider.id)?.modelCardBadge ??
+				null,
+		})),
+	});
 });
 
 // GET /internal/models/{modelId}/benchmarks - Per-provider performance stats

@@ -385,6 +385,7 @@ export function transformResponseToOpenai(
 	switch (usedProvider) {
 		case "google-ai-studio":
 		case "glacier":
+		case "iceberg":
 		case "google-vertex":
 		case "quartz": {
 			// Multi-candidate responses (n > 1 via candidateCount) map each Google
@@ -568,6 +569,7 @@ export function transformResponseToOpenai(
 		}
 		case "inference.net":
 		case "together-ai":
+		case "scx-ai":
 		case "groq": {
 			if (!transformedResponse.id) {
 				transformedResponse = {

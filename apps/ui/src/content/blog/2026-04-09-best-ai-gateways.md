@@ -78,7 +78,7 @@ OpenRouter aggregates models from many providers and offers a unified API. It ha
 
 **Pricing:** Pay-as-you-go with a 5.5% credit-purchase fee; provider token rates pass through with no markup.
 
-**Best for:** Developers who want quick access to a wide variety of models and don't need self-hosting.
+**Best for:** Developers who want quick access to a wide variety of models and don't need self-hosting. Looking to switch? See the [10 best OpenRouter alternatives in 2026](/blog/openrouter-alternatives).
 
 ---
 

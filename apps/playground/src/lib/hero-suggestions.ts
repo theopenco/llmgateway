@@ -268,7 +268,7 @@ export const canvasSuggestions = [
 ] as const;
 
 export const audioStudioSuggestions = [
-	"Welcome to LLM Gateway — one API for every model, with unified billing and analytics.",
+	"Welcome to the Lounge — every frontier model, one membership.",
 	"Thanks for calling. All of our agents are currently busy, but your call is important to us.",
 	"Chapter one. The storm rolled in just after midnight, and the old lighthouse keeper knew the night would be long.",
 	"Breaking news: scientists have discovered a new species of deep-sea creature off the coast of Japan.",

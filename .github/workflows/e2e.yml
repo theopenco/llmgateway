@@ -24,7 +24,7 @@ jobs:
         shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     steps:
       - name: Checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
 
@@ -92,6 +92,7 @@ jobs:
           LLM_DEEPINFRA_API_KEY: ${{ secrets.LLM_DEEPINFRA_API_KEY }}
           LLM_SAKANA_API_KEY: ${{ secrets.LLM_SAKANA_API_KEY }}
           LLM_META_API_KEY: ${{ secrets.LLM_META_API_KEY }}
+          LLM_GONKA_24_API_KEY: ${{ secrets.LLM_GONKA_24_API_KEY }}
 
       - name: Upload shard results
         if: always()
@@ -108,7 +109,7 @@ jobs:
     if: always() && github.actor != 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - name: Checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
 

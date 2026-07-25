@@ -265,7 +265,7 @@ export const deepseekModels = [
 				jsonOutput: true,
 				streaming: true,
 				reasoning: true,
-				reasoningEfforts: ["high", "max"],
+				reasoningEfforts: ["none", "high", "max"],
 				vision: false,
 				tools: true,
 				supportedParameters: [
@@ -380,6 +380,24 @@ export const deepseekModels = [
 				tools: true,
 				jsonOutput: false,
 			},
+			{
+				providerId: "nebius",
+				externalId: "deepseek-ai/DeepSeek-V4-Pro",
+				inputPrice: "1.75e-6",
+				outputPrice: "3.5e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: undefined,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				// The deployment answers inline and never returns
+				// reasoning_content (verified 2026-07-22).
+				reasoningOutput: "omit",
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
 		],
 	},
 	{
@@ -402,7 +420,7 @@ export const deepseekModels = [
 				jsonOutput: true,
 				streaming: true,
 				reasoning: true,
-				reasoningEfforts: ["high", "max"],
+				reasoningEfforts: ["none", "high", "max"],
 				vision: false,
 				tools: true,
 				supportedParameters: [

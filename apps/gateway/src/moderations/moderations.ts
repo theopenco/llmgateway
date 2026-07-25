@@ -23,6 +23,7 @@ import {
 	findProjectById,
 	findProviderKey,
 } from "@/lib/cached-queries.js";
+import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import { assertProviderCompliant } from "@/lib/compliance.js";
 import {
 	applyEndUserSession,
@@ -30,12 +31,13 @@ import {
 } from "@/lib/end-user-session.js";
 import { buildOpenAIErrorBody } from "@/lib/error-response.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
+import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
 import { getProviderHeaders } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
-import { models } from "@llmgateway/models";
+import { getOrganizationEnvVariant, models } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
 import type { InferSelectModel, tables } from "@llmgateway/db";
@@ -415,6 +417,43 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		models.find((m) => m.id === moderationModelId),
 	);
 
+	// IAM rules (member-level ceiling + key rules) apply to moderation like any
+	// other endpoint, but only provider and IP rule types: the moderation model
+	// is a fixed pseudo-model outside the catalogue, so model/pricing allowlists
+	// can never name it and evaluating them would deny existing keys with no way
+	// to allowlist it. deny/allow_providers ["openai"] and IP CIDR rules still
+	// gate moderation. End-user sessions are exempt: their model allowlists
+	// target chat models and must not block the free moderation endpoint.
+	if (!apiKey.endUserSession) {
+		const iamValidation = await validateRequestModelAccess({
+			apiKey,
+			organizationId: project.organizationId,
+			requestedModel: "openai-moderation",
+			activeModelInfo: {
+				id: "openai-moderation",
+				family: "openai",
+				free: true,
+				providers: [
+					{
+						providerId: "openai",
+						externalId: upstreamModel,
+						streaming: false,
+					},
+				],
+			},
+			clientIp: getClientIpFromRequest(c),
+			applicableRuleTypes: [
+				"allow_providers",
+				"deny_providers",
+				"allow_ip_cidrs",
+				"deny_ip_cidrs",
+			],
+		});
+		if (!iamValidation.allowed) {
+			throwIamException(iamValidation.reason ?? "Model access denied");
+		}
+	}
+
 	// Enterprise provider compliance policy: moderation runs on OpenAI, so block
 	// before sending if the org's policy doesn't permit it.
 	await assertProviderCompliant(organization, "openai", {
@@ -425,6 +464,10 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 	});
 
 	const retentionLevel = organization.retentionLevel ?? "none";
+
+	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
+	// this org's env-credential reads. Undefined = base vars only.
+	const envVariant = getOrganizationEnvVariant(organization);
 
 	let providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
 	let usedToken: string | undefined;
@@ -447,6 +490,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 	} else if (project.mode === "credits") {
 		const envResult = getProviderEnv("openai", {
 			selectionScope: upstreamModel,
+			variant: envVariant,
 		});
 		usedToken = envResult.token;
 		configIndex = envResult.configIndex;
@@ -462,6 +506,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		} else {
 			const envResult = getProviderEnv("openai", {
 				selectionScope: upstreamModel,
+				variant: envVariant,
 			});
 			usedToken = envResult.token;
 			configIndex = envResult.configIndex;
@@ -526,6 +571,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 			const envResult = getProviderEnv("openai", {
 				selectionScope: upstreamModel,
 				excludedIndices: triedEnvIndices,
+				variant: envVariant,
 			});
 			usedToken = envResult.token;
 			configIndex = envResult.configIndex;

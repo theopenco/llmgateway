@@ -11,6 +11,7 @@ import {
 	Globe,
 	Linkedin,
 	Share2,
+	Zap,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
@@ -219,7 +220,12 @@ export function ModelCard({
 			}
 			map.get(key)!.mappings.push(provider);
 		}
-		return Array.from(map.values());
+		// Providers with a marketing badge (e.g. SCX.ai "Up to 4x faster") first
+		return Array.from(map.values()).sort(
+			(a, b) =>
+				Number(Boolean(b.providerInfo?.modelCardBadge)) -
+				Number(Boolean(a.providerInfo?.modelCardBadge)),
+		);
 	}, [model.providerDetails]);
 
 	// Determine the best discount across all providers for the header badge
@@ -594,6 +600,12 @@ export function ProviderSection({
 					{hasProviderStabilityWarning(activeMapping) && (
 						<AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
 					)}
+					{providerInfo?.modelCardBadge && (
+						<Badge className="text-[10px] px-1.5 py-0 h-4 gap-1 font-semibold whitespace-nowrap shrink-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+							<Zap className="h-2.5 w-2.5" />
+							{providerInfo.modelCardBadge}
+						</Badge>
+					)}
 				</div>
 				<div className="flex items-center gap-1 shrink-0">
 					{serviceTiers.length > 0 && (
@@ -929,6 +941,47 @@ export function ProviderSection({
 							})()}
 						</div>
 					</div>
+				) : activeMapping.inputAudioHourPrice &&
+				  parseFloat(activeMapping.inputAudioHourPrice) > 0 &&
+				  !(parseFloat(activeMapping.inputPrice ?? "0") > 0) &&
+				  !(parseFloat(activeMapping.outputPrice ?? "0") > 0) ? (
+					(() => {
+						const discountNum = activeMapping.discount
+							? parseFloat(activeMapping.discount)
+							: 0;
+						const perHour =
+							parseFloat(activeMapping.inputAudioHourPrice!) *
+							serviceTierMultiplier;
+						const formatHour = (value: number) =>
+							`$${parseFloat(value.toFixed(4))}`;
+						return (
+							<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
+								<div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
+									Audio Transcription Pricing
+								</div>
+								<div className="flex justify-between text-sm">
+									<span className="text-muted-foreground">Input audio</span>
+									<span className="font-semibold tabular-nums">
+										{discountNum > 0 ? (
+											<>
+												<span className="line-through text-muted-foreground mr-1 text-xs">
+													{formatHour(perHour)}
+												</span>
+												<span className="text-green-600">
+													{formatHour(perHour * (1 - discountNum))}
+												</span>
+											</>
+										) : (
+											formatHour(perHour)
+										)}
+										<span className="text-muted-foreground text-xs ml-0.5">
+											/hour
+										</span>
+									</span>
+								</div>
+							</div>
+						);
+					})()
 				) : (
 					<div className="space-y-2">
 						<div className="grid grid-cols-3 gap-px rounded-md bg-border/30 border border-border/30 overflow-hidden">

@@ -487,6 +487,8 @@ export async function checkOpenAIContentFilter(
 		: AbortSignal.timeout(OPENAI_MODERATION_TIMEOUT_MS);
 
 	try {
+		// Gateway-internal safety filter: always uses the base credential, never
+		// the enterprise-plan env override.
 		const providerEnv = getProviderEnv("openai", {
 			advanceRoundRobin: false,
 		});

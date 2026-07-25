@@ -1287,6 +1287,194 @@ describe("prepareRequestBody - Xiaomi thinking", () => {
 	});
 });
 
+describe("prepareRequestBody - DeepSeek thinking", () => {
+	async function prepare(options: {
+		model: string;
+		reasoningEffort?:
+			| "none"
+			| "minimal"
+			| "low"
+			| "medium"
+			| "high"
+			| "xhigh"
+			| "max";
+		supportsReasoning?: boolean;
+	}) {
+		return (await prepareRequestBody(
+			"deepseek",
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			options.reasoningEffort, // reasoning_effort
+			options.supportsReasoning ?? true, // supportsReasoning
+		)) as unknown as Record<string, unknown>;
+	}
+
+	test("maps none to thinking disabled and never forwards reasoning_effort", async () => {
+		const requestBody = await prepare({
+			model: "deepseek-v4-pro",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("forwards native effort tiers verbatim without a thinking parameter", async () => {
+		const requestBody = await prepare({
+			model: "deepseek-v4-pro",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.reasoning_effort).toBe("high");
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test("forwards max natively", async () => {
+		const requestBody = await prepare({
+			model: "deepseek-v4-pro",
+			reasoningEffort: "max",
+		});
+		expect(requestBody.reasoning_effort).toBe("max");
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test("keeps the provider default when no reasoning_effort is requested", async () => {
+		const requestBody = await prepare({ model: "deepseek-v4-pro" });
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("forwards unsupported tiers verbatim so the provider rejects them", async () => {
+		const requestBody = await prepare({
+			model: "deepseek-v4-pro",
+			reasoningEffort: "xhigh",
+		});
+		expect(requestBody.reasoning_effort).toBe("xhigh");
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test("drops none for models that do not declare it in reasoningEfforts", async () => {
+		// deepseek-v3.2 on the deepseek provider has reasoning: false
+		// and no reasoningEfforts, so supportsReasoning is false
+		const requestBody = await prepare({
+			model: "deepseek-v3.2",
+			reasoningEffort: "none",
+			supportsReasoning: false,
+		});
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - Z.ai thinking", () => {
+	async function prepare(options: {
+		model: string;
+		reasoningEffort?:
+			| "none"
+			| "minimal"
+			| "low"
+			| "medium"
+			| "high"
+			| "xhigh"
+			| "max";
+		responseFormat?: Parameters<typeof prepareRequestBody>[11];
+		tools?: Parameters<typeof prepareRequestBody>[12];
+	}) {
+		return (await prepareRequestBody(
+			"zai",
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			options.responseFormat, // response_format
+			options.tools, // tools
+			undefined, // tool_choice
+			options.reasoningEffort, // reasoning_effort
+			true, // supportsReasoning
+		)) as unknown as Record<string, unknown>;
+	}
+
+	test("maps none to thinking disabled", async () => {
+		const requestBody = await prepare({
+			model: "glm-4.7",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+	});
+
+	test("enables thinking for explicit effort tiers", async () => {
+		const requestBody = await prepare({
+			model: "glm-4.7",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.thinking).toEqual({ type: "enabled" });
+	});
+
+	test("disables thinking by default when no effort is requested", async () => {
+		const requestBody = await prepare({ model: "glm-4.7" });
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+	});
+
+	test("treats minimal as disabled", async () => {
+		const requestBody = await prepare({
+			model: "glm-4.7",
+			reasoningEffort: "minimal",
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+	});
+
+	test("none disables thinking even when tools are present", async () => {
+		const requestBody = await prepare({
+			model: "glm-4.7",
+			reasoningEffort: "none",
+			tools: [
+				{
+					type: "function",
+					function: { name: "get_weather" },
+				},
+			],
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+	});
+
+	test("none disables thinking even with a response_format", async () => {
+		const requestBody = await prepare({
+			model: "glm-4.7",
+			reasoningEffort: "none",
+			responseFormat: { type: "json_object" },
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+	});
+
+	test("leaves thinking on provider default for tool requests without an effort", async () => {
+		const requestBody = await prepare({
+			model: "glm-4.7",
+			tools: [
+				{
+					type: "function",
+					function: { name: "get_weather" },
+				},
+			],
+		});
+		expect(requestBody.thinking).toBeUndefined();
+	});
+});
+
 describe("prepareRequestBody - reasoning_effort max", () => {
 	async function prepare(options: {
 		provider: Parameters<typeof prepareRequestBody>[0];
@@ -1443,6 +1631,54 @@ describe("prepareRequestBody - Google AI Studio", () => {
 			"TEXT",
 			"IMAGE",
 		]);
+	});
+
+	test("converts json_schema with array type (nullable) to Google schema", async () => {
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.5-flash",
+			null,
+			"gemini-2.5-flash",
+			[{ role: "user", content: "Extract the user info" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				type: "json_schema",
+				json_schema: {
+					name: "user_info",
+					schema: {
+						type: "object",
+						properties: {
+							name: { type: "string" },
+							nickname: { type: ["string", "null"] },
+							tags: { type: ["array", "null"], items: { type: "string" } },
+						},
+						required: ["name", "nickname"],
+					},
+				},
+			},
+		)) as any;
+
+		expect(requestBody.generationConfig.responseMimeType).toBe(
+			"application/json",
+		);
+		expect(requestBody.generationConfig.responseSchema).toEqual({
+			type: "OBJECT",
+			properties: {
+				name: { type: "STRING" },
+				nickname: { type: "STRING", nullable: true },
+				tags: {
+					type: "ARRAY",
+					nullable: true,
+					items: { type: "STRING" },
+				},
+			},
+			required: ["name", "nickname"],
+		});
 	});
 
 	test("should map gateway 0.5K image size to Google 512 for Vertex", async () => {

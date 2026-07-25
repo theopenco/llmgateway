@@ -13,6 +13,7 @@ import {
 	YAxis,
 } from "recharts";
 
+import { formatTokens } from "@/app/dashboard/components/coding-agents-shared";
 import {
 	Select,
 	SelectContent,
@@ -62,16 +63,6 @@ const MODEL_COLORS = [
 
 function isHourlyRange(range: AgentChartTimeRange): boolean {
 	return range === "4h" || range === "24h";
-}
-
-function formatTokens(n: number): string {
-	if (n >= 1_000_000) {
-		return `${(n / 1_000_000).toFixed(1)}M`;
-	}
-	if (n >= 1_000) {
-		return `${(n / 1_000).toFixed(1)}K`;
-	}
-	return n.toLocaleString();
 }
 
 interface AgentModelUsageChartProps {

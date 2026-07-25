@@ -12,11 +12,17 @@ export const planExcludedTypes = [
 	"dev_plan_downgrade",
 	"dev_plan_renewal",
 	"dev_plan_cancel",
+	"dev_plan_resume",
 	"dev_plan_end",
 	// Reset Pass purchases are DevPass revenue (real dollars in `amount`, no
 	// creditAmount), reported with the other dev plan rows — not part of the
 	// credits economy.
 	"dev_plan_reset_pass",
+	// Free survey-reward passes carry amount "0" and are never revenue.
+	"dev_plan_reset_pass_reward",
+	// Admin-gifted Reset Passes: bookkeeping rows with no amount and no
+	// creditAmount, never revenue or credits.
+	"dev_plan_reset_pass_gift",
 	"subscription_start",
 	"subscription_cancel",
 	"subscription_end",
@@ -28,6 +34,7 @@ export const planExcludedTypes = [
 	"chat_plan_downgrade",
 	"chat_plan_renewal",
 	"chat_plan_cancel",
+	"chat_plan_resume",
 	"chat_plan_end",
 ] as const;
 

@@ -547,3 +547,24 @@ export async function notifyChatPlanRenewed(
 		],
 	});
 }
+
+export async function notifyUserAccountDeleted(
+	email: string,
+	name: string | null | undefined,
+): Promise<void> {
+	const displayName = name ?? "Unknown";
+
+	await sendDiscordNotification({
+		embeds: [
+			{
+				title: "Account Deleted",
+				color: 0xef4444, // Red
+				fields: [
+					{ name: "Email", value: email, inline: true },
+					{ name: "Name", value: displayName, inline: true },
+				],
+				timestamp: new Date().toISOString(),
+			},
+		],
+	});
+}

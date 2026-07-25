@@ -37,6 +37,10 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.user.id,
 			to: r.modelRating.userId,
 		}),
+		modelSurveyResponses: r.many.modelSurveyResponse({
+			from: r.user.id,
+			to: r.modelSurveyResponse.userId,
+		}),
 		skills: r.many.skill({
 			from: r.user.id,
 			to: r.skill.userId,
@@ -110,6 +114,10 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.organization.id,
 			to: r.endUserSession.organizationId,
 		}),
+		modelSurveyResponses: r.many.modelSurveyResponse({
+			from: r.organization.id,
+			to: r.modelSurveyResponse.organizationId,
+		}),
 	},
 	referral: {
 		referrerOrganization: r.one.organization({
@@ -133,6 +141,16 @@ export const relations = defineRelations(schema, (r) => ({
 		userProjects: r.many.userProject({
 			from: r.userOrganization.id,
 			to: r.userProject.userOrganizationId,
+		}),
+		iamRules: r.many.userIamRule({
+			from: r.userOrganization.id,
+			to: r.userIamRule.userOrganizationId,
+		}),
+	},
+	userIamRule: {
+		userOrganization: r.one.userOrganization({
+			from: r.userIamRule.userOrganizationId,
+			to: r.userOrganization.id,
 		}),
 	},
 	userProject: {

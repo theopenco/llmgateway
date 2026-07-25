@@ -2,8 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 
 import { transformStreamingToOpenai } from "./transform-streaming-to-openai.js";
 
-const { warn } = vi.hoisted(() => ({
+const { warn, error } = vi.hoisted(() => ({
 	warn: vi.fn(),
+	error: vi.fn(),
 }));
 
 vi.mock("@llmgateway/cache", () => ({
@@ -16,7 +17,7 @@ vi.mock("@llmgateway/cache", () => ({
 vi.mock("@llmgateway/logger", () => ({
 	logger: {
 		warn,
-		error: vi.fn(),
+		error,
 		debug: vi.fn(),
 		info: vi.fn(),
 	},
@@ -445,5 +446,66 @@ describe("transformStreamingToOpenai", () => {
 			reasoning_tokens: 9,
 		});
 		expect(result?.choices?.[0]?.finish_reason).toBe("stop");
+	});
+
+	it("maps Google usage-only trailing chunk without logging", () => {
+		warn.mockClear();
+		error.mockClear();
+
+		const result = transformStreamingToOpenai(
+			"google-vertex",
+			"gemini-2.5-pro",
+			{
+				usageMetadata: {
+					promptTokenCount: 12,
+					candidatesTokenCount: 34,
+					totalTokenCount: 46,
+				},
+				modelVersion: "gemini-2.5-pro",
+				createTime: "2026-07-22T04:37:29.687Z",
+				responseId: "resp_abc",
+			},
+			[],
+		);
+
+		expect(result).toMatchObject({
+			id: "resp_abc",
+			object: "chat.completion.chunk",
+			model: "gemini-2.5-pro",
+			choices: [
+				{
+					index: 0,
+					delta: { role: "assistant" },
+					finish_reason: null,
+				},
+			],
+			usage: {
+				prompt_tokens: 12,
+				completion_tokens: 34,
+				total_tokens: 46,
+			},
+		});
+		expect(warn).not.toHaveBeenCalled();
+		expect(error).not.toHaveBeenCalled();
+	});
+
+	it("logs error for Google chunk with no candidates and no usage", () => {
+		warn.mockClear();
+		error.mockClear();
+
+		transformStreamingToOpenai(
+			"google-ai-studio",
+			"gemini-2.5-pro",
+			{
+				modelVersion: "gemini-2.5-pro",
+				responseId: "resp_def",
+			},
+			[],
+		);
+
+		expect(error).toHaveBeenCalledWith(
+			"[transform-streaming-to-openai] Google streaming chunk missing candidates",
+			expect.objectContaining({ hasCandidates: false }),
+		);
 	});
 });

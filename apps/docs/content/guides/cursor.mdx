@@ -1,6 +1,6 @@
 ---
 title: Cursor Integration
-description: Use LLM Gateway with Cursor IDE — supported in plan mode only. Cursor's coding agent does not work with external OpenAI-compatible endpoints.
+description: Use LLM Gateway with Cursor IDE — plan mode and agent mode both route through the gateway. Tab autocomplete and inline edit stay on Cursor's backend.
 image: guides/cursor/overview.png
 icon: Cursor
 ---
@@ -8,17 +8,17 @@ icon: Cursor
 import { Step, Steps } from "fumadocs-ui/components/steps";
 import { Callout } from "fumadocs-ui/components/callout";
 
-Cursor is an AI-powered code editor built on VSCode. You can point Cursor's custom OpenAI base URL at LLM Gateway to use any of our 200+ models for **plan mode** (the chat / planning panel).
+Cursor is an AI-powered code editor built on VSCode. You can point Cursor's custom OpenAI base URL at LLM Gateway to use any of our 200+ models in the AI panel — both **plan mode** and **agent mode**.
 
-<Callout type="warn">
-	**Plan mode only.** Cursor's coding agent (Composer, inline edit,
-	autocomplete, apply/edit) does **not** work with external OpenAI-compatible
-	endpoints — those features are locked to Cursor's own backend and will not
-	route through LLM Gateway. Only the chat / plan panel honors the custom API
-	key + base URL. If you need a full coding agent backed by LLM Gateway, use
-	[Claude Code](/guides/claude-code), [Codex CLI](/guides/codex-cli),
+<Callout type="info">
+	**Plan and agent mode.** Cursor routes its AI panel — plan mode and agent mode
+	— through the custom API key + base URL, so both work with LLM Gateway. Tab
+	autocomplete and inline edit (Cmd/Ctrl + K) remain locked to Cursor's own
+	backend and will not route through the gateway. If you want every request in
+	your workflow to go through LLM Gateway, use a terminal agent like [Claude
+	Code](/guides/claude-code), [Codex CLI](/guides/codex-cli),
 	[Cline](/guides/cline), [Continue CLI](/guides/continue), or [Hermes
-	Agent](/guides/hermes-agent) instead.
+	Agent](/guides/hermes-agent).
 </Callout>
 
 ![Cursor with LLM Gateway](/guides/cursor/overview.png)
@@ -87,8 +87,8 @@ Cursor supports OpenAI-compatible API endpoints, making it easy to integrate wit
 ### Test the Integration
 
 1. Open any code file in Cursor
-2. Try using the AI chat (Cmd/Ctrl + L)
-3. Or test the autocomplete feature while typing
+2. Try using the AI chat (Cmd/Ctrl + L) in plan mode
+3. Then switch the panel to agent mode and run a small multi-file task
 
 ![Cursor AI Chat](/guides/cursor/test-1.png)
 ![Cursor AI Chat 2](/guides/cursor/test-2.png)
@@ -100,20 +100,21 @@ All AI requests will now be routed through LLM Gateway.
 
 ## What Works (and What Doesn't)
 
-Cursor only honors the custom OpenAI base URL for **plan mode** — the chat / planning panel (Cmd/Ctrl + L). Everything else still uses Cursor's own backend, even after you save the LLM Gateway key.
+Cursor honors the custom OpenAI base URL for the **AI panel** (Cmd/Ctrl + L) — both plan mode and agent mode. Tab autocomplete and inline edit still use Cursor's own backend, even after you save the LLM Gateway key.
 
 ### Works through LLM Gateway
 
-- **AI Chat / Plan mode (Cmd/Ctrl + L)** — Ask questions, plan changes, get explanations, debug. All requests route through LLM Gateway and appear in your dashboard.
+- **Plan mode (Cmd/Ctrl + L)** — Ask questions, plan changes, get explanations, debug.
+- **Agent mode** — Cursor's coding agent runs multi-file edits with your gateway models.
+
+All of these requests route through LLM Gateway and appear in your dashboard.
 
 ### Does NOT work through LLM Gateway
 
-- **Composer / Coding agent** — Locked to Cursor's backend.
 - **Inline Edit (Cmd/Ctrl + K)** — Locked to Cursor's backend.
 - **Autocomplete / Tab completion** — Locked to Cursor's backend.
-- **Apply / Edit suggestions** — Locked to Cursor's backend.
 
-If you need a full coding agent that routes through LLM Gateway, use [Claude Code](/guides/claude-code), [Codex CLI](/guides/codex-cli), [Cline](/guides/cline), [Continue CLI](/guides/continue), or [Hermes Agent](/guides/hermes-agent).
+If you want every request in your workflow — including edits and completions — to route through LLM Gateway, use [Claude Code](/guides/claude-code), [Codex CLI](/guides/codex-cli), [Cline](/guides/cline), [Continue CLI](/guides/continue), or [Hermes Agent](/guides/hermes-agent).
 
 ### Model Routing
 
@@ -149,9 +150,9 @@ If responses are slow:
 - Monitor your usage in the LLM Gateway dashboard
 - Switch to a faster chat model from the [models page](https://llmgateway.io/models)
 
-### Composer / agent / autocomplete still uses Cursor's models
+### Autocomplete / inline edit still uses Cursor's models
 
-This is expected. Cursor only routes the chat / plan panel through the custom API key — Composer, inline edit, and autocomplete are locked to Cursor's own backend. See [What Works (and What Doesn't)](#what-works-and-what-doesnt) above.
+This is expected. Cursor routes the AI panel — plan mode and agent mode — through the custom API key, but tab autocomplete and inline edit are locked to Cursor's own backend. See [What Works (and What Doesn't)](#what-works-and-what-doesnt) above.
 
 <Callout type="info">
 	Need help? Join our [Discord community](https://llmgateway.io/discord) for

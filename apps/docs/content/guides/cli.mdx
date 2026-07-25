@@ -1,6 +1,6 @@
 ---
 title: LLM Gateway CLI
-description: Command-line tool for scaffolding projects and managing keys, budgets, and usage
+description: Command-line tool for launching coding agents, scaffolding projects, and managing keys, budgets, and usage
 icon: Terminal
 ---
 
@@ -8,7 +8,7 @@ import { Step, Steps } from "fumadocs-ui/components/steps";
 import { Callout } from "fumadocs-ui/components/callout";
 import { Tabs, Tab } from "fumadocs-ui/components/tabs";
 
-The **LLM Gateway CLI** (`@llmgateway/cli`) is a command-line utility for scaffolding projects, discovering models, and managing your LLM Gateway account — API keys, spending budgets, and usage analytics — straight from the terminal.
+The **LLM Gateway CLI** (`@llmgateway/cli`) is a command-line utility for launching coding agents pre-configured with LLM Gateway, scaffolding projects, discovering models, and managing your LLM Gateway account — API keys, spending budgets, and usage analytics — straight from the terminal.
 
 ## Installation
 
@@ -95,6 +95,44 @@ npx @llmgateway/cli dev --port 3000
 
 </Step>
 </Steps>
+
+## Launch Coding Agents
+
+### `launch`
+
+Start any supported coding agent pre-wired to LLM Gateway: one API key, 200+ models, and every request tracked in your [dashboard](https://llmgateway.io/dashboard).
+
+```bash
+# Interactive agent picker
+npx @llmgateway/cli launch
+
+# Launch a specific agent (shortcuts work too: `llmgateway claude`)
+npx @llmgateway/cli launch claude
+npx @llmgateway/cli launch opencode
+npx @llmgateway/cli launch codex
+
+# Pick a model — launcher flags go before the agent name
+npx @llmgateway/cli launch -m gpt-5.5 claude
+
+# Everything after the agent name is passed to the agent itself
+npx @llmgateway/cli launch claude --continue
+
+# List all supported agents and see which are installed
+npx @llmgateway/cli launch --list
+
+# Inspect what would run without launching
+npx @llmgateway/cli launch --dry-run codex
+```
+
+Every supported agent also works as a direct shortcut, e.g. `npx @llmgateway/cli claude` or `npx @llmgateway/cli devpass-code`. The launcher configures each agent automatically — environment variables, config files, or the agent's own key-registration command, whichever that agent needs — without overwriting your existing setup.
+
+The API key is resolved from `--key`, the `LLMGATEWAY_API_KEY` environment variable, or the key stored by `llmgateway auth login --key` — in that order. Before launching, the key is verified against the gateway; a stale key (e.g. one you rolled or deleted) is reported with its exact source and the launcher falls back to the next valid one, prompting you for a fresh key if none works. If an agent isn't installed, the launcher prints its official install command and exits.
+
+<Callout type="info">
+	See the [integration guides](https://llmgateway.io/guides) for per-agent setup
+	details, and run `npx @llmgateway/cli launch --list` for the up-to-date list
+	of supported agents.
+</Callout>
 
 ## Project Commands
 
