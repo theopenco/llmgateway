@@ -1,6 +1,5 @@
 import { serve } from "@hono/node-server";
 
-import { validateProviderKeyEncryptionKey } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { closeDatabase, setQueryTags } from "@llmgateway/db";
 import {
@@ -36,8 +35,6 @@ let sdk: NodeSDK | null = null;
 let metricsServer: ServerType | null = null;
 
 async function startServer() {
-	validateProviderKeyEncryptionKey();
-
 	// Tag every DB query with the originating service for Cloud SQL Query Insights
 	setQueryTags({ application: "gateway" });
 

@@ -3,14 +3,12 @@ import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
-	_resetProviderKeyCryptoCache,
 	decryptProviderKey,
 	encryptProviderKey,
 	isProviderKeyCiphertext,
-	validateProviderKeyEncryptionKey,
 } from "./crypto.js";
 
-const ENV_VAR = "PROVIDER_KEY_ENCRYPTION_KEY";
+const ENV_VAR = "GATEWAY_API_KEY_HASH_SECRET";
 
 function setMasterKey(value: string | undefined) {
 	if (value === undefined) {
@@ -19,44 +17,42 @@ function setMasterKey(value: string | undefined) {
 	} else {
 		process.env[ENV_VAR] = value;
 	}
-	_resetProviderKeyCryptoCache();
 }
 
 const ORIGINAL_KEY = process.env[ENV_VAR];
+const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
 const VALID_KEY_A = randomBytes(32).toString("base64");
 const VALID_KEY_B = randomBytes(32).toString("base64");
 
 afterEach(() => {
 	setMasterKey(ORIGINAL_KEY);
+	process.env.NODE_ENV = ORIGINAL_NODE_ENV;
 });
 
 beforeEach(() => {
 	setMasterKey(VALID_KEY_A);
 });
 
-describe("validateProviderKeyEncryptionKey", () => {
-	it("accepts a valid 32-byte base64 key", () => {
-		expect(() => validateProviderKeyEncryptionKey()).not.toThrow();
-	});
-
-	it("throws when env var is missing", () => {
+describe("master secret resolution", () => {
+	it("works without the env var outside production (dev fallback)", () => {
 		setMasterKey(undefined);
-		expect(() => validateProviderKeyEncryptionKey()).toThrow(
-			/PROVIDER_KEY_ENCRYPTION_KEY is not set/,
+		const ct = encryptProviderKey("sk-dev-fallback", "row-id-1", "org-1");
+		expect(decryptProviderKey(ct, "row-id-1", "org-1")).toBe("sk-dev-fallback");
+	});
+
+	it("throws when the secret is missing in production", () => {
+		setMasterKey(undefined);
+		process.env.NODE_ENV = "production";
+		expect(() => encryptProviderKey("sk-test", "row-id-1", "org-1")).toThrow(
+			/GATEWAY_API_KEY_HASH_SECRET is required in production/,
 		);
 	});
 
-	it("throws when env var is the wrong length", () => {
-		setMasterKey(Buffer.from("too-short").toString("base64"));
-		expect(() => validateProviderKeyEncryptionKey()).toThrow(
-			/must decode to exactly 32 bytes/,
-		);
-	});
-
-	it("throws when env var is empty string", () => {
+	it("throws when the secret is an empty string in production", () => {
 		setMasterKey("");
-		expect(() => validateProviderKeyEncryptionKey()).toThrow(
-			/PROVIDER_KEY_ENCRYPTION_KEY is not set/,
+		process.env.NODE_ENV = "production";
+		expect(() => encryptProviderKey("sk-test", "row-id-1", "org-1")).toThrow(
+			/GATEWAY_API_KEY_HASH_SECRET is required in production/,
 		);
 	});
 });
@@ -158,10 +154,9 @@ describe("isProviderKeyCiphertext", () => {
 });
 
 describe("HKDF data key separation", () => {
-	it("produces stable encryption against the same master key", () => {
-		// Re-encrypting then decrypting under the same key works across cache resets
+	it("derives a data key distinct from the raw hash secret", () => {
 		const ct = encryptProviderKey("sk-test-stable", "row-id-1", "org-1");
-		_resetProviderKeyCryptoCache();
+		expect(ct).not.toContain(VALID_KEY_A);
 		expect(decryptProviderKey(ct, "row-id-1", "org-1")).toBe("sk-test-stable");
 	});
 });

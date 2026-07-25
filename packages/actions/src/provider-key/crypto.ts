@@ -5,6 +5,8 @@ import {
 	randomBytes,
 } from "node:crypto";
 
+import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
+
 const ALGORITHM = "aes-256-gcm";
 const IV_BYTES = 12;
 const TAG_BYTES = 16;
@@ -12,10 +14,6 @@ const KEY_BYTES = 32;
 
 const FORMAT_PREFIX = "llmgw:v1:";
 const HKDF_INFO_PROVIDER_KEY_TOKEN = "provider-key-token:v1";
-
-const ENV_VAR = "PROVIDER_KEY_ENCRYPTION_KEY";
-
-let cachedDataKey: Buffer | null = null;
 
 function decodeBase64UrlNoPad(input: string): Buffer {
 	const padded = input + "==".slice(0, (4 - (input.length % 4)) % 4);
@@ -31,61 +29,20 @@ function encodeBase64UrlNoPad(buf: Buffer): string {
 		.replace(/=+$/, "");
 }
 
-function loadMasterKey(): Buffer {
-	const raw = process.env[ENV_VAR];
-	if (!raw) {
-		throw new Error(
-			`${ENV_VAR} is not set. Generate with: openssl rand -base64 32`,
-		);
-	}
-	let decoded: Buffer;
-	try {
-		decoded = Buffer.from(raw, "base64");
-	} catch (error) {
-		throw new Error(
-			`${ENV_VAR} is not valid base64: ${(error as Error).message}`,
-		);
-	}
-	if (decoded.length !== KEY_BYTES) {
-		throw new Error(
-			`${ENV_VAR} must decode to exactly ${KEY_BYTES} bytes; got ${decoded.length}. Regenerate with: openssl rand -base64 32`,
-		);
-	}
-	return decoded;
-}
-
+/**
+ * Derives the provider-key data key from the gateway's shared secret
+ * (GATEWAY_API_KEY_HASH_SECRET). The HKDF info string domain-separates it from
+ * the API-key fingerprint HMAC, so the two uses never share key material.
+ */
 function getDataKey(): Buffer {
-	if (cachedDataKey) {
-		return cachedDataKey;
-	}
-	const master = loadMasterKey();
 	const derived = hkdfSync(
 		"sha256",
-		master,
+		Buffer.from(getApiKeyHashSecret(), "utf8"),
 		Buffer.alloc(0),
 		Buffer.from(HKDF_INFO_PROVIDER_KEY_TOKEN, "utf8"),
 		KEY_BYTES,
 	);
-	cachedDataKey = Buffer.from(derived);
-	return cachedDataKey;
-}
-
-/**
- * Throws if PROVIDER_KEY_ENCRYPTION_KEY is missing or malformed.
- * Call this at process startup so misconfiguration fails fast,
- * before any request can attempt encryption or decryption.
- */
-export function validateProviderKeyEncryptionKey(): void {
-	getDataKey();
-}
-
-/**
- * Reset the in-memory derived data key cache.
- * Tests use this to swap env vars between cases.
- * @internal
- */
-export function _resetProviderKeyCryptoCache(): void {
-	cachedDataKey = null;
+	return Buffer.from(derived);
 }
 
 function buildAad(rowId: string, organizationId: string): Buffer {

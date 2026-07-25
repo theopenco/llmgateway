@@ -2,18 +2,17 @@ import { randomBytes } from "node:crypto";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { _resetProviderKeyCryptoCache, encryptProviderKey } from "./crypto.js";
+import { encryptProviderKey } from "./crypto.js";
 import { hasProviderKey, readProviderKey } from "./read.js";
 
 import type { ProviderKeyRowLike } from "./read.js";
 
-const ENV_VAR = "PROVIDER_KEY_ENCRYPTION_KEY";
+const ENV_VAR = "GATEWAY_API_KEY_HASH_SECRET";
 const ORIGINAL_KEY = process.env[ENV_VAR];
 const VALID_KEY = randomBytes(32).toString("base64");
 
 beforeEach(() => {
 	process.env[ENV_VAR] = VALID_KEY;
-	_resetProviderKeyCryptoCache();
 });
 
 afterEach(() => {
@@ -23,7 +22,6 @@ afterEach(() => {
 	} else {
 		process.env[ENV_VAR] = ORIGINAL_KEY;
 	}
-	_resetProviderKeyCryptoCache();
 });
 
 const ROW_ID = "row-abc";

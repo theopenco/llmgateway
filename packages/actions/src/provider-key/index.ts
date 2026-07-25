@@ -2,8 +2,6 @@ export {
 	encryptProviderKey,
 	decryptProviderKey,
 	isProviderKeyCiphertext,
-	validateProviderKeyEncryptionKey,
-	_resetProviderKeyCryptoCache,
 } from "./crypto.js";
 export {
 	readProviderKey,

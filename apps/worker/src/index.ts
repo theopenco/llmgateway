@@ -1,6 +1,5 @@
 import { fileURLToPath } from "node:url";
 
-import { validateProviderKeyEncryptionKey } from "@llmgateway/actions";
 import { setQueryTags } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
@@ -63,16 +62,6 @@ function isDirectExecution() {
 }
 
 if (isDirectExecution()) {
-	try {
-		validateProviderKeyEncryptionKey();
-	} catch (error) {
-		logger.error(
-			"Worker startup failed: provider key encryption misconfigured",
-			error instanceof Error ? error : new Error(String(error)),
-		);
-		process.exit(1);
-	}
-
 	// Tag every DB query with the originating service for Cloud SQL Query Insights
 	setQueryTags({ application: "worker" });
 
