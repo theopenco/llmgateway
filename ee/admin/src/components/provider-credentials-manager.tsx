@@ -1,27 +1,12 @@
 "use client";
 
-import {
-	Check,
-	ChevronsUpDown,
-	Loader2,
-	Pencil,
-	Plus,
-	Trash2,
-} from "lucide-react";
+import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-	Command,
-	CommandEmpty,
-	CommandGroup,
-	CommandInput,
-	CommandItem,
-	CommandList,
-} from "@/components/ui/command";
 import {
 	Dialog,
 	DialogContent,
@@ -32,11 +17,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-	Popover,
-	PopoverContent,
-	PopoverTrigger,
-} from "@/components/ui/popover";
 import {
 	Select,
 	SelectContent,
@@ -53,9 +33,9 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
 
 import { getProviderIcon } from "@llmgateway/shared";
+import { SearchableSelect } from "@llmgateway/shared/components";
 
 import type {
 	ProviderCredential,
@@ -460,7 +440,6 @@ function CredentialDialog({
 	const [provider, setProvider] = useState(
 		credential?.provider ?? catalog[0]?.id ?? "",
 	);
-	const [providerOpen, setProviderOpen] = useState(false);
 	const [token, setToken] = useState("");
 	const [comment, setComment] = useState(credential?.comment ?? "");
 	const [variant, setVariant] = useState<Variant>(
@@ -480,6 +459,32 @@ function CredentialDialog({
 	const selectedEntry =
 		catalogEntry ?? catalog.find((entry) => entry.id === provider);
 	const isRegionScoped = (selectedEntry?.regions.length ?? 0) > 0;
+
+	const providerOptions = useMemo(
+		() =>
+			catalog.map((entry) => {
+				const count = totalOf(credentialCounts.get(entry.id) ?? NO_CREDENTIALS);
+				return {
+					value: entry.id,
+					label: entry.name,
+					// Searchable by provider id too, so "vertex" finds it whichever
+					// name the admin remembers.
+					keywords: entry.id,
+					icon: <ProviderIcon provider={entry.id} />,
+					annotation:
+						count > 0 ? (
+							<Badge
+								variant="secondary"
+								className="text-[11px]"
+								title={`${count} credential${count === 1 ? "" : "s"} already configured`}
+							>
+								{count}
+							</Badge>
+						) : null,
+				};
+			}),
+		[catalog, credentialCounts],
+	);
 
 	// Regions already claimed for this provider, so an admin can see which are
 	// covered before pinning another credential to one.
@@ -536,87 +541,23 @@ function CredentialDialog({
 				<div className="flex flex-col gap-4">
 					<div className="flex flex-col gap-2">
 						<Label htmlFor="provider">Provider</Label>
-						<Popover open={providerOpen} onOpenChange={setProviderOpen}>
-							<PopoverTrigger asChild>
-								<Button
-									id="provider"
-									type="button"
-									variant="outline"
-									role="combobox"
-									aria-expanded={providerOpen}
-									disabled={isEdit}
-									className="w-full justify-between font-normal"
-								>
-									{selectedEntry ? (
-										<span className="flex min-w-0 items-center gap-2">
-											<ProviderIcon provider={selectedEntry.id} />
-											<span className="truncate">{selectedEntry.name}</span>
-										</span>
-									) : (
-										<span className="text-muted-foreground">
-											Select a provider
-										</span>
-									)}
-									<ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-								</Button>
-							</PopoverTrigger>
-							<PopoverContent
-								className="w-[--radix-popover-trigger-width] p-0"
-								align="start"
-							>
-								<Command>
-									<CommandInput placeholder="Search providers..." />
-									<CommandList>
-										<CommandEmpty>No providers found.</CommandEmpty>
-										<CommandGroup>
-											{catalog.map((entry) => {
-												const count = totalOf(
-													credentialCounts.get(entry.id) ?? NO_CREDENTIALS,
-												);
-												return (
-													<CommandItem
-														key={entry.id}
-														// Searchable by display name and by provider id, so
-														// "vertex" finds it whichever the admin remembers.
-														value={`${entry.name} ${entry.id}`}
-														onSelect={() => {
-															setProvider(entry.id);
-															setConfig({});
-															// Regions are per-provider; carrying one
-															// over would be rejected by the server.
-															setRegion("");
-															setProviderOpen(false);
-														}}
-													>
-														<ProviderIcon provider={entry.id} />
-														<span className="truncate">{entry.name}</span>
-														<span className="ml-auto flex shrink-0 items-center gap-2">
-															{count > 0 ? (
-																<Badge
-																	variant="secondary"
-																	className="text-[11px]"
-																	title={`${count} credential${count === 1 ? "" : "s"} already configured`}
-																>
-																	{count}
-																</Badge>
-															) : null}
-															<Check
-																className={cn(
-																	"h-4 w-4",
-																	provider === entry.id
-																		? "opacity-100"
-																		: "opacity-0",
-																)}
-															/>
-														</span>
-													</CommandItem>
-												);
-											})}
-										</CommandGroup>
-									</CommandList>
-								</Command>
-							</PopoverContent>
-						</Popover>
+						<SearchableSelect
+							id="provider"
+							value={provider}
+							disabled={isEdit}
+							placeholder="Select a provider"
+							searchPlaceholder="Search providers..."
+							emptyMessage="No providers found."
+							aria-label="Provider"
+							onValueChange={(next) => {
+								setProvider(next);
+								setConfig({});
+								// Regions are per-provider; carrying one over would be
+								// rejected by the server.
+								setRegion("");
+							}}
+							options={providerOptions}
+						/>
 						{selectedEntry ? (
 							<div className="flex flex-col gap-2 rounded-md border border-border/60 p-3">
 								<p className="text-xs font-medium">
