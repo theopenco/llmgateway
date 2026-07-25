@@ -31,11 +31,13 @@ import { getStripe, type StripeMode } from "./routes/payments.js";
 import {
 	notifyChatPlanCancelled,
 	notifyChatPlanRenewed,
+	notifyChatPlanResumed,
 	notifyChatPlanSubscribed,
 	notifyCreditsPurchased,
 	notifyRefund,
 	notifyDevPlanCancelled,
 	notifyDevPlanRenewed,
+	notifyDevPlanResumed,
 	notifyDevPlanSubscribed,
 	notifyResetPassPurchased,
 } from "./utils/discord.js";
@@ -4787,6 +4789,20 @@ export async function handleSubscriptionUpdated(
 					source: "stripe_subscription_updated",
 				},
 			});
+			const resumeEmail =
+				(metadata?.userEmail as string | undefined) ??
+				organization.billingEmail;
+			if (resumeEmail) {
+				const resumeUser = await db.query.user.findFirst({
+					where: { email: { eq: resumeEmail } },
+				});
+				await notifyChatPlanResumed(
+					resumeEmail,
+					resumeUser?.name,
+					organization.chatPlan ?? "unknown",
+				);
+			}
+
 			logger.info(
 				`Reactivated chat plan subscription for organization ${organizationId}`,
 			);
@@ -4899,6 +4915,20 @@ export async function handleSubscriptionUpdated(
 					source: "stripe_subscription_updated",
 				},
 			});
+			const resumeEmail =
+				(metadata?.userEmail as string | undefined) ??
+				organization.billingEmail;
+			if (resumeEmail) {
+				const resumeUser = await db.query.user.findFirst({
+					where: { email: { eq: resumeEmail } },
+				});
+				await notifyDevPlanResumed(
+					resumeEmail,
+					resumeUser?.name,
+					organization.devPlan ?? "unknown",
+				);
+			}
+
 			logger.info(
 				`Reactivated dev plan subscription for organization ${organizationId}`,
 			);
