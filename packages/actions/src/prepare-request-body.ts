@@ -1052,6 +1052,7 @@ export async function prepareRequestBody(
 	const handlesNoneNatively =
 		usedProvider === "openai" ||
 		usedProvider === "azure" ||
+		usedProvider === "aws-mantle" ||
 		usedProvider === "google-ai-studio" ||
 		usedProvider === "glacier" ||
 		usedProvider === "iceberg" ||
@@ -1672,6 +1673,7 @@ export async function prepareRequestBody(
 		case "azure":
 		case "sakana":
 		case "meta":
+		case "aws-mantle":
 		case "openai": {
 			// Determine whether to use Responses API format.
 			// If useResponsesApi is explicitly passed (derived from endpoint URL), use it.
@@ -1700,6 +1702,33 @@ export async function prepareRequestBody(
 				// - Convert tool role messages to function_call_output items
 				const transformedMessages =
 					transformMessagesForResponsesApi(processedMessages);
+
+				// Bedrock Mantle only accepts `data:` (or `s3://`) image URLs and
+				// rejects remote http(s) references outright, so fetch user-supplied
+				// image URLs (SSRF-guarded) and inline them as data URLs upstream.
+				if (usedProvider === "aws-mantle") {
+					for (const item of transformedMessages) {
+						if (!Array.isArray(item?.content)) {
+							continue;
+						}
+						for (const part of item.content) {
+							if (
+								part?.type === "input_image" &&
+								typeof part.image_url === "string" &&
+								(part.image_url.startsWith("http://") ||
+									part.image_url.startsWith("https://"))
+							) {
+								const { data, mimeType } = await processImageUrl(
+									part.image_url,
+									isProd,
+									maxImageSizeMB,
+									userPlan,
+								);
+								part.image_url = `data:${mimeType};base64,${data}`;
+							}
+						}
+					}
+				}
 
 				// Fugu always reasons and only accepts "high"/"xhigh" effort — it has
 				// no off switch and rejects none/minimal/low/medium — so every tier at
@@ -1731,6 +1760,14 @@ export async function prepareRequestBody(
 								},
 				};
 
+				if (usedProvider === "aws-mantle") {
+					// Mantle stores responses for 30 days by default (store: true).
+					// The gateway reconstructs conversations itself and never reads
+					// provider-stored responses, so opt out to keep the provider's
+					// zero-retention data policy accurate.
+					responsesBody.store = false;
+				}
+
 				if (usedProvider === "openai") {
 					if (supportedServiceTier) {
 						responsesBody.service_tier = supportedServiceTier;
@@ -1758,13 +1795,15 @@ export async function prepareRequestBody(
 
 				// prompt_cache_key influences upstream cache-shard routing; only
 				// OpenAI, Azure (v1 surface — the Responses API path is always v1),
-				// and Meta support it. Sakana does not document the field. Prefer
-				// the caller's explicit key, then the salted hash of the caller's
-				// session id, then (Meta only, where the key is required for hits
-				// at all) a key derived from the conversation prefix.
+				// Bedrock Mantle, and Meta support it. Sakana does not document the
+				// field. Prefer the caller's explicit key, then the salted hash of
+				// the caller's session id, then (Meta only, where the key is
+				// required for hits at all) a key derived from the conversation
+				// prefix.
 				if (
 					usedProvider === "openai" ||
 					usedProvider === "azure" ||
+					usedProvider === "aws-mantle" ||
 					usedProvider === "meta"
 				) {
 					const upstreamCacheKey =
