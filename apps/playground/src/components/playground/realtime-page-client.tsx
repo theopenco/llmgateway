@@ -190,10 +190,11 @@ export default function RealtimePageClient({
 	// deliberately does not store conversation content.
 	const savedCallRef = useRef(false);
 	const previousStatusRef = useRef<RealtimeCallStatus>("idle");
-	useEffect(() => {
-		const previous = previousStatusRef.current;
-		previousStatusRef.current = status;
-		if (status !== "idle" || previous === "idle" || savedCallRef.current) {
+	// Latest-ref so the unmount cleanup below saves current (not first-render)
+	// call state.
+	const persistCallRef = useRef<() => void>(() => {});
+	persistCallRef.current = () => {
+		if (savedCallRef.current) {
 			return;
 		}
 		const spoken = transcript.filter((entry) => entry.text.trim().length > 0);
@@ -221,16 +222,28 @@ export default function RealtimePageClient({
 					: {}),
 			},
 		});
-	}, [
-		elapsedSeconds,
-		saveCallHistory,
-		selectedModel,
-		selectedOrganization?.id,
-		status,
-		transcript,
-		usage,
-		voice,
-	]);
+	};
+	useEffect(() => {
+		const previous = previousStatusRef.current;
+		previousStatusRef.current = status;
+		if (status !== "idle" || previous === "idle") {
+			return;
+		}
+		persistCallRef.current();
+	}, [status]);
+	// Every nav link stays clickable during a live call, and navigating away
+	// unmounts this component before the idle transition above can fire —
+	// without this, the transcript would be silently lost. previousStatusRef
+	// stays "idle" until a call starts, which keeps strict-mode's simulated
+	// unmount from saving anything. The mutation outlives the component: its
+	// hook-level onSuccess is captured at mutate() time.
+	useEffect(() => {
+		return () => {
+			if (previousStatusRef.current !== "idle") {
+				persistCallRef.current();
+			}
+		};
+	}, []);
 
 	const historyItems = useMemo(
 		() => historyData?.items ?? [],
