@@ -204,12 +204,14 @@ function RefundButton({ invoice }: { invoice: Invoice }) {
 			<AlertDialogContent>
 				<AlertDialogHeader>
 					<AlertDialogTitle>
-						{isResetPass ? "Refund this Reset Pass?" : "Refund this payment?"}
+						{isResetPass
+							? "Refund this Reset Pass?"
+							: "Refund and cancel your DevPass?"}
 					</AlertDialogTitle>
 					<AlertDialogDescription>
 						{isResetPass
 							? `${formatAmount(invoice.amount, invoice.currency)} will be refunded to your payment method and the unused pass removed from your passport. Your DevPass plan is not affected. This cannot be undone.`
-							: `${formatAmount(invoice.amount, invoice.currency)} will be refunded to your payment method and your DevPass will be cancelled immediately. This cannot be undone.`}
+							: `Refunding cancels your subscription completely: ${formatAmount(invoice.amount, invoice.currency)} goes back to your payment method and your DevPass ends right away — not at the end of the billing period — so the rest of this cycle's credits are lost. To use DevPass again you would have to subscribe from scratch. This cannot be undone.`}
 					</AlertDialogDescription>
 				</AlertDialogHeader>
 				<AlertDialogFooter>
