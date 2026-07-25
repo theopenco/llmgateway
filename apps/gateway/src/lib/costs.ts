@@ -650,7 +650,8 @@ export async function calculateCosts(
 		provider === "openai" ||
 		provider === "azure" ||
 		provider === "sakana" ||
-		provider === "meta";
+		provider === "meta" ||
+		provider === "aws-mantle";
 	const totalOutputTokens = completionIncludesReasoning
 		? calculatedCompletionTokens
 		: calculatedCompletionTokens + (reasoningTokens ?? 0);
