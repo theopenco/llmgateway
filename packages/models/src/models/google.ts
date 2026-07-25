@@ -2269,9 +2269,9 @@ export const googleModels = [
 				vision: true,
 				tools: true,
 				// Runware rejects json_object for this model ("Missing required
-				// parameter: 'jsonSchema'"); only schema-based output is supported.
+				// parameter: 'jsonSchema'") and its json_schema path hangs until the
+				// upstream inference timeout, so no structured-output mode is offered.
 				jsonOutput: false,
-				jsonOutputSchema: true,
 			},
 			{
 				providerId: "novita",
