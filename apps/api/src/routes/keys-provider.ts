@@ -115,6 +115,7 @@ export const providerKeySchema = z.object({
 			azure_deployment_name: z.string().optional(),
 			azure_ai_foundry_resource: z.string().optional(),
 			azure_ai_foundry_api_version: z.string().optional(),
+			azure_anthropic_resource: z.string().optional(),
 			alibaba_region: z
 				.enum(["singapore", "eu-frankfurt", "us-virginia", "cn-beijing"])
 				.optional(),
@@ -372,6 +373,7 @@ const createProviderKeySchema = z.object({
 			azure_deployment_name: z.string().min(1).optional(),
 			azure_ai_foundry_resource: z.string().optional(),
 			azure_ai_foundry_api_version: z.string().optional(),
+			azure_anthropic_resource: z.string().optional(),
 			alibaba_region: z
 				.enum(["singapore", "eu-frankfurt", "us-virginia", "cn-beijing"])
 				.optional(),

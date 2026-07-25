@@ -1654,6 +1654,7 @@ export interface ProviderKeyOptions {
 	azure_deployment_name?: string;
 	azure_ai_foundry_resource?: string;
 	azure_ai_foundry_api_version?: string;
+	azure_anthropic_resource?: string;
 	alibaba_region?: "singapore" | "eu-frankfurt" | "us-virginia" | "cn-beijing";
 	/**
 	 * Model Studio workspace id, required for regions served only by the

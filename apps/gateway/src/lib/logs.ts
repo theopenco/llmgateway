@@ -99,6 +99,7 @@ export function getUnifiedFinishReason(
 	switch (provider) {
 		case "anthropic":
 		case "vertex-anthropic":
+		case "azure-anthropic":
 			if (finishReason === "stop_sequence") {
 				return UnifiedFinishReason.COMPLETED;
 			}

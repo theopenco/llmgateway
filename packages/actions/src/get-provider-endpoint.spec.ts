@@ -460,6 +460,81 @@ describe("getProviderEndpoint", () => {
 		});
 	});
 
+	describe("azure-anthropic", () => {
+		it("builds the Microsoft Foundry Anthropic Messages endpoint", () => {
+			process.env.LLM_AZURE_ANTHROPIC_RESOURCE = "llmg-us-east-2";
+
+			const endpoint = getProviderEndpoint(
+				"azure-anthropic",
+				undefined,
+				"claude-opus-4-8",
+			);
+
+			expect(endpoint).toBe(
+				"https://llmg-us-east-2.services.ai.azure.com/anthropic/v1/messages",
+			);
+		});
+
+		it("uses the same messages endpoint for streaming requests", () => {
+			process.env.LLM_AZURE_ANTHROPIC_RESOURCE = "llmg-us-east-2";
+
+			const endpoint = getProviderEndpoint(
+				"azure-anthropic",
+				undefined,
+				"claude-sonnet-5",
+				undefined,
+				true,
+			);
+
+			expect(endpoint).toBe(
+				"https://llmg-us-east-2.services.ai.azure.com/anthropic/v1/messages",
+			);
+		});
+
+		it("prefers the resource from provider key options", () => {
+			process.env.LLM_AZURE_ANTHROPIC_RESOURCE = "env-resource";
+
+			const endpoint = getProviderEndpoint(
+				"azure-anthropic",
+				undefined,
+				"claude-opus-5",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				{ azure_anthropic_resource: "byok-resource" },
+			);
+
+			expect(endpoint).toBe(
+				"https://byok-resource.services.ai.azure.com/anthropic/v1/messages",
+			);
+		});
+
+		it("throws when no resource is configured", () => {
+			delete process.env.LLM_AZURE_ANTHROPIC_RESOURCE;
+
+			expect(() =>
+				getProviderEndpoint("azure-anthropic", undefined, "claude-opus-4-8"),
+			).toThrow(/Azure Anthropic resource is required/);
+		});
+
+		it.each([
+			"evil.com/path",
+			"resource.evil.com",
+			"resource:8080",
+			"https://evil.com",
+			"a/b",
+			"a b",
+			"",
+		])("rejects an invalid resource name (%s)", (resource) => {
+			process.env.LLM_AZURE_ANTHROPIC_RESOURCE = resource;
+
+			expect(() =>
+				getProviderEndpoint("azure-anthropic", undefined, "claude-opus-4-8"),
+			).toThrow(/Azure Anthropic resource (is invalid|is required)/);
+		});
+	});
+
 	describe("xiaomi", () => {
 		it("builds the default Xiaomi endpoint", () => {
 			delete process.env.LLM_XIAOMI_BASE_URL;
