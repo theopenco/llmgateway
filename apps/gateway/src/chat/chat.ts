@@ -1165,9 +1165,6 @@ export async function inspectImmediateStreamingProviderError(
 	};
 }
 
-// Reusable TextDecoder to avoid per-chunk allocation in the streaming hot path
-const sharedTextDecoder = new TextDecoder();
-
 export const chat = new OpenAPIHono<ServerTypes>();
 
 const completions = createRoute({
@@ -1829,7 +1826,12 @@ chat.openapi(completions, async (c) => {
 	// balance) so the existing credit-gating logic bills the wallet, while the
 	// log's endCustomerWalletId redirects the worker's debit to that wallet.
 	// (Shared with embeddings/moderations via apps/gateway/src/lib/end-user-session.ts.)
-	const endUserWallet = (await loadEndUserWallet(apiKey)) ?? undefined;
+	// Both lookups depend only on the api key, so they run concurrently.
+	const [endUserWalletOrNull, initialProject] = await Promise.all([
+		loadEndUserWallet(apiKey),
+		findProjectById(apiKey.projectId),
+	]);
+	const endUserWallet = endUserWalletOrNull ?? undefined;
 
 	// Test-mode end-user wallets are funded by Stripe-sandbox top-ups, so they may
 	// only spend on free models — force free-models-only auto routing for them, and
@@ -1838,7 +1840,7 @@ chat.openapi(completions, async (c) => {
 		free_models_only || endUserWallet?.mode === "test";
 
 	// Get the project to determine mode for routing decisions
-	let project = await findProjectById(apiKey.projectId);
+	let project = initialProject;
 
 	if (!project) {
 		throw new HTTPException(500, {
@@ -8367,6 +8369,10 @@ chat.openapi(completions, async (c) => {
 				let handledTerminalProviderEvent = false;
 				let buffer = ""; // Buffer for accumulating partial data across chunks (string for SSE)
 				let binaryBuffer = new Uint8Array(0); // Buffer for binary event streams (AWS Bedrock)
+				// Per-request decoder: decoding with { stream: true } keeps partial
+				// multibyte state between calls, so it must never be shared across
+				// concurrent streams
+				const streamTextDecoder = new TextDecoder();
 				let rawUpstreamData = ""; // Raw data received from upstream provider
 				// Raw upstream chunk that carried a finish_reason signalling an upstream
 				// failure (e.g. "error"), preserved so the log shows the actual provider
@@ -8451,7 +8457,7 @@ chat.openapi(completions, async (c) => {
 							}
 						} else {
 							// Convert the Uint8Array to a string for SSE
-							chunk = sharedTextDecoder.decode(value, { stream: true });
+							chunk = streamTextDecoder.decode(value, { stream: true });
 						}
 
 						// Log error on large chunks (1MB+) - should almost never happen

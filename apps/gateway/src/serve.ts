@@ -9,6 +9,10 @@ import {
 import { logger, toError } from "@llmgateway/logger";
 
 import { app } from "./app.js";
+import {
+	closeUpstreamDispatcher,
+	installUpstreamDispatcher,
+} from "./lib/upstream-dispatcher.js";
 import { metricsApp } from "./metrics-app.js";
 import { attachRealtimeServer } from "./realtime/server.js";
 
@@ -43,6 +47,8 @@ let realtime: RealtimeServer | null = null;
 async function startServer() {
 	// Tag every DB query with the originating service for Cloud SQL Query Insights
 	setQueryTags({ application: "gateway" });
+
+	installUpstreamDispatcher();
 
 	// Initialize tracing for gateway service
 	try {
@@ -157,6 +163,9 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 			await closeServer(metricsServer);
 			logger.info("Metrics server closed");
 		}
+
+		logger.info("Closing upstream dispatcher");
+		await closeUpstreamDispatcher();
 
 		logger.info("Closing database connection");
 		await closeDatabase();

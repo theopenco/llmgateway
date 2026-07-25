@@ -46,6 +46,7 @@
 		"ioredis": "5.7.0",
 		"ipaddr.js": "2.2.0",
 		"redis": "5.9.0",
+		"undici": "8.9.0",
 		"worker": "workspace:*",
 		"ws": "8.18.3",
 		"zod": "3.25.75",
