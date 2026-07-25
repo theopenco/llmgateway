@@ -11,6 +11,8 @@ interface AdaptiveThinkingBody {
 	output_config?: {
 		effort?: "low" | "medium" | "high" | "xhigh" | "max";
 	};
+	temperature?: number;
+	top_p?: number;
 }
 
 // Regression test for adaptive thinking. Anthropic models with
@@ -24,6 +26,8 @@ async function buildAnthropicBody(
 	opts: {
 		reasoning_effort?: "low" | "medium" | "high" | "xhigh";
 		reasoning_max_tokens?: number;
+		temperature?: number;
+		top_p?: number;
 	},
 ): Promise<AdaptiveThinkingBody> {
 	return (await prepareRequestBody(
@@ -38,9 +42,9 @@ async function buildAnthropicBody(
 			},
 		],
 		false, // stream
-		undefined, // temperature
+		opts.temperature, // temperature
 		undefined, // max_tokens
-		undefined, // top_p
+		opts.top_p, // top_p
 		undefined, // frequency_penalty
 		undefined, // presence_penalty
 		undefined, // response_format
@@ -86,6 +90,40 @@ describe("prepareRequestBody - adaptive thinking (Opus 4.6/4.7/4.8)", () => {
 			type: "adaptive",
 			display: "summarized",
 		});
+	});
+
+	test("drops top_p below 0.95 when thinking is enabled", async () => {
+		const body = await buildAnthropicBody("claude-opus-4-6", {
+			reasoning_effort: "high",
+			top_p: 0.9,
+		});
+		expect(body.top_p).toBeUndefined();
+	});
+
+	test("keeps top_p >= 0.95 when thinking is enabled", async () => {
+		const body = await buildAnthropicBody("claude-opus-4-6", {
+			reasoning_effort: "high",
+			top_p: 0.95,
+		});
+		expect(body.top_p).toBe(0.95);
+	});
+
+	test("forces temperature to 1 when thinking on a model that supports it", async () => {
+		const body = await buildAnthropicBody("claude-opus-4-6", {
+			reasoning_effort: "high",
+			temperature: 0.3,
+		});
+		expect(body.temperature).toBe(1);
+	});
+
+	test("omits temperature when thinking on a model that deprecated it", async () => {
+		// Opus 4.8 deprecated temperature (rejects non-default values), so the
+		// gateway must not inject temperature: 1 for it.
+		const body = await buildAnthropicBody("claude-opus-4-8", {
+			reasoning_effort: "high",
+			temperature: 0.3,
+		});
+		expect(body.temperature).toBeUndefined();
 	});
 });
 
@@ -149,5 +187,15 @@ describe("prepareRequestBody - Bedrock Opus 4.8 deprecated params", () => {
 			"high",
 		);
 		expect(body.inferenceConfig?.temperature).toBeUndefined();
+	});
+
+	test("drops top_p below 0.95 when thinking is enabled", async () => {
+		const body = await buildBedrockBody({ effort: "high", top_p: 0.9 });
+		expect(body.inferenceConfig?.topP).toBeUndefined();
+	});
+
+	test("keeps top_p >= 0.95 when thinking is enabled", async () => {
+		const body = await buildBedrockBody({ effort: "high", top_p: 0.95 });
+		expect(body.inferenceConfig?.topP).toBe(0.95);
 	});
 });

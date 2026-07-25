@@ -67,6 +67,7 @@ type ProjectBase = InferSelectModel<typeof tables.project>;
 type OrganizationBase = InferSelectModel<typeof tables.organization>;
 type UserBase = InferSelectModel<typeof tables.user>;
 type ApiKeyIamRuleBase = InferSelectModel<typeof tables.apiKeyIamRule>;
+type UserIamRuleBase = InferSelectModel<typeof tables.userIamRule>;
 
 export type ApiKey = Omit<ApiKeyBase, "status" | "keyType"> & {
 	status: "active" | "inactive" | "deleted" | null;
@@ -152,6 +153,19 @@ export type ApiKeyIamRule = Omit<ApiKeyIamRuleBase, "status" | "ruleType"> & {
 	status: "active" | "inactive";
 };
 
+export type UserIamRule = Omit<UserIamRuleBase, "status" | "ruleType"> & {
+	ruleType:
+		| "allow_models"
+		| "deny_models"
+		| "allow_pricing"
+		| "deny_pricing"
+		| "allow_providers"
+		| "deny_providers"
+		| "allow_ip_cidrs"
+		| "deny_ip_cidrs";
+	status: "active" | "inactive";
+};
+
 export type LogInsertData = Omit<
 	InferInsertModel<typeof tables.log>,
 	"id" | "createdAt" | "updatedAt"
@@ -182,7 +196,7 @@ export type SerializedOrganization = Omit<
 	| "devPlanCardFingerprint"
 	| "devPlanCreditsFrozen"
 	| "devPlanCreditsLimitBeforeFreeze"
-	| "devPlanLastTierChangeCycleStart"
+	| "devPlanTierChangeClaimedAt"
 	| "chatPlanBillingCycleStart"
 	| "chatPlanStripeSubscriptionId"
 	| "chatPlanCancelled"
@@ -229,6 +243,14 @@ export type SerializedApiKey = Omit<
 
 export type SerializedApiKeyIamRule = Omit<
 	ApiKeyIamRule,
+	"createdAt" | "updatedAt"
+> & {
+	createdAt: string;
+	updatedAt: string;
+};
+
+export type SerializedUserIamRule = Omit<
+	UserIamRule,
 	"createdAt" | "updatedAt"
 > & {
 	createdAt: string;

@@ -97,6 +97,9 @@ export function AdminShell({ children }: AdminShellProps) {
 	const isModelProviderMappings = pathname === "/model-provider-mappings";
 	const isUnstableMappings = pathname.startsWith("/unstable-mappings");
 	const isContactSubmissions = pathname.startsWith("/contact-submissions");
+	const isProviderListingRequests = pathname.startsWith(
+		"/provider-listing-requests",
+	);
 	const isChatSupportLogs = pathname.startsWith("/chat-support-logs");
 	const isPaymentFailures = pathname.startsWith("/payment-failures");
 
@@ -164,7 +167,7 @@ export function AdminShell({ children }: AdminShellProps) {
 								<Link href="/chat-plans" className="block">
 									<SidebarMenuButton isActive={isChatPlans} size="lg">
 										<MessageSquare className="h-4 w-4" />
-										<span>Chat Plans</span>
+										<span>Lounge Plans</span>
 									</SidebarMenuButton>
 								</Link>
 							</SidebarMenuItem>
@@ -232,6 +235,17 @@ export function AdminShell({ children }: AdminShellProps) {
 									<SidebarMenuButton isActive={isContactSubmissions} size="lg">
 										<Mail className="h-4 w-4" />
 										<span>Contact Submissions</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<Link href="/provider-listing-requests" className="block">
+									<SidebarMenuButton
+										isActive={isProviderListingRequests}
+										size="lg"
+									>
+										<Building2 className="h-4 w-4" />
+										<span>Provider Requests</span>
 									</SidebarMenuButton>
 								</Link>
 							</SidebarMenuItem>

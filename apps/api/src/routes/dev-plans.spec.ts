@@ -15,6 +15,11 @@ const stripeMock = vi.hoisted(() => ({
 		retrieve: vi.fn(),
 		update: vi.fn(),
 	},
+	invoices: {
+		list: vi.fn(),
+		finalizeInvoice: vi.fn(),
+		voidInvoice: vi.fn(),
+	},
 }));
 
 vi.mock("@/routes/payments.js", async (importOriginal) => {
@@ -72,6 +77,9 @@ describe("dev plan tier changes", () => {
 
 	beforeEach(async () => {
 		vi.clearAllMocks();
+		// No pending cycle-renewal invoices by default; upgrades list them to
+		// void any the old cycle left behind.
+		stripeMock.invoices.list.mockResolvedValue({ data: [] });
 		process.env.STRIPE_DEV_PLAN_PRO_PRICE_ID = "price_pro";
 		token = await createTestUser();
 		nowSeconds = Math.floor(Date.now() / 1000);
@@ -108,7 +116,7 @@ describe("dev plan tier changes", () => {
 		await deleteAll();
 	});
 
-	it("previews the full upgrade charge and new-tier credits", async () => {
+	it("previews the full upgrade charge, new-tier credits and rollover", async () => {
 		stripeMock.subscriptions.retrieve.mockResolvedValue(
 			retrievedSubscription(),
 		);
@@ -135,11 +143,11 @@ describe("dev plan tier changes", () => {
 			// Full new-tier price charged today, not a prorated slice.
 			amountDueCents: 7900,
 			currency: "USD",
-			remainingFraction: 0.5,
 			currentCreditsLimit: 87,
-			// Allowance resets to the new tier's full allotment (79 * 3 = 237).
-			proratedCreditDelta: 150,
-			newCreditsLimit: 237,
+			// New allowance = the new tier's full allotment (79 * 3 = 237) plus the
+			// unused remainder of the current cycle (87 - 12.5 = 74.5) rolled over.
+			newCreditsLimit: 311.5,
+			rolloverCredits: 74.5,
 			billingPeriodStart: new Date((nowSeconds - 500) * 1000).toISOString(),
 			billingPeriodEnd: new Date((nowSeconds + 500) * 1000).toISOString(),
 		});
@@ -167,15 +175,15 @@ describe("dev plan tier changes", () => {
 		expect(res.status).toBe(409);
 		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
 
-		// The per-cycle claim is released when the change aborts before Stripe, so
-		// the user isn't locked out of retrying this cycle.
+		// The lease is released when the change aborts before Stripe, so the user
+		// isn't locked out of retrying.
 		const org = await db.query.organization.findFirst({
 			where: { id: { eq: ORG_ID } },
 		});
-		expect(org?.devPlanLastTierChangeCycleStart).toBeNull();
+		expect(org?.devPlanTierChangeClaimedAt).toBeNull();
 	});
 
-	it("charges the full price, resets usage, and grants full new-tier credits", async () => {
+	it("charges the full price, resets usage, and rolls unused credits into the new limit", async () => {
 		stripeMock.subscriptions.retrieve.mockResolvedValue(
 			retrievedSubscription(),
 		);
@@ -233,13 +241,16 @@ describe("dev plan tier changes", () => {
 			},
 		});
 		expect(org?.devPlan).toBe("pro");
-		// Fresh cycle: usage wiped, limit reset to the full new-tier allowance.
+		// Fresh cycle: usage wiped, limit set to the full new-tier allowance (237)
+		// plus the unused remainder of the old cycle (87 - 12.5 = 74.5).
 		expect(org?.devPlanCreditsUsed).toBe("0");
-		expect(org?.devPlanCreditsLimit).toBe("237");
+		expect(org?.devPlanCreditsLimit).toBe("311.5");
 		expect(org?.devPlanBillingCycleStart).not.toBeNull();
 		expect(org?.devPlanExpiresAt).toEqual(
 			new Date((nowSeconds + THIRTY_DAYS) * 1000),
 		);
+		// The completed upgrade released the lease.
+		expect(org?.devPlanTierChangeClaimedAt).toBeNull();
 
 		const transaction = await db.query.transaction.findFirst({
 			where: {
@@ -250,14 +261,179 @@ describe("dev plan tier changes", () => {
 		});
 		expect(transaction?.type).toBe("dev_plan_upgrade");
 		expect(transaction?.amount).toBe("79");
-		expect(transaction?.creditAmount).toBe("237");
+		expect(transaction?.creditAmount).toBe("311.5");
 		expect(transaction?.stripeInvoiceId).toBe("in_upgrade");
 		expect(transaction?.stripePaymentIntentId).toBe("pi_upgrade");
 	});
 
-	it("wipes prior mid-cycle usage on upgrade (fresh cycle)", async () => {
-		// The org has heavy prior usage this period; an upgrade starts a brand-new
-		// cycle, so usage resets to 0 rather than carrying over.
+	it("returns requires_action with a client secret when the bank demands 3DS", async () => {
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(),
+		);
+		stripeMock.prices.retrieve.mockResolvedValue({ unit_amount: 7900 });
+		// The atomic `error_if_incomplete` attempt fails because the card needs
+		// customer authentication; the retry as a pending update returns an open
+		// invoice whose payment intent carries the confirmable client secret.
+		stripeMock.subscriptions.update
+			.mockRejectedValueOnce({
+				code: "subscription_payment_intent_requires_action",
+				message:
+					"This payment requires additional user action before it can be completed successfully.",
+			})
+			.mockResolvedValueOnce({
+				id: SUBSCRIPTION_ID,
+				customer: "cus_dev_plan",
+				status: "active",
+				metadata: { devPlan: "pro" },
+				latest_invoice: {
+					id: "in_pending_update",
+					status: "open",
+					payment_intent: {
+						object: "payment_intent",
+						id: "pi_3ds",
+						status: "requires_action",
+						client_secret: "pi_3ds_secret_123",
+					},
+				},
+				items: {
+					data: [
+						{
+							id: "si_dev_plan",
+							current_period_end: nowSeconds + THIRTY_DAYS,
+						},
+					],
+				},
+			});
+
+		const res = await app.request("/dev-plans/change-tier", {
+			method: "POST",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				newTier: "pro",
+				expectedAmountDueCents: 7900,
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({
+			status: "requires_action",
+			clientSecret: "pi_3ds_secret_123",
+		});
+
+		expect(stripeMock.subscriptions.update).toHaveBeenNthCalledWith(
+			1,
+			SUBSCRIPTION_ID,
+			expect.objectContaining({ payment_behavior: "error_if_incomplete" }),
+		);
+		expect(stripeMock.subscriptions.update).toHaveBeenNthCalledWith(
+			2,
+			SUBSCRIPTION_ID,
+			expect.objectContaining({
+				items: [{ id: "si_dev_plan", price: "price_pro" }],
+				proration_behavior: "none",
+				billing_cycle_anchor: "now",
+				payment_behavior: "pending_if_incomplete",
+			}),
+		);
+
+		// Nothing is applied locally until the invoice.payment_succeeded webhook
+		// confirms the 3DS payment: tier and credits untouched, no transaction
+		// row, and the lease released so a retry isn't locked out.
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlan).toBe("lite");
+		expect(org?.devPlanCreditsUsed).toBe("12.5");
+		expect(org?.devPlanCreditsLimit).toBe("87");
+		expect(org?.devPlanTierChangeClaimedAt).toBeNull();
+
+		const transaction = await db.query.transaction.findFirst({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(transaction).toBeUndefined();
+	});
+
+	it("voids a pending cycle-renewal invoice before re-anchoring the cycle", async () => {
+		// The old cycle just ended: Stripe drafted its renewal invoice but has
+		// not charged it yet (that happens ~1h after drafting). The upgrade must
+		// kill it before re-anchoring, or it would later double-charge for a
+		// cycle the upgrade replaces.
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(),
+		);
+		stripeMock.prices.retrieve.mockResolvedValue({ unit_amount: 7900 });
+		stripeMock.invoices.list.mockImplementation((params: { status: string }) =>
+			Promise.resolve({
+				data:
+					params.status === "draft"
+						? [
+								{
+									id: "in_pending_renewal",
+									status: "draft",
+									billing_reason: "subscription_cycle",
+								},
+							]
+						: [],
+			}),
+		);
+		stripeMock.invoices.finalizeInvoice.mockResolvedValue({
+			id: "in_pending_renewal",
+			status: "open",
+		});
+		stripeMock.subscriptions.update.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "active",
+			metadata: { devPlan: "pro" },
+			latest_invoice: {
+				id: "in_upgrade_void",
+				amount_paid: 7900,
+				payment_intent: { id: "pi_upgrade_void" },
+			},
+			items: {
+				data: [
+					{
+						id: "si_dev_plan",
+						current_period_end: nowSeconds + THIRTY_DAYS,
+					},
+				],
+			},
+		});
+
+		const res = await app.request("/dev-plans/change-tier", {
+			method: "POST",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				newTier: "pro",
+				expectedAmountDueCents: 7900,
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(stripeMock.invoices.finalizeInvoice).toHaveBeenCalledWith(
+			"in_pending_renewal",
+			{ auto_advance: false },
+		);
+		expect(stripeMock.invoices.voidInvoice).toHaveBeenCalledWith(
+			"in_pending_renewal",
+		);
+		// The void happens before the cycle is re-anchored.
+		expect(
+			stripeMock.invoices.voidInvoice.mock.invocationCallOrder[0],
+		).toBeLessThan(stripeMock.subscriptions.update.mock.invocationCallOrder[0]);
+	});
+
+	it("rolls over a fractional remainder without float artifacts", async () => {
+		// The org has heavy prior usage this period; the usage counter resets to 0
+		// and only the exact unused remainder (87 - 80.42 = 6.58) rolls over —
+		// computed with Decimal, so the stored limit is "243.58", not
+		// "243.57999999999998".
 		await db
 			.update(tables.organization)
 			.set({
@@ -310,17 +486,164 @@ describe("dev plan tier changes", () => {
 		});
 		expect(org?.devPlan).toBe("pro");
 		expect(org?.devPlanCreditsUsed).toBe("0");
+		expect(org?.devPlanCreditsLimit).toBe("243.58");
+	});
+
+	it("grants only the new-tier allotment when the old allowance is fully used", async () => {
+		// Usage at (or past) the limit leaves nothing to roll over: the new cycle
+		// starts with exactly the new tier's allotment.
+		await db
+			.update(tables.organization)
+			.set({
+				devPlanCreditsLimit: "87",
+				devPlanCreditsUsed: "88.31",
+			})
+			.where(eq(tables.organization.id, ORG_ID));
+
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(),
+		);
+		stripeMock.prices.retrieve.mockResolvedValue({ unit_amount: 7900 });
+		stripeMock.subscriptions.update.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "active",
+			metadata: { devPlan: "pro" },
+			latest_invoice: {
+				id: "in_upgrade",
+				amount_paid: 7900,
+				payment_intent: { id: "pi_upgrade" },
+			},
+			items: {
+				data: [
+					{ id: "si_dev_plan", current_period_end: nowSeconds + THIRTY_DAYS },
+				],
+			},
+		});
+
+		const res = await app.request("/dev-plans/change-tier", {
+			method: "POST",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				newTier: "pro",
+				expectedAmountDueCents: 7900,
+			}),
+		});
+
+		expect(res.status).toBe(200);
+
+		const org = await db.query.organization.findFirst({
+			where: {
+				id: {
+					eq: ORG_ID,
+				},
+			},
+		});
+		expect(org?.devPlan).toBe("pro");
+		expect(org?.devPlanCreditsUsed).toBe("0");
 		expect(org?.devPlanCreditsLimit).toBe("237");
 	});
 
-	it("blocks a concurrent duplicate upgrade for the same period", async () => {
-		// A double-clicked confirm: the current Stripe period was already claimed
-		// (marker at the period start), so the second request is rejected before any
-		// Stripe call, preventing a second full-price charge and cycle reset.
-		const claimedCycleStart = new Date((nowSeconds - 500) * 1000);
+	it("schedules an upgrade for renewal when timing is next_cycle", async () => {
+		// The user opted to defer the upgrade: no charge today, no cycle reset.
+		// Like a downgrade, the Stripe price is swapped so the renewal bills the
+		// new tier, the target tier is recorded as pending, and the current
+		// cycle's credits stay untouched.
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(),
+		);
+		stripeMock.subscriptions.update.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "active",
+			items: { data: [{ id: "si_dev_plan" }] },
+		});
+
+		const res = await app.request("/dev-plans/change-tier", {
+			method: "POST",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				newTier: "pro",
+				timing: "next_cycle",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		// No full-price charge is prepared and the cycle is NOT reset.
+		expect(stripeMock.prices.retrieve).not.toHaveBeenCalled();
+		expect(stripeMock.subscriptions.update).toHaveBeenCalledWith(
+			SUBSCRIPTION_ID,
+			expect.objectContaining({
+				items: [{ id: "si_dev_plan", price: "price_pro" }],
+				proration_behavior: "none",
+			}),
+		);
+		expect(stripeMock.subscriptions.update).not.toHaveBeenCalledWith(
+			SUBSCRIPTION_ID,
+			expect.objectContaining({ billing_cycle_anchor: "now" }),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		// Current tier and allowance are preserved for the rest of the cycle.
+		expect(org?.devPlan).toBe("lite");
+		expect(org?.devPlanPendingTier).toBe("pro");
+		expect(org?.devPlanCreditsUsed).toBe("12.5");
+		expect(org?.devPlanCreditsLimit).toBe("87");
+		// Scheduled changes never claim the upgrade lease.
+		expect(org?.devPlanTierChangeClaimedAt).toBeNull();
+
+		// No transaction row: dev_plan_upgrade rows are payment rows (invoice
+		// list, self-refund eligibility), so scheduling records only an audit
+		// event.
+		const transaction = await db.query.transaction.findFirst({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(transaction).toBeUndefined();
+	});
+
+	it("blocks scheduling an upgrade while another change is pending", async () => {
+		process.env.STRIPE_DEV_PLAN_MAX_PRICE_ID = "price_max";
 		await db
 			.update(tables.organization)
-			.set({ devPlanLastTierChangeCycleStart: claimedCycleStart })
+			.set({ devPlanPendingTier: "pro" })
+			.where(eq(tables.organization.id, ORG_ID));
+
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(),
+		);
+
+		const res = await app.request("/dev-plans/change-tier", {
+			method: "POST",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				newTier: "max",
+				timing: "next_cycle",
+			}),
+		});
+
+		expect(res.status).toBe(409);
+		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
+	});
+
+	it("blocks a duplicate upgrade while another is in flight", async () => {
+		// A double-clicked confirm: another request holds a fresh upgrade lease, so
+		// the second request is rejected before any Stripe call, preventing a
+		// second full-price charge and cycle reset.
+		const leaseClaimedAt = new Date(nowSeconds * 1000);
+		await db
+			.update(tables.organization)
+			.set({ devPlanTierChangeClaimedAt: leaseClaimedAt })
 			.where(eq(tables.organization.id, ORG_ID));
 
 		stripeMock.subscriptions.retrieve.mockResolvedValue(
@@ -346,10 +669,65 @@ describe("dev plan tier changes", () => {
 			where: { id: { eq: ORG_ID } },
 		});
 		expect(org?.devPlan).toBe("lite");
-		// A rejected attempt must not release the existing claim.
-		expect(org?.devPlanLastTierChangeCycleStart?.getTime()).toBe(
-			claimedCycleStart.getTime(),
+		// A rejected attempt must not release the lease held by the in-flight
+		// upgrade.
+		expect(org?.devPlanTierChangeClaimedAt?.getTime()).toBe(
+			leaseClaimedAt.getTime(),
 		);
+	});
+
+	it("re-claims a stale lease leaked by a request that never finished", async () => {
+		// A prior upgrade attempt took the lease but died before completing or
+		// releasing (crash, restart). The lease is well past the staleness window,
+		// so a retry treats it as abandoned and the upgrade goes through instead of
+		// 409ing indefinitely.
+		await db
+			.update(tables.organization)
+			.set({
+				devPlanTierChangeClaimedAt: new Date((nowSeconds - 1200) * 1000),
+			})
+			.where(eq(tables.organization.id, ORG_ID));
+
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(),
+		);
+		stripeMock.prices.retrieve.mockResolvedValue({ unit_amount: 7900 });
+		stripeMock.subscriptions.update.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			customer: "cus_dev_plan",
+			status: "active",
+			metadata: { devPlan: "pro" },
+			latest_invoice: {
+				id: "in_upgrade",
+				amount_paid: 7900,
+				payment_intent: { id: "pi_upgrade" },
+			},
+			items: {
+				data: [
+					{ id: "si_dev_plan", current_period_end: nowSeconds + THIRTY_DAYS },
+				],
+			},
+		});
+
+		const res = await app.request("/dev-plans/change-tier", {
+			method: "POST",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				newTier: "pro",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlan).toBe("pro");
+		// The completed upgrade released the lease.
+		expect(org?.devPlanTierChangeClaimedAt).toBeNull();
 	});
 
 	it("rejects a tier change on an already-ended subscription", async () => {
@@ -375,12 +753,12 @@ describe("dev plan tier changes", () => {
 		expect(res.status).toBe(409);
 		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
 
-		// The change aborted before claiming the cycle, so nothing is persisted.
+		// The change aborted before taking the lease, so nothing is persisted.
 		const org = await db.query.organization.findFirst({
 			where: { id: { eq: ORG_ID } },
 		});
 		expect(org?.devPlan).toBe("lite");
-		expect(org?.devPlanLastTierChangeCycleStart).toBeNull();
+		expect(org?.devPlanTierChangeClaimedAt).toBeNull();
 	});
 
 	it("self-heals an ended subscription on resume instead of failing", async () => {
@@ -491,17 +869,16 @@ describe("dev plan tier changes", () => {
 		expect(transaction?.type).toBe("dev_plan_downgrade");
 	});
 
-	it("allows a downgrade even after an upgrade already claimed the cycle", async () => {
-		// An upgrade earlier this cycle set the double-charge-guard marker. That must
-		// not block a downgrade, which only schedules the lower tier for renewal.
+	it("allows a downgrade even while an upgrade lease is held", async () => {
+		// An in-flight upgrade holds the lease. That must not block a downgrade,
+		// which only schedules the lower tier for renewal and never claims it.
 		process.env.STRIPE_DEV_PLAN_LITE_PRICE_ID = "price_lite";
-		const claimedCycleStart = new Date((nowSeconds - 500) * 1000);
 		await db
 			.update(tables.organization)
 			.set({
 				devPlan: "pro",
 				devPlanCreditsLimit: "237",
-				devPlanLastTierChangeCycleStart: claimedCycleStart,
+				devPlanTierChangeClaimedAt: new Date(nowSeconds * 1000),
 			})
 			.where(eq(tables.organization.id, ORG_ID));
 
@@ -608,7 +985,8 @@ describe("dev plan tier changes", () => {
 		expect(org?.devPlan).toBe("max");
 		expect(org?.devPlanPendingTier).toBeNull();
 		expect(org?.devPlanCreditsUsed).toBe("0");
-		expect(org?.devPlanCreditsLimit).toBe("537");
+		// Max allotment (537) plus the unused pro remainder (237 - 40 = 197).
+		expect(org?.devPlanCreditsLimit).toBe("734");
 	});
 
 	it("cancels a scheduled downgrade and reverts the Stripe price to the current tier", async () => {

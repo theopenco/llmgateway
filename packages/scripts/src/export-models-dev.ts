@@ -127,6 +127,11 @@ function getModelFamily(model: ModelDefinition): string {
 		return "gpt-oss";
 	}
 
+	// Muse Spark models are Meta's proprietary API models, not Llama
+	if (modelId.includes("muse-spark")) {
+		return "muse-spark";
+	}
+
 	// Map internal family names to models.dev enum values
 	const familyMap: Record<string, string> = {
 		openai: "gpt",

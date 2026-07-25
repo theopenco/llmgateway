@@ -24,8 +24,11 @@ import { HealthChecker } from "@llmgateway/shared";
 
 import { anthropic } from "./anthropic/anthropic.js";
 import { chat } from "./chat/chat.js";
+import { extractErrorCause } from "./chat/tools/extract-error-cause.js";
+import { isUpstreamTermination } from "./chat/tools/normalize-streaming-error.js";
 import { embeddingsRoute } from "./embeddings/route.js";
 import { imagesRoute } from "./images/route.js";
+import { keyRoute } from "./key/route.js";
 import {
 	buildAnthropicErrorBody,
 	buildOpenAIErrorBody,
@@ -37,6 +40,7 @@ import { moderationsRoute } from "./moderations/route.js";
 import { ocrRoute } from "./ocr/route.js";
 import { responses } from "./responses/responses.js";
 import { speechRoute } from "./speech/route.js";
+import { transcriptionsRoute } from "./transcriptions/route.js";
 import { videosRoute } from "./videos/route.js";
 
 import type { ServerTypes } from "./vars.js";
@@ -106,12 +110,14 @@ app.use(
 // Excludes /mcp endpoint which handles its own content type validation
 // Excludes /oauth endpoints which accept form-urlencoded or JSON
 // Excludes /v1/images endpoints which accept multipart/form-data for file uploads
+// Excludes /v1/audio/transcriptions which accepts multipart/form-data audio uploads
 app.use("*", async (c, next) => {
 	if (
 		c.req.method === "POST" &&
 		!c.req.path.startsWith("/mcp") &&
 		!c.req.path.startsWith("/oauth") &&
-		!c.req.path.startsWith("/v1/images")
+		!c.req.path.startsWith("/v1/images") &&
+		!c.req.path.startsWith("/v1/audio/transcriptions")
 	) {
 		const contentType = c.req.header("Content-Type");
 		if (!contentType || !contentType.includes("application/json")) {
@@ -213,6 +219,20 @@ app.onError((error, c) => {
 			method: c.req.method,
 		});
 		return renderGatewayError(c, 499, "Client Closed Request");
+	}
+
+	// An upstream-side socket close (e.g. undici "terminated: other side
+	// closed" / ECONNRESET) that escaped the chat handler's own classification
+	// is an expected provider/client disconnect, not a gateway bug. Log it at
+	// warn to avoid raising server-error alerts.
+	if (isUpstreamTermination(error)) {
+		logger.warn("Upstream connection terminated", {
+			message: error instanceof Error ? error.message : String(error),
+			cause: extractErrorCause(error),
+			path: c.req.path,
+			method: c.req.method,
+		});
+		return renderGatewayError(c, 502, "Upstream connection terminated");
 	}
 
 	// For any other errors (non-HTTPException), return 500 Internal Server Error
@@ -325,12 +345,14 @@ const v1 = new OpenAPIHono<ServerTypes>();
 v1.route("/chat", chat);
 v1.route("/embeddings", embeddingsRoute);
 v1.route("/images", imagesRoute);
+v1.route("/key", keyRoute);
 v1.route("/models", models);
 v1.route("/moderations", moderationsRoute);
 v1.route("/ocr", ocrRoute);
 v1.route("/messages", anthropic);
 v1.route("/responses", responses);
 v1.route("/audio/speech", speechRoute);
+v1.route("/audio/transcriptions", transcriptionsRoute);
 v1.route("/videos", videosRoute);
 
 app.route("/v1", v1);

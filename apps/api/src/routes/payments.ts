@@ -274,7 +274,15 @@ payments.openapi(createSetupIntent, async (c) => {
 
 	const organizationId = userOrganization.organization.id;
 
+	const stripeCustomerId = await ensureStripeCustomer(organizationId);
+
+	// The customer must be set here so Stripe attaches the payment method
+	// atomically when the client confirms the setup. Without it the PM comes
+	// out of confirmCardSetup "used but unattached", and create-payment-intent
+	// races the setup_intent.succeeded webhook's attach — losing the race
+	// makes Stripe reject the PaymentIntent outright.
 	const setupIntent = await getStripe().setupIntents.create({
+		customer: stripeCustomerId,
 		usage: "off_session",
 		metadata: {
 			organizationId,

@@ -286,6 +286,40 @@ export const modelCategoryContent = {
 			},
 		],
 	},
+	premium: {
+		metaTitle: "Premium AI Models — High-Cost Frontier LLMs",
+		metaDescription:
+			"See exactly which AI models are classified as premium — priced at $5+ per million input tokens or $15+ per million output tokens — and which count against DevPass weekly fair-use allowances.",
+		heading: "Premium Models",
+		subheading:
+			"Models priced at $5+ per million input tokens or $15+ per million output tokens — the exact list used for DevPass fair-use limits",
+		intro: [
+			"Premium is a pricing classification, not a curated list: a model lands on this page when any of its providers charges at least $5 per million input tokens or $15 per million output tokens. The classification is computed directly from catalogue prices, so this page always shows exactly which models are premium right now — every model not listed here is standard.",
+			"The distinction matters for DevPass coding plans, where premium models are subject to a weekly fair-use allowance (a percentage of the plan's monthly credits) on top of the normal credit balance. When you call the LLM Gateway API directly with pay-as-you-go credits, premium models have no extra cap and no markup — you pay the same per-token provider prices shown here.",
+		],
+		faqs: [
+			{
+				question: "What makes a model premium?",
+				answer:
+					"Pricing alone. A model is premium when at least one of its providers charges $5 or more per million input tokens, or $15 or more per million output tokens. There is no hand-picked list — the classification is recomputed from the live model catalogue, so it updates automatically when prices change.",
+			},
+			{
+				question: "Do premium models cost extra on LLM Gateway?",
+				answer:
+					"No. LLM Gateway charges the same per-token provider prices for premium models as for any other model, with no markup. The premium classification only affects DevPass fair-use limits — it never changes what a request costs.",
+			},
+			{
+				question: "How do premium models work on DevPass plans?",
+				answer:
+					"DevPass plans include a weekly fair-use allowance for premium models: 12% of monthly credits on Lite, 15% on Pro, and 18% on Max. The allowance works on a fixed 7-day window that opens with your first premium request and fully resets when it ends. Standard models are never affected — they're limited only by the plan's credit balance.",
+			},
+			{
+				question: "How do I check whether a specific model is premium?",
+				answer:
+					"If it appears on this page, it's premium; otherwise it's standard. In the full models directory, premium models are marked with a gem icon, and the DevPass models directory offers a pricing-tier filter, since the distinction only affects DevPass fair-use limits. The classification is also documented in the model categories guide in our docs.",
+			},
+		],
+	},
 } satisfies Record<string, ModelCategoryContent>;
 
 export type ModelCategorySlug = keyof typeof modelCategoryContent;

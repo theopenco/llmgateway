@@ -39,6 +39,10 @@ request `flex` or `priority` for a provider/model mapping that does not support
 that tier, the gateway returns a 400 `unsupported_service_tier` error and logs
 the request as a client error.
 
+The parameter works the same on the OpenAI-compatible **Responses API**
+(`/v1/responses`): the tier is forwarded to the provider and the response's
+`service_tier` field echoes the tier that was actually served.
+
 ## Supported providers
 
 Service tiers are explicit per provider/model mapping. Check the model page for

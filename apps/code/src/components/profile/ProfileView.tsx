@@ -8,7 +8,12 @@ import {
 	formatTokens,
 	type AgentDefinition,
 } from "@/app/dashboard/components/coding-agents-shared";
+import { ProfilePassport } from "@/components/profile/passport/ProfilePassport";
 import { ProfileHeatmap } from "@/components/profile/ProfileHeatmap";
+import {
+	ProfileShareActions,
+	XIcon,
+} from "@/components/profile/ProfileShareActions";
 import { ProfileTokensChart } from "@/components/profile/ProfileTokensChart";
 import { ProfileViewerCta } from "@/components/profile/ProfileViewerCta";
 import { ProfileWrapped } from "@/components/profile/ProfileWrapped";
@@ -160,14 +165,24 @@ export function ProfileView({ profile }: { profile: ProfileData }) {
 						<p className="text-sm text-muted-foreground">@{profile.username}</p>
 					)}
 				</div>
+				<div className="ml-auto flex-shrink-0 self-start">
+					<ProfileShareActions
+						profile={profile}
+						location="profile_header"
+						variant="compact"
+					/>
+				</div>
+			</div>
+
+			{/* Interactive 3D passport */}
+			<div className="mt-8">
+				<ProfilePassport profile={profile} />
 			</div>
 
 			{/* Wrapped card + share toolkit */}
-			{profile.username && (
-				<div className="mt-8">
-					<ProfileWrapped profile={profile} />
-				</div>
-			)}
+			<div className="mt-8">
+				<ProfileWrapped profile={profile} />
+			</div>
 
 			<div className="mt-8 grid gap-8 lg:grid-cols-[240px_1fr]">
 				{/* Sidebar */}
@@ -189,13 +204,7 @@ export function ProfileView({ profile }: { profile: ProfileData }) {
 								rel="noopener noreferrer"
 								className="flex items-center gap-2 text-muted-foreground transition-colors hover:text-foreground"
 							>
-								<svg
-									viewBox="0 0 24 24"
-									className="h-4 w-4 fill-current"
-									aria-hidden="true"
-								>
-									<path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-								</svg>
+								<XIcon className="h-4 w-4" />
 								<span>@{profile.xUsername.replace(/^@/, "")}</span>
 							</a>
 						)}

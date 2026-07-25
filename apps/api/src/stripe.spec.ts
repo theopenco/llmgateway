@@ -1,6 +1,8 @@
+import Stripe from "stripe";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 
 import {
 	handleChargeRefunded,
@@ -8,20 +10,21 @@ import {
 	handlePaymentIntentFailed,
 	handleSubscriptionDeleted,
 	handleSubscriptionUpdated,
+	stripeRoutes,
 } from "./stripe.js";
 import { deleteAll } from "./testing.js";
 
 import type * as PaymentsModule from "./routes/payments.js";
 import type * as EmailModule from "./utils/email.js";
-import type Stripe from "stripe";
 
 const stripeMock = vi.hoisted(() => ({
 	refunds: { list: vi.fn() },
 	invoices: { list: vi.fn() },
 	invoicePayments: { list: vi.fn() },
-	subscriptions: { retrieve: vi.fn() },
+	subscriptions: { retrieve: vi.fn(), cancel: vi.fn() },
 	paymentIntents: { retrieve: vi.fn() },
 	paymentMethods: { retrieve: vi.fn() },
+	webhooks: { constructEvent: vi.fn() },
 }));
 
 vi.mock("./routes/payments.js", async (importOriginal) => {
@@ -187,6 +190,73 @@ describe("handleSubscriptionUpdated — dev plan cancellation feedback email", (
 		expect(sendEmailMock).not.toHaveBeenCalled();
 	});
 
+	test("records a resume row when a cancelled dev plan is reactivated", async () => {
+		await seedDevPlanOrg({ devPlanCancelled: true });
+
+		await handleSubscriptionUpdated(
+			makeUpdatedEvent({ cancelAtPeriodEnd: false }),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlanCancelled).toBe(false);
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+		expect(txns[0].type).toBe("dev_plan_resume");
+		expect(txns[0].amount).toBeNull();
+		expect(txns[0].description).toBe("Dev Plan PRO resumed");
+	});
+
+	test("does not record a resume row on a routine active update", async () => {
+		await seedDevPlanOrg({ devPlanCancelled: false });
+
+		await handleSubscriptionUpdated(
+			makeUpdatedEvent({ cancelAtPeriodEnd: false }),
+		);
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(0);
+	});
+
+	test("records a resume row when a cancelled chat plan is reactivated", async () => {
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			chatPlan: "plus",
+			chatPlanStripeSubscriptionId: SUB_ID,
+			chatPlanCancelled: true,
+		});
+
+		await handleSubscriptionUpdated(
+			makeUpdatedEvent({
+				cancelAtPeriodEnd: false,
+				metadata: {
+					organizationId: ORG_ID,
+					subscriptionType: "chat_plan",
+				},
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.chatPlanCancelled).toBe(false);
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+		expect(txns[0].type).toBe("chat_plan_resume");
+		expect(txns[0].description).toBe("Lounge PLUS membership resumed");
+	});
+
 	test("does not send dev-plan feedback email for a Pro (non-dev-plan) subscription cancel", async () => {
 		await db.insert(tables.organization).values({
 			id: ORG_ID,
@@ -269,8 +339,9 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 	}
 
 	test("resets credits and grants a full fresh allotment on a true cycle renewal", async () => {
-		// Seed a prorated limit left over from a mid-cycle upgrade to verify the
-		// renewal restores the tier's full allotment.
+		// Seed a raised limit left over from a mid-cycle upgrade's unused-credit
+		// rollover to verify the renewal restores the tier's base allotment (the
+		// rollover only lasts until renewal).
 		await seedUsedDevPlanOrg({ devPlanCreditsLimit: "312" });
 
 		await handleInvoicePaymentSucceeded(
@@ -333,6 +404,47 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		expect(txns).toHaveLength(1);
 		expect(txns[0].type).toBe("dev_plan_renewal");
 		expect(txns[0].creditAmount).toBe("87");
+	});
+
+	test("applies a scheduled upgrade at renewal: switches tier and grants the higher allotment", async () => {
+		// Org is on pro with an upgrade to max deferred to renewal. At the cycle
+		// renewal the tier flips to max and credits reset to max's full allotment;
+		// the old cycle's unused credits do NOT roll over (rollover is exclusive
+		// to immediate upgrades).
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			devPlan: "pro",
+			devPlanPendingTier: "max",
+			devPlanCreditsLimit: "237",
+			devPlanCreditsUsed: "150",
+			devPlanStripeSubscriptionId: SUB_ID,
+			devPlanCancelled: false,
+		});
+
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_cycle",
+				amountPaid: 17900,
+				invoiceId: "in_cycle_upgrade_001",
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlan).toBe("max");
+		expect(org?.devPlanPendingTier).toBeNull();
+		expect(org?.devPlanCreditsUsed).toBe("0");
+		expect(org?.devPlanCreditsLimit).toBe("537");
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+		expect(txns[0].type).toBe("dev_plan_renewal");
+		expect(txns[0].creditAmount).toBe("537");
 	});
 
 	test("emails an invoice on renewal, falling back to the org's own billing email when no default org exists", async () => {
@@ -421,9 +533,10 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 	test("resets to a fresh new-tier cycle on a tier-change invoice (webhook fallback)", async () => {
 		// The change-tier endpoint normally resets state synchronously; this exercises
 		// the webhook fallback when that process died after Stripe collected payment.
-		// An upgrade invoice (`subscription_update`) starts a brand-new cycle, so the
-		// org resets to the new tier's full allowance with usage zeroed. The target
-		// tier is read from the subscription metadata the update set.
+		// An upgrade invoice (`subscription_update`) starts a brand-new cycle: usage
+		// zeroes and the limit becomes the new tier's full allowance (537) plus the
+		// unused remainder of the replaced cycle (237 - 150 = 87) rolled over. The
+		// target tier is read from the subscription metadata the update set.
 		await seedUsedDevPlanOrg();
 		stripeMock.subscriptions.retrieve.mockResolvedValue({
 			id: SUB_ID,
@@ -445,7 +558,7 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		});
 		expect(org?.devPlan).toBe("max");
 		expect(org?.devPlanCreditsUsed).toBe("0");
-		expect(org?.devPlanCreditsLimit).toBe("537");
+		expect(org?.devPlanCreditsLimit).toBe("624");
 		expect(org?.devPlanExpiresAt?.getTime()).toBe(periodEnd * 1000);
 
 		const txns = await db.query.transaction.findMany({
@@ -453,9 +566,101 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		});
 		expect(txns).toHaveLength(1);
 		expect(txns[0].type).toBe("dev_plan_upgrade");
-		expect(txns[0].creditAmount).toBe("537");
+		expect(txns[0].creditAmount).toBe("624");
 		expect(txns[0].amount).toBe("179");
 		expect(txns[0].stripeInvoiceId).toBe("in_upgrade_001");
+	});
+
+	test("does not reset credits or apply a pending downgrade on a stale renewal invoice", async () => {
+		// Repro of a production incident: the old cycle's renewal invoice was
+		// drafted at the period boundary but only charged ~1h later — AFTER the
+		// customer had upgraded to pro (re-anchoring the billing cycle) and
+		// scheduled a downgrade back to lite. The stale charge must not wipe the
+		// freshly purchased pro allowance nor apply the pending downgrade early.
+		const nowSeconds = Math.floor(Date.now() / 1000);
+		const thirtyDaysSeconds = 30 * 86400;
+		const upgradedExpiry = new Date((nowSeconds + thirtyDaysSeconds) * 1000);
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			devPlan: "pro",
+			devPlanPendingTier: "lite",
+			devPlanCreditsLimit: "237",
+			devPlanCreditsUsed: "10",
+			devPlanExpiresAt: upgradedExpiry,
+			devPlanStripeSubscriptionId: SUB_ID,
+			devPlanCancelled: false,
+		});
+
+		// The stale invoice's period ends 40 minutes before the re-anchored
+		// cycle's expiry (the upgrade happened 40 minutes after the old period
+		// boundary).
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_cycle",
+				amountPaid: 2900,
+				invoiceId: "in_cycle_stale_001",
+				periodEnd: nowSeconds + thirtyDaysSeconds - 2400,
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlan).toBe("pro");
+		expect(org?.devPlanPendingTier).toBe("lite");
+		expect(org?.devPlanCreditsUsed).toBe("10");
+		expect(org?.devPlanCreditsLimit).toBe("237");
+		expect(org?.devPlanExpiresAt?.getTime()).toBe(upgradedExpiry.getTime());
+
+		// The charge is still recorded for the audit trail (it is a refund
+		// candidate), but grants no credits.
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+		expect(txns[0].type).toBe("dev_plan_renewal");
+		expect(txns[0].amount).toBe("29");
+		expect(txns[0].creditAmount).toBeNull();
+		expect(txns[0].description).toContain("superseded");
+
+		// No renewal invoice email claiming fresh credits were granted.
+		expect(sendEmailMock).not.toHaveBeenCalled();
+	});
+
+	test("still applies the renewal when the invoice period matches the stored expiry", async () => {
+		// At a normal renewal the `customer.subscription.updated` event can land
+		// first and stamp the org's expiry to the new period end. An invoice whose
+		// period matches the stored expiry IS the current cycle's renewal and must
+		// reset credits as usual.
+		const periodEnd = Math.floor(Date.now() / 1000) + SECONDS_IN_TWO_WEEKS;
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			devPlan: "pro",
+			devPlanCreditsLimit: "237",
+			devPlanCreditsUsed: "150",
+			devPlanExpiresAt: new Date(periodEnd * 1000),
+			devPlanStripeSubscriptionId: SUB_ID,
+			devPlanCancelled: false,
+		});
+
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_cycle",
+				amountPaid: 7900,
+				invoiceId: "in_cycle_current_001",
+				periodEnd,
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlanCreditsUsed).toBe("0");
+		expect(org?.devPlanCreditsLimit).toBe("237");
 	});
 
 	test("skips processing an invoice that was already recorded", async () => {
@@ -479,6 +684,150 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 			where: { id: { eq: ORG_ID } },
 		});
 		expect(org?.devPlanCreditsUsed).toBe("150");
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+	});
+});
+
+describe("handleInvoicePaymentSucceeded — chat plan upgrade invoice", () => {
+	beforeEach(async () => {
+		await deleteAll();
+		sendEmailMock.mockClear();
+	});
+
+	afterEach(async () => {
+		await db.delete(tables.transaction);
+		await deleteAll();
+	});
+
+	async function seedChatPlanOrg(opts: {
+		chatPlan: "starter" | "plus" | "pro";
+		creditsLimit: string;
+		creditsUsed: string;
+	}) {
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			chatPlan: opts.chatPlan,
+			chatPlanCreditsLimit: opts.creditsLimit,
+			chatPlanCreditsUsed: opts.creditsUsed,
+			chatPlanStripeSubscriptionId: SUB_ID,
+		});
+	}
+
+	test("leaves credits untouched when the endpoint already applied the upgrade", async () => {
+		// Normal flow: the change-tier endpoint already flipped the org to the new
+		// tier and reset the cycle before this webhook arrived. Usage consumed
+		// since then must not be re-zeroed.
+		await seedChatPlanOrg({
+			chatPlan: "plus",
+			creditsLimit: "47.5",
+			creditsUsed: "12",
+		});
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUB_ID,
+			metadata: { chatPlan: "plus" },
+		});
+
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_update",
+				amountPaid: 1900,
+				invoiceId: "in_chat_upgrade_applied",
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.chatPlan).toBe("plus");
+		expect(org?.chatPlanCreditsUsed).toBe("12");
+		expect(org?.chatPlanCreditsLimit).toBe("47.5");
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+		expect(txns[0].type).toBe("chat_plan_upgrade");
+		expect(txns[0].amount).toBe("19");
+		expect(txns[0].creditAmount).toBe("47.5");
+		expect(txns[0].description).toBe("Lounge PLUS membership upgrade");
+	});
+
+	test("resets to a fresh new-tier cycle when the endpoint never completed (webhook fallback)", async () => {
+		// Crash window: Stripe collected the full new-tier charge but the endpoint
+		// died before updating the org. The webhook must reproduce the fresh-cycle
+		// reset — full new allowance, usage zeroed. The old cycle's unused credits
+		// (18 - 10 = 8 here) are discarded, not rolled over into the new limit.
+		await seedChatPlanOrg({
+			chatPlan: "starter",
+			creditsLimit: "18",
+			creditsUsed: "10",
+		});
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUB_ID,
+			metadata: { chatPlan: "plus" },
+		});
+
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_update",
+				amountPaid: 1900,
+				invoiceId: "in_chat_upgrade_fallback",
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.chatPlan).toBe("plus");
+		expect(org?.chatPlanCreditsUsed).toBe("0");
+		expect(org?.chatPlanCreditsLimit).toBe("47.5");
+		expect(org?.chatPlanBillingCycleStart).not.toBeNull();
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+		expect(txns[0].type).toBe("chat_plan_upgrade");
+		expect(txns[0].creditAmount).toBe("47.5");
+		expect(txns[0].description).toBe("Lounge PLUS membership upgrade");
+	});
+
+	test("does not re-apply the reset on a Stripe retry of the same invoice", async () => {
+		await seedChatPlanOrg({
+			chatPlan: "starter",
+			creditsLimit: "18",
+			creditsUsed: "10",
+		});
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUB_ID,
+			metadata: { chatPlan: "plus" },
+		});
+
+		const event = makeInvoiceEvent({
+			billingReason: "subscription_update",
+			amountPaid: 1900,
+			invoiceId: "in_chat_upgrade_retry",
+		});
+		await handleInvoicePaymentSucceeded(event);
+
+		// Usage accrues on the fresh cycle before the retry lands.
+		await db
+			.update(tables.organization)
+			.set({ chatPlanCreditsUsed: "5" })
+			.where(eq(tables.organization.id, ORG_ID));
+
+		await handleInvoicePaymentSucceeded(event);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.chatPlanCreditsUsed).toBe("5");
 
 		const txns = await db.query.transaction.findMany({
 			where: { organizationId: { eq: ORG_ID } },
@@ -800,6 +1149,7 @@ describe("handlePaymentIntentFailed — subscription invoice vs credit top-up", 
 function makeChargeRefundedEvent(overrides: {
 	paymentIntentId: string;
 	customer: string;
+	refunded?: boolean;
 }): Stripe.ChargeRefundedEvent {
 	return {
 		id: "evt_test_charge_refunded",
@@ -809,6 +1159,8 @@ function makeChargeRefundedEvent(overrides: {
 				id: "ch_test_refund_001",
 				payment_intent: overrides.paymentIntentId,
 				customer: overrides.customer,
+				// true when the charge is fully refunded; false for a partial refund.
+				refunded: overrides.refunded ?? false,
 				// Current Stripe API versions omit the invoice link on the charge.
 				invoice: null,
 			},
@@ -884,6 +1236,80 @@ describe("handleChargeRefunded — dev plan refund tracking", () => {
 			where: { id: { eq: ORG_ID } },
 		});
 		expect(org?.credits).toBe("0");
+	});
+
+	test("cancels the subscription on a full dev plan refund", async () => {
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			stripeCustomerId: "cus_devpass_refund",
+			devPlan: "pro",
+			devPlanCreditsLimit: "237",
+			devPlanStripeSubscriptionId: SUB_ID,
+		});
+		await db.insert(tables.transaction).values({
+			organizationId: ORG_ID,
+			type: "dev_plan_start",
+			amount: "79",
+			currency: "USD",
+			status: "completed",
+			stripeInvoiceId: "in_devpass_refund",
+		});
+
+		stripeMock.invoicePayments.list.mockResolvedValue({
+			data: [{ invoice: "in_devpass_refund" }],
+		});
+		stripeMock.refunds.list.mockResolvedValue({
+			data: [{ id: "re_devpass_refund", amount: 7900, reason: null }],
+		});
+
+		await handleChargeRefunded(
+			makeChargeRefundedEvent({
+				paymentIntentId: "pi_devpass_refund",
+				customer: "cus_devpass_refund",
+				refunded: true,
+			}),
+		);
+
+		expect(stripeMock.subscriptions.cancel).toHaveBeenCalledWith(SUB_ID);
+	});
+
+	test("does not cancel the subscription on a partial dev plan refund", async () => {
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			stripeCustomerId: "cus_devpass_refund",
+			devPlan: "pro",
+			devPlanCreditsLimit: "237",
+			devPlanStripeSubscriptionId: SUB_ID,
+		});
+		await db.insert(tables.transaction).values({
+			organizationId: ORG_ID,
+			type: "dev_plan_start",
+			amount: "79",
+			currency: "USD",
+			status: "completed",
+			stripeInvoiceId: "in_devpass_refund",
+		});
+
+		stripeMock.invoicePayments.list.mockResolvedValue({
+			data: [{ invoice: "in_devpass_refund" }],
+		});
+		stripeMock.refunds.list.mockResolvedValue({
+			data: [{ id: "re_devpass_partial", amount: 1000, reason: null }],
+		});
+
+		await handleChargeRefunded(
+			makeChargeRefundedEvent({
+				paymentIntentId: "pi_devpass_refund",
+				customer: "cus_devpass_refund",
+				refunded: false,
+			}),
+		);
+
+		expect(stripeMock.subscriptions.cancel).not.toHaveBeenCalled();
 	});
 
 	test("does not double-record when the same refund is delivered twice", async () => {
@@ -1030,5 +1456,48 @@ describe("handleChargeRefunded — dev plan refund tracking", () => {
 			where: { id: { eq: ORG_ID } },
 		});
 		expect(org?.credits).toBe("0");
+	});
+});
+
+describe("webhook route — invalid signature", () => {
+	const realStripe = new Stripe("sk_test_dummy");
+
+	afterEach(() => {
+		stripeMock.webhooks.constructEvent.mockReset();
+	});
+
+	test("logs a warning and returns 400 for a bogus signature", async () => {
+		const previousSecret = process.env.STRIPE_WEBHOOK_SECRET;
+		process.env.STRIPE_WEBHOOK_SECRET = "whsec_test_secret";
+		// Defer to the real Stripe SDK so an actual
+		// StripeSignatureVerificationError is thrown, exercising the handler's
+		// instanceof branch rather than a hand-rolled error.
+		stripeMock.webhooks.constructEvent.mockImplementation(
+			(body: string, sig: string, secret: string) =>
+				realStripe.webhooks.constructEvent(body, sig, secret),
+		);
+		const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+
+		try {
+			const res = await stripeRoutes.request("/webhook", {
+				method: "POST",
+				headers: { "stripe-signature": "fake_signature" },
+				body: JSON.stringify({ type: "checkout.session.completed" }),
+			});
+
+			expect(res.status).toBe(400);
+			expect(await res.text()).toContain("Invalid signature");
+			expect(warnSpy).toHaveBeenCalledWith(
+				"Ignoring Stripe webhook with invalid signature",
+				expect.objectContaining({ message: expect.any(String) }),
+			);
+		} finally {
+			warnSpy.mockRestore();
+			if (previousSecret === undefined) {
+				delete process.env.STRIPE_WEBHOOK_SECRET;
+			} else {
+				process.env.STRIPE_WEBHOOK_SECRET = previousSecret;
+			}
+		}
 	});
 });

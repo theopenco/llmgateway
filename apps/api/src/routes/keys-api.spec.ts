@@ -3,8 +3,13 @@ import { expect, test, beforeEach, describe, afterEach } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { redisClient, SWR_PREFIX, swrWrap } from "@llmgateway/cache";
-import { db, eq, getTableName, tables } from "@llmgateway/db";
+import {
+	redisClient,
+	SWR_PREFIX,
+	swrWrap,
+	waitForSwrMirrorWrites,
+} from "@llmgateway/cache";
+import { and, cdb, db, eq, getTableName, tables } from "@llmgateway/db";
 
 const ONE_MINUTE_MS = 60 * 1000;
 const ONE_HOUR_MS = 60 * ONE_MINUTE_MS;
@@ -363,6 +368,7 @@ describe("keys route", () => {
 		await swrWrap(swrCacheKey, [apiKeyTableName], async () => ({
 			token: "test-token",
 		}));
+		await waitForSwrMirrorWrites();
 		expect(await redisClient.get(SWR_PREFIX + swrCacheKey)).not.toBeNull();
 
 		const res = await app.request("/keys/api/test-api-key-id/roll", {
@@ -375,6 +381,69 @@ describe("keys route", () => {
 
 		// The cached lookup for the old token must be gone after the roll.
 		expect(await redisClient.get(SWR_PREFIX + swrCacheKey)).toBeNull();
+	});
+
+	test("POST /keys/api/{id}/iam busts the gateway's cached IAM rule lookups", async () => {
+		// The gateway enforces IAM rules through a cached select (cdb) wrapped in
+		// an SWR fallback mirror, both indexed by the api_key_iam_rule table (see
+		// findActiveIamRules in apps/gateway/src/lib/cached-queries.ts). Creating
+		// a rule through cdb must bust both layers so it applies immediately.
+		//
+		// A per-run unique API key keeps the cache keys (SWR key and Drizzle query
+		// hash, which includes the bind params) from colliding with cached entries
+		// left in Redis by earlier runs, which outlive deleteAll().
+		const apiKeyId = `cache-test-api-key-${crypto.randomUUID()}`;
+		await db.insert(tables.apiKey).values({
+			id: apiKeyId,
+			token: `${apiKeyId}-token`,
+			projectId: "test-project-id",
+			description: "IAM Cache Test Key",
+			createdBy: "test-user-id",
+		});
+		const readActiveIamRules = async () => {
+			const rules = await swrWrap(
+				`iamRules:${apiKeyId}`,
+				[getTableName(tables.apiKeyIamRule)],
+				async () =>
+					await cdb
+						.select()
+						.from(tables.apiKeyIamRule)
+						.where(
+							and(
+								eq(tables.apiKeyIamRule.apiKeyId, apiKeyId),
+								eq(tables.apiKeyIamRule.status, "active"),
+							),
+						),
+			);
+			await waitForSwrMirrorWrites();
+			return rules;
+		};
+
+		// Prime both cache layers with the "no rules" result.
+		expect(await readActiveIamRules()).toHaveLength(0);
+		expect(
+			await redisClient.get(SWR_PREFIX + `iamRules:${apiKeyId}`),
+		).not.toBeNull();
+
+		const res = await app.request(`/keys/api/${apiKeyId}/iam`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				ruleType: "allow_models",
+				ruleValue: { models: ["openai/gpt-4o-mini"] },
+			}),
+		});
+		expect(res.status).toBe(200);
+
+		// The SWR mirror for the api_key_iam_rule table must be gone...
+		expect(
+			await redisClient.get(SWR_PREFIX + `iamRules:${apiKeyId}`),
+		).toBeNull();
+		// ...and the cached select must serve the new rule, not the stale miss.
+		expect(await readActiveIamRules()).toHaveLength(1);
 	});
 
 	test("POST /keys/api creates a period usage limit", async () => {

@@ -29,6 +29,7 @@ import {
 	AutohandIcon,
 	ClineIcon,
 	DevPassCodeIcon,
+	EmpryoIcon,
 	OpenCodeIcon,
 	SoulForgeIcon,
 } from "@llmgateway/shared/components";
@@ -46,6 +47,7 @@ const marqueeTools = [
 	{ name: "DevPass Code", icon: DevPassCodeIcon },
 	{ name: "Claude Code", icon: AnthropicIcon },
 	{ name: "OpenCode", icon: OpenCodeIcon },
+	{ name: "Empryo", icon: EmpryoIcon },
 	{ name: "SoulForge", icon: SoulForgeIcon },
 	{ name: "Autohand", icon: AutohandIcon },
 	{ name: "Cline", icon: ClineIcon },
@@ -70,6 +72,13 @@ const featuredTools = [
 		setup: "/connect → LLM Gateway",
 	},
 	{
+		name: "Empryo",
+		icon: EmpryoIcon,
+		description:
+			"The AI coding agent that edits symbols, not strings. Maps your repo on launch and edits by symbol name. Run `empryo`, type `/keys`, paste your DevPass key.",
+		setup: "/keys → paste your key",
+	},
+	{
 		name: "SoulForge",
 		icon: SoulForgeIcon,
 		description:
@@ -89,7 +98,7 @@ const steps = [
 		step: "02",
 		title: "Plug it into your agent",
 		description:
-			"Two env vars for Claude Code, /connect in OpenCode, /keys in SoulForge. No SDK changes, no code refactor.",
+			"Two env vars for Claude Code, /connect in OpenCode, /keys in Empryo. No SDK changes, no code refactor.",
 	},
 	{
 		step: "03",
@@ -270,7 +279,7 @@ export default function LandingPage() {
 								allowance and the weekly fair-use cap on premium models.
 							</p>
 						</div>
-						<PricingPlans credits={credits} />
+						<PricingPlans credits={credits} paygoUrl={config.uiUrl} />
 
 						{/* Price check — ledger note */}
 						<div className="mx-auto mt-12 max-w-2xl rounded-2xl border border-dashed p-6 sm:p-8">
@@ -278,6 +287,16 @@ export default function LandingPage() {
 								Price check
 							</p>
 							<dl className="space-y-3 font-mono text-sm">
+								<div className="flex items-baseline justify-between gap-4">
+									<dt className="text-muted-foreground">API pay-as-you-go</dt>
+									<dd className="text-right tabular-nums">
+										$29{" "}
+										<span className="text-muted-foreground">
+											→ $29 of usage
+										</span>
+									</dd>
+								</div>
+								<div className="border-t border-dashed" />
 								<div className="flex items-baseline justify-between gap-4">
 									<dt className="text-muted-foreground">Cursor Pro</dt>
 									<dd className="text-right tabular-nums">
@@ -299,7 +318,7 @@ export default function LandingPage() {
 								</div>
 							</dl>
 							<p className="mt-5 text-sm leading-relaxed text-muted-foreground">
-								Roughly 3× the usage value of a Cursor plan — in whatever editor
+								Same dollars, 3× the metered usage — in whatever editor or agent
 								you already use.
 							</p>
 							<CodeCTATracker cta="compare_cursor" location="pricing">
@@ -334,8 +353,8 @@ export default function LandingPage() {
 									DevPass Code
 								</span>{" "}
 								— our own terminal agent — is the bearer: one-click browser
-								login, no keys to copy. Claude Code, OpenCode, SoulForge, and
-								every OpenAI-compatible tool get stamped in with two env vars.
+								login, no keys to copy. Claude Code, OpenCode, Empryo, and every
+								OpenAI-compatible tool get stamped in with two env vars.
 							</p>
 						</div>
 
@@ -420,7 +439,7 @@ export default function LandingPage() {
 								open-weight Chinese coders — included on every tier.
 							</p>
 						</div>
-						<CodingModelsShowcase uiUrl={config.uiUrl} />
+						<CodingModelsShowcase />
 					</div>
 				</section>
 

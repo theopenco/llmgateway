@@ -26,8 +26,7 @@ if ! docker info >/dev/null 2>&1; then
 	fi
 fi
 
-# 3. Build core packages (required for the db seed) and start Postgres + Redis.
-pnpm build:core
+# 3. Start Postgres + Redis.
 docker compose up -d
 
 # 4. Wait for Postgres to accept connections.

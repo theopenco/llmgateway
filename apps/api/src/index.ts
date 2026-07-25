@@ -3,6 +3,7 @@ import "dotenv/config";
 
 import { swaggerUI } from "@hono/swagger-ui";
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { APICallError } from "ai";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -35,6 +36,7 @@ import { publicContact } from "./routes/public-contact.js";
 import { publicDiscounts } from "./routes/public-discounts.js";
 import { publicLeaderboard } from "./routes/public-leaderboard.js";
 import { publicModelRatings } from "./routes/public-model-ratings.js";
+import { publicModelSurvey } from "./routes/public-model-survey.js";
 import { publicNewsletter } from "./routes/public-newsletter.js";
 import { publicProfile } from "./routes/public-profile.js";
 import { publicProvidersStats } from "./routes/public-providers-stats.js";
@@ -44,6 +46,7 @@ import { v1Master } from "./routes/v1-master.js";
 import { stripeRoutes } from "./stripe.js";
 
 import type { ServerTypes } from "./vars.js";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 
 export const config = {
 	servers: [
@@ -129,6 +132,44 @@ app.onError((error, c) => {
 				...(error.res ? { details: error.res } : {}),
 			},
 			status,
+		);
+	}
+
+	// Upstream gateway call failures from the AI SDK (e.g. skill generation,
+	// memory extraction). 4xx statuses are expected user-facing conditions
+	// (insufficient credits, rate limits), not backend bugs — forward them to
+	// the client instead of logging an internal error.
+	if (APICallError.isInstance(error)) {
+		const status = error.statusCode;
+		if (status && status >= 400 && status < 500) {
+			logger.warn("Upstream gateway client error", {
+				status,
+				message: error.message,
+				path: c.req.path,
+				method: c.req.method,
+			});
+			return c.json(
+				{
+					error: true,
+					status,
+					message: error.message,
+					...(error.data !== undefined ? { details: error.data } : {}),
+				},
+				status as ContentfulStatusCode,
+			);
+		}
+		logger.error("Upstream gateway error", error, {
+			status,
+			path: c.req.path,
+			method: c.req.method,
+		});
+		return c.json(
+			{
+				error: true,
+				status: 502,
+				message: "Upstream gateway request failed",
+			},
+			502,
 		);
 	}
 
@@ -273,6 +314,7 @@ app.route("/public/profile", publicProfile);
 app.route("/public/leaderboard", publicLeaderboard);
 app.route("/public/providers/stats", publicProvidersStats);
 app.route("/public/model-ratings", publicModelRatings);
+app.route("/public/model-survey", publicModelSurvey);
 
 app.doc("/json", config);
 

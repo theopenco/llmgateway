@@ -355,6 +355,18 @@ const nextConfig: NextConfig = {
 					permanent: true,
 				}),
 			),
+			// xAI is often referred to as "SpaceXAI" in external links; the
+			// provider id is "xai".
+			{
+				source: "/providers/spacexai",
+				destination: "/providers/xai",
+				permanent: true,
+			},
+			{
+				source: "/models/:model/spacexai",
+				destination: "/models/:model/xai",
+				permanent: true,
+			},
 			// Misc renamed or truncated URLs that picked up external links.
 			{
 				source: "/migrations/:path*",
@@ -409,6 +421,17 @@ const nextConfig: NextConfig = {
 			{
 				source: "/docs-health",
 				destination: "https://docs.llmgateway.io/health",
+			},
+			// First-party PostHog ingestion proxy — ad blockers block
+			// *.posthog.com directly, silently dropping client events. The
+			// client is configured with api_host: "/ingest" (providers.tsx).
+			{
+				source: "/ingest/static/:path*",
+				destination: "https://us-assets.i.posthog.com/static/:path*",
+			},
+			{
+				source: "/ingest/:path*",
+				destination: "https://us.i.posthog.com/:path*",
 			},
 		];
 	},

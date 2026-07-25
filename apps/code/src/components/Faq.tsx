@@ -9,11 +9,55 @@ import {
 	AccordionItem,
 } from "@/components/ui/accordion";
 
-const faqData = [
+import {
+	DEV_PLAN_INCLUDED_RESET_PASSES,
+	DEV_PLAN_RESET_PASS_PRICES,
+	HIGH_COST_INPUT_PRICE,
+	HIGH_COST_OUTPUT_PRICE,
+	MARKETING_STATS,
+} from "@llmgateway/shared";
+
+import type { ReactNode } from "react";
+
+interface FaqItem {
+	question: string;
+	// Plain-text answer used for the FAQPage JSON-LD schema (and as the
+	// rendered fallback when no rich `content` is provided).
+	answer: string;
+	content?: ReactNode;
+}
+
+const premiumInputPerM = Math.round(HIGH_COST_INPUT_PRICE * 1_000_000);
+const premiumOutputPerM = Math.round(HIGH_COST_OUTPUT_PRICE * 1_000_000);
+
+const faqData: FaqItem[] = [
 	{
 		question: "How much usage do I get on each plan?",
 		answer:
 			"Every plan includes a fixed monthly usage allowance, calculated at standard provider rates. Lite ($29/mo) includes $87 in model usage, Pro ($79/mo) includes $237, and Max ($179/mo) includes $537 — roughly 3× the subscription price.",
+		content: (
+			<>
+				<p>
+					Every plan includes a fixed monthly usage allowance, calculated at
+					standard provider rates:
+				</p>
+				<ul className="list-disc pl-6 mt-2 space-y-1">
+					<li>
+						<strong>Lite — $29/mo:</strong> $87 in monthly model usage
+					</li>
+					<li>
+						<strong>Pro — $79/mo:</strong> $237 in monthly model usage
+					</li>
+					<li>
+						<strong>Max — $179/mo:</strong> $537 in monthly model usage
+					</li>
+				</ul>
+				<p className="mt-3">
+					That&apos;s roughly 3× the subscription price — effectively model
+					access at a deep discount compared to paying providers directly.
+				</p>
+			</>
+		),
 	},
 	{
 		question: "How is usage calculated?",
@@ -23,17 +67,55 @@ const faqData = [
 	{
 		question: "What happens if I hit my monthly limit?",
 		answer:
-			"Requests pause until your allowance resets at the start of the next billing cycle. You can upgrade to a higher tier at any time for an immediate, prorated boost to your available usage.",
+			"Requests pause until your allowance resets at the start of the next billing cycle. Or upgrade to a higher tier at any time: an immediate upgrade charges the new tier's full price, restarts your billing cycle, and grants the new tier's full monthly allowance right away — plus anything left of your current allowance rolls over. Credits only roll over on an immediate upgrade, never at a regular renewal.",
+		content: (
+			<>
+				Requests pause until your allowance resets at the start of the next
+				billing cycle. Or <strong>upgrade to a higher tier at any time</strong>:
+				an immediate upgrade charges the new tier&apos;s full price, restarts
+				your billing cycle, and grants the new tier&apos;s full monthly
+				allowance right away — plus anything left of your current allowance
+				rolls over. Credits only roll over on an immediate upgrade, never at a
+				regular renewal.
+			</>
+		),
 	},
 	{
 		question: "Can I change plans anytime?",
 		answer:
-			"Yes. Upgrade or downgrade whenever you like — changes are prorated and take effect immediately. There's no lock-in and no cancellation fee.",
+			"Yes. Upgrades can take effect immediately — you're charged the new tier's full price, your billing cycle restarts, and you get the new tier's full allowance right away, plus any unspent credits from the cycle being replaced roll over until your next renewal — or you can schedule the upgrade for your next renewal instead. Downgrades take effect at your next renewal. There's no lock-in and no cancellation fee.",
+	},
+	{
+		question: "Do I need a subscription, or is there pay-as-you-go?",
+		answer: `Both work. DevPass plans turn every dollar into $3 of model usage. If you'd rather not subscribe, LLM Gateway offers pay-as-you-go: top up credits and pay per token at provider rates with a flat ${MARKETING_STATS.platformFee} platform fee, or bring your own provider keys for free.`,
+	},
+	{
+		question: "Can my team or company use DevPass?",
+		answer:
+			"No. DevPass is intended for private, personal use by individual developers — one developer, one account. It can't be purchased or shared as a team or company, and there are no team plans. For teams and companies, use LLM Gateway's pay-as-you-go product instead, and reach out to contact@llmgateway.io for custom solutions and volume discounts.",
+		content: (
+			<>
+				<p>
+					No. DevPass is intended for{" "}
+					<strong>private, personal use by individual developers</strong> — one
+					developer, one account. It can&apos;t be purchased or shared as a team
+					or company, and there are no team plans.
+				</p>
+				<p className="mt-3">
+					For teams and companies, use LLM Gateway&apos;s pay-as-you-go product
+					instead — and reach out to{" "}
+					<Link href="mailto:contact@llmgateway.io" className="underline">
+						contact@llmgateway.io
+					</Link>{" "}
+					for custom solutions and volume discounts.
+				</p>
+			</>
+		),
 	},
 	{
 		question: "Which tools and SDKs work with DevPass?",
 		answer:
-			"Anything that speaks the OpenAI or Anthropic API — Claude Code, SoulForge, Cursor, Cline, Continue, Aider, the OpenAI and Anthropic SDKs, and more. Set two environment variables and you're in.",
+			"Anything that speaks the OpenAI or Anthropic API — Claude Code, Empryo, SoulForge, Cursor, Cline, Continue, Aider, the OpenAI and Anthropic SDKs, and more. Set two environment variables and you're in.",
 	},
 	{
 		question: "Are all 200+ models included on every plan?",
@@ -42,13 +124,88 @@ const faqData = [
 	},
 	{
 		question: "Are there limits on premium models?",
+		answer: `Premium models — any model priced at $${premiumInputPerM}+ per million input tokens or $${premiumOutputPerM}+ per million output tokens — are subject to a weekly fair-use allowance in addition to your monthly allowance: 12% of your monthly credits on Lite, 15% on Pro, and 18% on Max. Every other model draws on your full monthly allowance. The exact numbers are published on the plan cards — no hidden throttling.`,
+		content: (
+			<>
+				<p>
+					Premium models — any model priced at ${premiumInputPerM}+ per million
+					input tokens or ${premiumOutputPerM}+ per million output tokens — are
+					subject to a weekly fair-use allowance in addition to your monthly
+					allowance:
+				</p>
+				<ul className="list-disc pl-6 mt-2 space-y-1">
+					<li>
+						<strong>Lite:</strong> 12% of monthly credits
+					</li>
+					<li>
+						<strong>Pro:</strong> 15% of monthly credits
+					</li>
+					<li>
+						<strong>Max:</strong> 18% of monthly credits
+					</li>
+				</ul>
+				<p className="mt-3">
+					Every other model draws on your full monthly allowance. The exact
+					numbers are published on the plan cards — no hidden throttling. See{" "}
+					<Link
+						href="https://docs.llmgateway.io/learn/model-categories"
+						className="underline"
+					>
+						model categories &amp; fair use
+					</Link>{" "}
+					for how models are classified.
+				</p>
+			</>
+		),
+	},
+	{
+		question: "What if I hit the weekly premium allowance mid-week?",
+		answer: `Redeem a Reset Pass: it instantly restores your full weekly premium allowance and starts a fresh 7-day window. A pass removes the weekly limit only — it doesn't add credits, so usage still draws from your monthly allowance. Pro includes ${DEV_PLAN_INCLUDED_RESET_PASSES.pro} pass per billing cycle and Max includes ${DEV_PLAN_INCLUDED_RESET_PASSES.max}; extra passes are a one-time purchase from your dashboard ($${DEV_PLAN_RESET_PASS_PRICES.lite} on Lite, $${DEV_PLAN_RESET_PASS_PRICES.pro} on Pro, $${DEV_PLAN_RESET_PASS_PRICES.max} on Max). Standard models keep working the whole time, and if you're resetting every week, upgrading a tier is usually the better deal.`,
+	},
+	{
+		question: "Does the weekly premium allowance reset when my plan renews?",
 		answer:
-			"Premium frontier models — Anthropic Opus, OpenAI Pro/reasoning, Gemini Pro, and Grok 4 — are subject to a weekly fair-use allowance in addition to your monthly allowance: $10/week on Lite, $50/week on Pro, and $140/week on Max. Every other model draws on your full monthly allowance. The exact numbers are published on the plan cards — no hidden throttling.",
+			"Yes. Every monthly renewal resets everything at once: your monthly credits, your weekly premium allowance (a fresh 7-day window starts at renewal), and your included Reset Passes. Between renewals the window is rolling — when 7 days end, the next window starts with your next premium request, and redeeming a Reset Pass clears the window so the next request starts a fresh one. There's no reset schedule to manage — neither the weekly window nor unused included passes carry into the next cycle. Purchased Reset Passes are separate: they persist until redeemed.",
+		content: (
+			<>
+				<p>
+					Yes. Every monthly renewal resets everything at once: your monthly
+					credits, your weekly premium allowance (a fresh 7-day window starts at
+					renewal), and your included Reset Passes.
+				</p>
+				<p className="mt-3">
+					Between renewals the window is rolling — when 7 days end, the next
+					window starts with your next premium request, and redeeming a Reset
+					Pass clears the window so the next request starts a fresh one.
+					There&apos;s no reset schedule to manage — neither the weekly window
+					nor unused included passes carry into the next cycle. Purchased Reset
+					Passes are separate: they persist until redeemed. See{" "}
+					<Link
+						href="https://docs.llmgateway.io/learn/reset-passes"
+						className="underline"
+					>
+						Reset Passes
+					</Link>{" "}
+					for the full mechanics.
+				</p>
+			</>
+		),
 	},
 	{
 		question: "Can I get a refund?",
 		answer:
-			"Yes — DevPass comes with a first-month guarantee. Cancel within 7 days of your first purchase and email contact@llmgateway.io: we'll refund your first month minus the usage you consumed at provider rates. Plan changes are prorated, and there's no cancellation fee.",
+			"Yes — DevPass comes with a first-month guarantee. Cancel within 7 days of your first purchase and email contact@llmgateway.io: we'll refund your first month minus the usage you consumed at provider rates. There's no cancellation fee.",
+		content: (
+			<>
+				Yes — DevPass comes with a <strong>first-month guarantee</strong>.
+				Cancel within 7 days of your first purchase and email{" "}
+				<Link href="mailto:contact@llmgateway.io" className="underline">
+					contact@llmgateway.io
+				</Link>
+				: we&apos;ll refund your first month minus the usage you consumed at
+				provider rates. There&apos;s no cancellation fee.
+			</>
+		),
 	},
 ];
 
@@ -108,225 +265,29 @@ export function Faq() {
 							className="w-full"
 							defaultValue="item-1"
 						>
-							{/* Item 1 — plan usage limits */}
-							<AccordionItem value="item-1" className="py-5 border-border/50">
-								<AccordionPrimitive.Header className="flex">
-									<AccordionPrimitive.Trigger className="focus-visible:border-ring focus-visible:ring-ring/50 flex flex-1 items-center justify-between gap-4 rounded-md py-2 text-left font-display text-lg md:text-xl font-medium leading-7 transition-all outline-none focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 [&>svg>path:last-child]:origin-center [&>svg>path:last-child]:transition-all [&>svg>path:last-child]:duration-200 [&[data-state=open]>svg]:rotate-180 [&[data-state=open]>svg>path:last-child]:rotate-90 [&[data-state=open]>svg>path:last-child]:opacity-0 text-foreground">
-										How much usage do I get on each plan?
-										<PlusIcon
-											size={18}
-											className="pointer-events-none shrink-0 opacity-60 transition-transform duration-200"
-											aria-hidden="true"
-										/>
-									</AccordionPrimitive.Trigger>
-								</AccordionPrimitive.Header>
-								<AccordionContent className="overflow-hidden transition-all data-[state=open]:animate-accordion-down data-[state=closed]:animate-accordion-up text-base text-muted-foreground leading-relaxed pb-2">
-									<div className="border-l-2 border-foreground/10 pl-4">
-										<p>
-											Every plan includes a fixed monthly usage allowance,
-											calculated at standard provider rates:
-										</p>
-										<ul className="list-disc pl-6 mt-2 space-y-1">
-											<li>
-												<strong>Lite — $29/mo:</strong> $87 in monthly model
-												usage
-											</li>
-											<li>
-												<strong>Pro — $79/mo:</strong> $237 in monthly model
-												usage
-											</li>
-											<li>
-												<strong>Max — $179/mo:</strong> $537 in monthly model
-												usage
-											</li>
-										</ul>
-										<p className="mt-3">
-											That&apos;s roughly 3× the subscription price —
-											effectively model access at a deep discount compared to
-											paying providers directly.
-										</p>
-									</div>
-								</AccordionContent>
-							</AccordionItem>
-
-							{/* Item 2 — usage calculation */}
-							<AccordionItem value="item-2" className="py-5 border-border/50">
-								<AccordionPrimitive.Header className="flex">
-									<AccordionPrimitive.Trigger className="focus-visible:border-ring focus-visible:ring-ring/50 flex flex-1 items-center justify-between gap-4 rounded-md py-2 text-left font-display text-lg md:text-xl font-medium leading-7 transition-all outline-none focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 [&>svg>path:last-child]:origin-center [&>svg>path:last-child]:transition-all [&>svg>path:last-child]:duration-200 [&[data-state=open]>svg]:rotate-180 [&[data-state=open]>svg>path:last-child]:rotate-90 [&[data-state=open]>svg>path:last-child]:opacity-0 text-foreground">
-										How is usage calculated?
-										<PlusIcon
-											size={18}
-											className="pointer-events-none shrink-0 opacity-60 transition-transform duration-200"
-											aria-hidden="true"
-										/>
-									</AccordionPrimitive.Trigger>
-								</AccordionPrimitive.Header>
-								<AccordionContent className="overflow-hidden transition-all data-[state=open]:animate-accordion-down data-[state=closed]:animate-accordion-up text-base text-muted-foreground leading-relaxed pb-2">
-									<div className="border-l-2 border-foreground/10 pl-4">
-										Usage is metered at each provider&apos;s published per-token
-										rate (input, output, and cached tokens). You can see the
-										dollar value of every request in your dashboard in real
-										time.
-									</div>
-								</AccordionContent>
-							</AccordionItem>
-
-							{/* Item 3 — hitting the limit */}
-							<AccordionItem value="item-3" className="py-5 border-border/50">
-								<AccordionPrimitive.Header className="flex">
-									<AccordionPrimitive.Trigger className="focus-visible:border-ring focus-visible:ring-ring/50 flex flex-1 items-center justify-between gap-4 rounded-md py-2 text-left font-display text-lg md:text-xl font-medium leading-7 transition-all outline-none focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 [&>svg>path:last-child]:origin-center [&>svg>path:last-child]:transition-all [&>svg>path:last-child]:duration-200 [&[data-state=open]>svg]:rotate-180 [&[data-state=open]>svg>path:last-child]:rotate-90 [&[data-state=open]>svg>path:last-child]:opacity-0 text-foreground">
-										What happens if I hit my monthly limit?
-										<PlusIcon
-											size={18}
-											className="pointer-events-none shrink-0 opacity-60 transition-transform duration-200"
-											aria-hidden="true"
-										/>
-									</AccordionPrimitive.Trigger>
-								</AccordionPrimitive.Header>
-								<AccordionContent className="overflow-hidden transition-all data-[state=open]:animate-accordion-down data-[state=closed]:animate-accordion-up text-base text-muted-foreground leading-relaxed pb-2">
-									<div className="border-l-2 border-foreground/10 pl-4">
-										Requests pause until your allowance resets at the start of
-										the next billing cycle. You can{" "}
-										<strong>upgrade to a higher tier at any time</strong> for an
-										immediate, prorated boost to your available usage.
-									</div>
-								</AccordionContent>
-							</AccordionItem>
-
-							{/* Item 4 — change plans */}
-							<AccordionItem value="item-4" className="py-5 border-border/50">
-								<AccordionPrimitive.Header className="flex">
-									<AccordionPrimitive.Trigger className="focus-visible:border-ring focus-visible:ring-ring/50 flex flex-1 items-center justify-between gap-4 rounded-md py-2 text-left font-display text-lg md:text-xl font-medium leading-7 transition-all outline-none focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 [&>svg>path:last-child]:origin-center [&>svg>path:last-child]:transition-all [&>svg>path:last-child]:duration-200 [&[data-state=open]>svg]:rotate-180 [&[data-state=open]>svg>path:last-child]:rotate-90 [&[data-state=open]>svg>path:last-child]:opacity-0 text-foreground">
-										Can I change plans anytime?
-										<PlusIcon
-											size={18}
-											className="pointer-events-none shrink-0 opacity-60 transition-transform duration-200"
-											aria-hidden="true"
-										/>
-									</AccordionPrimitive.Trigger>
-								</AccordionPrimitive.Header>
-								<AccordionContent className="overflow-hidden transition-all data-[state=open]:animate-accordion-down data-[state=closed]:animate-accordion-up text-base text-muted-foreground leading-relaxed pb-2">
-									<div className="border-l-2 border-foreground/10 pl-4">
-										Yes. Upgrade or downgrade whenever you like — changes are
-										prorated and take effect immediately. There&apos;s no
-										lock-in and no cancellation fee.
-									</div>
-								</AccordionContent>
-							</AccordionItem>
-
-							{/* Item 5 — compatible tools */}
-							<AccordionItem value="item-5" className="py-5 border-border/50">
-								<AccordionPrimitive.Header className="flex">
-									<AccordionPrimitive.Trigger className="focus-visible:border-ring focus-visible:ring-ring/50 flex flex-1 items-center justify-between gap-4 rounded-md py-2 text-left font-display text-lg md:text-xl font-medium leading-7 transition-all outline-none focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 [&>svg>path:last-child]:origin-center [&>svg>path:last-child]:transition-all [&>svg>path:last-child]:duration-200 [&[data-state=open]>svg]:rotate-180 [&[data-state=open]>svg>path:last-child]:rotate-90 [&[data-state=open]>svg>path:last-child]:opacity-0 text-foreground">
-										Which tools and SDKs work with DevPass?
-										<PlusIcon
-											size={18}
-											className="pointer-events-none shrink-0 opacity-60 transition-transform duration-200"
-											aria-hidden="true"
-										/>
-									</AccordionPrimitive.Trigger>
-								</AccordionPrimitive.Header>
-								<AccordionContent className="overflow-hidden transition-all data-[state=open]:animate-accordion-down data-[state=closed]:animate-accordion-up text-base text-muted-foreground leading-relaxed pb-2">
-									<div className="border-l-2 border-foreground/10 pl-4">
-										Anything that speaks the OpenAI or Anthropic API — Claude
-										Code, SoulForge, Cursor, Cline, Continue, Aider, the OpenAI
-										and Anthropic SDKs, and more. Set two environment variables
-										and you&apos;re in.
-									</div>
-								</AccordionContent>
-							</AccordionItem>
-
-							{/* Item 6 — all models included */}
-							<AccordionItem value="item-6" className="py-5 border-border/50">
-								<AccordionPrimitive.Header className="flex">
-									<AccordionPrimitive.Trigger className="focus-visible:border-ring focus-visible:ring-ring/50 flex flex-1 items-center justify-between gap-4 rounded-md py-2 text-left font-display text-lg md:text-xl font-medium leading-7 transition-all outline-none focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 [&>svg>path:last-child]:origin-center [&>svg>path:last-child]:transition-all [&>svg>path:last-child]:duration-200 [&[data-state=open]>svg]:rotate-180 [&[data-state=open]>svg>path:last-child]:rotate-90 [&[data-state=open]>svg>path:last-child]:opacity-0 text-foreground">
-										Are all 200+ models included on every plan?
-										<PlusIcon
-											size={18}
-											className="pointer-events-none shrink-0 opacity-60 transition-transform duration-200"
-											aria-hidden="true"
-										/>
-									</AccordionPrimitive.Trigger>
-								</AccordionPrimitive.Header>
-								<AccordionContent className="overflow-hidden transition-all data-[state=open]:animate-accordion-down data-[state=closed]:animate-accordion-up text-base text-muted-foreground leading-relaxed pb-2">
-									<div className="border-l-2 border-foreground/10 pl-4">
-										Yes. Every plan includes the full catalog — Claude, GPT-5,
-										Gemini, Llama, Qwen, and the rest. Plans differ in the size
-										of your monthly usage allowance and the weekly fair-use
-										allowance on premium frontier models.
-									</div>
-								</AccordionContent>
-							</AccordionItem>
-
-							{/* Item 7 — premium fair-use limits */}
-							<AccordionItem value="item-7" className="py-5 border-border/50">
-								<AccordionPrimitive.Header className="flex">
-									<AccordionPrimitive.Trigger className="focus-visible:border-ring focus-visible:ring-ring/50 flex flex-1 items-center justify-between gap-4 rounded-md py-2 text-left font-display text-lg md:text-xl font-medium leading-7 transition-all outline-none focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 [&>svg>path:last-child]:origin-center [&>svg>path:last-child]:transition-all [&>svg>path:last-child]:duration-200 [&[data-state=open]>svg]:rotate-180 [&[data-state=open]>svg>path:last-child]:rotate-90 [&[data-state=open]>svg>path:last-child]:opacity-0 text-foreground">
-										Are there limits on premium models?
-										<PlusIcon
-											size={18}
-											className="pointer-events-none shrink-0 opacity-60 transition-transform duration-200"
-											aria-hidden="true"
-										/>
-									</AccordionPrimitive.Trigger>
-								</AccordionPrimitive.Header>
-								<AccordionContent className="overflow-hidden transition-all data-[state=open]:animate-accordion-down data-[state=closed]:animate-accordion-up text-base text-muted-foreground leading-relaxed pb-2">
-									<div className="border-l-2 border-foreground/10 pl-4">
-										<p>
-											Premium frontier models — Anthropic Opus, OpenAI
-											Pro/reasoning, Gemini Pro, and Grok 4 — are subject to a
-											weekly fair-use allowance in addition to your monthly
-											allowance:
-										</p>
-										<ul className="list-disc pl-6 mt-2 space-y-1">
-											<li>
-												<strong>Lite:</strong> $10/week
-											</li>
-											<li>
-												<strong>Pro:</strong> $50/week
-											</li>
-											<li>
-												<strong>Max:</strong> $140/week
-											</li>
-										</ul>
-										<p className="mt-3">
-											Every other model draws on your full monthly allowance.
-											The exact numbers are published on the plan cards — no
-											hidden throttling.
-										</p>
-									</div>
-								</AccordionContent>
-							</AccordionItem>
-
-							{/* Item 8 — refunds */}
-							<AccordionItem value="item-8" className="py-5 border-border/50">
-								<AccordionPrimitive.Header className="flex">
-									<AccordionPrimitive.Trigger className="focus-visible:border-ring focus-visible:ring-ring/50 flex flex-1 items-center justify-between gap-4 rounded-md py-2 text-left font-display text-lg md:text-xl font-medium leading-7 transition-all outline-none focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 [&>svg>path:last-child]:origin-center [&>svg>path:last-child]:transition-all [&>svg>path:last-child]:duration-200 [&[data-state=open]>svg]:rotate-180 [&[data-state=open]>svg>path:last-child]:rotate-90 [&[data-state=open]>svg>path:last-child]:opacity-0 text-foreground">
-										Can I get a refund?
-										<PlusIcon
-											size={18}
-											className="pointer-events-none shrink-0 opacity-60 transition-transform duration-200"
-											aria-hidden="true"
-										/>
-									</AccordionPrimitive.Trigger>
-								</AccordionPrimitive.Header>
-								<AccordionContent className="overflow-hidden transition-all data-[state=open]:animate-accordion-down data-[state=closed]:animate-accordion-up text-base text-muted-foreground leading-relaxed pb-2">
-									<div className="border-l-2 border-foreground/10 pl-4">
-										Yes — DevPass comes with a{" "}
-										<strong>first-month guarantee</strong>. Cancel within 7 days
-										of your first purchase and email{" "}
-										<Link
-											href="mailto:contact@llmgateway.io"
-											className="underline"
-										>
-											contact@llmgateway.io
-										</Link>
-										: we&apos;ll refund your first month minus the usage you
-										consumed at provider rates. Plan changes are prorated, and
-										there&apos;s no cancellation fee.
-									</div>
-								</AccordionContent>
-							</AccordionItem>
+							{faqData.map((item, idx) => (
+								<AccordionItem
+									key={item.question}
+									value={`item-${idx + 1}`}
+									className="py-5 border-border/50"
+								>
+									<AccordionPrimitive.Header className="flex">
+										<AccordionPrimitive.Trigger className="focus-visible:border-ring focus-visible:ring-ring/50 flex flex-1 items-center justify-between gap-4 rounded-md py-2 text-left font-display text-lg md:text-xl font-medium leading-7 transition-all outline-none focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 [&>svg>path:last-child]:origin-center [&>svg>path:last-child]:transition-all [&>svg>path:last-child]:duration-200 [&[data-state=open]>svg]:rotate-180 [&[data-state=open]>svg>path:last-child]:rotate-90 [&[data-state=open]>svg>path:last-child]:opacity-0 text-foreground">
+											{item.question}
+											<PlusIcon
+												size={18}
+												className="pointer-events-none shrink-0 opacity-60 transition-transform duration-200"
+												aria-hidden="true"
+											/>
+										</AccordionPrimitive.Trigger>
+									</AccordionPrimitive.Header>
+									<AccordionContent className="overflow-hidden transition-all data-[state=open]:animate-accordion-down data-[state=closed]:animate-accordion-up text-base text-muted-foreground leading-relaxed pb-2">
+										<div className="border-l-2 border-foreground/10 pl-4">
+											{item.content ?? item.answer}
+										</div>
+									</AccordionContent>
+								</AccordionItem>
+							))}
 						</Accordion>
 					</div>
 				</div>

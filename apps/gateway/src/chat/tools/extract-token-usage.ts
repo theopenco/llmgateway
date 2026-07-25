@@ -79,6 +79,7 @@ export function extractTokenUsage(
 	switch (provider) {
 		case "google-ai-studio":
 		case "glacier":
+		case "iceberg":
 		case "google-vertex":
 		case "quartz":
 			if (data.usageMetadata) {
@@ -265,6 +266,13 @@ export function extractTokenUsage(
 				totalTokens = ru.total_tokens ?? null;
 				reasoningTokens = ru.output_tokens_details?.reasoning_tokens ?? null;
 				cachedTokens = ru.input_tokens_details?.cached_tokens ?? null;
+				// GPT-5.6+ bills prompt-cache writes at 1.25x and reports them in
+				// `cache_write_tokens` (a subset of input_tokens, like cached_tokens).
+				const responsesCacheWrite =
+					ru.input_tokens_details?.cache_write_tokens ?? 0;
+				if (responsesCacheWrite > 0) {
+					cacheCreationTokens = responsesCacheWrite;
+				}
 			} else if (data.usage) {
 				// Standard OpenAI Chat Completions format
 				promptTokens = data.usage.prompt_tokens ?? null;
@@ -272,6 +280,13 @@ export function extractTokenUsage(
 				totalTokens = data.usage.total_tokens ?? null;
 				reasoningTokens = data.usage.reasoning_tokens ?? null;
 				cachedTokens = data.usage.prompt_tokens_details?.cached_tokens ?? null;
+				// GPT-5.6+ bills prompt-cache writes at 1.25x and reports them in
+				// `cache_write_tokens` (a subset of prompt_tokens, like cached_tokens).
+				const chatCacheWrite =
+					data.usage.prompt_tokens_details?.cache_write_tokens ?? 0;
+				if (chatCacheWrite > 0) {
+					cacheCreationTokens = chatCacheWrite;
+				}
 			}
 			break;
 	}

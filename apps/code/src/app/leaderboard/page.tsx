@@ -65,7 +65,7 @@ export default async function LeaderboardPage() {
 								showArrow
 							/>
 							<Button size="lg" variant="ghost" asChild>
-								<Link href="/profile">Claim your spot</Link>
+								<Link href="/dashboard/profile">Claim your spot</Link>
 							</Button>
 						</div>
 					</div>
@@ -101,7 +101,7 @@ export default async function LeaderboardPage() {
 								showArrow
 							/>
 							<Button size="lg" variant="ghost" asChild>
-								<Link href="/profile">Make my profile public</Link>
+								<Link href="/dashboard/profile">Make my profile public</Link>
 							</Button>
 						</div>
 					</div>

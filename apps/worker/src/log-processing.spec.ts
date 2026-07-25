@@ -189,6 +189,48 @@ describe("Log Processing", () => {
 			expect(Number(updatedOrg!.credits)).toBe(initialCredits - 0.01);
 		});
 
+		test("should accrue premium weekly usage for provider-prefixed premium models on dev plans", async () => {
+			await db
+				.update(organization)
+				.set({
+					devPlan: "pro",
+					devPlanCreditsLimit: "237",
+					devPlanCreditsUsed: "0",
+					devPlanPremiumCreditsUsed: "0",
+					devPlanPremiumWeekStart: null,
+				})
+				.where(eq(organization.id, testOrg.id));
+
+			// usedModel is stored as `provider/model[:region]`, not the bare
+			// catalog id — the premium classification must handle that shape.
+			await db.insert(log).values({
+				requestId: "test-request-premium",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.5,
+				cached: false,
+				usedMode: "credits",
+				duration: 2000,
+				requestedModel: "anthropic/claude-fable-5",
+				requestedProvider: "anthropic",
+				usedModel: "anthropic/claude-fable-5",
+				usedProvider: "anthropic",
+				responseSize: 150,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBe(0.5);
+			expect(Number(updatedOrg!.devPlanPremiumCreditsUsed)).toBe(0.5);
+			expect(updatedOrg!.devPlanPremiumWeekStart).toBeInstanceOf(Date);
+		});
+
 		test("should not deduct credits for api-keys mode logs (no BYOK fee)", async () => {
 			const initialCredits = Number(testOrg.credits);
 

@@ -1231,6 +1231,19 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 																			Manage budget
 																		</DropdownMenuItem>
 																	)}
+																	{isAdmin && (
+																		<DropdownMenuItem asChild>
+																			<Link
+																				href={
+																					buildOrgUrl(
+																						`org/team/${member.userId}/iam`,
+																					) as Route
+																				}
+																			>
+																				Manage IAM rules
+																			</Link>
+																		</DropdownMenuItem>
+																	)}
 																	<DropdownMenuSeparator />
 																	<DropdownMenuItem
 																		className="text-destructive focus:text-destructive"

@@ -10,9 +10,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Logo } from "@/components/ui/logo";
+import { Wordmark } from "@/components/ui/wordmark";
 import { cn } from "@/lib/utils";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
@@ -45,7 +44,7 @@ const FEATURES: Feature[] = [
 	{
 		icon: MessageSquare,
 		title: "Chat",
-		description: "GPT, Claude, Gemini & 280+ models — switch mid-conversation",
+		description: "GPT, Claude, Gemini & 200+ models — switch mid-conversation",
 	},
 	{
 		icon: ImagePlus,
@@ -83,7 +82,7 @@ export function AuthDialog({
 	open,
 	returnUrl,
 	title = "Every model and studio — in one place",
-	description = "Chat, images, video, canvas and group chat across 280+ models. Free to start — no credit card required.",
+	description = "Chat, images, video, canvas and group chat across 200+ models. Free to start — no credit card required.",
 }: AuthDialogProps) {
 	if (!open) {
 		return null;
@@ -107,9 +106,7 @@ export function AuthDialog({
 				{/* Scrollable body */}
 				<div className="min-h-0 flex-1 overflow-y-auto p-5 sm:p-8">
 					<div className="flex items-center gap-2">
-						<Logo className="size-6" />
-						<span className="text-base font-semibold">LLM Gateway</span>
-						<Badge>Chat</Badge>
+						<Wordmark size="sm" />
 					</div>
 
 					<h1

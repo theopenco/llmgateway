@@ -23,7 +23,7 @@ export function ComparisonTable({
 				<div className="px-4 py-4 text-muted-foreground sm:px-5">Feature</div>
 				<div className="flex items-center gap-2 border-l px-4 py-4 sm:px-5">
 					<UsTile size={24} radius={7} />
-					<span className="leading-tight">LLM Gateway Chat</span>
+					<span className="leading-tight">Lounge</span>
 				</div>
 				<div className="flex items-center gap-2 border-l px-4 py-4 sm:px-5">
 					<ThemTile slug={slug} competitor={competitor} size={24} radius={7} />

@@ -44,7 +44,7 @@ export default function SettingsPage() {
 			</div>
 
 			<DevPlanSettings
-				devPlanAllowAllModels={devPlanStatus.devPlanAllowAllModels ?? false}
+				devPlanServiceTier={devPlanStatus.devPlanServiceTier ?? "default"}
 				retentionLevel={devPlanStatus.retentionLevel ?? "none"}
 				defaultRoutingStrategy={devPlanStatus.defaultRoutingStrategy ?? "auto"}
 			/>

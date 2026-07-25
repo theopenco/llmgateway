@@ -90,6 +90,32 @@ describe("model service tier support", () => {
 			)?.multiplier,
 		).toBe(2);
 		expect(
+			getSupportedServiceTiers("gpt-5.1", "openai").map((tier) => tier.id),
+		).toEqual(["flex", "priority"]);
+		expect(
+			getSupportedServiceTiers("gpt-5.1", "openai").find(
+				(tier) => tier.id === "priority",
+			)?.multiplier,
+		).toBe(2);
+		expect(
+			getSupportedServiceTiers("gpt-5.2", "openai").map((tier) => tier.id),
+		).toEqual(["flex", "priority"]);
+		expect(
+			getSupportedServiceTiers("gpt-5.2", "openai").find(
+				(tier) => tier.id === "priority",
+			)?.multiplier,
+		).toBe(2);
+		expect(
+			getSupportedServiceTiers("gpt-5.1-codex", "openai").map(
+				(tier) => tier.id,
+			),
+		).toEqual(["priority"]);
+		expect(
+			getSupportedServiceTiers("gpt-5.1-codex", "openai").find(
+				(tier) => tier.id === "priority",
+			)?.multiplier,
+		).toBe(2);
+		expect(
 			getSupportedServiceTiers("gpt-5.5-pro", "openai").map((tier) => tier.id),
 		).toEqual(["flex"]);
 		expect(
@@ -196,7 +222,14 @@ describe("model service tier support", () => {
 
 describe("isStealthProvider", () => {
 	it("flags providers that require a baseUrl env var (no default endpoint)", () => {
-		for (const id of ["glacier", "granite", "quartz", "avalanche", "tundra"]) {
+		for (const id of [
+			"glacier",
+			"iceberg",
+			"granite",
+			"quartz",
+			"avalanche",
+			"tundra",
+		]) {
 			expect(isStealthProvider(id)).toBe(true);
 		}
 	});
@@ -380,7 +413,7 @@ describe("AtlasCloud video models", () => {
 		expect(provider?.privacyPolicyUrl).toBe(
 			"https://www.atlascloud.ai/privacy",
 		);
-		expect(provider?.dataPolicy?.soc2).toBe(true);
+		expect(provider?.dataPolicy?.soc2).toBe(2);
 		expect(provider?.dataPolicy?.gdpr).toBe(true);
 		expect(provider?.additionalLinks).toEqual(
 			expect.arrayContaining([

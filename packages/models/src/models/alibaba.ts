@@ -1,5 +1,23 @@
 import type { ModelDefinition } from "@/models.js";
 
+/**
+ * Preset system voices for the Qwen-Audio-3.0-TTS models, passed through 1:1
+ * as the upstream DashScope `voice` parameter. Each model only supports its
+ * own voice set (voices cannot be mixed between models), and the first entry
+ * is used as the default when the caller omits `voice`. The gateway validates
+ * `voice` against this allowlist, so only these system voices are accepted;
+ * Alibaba's cloned/custom voice ids are not supported through the speech
+ * endpoint today.
+ * Ref: https://help.aliyun.com/zh/model-studio/qwen-audio-tts-voice-list
+ */
+const QWEN_AUDIO_TTS_PLUS_VOICES = ["longanlingxin", "longanlufeng"];
+const QWEN_AUDIO_TTS_FLASH_VOICES = [
+	"longanhuan_v3.6",
+	"longjielidou_v3.6",
+	"loongeva_v3.6",
+	"loongjohn",
+];
+
 export const alibabaModels = [
 	{
 		id: "qwen-max",
@@ -467,6 +485,7 @@ export const alibabaModels = [
 				requestPrice: "0",
 				contextSize: 262000,
 				maxOutput: 8192,
+				quantization: "fp8",
 				reasoning: false,
 				streaming: true,
 				vision: false,
@@ -515,6 +534,7 @@ export const alibabaModels = [
 			{
 				providerId: "vertex-openai",
 				externalId: "qwen/qwen3-235b-a22b-instruct-2507-maas",
+				deactivatedAt: new Date("2026-10-21"),
 				inputPrice: "0.22e-6",
 				outputPrice: "0.88e-6",
 				requestPrice: "0",
@@ -538,6 +558,9 @@ export const alibabaModels = [
 			{
 				providerId: "nebius",
 				externalId: "Qwen/Qwen3-235B-A22B-Thinking-2507",
+				// Endpoint removed upstream: 404 "The model does not exist"
+				// (verified 2026-07-22)
+				deactivatedAt: new Date("2026-07-22"),
 				inputPrice: "0.2e-6",
 				outputPrice: "0.6e-6",
 				requestPrice: "0",
@@ -650,11 +673,15 @@ export const alibabaModels = [
 			{
 				providerId: "deepinfra",
 				externalId: "Qwen/Qwen3.5-9B",
+				// deepinfra hangs on reasoning + streaming requests
+				// (e2e 180s timeouts, verified 2026-07-21)
+				stability: "unstable",
 				inputPrice: "0.1e-6",
 				outputPrice: "0.15e-6",
 				requestPrice: "0",
 				contextSize: 262144,
 				maxOutput: 32768,
+				quantization: "bf16",
 				streaming: true,
 				reasoning: true,
 				vision: false,
@@ -676,8 +703,9 @@ export const alibabaModels = [
 				inputPrice: "0.1e-6",
 				outputPrice: "0.3e-6",
 				requestPrice: "0",
-				contextSize: 32768,
+				contextSize: 40960,
 				maxOutput: 8192,
+				quantization: "fp8",
 				streaming: true,
 				vision: false,
 				tools: true,
@@ -705,6 +733,23 @@ export const alibabaModels = [
 					"tool_choice",
 				],
 				deactivatedAt: new Date("2026-02-16"),
+			},
+			{
+				providerId: "scx-ai",
+				externalId: "Qwen3-32B",
+				inputPrice: "0.36e-6",
+				outputPrice: "0.87e-6",
+				requestPrice: "0",
+				contextSize: 32768,
+				maxOutput: 8192,
+				quantization: "bf16",
+				streaming: true,
+				reasoning: true,
+				// SCX omits reasoning content when the model responds with tool calls
+				reasoningOutput: "omit",
+				vision: false,
+				tools: true,
+				jsonOutput: true,
 			},
 		],
 	},
@@ -833,11 +878,12 @@ export const alibabaModels = [
 			{
 				providerId: "nebius",
 				externalId: "Qwen/Qwen2.5-VL-72B-Instruct",
-				inputPrice: "0.13e-6",
-				outputPrice: "0.4e-6",
+				inputPrice: "0.25e-6",
+				outputPrice: "0.75e-6",
 				requestPrice: "0",
-				contextSize: 32768,
+				contextSize: 32000,
 				maxOutput: 8192,
+				quantization: "fp8",
 				streaming: true,
 				vision: true,
 				tools: false,
@@ -855,6 +901,7 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-vl-8b-instruct",
+				deactivatedAt: new Date("2026-07-11"),
 				inputPrice: "0.08e-6",
 				outputPrice: "0.5e-6",
 				requestPrice: "0",
@@ -878,6 +925,9 @@ export const alibabaModels = [
 				providerId: "nebius",
 				stability: "unstable",
 				externalId: "Qwen/Qwen3-Coder-480B-A35B-Instruct",
+				// Endpoint removed upstream: 404 "The model does not exist"
+				// (verified 2026-07-22)
+				deactivatedAt: new Date("2026-07-22"),
 				inputPrice: "0.4e-6",
 				outputPrice: "1.8e-6",
 				requestPrice: "0",
@@ -918,6 +968,7 @@ export const alibabaModels = [
 			{
 				providerId: "vertex-openai",
 				externalId: "qwen/qwen3-coder-480b-a35b-instruct-maas",
+				deactivatedAt: new Date("2026-10-21"),
 				inputPrice: "0.22e-6",
 				cachedInputPrice: "0.022e-6",
 				outputPrice: "1.8e-6",
@@ -983,6 +1034,7 @@ export const alibabaModels = [
 				requestPrice: "0",
 				contextSize: 262000,
 				maxOutput: 8192,
+				quantization: "fp8",
 				streaming: true,
 				vision: false,
 				tools: true,
@@ -1123,6 +1175,7 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-next-80b-a3b-thinking",
+				deactivatedAt: new Date("2026-07-11"),
 				inputPrice: "0.15e-6",
 				outputPrice: "1.5e-6",
 				requestPrice: "0",
@@ -1154,6 +1207,7 @@ export const alibabaModels = [
 				requestPrice: "0",
 				contextSize: 131072,
 				maxOutput: 32768,
+				quantization: "fp8",
 				reasoning: true,
 				streaming: true,
 				vision: false,
@@ -1174,6 +1228,10 @@ export const alibabaModels = [
 			{
 				providerId: "vertex-openai",
 				externalId: "qwen/qwen3-next-80b-a3b-thinking-maas",
+				deactivatedAt: new Date("2026-10-21"),
+				// Vertex MaaS throttles this model's tiny concurrency quota (429
+				// RESOURCE_EXHAUSTED) even on single requests, flaking e2e
+				stability: "unstable",
 				inputPrice: "0.15e-6",
 				outputPrice: "1.2e-6",
 				requestPrice: "0",
@@ -1232,11 +1290,13 @@ export const alibabaModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
-				jsonOutput: true,
+				// novita rejects response_format json_object for this model (400)
+				jsonOutput: false,
 			},
 			{
 				providerId: "vertex-openai",
 				externalId: "qwen/qwen3-next-80b-a3b-instruct-maas",
+				deactivatedAt: new Date("2026-10-21"),
 				inputPrice: "0.15e-6",
 				outputPrice: "1.2e-6",
 				requestPrice: "0",
@@ -1269,6 +1329,7 @@ export const alibabaModels = [
 				contextSize: 256000,
 				maxOutput: 32800,
 				reasoning: true,
+				reasoningMaxTokens: true,
 				reasoningOutput: "omit",
 				streaming: true,
 				vision: true,
@@ -1288,6 +1349,9 @@ export const alibabaModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				// novita rejects tool_choice "required" and named function choices
+				// with invalid_request_error; "auto" and "none" work
+				supportedToolChoices: ["auto", "none"],
 			},
 		],
 	},
@@ -1323,6 +1387,7 @@ export const alibabaModels = [
 				contextSize: 1000000,
 				maxOutput: 65536,
 				reasoning: true,
+				reasoningMaxTokens: true,
 				reasoningOutput: "omit",
 				streaming: true,
 				vision: false,
@@ -1341,6 +1406,7 @@ export const alibabaModels = [
 					"stream",
 					"tools",
 					"response_format",
+					"reasoning_effort",
 				],
 			},
 			{
@@ -1448,6 +1514,7 @@ export const alibabaModels = [
 				contextSize: 1000000,
 				maxOutput: 65536,
 				reasoning: true,
+				reasoningMaxTokens: true,
 				reasoningOutput: "omit",
 				streaming: true,
 				vision: true,
@@ -1464,6 +1531,7 @@ export const alibabaModels = [
 					"stream",
 					"tools",
 					"response_format",
+					"reasoning_effort",
 				],
 			},
 		],
@@ -1551,6 +1619,7 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-vl-30b-a3b-thinking",
+				deactivatedAt: new Date("2026-07-11"),
 				inputPrice: "0.2e-6",
 				outputPrice: "1e-6",
 				requestPrice: "0",
@@ -1624,6 +1693,7 @@ export const alibabaModels = [
 			{
 				providerId: "novita",
 				externalId: "qwen/qwen3-4b-fp8",
+				deactivatedAt: new Date("2026-07-11"),
 				inputPrice: "0.03e-6",
 				outputPrice: "0.03e-6",
 				requestPrice: "0",
@@ -1677,6 +1747,7 @@ export const alibabaModels = [
 				contextSize: 262144,
 				maxOutput: 65536,
 				reasoning: true,
+				reasoningMaxTokens: true,
 				streaming: true,
 				vision: true,
 				tools: true,
@@ -1694,6 +1765,7 @@ export const alibabaModels = [
 					"stream",
 					"response_format",
 					"tools",
+					"reasoning_effort",
 				],
 			},
 			{
@@ -1725,11 +1797,15 @@ export const alibabaModels = [
 			{
 				providerId: "nebius",
 				externalId: "Qwen/Qwen3.5-397B-A17B",
+				// Intermittent 404 "The model does not exist" in production
+				// (~57% success rate observed 2026-07-14)
+				deactivatedAt: new Date("2026-07-14"),
 				inputPrice: "0.6e-6",
 				outputPrice: "3.6e-6",
 				requestPrice: "0",
 				contextSize: 262144,
 				maxOutput: 32768,
+				quantization: "fp4",
 				reasoning: true,
 				streaming: true,
 				vision: true,
@@ -2627,6 +2703,7 @@ export const alibabaModels = [
 				contextSize: 262144,
 				maxOutput: 65536,
 				reasoning: true,
+				reasoningMaxTokens: true,
 				streaming: true,
 				vision: false,
 				tools: true,
@@ -2642,6 +2719,7 @@ export const alibabaModels = [
 					"stream",
 					"response_format",
 					"tools",
+					"reasoning_effort",
 				],
 			},
 		],
@@ -2665,6 +2743,7 @@ export const alibabaModels = [
 				contextSize: 262144,
 				maxOutput: 65536,
 				reasoning: true,
+				reasoningMaxTokens: true,
 				streaming: true,
 				vision: true,
 				tools: true,
@@ -2682,6 +2761,7 @@ export const alibabaModels = [
 					"stream",
 					"response_format",
 					"tools",
+					"reasoning_effort",
 				],
 			},
 		],
@@ -2704,6 +2784,7 @@ export const alibabaModels = [
 				contextSize: 262144,
 				maxOutput: 65536,
 				reasoning: true,
+				reasoningMaxTokens: true,
 				streaming: true,
 				vision: true,
 				tools: true,
@@ -2721,6 +2802,7 @@ export const alibabaModels = [
 					"stream",
 					"response_format",
 					"tools",
+					"reasoning_effort",
 				],
 			},
 			{
@@ -2774,6 +2856,7 @@ export const alibabaModels = [
 				contextSize: 262144,
 				maxOutput: 65536,
 				reasoning: true,
+				reasoningMaxTokens: true,
 				streaming: true,
 				vision: false,
 				tools: true,
@@ -2789,7 +2872,43 @@ export const alibabaModels = [
 					"stream",
 					"response_format",
 					"tools",
+					"reasoning_effort",
 				],
+			},
+		],
+	},
+	{
+		id: "qwen3-embedding-8b",
+		name: "Qwen3 Embedding 8B",
+		description:
+			"Qwen3 embedding model with 32K context and configurable output dimensions (32–4096) via Matryoshka representation learning. No. 1 on the MTEB multilingual leaderboard as of June 2025 (score 70.58), supporting 100+ languages. Apache 2.0 license.",
+		family: "alibaba",
+		output: ["embedding"],
+		releasedAt: new Date("2025-06-05"),
+		providers: [
+			{
+				providerId: "nebius",
+				externalId: "Qwen/Qwen3-Embedding-8B",
+				inputPrice: "0.01e-6",
+				outputPrice: "0",
+				requestPrice: "0",
+				contextSize: 40960,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				embeddings: true,
+			},
+			{
+				providerId: "deepinfra",
+				externalId: "Qwen/Qwen3-Embedding-8B",
+				inputPrice: "0.01e-6",
+				outputPrice: "0",
+				requestPrice: "0",
+				contextSize: 32768,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				embeddings: true,
 			},
 		],
 	},
@@ -2828,6 +2947,62 @@ export const alibabaModels = [
 				],
 				supportsVideoAudio: true,
 				supportsVideoWithoutAudio: false,
+			},
+		],
+	},
+	{
+		id: "qwen-audio-3.0-tts-plus",
+		name: "Qwen-Audio-3.0-TTS Plus",
+		description:
+			"Alibaba's high-quality Qwen-Audio-3.0 text-to-speech model with natural prosody and contextually appropriate intonation across 16 languages. Generates speech via the /v1/audio/speech endpoint.",
+		family: "alibaba",
+		output: ["audio"],
+		releasedAt: new Date("2026-07-20"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "alibaba",
+				externalId: "qwen-audio-3.0-tts-plus",
+				inputPrice: "0",
+				outputPrice: "0",
+				// Billed per input character: $20.00 per million characters
+				// ($0.20 per 10,000 characters).
+				inputCharacterPrice: "20e-6",
+				requestPrice: "0",
+				contextSize: 20000,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				speechGenerations: true,
+				supportedVoices: QWEN_AUDIO_TTS_PLUS_VOICES,
+			},
+		],
+	},
+	{
+		id: "qwen-audio-3.0-tts-flash",
+		name: "Qwen-Audio-3.0-TTS Flash",
+		description:
+			"Alibaba's low-latency Qwen-Audio-3.0 text-to-speech model optimized for real-time interaction across 16 languages. Generates speech via the /v1/audio/speech endpoint.",
+		family: "alibaba",
+		output: ["audio"],
+		releasedAt: new Date("2026-07-20"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "alibaba",
+				externalId: "qwen-audio-3.0-tts-flash",
+				inputPrice: "0",
+				outputPrice: "0",
+				// Billed per input character: $15.00 per million characters
+				// ($0.15 per 10,000 characters).
+				inputCharacterPrice: "15e-6",
+				requestPrice: "0",
+				contextSize: 20000,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				speechGenerations: true,
+				supportedVoices: QWEN_AUDIO_TTS_FLASH_VOICES,
 			},
 		],
 	},

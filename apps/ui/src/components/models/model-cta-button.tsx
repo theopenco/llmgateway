@@ -2,7 +2,7 @@
 
 import { ArrowRight, Play } from "lucide-react";
 
-import { useUser } from "@/hooks/useUser";
+import { useSessionStatus, useUser } from "@/hooks/useUser";
 import { Button } from "@/lib/components/button";
 import { useAppConfig } from "@/lib/config";
 
@@ -22,7 +22,8 @@ export function ModelCtaButton({
 	onClick?: (e: React.MouseEvent) => void;
 }) {
 	const config = useAppConfig();
-	const { user, isLoading } = useUser();
+	const { isAuthenticated } = useSessionStatus();
+	const { user, isLoading } = useUser({ enabled: isAuthenticated });
 	const isLoggedIn = !!user && !isLoading;
 
 	if (isLoggedIn) {
@@ -45,7 +46,7 @@ export function ModelCtaButton({
 					rel="noopener noreferrer"
 				>
 					<Play className={iconClassName} />
-					Try in Playground
+					Try in Lounge
 				</a>
 			</Button>
 		);

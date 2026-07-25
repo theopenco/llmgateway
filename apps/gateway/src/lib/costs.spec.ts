@@ -179,6 +179,102 @@ describe("calculateCosts", () => {
 		expect(withCacheWrite.cacheWriteTokens).toBe(30);
 	});
 
+	it("bills GPT-5.6 cache writes at the 1.25x rate (short context)", async () => {
+		// prompt_tokens (2006) already includes cached (1920) and cache-write (40)
+		// tokens — mirrors OpenAI's documented usage shape for GPT-5.6.
+		const result = await calculateCosts(
+			"gpt-5.6-sol",
+			"openai",
+			null,
+			2006,
+			300,
+			1920,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			{
+				cacheWriteTokens: 40,
+			},
+		);
+
+		expect(result.inputCost).toBeCloseTo(46 * 5e-6, 10); // 2006 - 1920 - 40 uncached
+		expect(result.cachedInputCost).toBeCloseTo(1920 * 0.5e-6, 10);
+		expect(result.cacheWriteInputCost).toBeCloseTo(40 * 6.25e-6, 10);
+		expect(result.outputCost).toBeCloseTo(300 * 30e-6, 10);
+		expect(result.pricingTier).toBe("Up to 272K");
+	});
+
+	it("applies GPT-5.6 long-context pricing above 272K prompt tokens", async () => {
+		const result = await calculateCosts(
+			"gpt-5.6-sol",
+			"openai",
+			null,
+			300000,
+			1000,
+			100000,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			{
+				cacheWriteTokens: 50000,
+			},
+		);
+
+		// The whole request bills at the long-context tier: 2x input, 2x cached,
+		// 2x cache write, 1.5x output.
+		expect(result.inputCost).toBeCloseTo(150000 * 10e-6, 6); // 300000 - 100000 - 50000 uncached
+		expect(result.cachedInputCost).toBeCloseTo(100000 * 1e-6, 6);
+		expect(result.cacheWriteInputCost).toBeCloseTo(50000 * 12.5e-6, 6);
+		expect(result.outputCost).toBeCloseTo(1000 * 45e-6, 6);
+		expect(result.pricingTier).toBe("Over 272K");
+	});
+
+	it("bills exactly 272K prompt tokens at the GPT-5.6 short-context tier", async () => {
+		// OpenAI documents the long tier as >272K input tokens, so 272,000 itself
+		// is still short context.
+		const result = await calculateCosts(
+			"gpt-5.6-sol",
+			"openai",
+			null,
+			272000,
+			1000,
+			null,
+		);
+
+		expect(result.inputCost).toBeCloseTo(272000 * 5e-6, 6);
+		expect(result.outputCost).toBeCloseTo(1000 * 30e-6, 6);
+		expect(result.pricingTier).toBe("Up to 272K");
+	});
+
+	it("bills 272,001 prompt tokens at the GPT-5.6 long-context tier", async () => {
+		const result = await calculateCosts(
+			"gpt-5.6-sol",
+			"openai",
+			null,
+			272001,
+			1000,
+			null,
+		);
+
+		expect(result.inputCost).toBeCloseTo(272001 * 10e-6, 6);
+		expect(result.outputCost).toBeCloseTo(1000 * 45e-6, 6);
+		expect(result.pricingTier).toBe("Over 272K");
+	});
+
 	it("should calculate costs with cached tokens for Anthropic (first request - cache creation)", async () => {
 		// For Anthropic first request: 4 non-cached + 1659 cache creation = 1663 total tokens, 0 cache reads
 		const result = await calculateCosts(

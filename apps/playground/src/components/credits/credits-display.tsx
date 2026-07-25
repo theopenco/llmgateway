@@ -71,14 +71,15 @@ export function CreditsDisplay({
 			{hasActivePlan && plan && (
 				<Link
 					href="/pricing"
-					className="mb-1 block rounded-md border border-emerald-500/20 bg-emerald-500/5 px-2 py-1.5 hover:bg-emerald-500/10 transition-colors"
+					className="mb-1 block rounded-md border border-lounge-gold/25 bg-lounge-gold/[0.06] px-2 py-1.5 hover:bg-lounge-gold/10 transition-colors"
 				>
 					<div className="flex items-center justify-between gap-2">
 						<div className="flex items-center gap-2 min-w-0">
-							<Sparkles className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+							<Sparkles className="h-3.5 w-3.5 shrink-0 text-lounge-gold" />
 							<div className="flex flex-col min-w-0">
 								<span className="text-xs font-medium truncate">
-									{plan.chatPlan[0].toUpperCase() + plan.chatPlan.slice(1)} plan
+									{plan.chatPlan[0].toUpperCase() + plan.chatPlan.slice(1)}{" "}
+									membership
 								</span>
 								<span className="text-[10px] text-muted-foreground tabular-nums">
 									${formatCredits(planRemaining)} of $
@@ -115,9 +116,9 @@ export function CreditsDisplay({
 			{isChatPlanOrg && !hasActivePlan && (
 				<Link
 					href="/pricing"
-					className="group mt-1 flex items-center gap-2.5 rounded-md border border-indigo-500/20 bg-indigo-500/5 px-2 py-2 transition-colors hover:bg-indigo-500/10"
+					className="group mt-1 flex items-center gap-2.5 rounded-md border border-lounge-gold/25 bg-lounge-gold/[0.06] px-2 py-2 transition-colors hover:bg-lounge-gold/10"
 				>
-					<span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+					<span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-lounge-gold/15 text-lounge-gold">
 						<TrendingUp className="size-3.5" />
 					</span>
 					<div className="flex min-w-0 flex-col">
@@ -125,7 +126,7 @@ export function CreditsDisplay({
 							Get up to 3× the credits
 						</span>
 						<span className="text-[10px] text-muted-foreground leading-tight">
-							Upgrade to a monthly plan · from $9/mo
+							Become a member · from $9/mo
 						</span>
 					</div>
 					<ChevronRight className="ml-auto size-3.5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />

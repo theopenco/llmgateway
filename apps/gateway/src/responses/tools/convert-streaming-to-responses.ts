@@ -1,6 +1,9 @@
 import { shortid } from "@llmgateway/db";
 
-import { normalizeEchoedTools } from "./convert-chat-to-responses.js";
+import {
+	normalizeAnnotationsToResponses,
+	normalizeEchoedTools,
+} from "./convert-chat-to-responses.js";
 
 import type { ResponsesEchoRequest } from "./convert-chat-to-responses.js";
 
@@ -9,12 +12,15 @@ interface StreamingState {
 	model: string;
 	createdAt: number;
 	outputItemIndex: number;
+	messageOutputIndex: number;
+	reasoningOutputIndex: number;
 	contentPartStarted: boolean;
 	outputItemStarted: boolean;
 	messageId: string;
 	reasoningId: string;
 	fullContent: string[];
 	fullReasoning: string[];
+	annotations: Record<string, unknown>[];
 	reasoningStarted: boolean;
 	finishReason: string | null;
 	sequenceNumber: number;
@@ -29,6 +35,7 @@ interface StreamingState {
 		}
 	>;
 	request?: ResponsesEchoRequest;
+	servedServiceTier?: string;
 	usage: {
 		input_tokens: number;
 		output_tokens: number;
@@ -65,12 +72,15 @@ export function createStreamingState(
 		model,
 		createdAt: Math.floor(Date.now() / 1000),
 		outputItemIndex: 0,
+		messageOutputIndex: 0,
+		reasoningOutputIndex: 0,
 		contentPartStarted: false,
 		outputItemStarted: false,
 		messageId: `msg_${shortid(24)}`,
 		reasoningId: `rs_${shortid(24)}`,
 		fullContent: [],
 		fullReasoning: [],
+		annotations: [],
 		reasoningStarted: false,
 		finishReason: null,
 		sequenceNumber: 0,
@@ -145,7 +155,7 @@ function buildResponsePayload(
 		max_tool_calls: req?.max_tool_calls ?? null,
 		store: req?.store ?? true,
 		background: req?.background ?? false,
-		service_tier: req?.service_tier ?? "default",
+		service_tier: state.servedServiceTier ?? req?.service_tier ?? "default",
 		metadata: req?.metadata ?? {},
 		safety_identifier: req?.safety_identifier ?? null,
 		prompt_cache_key: req?.prompt_cache_key ?? null,
@@ -190,11 +200,30 @@ export function processStreamChunk(
 	state: StreamingState,
 ): SSEEvent[] {
 	const events: SSEEvent[] = [];
+
+	// Capture the served processing tier so the completion events echo the tier
+	// the provider actually applied (e.g. a flex request downgraded to default)
+	// rather than the requested one. OpenAI chunks carry a top-level
+	// service_tier; other providers surface it via the gateway's final usage
+	// chunk metadata (used_service_tier null there means downgraded to standard).
+	if (typeof chunk.service_tier === "string") {
+		state.servedServiceTier = chunk.service_tier;
+	} else {
+		const metadata = chunk.metadata as Record<string, unknown> | undefined;
+		if (metadata && typeof metadata.requested_service_tier === "string") {
+			state.servedServiceTier =
+				typeof metadata.used_service_tier === "string"
+					? metadata.used_service_tier
+					: "default";
+		}
+	}
+
 	const choices = chunk.choices as
 		| Array<{
 				delta?: {
 					content?: string | null;
 					reasoning?: string | null;
+					annotations?: Array<Record<string, unknown>>;
 					tool_calls?: Array<{
 						index: number;
 						id?: string;
@@ -256,10 +285,13 @@ export function processStreamChunk(
 	if (delta.reasoning) {
 		if (!state.reasoningStarted) {
 			state.reasoningStarted = true;
+			// Claim the reasoning slot immediately so later tool calls and the
+			// message get their own indices instead of reusing this one.
+			state.reasoningOutputIndex = state.outputItemIndex++;
 			events.push(
 				emitEvent(state, "response.output_item.added", {
 					type: "response.output_item.added",
-					output_index: state.outputItemIndex,
+					output_index: state.reasoningOutputIndex,
 					item: {
 						type: "reasoning",
 						id: state.reasoningId,
@@ -273,11 +305,6 @@ export function processStreamChunk(
 
 	// Handle tool_calls delta
 	if (delta.tool_calls) {
-		// If reasoning was streamed but tool calls arrive (no content), close reasoning index
-		if (state.reasoningStarted && !state.outputItemStarted) {
-			state.outputItemIndex++;
-		}
-
 		for (const tc of delta.tool_calls) {
 			const existing = state.toolCalls.get(tc.index);
 			if (!existing) {
@@ -326,15 +353,14 @@ export function processStreamChunk(
 	if (delta.content) {
 		if (!state.outputItemStarted) {
 			state.outputItemStarted = true;
-			// If reasoning was streamed, close it first
-			if (state.reasoningStarted) {
-				state.outputItemIndex++;
-			}
+			// Claim this slot and advance so a later tool call gets its own
+			// output_index instead of reusing the message's.
+			state.messageOutputIndex = state.outputItemIndex++;
 
 			events.push(
 				emitEvent(state, "response.output_item.added", {
 					type: "response.output_item.added",
-					output_index: state.outputItemIndex,
+					output_index: state.messageOutputIndex,
 					item: {
 						type: "message",
 						id: state.messageId,
@@ -352,7 +378,7 @@ export function processStreamChunk(
 				emitEvent(state, "response.content_part.added", {
 					type: "response.content_part.added",
 					item_id: state.messageId,
-					output_index: state.outputItemIndex,
+					output_index: state.messageOutputIndex,
 					content_index: 0,
 					part: { type: "output_text", text: "", annotations: [] },
 				}),
@@ -364,11 +390,33 @@ export function processStreamChunk(
 			emitEvent(state, "response.output_text.delta", {
 				type: "response.output_text.delta",
 				item_id: state.messageId,
-				output_index: state.outputItemIndex,
+				output_index: state.messageOutputIndex,
 				content_index: 0,
 				delta: delta.content,
 			}),
 		);
+	}
+
+	// Handle annotations delta (url citations from native web search)
+	if (delta.annotations?.length) {
+		for (const annotation of normalizeAnnotationsToResponses(
+			delta.annotations,
+		)) {
+			const annotationIndex = state.annotations.length;
+			state.annotations.push(annotation);
+			if (state.contentPartStarted) {
+				events.push(
+					emitEvent(state, "response.output_text.annotation.added", {
+						type: "response.output_text.annotation.added",
+						item_id: state.messageId,
+						output_index: state.messageOutputIndex,
+						content_index: 0,
+						annotation_index: annotationIndex,
+						annotation,
+					}),
+				);
+			}
+		}
 	}
 
 	// Check for usage in the chunk
@@ -420,7 +468,7 @@ export function createCompletionEvents(state: StreamingState): SSEEvent[] {
 			emitEvent(state, "response.output_text.done", {
 				type: "response.output_text.done",
 				item_id: state.messageId,
-				output_index: state.outputItemIndex,
+				output_index: state.messageOutputIndex,
 				content_index: 0,
 				text: state.fullContent.join(""),
 			}),
@@ -429,12 +477,12 @@ export function createCompletionEvents(state: StreamingState): SSEEvent[] {
 			emitEvent(state, "response.content_part.done", {
 				type: "response.content_part.done",
 				item_id: state.messageId,
-				output_index: state.outputItemIndex,
+				output_index: state.messageOutputIndex,
 				content_index: 0,
 				part: {
 					type: "output_text",
 					text: state.fullContent.join(""),
-					annotations: [],
+					annotations: state.annotations,
 				},
 			}),
 		);
@@ -445,7 +493,7 @@ export function createCompletionEvents(state: StreamingState): SSEEvent[] {
 		events.push(
 			emitEvent(state, "response.output_item.done", {
 				type: "response.output_item.done",
-				output_index: state.outputItemIndex,
+				output_index: state.messageOutputIndex,
 				item: {
 					type: "message",
 					id: state.messageId,
@@ -454,7 +502,7 @@ export function createCompletionEvents(state: StreamingState): SSEEvent[] {
 						{
 							type: "output_text",
 							text: state.fullContent.join(""),
-							annotations: [],
+							annotations: state.annotations,
 						},
 					],
 					status: "completed",
@@ -487,53 +535,69 @@ export function createCompletionEvents(state: StreamingState): SSEEvent[] {
 		status = "incomplete";
 	}
 
-	// Build final output array
-	const output: Record<string, unknown>[] = [];
+	// Build final output array in output_index order so it matches the
+	// streaming events — a message streamed before a tool call keeps its
+	// lower index instead of always being listed last.
+	const output: { index: number; item: Record<string, unknown> }[] = [];
 
 	if (state.reasoningStarted) {
 		output.push({
-			type: "reasoning",
-			id: state.reasoningId,
-			summary: [
-				{
-					type: "summary_text",
-					text: state.fullReasoning.join(""),
-				},
-			],
+			index: state.reasoningOutputIndex,
+			item: {
+				type: "reasoning",
+				id: state.reasoningId,
+				summary: [
+					{
+						type: "summary_text",
+						text: state.fullReasoning.join(""),
+					},
+				],
+			},
 		});
 	}
 
 	for (const tc of state.toolCalls.values()) {
 		output.push({
-			type: "function_call",
-			id: tc.id,
-			call_id: tc.callId,
-			name: tc.name,
-			arguments: tc.arguments,
-			status: "completed",
+			index: tc.outputIndex,
+			item: {
+				type: "function_call",
+				id: tc.id,
+				call_id: tc.callId,
+				name: tc.name,
+				arguments: tc.arguments,
+				status: "completed",
+			},
 		});
 	}
 
 	if (state.fullContent.length > 0) {
 		output.push({
-			type: "message",
-			id: state.messageId,
-			role: "assistant",
-			content: [
-				{
-					type: "output_text",
-					text: state.fullContent.join(""),
-					annotations: [],
-				},
-			],
-			status: "completed",
+			index: state.messageOutputIndex,
+			item: {
+				type: "message",
+				id: state.messageId,
+				role: "assistant",
+				content: [
+					{
+						type: "output_text",
+						text: state.fullContent.join(""),
+						annotations: state.annotations,
+					},
+				],
+				status: "completed",
+			},
 		});
 	}
+
+	output.sort((a, b) => a.index - b.index);
 
 	events.push(
 		emitEvent(state, "response.completed", {
 			type: "response.completed",
-			response: buildResponsePayload(state, { status, output }),
+			response: buildResponsePayload(state, {
+				status,
+				output: output.map((o) => o.item),
+			}),
 		}),
 	);
 

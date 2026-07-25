@@ -393,6 +393,7 @@ export function transformStreamingToOpenai(
 
 		case "google-ai-studio":
 		case "glacier":
+		case "iceberg":
 		case "google-vertex":
 		case "quartz": {
 			const buildUsage = (
@@ -466,9 +467,16 @@ export function transformStreamingToOpenai(
 				? data.candidates[0]
 				: undefined;
 
+			// Google streams may end with a usage-only chunk (usageMetadata +
+			// modelVersion/responseId, no candidates) — that's expected, not an error.
+			const isUsageOnlyChunk =
+				(!data.candidates || data.candidates.length === 0) &&
+				!!data.usageMetadata;
+
 			if (
 				(!data.candidates || data.candidates.length === 0) &&
-				!data.promptFeedback?.blockReason
+				!data.promptFeedback?.blockReason &&
+				!isUsageOnlyChunk
 			) {
 				logger.error(
 					"[transform-streaming-to-openai] Google streaming chunk missing candidates",
@@ -704,17 +712,21 @@ export function transformStreamingToOpenai(
 					usage: buildUsage(data.usageMetadata, messages),
 				};
 			} else {
-				logger.warn("[streaming] Google chunk with no content", {
-					provider: usedProvider,
-					model: usedModel,
-					hasCandidates: hasCandidatesArray,
-					candidatesCount: candidates.length,
-					firstCandidateKeys: firstCandidate ? Object.keys(firstCandidate) : [],
-					hasContentParts: !!(firstCandidate?.content?.parts?.length > 0),
-					partsCount: firstCandidate?.content?.parts?.length ?? 0,
-					hasUsageMetadata: !!data.usageMetadata,
-					dataKeys: Object.keys(data),
-				});
+				if (!isUsageOnlyChunk) {
+					logger.warn("[streaming] Google chunk with no content", {
+						provider: usedProvider,
+						model: usedModel,
+						hasCandidates: hasCandidatesArray,
+						candidatesCount: candidates.length,
+						firstCandidateKeys: firstCandidate
+							? Object.keys(firstCandidate)
+							: [],
+						hasContentParts: !!(firstCandidate?.content?.parts?.length > 0),
+						partsCount: firstCandidate?.content?.parts?.length ?? 0,
+						hasUsageMetadata: !!data.usageMetadata,
+						dataKeys: Object.keys(data),
+					});
+				}
 				transformedData = {
 					id: data.responseId ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -736,6 +748,7 @@ export function transformStreamingToOpenai(
 
 		case "azure":
 		case "sakana":
+		case "meta":
 		case "openai": {
 			// Azure precedes every stream with a prompt-filter-only chunk that has
 			// empty id/object/model and no choices. The default OpenAI fallback
@@ -835,6 +848,8 @@ export function transformStreamingToOpenai(
 					case "response.output_item.done":
 					case "response.content_part.done":
 					case "response.output_text.done":
+					case "response.reasoning_summary_text.done":
+					case "response.reasoning_summary_part.done":
 					case "response.web_search_call.in_progress":
 					case "response.web_search_call.searching":
 					case "response.web_search_call.completed":
@@ -1031,6 +1046,9 @@ export function transformStreamingToOpenai(
 								},
 							],
 							usage,
+							...(typeof data.response?.service_tier === "string" && {
+								service_tier: data.response.service_tier,
+							}),
 						};
 						break;
 					}
@@ -1073,6 +1091,9 @@ export function transformStreamingToOpenai(
 								},
 							],
 							usage,
+							...(typeof data.response?.service_tier === "string" && {
+								service_tier: data.response.service_tier,
+							}),
 						};
 						break;
 					}
@@ -1342,12 +1363,14 @@ export function transformStreamingToOpenai(
 		case "canopywave":
 		case "inference.net":
 		case "together-ai":
+		case "scx-ai":
 		case "deepinfra":
 		case "custom":
 		case "nanogpt":
 		case "bytedance":
 		case "minimax":
 		case "embercloud":
+		case "gonka24":
 		case "granite":
 		case "tundra":
 		case "xiaomi":
@@ -1385,7 +1408,9 @@ export function transformStreamingToOpenai(
 					model: usedModel,
 					chunk: data,
 				});
-				transformedData.choices[0].finish_reason = "canceled";
+				// "abort" is an upstream-initiated interruption, not a client
+				// cancellation, so it counts as an upstream error.
+				transformedData.choices[0].finish_reason = "upstream_error";
 			} else if (transformedData?.choices?.[0]?.finish_reason === "tool_use") {
 				transformedData.choices[0].finish_reason = "tool_calls";
 			}

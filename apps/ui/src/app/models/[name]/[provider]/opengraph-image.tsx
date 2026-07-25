@@ -16,6 +16,7 @@ import {
 	getProviderIcon,
 	GoogleStudioAIIconStatic,
 	MinimaxIconStatic,
+	XAIIconStatic,
 } from "@llmgateway/shared/components";
 
 export const size = {
@@ -110,7 +111,9 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 					? AWSBedrockIconStatic
 					: selectedMapping.providerId === "google-ai-studio"
 						? GoogleStudioAIIconStatic
-						: getProviderIcon(selectedMapping.providerId)
+						: selectedMapping.providerId === "xai"
+							? XAIIconStatic
+							: getProviderIcon(selectedMapping.providerId)
 			: null;
 		const discounts = await fetchModelDiscounts(decodedName);
 		const effectiveDiscount = selectedMapping
@@ -145,8 +148,26 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 				? Number(selectedMapping.ocrPagePrice)
 				: undefined;
 		const hasOcrPricing = ocrPagePrice !== undefined && ocrPagePrice > 0;
+		const inputCharacterPrice =
+			selectedMapping?.inputCharacterPrice !== undefined
+				? Number(selectedMapping.inputCharacterPrice)
+				: undefined;
+		const hasCharPricing =
+			inputCharacterPrice !== undefined && inputCharacterPrice > 0;
+		const inputAudioHourPrice =
+			selectedMapping?.inputAudioHourPrice !== undefined
+				? Number(selectedMapping.inputAudioHourPrice)
+				: undefined;
+		const hasAudioHourPricing =
+			inputAudioHourPrice !== undefined &&
+			inputAudioHourPrice > 0 &&
+			!(Number(selectedMapping?.inputPrice ?? 0) > 0) &&
+			!(Number(selectedMapping?.outputPrice ?? 0) > 0);
 		const hasTokenPricing =
-			!isOcr && (pricing?.input ?? pricing?.output ?? pricing?.cachedInput);
+			!isOcr &&
+			!hasCharPricing &&
+			!hasAudioHourPricing &&
+			(pricing?.input ?? pricing?.output ?? pricing?.cachedInput);
 
 		const contextSize = selectedMapping?.contextSize ?? 0;
 
@@ -162,7 +183,9 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 							? MinimaxIconStatic
 							: providerId === "google-ai-studio"
 								? GoogleStudioAIIconStatic
-								: getProviderIcon(providerId);
+								: providerId === "xai"
+									? XAIIconStatic
+									: getProviderIcon(providerId);
 				const info = providerDefinitions.find((p) => p.id === providerId);
 				return {
 					id: providerId,
@@ -225,6 +248,36 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 				);
 			}
 			return <span style={{ fontWeight: 700, fontSize: 56 }}>{original}</span>;
+		};
+
+		const formatUnitPrice = (value: number, unit: string) => {
+			const format = (v: number) => `$${parseFloat(v.toFixed(4))}`;
+			const hasDiscount = discountNum > 0 && discountNum < 1;
+			return (
+				<div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+					{hasDiscount ? (
+						<>
+							<span
+								style={{
+									textDecoration: "line-through",
+									color: "#6B7280",
+									fontSize: 36,
+								}}
+							>
+								{format(value)}
+							</span>
+							<span style={{ fontWeight: 700, fontSize: 56 }}>
+								{format(value * (1 - discountNum))}
+							</span>
+						</>
+					) : (
+						<span style={{ fontWeight: 700, fontSize: 56 }}>
+							{format(value)}
+						</span>
+					)}
+					<span style={{ color: "#9CA3AF", fontSize: 26 }}>{unit}</span>
+				</div>
+			);
 		};
 
 		return new ImageResponse(
@@ -369,7 +422,9 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 						{(hasTokenPricing ||
 							(requestPrice !== undefined && requestPrice !== 0) ||
 							(perSecondPrice && Object.keys(perSecondPrice).length > 0) ||
-							hasOcrPricing) && (
+							hasOcrPricing ||
+							hasCharPricing ||
+							hasAudioHourPricing) && (
 							<span
 								style={{
 									color: "#6B7280",
@@ -379,18 +434,22 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 									letterSpacing: "0.1em",
 								}}
 							>
-								{isVideoGen && perSecondPrice
-									? "Pricing per second"
-									: hasOcrPricing
-										? "Pricing per 1K pages"
-										: isImageGen &&
-											  requestPrice !== undefined &&
-											  requestPrice !== 0 &&
-											  !hasTokenPricing
-											? "Pricing per request"
-											: requestPrice !== undefined && requestPrice !== 0
-												? "Pricing"
-												: "Pricing per 1M tokens"}
+								{hasAudioHourPricing
+									? "Audio Transcription Pricing"
+									: hasCharPricing
+										? "Per Character Pricing"
+										: isVideoGen && perSecondPrice
+											? "Pricing per second"
+											: hasOcrPricing
+												? "Pricing per 1K pages"
+												: isImageGen &&
+													  requestPrice !== undefined &&
+													  requestPrice !== 0 &&
+													  !hasTokenPricing
+													? "Pricing per request"
+													: requestPrice !== undefined && requestPrice !== 0
+														? "Pricing"
+														: "Pricing per 1M tokens"}
 							</span>
 						)}
 						<div
@@ -427,6 +486,65 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 									{contextSize ? formatContextSize(contextSize) : "—"}
 								</span>
 							</div>
+
+							{/* Per-hour input audio price for transcription models */}
+							{hasAudioHourPricing && (
+								<div
+									style={{
+										display: "flex",
+										flexDirection: "column",
+										gap: 10,
+										padding: "28px 36px",
+										backgroundColor: "#0A0A0A",
+										borderRadius: 20,
+										border: "1px solid #1F2937",
+									}}
+								>
+									<span
+										style={{
+											color: "#9CA3AF",
+											fontSize: 20,
+											fontWeight: 500,
+											textTransform: "uppercase",
+											letterSpacing: "0.05em",
+										}}
+									>
+										Input audio
+									</span>
+									{formatUnitPrice(inputAudioHourPrice ?? 0, "/hour")}
+								</div>
+							)}
+
+							{/* Per-character input text price for speech models */}
+							{hasCharPricing && (
+								<div
+									style={{
+										display: "flex",
+										flexDirection: "column",
+										gap: 10,
+										padding: "28px 36px",
+										backgroundColor: "#0A0A0A",
+										borderRadius: 20,
+										border: "1px solid #1F2937",
+									}}
+								>
+									<span
+										style={{
+											color: "#9CA3AF",
+											fontSize: 20,
+											fontWeight: 500,
+											textTransform: "uppercase",
+											letterSpacing: "0.05em",
+										}}
+									>
+										Input text
+									</span>
+									{formatUnitPrice(
+										(inputCharacterPrice ?? 0) * 1000,
+										"/1K chars",
+									)}
+								</div>
+							)}
 
 							{/* Per-Second Price for video gen */}
 							{isVideoGen &&

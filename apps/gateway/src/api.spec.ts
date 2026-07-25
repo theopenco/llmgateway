@@ -36,7 +36,7 @@ describe("api", () => {
 		expect(data.health).toHaveProperty("database");
 	});
 
-	test("/v1/chat/completions rejects image-output models for dev-plan orgs even with allowAllModels", async () => {
+	test("/v1/chat/completions rejects image-output models for dev-plan orgs", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			token: "real-token",
@@ -45,10 +45,9 @@ describe("api", () => {
 			createdBy: "user-id",
 		});
 
-		// Pro dev plan with allow-all-models on — the legacy coding-model
-		// restriction does NOT apply, so the only thing blocking image
-		// generation is the new image-output guard.
-		await harness.setDevPlan({ devPlan: "pro", allowAllModels: true });
+		// The image-output guard runs before the coding-model restriction, so
+		// image generation is blocked on dev plans regardless of the model.
+		await harness.setDevPlan({ devPlan: "pro" });
 
 		// gemini-2.5-flash-image declares output: ["text", "image"] but
 		// has no imageGenerations: true mapping — exactly the case the
@@ -110,7 +109,7 @@ describe("api", () => {
 			createdBy: "user-id",
 		});
 
-		await harness.setDevPlan({ devPlan: "pro", allowAllModels: true });
+		await harness.setDevPlan({ devPlan: "pro" });
 
 		const res = await app.request("/v1/images/generations", {
 			method: "POST",
@@ -128,6 +127,39 @@ describe("api", () => {
 		const json = await res.json();
 		expect(JSON.stringify(json)).toContain(
 			"Image generation is not available for coding plans",
+		);
+	});
+
+	test("/v1/chat/completions rejects provider-targeting model strings for dev-plan orgs", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		// Direct provider routing is never available on dev plans. The
+		// `provider/model` format stays blocked; only the canonical root id
+		// (`deepseek-v4-pro`) is allowed on dev plans.
+		await harness.setDevPlan({ devPlan: "pro" });
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "deepseek/deepseek-v4-pro",
+				messages: [{ role: "user", content: "hi" }],
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Direct provider routing is not available on coding plans",
 		);
 	});
 
@@ -738,6 +770,94 @@ describe("api", () => {
 		expect(json.error.message).toContain("provider compliance policy");
 	});
 
+	test("/v1/chat/completions blocks providers outside the allowed countries", async () => {
+		// OpenAI is headquartered in the US, so an allowedCountries policy that only
+		// permits France removes it, leaving no provider for the pinned model.
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				providerCompliancePolicy: { enabled: true, allowedCountries: ["FR"] },
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-compliance-country-block",
+			token: "real-token-compliance-country-block",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-compliance-country-block",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-compliance-country-block",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o",
+				messages: [{ role: "user", content: "Hello country!" }],
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(json.error.message).toContain("provider compliance policy");
+	});
+
+	test("/v1/chat/completions allows providers within the allowed countries", async () => {
+		// OpenAI is headquartered in the US, so an allowedCountries policy that
+		// permits the US lets it through.
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				providerCompliancePolicy: { enabled: true, allowedCountries: ["US"] },
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-compliance-country-allow",
+			token: "real-token-compliance-country-allow",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-compliance-country-allow",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-compliance-country-allow",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o",
+				messages: [{ role: "user", content: "Hello country!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+	});
+
 	test("/v1/chat/completions rejects unsupported service tiers", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-unsupported-service-tier",
@@ -912,6 +1032,134 @@ describe("api", () => {
 		expect(json.metadata?.used_service_tier).toBeUndefined();
 	});
 
+	test("/v1/chat/completions applies the dev-plan default flex service tier", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-devplan-flex-default",
+			token: "real-token-devplan-flex-default",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-devplan-flex-default",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		await harness.setDevPlan({ devPlan: "pro", serviceTier: "flex" });
+
+		// No service_tier on the request — the org-level DevPass setting should
+		// route it to flex processing on the flex-capable openai mapping.
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-devplan-flex-default",
+			},
+			body: JSON.stringify({
+				model: "gpt-5.5",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.service_tier).toBe("flex");
+		// The tier came from the org default, not the request, so only the
+		// used tier is surfaced.
+		expect(json.metadata?.requested_service_tier).toBeUndefined();
+		expect(json.metadata?.used_service_tier).toBe("flex");
+
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		expect(logs[0].requestedServiceTier).toBeNull();
+		expect(logs[0].usedServiceTier).toBe("flex");
+	});
+
+	test("/v1/chat/completions lets an explicit service_tier win over the dev-plan default", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-devplan-flex-override",
+			token: "real-token-devplan-flex-override",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-devplan-flex-override",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		await harness.setDevPlan({ devPlan: "pro", serviceTier: "flex" });
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-devplan-flex-override",
+			},
+			body: JSON.stringify({
+				model: "gpt-5.5",
+				service_tier: "priority",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.service_tier).toBe("priority");
+		expect(json.metadata?.requested_service_tier).toBe("priority");
+		expect(json.metadata?.used_service_tier).toBe("priority");
+	});
+
+	test("/v1/chat/completions skips the dev-plan flex default for models without flex support", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-devplan-flex-unsupported",
+			token: "real-token-devplan-flex-unsupported",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-devplan-flex-unsupported",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		await harness.setDevPlan({
+			devPlan: "pro",
+			serviceTier: "flex",
+		});
+
+		// gpt-4o has no flex-capable mapping — the default must fall back to
+		// standard processing instead of failing the request.
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-devplan-flex-unsupported",
+			},
+			body: JSON.stringify({
+				model: "gpt-4o",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.metadata?.requested_service_tier).toBeUndefined();
+		expect(json.metadata?.used_service_tier).toBeUndefined();
+	});
+
 	test("/v1/chat/completions streams service tier in the final usage chunk", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-service-tier-stream",
@@ -998,6 +1246,127 @@ describe("api", () => {
 		// still threaded onto the error log via the insertLogEntry wrapper.
 		expect(logs[0].requestedServiceTier).toBe("priority");
 		expect(logs[0].usedServiceTier).toBeNull();
+	});
+
+	test("/v1/responses forwards the requested service tier", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-responses-service-tier",
+			token: "real-token-responses-service-tier",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-responses-service-tier",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/responses", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-responses-service-tier",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-5.5",
+				service_tier: "priority",
+				input: "Hello!",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		// The echoed tier is the one the provider actually served, not a static
+		// "default" — the tier must survive the internal chat-completions hop.
+		expect(json.service_tier).toBe("priority");
+
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		expect(logs[0].requestedServiceTier).toBe("priority");
+		expect(logs[0].usedServiceTier).toBe("priority");
+	});
+
+	test("/v1/responses rejects unsupported service tiers", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-responses-bad-service-tier",
+			token: "real-token-responses-bad-service-tier",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/responses", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-responses-bad-service-tier",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o",
+				service_tier: "priority",
+				input: "Hello!",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.error).toMatchObject({
+			param: "service_tier",
+			code: "unsupported_service_tier",
+		});
+	});
+
+	test("/v1/responses streams the served service tier", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-responses-service-tier-stream",
+			token: "real-token-responses-service-tier-stream",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-responses-service-tier-stream",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/responses", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-responses-service-tier-stream",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-5.5",
+				service_tier: "priority",
+				stream: true,
+				input: "Hello!",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const raw = await res.text();
+		const completedLine = raw
+			.split("\n")
+			.find(
+				(line) =>
+					line.startsWith("data: ") && line.includes('"response.completed"'),
+			);
+		expect(completedLine).toBeDefined();
+		const completed = JSON.parse(completedLine!.slice(6));
+		expect(completed.response.service_tier).toBe("priority");
+
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		expect(logs[0].requestedServiceTier).toBe("priority");
+		expect(logs[0].usedServiceTier).toBe("priority");
 	});
 
 	test("/v1/chat/completions forwards generated request id upstream", async () => {
@@ -1251,6 +1620,122 @@ describe("api", () => {
 			},
 		]);
 		expect(moderationLog?.content).toContain('"flagged":true');
+	});
+
+	test("/v1/moderations retries with next env key on invalid key", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await harness.setProjectMode("credits");
+
+		const previousOpenAIKey = process.env.LLM_OPENAI_API_KEY;
+		const requestId = "moderation-key-rotation-request-id";
+		const attemptedKeys: (string | null)[] = [];
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+				expect(url).toBe("https://api.openai.com/v1/moderations");
+
+				const headers = new Headers(init?.headers);
+				const auth = headers.get("authorization");
+				attemptedKeys.push(auth);
+
+				if (auth === "Bearer sk-bad-key") {
+					return new Response(
+						JSON.stringify({
+							error: {
+								message: "Incorrect API key provided: sk-bad-key.",
+								type: "invalid_request_error",
+								param: null,
+								code: "invalid_api_key",
+							},
+						}),
+						{
+							status: 401,
+							headers: { "Content-Type": "application/json" },
+						},
+					);
+				}
+
+				expect(auth).toBe("Bearer sk-good-key");
+				return new Response(
+					JSON.stringify({
+						id: "modr-456",
+						model: "omni-moderation-latest",
+						results: [
+							{
+								flagged: false,
+							},
+						],
+					}),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				);
+			});
+
+		resetKeyHealth();
+		try {
+			process.env.LLM_OPENAI_API_KEY = "sk-bad-key,sk-good-key";
+
+			const res = await app.request("/v1/moderations", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+					"x-request-id": requestId,
+				},
+				body: JSON.stringify({
+					input: "Just a harmless sentence.",
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const json = await res.json();
+			expect(json).toHaveProperty("id", "modr-456");
+			expect(json.results[0].flagged).toBe(false);
+			expect(attemptedKeys).toEqual([
+				"Bearer sk-bad-key",
+				"Bearer sk-good-key",
+			]);
+
+			const logs = await waitForLogs(2);
+			const moderationLogs = logs.filter((log) => log.requestId === requestId);
+			expect(moderationLogs).toHaveLength(2);
+
+			const failedAttempt = moderationLogs.find((log) => log.hasError);
+			const successAttempt = moderationLogs.find((log) => !log.hasError);
+
+			expect(failedAttempt).toBeTruthy();
+			expect(failedAttempt?.finishReason).toBe("gateway_error");
+			expect(failedAttempt?.retried).toBe(true);
+			expect(failedAttempt?.retriedByLogId).toBe(successAttempt?.id);
+
+			expect(successAttempt).toBeTruthy();
+			expect(successAttempt?.finishReason).toBe("stop");
+			expect(successAttempt?.content).toContain('"flagged":false');
+		} finally {
+			fetchSpy.mockRestore();
+			resetKeyHealth();
+			if (previousOpenAIKey === undefined) {
+				delete process.env.LLM_OPENAI_API_KEY;
+			} else {
+				process.env.LLM_OPENAI_API_KEY = previousOpenAIKey;
+			}
+		}
 	});
 
 	test("/v1/embeddings e2e success", async () => {
@@ -3860,6 +4345,364 @@ describe("api", () => {
 		expect(Number(cachedLog?.promptTokens)).toBeGreaterThan(0);
 	});
 
+	test("/v1/chat/completions hybrid prefers provider key over regional env token", async () => {
+		await harness.setProjectMode("hybrid");
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-db-key",
+			provider: "alibaba",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const previousAlibabaRegionalKey =
+			process.env.LLM_ALIBABA_API_KEY__US_VIRGINIA;
+		const originalFetch = globalThis.fetch;
+		let sawAlibabaRequest = false;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+
+				if (url.startsWith(mockServerUrl)) {
+					sawAlibabaRequest = true;
+					const headers = new Headers(init?.headers);
+					expect(headers.get("authorization")).toBe("Bearer sk-db-key");
+				}
+
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+
+		try {
+			process.env.LLM_ALIBABA_API_KEY__US_VIRGINIA = "sk-env-key";
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "alibaba/qwen-plus:us-virginia",
+					messages: [
+						{
+							role: "user",
+							content: "Hello from hybrid regional routing!",
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect(sawAlibabaRequest).toBe(true);
+		} finally {
+			fetchSpy.mockRestore();
+			if (previousAlibabaRegionalKey === undefined) {
+				delete process.env.LLM_ALIBABA_API_KEY__US_VIRGINIA;
+			} else {
+				process.env.LLM_ALIBABA_API_KEY__US_VIRGINIA =
+					previousAlibabaRegionalKey;
+			}
+		}
+	});
+
+	test("/v1/chat/completions hybrid prefers keyed provider over credits-backed provider for gemini-2.5-flash-lite", async () => {
+		await harness.setProjectMode("hybrid");
+		await harness.setRoutingMetrics(
+			"gemini-2.5-flash-lite",
+			"google-ai-studio",
+			{
+				uptime: 90,
+				latency: 1200,
+				throughput: 5,
+			},
+		);
+		await harness.setRoutingMetrics("gemini-2.5-flash-lite", "google-vertex", {
+			uptime: 100,
+			latency: 10,
+			throughput: 500,
+		});
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "studio-db-key",
+			provider: "google-ai-studio",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const previousVertexKey = process.env.LLM_GOOGLE_VERTEX_API_KEY;
+		const previousGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		const previousVertexBaseUrl = process.env.LLM_GOOGLE_VERTEX_BASE_URL;
+		const requestId = "chat-hybrid-keyed-provider-request-id";
+
+		try {
+			process.env.LLM_GOOGLE_VERTEX_API_KEY = "vertex-env-key";
+			process.env.LLM_GOOGLE_CLOUD_PROJECT = "vertex-project";
+			process.env.LLM_GOOGLE_VERTEX_BASE_URL = mockServerUrl;
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+					"x-request-id": requestId,
+				},
+				body: JSON.stringify({
+					model: "gemini-2.5-flash-lite",
+					messages: [
+						{
+							role: "user",
+							content: "Hello from hybrid provider routing!",
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const json = await res.json();
+			expect(json.metadata.used_provider).toBe("google-ai-studio");
+			expect(json.choices[0].message.content).toContain(
+				"mock Google AI response",
+			);
+
+			const logs = await waitForLogs(1);
+			const completedLog = logs.find((log) => log.requestId === requestId);
+			expect(completedLog?.usedProvider).toBe("google-ai-studio");
+		} finally {
+			if (previousVertexKey === undefined) {
+				delete process.env.LLM_GOOGLE_VERTEX_API_KEY;
+			} else {
+				process.env.LLM_GOOGLE_VERTEX_API_KEY = previousVertexKey;
+			}
+			if (previousGoogleCloudProject === undefined) {
+				delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+			} else {
+				process.env.LLM_GOOGLE_CLOUD_PROJECT = previousGoogleCloudProject;
+			}
+			if (previousVertexBaseUrl === undefined) {
+				delete process.env.LLM_GOOGLE_VERTEX_BASE_URL;
+			} else {
+				process.env.LLM_GOOGLE_VERTEX_BASE_URL = previousVertexBaseUrl;
+			}
+		}
+	});
+
+	test("/v1/chat/completions hybrid escapes to credits provider when keyed provider fails", async () => {
+		await harness.setProjectMode("hybrid");
+		await harness.setRoutingMetrics(
+			"gemini-2.5-flash-lite",
+			"google-ai-studio",
+			{
+				uptime: 100,
+				latency: 100,
+				throughput: 100,
+			},
+		);
+		await harness.setRoutingMetrics("gemini-2.5-flash-lite", "google-vertex", {
+			uptime: 100,
+			latency: 100,
+			throughput: 100,
+		});
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		// Keyed provider whose upstream is unreachable: routing prefers it, the
+		// request fails with a network error, and the retry loop must escape to
+		// the credits-backed provider via its demoted score entry.
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "studio-db-key",
+			provider: "google-ai-studio",
+			organizationId: "org-id",
+			baseUrl: "http://127.0.0.1:9",
+		});
+
+		const previousVertexKey = process.env.LLM_GOOGLE_VERTEX_API_KEY;
+		const previousGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		const previousVertexBaseUrl = process.env.LLM_GOOGLE_VERTEX_BASE_URL;
+		// The escape must land on google-vertex, so google-ai-studio may not have
+		// an env credential to retry with. Locally, `import "dotenv/config"` in
+		// app.ts loads the repo .env, whose real LLM_GOOGLE_AI_STUDIO_API_KEY
+		// would otherwise let the retry loop call the real Google API.
+		const previousStudioKey = process.env.LLM_GOOGLE_AI_STUDIO_API_KEY;
+		const previousStudioBaseUrl = process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
+
+		try {
+			process.env.LLM_GOOGLE_VERTEX_API_KEY = "vertex-test-token";
+			process.env.LLM_GOOGLE_CLOUD_PROJECT = "vertex-project";
+			process.env.LLM_GOOGLE_VERTEX_BASE_URL = mockServerUrl;
+			delete process.env.LLM_GOOGLE_AI_STUDIO_API_KEY;
+			delete process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "gemini-2.5-flash-lite",
+					messages: [
+						{ role: "user", content: "Hybrid dead key escape request" },
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.metadata.used_provider).toBe("google-vertex");
+		} finally {
+			if (previousVertexKey === undefined) {
+				delete process.env.LLM_GOOGLE_VERTEX_API_KEY;
+			} else {
+				process.env.LLM_GOOGLE_VERTEX_API_KEY = previousVertexKey;
+			}
+			if (previousGoogleCloudProject === undefined) {
+				delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+			} else {
+				process.env.LLM_GOOGLE_CLOUD_PROJECT = previousGoogleCloudProject;
+			}
+			if (previousVertexBaseUrl === undefined) {
+				delete process.env.LLM_GOOGLE_VERTEX_BASE_URL;
+			} else {
+				process.env.LLM_GOOGLE_VERTEX_BASE_URL = previousVertexBaseUrl;
+			}
+			if (previousStudioKey === undefined) {
+				delete process.env.LLM_GOOGLE_AI_STUDIO_API_KEY;
+			} else {
+				process.env.LLM_GOOGLE_AI_STUDIO_API_KEY = previousStudioKey;
+			}
+			if (previousStudioBaseUrl === undefined) {
+				delete process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
+			} else {
+				process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL = previousStudioBaseUrl;
+			}
+		}
+	});
+
+	test("/v1/chat/completions hybrid overflows to credits provider when keyed provider is rate limited", async () => {
+		await harness.setProjectMode("hybrid");
+		await harness.setRoutingMetrics(
+			"gemini-2.5-flash-lite",
+			"google-ai-studio",
+			{
+				uptime: 100,
+				latency: 100,
+				throughput: 100,
+			},
+		);
+		await harness.setRoutingMetrics("gemini-2.5-flash-lite", "google-vertex", {
+			uptime: 100,
+			latency: 100,
+			throughput: 100,
+		});
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "studio-db-key",
+			provider: "google-ai-studio",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		// Org-level RPM cap on the keyed provider: the first request consumes the
+		// only slot, so the second must overflow to the credits-backed provider.
+		await db.insert(tables.rateLimit).values({
+			id: "rate-limit-studio",
+			organizationId: "org-id",
+			provider: "google-ai-studio",
+			model: "gemini-2.5-flash-lite",
+			maxRpm: 1,
+		});
+
+		const previousVertexKey = process.env.LLM_GOOGLE_VERTEX_API_KEY;
+		const previousGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		const previousVertexBaseUrl = process.env.LLM_GOOGLE_VERTEX_BASE_URL;
+
+		try {
+			process.env.LLM_GOOGLE_VERTEX_API_KEY = "vertex-test-token";
+			process.env.LLM_GOOGLE_CLOUD_PROJECT = "vertex-project";
+			process.env.LLM_GOOGLE_VERTEX_BASE_URL = mockServerUrl;
+
+			const makeRequest = (content: string) =>
+				app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify({
+						model: "gemini-2.5-flash-lite",
+						messages: [{ role: "user", content }],
+					}),
+				});
+
+			const firstRes = await makeRequest("Hybrid rate limit request one");
+			expect(firstRes.status).toBe(200);
+			const firstJson = await firstRes.json();
+			expect(firstJson.metadata.used_provider).toBe("google-ai-studio");
+
+			const secondRes = await makeRequest("Hybrid rate limit request two");
+			expect(secondRes.status).toBe(200);
+			const secondJson = await secondRes.json();
+			expect(secondJson.metadata.used_provider).toBe("google-vertex");
+		} finally {
+			if (previousVertexKey === undefined) {
+				delete process.env.LLM_GOOGLE_VERTEX_API_KEY;
+			} else {
+				process.env.LLM_GOOGLE_VERTEX_API_KEY = previousVertexKey;
+			}
+			if (previousGoogleCloudProject === undefined) {
+				delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+			} else {
+				process.env.LLM_GOOGLE_CLOUD_PROJECT = previousGoogleCloudProject;
+			}
+			if (previousVertexBaseUrl === undefined) {
+				delete process.env.LLM_GOOGLE_VERTEX_BASE_URL;
+			} else {
+				process.env.LLM_GOOGLE_VERTEX_BASE_URL = previousVertexBaseUrl;
+			}
+		}
+	});
+
 	// Non-streaming responses are cached in OpenAI format, so the stored
 	// finish_reason is normalized (e.g. "stop"). The cache-hit log must classify
 	// it using the OpenAI mapping, not the upstream provider's native format —
@@ -4264,6 +5107,49 @@ describe("api", () => {
 			sessionid: "session-abc-123",
 			environment: "production",
 		});
+	});
+
+	test("/v1/chat/completions records pi session_id header as sessionId", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+				// pi's OpenAI-completions session-affinity header set
+				session_id: "pi-session-42",
+				"x-client-request-id": "pi-session-42",
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				messages: [
+					{
+						role: "user",
+						content: "Hello from pi!",
+					},
+				],
+			}),
+		});
+		expect(res.status).toBe(200);
+
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		expect(logs[0].sessionId).toBe("pi-session-42");
 	});
 
 	test("Deactivated provider falls back to active provider", async () => {

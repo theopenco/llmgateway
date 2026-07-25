@@ -1,41 +1,96 @@
 "use client";
 
-import { ArrowRight, Check, Code, Copy, Sparkles, Zap } from "lucide-react";
+import {
+	ArrowRight,
+	Check,
+	Code,
+	Copy,
+	Gem,
+	List,
+	Sparkles,
+	Zap,
+} from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 
 import { models, type ModelDefinition } from "@llmgateway/models";
-import { getModelFamilyIcon } from "@llmgateway/shared/components";
+import { isPremiumModel } from "@llmgateway/shared";
+import {
+	getModelFamilyIcon,
+	OPEN_WEIGHT_LAB_FAMILIES,
+} from "@llmgateway/shared/components";
 
-export type CodingModelsView = "all" | "cheap" | "flagship";
-
-interface RecommendedModel {
-	id: string;
-	category: "cheap" | "flagship";
-}
-
-// Cheap models (mostly Chinese open-weights) are listed first so the default
-// "all" view leads with them — we don't want to heavily promote flagship-only
-// pricing on a fixed-cost DevPass plan.
-const RECOMMENDED_MODELS: RecommendedModel[] = [
-	{ id: "glm-5.2", category: "cheap" },
-	{ id: "kimi-k2.6", category: "cheap" },
-	{ id: "qwen3-coder", category: "cheap" },
-	{ id: "deepseek-v4-pro", category: "cheap" },
-	{ id: "claude-opus-4-8", category: "flagship" },
-	{ id: "gpt-5.6-sol", category: "flagship" },
-	{ id: "gemini-3.1-pro-preview", category: "flagship" },
-];
+export type CodingModelsView = "recommended" | "standard" | "premium" | "all";
 
 interface CodingModelsShowcaseProps {
-	uiUrl: string;
 	showCTA?: boolean;
 	className?: string;
 	showTabs?: boolean;
 	defaultView?: CodingModelsView;
 }
+
+type ModelProvider = ModelDefinition["providers"][number];
+
+function isActiveMapping(provider: ModelProvider): boolean {
+	const now = new Date();
+	return (
+		(!provider.deprecatedAt || provider.deprecatedAt > now) &&
+		(!provider.deactivatedAt || provider.deactivatedAt > now)
+	);
+}
+
+// Mirrors the `category=code` filter on the models directory: paid, stable
+// models with at least one active mapping offering tools, JSON output,
+// streaming, and cached input pricing.
+function isCodingModel(model: ModelDefinition): boolean {
+	if (model.free) {
+		return false;
+	}
+	if (model.stability === "unstable" || model.stability === "experimental") {
+		return false;
+	}
+	return model.providers.some(
+		(p) =>
+			isActiveMapping(p) &&
+			(p.jsonOutput ?? p.jsonOutputSchema) &&
+			p.tools &&
+			p.streaming &&
+			p.cachedInputPrice !== undefined,
+	);
+}
+
+// Newest release first; models without a release date sink to the end.
+function byNewestRelease(a: ModelDefinition, b: ModelDefinition): number {
+	const aTime = a.releasedAt?.getTime() ?? 0;
+	const bTime = b.releasedAt?.getTime() ?? 0;
+	return bTime - aTime;
+}
+
+const codingModels = (models as ModelDefinition[])
+	.filter(isCodingModel)
+	.sort(byNewestRelease);
+
+// Recommended = the latest coding model from each open-weight lab, derived
+// from release dates so new catalogue entries surface without curation.
+const recommendedIds: ReadonlySet<string> = (() => {
+	const latestPerFamily = new Map<string, ModelDefinition>();
+	for (const model of codingModels) {
+		if (!OPEN_WEIGHT_LAB_FAMILIES.has(model.family) || !model.releasedAt) {
+			continue;
+		}
+		const current = latestPerFamily.get(model.family);
+		if (!current || model.releasedAt > current.releasedAt!) {
+			latestPerFamily.set(model.family, model);
+		}
+	}
+	return new Set(Array.from(latestPerFamily.values()).map((model) => model.id));
+})();
+
+const premiumIds: ReadonlySet<string> = new Set(
+	codingModels.filter((m) => isPremiumModel(m.id)).map((m) => m.id),
+);
 
 function formatContextSize(size: number): string {
 	if (size >= 1000000) {
@@ -46,8 +101,6 @@ function formatContextSize(size: number): string {
 	}
 	return size.toString();
 }
-
-type ModelProvider = ModelDefinition["providers"][number];
 
 // Pick the provider with the lowest combined input + output price so the card
 // advertises the best ("starting from") rate available for the model. Providers
@@ -90,50 +143,54 @@ const TAB_DEFINITIONS: {
 	description: string;
 }[] = [
 	{
-		value: "cheap",
-		label: "Cheap",
-		icon: Zap,
-		description: "Frontier open-weight models — best price per token.",
+		value: "recommended",
+		label: "Recommended",
+		icon: Sparkles,
+		description:
+			"The latest open-weight lab models — the best value for coding agents.",
 	},
 	{
-		value: "flagship",
-		label: "Flagship",
-		icon: Sparkles,
-		description: "Top-tier closed models — highest capability per call.",
+		value: "standard",
+		label: "Standard",
+		icon: Zap,
+		description: "No weekly cap — use them as far as your plan credits go.",
+	},
+	{
+		value: "premium",
+		label: "Premium",
+		icon: Gem,
+		description:
+			"Flagship models covered by the weekly premium fair-use allowance.",
 	},
 	{
 		value: "all",
 		label: "All",
-		icon: Code,
-		description:
-			"Every recommended coding model, with cheap open-weights listed first.",
+		icon: List,
+		description: "Every coding-capable model on LLM Gateway.",
 	},
 ];
 
 export function CodingModelsShowcase({
-	uiUrl,
 	showCTA,
 	className,
 	showTabs = false,
-	defaultView = "all",
+	defaultView = "recommended",
 }: CodingModelsShowcaseProps) {
 	const [copiedModel, setCopiedModel] = useState<string | null>(null);
 	const [view, setView] = useState<CodingModelsView>(defaultView);
 
-	const idByCategory = new Map(
-		RECOMMENDED_MODELS.map((r) => [r.id, r.category] as const),
-	);
-	const orderIndex = new Map(
-		RECOMMENDED_MODELS.map((r, i) => [r.id, i] as const),
-	);
-
-	const filteredIds = RECOMMENDED_MODELS.filter((r) =>
-		view === "all" ? true : r.category === view,
-	).map((r) => r.id);
-
-	const recommendedModels = (models as ModelDefinition[])
-		.filter((m) => filteredIds.includes(m.id))
-		.sort((a, b) => (orderIndex.get(a.id) ?? 0) - (orderIndex.get(b.id) ?? 0));
+	const visibleModels = codingModels.filter((model) => {
+		if (view === "recommended") {
+			return recommendedIds.has(model.id);
+		}
+		if (view === "standard") {
+			return !premiumIds.has(model.id);
+		}
+		if (view === "premium") {
+			return premiumIds.has(model.id);
+		}
+		return true;
+	});
 
 	const copyToClipboard = async (modelId: string) => {
 		await navigator.clipboard.writeText(modelId);
@@ -148,7 +205,9 @@ export function CodingModelsShowcase({
 			<div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 				<div className="flex items-center gap-2">
 					<Code className="h-5 w-5" aria-hidden="true" />
-					<p className="font-semibold">Recommended for coding agents</p>
+					<p className="font-semibold">
+						{showTabs ? "Coding models" : "Recommended for coding agents"}
+					</p>
 				</div>
 				{showTabs && (
 					<div
@@ -183,23 +242,24 @@ export function CodingModelsShowcase({
 			<p className="text-sm text-muted-foreground mb-4">
 				{showTabs && activeTab
 					? activeTab.description
-					: "High-performance models optimized for coding tasks with tool support and prompt caching."}
+					: "The latest open-weight-lab models — high performance on coding tasks with tool support and prompt caching."}
 			</p>
 			<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-				{recommendedModels.map((model) => {
-					const provider = getCheapestProvider(model.providers);
+				{visibleModels.map((model) => {
+					const provider = getCheapestProvider(
+						model.providers.filter(isActiveMapping),
+					);
 					const FamilyIcon = getModelFamilyIcon(model.family);
-					const category = idByCategory.get(model.id);
 
 					return (
 						<div
 							key={model.id}
 							className="group relative flex flex-col gap-2 rounded-lg border p-4 transition-all hover:border-primary/50 hover:shadow-sm"
 						>
-							{view === "all" && category === "cheap" ? (
-								<span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
-									<Zap className="h-2.5 w-2.5" />
-									Cheap
+							{premiumIds.has(model.id) ? (
+								<span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
+									<Gem className="h-2.5 w-2.5" />
+									Premium
 								</span>
 							) : null}
 							<div className="flex items-start justify-between gap-2">
@@ -278,15 +338,13 @@ export function CodingModelsShowcase({
 				})}
 			</div>
 			<div className="mt-4 flex items-center justify-between">
-				<a
-					href={`${uiUrl}/models?category=code`}
-					target="_blank"
-					rel="noopener"
+				<Link
+					href="/models"
 					className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
 				>
-					View all coding models
+					Browse the full directory
 					<ArrowRight className="h-3 w-3" />
-				</a>
+				</Link>
 				{showCTA && (
 					<Button asChild>
 						<Link href="/signup">Get Started</Link>

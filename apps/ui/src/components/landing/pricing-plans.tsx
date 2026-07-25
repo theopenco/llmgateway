@@ -4,7 +4,7 @@ import { Check } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 
-import { useUser } from "@/hooks/useUser";
+import { useSessionStatus } from "@/hooks/useUser";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import {
@@ -17,14 +17,14 @@ import {
 } from "@/lib/components/card";
 
 export function PricingPlans() {
-	const { user } = useUser();
+	const { isAuthenticated } = useSessionStatus();
 	const router = useRouter();
 	const posthog = usePostHog();
 
 	const handlePlanSelection = (planName: string) => {
 		posthog.capture("pricing_plan_clicked", {
 			plan: planName.toLowerCase(),
-			is_authenticated: !!user,
+			is_authenticated: isAuthenticated,
 		});
 
 		switch (planName) {
@@ -36,7 +36,7 @@ export function PricingPlans() {
 				return;
 		}
 
-		if (!user) {
+		if (!isAuthenticated) {
 			router.push("/signup");
 		} else {
 			router.push("/dashboard");
@@ -73,7 +73,7 @@ export function PricingPlans() {
 				"Auto-routing & Vendor Selection",
 				"Discord support",
 			],
-			cta: user ? "Go to Dashboard" : "Get Started",
+			cta: isAuthenticated ? "Go to Dashboard" : "Get Started",
 			popular: true,
 		},
 		{

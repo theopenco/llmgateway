@@ -15,7 +15,10 @@ const inter = Inter({
 });
 
 const geistMono = Geist_Mono({
-	variable: "--font-mono",
+	// globals.css maps the Tailwind token: --font-mono: var(--font-geist-mono).
+	// Registering the font under --font-mono directly would leave that theme
+	// mapping dangling and every `font-mono` element falls back to sans.
+	variable: "--font-geist-mono",
 	subsets: ["latin"],
 	display: "swap",
 });
@@ -134,7 +137,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 	const config = getConfig();
 
 	return (
-		<html lang="en" suppressHydrationWarning>
+		<html
+			lang="en"
+			className={`${inter.variable} ${geistMono.variable} ${plusJakarta.variable}`}
+			suppressHydrationWarning
+		>
 			<head>
 				<link rel="preconnect" href="https://internal.llmgateway.io" />
 				<link rel="preconnect" href="https://docs.llmgateway.io" />
@@ -153,9 +160,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 					}}
 				/>
 			</head>
-			<body
-				className={`${inter.variable} ${geistMono.variable} ${plusJakarta.variable} min-h-screen antialiased`}
-			>
+			<body className="min-h-screen antialiased">
 				<Providers config={config}>{children}</Providers>
 			</body>
 		</html>

@@ -98,6 +98,7 @@ export async function updateReferralBonus(
 export async function manageOrganization(
 	orgId: string,
 	body: {
+		name: string;
 		plan: "free" | "pro" | "enterprise";
 		seats: number | null;
 		apiKeyLimit: number | null;

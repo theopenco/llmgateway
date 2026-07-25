@@ -126,6 +126,47 @@ export async function notifyCreditsPurchased(
 	});
 }
 
+export async function notifyRefund(
+	email: string,
+	name: string | null | undefined,
+	refundAmount: number,
+	product: string,
+): Promise<void> {
+	const displayName = name ?? "Unknown";
+
+	await sendDiscordNotification({
+		embeds: [
+			{
+				title: "Refund Processed",
+				color: 0xf97316, // Orange
+				fields: [
+					{
+						name: "Email",
+						value: email,
+						inline: true,
+					},
+					{
+						name: "Name",
+						value: displayName,
+						inline: true,
+					},
+					{
+						name: "Product",
+						value: product,
+						inline: true,
+					},
+					{
+						name: "Amount",
+						value: `$${refundAmount.toFixed(2)}`,
+						inline: true,
+					},
+				],
+				timestamp: new Date().toISOString(),
+			},
+		],
+	});
+}
+
 export async function notifyDevPlanSubscribed(
 	email: string,
 	name: string | null | undefined,
@@ -162,6 +203,47 @@ export async function notifyDevPlanSubscribed(
 	});
 }
 
+export async function notifyResetPassPurchased(
+	email: string,
+	name: string | null | undefined,
+	devPlan: string,
+	amount: number,
+): Promise<void> {
+	const displayName = name ?? "Unknown";
+
+	await sendDiscordNotification({
+		embeds: [
+			{
+				title: "Reset Pass Purchased",
+				color: 0x06b6d4, // Cyan
+				fields: [
+					{
+						name: "Email",
+						value: email,
+						inline: true,
+					},
+					{
+						name: "Name",
+						value: displayName,
+						inline: true,
+					},
+					{
+						name: "Tier",
+						value: devPlan.toUpperCase(),
+						inline: true,
+					},
+					{
+						name: "Amount",
+						value: `$${amount.toFixed(2)}`,
+						inline: true,
+					},
+				],
+				timestamp: new Date().toISOString(),
+			},
+		],
+	});
+}
+
 export async function notifyDevPlanCancelled(
 	email: string,
 	name: string | null | undefined,
@@ -174,6 +256,41 @@ export async function notifyDevPlanCancelled(
 			{
 				title: "DevPass Cancelled",
 				color: 0xef4444, // Red
+				fields: [
+					{
+						name: "Email",
+						value: email,
+						inline: true,
+					},
+					{
+						name: "Name",
+						value: displayName,
+						inline: true,
+					},
+					{
+						name: "Plan",
+						value: devPlan.toUpperCase(),
+						inline: true,
+					},
+				],
+				timestamp: new Date().toISOString(),
+			},
+		],
+	});
+}
+
+export async function notifyDevPlanResumed(
+	email: string,
+	name: string | null | undefined,
+	devPlan: string,
+): Promise<void> {
+	const displayName = name ?? "Unknown";
+
+	await sendDiscordNotification({
+		embeds: [
+			{
+				title: "DevPass Resumed",
+				color: 0x10b981, // Emerald
 				fields: [
 					{
 						name: "Email",
@@ -289,6 +406,74 @@ export async function notifyEnterpriseContact(args: {
 	);
 }
 
+export async function notifyProviderContact(args: {
+	providerName: string;
+	email: string;
+	url: string;
+	termsUrl: string;
+	privacyUrl: string;
+	statusPageUrl?: string | null;
+	country: string;
+	compliance: string;
+	dataRetentionDays: number;
+	trainsOnData: boolean;
+	ipAddress?: string | null;
+}): Promise<void> {
+	const {
+		providerName,
+		email,
+		url,
+		termsUrl,
+		privacyUrl,
+		statusPageUrl,
+		country,
+		compliance,
+		dataRetentionDays,
+		trainsOnData,
+		ipAddress,
+	} = args;
+
+	await sendDiscordNotification(
+		{
+			content: "🧩 New provider listing request.",
+			embeds: [
+				{
+					title: "Provider Listing Request",
+					color: 0x8b5cf6, // Purple
+					fields: [
+						{ name: "Provider", value: providerName, inline: true },
+						{ name: "Email", value: email, inline: true },
+						{ name: "URL", value: url, inline: false },
+						{ name: "Terms of Service", value: termsUrl, inline: false },
+						{ name: "Privacy Policy", value: privacyUrl, inline: false },
+						...(statusPageUrl
+							? [{ name: "Status Page", value: statusPageUrl, inline: false }]
+							: []),
+						{ name: "HQ Country", value: country, inline: true },
+						{
+							name: "Data Retention",
+							value: `${dataRetentionDays} days`,
+							inline: true,
+						},
+						{
+							name: "Trains on Data",
+							value: trainsOnData ? "Yes" : "No",
+							inline: true,
+						},
+						{ name: "Compliance", value: compliance, inline: false },
+						...(ipAddress
+							? [{ name: "IP Address", value: ipAddress, inline: true }]
+							: []),
+					],
+					timestamp: new Date().toISOString(),
+				},
+			],
+		},
+		process.env.DISCORD_ENTERPRISE_NOTIFICATION_URL ??
+			process.env.DISCORD_NOTIFICATION_URL,
+	);
+}
+
 export async function notifyDevPlanRenewed(
 	email: string,
 	name: string | null | undefined,
@@ -375,6 +560,29 @@ export async function notifyChatPlanCancelled(
 	});
 }
 
+export async function notifyChatPlanResumed(
+	email: string,
+	name: string | null | undefined,
+	chatPlan: string,
+): Promise<void> {
+	const displayName = name ?? "Unknown";
+
+	await sendDiscordNotification({
+		embeds: [
+			{
+				title: "Chat Plan Resumed",
+				color: 0x10b981,
+				fields: [
+					{ name: "Email", value: email, inline: true },
+					{ name: "Name", value: displayName, inline: true },
+					{ name: "Plan", value: chatPlan.toUpperCase(), inline: true },
+				],
+				timestamp: new Date().toISOString(),
+			},
+		],
+	});
+}
+
 export async function notifyChatPlanRenewed(
 	email: string,
 	name: string | null | undefined,
@@ -391,6 +599,27 @@ export async function notifyChatPlanRenewed(
 					{ name: "Email", value: email, inline: true },
 					{ name: "Name", value: displayName, inline: true },
 					{ name: "Plan", value: chatPlan.toUpperCase(), inline: true },
+				],
+				timestamp: new Date().toISOString(),
+			},
+		],
+	});
+}
+
+export async function notifyUserAccountDeleted(
+	email: string,
+	name: string | null | undefined,
+): Promise<void> {
+	const displayName = name ?? "Unknown";
+
+	await sendDiscordNotification({
+		embeds: [
+			{
+				title: "Account Deleted",
+				color: 0xef4444, // Red
+				fields: [
+					{ name: "Email", value: email, inline: true },
+					{ name: "Name", value: displayName, inline: true },
 				],
 				timestamp: new Date().toISOString(),
 			},

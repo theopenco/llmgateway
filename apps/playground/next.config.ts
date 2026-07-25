@@ -26,6 +26,21 @@ const nextConfig: NextConfig = {
 		"@json-render/react-pdf",
 		"@json-render/image",
 	],
+	async rewrites() {
+		return [
+			// First-party PostHog ingestion proxy — ad blockers block
+			// *.posthog.com directly, silently dropping client events. The
+			// client is configured with api_host: "/ingest" (providers.tsx).
+			{
+				source: "/ingest/static/:path*",
+				destination: "https://us-assets.i.posthog.com/static/:path*",
+			},
+			{
+				source: "/ingest/:path*",
+				destination: "https://us.i.posthog.com/:path*",
+			},
+		];
+	},
 	typescript: {
 		ignoreBuildErrors: true,
 	},

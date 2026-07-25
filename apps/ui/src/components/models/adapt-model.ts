@@ -1,3 +1,5 @@
+import { isPremiumModel } from "@llmgateway/shared";
+
 import type {
 	ApiModel,
 	ApiModelProviderMapping,
@@ -63,12 +65,14 @@ export function adaptProviderMapping(
 			imageOutputTokensByResolution: p.imageOutputTokensByResolution ?? null,
 			requestPrice: toStr(p.requestPrice),
 			ocrPagePrice: toStr(p.ocrPagePrice),
+			inputAudioHourPrice: toStr(p.inputAudioHourPrice),
 			contextSize: p.contextSize ?? null,
 			maxOutput: p.maxOutput ?? null,
 			quantization: p.quantization ?? null,
 			streaming: p.streaming === "only" ? true : p.streaming,
 			vision: p.vision ?? null,
 			reasoning: p.reasoning ?? null,
+			reasoningEfforts: p.reasoningEfforts ?? null,
 			reasoningOutput: p.reasoningOutput ?? null,
 			reasoningMaxTokens: p.reasoningMaxTokens ?? null,
 			tools: p.tools ?? null,
@@ -123,6 +127,7 @@ export function adaptProviderMapping(
 			color: p.providerInfo?.color ?? null,
 			website: p.providerInfo?.website ?? null,
 			announcement: null,
+			modelCardBadge: p.providerInfo?.modelCardBadge ?? null,
 			serviceTiers,
 			status: "active" as const,
 		},
@@ -135,6 +140,7 @@ export function adaptModel(
 ): AdaptedModel {
 	return {
 		id: modelDef.id,
+		premium: isPremiumModel(modelDef.id),
 		createdAt: "",
 		releasedAt: modelDef.releasedAt?.toISOString() ?? null,
 		name: modelDef.name ?? null,

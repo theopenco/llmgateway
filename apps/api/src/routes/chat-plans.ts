@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { voidPendingCycleRenewalInvoices } from "@/lib/pending-renewal.js";
 import { ensureStripeCustomer } from "@/stripe.js";
 import { getOrCreateChatOrg } from "@/utils/personal-org.js";
 
@@ -81,7 +82,7 @@ chatPlans.openapi(subscribe, async (c) => {
 	) {
 		throw new HTTPException(400, {
 			message:
-				"Already have an active chat plan. Please upgrade or cancel first.",
+				"Already have an active Lounge membership. Please upgrade or cancel first.",
 		});
 	}
 
@@ -172,7 +173,7 @@ const cancel = createRoute({
 					}),
 				},
 			},
-			description: "Chat plan subscription cancelled successfully",
+			description: "Lounge membership cancelled successfully",
 		},
 	},
 });
@@ -207,7 +208,7 @@ chatPlans.openapi(cancel, async (c) => {
 
 	if (!personalOrg.chatPlanStripeSubscriptionId) {
 		throw new HTTPException(400, {
-			message: "No active chat plan subscription found",
+			message: "No active Lounge membership found",
 		});
 	}
 
@@ -243,7 +244,7 @@ chatPlans.openapi(cancel, async (c) => {
 			error instanceof Error ? error : new Error(String(error)),
 		);
 		throw new HTTPException(500, {
-			message: "Failed to cancel chat plan subscription",
+			message: "Failed to cancel Lounge membership",
 		});
 	}
 });
@@ -261,7 +262,7 @@ const resume = createRoute({
 					}),
 				},
 			},
-			description: "Chat plan subscription resumed successfully",
+			description: "Lounge membership resumed successfully",
 		},
 	},
 });
@@ -296,7 +297,7 @@ chatPlans.openapi(resume, async (c) => {
 
 	if (!personalOrg.chatPlanStripeSubscriptionId) {
 		throw new HTTPException(400, {
-			message: "No chat plan subscription found",
+			message: "No Lounge membership found",
 		});
 	}
 
@@ -342,7 +343,7 @@ chatPlans.openapi(resume, async (c) => {
 			error instanceof Error ? error : new Error(String(error)),
 		);
 		throw new HTTPException(500, {
-			message: "Failed to resume chat plan subscription",
+			message: "Failed to resume Lounge membership",
 		});
 	}
 });
@@ -370,7 +371,7 @@ const changeTier = createRoute({
 					}),
 				},
 			},
-			description: "Chat plan tier changed successfully",
+			description: "Lounge membership tier changed successfully",
 		},
 	},
 });
@@ -406,7 +407,7 @@ chatPlans.openapi(changeTier, async (c) => {
 
 	if (!personalOrg.chatPlanStripeSubscriptionId) {
 		throw new HTTPException(400, {
-			message: "No active chat plan subscription found",
+			message: "No active Lounge membership found",
 		});
 	}
 
@@ -435,6 +436,15 @@ chatPlans.openapi(changeTier, async (c) => {
 		const newCreditsLimit = getChatPlanCreditsLimit(newTier);
 
 		if (isUpgrade) {
+			// If the previous cycle just ended, its renewal invoice may still be
+			// pending (Stripe drafts it at the period boundary and charges ~an hour
+			// later). Void it before re-anchoring — otherwise it would later charge
+			// for a cycle this upgrade replaces and its webhook would clobber the
+			// fresh allowance granted below.
+			await voidPendingCycleRenewalInvoices(
+				personalOrg.chatPlanStripeSubscriptionId,
+			);
+
 			// Charge the full new-tier price today and start a fresh billing cycle
 			// (`billing_cycle_anchor: "now"`) with no proration
 			// (`proration_behavior: "none"`). `error_if_incomplete` makes the update
@@ -503,7 +513,7 @@ chatPlans.openapi(changeTier, async (c) => {
 			await db.insert(tables.transaction).values({
 				organizationId: personalOrg.id,
 				type: "chat_plan_downgrade",
-				description: `Changed from ${personalOrg.chatPlan} to ${newTier} plan`,
+				description: `Changed Lounge membership from ${personalOrg.chatPlan} to ${newTier}`,
 				status: "completed",
 			});
 		}
@@ -528,22 +538,40 @@ chatPlans.openapi(changeTier, async (c) => {
 		if (error instanceof HTTPException) {
 			throw error;
 		}
-		logger.error(
-			"Stripe chat plan tier change error",
-			error instanceof Error ? error : new Error(String(error)),
-		);
+		// A declined card / required invoice payment is an expected user-facing
+		// outcome, not a server fault: surface it as a 402 and log at warn — never
+		// error — to avoid noisy alerts for declined cards.
 		const errCode =
 			typeof error === "object" && error !== null && "code" in error
 				? String((error as { code?: unknown }).code)
 				: undefined;
 		if (errCode === "card_declined" || errCode === "invoice_payment_required") {
+			logger.warn("Chat plan tier change payment declined", {
+				code: errCode,
+			});
 			throw new HTTPException(402, {
 				message:
 					"Upgrade payment could not be collected. Update your payment method and try again.",
 			});
 		}
+		// `error_if_incomplete` throws this when the bank demands 3DS/SCA
+		// authentication, which can't be completed server-side; the subscription
+		// is left unchanged. Also an expected user-facing outcome, so 402 + warn.
+		if (errCode === "subscription_payment_intent_requires_action") {
+			logger.warn("Chat plan tier change requires payment authentication", {
+				code: errCode,
+			});
+			throw new HTTPException(402, {
+				message:
+					"Your bank requires additional verification to complete this payment. Update or re-add your payment method and try again.",
+			});
+		}
+		logger.error(
+			"Stripe chat plan tier change error",
+			error instanceof Error ? error : new Error(String(error)),
+		);
 		throw new HTTPException(500, {
-			message: "Failed to change chat plan tier",
+			message: "Failed to change Lounge membership tier",
 		});
 	}
 });
@@ -571,7 +599,7 @@ const getStatus = createRoute({
 					}),
 				},
 			},
-			description: "Chat plan status retrieved successfully",
+			description: "Lounge membership status retrieved successfully",
 		},
 	},
 });

@@ -65,6 +65,7 @@ export function getProviderHeaders(
 		}
 		case "google-ai-studio":
 		case "glacier":
+		case "iceberg":
 		case "quartz":
 			return requestIdHeader;
 		case "google-vertex": {
@@ -138,6 +139,7 @@ export function getProviderHeaders(
 		case "perplexity":
 		case "novita":
 		case "moonshot":
+		case "meta":
 		case "alibaba":
 		case "nebius":
 		case "zai":

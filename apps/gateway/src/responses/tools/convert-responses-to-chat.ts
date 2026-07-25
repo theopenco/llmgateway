@@ -213,12 +213,19 @@ function convertContent(
 	}
 
 	return content.map((item) => {
+		// Carry OpenAI explicit prompt cache breakpoints (GPT-5.6+) through the
+		// content-type rewrite; the chat pipeline strips them for unsupported
+		// provider/model pairs.
+		const breakpoint =
+			item.prompt_cache_breakpoint !== undefined
+				? { prompt_cache_breakpoint: item.prompt_cache_breakpoint }
+				: undefined;
 		if (
 			item.type === "input_text" ||
 			item.type === "output_text" ||
 			item.type === "text"
 		) {
-			return { type: "text", text: item.text };
+			return { type: "text", text: item.text, ...breakpoint };
 		}
 		if (item.type === "input_image") {
 			return {
@@ -227,6 +234,7 @@ function convertContent(
 					url: item.image_url ?? item.url,
 					...(item.detail ? { detail: item.detail } : {}),
 				},
+				...breakpoint,
 			};
 		}
 		// Pass through unknown types
