@@ -774,7 +774,9 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 				requestId,
 				project,
 				apiKey,
-				providerKeyId: attempt.providerKey?.id ?? attempt.managedKey?.id,
+				// BYOK only: a managed credential is the platform's own key and its
+				// traffic must still bill as credits.
+				organizationProviderKeyId: attempt.providerKey?.id,
 				usedModel: `${providerId}/${modelDefId}`,
 				usedModelMapping: upstreamModel,
 				usedProvider: providerId,

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { app } from "@/app.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
+import { waitForLogs } from "@/test-utils/test-helpers.js";
 
 import { cdb, db, eq, tables } from "@llmgateway/db";
 
@@ -421,5 +422,119 @@ describe("managed provider credentials", () => {
 
 		expect(captured).toHaveLength(1);
 		expect(captured[0].authorization).toBe("Bearer sk-managed-default");
+	});
+
+	/**
+	 * BILLING-CRITICAL. `usedMode` decides whether the worker charges the
+	 * organization: `credits` deducts the full request cost, `api-keys` deducts
+	 * only data storage (apps/worker/src/worker.ts). A managed credential is
+	 * LLM Gateway's own key — the same role the `LLM_*` env vars played — so
+	 * traffic it serves must bill exactly as it did before the migration. If
+	 * this ever logs `api-keys`, LLM Gateway pays the provider and bills nobody.
+	 */
+	describe("usedMode billing attribution", () => {
+		async function expectCreditsLog() {
+			const logs = await waitForLogs(1);
+			expect(logs).toHaveLength(1);
+			expect(logs[0].usedMode).toBe("credits");
+		}
+
+		test("chat completions served by a managed credential bill as credits", async () => {
+			await seedApiKey();
+			await seedManagedCredential({
+				id: "managed-openai-billing",
+				provider: "openai",
+				token: "sk-managed-billing",
+			});
+
+			const previousEnvKey = process.env.LLM_OPENAI_API_KEY;
+			delete process.env.LLM_OPENAI_API_KEY;
+			captureUpstream(chatCompletion);
+
+			try {
+				const res = await completions("openai/gpt-4o-mini");
+				expect(res.status).toBe(200);
+			} finally {
+				if (previousEnvKey !== undefined) {
+					process.env.LLM_OPENAI_API_KEY = previousEnvKey;
+				}
+			}
+
+			await expectCreditsLog();
+		});
+
+		test("embeddings served by a managed credential bill as credits", async () => {
+			await seedApiKey();
+			await seedManagedCredential({
+				id: "managed-openai-embed",
+				provider: "openai",
+				token: "sk-managed-embed",
+			});
+
+			const previousEnvKey = process.env.LLM_OPENAI_API_KEY;
+			delete process.env.LLM_OPENAI_API_KEY;
+			captureUpstream({
+				object: "list",
+				model: "text-embedding-3-small",
+				data: [{ object: "embedding", index: 0, embedding: [0.1, 0.2] }],
+				usage: { prompt_tokens: 1, total_tokens: 1 },
+			});
+
+			try {
+				const res = await app.request("/v1/embeddings", {
+					method: "POST",
+					headers: {
+						Authorization: "Bearer real-token",
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify({
+						model: "openai/text-embedding-3-small",
+						input: "hello",
+					}),
+				});
+				expect(res.status).toBe(200);
+			} finally {
+				if (previousEnvKey !== undefined) {
+					process.env.LLM_OPENAI_API_KEY = previousEnvKey;
+				}
+			}
+
+			await expectCreditsLog();
+		});
+
+		test("moderations served by a managed credential bill as credits", async () => {
+			await seedApiKey();
+			await seedManagedCredential({
+				id: "managed-openai-moderation",
+				provider: "openai",
+				token: "sk-managed-moderation",
+			});
+
+			const previousEnvKey = process.env.LLM_OPENAI_API_KEY;
+			delete process.env.LLM_OPENAI_API_KEY;
+			captureUpstream({
+				id: "modr-1",
+				model: "omni-moderation-latest",
+				results: [{ flagged: false }],
+			});
+
+			try {
+				const res = await app.request("/v1/moderations", {
+					method: "POST",
+					headers: {
+						Authorization: "Bearer real-token",
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify({ input: "hello" }),
+				});
+				expect(res.status).toBe(200);
+			} finally {
+				if (previousEnvKey !== undefined) {
+					process.env.LLM_OPENAI_API_KEY = previousEnvKey;
+				}
+			}
+
+			await expectCreditsLog();
+		});
 	});
 });

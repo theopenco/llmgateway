@@ -548,9 +548,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		requestId,
 		project,
 		apiKey,
-		// Deliberately the BYOK key only: this drives `usedMode`, and a managed
-		// credential is the platform's own key serving credits-mode traffic.
-		providerKeyId: providerKey?.id,
+		organizationProviderKeyId: providerKey?.id,
 		usedModel: "openai-moderation",
 		usedModelMapping: upstreamModel,
 		usedProvider: "openai",
