@@ -10,7 +10,6 @@ function envInt(name: string, fallback: number): number {
 }
 
 let agent: Agent | null = null;
-let prewarmTimer: NodeJS.Timeout | null = null;
 
 /**
  * Installs a tuned undici Agent as the global dispatcher used by `fetch` for
@@ -51,50 +50,7 @@ export function installUpstreamDispatcher(): Dispatcher {
 	return dispatcher;
 }
 
-/**
- * Optionally keeps connections to configured provider origins warm so that
- * even after idle periods the next real request finds an established socket,
- * a cached DNS answer, and a resumable TLS session instead of paying full
- * connection setup. Enabled by setting UPSTREAM_PREWARM_ORIGINS to a
- * comma-separated list of origins (e.g. "https://api.anthropic.com").
- */
-export function startUpstreamPrewarm(): void {
-	const origins = (process.env.UPSTREAM_PREWARM_ORIGINS ?? "")
-		.split(",")
-		.map((origin) => origin.trim())
-		.filter(Boolean);
-	if (origins.length === 0) {
-		return;
-	}
-
-	const intervalMs = envInt("UPSTREAM_PREWARM_INTERVAL_S", 30) * 1000;
-	if (intervalMs === 0) {
-		return;
-	}
-
-	const prewarm = () => {
-		for (const origin of origins) {
-			fetch(origin, {
-				method: "HEAD",
-				signal: AbortSignal.timeout(5_000),
-			}).then(
-				(res) => res.body?.cancel(),
-				() => {},
-			);
-		}
-	};
-
-	prewarm();
-	prewarmTimer = setInterval(prewarm, intervalMs);
-	prewarmTimer.unref();
-	logger.info("Upstream prewarm started", { origins, intervalMs });
-}
-
 export async function closeUpstreamDispatcher(): Promise<void> {
-	if (prewarmTimer) {
-		clearInterval(prewarmTimer);
-		prewarmTimer = null;
-	}
 	if (agent) {
 		await agent.close();
 		agent = null;

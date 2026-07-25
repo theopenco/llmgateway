@@ -12,7 +12,6 @@ import { app } from "./app.js";
 import {
 	closeUpstreamDispatcher,
 	installUpstreamDispatcher,
-	startUpstreamPrewarm,
 } from "./lib/upstream-dispatcher.js";
 import { metricsApp } from "./metrics-app.js";
 
@@ -40,7 +39,6 @@ async function startServer() {
 	setQueryTags({ application: "gateway" });
 
 	installUpstreamDispatcher();
-	startUpstreamPrewarm();
 
 	// Initialize tracing for gateway service
 	try {
