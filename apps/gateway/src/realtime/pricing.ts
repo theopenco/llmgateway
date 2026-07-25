@@ -189,6 +189,10 @@ export interface RealtimePriceSnapshot {
 	cachedImageInput?: string;
 	textOutput?: string;
 	audioOutput?: string;
+	// Realtime billing is purely per-token. Captured only so a mapping that
+	// declares a non-zero flat per-request price fails as unpriceable instead
+	// of silently under-billing.
+	requestPrice?: string;
 }
 
 export function buildRealtimePriceSnapshot(
@@ -202,6 +206,7 @@ export function buildRealtimePriceSnapshot(
 		| "cachedImageInputPrice"
 		| "outputPrice"
 		| "outputAudioPrice"
+		| "requestPrice"
 	>,
 ): RealtimePriceSnapshot {
 	return {
@@ -216,6 +221,7 @@ export function buildRealtimePriceSnapshot(
 		cachedImageInput: mapping.cachedImageInputPrice,
 		textOutput: mapping.outputPrice,
 		audioOutput: mapping.outputAudioPrice ?? mapping.outputPrice,
+		requestPrice: mapping.requestPrice,
 	};
 }
 
@@ -256,6 +262,18 @@ export function priceRealtimeUsage(
 	usage: NormalizedRealtimeUsage,
 	snapshot: RealtimePriceSnapshot,
 ): PriceRealtimeUsageResult {
+	// This function bills tokens only. A mapping carrying a flat per-request
+	// price would be under-billed silently, so fail closed instead.
+	if (
+		snapshot.requestPrice !== undefined &&
+		!new Decimal(snapshot.requestPrice).isZero()
+	) {
+		return {
+			ok: false,
+			reason: "per-request pricing is not supported for realtime sessions",
+		};
+	}
+
 	const components: Array<
 		[keyof RealtimeCostBreakdown, Decimal | { error: string }]
 	> = [

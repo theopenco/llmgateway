@@ -111,18 +111,22 @@ export interface TranscriptionPriceSnapshot {
 	textInput?: string;
 	audioInput?: string;
 	textOutput?: string;
+	// Captured only so a mapping declaring a non-zero flat per-request price
+	// fails as unpriceable rather than silently under-billing.
+	requestPrice?: string;
 }
 
 export function buildTranscriptionPriceSnapshot(
 	mapping: Pick<
 		ProviderModelMapping,
-		"inputPrice" | "inputAudioPrice" | "outputPrice"
+		"inputPrice" | "inputAudioPrice" | "outputPrice" | "requestPrice"
 	>,
 ): TranscriptionPriceSnapshot {
 	return {
 		textInput: mapping.inputPrice,
 		audioInput: mapping.inputAudioPrice ?? mapping.inputPrice,
 		textOutput: mapping.outputPrice,
+		requestPrice: mapping.requestPrice,
 	};
 }
 
@@ -160,6 +164,18 @@ export function priceTranscriptionUsage(
 	usage: NormalizedTranscriptionUsage,
 	snapshot: TranscriptionPriceSnapshot,
 ): PriceTranscriptionUsageResult {
+	// Token-only billing, as in priceRealtimeUsage: a flat per-request price
+	// would be silently dropped, so fail closed instead.
+	if (
+		snapshot.requestPrice !== undefined &&
+		!new Decimal(snapshot.requestPrice).isZero()
+	) {
+		return {
+			ok: false,
+			reason: "per-request pricing is not supported for realtime sessions",
+		};
+	}
+
 	const inputCost = priceComponent(
 		usage.inputTextTokens,
 		snapshot.textInput,

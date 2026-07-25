@@ -1072,6 +1072,11 @@ export class RealtimeProxySession {
 				: undefined;
 		const responseId =
 			response && typeof response.id === "string" ? response.id : undefined;
+		// Recorded for auditability only: realtime deliberately does NOT honour
+		// BILL_CANCELLED_REQUESTS. A cancelled response still reports the audio
+		// it already generated, and the upstream provider bills us for it, so
+		// every terminal response is charged regardless of status. This differs
+		// from the HTTP path, where cancelled requests are free by default.
 		const responseStatus =
 			response && typeof response.status === "string"
 				? response.status
@@ -1109,8 +1114,10 @@ export class RealtimeProxySession {
 		}
 
 		// Apply the organization/provider/model discount exactly like the HTTP
-		// billing path does. Fail closed if the discount can't be resolved: a
-		// full-price charge to a discounted customer is a billing error.
+		// billing path does. Note that getEffectiveDiscount swallows its own
+		// database errors and returns a 0% discount, so a discount-lookup
+		// outage bills at full price rather than reaching the catch below. That
+		// matches the HTTP path; the catch only covers unexpected throws.
 		let discount: Decimal;
 		try {
 			const effectiveDiscount = await getEffectiveDiscount(
@@ -1237,7 +1244,9 @@ export class RealtimeProxySession {
 		}
 
 		// The ASR mapping carries its own discount scope, independent of the
-		// realtime model's. Fail closed if it can't be resolved.
+		// realtime model's. As above, getEffectiveDiscount returns a 0%
+		// discount on database errors, so this catch only covers unexpected
+		// throws rather than a discount-lookup outage.
 		let discount: Decimal;
 		try {
 			const effectiveDiscount = await getEffectiveDiscount(
