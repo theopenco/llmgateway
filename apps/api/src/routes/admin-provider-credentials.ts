@@ -10,7 +10,11 @@ import {
 	getManagedCredentialConfigKeys,
 	getMissingManagedCredentialKeys,
 	getUnknownManagedCredentialKeys,
+	managedCredentialValidationOptions,
 	providerKeyEncryptionScope,
+	readProviderKey,
+	redactToken,
+	validateProviderKey,
 } from "@llmgateway/actions";
 import { and, cdb, db, eq, shortid, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -19,6 +23,7 @@ import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderKeyVariant } from "@llmgateway/db";
+import type { ProviderId } from "@llmgateway/models";
 
 export const adminProviderCredentials = new OpenAPIHono<ServerTypes>();
 
@@ -135,6 +140,67 @@ async function validateConfig(
 	}
 }
 
+/**
+ * Confirms the credential actually works upstream by sending one minimal
+ * completion through it, using exactly the settings the gateway will send with
+ * it: the row's `config` surfaced as `env_config`, plus the region the
+ * credential is pinned to. A managed credential serves every credits-mode
+ * request for its provider, so a typo or expired token here breaks all traffic
+ * rather than a single tenant's, and it stays broken until someone notices.
+ *
+ * Admins can pass `skipValidation` for the cases a live check cannot cover —
+ * a provider whose catalogue has no chat model to validate against, or an
+ * upstream that is temporarily down.
+ */
+async function validateCredentialToken(
+	provider: string,
+	token: string,
+	config: Record<string, string>,
+	region: string | null | undefined,
+): Promise<void> {
+	// Provider keys in unit tests are fixtures, not live credentials; e2e runs
+	// opt back in so the real upstream path stays covered.
+	const isTestEnv =
+		process.env.NODE_ENV === "test" && process.env.E2E_TEST !== "true";
+	if (isTestEnv) {
+		return;
+	}
+
+	const result = await validateProviderKey(
+		provider as ProviderId,
+		token,
+		undefined, // base URL travels in config/env_config for managed credentials
+		false,
+		managedCredentialValidationOptions(provider, config, region),
+	);
+
+	if (result.valid) {
+		return;
+	}
+
+	// validateProviderKey already redacts, but any future path populating
+	// `error` must not be allowed to echo the plaintext token back to the admin
+	// client or into logs.
+	const errorMessage = redactToken(
+		result.error ?? "Invalid API key. Please make sure the key is correct.",
+		token,
+	);
+
+	logger.warn("Managed provider credential validation failed", {
+		provider,
+		model: result.model ?? "unknown",
+		statusCode: result.statusCode ?? "none",
+		region: config.region ?? region ?? undefined,
+		error: errorMessage,
+	});
+
+	const statusPart = result.statusCode ? ` (status ${result.statusCode})` : "";
+	const modelPart = result.model ? ` using model ${result.model}` : "";
+	throw new HTTPException(400, {
+		message: `Credential rejected by ${provider}: ${errorMessage}${statusPart}${modelPart}. Pass skipValidation to store it anyway.`,
+	});
+}
+
 const getCatalog = createRoute({
 	method: "get",
 	path: "/provider-credentials/catalog",
@@ -227,6 +293,7 @@ const createCredential = createRoute({
 						variant: variantSchema.optional(),
 						region: z.string().max(64).optional(),
 						config: z.record(z.string(), z.string()).optional(),
+						skipValidation: z.boolean().optional(),
 					}),
 				},
 			},
@@ -250,6 +317,15 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 	const config = normalizeConfig(body.config);
 
 	await validateConfig(body.provider, config);
+
+	if (!body.skipValidation) {
+		await validateCredentialToken(
+			body.provider,
+			body.token,
+			config,
+			body.region,
+		);
+	}
 
 	// Generate the id up front so the AAD — which binds the ciphertext to the
 	// row id and the managed scope — can be computed before the INSERT.
@@ -301,6 +377,7 @@ const updateCredential = createRoute({
 						region: z.string().max(64).nullable().optional(),
 						status: statusSchema.optional(),
 						config: z.record(z.string(), z.string()).optional(),
+						skipValidation: z.boolean().optional(),
 					}),
 				},
 			},
@@ -341,6 +418,21 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 		const config = normalizeConfig(body.config);
 		await validateConfig(existing.provider, config);
 		updates.config = config;
+	}
+
+	// A new token and a changed config both alter what the gateway will send
+	// upstream, so revalidate on either. Config-only edits are checked against
+	// the stored token, which is the pair that will actually serve traffic.
+	if (
+		!body.skipValidation &&
+		(body.token !== undefined || body.config !== undefined)
+	) {
+		await validateCredentialToken(
+			existing.provider,
+			body.token ?? readProviderKey(existing),
+			updates.config ?? existing.config ?? {},
+			body.region !== undefined ? body.region : existing.region,
+		);
 	}
 
 	if (body.token !== undefined) {

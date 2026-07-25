@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
 	Dialog,
 	DialogContent,
@@ -73,6 +74,7 @@ interface ProviderCredentialsManagerProps {
 		variant?: Variant;
 		region?: string;
 		config?: Record<string, string>;
+		skipValidation?: boolean;
 	}) => Promise<MutationResult>;
 	onUpdate: (
 		id: string,
@@ -83,6 +85,7 @@ interface ProviderCredentialsManagerProps {
 			region?: string | null;
 			status?: "active" | "inactive";
 			config?: Record<string, string>;
+			skipValidation?: boolean;
 		},
 	) => Promise<MutationResult>;
 	onDelete: (id: string) => Promise<MutationResult>;
@@ -258,6 +261,7 @@ export function ProviderCredentialsManager({
 							variant: values.variant,
 							region: values.region || undefined,
 							config: values.config,
+							skipValidation: values.skipValidation,
 						});
 						if (result.success) {
 							setCreating(false);
@@ -282,6 +286,7 @@ export function ProviderCredentialsManager({
 							region: values.region || null,
 							status: values.status,
 							config: values.config,
+							skipValidation: values.skipValidation,
 						});
 						if (result.success) {
 							setEditing(null);
@@ -341,6 +346,7 @@ interface CredentialFormValues {
 	region: string;
 	status: "active" | "inactive";
 	config: Record<string, string>;
+	skipValidation: boolean;
 }
 
 function CredentialDialog({
@@ -372,6 +378,7 @@ function CredentialDialog({
 	const [config, setConfig] = useState<Record<string, string>>(
 		credential?.config ?? {},
 	);
+	const [skipValidation, setSkipValidation] = useState(false);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
@@ -389,6 +396,7 @@ function CredentialDialog({
 			region,
 			status,
 			config,
+			skipValidation,
 		});
 		setLoading(false);
 		if (!result.success) {
@@ -569,6 +577,24 @@ function CredentialDialog({
 							</Select>
 						</div>
 					) : null}
+
+					<div className="flex items-start gap-2">
+						<Checkbox
+							id="skip-validation"
+							checked={skipValidation}
+							onCheckedChange={(checked) => setSkipValidation(checked === true)}
+						/>
+						<div className="flex flex-col gap-1">
+							<Label htmlFor="skip-validation" className="font-normal">
+								Skip validation
+							</Label>
+							<p className="text-xs text-muted-foreground">
+								Saving sends one minimal request through this credential to
+								confirm it works. Skip it for providers with no chat model to
+								test against, or when the upstream is temporarily down.
+							</p>
+						</div>
+					</div>
 
 					{error ? <p className="text-sm text-destructive">{error}</p> : null}
 				</div>

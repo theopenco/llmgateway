@@ -5,6 +5,7 @@ import {
 	getMissingManagedCredentialKeys,
 	getUnknownManagedCredentialKeys,
 	managedCredentialOptions,
+	managedCredentialValidationOptions,
 } from "./managed.js";
 
 describe("getManagedCredentialConfigKeys", () => {
@@ -112,5 +113,48 @@ describe("managedCredentialOptions", () => {
 				config: {},
 			}),
 		).toEqual({ azure_deployment_name: "gpt-4o" });
+	});
+});
+
+describe("managedCredentialValidationOptions", () => {
+	it("carries the credential's config as env_config", () => {
+		expect(
+			managedCredentialValidationOptions(
+				"google-vertex",
+				{ project: "my-proj" },
+				null,
+			),
+		).toEqual({ env_config: { project: "my-proj" } });
+	});
+
+	it("bridges the region column onto the provider's region option key", () => {
+		expect(
+			managedCredentialValidationOptions("aws-bedrock", {}, "eu-central-1"),
+		).toEqual({ aws_bedrock_region: "eu-central-1" });
+	});
+
+	it("prefers the config's own region over the region column", () => {
+		expect(
+			managedCredentialValidationOptions(
+				"aws-bedrock",
+				{ region: "us-west-2" },
+				"eu-central-1",
+			),
+		).toEqual({
+			env_config: { region: "us-west-2" },
+			aws_bedrock_region: "us-west-2",
+		});
+	});
+
+	it("ignores a blank region column", () => {
+		expect(
+			managedCredentialValidationOptions("aws-bedrock", {}, "   "),
+		).toEqual({});
+	});
+
+	it("leaves the region out for providers that are not region-scoped", () => {
+		expect(
+			managedCredentialValidationOptions("openai", {}, "eu-central-1"),
+		).toEqual({});
 	});
 });

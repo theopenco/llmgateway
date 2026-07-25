@@ -1,6 +1,7 @@
-import { getProviderEnvKeys } from "@llmgateway/models";
+import { getProviderEnvKeys, providers } from "@llmgateway/models";
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
+import type { ProviderDefinition } from "@llmgateway/models";
 
 /**
  * Columns of a managed provider-key row that describe the credential beyond
@@ -33,6 +34,37 @@ export function managedCredentialOptions(
 		return row.options ?? undefined;
 	}
 	return { ...(row.options ?? {}), env_config: config };
+}
+
+/**
+ * Options for validating a managed credential before it is stored.
+ *
+ * Same settings the gateway will send with the credential, plus one bridge: a
+ * managed credential records its region in its own `region` column (it selects
+ * which region's traffic the credential serves), while `validateProviderKey`
+ * reads the region from the provider's option key. Without this, a regional
+ * credential would be checked against the provider's default region instead of
+ * the one it will actually serve.
+ */
+export function managedCredentialValidationOptions(
+	provider: string,
+	config: Record<string, string> | null | undefined,
+	region: string | null | undefined,
+): ProviderKeyOptions {
+	const options: ProviderKeyOptions = {
+		...(managedCredentialOptions({ options: null, config }) ?? {}),
+	};
+
+	const providerDef = providers.find((p) => p.id === provider) as
+		| ProviderDefinition
+		| undefined;
+	const regionOptionsKey = providerDef?.regionConfig?.optionsKey;
+	const effectiveRegion = config?.region ?? region?.trim();
+	if (regionOptionsKey && effectiveRegion) {
+		(options as Record<string, string>)[regionOptionsKey] = effectiveRegion;
+	}
+
+	return options;
 }
 
 /**

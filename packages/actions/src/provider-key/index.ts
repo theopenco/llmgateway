@@ -13,6 +13,7 @@ export type { ProviderKeyRowLike } from "./read.js";
 export { redactToken } from "./redact.js";
 export {
 	managedCredentialOptions,
+	managedCredentialValidationOptions,
 	getManagedCredentialConfigKeys,
 	getMissingManagedCredentialKeys,
 	getUnknownManagedCredentialKeys,

@@ -17,6 +17,7 @@ export interface CredentialInput {
 	variant?: "default" | "enterprise" | "plans";
 	region?: string;
 	config?: Record<string, string>;
+	skipValidation?: boolean;
 }
 
 interface MutationResult {
@@ -65,6 +66,7 @@ export async function updateProviderCredential(
 		region?: string | null;
 		status?: "active" | "inactive";
 		config?: Record<string, string>;
+		skipValidation?: boolean;
 	},
 ): Promise<MutationResult> {
 	const $api = await createServerApiClient();
