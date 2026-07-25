@@ -43,25 +43,22 @@ import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
 import { useAuth } from "@/lib/auth-client";
 
 import { OrganizationSwitcher } from "./organization-switcher";
-import { SidebarChatSearch, SidebarNewAction } from "./sidebar-actions";
 
 import type { Organization } from "@/lib/types";
 
-interface CanvasSidebarProps {
+interface RealtimeSidebarProps {
 	organizations: Organization[];
 	selectedOrganization: Organization | null;
 	onSelectOrganization: (organization: Organization | null) => void;
 	className?: string;
-	onNewCanvas?: () => void;
 }
 
-export function CanvasSidebar({
+export function RealtimeSidebar({
 	organizations,
 	selectedOrganization,
 	onSelectOrganization,
 	className,
-	onNewCanvas,
-}: CanvasSidebarProps) {
+}: RealtimeSidebarProps) {
 	const switcherOrganizations = organizations.filter(
 		(org) => org.kind === "default",
 	);
@@ -69,6 +66,13 @@ export function CanvasSidebar({
 		switcherOrganizations.find((org) => org.id === selectedOrganization?.id) ??
 		null;
 	const router = useRouter();
+	const pathname = usePathname();
+	const searchParams = useSearchParams();
+	// Preserve the selected organization across playground navigation so users
+	// don't have to re-pick their org on every page.
+	const orgIdParam = searchParams.get("orgId");
+	const withOrg = (path: string) =>
+		orgIdParam ? `${path}?orgId=${orgIdParam}` : path;
 	const posthog = usePostHog();
 	const { user, isLoading: isUserLoading } = useUser();
 	const { signOut } = useAuth();
@@ -94,16 +98,6 @@ export function CanvasSidebar({
 		});
 	};
 
-	const pathname = usePathname();
-	const searchParams = useSearchParams();
-	// Preserve the selected organization across playground navigation so users
-	// don't have to re-pick their org on every page.
-	const orgIdParam = searchParams.get("orgId");
-	const withOrg = (path: string) =>
-		orgIdParam ? `${path}?orgId=${orgIdParam}` : path;
-
-	const isAuthenticated = !!user;
-
 	if (isUserLoading) {
 		return (
 			<Sidebar className={className}>
@@ -114,9 +108,9 @@ export function CanvasSidebar({
 							className="flex self-start items-center gap-2 my-2"
 							prefetch={true}
 						>
-							<Logo className="h-10 w-10" />
+							<Logo className="size-6" />
 							<h1 className="text-xl font-semibold">LLM Gateway</h1>
-							<Badge>Canvas</Badge>
+							<Badge>Voice</Badge>
 						</Link>
 					</div>
 				</SidebarHeader>
@@ -124,7 +118,7 @@ export function CanvasSidebar({
 		);
 	}
 
-	if (!isAuthenticated) {
+	if (!user) {
 		return (
 			<Sidebar className={className}>
 				<SidebarHeader>
@@ -134,14 +128,14 @@ export function CanvasSidebar({
 							className="flex self-start items-center gap-2 my-2"
 							prefetch={true}
 						>
-							<Logo className="h-10 w-10" />
+							<Logo className="size-6" />
 							<h1 className="text-xl font-semibold">LLM Gateway</h1>
-							<Badge>Canvas</Badge>
+							<Badge>Voice</Badge>
 						</Link>
 						<div className="w-full rounded-md border p-4 text-sm">
 							<div className="font-medium mb-2">Sign in required</div>
 							<p className="text-muted-foreground mb-3">
-								Please sign in to use Canvas.
+								Please sign in to start voice calls.
 							</p>
 							<div className="flex items-center justify-end gap-2">
 								<Button size="sm" asChild>
@@ -183,8 +177,6 @@ export function CanvasSidebar({
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
-					<SidebarChatSearch disabled />
-					<SidebarNewAction label="New Canvas" onAction={onNewCanvas} />
 					<SidebarMenuItem>
 						<SidebarMenuButton
 							asChild
@@ -272,18 +264,21 @@ export function CanvasSidebar({
 				</SidebarMenu>
 			</SidebarHeader>
 
-			<SidebarContent className="px-2 py-4">
-				{switcherOrganizations.length > 0 ? (
-					<SidebarMenu className="group-data-[collapsible=icon]:hidden">
-						<SidebarMenuItem>
-							<OrganizationSwitcher
-								organizations={switcherOrganizations}
-								selectedOrganization={switcherSelectedOrganization}
-								onSelectOrganization={onSelectOrganization}
-							/>
-						</SidebarMenuItem>
-					</SidebarMenu>
-				) : null}
+			<SidebarContent className="overflow-hidden pb-2">
+				<div>
+					<div className="mx-2 mb-2 border-t border-sidebar-border" />
+					{switcherOrganizations.length > 0 ? (
+						<SidebarMenu className="px-2 pb-2 group-data-[collapsible=icon]:hidden">
+							<SidebarMenuItem>
+								<OrganizationSwitcher
+									organizations={switcherOrganizations}
+									selectedOrganization={switcherSelectedOrganization}
+									onSelectOrganization={onSelectOrganization}
+								/>
+							</SidebarMenuItem>
+						</SidebarMenu>
+					) : null}
+				</div>
 			</SidebarContent>
 
 			<SidebarFooter>

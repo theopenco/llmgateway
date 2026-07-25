@@ -4,21 +4,22 @@ import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import {
 	AudioLines,
-	MessageSquare,
-	Edit2,
-	Trash2,
-	MoreVerticalIcon,
-	ImagePlus,
-	Film,
-	Pin,
-	PinOff,
-	Users,
 	ChevronDown,
 	ChevronUp,
-	Folder,
-	LogOut,
+	Edit2,
 	ExternalLink,
+	Film,
+	Folder,
+	ImagePlus,
+	LogOut,
+	MessageSquare,
+	MoreVerticalIcon,
 	PenTool,
+	Phone,
+	Pin,
+	PinOff,
+	Trash2,
+	Users,
 } from "lucide-react";
 // import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -887,6 +888,18 @@ export const ChatSidebar = function ChatSidebar({
 							<Link href={withOrg("/audio")} prefetch={true}>
 								<AudioLines className="h-4 w-4" />
 								<span>Audio Studio</span>
+							</Link>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<SidebarMenuButton
+							asChild
+							tooltip="Voice Calls"
+							isActive={pathname === "/realtime"}
+						>
+							<Link href={withOrg("/realtime")} prefetch={true}>
+								<Phone className="h-4 w-4" />
+								<span>Voice Calls</span>
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>

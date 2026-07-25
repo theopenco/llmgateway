@@ -11,6 +11,7 @@ import {
 	LogOut,
 	MessageSquare,
 	PenTool,
+	Phone,
 	Plus,
 	Users,
 } from "lucide-react";
@@ -201,6 +202,14 @@ export function ProjectsSidebar({
 							<Link href="/audio" prefetch={true}>
 								<AudioLines className="h-4 w-4" />
 								<span>Audio Studio</span>
+							</Link>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<SidebarMenuButton asChild tooltip="Voice Calls">
+							<Link href="/realtime" prefetch={true}>
+								<Phone className="h-4 w-4" />
+								<span>Voice Calls</span>
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>

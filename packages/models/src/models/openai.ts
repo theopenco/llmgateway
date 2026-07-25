@@ -36,6 +36,25 @@ const OPENAI_GPT4O_MINI_TTS_VOICES = [
 	"verse",
 ];
 
+/**
+ * Built-in voices for the gpt-realtime family. This list is distinct from the
+ * TTS voice catalogues above; the realtime API does not accept every TTS
+ * voice. The first entry ("marin") is the default when the caller omits a
+ * voice.
+ */
+const OPENAI_REALTIME_VOICES = [
+	"marin",
+	"cedar",
+	"alloy",
+	"ash",
+	"ballad",
+	"coral",
+	"echo",
+	"sage",
+	"shimmer",
+	"verse",
+];
+
 export const openaiModels = [
 	{
 		id: "gpt-4o-mini",
@@ -2474,6 +2493,7 @@ export const openaiModels = [
 				tools: true,
 				jsonOutput: false,
 				realtime: true,
+				supportedVoices: OPENAI_REALTIME_VOICES,
 				test: "skip",
 				// OpenAI announced deprecation of the legacy realtime family on
 				// 2026-07-20 with removal from the API on 2027-01-20.
@@ -2511,6 +2531,7 @@ export const openaiModels = [
 				tools: true,
 				jsonOutput: false,
 				realtime: true,
+				supportedVoices: OPENAI_REALTIME_VOICES,
 				test: "skip",
 				// OpenAI announced deprecation of the legacy realtime family on
 				// 2026-07-20 with removal from the API on 2027-01-20.
@@ -2541,14 +2562,16 @@ export const openaiModels = [
 				imageInputPrice: "5.0e-6",
 				cachedImageInputPrice: "0.5e-6",
 				requestPrice: "0",
-				contextSize: 32768,
-				maxOutput: 4096,
+				contextSize: 128000,
+				maxOutput: 32000,
 				streaming: false,
 				vision: false,
 				audio: true,
+				reasoning: true,
 				tools: true,
 				jsonOutput: false,
 				realtime: true,
+				supportedVoices: OPENAI_REALTIME_VOICES,
 				test: "skip",
 			},
 		],
@@ -2575,14 +2598,73 @@ export const openaiModels = [
 				imageInputPrice: "0.8e-6",
 				cachedImageInputPrice: "0.08e-6",
 				requestPrice: "0",
-				contextSize: 32768,
-				maxOutput: 4096,
+				contextSize: 128000,
+				maxOutput: 32000,
 				streaming: false,
 				vision: false,
 				audio: true,
 				tools: true,
 				jsonOutput: false,
 				realtime: true,
+				supportedVoices: OPENAI_REALTIME_VOICES,
+				test: "skip",
+			},
+		],
+	},
+	{
+		id: "gpt-4o-mini-transcribe",
+		name: "GPT-4o Mini Transcribe",
+		description:
+			"Cost-efficient token-metered OpenAI speech-to-text model. Used as the default input-audio transcription model for realtime sessions on the gateway's /v1/realtime WebSocket endpoint.",
+		family: "openai",
+		output: ["text"],
+		stability: "beta",
+		releasedAt: new Date("2025-03-20"),
+		providers: [
+			{
+				providerId: "openai",
+				externalId: "gpt-4o-mini-transcribe",
+				inputPrice: "1.25e-6",
+				outputPrice: "5.0e-6",
+				inputAudioPrice: "3.0e-6",
+				requestPrice: "0",
+				contextSize: 16000,
+				maxOutput: 2000,
+				streaming: false,
+				vision: false,
+				audio: true,
+				tools: false,
+				jsonOutput: false,
+				realtimeTranscription: true,
+				test: "skip",
+			},
+		],
+	},
+	{
+		id: "gpt-4o-transcribe",
+		name: "GPT-4o Transcribe",
+		description:
+			"Token-metered OpenAI speech-to-text model. Used as the input-audio transcription model for realtime sessions on the gateway's /v1/realtime WebSocket endpoint.",
+		family: "openai",
+		output: ["text"],
+		stability: "beta",
+		releasedAt: new Date("2025-03-20"),
+		providers: [
+			{
+				providerId: "openai",
+				externalId: "gpt-4o-transcribe",
+				inputPrice: "2.5e-6",
+				outputPrice: "10.0e-6",
+				inputAudioPrice: "6.0e-6",
+				requestPrice: "0",
+				contextSize: 16000,
+				maxOutput: 2000,
+				streaming: false,
+				vision: false,
+				audio: true,
+				tools: false,
+				jsonOutput: false,
+				realtimeTranscription: true,
 				test: "skip",
 			},
 		],

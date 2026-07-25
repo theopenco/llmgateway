@@ -10,6 +10,8 @@ import {
 	findOrganizationById,
 	findProjectById,
 } from "@/lib/cached-queries.js";
+import { assertProviderCompliant } from "@/lib/compliance.js";
+import { validateRequestModelAccess } from "@/lib/iam.js";
 import { checkProviderRateLimit } from "@/lib/provider-rate-limit.js";
 
 import { getEffectiveDiscount } from "@llmgateway/db";
@@ -20,7 +22,9 @@ import {
 	getUnsettledRealtimeSessionSpend,
 	markRealtimeSessionUpstream,
 	recordRealtimeResponse,
+	recordRealtimeTranscription,
 } from "./billing.js";
+import { findRealtimeTranscriptionMapping } from "./catalog.js";
 import {
 	LEASE_HEARTBEAT_INTERVAL_MS,
 	releaseRealtimeLease,
@@ -34,7 +38,14 @@ import {
 	normalizeRealtimeUsage,
 	priceRealtimeUsage,
 } from "./pricing.js";
+import {
+	applyTranscriptionDiscount,
+	buildTranscriptionPriceSnapshot,
+	normalizeTranscriptionUsage,
+	priceTranscriptionUsage,
+} from "./transcription.js";
 
+import type { RealtimeMappingMatch } from "./catalog.js";
 import type { RealtimePreflightResult } from "./preflight.js";
 import type { RawData } from "ws";
 
@@ -50,6 +61,24 @@ const backpressureTimeoutMs = () =>
 	Number(process.env.REALTIME_BACKPRESSURE_TIMEOUT_MS) || 30_000;
 const pingIntervalMs = () =>
 	Number(process.env.REALTIME_PING_INTERVAL_MS) || 15_000;
+
+/**
+ * event_id of the gateway-injected session.update that disables the provider's
+ * own auto-response. Upstream errors carry the offending client event id, which
+ * is what lets a failed injection release its pending echo suppression.
+ */
+const AUTO_RESPONSE_CONTROL_EVENT_ID = "event_lmg_disable_auto_response";
+
+/**
+ * Stored prompt references are rejected: a prompt can carry its own tool
+ * definitions, so honoring one would let hosted tools (MCP, connectors) past
+ * the function-tools-only check and incur provider fees this gateway does not
+ * meter.
+ */
+const PROMPT_NOT_SUPPORTED = [
+	"prompt_not_supported",
+	"Stored prompt references are not supported for realtime sessions on LLMGateway. Inline the instructions and tools instead.",
+] as const;
 
 let errorEventCounter = 0;
 
@@ -77,6 +106,13 @@ export interface RealtimeProxySessionOptions {
 	lease: RealtimeLease;
 	source: string | null;
 	userAgent: string | undefined;
+	/**
+	 * When the session was opened with an ephemeral client secret that pinned a
+	 * transcription model, only that ASR mapping may be enabled via
+	 * session.update. Null allows any catalogue ASR mapping on the session's
+	 * upstream provider.
+	 */
+	allowedTranscription: RealtimeMappingMatch | null;
 	onClosed: (session: RealtimeProxySession) => void;
 }
 
@@ -112,6 +148,27 @@ export class RealtimeProxySession {
 	private suppressSessionUpdated = 0;
 	private responseInFlight: string | null = null;
 	private responseStartedAt: number | null = null;
+	// A commit that arrived while a response was still in flight. The provider's
+	// auto-response is disabled upstream, so the gateway must start the next
+	// turn itself once the in-flight response's terminal event has been billed.
+	private pendingAutoResponse = false;
+	// ASR mapping pinned for the session by the first successful
+	// session.update that enabled input transcription. Once pinned it is kept
+	// for the rest of the session — including after transcription is disabled
+	// again — because it is what prices the transcription events of items that
+	// were committed while it was still on.
+	private transcription: {
+		match: RealtimeMappingMatch;
+		requestedModel: string;
+	} | null = null;
+	// Whether input transcription is currently enabled, i.e. whether newly
+	// committed audio items will produce a billable transcription event.
+	private transcriptionEnabled = false;
+	private readonly allowedTranscription: RealtimeMappingMatch | null;
+	// Committed user audio items whose billable transcription terminal event
+	// (completed or failed) has not arrived yet. Draining must wait for these
+	// so no billable transcription tail is dropped on disconnect.
+	private readonly pendingTranscriptionItems = new Set<string>();
 	// Serializes the async generation gates so two rapid response.create
 	// events can't both pass the checks before either marks itself in-flight.
 	private gateInProgress = false;
@@ -134,6 +191,7 @@ export class RealtimeProxySession {
 		this.lease = options.lease;
 		this.source = options.source;
 		this.userAgent = options.userAgent;
+		this.allowedTranscription = options.allowedTranscription;
 		this.onClosed = options.onClosed;
 
 		this.client.on("message", (data, isBinary) => {
@@ -301,8 +359,11 @@ export class RealtimeProxySession {
 			return;
 		}
 
-		// Input transcription has a separate billing lifecycle that is not yet
-		// metered here, so enabling it is rejected rather than silently unbilled.
+		// Input transcription has its own billing lifecycle: only catalogue ASR
+		// mappings on this session's upstream provider are allowed, the model is
+		// pinned for the session on first use, and the pinned mapping prices
+		// every completed transcription event. Anything else is rejected rather
+		// than silently unbilled.
 		const audio =
 			session.audio && typeof session.audio === "object"
 				? (session.audio as Record<string, unknown>)
@@ -311,17 +372,104 @@ export class RealtimeProxySession {
 			audio?.input && typeof audio.input === "object"
 				? (audio.input as Record<string, unknown>)
 				: undefined;
-		if (
-			(audioInput && audioInput.transcription !== undefined) ||
-			session.input_audio_transcription !== undefined
-		) {
-			this.sendToClientRaw(
-				buildErrorEvent(
-					"transcription_not_supported",
-					"Input audio transcription is not yet supported for realtime sessions on LLMGateway.",
-				),
-			);
-			return;
+		const usesNestedTranscription =
+			audioInput !== undefined && "transcription" in audioInput;
+		const requestedTranscription = usesNestedTranscription
+			? audioInput.transcription
+			: session.input_audio_transcription;
+		let rewrittenTranscriptionModel: string | null = null;
+		if (requestedTranscription !== undefined) {
+			if (requestedTranscription === null) {
+				// Disabling transcription is always allowed. The pinned mapping is
+				// deliberately kept: items committed while transcription was on still
+				// produce transcription events, and they can only be priced (rather
+				// than killing the session as unbillable) while the mapping survives.
+				this.transcriptionEnabled = false;
+			} else if (typeof requestedTranscription === "object") {
+				const config = requestedTranscription as Record<string, unknown>;
+				const requestedModel =
+					typeof config.model === "string" ? config.model : undefined;
+				if (!requestedModel) {
+					// The provider default (e.g. whisper-1) is duration-billed and
+					// cannot be priced per token, so an explicit supported model is
+					// required.
+					this.sendToClientRaw(
+						buildErrorEvent(
+							"transcription_model_required",
+							"Input audio transcription requires an explicit, supported transcription model.",
+						),
+					);
+					return;
+				}
+				const match = findRealtimeTranscriptionMapping(
+					requestedModel,
+					this.preflight.match.mapping.providerId,
+				);
+				if (!match) {
+					this.sendToClientRaw(
+						buildErrorEvent(
+							"transcription_model_not_supported",
+							`Transcription model not supported for realtime sessions: ${requestedModel}`,
+						),
+					);
+					return;
+				}
+				if (
+					!this.preflight.allowedTranscriptionModelIds.includes(match.modelId)
+				) {
+					// Transcription bills a second model, so it must clear the same
+					// per-key IAM rules as the realtime model (resolved at connect
+					// time).
+					this.sendToClientRaw(
+						buildErrorEvent(
+							"transcription_model_not_allowed",
+							`This API key is not allowed to use the transcription model ${match.modelId}.`,
+						),
+					);
+					return;
+				}
+				if (
+					this.allowedTranscription &&
+					(match.mapping.providerId !==
+						this.allowedTranscription.mapping.providerId ||
+						match.mapping.externalId !==
+							this.allowedTranscription.mapping.externalId)
+				) {
+					this.sendToClientRaw(
+						buildErrorEvent(
+							"transcription_model_locked",
+							"The transcription model was pinned when this session's client secret was created and cannot be changed.",
+						),
+					);
+					return;
+				}
+				if (
+					this.transcription &&
+					(match.mapping.providerId !==
+						this.transcription.match.mapping.providerId ||
+						match.mapping.externalId !==
+							this.transcription.match.mapping.externalId)
+				) {
+					this.sendToClientRaw(
+						buildErrorEvent(
+							"transcription_model_locked",
+							"The transcription model is pinned for this session and cannot be changed.",
+						),
+					);
+					return;
+				}
+				this.transcription = { match, requestedModel };
+				this.transcriptionEnabled = true;
+				rewrittenTranscriptionModel = match.mapping.externalId;
+			} else {
+				this.sendToClientRaw(
+					buildErrorEvent(
+						"invalid_transcription_config",
+						"input_audio_transcription must be an object or null.",
+					),
+				);
+				return;
+			}
 		}
 
 		// Hosted tools (MCP, web search, etc.) carry separate fees that are not
@@ -335,6 +483,12 @@ export class RealtimeProxySession {
 			);
 			return;
 		}
+		// A stored prompt reference can carry its own tool definitions, which would
+		// slip hosted tools past the check above.
+		if (session.prompt !== undefined && session.prompt !== null) {
+			this.sendToClientRaw(buildErrorEvent(...PROMPT_NOT_SUPPORTED));
+			return;
+		}
 
 		// Remember the caller's desired auto-response behavior, then force it off
 		// upstream so every generation passes through the gateway's gates.
@@ -345,6 +499,12 @@ export class RealtimeProxySession {
 					? session.turn_detection
 					: undefined;
 		let forwarded = message;
+		const cloneForwarded = (): Record<string, unknown> => {
+			if (forwarded === message) {
+				forwarded = structuredClone(message);
+			}
+			return forwarded;
+		};
 		if (turnDetection !== undefined) {
 			if (turnDetection === null) {
 				this.turnDetectionEnabled = false;
@@ -353,8 +513,7 @@ export class RealtimeProxySession {
 				const td = turnDetection as Record<string, unknown>;
 				this.desiredAutoRespond = td.create_response !== false;
 				const rewritten = { ...td, create_response: false };
-				forwarded = structuredClone(message);
-				const fwdSession = forwarded.session as Record<string, unknown>;
+				const fwdSession = cloneForwarded().session as Record<string, unknown>;
 				const fwdAudio = fwdSession.audio as
 					| Record<string, unknown>
 					| undefined;
@@ -366,6 +525,25 @@ export class RealtimeProxySession {
 				} else {
 					fwdSession.turn_detection = rewritten;
 				}
+			}
+		}
+		if (rewrittenTranscriptionModel !== null) {
+			// Forward the provider's own model id for the pinned ASR mapping.
+			const fwdSession = cloneForwarded().session as Record<string, unknown>;
+			if (usesNestedTranscription) {
+				const fwdAudio = fwdSession.audio as Record<string, unknown>;
+				const fwdAudioInput = fwdAudio.input as Record<string, unknown>;
+				const fwdTranscription = fwdAudioInput.transcription as Record<
+					string,
+					unknown
+				>;
+				fwdTranscription.model = rewrittenTranscriptionModel;
+			} else {
+				const fwdTranscription = fwdSession.input_audio_transcription as Record<
+					string,
+					unknown
+				>;
+				fwdTranscription.model = rewrittenTranscriptionModel;
 			}
 		}
 
@@ -409,10 +587,17 @@ export class RealtimeProxySession {
 				);
 				return;
 			}
+			if (response.prompt !== undefined && response.prompt !== null) {
+				this.sendToClientRaw(buildErrorEvent(...PROMPT_NOT_SUPPORTED));
+				return;
+			}
 		}
 
 		const allowed = await this.runGenerationGates();
 		if (!allowed) {
+			return;
+		}
+		if (this.clientGone()) {
 			return;
 		}
 		this.responseInFlight = "pending";
@@ -421,6 +606,13 @@ export class RealtimeProxySession {
 	}
 
 	private async maybeAutoRespond(): Promise<void> {
+		if (this.clientGone()) {
+			// Server VAD can still commit residual audio while the session drains;
+			// starting a generation now bills a response nobody receives (and the
+			// drain timer may kill it mid-flight, leaving the provider's cost
+			// unbilled entirely).
+			return;
+		}
 		if (!this.turnDetectionEnabled || !this.desiredAutoRespond) {
 			return;
 		}
@@ -431,9 +623,20 @@ export class RealtimeProxySession {
 		if (!allowed) {
 			return;
 		}
+		if (this.clientGone()) {
+			return;
+		}
 		this.responseInFlight = "pending";
 		this.responseStartedAt = Date.now();
 		this.forwardToUpstream(JSON.stringify({ type: "response.create" }));
+	}
+
+	/**
+	 * True once the client has gone away: the session is draining its billable
+	 * tail or has already been finalized. No new generation may start.
+	 */
+	private clientGone(): boolean {
+		return this.draining || this.finalized;
 	}
 
 	/**
@@ -538,6 +741,51 @@ export class RealtimeProxySession {
 			return false;
 		}
 
+		// IAM rules and the organization's compliance policy can change while a
+		// session is open, and a session may live for the whole duration limit.
+		// Re-evaluating them per generation makes a revoked model, IP range or
+		// provider take effect within one turn, as it would for HTTP requests.
+		const iamValidation = await validateRequestModelAccess(
+			freshKey,
+			this.preflight.match.modelId,
+			this.preflight.match.mapping.providerId,
+			this.preflight.match.modelDef,
+			this.preflight.clientIp,
+		);
+		if (!iamValidation.allowed) {
+			this.sendToClientRaw(
+				buildErrorEvent(
+					"model_access_denied",
+					iamValidation.reason ?? "Model access denied.",
+				),
+			);
+			this.shutdown(1008, "model_access_denied");
+			return false;
+		}
+		try {
+			await assertProviderCompliant(
+				freshOrg,
+				this.preflight.match.mapping.providerId,
+				{
+					organizationId: this.preflight.project.organizationId,
+					modelId: this.preflight.match.modelId,
+					apiKeyId: freshKey.id,
+					model: this.requestedModel,
+				},
+			);
+		} catch (error) {
+			this.sendToClientRaw(
+				buildErrorEvent(
+					"compliance_blocked",
+					error instanceof Error
+						? error.message
+						: "This provider is blocked by the organization's compliance policy.",
+				),
+			);
+			this.shutdown(1008, "compliance_blocked");
+			return false;
+		}
+
 		try {
 			await assertMemberWithinBudget(
 				freshKey.createdBy,
@@ -556,19 +804,8 @@ export class RealtimeProxySession {
 		}
 
 		if (this.preflight.usedMode === "credits") {
-			// Subtract only this session's spend the worker has NOT yet settled:
-			// once the worker debits a row, the organization balance already
-			// reflects it and subtracting it again would double-count.
-			const unsettled = await getUnsettledRealtimeSessionSpend(
-				this.sessionRecordId,
-			).catch((error: unknown) => {
-				logger.error(
-					"Failed to read unsettled realtime session spend",
-					error as Error,
-				);
-				return null;
-			});
-			if (unsettled === null) {
+			const available = await this.availableCredits(freshOrg);
+			if (available === null) {
 				this.sendToClientRaw(
 					buildErrorEvent(
 						"gate_unavailable",
@@ -577,9 +814,6 @@ export class RealtimeProxySession {
 				);
 				return false;
 			}
-			const available = new Decimal(getAvailableCredits(freshOrg)).minus(
-				unsettled,
-			);
 			if (available.lessThanOrEqualTo(0)) {
 				this.sendToClientRaw(
 					buildErrorEvent(
@@ -607,6 +841,80 @@ export class RealtimeProxySession {
 		}
 
 		return true;
+	}
+
+	/**
+	 * Credits still available to this session: the organization's balance minus
+	 * only this session's spend the worker has NOT yet settled (once the worker
+	 * debits a row the organization balance already reflects it, so subtracting
+	 * it again would double-count). Null when billing state is unreadable.
+	 */
+	private async availableCredits(
+		organization: Parameters<typeof getAvailableCredits>[0],
+	): Promise<Decimal | null> {
+		const unsettled = await getUnsettledRealtimeSessionSpend(
+			this.sessionRecordId,
+		).catch((error: unknown) => {
+			logger.error(
+				"Failed to read unsettled realtime session spend",
+				error as Error,
+			);
+			return null;
+		});
+		if (unsettled === null) {
+			return null;
+		}
+		return new Decimal(getAvailableCredits(organization)).minus(unsettled);
+	}
+
+	/**
+	 * Transcription is billed off the provider's own commit-driven events, so it
+	 * cannot be authorized up front the way response.create is. Re-check the
+	 * session spend cap and the organization's credits right after each
+	 * transcription is billed instead: a session with no room left is closed, so
+	 * an exhausted account can overrun by at most one turn rather than streaming
+	 * mic audio against an empty balance indefinitely.
+	 */
+	private async enforceLimitsAfterTranscription(): Promise<void> {
+		if (this.finalized) {
+			return;
+		}
+		if (this.sessionSpend.greaterThanOrEqualTo(maxSessionSpendUsd())) {
+			this.sendToClientRaw(
+				buildErrorEvent(
+					"session_spend_limit",
+					`This session has reached its spend limit ($${maxSessionSpendUsd()}). Reconnect to start a new session.`,
+				),
+			);
+			this.shutdown(1008, "session_spend_limit");
+			return;
+		}
+		if (this.preflight.usedMode !== "credits") {
+			return;
+		}
+		const organization = await findOrganizationById(
+			this.preflight.project.organizationId,
+		).catch((error: unknown) => {
+			logger.error(
+				"Failed to re-check organization credits after transcription",
+				error as Error,
+			);
+			return undefined;
+		});
+		if (!organization) {
+			return;
+		}
+		const available = await this.availableCredits(organization);
+		if (available === null || available.greaterThan(0)) {
+			return;
+		}
+		this.sendToClientRaw(
+			buildErrorEvent(
+				"insufficient_credits",
+				"Organization has insufficient credits to continue this session.",
+			),
+		);
+		this.shutdown(1008, "insufficient_credits");
 	}
 
 	// --- Upstream → client ---
@@ -654,6 +962,7 @@ export class RealtimeProxySession {
 				this.forwardToUpstream(
 					JSON.stringify({
 						type: "session.update",
+						event_id: AUTO_RESPONSE_CONTROL_EVENT_ID,
 						session: {
 							type: "realtime",
 							audio: {
@@ -690,11 +999,53 @@ export class RealtimeProxySession {
 			case "response.done":
 				await this.handleResponseDone(event, text);
 				return;
-			case "input_audio_buffer.committed":
+			case "input_audio_buffer.committed": {
+				const itemId =
+					typeof event.item_id === "string" ? event.item_id : undefined;
+				if (this.transcriptionEnabled && itemId) {
+					this.pendingTranscriptionItems.add(itemId);
+				}
 				this.sendToClientRaw(text);
-				void this.maybeAutoRespond();
+				if (this.responseInFlight) {
+					// A commit during an in-flight response (barge-in) must still get
+					// its automatic turn: remember it and start it after the cancelled
+					// response's terminal event has been billed.
+					if (this.turnDetectionEnabled && this.desiredAutoRespond) {
+						this.pendingAutoResponse = true;
+					}
+				} else {
+					void this.maybeAutoRespond();
+				}
 				return;
-			case "error":
+			}
+			case "conversation.item.input_audio_transcription.completed":
+				await this.handleTranscriptionCompleted(event, text);
+				return;
+			case "conversation.item.input_audio_transcription.failed": {
+				const itemId =
+					typeof event.item_id === "string" ? event.item_id : undefined;
+				if (itemId) {
+					this.pendingTranscriptionItems.delete(itemId);
+				}
+				this.sendToClientRaw(text);
+				this.maybeFinishDrain();
+				return;
+			}
+			case "error": {
+				const errorPayload =
+					event.error && typeof event.error === "object"
+						? (event.error as Record<string, unknown>)
+						: undefined;
+				if (
+					this.suppressSessionUpdated > 0 &&
+					errorPayload?.event_id === AUTO_RESPONSE_CONTROL_EVENT_ID
+				) {
+					// The gateway's own control update was rejected, so the
+					// session.updated echo it was waiting on will never arrive.
+					// Releasing the suppression here keeps it from swallowing a later
+					// legitimate ack for the client's own session.update.
+					this.suppressSessionUpdated -= 1;
+				}
 				// A response.create rejected by the provider before any
 				// response.created never produces a terminal response.done, so a
 				// pending in-flight marker must be released here or the session
@@ -705,6 +1056,7 @@ export class RealtimeProxySession {
 				}
 				this.sendToClientRaw(text);
 				return;
+			}
 			default:
 				this.sendToClientRaw(text);
 		}
@@ -816,8 +1168,142 @@ export class RealtimeProxySession {
 		this.sendToClientRaw(rawText);
 
 		if (this.draining) {
-			// The billable tail event has been captured; the upstream socket can
-			// now be released.
+			// The billable response tail has been captured; release the upstream
+			// once any outstanding transcription events have also been billed.
+			this.maybeFinishDrain();
+			return;
+		}
+
+		if (this.pendingAutoResponse) {
+			// A turn was committed while this response was still in flight; now
+			// that the terminal event is billed, run the normal generation gates
+			// and start the pending response.
+			this.pendingAutoResponse = false;
+			void this.maybeAutoRespond();
+		}
+	}
+
+	/**
+	 * One completed input-audio transcription: strictly normalize and price its
+	 * usage against the pinned ASR mapping, persist the billing row, then
+	 * forward the transcript. Fails closed on any unpriceable or unpersistable
+	 * event so no transcript is delivered unbilled.
+	 */
+	private async handleTranscriptionCompleted(
+		event: Record<string, unknown>,
+		rawText: string,
+	): Promise<void> {
+		const itemId =
+			typeof event.item_id === "string" ? event.item_id : undefined;
+		const contentIndex =
+			typeof event.content_index === "number" &&
+			Number.isInteger(event.content_index) &&
+			event.content_index >= 0
+				? event.content_index
+				: 0;
+
+		if (!this.transcription || !itemId) {
+			logger.error(
+				"Realtime transcription completed without a pinned ASR mapping or item id",
+				{ sessionId: this.sessionRecordId, itemId },
+			);
+			this.shutdown(1011, "unbillable_transcription");
+			return;
+		}
+
+		const normalized = normalizeTranscriptionUsage(event.usage);
+		if (!normalized.ok) {
+			logger.error(`Unpriceable transcription usage: ${normalized.reason}`, {
+				sessionId: this.sessionRecordId,
+				itemId,
+				usage: event.usage,
+			});
+			this.shutdown(1011, `unpriceable_transcription:${normalized.reason}`);
+			return;
+		}
+
+		const snapshot = buildTranscriptionPriceSnapshot(
+			this.transcription.match.mapping,
+		);
+		const priced = priceTranscriptionUsage(normalized.usage, snapshot);
+		if (!priced.ok) {
+			logger.error(`Unpriceable transcription usage: ${priced.reason}`, {
+				sessionId: this.sessionRecordId,
+				itemId,
+				usage: normalized.usage,
+			});
+			this.shutdown(1011, `unpriceable_transcription:${priced.reason}`);
+			return;
+		}
+
+		// The ASR mapping carries its own discount scope, independent of the
+		// realtime model's. Fail closed if it can't be resolved.
+		let discount: Decimal;
+		try {
+			const effectiveDiscount = await getEffectiveDiscount(
+				this.preflight.project.organizationId,
+				this.transcription.match.mapping.providerId,
+				this.transcription.match.modelId,
+			);
+			discount = new Decimal(effectiveDiscount.discount);
+		} catch (error) {
+			logger.error(
+				"Failed to resolve realtime transcription discount; closing session",
+				error as Error,
+			);
+			this.shutdown(1011, "billing_unavailable");
+			return;
+		}
+		const discountedCosts = applyTranscriptionDiscount(priced.costs, discount);
+
+		try {
+			// Persist the billable event BEFORE forwarding the transcript. On
+			// database failure the session fails closed instead of delivering
+			// unbilled work.
+			const { inserted } = await recordRealtimeTranscription({
+				preflight: this.preflight,
+				sessionId: this.sessionRecordId,
+				transcription: this.transcription.match,
+				requestedModel: this.transcription.requestedModel,
+				itemId,
+				contentIndex,
+				responseSizeBytes: rawText.length,
+				usage: normalized.usage,
+				costs: discountedCosts,
+				pricingSnapshot: snapshot,
+				discount: discount.toNumber(),
+				source: this.source,
+				userAgent: this.userAgent,
+			});
+			if (inserted) {
+				this.sessionSpend = this.sessionSpend.plus(discountedCosts.totalCost);
+			}
+		} catch (error) {
+			logger.error(
+				"Failed to persist realtime transcription billing event; closing session",
+				error as Error,
+			);
+			this.shutdown(1011, "billing_unavailable");
+			return;
+		}
+
+		this.pendingTranscriptionItems.delete(itemId);
+		this.sendToClientRaw(rawText);
+		this.maybeFinishDrain();
+		await this.enforceLimitsAfterTranscription();
+	}
+
+	/**
+	 * Finish a client-initiated drain once every billable tail event — the
+	 * in-flight response and all outstanding transcriptions — has been
+	 * captured.
+	 */
+	private maybeFinishDrain(): void {
+		if (
+			this.draining &&
+			!this.responseInFlight &&
+			this.pendingTranscriptionItems.size === 0
+		) {
 			this.shutdown(1000, "client_disconnected");
 		}
 	}
@@ -828,11 +1314,18 @@ export class RealtimeProxySession {
 		if (this.finalized || this.draining) {
 			return;
 		}
-		if (this.responseInFlight && this.upstream.readyState === WebSocket.OPEN) {
+		if (
+			(this.responseInFlight || this.pendingTranscriptionItems.size > 0) &&
+			this.upstream.readyState === WebSocket.OPEN
+		) {
 			// Cancel in-flight work but keep the upstream open briefly to capture
-			// the terminal response.done that carries the billable usage.
+			// the terminal events that carry billable usage: the cancelled
+			// response's response.done and any outstanding transcription
+			// completed/failed events.
 			this.draining = true;
-			this.forwardToUpstream(JSON.stringify({ type: "response.cancel" }));
+			if (this.responseInFlight) {
+				this.forwardToUpstream(JSON.stringify({ type: "response.cancel" }));
+			}
 			this.drainTimer = setTimeout(() => {
 				this.shutdown(1000, "client_disconnected_drain_timeout");
 			}, drainTimeoutMs());
@@ -896,9 +1389,11 @@ export class RealtimeProxySession {
 		void closeRealtimeSessionRecord(
 			this.sessionRecordId,
 			reason.startsWith("unpriceable_usage") ||
+				reason.startsWith("unpriceable_transcription") ||
 				reason === "billing_unavailable" ||
 				reason === "upstream_protocol_error" ||
-				reason === "unbillable_response"
+				reason === "unbillable_response" ||
+				reason === "unbillable_transcription"
 				? "error"
 				: "closed",
 			reason,

@@ -18,7 +18,11 @@ import {
 import { assertProviderCompliant } from "@/lib/compliance.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 
-import { findRealtimeMapping, type RealtimeMappingMatch } from "./catalog.js";
+import {
+	findRealtimeMapping,
+	listRealtimeTranscriptionMappings,
+	type RealtimeMappingMatch,
+} from "./catalog.js";
 import { RealtimeConnectError } from "./errors.js";
 
 import type { InferSelectModel, tables } from "@llmgateway/db";
@@ -44,6 +48,18 @@ export interface RealtimePreflightResult {
 	envVarName: string | undefined;
 	configIndex: number;
 	usedMode: "api-keys" | "credits";
+	/**
+	 * Canonical ids of the input-audio transcription models this API key's IAM
+	 * rules allow on the session's provider. Input transcription is billable
+	 * work on a separate model, so it has to clear the same per-key IAM rules
+	 * (allowed models, price ceilings, IP ranges) as the realtime model itself.
+	 */
+	allowedTranscriptionModelIds: string[];
+	/**
+	 * Originating client IP of the connection, retained so per-generation gates
+	 * can re-evaluate IP-scoped IAM rules.
+	 */
+	clientIp: string | undefined;
 	/**
 	 * Stable, privacy-preserving end-user identifier forwarded upstream via the
 	 * OpenAI-Safety-Identifier header (a hash, never a raw internal id).
@@ -216,6 +232,24 @@ async function runRealtimePreflightInner(
 		model: input.requestedModel,
 	});
 
+	// Input transcription bills a second model, so resolve up front which ASR
+	// mappings this key may actually use. Doing it here (rather than per
+	// session.update) keeps the protocol path synchronous and means a key
+	// restricted by model, price or IP cannot reach a pricier ASR model.
+	const allowedTranscriptionModelIds: string[] = [];
+	for (const candidate of listRealtimeTranscriptionMappings(providerId)) {
+		const validation = await validateRequestModelAccess(
+			apiKey,
+			candidate.modelId,
+			providerId,
+			candidate.modelDef,
+			input.clientIp,
+		);
+		if (validation.allowed) {
+			allowedTranscriptionModelIds.push(candidate.modelId);
+		}
+	}
+
 	// --- Upstream credential resolution (mirrors the embeddings path) ---
 	let providerKey: ProviderKey | undefined;
 	let upstreamToken: string | undefined;
@@ -305,6 +339,8 @@ async function runRealtimePreflightInner(
 		envVarName,
 		configIndex,
 		usedMode: providerKey ? "api-keys" : "credits",
+		allowedTranscriptionModelIds,
+		clientIp: input.clientIp,
 		safetyIdentifier: createHash("sha256")
 			.update(`${organization.id}:${apiKey.id}`)
 			.digest("hex")

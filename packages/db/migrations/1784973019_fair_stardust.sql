@@ -1,0 +1,1 @@
+CREATE INDEX "log_realtime_session_id_idx" ON "log" ("realtime_session_id") WHERE realtime_session_id IS NOT NULL;

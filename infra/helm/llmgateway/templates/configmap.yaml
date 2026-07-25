@@ -58,6 +58,11 @@ data:
   # Internal-only Prometheus metrics port (served separately from the public API)
   METRICS_PORT: {{ .Values.gateway.metricsPort | default 9090 | quote }}
 
+  # Whether the dedicated realtime service is deployed. When "false", the
+  # gateway's client-secret mint endpoint fails with 503 realtime_disabled
+  # instead of minting secrets for a WebSocket path that isn't routed.
+  REALTIME_ENABLED: {{ .Values.realtime.enabled | quote }}
+
   # Gateway timeouts
   {{- with .Values.gateway.config }}
   {{- if .gatewayTimeoutMs }}

@@ -43,6 +43,40 @@ describe("realtime model catalogue validation", () => {
 			expect(mapping.audio).toBe(true);
 			// Realtime models are excluded from the chat e2e harness.
 			expect(mapping.test).toBe("skip");
+			// The realtime voice catalogue differs from the TTS catalogue, so each
+			// realtime mapping must declare its own voices (first entry = default).
+			expect(mapping.supportedVoices?.length).toBeGreaterThan(0);
+		},
+	);
+
+	const transcriptionEntries = (models as readonly ModelDefinition[]).flatMap(
+		(model) =>
+			model.providers
+				.filter(
+					(p) => (p as ProviderModelMapping).realtimeTranscription === true,
+				)
+				.map((mapping) => ({
+					model,
+					mapping: mapping as ProviderModelMapping,
+				})),
+	);
+
+	it("has at least one realtime transcription mapping", () => {
+		expect(transcriptionEntries.length).toBeGreaterThan(0);
+	});
+
+	it.each(transcriptionEntries.map((e) => [e.model.id, e] as const))(
+		"%s declares required transcription prices",
+		(_id, entry) => {
+			const { mapping } = entry;
+			// Transcription usage is token-metered per modality: text input, audio
+			// input, and text output must all be priceable, or completed
+			// transcription events would be unbillable.
+			expect(mapping.inputPrice).toBeDefined();
+			expect(mapping.inputAudioPrice).toBeDefined();
+			expect(mapping.outputPrice).toBeDefined();
+			expect(mapping.audio).toBe(true);
+			expect(mapping.test).toBe("skip");
 		},
 	);
 });

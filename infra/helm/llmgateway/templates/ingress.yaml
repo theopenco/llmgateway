@@ -53,6 +53,16 @@ spec:
       http:
         paths:
           {{- if .Values.realtime.enabled }}
+          # Client-secret minting is a plain HTTP endpoint served by the main
+          # gateway; it must be matched exactly BEFORE the /v1/realtime prefix
+          # below or it would be swallowed by the WebSocket service.
+          - path: /v1/realtime/client_secrets
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "llmgateway.fullname" . }}-gateway
+                port:
+                  name: http
           # Realtime WebSocket sessions route to the dedicated realtime
           # deployment, independently of the normal HTTP gateway. The ingress
           # controller's proxy/idle timeouts must exceed the configured maximum

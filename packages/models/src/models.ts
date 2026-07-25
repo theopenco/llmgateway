@@ -550,6 +550,16 @@ export interface ProviderModelMapping {
 	 */
 	realtime?: boolean;
 	/**
+	 * Whether this mapping can transcribe input audio for realtime sessions.
+	 * When true, the gateway's /v1/realtime proxy allows this mapping as the
+	 * `input_audio_transcription.model` of a realtime session and bills each
+	 * `conversation.item.input_audio_transcription.completed` event against
+	 * this mapping's token prices (inputPrice for text tokens, inputAudioPrice
+	 * for audio tokens, outputPrice for output tokens). Only token-metered ASR
+	 * mappings may set this; duration-billed models are not priceable here.
+	 */
+	realtimeTranscription?: boolean;
+	/**
 	 * Whether this model uses a dedicated OCR (optical character recognition)
 	 * API. When true, requests are routed to the gateway's /v1/ocr endpoint,
 	 * which extracts text/markdown from documents and images rather than

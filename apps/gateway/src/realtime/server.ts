@@ -6,6 +6,7 @@ import {
 	reportTrackedKeyError,
 	reportTrackedKeySuccess,
 } from "@/lib/api-key-health.js";
+import { getClientIpFromForwardedFor } from "@/lib/client-ip.js";
 
 import { logger } from "@llmgateway/logger";
 import { getProviderEnvValue, type Provider } from "@llmgateway/models";
@@ -14,11 +15,17 @@ import {
 	closeRealtimeSessionRecord,
 	createRealtimeSessionRecord,
 } from "./billing.js";
+import { findRealtimeTranscriptionMapping } from "./catalog.js";
+import {
+	CLIENT_SECRET_PREFIX,
+	getClientSecretRecord,
+} from "./client-secrets.js";
 import { RealtimeConnectError } from "./errors.js";
 import { acquireRealtimeLease, releaseRealtimeLease } from "./leases.js";
 import { runRealtimePreflight } from "./preflight.js";
 import { RealtimeProxySession } from "./session.js";
 
+import type { RealtimeMappingMatch } from "./catalog.js";
 import type { RealtimePreflightResult } from "./preflight.js";
 import type { IncomingMessage, Server } from "node:http";
 import type { Duplex } from "node:stream";
@@ -84,12 +91,59 @@ function extractToken(req: IncomingMessage): string | undefined {
 	return undefined;
 }
 
+/**
+ * Offered WebSocket subprotocols, parsed from the (possibly repeated)
+ * Sec-WebSocket-Protocol header.
+ */
+function parseOfferedSubprotocols(req: IncomingMessage): string[] {
+	const header = req.headers["sec-websocket-protocol"];
+	const raw = Array.isArray(header) ? header.join(",") : (header ?? "");
+	return raw
+		.split(",")
+		.map((entry) => entry.trim())
+		.filter((entry) => entry.length > 0);
+}
+
+const INSECURE_API_KEY_SUBPROTOCOL_PREFIX = "openai-insecure-api-key.";
+
+/**
+ * Ephemeral client secret carried in the official browser subprotocol
+ * convention ("openai-insecure-api-key.<ek_...>").
+ */
+function extractSubprotocolSecret(protocols: string[]): string | undefined {
+	for (const protocol of protocols) {
+		if (protocol.startsWith(INSECURE_API_KEY_SUBPROTOCOL_PREFIX)) {
+			return protocol.slice(INSECURE_API_KEY_SUBPROTOCOL_PREFIX.length);
+		}
+	}
+	return undefined;
+}
+
+/**
+ * Validated x-source header for direct (non-secret) connections. Invalid
+ * values are ignored rather than failing the upgrade.
+ */
+function extractSource(req: IncomingMessage): string | null {
+	const raw = req.headers["x-source"];
+	const value = Array.isArray(raw) ? raw[0] : raw;
+	if (!value) {
+		return null;
+	}
+	const normalized = value.replace(/^https?:\/\//, "").replace(/^www\./, "");
+	return /^[a-zA-Z0-9./-]+$/.test(normalized) ? normalized : null;
+}
+
+/**
+ * Originating client IP for IAM evaluation. Deliberately identical to the HTTP
+ * endpoints' resolution (the shared X-Forwarded-For helper) and with no
+ * socket-address fallback: behind a load balancer that fallback is the balancer
+ * itself, which must never be matched against a customer's CIDR allowlist.
+ */
 function extractClientIp(req: IncomingMessage): string | undefined {
 	const forwarded = req.headers["x-forwarded-for"];
-	if (typeof forwarded === "string" && forwarded.length > 0) {
-		return forwarded.split(",")[0].trim();
-	}
-	return req.socket.remoteAddress ?? undefined;
+	return getClientIpFromForwardedFor(
+		Array.isArray(forwarded) ? forwarded.join(",") : forwarded,
+	);
 }
 
 /**
@@ -149,6 +203,19 @@ async function connectUpstream(
 	return upstream;
 }
 
+/**
+ * Tear down an upstream socket that never reached a proxy session.
+ * connectUpstream() drops its handshake listeners once the socket is open and
+ * the session that would own them is never constructed on these paths, so an
+ * error listener has to be re-attached before terminating.
+ */
+function discardUpstream(upstream: WebSocket): void {
+	upstream.on("error", () => {
+		// This socket is being thrown away; nothing left to report.
+	});
+	upstream.terminate();
+}
+
 export interface RealtimeServer {
 	/**
 	 * Number of currently active proxy sessions.
@@ -173,11 +240,23 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 	const wss = new WebSocketServer({
 		noServer: true,
 		maxPayload: maxMessageBytes(),
+		// Select only the public "realtime" subprotocol; the credential-bearing
+		// "openai-insecure-api-key.*" subprotocol must never be echoed back.
+		handleProtocols: (protocols) =>
+			protocols.has("realtime") ? "realtime" : false,
 	});
 	const sessions = new Set<RealtimeProxySession>();
 	let accepting = true;
 
 	server.on("upgrade", (req, socket, head) => {
+		// Node removes its own 'error' listener before emitting 'upgrade', so this
+		// must be the first statement: a client reset during the multi-second
+		// preflight + upstream handshake window would otherwise be an unhandled
+		// 'error' event, i.e. an uncaughtException that drains the whole process
+		// and kills every live session.
+		socket.on("error", (error: Error) => {
+			logger.warn("Realtime upgrade socket error", { error: error.message });
+		});
 		void (async () => {
 			const url = new URL(req.url ?? "/", "http://localhost");
 			if (url.pathname !== "/v1/realtime") {
@@ -185,7 +264,11 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 				return;
 			}
 			// Kill switch: stop new sessions while existing sessions drain.
-			if (!accepting || process.env.REALTIME_DISABLED === "true") {
+			if (
+				!accepting ||
+				process.env.REALTIME_DISABLED === "true" ||
+				process.env.REALTIME_ENABLED === "false"
+			) {
 				writeHttpError(
 					socket,
 					503,
@@ -195,9 +278,88 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 				return;
 			}
 
-			const token = extractToken(req);
-			const requestedModel = url.searchParams.get("model") ?? undefined;
+			// Credentials must never travel in the URL: they leak into logs,
+			// proxies, and browser history.
+			if (
+				url.searchParams.has("token") ||
+				url.searchParams.has("client_secret") ||
+				url.searchParams.has("api_key")
+			) {
+				writeHttpError(
+					socket,
+					400,
+					"credentials_in_query",
+					"Credentials must not be passed as query parameters. Use the Authorization header or the openai-insecure-api-key WebSocket subprotocol.",
+				);
+				return;
+			}
 
+			const headerToken = extractToken(req);
+			const offeredProtocols = parseOfferedSubprotocols(req);
+			const subprotocolSecret = extractSubprotocolSecret(offeredProtocols);
+
+			if (headerToken && subprotocolSecret) {
+				writeHttpError(
+					socket,
+					400,
+					"conflicting_credentials",
+					"Provide either an Authorization/x-api-key header or an openai-insecure-api-key subprotocol, not both.",
+				);
+				return;
+			}
+
+			let token = headerToken;
+			let requestedModel = url.searchParams.get("model") ?? undefined;
+			let source = extractSource(req);
+			let secretTranscriptionModel: string | null = null;
+
+			if (subprotocolSecret) {
+				if (!subprotocolSecret.startsWith(CLIENT_SECRET_PREFIX)) {
+					writeHttpError(
+						socket,
+						401,
+						"invalid_client_secret",
+						"The provided realtime client secret is invalid.",
+					);
+					return;
+				}
+				let record;
+				try {
+					record = await getClientSecretRecord(subprotocolSecret);
+				} catch (error) {
+					if (error instanceof RealtimeConnectError) {
+						writeHttpError(socket, error.status, error.code, error.message);
+						return;
+					}
+					throw error;
+				}
+				if (!record) {
+					writeHttpError(
+						socket,
+						401,
+						"invalid_client_secret",
+						"The provided realtime client secret is unknown or has expired.",
+					);
+					return;
+				}
+				if (requestedModel && requestedModel !== record.model) {
+					writeHttpError(
+						socket,
+						400,
+						"model_mismatch",
+						"The requested model does not match the model this client secret was minted for.",
+					);
+					return;
+				}
+				requestedModel = record.model;
+				token = record.token;
+				source = record.source;
+				secretTranscriptionModel = record.transcriptionModel;
+			}
+
+			// Full preflight runs against the WebSocket request's actual client IP:
+			// mint-time preflight is only an early error path, this one is the
+			// authority for revocation, IAM, credits, and races.
 			let preflight: RealtimePreflightResult;
 			try {
 				preflight = await runRealtimePreflight({
@@ -213,6 +375,41 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 				logger.error("Realtime preflight failed", error as Error);
 				writeHttpError(socket, 500, "internal_error", "Internal server error");
 				return;
+			}
+
+			// Resolve/validate a pinned transcription model against the session's
+			// resolved upstream provider now that preflight determined it. A
+			// mapping deactivated since mint time invalidates the pin.
+			let allowedTranscription: RealtimeMappingMatch | null = null;
+			if (secretTranscriptionModel) {
+				allowedTranscription = findRealtimeTranscriptionMapping(
+					secretTranscriptionModel,
+					preflight.match.mapping.providerId,
+				);
+				if (!allowedTranscription) {
+					writeHttpError(
+						socket,
+						400,
+						"transcription_model_not_supported",
+						"The transcription model pinned by this client secret is no longer available.",
+					);
+					return;
+				}
+				// IAM rules may have changed since the secret was minted; reject the
+				// upgrade now rather than failing the client's first session.update.
+				if (
+					!preflight.allowedTranscriptionModelIds.includes(
+						allowedTranscription.modelId,
+					)
+				) {
+					writeHttpError(
+						socket,
+						403,
+						"transcription_model_not_allowed",
+						"This API key is not allowed to use the transcription model pinned by this client secret.",
+					);
+					return;
+				}
 			}
 
 			const sessionRecord = await createRealtimeSessionRecord(
@@ -327,11 +524,10 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 
 			// From here on, an unexpected failure must not orphan the upstream
 			// socket, the lease, or the session record.
-			socket.on("error", () => {
-				// Errors on the raw socket pre-upgrade are handled by ws.
-			});
+			let upgraded = false;
 			try {
 				wss.handleUpgrade(req, socket, head, (clientSocket) => {
+					upgraded = true;
 					const session = new RealtimeProxySession({
 						clientSocket,
 						upstreamSocket: upstream,
@@ -340,7 +536,8 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 						requestedModel: requestedModel!,
 						sessionRecordId: sessionRecord.id,
 						lease,
-						source: null,
+						source,
+						allowedTranscription,
 						userAgent: req.headers["user-agent"],
 						onClosed: (closed) => {
 							sessions.delete(closed);
@@ -358,10 +555,25 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 					});
 				});
 			} catch (error) {
-				upstream.terminate();
+				discardUpstream(upstream);
 				await releaseRealtimeLease(lease);
 				await abortSession("upgrade_failed");
 				throw error;
+			}
+			// ws aborts the handshake WITHOUT throwing on several paths — most
+			// commonly a client that vanished during the preflight window (its
+			// completeUpgrade() destroys a non-readable/writable socket), plus
+			// malformed Sec-WebSocket-* headers. The callback is invoked
+			// synchronously when it is invoked at all (no verifyClient is
+			// configured), so a callback that never ran means failure, and the
+			// upstream socket, lease and session row must not be orphaned.
+			if (!upgraded) {
+				logger.warn("Realtime upgrade aborted before completion", {
+					sessionId: sessionRecord.id,
+				});
+				discardUpstream(upstream);
+				await releaseRealtimeLease(lease);
+				await abortSession("upgrade_aborted");
 			}
 		})().catch((error: unknown) => {
 			logger.error("Realtime upgrade handling failed", error as Error);

@@ -1656,6 +1656,14 @@ export const log = pgTable(
 		uniqueIndex("log_realtime_session_usage_key_unique")
 			.on(table.realtimeSessionId, table.realtimeUsageKey)
 			.where(sql`realtime_usage_key IS NOT NULL`),
+		// The per-response realtime spend gate reads this session's unsettled
+		// spend (realtime_session_id = ? AND processed_at IS NULL). The unique
+		// index above cannot serve it: its predicate is not implied by that
+		// filter, so without this index every billable response scans the global
+		// unprocessed-log backlog.
+		index("log_realtime_session_id_idx")
+			.on(table.realtimeSessionId)
+			.where(sql`realtime_session_id IS NOT NULL`),
 	],
 );
 

@@ -68,6 +68,8 @@ const modelProviderMappingSchema = z.object({
 	imageInputTokensByResolution: z.record(z.number()).nullable(),
 	imageOutputTokensByResolution: z.record(z.number()).nullable(),
 	inputCharacterPrice: z.string().nullable(),
+	inputAudioPrice: z.string().nullable(),
+	cachedInputAudioPrice: z.string().nullable(),
 	outputAudioPrice: z.string().nullable(),
 	requestPrice: z.string().nullable(),
 	contextSize: z.number().nullable(),
@@ -86,6 +88,8 @@ const modelProviderMappingSchema = z.object({
 	jsonOutputSchema: z.boolean().nullable(),
 	webSearch: z.boolean().nullable(),
 	webSearchPrice: z.string().nullable(),
+	realtime: z.boolean().nullable(),
+	supportedVoices: z.array(z.string()).nullable(),
 	discount: z.string().nullable(),
 	stability: z.enum(["stable", "beta", "unstable", "experimental"]).nullable(),
 	supportedParameters: z.array(z.string()).nullable(),
@@ -242,6 +246,8 @@ internalModels.openapi(getModelsRoute, async (c) => {
 				reasoningEfforts: sharedMapping?.reasoningEfforts ?? null,
 				audio: sharedMapping?.audio ?? null,
 				document: sharedMapping?.document ?? null,
+				realtime: sharedMapping?.realtime ?? null,
+				supportedVoices: sharedMapping?.supportedVoices ?? null,
 				imageOutputPrice:
 					sharedMapping?.imageOutputPrice !== undefined
 						? String(sharedMapping.imageOutputPrice)
@@ -253,6 +259,14 @@ internalModels.openapi(getModelsRoute, async (c) => {
 				inputCharacterPrice:
 					sharedMapping?.inputCharacterPrice !== undefined
 						? String(sharedMapping.inputCharacterPrice)
+						: null,
+				inputAudioPrice:
+					sharedMapping?.inputAudioPrice !== undefined
+						? String(sharedMapping.inputAudioPrice)
+						: null,
+				cachedInputAudioPrice:
+					sharedMapping?.cachedInputAudioPrice !== undefined
+						? String(sharedMapping.cachedInputAudioPrice)
 						: null,
 				outputAudioPrice:
 					sharedMapping?.outputAudioPrice !== undefined

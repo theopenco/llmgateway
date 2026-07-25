@@ -13,12 +13,18 @@ import {
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
+import type { RealtimeMappingMatch } from "./catalog.js";
 import type { RealtimePreflightResult } from "./preflight.js";
 import type {
 	NormalizedRealtimeUsage,
 	RealtimeCostBreakdown,
 	RealtimePriceSnapshot,
 } from "./pricing.js";
+import type {
+	NormalizedTranscriptionUsage,
+	TranscriptionCostBreakdown,
+	TranscriptionPriceSnapshot,
+} from "./transcription.js";
 
 export interface RealtimeSessionRecord {
 	id: string;
@@ -239,6 +245,145 @@ export async function recordRealtimeResponse(
 
 	if (!inserted) {
 		logger.info("Duplicate realtime usage event ignored", {
+			realtimeSessionId: input.sessionId,
+			usageKey,
+		});
+	}
+	return { inserted };
+}
+
+export interface RecordRealtimeTranscriptionInput {
+	preflight: RealtimePreflightResult;
+	sessionId: string;
+	/**
+	 * ASR mapping the transcription is billed against (distinct from the
+	 * session's realtime mapping).
+	 */
+	transcription: RealtimeMappingMatch;
+	/**
+	 * Model string the caller requested for transcription (as sent in
+	 * session.update / the client-secret request).
+	 */
+	requestedModel: string;
+	/**
+	 * Upstream conversation item id; forms the idempotency key
+	 * "transcription:<itemId>:<contentIndex>".
+	 */
+	itemId: string;
+	contentIndex: number;
+	responseSizeBytes: number;
+	usage: NormalizedTranscriptionUsage;
+	costs: TranscriptionCostBreakdown;
+	pricingSnapshot: TranscriptionPriceSnapshot;
+	/**
+	 * Effective discount fraction applied to the costs (0 when none).
+	 */
+	discount: number;
+	source: string | null;
+	userAgent: string | undefined;
+}
+
+/**
+ * Durably persist one billed input-audio transcription as a log row BEFORE
+ * its completed event is forwarded to the caller. The row is attributed to
+ * the ASR model/mapping while remaining linked to the realtime session, so
+ * unsettled-session spend queries (which key on realtimeSessionId) include
+ * ASR spend in subsequent generation gates. Idempotent on
+ * (realtimeSessionId, "transcription:<itemId>:<contentIndex>") via the
+ * partial unique index. Updates the session's totalCost and lastActivityAt
+ * but not responseCount, which counts model generations only.
+ *
+ * Throws on database failure: the caller must fail closed rather than
+ * deliver an unbilled transcript.
+ */
+export async function recordRealtimeTranscription(
+	input: RecordRealtimeTranscriptionInput,
+): Promise<{ inserted: boolean }> {
+	const { preflight, transcription, usage, costs } = input;
+	const usageKey = `transcription:${input.itemId}:${input.contentIndex}`;
+	const billingCost = costs.totalCost.toString();
+
+	const inserted = await db.transaction(async (tx) => {
+		const rows = await tx
+			.insert(log)
+			.values({
+				id: shortid(),
+				requestId: `${input.sessionId}:${input.itemId}:${input.contentIndex}`,
+				organizationId: preflight.project.organizationId,
+				projectId: preflight.project.id,
+				apiKeyId: preflight.apiKey.id,
+				duration: 0,
+				requestedModel: input.requestedModel,
+				requestedProvider: transcription.mapping.providerId,
+				usedModel: `${transcription.mapping.providerId}/${transcription.modelId}`,
+				usedModelMapping: transcription.mapping.externalId,
+				usedProvider: transcription.mapping.providerId,
+				responseSize: input.responseSizeBytes,
+				// Transcript content is intentionally not persisted, matching the
+				// no-conversation-content policy for realtime sessions.
+				content: null,
+				messages: [],
+				finishReason: "completed",
+				unifiedFinishReason: UnifiedFinishReason.COMPLETED,
+				promptTokens: usage.inputTokens.toString(),
+				completionTokens: usage.outputTokens.toString(),
+				totalTokens: usage.totalTokens.toString(),
+				cachedTokens: "0",
+				audioInputTokens: usage.inputAudioTokens.toString(),
+				audioOutputTokens: "0",
+				imageInputTokens: "0",
+				hasError: false,
+				canceled: false,
+				streamed: true,
+				cached: false,
+				mode: preflight.project.mode as "api-keys" | "credits" | "hybrid",
+				usedMode: preflight.usedMode,
+				source: input.source,
+				userAgent: input.userAgent ?? null,
+				cost: costs.totalCost.toNumber(),
+				inputCost: costs.inputCost.toNumber(),
+				outputCost: costs.outputCost.toNumber(),
+				cachedInputCost: 0,
+				audioInputCost: costs.audioInputCost.toNumber(),
+				audioOutputCost: 0,
+				imageInputCost: 0,
+				requestCost: 0,
+				estimatedCost: false,
+				discount: input.discount !== 0 ? input.discount : null,
+				billingCost,
+				realtimeSessionId: input.sessionId,
+				realtimeUsageKey: usageKey,
+				realtimeUsage: {
+					usage: { ...usage },
+					pricing: Object.fromEntries(
+						Object.entries(input.pricingSnapshot).filter(
+							([, value]) => value !== undefined,
+						),
+					) as Record<string, string>,
+					status: "completed",
+				},
+				dataStorageCost: "0",
+			})
+			.onConflictDoNothing()
+			.returning({ id: log.id });
+
+		if (rows.length === 0) {
+			return false;
+		}
+
+		await tx
+			.update(realtimeSession)
+			.set({
+				totalCost: sql`${realtimeSession.totalCost} + ${billingCost}`,
+				lastActivityAt: new Date(),
+			})
+			.where(eq(realtimeSession.id, input.sessionId));
+
+		return true;
+	});
+
+	if (!inserted) {
+		logger.info("Duplicate realtime transcription event ignored", {
 			realtimeSessionId: input.sessionId,
 			usageKey,
 		});

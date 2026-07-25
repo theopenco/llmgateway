@@ -11,6 +11,7 @@ import {
 	MessageSquare,
 	MoreVerticalIcon,
 	PenTool,
+	Phone,
 	Trash2,
 	Users,
 } from "lucide-react";
@@ -650,6 +651,18 @@ export function AudioSidebar({
 							<Link href={withOrg("/audio")} prefetch={true}>
 								<AudioLines className="h-4 w-4" />
 								<span>Audio Studio</span>
+							</Link>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<SidebarMenuButton
+							asChild
+							tooltip="Voice Calls"
+							isActive={pathname === "/realtime"}
+						>
+							<Link href={withOrg("/realtime")} prefetch={true}>
+								<Phone className="h-4 w-4" />
+								<span>Voice Calls</span>
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>

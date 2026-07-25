@@ -10,7 +10,9 @@ import { logger, toError } from "@llmgateway/logger";
 
 import { app } from "./app.js";
 import { metricsApp } from "./metrics-app.js";
+import { attachRealtimeServer } from "./realtime/server.js";
 
+import type { RealtimeServer } from "./realtime/server.js";
 import type { ServerType } from "@hono/node-server";
 import type { NodeSDK } from "@opentelemetry/sdk-node";
 import type { Server } from "node:http";
@@ -27,8 +29,16 @@ const metricsPort = Number(process.env.METRICS_PORT) || 9090;
 // Default to 620s (above GCP's 600s) to ensure the LB closes first.
 const keepAliveTimeoutS = Number(process.env.KEEP_ALIVE_TIMEOUT_S) || 620;
 
+// Host the /v1/realtime WebSocket proxy inside this process instead of the
+// dedicated realtime deployment (apps/gateway/src/realtime/serve.ts). This lets
+// `pnpm dev` bring up realtime sessions on the main gateway port with no extra
+// command. Production keeps them split (a separate deployment scales long-lived
+// sessions independently), so this stays opt-in via REALTIME_INLINE.
+const realtimeInline = process.env.REALTIME_INLINE === "true";
+
 let sdk: NodeSDK | null = null;
 let metricsServer: ServerType | null = null;
+let realtime: RealtimeServer | null = null;
 
 async function startServer() {
 	// Tag every DB query with the originating service for Cloud SQL Query Insights
@@ -54,10 +64,17 @@ async function startServer() {
 
 	logger.info("Server starting", { port });
 
-	return serve({
+	const server = serve({
 		port,
 		fetch: app.fetch,
 	});
+
+	if (realtimeInline) {
+		realtime = attachRealtimeServer(server as Server);
+		logger.info("Realtime WebSocket proxy attached inline", { port });
+	}
+
+	return server;
 }
 
 let isShuttingDown = false;
@@ -115,6 +132,17 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 	});
 
 	try {
+		// Stop accepting new realtime sessions and force-close any live ones so
+		// their WebSocket connections don't hold the HTTP server open for the
+		// full grace period.
+		if (realtime) {
+			logger.info("Draining realtime sessions", {
+				activeSessions: realtime.sessionCount(),
+			});
+			realtime.stopAccepting();
+			realtime.closeAll(1001, "server_shutdown");
+		}
+
 		logger.info("Closing HTTP server");
 		await closeServer(server);
 		logger.info("HTTP server closed");

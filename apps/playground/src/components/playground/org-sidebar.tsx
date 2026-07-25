@@ -4,16 +4,17 @@ import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import {
 	AudioLines,
-	MessageSquare,
 	ChevronUp,
-	LogOut,
 	ExternalLink,
-	Search,
-	Plus,
-	Users,
-	ImagePlus,
 	Film,
+	ImagePlus,
+	LogOut,
+	MessageSquare,
 	PenTool,
+	Phone,
+	Plus,
+	Search,
+	Users,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -450,6 +451,14 @@ export function OrgSidebar({
 							<Link href="/audio" prefetch={true}>
 								<AudioLines className="h-4 w-4" />
 								<span>Audio Studio</span>
+							</Link>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+					<SidebarMenuItem>
+						<SidebarMenuButton asChild tooltip="Voice Calls">
+							<Link href="/realtime" prefetch={true}>
+								<Phone className="h-4 w-4" />
+								<span>Voice Calls</span>
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
