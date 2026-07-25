@@ -40,7 +40,16 @@ export {
 	isPremiumWeekExpired,
 } from "./dev-plans.js";
 
-export { REFUND_REASON_MAX_LENGTH } from "./refunds.js";
+export {
+	REFUND_COMMENTS_MAX_LENGTH,
+	REFUND_REASON_ASSURANCE,
+	REFUND_REASON_HEADING,
+	REFUND_REASON_OPTIONS,
+	REFUND_REASONS,
+	refundCommentsRequired,
+	type RefundReason,
+	type RefundReasonOption,
+} from "./refunds.js";
 
 export {
 	CHAT_PLAN_PRICES,

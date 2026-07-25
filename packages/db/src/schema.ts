@@ -574,8 +574,18 @@ export const REFUND_FEEDBACK_KINDS = ["credits", "devpass", "chat"] as const;
 
 export type RefundFeedbackKind = (typeof REFUND_FEEDBACK_KINDS)[number];
 
-// Freeform "why are you refunding?" answer collected right before a
-// self-service refund is issued. One row per refunded transaction.
+export const REFUND_FEEDBACK_REASONS = [
+	"not_working",
+	"missing_features",
+	"too_expensive",
+	"bought_by_mistake",
+	"switched_alternative",
+	"other",
+] as const;
+
+// "Why are you refunding?" answer collected right before a self-service refund
+// is issued: a required category plus optional freeform details. One row per
+// refunded transaction.
 export const refundFeedback = pgTable(
 	"refund_feedback",
 	{
@@ -595,7 +605,8 @@ export const refundFeedback = pgTable(
 			.notNull()
 			.references(() => transaction.id, { onDelete: "cascade" }),
 		kind: text({ enum: REFUND_FEEDBACK_KINDS }).notNull(),
-		reason: text().notNull(),
+		reason: text({ enum: REFUND_FEEDBACK_REASONS }).notNull(),
+		comments: text(),
 	},
 	(table) => [
 		uniqueIndex("refund_feedback_transaction_id_unique").on(

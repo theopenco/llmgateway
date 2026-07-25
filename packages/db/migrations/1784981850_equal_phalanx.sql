@@ -6,7 +6,8 @@ CREATE TABLE "refund_feedback" (
 	"user_id" text NOT NULL,
 	"transaction_id" text NOT NULL,
 	"kind" text NOT NULL,
-	"reason" text NOT NULL
+	"reason" text NOT NULL,
+	"comments" text
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX "refund_feedback_transaction_id_unique" ON "refund_feedback" ("transaction_id");--> statement-breakpoint

@@ -28,7 +28,14 @@ import {
 } from "@/components/ui/tooltip";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
 
-import { REFUND_REASON_MAX_LENGTH } from "@llmgateway/shared";
+import {
+	REFUND_COMMENTS_MAX_LENGTH,
+	REFUND_REASON_ASSURANCE,
+	REFUND_REASON_HEADING,
+	REFUND_REASON_OPTIONS,
+	refundCommentsRequired,
+	type RefundReason,
+} from "@llmgateway/shared";
 
 import type { paths } from "@/lib/api/v1";
 
@@ -179,7 +186,17 @@ function RefundButton({
 	const api = useApi();
 	const queryClient = useQueryClient();
 	const [open, setOpen] = useState(false);
-	const [reason, setReason] = useState("");
+	const [reason, setReason] = useState<RefundReason | null>(null);
+	const [comments, setComments] = useState("");
+
+	const selectedReason = REFUND_REASON_OPTIONS.find(
+		(option) => option.value === reason,
+	);
+	const trimmedComments = comments.trim();
+	const canSubmit =
+		selectedReason !== undefined &&
+		(!refundCommentsRequired(selectedReason.value) ||
+			trimmedComments.length > 0);
 
 	const refundMutation = api.useMutation(
 		"post",
@@ -187,7 +204,8 @@ function RefundButton({
 		{
 			onSuccess: () => {
 				setOpen(false);
-				setReason("");
+				setReason(null);
+				setComments("");
 				toast.success(
 					isPlanPayment(transaction.type)
 						? "Refund processing. Your chat plan has been cancelled and the refund will arrive within a few business days."
@@ -251,7 +269,7 @@ function RefundButton({
 					<span className="sr-only sm:not-sr-only">Refund</span>
 				</Button>
 			</AlertDialogTrigger>
-			<AlertDialogContent>
+			<AlertDialogContent className="max-h-[85vh] overflow-y-auto">
 				<AlertDialogHeader>
 					<AlertDialogTitle>Refund this payment?</AlertDialogTitle>
 					<AlertDialogDescription>
@@ -263,40 +281,68 @@ function RefundButton({
 						This cannot be undone.
 					</AlertDialogDescription>
 				</AlertDialogHeader>
-				<div className="space-y-2">
-					<Label htmlFor={`refund-reason-${transaction.id}`}>
-						Why are you refunding?{" "}
-						<span className="text-destructive" aria-hidden="true">
-							*
-						</span>
-					</Label>
-					<Textarea
-						id={`refund-reason-${transaction.id}`}
-						value={reason}
-						onChange={(e) => setReason(e.target.value)}
-						maxLength={REFUND_REASON_MAX_LENGTH}
-						rows={4}
-						required
-						placeholder="Tell us what went wrong or what you were missing."
-						disabled={refundMutation.isPending}
-					/>
+				<fieldset className="space-y-3" disabled={refundMutation.isPending}>
+					<legend className="text-sm font-medium">
+						{REFUND_REASON_HEADING}
+					</legend>
 					<p className="text-muted-foreground text-xs">
-						Required. Your feedback helps us improve.
+						{REFUND_REASON_ASSURANCE}
 					</p>
-				</div>
+					<div className="flex flex-wrap gap-2">
+						{REFUND_REASON_OPTIONS.map((option) => (
+							<label key={option.value} className="cursor-pointer">
+								<input
+									type="radio"
+									name={`refund-reason-${transaction.id}`}
+									value={option.value}
+									checked={reason === option.value}
+									onChange={() => setReason(option.value)}
+									className="peer sr-only"
+								/>
+								<span className="peer-checked:border-primary peer-checked:bg-primary peer-checked:text-primary-foreground peer-checked:hover:bg-primary peer-focus-visible:ring-ring/50 hover:bg-muted text-muted-foreground block rounded-full border px-3 py-1.5 text-sm transition-colors peer-focus-visible:ring-[3px]">
+									{option.label}
+								</span>
+							</label>
+						))}
+					</div>
+					{selectedReason ? (
+						<div className="space-y-2">
+							<Label htmlFor={`refund-comments-${transaction.id}`}>
+								{selectedReason.prompt}
+								{refundCommentsRequired(selectedReason.value) ? null : (
+									<span className="text-muted-foreground font-normal">
+										{" "}
+										(optional)
+									</span>
+								)}
+							</Label>
+							<Textarea
+								id={`refund-comments-${transaction.id}`}
+								value={comments}
+								onChange={(e) => setComments(e.target.value)}
+								maxLength={REFUND_COMMENTS_MAX_LENGTH}
+								rows={3}
+								placeholder={selectedReason.placeholder}
+							/>
+						</div>
+					) : null}
+				</fieldset>
 				<AlertDialogFooter>
 					<AlertDialogCancel disabled={refundMutation.isPending}>
-						Cancel
+						Never mind
 					</AlertDialogCancel>
 					<AlertDialogAction
-						disabled={refundMutation.isPending || reason.trim().length === 0}
+						disabled={refundMutation.isPending || !canSubmit}
 						onClick={(e) => {
 							e.preventDefault();
+							if (!reason) {
+								return;
+							}
 							refundMutation.mutate({
 								params: {
 									path: { id: orgId, transactionId: transaction.id },
 								},
-								body: { reason: reason.trim() },
+								body: { reason, comments: trimmedComments || undefined },
 							});
 						}}
 					>

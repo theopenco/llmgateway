@@ -7,6 +7,7 @@ import {
 	computeSelfRefundEligibility,
 	executeSelfRefund,
 	isSelfRefundCandidateType,
+	refundFeedbackBodySchema,
 } from "@/lib/self-refund.js";
 import { posthog } from "@/posthog.js";
 import {
@@ -56,7 +57,6 @@ import {
 	getIncludedResetPassesRemaining,
 	getRemainingPremiumWeeklyAllowance,
 	isPremiumWeekExpired,
-	REFUND_REASON_MAX_LENGTH,
 	type DevPlanCycle,
 	type DevPlanTier,
 } from "@llmgateway/shared";
@@ -2376,16 +2376,7 @@ const selfRefundInvoice = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: z.object({
-						reason: z
-							.string()
-							.trim()
-							.min(1)
-							.max(REFUND_REASON_MAX_LENGTH)
-							.openapi({
-								description: "Why the customer is requesting the refund",
-							}),
-					}),
+					schema: refundFeedbackBodySchema,
 				},
 			},
 		},
@@ -2413,7 +2404,7 @@ devPlans.openapi(selfRefundInvoice, async (c) => {
 	}
 
 	const { invoiceId } = c.req.param();
-	const { reason } = c.req.valid("json");
+	const { reason, comments } = c.req.valid("json");
 
 	const personalOrg = await findPersonalOrg(user.id);
 	if (!personalOrg) {
@@ -2454,6 +2445,7 @@ devPlans.openapi(selfRefundInvoice, async (c) => {
 		transaction,
 		userId: user.id,
 		reason,
+		comments,
 	});
 
 	return c.json({

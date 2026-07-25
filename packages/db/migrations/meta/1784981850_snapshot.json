@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "69793e30-d49a-445e-aa70-72f318bee158",
+  "id": "9c80aaca-172e-4137-937f-866e501693a8",
   "prevId": "ca898c4f-668f-4620-9484-16a22f15229f",
   "ddl": [
     {
@@ -17409,6 +17409,19 @@
       "generated": null,
       "identity": null,
       "name": "reason",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "refund_feedback"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "comments",
       "entityType": "columns",
       "schema": "public",
       "table": "refund_feedback"

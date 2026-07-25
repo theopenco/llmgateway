@@ -674,7 +674,10 @@ describe("self-refund endpoints", () => {
 			{
 				method: "POST",
 				headers: { Cookie: token, "Content-Type": "application/json" },
-				body: JSON.stringify({ reason: "Too expensive for my usage" }),
+				body: JSON.stringify({
+					reason: "too_expensive",
+					comments: "A flat $10 tier would have worked",
+				}),
 			},
 		);
 
@@ -706,11 +709,12 @@ describe("self-refund endpoints", () => {
 			transactionId: tx.id,
 			userId: "test-user-id",
 			kind: "credits",
-			reason: "Too expensive for my usage",
+			reason: "too_expensive",
+			comments: "A flat $10 tier would have worked",
 		});
 	});
 
-	test("rejects a missing or blank reason without calling Stripe", async () => {
+	test("rejects a missing or unknown reason without calling Stripe", async () => {
 		await seedOrg({ credits: "100" });
 		const tx = await seedTransaction();
 
@@ -724,15 +728,15 @@ describe("self-refund endpoints", () => {
 		);
 		expect(missing.status).toBe(400);
 
-		const blank = await app.request(
+		const unknown = await app.request(
 			`/orgs/${ORG_ID}/transactions/${tx.id}/refund`,
 			{
 				method: "POST",
 				headers: { Cookie: token, "Content-Type": "application/json" },
-				body: JSON.stringify({ reason: "   " }),
+				body: JSON.stringify({ reason: "just because" }),
 			},
 		);
-		expect(blank.status).toBe(400);
+		expect(unknown.status).toBe(400);
 
 		expect(stripeMock.refunds.create).not.toHaveBeenCalled();
 		expect(
@@ -740,6 +744,56 @@ describe("self-refund endpoints", () => {
 				where: { organizationId: { eq: ORG_ID } },
 			}),
 		).toHaveLength(0);
+	});
+
+	// "Something else" says nothing on its own, so the endpoint enforces the
+	// follow-up the dialog asks for rather than trusting the client gate.
+	test("rejects reason 'other' with no comments without calling Stripe", async () => {
+		await seedOrg({ credits: "100" });
+		const tx = await seedTransaction();
+
+		const response = await app.request(
+			`/orgs/${ORG_ID}/transactions/${tx.id}/refund`,
+			{
+				method: "POST",
+				headers: { Cookie: token, "Content-Type": "application/json" },
+				body: JSON.stringify({ reason: "other" }),
+			},
+		);
+		expect(response.status).toBe(400);
+
+		expect(stripeMock.refunds.create).not.toHaveBeenCalled();
+		expect(
+			await db.query.refundFeedback.findMany({
+				where: { organizationId: { eq: ORG_ID } },
+			}),
+		).toHaveLength(0);
+	});
+
+	// The category is required, the detail is not — a one-click answer must
+	// still go through.
+	test("accepts a reason with no comments", async () => {
+		await seedOrg({ credits: "100" });
+		const tx = await seedTransaction();
+
+		const response = await app.request(
+			`/orgs/${ORG_ID}/transactions/${tx.id}/refund`,
+			{
+				method: "POST",
+				headers: { Cookie: token, "Content-Type": "application/json" },
+				body: JSON.stringify({ reason: "bought_by_mistake" }),
+			},
+		);
+		expect(response.status).toBe(200);
+
+		const feedback = await db.query.refundFeedback.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(feedback).toHaveLength(1);
+		expect(feedback[0]).toMatchObject({
+			reason: "bought_by_mistake",
+			comments: null,
+		});
 	});
 
 	test("refunding a dev plan resolves the invoice payment and issues the refund", async () => {
@@ -777,7 +831,10 @@ describe("self-refund endpoints", () => {
 			{
 				method: "POST",
 				headers: { Cookie: token, "Content-Type": "application/json" },
-				body: JSON.stringify({ reason: "Too expensive for my usage" }),
+				body: JSON.stringify({
+					reason: "too_expensive",
+					comments: "A flat $10 tier would have worked",
+				}),
 			},
 		);
 
@@ -807,7 +864,10 @@ describe("self-refund endpoints", () => {
 			{
 				method: "POST",
 				headers: { Cookie: token, "Content-Type": "application/json" },
-				body: JSON.stringify({ reason: "Too expensive for my usage" }),
+				body: JSON.stringify({
+					reason: "too_expensive",
+					comments: "A flat $10 tier would have worked",
+				}),
 			},
 		);
 
@@ -828,7 +888,10 @@ describe("self-refund endpoints", () => {
 			{
 				method: "POST",
 				headers: { Cookie: token, "Content-Type": "application/json" },
-				body: JSON.stringify({ reason: "Too expensive for my usage" }),
+				body: JSON.stringify({
+					reason: "too_expensive",
+					comments: "A flat $10 tier would have worked",
+				}),
 			},
 		);
 

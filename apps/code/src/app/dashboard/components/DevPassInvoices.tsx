@@ -28,7 +28,14 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
 
-import { REFUND_REASON_MAX_LENGTH } from "@llmgateway/shared";
+import {
+	REFUND_COMMENTS_MAX_LENGTH,
+	REFUND_REASON_ASSURANCE,
+	REFUND_REASON_HEADING,
+	REFUND_REASON_OPTIONS,
+	refundCommentsRequired,
+	type RefundReason,
+} from "@llmgateway/shared";
 
 import type { paths } from "@/lib/api/v1";
 import type { ReactNode } from "react";
@@ -143,7 +150,17 @@ function RefundButton({ invoice }: { invoice: Invoice }) {
 	const queryClient = useQueryClient();
 	const isResetPass = invoice.type === "dev_plan_reset_pass";
 	const [open, setOpen] = useState(false);
-	const [reason, setReason] = useState("");
+	const [reason, setReason] = useState<RefundReason | null>(null);
+	const [comments, setComments] = useState("");
+
+	const selectedReason = REFUND_REASON_OPTIONS.find(
+		(option) => option.value === reason,
+	);
+	const trimmedComments = comments.trim();
+	const canSubmit =
+		selectedReason !== undefined &&
+		(!refundCommentsRequired(selectedReason.value) ||
+			trimmedComments.length > 0);
 
 	const refundMutation = api.useMutation(
 		"post",
@@ -151,7 +168,8 @@ function RefundButton({ invoice }: { invoice: Invoice }) {
 		{
 			onSuccess: () => {
 				setOpen(false);
-				setReason("");
+				setReason(null);
+				setComments("");
 				toast.success(
 					isResetPass
 						? "Refund processing. The unused pass has been returned and the refund will arrive within a few business days."
@@ -209,7 +227,7 @@ function RefundButton({ invoice }: { invoice: Invoice }) {
 					<span className="sr-only sm:not-sr-only">Refund</span>
 				</Button>
 			</AlertDialogTrigger>
-			<AlertDialogContent>
+			<AlertDialogContent className="max-h-[85vh] overflow-y-auto">
 				<AlertDialogHeader>
 					<AlertDialogTitle>
 						{isResetPass ? "Refund this Reset Pass?" : "Refund this payment?"}
@@ -220,38 +238,66 @@ function RefundButton({ invoice }: { invoice: Invoice }) {
 							: `${formatAmount(invoice.amount, invoice.currency)} will be refunded to your payment method and your DevPass will be cancelled immediately. This cannot be undone.`}
 					</AlertDialogDescription>
 				</AlertDialogHeader>
-				<div className="space-y-2">
-					<Label htmlFor={`refund-reason-${invoice.id}`}>
-						Why are you refunding?{" "}
-						<span className="text-destructive" aria-hidden="true">
-							*
-						</span>
-					</Label>
-					<Textarea
-						id={`refund-reason-${invoice.id}`}
-						value={reason}
-						onChange={(e) => setReason(e.target.value)}
-						maxLength={REFUND_REASON_MAX_LENGTH}
-						rows={4}
-						required
-						placeholder="Tell us what went wrong or what you were missing."
-						disabled={refundMutation.isPending}
-					/>
+				<fieldset className="space-y-3" disabled={refundMutation.isPending}>
+					<legend className="text-sm font-medium">
+						{REFUND_REASON_HEADING}
+					</legend>
 					<p className="text-muted-foreground text-xs">
-						Required. Your feedback helps us improve.
+						{REFUND_REASON_ASSURANCE}
 					</p>
-				</div>
+					<div className="flex flex-wrap gap-2">
+						{REFUND_REASON_OPTIONS.map((option) => (
+							<label key={option.value} className="cursor-pointer">
+								<input
+									type="radio"
+									name={`refund-reason-${invoice.id}`}
+									value={option.value}
+									checked={reason === option.value}
+									onChange={() => setReason(option.value)}
+									className="peer sr-only"
+								/>
+								<span className="peer-checked:border-primary peer-checked:bg-primary peer-checked:text-primary-foreground peer-checked:hover:bg-primary peer-focus-visible:ring-ring/50 hover:bg-muted text-muted-foreground block rounded-full border px-3 py-1.5 text-sm transition-colors peer-focus-visible:ring-[3px]">
+									{option.label}
+								</span>
+							</label>
+						))}
+					</div>
+					{selectedReason ? (
+						<div className="space-y-2">
+							<Label htmlFor={`refund-comments-${invoice.id}`}>
+								{selectedReason.prompt}
+								{refundCommentsRequired(selectedReason.value) ? null : (
+									<span className="text-muted-foreground font-normal">
+										{" "}
+										(optional)
+									</span>
+								)}
+							</Label>
+							<Textarea
+								id={`refund-comments-${invoice.id}`}
+								value={comments}
+								onChange={(e) => setComments(e.target.value)}
+								maxLength={REFUND_COMMENTS_MAX_LENGTH}
+								rows={3}
+								placeholder={selectedReason.placeholder}
+							/>
+						</div>
+					) : null}
+				</fieldset>
 				<AlertDialogFooter>
 					<AlertDialogCancel disabled={refundMutation.isPending}>
 						{isResetPass ? "Keep my pass" : "Keep my DevPass"}
 					</AlertDialogCancel>
 					<AlertDialogAction
-						disabled={refundMutation.isPending || reason.trim().length === 0}
+						disabled={refundMutation.isPending || !canSubmit}
 						onClick={(e) => {
 							e.preventDefault();
+							if (!reason) {
+								return;
+							}
 							refundMutation.mutate({
 								params: { path: { invoiceId: invoice.id } },
-								body: { reason: reason.trim() },
+								body: { reason, comments: trimmedComments || undefined },
 							});
 						}}
 					>

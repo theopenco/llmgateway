@@ -1,3 +1,4 @@
+import { z } from "@hono/zod-openapi";
 import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 
@@ -10,11 +11,15 @@ import {
 	CHAT_PLAN_PRICES,
 	DEV_PLAN_PRICES,
 	DEV_PLAN_RESET_PASS_PRICES,
+	REFUND_COMMENTS_MAX_LENGTH,
+	REFUND_REASONS,
+	refundCommentsRequired,
 	type ChatPlanTier,
 	type DevPlanTier,
 } from "@llmgateway/shared";
 
 import type { RefundFeedbackKind } from "@llmgateway/db";
+import type { RefundReason } from "@llmgateway/shared";
 
 type OrganizationRow = typeof tables.organization.$inferSelect;
 type TransactionRow = typeof tables.transaction.$inferSelect;
@@ -97,6 +102,25 @@ export function refundFeedbackKindForType(type: string): RefundFeedbackKind {
 		? REFUND_FEEDBACK_KIND_BY_TYPE[type]
 		: "credits";
 }
+
+/**
+ * Body both self-refund endpoints take: a required category so every refund
+ * yields comparable data, plus optional freeform detail.
+ */
+export const refundFeedbackBodySchema = z.object({
+	reason: z.enum(REFUND_REASONS).openapi({
+		description: "Closest category for why the customer wants a refund",
+	}),
+	comments: z
+		.string()
+		.trim()
+		.max(REFUND_COMMENTS_MAX_LENGTH)
+		.optional()
+		.openapi({
+			description:
+				"Freeform detail. Optional, except when reason is 'other' — that category carries no signal on its own.",
+		}),
+});
 
 function ineligible(
 	reason: SelfRefundIneligibilityReason,
@@ -402,21 +426,29 @@ export function computeSelfRefundEligibility({
  * the cancellation in the webhook means it fires for every refund source, not
  * just this endpoint.
  *
- * `reason` is the freeform answer the user gave for why they are refunding; it
- * is stored before the refund is issued so the feedback survives a Stripe
- * failure.
+ * `reason` and the optional `comments` are why the user says they are
+ * refunding; they are stored before the refund is issued so the feedback
+ * survives a Stripe failure.
  */
 export async function executeSelfRefund({
 	organization,
 	transaction,
 	userId,
 	reason,
+	comments,
 }: {
 	organization: OrganizationRow;
 	transaction: TransactionRow;
 	userId: string;
-	reason: string;
+	reason: RefundReason;
+	comments?: string;
 }): Promise<{ stripeRefundId: string }> {
+	if (refundCommentsRequired(reason) && !comments) {
+		throw new HTTPException(400, {
+			message: "Tell us what happened so we know what to fix.",
+		});
+	}
+
 	await db
 		.insert(tables.refundFeedback)
 		.values({
@@ -425,10 +457,11 @@ export async function executeSelfRefund({
 			transactionId: transaction.id,
 			kind: refundFeedbackKindForType(transaction.type),
 			reason,
+			comments: comments ?? null,
 		})
 		.onConflictDoUpdate({
 			target: tables.refundFeedback.transactionId,
-			set: { reason, userId },
+			set: { reason, comments: comments ?? null, userId },
 		});
 
 	const stripe = getStripe();
