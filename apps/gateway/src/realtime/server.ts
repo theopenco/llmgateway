@@ -27,7 +27,7 @@ import { RealtimeProxySession } from "./session.js";
 
 import type { RealtimeMappingMatch } from "./catalog.js";
 import type { RealtimePreflightResult } from "./preflight.js";
-import type { IncomingMessage, Server } from "node:http";
+import type { ClientRequest, IncomingMessage, Server } from "node:http";
 import type { Duplex } from "node:stream";
 
 const maxMessageBytes = () =>
@@ -62,7 +62,11 @@ function writeHttpError(
 		},
 	});
 	try {
-		socket.write(
+		// end() + destroy-on-finish (ws's own abortHandshake pattern): a
+		// synchronous destroy() can discard the response before it reaches the
+		// kernel, turning the crafted error into a bare connection reset.
+		socket.once("finish", () => socket.destroy());
+		socket.end(
 			`HTTP/1.1 ${status} ${statusText[status] ?? "Error"}\r\n` +
 				"Content-Type: application/json\r\n" +
 				`Content-Length: ${Buffer.byteLength(body)}\r\n` +
@@ -72,8 +76,8 @@ function writeHttpError(
 		);
 	} catch {
 		// Socket already gone.
+		socket.destroy();
 	}
-	socket.destroy();
 }
 
 function extractToken(req: IncomingMessage): string | undefined {
@@ -180,13 +184,24 @@ async function connectUpstream(
 			cleanup();
 			reject(error);
 		};
-		const onUnexpected = (res: IncomingMessage) => {
+		const onUnexpected = (
+			upstreamReq: ClientRequest,
+			upstreamRes: IncomingMessage,
+		) => {
 			cleanup();
+			// With an unexpected-response listener attached, ws does not abort the
+			// handshake itself — this listener owns the request. The request's own
+			// error handler re-emits on the WebSocket, which has no listeners after
+			// cleanup(), so absorb that first, then discard the response and destroy
+			// the request so a rejected handshake cannot leak the connection.
+			upstream.on("error", () => {});
+			upstreamRes.resume();
+			upstreamReq.destroy();
 			reject(
 				new RealtimeConnectError(
 					502,
 					"upstream_connect_failed",
-					`Upstream provider rejected the realtime connection (status ${res.statusCode ?? "unknown"}).`,
+					`Upstream provider rejected the realtime connection (status ${upstreamRes.statusCode ?? "unknown"}).`,
 				),
 			);
 		};
@@ -524,6 +539,26 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 					preflight.providerKey.id,
 					preflight.match.modelId,
 				);
+			}
+
+			// The accepting check at the top of this handler ran before the
+			// preflight and upstream-handshake awaits. A shutdown that began
+			// during that window has already seen sessionCount() === 0 and moved
+			// on to closing the database, so a session admitted now would run
+			// against a closed pool. Nothing awaits between this re-check and
+			// sessions.add() below, so a session either registers before the
+			// drain loop's next count or is rejected here.
+			if (!accepting) {
+				discardUpstream(upstream);
+				await releaseRealtimeLease(lease);
+				await abortSession("server_shutdown");
+				writeHttpError(
+					socket,
+					503,
+					"realtime_disabled",
+					"Realtime sessions are temporarily unavailable.",
+				);
+				return;
 			}
 
 			// From here on, an unexpected failure must not orphan the upstream
