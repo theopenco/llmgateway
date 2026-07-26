@@ -56,7 +56,7 @@ import {
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
 import type { ServerTypes } from "@/vars.js";
 import type { RoutingMetadata } from "@llmgateway/actions";
-import type { InferSelectModel, tables } from "@llmgateway/db";
+import type { InferSelectModel, LogInsertData, tables } from "@llmgateway/db";
 import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
 
 // Mistral accepts either a document URL/PDF or an image. The image_url variant
@@ -512,12 +512,12 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 
 	const retentionLevel = organization.retentionLevel ?? "none";
 
-	// Strip request/response payload fields before publishing to the log queue
-	// for orgs that don't retain data, so payloads never travel through Redis.
-	const insertLog = (
-		logData: Parameters<typeof _insertLog>[0],
-		options?: Parameters<typeof _insertLog>[1],
-	) => _insertLog(logData, { retentionLevel, ...options });
+	// Wrap insertLog so every log this handler writes carries the org's
+	// retention level. Payload fields are then stripped before publishing to the
+	// queue for orgs that don't retain data — centralizing it here means no call
+	// site can accidentally persist a payload by forgetting to pass it.
+	const insertLog = (logData: LogInsertData) =>
+		_insertLog(logData, { retentionLevel });
 
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
