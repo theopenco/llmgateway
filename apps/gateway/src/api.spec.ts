@@ -3347,12 +3347,15 @@ describe("api", () => {
 				return await originalFetch(input as RequestInfo | URL, init);
 			});
 
+		const requestId = "image-generation-content-filter-request";
+
 		try {
 			const res = await app.request("/v1/images/generations", {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
 					Authorization: "Bearer real-token-image-generation-content-filter",
+					"x-request-id": requestId,
 				},
 				body: JSON.stringify({
 					model: "llmgateway/custom",
@@ -3367,6 +3370,12 @@ describe("api", () => {
 		} finally {
 			fetchSpy.mockRestore();
 		}
+
+		// The empty-data response is only acceptable because the request is still
+		// classified as content filtered in the logs.
+		const log = await waitForLogByRequestId(requestId);
+		expect(log.finishReason).toBe("content_filter");
+		expect(log.unifiedFinishReason).toBe("content_filter");
 	});
 
 	test("/v1/images/edits returns empty data for content filter", async () => {
@@ -3386,6 +3395,7 @@ describe("api", () => {
 			baseUrl: mockServerUrl,
 		});
 
+		const requestId = "image-edits-content-filter-request";
 		const originalFetch = globalThis.fetch;
 		const fetchSpy = vi
 			.spyOn(globalThis, "fetch")
@@ -3438,6 +3448,7 @@ describe("api", () => {
 				headers: {
 					"Content-Type": "application/json",
 					Authorization: "Bearer real-token-image-edits-content-filter",
+					"x-request-id": requestId,
 				},
 				body: JSON.stringify({
 					model: "llmgateway/custom",
@@ -3458,6 +3469,12 @@ describe("api", () => {
 		} finally {
 			fetchSpy.mockRestore();
 		}
+
+		// The empty-data response is only acceptable because the request is still
+		// classified as content filtered in the logs.
+		const log = await waitForLogByRequestId(requestId);
+		expect(log.finishReason).toBe("content_filter");
+		expect(log.unifiedFinishReason).toBe("content_filter");
 	});
 
 	test("/v1/chat/completions blocks with openai content filter mode", async () => {
