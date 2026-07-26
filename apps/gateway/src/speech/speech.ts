@@ -988,6 +988,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				requestedProvider: providerId,
 				messages: normalizedMessages,
 				source,
+				apiOrigin: "speech",
 				customHeaders,
 				debugMode,
 				userAgent,

@@ -1886,6 +1886,7 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 			await tx.insert(tables.log).values({
 				id: logId,
 				requestId: jobToLog.requestId,
+				apiOrigin: "videos",
 				organizationId: jobToLog.organizationId,
 				projectId: jobToLog.projectId,
 				apiKeyId: jobToLog.apiKeyId,

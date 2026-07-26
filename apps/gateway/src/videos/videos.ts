@@ -4318,6 +4318,7 @@ async function insertVideoClientErrorLog(options: {
 	const responseText = options.message;
 	await db.insert(tables.log).values({
 		requestId: options.requestId,
+		apiOrigin: "videos",
 		organizationId: options.organization.id,
 		projectId: options.project.id,
 		apiKeyId: options.apiKey.id,
