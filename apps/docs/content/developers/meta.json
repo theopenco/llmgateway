@@ -1,0 +1,6 @@
+{
+	"title": "Developers",
+	"description": "Build with LLM Gateway using the AI SDK",
+	"icon": "Code",
+	"pages": ["index", "ai-sdk", "ai-sdk-images"]
+}
