@@ -2,7 +2,8 @@
 
 import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -35,7 +36,11 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 
 import { getProviderIcon } from "@llmgateway/shared";
-import { SearchableSelect } from "@llmgateway/shared/components";
+import {
+	ReorderableItem,
+	ReorderableList,
+	SearchableSelect,
+} from "@llmgateway/shared/components";
 
 import type {
 	ProviderCredential,
@@ -110,6 +115,10 @@ interface ProviderCredentialsManagerProps {
 		},
 	) => Promise<MutationResult>;
 	onDelete: (id: string) => Promise<MutationResult>;
+	onReorder: (
+		provider: string,
+		credentialIds: string[],
+	) => Promise<MutationResult>;
 }
 
 function ProviderIcon({ provider }: { provider: string }) {
@@ -132,6 +141,7 @@ export function ProviderCredentialsManager({
 	onCreate,
 	onUpdate,
 	onDelete,
+	onReorder,
 }: ProviderCredentialsManagerProps) {
 	const router = useRouter();
 	const [editing, setEditing] = useState<ProviderCredential | null>(null);
@@ -174,6 +184,64 @@ export function ProviderCredentialsManager({
 		[credentials],
 	);
 
+	// Rows arrive grouped by provider (the API orders by provider, then position),
+	// so each run becomes its own reorderable tbody.
+	const serverOrder = useMemo(() => {
+		const groups = new Map<string, string[]>();
+		for (const credential of credentials) {
+			groups.set(credential.provider, [
+				...(groups.get(credential.provider) ?? []),
+				credential.id,
+			]);
+		}
+		return groups;
+	}, [credentials]);
+
+	const credentialById = useMemo(
+		() => new Map(credentials.map((credential) => [credential.id, credential])),
+		[credentials],
+	);
+
+	// There is no query cache here — mutations are server actions followed by
+	// router.refresh() — so the dragged order lives in local state until the
+	// refreshed props arrive, which is what keeps the rows from snapping back.
+	const [order, setOrder] = useState(serverOrder);
+	const [savingProvider, setSavingProvider] = useState<string | null>(null);
+	const preDragOrder = useRef<Map<string, string[]> | null>(null);
+
+	useEffect(() => {
+		if (savingProvider || preDragOrder.current) {
+			return;
+		}
+		setOrder(serverOrder);
+	}, [serverOrder, savingProvider]);
+
+	function applyReorder(provider: string, ids: string[]) {
+		if (!preDragOrder.current) {
+			preDragOrder.current = new Map(order);
+		}
+		setOrder((current) => new Map(current).set(provider, ids));
+	}
+
+	async function commitReorder(provider: string, ids: string[]) {
+		const snapshot = preDragOrder.current;
+		preDragOrder.current = null;
+		if (!snapshot) {
+			return;
+		}
+
+		setSavingProvider(provider);
+		const result = await onReorder(provider, ids);
+		if (!result.success) {
+			setOrder(snapshot);
+			toast.error(result.error ?? "Failed to save credential order");
+			setSavingProvider(null);
+			return;
+		}
+		router.refresh();
+		setSavingProvider(null);
+	}
+
 	async function confirmDelete() {
 		if (!deleting) {
 			return;
@@ -203,6 +271,9 @@ export function ProviderCredentialsManager({
 				<Table>
 					<TableHeader>
 						<TableRow>
+							<TableHead className="w-10">
+								<span className="sr-only">Order</span>
+							</TableHead>
 							<TableHead>Provider</TableHead>
 							<TableHead>Key</TableHead>
 							<TableHead>Note</TableHead>
@@ -213,103 +284,141 @@ export function ProviderCredentialsManager({
 							<TableHead className="text-right">Actions</TableHead>
 						</TableRow>
 					</TableHeader>
-					<TableBody>
-						{credentials.length === 0 ? (
+					{credentials.length === 0 ? (
+						<TableBody>
 							<TableRow>
 								<TableCell
-									colSpan={8}
+									colSpan={9}
 									className="py-10 text-center text-muted-foreground"
 								>
 									No managed credentials yet. Providers fall back to their{" "}
 									<code>LLM_*</code> environment variables until one is added.
 								</TableCell>
 							</TableRow>
-						) : (
-							credentials.map((credential) => {
-								const configEntries = Object.entries(credential.config ?? {});
-								return (
-									<TableRow key={credential.id}>
-										<TableCell>
-											<ProviderCell provider={credential.provider} />
-										</TableCell>
-										<TableCell className="font-mono text-xs">
-											<div>{credential.maskedToken}</div>
-											{credential.tokenHash ? (
-												<div
-													className="text-[11px] text-muted-foreground"
-													title={`Matches usedApiKeyHash on logs served by this credential: ${credential.tokenHash}`}
-												>
-													{credential.tokenHash.slice(0, 12)}
-												</div>
-											) : null}
-										</TableCell>
-										<TableCell className="max-w-[260px] text-sm text-muted-foreground">
-											{credential.comment || "—"}
-										</TableCell>
-										<TableCell className="text-sm">
-											{VARIANT_LABELS[credential.variant as Variant] ??
-												credential.variant}
-										</TableCell>
-										<TableCell className="text-sm">
-											{credential.region || "Any"}
-										</TableCell>
-										<TableCell>
-											{configEntries.length === 0 ? (
-												<span className="text-sm text-muted-foreground">—</span>
-											) : (
-												<div className="flex flex-wrap gap-1">
-													{configEntries.map(([key, value]) => (
+						</TableBody>
+					) : (
+						// One tbody per provider: several are valid inside a table and
+						// stack seamlessly, and it makes dragging a row into another
+						// provider's group structurally impossible.
+						Array.from(order.entries()).map(([provider, ids]) => (
+							<ReorderableList
+								key={provider}
+								as="tbody"
+								ids={ids}
+								disabled={savingProvider === provider}
+								onReorder={(next) => applyReorder(provider, next)}
+								onCommit={(next) => void commitReorder(provider, next)}
+							>
+								{ids.map((id: string, index: number) => {
+									const credential = credentialById.get(id);
+									if (!credential) {
+										return null;
+									}
+									const configEntries = Object.entries(credential.config ?? {});
+									return (
+										<ReorderableItem
+											key={credential.id}
+											id={credential.id}
+											as="tr"
+											itemLabel={`${credential.provider} credential ${credential.maskedToken}`}
+											className="border-b bg-card transition-colors hover:bg-muted/50"
+										>
+											{(handle) => (
+												<>
+													<TableCell className="w-10">
+														<div className="flex items-center gap-1">
+															{handle}
+															<span className="text-xs tabular-nums text-muted-foreground">
+																{index + 1}
+															</span>
+														</div>
+													</TableCell>
+													<TableCell>
+														<ProviderCell provider={credential.provider} />
+													</TableCell>
+													<TableCell className="font-mono text-xs">
+														<div>{credential.maskedToken}</div>
+														{credential.tokenHash ? (
+															<div
+																className="text-[11px] text-muted-foreground"
+																title={`Matches usedApiKeyHash on logs served by this credential: ${credential.tokenHash}`}
+															>
+																{credential.tokenHash.slice(0, 12)}
+															</div>
+														) : null}
+													</TableCell>
+													<TableCell className="max-w-[260px] text-sm text-muted-foreground">
+														{credential.comment || "—"}
+													</TableCell>
+													<TableCell className="text-sm">
+														{VARIANT_LABELS[credential.variant as Variant] ??
+															credential.variant}
+													</TableCell>
+													<TableCell className="text-sm">
+														{credential.region || "Any"}
+													</TableCell>
+													<TableCell>
+														{configEntries.length === 0 ? (
+															<span className="text-sm text-muted-foreground">
+																—
+															</span>
+														) : (
+															<div className="flex flex-wrap gap-1">
+																{configEntries.map(([key, value]) => (
+																	<Badge
+																		key={key}
+																		variant="secondary"
+																		className="font-mono text-[11px]"
+																		title={`${key}: ${value}`}
+																	>
+																		{key}
+																	</Badge>
+																))}
+															</div>
+														)}
+													</TableCell>
+													<TableCell>
 														<Badge
-															key={key}
-															variant="secondary"
-															className="font-mono text-[11px]"
-															title={`${key}: ${value}`}
+															variant={
+																credential.status === "active"
+																	? "default"
+																	: "secondary"
+															}
 														>
-															{key}
+															{credential.status}
 														</Badge>
-													))}
-												</div>
+													</TableCell>
+													<TableCell className="text-right">
+														<div className="flex justify-end gap-1">
+															<Button
+																variant="ghost"
+																size="sm"
+																aria-label={`Edit ${credential.provider} credential ${credential.maskedToken}`}
+																onClick={() => setEditing(credential)}
+															>
+																<Pencil className="h-4 w-4" />
+															</Button>
+															<Button
+																variant="ghost"
+																size="sm"
+																aria-label={`Remove ${credential.provider} credential ${credential.maskedToken}`}
+																onClick={() => {
+																	setDeleteError(null);
+																	setDeleting(credential);
+																}}
+															>
+																<Trash2 className="h-4 w-4" />
+															</Button>
+														</div>
+													</TableCell>
+												</>
 											)}
-										</TableCell>
-										<TableCell>
-											<Badge
-												variant={
-													credential.status === "active"
-														? "default"
-														: "secondary"
-												}
-											>
-												{credential.status}
-											</Badge>
-										</TableCell>
-										<TableCell className="text-right">
-											<div className="flex justify-end gap-1">
-												<Button
-													variant="ghost"
-													size="sm"
-													aria-label={`Edit ${credential.provider} credential ${credential.maskedToken}`}
-													onClick={() => setEditing(credential)}
-												>
-													<Pencil className="h-4 w-4" />
-												</Button>
-												<Button
-													variant="ghost"
-													size="sm"
-													aria-label={`Remove ${credential.provider} credential ${credential.maskedToken}`}
-													onClick={() => {
-														setDeleteError(null);
-														setDeleting(credential);
-													}}
-												>
-													<Trash2 className="h-4 w-4" />
-												</Button>
-											</div>
-										</TableCell>
-									</TableRow>
-								);
-							})
-						)}
-					</TableBody>
+										</ReorderableItem>
+									);
+								})}
+							</ReorderableList>
+						))
+					)}
 				</Table>
 			</div>
 

@@ -12,5 +12,6 @@ export * from "./multi-model-selector";
 export * from "./multi-provider-selector";
 export * from "./provider-icons";
 export * from "./refund-reason-fieldset";
+export * from "./reorderable-list";
 export * from "./searchable-select";
 export * from "./ui/index";

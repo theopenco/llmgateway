@@ -101,3 +101,24 @@ export async function deleteProviderCredential(
 	}
 	return { success: true };
 }
+
+/**
+ * Sets the order the gateway tries a provider's managed credentials. The first
+ * is preferred; the rest are fallbacks when one is unhealthy.
+ */
+export async function reorderProviderCredentials(
+	provider: string,
+	credentialIds: string[],
+): Promise<MutationResult> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.PUT("/admin/provider-credentials/order", {
+		body: { provider, credentialIds },
+	});
+	if (error || !data) {
+		return {
+			success: false,
+			error: toErrorMessage(error, "Failed to save credential order"),
+		};
+	}
+	return { success: true };
+}

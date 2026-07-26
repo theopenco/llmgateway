@@ -7,6 +7,7 @@ import {
 	deleteProviderCredential,
 	getProviderCredentialCatalog,
 	getProviderCredentials,
+	reorderProviderCredentials,
 	updateProviderCredential,
 } from "@/lib/admin-provider-credentials";
 
@@ -61,6 +62,7 @@ export default async function ProviderCredentialsPage() {
 				onCreate={createProviderCredential}
 				onUpdate={updateProviderCredential}
 				onDelete={deleteProviderCredential}
+				onReorder={reorderProviderCredentials}
 			/>
 		</div>
 	);
