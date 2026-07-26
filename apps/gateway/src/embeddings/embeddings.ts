@@ -39,10 +39,7 @@ import {
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
-import {
-	calculateDataStorageCost,
-	insertLog as _insertLog,
-} from "@/lib/logs.js";
+import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import {
 	clientFacingUpstreamFailureMessage,
 	redactedProviderErrorText,
@@ -67,7 +64,7 @@ import {
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
 import type { ServerTypes } from "@/vars.js";
 import type { RoutingMetadata } from "@llmgateway/actions";
-import type { InferSelectModel, LogInsertData, tables } from "@llmgateway/db";
+import type { InferSelectModel, tables } from "@llmgateway/db";
 import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
 
 const embeddingInputSchema = z
@@ -620,13 +617,6 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 
 	const retentionLevel = organization.retentionLevel ?? "none";
 
-	// Wrap insertLog so every log this handler writes carries the org's
-	// retention level. Payload fields are then stripped before publishing to the
-	// queue for orgs that don't retain data — centralizing it here means no call
-	// site can accidentally persist a payload by forgetting to pass it.
-	const insertLog = (logData: LogInsertData) =>
-		_insertLog(logData, { retentionLevel });
-
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
 		organizationId: project.organizationId,
@@ -1125,57 +1115,60 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 					);
 				}
 
-				await insertLog({
-					...baseLogEntry,
-					id: willRetry ? attemptLogId : finalLogId,
-					routingMetadata: buildEmbeddingRoutingMetadata(usedApiKeyHash),
-					duration,
-					timeToFirstToken: null,
-					timeToFirstReasoningToken: null,
-					responseSize: 0,
-					content: null,
-					reasoningContent: null,
-					finishReason: isCanceled ? "canceled" : "upstream_error",
-					promptTokens: null,
-					completionTokens: null,
-					totalTokens: null,
-					reasoningTokens: null,
-					cachedTokens: null,
-					hasError: !isCanceled,
-					streamed: false,
-					canceled: isCanceled,
-					errorDetails: isCanceled
-						? null
-						: {
-								statusCode: 0,
-								statusText: fetchError.name,
-								responseText: fetchError.message,
-							},
-					inputCost: 0,
-					outputCost: 0,
-					cachedInputCost: 0,
-					requestCost: 0,
-					webSearchCost: 0,
-					imageInputTokens: null,
-					imageOutputTokens: null,
-					imageInputCost: null,
-					imageOutputCost: null,
-					cost: 0,
-					estimatedCost: false,
-					discount: null,
-					pricingTier: null,
-					dataStorageCost: calculateDataStorageCost(
-						null,
-						null,
-						null,
-						null,
-						retentionLevel,
-					),
-					cached: false,
-					toolResults: null,
-					retried: willRetry,
-					retriedByLogId: willRetry ? finalLogId : null,
-				});
+				await insertLog(
+					{
+						...baseLogEntry,
+						id: willRetry ? attemptLogId : finalLogId,
+						routingMetadata: buildEmbeddingRoutingMetadata(usedApiKeyHash),
+						duration,
+						timeToFirstToken: null,
+						timeToFirstReasoningToken: null,
+						responseSize: 0,
+						content: null,
+						reasoningContent: null,
+						finishReason: isCanceled ? "canceled" : "upstream_error",
+						promptTokens: null,
+						completionTokens: null,
+						totalTokens: null,
+						reasoningTokens: null,
+						cachedTokens: null,
+						hasError: !isCanceled,
+						streamed: false,
+						canceled: isCanceled,
+						errorDetails: isCanceled
+							? null
+							: {
+									statusCode: 0,
+									statusText: fetchError.name,
+									responseText: fetchError.message,
+								},
+						inputCost: 0,
+						outputCost: 0,
+						cachedInputCost: 0,
+						requestCost: 0,
+						webSearchCost: 0,
+						imageInputTokens: null,
+						imageOutputTokens: null,
+						imageInputCost: null,
+						imageOutputCost: null,
+						cost: 0,
+						estimatedCost: false,
+						discount: null,
+						pricingTier: null,
+						dataStorageCost: calculateDataStorageCost(
+							null,
+							null,
+							null,
+							null,
+							retentionLevel,
+						),
+						cached: false,
+						toolResults: null,
+						retried: willRetry,
+						retriedByLogId: willRetry ? finalLogId : null,
+					},
+					{ retentionLevel },
+				);
 
 				if (willRetry && nextAttempt) {
 					attempt = nextAttempt;
@@ -1271,55 +1264,58 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 					),
 				);
 
-				await insertLog({
-					...baseLogEntry,
-					id: willRetry ? attemptLogId : finalLogId,
-					routingMetadata: buildEmbeddingRoutingMetadata(usedApiKeyHash),
-					duration,
-					timeToFirstToken: null,
-					timeToFirstReasoningToken: null,
-					responseSize,
-					content: getResponseContent(upstreamJson),
-					reasoningContent: null,
-					finishReason,
-					promptTokens: null,
-					completionTokens: null,
-					totalTokens: null,
-					reasoningTokens: null,
-					cachedTokens: null,
-					hasError: true,
-					streamed: false,
-					canceled: false,
-					errorDetails: {
-						statusCode: status,
-						statusText: upstreamResponse.statusText,
-						responseText: upstreamText,
+				await insertLog(
+					{
+						...baseLogEntry,
+						id: willRetry ? attemptLogId : finalLogId,
+						routingMetadata: buildEmbeddingRoutingMetadata(usedApiKeyHash),
+						duration,
+						timeToFirstToken: null,
+						timeToFirstReasoningToken: null,
+						responseSize,
+						content: getResponseContent(upstreamJson),
+						reasoningContent: null,
+						finishReason,
+						promptTokens: null,
+						completionTokens: null,
+						totalTokens: null,
+						reasoningTokens: null,
+						cachedTokens: null,
+						hasError: true,
+						streamed: false,
+						canceled: false,
+						errorDetails: {
+							statusCode: status,
+							statusText: upstreamResponse.statusText,
+							responseText: upstreamText,
+						},
+						inputCost: 0,
+						outputCost: 0,
+						cachedInputCost: 0,
+						requestCost: 0,
+						webSearchCost: 0,
+						imageInputTokens: null,
+						imageOutputTokens: null,
+						imageInputCost: null,
+						imageOutputCost: null,
+						cost: 0,
+						estimatedCost: false,
+						discount: null,
+						pricingTier: null,
+						dataStorageCost: calculateDataStorageCost(
+							null,
+							null,
+							null,
+							null,
+							retentionLevel,
+						),
+						cached: false,
+						toolResults: null,
+						retried: willRetry,
+						retriedByLogId: willRetry ? finalLogId : null,
 					},
-					inputCost: 0,
-					outputCost: 0,
-					cachedInputCost: 0,
-					requestCost: 0,
-					webSearchCost: 0,
-					imageInputTokens: null,
-					imageOutputTokens: null,
-					imageInputCost: null,
-					imageOutputCost: null,
-					cost: 0,
-					estimatedCost: false,
-					discount: null,
-					pricingTier: null,
-					dataStorageCost: calculateDataStorageCost(
-						null,
-						null,
-						null,
-						null,
-						retentionLevel,
-					),
-					cached: false,
-					toolResults: null,
-					retried: willRetry,
-					retriedByLogId: willRetry ? finalLogId : null,
-				});
+					{ retentionLevel },
+				);
 
 				if (willRetry && nextAttempt) {
 					attempt = nextAttempt;
@@ -1532,49 +1528,52 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				),
 			);
 
-			await insertLog({
-				...baseLogEntry,
-				id: finalLogId,
-				routingMetadata: buildEmbeddingRoutingMetadata(usedApiKeyHash),
-				duration,
-				timeToFirstToken: null,
-				timeToFirstReasoningToken: null,
-				responseSize,
-				content: getResponseContent(normalizedResponse),
-				reasoningContent: null,
-				finishReason: "stop",
-				promptTokens: promptTokens !== null ? promptTokens.toString() : null,
-				completionTokens: null,
-				totalTokens: totalTokens !== null ? totalTokens.toString() : null,
-				reasoningTokens: null,
-				cachedTokens: null,
-				hasError: false,
-				streamed: false,
-				canceled: false,
-				errorDetails: null,
-				inputCost,
-				outputCost: 0,
-				cachedInputCost: 0,
-				requestCost,
-				webSearchCost: 0,
-				imageInputTokens: null,
-				imageOutputTokens: null,
-				imageInputCost: null,
-				imageOutputCost: null,
-				cost,
-				estimatedCost: estimatedUsage,
-				discount: null,
-				pricingTier: null,
-				dataStorageCost: calculateDataStorageCost(
-					promptTokens,
-					null,
-					null,
-					null,
-					retentionLevel,
-				),
-				cached: false,
-				toolResults: null,
-			});
+			await insertLog(
+				{
+					...baseLogEntry,
+					id: finalLogId,
+					routingMetadata: buildEmbeddingRoutingMetadata(usedApiKeyHash),
+					duration,
+					timeToFirstToken: null,
+					timeToFirstReasoningToken: null,
+					responseSize,
+					content: getResponseContent(normalizedResponse),
+					reasoningContent: null,
+					finishReason: "stop",
+					promptTokens: promptTokens !== null ? promptTokens.toString() : null,
+					completionTokens: null,
+					totalTokens: totalTokens !== null ? totalTokens.toString() : null,
+					reasoningTokens: null,
+					cachedTokens: null,
+					hasError: false,
+					streamed: false,
+					canceled: false,
+					errorDetails: null,
+					inputCost,
+					outputCost: 0,
+					cachedInputCost: 0,
+					requestCost,
+					webSearchCost: 0,
+					imageInputTokens: null,
+					imageOutputTokens: null,
+					imageInputCost: null,
+					imageOutputCost: null,
+					cost,
+					estimatedCost: estimatedUsage,
+					discount: null,
+					pricingTier: null,
+					dataStorageCost: calculateDataStorageCost(
+						promptTokens,
+						null,
+						null,
+						null,
+						retentionLevel,
+					),
+					cached: false,
+					toolResults: null,
+				},
+				{ retentionLevel },
+			);
 
 			return c.json(normalizedResponse);
 		}
