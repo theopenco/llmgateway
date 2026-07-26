@@ -282,14 +282,25 @@ export function CodingModelsShowcase({
 								<button
 									type="button"
 									onClick={() => copyToClipboard(model.id)}
-									className="shrink-0 p-1 rounded hover:bg-muted transition-colors"
+									className="shrink-0 p-1 rounded hover:bg-muted transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.98]"
 									title="Copy model ID"
 								>
-									{copiedModel === model.id ? (
-										<Check className="h-3 w-3 text-green-600" />
-									) : (
-										<Copy className="h-3 w-3 text-muted-foreground" />
-									)}
+									<span className="relative flex h-3 w-3 items-center justify-center">
+										<Copy
+											className={`h-3 w-3 text-muted-foreground transition-[opacity,transform] duration-150 ease-out motion-reduce:transition-[opacity] ${
+												copiedModel === model.id
+													? "scale-[0.45] opacity-0"
+													: "scale-100 opacity-100"
+											}`}
+										/>
+										<Check
+											className={`absolute h-3 w-3 text-green-600 transition-[opacity,transform] duration-150 ease-out motion-reduce:transition-[opacity] ${
+												copiedModel === model.id
+													? "scale-100 opacity-100"
+													: "scale-[0.45] opacity-0"
+											}`}
+										/>
+									</span>
 								</button>
 							</div>
 
