@@ -11,10 +11,10 @@ const screenshots = [
 	},
 	{
 		slug: "playground",
-		alt: "LLM Gateway Chat Playground",
-		title: "Chat Playground",
+		alt: "Lounge by LLM Gateway",
+		title: "Lounge",
 		description:
-			"Interactive testing environment with model comparison, prompt engineering, and conversation management.",
+			"The members' lounge for AI — every frontier model in one chat, with projects, group chat, and media studios.",
 	},
 	{
 		slug: "image-studio",
@@ -61,7 +61,7 @@ export function ProductShowcase() {
 						One platform for your entire LLM stack
 					</h2>
 					<p className="text-lg text-muted-foreground text-balance leading-relaxed">
-						From analytics dashboards to chat playgrounds, image generation to
+						From analytics dashboards to chat apps, image generation to
 						developer docs — everything works together out of the box.
 					</p>
 				</div>
@@ -102,7 +102,7 @@ export function ProductShowcase() {
 					</div>
 					<p className="text-muted-foreground leading-relaxed">
 						Replace the LLM Gateway logo and branding with your own. Every
-						dashboard, playground, and docs page can be customized to match your
+						dashboard, chat app, and docs page can be customized to match your
 						company identity.
 					</p>
 				</div>

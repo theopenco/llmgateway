@@ -1044,22 +1044,26 @@ export async function prepareRequestBody(
 
 	// `none` reasoning effort is handled natively by a few providers:
 	// OpenAI/Azure forward it (their newer models accept it to turn reasoning
-	// off), and Google, Moonshot, Alibaba, MiniMax, and Xiaomi reason by
-	// default so they must explicitly disable thinking when asked. Every other
-	// provider treats the absence of reasoning_effort as "off" already, so
-	// normalize `none` away for them to avoid forwarding an unsupported enum
-	// value.
+	// off), and Google, Moonshot, Alibaba, MiniMax, Xiaomi, DeepSeek, and
+	// Z.ai reason by default so they must explicitly disable thinking when
+	// asked. Every other provider treats the absence of reasoning_effort as
+	// "off" already, so normalize `none` away for them to avoid forwarding an
+	// unsupported enum value.
 	const handlesNoneNatively =
 		usedProvider === "openai" ||
 		usedProvider === "azure" ||
+		usedProvider === "aws-mantle" ||
 		usedProvider === "google-ai-studio" ||
 		usedProvider === "glacier" ||
+		usedProvider === "iceberg" ||
 		usedProvider === "google-vertex" ||
 		usedProvider === "quartz" ||
 		usedProvider === "moonshot" ||
 		usedProvider === "alibaba" ||
 		usedProvider === "minimax" ||
 		usedProvider === "xiaomi" ||
+		usedProvider === "deepseek" ||
+		usedProvider === "zai" ||
 		providerMappingForOptions?.apiFormat === "openai-chat-completions";
 	if (reasoning_effort === "none" && !handlesNoneNatively) {
 		reasoning_effort = undefined;
@@ -1669,6 +1673,7 @@ export async function prepareRequestBody(
 		case "azure":
 		case "sakana":
 		case "meta":
+		case "aws-mantle":
 		case "openai": {
 			// Determine whether to use Responses API format.
 			// If useResponsesApi is explicitly passed (derived from endpoint URL), use it.
@@ -1697,6 +1702,33 @@ export async function prepareRequestBody(
 				// - Convert tool role messages to function_call_output items
 				const transformedMessages =
 					transformMessagesForResponsesApi(processedMessages);
+
+				// Bedrock Mantle only accepts `data:` (or `s3://`) image URLs and
+				// rejects remote http(s) references outright, so fetch user-supplied
+				// image URLs (SSRF-guarded) and inline them as data URLs upstream.
+				if (usedProvider === "aws-mantle") {
+					for (const item of transformedMessages) {
+						if (!Array.isArray(item?.content)) {
+							continue;
+						}
+						for (const part of item.content) {
+							if (
+								part?.type === "input_image" &&
+								typeof part.image_url === "string" &&
+								(part.image_url.startsWith("http://") ||
+									part.image_url.startsWith("https://"))
+							) {
+								const { data, mimeType } = await processImageUrl(
+									part.image_url,
+									isProd,
+									maxImageSizeMB,
+									userPlan,
+								);
+								part.image_url = `data:${mimeType};base64,${data}`;
+							}
+						}
+					}
+				}
 
 				// Fugu always reasons and only accepts "high"/"xhigh" effort — it has
 				// no off switch and rejects none/minimal/low/medium — so every tier at
@@ -1728,6 +1760,14 @@ export async function prepareRequestBody(
 								},
 				};
 
+				if (usedProvider === "aws-mantle") {
+					// Mantle stores responses for 30 days by default (store: true).
+					// The gateway reconstructs conversations itself and never reads
+					// provider-stored responses, so opt out to keep the provider's
+					// zero-retention data policy accurate.
+					responsesBody.store = false;
+				}
+
 				if (usedProvider === "openai") {
 					if (supportedServiceTier) {
 						responsesBody.service_tier = supportedServiceTier;
@@ -1755,13 +1795,15 @@ export async function prepareRequestBody(
 
 				// prompt_cache_key influences upstream cache-shard routing; only
 				// OpenAI, Azure (v1 surface — the Responses API path is always v1),
-				// and Meta support it. Sakana does not document the field. Prefer
-				// the caller's explicit key, then the salted hash of the caller's
-				// session id, then (Meta only, where the key is required for hits
-				// at all) a key derived from the conversation prefix.
+				// Bedrock Mantle, and Meta support it. Sakana does not document the
+				// field. Prefer the caller's explicit key, then the salted hash of
+				// the caller's session id, then (Meta only, where the key is
+				// required for hits at all) a key derived from the conversation
+				// prefix.
 				if (
 					usedProvider === "openai" ||
 					usedProvider === "azure" ||
+					usedProvider === "aws-mantle" ||
 					usedProvider === "meta"
 				) {
 					const upstreamCacheKey =
@@ -2043,19 +2085,24 @@ export async function prepareRequestBody(
 			}
 			// ZAI/GLM models use a `thinking` parameter instead of `reasoning_effort`.
 			// Mirror the OpenAI/Anthropic/Google contract: thinking is opt-in via
-			// `reasoning_effort`. Unset or `minimal` => disabled, anything else => enabled.
-			// Exception: disabling thinking corrupts GLM structured output
-			// (verified live: glm-4.5 emits tool calls as raw <tool_call> text,
-			// glm-4.6v-flashx appends a stray "End" token after JSON output), so
-			// for requests with tools or a response_format leave the provider
-			// default (enabled) rather than disabling.
+			// `reasoning_effort`. "none" explicitly disables thinking, "minimal" and
+			// unset also disable, anything else enables. Exception: disabling
+			// thinking corrupts GLM structured output (verified live: glm-4.5 emits
+			// tool calls as raw <tool_call> text, glm-4.6v-flashx appends a stray
+			// "End" token after JSON output), so for requests with tools or a
+			// response_format leave the provider default rather than disabling —
+			// unless the caller explicitly asked for "none".
 			if (supportsReasoning) {
-				const wantsThinking =
-					reasoning_effort !== undefined && reasoning_effort !== "minimal";
-				if (wantsThinking || (!requestBody.tools && !response_format)) {
-					requestBody.thinking = {
-						type: wantsThinking ? "enabled" : "disabled",
-					};
+				if (reasoning_effort === "none") {
+					requestBody.thinking = { type: "disabled" };
+				} else {
+					const wantsThinking =
+						reasoning_effort !== undefined && reasoning_effort !== "minimal";
+					if (wantsThinking || (!requestBody.tools && !response_format)) {
+						requestBody.thinking = {
+							type: wantsThinking ? "enabled" : "disabled",
+						};
+					}
 				}
 			}
 			// Add sensitive_word_check if provided (Z.ai specific)
@@ -3239,6 +3286,7 @@ export async function prepareRequestBody(
 		}
 		case "google-ai-studio":
 		case "glacier":
+		case "iceberg":
 		case "google-vertex":
 		case "quartz": {
 			delete requestBody.model; // Not used in body
@@ -3621,6 +3669,52 @@ export async function prepareRequestBody(
 			}
 			break;
 		}
+
+		case "deepseek": {
+			if (stream) {
+				requestBody.stream_options = {
+					include_usage: true,
+				};
+			}
+			if (response_format) {
+				requestBody.response_format = response_format;
+			}
+
+			// Add optional parameters if they are provided
+			if (temperature !== undefined) {
+				requestBody.temperature = temperature;
+			}
+			if (max_tokens !== undefined) {
+				requestBody.max_tokens = max_tokens;
+			}
+			if (top_p !== undefined) {
+				requestBody.top_p = top_p;
+			}
+			if (frequency_penalty !== undefined) {
+				requestBody.frequency_penalty = frequency_penalty;
+			}
+			if (presence_penalty !== undefined) {
+				requestBody.presence_penalty = presence_penalty;
+			}
+
+			// DeepSeek V4 models think by default. Translate reasoning_effort "none"
+			// to the documented binary disable (thinking: { type: "disabled" },
+			// verified to zero out reasoning tokens). Mappings that can turn thinking
+			// off declare none in reasoningEfforts; elsewhere none sends
+			// nothing and the provider default is kept.
+			if (reasoning_effort === "none") {
+				const canDisableThinking =
+					providerMappingForOptions?.reasoningEfforts?.includes("none") ??
+					false;
+				if (supportsReasoning && canDisableThinking) {
+					requestBody.thinking = { type: "disabled" };
+				}
+			} else if (reasoning_effort !== undefined) {
+				requestBody.reasoning_effort = reasoning_effort;
+			}
+			break;
+		}
+
 		default: {
 			if (stream) {
 				requestBody.stream_options = {

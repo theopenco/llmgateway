@@ -40,6 +40,7 @@ export interface ApiModelProviderMapping {
 	outputAudioPrice: string | null;
 	requestPrice: string | null;
 	ocrPagePrice?: string | null;
+	inputAudioHourPrice?: string | null;
 	contextSize: number | null;
 	maxOutput: number | null;
 	quantization?: string | null;

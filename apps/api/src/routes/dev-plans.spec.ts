@@ -266,6 +266,96 @@ describe("dev plan tier changes", () => {
 		expect(transaction?.stripePaymentIntentId).toBe("pi_upgrade");
 	});
 
+	it("returns requires_action with a client secret when the bank demands 3DS", async () => {
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(),
+		);
+		stripeMock.prices.retrieve.mockResolvedValue({ unit_amount: 7900 });
+		// The atomic `error_if_incomplete` attempt fails because the card needs
+		// customer authentication; the retry as a pending update returns an open
+		// invoice whose payment intent carries the confirmable client secret.
+		stripeMock.subscriptions.update
+			.mockRejectedValueOnce({
+				code: "subscription_payment_intent_requires_action",
+				message:
+					"This payment requires additional user action before it can be completed successfully.",
+			})
+			.mockResolvedValueOnce({
+				id: SUBSCRIPTION_ID,
+				customer: "cus_dev_plan",
+				status: "active",
+				metadata: { devPlan: "pro" },
+				latest_invoice: {
+					id: "in_pending_update",
+					status: "open",
+					payment_intent: {
+						object: "payment_intent",
+						id: "pi_3ds",
+						status: "requires_action",
+						client_secret: "pi_3ds_secret_123",
+					},
+				},
+				items: {
+					data: [
+						{
+							id: "si_dev_plan",
+							current_period_end: nowSeconds + THIRTY_DAYS,
+						},
+					],
+				},
+			});
+
+		const res = await app.request("/dev-plans/change-tier", {
+			method: "POST",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				newTier: "pro",
+				expectedAmountDueCents: 7900,
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({
+			status: "requires_action",
+			clientSecret: "pi_3ds_secret_123",
+		});
+
+		expect(stripeMock.subscriptions.update).toHaveBeenNthCalledWith(
+			1,
+			SUBSCRIPTION_ID,
+			expect.objectContaining({ payment_behavior: "error_if_incomplete" }),
+		);
+		expect(stripeMock.subscriptions.update).toHaveBeenNthCalledWith(
+			2,
+			SUBSCRIPTION_ID,
+			expect.objectContaining({
+				items: [{ id: "si_dev_plan", price: "price_pro" }],
+				proration_behavior: "none",
+				billing_cycle_anchor: "now",
+				payment_behavior: "pending_if_incomplete",
+			}),
+		);
+
+		// Nothing is applied locally until the invoice.payment_succeeded webhook
+		// confirms the 3DS payment: tier and credits untouched, no transaction
+		// row, and the lease released so a retry isn't locked out.
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlan).toBe("lite");
+		expect(org?.devPlanCreditsUsed).toBe("12.5");
+		expect(org?.devPlanCreditsLimit).toBe("87");
+		expect(org?.devPlanTierChangeClaimedAt).toBeNull();
+
+		const transaction = await db.query.transaction.findFirst({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(transaction).toBeUndefined();
+	});
+
 	it("voids a pending cycle-renewal invoice before re-anchoring the cycle", async () => {
 		// The old cycle just ended: Stripe drafted its renewal invoice but has
 		// not charged it yet (that happens ~1h after drafting). The upgrade must

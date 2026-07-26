@@ -163,7 +163,7 @@ export const Navbar = ({
 	}> = [
 		{
 			title: "AI Gateway",
-			href: "/features/unified-api-interface",
+			href: "/products/ai-gateway",
 			description: `Route requests to ${MARKETING_STATS.models} LLMs through a single, unified API endpoint.`,
 			icon: Network,
 			gradient:
@@ -171,27 +171,25 @@ export const Navbar = ({
 		},
 		{
 			title: "DevPass",
-			href: "https://devpass.llmgateway.io",
+			href: "/products/devpass",
 			description:
 				"Fixed-price monthly plans for Claude Code, Cursor, and every coding tool.",
 			icon: Code,
 			gradient:
 				"hover:from-indigo-500/20 hover:to-blue-600/30 hover:shadow-indigo-500/10 group-hover/product:text-indigo-500 dark:group-hover/product:text-indigo-400",
-			external: true,
 		},
 		{
-			title: "Chat Playground",
-			href: config.playgroundUrl ?? "#",
+			title: "Lounge",
+			href: "/products/lounge",
 			description:
-				"Test prompts and compare model responses side by side, instantly.",
+				"Every frontier model in one chat — plus image, video and audio studios.",
 			icon: MessagesSquare,
 			gradient:
 				"hover:from-blue-500/20 hover:to-cyan-600/30 hover:shadow-blue-500/10 group-hover/product:text-blue-500 dark:group-hover/product:text-blue-400",
-			external: true,
 		},
 		{
 			title: "Observability",
-			href: "/features/performance-monitoring",
+			href: "/products/observability",
 			description:
 				"Monitor usage, costs, and latency with real-time analytics dashboards.",
 			icon: Activity,
@@ -485,7 +483,7 @@ export const Navbar = ({
 												onClick={() => trackNav("Chat")}
 												className="text-muted-foreground hover:text-accent-foreground block duration-150 px-3 py-2 whitespace-nowrap"
 											>
-												Chat
+												Lounge
 											</a>
 										</NavigationMenuLink>
 									</NavigationMenuItem>
@@ -624,7 +622,7 @@ export const Navbar = ({
 											onClick={() => trackNav("Chat")}
 											className="text-muted-foreground hover:text-accent-foreground block py-2.5 duration-150"
 										>
-											Chat
+											Lounge
 										</a>
 									</li>
 									<li>

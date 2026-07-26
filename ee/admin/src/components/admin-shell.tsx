@@ -167,7 +167,7 @@ export function AdminShell({ children }: AdminShellProps) {
 								<Link href="/chat-plans" className="block">
 									<SidebarMenuButton isActive={isChatPlans} size="lg">
 										<MessageSquare className="h-4 w-4" />
-										<span>Chat Plans</span>
+										<span>Lounge Plans</span>
 									</SidebarMenuButton>
 								</Link>
 							</SidebarMenuItem>

@@ -385,6 +385,7 @@ export function transformResponseToOpenai(
 	switch (usedProvider) {
 		case "google-ai-studio":
 		case "glacier":
+		case "iceberg":
 		case "google-vertex":
 		case "quartz": {
 			// Multi-candidate responses (n > 1 via candidateCount) map each Google
@@ -839,6 +840,7 @@ export function transformResponseToOpenai(
 		case "novita":
 		case "sakana":
 		case "meta":
+		case "aws-mantle":
 		case "openai": {
 			// Handle OpenAI / Azure image generation responses (e.g. gpt-image-2)
 			// Format: { created: number, data: [{ b64_json?: string, url?: string }], usage?: {...} }

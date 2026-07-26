@@ -1842,6 +1842,7 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 			const logValues: LogInsertData = {
 				id: logId,
 				requestId: jobToLog.requestId,
+				apiOrigin: "videos",
 				organizationId: jobToLog.organizationId,
 				projectId: jobToLog.projectId,
 				apiKeyId: jobToLog.apiKeyId,

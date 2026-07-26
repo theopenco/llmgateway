@@ -1375,6 +1375,79 @@ mockOpenAIServer.post("/v1/audio/speech", async (c) => {
 	});
 });
 
+// Alibaba DashScope non-streaming TTS (SpeechSynthesizer): the response
+// carries a short-lived URL to the synthesized WAV file rather than inline
+// audio, so the mock points the URL back at this server's
+// /mock-dashscope-audio.wav endpoint.
+mockOpenAIServer.post(
+	"/api/v1/services/audio/tts/SpeechSynthesizer",
+	async (c) => {
+		const body = await c.req.json();
+		const text = typeof body.input?.text === "string" ? body.input.text : "";
+
+		const statusTrigger = extractStatusCodeTrigger(text);
+		if (statusTrigger) {
+			c.status(statusTrigger.statusCode as any);
+			return c.json(statusTrigger.errorResponse);
+		}
+		if (text.includes("TRIGGER_ERROR")) {
+			c.status(500);
+			return c.json(sampleErrorResponse);
+		}
+
+		const origin = new URL(c.req.url).origin;
+		return c.json({
+			output: {
+				audio: { url: `${origin}/mock-dashscope-audio.wav` },
+				finish_reason: "stop",
+			},
+			request_id: "mock-dashscope-request-id",
+		});
+	},
+);
+
+mockOpenAIServer.get("/mock-dashscope-audio.wav", (c) => {
+	const audio = Buffer.from("MOCK_DASHSCOPE_AUDIO");
+	return c.body(audio, 200, { "Content-Type": "audio/wav" });
+});
+
+// xAI speech-to-text: POST /v1/stt accepts a multipart form with the audio
+// file (or a url field) and returns the transcript with word-level timestamps
+// and the billed audio duration in seconds.
+mockOpenAIServer.post("/v1/stt", async (c) => {
+	const form = await c.req.formData();
+	const file = form.get("file");
+	const url = form.get("url");
+	const fileName = file instanceof File ? file.name : "";
+	const marker = typeof url === "string" ? url : fileName;
+
+	const statusTrigger = extractStatusCodeTrigger(marker);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+	if (marker.includes("TRIGGER_ERROR")) {
+		c.status(500);
+		return c.json(sampleErrorResponse);
+	}
+	if (!(file instanceof File) && typeof url !== "string") {
+		c.status(400);
+		return c.json(sampleErrorResponse);
+	}
+
+	return c.json({
+		text: "The balance is $167,983.15.",
+		language: "English",
+		duration: 3.45,
+		words: [
+			{ text: "The", start: 0.24, end: 0.48 },
+			{ text: "balance", start: 0.48, end: 0.96 },
+			{ text: "is", start: 0.96, end: 1.12 },
+			{ text: "$167,983.15.", start: 1.12, end: 3.2 },
+		],
+	});
+});
+
 // ElevenLabs text-to-speech: POST /v1/text-to-speech/{voice_id}?output_format=…
 // Returns the audio already encoded; the content type is derived from the
 // requested output_format query param.

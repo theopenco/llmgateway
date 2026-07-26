@@ -65,6 +65,7 @@ export function getProviderHeaders(
 		}
 		case "google-ai-studio":
 		case "glacier":
+		case "iceberg":
 		case "quartz":
 			return requestIdHeader;
 		case "google-vertex": {
@@ -114,6 +115,7 @@ export function getProviderHeaders(
 				Authorization: `Bearer ${token}`,
 			};
 		case "aws-bedrock":
+		case "aws-mantle":
 			return {
 				...requestIdHeader,
 				Authorization: `Bearer ${token}`,

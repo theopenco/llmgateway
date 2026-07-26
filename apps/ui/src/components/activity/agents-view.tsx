@@ -28,7 +28,7 @@ import {
 import { useToast } from "@/lib/components/use-toast";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
 
-import { CODING_AGENTS } from "@llmgateway/shared";
+import { buildAgentLogsCsv, CODING_AGENTS } from "@llmgateway/shared";
 import {
 	AnthropicIcon,
 	AutohandIcon,
@@ -112,58 +112,6 @@ function getTimeRangeWindow(timeRange: TimeRangeValue): {
 	const windowMs = AGENT_TIME_RANGE_HOURS[timeRange] * 60 * 60 * 1000;
 	const from = new Date(to.getTime() - windowMs);
 	return { from, to };
-}
-
-const CSV_HEADERS = [
-	"createdAt",
-	"usedProvider",
-	"usedModel",
-	"finishReason",
-	"promptTokens",
-	"completionTokens",
-	"totalTokens",
-	"cachedTokens",
-	"cost",
-	"hasError",
-	"streamed",
-	"duration",
-	"requestId",
-	"id",
-];
-
-function escapeCsvValue(value: unknown): string {
-	if (value === null || value === undefined) {
-		return "";
-	}
-	const str = String(value);
-	if (/[",\n]/.test(str)) {
-		return `"${str.replace(/"/g, '""')}"`;
-	}
-	return str;
-}
-
-function buildLogsCsv(logs: ApiLog[]): string {
-	const rows = logs.map((log) =>
-		[
-			log.createdAt,
-			log.usedProvider,
-			log.usedModel,
-			log.unifiedFinishReason ?? log.finishReason ?? "",
-			log.promptTokens,
-			log.completionTokens,
-			log.totalTokens,
-			log.cachedTokens ?? "",
-			log.cost,
-			log.hasError,
-			log.streamed,
-			log.duration,
-			log.requestId,
-			log.id,
-		]
-			.map(escapeCsvValue)
-			.join(","),
-	);
-	return [CSV_HEADERS.join(","), ...rows].join("\n");
 }
 
 function toUiLog(log: ApiLog): Partial<Log> {
@@ -558,7 +506,9 @@ function AgentDetail({
 					? (body.pagination.nextCursor ?? undefined)
 					: undefined;
 			}
-			const csv = buildLogsCsv(collected.filter((log) => !log.retriedByLogId));
+			const csv = buildAgentLogsCsv(
+				collected.filter((log) => !log.retriedByLogId),
+			);
 			const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
 			const url = URL.createObjectURL(blob);
 			const a = document.createElement("a");

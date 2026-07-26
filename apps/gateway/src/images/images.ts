@@ -4,6 +4,7 @@ import { HTTPException } from "hono/http-exception";
 import { app } from "@/app.js";
 import { createLogEntry } from "@/chat/tools/create-log-entry.js";
 import { extractCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
+import { internalApiOriginHeaders } from "@/lib/api-origin.js";
 import {
 	findApiKeyByToken,
 	findOrganizationById,
@@ -352,6 +353,7 @@ function forwardHeaders(c: Context): Record<string, string> {
 		"x-debug": c.req.header("x-debug") ?? "",
 		...(noFallbackHeader !== null ? { "x-no-fallback": noFallbackHeader } : {}),
 		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
+		...internalApiOriginHeaders("images"),
 	};
 }
 
@@ -507,6 +509,7 @@ async function logImageClientError(
 						},
 					],
 					source: c.req.header("x-source") ?? undefined,
+					apiOrigin: "images",
 					customHeaders: extractCustomHeaders(c),
 					debugMode: false,
 					userAgent: c.req.header("user-agent"),

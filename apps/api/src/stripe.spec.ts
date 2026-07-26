@@ -254,7 +254,7 @@ describe("handleSubscriptionUpdated — dev plan cancellation feedback email", (
 		});
 		expect(txns).toHaveLength(1);
 		expect(txns[0].type).toBe("chat_plan_resume");
-		expect(txns[0].description).toBe("Chat Plan PLUS resumed");
+		expect(txns[0].description).toBe("Lounge PLUS membership resumed");
 	});
 
 	test("does not send dev-plan feedback email for a Pro (non-dev-plan) subscription cancel", async () => {
@@ -755,7 +755,7 @@ describe("handleInvoicePaymentSucceeded — chat plan upgrade invoice", () => {
 		expect(txns[0].type).toBe("chat_plan_upgrade");
 		expect(txns[0].amount).toBe("19");
 		expect(txns[0].creditAmount).toBe("47.5");
-		expect(txns[0].description).toBe("Chat Plan PLUS upgrade");
+		expect(txns[0].description).toBe("Lounge PLUS membership upgrade");
 	});
 
 	test("resets to a fresh new-tier cycle when the endpoint never completed (webhook fallback)", async () => {
@@ -795,7 +795,7 @@ describe("handleInvoicePaymentSucceeded — chat plan upgrade invoice", () => {
 		expect(txns).toHaveLength(1);
 		expect(txns[0].type).toBe("chat_plan_upgrade");
 		expect(txns[0].creditAmount).toBe("47.5");
-		expect(txns[0].description).toBe("Chat Plan PLUS upgrade");
+		expect(txns[0].description).toBe("Lounge PLUS membership upgrade");
 	});
 
 	test("does not re-apply the reset on a Stripe retry of the same invoice", async () => {

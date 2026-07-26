@@ -393,6 +393,7 @@ export function transformStreamingToOpenai(
 
 		case "google-ai-studio":
 		case "glacier":
+		case "iceberg":
 		case "google-vertex":
 		case "quartz": {
 			const buildUsage = (
@@ -748,6 +749,7 @@ export function transformStreamingToOpenai(
 		case "azure":
 		case "sakana":
 		case "meta":
+		case "aws-mantle":
 		case "openai": {
 			// Azure precedes every stream with a prompt-filter-only chunk that has
 			// empty id/object/model and no choices. The default OpenAI fallback
@@ -1012,6 +1014,14 @@ export function transformStreamingToOpenai(
 					}
 
 					case "response.completed": {
+						// A response whose output contains function calls must end with
+						// finish_reason "tool_calls" — OpenAI-compatible clients key tool
+						// execution off the terminal finish reason, not just the deltas.
+						const completedWithToolCalls = Array.isArray(data.response?.output)
+							? data.response.output.some(
+									(item: { type?: string }) => item.type === "function_call",
+								)
+							: false;
 						const responseUsage = data.response?.usage;
 						let usage = null;
 						if (responseUsage) {
@@ -1041,7 +1051,7 @@ export function transformStreamingToOpenai(
 								{
 									index: 0,
 									delta: {},
-									finish_reason: "stop",
+									finish_reason: completedWithToolCalls ? "tool_calls" : "stop",
 								},
 							],
 							usage,

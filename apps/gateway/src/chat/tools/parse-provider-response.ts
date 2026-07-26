@@ -301,6 +301,7 @@ export function parseProviderResponse(
 		}
 		case "google-ai-studio":
 		case "glacier":
+		case "iceberg":
 		case "google-vertex":
 		case "quartz": {
 			// Check if response is missing candidates - treat as content filter

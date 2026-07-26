@@ -255,6 +255,22 @@ export function getProviderEndpoint(
 					);
 				}
 				break;
+			case "iceberg":
+				url = skipEnvVars
+					? undefined
+					: getProviderEnvValue(
+							"iceberg",
+							"baseUrl",
+							configIndex,
+							undefined,
+							variant,
+						);
+				if (!url) {
+					throw new Error(
+						"Iceberg provider requires LLM_ICEBERG_BASE_URL environment variable",
+					);
+				}
+				break;
 			case "granite":
 				url = skipEnvVars
 					? undefined
@@ -365,6 +381,19 @@ export function getProviderEndpoint(
 					"https://bedrock-runtime.us-east-1.amazonaws.com";
 				break;
 			}
+			case "aws-mantle": {
+				// Bedrock Mantle: OpenAI frontier models on AWS, Responses API only.
+				// GPT-5.6 Sol is deployed in us-east-1/us-east-2 only (Terra/Luna
+				// additionally in us-west-2), so default to us-east-1 where the
+				// whole family is available.
+				const envBaseUrl = skipEnvVars
+					? undefined
+					: getProviderEnvValue("aws-mantle", "baseUrl", configIndex);
+				const mantleRegion =
+					envValueOrDefault("aws-mantle", "region", "us-east-1") ?? "us-east-1";
+				url = envBaseUrl ?? `https://bedrock-mantle.${mantleRegion}.api.aws`;
+				break;
+			}
 			case "azure": {
 				const resource =
 					providerKeyOptions?.azure_resource ??
@@ -455,7 +484,8 @@ export function getProviderEndpoint(
 				? `${baseEndpoint}?${queryParams.join("&")}`
 				: baseEndpoint;
 		}
-		case "glacier": {
+		case "glacier":
+		case "iceberg": {
 			const endpoint = stream ? "streamGenerateContent" : "generateContent";
 			const baseEndpoint = externalId
 				? `${url}/v1beta/models/${externalId}:${endpoint}`
@@ -605,6 +635,10 @@ export function getProviderEndpoint(
 			const endpoint = stream ? "converse-stream" : "converse";
 			return `${url}/model/${prefix}${externalId}/${endpoint}`;
 		}
+		case "aws-mantle":
+			// Bedrock Mantle only exposes the OpenAI Responses API — Chat
+			// Completions requests are rejected upstream.
+			return appendPath(url, "/openai/v1/responses");
 		case "azure": {
 			const deploymentType =
 				providerKeyOptions?.azure_deployment_type ??

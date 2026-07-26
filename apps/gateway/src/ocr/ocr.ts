@@ -733,6 +733,7 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 				requestedProvider: providerId,
 				messages: normalizedMessages,
 				source,
+				apiOrigin: "ocr",
 				customHeaders,
 				debugMode,
 				userAgent,
