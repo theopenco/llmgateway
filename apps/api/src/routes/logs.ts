@@ -10,6 +10,7 @@ import {
 
 import {
 	and,
+	API_ORIGINS,
 	asc,
 	db,
 	desc,
@@ -171,6 +172,7 @@ const logSchema = z.object({
 	customHeaders: z.any().nullable(),
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
 	usedMode: z.enum(["api-keys", "credits"]),
+	apiOrigin: z.enum(API_ORIGINS).nullable(),
 	source: z.string().nullable(),
 	sessionId: z.string().nullable().optional(),
 	routingMetadata: z

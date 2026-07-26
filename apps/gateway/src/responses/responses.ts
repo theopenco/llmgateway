@@ -10,6 +10,7 @@ import {
 	assertApiKeyWithinUsageLimits,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
+import { internalApiOriginHeaders } from "@/lib/api-origin.js";
 import {
 	findApiKeyByToken,
 	findProjectById,
@@ -379,6 +380,7 @@ responses.post("/", async (c) => {
 		"x-source": c.req.header("x-source") ?? "",
 		"x-debug": c.req.header("x-debug") ?? "",
 		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
+		...internalApiOriginHeaders("responses"),
 	};
 
 	// Pass Responses API context via in-memory Map (not headers) to avoid
@@ -789,6 +791,7 @@ responses.post("/compact", async (c) => {
 		"x-source": c.req.header("x-source") ?? "",
 		"x-debug": c.req.header("x-debug") ?? "",
 		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
+		...internalApiOriginHeaders("responses"),
 	};
 
 	const contextKey = compactionId;
