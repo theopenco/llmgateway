@@ -288,12 +288,13 @@ export async function insertLog(
 	logData: LogInsertData,
 	options?: { syncInsert?: boolean; retentionLevel?: "retain" | "none" | null },
 ): Promise<unknown> {
-	// When the organization doesn't retain request/response data, strip the
-	// payload fields here — before the row is ever published to the log queue —
-	// so large prompts, completions, and tool payloads never travel through
-	// Redis. The worker performs the same strip as a safety net for any log whose
-	// retention level wasn't resolved at publish time.
-	if (options?.retentionLevel === "none") {
+	// Fail closed on retention: unless the organization is explicitly known to
+	// retain data, strip the request/response payload fields here — before the
+	// row is ever published to the log queue — so large prompts, completions, and
+	// tool payloads never travel through Redis. Any omitted, null, or unresolved
+	// retention level is treated as non-retaining, since the worker no longer
+	// performs a fallback strip and this is the last chance to withhold payloads.
+	if (options?.retentionLevel !== "retain") {
 		logData = stripRetentionSensitiveLogFields(logData);
 	}
 

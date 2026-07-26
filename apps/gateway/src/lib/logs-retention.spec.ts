@@ -91,11 +91,21 @@ describe("insertLog retention stripping", () => {
 		]);
 	});
 
-	it("keeps payload fields when retention is unspecified", async () => {
+	it("strips payload fields when retention is unspecified (fail closed)", async () => {
 		await insertLog(baseLogData({}));
 
 		const published = publishToQueue.mock.calls[0][1] as LogInsertData;
-		expect(published.content).toBe("secret completion");
+		expect(published.messages).toBeNull();
+		expect(published.content).toBeNull();
+		expect(published.reasoningContent).toBeNull();
+	});
+
+	it("strips payload fields when retention is explicitly null (fail closed)", async () => {
+		await insertLog(baseLogData({}), { retentionLevel: null });
+
+		const published = publishToQueue.mock.calls[0][1] as LogInsertData;
+		expect(published.messages).toBeNull();
+		expect(published.content).toBeNull();
 	});
 
 	it("strips before a synchronous DB insert when retention is none", async () => {
