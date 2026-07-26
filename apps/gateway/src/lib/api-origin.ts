@@ -1,3 +1,5 @@
+import { shortid } from "@llmgateway/db";
+
 import type { ApiOrigin } from "@llmgateway/db";
 import type { Context } from "hono";
 
@@ -8,6 +10,15 @@ import type { Context } from "hono";
  */
 export const API_ORIGIN_HEADER = "x-internal-api-origin";
 
+/**
+ * Proves the header was set by this process on an internal re-dispatch rather
+ * than by an external caller, who could otherwise mislabel their own logs by
+ * sending the header on a direct `/v1/chat/completions` call. `app.request()`
+ * never leaves the process, so a token that only lives in this module is
+ * sufficient — it is never persisted, logged, or echoed back to clients.
+ */
+const INTERNAL_ORIGIN_TOKEN = shortid(24);
+
 const PROXIED_API_ORIGINS: readonly ApiOrigin[] = [
 	"messages",
 	"responses",
@@ -15,16 +26,36 @@ const PROXIED_API_ORIGINS: readonly ApiOrigin[] = [
 ];
 
 /**
- * Resolves the API origin for a chat completions request. Only the origins that
- * reach this handler by internal re-dispatch are accepted from the header;
- * anything else is a direct `/v1/chat/completions` call.
+ * Headers that tag an internal `app.request()` hop with the API surface the
+ * original caller used. Spread into the forwarded header set.
+ */
+export function internalApiOriginHeaders(
+	origin: ApiOrigin,
+): Record<string, string> {
+	return { [API_ORIGIN_HEADER]: `${INTERNAL_ORIGIN_TOKEN}:${origin}` };
+}
+
+/**
+ * Resolves the API origin for a chat completions request. The header is honored
+ * only when it carries this process's internal token and names an origin that
+ * actually re-dispatches through here; anything else — including a spoofed
+ * header — is treated as a direct `/v1/chat/completions` call.
  */
 export function resolveChatApiOrigin(c: Context): ApiOrigin {
-	const header = c.req.header(API_ORIGIN_HEADER)?.trim() as
-		| ApiOrigin
-		| undefined;
+	const header = c.req.header(API_ORIGIN_HEADER)?.trim();
+	if (!header) {
+		return "chat-completions";
+	}
 
-	return header && PROXIED_API_ORIGINS.includes(header)
-		? header
-		: "chat-completions";
+	const separator = header.indexOf(":");
+	if (
+		separator === -1 ||
+		header.slice(0, separator) !== INTERNAL_ORIGIN_TOKEN
+	) {
+		return "chat-completions";
+	}
+
+	const origin = header.slice(separator + 1) as ApiOrigin;
+
+	return PROXIED_API_ORIGINS.includes(origin) ? origin : "chat-completions";
 }
