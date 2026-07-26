@@ -1991,6 +1991,13 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	// Organization data retention level. Captured here (right after the org is
+	// resolved) so every log path — including the early rejections below and the
+	// insertLog wrapper further down — can decide whether payload fields should
+	// be persisted. Orgs backing end-user wallets are always regular PAYG orgs,
+	// so the withWalletCredits substitution below never changes this value.
+	const retentionLevel = organization.retentionLevel ?? "none";
+
 	// Note: the end-user-wallet credits substitution (withWalletCredits) happens
 	// further below — orgs backing end-user wallets are always regular
 	// PAYG/credits orgs, never dev-plan orgs, so it cannot affect the dev-plan
@@ -2151,7 +2158,7 @@ chat.openapi(completions, async (c) => {
 						usedServiceTier: null,
 						dataStorageCost: "0",
 					},
-					{ syncInsert: syncLogInsert },
+					{ syncInsert: syncLogInsert, retentionLevel },
 				);
 			} catch (error) {
 				logger.error("Failed to log unsupported service tier rejection", {
@@ -2627,7 +2634,7 @@ chat.openapi(completions, async (c) => {
 						usedServiceTier: null,
 						dataStorageCost: "0",
 					},
-					{ syncInsert: syncLogInsert },
+					{ syncInsert: syncLogInsert, retentionLevel },
 				);
 			} catch (error) {
 				logger.error("Failed to log budget-thinking rejection", {
@@ -2651,9 +2658,6 @@ chat.openapi(completions, async (c) => {
 	let usedExternalId: string = requestedModel;
 	let usedRegion: string | undefined = requestedRegion;
 	let routingMetadata: RoutingMetadata | undefined;
-
-	// Extract retention level for data storage cost calculation
-	const retentionLevel = organization?.retentionLevel ?? "none";
 
 	// Get image size limits from environment variables or use defaults
 	const freeLimitMB = Number(process.env.IMAGE_SIZE_LIMIT_FREE_MB) || 50;
@@ -5100,7 +5104,10 @@ chat.openapi(completions, async (c) => {
 				gatewayContentFilterResponse:
 					logData.gatewayContentFilterResponse ?? gatewayContentFilterResponse,
 			},
-			options,
+			// Default the retention level from the resolved organization so payload
+			// fields are stripped before publishing to the log queue for
+			// non-retaining orgs. A caller-supplied value still wins.
+			{ retentionLevel, ...options },
 		);
 
 	if (contentFilterBlocked) {
