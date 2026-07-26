@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { getCookie, setCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
 
+import { awardLoungePoints } from "@/utils/lounge-points.js";
 import { buildOrgHistoryFilter } from "@/utils/org-history-filter.js";
 import { getOrCreateChatOrg } from "@/utils/personal-org.js";
 
@@ -462,6 +463,10 @@ playground.openapi(saveImageHistory, async (c) => {
 			createdAt: tables.playgroundImageHistory.createdAt,
 		});
 
+	if (body.models.some((m) => !m.error)) {
+		await awardLoungePoints(user.id, "image_generation");
+	}
+
 	return c.json(
 		{
 			item: {
@@ -694,6 +699,10 @@ playground.openapi(saveAudioHistory, async (c) => {
 			models: body.models,
 		})
 		.returning();
+
+	if (body.models.some((m) => !m.error)) {
+		await awardLoungePoints(user.id, "audio_generation");
+	}
 
 	return c.json(
 		{
@@ -992,6 +1001,10 @@ playground.openapi(saveVideoHistory, async (c) => {
 			prompt: tables.playgroundVideoHistory.prompt,
 			createdAt: tables.playgroundVideoHistory.createdAt,
 		});
+
+	if (body.models.some((m) => !m.error)) {
+		await awardLoungePoints(user.id, "video_generation");
+	}
 
 	return c.json(
 		{

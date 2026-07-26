@@ -6,6 +6,7 @@ import {
 	computeSelfRefundEligibility,
 	executeSelfRefund,
 	isSelfRefundCandidateType,
+	refundFeedbackBodySchema,
 } from "@/lib/self-refund.js";
 import {
 	getUserProjectIds,
@@ -1046,6 +1047,13 @@ const selfRefundTransaction = createRoute({
 			id: z.string(),
 			transactionId: z.string(),
 		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: refundFeedbackBodySchema,
+				},
+			},
+		},
 	},
 	responses: {
 		200: {
@@ -1072,6 +1080,7 @@ organization.openapi(selfRefundTransaction, async (c) => {
 	}
 
 	const { id, transactionId } = c.req.param();
+	const { reason, comments } = c.req.valid("json");
 
 	const userOrganization = await db.query.userOrganization.findFirst({
 		where: {
@@ -1121,6 +1130,8 @@ organization.openapi(selfRefundTransaction, async (c) => {
 		organization: userOrganization.organization,
 		transaction,
 		userId: user.id,
+		reason,
+		comments,
 	});
 
 	return c.json({

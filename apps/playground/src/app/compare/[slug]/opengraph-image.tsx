@@ -13,7 +13,7 @@ import { getComparison, getComparisonSlugs, US } from "@/lib/comparisons";
 
 export const size = OG_SIZE;
 export const contentType = OG_CONTENT_TYPE;
-export const alt = "LLM Gateway Chat vs the alternatives";
+export const alt = "Lounge vs the alternatives";
 
 export function generateStaticParams() {
 	return getComparisonSlugs().map((slug) => ({ slug }));
@@ -71,7 +71,7 @@ export default async function CompareOgImage({
 					<div style={{ display: "flex", alignItems: "center", gap: 16 }}>
 						<LgMark size={44} />
 						<div style={{ display: "flex", flexDirection: "column" }}>
-							<span style={{ fontSize: 26, fontWeight: 700 }}>LLM Gateway</span>
+							<span style={{ fontSize: 26, fontWeight: 700 }}>Lounge</span>
 							<span
 								style={{
 									fontSize: 16,
@@ -141,7 +141,7 @@ export default async function CompareOgImage({
 							maxWidth: 1010,
 						}}
 					>
-						LLM Gateway Chat vs {competitor}
+						Lounge vs {competitor}
 					</span>
 					<span
 						style={{

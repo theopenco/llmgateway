@@ -13,7 +13,8 @@
 		"format": "eslint --fix . && prettier --write .",
 		"generate": "openapi-typescript ../api/openapi.json -o ./src/lib/api/v1.d.ts",
 		"lint": "eslint . && prettier --check .",
-		"start": "next start"
+		"start": "next start",
+		"test:e2e": "playwright test"
 	},
 	"dependencies": {
 		"@ai-sdk/mcp": "1.0.5",
@@ -95,6 +96,7 @@
 	},
 	"devDependencies": {
 		"@eslint/eslintrc": "^3.3.1",
+		"@playwright/test": "1.61.1",
 		"@tailwindcss/postcss": "^4.1.16",
 		"@tanstack/react-query-devtools": "5.90.2",
 		"@types/node": "^26.1.1",

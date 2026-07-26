@@ -143,7 +143,31 @@ async function readMirror<T>(
 	return { hit: true, value: parsed as T };
 }
 
+// Coalesce concurrent fetches for the same key: identical lookups issued while
+// one is already in flight (parallel routing candidates, simultaneous requests
+// on the same org/project) share its result instead of each paying their own
+// query round trips.
+const inFlightFetches = new Map<string, Promise<unknown>>();
+
 export async function swrWrap<T>(
+	key: string,
+	tables: string[],
+	fetcher: () => Promise<T>,
+): Promise<T> {
+	const existing = inFlightFetches.get(key);
+	if (existing) {
+		return await (existing as Promise<T>);
+	}
+	const fetchPromise = swrFetch(key, tables, fetcher);
+	inFlightFetches.set(key, fetchPromise);
+	try {
+		return await fetchPromise;
+	} finally {
+		inFlightFetches.delete(key);
+	}
+}
+
+async function swrFetch<T>(
 	key: string,
 	tables: string[],
 	fetcher: () => Promise<T>,
@@ -170,13 +194,31 @@ export async function swrWrap<T>(
 		throw error;
 	}
 
-	if (await claimMirrorWrite(key)) {
-		const wrote = await writeMirror(key, tables, value);
-		if (!wrote) {
-			await releaseMirrorThrottle(key);
+	// Mirror bookkeeping is pure disaster-fallback maintenance — the caller's
+	// result never depends on it, so it must not add Redis round trips to the
+	// request's critical path. Every step below catches its own errors, so
+	// this floating chain cannot produce an unhandled rejection.
+	const bookkeeping = (async () => {
+		if (await claimMirrorWrite(key)) {
+			const wrote = await writeMirror(key, tables, value);
+			if (!wrote) {
+				await releaseMirrorThrottle(key);
+			}
 		}
-	}
+	})();
+	pendingMirrorWrites.add(bookkeeping);
+	void bookkeeping.finally(() => pendingMirrorWrites.delete(bookkeeping));
 	return value;
+}
+
+const pendingMirrorWrites = new Set<Promise<void>>();
+
+// Await all in-flight mirror bookkeeping. Mirror writes are detached from the
+// request path, so tests (and graceful shutdown) need a way to wait for them.
+export async function waitForSwrMirrorWrites(): Promise<void> {
+	while (pendingMirrorWrites.size > 0) {
+		await Promise.allSettled(Array.from(pendingMirrorWrites));
+	}
 }
 
 export async function invalidateSwrByTables(tables: string[]): Promise<void> {

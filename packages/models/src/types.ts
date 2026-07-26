@@ -332,8 +332,6 @@ export type OpenAIResponsesInputItem =
 export interface OpenAIResponsesRequestBody {
 	model: string;
 	input: OpenAIResponsesInputItem[];
-	store?: boolean;
-	include?: string[];
 	service_tier?: "auto" | "default" | "flex" | "priority";
 	prompt_cache_key?: string;
 	prompt_cache_retention?: PromptCacheRetention;
@@ -343,6 +341,19 @@ export interface OpenAIResponsesRequestBody {
 		summary: "detailed";
 		context?: "auto" | "current_turn" | "all_turns";
 	};
+	/**
+	 * Provider-side response storage (Responses API statefulness). The gateway
+	 * reconstructs conversations itself and never reads stored responses, so
+	 * providers that retain stored responses by default (Bedrock Mantle:
+	 * 30 days) get an explicit false.
+	 */
+	store?: boolean;
+	/**
+	 * Extra output data to request. `reasoning.encrypted_content` returns
+	 * encrypted reasoning payloads, which the gateway replays on later turns to
+	 * preserve reasoning without stored responses.
+	 */
+	include?: string[];
 	tools?: Array<{
 		type: "function";
 		name: string;
