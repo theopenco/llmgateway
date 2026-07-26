@@ -52,6 +52,13 @@ spec:
     - host: {{ .Values.ingress.hosts.gateway | quote }}
       http:
         paths:
+          {{- if .Values.realtime.enabled }}
+          # /v1/realtime is served by the gateway itself, so it needs no route of
+          # its own: the catch-all below already carries both the WebSocket
+          # upgrade and the client-secret mint endpoint. The ingress controller's
+          # proxy/idle timeouts must still exceed realtime.config.maxSessionSeconds,
+          # or it will cut long calls off regardless of what the gateway does.
+          {{- end }}
           - path: /
             pathType: Prefix
             backend:

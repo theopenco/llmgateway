@@ -1827,6 +1827,25 @@ export const log = pgTable(
 			jsonb().$type<z.infer<typeof gatewayContentFilterResponseSchema>>(),
 		responsesApiId: text(),
 		responsesApiData: jsonb(),
+		// Realtime WebSocket sessions: one log row per billable terminal event
+		// (e.g. one per response.done). realtimeUsageKey is a semantic identity
+		// such as "response:<upstream_response_id>" so redelivered provider
+		// events cannot double-bill (enforced by the partial unique index below).
+		realtimeSessionId: text(),
+		realtimeUsageKey: text(),
+		// Exact billing amount as a decimal string. When set, the worker debits
+		// this instead of the float `cost` column, which stays populated for
+		// dashboards and legacy queries.
+		billingCost: decimal(),
+		audioOutputTokens: decimal(),
+		audioOutputCost: real(),
+		// Sanitized normalized usage plus the exact price snapshot (decimal
+		// strings) used to compute billingCost, for billing auditability.
+		realtimeUsage: jsonb().$type<{
+			usage?: Record<string, number>;
+			pricing?: Record<string, string>;
+			status?: string;
+		}>(),
 	},
 	(table) => [
 		index("log_project_id_created_at_idx").on(table.projectId, table.createdAt),
@@ -1861,6 +1880,67 @@ export const log = pgTable(
 		index("log_processed_at_null_idx")
 			.on(table.createdAt)
 			.where(sql`processed_at IS NULL`),
+	],
+);
+
+export const realtimeSession = pgTable(
+	"realtime_session",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		projectId: text()
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+		apiKeyId: text()
+			.notNull()
+			.references(() => apiKey.id, { onDelete: "cascade" }),
+		requestedModel: text().notNull(),
+		usedModel: text().notNull(),
+		usedModelMapping: text(),
+		usedProvider: text().notNull(),
+		mode: text({
+			enum: ["api-keys", "credits", "hybrid"],
+		}).notNull(),
+		usedMode: text({
+			enum: ["api-keys", "credits"],
+		}).notNull(),
+		// Session id reported by the upstream provider (session.created).
+		upstreamSessionId: text(),
+		status: text({
+			enum: ["open", "closed", "error"],
+		})
+			.notNull()
+			.default("open"),
+		closeReason: text(),
+		responseCount: integer().notNull().default(0),
+		// Running total of exact billed cost across this session's log rows.
+		totalCost: decimal().notNull().default("0"),
+		bytesIn: integer().notNull().default(0),
+		bytesOut: integer().notNull().default(0),
+		connectedAt: timestamp().notNull().defaultNow(),
+		closedAt: timestamp(),
+		lastActivityAt: timestamp(),
+	},
+	(table) => [
+		index("realtime_session_organization_id_created_at_idx").on(
+			table.organizationId,
+			table.createdAt,
+		),
+		index("realtime_session_project_id_created_at_idx").on(
+			table.projectId,
+			table.createdAt,
+		),
+		index("realtime_session_api_key_id_created_at_idx").on(
+			table.apiKeyId,
+			table.createdAt,
+		),
 	],
 );
 
@@ -3580,6 +3660,7 @@ export const projectHourlyStats = pgTable(
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
 		audioInputCost: real().notNull().default(0),
+		audioOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -3647,6 +3728,7 @@ export const projectHourlyModelStats = pgTable(
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
 		audioInputCost: real().notNull().default(0),
+		audioOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -3739,6 +3821,7 @@ export const projectHourlySourceStats = pgTable(
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
 		audioInputCost: real().notNull().default(0),
+		audioOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -3817,6 +3900,7 @@ export const apiKeyHourlyStats = pgTable(
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
 		audioInputCost: real().notNull().default(0),
+		audioOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -3895,6 +3979,7 @@ export const apiKeyHourlyModelStats = pgTable(
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
 		audioInputCost: real().notNull().default(0),
+		audioOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -3980,6 +4065,7 @@ export const globalModelStats = pgTable(
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
 		audioInputCost: real().notNull().default(0),
+		audioOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -4054,6 +4140,7 @@ export const globalSourceStats = pgTable(
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
 		audioInputCost: real().notNull().default(0),
+		audioOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -4239,5 +4326,52 @@ export const loungePointEvent = pgTable(
 			table.userId,
 			table.createdAt,
 		),
+	],
+);
+
+// Transcript history for playground realtime voice calls. The gateway
+// deliberately does not persist realtime conversation content (see
+// apps/gateway/src/realtime/billing.ts), so the playground stores the
+// transcript its own client assembled, scoped to the user who spoke it.
+export const playgroundRealtimeHistory = pgTable(
+	"playground_realtime_history",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		// Organization context the call was placed under. Null means the
+		// default "Chat plan" context. Used to separate history per organization.
+		organizationId: text().references(() => organization.id, {
+			onDelete: "set null",
+		}),
+		title: text().notNull(),
+		model: text().notNull(),
+		voice: text(),
+		durationSeconds: integer().notNull().default(0),
+		transcript: jsonb().notNull().$type<
+			{
+				role: "user" | "assistant";
+				text: string;
+				status: "partial" | "final" | "interrupted";
+				timestamp: number;
+			}[]
+		>(),
+		usage: jsonb().$type<{
+			responses: number;
+			inputTokens: number;
+			outputTokens: number;
+			totalTokens: number;
+			audioInputTokens: number;
+			audioOutputTokens: number;
+		}>(),
+	},
+	(table) => [
+		index("playground_realtime_history_user_id_idx").on(table.userId),
 	],
 );

@@ -32,6 +32,11 @@ export interface ApiModelProviderMapping {
 	imageOutputPrice: string | null;
 	imageInputTokensByResolution: Record<string, number> | null;
 	imageOutputTokensByResolution: Record<string, number> | null;
+	// Audio token prices. These, not the text prices, are what a voice session
+	// actually spends most of its tokens on.
+	inputAudioPrice: string | null;
+	cachedInputAudioPrice: string | null;
+	outputAudioPrice: string | null;
 	requestPrice: string | null;
 	contextSize: number | null;
 	maxOutput: number | null;
@@ -46,6 +51,8 @@ export interface ApiModelProviderMapping {
 	jsonOutput: boolean | null;
 	jsonOutputSchema: boolean | null;
 	webSearch: boolean | null;
+	realtime: boolean | null;
+	supportedVoices: string[] | null;
 	discount: string | null;
 	stability: "stable" | "beta" | "unstable" | "experimental" | null;
 	supportedParameters: string[] | null;
