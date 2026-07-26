@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "544558a5-d900-479f-8023-16a705dde637",
+  "id": "1a035f7e-52c0-4fec-998b-c5c897bc184f",
   "prevId": "ca898c4f-668f-4620-9484-16a22f15229f",
   "ddl": [
     {
@@ -204,6 +204,12 @@
     },
     {
       "isRlsEnabled": false,
+      "name": "lounge_point_event",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
       "name": "master_key",
       "entityType": "tables",
       "schema": "public"
@@ -318,12 +324,6 @@
     },
     {
       "isRlsEnabled": false,
-      "name": "playground_realtime_history",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
       "name": "playground_video_history",
       "entityType": "tables",
       "schema": "public"
@@ -373,12 +373,6 @@
     {
       "isRlsEnabled": false,
       "name": "rate_limit",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "realtime_session",
       "entityType": "tables",
       "schema": "public"
     },
@@ -1526,22 +1520,6 @@
       },
       "generated": null,
       "identity": null,
-      "name": "audio_output_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_model_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
       "name": "video_output_cost",
       "entityType": "columns",
       "schema": "public",
@@ -2219,22 +2197,6 @@
       "generated": null,
       "identity": null,
       "name": "audio_input_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "audio_output_cost",
       "entityType": "columns",
       "schema": "public",
       "table": "api_key_hourly_stats"
@@ -5785,22 +5747,6 @@
       },
       "generated": null,
       "identity": null,
-      "name": "audio_output_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "global_model_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
       "name": "video_output_cost",
       "entityType": "columns",
       "schema": "public",
@@ -6465,22 +6411,6 @@
       "generated": null,
       "identity": null,
       "name": "audio_input_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "global_source_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "audio_output_cost",
       "entityType": "columns",
       "schema": "public",
       "table": "global_source_stats"
@@ -8552,80 +8482,86 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "realtime_session_id",
+      "name": "id",
       "entityType": "columns",
       "schema": "public",
-      "table": "log"
+      "table": "lounge_point_event"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "lounge_point_event"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "lounge_point_event"
     },
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "realtime_usage_key",
+      "name": "user_id",
       "entityType": "columns",
       "schema": "public",
-      "table": "log"
+      "table": "lounge_point_event"
     },
     {
-      "type": "numeric",
+      "type": "text",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "billing_cost",
+      "name": "kind",
       "entityType": "columns",
       "schema": "public",
-      "table": "log"
+      "table": "lounge_point_event"
     },
     {
-      "type": "numeric",
+      "type": "integer",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "audio_output_tokens",
+      "name": "points",
       "entityType": "columns",
       "schema": "public",
-      "table": "log"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "audio_output_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "log"
-    },
-    {
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "realtime_usage",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "log"
+      "table": "lounge_point_event"
     },
     {
       "type": "text",
@@ -14021,158 +13957,6 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
-      "table": "playground_realtime_history"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "playground_realtime_history"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "playground_realtime_history"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "user_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "playground_realtime_history"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "organization_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "playground_realtime_history"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "title",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "playground_realtime_history"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "model",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "playground_realtime_history"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "voice",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "playground_realtime_history"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "duration_seconds",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "playground_realtime_history"
-    },
-    {
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "transcript",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "playground_realtime_history"
-    },
-    {
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "usage",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "playground_realtime_history"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
       "table": "playground_video_history"
     },
     {
@@ -15101,22 +14885,6 @@
       },
       "generated": null,
       "identity": null,
-      "name": "audio_output_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_model_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
       "name": "video_output_cost",
       "entityType": "columns",
       "schema": "public",
@@ -15809,22 +15577,6 @@
       },
       "generated": null,
       "identity": null,
-      "name": "audio_output_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_source_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
       "name": "video_output_cost",
       "entityType": "columns",
       "schema": "public",
@@ -16489,22 +16241,6 @@
       "generated": null,
       "identity": null,
       "name": "audio_input_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "audio_output_cost",
       "entityType": "columns",
       "schema": "public",
       "table": "project_hourly_stats"
@@ -17579,316 +17315,6 @@
       "entityType": "columns",
       "schema": "public",
       "table": "rate_limit"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "organization_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "project_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "api_key_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "requested_model",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "used_model",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "used_model_mapping",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "used_provider",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "mode",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "used_mode",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "upstream_session_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'open'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "status",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "close_reason",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "response_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "numeric",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'0'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "bytes_in",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "bytes_out",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "connected_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "closed_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "last_activity_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "realtime_session"
     },
     {
       "type": "text",
@@ -23029,35 +22455,7 @@
       "nameExplicit": true,
       "columns": [
         {
-          "value": "realtime_session_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "realtime_usage_key",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": true,
-      "where": "realtime_usage_key IS NOT NULL",
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "log_realtime_session_usage_key_unique",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "log"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "organization_id",
+          "value": "user_id",
           "isExpression": false,
           "asc": true,
           "nullsFirst": false,
@@ -23065,14 +22463,42 @@
         }
       ],
       "isUnique": false,
-      "where": "realtime_session_id IS NOT NULL AND processed_at IS NULL",
+      "where": null,
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "log_realtime_unsettled_organization_id_idx",
+      "name": "lounge_point_event_user_id_idx",
       "entityType": "indexes",
       "schema": "public",
-      "table": "log"
+      "table": "lounge_point_event"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "user_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "lounge_point_event_user_id_created_at_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "lounge_point_event"
     },
     {
       "nameExplicit": true,
@@ -24217,27 +23643,6 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "playground_realtime_history_user_id_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "playground_realtime_history"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "user_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
       "name": "playground_video_history_user_id_idx",
       "entityType": "indexes",
       "schema": "public",
@@ -24676,90 +24081,6 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "rate_limit"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "organization_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "created_at",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "realtime_session_organization_id_created_at_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "project_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "created_at",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "realtime_session_project_id_created_at_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "api_key_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "created_at",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "realtime_session_api_key_id_created_at_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "realtime_session"
     },
     {
       "nameExplicit": true,
@@ -26483,6 +25804,23 @@
     {
       "nameExplicit": false,
       "columns": [
+        "user_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "user",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "lounge_point_event_user_id_user_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "lounge_point_event"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "organization_id"
       ],
       "schemaTo": "public",
@@ -26832,40 +26170,6 @@
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "playground_realtime_history_user_id_user_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "playground_realtime_history"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "organization_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "organization",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "SET NULL",
-      "name": "playground_realtime_history_6gba5Xye7cwi_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "playground_realtime_history"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "user_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "user",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
       "name": "playground_video_history_user_id_user_id_fkey",
       "entityType": "fks",
       "schema": "public",
@@ -26938,57 +26242,6 @@
       "entityType": "fks",
       "schema": "public",
       "table": "rate_limit"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "organization_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "organization",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "realtime_session_organization_id_organization_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "project_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "project",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "realtime_session_project_id_project_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "realtime_session"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "api_key_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "api_key",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "realtime_session_api_key_id_api_key_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "realtime_session"
     },
     {
       "nameExplicit": false,
@@ -27954,6 +27207,16 @@
         "id"
       ],
       "nameExplicit": false,
+      "name": "lounge_point_event_pkey",
+      "schema": "public",
+      "table": "lounge_point_event",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
       "name": "master_key_pkey",
       "schema": "public",
       "table": "master_key",
@@ -28144,16 +27407,6 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "playground_realtime_history_pkey",
-      "schema": "public",
-      "table": "playground_realtime_history",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
       "name": "playground_video_history_pkey",
       "schema": "public",
       "table": "playground_video_history",
@@ -28237,16 +27490,6 @@
       "name": "rate_limit_pkey",
       "schema": "public",
       "table": "rate_limit",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "realtime_session_pkey",
-      "schema": "public",
-      "table": "realtime_session",
       "entityType": "pks"
     },
     {
