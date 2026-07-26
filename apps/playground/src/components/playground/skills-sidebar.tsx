@@ -2,20 +2,14 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import {
-	AudioLines,
 	ChevronDown,
 	ChevronUp,
 	ExternalLink,
-	Film,
-	ImagePlus,
 	LogOut,
-	MessageSquare,
-	PenTool,
 	Plus,
 	ScrollTextIcon,
 	Sparkles,
 	UploadIcon,
-	Users,
 	FileTextIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -23,6 +17,7 @@ import { useRouter } from "next/navigation";
 
 import { CreditsDisplay } from "@/components/credits/credits-display";
 import { ThemeToggle } from "@/components/landing/theme-toggle";
+import { SidebarLoungePoints } from "@/components/lounge/sidebar-points";
 import { Button } from "@/components/ui/button";
 import {
 	DropdownMenu,
@@ -53,6 +48,7 @@ import {
 	SidebarShortcutKbd,
 	useSidebarShortcut,
 } from "./sidebar-actions";
+import { StudioNav } from "./studio-nav";
 
 import type { Skill } from "@/hooks/useSkills";
 import type { Organization } from "@/lib/types";
@@ -138,6 +134,7 @@ export function SkillsSidebar({
 							</div>
 						</div>
 					</div>
+					<StudioNav />
 				</SidebarHeader>
 			</Sidebar>
 		);
@@ -184,55 +181,8 @@ export function SkillsSidebar({
 							</DropdownMenuContent>
 						</DropdownMenu>
 					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton asChild tooltip="Chat">
-							<Link href="/" prefetch={true}>
-								<MessageSquare className="h-4 w-4" />
-								<span>Chat</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton asChild tooltip="Group Chat">
-							<Link href="/group" prefetch={true}>
-								<Users className="h-4 w-4" />
-								<span>Group Chat</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton asChild tooltip="Image Studio">
-							<Link href="/image" prefetch={true}>
-								<ImagePlus className="h-4 w-4" />
-								<span>Image Studio</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton asChild tooltip="Video Studio">
-							<Link href="/video" prefetch={true}>
-								<Film className="h-4 w-4" />
-								<span>Video Studio</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton asChild tooltip="Audio Studio">
-							<Link href="/audio" prefetch={true}>
-								<AudioLines className="h-4 w-4" />
-								<span>Audio Studio</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton asChild tooltip="Canvas">
-							<Link href="/canvas" prefetch={true}>
-								<PenTool className="h-4 w-4" />
-								<span>Canvas</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
 				</SidebarMenu>
+				<StudioNav />
 			</SidebarHeader>
 
 			<SidebarContent className="overflow-hidden pb-2">
@@ -286,6 +236,7 @@ export function SkillsSidebar({
 			</SidebarContent>
 
 			<SidebarFooter>
+				<SidebarLoungePoints />
 				<div className="group-data-[collapsible=icon]:hidden">
 					<CreditsDisplay
 						organization={selectedOrganization}

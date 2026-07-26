@@ -3,22 +3,18 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import {
-	AudioLines,
 	MessageSquare,
 	Edit2,
 	Trash2,
 	MoreVerticalIcon,
-	ImagePlus,
-	Film,
 	Pin,
 	PinOff,
-	Users,
 	ChevronDown,
 	ChevronUp,
-	Folder,
 	LogOut,
 	ExternalLink,
-	PenTool,
+	Sparkles,
+	Trophy,
 } from "lucide-react";
 // import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -37,6 +33,7 @@ import { toast } from "sonner";
 
 import { CreditsDisplay } from "@/components/credits/credits-display";
 import { ThemeToggle } from "@/components/landing/theme-toggle";
+import { SidebarLoungePoints } from "@/components/lounge/sidebar-points";
 import { Button } from "@/components/ui/button";
 import {
 	DropdownMenu,
@@ -68,10 +65,12 @@ import { useOrganization } from "@/hooks/useOrganization";
 import { useUser } from "@/hooks/useUser";
 import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
 import { useAuth } from "@/lib/auth-client";
+import { withOrgParam } from "@/lib/utils";
 
 import { ChatSidebarSkeleton } from "./chat-sidebar-skeleton";
 import { OrganizationSwitcher } from "./organization-switcher";
 import { SidebarChatSearch, SidebarNewAction } from "./sidebar-actions";
+import { StudioNav } from "./studio-nav";
 // import { ProjectSwitcher } from "./project-switcher";
 
 import type { Organization, Project } from "@/lib/types";
@@ -499,8 +498,7 @@ export const ChatSidebar = function ChatSidebar({
 	// Preserve the selected organization across playground navigation so users
 	// don't have to re-pick their org on every page.
 	const orgIdParam = searchParams.get("orgId");
-	const withOrg = (path: string) =>
-		orgIdParam ? `${path}?orgId=${orgIdParam}` : path;
+	const withOrg = (path: string) => withOrgParam(path, orgIdParam);
 	const posthog = usePostHog();
 	const { state: sidebarState, isMobile, setOpenMobile } = useSidebar();
 	const showOrganizationSwitcher = pathname === "/" || pathname === "/group";
@@ -769,6 +767,7 @@ export const ChatSidebar = function ChatSidebar({
 							</div>
 						</div>
 					</div>
+					<StudioNav />
 				</SidebarHeader>
 			</Sidebar>
 		);
@@ -804,91 +803,8 @@ export const ChatSidebar = function ChatSidebar({
 						onAction={onNewChat}
 						isLoading={isPageLoading}
 					/>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							asChild
-							tooltip="Chat"
-							isActive={pathname === "/"}
-						>
-							<Link href={withOrg("/")} prefetch={true}>
-								<MessageSquare className="h-4 w-4" />
-								<span>Chat</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							asChild
-							tooltip="Projects"
-							isActive={pathname === "/projects"}
-						>
-							<Link href={withOrg("/projects")} prefetch={true}>
-								<Folder className="h-4 w-4" />
-								<span>Projects</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							asChild
-							tooltip="Group Chat"
-							isActive={pathname === "/group"}
-						>
-							<Link href={withOrg("/group")} prefetch={true}>
-								<Users className="h-4 w-4" />
-								<span>Group Chat</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							asChild
-							tooltip="Image Studio"
-							isActive={pathname === "/image"}
-						>
-							<Link href={withOrg("/image")} prefetch={true}>
-								<ImagePlus className="h-4 w-4" />
-								<span>Image Studio</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							asChild
-							tooltip="Video Studio"
-							isActive={pathname === "/video"}
-						>
-							<Link href={withOrg("/video")} prefetch={true}>
-								<Film className="h-4 w-4" />
-								<span>Video Studio</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							asChild
-							tooltip="Audio Studio"
-							isActive={pathname === "/audio"}
-						>
-							<Link href={withOrg("/audio")} prefetch={true}>
-								<AudioLines className="h-4 w-4" />
-								<span>Audio Studio</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							asChild
-							tooltip="Canvas"
-							isActive={pathname === "/canvas"}
-						>
-							<Link href={withOrg("/canvas")} prefetch={true}>
-								<PenTool className="h-4 w-4" />
-								<span>Canvas</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
 				</SidebarMenu>
+				<StudioNav />
 			</SidebarHeader>
 
 			<SidebarContent className="overflow-hidden pb-2">
@@ -1006,6 +922,7 @@ export const ChatSidebar = function ChatSidebar({
 			</SidebarContent>
 
 			<SidebarFooter>
+				<SidebarLoungePoints />
 				<div className="group-data-[collapsible=icon]:hidden">
 					<CreditsDisplay
 						organization={
@@ -1053,6 +970,19 @@ export const ChatSidebar = function ChatSidebar({
 								align="end"
 								sideOffset={4}
 							>
+								<DropdownMenuItem asChild>
+									<Link href="/profile" prefetch={true}>
+										<Sparkles className="mr-2 h-4 w-4" />
+										Profile &amp; Points
+									</Link>
+								</DropdownMenuItem>
+								<DropdownMenuItem asChild>
+									<Link href="/leaderboard" prefetch={true}>
+										<Trophy className="mr-2 h-4 w-4" />
+										Leaderboard
+									</Link>
+								</DropdownMenuItem>
+								<DropdownMenuSeparator />
 								<DropdownMenuItem asChild>
 									<a
 										href={

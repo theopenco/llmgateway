@@ -3,7 +3,12 @@ import { expect, test, beforeEach, describe, afterEach } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { redisClient, SWR_PREFIX, swrWrap } from "@llmgateway/cache";
+import {
+	redisClient,
+	SWR_PREFIX,
+	swrWrap,
+	waitForSwrMirrorWrites,
+} from "@llmgateway/cache";
 import { and, cdb, db, eq, getTableName, tables } from "@llmgateway/db";
 
 const ONE_MINUTE_MS = 60 * 1000;
@@ -363,6 +368,7 @@ describe("keys route", () => {
 		await swrWrap(swrCacheKey, [apiKeyTableName], async () => ({
 			token: "test-token",
 		}));
+		await waitForSwrMirrorWrites();
 		expect(await redisClient.get(SWR_PREFIX + swrCacheKey)).not.toBeNull();
 
 		const res = await app.request("/keys/api/test-api-key-id/roll", {
@@ -394,8 +400,8 @@ describe("keys route", () => {
 			description: "IAM Cache Test Key",
 			createdBy: "test-user-id",
 		});
-		const readActiveIamRules = () =>
-			swrWrap(
+		const readActiveIamRules = async () => {
+			const rules = await swrWrap(
 				`iamRules:${apiKeyId}`,
 				[getTableName(tables.apiKeyIamRule)],
 				async () =>
@@ -409,6 +415,9 @@ describe("keys route", () => {
 							),
 						),
 			);
+			await waitForSwrMirrorWrites();
+			return rules;
+		};
 
 		// Prime both cache layers with the "no rules" result.
 		expect(await readActiveIamRules()).toHaveLength(0);

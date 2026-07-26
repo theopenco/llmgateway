@@ -314,6 +314,13 @@ export interface OpenAIResponsesRequestBody {
 		effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 		summary: "detailed";
 	};
+	/**
+	 * Provider-side response storage (Responses API statefulness). The gateway
+	 * reconstructs conversations itself and never reads stored responses, so
+	 * providers that retain stored responses by default (Bedrock Mantle:
+	 * 30 days) get an explicit false.
+	 */
+	store?: boolean;
 	tools?: Array<{
 		type: "function";
 		name: string;

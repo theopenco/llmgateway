@@ -1910,6 +1910,40 @@ export const openaiModels = [
 				],
 				jsonOutput: true,
 			},
+			{
+				providerId: "aws-mantle",
+				externalId: "openai.gpt-5.6-sol",
+				inputPrice: "5.0e-6",
+				outputPrice: "30.0e-6",
+				cachedInputPrice: "0.5e-6",
+				cacheWriteInputPrice: "6.25e-6",
+				requestPrice: "0",
+				// AWS caps the Mantle deployment at a 272K context (vs 1.05M
+				// first-party), so OpenAI's over-272K pricing tier never applies.
+				contextSize: 272000,
+				maxOutput: 128000,
+				streaming: true,
+				// Bedrock Mantle only accepts data:/s3:// image URLs; the gateway
+				// inlines remote http(s) image URLs as data URLs for this provider
+				// (see prepare-request-body.ts).
+				vision: true,
+				tools: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				reasoningOutput: "omit",
+				verbosity: true,
+				supportsResponsesApi: true,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"temperature",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"response_format",
+					"verbosity",
+				],
+				jsonOutput: true,
+			},
 		],
 	},
 	{
@@ -2021,6 +2055,40 @@ export const openaiModels = [
 				],
 				jsonOutput: true,
 			},
+			{
+				providerId: "aws-mantle",
+				externalId: "openai.gpt-5.6-terra",
+				inputPrice: "2.5e-6",
+				outputPrice: "15.0e-6",
+				cachedInputPrice: "0.25e-6",
+				cacheWriteInputPrice: "3.125e-6",
+				requestPrice: "0",
+				// AWS caps the Mantle deployment at a 272K context (vs 1.05M
+				// first-party), so OpenAI's over-272K pricing tier never applies.
+				contextSize: 272000,
+				maxOutput: 128000,
+				streaming: true,
+				// Bedrock Mantle only accepts data:/s3:// image URLs; the gateway
+				// inlines remote http(s) image URLs as data URLs for this provider
+				// (see prepare-request-body.ts).
+				vision: true,
+				tools: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				reasoningOutput: "omit",
+				verbosity: true,
+				supportsResponsesApi: true,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"temperature",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"response_format",
+					"verbosity",
+				],
+				jsonOutput: true,
+			},
 		],
 	},
 	{
@@ -2116,6 +2184,40 @@ export const openaiModels = [
 				tools: true,
 				webSearch: true,
 				webSearchPrice: "0.01",
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				reasoningOutput: "omit",
+				verbosity: true,
+				supportsResponsesApi: true,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"temperature",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"response_format",
+					"verbosity",
+				],
+				jsonOutput: true,
+			},
+			{
+				providerId: "aws-mantle",
+				externalId: "openai.gpt-5.6-luna",
+				inputPrice: "1.0e-6",
+				outputPrice: "6.0e-6",
+				cachedInputPrice: "0.1e-6",
+				cacheWriteInputPrice: "1.25e-6",
+				requestPrice: "0",
+				// AWS caps the Mantle deployment at a 272K context (vs 1.05M
+				// first-party), so OpenAI's over-272K pricing tier never applies.
+				contextSize: 272000,
+				maxOutput: 128000,
+				streaming: true,
+				// Bedrock Mantle only accepts data:/s3:// image URLs; the gateway
+				// inlines remote http(s) image URLs as data URLs for this provider
+				// (see prepare-request-body.ts).
+				vision: true,
+				tools: true,
 				reasoning: true,
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
 				reasoningOutput: "omit",

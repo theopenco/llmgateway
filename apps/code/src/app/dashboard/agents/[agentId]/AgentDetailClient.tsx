@@ -29,6 +29,8 @@ import {
 import { useUser } from "@/hooks/useUser";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
 
+import { buildAgentLogsCsv } from "@llmgateway/shared";
+
 type ModelSortColumn =
 	| "id"
 	| "provider"
@@ -53,72 +55,7 @@ const AGENT_TIME_RANGE_HOURS: Record<AgentTimeRange, number> = {
 function parseAgentTimeRange(value: string | null | undefined): AgentTimeRange {
 	return (AGENT_TIME_RANGES as readonly string[]).includes(value ?? "")
 		? (value as AgentTimeRange)
-		: "30d";
-}
-
-const CSV_HEADERS = [
-	"createdAt",
-	"usedProvider",
-	"usedModel",
-	"finishReason",
-	"promptTokens",
-	"completionTokens",
-	"totalTokens",
-	"cachedTokens",
-	"cost",
-	"hasError",
-	"streamed",
-	"duration",
-	"requestId",
-	"id",
-];
-
-function escapeCsvValue(value: unknown): string {
-	if (value === null || value === undefined) {
-		return "";
-	}
-	let str = String(value);
-	// Guard against spreadsheet formula injection for string values.
-	if (typeof value === "string" && /^[=+\-@\t\r]/.test(str)) {
-		str = `'${str}`;
-	}
-	if (/[",\n]/.test(str)) {
-		return `"${str.replace(/"/g, '""')}"`;
-	}
-	return str;
-}
-
-// String(number) switches to exponent notation below 1e-6 (e.g. "3.5e-7"),
-// which spreadsheets don't reliably parse as a float.
-function formatCostForCsv(cost: number | null | undefined): string {
-	if (cost === null || cost === undefined) {
-		return "";
-	}
-	return cost.toFixed(15).replace(/\.?0+$/, "");
-}
-
-function buildLogsCsv(logs: ApiLog[]): string {
-	const rows = logs.map((log) =>
-		[
-			log.createdAt,
-			log.usedProvider,
-			log.usedModel,
-			log.unifiedFinishReason ?? log.finishReason ?? "",
-			log.promptTokens,
-			log.completionTokens,
-			log.totalTokens,
-			log.cachedTokens ?? "",
-			formatCostForCsv(log.cost),
-			log.hasError,
-			log.streamed,
-			log.duration,
-			log.requestId,
-			log.id,
-		]
-			.map(escapeCsvValue)
-			.join(","),
-	);
-	return [CSV_HEADERS.join(","), ...rows].join("\n");
+		: "7d";
 }
 
 function TimeRangePicker({
@@ -531,7 +468,9 @@ function AgentDetailBody({
 					? (body.pagination.nextCursor ?? undefined)
 					: undefined;
 			}
-			const csv = buildLogsCsv(collected.filter((log) => !log.retriedByLogId));
+			const csv = buildAgentLogsCsv(
+				collected.filter((log) => !log.retriedByLogId),
+			);
 			const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
 			const url = URL.createObjectURL(blob);
 			const a = document.createElement("a");

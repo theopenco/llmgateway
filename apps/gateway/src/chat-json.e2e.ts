@@ -81,11 +81,11 @@ describe("e2e", getConcurrentTestOptions(), () => {
 		}),
 	)("JSON schema output $model", getTestOptions(), async ({ model }) => {
 		// Define the Zod schema that matches our JSON schema payload
-		const weatherResponseSchema = z
+		const countryFactsSchema = z
 			.object({
-				location: z.string(),
-				temperature: z.string(),
-				conditions: z.string(),
+				name: z.string(),
+				capital: z.string(),
+				continent: z.string(),
 			})
 			.strict(); // strict() ensures no additional properties
 
@@ -104,31 +104,31 @@ describe("e2e", getConcurrentTestOptions(), () => {
 					},
 					{
 						role: "user",
-						content: "What is the weather like today?",
+						content: "Provide basic facts about the country France.",
 					},
 				],
 				response_format: {
 					type: "json_schema",
 					json_schema: {
-						name: "weather_response",
-						description: "A response about the weather",
+						name: "country_facts",
+						description: "Basic facts about a country",
 						schema: {
 							type: "object",
 							properties: {
-								location: {
+								name: {
 									type: "string",
-									description: "The location for the weather",
+									description: "The country's name",
 								},
-								temperature: {
+								capital: {
 									type: "string",
-									description: "The temperature",
+									description: "The country's capital city",
 								},
-								conditions: {
+								continent: {
 									type: "string",
-									description: "The weather conditions",
+									description: "The continent the country is on",
 								},
 							},
-							required: ["location", "temperature", "conditions"],
+							required: ["name", "capital", "continent"],
 							additionalProperties: false,
 						},
 						strict: true,
@@ -149,7 +149,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 		const parsedContent = JSON.parse(content);
 
 		// Validate the parsed content matches the exact schema using Zod
-		const validationResult = weatherResponseSchema.safeParse(parsedContent);
+		const validationResult = countryFactsSchema.safeParse(parsedContent);
 		if (!validationResult.success) {
 			console.error(
 				"Schema validation failed:",
@@ -165,12 +165,12 @@ describe("e2e", getConcurrentTestOptions(), () => {
 		// Additional type-safe assertions after validation
 		if (validationResult.success) {
 			const data = validationResult.data;
-			expect(typeof data.location).toBe("string");
-			expect(typeof data.temperature).toBe("string");
-			expect(typeof data.conditions).toBe("string");
-			expect(data.location.length).toBeGreaterThan(0);
-			expect(data.temperature.length).toBeGreaterThan(0);
-			expect(data.conditions.length).toBeGreaterThan(0);
+			expect(typeof data.name).toBe("string");
+			expect(typeof data.capital).toBe("string");
+			expect(typeof data.continent).toBe("string");
+			expect(data.name.length).toBeGreaterThan(0);
+			expect(data.capital.length).toBeGreaterThan(0);
+			expect(data.continent.length).toBeGreaterThan(0);
 		}
 	});
 
@@ -238,11 +238,11 @@ describe("e2e", getConcurrentTestOptions(), () => {
 		getTestOptions(),
 		async ({ model }) => {
 			// Define the Zod schema that matches our JSON schema payload
-			const weatherResponseSchema = z
+			const countryFactsSchema = z
 				.object({
-					location: z.string(),
-					temperature: z.string(),
-					conditions: z.string(),
+					name: z.string(),
+					capital: z.string(),
+					continent: z.string(),
 				})
 				.strict();
 
@@ -261,31 +261,31 @@ describe("e2e", getConcurrentTestOptions(), () => {
 						},
 						{
 							role: "user",
-							content: "What is the weather like today?",
+							content: "Provide basic facts about the country France.",
 						},
 					],
 					response_format: {
 						type: "json_schema",
 						json_schema: {
-							name: "weather_response",
-							description: "A response about the weather",
+							name: "country_facts",
+							description: "Basic facts about a country",
 							schema: {
 								type: "object",
 								properties: {
-									location: {
+									name: {
 										type: "string",
-										description: "The location for the weather",
+										description: "The country's name",
 									},
-									temperature: {
+									capital: {
 										type: "string",
-										description: "The temperature",
+										description: "The country's capital city",
 									},
-									conditions: {
+									continent: {
 										type: "string",
-										description: "The weather conditions",
+										description: "The continent the country is on",
 									},
 								},
-								required: ["location", "temperature", "conditions"],
+								required: ["name", "capital", "continent"],
 								additionalProperties: false,
 							},
 							strict: true,
@@ -327,7 +327,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 			const parsedContent = JSON.parse(fullContent);
 
 			// Validate the parsed content matches the exact schema using Zod
-			const validationResult = weatherResponseSchema.safeParse(parsedContent);
+			const validationResult = countryFactsSchema.safeParse(parsedContent);
 			if (!validationResult.success) {
 				console.error(
 					"Schema validation failed:",
@@ -343,12 +343,12 @@ describe("e2e", getConcurrentTestOptions(), () => {
 			// Additional type-safe assertions after validation
 			if (validationResult.success) {
 				const data = validationResult.data;
-				expect(typeof data.location).toBe("string");
-				expect(typeof data.temperature).toBe("string");
-				expect(typeof data.conditions).toBe("string");
-				expect(data.location.length).toBeGreaterThan(0);
-				expect(data.temperature.length).toBeGreaterThan(0);
-				expect(data.conditions.length).toBeGreaterThan(0);
+				expect(typeof data.name).toBe("string");
+				expect(typeof data.capital).toBe("string");
+				expect(typeof data.continent).toBe("string");
+				expect(data.name.length).toBeGreaterThan(0);
+				expect(data.capital.length).toBeGreaterThan(0);
+				expect(data.continent.length).toBeGreaterThan(0);
 			}
 		},
 	);
