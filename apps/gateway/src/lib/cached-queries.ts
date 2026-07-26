@@ -668,35 +668,6 @@ export async function findManagedProviderIds(
 }
 
 /**
- * Find a specific managed credential by id (cacheable).
- *
- * Used by long-running work that pinned a credential at creation time — video
- * jobs poll for their result minutes to hours later and some providers scope
- * job visibility to the creating credential, so the exact row must come back
- * rather than a freshly selected one.
- *
- * Deliberately does not filter on status: a credential deactivated after a job
- * started must still be able to finish that job.
- */
-export async function findManagedProviderKeyById(
-	id: string,
-): Promise<ProviderKey | undefined> {
-	const results = await swrWrap(
-		`providerKey:managedById:${id}`,
-		[providerKeyTableName],
-		async () =>
-			await db
-				.select()
-				.from(providerKeyTable)
-				.where(
-					and(eq(providerKeyTable.id, id), eq(providerKeyTable.managed, true)),
-				)
-				.limit(1),
-	);
-	return results[0];
-}
-
-/**
  * Find all active IAM rules for an API key (cacheable)
  */
 export async function findActiveIamRules(

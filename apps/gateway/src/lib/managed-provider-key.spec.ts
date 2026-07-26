@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { redisClient, waitForSwrMirrorWrites } from "@llmgateway/cache";
 import {
+	cdb,
 	db,
+	eq,
+	findManagedProviderKeyById,
 	organization,
 	providerKey,
 	type InferInsertModel,
@@ -206,6 +209,71 @@ describe("findManagedProviderIds", () => {
 	it("ignores inactive credentials", async () => {
 		await insertManaged({ id: "inactive-key", status: "inactive" });
 
+		expect(await findManagedProviderIds()).not.toContain("openai");
+	});
+});
+
+/**
+ * The gateway serves managed credentials from the SWR mirror, so a credential
+ * added through the admin API has to appear without anyone flushing a cache.
+ * `cdb` writes invalidate the Drizzle cache and the SWR mirrors centrally by
+ * table; these cases prove the new provider_key keys are wired into that and
+ * do not go stale. They deliberately never touch redisClient after the first
+ * read — a manual flush would hide exactly the bug being guarded against.
+ */
+describe("managed credential cache invalidation", () => {
+	beforeEach(async () => {
+		resetKeyHealth();
+		await waitForSwrMirrorWrites();
+		await db.delete(providerKey);
+		await redisClient.flushdb();
+	});
+
+	afterEach(async () => {
+		await db.delete(providerKey);
+	});
+
+	it("sees a credential written through cdb without a cache flush", async () => {
+		// Prime the cache with the empty answer.
+		expect(await findManagedProviderKey("openai")).toBeUndefined();
+		expect(await findManagedProviderIds()).not.toContain("openai");
+
+		await cdb.insert(providerKey).values({
+			id: "cdb-written-key",
+			provider: "openai",
+			managed: true,
+			organizationId: null,
+			token: "sk-written-through-cdb",
+		});
+		await waitForSwrMirrorWrites();
+
+		expect((await findManagedProviderKey("openai"))?.id).toBe(
+			"cdb-written-key",
+		);
+		expect(await findManagedProviderIds()).toContain("openai");
+		expect((await findManagedProviderKeyById("cdb-written-key"))?.token).toBe(
+			"sk-written-through-cdb",
+		);
+	});
+
+	it("stops serving a credential deactivated through cdb", async () => {
+		await cdb.insert(providerKey).values({
+			id: "to-deactivate",
+			provider: "openai",
+			managed: true,
+			organizationId: null,
+			token: "sk-deactivate-me",
+		});
+		await waitForSwrMirrorWrites();
+		expect((await findManagedProviderKey("openai"))?.id).toBe("to-deactivate");
+
+		await cdb
+			.update(providerKey)
+			.set({ status: "inactive" })
+			.where(eq(providerKey.id, "to-deactivate"));
+		await waitForSwrMirrorWrites();
+
+		expect(await findManagedProviderKey("openai")).toBeUndefined();
 		expect(await findManagedProviderIds()).not.toContain("openai");
 	});
 });

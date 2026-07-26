@@ -9,6 +9,7 @@ import {
 	asc,
 	db,
 	eq,
+	findManagedProviderKeyById,
 	type InferSelectModel,
 	inArray,
 	isNull,
@@ -306,12 +307,9 @@ async function resolveVideoProviderContext(
 	// job visibility to the creating API key. A managed credential is pinned by
 	// id on the job, so it is re-read directly rather than re-selected.
 	if (job.managedProviderKeyId) {
-		const managedKey = await db.query.providerKey.findFirst({
-			where: {
-				id: { eq: job.managedProviderKeyId },
-				managed: { eq: true },
-			},
-		});
+		const managedKey = await findManagedProviderKeyById(
+			job.managedProviderKeyId,
+		);
 		if (!managedKey) {
 			throw new Error(
 				`The managed credential that created this ${providerId} job no longer exists`,
