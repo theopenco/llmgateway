@@ -17,6 +17,7 @@ import {
 	assertApiKeyWithinUsageLimits,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
+import { resolveChatApiOrigin } from "@/lib/api-origin.js";
 import {
 	findApiKeyByToken,
 	findProjectById,
@@ -1576,6 +1577,11 @@ chat.openapi(completions, async (c) => {
 		routingPromptTokens += Math.round(JSON.stringify(tools).length / 4);
 	}
 
+	// The API surface the caller actually used: "chat-completions" unless
+	// /v1/messages, /v1/responses or /v1/images re-dispatched the request through
+	// here. Declared ahead of the log wrappers so every log path can record it.
+	const apiOrigin = resolveChatApiOrigin(c);
+
 	// Extract and validate source from x-source header with HTTP-Referer fallback
 	let source = validateSource(
 		c.req.header("x-source"),
@@ -2104,6 +2110,7 @@ chat.openapi(completions, async (c) => {
 						),
 						...(logIdOverride ? { id: logIdOverride } : {}),
 						responsesApiData,
+						apiOrigin,
 						content: null,
 						responseSize: 0,
 						finishReason: "client_error",
@@ -2583,6 +2590,7 @@ chat.openapi(completions, async (c) => {
 						),
 						...(logIdOverride ? { id: logIdOverride } : {}),
 						responsesApiData,
+						apiOrigin,
 						content: null,
 						responseSize: 0,
 						finishReason: "client_error",
@@ -5085,6 +5093,7 @@ chat.openapi(completions, async (c) => {
 			{
 				...logData,
 				sessionId: logData.sessionId ?? sessionId ?? null,
+				apiOrigin: logData.apiOrigin ?? apiOrigin,
 				internalContentFilter: shouldTagContentFilter
 					? true
 					: logData.internalContentFilter,

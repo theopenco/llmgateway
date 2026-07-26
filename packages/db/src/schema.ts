@@ -1629,6 +1629,26 @@ export const customModel = pgTable(
 	],
 );
 
+/**
+ * The gateway API surface a request came in through. `/v1/messages` and
+ * `/v1/responses` re-dispatch internally through `/v1/chat/completions`, so the
+ * origin is carried across that hop rather than inferred from the route.
+ */
+export const API_ORIGINS = [
+	"chat-completions",
+	"messages",
+	"responses",
+	"embeddings",
+	"images",
+	"videos",
+	"moderations",
+	"ocr",
+	"speech",
+	"transcriptions",
+] as const;
+
+export type ApiOrigin = (typeof API_ORIGINS)[number];
+
 export const log = pgTable(
 	"log",
 	{
@@ -1727,6 +1747,8 @@ export const log = pgTable(
 		usedMode: text({
 			enum: ["api-keys", "credits"],
 		}).notNull(),
+		// Null on rows written before this column existed.
+		apiOrigin: text({ enum: API_ORIGINS }),
 		source: text(),
 		sessionId: text(),
 		customHeaders: json().$type<{ [key: string]: string }>(),

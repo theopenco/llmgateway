@@ -542,6 +542,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		requestedProvider: "openai",
 		messages: normalizedMessages,
 		source,
+		apiOrigin: "moderations",
 		customHeaders,
 		debugMode,
 		userAgent,

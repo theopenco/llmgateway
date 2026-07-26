@@ -4,6 +4,7 @@ import { HTTPException } from "hono/http-exception";
 import { app } from "@/app.js";
 import { createLogEntry } from "@/chat/tools/create-log-entry.js";
 import { extractCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
+import { API_ORIGIN_HEADER } from "@/lib/api-origin.js";
 import { findApiKeyByToken, findProjectById } from "@/lib/cached-queries.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
@@ -347,6 +348,7 @@ function forwardHeaders(c: Context): Record<string, string> {
 		"x-debug": c.req.header("x-debug") ?? "",
 		...(noFallbackHeader !== null ? { "x-no-fallback": noFallbackHeader } : {}),
 		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
+		[API_ORIGIN_HEADER]: "images",
 	};
 }
 
@@ -498,6 +500,7 @@ async function logImageClientError(
 					},
 				],
 				source: c.req.header("x-source") ?? undefined,
+				apiOrigin: "images",
 				customHeaders: extractCustomHeaders(c),
 				debugMode: false,
 				userAgent: c.req.header("user-agent"),

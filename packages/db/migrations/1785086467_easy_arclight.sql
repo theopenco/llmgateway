@@ -1,0 +1,1 @@
+ALTER TABLE "log" ADD COLUMN "api_origin" text;

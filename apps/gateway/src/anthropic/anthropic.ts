@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
 
 import { app } from "@/app.js";
+import { API_ORIGIN_HEADER } from "@/lib/api-origin.js";
 import {
 	buildAnthropicErrorBody,
 	getAnthropicErrorType,
@@ -706,6 +707,7 @@ anthropic.openapi(messages, async (c) => {
 			"x-source": c.req.header("x-source") ?? "",
 			"x-debug": c.req.header("x-debug") ?? "",
 			"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
+			[API_ORIGIN_HEADER]: "messages",
 			...(sessionId ? { "x-session-id": sessionId } : {}),
 			// Signal to the inner /v1/chat/completions handler that the caller used
 			// Anthropic's explicit-budget thinking API (`thinking.type: "enabled"`).
