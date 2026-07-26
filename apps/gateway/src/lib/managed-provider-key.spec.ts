@@ -211,6 +211,64 @@ describe("findManagedProviderIds", () => {
 
 		expect(await findManagedProviderIds()).not.toContain("openai");
 	});
+
+	/**
+	 * Routing picks a provider before a region is known, so a provider whose
+	 * only credentials are region-pinned cannot be guaranteed a match. Offering
+	 * it anyway means findManagedProviderKey returns nothing and
+	 * resolvePlatformCredential falls through to getProviderEnv, which 500s
+	 * outside the provider-fallback loop.
+	 */
+	it("does not offer a provider whose only credential is region-pinned", async () => {
+		await insertManaged({
+			id: "region-pinned-only",
+			provider: "aws-bedrock",
+			region: "eu-central-1",
+		});
+
+		expect(await findManagedProviderIds()).not.toContain("aws-bedrock");
+		// The credential is still unusable for a region-less request, which is
+		// precisely why the provider must not be advertised.
+		expect(await findManagedProviderKey("aws-bedrock")).toBeUndefined();
+	});
+
+	it("offers the provider once a region-agnostic credential exists", async () => {
+		await insertManaged({
+			id: "bedrock-regional",
+			provider: "aws-bedrock",
+			region: "eu-central-1",
+		});
+		await insertManaged({ id: "bedrock-any-region", provider: "aws-bedrock" });
+
+		expect(await findManagedProviderIds()).toContain("aws-bedrock");
+		expect((await findManagedProviderKey("aws-bedrock"))?.id).toBe(
+			"bedrock-any-region",
+		);
+		// The pinned one still wins for its own region.
+		expect(
+			(await findManagedProviderKey("aws-bedrock", { region: "eu-central-1" }))
+				?.id,
+		).toBe("bedrock-regional");
+	});
+
+	it("does not let a region-agnostic default rescue a region-pinned variant", async () => {
+		// An enterprise org resolves to the enterprise credentials and never
+		// falls back to default once any enterprise credential exists, so a
+		// region-pinned enterprise key leaves nothing selectable.
+		await insertManaged({
+			id: "ent-region-pinned",
+			variant: "enterprise",
+			region: "eu-central-1",
+		});
+		await insertManaged({ id: "default-any-region", variant: "default" });
+
+		expect(await findManagedProviderIds("enterprise")).not.toContain("openai");
+		expect(
+			await findManagedProviderKey("openai", { variant: "enterprise" }),
+		).toBeUndefined();
+		// A PAYG org is unaffected: it uses the default credential.
+		expect(await findManagedProviderIds()).toContain("openai");
+	});
 });
 
 /**

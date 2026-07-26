@@ -496,12 +496,16 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 		validateRegion(existing.provider, body.region?.trim() || null);
 	}
 
-	// A new token and a changed config both alter what the gateway will send
-	// upstream, so revalidate on either. Config-only edits are checked against
-	// the stored token, which is the pair that will actually serve traffic.
+	// A new token, a changed config and a changed region all alter what the
+	// gateway will send upstream or which endpoint it reaches, so revalidate on
+	// any of them — a key enabled in one region is not necessarily enabled in
+	// another. Edits that leave the token alone are checked against the stored
+	// one, which is the pair that will actually serve traffic.
 	if (
 		!body.skipValidation &&
-		(body.token !== undefined || body.config !== undefined)
+		(body.token !== undefined ||
+			body.config !== undefined ||
+			body.region !== undefined)
 	) {
 		await validateCredentialToken(
 			existing.provider,

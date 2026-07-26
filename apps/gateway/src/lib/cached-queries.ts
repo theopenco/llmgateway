@@ -66,7 +66,6 @@ import type {
 	userOrganization,
 	wallet,
 } from "@llmgateway/db";
-import type { ProviderKeyVariant } from "@llmgateway/db";
 import type { EnvVarVariant } from "@llmgateway/models";
 
 // Type aliases for cleaner function signatures
@@ -635,36 +634,74 @@ export async function findManagedProviderKey(
  * moved a provider into the database no longer needs its env var set for the
  * provider to be routable.
  *
- * Scoped to the request's variant, matching how `findManagedProviderKey`
- * selects: an `enterprise`/`plans` request may fall back to a `default`
- * credential, but a `default` request can never use a variant-scoped one.
- * Without this scoping a provider whose only credential is, say, enterprise
- * would be advertised to every organization; routing would pick it, no
- * credential would match, and `getProviderEnv` would throw a 500 for a
- * provider that should simply not have been a candidate.
+ * Mirrors how `findManagedProviderKey` selects, on both axes, because a
+ * provider advertised here that then has no selectable credential fails the
+ * request outright: `resolvePlatformCredential` falls through to
+ * `getProviderEnv`, which throws a 500, and credential resolution happens
+ * outside the provider-fallback loop so nothing recovers.
+ *
+ * - Variant: an `enterprise`/`plans` request may fall back to a `default`
+ *   credential, but a `default` request can never use a variant-scoped one,
+ *   and a variant that has its own credentials never falls back.
+ * - Region: routing picks a provider before a region is known, so only a
+ *   region-agnostic credential is guaranteed to serve the request. A
+ *   region-pinned credential is an override — exactly like `{ENV}__{REGION}`,
+ *   which `hasProviderEnvironmentToken` likewise ignores in favour of the base
+ *   variable. A provider whose only credentials are region-pinned is therefore
+ *   not advertised, the same as a deployment that sets only
+ *   `LLM_X_API_KEY__US_EAST_1` and no `LLM_X_API_KEY`.
  */
 export async function findManagedProviderIds(
 	variant?: EnvVarVariant,
 ): Promise<Set<string>> {
-	const usableVariants: ProviderKeyVariant[] =
-		variant === undefined ? ["default"] : [variant, "default"];
-
+	// Fetched whole and narrowed in memory so the request's variant stays out
+	// of the cache key, the same way findManagedProviderKey keeps variant,
+	// region and exclusions out of its own.
 	const rows = await swrWrap(
-		`providerKey:managedProviders:${variant ?? "default"}`,
+		`providerKey:managedProviderScopes`,
 		[providerKeyTableName],
 		async () =>
 			await db
-				.selectDistinct({ provider: providerKeyTable.provider })
+				.select({
+					provider: providerKeyTable.provider,
+					variant: providerKeyTable.variant,
+					region: providerKeyTable.region,
+				})
 				.from(providerKeyTable)
 				.where(
 					and(
 						eq(providerKeyTable.status, "active"),
 						eq(providerKeyTable.managed, true),
-						inArray(providerKeyTable.variant, usableVariants),
 					),
 				),
 	);
-	return new Set(rows.map((row) => row.provider));
+
+	const byProvider = new Map<string, typeof rows>();
+	for (const row of rows) {
+		const existing = byProvider.get(row.provider);
+		if (existing) {
+			existing.push(row);
+		} else {
+			byProvider.set(row.provider, [row]);
+		}
+	}
+
+	const effectiveVariant = variant ?? "default";
+	const available = new Set<string>();
+	for (const [provider, candidates] of byProvider) {
+		const variantMatches = candidates.filter(
+			(key) => key.variant === effectiveVariant,
+		);
+		const byVariant =
+			variantMatches.length > 0
+				? variantMatches
+				: candidates.filter((key) => key.variant === "default");
+
+		if (byVariant.some((key) => !key.region)) {
+			available.add(provider);
+		}
+	}
+	return available;
 }
 
 /**
