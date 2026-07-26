@@ -6,6 +6,7 @@ import {
 } from "@stripe/react-stripe-js";
 import { useQueryClient } from "@tanstack/react-query";
 import { CreditCard, ExternalLink, Plus } from "lucide-react";
+import { motion, useReducedMotion } from "motion/react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -403,6 +404,7 @@ function AmountStep({
 }
 
 function SuccessStep({ onClose }: { onClose: () => void }) {
+	const reduceMotion = useReducedMotion();
 	return (
 		<>
 			<DialogHeader>
@@ -414,12 +416,25 @@ function SuccessStep({ onClose }: { onClose: () => void }) {
 				</DialogDescription>
 			</DialogHeader>
 			<div className="flex flex-col items-center gap-4 py-4">
-				<span
+				<motion.span
 					aria-hidden
-					className="-rotate-6 rounded border-2 border-lounge-gold/60 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.3em] text-lounge-gold"
+					initial={
+						reduceMotion
+							? { opacity: 0 }
+							: { opacity: 0, scale: 2, rotate: -16 }
+					}
+					animate={
+						reduceMotion ? { opacity: 1 } : { opacity: 1, scale: 1, rotate: -6 }
+					}
+					transition={
+						reduceMotion
+							? { duration: 0.2, ease: "easeOut" }
+							: { type: "spring", duration: 0.4 }
+					}
+					className="rounded border-2 border-lounge-gold/60 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.3em] text-lounge-gold"
 				>
 					Credits added
-				</span>
+				</motion.span>
 				<p className="text-center">
 					Thank you for your purchase. Your credits are now available for use.
 				</p>

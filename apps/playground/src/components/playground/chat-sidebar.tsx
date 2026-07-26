@@ -530,6 +530,12 @@ export const ChatSidebar = function ChatSidebar({
 				.split("; ")
 				.includes(`${HISTORY_COLLAPSED_STORAGE_KEY}=1`),
 	);
+	// Transitions stay off until after hydration so a cookie-collapsed list
+	// doesn't animate shut on every page load.
+	const [historyTransitionReady, setHistoryTransitionReady] = useState(false);
+	useEffect(() => {
+		setHistoryTransitionReady(true);
+	}, []);
 
 	const toggleHistoryCollapsed = useCallback(() => {
 		setIsHistoryCollapsed((prev) => {
@@ -865,59 +871,79 @@ export const ChatSidebar = function ChatSidebar({
 							}`}
 						/>
 					</button>
-					{isHistoryCollapsed ? null : chats.length === 0 ? (
-						<div className="flex flex-col items-center justify-center py-8 text-center">
-							<MessageSquare className="h-12 w-12 text-muted-foreground/50 mb-4" />
-							<p className="text-sm text-muted-foreground mb-2">
-								No chat history
-							</p>
-							<p className="text-xs text-muted-foreground">
-								Start a new conversation to see it here
-							</p>
-						</div>
-					) : (
-						<>
-							{pinnedChats.length > 0 && (
-								<div className="shrink-0 max-h-[45%] overflow-y-auto border-b border-sidebar-border/60 pb-1">
-									<div className="px-5 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider group-data-[collapsible=icon]:hidden">
-										Pinned
-									</div>
-									{pinnedChats.map((chat) => (
-										<div key={chat.id} style={{ height: ROW_HEIGHT_CHAT }}>
-											<ChatHistoryItem
-												chat={chat}
-												currentChatId={currentChatId}
-												editingId={editingId}
-												editTitle={editTitle}
-												pendingFocusChatId={pendingFocusChatId}
-												isPageLoading={isPageLoading}
-												isMobile={isMobile}
-												onChatSelect={handleChatSelect}
-												onEditTitleChange={setEditTitle}
-												onSaveTitle={saveTitle}
-												onCancelEdit={cancelEditTitle}
-												onDeleteChat={handleDeleteChat}
-												onTogglePin={handleTogglePin}
-												onStartEdit={handleEditTitle}
-												onEditFocused={onEditFocused}
-											/>
-										</div>
-									))}
+					{/* Collapse animates height so the rotating chevron's promise is
+					    kept; grid-rows keeps the transition interruptible. */}
+					<div
+						className={`grid min-h-0 flex-1 ${
+							historyTransitionReady
+								? "transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-[opacity]"
+								: ""
+						} ${
+							isHistoryCollapsed
+								? "grid-rows-[0fr] opacity-0"
+								: "grid-rows-[1fr] opacity-100"
+						}`}
+					>
+						<div
+							className="flex min-h-0 flex-col overflow-hidden"
+							aria-hidden={isHistoryCollapsed}
+							{...(isHistoryCollapsed ? { inert: true } : {})}
+						>
+							{chats.length === 0 ? (
+								<div className="flex flex-col items-center justify-center py-8 text-center">
+									<MessageSquare className="h-12 w-12 text-muted-foreground/50 mb-4" />
+									<p className="text-sm text-muted-foreground mb-2">
+										No chat history
+									</p>
+									<p className="text-xs text-muted-foreground">
+										Start a new conversation to see it here
+									</p>
 								</div>
+							) : (
+								<>
+									{pinnedChats.length > 0 && (
+										<div className="shrink-0 max-h-[45%] overflow-y-auto border-b border-sidebar-border/60 pb-1">
+											<div className="px-5 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider group-data-[collapsible=icon]:hidden">
+												Pinned
+											</div>
+											{pinnedChats.map((chat) => (
+												<div key={chat.id} style={{ height: ROW_HEIGHT_CHAT }}>
+													<ChatHistoryItem
+														chat={chat}
+														currentChatId={currentChatId}
+														editingId={editingId}
+														editTitle={editTitle}
+														pendingFocusChatId={pendingFocusChatId}
+														isPageLoading={isPageLoading}
+														isMobile={isMobile}
+														onChatSelect={handleChatSelect}
+														onEditTitleChange={setEditTitle}
+														onSaveTitle={saveTitle}
+														onCancelEdit={cancelEditTitle}
+														onDeleteChat={handleDeleteChat}
+														onTogglePin={handleTogglePin}
+														onStartEdit={handleEditTitle}
+														onEditFocused={onEditFocused}
+													/>
+												</div>
+											))}
+										</div>
+									)}
+									{historyRows.length > 0 && (
+										<List
+											className="min-h-0 w-full flex-1"
+											style={{ width: "100%" }}
+											rowComponent={ChatHistoryRowComponent}
+											rowCount={historyRows.length}
+											rowHeight={getChatHistoryRowHeight}
+											rowProps={rowProps}
+											overscanCount={8}
+										/>
+									)}
+								</>
 							)}
-							{historyRows.length > 0 && (
-								<List
-									className="min-h-0 w-full flex-1"
-									style={{ width: "100%" }}
-									rowComponent={ChatHistoryRowComponent}
-									rowCount={historyRows.length}
-									rowHeight={getChatHistoryRowHeight}
-									rowProps={rowProps}
-									overscanCount={8}
-								/>
-							)}
-						</>
-					)}
+						</div>
+					</div>
 				</div>
 			</SidebarContent>
 
