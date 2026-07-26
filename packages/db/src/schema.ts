@@ -4239,6 +4239,40 @@ export const playgroundVideoHistory = pgTable(
 	(table) => [index("playground_video_history_user_id_idx").on(table.userId)],
 );
 
+// Append-only ledger of Lounge gamification points. Totals, levels, and
+// streaks are derived from this table at read time.
+export const loungePointEvent = pgTable(
+	"lounge_point_event",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		kind: text()
+			.notNull()
+			.$type<
+				| "chat_message"
+				| "chat_created"
+				| "image_generation"
+				| "video_generation"
+				| "audio_generation"
+			>(),
+		points: integer().notNull(),
+	},
+	(table) => [
+		index("lounge_point_event_user_id_idx").on(table.userId),
+		index("lounge_point_event_user_id_created_at_idx").on(
+			table.userId,
+			table.createdAt,
+		),
+	],
+);
+
 // Transcript history for playground realtime voice calls. The gateway
 // deliberately does not persist realtime conversation content (see
 // apps/gateway/src/realtime/billing.ts), so the playground stores the

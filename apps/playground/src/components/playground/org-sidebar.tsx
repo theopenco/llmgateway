@@ -3,18 +3,12 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import {
-	AudioLines,
-	ChevronUp,
-	ExternalLink,
-	Film,
-	ImagePlus,
-	LogOut,
 	MessageSquare,
-	PenTool,
-	Phone,
-	Plus,
+	ChevronUp,
+	LogOut,
+	ExternalLink,
 	Search,
-	Users,
+	Plus,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -53,6 +47,7 @@ import { cn } from "@/lib/utils";
 import { ChatSidebarSkeleton } from "./chat-sidebar-skeleton";
 import { OrgSearchDialog } from "./org-search-dialog";
 import { OrganizationSwitcher } from "./organization-switcher";
+import { StudioNav } from "./studio-nav";
 
 import type { Organization } from "@/lib/types";
 
@@ -369,6 +364,7 @@ export function OrgSidebar({
 							</div>
 						</div>
 					</div>
+					<StudioNav />
 				</SidebarHeader>
 			</Sidebar>
 		);
@@ -406,63 +402,8 @@ export function OrgSidebar({
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton asChild tooltip="Chat">
-							<Link href="/" prefetch={true}>
-								<MessageSquare className="h-4 w-4" />
-								<span>Chat</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton asChild tooltip="Group Chat">
-							<Link href="/group" prefetch={true}>
-								<Users className="h-4 w-4" />
-								<span>Group Chat</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton asChild tooltip="Image Studio">
-							<Link href="/image" prefetch={true}>
-								<ImagePlus className="h-4 w-4" />
-								<span>Image Studio</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton asChild tooltip="Video Studio">
-							<Link href="/video" prefetch={true}>
-								<Film className="h-4 w-4" />
-								<span>Video Studio</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton asChild tooltip="Audio Studio">
-							<Link href="/audio" prefetch={true}>
-								<AudioLines className="h-4 w-4" />
-								<span>Audio Studio</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton asChild tooltip="Voice Calls">
-							<Link href="/realtime" prefetch={true}>
-								<Phone className="h-4 w-4" />
-								<span>Voice Calls</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton asChild tooltip="Canvas">
-							<Link href="/canvas" prefetch={true}>
-								<PenTool className="h-4 w-4" />
-								<span>Canvas</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
 				</SidebarMenu>
+				<StudioNav />
 			</SidebarHeader>
 
 			<SidebarContent className="overflow-hidden pb-2">

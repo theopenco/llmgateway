@@ -1,28 +1,23 @@
 "use client";
 
 import {
-	AudioLines,
 	ChevronUp,
 	Edit2,
 	ExternalLink,
 	Film,
-	ImageIcon,
 	LogOut,
-	MessageSquare,
 	MoreVerticalIcon,
-	PenTool,
-	Phone,
 	Trash2,
-	Users,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { List, type RowComponentProps } from "react-window";
 
 import { CreditsDisplay } from "@/components/credits/credits-display";
 import { ThemeToggle } from "@/components/landing/theme-toggle";
+import { SidebarLoungePoints } from "@/components/lounge/sidebar-points";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -53,10 +48,12 @@ import {
 import { useUser } from "@/hooks/useUser";
 import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
 import { useAuth } from "@/lib/auth-client";
+import { withOrgParam } from "@/lib/utils";
 
 import { HistorySkeleton } from "./history-skeleton";
 import { OrganizationSwitcher } from "./organization-switcher";
 import { SidebarChatSearch, SidebarNewAction } from "./sidebar-actions";
+import { StudioNav } from "./studio-nav";
 
 import type { Organization } from "@/lib/types";
 import type { VideoGalleryItem } from "@/lib/video-gen";
@@ -370,13 +367,11 @@ export function VideoSidebar({
 		null;
 	const listContainerRef = useRef<HTMLDivElement | null>(null);
 	const router = useRouter();
-	const pathname = usePathname();
 	const searchParams = useSearchParams();
 	// Preserve the selected organization across playground navigation so users
 	// don't have to re-pick their org on every page.
 	const orgIdParam = searchParams.get("orgId");
-	const withOrg = (path: string) =>
-		orgIdParam ? `${path}?orgId=${orgIdParam}` : path;
+	const withOrg = (path: string) => withOrgParam(path, orgIdParam);
 	const posthog = usePostHog();
 	const { state: sidebarState, isMobile } = useSidebar();
 	const { user, isLoading: isUserLoading } = useUser();
@@ -539,6 +534,7 @@ export function VideoSidebar({
 							<Badge>Video</Badge>
 						</Link>
 					</div>
+					<StudioNav />
 				</SidebarHeader>
 			</Sidebar>
 		);
@@ -572,6 +568,7 @@ export function VideoSidebar({
 							</div>
 						</div>
 					</div>
+					<StudioNav />
 				</SidebarHeader>
 			</Sidebar>
 		);
@@ -593,91 +590,8 @@ export function VideoSidebar({
 					</SidebarMenuItem>
 					<SidebarChatSearch disabled />
 					<SidebarNewAction label="New Generation" onAction={onNewChat} />
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							asChild
-							tooltip="Chat"
-							isActive={pathname === "/"}
-						>
-							<Link href={withOrg("/")} prefetch={true}>
-								<MessageSquare className="h-4 w-4" />
-								<span>Chat</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							asChild
-							tooltip="Group Chat"
-							isActive={pathname === "/group"}
-						>
-							<Link href={withOrg("/group")} prefetch={true}>
-								<Users className="h-4 w-4" />
-								<span>Group Chat</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							asChild
-							tooltip="Image Studio"
-							isActive={pathname === "/image"}
-						>
-							<Link href={withOrg("/image")} prefetch={true}>
-								<ImageIcon className="h-4 w-4" />
-								<span>Image Studio</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							asChild
-							tooltip="Video Studio"
-							isActive={pathname === "/video"}
-						>
-							<Link href={withOrg("/video")} prefetch={true}>
-								<Film className="h-4 w-4" />
-								<span>Video Studio</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							asChild
-							tooltip="Audio Studio"
-							isActive={pathname === "/audio"}
-						>
-							<Link href={withOrg("/audio")} prefetch={true}>
-								<AudioLines className="h-4 w-4" />
-								<span>Audio Studio</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							asChild
-							tooltip="Voice Calls"
-							isActive={pathname === "/realtime"}
-						>
-							<Link href={withOrg("/realtime")} prefetch={true}>
-								<Phone className="h-4 w-4" />
-								<span>Voice Calls</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							asChild
-							tooltip="Canvas"
-							isActive={pathname === "/canvas"}
-						>
-							<Link href={withOrg("/canvas")} prefetch={true}>
-								<PenTool className="h-4 w-4" />
-								<span>Canvas</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
 				</SidebarMenu>
+				<StudioNav />
 			</SidebarHeader>
 
 			<SidebarContent className="overflow-hidden pb-2">
@@ -727,6 +641,7 @@ export function VideoSidebar({
 			</SidebarContent>
 
 			<SidebarFooter>
+				<SidebarLoungePoints />
 				<div className="group-data-[collapsible=icon]:hidden">
 					<CreditsDisplay
 						organization={switcherSelectedOrganization ?? organization}
