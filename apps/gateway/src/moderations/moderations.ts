@@ -542,6 +542,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		requestedProvider: "openai",
 		messages: normalizedMessages,
 		source,
+		apiOrigin: "moderations",
 		customHeaders,
 		debugMode,
 		userAgent,
@@ -620,56 +621,60 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 				const isTimeout = isTimeoutError(error);
 				const willRetry = !isCanceled && rotateToNextEnvKey();
 
-				await insertLog({
-					...baseLogEntry,
-					duration,
-					timeToFirstToken: null,
-					timeToFirstReasoningToken: null,
-					responseSize: 0,
-					content: null,
-					reasoningContent: null,
-					finishReason: isCanceled ? "canceled" : "upstream_error",
-					promptTokens: null,
-					completionTokens: null,
-					totalTokens: null,
-					reasoningTokens: null,
-					cachedTokens: null,
-					hasError: !isCanceled,
-					streamed: false,
-					canceled: isCanceled,
-					errorDetails: isCanceled
-						? null
-						: {
-								statusCode: 0,
-								statusText: error instanceof Error ? error.name : "FetchError",
-								responseText:
-									error instanceof Error ? error.message : String(error),
-							},
-					inputCost: 0,
-					outputCost: 0,
-					cachedInputCost: 0,
-					requestCost: 0,
-					webSearchCost: 0,
-					imageInputTokens: null,
-					imageOutputTokens: null,
-					imageInputCost: null,
-					imageOutputCost: null,
-					cost: 0,
-					estimatedCost: false,
-					discount: null,
-					pricingTier: null,
-					dataStorageCost: calculateDataStorageCost(
-						null,
-						null,
-						null,
-						null,
-						retentionLevel,
-					),
-					cached: false,
-					toolResults: null,
-					retried: willRetry,
-					retriedByLogId: willRetry ? finalLogId : null,
-				});
+				await insertLog(
+					{
+						...baseLogEntry,
+						duration,
+						timeToFirstToken: null,
+						timeToFirstReasoningToken: null,
+						responseSize: 0,
+						content: null,
+						reasoningContent: null,
+						finishReason: isCanceled ? "canceled" : "upstream_error",
+						promptTokens: null,
+						completionTokens: null,
+						totalTokens: null,
+						reasoningTokens: null,
+						cachedTokens: null,
+						hasError: !isCanceled,
+						streamed: false,
+						canceled: isCanceled,
+						errorDetails: isCanceled
+							? null
+							: {
+									statusCode: 0,
+									statusText:
+										error instanceof Error ? error.name : "FetchError",
+									responseText:
+										error instanceof Error ? error.message : String(error),
+								},
+						inputCost: 0,
+						outputCost: 0,
+						cachedInputCost: 0,
+						requestCost: 0,
+						webSearchCost: 0,
+						imageInputTokens: null,
+						imageOutputTokens: null,
+						imageInputCost: null,
+						imageOutputCost: null,
+						cost: 0,
+						estimatedCost: false,
+						discount: null,
+						pricingTier: null,
+						dataStorageCost: calculateDataStorageCost(
+							null,
+							null,
+							null,
+							null,
+							retentionLevel,
+						),
+						cached: false,
+						toolResults: null,
+						retried: willRetry,
+						retriedByLogId: willRetry ? finalLogId : null,
+					},
+					{ retentionLevel },
+				);
 
 				if (willRetry) {
 					continue;
@@ -747,28 +752,104 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 						upstreamText,
 					) && rotateToNextEnvKey();
 
-				await insertLog({
+				await insertLog(
+					{
+						...baseLogEntry,
+						duration,
+						timeToFirstToken: null,
+						timeToFirstReasoningToken: null,
+						responseSize,
+						content: getResponseContent(upstreamJson),
+						reasoningContent: null,
+						finishReason,
+						promptTokens: null,
+						completionTokens: null,
+						totalTokens: null,
+						reasoningTokens: null,
+						cachedTokens: null,
+						hasError: true,
+						streamed: false,
+						canceled: false,
+						errorDetails: {
+							statusCode: upstreamResponse.status,
+							statusText: upstreamResponse.statusText,
+							responseText: upstreamText,
+						},
+						inputCost: 0,
+						outputCost: 0,
+						cachedInputCost: 0,
+						requestCost: 0,
+						webSearchCost: 0,
+						imageInputTokens: null,
+						imageOutputTokens: null,
+						imageInputCost: null,
+						imageOutputCost: null,
+						cost: 0,
+						estimatedCost: false,
+						discount: null,
+						pricingTier: null,
+						dataStorageCost: calculateDataStorageCost(
+							null,
+							null,
+							null,
+							null,
+							retentionLevel,
+						),
+						cached: false,
+						toolResults: null,
+						retried: willRetry,
+						retriedByLogId: willRetry ? finalLogId : null,
+					},
+					{ retentionLevel },
+				);
+
+				if (willRetry) {
+					continue;
+				}
+
+				return c.json(
+					(typeof upstreamJson === "string"
+						? buildOpenAIErrorBody({
+								message: upstreamJson,
+								status: upstreamResponse.status,
+							})
+						: upstreamJson) ??
+						buildOpenAIErrorBody({
+							message: "An error occurred",
+							status: upstreamResponse.status,
+						}),
+					upstreamResponse.status as
+						400 | 401 | 403 | 404 | 410 | 429 | 500 | 502 | 503 | 504,
+				);
+			}
+
+			if (envVarName !== undefined) {
+				reportKeySuccess(envVarName, configIndex);
+			}
+			if (providerKey?.id) {
+				reportTrackedKeySuccess(providerKey.id);
+			}
+
+			await insertLog(
+				{
 					...baseLogEntry,
+					id: finalLogId,
 					duration,
 					timeToFirstToken: null,
 					timeToFirstReasoningToken: null,
 					responseSize,
 					content: getResponseContent(upstreamJson),
 					reasoningContent: null,
-					finishReason,
+					finishReason: "stop",
 					promptTokens: null,
 					completionTokens: null,
 					totalTokens: null,
 					reasoningTokens: null,
 					cachedTokens: null,
-					hasError: true,
+					hasError: false,
 					streamed: false,
 					canceled: false,
-					errorDetails: {
-						statusCode: upstreamResponse.status,
-						statusText: upstreamResponse.statusText,
-						responseText: upstreamText,
-					},
+					errorDetails: null,
 					inputCost: 0,
 					outputCost: 0,
 					cachedInputCost: 0,
@@ -791,88 +872,9 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 					),
 					cached: false,
 					toolResults: null,
-					retried: willRetry,
-					retriedByLogId: willRetry ? finalLogId : null,
-				});
-
-				if (willRetry) {
-					continue;
-				}
-
-				return c.json(
-					(typeof upstreamJson === "string"
-						? buildOpenAIErrorBody({
-								message: upstreamJson,
-								status: upstreamResponse.status,
-							})
-						: upstreamJson) ??
-						buildOpenAIErrorBody({
-							message: "An error occurred",
-							status: upstreamResponse.status,
-						}),
-					upstreamResponse.status as
-						| 400
-						| 401
-						| 403
-						| 404
-						| 410
-						| 429
-						| 500
-						| 502
-						| 503
-						| 504,
-				);
-			}
-
-			if (envVarName !== undefined) {
-				reportKeySuccess(envVarName, configIndex);
-			}
-			if (providerKey?.id) {
-				reportTrackedKeySuccess(providerKey.id);
-			}
-
-			await insertLog({
-				...baseLogEntry,
-				id: finalLogId,
-				duration,
-				timeToFirstToken: null,
-				timeToFirstReasoningToken: null,
-				responseSize,
-				content: getResponseContent(upstreamJson),
-				reasoningContent: null,
-				finishReason: "stop",
-				promptTokens: null,
-				completionTokens: null,
-				totalTokens: null,
-				reasoningTokens: null,
-				cachedTokens: null,
-				hasError: false,
-				streamed: false,
-				canceled: false,
-				errorDetails: null,
-				inputCost: 0,
-				outputCost: 0,
-				cachedInputCost: 0,
-				requestCost: 0,
-				webSearchCost: 0,
-				imageInputTokens: null,
-				imageOutputTokens: null,
-				imageInputCost: null,
-				imageOutputCost: null,
-				cost: 0,
-				estimatedCost: false,
-				discount: null,
-				pricingTier: null,
-				dataStorageCost: calculateDataStorageCost(
-					null,
-					null,
-					null,
-					null,
-					retentionLevel,
-				),
-				cached: false,
-				toolResults: null,
-			});
+				},
+				{ retentionLevel },
+			);
 
 			return c.json(upstreamJson as any);
 		}

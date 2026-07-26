@@ -3003,6 +3003,7 @@ const logEntrySchema = z.object({
 	canceled: z.boolean().nullable(),
 	retried: z.boolean().nullable(),
 	retriedByLogId: z.string().nullable(),
+	apiOrigin: z.string().nullable(),
 	source: z.string().nullable(),
 	content: z.string().nullable(),
 	reasoningContent: z.string().nullable(),
@@ -3200,6 +3201,7 @@ admin.openapi(getProjectLogs, async (c) => {
 			canceled: tables.log.canceled,
 			retried: tables.log.retried,
 			retriedByLogId: tables.log.retriedByLogId,
+			apiOrigin: tables.log.apiOrigin,
 			source: tables.log.source,
 			content: tables.log.content,
 			reasoningContent: tables.log.reasoningContent,
@@ -9074,9 +9076,8 @@ admin.openapi(replyContactSubmission, async (c) => {
 		throw new HTTPException(404, { message: "Submission not found" });
 	}
 
-	const { getResendClient, fromEmail, replyToEmail } = await import(
-		"@llmgateway/shared/email"
-	);
+	const { getResendClient, fromEmail, replyToEmail } =
+		await import("@llmgateway/shared/email");
 
 	const resend = getResendClient();
 	if (!resend) {
@@ -9139,9 +9140,8 @@ const sendEmail = createRoute({
 admin.openapi(sendEmail, async (c) => {
 	const { to, subject, body: emailBody } = c.req.valid("json");
 
-	const { getResendClient, fromEmail, replyToEmail } = await import(
-		"@llmgateway/shared/email"
-	);
+	const { getResendClient, fromEmail, replyToEmail } =
+		await import("@llmgateway/shared/email");
 
 	const resend = getResendClient();
 	if (!resend) {

@@ -111,8 +111,7 @@ export async function resolveStoredItem(
 			.limit(1);
 
 		const data = rows[0]?.responsesApiData as
-			| { input?: unknown[]; output?: unknown[] }
-			| undefined;
+			{ input?: unknown[]; output?: unknown[] } | undefined;
 		if (!data) {
 			return null;
 		}

@@ -11,9 +11,11 @@ import {
 	type InferSelectModel,
 	inArray,
 	isNull,
+	type LogInsertData,
 	lte,
 	or,
 	shortid,
+	stripRetentionSensitiveLogFields,
 	tables,
 	UnifiedFinishReason,
 } from "@llmgateway/db";
@@ -1545,9 +1547,9 @@ async function fetchGoogleVertexStatus(
 	if (!response.ok) {
 		throw new Error(
 			body.error &&
-			typeof body.error === "object" &&
-			"message" in body.error &&
-			typeof body.error.message === "string"
+				typeof body.error === "object" &&
+				"message" in body.error &&
+				typeof body.error.message === "string"
 				? body.error.message
 				: `Google Vertex status request failed with status ${response.status}`,
 		);
@@ -1822,15 +1824,6 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 			const totalCost = Number((videoOutputCost + imageInputCost).toFixed(6));
 			const responsePayload = await serializeVideoJob(jobToLog, logId);
 			const responseSize = JSON.stringify(responsePayload).length;
-			const messages =
-				organization?.retentionLevel === "retain"
-					? [
-							{
-								role: "user",
-								content: jobToLog.prompt,
-							},
-						]
-					: null;
 
 			const isContentFilterFailure =
 				jobToLog.status === "failed" &&
@@ -1846,9 +1839,10 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				? UnifiedFinishReason.CONTENT_FILTER
 				: UnifiedFinishReason.UPSTREAM_ERROR;
 
-			await tx.insert(tables.log).values({
+			const logValues: LogInsertData = {
 				id: logId,
 				requestId: jobToLog.requestId,
+				apiOrigin: "videos",
 				organizationId: jobToLog.organizationId,
 				projectId: jobToLog.projectId,
 				apiKeyId: jobToLog.apiKeyId,
@@ -1884,7 +1878,12 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				imageInputCost,
 				videoOutputCost,
 				estimatedCost: false,
-				messages,
+				messages: [
+					{
+						role: "user",
+						content: jobToLog.prompt,
+					},
+				],
 				mode: jobToLog.mode,
 				usedMode: jobToLog.usedMode,
 				routingMetadata: jobToLog.routingMetadata ?? null,
@@ -1900,7 +1899,17 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				upstreamResponse: jobToLog.upstreamStatusResponse,
 				processedAt: null,
 				dataStorageCost: "0",
-			});
+			};
+
+			// Strip request/response payload fields for orgs that don't retain data,
+			// keeping the video log consistent with every other endpoint's policy.
+			await tx
+				.insert(tables.log)
+				.values(
+					organization?.retentionLevel === "retain"
+						? logValues
+						: stripRetentionSensitiveLogFields(logValues),
+				);
 
 			await tx
 				.update(tables.videoJob)
@@ -1994,9 +2003,9 @@ async function fetchAtlasCloudStatus(
 	if (!response.ok) {
 		throw new Error(
 			typeof body.error === "object" &&
-			body.error &&
-			"message" in body.error &&
-			typeof body.error.message === "string"
+				body.error &&
+				"message" in body.error &&
+				typeof body.error.message === "string"
 				? body.error.message
 				: `AtlasCloud status request failed with status ${response.status}`,
 		);
@@ -2140,9 +2149,9 @@ async function fetchMinimaxStatus(
 	if (!response.ok) {
 		throw new Error(
 			typeof body.error === "object" &&
-			body.error &&
-			"message" in body.error &&
-			typeof body.error.message === "string"
+				body.error &&
+				"message" in body.error &&
+				typeof body.error.message === "string"
 				? body.error.message
 				: `MiniMax status request failed with status ${response.status}`,
 		);
@@ -2205,9 +2214,9 @@ async function fetchBytedanceStatus(
 	if (!response.ok) {
 		throw new Error(
 			typeof body.error === "object" &&
-			body.error &&
-			"message" in body.error &&
-			typeof body.error.message === "string"
+				body.error &&
+				"message" in body.error &&
+				typeof body.error.message === "string"
 				? body.error.message
 				: `ByteDance status request failed with status ${response.status}`,
 		);
@@ -2298,9 +2307,9 @@ async function fetchGenericVideoStatus(
 	if (!response.ok) {
 		throw new Error(
 			typeof body.error === "object" &&
-			body.error &&
-			"message" in body.error &&
-			typeof body.error.message === "string"
+				body.error &&
+				"message" in body.error &&
+				typeof body.error.message === "string"
 				? body.error.message
 				: `Upstream status request failed with status ${response.status}`,
 		);

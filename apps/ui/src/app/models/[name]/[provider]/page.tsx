@@ -487,8 +487,7 @@ export async function generateMetadata({
 	const decodedProvider = decodeURIComponent(provider);
 
 	const model = modelDefinitions.find((m) => m.id === decodedName) as
-		| ModelDefinition
-		| undefined;
+		ModelDefinition | undefined;
 
 	if (!model) {
 		return {};

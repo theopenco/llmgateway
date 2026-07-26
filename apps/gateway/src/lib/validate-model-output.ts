@@ -8,13 +8,7 @@ import type { ModelDefinition } from "@llmgateway/models";
  * single signal used to gate every route.
  */
 export type ModelOutput =
-	| "text"
-	| "image"
-	| "video"
-	| "embedding"
-	| "audio"
-	| "ocr"
-	| "transcription";
+	"text" | "image" | "video" | "embedding" | "audio" | "ocr" | "transcription";
 
 const OUTPUT_ENDPOINT: Record<
 	ModelOutput,

@@ -15,7 +15,6 @@ import {
 	addApiKeyPeriodDuration,
 	and,
 	apiKey,
-	cdb,
 	closeDatabase,
 	db,
 	enqueueWebhookDeliveries,
@@ -122,11 +121,6 @@ const LOG_QUEUE_CONCURRENCY = Math.max(
 	1,
 	Number(process.env.LOG_QUEUE_CONCURRENCY) || 4,
 );
-// Cache organization retention levels to avoid a serial Postgres round-trip
-// before every log batch insert. retentionLevel changes rarely; the short TTL
-// bounds how long a stale value can keep retaining or stripping log payloads.
-const ORG_RETENTION_CACHE_TTL_MS =
-	Number(process.env.ORG_RETENTION_CACHE_TTL_MS) || 60_000;
 const CREDIT_BATCH_SIZE = Number(process.env.CREDIT_BATCH_SIZE) || 100;
 const BATCH_PROCESSING_INTERVAL_SECONDS =
 	Number(process.env.CREDIT_BATCH_INTERVAL) || 5;
@@ -1686,50 +1680,6 @@ function recordLogInsertSuccess(): void {
 	logInsertCircuit.nextAttemptAt = 0;
 }
 
-const orgRetentionCache = new Map<
-	string,
-	{ retentionLevel: "retain" | "none"; expiresAt: number }
->();
-
-// Resolve organization retention levels, serving from the in-memory cache when
-// fresh and only querying Postgres for the ids that are missing or expired.
-async function getOrganizationRetentionLevels(
-	organizationIds: string[],
-): Promise<Map<string, "retain" | "none">> {
-	const now = Date.now();
-	const result = new Map<string, "retain" | "none">();
-	const missing: string[] = [];
-
-	for (const id of organizationIds) {
-		const cached = orgRetentionCache.get(id);
-		if (cached && cached.expiresAt > now) {
-			result.set(id, cached.retentionLevel);
-		} else {
-			missing.push(id);
-		}
-	}
-
-	if (missing.length > 0) {
-		const organizations = await cdb
-			.select({
-				id: organization.id,
-				retentionLevel: organization.retentionLevel,
-			})
-			.from(organization)
-			.where(inArray(organization.id, missing));
-
-		for (const org of organizations) {
-			result.set(org.id, org.retentionLevel);
-			orgRetentionCache.set(org.id, {
-				retentionLevel: org.retentionLevel,
-				expiresAt: now + ORG_RETENTION_CACHE_TTL_MS,
-			});
-		}
-	}
-
-	return result;
-}
-
 // Returns the number of messages successfully inserted, so the drain loop can
 // decide whether to sleep (partial batch) or immediately fetch the next batch
 // (full batch, queue likely still backed up).
@@ -1747,55 +1697,21 @@ export async function processLogQueue(): Promise<number> {
 	const MAX_RETRIES = 5;
 
 	try {
+		// The gateway decides what to persist: it strips request/response payload
+		// fields before publishing for orgs that don't retain data, so the worker
+		// inserts the queued rows as-is with no per-batch org retention lookup.
 		const logData = message.map((i) => JSON.parse(i) as LogInsertData);
-		const organizationIds = Array.from(
-			new Set(logData.map((data) => data.organizationId)),
-		);
-		const selectStart = Date.now();
-		const retentionByOrg =
-			organizationIds.length > 0
-				? await getOrganizationRetentionLevels(organizationIds)
-				: new Map<string, "retain" | "none">();
-		const selectMs = Date.now() - selectStart;
-
-		const processedLogData: (
-			| LogInsertData
-			| Omit<LogInsertData, "messages" | "content">
-		)[] = logData.map((data) => {
-			if (retentionByOrg.get(data.organizationId) === "none") {
-				const {
-					messages: _messages,
-					content: _content,
-					reasoningContent: _reasoningContent,
-					tools: _tools,
-					toolChoice: _toolChoice,
-					toolResults: _toolResults,
-					responsesApiData: _responsesApiData,
-					// Debug payloads (x-debug) contain full request/response bodies
-					// and must not survive a metadata-only retention policy.
-					rawRequest: _rawRequest,
-					rawResponse: _rawResponse,
-					upstreamRequest: _upstreamRequest,
-					upstreamResponse: _upstreamResponse,
-					...metadataOnly
-				} = data;
-				return metadataOnly;
-			}
-
-			return data;
-		});
 
 		// Insert logs with retry logic
 		let lastError: Error | undefined;
 		for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
 			try {
-				// Type assertion is safe here as both LogInsertData and its subset are compatible with the log insert schema
 				const insertStart = Date.now();
-				await db.insert(log).values(processedLogData as LogInsertData[]);
+				await db.insert(log).values(logData);
 				const insertMs = Date.now() - insertStart;
 				recordLogInsertSuccess();
 				logger.info(
-					`Processed log batch: ${message.length} rows (org lookup ${selectMs}ms, insert ${insertMs}ms)`,
+					`Processed log batch: ${message.length} rows (insert ${insertMs}ms)`,
 				);
 				return message.length; // Success, exit function
 			} catch (insertError) {

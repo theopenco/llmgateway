@@ -17,6 +17,7 @@ import {
 	assertApiKeyWithinUsageLimits,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
+import { resolveChatApiOrigin } from "@/lib/api-origin.js";
 import {
 	findApiKeyByToken,
 	findProjectById,
@@ -379,8 +380,7 @@ function filterRegionsByAvailableKeys(
 			return true;
 		}
 		const providerDef = providers.find((p) => p.id === mapping.providerId) as
-			| ProviderDefinition
-			| undefined;
+			ProviderDefinition | undefined;
 		if (!providerDef?.regionConfig) {
 			return true;
 		}
@@ -468,8 +468,7 @@ function resolveRegionFromProviderKey(
 	key: InferSelectModel<typeof tables.providerKey>,
 ): string | undefined {
 	const providerDef = providers.find((p) => p.id === key.provider) as
-		| ProviderDefinition
-		| undefined;
+		ProviderDefinition | undefined;
 	if (!providerDef?.regionConfig) {
 		return undefined;
 	}
@@ -484,8 +483,7 @@ function resolveExplicitRegionFromProviderKey(
 	key: InferSelectModel<typeof tables.providerKey>,
 ): string | undefined {
 	const providerDef = providers.find((p) => p.id === key.provider) as
-		| ProviderDefinition
-		| undefined;
+		ProviderDefinition | undefined;
 	if (!providerDef?.regionConfig) {
 		return undefined;
 	}
@@ -506,8 +504,7 @@ function buildProviderLockedRegions(
 	const locked = new Map<string, string>();
 	for (const key of providerKeys) {
 		const providerDef = providers.find((p) => p.id === key.provider) as
-			| ProviderDefinition
-			| undefined;
+			ProviderDefinition | undefined;
 		const regionKey = providerDef?.regionConfig?.optionsKey;
 		if (regionKey && key.options) {
 			const lockedRegion = (key.options as Record<string, string | undefined>)[
@@ -1577,6 +1574,11 @@ chat.openapi(completions, async (c) => {
 		routingPromptTokens += Math.round(JSON.stringify(tools).length / 4);
 	}
 
+	// The API surface the caller actually used: "chat-completions" unless
+	// /v1/messages, /v1/responses or /v1/images re-dispatched the request through
+	// here. Declared ahead of the log wrappers so every log path can record it.
+	const apiOrigin = resolveChatApiOrigin(c);
+
 	// Extract and validate source from x-source header with HTTP-Referer fallback
 	let source = validateSource(
 		c.req.header("x-source"),
@@ -1986,6 +1988,13 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	// Organization data retention level. Captured here (right after the org is
+	// resolved) so every log path — including the early rejections below and the
+	// insertLog wrapper further down — can decide whether payload fields should
+	// be persisted. Orgs backing end-user wallets are always regular PAYG orgs,
+	// so the withWalletCredits substitution below never changes this value.
+	const retentionLevel = organization.retentionLevel ?? "none";
+
 	// Note: the end-user-wallet credits substitution (withWalletCredits) happens
 	// further below — orgs backing end-user wallets are always regular
 	// PAYG/credits orgs, never dev-plan orgs, so it cannot affect the dev-plan
@@ -2105,6 +2114,7 @@ chat.openapi(completions, async (c) => {
 						),
 						...(logIdOverride ? { id: logIdOverride } : {}),
 						responsesApiData,
+						apiOrigin,
 						content: null,
 						responseSize: 0,
 						finishReason: "client_error",
@@ -2145,7 +2155,7 @@ chat.openapi(completions, async (c) => {
 						usedServiceTier: null,
 						dataStorageCost: "0",
 					},
-					{ syncInsert: syncLogInsert },
+					{ syncInsert: syncLogInsert, retentionLevel },
 				);
 			} catch (error) {
 				logger.error("Failed to log unsupported service tier rejection", {
@@ -2448,8 +2458,8 @@ chat.openapi(completions, async (c) => {
 	// get correct x-source attribution without blocking any requests.
 	const isDevPlanSourceRestricted = Boolean(
 		organization?.kind === "devpass" &&
-			organization.devPlan !== "none" &&
-			process.env.DEVPASS_ENFORCE_SOURCE_RESTRICTION === "true",
+		organization.devPlan !== "none" &&
+		process.env.DEVPASS_ENFORCE_SOURCE_RESTRICTION === "true",
 	);
 	if (isDevPlanSourceRestricted && !isRecognizedCodingAgent(source)) {
 		throw new HTTPException(403, {
@@ -2584,6 +2594,7 @@ chat.openapi(completions, async (c) => {
 						),
 						...(logIdOverride ? { id: logIdOverride } : {}),
 						responsesApiData,
+						apiOrigin,
 						content: null,
 						responseSize: 0,
 						finishReason: "client_error",
@@ -2620,7 +2631,7 @@ chat.openapi(completions, async (c) => {
 						usedServiceTier: null,
 						dataStorageCost: "0",
 					},
-					{ syncInsert: syncLogInsert },
+					{ syncInsert: syncLogInsert, retentionLevel },
 				);
 			} catch (error) {
 				logger.error("Failed to log budget-thinking rejection", {
@@ -2644,9 +2655,6 @@ chat.openapi(completions, async (c) => {
 	let usedExternalId: string = requestedModel;
 	let usedRegion: string | undefined = requestedRegion;
 	let routingMetadata: RoutingMetadata | undefined;
-
-	// Extract retention level for data storage cost calculation
-	const retentionLevel = organization?.retentionLevel ?? "none";
 
 	// Get image size limits from environment variables or use defaults
 	const freeLimitMB = Number(process.env.IMAGE_SIZE_LIMIT_FREE_MB) || 50;
@@ -2749,8 +2757,7 @@ chat.openapi(completions, async (c) => {
 	// them, and only fails when none remain; a pinned provider with no eligible
 	// key returns a clear 400 instead of silently downgrading.
 	let serviceTierOrgKeys:
-		| InferSelectModel<typeof tables.providerKey>[]
-		| undefined;
+		InferSelectModel<typeof tables.providerKey>[] | undefined;
 	const isProviderServiceTierEligible = (providerId: string): boolean => {
 		const dbKeys = (serviceTierOrgKeys ?? []).filter(
 			(key) => key.provider === providerId,
@@ -5086,13 +5093,17 @@ chat.openapi(completions, async (c) => {
 			{
 				...logData,
 				sessionId: logData.sessionId ?? sessionId ?? null,
+				apiOrigin: logData.apiOrigin ?? apiOrigin,
 				internalContentFilter: shouldTagContentFilter
 					? true
 					: logData.internalContentFilter,
 				gatewayContentFilterResponse:
 					logData.gatewayContentFilterResponse ?? gatewayContentFilterResponse,
 			},
-			options,
+			// Default the retention level from the resolved organization so payload
+			// fields are stripped before publishing to the log queue for
+			// non-retaining orgs. A caller-supplied value still wins.
+			{ retentionLevel, ...options },
 		);
 
 	if (contentFilterBlocked) {
@@ -5293,8 +5304,7 @@ chat.openapi(completions, async (c) => {
 		// default region so it appears in logs and metadata.
 		if (!usedRegion) {
 			const providerDef = providers.find((p) => p.id === usedProvider) as
-				| { regionConfig?: { defaultRegion: string } }
-				| undefined;
+				{ regionConfig?: { defaultRegion: string } } | undefined;
 			if (providerDef?.regionConfig) {
 				usedRegion = providerDef.regionConfig.defaultRegion;
 			}
@@ -10141,8 +10151,7 @@ chat.openapi(completions, async (c) => {
 						(!streamingToolCalls || streamingToolCalls.length === 0);
 
 					let streamingCostsEarly:
-						| Awaited<ReturnType<typeof calculateCosts>>
-						| undefined;
+						Awaited<ReturnType<typeof calculateCosts>> | undefined;
 
 					if (hasUpstreamErrorFinishReason || hasEmptyResponse) {
 						const errorMessage = hasUpstreamErrorFinishReason

@@ -286,9 +286,7 @@ function normalizeToolParameters(tools?: OpenAIToolInput[]): typeof tools {
 			return tool;
 		}
 		const params = tool.function.parameters as
-			| Record<string, unknown>
-			| null
-			| undefined;
+			Record<string, unknown> | null | undefined;
 		if (
 			params &&
 			typeof params === "object" &&
@@ -1120,13 +1118,7 @@ export async function prepareRequestBody(
 	tools?: OpenAIToolInput[],
 	tool_choice?: ToolChoiceType,
 	reasoning_effort?:
-		| "none"
-		| "minimal"
-		| "low"
-		| "medium"
-		| "high"
-		| "xhigh"
-		| "max",
+		"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max",
 	supportsReasoning?: boolean,
 	isProd = false,
 	maxImageSizeMB = 20,
@@ -1615,8 +1607,7 @@ export async function prepareRequestBody(
 			const newContent = m.content.map((part) => {
 				const asRecord = part as unknown as Record<string, unknown>;
 				const cc = asRecord?.cache_control as
-					| Record<string, unknown>
-					| undefined;
+					Record<string, unknown> | undefined;
 				if (
 					asRecord &&
 					typeof asRecord === "object" &&

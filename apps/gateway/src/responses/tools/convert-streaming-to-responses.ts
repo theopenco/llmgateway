@@ -299,16 +299,14 @@ export function processStreamChunk(
 			state.usage.total_tokens =
 				(usage.total_tokens as number) ?? state.usage.total_tokens;
 			const ptd = usage.prompt_tokens_details as
-				| Record<string, unknown>
-				| undefined;
+				Record<string, unknown> | undefined;
 			if (ptd?.cached_tokens !== undefined) {
 				state.usage.input_tokens_details = {
 					cached_tokens: ptd.cached_tokens as number,
 				};
 			}
 			const ctd = usage.completion_tokens_details as
-				| Record<string, unknown>
-				| undefined;
+				Record<string, unknown> | undefined;
 			if (ctd?.reasoning_tokens !== undefined) {
 				state.usage.output_tokens_details = {
 					reasoning_tokens: ctd.reasoning_tokens as number,
@@ -564,16 +562,14 @@ export function processStreamChunk(
 		state.usage.total_tokens =
 			(usage.total_tokens as number) ?? state.usage.total_tokens;
 		const ptd = usage.prompt_tokens_details as
-			| Record<string, unknown>
-			| undefined;
+			Record<string, unknown> | undefined;
 		if (ptd?.cached_tokens !== undefined) {
 			state.usage.input_tokens_details = {
 				cached_tokens: ptd.cached_tokens as number,
 			};
 		}
 		const ctd = usage.completion_tokens_details as
-			| Record<string, unknown>
-			| undefined;
+			Record<string, unknown> | undefined;
 		if (ctd?.reasoning_tokens !== undefined) {
 			state.usage.output_tokens_details = {
 				reasoning_tokens: ctd.reasoning_tokens as number,
