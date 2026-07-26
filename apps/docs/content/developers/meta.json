@@ -1,6 +1,7 @@
 {
-	"title": "Developers",
-	"description": "Build with LLM Gateway using the AI SDK",
+	"title": "AI SDK",
+	"description": "Build with LLM Gateway using the Vercel AI SDK",
 	"icon": "Code",
+	"defaultOpen": true,
 	"pages": ["index", "ai-sdk", "ai-sdk-images"]
 }
