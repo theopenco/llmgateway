@@ -12,7 +12,17 @@ import {
 	validateProviderKey,
 } from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
-import { cdb, db, eq, shortid, tables } from "@llmgateway/db";
+import {
+	and,
+	cdb,
+	db,
+	eq,
+	inArray,
+	ne,
+	shortid,
+	sql,
+	tables,
+} from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { isStealthProvider, providers } from "@llmgateway/models";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
@@ -482,12 +492,20 @@ keysProvider.openapi(list, async (c) => {
 		return c.json({ providerKeys: [] });
 	}
 
-	// Get all provider keys for these organizations
+	// Get all provider keys for these organizations, in the order the gateway
+	// will try them: manual position first (NULLs last, so unpositioned keys
+	// keep their historical age order), then createdAt/id.
 	const providerKeys = await db.query.providerKey.findMany({
 		where: {
 			organizationId: {
 				in: organizationIds,
 			},
+		},
+		orderBy: {
+			provider: "asc",
+			sortOrder: "asc",
+			createdAt: "asc",
+			id: "asc",
 		},
 	});
 
@@ -804,6 +822,193 @@ keysProvider.openapi(updateStatus, async (c) => {
 	return c.json({
 		message: "Provider key updated",
 		providerKey: toPublicProviderKey(updatedProviderKey),
+	});
+});
+
+const reorderSchema = z.object({
+	organizationId: z.string(),
+	provider: z.string(),
+	/**
+	 * Complete ordered list of the scope's non-deleted provider-key ids, primary
+	 * first. Must match the scope's current membership exactly: a mismatch means
+	 * the client's list is stale (a key was added or removed while dragging), and
+	 * silently reshuffling around it would demote a key nobody chose to demote.
+	 */
+	providerKeyIds: z.array(z.string()).min(1).max(100),
+});
+
+const reorder = createRoute({
+	method: "put",
+	path: "/provider/order",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: reorderSchema,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						providerKeys: z.array(providerKeyPublicSchema).openapi({}),
+					}),
+				},
+			},
+			description: "Provider keys reordered.",
+		},
+		400: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "Duplicate ids.",
+		},
+		401: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "Unauthorized.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "Provider key not found.",
+		},
+		409: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "The submitted order is out of date.",
+		},
+	},
+});
+
+/**
+ * Sets the order the gateway tries an organization's keys for one provider.
+ *
+ * The gateway treats the first key as primary and only moves off it when that
+ * key is excluded, unhealthy, or materially worse on uptime, so this is how an
+ * operator promotes a key.
+ *
+ * Note for `custom`: `unique(organizationId, name)` means each custom provider
+ * has exactly one key, so ordering there only affects how the dashboard lists
+ * them — it cannot change which key serves a request.
+ */
+keysProvider.openapi(reorder, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { organizationId, provider, providerKeyIds } = c.req.valid("json");
+
+	if (new Set(providerKeyIds).size !== providerKeyIds.length) {
+		throw new HTTPException(400, {
+			message: "providerKeyIds contains duplicate ids",
+		});
+	}
+
+	const organizationIds = await getAdminOrganizationIds(user.id);
+	if (!organizationIds.includes(organizationId)) {
+		// Same message as an unknown key: a non-member must not be able to tell
+		// "this organization exists" from "it does not".
+		throw new HTTPException(404, { message: "Provider key not found" });
+	}
+
+	// Authoritative membership, read uncached: a cached set could omit a key
+	// added moments ago and turn a valid request into a spurious 409.
+	const scopeKeys = await db.query.providerKey.findMany({
+		where: {
+			organizationId: { eq: organizationId },
+			provider: { eq: provider },
+			managed: { eq: false },
+			status: { ne: "deleted" },
+		},
+		columns: { id: true, sortOrder: true, createdAt: true },
+	});
+
+	const scopeIds = new Set(scopeKeys.map((key) => key.id));
+	if (providerKeyIds.some((id) => !scopeIds.has(id))) {
+		throw new HTTPException(404, { message: "Provider key not found" });
+	}
+	if (providerKeyIds.length !== scopeKeys.length) {
+		// A key was added or removed while the user was dragging. Reject rather
+		// than reshuffle around it: any rule for placing the missing key would
+		// silently demote something nobody chose to demote. The client refetches
+		// on error and the user retries against the real list.
+		throw new HTTPException(409, {
+			message: "Provider key order is out of date",
+		});
+	}
+
+	// One statement, deliberately not a transaction: Drizzle invalidates the
+	// cache before commit, so a transaction leaves a window where a gateway read
+	// can repopulate Redis with the pre-reorder rows. A single autocommit UPDATE
+	// closes that window and fires exactly one invalidation.
+	const updated = await cdb
+		.update(tables.providerKey)
+		.set({
+			sortOrder: sql`CASE ${tables.providerKey.id} ${sql.join(
+				providerKeyIds.map(
+					(id, index) => sql`WHEN ${id} THEN ${sql.raw(String(index))}`,
+				),
+				sql` `,
+			)} END`,
+		})
+		.where(
+			and(
+				inArray(tables.providerKey.id, providerKeyIds),
+				eq(tables.providerKey.organizationId, organizationId),
+				eq(tables.providerKey.provider, provider),
+				eq(tables.providerKey.managed, false),
+				ne(tables.providerKey.status, "deleted"),
+			),
+		)
+		.returning();
+
+	const previousOrder = [...scopeKeys]
+		.sort(
+			(a, b) =>
+				(a.sortOrder ?? Number.MAX_SAFE_INTEGER) -
+					(b.sortOrder ?? Number.MAX_SAFE_INTEGER) ||
+				a.createdAt.getTime() - b.createdAt.getTime() ||
+				a.id.localeCompare(b.id),
+		)
+		.map((key) => key.id);
+
+	if (previousOrder.join(",") !== providerKeyIds.join(",")) {
+		await logAuditEvent({
+			organizationId,
+			userId: user.id,
+			action: "provider_key.reorder",
+			resourceType: "provider_key",
+			metadata: {
+				provider,
+				changes: { order: { old: previousOrder, new: providerKeyIds } },
+			},
+		});
+	}
+
+	const byId = new Map(updated.map((row) => [row.id, row]));
+	return c.json({
+		message: "Provider key order updated",
+		providerKeys: providerKeyIds
+			.map((id) => byId.get(id))
+			.filter((row): row is (typeof updated)[number] => row !== undefined)
+			.map(toPublicProviderKey),
 	});
 });
 

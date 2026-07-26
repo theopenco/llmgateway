@@ -190,7 +190,13 @@ async function findActiveProviderKey(
 				eq(tables.providerKey.provider, providerId),
 			),
 		)
-		.orderBy(asc(tables.providerKey.createdAt), asc(tables.providerKey.id));
+		// Same ordering as the gateway's provider-key queries, so a key the
+		// organization dragged to the top ranks first here too.
+		.orderBy(
+			asc(tables.providerKey.sortOrder),
+			asc(tables.providerKey.createdAt),
+			asc(tables.providerKey.id),
+		);
 
 	const filtered = filter ? providerKeys.filter(filter) : providerKeys;
 	return selectLoadBalancedItem(filtered, selectionKey);

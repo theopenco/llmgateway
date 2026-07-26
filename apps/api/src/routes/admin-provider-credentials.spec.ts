@@ -536,3 +536,122 @@ describe("managed credential token confidentiality", () => {
 		expect(json.credential.tokenHash).not.toBe(credential.tokenHash);
 	});
 });
+
+describe("managed credential ordering", () => {
+	let cookie: string;
+
+	beforeEach(async () => {
+		process.env.ADMIN_EMAILS = "admin@example.com";
+		cookie = await createTestUser();
+	});
+
+	afterEach(async () => {
+		await deleteAll();
+	});
+
+	async function seed(id: string, provider = "openai") {
+		await db.insert(tables.providerKey).values({
+			id,
+			token: `token-${id}`,
+			provider,
+			managed: true,
+			organizationId: null,
+		});
+	}
+
+	async function reorder(body: Record<string, unknown>) {
+		return await app.request("/admin/provider-credentials/order", {
+			method: "PUT",
+			headers: { Cookie: cookie, "Content-Type": "application/json" },
+			body: JSON.stringify(body),
+		});
+	}
+
+	async function storedOrder(provider = "openai") {
+		const rows = await db.query.providerKey.findMany({
+			where: { managed: { eq: true }, provider: { eq: provider } },
+		});
+		return rows
+			.slice()
+			.sort((a, b) => (a.sortOrder ?? 99) - (b.sortOrder ?? 99))
+			.map((row) => [row.id, row.sortOrder] as const);
+	}
+
+	test("persists the submitted order", async () => {
+		await seed("cred-a");
+		await seed("cred-b");
+		await seed("cred-c");
+
+		const res = await reorder({
+			provider: "openai",
+			credentialIds: ["cred-c", "cred-a", "cred-b"],
+		});
+		expect(res.status).toBe(200);
+		expect(await storedOrder()).toEqual([
+			["cred-c", 0],
+			["cred-a", 1],
+			["cred-b", 2],
+		]);
+	});
+
+	test("rejects a BYOK key id", async () => {
+		await seed("cred-a");
+		await db.insert(tables.organization).values({
+			id: "byok-org",
+			name: "BYOK Org",
+			billingEmail: "byok@example.com",
+			plan: "pro",
+		});
+		await db.insert(tables.providerKey).values({
+			id: "byok-key",
+			token: "sk-byok",
+			provider: "openai",
+			organizationId: "byok-org",
+		});
+
+		const res = await reorder({
+			provider: "openai",
+			credentialIds: ["cred-a", "byok-key"],
+		});
+		expect(res.status).toBe(404);
+		expect(await storedOrder()).toEqual([["cred-a", null]]);
+	});
+
+	test("rejects duplicates and out-of-date lists without writing", async () => {
+		await seed("cred-a");
+		await seed("cred-b");
+
+		expect(
+			(
+				await reorder({
+					provider: "openai",
+					credentialIds: ["cred-a", "cred-a"],
+				})
+			).status,
+		).toBe(400);
+		expect(
+			(await reorder({ provider: "openai", credentialIds: ["cred-a"] })).status,
+		).toBe(409);
+		expect(await storedOrder()).toEqual([
+			["cred-a", null],
+			["cred-b", null],
+		]);
+	});
+
+	test("leaves other providers untouched", async () => {
+		await seed("openai-a");
+		await seed("openai-b");
+		await seed("anthropic-a", "anthropic");
+		await seed("anthropic-b", "anthropic");
+
+		const res = await reorder({
+			provider: "openai",
+			credentialIds: ["openai-b", "openai-a"],
+		});
+		expect(res.status).toBe(200);
+		expect(await storedOrder("anthropic")).toEqual([
+			["anthropic-a", null],
+			["anthropic-b", null],
+		]);
+	});
+});

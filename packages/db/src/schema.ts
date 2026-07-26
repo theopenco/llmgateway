@@ -1613,6 +1613,17 @@ export const providerKey = pgTable(
 		// `{ENV_VAR}__{REGION}` overrides. NULL means it serves every region the
 		// provider's credential covers.
 		region: text(),
+		// Explicit position among a provider's keys, lowest first. The gateway
+		// treats the first key as primary and only falls back when one is
+		// unhealthy, so this is how an operator promotes a key.
+		//
+		// NULL means "no explicit position". Postgres sorts ASC as NULLS LAST, so
+		// unpositioned keys fall through to the createdAt/id tiebreak that ordered
+		// every key before reordering existed, and a key added after a reorder
+		// lands at the end rather than jumping the queue. Deliberately has no
+		// default: `default(0)` would tie a new key with position 0 and slot it
+		// second.
+		sortOrder: integer(),
 		organizationId: text().references(() => organization.id, {
 			onDelete: "cascade",
 		}),
@@ -1620,6 +1631,11 @@ export const providerKey = pgTable(
 	(table) => [
 		unique().on(table.organizationId, table.name),
 		index("provider_key_organization_id_idx").on(table.organizationId),
+		index("provider_key_sort_order_idx").on(
+			table.organizationId,
+			table.provider,
+			table.sortOrder,
+		),
 		index("provider_key_managed_provider_idx").on(
 			table.managed,
 			table.provider,
@@ -3115,6 +3131,7 @@ export const auditLogActions = [
 	"provider_key.create",
 	"provider_key.update",
 	"provider_key.delete",
+	"provider_key.reorder",
 	// Custom Model
 	"custom_model.create",
 	"custom_model.update",

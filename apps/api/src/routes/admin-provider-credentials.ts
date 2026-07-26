@@ -16,7 +16,17 @@ import {
 	redactToken,
 	validateProviderKey,
 } from "@llmgateway/actions";
-import { and, cdb, db, eq, shortid, tables } from "@llmgateway/db";
+import {
+	and,
+	cdb,
+	db,
+	eq,
+	inArray,
+	ne,
+	shortid,
+	sql,
+	tables,
+} from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	getProviderApiKeyEnvCounts,
@@ -342,6 +352,7 @@ adminProviderCredentials.openapi(listCredentials, async (c) => {
 		},
 		orderBy: {
 			provider: "asc",
+			sortOrder: "asc",
 			createdAt: "asc",
 		},
 	});
@@ -603,6 +614,114 @@ adminProviderCredentials.openapi(deleteCredential, async (c) => {
 	});
 
 	return c.json({ success: true });
+});
+
+const reorderCredentials = createRoute({
+	method: "put",
+	path: "/provider-credentials/order",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						provider: z.string(),
+						/**
+						 * Complete ordered list of the provider's non-deleted managed
+						 * credential ids, primary first.
+						 */
+						credentialIds: z.array(z.string()).min(1).max(100),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ credentials: z.array(credentialSchema) }),
+				},
+			},
+			description: "Credentials reordered.",
+		},
+	},
+});
+
+/**
+ * Sets the order the gateway tries a provider's managed credentials.
+ *
+ * One flat order per provider, not per (provider, variant, region). Selection
+ * narrows by variant then region with order-preserving filters, so a single
+ * ranking already induces the right order inside every bucket — and an
+ * `enterprise` request that falls back to `default` credentials inherits the
+ * order an admin actually set rather than a separate one they never saw.
+ */
+adminProviderCredentials.openapi(reorderCredentials, async (c) => {
+	const user = c.get("user")!;
+	const { provider, credentialIds } = c.req.valid("json");
+
+	if (new Set(credentialIds).size !== credentialIds.length) {
+		throw new HTTPException(400, {
+			message: "credentialIds contains duplicate ids",
+		});
+	}
+
+	// Same predicates as the list route, so what an admin sees is exactly what
+	// they may reorder.
+	const scopeRows = await db.query.providerKey.findMany({
+		where: {
+			managed: { eq: true },
+			provider: { eq: provider },
+			status: { ne: "deleted" },
+		},
+		columns: { id: true },
+	});
+
+	const scopeIds = new Set(scopeRows.map((row) => row.id));
+	if (credentialIds.some((id) => !scopeIds.has(id))) {
+		throw new HTTPException(404, { message: "Credential not found" });
+	}
+	if (credentialIds.length !== scopeRows.length) {
+		throw new HTTPException(409, {
+			message: "Credential order is out of date",
+		});
+	}
+
+	// Single statement: atomic, and exactly one cache invalidation. See the
+	// matching note on the BYOK reorder route.
+	const updated = await cdb
+		.update(tables.providerKey)
+		.set({
+			sortOrder: sql`CASE ${tables.providerKey.id} ${sql.join(
+				credentialIds.map(
+					(id, index) => sql`WHEN ${id} THEN ${sql.raw(String(index))}`,
+				),
+				sql` `,
+			)} END`,
+		})
+		.where(
+			and(
+				inArray(tables.providerKey.id, credentialIds),
+				eq(tables.providerKey.managed, true),
+				eq(tables.providerKey.provider, provider),
+				ne(tables.providerKey.status, "deleted"),
+			),
+		)
+		.returning();
+
+	logger.info("Managed provider credentials reordered", {
+		provider,
+		credentialIds,
+		userId: user.id,
+	});
+
+	const byId = new Map(updated.map((row) => [row.id, row]));
+	return c.json({
+		credentials: credentialIds
+			.map((id) => byId.get(id))
+			.filter((row): row is (typeof updated)[number] => row !== undefined)
+			.map(toCredential),
+	});
 });
 
 export default adminProviderCredentials;

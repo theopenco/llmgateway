@@ -430,7 +430,15 @@ export async function findCustomProviderKey(
 						eq(providerKeyTable.name, customProviderName),
 					),
 				)
-				.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id)),
+				.orderBy(
+					// Explicit position first (Postgres sorts ASC as NULLS LAST, so
+					// unpositioned keys keep the age order they always had), then the
+					// original createdAt/id tiebreak. Index 0 of this array is what
+					// selectProviderKeyWithFailover treats as the primary key.
+					asc(providerKeyTable.sortOrder),
+					asc(providerKeyTable.createdAt),
+					asc(providerKeyTable.id),
+				),
 	);
 	return selectProviderKeyWithFailover(results, selectionScope, excludedKeyIds);
 }
@@ -488,7 +496,15 @@ export async function findProviderKey(
 						eq(providerKeyTable.provider, provider),
 					),
 				)
-				.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id)),
+				.orderBy(
+					// Explicit position first (Postgres sorts ASC as NULLS LAST, so
+					// unpositioned keys keep the age order they always had), then the
+					// original createdAt/id tiebreak. Index 0 of this array is what
+					// selectProviderKeyWithFailover treats as the primary key.
+					asc(providerKeyTable.sortOrder),
+					asc(providerKeyTable.createdAt),
+					asc(providerKeyTable.id),
+				),
 	);
 	const filtered = filter ? results.filter(filter) : results;
 	return selectProviderKeyWithFailover(
@@ -517,7 +533,15 @@ export async function findActiveProviderKeys(
 						eq(providerKeyTable.organizationId, organizationId),
 					),
 				)
-				.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id)),
+				.orderBy(
+					// Explicit position first (Postgres sorts ASC as NULLS LAST, so
+					// unpositioned keys keep the age order they always had), then the
+					// original createdAt/id tiebreak. Index 0 of this array is what
+					// selectProviderKeyWithFailover treats as the primary key.
+					asc(providerKeyTable.sortOrder),
+					asc(providerKeyTable.createdAt),
+					asc(providerKeyTable.id),
+				),
 	);
 }
 
@@ -546,7 +570,15 @@ export async function findProviderKeysByProviders(
 						inArray(providerKeyTable.provider, providers),
 					),
 				)
-				.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id)),
+				.orderBy(
+					// Explicit position first (Postgres sorts ASC as NULLS LAST, so
+					// unpositioned keys keep the age order they always had), then the
+					// original createdAt/id tiebreak. Index 0 of this array is what
+					// selectProviderKeyWithFailover treats as the primary key.
+					asc(providerKeyTable.sortOrder),
+					asc(providerKeyTable.createdAt),
+					asc(providerKeyTable.id),
+				),
 	);
 }
 
@@ -595,7 +627,15 @@ export async function findManagedProviderKey(
 						eq(providerKeyTable.provider, provider),
 					),
 				)
-				.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id)),
+				.orderBy(
+					// Explicit position first (Postgres sorts ASC as NULLS LAST, so
+					// unpositioned keys keep the age order they always had), then the
+					// original createdAt/id tiebreak. Index 0 of this array is what
+					// selectProviderKeyWithFailover treats as the primary key.
+					asc(providerKeyTable.sortOrder),
+					asc(providerKeyTable.createdAt),
+					asc(providerKeyTable.id),
+				),
 	);
 
 	const candidates = options.filter ? results.filter(options.filter) : results;

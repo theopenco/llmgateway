@@ -516,7 +516,12 @@ function buildProviderLockedRegions(
 			const lockedRegion = (key.options as Record<string, string | undefined>)[
 				regionKey
 			];
-			if (lockedRegion) {
+			// First key wins, matching selectProviderKeyWithFailover, which treats
+			// index 0 of this same ordered array as the primary. Overwriting per
+			// iteration would take the region from the LAST key while the request
+			// runs on the FIRST one — invisible while order was just "oldest
+			// first", but wrong as soon as an organization orders its keys.
+			if (lockedRegion && !locked.has(key.provider)) {
 				locked.set(key.provider, lockedRegion);
 			}
 		}
