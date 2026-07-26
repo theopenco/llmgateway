@@ -38,16 +38,14 @@ export function applyPinnedDefaultRegions(
 		}
 		providerHasAnyRegion.add(m.providerId);
 		const def = providers.find((p) => p.id === m.providerId) as
-			| ProviderDefinition
-			| undefined;
+			ProviderDefinition | undefined;
 		if (m.region === def?.regionConfig?.defaultRegion) {
 			providerHasDefaultRegion.add(m.providerId);
 		}
 	}
 	return mappings.filter((m) => {
 		const def = providers.find((p) => p.id === m.providerId) as
-			| ProviderDefinition
-			| undefined;
+			ProviderDefinition | undefined;
 		if (!def?.regionConfig?.pinDefaultRegion) {
 			return true;
 		}

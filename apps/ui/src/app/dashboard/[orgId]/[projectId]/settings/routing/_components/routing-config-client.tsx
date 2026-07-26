@@ -344,9 +344,7 @@ export function RoutingConfigClient({
 					setDefaults(defaultsRes.data as DefaultsResponse);
 				}
 				const row = configRes.data as
-					| (RoutingConfigState & { id: string })
-					| null
-					| undefined;
+					(RoutingConfigState & { id: string }) | null | undefined;
 				if (row) {
 					setState({
 						enabled: row.enabled,

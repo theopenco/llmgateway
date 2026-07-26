@@ -10,66 +10,63 @@ export const contentType = "image/png";
 
 export default async function EnterpriseOgImage() {
 	return new ImageResponse(
-		(
+		<div
+			style={{
+				width: "100%",
+				height: "100%",
+				display: "flex",
+				flexDirection: "column",
+				justifyContent: "center",
+				alignItems: "center",
+				background: "#000000",
+				color: "white",
+				fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+			}}
+		>
 			<div
 				style={{
-					width: "100%",
-					height: "100%",
 					display: "flex",
 					flexDirection: "column",
-					justifyContent: "center",
 					alignItems: "center",
-					background: "#000000",
-					color: "white",
-					fontFamily:
-						"system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+					gap: 40,
 				}}
 			>
 				<div
 					style={{
+						width: 120,
+						height: 120,
 						display: "flex",
-						flexDirection: "column",
 						alignItems: "center",
-						gap: 40,
+						justifyContent: "center",
+						color: "#ffffff",
 					}}
 				>
-					<div
-						style={{
-							width: 120,
-							height: 120,
-							display: "flex",
-							alignItems: "center",
-							justifyContent: "center",
-							color: "#ffffff",
-						}}
-					>
-						<Logo style={{ width: 120, height: 120 }} />
-					</div>
-					<h1
-						style={{
-							fontSize: 80,
-							fontWeight: 700,
-							margin: 0,
-							letterSpacing: "-0.03em",
-							color: "#ffffff",
-						}}
-					>
-						Enterprise
-					</h1>
-					<p
-						style={{
-							fontSize: 32,
-							margin: 0,
-							color: "#a1a1aa",
-							maxWidth: 800,
-							textAlign: "center",
-						}}
-					>
-						Production-grade LLM routing at scale
-					</p>
+					<Logo style={{ width: 120, height: 120 }} />
 				</div>
+				<h1
+					style={{
+						fontSize: 80,
+						fontWeight: 700,
+						margin: 0,
+						letterSpacing: "-0.03em",
+						color: "#ffffff",
+					}}
+				>
+					Enterprise
+				</h1>
+				<p
+					style={{
+						fontSize: 32,
+						margin: 0,
+						color: "#a1a1aa",
+						maxWidth: 800,
+						textAlign: "center",
+					}}
+				>
+					Production-grade LLM routing at scale
+				</p>
 			</div>
-		),
+		</div>,
 		size,
 	);
 }

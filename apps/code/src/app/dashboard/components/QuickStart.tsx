@@ -16,12 +16,7 @@ import {
 } from "@llmgateway/shared/components";
 
 type ToolId =
-	| "claude-code"
-	| "opencode"
-	| "empryo"
-	| "soulforge"
-	| "autohand"
-	| "cline";
+	"claude-code" | "opencode" | "empryo" | "soulforge" | "autohand" | "cline";
 
 interface ToolDef {
 	id: ToolId;

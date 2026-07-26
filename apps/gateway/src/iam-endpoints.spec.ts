@@ -30,10 +30,7 @@ describe("IAM rule evaluation per endpoint", () => {
 	async function seedMemberRule(
 		id: string,
 		ruleType:
-			| "allow_models"
-			| "deny_models"
-			| "allow_providers"
-			| "deny_providers",
+			"allow_models" | "deny_models" | "allow_providers" | "deny_providers",
 		ruleValue: { models?: string[]; providers?: string[] },
 	) {
 		await db.insert(tables.userIamRule).values({

@@ -350,14 +350,12 @@ export function parseProviderResponse(
 
 			// Extract images from Google response parts
 			const imageParts = parts.filter((part: any) => part.inlineData);
-			images = imageParts.map(
-				(part: any): ImageObject => ({
-					type: "image_url",
-					image_url: {
-						url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`,
-					},
-				}),
-			);
+			images = imageParts.map((part: any): ImageObject => ({
+				type: "image_url",
+				image_url: {
+					url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`,
+				},
+			}));
 
 			// Set content label for image generation when no text content is present
 			if (!content && images.length > 0) {
@@ -596,14 +594,12 @@ export function parseProviderResponse(
 					// Extract images from content array
 					const imageItems = messageContent.filter((item: any) => item.image);
 					if (imageItems.length > 0) {
-						images = imageItems.map(
-							(item: any): ImageObject => ({
-								type: "image_url",
-								image_url: {
-									url: item.image,
-								},
-							}),
-						);
+						images = imageItems.map((item: any): ImageObject => ({
+							type: "image_url",
+							image_url: {
+								url: item.image,
+							},
+						}));
 						content = imageLabel;
 						finishReason = alibabaChoices[0]?.finish_reason ?? "stop";
 						// DashScope image generation uses different usage format
@@ -701,14 +697,12 @@ export function parseProviderResponse(
 			if (usedProvider === "xai" && json.data && Array.isArray(json.data)) {
 				const imageData = json.data;
 				if (imageData.length > 0) {
-					images = imageData.map(
-						(item: any): ImageObject => ({
-							type: "image_url",
-							image_url: {
-								url: item.url,
-							},
-						}),
-					);
+					images = imageData.map((item: any): ImageObject => ({
+						type: "image_url",
+						image_url: {
+							url: item.url,
+						},
+					}));
 					content = imageLabel;
 					finishReason = "stop";
 					// Grok Imagine image generation doesn't return token usage
@@ -723,14 +717,12 @@ export function parseProviderResponse(
 			if (usedProvider === "zai" && json.data && Array.isArray(json.data)) {
 				const imageData = json.data;
 				if (imageData.length > 0) {
-					images = imageData.map(
-						(item: any): ImageObject => ({
-							type: "image_url",
-							image_url: {
-								url: item.url,
-							},
-						}),
-					);
+					images = imageData.map((item: any): ImageObject => ({
+						type: "image_url",
+						image_url: {
+							url: item.url,
+						},
+					}));
 					content = imageLabel;
 					finishReason = "stop";
 					// CogView image generation doesn't return token usage
@@ -749,14 +741,12 @@ export function parseProviderResponse(
 			) {
 				const imageData = json.data;
 				if (imageData.length > 0) {
-					images = imageData.map(
-						(item: any): ImageObject => ({
-							type: "image_url",
-							image_url: {
-								url: item.url,
-							},
-						}),
-					);
+					images = imageData.map((item: any): ImageObject => ({
+						type: "image_url",
+						image_url: {
+							url: item.url,
+						},
+					}));
 					content = imageLabel;
 					finishReason = "stop";
 					// Seedream image generation doesn't return token usage

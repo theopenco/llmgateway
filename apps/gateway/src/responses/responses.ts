@@ -610,12 +610,9 @@ responses.post("/", async (c) => {
 				instructions: req.instructions,
 				model: req.model,
 				status: responsesResponse.status as
-					| "completed"
-					| "incomplete"
-					| "failed",
+					"completed" | "incomplete" | "failed",
 				usage: (responsesResponse.usage ?? undefined) as
-					| Record<string, unknown>
-					| undefined,
+					Record<string, unknown> | undefined,
 				created_at: responsesResponse.created_at,
 			},
 			projectId,

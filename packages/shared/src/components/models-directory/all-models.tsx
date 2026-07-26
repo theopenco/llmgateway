@@ -129,11 +129,7 @@ interface AllModelsProps {
 }
 
 type SortField =
-	| "provider"
-	| "name"
-	| "inputPrice"
-	| "outputPrice"
-	| "cachedInputPrice";
+	"provider" | "name" | "inputPrice" | "outputPrice" | "cachedInputPrice";
 type SortDirection = "asc" | "desc";
 
 // Capability icon type
