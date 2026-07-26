@@ -734,8 +734,7 @@ describe("provider keys route", () => {
 			});
 			expect(events).toHaveLength(1);
 			const changes = events[0].metadata?.changes as
-				| { order?: { new?: string[] } }
-				| undefined;
+				{ order?: { new?: string[] } } | undefined;
 			expect(changes?.order?.new).toEqual(["key-b", "key-a"]);
 		});
 

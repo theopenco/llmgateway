@@ -56,8 +56,7 @@ export function managedCredentialValidationOptions(
 	};
 
 	const providerDef = providers.find((p) => p.id === provider) as
-		| ProviderDefinition
-		| undefined;
+		ProviderDefinition | undefined;
 	const regionOptionsKey = providerDef?.regionConfig?.optionsKey;
 	const effectiveRegion = config?.region ?? region?.trim();
 	if (regionOptionsKey && effectiveRegion) {

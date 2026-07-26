@@ -18,6 +18,8 @@ import {
 import { assertProviderCompliant } from "@/lib/compliance.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 
+import { readProviderKey } from "@llmgateway/actions";
+
 import {
 	findRealtimeMapping,
 	listRealtimeTranscriptionMappings,
@@ -288,7 +290,7 @@ async function runRealtimePreflightInner(
 				`No API key set for provider: ${providerId}. Please add a provider key in your settings or add credits and switch to credits or hybrid mode.`,
 			);
 		}
-		upstreamToken = providerKey.token;
+		upstreamToken = readProviderKey(providerKey);
 	} else if (project.mode === "credits") {
 		assertCredits();
 		const envResult = getProviderEnv(providerId, {
@@ -304,7 +306,7 @@ async function runRealtimePreflightInner(
 			match.modelId,
 		);
 		if (providerKey) {
-			upstreamToken = providerKey.token;
+			upstreamToken = readProviderKey(providerKey);
 		} else {
 			assertCredits();
 			const envResult = getProviderEnv(providerId, {
