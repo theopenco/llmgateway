@@ -190,8 +190,7 @@ export interface OpenAIWebSearchToolInput {
 
 // Compatible type for API requests - accepts both function and web_search tools
 export type OpenAIToolInput =
-	| OpenAIFunctionToolInput
-	| OpenAIWebSearchToolInput;
+	OpenAIFunctionToolInput | OpenAIWebSearchToolInput;
 
 export interface AnthropicTool {
 	name: string;
@@ -273,13 +272,7 @@ export interface OpenAIRequestBody extends BaseRequestBody {
 		include_usage: boolean;
 	};
 	reasoning_effort?:
-		| "none"
-		| "minimal"
-		| "low"
-		| "medium"
-		| "high"
-		| "xhigh"
-		| "max";
+		"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 	verbosity?: "low" | "medium" | "high";
 	n?: number;
 	extra_body?: Record<string, unknown>;
@@ -461,13 +454,7 @@ export type RequestBodyPreparer = (
 	tools?: OpenAIToolInput[],
 	tool_choice?: ToolChoiceType,
 	reasoning_effort?:
-		| "none"
-		| "minimal"
-		| "low"
-		| "medium"
-		| "high"
-		| "xhigh"
-		| "max",
+		"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max",
 	supportsReasoning?: boolean,
 	isProd?: boolean,
 	maxImageSizeMB?: number,

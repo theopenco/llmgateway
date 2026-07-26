@@ -41,8 +41,7 @@ describe("Models", () => {
 
 	it("should include o1-mini model", () => {
 		const o1MiniModel = models.find((model) => model.id === "o1-mini") as
-			| ModelDefinition
-			| undefined;
+			ModelDefinition | undefined;
 		expect(o1MiniModel).toBeDefined();
 		expect(o1MiniModel?.supportsSystemRole).toBe(false);
 		expect(o1MiniModel?.family).toBe("openai");
