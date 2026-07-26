@@ -503,7 +503,13 @@ function resolveExplicitRegionFromProviderKey(
  * a region on their provider key (e.g. `aws_bedrock_region: "eu"`), only that
  * region should be a routing candidate for the provider.
  */
-function buildProviderLockedRegions(
+/**
+ * Region each provider is pinned to by the organization's own keys.
+ *
+ * Exported for its unit test — the first-wins rule has to stay in lockstep
+ * with selectProviderKeyWithFailover, which also treats index 0 as primary.
+ */
+export function buildProviderLockedRegions(
 	providerKeys: InferSelectModel<typeof tables.providerKey>[],
 ): Map<string, string> {
 	const locked = new Map<string, string>();

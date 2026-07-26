@@ -11,7 +11,11 @@ import {
 	type InferInsertModel,
 } from "@llmgateway/db";
 
-import { resetKeyHealth } from "./api-key-health.js";
+import {
+	reportTrackedKeyError,
+	reportTrackedKeySuccess,
+	resetKeyHealth,
+} from "./api-key-health.js";
 import {
 	findManagedProviderIds,
 	findManagedProviderKey,
@@ -333,5 +337,138 @@ describe("managed credential cache invalidation", () => {
 
 		expect(await findManagedProviderKey("openai")).toBeUndefined();
 		expect(await findManagedProviderIds()).not.toContain("openai");
+	});
+});
+
+/**
+ * Managed credentials are selected the same way BYOK keys are — index 0 of the
+ * ordered array is the primary — so the admin's chosen order has to reach the
+ * gateway, including through the variant and region narrowing that BYOK keys
+ * never go through.
+ */
+describe("findManagedProviderKey - manual order", () => {
+	beforeEach(async () => {
+		resetKeyHealth();
+		await waitForSwrMirrorWrites();
+		await db.delete(providerKey);
+		await redisClient.flushdb();
+	});
+
+	afterEach(async () => {
+		await db.delete(providerKey);
+	});
+
+	async function setOrder(entries: Record<string, number | null>) {
+		for (const [id, value] of Object.entries(entries)) {
+			await cdb
+				.update(providerKey)
+				.set({ sortOrder: value })
+				.where(eq(providerKey.id, id));
+		}
+	}
+
+	it("prefers the manually ordered credential over the older one", async () => {
+		await insertManaged({ id: "older" });
+		await insertManaged({ id: "newer" });
+		await setOrder({ newer: 0, older: 1 });
+
+		expect((await findManagedProviderKey("openai"))?.id).toBe("newer");
+	});
+
+	it("falls back to createdAt order when nothing is positioned", async () => {
+		await insertManaged({ id: "first-created" });
+		await insertManaged({ id: "second-created" });
+
+		expect((await findManagedProviderKey("openai"))?.id).toBe("first-created");
+	});
+
+	it("sorts an unpositioned credential after every positioned one", async () => {
+		await insertManaged({ id: "positioned-a" });
+		await insertManaged({ id: "positioned-b" });
+		await insertManaged({ id: "unpositioned" });
+		// Deliberately give the unpositioned credential the position that a
+		// `default(0)` column would have handed it — it must still rank last.
+		await setOrder({ "positioned-a": 0, "positioned-b": 1 });
+
+		expect((await findManagedProviderKey("openai"))?.id).toBe("positioned-a");
+		expect(
+			(
+				await findManagedProviderKey("openai", {
+					excludedKeyIds: new Set(["positioned-a", "positioned-b"]),
+				})
+			)?.id,
+		).toBe("unpositioned");
+	});
+
+	it("orders within the variant bucket a request resolves to", async () => {
+		await insertManaged({ id: "ent-a", variant: "enterprise" });
+		await insertManaged({ id: "ent-b", variant: "enterprise" });
+		await insertManaged({ id: "def-a", variant: "default" });
+		await setOrder({ "ent-b": 0, "def-a": 1, "ent-a": 2 });
+
+		// Narrowing is order-preserving, so the enterprise request takes the
+		// highest-ranked credential *it is allowed to use*, not the global first.
+		expect(
+			(await findManagedProviderKey("openai", { variant: "enterprise" }))?.id,
+		).toBe("ent-b");
+		expect((await findManagedProviderKey("openai"))?.id).toBe("def-a");
+	});
+
+	it("orders within the region bucket a request resolves to", async () => {
+		await insertManaged({ id: "eu-a", region: "eu-central-1" });
+		await insertManaged({ id: "eu-b", region: "eu-central-1" });
+		await insertManaged({ id: "any-region" });
+		await setOrder({ "eu-b": 0, "any-region": 1, "eu-a": 2 });
+
+		expect(
+			(await findManagedProviderKey("openai", { region: "eu-central-1" }))?.id,
+		).toBe("eu-b");
+		// A request with no region only ever sees the region-agnostic credential.
+		expect((await findManagedProviderKey("openai"))?.id).toBe("any-region");
+	});
+
+	it("still fails over when the manual primary is unhealthy", async () => {
+		await insertManaged({ id: "manual-primary" });
+		await insertManaged({ id: "backup" });
+		await setOrder({ "manual-primary": 0, backup: 1 });
+
+		reportTrackedKeyError("manual-primary", 500);
+		reportTrackedKeyError("manual-primary", 500);
+		reportTrackedKeyError("manual-primary", 500);
+
+		expect((await findManagedProviderKey("openai"))?.id).toBe("backup");
+	});
+
+	it("still fails over when a later credential has materially better uptime", async () => {
+		// The uptime override is a product decision: manual order picks the
+		// primary, health still wins.
+		await insertManaged({ id: "flaky-primary" });
+		await insertManaged({ id: "healthy-backup" });
+		await setOrder({ "flaky-primary": 0, "healthy-backup": 1 });
+
+		reportTrackedKeySuccess("flaky-primary");
+		reportTrackedKeyError("flaky-primary", 500);
+		reportTrackedKeySuccess("flaky-primary");
+		reportTrackedKeyError("flaky-primary", 500);
+		for (let i = 0; i < 4; i++) {
+			reportTrackedKeySuccess("healthy-backup");
+		}
+
+		expect((await findManagedProviderKey("openai"))?.id).toBe("healthy-backup");
+	});
+
+	it("sees a reorder written through cdb with no cache flush", async () => {
+		await insertManaged({ id: "was-primary" });
+		await insertManaged({ id: "was-second" });
+
+		// Prime the cache with the pre-reorder answer.
+		expect((await findManagedProviderKey("openai"))?.id).toBe("was-primary");
+
+		await setOrder({ "was-second": 0, "was-primary": 1 });
+		await waitForSwrMirrorWrites();
+
+		// Written through cdb, so the gateway picks up the new primary rather
+		// than serving the cached one until the TTL expires.
+		expect((await findManagedProviderKey("openai"))?.id).toBe("was-second");
 	});
 });

@@ -4,7 +4,12 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { decryptProviderKey } from "@llmgateway/actions";
-import { db, tables } from "@llmgateway/db";
+import {
+	redisClient,
+	swrWrap,
+	waitForSwrMirrorWrites,
+} from "@llmgateway/cache";
+import { and, asc, cdb, db, eq, getTableName, tables } from "@llmgateway/db";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 interface Credential {
@@ -652,6 +657,88 @@ describe("managed credential ordering", () => {
 		expect(await storedOrder("anthropic")).toEqual([
 			["anthropic-a", null],
 			["anthropic-b", null],
+		]);
+	});
+});
+
+/**
+ * The gateway reads managed credentials through a cached select wrapped in an
+ * SWR mirror, both keyed on the provider_key table. A reorder written through
+ * anything but cdb would leave the gateway routing to the old primary until
+ * the cache expires.
+ */
+describe("managed credential reorder cache invalidation", () => {
+	let cookie: string;
+
+	beforeEach(async () => {
+		process.env.ADMIN_EMAILS = "admin@example.com";
+		cookie = await createTestUser();
+		// The managed SWR key is keyed only on the provider, so a cached entry
+		// from an earlier run outlives deleteAll() and would decide this test.
+		await redisClient.flushdb();
+	});
+
+	afterEach(async () => {
+		await deleteAll();
+	});
+
+	// Mirrors findManagedProviderKey: same SWR key, same ORDER BY, so this
+	// asserts the order the gateway would actually serve.
+	async function readGatewayOrder(provider: string) {
+		const rows = await swrWrap(
+			`providerKey:managed:${provider}`,
+			[getTableName(tables.providerKey)],
+			async () =>
+				await cdb
+					.select()
+					.from(tables.providerKey)
+					.where(
+						and(
+							eq(tables.providerKey.status, "active"),
+							eq(tables.providerKey.managed, true),
+							eq(tables.providerKey.provider, provider),
+						),
+					)
+					.orderBy(
+						asc(tables.providerKey.sortOrder),
+						asc(tables.providerKey.createdAt),
+						asc(tables.providerKey.id),
+					),
+		);
+		await waitForSwrMirrorWrites();
+		return rows.map((row) => row.id);
+	}
+
+	test("busts the gateway's cached order", async () => {
+		const provider = "openai";
+		for (const id of ["cache-cred-a", "cache-cred-b"]) {
+			await db.insert(tables.providerKey).values({
+				id,
+				token: `token-${id}`,
+				provider,
+				managed: true,
+				organizationId: null,
+			});
+		}
+
+		expect(await readGatewayOrder(provider)).toEqual([
+			"cache-cred-a",
+			"cache-cred-b",
+		]);
+
+		const res = await app.request("/admin/provider-credentials/order", {
+			method: "PUT",
+			headers: { Cookie: cookie, "Content-Type": "application/json" },
+			body: JSON.stringify({
+				provider,
+				credentialIds: ["cache-cred-b", "cache-cred-a"],
+			}),
+		});
+		expect(res.status).toBe(200);
+
+		expect(await readGatewayOrder(provider)).toEqual([
+			"cache-cred-b",
+			"cache-cred-a",
 		]);
 	});
 });
