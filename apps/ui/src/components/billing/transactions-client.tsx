@@ -35,6 +35,12 @@ import {
 import { useToast } from "@/lib/components/use-toast";
 import { useFetchClient } from "@/lib/fetch-client";
 
+import {
+	isRefundFeedbackComplete,
+	type RefundReason,
+} from "@llmgateway/shared";
+import { RefundReasonFieldset } from "@llmgateway/shared/components";
+
 interface RefundEligibility {
 	eligible: boolean;
 	reason?:
@@ -110,6 +116,12 @@ function RefundButton({
 	const router = useRouter();
 	const { toast } = useToast();
 	const [loading, setLoading] = useState(false);
+	const [open, setOpen] = useState(false);
+	const [reason, setReason] = useState<RefundReason | null>(null);
+	const [comments, setComments] = useState("");
+
+	const trimmedComments = comments.trim();
+	const canSubmit = isRefundFeedbackComplete(reason, comments);
 
 	const refund = transaction.refund;
 	if (!refund) {
@@ -117,12 +129,16 @@ function RefundButton({
 	}
 
 	async function handleRefund() {
+		if (!reason) {
+			return;
+		}
 		setLoading(true);
 		try {
 			const { response } = await fetchClient.POST(
 				"/orgs/{id}/transactions/{transactionId}/refund",
 				{
 					params: { path: { id: orgId, transactionId: transaction.id } },
+					body: { reason, comments: trimmedComments || undefined },
 				},
 			);
 			if (!response.ok) {
@@ -134,6 +150,9 @@ function RefundButton({
 					? "Your subscription has been cancelled and the refund will appear in your transaction history shortly."
 					: "Your refund has been submitted and will appear in your transaction history shortly.",
 			});
+			setOpen(false);
+			setReason(null);
+			setComments("");
 			router.refresh();
 		} catch {
 			toast({
@@ -168,7 +187,7 @@ function RefundButton({
 	}
 
 	return (
-		<AlertDialog>
+		<AlertDialog open={open} onOpenChange={setOpen}>
 			<AlertDialogTrigger asChild>
 				<Button variant="outline" size="sm" disabled={loading}>
 					{loading ? (
@@ -179,7 +198,7 @@ function RefundButton({
 					Refund
 				</Button>
 			</AlertDialogTrigger>
-			<AlertDialogContent>
+			<AlertDialogContent className="max-h-[85vh] overflow-y-auto">
 				<AlertDialogHeader>
 					<AlertDialogTitle>
 						{isPlanPayment(transaction.type)
@@ -202,13 +221,27 @@ function RefundButton({
 									)} credits will be removed from your balance. This cannot be undone.`}
 					</AlertDialogDescription>
 				</AlertDialogHeader>
+				<RefundReasonFieldset
+					idPrefix={transaction.id}
+					reason={reason}
+					onReasonChange={setReason}
+					comments={comments}
+					onCommentsChange={setComments}
+					disabled={loading}
+				/>
 				<AlertDialogFooter>
-					<AlertDialogCancel>
+					<AlertDialogCancel disabled={loading}>
 						{isPlanPayment(transaction.type)
 							? "Keep my subscription"
-							: "Cancel"}
+							: "Never mind"}
 					</AlertDialogCancel>
-					<AlertDialogAction onClick={handleRefund}>
+					<AlertDialogAction
+						disabled={loading || !canSubmit}
+						onClick={(e) => {
+							e.preventDefault();
+							void handleRefund();
+						}}
+					>
 						{isPlanPayment(transaction.type)
 							? "Refund and cancel"
 							: "Request refund"}
