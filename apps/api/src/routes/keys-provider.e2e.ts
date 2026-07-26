@@ -202,6 +202,9 @@ describe(
 				});
 				expect(providerKey).not.toBeNull();
 				expect(providerKey?.provider).toBe(providerId);
+				// Env-var-seeded rows deliberately keep their plaintext in the
+				// legacy column, which is exactly what this asserts.
+				// eslint-disable-next-line no-restricted-syntax
 				expect(providerKey?.token).toBe(envVarValue);
 			},
 		);

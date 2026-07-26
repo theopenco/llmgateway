@@ -139,6 +139,9 @@ describe("provider keys route", () => {
 		});
 		expect(providerKey).not.toBeNull();
 		expect(providerKey?.provider).toBe("inference.net");
+		// Asserting the legacy plaintext column stays NULL is the whole point of
+		// this test, so it is one of the few places allowed to read it directly.
+		// eslint-disable-next-line no-restricted-syntax
 		expect(providerKey?.token).toBeNull();
 		expect(providerKey?.tokenCiphertext).toMatch(/^llmgw:v1:/);
 		expect(providerKey?.tokenMasked).toBeTruthy();
