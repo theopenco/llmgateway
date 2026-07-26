@@ -1560,6 +1560,74 @@ describe("prepareRequestBody - xAI reasoning_effort", () => {
 });
 
 describe("prepareRequestBody - Google AI Studio", () => {
+	// web_search is passed separately from `tools`; the gateway extracts it from
+	// the request before calling prepareRequestBody.
+	const googleTools = (tools: any, webSearchTool?: any) =>
+		prepareRequestBody(
+			"google-ai-studio",
+			"gemini-3.5-flash",
+			null,
+			"gemini-3.5-flash",
+			[{ role: "user", content: "hi" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			tools,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			webSearchTool,
+		) as Promise<any>;
+
+	test("opts into server-side tool invocation when web_search joins functions", async () => {
+		// Gemini 3 rejects built-in tools alongside functionDeclarations unless
+		// this is set; agentic clients (Codex CLI) always send both.
+		const requestBody = await googleTools(
+			[
+				{
+					type: "function",
+					function: { name: "calc", parameters: { type: "object" } },
+				},
+			],
+			{ type: "web_search" },
+		);
+
+		expect(requestBody.tools).toEqual([
+			{ functionDeclarations: [expect.objectContaining({ name: "calc" })] },
+			{ google_search: {} },
+		]);
+		expect(requestBody.toolConfig?.includeServerSideToolInvocations).toBe(true);
+	});
+
+	test("leaves toolConfig alone when web_search is the only tool", async () => {
+		const requestBody = await googleTools(undefined, { type: "web_search" });
+
+		expect(requestBody.tools).toEqual([{ google_search: {} }]);
+		expect(requestBody.toolConfig).toBeUndefined();
+	});
+
+	test("leaves toolConfig alone when there is no built-in tool", async () => {
+		const requestBody = await googleTools([
+			{
+				type: "function",
+				function: { name: "calc", parameters: { type: "object" } },
+			},
+		]);
+
+		expect(requestBody.toolConfig).toBeUndefined();
+	});
+
 	test("should map gateway 0.5K image size to Google 512", async () => {
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",

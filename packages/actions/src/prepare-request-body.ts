@@ -3534,6 +3534,22 @@ export async function prepareRequestBody(
 			if (webSearchTool) {
 				requestBody.tools ??= [];
 				requestBody.tools.push({ google_search: {} });
+				// Gemini 3+ rejects a request that mixes a built-in tool with
+				// function declarations unless server-side tool invocation is opted
+				// into: "Please enable tool_config.include_server_side_tool_invocations
+				// to use Built-in tools with Function calling." Agentic clients send
+				// both (Codex CLI always includes web_search alongside its function
+				// tools), so opt in whenever the combination occurs rather than
+				// dropping either capability.
+				const hasFunctionDeclarations = requestBody.tools.some(
+					(tool: Record<string, unknown>) => "functionDeclarations" in tool,
+				);
+				if (hasFunctionDeclarations) {
+					requestBody.toolConfig = {
+						...requestBody.toolConfig,
+						includeServerSideToolInvocations: true,
+					};
+				}
 			}
 
 			requestBody.generationConfig = {};
