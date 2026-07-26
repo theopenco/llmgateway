@@ -1530,8 +1530,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 					typeof upstreamJson === "object" &&
 					"usage" in (upstreamJson as Record<string, unknown>)
 						? ((upstreamJson as Record<string, unknown>).usage as
-								| Record<string, unknown>
-								| undefined)
+								Record<string, unknown> | undefined)
 						: undefined;
 				const promptTokensRaw = usage?.prompt_tokens;
 				const totalTokensRaw = usage?.total_tokens;

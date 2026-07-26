@@ -1584,9 +1584,9 @@ async function fetchGoogleVertexStatus(
 	if (!response.ok) {
 		throw new Error(
 			body.error &&
-			typeof body.error === "object" &&
-			"message" in body.error &&
-			typeof body.error.message === "string"
+				typeof body.error === "object" &&
+				"message" in body.error &&
+				typeof body.error.message === "string"
 				? body.error.message
 				: `Google Vertex status request failed with status ${response.status}`,
 		);
@@ -2040,9 +2040,9 @@ async function fetchAtlasCloudStatus(
 	if (!response.ok) {
 		throw new Error(
 			typeof body.error === "object" &&
-			body.error &&
-			"message" in body.error &&
-			typeof body.error.message === "string"
+				body.error &&
+				"message" in body.error &&
+				typeof body.error.message === "string"
 				? body.error.message
 				: `AtlasCloud status request failed with status ${response.status}`,
 		);
@@ -2186,9 +2186,9 @@ async function fetchMinimaxStatus(
 	if (!response.ok) {
 		throw new Error(
 			typeof body.error === "object" &&
-			body.error &&
-			"message" in body.error &&
-			typeof body.error.message === "string"
+				body.error &&
+				"message" in body.error &&
+				typeof body.error.message === "string"
 				? body.error.message
 				: `MiniMax status request failed with status ${response.status}`,
 		);
@@ -2251,9 +2251,9 @@ async function fetchBytedanceStatus(
 	if (!response.ok) {
 		throw new Error(
 			typeof body.error === "object" &&
-			body.error &&
-			"message" in body.error &&
-			typeof body.error.message === "string"
+				body.error &&
+				"message" in body.error &&
+				typeof body.error.message === "string"
 				? body.error.message
 				: `ByteDance status request failed with status ${response.status}`,
 		);
@@ -2344,9 +2344,9 @@ async function fetchGenericVideoStatus(
 	if (!response.ok) {
 		throw new Error(
 			typeof body.error === "object" &&
-			body.error &&
-			"message" in body.error &&
-			typeof body.error.message === "string"
+				body.error &&
+				"message" in body.error &&
+				typeof body.error.message === "string"
 				? body.error.message
 				: `Upstream status request failed with status ${response.status}`,
 		);

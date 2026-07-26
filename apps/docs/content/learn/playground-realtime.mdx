@@ -1,0 +1,68 @@
+---
+title: Voice Calls
+description: Have a live speech-to-speech conversation with a model in the browser
+icon: Phone
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+import { ThemedImage } from "@/components/themed-image";
+
+Voice Calls turns Lounge into a phone line to a model. Pick a realtime model and a voice, start the call, and talk — the model listens, answers out loud, and the transcript builds as you go. Every call runs over the same [Realtime API](/features/realtime) your own apps can use.
+
+<ThemedImage alt="Voice Calls" basePath="/learn/playground-realtime" />
+
+## Starting a Call
+
+1. Pick a model from the selector — only models with an active realtime mapping appear, newest first
+2. Pick a **Voice** — the voice list comes from the selected model, so it changes when you switch models
+3. Click **Start call** and allow microphone access when the browser asks
+
+The status label on the right walks through the handshake — preparing audio, requesting the microphone, authorizing, connecting, configuring — and settles on **Live** with a call timer next to it. The model and voice are locked for the duration of the call; end it to change either.
+
+Your browser never sees an API key. The page mints a short-lived client secret server-side for the call, and the audio itself is streamed as 24 kHz PCM with echo cancellation and noise suppression on.
+
+## During the Call
+
+The model uses semantic voice activity detection, so there is no push-to-talk: stop speaking and it answers, start speaking again and it stops to listen. An interrupted answer stays in the transcript marked `(interrupted)`.
+
+| Control                  | What it does                                                |
+| ------------------------ | ----------------------------------------------------------- |
+| **Mute** / **Unmute**    | Stops sending your microphone audio without ending the call |
+| **End call**             | Hangs up and saves the call to your history                 |
+| Voice activity indicator | Shows who currently has the floor, and your mute state      |
+
+Below the controls, a usage line totals the call: how many responses it took, input and output tokens, and how many of those were audio tokens.
+
+<Callout type="info">
+	Voice calls are billed to a pay-as-you-go organization with credits, so the
+	organization switcher on this page only lists those — DevPass and Lounge
+	membership workspaces can't place calls. Without one selected, the page asks
+	you to create one in the dashboard first.
+</Callout>
+
+## Call History
+
+Ended calls are saved per organization and listed in the sidebar, grouped by date, with each call's duration and time. Click one to reopen its transcript, along with the model and voice it used and its token totals. Use the **⋮** menu on a call to rename or delete it, and **New Call** to get back to a fresh screen.
+
+Calls are titled from your opening line, so history reads like a list of topics. A call you leave mid-conversation — by navigating away or closing the tab — is still saved with whatever was said up to that point.
+
+<ThemedImage
+	alt="A saved voice call transcript"
+	basePath="/learn/playground-realtime-history"
+/>
+
+## Using It From Your Own App
+
+The same endpoint backs the [Realtime API](/features/realtime): connect a WebSocket to `wss://api.llmgateway.io/v1/realtime`, authenticate with an [API key](/learn/api-keys), and use the standard OpenAI realtime event protocol. For browser clients, mint an ephemeral client secret from your backend instead of shipping a key:
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/realtime/client_secrets" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "expires_after": { "anchor": "created_at", "seconds": 120 },
+    "session": { "type": "realtime", "model": "gpt-realtime" }
+  }'
+```
+
+Calls made here appear in your [activity feed](/learn/activity) and [analytics](/learn/analytics) like any other request, with audio input and output costs broken out.

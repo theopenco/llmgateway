@@ -218,11 +218,9 @@ export function getProviderEndpoint(
 	let regionBaseUrl: string | undefined;
 	if (region) {
 		const providerDef = providers.find((p) => p.id === provider) as
-			| ProviderDefinition
-			| undefined;
+			ProviderDefinition | undefined;
 		const endpointMap = providerDef?.regionConfig?.endpointMap as
-			| Record<string, string>
-			| undefined;
+			Record<string, string> | undefined;
 		regionBaseUrl = endpointMap?.[region];
 	}
 
@@ -651,8 +649,7 @@ export function getProviderEndpoint(
 			const awsRegionPrefix = region
 				? (
 						providers.find((p) => p.id === "aws-bedrock") as
-							| ProviderDefinition
-							| undefined
+							ProviderDefinition | undefined
 					)?.regionConfig?.modelPrefixMap?.[region]
 				: undefined;
 			// envValueOrDefault honors skipEnvVars (BYOK), so the server's

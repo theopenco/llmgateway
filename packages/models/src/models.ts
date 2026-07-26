@@ -42,13 +42,7 @@ export type Price = string;
  * actually supports is declared per mapping via `reasoningEfforts`.
  */
 export type ReasoningEffort =
-	| "none"
-	| "minimal"
-	| "low"
-	| "medium"
-	| "high"
-	| "xhigh"
-	| "max";
+	"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 /**
  * Pricing tier for models with context-length based pricing
@@ -549,6 +543,26 @@ export interface ProviderModelMapping {
 	 */
 	speechGenerations?: boolean;
 	/**
+	 * Whether this model uses the dedicated realtime WebSocket API.
+	 * When true, sessions are served by the gateway's /v1/realtime endpoint
+	 * (server-to-server WebSocket proxy) rather than /v1/chat/completions.
+	 * Pricing uses the modality-specific token prices on this mapping
+	 * (inputPrice/cachedInputPrice/outputPrice for text, inputAudioPrice/
+	 * cachedInputAudioPrice/outputAudioPrice for audio, imageInputPrice/
+	 * cachedImageInputPrice for image input).
+	 */
+	realtime?: boolean;
+	/**
+	 * Whether this mapping can transcribe input audio for realtime sessions.
+	 * When true, the gateway's /v1/realtime proxy allows this mapping as the
+	 * `input_audio_transcription.model` of a realtime session and bills each
+	 * `conversation.item.input_audio_transcription.completed` event against
+	 * this mapping's token prices (inputPrice for text tokens, inputAudioPrice
+	 * for audio tokens, outputPrice for output tokens). Only token-metered ASR
+	 * mappings may set this; duration-billed models are not priceable here.
+	 */
+	realtimeTranscription?: boolean;
+	/**
 	 * Whether this model uses a dedicated transcription (speech-to-text) API.
 	 * When true, requests are routed to the gateway's /v1/audio/transcriptions
 	 * endpoint, which turns audio into text rather than returning a chat
@@ -611,14 +625,7 @@ export interface ProviderModelMapping {
 export type StabilityLevel = "stable" | "beta" | "unstable" | "experimental";
 
 export type Quantization =
-	| "int4"
-	| "int8"
-	| "fp4"
-	| "fp6"
-	| "fp8"
-	| "fp16"
-	| "bf16"
-	| "fp32";
+	"int4" | "int8" | "fp4" | "fp6" | "fp8" | "fp16" | "bf16" | "fp32";
 
 export interface ModelDefinition {
 	/**
@@ -656,13 +663,7 @@ export interface ModelDefinition {
 	 * Output formats supported by the model (defaults to ['text'] if not specified)
 	 */
 	output?: (
-		| "text"
-		| "image"
-		| "video"
-		| "embedding"
-		| "audio"
-		| "ocr"
-		| "transcription"
+		"text" | "image" | "video" | "embedding" | "audio" | "ocr" | "transcription"
 	)[];
 	/**
 	 * Whether this model requires an image input to function (e.g. image editing models).

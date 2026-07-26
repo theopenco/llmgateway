@@ -1753,11 +1753,11 @@ async function hasVideoProviderConfiguration(
 		);
 		return Boolean(
 			providerKey &&
-				(providerKey.baseUrl ??
-					getProviderEnvValue(providerId, "baseUrl") ??
-					defaultBaseUrl) &&
-				(!isGoogleVertexVideoProvider(providerId) ||
-					Boolean(getProviderEnvValue(providerId, "project"))),
+			(providerKey.baseUrl ??
+				getProviderEnvValue(providerId, "baseUrl") ??
+				defaultBaseUrl) &&
+			(!isGoogleVertexVideoProvider(providerId) ||
+				Boolean(getProviderEnvValue(providerId, "project"))),
 		);
 	}
 
@@ -1781,8 +1781,8 @@ async function hasVideoProviderConfiguration(
 			(providerKey.baseUrl ??
 				getProviderEnvValue(providerId, "baseUrl") ??
 				defaultBaseUrl) &&
-				(!isGoogleVertexVideoProvider(providerId) ||
-					Boolean(getProviderEnvValue(providerId, "project"))),
+			(!isGoogleVertexVideoProvider(providerId) ||
+				Boolean(getProviderEnvValue(providerId, "project"))),
 		);
 	}
 
@@ -2935,17 +2935,7 @@ async function fetchUpstreamJson(
 		});
 		throw new HTTPException(
 			response.status as
-				| 400
-				| 401
-				| 403
-				| 404
-				| 409
-				| 422
-				| 429
-				| 500
-				| 502
-				| 503
-				| 504,
+				400 | 401 | 403 | 404 | 409 | 422 | 429 | 500 | 502 | 503 | 504,
 			{
 				message:
 					typeof body.error === "object" &&
@@ -3815,8 +3805,7 @@ async function createMinimaxVideoJob(
 	});
 
 	const baseResp = rawResponse.base_resp as
-		| { status_code?: number; status_msg?: string }
-		| undefined;
+		{ status_code?: number; status_msg?: string } | undefined;
 	if (baseResp && baseResp.status_code !== 0) {
 		throw new HTTPException(502, {
 			message: `MiniMax video API error: ${baseResp.status_msg ?? "unknown error"} (code ${baseResp.status_code})`,

@@ -21,7 +21,9 @@ const modelSchema = z.object({
 	description: z.string().optional(),
 	family: z.string(),
 	architecture: z.object({
-		input_modalities: z.array(z.enum(["text", "image", "video", "embedding"])),
+		input_modalities: z.array(
+			z.enum(["text", "image", "video", "embedding", "audio"]),
+		),
 		output_modalities: z.array(
 			z.enum([
 				"text",
@@ -50,6 +52,9 @@ const modelSchema = z.object({
 					prompt: z.string(),
 					completion: z.string(),
 					image: z.string().optional(),
+					input_audio: z.string().optional(),
+					input_audio_cache_read: z.string().optional(),
+					output_audio: z.string().optional(),
 					per_second: z.record(z.string()).optional(),
 					request: z.string().optional(),
 					input_cache_read: z.string().optional(),
@@ -61,6 +66,10 @@ const modelSchema = z.object({
 				.optional(),
 			streaming: z.union([z.boolean(), z.literal("only")]),
 			vision: z.boolean(),
+			realtime: z.boolean().optional().openapi({
+				description:
+					"Whether this mapping is served via the /v1/realtime WebSocket endpoint instead of /v1/chat/completions.",
+			}),
 			cancellation: z.boolean(),
 			tools: z.boolean(),
 			parallelToolCalls: z.boolean(),
@@ -87,6 +96,9 @@ const modelSchema = z.object({
 		prompt: z.string(),
 		completion: z.string(),
 		image: z.string().optional(),
+		input_audio: z.string().optional(),
+		input_audio_cache_read: z.string().optional(),
+		output_audio: z.string().optional(),
 		per_second: z.record(z.string()).optional(),
 		request: z.string().optional(),
 		input_cache_read: z.string().optional(),
@@ -215,13 +227,18 @@ modelsApi.openapi(listModels, async (c) => {
 
 		const modelData = filteredModels.map((model: ModelDefinition) => {
 			// Determine input modalities (if model supports images)
-			const inputModalities: ("text" | "image" | "video" | "embedding")[] = [
-				"text",
-			];
+			const inputModalities: (
+				"text" | "image" | "video" | "embedding" | "audio"
+			)[] = ["text"];
 
 			// Check if any provider has vision support
 			if (model.providers.some((p) => p.vision)) {
 				inputModalities.push("image");
+			}
+
+			// Models that accept input_audio content (including realtime models)
+			if (model.providers.some((p) => p.audio)) {
+				inputModalities.push("audio");
 			}
 
 			// Determine output modalities from the model definition or default to
@@ -276,6 +293,7 @@ modelsApi.openapi(listModels, async (c) => {
 							: undefined,
 						streaming: provider.streaming,
 						vision: provider.vision ?? false,
+						realtime: provider.realtime === true ? true : undefined,
 						cancellation: providerDef?.cancellation ?? false,
 						tools: provider.tools ?? false,
 						parallelToolCalls: provider.parallelToolCalls ?? false,
@@ -365,6 +383,9 @@ function buildPricingFields(p: ProviderModelMapping | undefined) {
 		prompt: p?.inputPrice?.toString() ?? "0",
 		completion: p?.outputPrice?.toString() ?? "0",
 		image: p?.imageInputPrice?.toString() ?? "0",
+		input_audio: p?.inputAudioPrice?.toString(),
+		input_audio_cache_read: p?.cachedInputAudioPrice?.toString(),
+		output_audio: p?.outputAudioPrice?.toString(),
 		per_second: p?.perSecondPrice
 			? Object.fromEntries(
 					Object.entries(p.perSecondPrice).map(([resolution, price]) => [

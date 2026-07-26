@@ -29,12 +29,7 @@ export interface VideoJob {
 	object: "video";
 	model: string;
 	status:
-		| "queued"
-		| "in_progress"
-		| "completed"
-		| "failed"
-		| "canceled"
-		| "expired";
+		"queued" | "in_progress" | "completed" | "failed" | "canceled" | "expired";
 	progress: number | null;
 	created_at: number;
 	completed_at: number | null;

@@ -1,13 +1,5 @@
 export type UnstableWindow =
-	| "1h"
-	| "2h"
-	| "4h"
-	| "8h"
-	| "12h"
-	| "16h"
-	| "24h"
-	| "3d"
-	| "7d";
+	"1h" | "2h" | "4h" | "8h" | "12h" | "16h" | "24h" | "3d" | "7d";
 
 export const UNSTABLE_WINDOW_DEFAULT: UnstableWindow = "4h";
 
