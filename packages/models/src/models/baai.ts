@@ -5,7 +5,7 @@ export const baaiModels = [
 		id: "bge-m3",
 		name: "BGE-M3",
 		description:
-			"BAAI's multilingual embedding model supporting dense, sparse, and multi-vector retrieval across 100+ languages. 8K context, 1024-dim output. MIT license.",
+			"BAAI's multilingual embedding model supporting dense, sparse, and multi-vector retrieval across 100+ languages. 8K context, 1024-dim output.",
 		family: "baai",
 		output: ["embedding"],
 		releasedAt: new Date("2024-01-29"),
