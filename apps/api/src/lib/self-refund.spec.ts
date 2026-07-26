@@ -671,7 +671,14 @@ describe("self-refund endpoints", () => {
 
 		const response = await app.request(
 			`/orgs/${ORG_ID}/transactions/${tx.id}/refund`,
-			{ method: "POST", headers: { Cookie: token } },
+			{
+				method: "POST",
+				headers: { Cookie: token, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					reason: "too_expensive",
+					comments: "A flat $10 tier would have worked",
+				}),
+			},
 		);
 
 		expect(response.status).toBe(200);
@@ -693,6 +700,134 @@ describe("self-refund endpoints", () => {
 		});
 		expect(auditLogs).toHaveLength(1);
 		expect(auditLogs[0]?.resourceId).toBe(tx.id);
+
+		const feedback = await db.query.refundFeedback.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(feedback).toHaveLength(1);
+		expect(feedback[0]).toMatchObject({
+			transactionId: tx.id,
+			userId: "test-user-id",
+			kind: "credits",
+			reason: "too_expensive",
+			comments: "A flat $10 tier would have worked",
+		});
+	});
+
+	test("rejects a missing or unknown reason without calling Stripe", async () => {
+		await seedOrg({ credits: "100" });
+		const tx = await seedTransaction();
+
+		const missing = await app.request(
+			`/orgs/${ORG_ID}/transactions/${tx.id}/refund`,
+			{
+				method: "POST",
+				headers: { Cookie: token, "Content-Type": "application/json" },
+				body: JSON.stringify({}),
+			},
+		);
+		expect(missing.status).toBe(400);
+
+		const unknown = await app.request(
+			`/orgs/${ORG_ID}/transactions/${tx.id}/refund`,
+			{
+				method: "POST",
+				headers: { Cookie: token, "Content-Type": "application/json" },
+				body: JSON.stringify({ reason: "just because" }),
+			},
+		);
+		expect(unknown.status).toBe(400);
+
+		expect(stripeMock.refunds.create).not.toHaveBeenCalled();
+		expect(
+			await db.query.refundFeedback.findMany({
+				where: { organizationId: { eq: ORG_ID } },
+			}),
+		).toHaveLength(0);
+	});
+
+	// "Something else" says nothing on its own, so the endpoint enforces the
+	// follow-up the dialog asks for rather than trusting the client gate.
+	test("rejects reason 'other' with no comments without calling Stripe", async () => {
+		await seedOrg({ credits: "100" });
+		const tx = await seedTransaction();
+
+		const response = await app.request(
+			`/orgs/${ORG_ID}/transactions/${tx.id}/refund`,
+			{
+				method: "POST",
+				headers: { Cookie: token, "Content-Type": "application/json" },
+				body: JSON.stringify({ reason: "other" }),
+			},
+		);
+		expect(response.status).toBe(400);
+
+		expect(stripeMock.refunds.create).not.toHaveBeenCalled();
+		expect(
+			await db.query.refundFeedback.findMany({
+				where: { organizationId: { eq: ORG_ID } },
+			}),
+		).toHaveLength(0);
+	});
+
+	// The category is required, the detail is not — a one-click answer must
+	// still go through.
+	test("accepts a reason with no comments", async () => {
+		await seedOrg({ credits: "100" });
+		const tx = await seedTransaction();
+
+		const response = await app.request(
+			`/orgs/${ORG_ID}/transactions/${tx.id}/refund`,
+			{
+				method: "POST",
+				headers: { Cookie: token, "Content-Type": "application/json" },
+				body: JSON.stringify({ reason: "bought_by_mistake" }),
+			},
+		);
+		expect(response.status).toBe(200);
+
+		const feedback = await db.query.refundFeedback.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(feedback).toHaveLength(1);
+		expect(feedback[0]).toMatchObject({
+			reason: "bought_by_mistake",
+			comments: null,
+		});
+	});
+
+	// The whole point of writing feedback before calling Stripe: a refund that
+	// blows up at the payment provider must not also lose the answer, or the
+	// only people we hear from are the ones whose refunds worked.
+	test("keeps the feedback when Stripe rejects the refund", async () => {
+		await seedOrg({ credits: "100" });
+		const tx = await seedTransaction();
+		stripeMock.refunds.create.mockRejectedValueOnce(new Error("card_declined"));
+
+		const response = await app.request(
+			`/orgs/${ORG_ID}/transactions/${tx.id}/refund`,
+			{
+				method: "POST",
+				headers: { Cookie: token, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					reason: "not_working",
+					comments: "Every request 500s on gpt-5.6",
+				}),
+			},
+		);
+		expect(response.status).toBe(500);
+
+		const feedback = await db.query.refundFeedback.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(feedback).toHaveLength(1);
+		expect(feedback[0]).toMatchObject({
+			transactionId: tx.id,
+			userId: "test-user-id",
+			kind: "credits",
+			reason: "not_working",
+			comments: "Every request 500s on gpt-5.6",
+		});
 	});
 
 	test("refunding a dev plan resolves the invoice payment and issues the refund", async () => {
@@ -727,7 +862,14 @@ describe("self-refund endpoints", () => {
 
 		const response = await app.request(
 			`/orgs/${ORG_ID}/transactions/${tx.id}/refund`,
-			{ method: "POST", headers: { Cookie: token } },
+			{
+				method: "POST",
+				headers: { Cookie: token, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					reason: "too_expensive",
+					comments: "A flat $10 tier would have worked",
+				}),
+			},
 		);
 
 		expect(response.status).toBe(200);
@@ -739,6 +881,12 @@ describe("self-refund endpoints", () => {
 		// charge.refunded webhook (handleChargeRefunded), covering every refund
 		// source, not just this endpoint.
 		expect(stripeMock.subscriptions.cancel).not.toHaveBeenCalled();
+
+		const feedback = await db.query.refundFeedback.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(feedback).toHaveLength(1);
+		expect(feedback[0]?.kind).toBe("devpass");
 	});
 
 	test("rejects ineligible transactions with 400 and does not call Stripe", async () => {
@@ -747,7 +895,14 @@ describe("self-refund endpoints", () => {
 
 		const response = await app.request(
 			`/orgs/${ORG_ID}/transactions/${tx.id}/refund`,
-			{ method: "POST", headers: { Cookie: token } },
+			{
+				method: "POST",
+				headers: { Cookie: token, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					reason: "too_expensive",
+					comments: "A flat $10 tier would have worked",
+				}),
+			},
 		);
 
 		expect(response.status).toBe(400);
@@ -764,7 +919,14 @@ describe("self-refund endpoints", () => {
 
 		const response = await app.request(
 			`/orgs/${ORG_ID}/transactions/${tx.id}/refund`,
-			{ method: "POST", headers: { Cookie: token } },
+			{
+				method: "POST",
+				headers: { Cookie: token, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					reason: "too_expensive",
+					comments: "A flat $10 tier would have worked",
+				}),
+			},
 		);
 
 		expect(response.status).toBe(403);

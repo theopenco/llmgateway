@@ -7,6 +7,7 @@ import {
 	computeSelfRefundEligibility,
 	executeSelfRefund,
 	isSelfRefundCandidateType,
+	refundFeedbackBodySchema,
 } from "@/lib/self-refund.js";
 import { posthog } from "@/posthog.js";
 import {
@@ -2372,6 +2373,13 @@ const selfRefundInvoice = createRoute({
 		params: z.object({
 			invoiceId: z.string(),
 		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: refundFeedbackBodySchema,
+				},
+			},
+		},
 	},
 	responses: {
 		200: {
@@ -2396,6 +2404,7 @@ devPlans.openapi(selfRefundInvoice, async (c) => {
 	}
 
 	const { invoiceId } = c.req.param();
+	const { reason, comments } = c.req.valid("json");
 
 	const personalOrg = await findPersonalOrg(user.id);
 	if (!personalOrg) {
@@ -2435,6 +2444,8 @@ devPlans.openapi(selfRefundInvoice, async (c) => {
 		organization: personalOrg,
 		transaction,
 		userId: user.id,
+		reason,
+		comments,
 	});
 
 	return c.json({
