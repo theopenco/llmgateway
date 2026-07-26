@@ -144,12 +144,21 @@ export default function QuickStart({ apiKey }: { apiKey: string }) {
 					onClick={handleCopy}
 					className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
 				>
-					{copied ? (
-						<Check className="h-3 w-3" />
-					) : (
-						<Copy className="h-3 w-3" />
-					)}
-					{copied ? "Copied" : "Copy"}
+					<span className="relative flex h-3 w-3 items-center justify-center">
+						<Copy
+							className={`h-3 w-3 transition-[opacity,transform] duration-150 ease-out motion-reduce:transition-[opacity] ${
+								copied ? "scale-[0.45] opacity-0" : "scale-100 opacity-100"
+							}`}
+						/>
+						<Check
+							className={`absolute h-3 w-3 transition-[opacity,transform] duration-150 ease-out motion-reduce:transition-[opacity] ${
+								copied ? "scale-100 opacity-100" : "scale-[0.45] opacity-0"
+							}`}
+						/>
+					</span>
+					<span className="min-w-[6ch] text-left">
+						{copied ? "Copied" : "Copy"}
+					</span>
 				</button>
 			</div>
 
