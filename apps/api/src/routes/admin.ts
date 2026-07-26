@@ -7459,6 +7459,10 @@ admin.openapi(getOrgCostByModel, async (c) => {
 
 const costByModelTimeseriesModelViewSchema = z.enum(["mapping", "canonical"]);
 
+const costTimeseriesGroupBySchema = z.enum(["model", "source"]);
+
+const TOP_TIMESERIES_SERIES = 10;
+
 const costByModelTimeseriesBucketSchema = z.object({
 	model: z.string(),
 	cost: z.number(),
@@ -7475,6 +7479,7 @@ const costByModelTimeseriesResponseSchema = z.object({
 	window: tokenWindowSchema,
 	bucket: z.enum(["hour", "day"]),
 	modelView: costByModelTimeseriesModelViewSchema,
+	groupBy: costTimeseriesGroupBySchema,
 	models: z.array(z.string()),
 	data: z.array(costByModelTimeseriesPointSchema),
 });
@@ -7577,6 +7582,7 @@ admin.openapi(getOrgCostByModelTimeseries, async (c) => {
 			window,
 			bucket: bucketUnit,
 			modelView,
+			groupBy: "model" as const,
 			models: [],
 			data: [],
 		});
@@ -7596,6 +7602,7 @@ admin.openapi(getOrgCostByModelTimeseries, async (c) => {
 		window,
 		bucket: bucketUnit,
 		modelView,
+		groupBy: "model" as const,
 		models: result.models,
 		data: result.data,
 	});
@@ -7611,6 +7618,7 @@ const getProjectCostByModelTimeseries = createRoute({
 			modelView: costByModelTimeseriesModelViewSchema
 				.default("mapping")
 				.optional(),
+			groupBy: costTimeseriesGroupBySchema.default("model").optional(),
 		}),
 	},
 	responses: {
@@ -7620,7 +7628,7 @@ const getProjectCostByModelTimeseries = createRoute({
 					schema: costByModelTimeseriesResponseSchema.openapi({}),
 				},
 			},
-			description: "Project cost breakdown by model over time.",
+			description: "Project cost breakdown by model or source over time.",
 		},
 		404: {
 			description: "Project not found.",
@@ -7633,6 +7641,7 @@ admin.openapi(getProjectCostByModelTimeseries, async (c) => {
 	const query = c.req.valid("query");
 	const window = query.window ?? "7d";
 	const modelView = query.modelView ?? "mapping";
+	const groupBy = query.groupBy ?? "model";
 	const startDate = getTokenWindowStartDate(window);
 	const bucketUnit = getBucketUnitForWindow(window);
 
@@ -7647,20 +7656,31 @@ admin.openapi(getProjectCostByModelTimeseries, async (c) => {
 		throw new HTTPException(404, { message: "Project not found" });
 	}
 
-	const result = await buildCostByModelTimeseries({
-		modelView,
-		bucketUnit,
-		startDate,
-		baseFilter: and(
-			eq(projectHourlyModelStats.projectId, projectId),
-			gte(projectHourlyModelStats.hourTimestamp, startDate),
-		),
-	});
+	const result =
+		groupBy === "source"
+			? await buildCostBySourceTimeseries({
+					bucketUnit,
+					startDate,
+					baseFilter: and(
+						eq(projectHourlySourceStats.projectId, projectId),
+						gte(projectHourlySourceStats.hourTimestamp, startDate),
+					),
+				})
+			: await buildCostByModelTimeseries({
+					modelView,
+					bucketUnit,
+					startDate,
+					baseFilter: and(
+						eq(projectHourlyModelStats.projectId, projectId),
+						gte(projectHourlyModelStats.hourTimestamp, startDate),
+					),
+				});
 
 	return c.json({
 		window,
 		bucket: bucketUnit,
 		modelView,
+		groupBy,
 		models: result.models,
 		data: result.data,
 	});
@@ -7704,7 +7724,7 @@ async function buildCostByModelTimeseries({
 
 	const topKeys = [...totalByKey.entries()]
 		.sort((a, b) => b[1] - a[1])
-		.slice(0, 10)
+		.slice(0, TOP_TIMESERIES_SERIES)
 		.map(([k]) => k);
 
 	if (topKeys.length === 0) {
@@ -7746,28 +7766,126 @@ async function buildCostByModelTimeseries({
 		.groupBy(bucketExpr, projectHourlyModelStats.usedModel)
 		.orderBy(asc(bucketExpr));
 
+	return {
+		models: topKeys,
+		data: assembleCostTimeseriesPoints({
+			allBuckets,
+			rows: rows.map((row) => ({
+				bucket: row.bucket,
+				key: keyOf(row.usedModel),
+				cost: Number(row.cost),
+				requestCount: Number(row.requestCount),
+				totalTokens: Number(row.totalTokens),
+			})),
+		}),
+	};
+}
+
+async function buildCostBySourceTimeseries({
+	bucketUnit,
+	startDate,
+	baseFilter,
+}: {
+	bucketUnit: "hour" | "day";
+	startDate: Date;
+	baseFilter: ReturnType<typeof and>;
+}): Promise<{
+	models: string[];
+	data: z.infer<typeof costByModelTimeseriesPointSchema>[];
+}> {
+	const sourceTotals = await db
+		.select({
+			source: projectHourlySourceStats.source,
+			cost: sql<number>`SUM(${projectHourlySourceStats.cost})`.as("cost"),
+		})
+		.from(projectHourlySourceStats)
+		.where(baseFilter)
+		.groupBy(projectHourlySourceStats.source);
+
+	const topKeys = [...sourceTotals]
+		.sort((a, b) => Number(b.cost) - Number(a.cost))
+		.slice(0, TOP_TIMESERIES_SERIES)
+		.map((row) => row.source);
+
+	if (topKeys.length === 0) {
+		return { models: [], data: [] };
+	}
+
+	const allBuckets = generateBucketTimestamps(
+		startDate,
+		new Date(),
+		bucketUnit,
+	);
+
+	const bucketExpr = sql<string>`to_char(date_trunc(${sql.raw(`'${bucketUnit}'`)}, ${projectHourlySourceStats.hourTimestamp}), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
+
+	const rows = await db
+		.select({
+			bucket: bucketExpr.as("bucket"),
+			source: projectHourlySourceStats.source,
+			cost: sql<number>`SUM(${projectHourlySourceStats.cost})`.as("cost"),
+			requestCount:
+				sql<number>`SUM(${projectHourlySourceStats.requestCount})`.as(
+					"request_count",
+				),
+			totalTokens:
+				sql<number>`SUM(CAST(${projectHourlySourceStats.totalTokens} AS NUMERIC))`.as(
+					"total_tokens",
+				),
+		})
+		.from(projectHourlySourceStats)
+		.where(and(baseFilter, inArray(projectHourlySourceStats.source, topKeys)))
+		.groupBy(bucketExpr, projectHourlySourceStats.source)
+		.orderBy(asc(bucketExpr));
+
+	return {
+		models: topKeys,
+		data: assembleCostTimeseriesPoints({
+			allBuckets,
+			rows: rows.map((row) => ({
+				bucket: row.bucket,
+				key: row.source,
+				cost: Number(row.cost),
+				requestCount: Number(row.requestCount),
+				totalTokens: Number(row.totalTokens),
+			})),
+		}),
+	};
+}
+
+function assembleCostTimeseriesPoints({
+	allBuckets,
+	rows,
+}: {
+	allBuckets: string[];
+	rows: {
+		bucket: string;
+		key: string;
+		cost: number;
+		requestCount: number;
+		totalTokens: number;
+	}[];
+}): z.infer<typeof costByModelTimeseriesPointSchema>[] {
 	const bucketMap = new Map<
 		string,
 		Map<string, { cost: number; requestCount: number; totalTokens: number }>
 	>();
 
 	for (const row of rows) {
-		const ts = row.bucket;
-		const key = keyOf(row.usedModel);
-		const entry = bucketMap.get(ts) ?? new Map();
-		const existing = entry.get(key) ?? {
+		const entry = bucketMap.get(row.bucket) ?? new Map();
+		const existing = entry.get(row.key) ?? {
 			cost: 0,
 			requestCount: 0,
 			totalTokens: 0,
 		};
-		existing.cost += Number(row.cost);
-		existing.requestCount += Number(row.requestCount);
-		existing.totalTokens += Number(row.totalTokens);
-		entry.set(key, existing);
-		bucketMap.set(ts, entry);
+		existing.cost += row.cost;
+		existing.requestCount += row.requestCount;
+		existing.totalTokens += row.totalTokens;
+		entry.set(row.key, existing);
+		bucketMap.set(row.bucket, entry);
 	}
 
-	const data = allBuckets.map((timestamp) => ({
+	return allBuckets.map((timestamp) => ({
 		timestamp,
 		entries: Array.from(bucketMap.get(timestamp)?.entries() ?? []).map(
 			([model, v]) => ({
@@ -7778,8 +7896,6 @@ async function buildCostByModelTimeseries({
 			}),
 		),
 	}));
-
-	return { models: topKeys, data };
 }
 
 // --- Project Model-Provider Stats ---
