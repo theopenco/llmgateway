@@ -68,9 +68,7 @@ interface ModelSelectorProps {
 	value?: string;
 	onValueChange?: (value: string) => void;
 	placeholder?: string;
-	// "realtime" only affects presentation; capability filtering is the
-	// caller's responsibility (pass a pre-restricted models array).
-	mode?: "chat" | "video" | "image" | "audio" | "realtime";
+	mode?: "chat" | "video" | "image" | "audio";
 	isOptionDisabled?: (value: string) => boolean;
 	getOptionDisabledReason?: (value: string) => string | undefined;
 	/**
@@ -160,14 +158,7 @@ function isModelUnstable(
 }
 
 type PriceField =
-	| "input"
-	| "output"
-	| "cachedInput"
-	| "request"
-	| "imageInput"
-	| "imageOutput"
-	| "inputAudio"
-	| "outputAudio";
+	"input" | "output" | "cachedInput" | "request" | "imageInput" | "imageOutput";
 
 interface MappingPriceInfo {
 	label: string;
@@ -195,10 +186,6 @@ function getMappingPriceInfo(
 		basePriceStr = mapping.requestPrice;
 	} else if (field === "imageInput") {
 		basePriceStr = mapping.imageInputPrice;
-	} else if (field === "inputAudio") {
-		basePriceStr = mapping.inputAudioPrice;
-	} else if (field === "outputAudio") {
-		basePriceStr = mapping.outputAudioPrice;
 	}
 
 	if (basePriceStr === null || basePriceStr === undefined) {
@@ -238,39 +225,6 @@ function getMappingPriceInfo(
 	}
 
 	return { label: original, original };
-}
-
-function MappingPriceCell({
-	label,
-	mapping,
-	field,
-}: {
-	label: string;
-	mapping: ApiModelProviderMapping | undefined;
-	field: PriceField;
-}) {
-	const price = getMappingPriceInfo(mapping, field);
-	const discounted =
-		price.original && price.discounted && price.original !== price.discounted;
-	return (
-		<div className="space-y-1">
-			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-				{label}
-			</span>
-			<p className="text-xs font-mono">
-				{discounted ? (
-					<>
-						<span className="line-through text-muted-foreground">
-							{price.original}
-						</span>{" "}
-						<span className="text-green-500">{price.discounted}</span>
-					</>
-				) : (
-					price.label
-				)}
-			</p>
-		</div>
-	);
 }
 
 interface RootAggregateInfo {
@@ -2069,9 +2023,7 @@ export function ModelSelector({
 																	<>
 																		<div className="space-y-1">
 																			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																				{mode === "realtime"
-																					? "Text In"
-																					: "Input"}
+																				Input
 																			</span>
 																			<p className="text-xs font-mono">
 																				{(() => {
@@ -2129,20 +2081,6 @@ export function ModelSelector({
 																				})()}
 																			</p>
 																		</div>
-																	</>
-																)}
-																{mode === "realtime" && (
-																	<>
-																		<MappingPriceCell
-																			label="Audio In"
-																			mapping={previewEntry.mapping}
-																			field="inputAudio"
-																		/>
-																		<MappingPriceCell
-																			label="Audio Out"
-																			mapping={previewEntry.mapping}
-																			field="outputAudio"
-																		/>
 																	</>
 																)}
 																<div className="space-y-1">
