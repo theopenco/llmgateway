@@ -53,7 +53,7 @@
 		"eslint-plugin-no-relative-import-paths": "1.6.1",
 		"husky": "^9.1.7",
 		"lint-staged": "16.4.0",
-		"nodemon": "3.1.10",
+		"nodemon": "3.1.14",
 		"prettier": "^3.6.2",
 		"resolve-tspaths": "0.8.23",
 		"semantic-release": "^24.2.5",

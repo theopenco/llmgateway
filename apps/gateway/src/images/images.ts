@@ -5,7 +5,11 @@ import { app } from "@/app.js";
 import { createLogEntry } from "@/chat/tools/create-log-entry.js";
 import { extractCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
 import { internalApiOriginHeaders } from "@/lib/api-origin.js";
-import { findApiKeyByToken, findProjectById } from "@/lib/cached-queries.js";
+import {
+	findApiKeyByToken,
+	findOrganizationById,
+	findProjectById,
+} from "@/lib/cached-queries.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { validateModelOutput } from "@/lib/validate-model-output.js";
@@ -82,6 +86,7 @@ interface ImageClientErrorLogContext {
 	apiKey: NonNullable<Awaited<ReturnType<typeof findApiKeyByToken>>>;
 	project: NonNullable<Awaited<ReturnType<typeof findProjectById>>>;
 	requestId: string;
+	retentionLevel: "retain" | "none";
 }
 
 const imageGenerationsResponseSchema = z.object({
@@ -445,6 +450,8 @@ async function resolveImageClientErrorLogContext(
 		return null;
 	}
 
+	const organization = await findOrganizationById(project.organizationId);
+
 	const requestId = c.req.header("x-request-id")?.trim() || shortid(40);
 	c.header("x-request-id", requestId);
 
@@ -452,6 +459,7 @@ async function resolveImageClientErrorLogContext(
 		apiKey,
 		project,
 		requestId,
+		retentionLevel: organization?.retentionLevel ?? "none",
 	};
 }
 
@@ -485,73 +493,76 @@ async function logImageClientError(
 					}
 				: undefined;
 
-		await insertLog({
-			...createLogEntry({
-				requestId: logContext.requestId,
-				project: logContext.project,
-				apiKey: logContext.apiKey,
-				usedModel,
-				usedProvider: "llmgateway",
-				requestedModel,
-				messages: [
-					{
-						role: "user",
-						content: request.prompt ?? "",
-					},
-				],
-				source: c.req.header("x-source") ?? undefined,
-				apiOrigin: "images",
-				customHeaders: extractCustomHeaders(c),
-				debugMode: false,
-				userAgent: c.req.header("user-agent"),
-				imageConfig,
-			}),
-			duration: Date.now() - startedAt,
-			timeToFirstToken: null,
-			timeToFirstReasoningToken: null,
-			responseSize: responseText.length,
-			content: null,
-			reasoningContent: null,
-			finishReason: "client_error",
-			promptTokens: null,
-			completionTokens: null,
-			totalTokens: null,
-			reasoningTokens: null,
-			cachedTokens: null,
-			cacheWriteTokens: null,
-			hasError: true,
-			streamed: false,
-			canceled: false,
-			errorDetails: {
-				statusCode: status,
-				statusText: getStatusText(status),
-				responseText,
+		await insertLog(
+			{
+				...createLogEntry({
+					requestId: logContext.requestId,
+					project: logContext.project,
+					apiKey: logContext.apiKey,
+					usedModel,
+					usedProvider: "llmgateway",
+					requestedModel,
+					messages: [
+						{
+							role: "user",
+							content: request.prompt ?? "",
+						},
+					],
+					source: c.req.header("x-source") ?? undefined,
+					apiOrigin: "images",
+					customHeaders: extractCustomHeaders(c),
+					debugMode: false,
+					userAgent: c.req.header("user-agent"),
+					imageConfig,
+				}),
+				duration: Date.now() - startedAt,
+				timeToFirstToken: null,
+				timeToFirstReasoningToken: null,
+				responseSize: responseText.length,
+				content: null,
+				reasoningContent: null,
+				finishReason: "client_error",
+				promptTokens: null,
+				completionTokens: null,
+				totalTokens: null,
+				reasoningTokens: null,
+				cachedTokens: null,
+				cacheWriteTokens: null,
+				hasError: true,
+				streamed: false,
+				canceled: false,
+				errorDetails: {
+					statusCode: status,
+					statusText: getStatusText(status),
+					responseText,
+				},
+				inputCost: 0,
+				outputCost: 0,
+				cachedInputCost: 0,
+				cacheWriteInputCost: 0,
+				requestCost: 0,
+				webSearchCost: 0,
+				contentFilterCost: null,
+				imageInputTokens: null,
+				imageOutputTokens: null,
+				imageInputCost: null,
+				imageOutputCost: null,
+				audioInputTokens: null,
+				audioInputCost: null,
+				cost: 0,
+				estimatedCost: false,
+				discount: null,
+				pricingTier: null,
+				requestedServiceTier: null,
+				usedServiceTier: null,
+				dataStorageCost: calculateDataStorageCost(null, null, null, null),
+				cached: false,
+				tools: null,
+				toolResults: null,
+				toolChoice: null,
 			},
-			inputCost: 0,
-			outputCost: 0,
-			cachedInputCost: 0,
-			cacheWriteInputCost: 0,
-			requestCost: 0,
-			webSearchCost: 0,
-			contentFilterCost: null,
-			imageInputTokens: null,
-			imageOutputTokens: null,
-			imageInputCost: null,
-			imageOutputCost: null,
-			audioInputTokens: null,
-			audioInputCost: null,
-			cost: 0,
-			estimatedCost: false,
-			discount: null,
-			pricingTier: null,
-			requestedServiceTier: null,
-			usedServiceTier: null,
-			dataStorageCost: calculateDataStorageCost(null, null, null, null),
-			cached: false,
-			tools: null,
-			toolResults: null,
-			toolChoice: null,
-		});
+			{ retentionLevel: logContext.retentionLevel },
+		);
 	} catch (error) {
 		logger.warn("Images API - failed to log client error", {
 			err: toError(error),
