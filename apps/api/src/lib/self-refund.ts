@@ -11,9 +11,9 @@ import {
 	CHAT_PLAN_PRICES,
 	DEV_PLAN_PRICES,
 	DEV_PLAN_RESET_PASS_PRICES,
+	isRefundFeedbackComplete,
 	REFUND_COMMENTS_MAX_LENGTH,
 	REFUND_REASONS,
-	refundCommentsRequired,
 	type ChatPlanTier,
 	type DevPlanTier,
 } from "@llmgateway/shared";
@@ -443,7 +443,7 @@ export async function executeSelfRefund({
 	reason: RefundReason;
 	comments?: string;
 }): Promise<{ stripeRefundId: string }> {
-	if (refundCommentsRequired(reason) && !comments) {
+	if (!isRefundFeedbackComplete(reason, comments)) {
 		throw new HTTPException(400, {
 			message: "Tell us what happened so we know what to fix.",
 		});

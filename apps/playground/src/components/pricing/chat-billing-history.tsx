@@ -18,8 +18,6 @@ import {
 	AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
 	Tooltip,
 	TooltipContent,
@@ -29,13 +27,10 @@ import {
 import { useApi, useFetchClient } from "@/lib/fetch-client";
 
 import {
-	REFUND_COMMENTS_MAX_LENGTH,
-	REFUND_REASON_ASSURANCE,
-	REFUND_REASON_HEADING,
-	REFUND_REASON_OPTIONS,
-	refundCommentsRequired,
+	isRefundFeedbackComplete,
 	type RefundReason,
 } from "@llmgateway/shared";
+import { RefundReasonFieldset } from "@llmgateway/shared/components";
 
 import type { paths } from "@/lib/api/v1";
 
@@ -189,14 +184,8 @@ function RefundButton({
 	const [reason, setReason] = useState<RefundReason | null>(null);
 	const [comments, setComments] = useState("");
 
-	const selectedReason = REFUND_REASON_OPTIONS.find(
-		(option) => option.value === reason,
-	);
 	const trimmedComments = comments.trim();
-	const canSubmit =
-		selectedReason !== undefined &&
-		(!refundCommentsRequired(selectedReason.value) ||
-			trimmedComments.length > 0);
+	const canSubmit = isRefundFeedbackComplete(reason, comments);
 
 	const refundMutation = api.useMutation(
 		"post",
@@ -282,52 +271,14 @@ function RefundButton({
 							: `${formatAmount(transaction.amount, transaction.currency)} will be refunded to your payment method. The purchased credits will be removed from your balance. This cannot be undone.`}
 					</AlertDialogDescription>
 				</AlertDialogHeader>
-				<fieldset className="space-y-3" disabled={refundMutation.isPending}>
-					<legend className="text-sm font-medium">
-						{REFUND_REASON_HEADING}
-					</legend>
-					<p className="text-muted-foreground text-xs">
-						{REFUND_REASON_ASSURANCE}
-					</p>
-					<div className="flex flex-wrap gap-2">
-						{REFUND_REASON_OPTIONS.map((option) => (
-							<label key={option.value} className="cursor-pointer">
-								<input
-									type="radio"
-									name={`refund-reason-${transaction.id}`}
-									value={option.value}
-									checked={reason === option.value}
-									onChange={() => setReason(option.value)}
-									className="peer sr-only"
-								/>
-								<span className="peer-checked:border-primary peer-checked:bg-primary peer-checked:text-primary-foreground peer-checked:hover:bg-primary peer-focus-visible:ring-ring/50 hover:bg-muted text-muted-foreground block rounded-full border px-3 py-1.5 text-sm transition-colors peer-focus-visible:ring-[3px]">
-									{option.label}
-								</span>
-							</label>
-						))}
-					</div>
-					{selectedReason ? (
-						<div className="space-y-2">
-							<Label htmlFor={`refund-comments-${transaction.id}`}>
-								{selectedReason.prompt}
-								{refundCommentsRequired(selectedReason.value) ? null : (
-									<span className="text-muted-foreground font-normal">
-										{" "}
-										(optional)
-									</span>
-								)}
-							</Label>
-							<Textarea
-								id={`refund-comments-${transaction.id}`}
-								value={comments}
-								onChange={(e) => setComments(e.target.value)}
-								maxLength={REFUND_COMMENTS_MAX_LENGTH}
-								rows={3}
-								placeholder={selectedReason.placeholder}
-							/>
-						</div>
-					) : null}
-				</fieldset>
+				<RefundReasonFieldset
+					idPrefix={transaction.id}
+					reason={reason}
+					onReasonChange={setReason}
+					comments={comments}
+					onCommentsChange={setComments}
+					disabled={refundMutation.isPending}
+				/>
 				<AlertDialogFooter>
 					<AlertDialogCancel disabled={refundMutation.isPending}>
 						{isPlanPayment(transaction.type)

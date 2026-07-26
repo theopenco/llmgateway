@@ -24,18 +24,13 @@ import {
 	AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
 
 import {
-	REFUND_COMMENTS_MAX_LENGTH,
-	REFUND_REASON_ASSURANCE,
-	REFUND_REASON_HEADING,
-	REFUND_REASON_OPTIONS,
-	refundCommentsRequired,
+	isRefundFeedbackComplete,
 	type RefundReason,
 } from "@llmgateway/shared";
+import { RefundReasonFieldset } from "@llmgateway/shared/components";
 
 import type { paths } from "@/lib/api/v1";
 import type { ReactNode } from "react";
@@ -153,14 +148,8 @@ function RefundButton({ invoice }: { invoice: Invoice }) {
 	const [reason, setReason] = useState<RefundReason | null>(null);
 	const [comments, setComments] = useState("");
 
-	const selectedReason = REFUND_REASON_OPTIONS.find(
-		(option) => option.value === reason,
-	);
 	const trimmedComments = comments.trim();
-	const canSubmit =
-		selectedReason !== undefined &&
-		(!refundCommentsRequired(selectedReason.value) ||
-			trimmedComments.length > 0);
+	const canSubmit = isRefundFeedbackComplete(reason, comments);
 
 	const refundMutation = api.useMutation(
 		"post",
@@ -240,52 +229,14 @@ function RefundButton({ invoice }: { invoice: Invoice }) {
 							: `Refunding cancels your subscription completely: ${formatAmount(invoice.amount, invoice.currency)} goes back to your payment method and your DevPass ends right away — not at the end of the billing period — so the rest of this cycle's credits are lost. To use DevPass again you would have to subscribe from scratch. This cannot be undone.`}
 					</AlertDialogDescription>
 				</AlertDialogHeader>
-				<fieldset className="space-y-3" disabled={refundMutation.isPending}>
-					<legend className="text-sm font-medium">
-						{REFUND_REASON_HEADING}
-					</legend>
-					<p className="text-muted-foreground text-xs">
-						{REFUND_REASON_ASSURANCE}
-					</p>
-					<div className="flex flex-wrap gap-2">
-						{REFUND_REASON_OPTIONS.map((option) => (
-							<label key={option.value} className="cursor-pointer">
-								<input
-									type="radio"
-									name={`refund-reason-${invoice.id}`}
-									value={option.value}
-									checked={reason === option.value}
-									onChange={() => setReason(option.value)}
-									className="peer sr-only"
-								/>
-								<span className="peer-checked:border-primary peer-checked:bg-primary peer-checked:text-primary-foreground peer-checked:hover:bg-primary peer-focus-visible:ring-ring/50 hover:bg-muted text-muted-foreground block rounded-full border px-3 py-1.5 text-sm transition-colors peer-focus-visible:ring-[3px]">
-									{option.label}
-								</span>
-							</label>
-						))}
-					</div>
-					{selectedReason ? (
-						<div className="space-y-2">
-							<Label htmlFor={`refund-comments-${invoice.id}`}>
-								{selectedReason.prompt}
-								{refundCommentsRequired(selectedReason.value) ? null : (
-									<span className="text-muted-foreground font-normal">
-										{" "}
-										(optional)
-									</span>
-								)}
-							</Label>
-							<Textarea
-								id={`refund-comments-${invoice.id}`}
-								value={comments}
-								onChange={(e) => setComments(e.target.value)}
-								maxLength={REFUND_COMMENTS_MAX_LENGTH}
-								rows={3}
-								placeholder={selectedReason.placeholder}
-							/>
-						</div>
-					) : null}
-				</fieldset>
+				<RefundReasonFieldset
+					idPrefix={invoice.id}
+					reason={reason}
+					onReasonChange={setReason}
+					comments={comments}
+					onCommentsChange={setComments}
+					disabled={refundMutation.isPending}
+				/>
 				<AlertDialogFooter>
 					<AlertDialogCancel disabled={refundMutation.isPending}>
 						{isResetPass ? "Keep my pass" : "Keep my DevPass"}

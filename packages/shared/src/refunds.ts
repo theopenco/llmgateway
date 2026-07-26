@@ -78,3 +78,15 @@ export const REFUND_REASON_ASSURANCE =
 export function refundCommentsRequired(reason: RefundReason): boolean {
 	return reason === "other";
 }
+
+// One rule for "is this answer usable?", shared by the dialogs (to gate the
+// confirm button) and the endpoints (to reject the request).
+export function isRefundFeedbackComplete(
+	reason: RefundReason | null | undefined,
+	comments: string | null | undefined,
+): reason is RefundReason {
+	if (!reason) {
+		return false;
+	}
+	return !refundCommentsRequired(reason) || (comments ?? "").trim().length > 0;
+}

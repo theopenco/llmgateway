@@ -58,6 +58,7 @@ export {
 	REFUND_REASON_HEADING,
 	REFUND_REASON_OPTIONS,
 	REFUND_REASONS,
+	isRefundFeedbackComplete,
 	refundCommentsRequired,
 	type RefundReason,
 	type RefundReasonOption,

@@ -796,6 +796,40 @@ describe("self-refund endpoints", () => {
 		});
 	});
 
+	// The whole point of writing feedback before calling Stripe: a refund that
+	// blows up at the payment provider must not also lose the answer, or the
+	// only people we hear from are the ones whose refunds worked.
+	test("keeps the feedback when Stripe rejects the refund", async () => {
+		await seedOrg({ credits: "100" });
+		const tx = await seedTransaction();
+		stripeMock.refunds.create.mockRejectedValueOnce(new Error("card_declined"));
+
+		const response = await app.request(
+			`/orgs/${ORG_ID}/transactions/${tx.id}/refund`,
+			{
+				method: "POST",
+				headers: { Cookie: token, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					reason: "not_working",
+					comments: "Every request 500s on gpt-5.6",
+				}),
+			},
+		);
+		expect(response.status).toBe(500);
+
+		const feedback = await db.query.refundFeedback.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(feedback).toHaveLength(1);
+		expect(feedback[0]).toMatchObject({
+			transactionId: tx.id,
+			userId: "test-user-id",
+			kind: "credits",
+			reason: "not_working",
+			comments: "Every request 500s on gpt-5.6",
+		});
+	});
+
 	test("refunding a dev plan resolves the invoice payment and issues the refund", async () => {
 		await seedOrg({
 			devPlan: "pro",
