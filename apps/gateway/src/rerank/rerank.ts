@@ -570,8 +570,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 
 	async function resolveAttempt(): Promise<ResolveResult> {
 		let providerKeyInner:
-			| InferSelectModel<typeof tables.providerKey>
-			| undefined;
+			InferSelectModel<typeof tables.providerKey> | undefined;
 		let usedToken: string | undefined;
 		let configIndex = 0;
 		let envVarName: string | undefined;
@@ -761,6 +760,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 					},
 				],
 				source,
+				apiOrigin: "rerank",
 				customHeaders,
 				debugMode,
 				userAgent,

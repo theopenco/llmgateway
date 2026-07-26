@@ -681,7 +681,6 @@ export const speechModels = models
 		return testCases;
 	});
 
-
 // Transcription (speech-to-text) models are likewise excluded from
 // filteredModels (transcription-only output, served by the dedicated
 // /v1/audio/transcriptions endpoint). Build a separate list of transcription

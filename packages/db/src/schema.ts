@@ -1645,6 +1645,7 @@ export const API_ORIGINS = [
 	"ocr",
 	"speech",
 	"transcriptions",
+	"rerank",
 ] as const;
 
 export type ApiOrigin = (typeof API_ORIGINS)[number];
