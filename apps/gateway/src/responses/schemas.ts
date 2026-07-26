@@ -94,13 +94,26 @@ const functionCallOutputItemSchema = z.object({
 	status: z.enum(["in_progress", "completed", "incomplete"]).optional(),
 });
 
+// Clients replaying reasoning items statelessly (Codex sends the whole prior
+// output back as `input`) serialize their absent optional fields as explicit
+// nulls, so every field here must accept null as well as being omitted —
+// rejecting them 400s a client on reasoning the gateway itself just emitted.
+// Nulls are normalized to undefined so downstream conversion stays unchanged.
+const nullishToUndefined = <T extends z.ZodTypeAny>(schema: T) =>
+	schema
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val));
+
 const reasoningItemSchema = z.object({
 	type: z.literal("reasoning"),
-	id: z.string().optional(),
-	summary: z.array(z.record(z.any())).optional(),
-	content: z.array(z.record(z.any())).optional(),
-	encrypted_content: z.string().optional(),
-	status: z.enum(["in_progress", "completed", "incomplete"]).optional(),
+	id: nullishToUndefined(z.string()),
+	summary: nullishToUndefined(z.array(z.record(z.any()))),
+	content: nullishToUndefined(z.array(z.record(z.any()))),
+	encrypted_content: nullishToUndefined(z.string()),
+	status: nullishToUndefined(
+		z.enum(["in_progress", "completed", "incomplete"]),
+	),
 });
 
 // Reference to an item produced by a previous (stored) response. Stateful

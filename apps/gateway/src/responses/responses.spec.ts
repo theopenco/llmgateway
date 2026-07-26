@@ -82,6 +82,38 @@ describe("responsesRequestSchema", () => {
 		expect(result.success).toBe(true);
 	});
 
+	it("accepts reasoning items whose optional fields are explicit nulls", () => {
+		// Codex replays the whole prior output as `input` and serializes its
+		// absent optionals as nulls, so a reasoning item the gateway itself
+		// emitted comes back with `content: null`.
+		const result = responsesRequestSchema.safeParse({
+			model: "gpt-5.5",
+			store: false,
+			include: ["reasoning.encrypted_content"],
+			input: [
+				{
+					type: "reasoning",
+					id: null,
+					summary: [{ type: "summary_text", text: "**Planning**" }],
+					content: null,
+					encrypted_content: "gAAAAAB_encrypted_payload",
+					status: null,
+				},
+				{ role: "user", content: "continue" },
+			],
+		});
+
+		expect(result.success).toBe(true);
+		const reasoningItem = (
+			result.data!.input as Array<Record<string, unknown>>
+		)[0]!;
+		// Nulls normalize to undefined so downstream conversion is unchanged.
+		expect(reasoningItem.content).toBeUndefined();
+		expect(reasoningItem.id).toBeUndefined();
+		expect(reasoningItem.status).toBeUndefined();
+		expect(reasoningItem.encrypted_content).toBe("gAAAAAB_encrypted_payload");
+	});
+
 	it("accepts structured function call outputs", () => {
 		const result = responsesRequestSchema.safeParse({
 			model: "gpt-5.3-codex",
