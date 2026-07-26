@@ -662,9 +662,13 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 		let requestBody: Record<string, unknown>;
 
 		if (isDeepInfra) {
-			// DeepInfra rerank uses the inference endpoint:
-			// https://api.deepinfra.com/v1/inference/{externalId}
-			upstreamUrl = `${resolvedBaseUrl}/v1/inference/${upstreamModel}`;
+			// DeepInfra rerank uses the inference endpoint
+			// (https://api.deepinfra.com/v1/inference/{externalId}), which is a
+			// sibling of the OpenAI-compatible surface the base URL points at
+			// (https://api.deepinfra.com/v1/openai). Drop that suffix so the path
+			// doesn't double up to /v1/openai/v1/inference and 404.
+			const inferenceBaseUrl = resolvedBaseUrl.replace(/\/v1\/openai\/?$/, "");
+			upstreamUrl = `${inferenceBaseUrl}/v1/inference/${upstreamModel}`;
 			requestBody = {
 				queries: [query],
 				documents,

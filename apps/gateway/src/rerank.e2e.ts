@@ -12,6 +12,7 @@ import {
 } from "@/chat-helpers.e2e.js";
 
 import { app } from "./app.js";
+import { waitForLogByRequestId } from "./test-utils/test-helpers.js";
 
 describe("e2e rerank", getConcurrentTestOptions(), () => {
 	beforeAll(beforeAllHook);
@@ -97,9 +98,8 @@ describe("e2e rerank", getConcurrentTestOptions(), () => {
 
 		expect(res.status).toBe(200);
 		expect(Array.isArray(json.results)).toBe(true);
-		// top_n limits the results
-		expect(json.results.length).toBeLessThanOrEqual(2);
-		expect(json.results.length).toBeGreaterThan(0);
+		// top_n truncates the 5 documents sent above down to exactly 2
+		expect(json.results.length).toBe(2);
 
 		// Results should be sorted by relevance_score descending
 		for (let i = 1; i < json.results.length; i++) {
@@ -152,6 +152,47 @@ describe("e2e rerank", getConcurrentTestOptions(), () => {
 			expect(result).toHaveProperty("document");
 			expect(typeof result.document).toBe("string");
 		}
+	});
+
+	test("rerank logs the request with the rerank api origin", async () => {
+		const requestId = generateTestRequestId();
+		const model = rerankModels[0]?.model;
+		if (!model) {
+			return; // skip if no rerank models configured
+		}
+
+		const res = await app.request("/v1/rerank", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"x-request-id": requestId,
+				"x-no-fallback": "true",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model,
+				query: "What is the capital of France?",
+				documents: [
+					"Paris is the capital of France.",
+					"Berlin is the capital of Germany.",
+				],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+
+		const log = await waitForLogByRequestId(requestId);
+		expect(log).toBeDefined();
+		expect(log!.apiOrigin).toBe("rerank");
+		expect(log!.usedModel).toBe(model);
+		expect(log!.hasError).toBe(false);
+		// Cross-encoder rerankers have no output tokens, so only the prompt side
+		// is billed and the cost must still be a real (non-estimated) number.
+		expect(Number(log!.promptTokens)).toBeGreaterThan(0);
+		expect(log!.completionTokens).toBeNull();
+		expect(log!.estimatedCost).toBe(false);
+		expect(Number(log!.cost)).toBeGreaterThan(0);
+		expect(Number(log!.outputCost)).toBe(0);
 	});
 
 	test("rerank invalid model returns 400", async () => {

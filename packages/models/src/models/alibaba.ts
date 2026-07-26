@@ -3049,6 +3049,10 @@ export const alibabaModels = [
 				tools: false,
 				jsonOutput: false,
 				rerank: true,
+				// DeepInfra scales this deployment to zero: a cold request blocks
+				// for ~50s before the first response, which exceeds the e2e timeout.
+				// The 0.6B and 8B deployments stay warm and respond in <1s.
+				stability: "unstable",
 			},
 		],
 	},
