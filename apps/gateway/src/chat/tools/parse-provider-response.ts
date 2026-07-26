@@ -790,8 +790,13 @@ export function parseProviderResponse(
 				const messageOutput = json.output.find(
 					(item: any) => item.type === "message",
 				);
-				const reasoningOutput = json.output.find(
-					(item: any) => item.type === "reasoning",
+				// A response can carry several reasoning items (e.g. one before
+				// each tool call), so collect them all once — both the summary text
+				// and the encrypted payloads below are derived from every item.
+				// Each entry keeps its position in json.output as its index.
+				const reasoningOutputs = json.output.flatMap(
+					(item: any, index: number) =>
+						item.type === "reasoning" ? [{ item, index }] : [],
 				);
 				const firstFunctionCallIdx = json.output.findIndex(
 					(item: any) => item.type === "function_call",
@@ -886,25 +891,28 @@ export function parseProviderResponse(
 					}
 				}
 
-				// Extract reasoning content from summary (may hold multiple parts)
-				if (Array.isArray(reasoningOutput?.summary)) {
-					const summaryText = reasoningOutput.summary
-						.map((part: any) => part?.text ?? "")
-						.filter(Boolean)
-						.join("\n\n");
-					if (summaryText) {
-						reasoningContent = summaryText;
-					}
+				// Extract reasoning content from every item's summary (each may hold
+				// multiple parts). Taking only the first item would silently drop the
+				// reasoning that preceded later tool calls, and would disagree with
+				// the streaming path, which aggregates every summary delta.
+				const summaryText = reasoningOutputs
+					.flatMap(({ item }: any) =>
+						Array.isArray(item.summary)
+							? item.summary.map((part: any) => part?.text ?? "")
+							: [],
+					)
+					.filter(Boolean)
+					.join("\n\n");
+				if (summaryText) {
+					reasoningContent = summaryText;
 				}
 
 				// Collect encrypted reasoning payloads (returned when the upstream
 				// request sets store:false + include:["reasoning.encrypted_content"])
 				// so clients can replay them on later turns to preserve reasoning
-				// without stored responses. Each detail keeps its item's position
-				// in json.output as its index.
-				const encryptedReasoningDetails = json.output.flatMap(
-					(item: any, index: number) =>
-						item.type === "reasoning" &&
+				// without stored responses.
+				const encryptedReasoningDetails = reasoningOutputs.flatMap(
+					({ item, index }: any) =>
 						typeof item.encrypted_content === "string" &&
 						item.encrypted_content.length > 0
 							? [buildEncryptedReasoningDetail(item, index)]

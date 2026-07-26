@@ -91,6 +91,69 @@ describe("parseProviderResponse", () => {
 			]);
 		});
 
+		it("aggregates the summary of every reasoning item, not just the first", () => {
+			// Models emit a reasoning item before each tool call, so a single
+			// response can carry several. The streaming path concatenates every
+			// summary delta; the non-streaming path must agree.
+			const json = {
+				id: "resp_123",
+				status: "completed",
+				output: [
+					{
+						type: "reasoning",
+						id: "rs_1",
+						summary: [{ type: "summary_text", text: "first thought" }],
+						encrypted_content: "blob-1",
+					},
+					{
+						type: "function_call",
+						call_id: "call_1",
+						name: "lookup",
+						arguments: "{}",
+					},
+					{
+						type: "reasoning",
+						id: "rs_2",
+						summary: [
+							{ type: "summary_text", text: "second thought" },
+							{ type: "summary_text", text: "third thought" },
+						],
+						encrypted_content: "blob-2",
+					},
+					{
+						type: "message",
+						id: "msg_1",
+						role: "assistant",
+						content: [{ type: "output_text", text: "done" }],
+					},
+				],
+				usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+			};
+
+			const result = parseProviderResponse("openai", "gpt-5.5", json);
+
+			expect(result.reasoningContent).toBe(
+				"first thought\n\nsecond thought\n\nthird thought",
+			);
+			// Encrypted payloads still keep each item's position in json.output.
+			expect(result.reasoningDetails).toEqual([
+				{
+					type: "reasoning.encrypted",
+					data: "blob-1",
+					id: "rs_1",
+					format: "openai-responses-v1",
+					index: 0,
+				},
+				{
+					type: "reasoning.encrypted",
+					data: "blob-2",
+					id: "rs_2",
+					format: "openai-responses-v1",
+					index: 2,
+				},
+			]);
+		});
+
 		it("leaves reasoningDetails null when reasoning items carry no encrypted content", () => {
 			const json = {
 				id: "resp_123",
