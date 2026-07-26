@@ -42,13 +42,7 @@ export type Price = string;
  * actually supports is declared per mapping via `reasoningEfforts`.
  */
 export type ReasoningEffort =
-	| "none"
-	| "minimal"
-	| "low"
-	| "medium"
-	| "high"
-	| "xhigh"
-	| "max";
+	"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 /**
  * Pricing tier for models with context-length based pricing
@@ -611,14 +605,7 @@ export interface ProviderModelMapping {
 export type StabilityLevel = "stable" | "beta" | "unstable" | "experimental";
 
 export type Quantization =
-	| "int4"
-	| "int8"
-	| "fp4"
-	| "fp6"
-	| "fp8"
-	| "fp16"
-	| "bf16"
-	| "fp32";
+	"int4" | "int8" | "fp4" | "fp6" | "fp8" | "fp16" | "bf16" | "fp32";
 
 export interface ModelDefinition {
 	/**
@@ -656,13 +643,7 @@ export interface ModelDefinition {
 	 * Output formats supported by the model (defaults to ['text'] if not specified)
 	 */
 	output?: (
-		| "text"
-		| "image"
-		| "video"
-		| "embedding"
-		| "audio"
-		| "ocr"
-		| "transcription"
+		"text" | "image" | "video" | "embedding" | "audio" | "ocr" | "transcription"
 	)[];
 	/**
 	 * Whether this model requires an image input to function (e.g. image editing models).

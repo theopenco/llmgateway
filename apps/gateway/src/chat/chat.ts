@@ -380,8 +380,7 @@ function filterRegionsByAvailableKeys(
 			return true;
 		}
 		const providerDef = providers.find((p) => p.id === mapping.providerId) as
-			| ProviderDefinition
-			| undefined;
+			ProviderDefinition | undefined;
 		if (!providerDef?.regionConfig) {
 			return true;
 		}
@@ -469,8 +468,7 @@ function resolveRegionFromProviderKey(
 	key: InferSelectModel<typeof tables.providerKey>,
 ): string | undefined {
 	const providerDef = providers.find((p) => p.id === key.provider) as
-		| ProviderDefinition
-		| undefined;
+		ProviderDefinition | undefined;
 	if (!providerDef?.regionConfig) {
 		return undefined;
 	}
@@ -485,8 +483,7 @@ function resolveExplicitRegionFromProviderKey(
 	key: InferSelectModel<typeof tables.providerKey>,
 ): string | undefined {
 	const providerDef = providers.find((p) => p.id === key.provider) as
-		| ProviderDefinition
-		| undefined;
+		ProviderDefinition | undefined;
 	if (!providerDef?.regionConfig) {
 		return undefined;
 	}
@@ -507,8 +504,7 @@ function buildProviderLockedRegions(
 	const locked = new Map<string, string>();
 	for (const key of providerKeys) {
 		const providerDef = providers.find((p) => p.id === key.provider) as
-			| ProviderDefinition
-			| undefined;
+			ProviderDefinition | undefined;
 		const regionKey = providerDef?.regionConfig?.optionsKey;
 		if (regionKey && key.options) {
 			const lockedRegion = (key.options as Record<string, string | undefined>)[
@@ -2461,8 +2457,8 @@ chat.openapi(completions, async (c) => {
 	// get correct x-source attribution without blocking any requests.
 	const isDevPlanSourceRestricted = Boolean(
 		organization?.kind === "devpass" &&
-			organization.devPlan !== "none" &&
-			process.env.DEVPASS_ENFORCE_SOURCE_RESTRICTION === "true",
+		organization.devPlan !== "none" &&
+		process.env.DEVPASS_ENFORCE_SOURCE_RESTRICTION === "true",
 	);
 	if (isDevPlanSourceRestricted && !isRecognizedCodingAgent(source)) {
 		throw new HTTPException(403, {
@@ -2760,8 +2756,7 @@ chat.openapi(completions, async (c) => {
 	// them, and only fails when none remain; a pinned provider with no eligible
 	// key returns a clear 400 instead of silently downgrading.
 	let serviceTierOrgKeys:
-		| InferSelectModel<typeof tables.providerKey>[]
-		| undefined;
+		InferSelectModel<typeof tables.providerKey>[] | undefined;
 	const isProviderServiceTierEligible = (providerId: string): boolean => {
 		const dbKeys = (serviceTierOrgKeys ?? []).filter(
 			(key) => key.provider === providerId,
@@ -5308,8 +5303,7 @@ chat.openapi(completions, async (c) => {
 		// default region so it appears in logs and metadata.
 		if (!usedRegion) {
 			const providerDef = providers.find((p) => p.id === usedProvider) as
-				| { regionConfig?: { defaultRegion: string } }
-				| undefined;
+				{ regionConfig?: { defaultRegion: string } } | undefined;
 			if (providerDef?.regionConfig) {
 				usedRegion = providerDef.regionConfig.defaultRegion;
 			}
@@ -10155,8 +10149,7 @@ chat.openapi(completions, async (c) => {
 						(!streamingToolCalls || streamingToolCalls.length === 0);
 
 					let streamingCostsEarly:
-						| Awaited<ReturnType<typeof calculateCosts>>
-						| undefined;
+						Awaited<ReturnType<typeof calculateCosts>> | undefined;
 
 					if (hasUpstreamErrorFinishReason || hasEmptyResponse) {
 						const errorMessage = hasUpstreamErrorFinishReason

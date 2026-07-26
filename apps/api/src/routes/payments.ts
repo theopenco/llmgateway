@@ -747,8 +747,7 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 
 			throw new HTTPException(
 				(err.statusCode ?? 400) as
-					| ClientErrorStatusCode
-					| ServerErrorStatusCode,
+					ClientErrorStatusCode | ServerErrorStatusCode,
 				{
 					message: err.message,
 				},

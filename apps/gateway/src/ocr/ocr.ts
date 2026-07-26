@@ -1060,8 +1060,7 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 				typeof upstreamJson === "object" &&
 				"usage_info" in (upstreamJson as Record<string, unknown>)
 					? ((upstreamJson as Record<string, unknown>).usage_info as
-							| Record<string, unknown>
-							| undefined)
+							Record<string, unknown> | undefined)
 					: undefined;
 			const pagesProcessedRaw = usageInfo?.pages_processed;
 			const pagesProcessed =

@@ -17,14 +17,12 @@ export function extractImages(data: any, provider: Provider): ImageObject[] {
 		case "quartz": {
 			const parts = data.candidates?.[0]?.content?.parts ?? [];
 			const imageParts = parts.filter((part: any) => part.inlineData);
-			return imageParts.map(
-				(part: any): ImageObject => ({
-					type: "image_url",
-					image_url: {
-						url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`,
-					},
-				}),
-			);
+			return imageParts.map((part: any): ImageObject => ({
+				type: "image_url",
+				image_url: {
+					url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`,
+				},
+			}));
 		}
 		default: // OpenAI format
 			return [];

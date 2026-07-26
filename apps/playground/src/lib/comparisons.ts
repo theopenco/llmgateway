@@ -17,10 +17,7 @@ import {
 } from "@llmgateway/shared";
 
 export type CompetitorCategory =
-	| "single-vendor"
-	| "aggregator"
-	| "answer-engine"
-	| "developer";
+	"single-vendor" | "aggregator" | "answer-engine" | "developer";
 
 export interface ComparisonRow {
 	/** Dimension being compared, e.g. "Model access". */

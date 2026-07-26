@@ -585,7 +585,7 @@ export default function ImagePageClient({
 								`HTTP ${response.status}: ${response.statusText}`;
 							throw new Error(
 								isChatPlanContext &&
-								isInsufficientCreditsError(response.status, rawMessage)
+									isInsufficientCreditsError(response.status, rawMessage)
 									? chatPlanCreditErrorMessage(chatPlanSubscribed, "images")
 									: rawMessage,
 							);
@@ -593,8 +593,7 @@ export default function ImagePageClient({
 
 						const data = await response.json();
 						const generatedImages = data.images as
-							| { base64: string; mediaType: string }[]
-							| undefined;
+							{ base64: string; mediaType: string }[] | undefined;
 
 						if (!generatedImages || generatedImages.length === 0) {
 							throw new Error(
