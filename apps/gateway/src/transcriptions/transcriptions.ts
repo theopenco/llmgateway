@@ -770,6 +770,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 				requestedProvider: providerId,
 				messages: normalizedMessages,
 				source,
+				apiOrigin: "transcriptions",
 				customHeaders,
 				debugMode,
 				userAgent,
