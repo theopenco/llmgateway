@@ -10,7 +10,8 @@ const { warn, error } = vi.hoisted(() => ({
 vi.mock("@llmgateway/cache", () => ({
 	redisClient: {
 		get: vi.fn(),
-		setex: vi.fn(),
+		// The caller chains .catch() on this, so it must be thenable.
+		setex: vi.fn(() => Promise.resolve("OK")),
 	},
 }));
 
@@ -24,6 +25,43 @@ vi.mock("@llmgateway/logger", () => ({
 }));
 
 describe("transformStreamingToOpenai", () => {
+	it("generates a unique id per streamed google tool call", () => {
+		// The id is the `thought_signature:<id>` Redis key. A name+timestamp id
+		// collided whenever two callers invoked the same tool within the same
+		// millisecond, so one conversation could be served another's signature
+		// and Gemini rejected the turn ("Corrupted thought signature").
+		const chunk = () => ({
+			candidates: [
+				{
+					content: {
+						role: "model",
+						parts: [
+							{
+								functionCall: { name: "read_file", args: { path: "a.txt" } },
+								thoughtSignature: "sig-a",
+							},
+						],
+					},
+				},
+			],
+		});
+
+		const ids = Array.from({ length: 3 }, () => {
+			const result = transformStreamingToOpenai(
+				"google-ai-studio",
+				"gemini-3.5-flash",
+				chunk(),
+				[],
+			) as any;
+			return result.choices[0].delta.tool_calls[0].id as string;
+		});
+
+		expect(new Set(ids).size).toBe(3);
+		for (const id of ids) {
+			expect(id.startsWith("read_file_")).toBe(true);
+		}
+	});
+
 	it("maps Anthropic message_start usage with cache creation details", () => {
 		warn.mockClear();
 

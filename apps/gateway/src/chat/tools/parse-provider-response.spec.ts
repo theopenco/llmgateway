@@ -422,6 +422,62 @@ describe("parseProviderResponse", () => {
 			expect(result.promptTokens).toBe(10);
 			expect(result.completionTokens).toBe(20);
 		});
+
+		it("generates a unique id per google tool call", () => {
+			// The tool-call id doubles as the `thought_signature:<id>` Redis key.
+			// A name+index id collapsed to `get_weather_0_0` for every caller, so
+			// concurrent conversations (even across organizations) overwrote each
+			// other's signature in one shared slot and Gemini then rejected the
+			// replayed turn with "Corrupted thought signature".
+			const responseWith = (city: string) => ({
+				candidates: [
+					{
+						content: {
+							role: "model",
+							parts: [
+								{
+									functionCall: { name: "get_weather", args: { city } },
+									thoughtSignature: `sig-${city}`,
+								},
+								{
+									functionCall: { name: "get_weather", args: { city: "Rome" } },
+								},
+							],
+						},
+						finishReason: "STOP",
+						index: 0,
+					},
+				],
+				usageMetadata: {
+					promptTokenCount: 1,
+					candidatesTokenCount: 1,
+					totalTokenCount: 2,
+				},
+			});
+
+			const first = parseProviderResponse(
+				"google-ai-studio",
+				"gemini-3.5-flash",
+				responseWith("Paris"),
+			);
+			const second = parseProviderResponse(
+				"google-ai-studio",
+				"gemini-3.5-flash",
+				responseWith("Berlin"),
+			);
+
+			const ids = [
+				...(first.toolResults ?? []),
+				...(second.toolResults ?? []),
+			].map((t) => t.id);
+
+			expect(ids).toHaveLength(4);
+			expect(new Set(ids).size).toBe(4);
+			// Still prefixed with the tool name for readability.
+			for (const id of ids) {
+				expect(id.startsWith("get_weather_")).toBe(true);
+			}
+		});
 	});
 
 	describe("aws-bedrock cachedTokens", () => {

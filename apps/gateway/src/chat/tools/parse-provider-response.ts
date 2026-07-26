@@ -1,4 +1,5 @@
 import { redisClient } from "@llmgateway/cache";
+import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import { estimateTokens } from "./estimate-tokens.js";
@@ -389,7 +390,14 @@ export function parseProviderResponse(
 					.filter((part: any) => part.functionCall)
 					.map((part: any, index: number) => {
 						const toolCall: any = {
-							id: `${part.functionCall.name}_${json.candidates?.[0]?.index ?? 0}_${index}`, // Google doesn't provide ID, so generate one
+							// Google doesn't provide an id, so generate one. It MUST be
+							// globally unique: the id is the `thought_signature:<id>` Redis
+							// key, and Gemini rejects a replayed call whose signature came
+							// from a different call ("Corrupted thought signature"). A
+							// name+index id collapsed to e.g. `read_file_0_0` for every
+							// caller, so concurrent conversations — across organizations —
+							// overwrote each other's signature in one shared slot.
+							id: `${part.functionCall.name}_${shortid(24)}`,
 							type: "function",
 							function: {
 								name: part.functionCall.name,
