@@ -80,8 +80,6 @@ interface ApiKeysListProps {
 type StatusFilter = "all" | "active" | "inactive";
 type CreatorFilter = "mine" | "all";
 
-const PLAYGROUND_KEY_DESCRIPTION = "Auto-generated playground key";
-
 function PlaygroundKeyNote() {
 	return (
 		<>
@@ -89,8 +87,7 @@ function PlaygroundKeyNote() {
 			<div className="text-muted-foreground flex max-w-52 items-start gap-2 px-2 py-1.5 text-xs">
 				<InfoIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
 				<span>
-					The auto-generated Lounge key is managed by LLM Gateway and can't be
-					edited.
+					This key is managed by LLM Gateway for the Lounge and can't be edited.
 				</span>
 			</div>
 		</>
@@ -633,8 +630,7 @@ export function ApiKeysList({
 					</TableHeader>
 					<TableBody>
 						{filteredKeys.map((key) => {
-							const isPlaygroundKey =
-								key.description === PLAYGROUND_KEY_DESCRIPTION;
+							const isPlaygroundKey = key.kind === "playground";
 							return (
 								<TableRow
 									key={key.id}
@@ -642,9 +638,7 @@ export function ApiKeysList({
 								>
 									<TableCell className="font-medium">
 										<span className="text-sm font-medium">
-											{isPlaygroundKey
-												? "Auto-generated Lounge key"
-												: key.description}
+											{key.description}
 										</span>
 									</TableCell>
 									<TableCell className="min-w-40 max-w-40">
@@ -852,18 +846,13 @@ export function ApiKeysList({
 			{/* Mobile Cards */}
 			<div className="md:hidden space-y-3">
 				{filteredKeys.map((key) => {
-					const isPlaygroundKey =
-						key.description === PLAYGROUND_KEY_DESCRIPTION;
+					const isPlaygroundKey = key.kind === "playground";
 					return (
 						<div key={key.id} className="border rounded-lg p-3 space-y-3">
 							<div className="flex items-start justify-between">
 								<div className="flex-1 min-w-0">
 									<div className="flex items-center gap-2">
-										<h3 className="font-medium text-sm">
-											{isPlaygroundKey
-												? "Auto-generated Lounge key"
-												: key.description}
-										</h3>
+										<h3 className="font-medium text-sm">{key.description}</h3>
 										<StatusBadge status={key.status} />
 									</div>
 									{renderExpiry(key)}

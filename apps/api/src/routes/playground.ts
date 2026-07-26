@@ -5,6 +5,7 @@ import { HTTPException } from "hono/http-exception";
 import { awardLoungePoints } from "@/utils/lounge-points.js";
 import { buildOrgHistoryFilter } from "@/utils/org-history-filter.js";
 import { getOrCreateChatOrg } from "@/utils/personal-org.js";
+import { PLAYGROUND_API_KEY_DESCRIPTION } from "@/utils/playground-key.js";
 
 import { db, tables, shortid, desc, eq, and, sql } from "@llmgateway/db";
 
@@ -86,7 +87,8 @@ playground.openapi(ensureKey, async (c) => {
 			.values({
 				token,
 				projectId,
-				description: "Auto-generated playground key",
+				description: PLAYGROUND_API_KEY_DESCRIPTION,
+				kind: "playground",
 				usageLimit: null,
 				createdBy: user.id,
 			})

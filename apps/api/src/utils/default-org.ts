@@ -1,3 +1,5 @@
+import { PLAYGROUND_API_KEY_DESCRIPTION } from "@/utils/playground-key.js";
+
 import { db, shortid, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
@@ -134,7 +136,8 @@ export async function getOrCreateDefaultOrganization(
 		await tx.insert(tables.apiKey).values({
 			projectId: project.id,
 			token,
-			description: "Auto-generated playground key",
+			description: PLAYGROUND_API_KEY_DESCRIPTION,
+			kind: "playground",
 			usageLimit: null,
 			createdBy: user.id,
 		});

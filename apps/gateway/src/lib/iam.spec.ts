@@ -1112,6 +1112,7 @@ function makeApiKey(overrides: Partial<GatewayApiKey> = {}): GatewayApiKey {
 		description: "test key",
 		status: "active",
 		keyType: "user",
+		kind: null,
 		endCustomerWalletId: null,
 		expiresAt: null,
 		usageLimit: null,

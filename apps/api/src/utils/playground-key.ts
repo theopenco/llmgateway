@@ -9,6 +9,16 @@ import type { Context } from "hono";
 
 export const PLAYGROUND_KEY_COOKIE_NAME = "llmgateway_playground_key";
 
+export const PLAYGROUND_API_KEY_DESCRIPTION = "Auto-generated Lounge key";
+
+// Keys the platform provisions for the Lounge carry `kind: "playground"`, so
+// they are identified by that flag rather than by their description.
+export function isPlaygroundApiKey(apiKey: {
+	kind: "playground" | null;
+}): boolean {
+	return apiKey.kind === "playground";
+}
+
 export function getGatewayUrl() {
 	return (
 		process.env.GATEWAY_URL ??
@@ -66,7 +76,8 @@ export async function resolvePlaygroundToken(
 			.values({
 				token: prefix + shortid(40),
 				projectId: project.id,
-				description: "Auto-generated playground key",
+				description: PLAYGROUND_API_KEY_DESCRIPTION,
+				kind: "playground",
 				usageLimit: null,
 				createdBy: user.id,
 			})

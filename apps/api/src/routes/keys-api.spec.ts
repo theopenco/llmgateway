@@ -2,6 +2,7 @@ import { expect, test, beforeEach, describe, afterEach } from "vitest";
 
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
+import { PLAYGROUND_API_KEY_DESCRIPTION } from "@/utils/playground-key.js";
 
 import {
 	redisClient,
@@ -968,5 +969,87 @@ describe("keys route", () => {
 		expect(json.message).toContain(
 			"Maximum 2 active API keys per organization",
 		);
+	});
+
+	describe("Lounge-managed keys", () => {
+		beforeEach(async () => {
+			await db.insert(tables.apiKey).values({
+				id: "lounge-api-key-id",
+				token: "lounge-token",
+				projectId: "test-project-id",
+				description: PLAYGROUND_API_KEY_DESCRIPTION,
+				kind: "playground",
+				createdBy: "test-user-id",
+			});
+		});
+
+		test("GET /keys/api exposes the kind flag", async () => {
+			const res = await app.request("/keys/api?projectId=test-project-id", {
+				headers: { Cookie: token },
+			});
+			expect(res.status).toBe(200);
+			const json = await res.json();
+
+			const lounge = json.apiKeys.find(
+				(key: { id: string }) => key.id === "lounge-api-key-id",
+			);
+			expect(lounge.kind).toBe("playground");
+
+			const regular = json.apiKeys.find(
+				(key: { id: string }) => key.id === "test-api-key-id",
+			);
+			expect(regular.kind).toBeNull();
+		});
+
+		test("DELETE /keys/api/{id} rejects the Lounge key", async () => {
+			const res = await app.request("/keys/api/lounge-api-key-id", {
+				method: "DELETE",
+				headers: { Cookie: token },
+			});
+			expect(res.status).toBe(403);
+			expect((await res.json()).message).toContain(
+				"Cannot delete the Lounge API key",
+			);
+		});
+
+		test("PATCH /keys/api/{id} rejects deactivating the Lounge key", async () => {
+			const res = await app.request("/keys/api/lounge-api-key-id", {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({ status: "inactive" }),
+			});
+			expect(res.status).toBe(403);
+			expect((await res.json()).message).toContain(
+				"Cannot deactivate the Lounge API key",
+			);
+		});
+
+		test("PATCH /keys/api/{id} rejects renaming the Lounge key", async () => {
+			const res = await app.request("/keys/api/lounge-api-key-id", {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({ description: "Renamed" }),
+			});
+			expect(res.status).toBe(403);
+			expect((await res.json()).message).toContain(
+				"Cannot rename the Lounge API key",
+			);
+		});
+
+		// The guards key off `kind`, so a regular key is unaffected even when its
+		// description matches the one the Lounge key happens to carry.
+		test("a regular key sharing the Lounge description stays editable", async () => {
+			await db
+				.update(tables.apiKey)
+				.set({ description: PLAYGROUND_API_KEY_DESCRIPTION })
+				.where(eq(tables.apiKey.id, "test-api-key-id"));
+
+			const res = await app.request("/keys/api/test-api-key-id", {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({ status: "inactive" }),
+			});
+			expect(res.status).toBe(200);
+		});
 	});
 });

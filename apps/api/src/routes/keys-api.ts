@@ -13,6 +13,7 @@ import {
 import { maskToken } from "@/lib/maskToken.js";
 import { platformKeyMode } from "@/lib/platform-secret-auth.js";
 import { getUserProjectIds } from "@/utils/authorization.js";
+import { isPlaygroundApiKey } from "@/utils/playground-key.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -34,14 +35,6 @@ import {
 import type { ServerTypes } from "@/vars.js";
 
 export const keysApi = new OpenAPIHono<ServerTypes>();
-
-export const PLAYGROUND_API_KEY_DESCRIPTION = "Auto-generated playground key";
-
-export function isPlaygroundApiKey(apiKey: {
-	description: string | null;
-}): boolean {
-	return apiKey.description === PLAYGROUND_API_KEY_DESCRIPTION;
-}
 
 type ApiKeyRecord = InferSelectModel<typeof tables.apiKey>;
 export type ApiKeyLimitConfig = Pick<
@@ -305,6 +298,10 @@ const apiKeySchema = z.object({
 	token: z.string(),
 	description: z.string(),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
+	kind: z.enum(["playground"]).nullable().openapi({
+		description:
+			"Set for keys LLM Gateway manages on the user's behalf, which cannot be deleted, deactivated or renamed. Null for ordinary user-created keys.",
+	}),
 	usageLimit: z.string().nullable(),
 	usage: z.string(),
 	periodUsageLimit: z.string().nullable(),
@@ -1344,11 +1341,11 @@ keysApi.openapi(deleteKey, async (c) => {
 		});
 	}
 
-	// Prevent deletion of the auto-generated playground key
+	// Prevent deletion of the auto-generated Lounge key
 	if (isPlaygroundApiKey(apiKey)) {
 		throw new HTTPException(403, {
 			message:
-				"Cannot delete the playground API key. This key is required for the playground to function.",
+				"Cannot delete the Lounge API key. This key is required for the Lounge to function.",
 		});
 	}
 
@@ -1522,27 +1519,18 @@ keysApi.openapi(updateStatus, async (c) => {
 		});
 	}
 
-	// Prevent deactivation of the auto-generated playground key
+	// Prevent deactivation of the auto-generated Lounge key
 	if (isPlaygroundApiKey(apiKey) && status === "inactive") {
 		throw new HTTPException(403, {
 			message:
-				"Cannot deactivate the playground API key. This key is required for the playground to function.",
+				"Cannot deactivate the Lounge API key. This key is required for the Lounge to function.",
 		});
 	}
 
-	// Renaming the auto-generated playground key would break the UI's lookup
-	// of it by its fixed description.
+	// The Lounge key is managed by LLM Gateway, so its label stays fixed.
 	if (isPlaygroundApiKey(apiKey) && descriptionInput !== undefined) {
 		throw new HTTPException(403, {
-			message: "Cannot rename the playground API key.",
-		});
-	}
-
-	// A regular key must not take on the reserved playground description,
-	// or it would collide with the playground key's fixed-description lookup.
-	if (descriptionInput === PLAYGROUND_API_KEY_DESCRIPTION) {
-		throw new HTTPException(403, {
-			message: "This name is reserved for the playground API key.",
+			message: "Cannot rename the Lounge API key.",
 		});
 	}
 

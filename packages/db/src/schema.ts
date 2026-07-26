@@ -1290,6 +1290,10 @@ export const apiKey = pgTable(
 		})
 			.notNull()
 			.default("user"),
+		// Marks keys the platform manages on the user's behalf, so they can be
+		// identified without matching on their description. Null for ordinary
+		// user-created keys.
+		kind: text({ enum: ["playground"] }),
 		// Browser-session wallet binding now lives on end_user_session.wallet_id.
 		endCustomerWalletId: text().references(() => wallet.id, {
 			onDelete: "cascade",

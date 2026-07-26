@@ -15,13 +15,13 @@ import {
 	createApiKeyForProject,
 	hasPeriodConfigChanged,
 	iamRuleSchema,
-	isPlaygroundApiKey,
 	mergeApiKeyLimitConfig,
 	parseApiKeyPeriodConfig,
 	type PartialApiKeyLimitConfig,
 } from "@/routes/keys-api.js";
 import { createProjectForOrg } from "@/routes/projects.js";
 import { memberIamRuleSchema } from "@/routes/team.js";
+import { isPlaygroundApiKey } from "@/utils/playground-key.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -609,13 +609,13 @@ v1Master.openapi(updateApiKey, async (c) => {
 		) {
 			throw new HTTPException(403, {
 				message:
-					"Cannot rename the playground API key. This key is required for the playground to function.",
+					"Cannot rename the Lounge API key. This key is required for the Lounge to function.",
 			});
 		}
 		if (updates.status === "inactive") {
 			throw new HTTPException(403, {
 				message:
-					"Cannot deactivate the playground API key. This key is required for the playground to function.",
+					"Cannot deactivate the Lounge API key. This key is required for the Lounge to function.",
 			});
 		}
 	}
@@ -848,7 +848,7 @@ v1Master.openapi(deleteApiKey, async (c) => {
 	if (isPlaygroundApiKey(existing)) {
 		throw new HTTPException(403, {
 			message:
-				"Cannot delete the playground API key. This key is required for the playground to function.",
+				"Cannot delete the Lounge API key. This key is required for the Lounge to function.",
 		});
 	}
 
