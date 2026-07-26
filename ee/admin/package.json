@@ -71,7 +71,7 @@
 		"@types/node": "^26.1.1",
 		"@types/react": "^19.2.17",
 		"@types/react-dom": "^19.2.3",
-		"eslint": "^9.38.0",
+		"eslint": "^10.7.0",
 		"eslint-config-next": "16.0.0",
 		"openapi-typescript": "7.10.1",
 		"tailwindcss": "^4.1.16",
