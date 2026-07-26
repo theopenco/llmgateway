@@ -39,6 +39,7 @@ import {
 	Sliders,
 	Volume2,
 	Mic,
+	ListOrdered,
 } from "lucide-react";
 import Link from "next/link.js";
 import { usePathname, useRouter, useSearchParams } from "next/navigation.js";
@@ -667,6 +668,7 @@ export function AllModels({
 			videoGeneration: searchParams.get("videoGeneration") === "true",
 			audioGeneration: searchParams.get("audioGeneration") === "true",
 			embedding: searchParams.get("embedding") === "true",
+			rerank: searchParams.get("rerank") === "true",
 			webSearch: searchParams.get("webSearch") === "true",
 			free: searchParams.get("free") === "true",
 			discounted: searchParams.get("discounted") === "true",
@@ -951,6 +953,9 @@ export function AllModels({
 				filters.capabilities.embedding &&
 				!model.output?.includes("embedding")
 			) {
+				return false;
+			}
+			if (filters.capabilities.rerank && !model.output?.includes("rerank")) {
 				return false;
 			}
 			if (
@@ -1479,6 +1484,7 @@ export function AllModels({
 				videoGeneration: false,
 				audioGeneration: false,
 				embedding: false,
+				rerank: false,
 				webSearch: false,
 				free: false,
 				discounted: false,
@@ -1707,6 +1713,12 @@ export function AllModels({
 									label: "Embeddings",
 									icon: Boxes,
 									color: "text-indigo-500",
+								},
+								{
+									key: "rerank",
+									label: "Rerank",
+									icon: ListOrdered,
+									color: "text-amber-500",
 								},
 								{
 									key: "webSearch",
