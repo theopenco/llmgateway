@@ -47,7 +47,7 @@
 		"redis": "5.9.0",
 		"undici": "8.9.0",
 		"worker": "workspace:*",
-		"ws": "8.18.3",
+		"ws": "8.21.0",
 		"zod": "3.25.75",
 		"zod-openapi": "^5.4.3"
 	},
