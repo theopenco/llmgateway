@@ -568,6 +568,55 @@ export const chatPlanCancellationFeedback = pgTable(
 	],
 );
 
+// Which product a self-service refund was issued against, so feedback can be
+// read per surface without joining back to the transaction type.
+export const REFUND_FEEDBACK_KINDS = ["credits", "devpass", "chat"] as const;
+
+export type RefundFeedbackKind = (typeof REFUND_FEEDBACK_KINDS)[number];
+
+export const REFUND_FEEDBACK_REASONS = [
+	"not_working",
+	"missing_features",
+	"too_expensive",
+	"bought_by_mistake",
+	"switched_alternative",
+	"other",
+] as const;
+
+// "Why are you refunding?" answer collected right before a self-service refund
+// is issued: a required category plus optional freeform details. One row per
+// refunded transaction.
+export const refundFeedback = pgTable(
+	"refund_feedback",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		transactionId: text()
+			.notNull()
+			.references(() => transaction.id, { onDelete: "cascade" }),
+		kind: text({ enum: REFUND_FEEDBACK_KINDS }).notNull(),
+		reason: text({ enum: REFUND_FEEDBACK_REASONS }).notNull(),
+		comments: text(),
+	},
+	(table) => [
+		uniqueIndex("refund_feedback_transaction_id_unique").on(
+			table.transactionId,
+		),
+		index("refund_feedback_organization_id_idx").on(table.organizationId),
+		index("refund_feedback_created_at_idx").on(table.createdAt),
+	],
+);
+
 // Shared literals for the model survey, consumed by the table below and the
 // zod schemas in the API's model-survey routes.
 export const MODEL_SURVEY_USE_CASES = [
@@ -4217,4 +4266,38 @@ export const playgroundVideoHistory = pgTable(
 		>(),
 	},
 	(table) => [index("playground_video_history_user_id_idx").on(table.userId)],
+);
+
+// Append-only ledger of Lounge gamification points. Totals, levels, and
+// streaks are derived from this table at read time.
+export const loungePointEvent = pgTable(
+	"lounge_point_event",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		kind: text()
+			.notNull()
+			.$type<
+				| "chat_message"
+				| "chat_created"
+				| "image_generation"
+				| "video_generation"
+				| "audio_generation"
+			>(),
+		points: integer().notNull(),
+	},
+	(table) => [
+		index("lounge_point_event_user_id_idx").on(table.userId),
+		index("lounge_point_event_user_id_created_at_idx").on(
+			table.userId,
+			table.createdAt,
+		),
+	],
 );

@@ -10,6 +10,18 @@ export {
 } from "./coding-agents.js";
 
 export {
+	AGENT_LOG_CSV_HEADERS,
+	type AgentCsvLog,
+	buildAgentLogsCsv,
+	buildCsv,
+	type CsvFormat,
+	DEFAULT_CSV_FORMAT,
+	detectCsvFormat,
+	escapeCsvValue,
+	formatCsvNumber,
+} from "./csv.js";
+
+export {
 	AUTO_TOP_UP_DEFAULT_AMOUNT,
 	AUTO_TOP_UP_DEFAULT_THRESHOLD,
 	calculateFees,
@@ -39,6 +51,18 @@ export {
 	getRemainingPremiumWeeklyAllowance,
 	isPremiumWeekExpired,
 } from "./dev-plans.js";
+
+export {
+	REFUND_COMMENTS_MAX_LENGTH,
+	REFUND_REASON_ASSURANCE,
+	REFUND_REASON_HEADING,
+	REFUND_REASON_OPTIONS,
+	REFUND_REASONS,
+	isRefundFeedbackComplete,
+	refundCommentsRequired,
+	type RefundReason,
+	type RefundReasonOption,
+} from "./refunds.js";
 
 export {
 	CHAT_PLAN_PRICES,
