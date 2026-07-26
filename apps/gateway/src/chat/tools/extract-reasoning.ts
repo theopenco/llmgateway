@@ -24,9 +24,7 @@ interface OpenAIStreamChunk {
 }
 
 type StreamingChunk =
-	| AnthropicStreamChunk
-	| GoogleStreamChunk
-	| OpenAIStreamChunk;
+	AnthropicStreamChunk | GoogleStreamChunk | OpenAIStreamChunk;
 
 export function extractReasoning(
 	data: StreamingChunk,

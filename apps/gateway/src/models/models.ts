@@ -228,11 +228,7 @@ modelsApi.openapi(listModels, async (c) => {
 		const modelData = filteredModels.map((model: ModelDefinition) => {
 			// Determine input modalities (if model supports images)
 			const inputModalities: (
-				| "text"
-				| "image"
-				| "video"
-				| "embedding"
-				| "audio"
+				"text" | "image" | "video" | "embedding" | "audio"
 			)[] = ["text"];
 
 			// Check if any provider has vision support

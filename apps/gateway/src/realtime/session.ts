@@ -558,11 +558,9 @@ export class RealtimeProxySession {
 				const rewritten = { ...td, create_response: false };
 				const fwdSession = cloneForwarded().session as Record<string, unknown>;
 				const fwdAudio = fwdSession.audio as
-					| Record<string, unknown>
-					| undefined;
+					Record<string, unknown> | undefined;
 				const fwdAudioInput = fwdAudio?.input as
-					| Record<string, unknown>
-					| undefined;
+					Record<string, unknown> | undefined;
 				if (fwdAudioInput && "turn_detection" in fwdAudioInput) {
 					fwdAudioInput.turn_detection = rewritten;
 				} else {

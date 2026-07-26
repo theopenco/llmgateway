@@ -25,8 +25,7 @@ export interface NormalizedRealtimeUsage {
 }
 
 export type NormalizeRealtimeUsageResult =
-	| { ok: true; usage: NormalizedRealtimeUsage }
-	| { ok: false; reason: string };
+	{ ok: true; usage: NormalizedRealtimeUsage } | { ok: false; reason: string };
 
 function readCount(value: unknown): number | null {
 	if (value === undefined || value === null) {
@@ -236,8 +235,7 @@ export interface RealtimeCostBreakdown {
 }
 
 export type PriceRealtimeUsageResult =
-	| { ok: true; costs: RealtimeCostBreakdown }
-	| { ok: false; reason: string };
+	{ ok: true; costs: RealtimeCostBreakdown } | { ok: false; reason: string };
 
 function priceComponent(
 	tokens: number,
