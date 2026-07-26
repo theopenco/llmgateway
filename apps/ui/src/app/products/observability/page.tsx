@@ -135,6 +135,12 @@ export default function ObservabilityProductPage() {
 								title="Usage & metrics"
 								description="Requests, models, errors, caching, and costs — dedicated charts for each, per project or across your org."
 							/>
+							<ProductScreenshot
+								slug="model-usage"
+								alt="LLM Gateway usage broken down by model"
+								title="Spend by model, not just in total"
+								description="Stack usage by model or provider over any window to spot the expensive outliers."
+							/>
 						</section>
 
 						<ProductFeatureGrid
