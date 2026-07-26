@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	type AgentCsvLog,
+	buildAgentLogsCsv,
 	buildCsv,
 	DEFAULT_CSV_FORMAT,
 	detectCsvFormat,
@@ -72,13 +74,18 @@ describe("escapeCsvValue", () => {
 		expect(escapeCsvValue("line1\nline2")).toBe('"line1\nline2"');
 	});
 
-	it("guards string values against formula injection", () => {
+	it("guards non-numeric string values against formula injection", () => {
 		expect(escapeCsvValue("=SUM(A1)")).toBe("'=SUM(A1)");
-		expect(escapeCsvValue("+123")).toBe("'+123");
+		expect(escapeCsvValue("+1+1")).toBe("'+1+1");
+		expect(escapeCsvValue("-1-1")).toBe("'-1-1");
+		expect(escapeCsvValue("@cmd")).toBe("'@cmd");
 	});
 
-	it("does not treat negative numbers as formulas", () => {
+	it("does not treat numeric values or numeric strings as formulas", () => {
 		expect(escapeCsvValue(-1.5)).toBe("-1.5");
+		expect(escapeCsvValue("-1.5")).toBe("-1.5");
+		expect(escapeCsvValue("-1,5", COMMA_DECIMAL_FORMAT)).toBe("-1,5");
+		expect(escapeCsvValue("+123")).toBe("+123");
 	});
 });
 
@@ -101,5 +108,57 @@ describe("buildCsv", () => {
 			COMMA_DECIMAL_FORMAT,
 		);
 		expect(csv).toBe("cost;model\n0,334082;gpt-5.6-sol");
+	});
+
+	it("exports negative numbers unmodified", () => {
+		expect(buildCsv(["cost"], [[formatCsvNumber(-1.5)]])).toBe("cost\n-1.5");
+		expect(
+			buildCsv(
+				["cost"],
+				[[formatCsvNumber(-1.5, COMMA_DECIMAL_FORMAT)]],
+				COMMA_DECIMAL_FORMAT,
+			),
+		).toBe("cost\n-1,5");
+	});
+});
+
+describe("buildAgentLogsCsv", () => {
+	const log: AgentCsvLog = {
+		id: "log_1",
+		requestId: "req_1",
+		createdAt: "2026-07-02T16:41:00.000Z",
+		duration: 1200,
+		usedModel: "openai/gpt-5.6-sol",
+		usedProvider: "openai",
+		unifiedFinishReason: "completed",
+		finishReason: "stop",
+		promptTokens: "214668",
+		completionTokens: "7503",
+		totalTokens: "222171",
+		cachedTokens: "214379",
+		cost: -0.334082,
+		hasError: false,
+		streamed: true,
+	};
+
+	it("builds header and row with the given format", () => {
+		const csv = buildAgentLogsCsv([log], DEFAULT_CSV_FORMAT);
+		const [header, row] = csv.split("\n");
+		expect(header).toBe(
+			"createdAt,usedProvider,usedModel,finishReason,promptTokens,completionTokens,totalTokens,cachedTokens,cost,hasError,streamed,duration,requestId,id",
+		);
+		expect(row).toBe(
+			"2026-07-02T16:41:00.000Z,openai,openai/gpt-5.6-sol,completed,214668,7503,222171,214379,-0.334082,false,true,1200,req_1,log_1",
+		);
+	});
+
+	it("uses comma decimals and semicolon delimiters for comma-decimal locales", () => {
+		const csv = buildAgentLogsCsv(
+			[{ ...log, cachedTokens: null }],
+			COMMA_DECIMAL_FORMAT,
+		);
+		expect(csv.split("\n")[1]).toBe(
+			"2026-07-02T16:41:00.000Z;openai;openai/gpt-5.6-sol;completed;214668;7503;222171;;-0,334082;false;true;1200;req_1;log_1",
+		);
 	});
 });

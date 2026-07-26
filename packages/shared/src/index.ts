@@ -10,6 +10,9 @@ export {
 } from "./coding-agents.js";
 
 export {
+	AGENT_LOG_CSV_HEADERS,
+	type AgentCsvLog,
+	buildAgentLogsCsv,
 	buildCsv,
 	type CsvFormat,
 	DEFAULT_CSV_FORMAT,

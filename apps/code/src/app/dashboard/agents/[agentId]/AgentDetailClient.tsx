@@ -29,7 +29,7 @@ import {
 import { useUser } from "@/hooks/useUser";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
 
-import { buildCsv, detectCsvFormat, formatCsvNumber } from "@llmgateway/shared";
+import { buildAgentLogsCsv } from "@llmgateway/shared";
 
 type ModelSortColumn =
 	| "id"
@@ -56,44 +56,6 @@ function parseAgentTimeRange(value: string | null | undefined): AgentTimeRange {
 	return (AGENT_TIME_RANGES as readonly string[]).includes(value ?? "")
 		? (value as AgentTimeRange)
 		: "7d";
-}
-
-const CSV_HEADERS = [
-	"createdAt",
-	"usedProvider",
-	"usedModel",
-	"finishReason",
-	"promptTokens",
-	"completionTokens",
-	"totalTokens",
-	"cachedTokens",
-	"cost",
-	"hasError",
-	"streamed",
-	"duration",
-	"requestId",
-	"id",
-];
-
-function buildLogsCsv(logs: ApiLog[]): string {
-	const format = detectCsvFormat();
-	const rows = logs.map((log) => [
-		log.createdAt,
-		log.usedProvider,
-		log.usedModel,
-		log.unifiedFinishReason ?? log.finishReason ?? "",
-		log.promptTokens,
-		log.completionTokens,
-		log.totalTokens,
-		log.cachedTokens ?? "",
-		formatCsvNumber(log.cost, format),
-		log.hasError,
-		log.streamed,
-		log.duration,
-		log.requestId,
-		log.id,
-	]);
-	return buildCsv(CSV_HEADERS, rows, format);
 }
 
 function TimeRangePicker({
@@ -506,7 +468,9 @@ function AgentDetailBody({
 					? (body.pagination.nextCursor ?? undefined)
 					: undefined;
 			}
-			const csv = buildLogsCsv(collected.filter((log) => !log.retriedByLogId));
+			const csv = buildAgentLogsCsv(
+				collected.filter((log) => !log.retriedByLogId),
+			);
 			const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
 			const url = URL.createObjectURL(blob);
 			const a = document.createElement("a");

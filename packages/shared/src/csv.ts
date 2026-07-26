@@ -35,8 +35,13 @@ export function escapeCsvValue(
 		return "";
 	}
 	let str = String(value);
-	// Guard against spreadsheet formula injection for string values.
-	if (typeof value === "string" && /^[=+\-@\t\r]/.test(str)) {
+	// Guard against spreadsheet formula injection for string values, but leave
+	// plain numeric strings (e.g. negative costs from formatCsvNumber) intact.
+	if (
+		typeof value === "string" &&
+		/^[=+\-@\t\r]/.test(str) &&
+		!/^[+-]?\d+(?:[.,]\d+)?$/.test(str)
+	) {
 		str = `'${str}`;
 	}
 	if (str.includes(format.delimiter) || /["\n\r]/.test(str)) {
@@ -71,4 +76,62 @@ export function buildCsv(
 			row.map((value) => escapeCsvValue(value, format)).join(format.delimiter),
 		)
 		.join("\n");
+}
+
+export const AGENT_LOG_CSV_HEADERS = [
+	"createdAt",
+	"usedProvider",
+	"usedModel",
+	"finishReason",
+	"promptTokens",
+	"completionTokens",
+	"totalTokens",
+	"cachedTokens",
+	"cost",
+	"hasError",
+	"streamed",
+	"duration",
+	"requestId",
+	"id",
+] as const;
+
+export interface AgentCsvLog {
+	id: string;
+	requestId: string;
+	createdAt: string;
+	duration: number;
+	usedModel: string;
+	usedProvider: string;
+	unifiedFinishReason: string | null;
+	finishReason: string | null;
+	promptTokens: string | null;
+	completionTokens: string | null;
+	totalTokens: string | null;
+	cachedTokens?: string | null;
+	cost: number | null;
+	hasError: boolean | null;
+	streamed: boolean | null;
+}
+
+export function buildAgentLogsCsv(
+	logs: readonly AgentCsvLog[],
+	format: CsvFormat = detectCsvFormat(),
+): string {
+	const rows = logs.map((log) => [
+		log.createdAt,
+		log.usedProvider,
+		log.usedModel,
+		log.unifiedFinishReason ?? log.finishReason ?? "",
+		log.promptTokens,
+		log.completionTokens,
+		log.totalTokens,
+		log.cachedTokens ?? "",
+		formatCsvNumber(log.cost, format),
+		log.hasError,
+		log.streamed,
+		log.duration,
+		log.requestId,
+		log.id,
+	]);
+	return buildCsv(AGENT_LOG_CSV_HEADERS, rows, format);
 }
