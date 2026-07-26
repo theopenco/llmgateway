@@ -10,6 +10,15 @@ export {
 } from "./coding-agents.js";
 
 export {
+	buildCsv,
+	type CsvFormat,
+	DEFAULT_CSV_FORMAT,
+	detectCsvFormat,
+	escapeCsvValue,
+	formatCsvNumber,
+} from "./csv.js";
+
+export {
 	AUTO_TOP_UP_DEFAULT_AMOUNT,
 	AUTO_TOP_UP_DEFAULT_THRESHOLD,
 	calculateFees,

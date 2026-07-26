@@ -28,7 +28,12 @@ import {
 import { useToast } from "@/lib/components/use-toast";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
 
-import { CODING_AGENTS } from "@llmgateway/shared";
+import {
+	buildCsv,
+	CODING_AGENTS,
+	detectCsvFormat,
+	formatCsvNumber,
+} from "@llmgateway/shared";
 import {
 	AnthropicIcon,
 	AutohandIcon,
@@ -131,48 +136,25 @@ const CSV_HEADERS = [
 	"id",
 ];
 
-function escapeCsvValue(value: unknown): string {
-	if (value === null || value === undefined) {
-		return "";
-	}
-	const str = String(value);
-	if (/[",\n]/.test(str)) {
-		return `"${str.replace(/"/g, '""')}"`;
-	}
-	return str;
-}
-
-// String(number) switches to exponent notation below 1e-6 (e.g. "3.5e-7"),
-// which spreadsheets don't reliably parse as a float.
-function formatCostForCsv(cost: number | null | undefined): string {
-	if (cost === null || cost === undefined) {
-		return "";
-	}
-	return cost.toFixed(15).replace(/\.?0+$/, "");
-}
-
 function buildLogsCsv(logs: ApiLog[]): string {
-	const rows = logs.map((log) =>
-		[
-			log.createdAt,
-			log.usedProvider,
-			log.usedModel,
-			log.unifiedFinishReason ?? log.finishReason ?? "",
-			log.promptTokens,
-			log.completionTokens,
-			log.totalTokens,
-			log.cachedTokens ?? "",
-			formatCostForCsv(log.cost),
-			log.hasError,
-			log.streamed,
-			log.duration,
-			log.requestId,
-			log.id,
-		]
-			.map(escapeCsvValue)
-			.join(","),
-	);
-	return [CSV_HEADERS.join(","), ...rows].join("\n");
+	const format = detectCsvFormat();
+	const rows = logs.map((log) => [
+		log.createdAt,
+		log.usedProvider,
+		log.usedModel,
+		log.unifiedFinishReason ?? log.finishReason ?? "",
+		log.promptTokens,
+		log.completionTokens,
+		log.totalTokens,
+		log.cachedTokens ?? "",
+		formatCsvNumber(log.cost, format),
+		log.hasError,
+		log.streamed,
+		log.duration,
+		log.requestId,
+		log.id,
+	]);
+	return buildCsv(CSV_HEADERS, rows, format);
 }
 
 function toUiLog(log: ApiLog): Partial<Log> {

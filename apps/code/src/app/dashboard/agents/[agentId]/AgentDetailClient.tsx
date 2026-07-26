@@ -29,6 +29,8 @@ import {
 import { useUser } from "@/hooks/useUser";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
 
+import { buildCsv, detectCsvFormat, formatCsvNumber } from "@llmgateway/shared";
+
 type ModelSortColumn =
 	| "id"
 	| "provider"
@@ -53,7 +55,7 @@ const AGENT_TIME_RANGE_HOURS: Record<AgentTimeRange, number> = {
 function parseAgentTimeRange(value: string | null | undefined): AgentTimeRange {
 	return (AGENT_TIME_RANGES as readonly string[]).includes(value ?? "")
 		? (value as AgentTimeRange)
-		: "30d";
+		: "7d";
 }
 
 const CSV_HEADERS = [
@@ -73,52 +75,25 @@ const CSV_HEADERS = [
 	"id",
 ];
 
-function escapeCsvValue(value: unknown): string {
-	if (value === null || value === undefined) {
-		return "";
-	}
-	let str = String(value);
-	// Guard against spreadsheet formula injection for string values.
-	if (typeof value === "string" && /^[=+\-@\t\r]/.test(str)) {
-		str = `'${str}`;
-	}
-	if (/[",\n]/.test(str)) {
-		return `"${str.replace(/"/g, '""')}"`;
-	}
-	return str;
-}
-
-// String(number) switches to exponent notation below 1e-6 (e.g. "3.5e-7"),
-// which spreadsheets don't reliably parse as a float.
-function formatCostForCsv(cost: number | null | undefined): string {
-	if (cost === null || cost === undefined) {
-		return "";
-	}
-	return cost.toFixed(15).replace(/\.?0+$/, "");
-}
-
 function buildLogsCsv(logs: ApiLog[]): string {
-	const rows = logs.map((log) =>
-		[
-			log.createdAt,
-			log.usedProvider,
-			log.usedModel,
-			log.unifiedFinishReason ?? log.finishReason ?? "",
-			log.promptTokens,
-			log.completionTokens,
-			log.totalTokens,
-			log.cachedTokens ?? "",
-			formatCostForCsv(log.cost),
-			log.hasError,
-			log.streamed,
-			log.duration,
-			log.requestId,
-			log.id,
-		]
-			.map(escapeCsvValue)
-			.join(","),
-	);
-	return [CSV_HEADERS.join(","), ...rows].join("\n");
+	const format = detectCsvFormat();
+	const rows = logs.map((log) => [
+		log.createdAt,
+		log.usedProvider,
+		log.usedModel,
+		log.unifiedFinishReason ?? log.finishReason ?? "",
+		log.promptTokens,
+		log.completionTokens,
+		log.totalTokens,
+		log.cachedTokens ?? "",
+		formatCsvNumber(log.cost, format),
+		log.hasError,
+		log.streamed,
+		log.duration,
+		log.requestId,
+		log.id,
+	]);
+	return buildCsv(CSV_HEADERS, rows, format);
 }
 
 function TimeRangePicker({
