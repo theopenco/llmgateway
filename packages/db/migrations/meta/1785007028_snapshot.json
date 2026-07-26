@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "9c80aaca-172e-4137-937f-866e501693a8",
+  "id": "1a035f7e-52c0-4fec-998b-c5c897bc184f",
   "prevId": "ca898c4f-668f-4620-9484-16a22f15229f",
   "ddl": [
     {
@@ -204,6 +204,12 @@
     },
     {
       "isRlsEnabled": false,
+      "name": "lounge_point_event",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
       "name": "master_key",
       "entityType": "tables",
       "schema": "public"
@@ -373,12 +379,6 @@
     {
       "isRlsEnabled": false,
       "name": "referral",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "refund_feedback",
       "entityType": "tables",
       "schema": "public"
     },
@@ -8478,6 +8478,90 @@
       "entityType": "columns",
       "schema": "public",
       "table": "log"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "lounge_point_event"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "lounge_point_event"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "lounge_point_event"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "lounge_point_event"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "kind",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "lounge_point_event"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "points",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "lounge_point_event"
     },
     {
       "type": "text",
@@ -17314,129 +17398,6 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
-      "table": "refund_feedback"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "refund_feedback"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "refund_feedback"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "organization_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "refund_feedback"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "user_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "refund_feedback"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "transaction_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "refund_feedback"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "kind",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "refund_feedback"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "reason",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "refund_feedback"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "comments",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "refund_feedback"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
       "table": "routing_config"
     },
     {
@@ -22494,6 +22455,55 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "user_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "lounge_point_event_user_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "lounge_point_event"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "user_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "lounge_point_event_user_id_created_at_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "lounge_point_event"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "organization_id",
           "isExpression": false,
           "asc": true,
@@ -24113,69 +24123,6 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "referral"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "transaction_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": true,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "refund_feedback_transaction_id_unique",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "refund_feedback"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "organization_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "refund_feedback_organization_id_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "refund_feedback"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "created_at",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "refund_feedback_created_at_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "refund_feedback"
     },
     {
       "nameExplicit": true,
@@ -25857,6 +25804,23 @@
     {
       "nameExplicit": false,
       "columns": [
+        "user_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "user",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "lounge_point_event_user_id_user_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "lounge_point_event"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "organization_id"
       ],
       "schemaTo": "public",
@@ -26312,57 +26276,6 @@
       "entityType": "fks",
       "schema": "public",
       "table": "referral"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "organization_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "organization",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "refund_feedback_organization_id_organization_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "refund_feedback"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "user_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "user",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "refund_feedback_user_id_user_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "refund_feedback"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "transaction_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "transaction",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "refund_feedback_transaction_id_transaction_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "refund_feedback"
     },
     {
       "nameExplicit": false,
@@ -27294,6 +27207,16 @@
         "id"
       ],
       "nameExplicit": false,
+      "name": "lounge_point_event_pkey",
+      "schema": "public",
+      "table": "lounge_point_event",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
       "name": "master_key_pkey",
       "schema": "public",
       "table": "master_key",
@@ -27577,16 +27500,6 @@
       "name": "referral_pkey",
       "schema": "public",
       "table": "referral",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "refund_feedback_pkey",
-      "schema": "public",
-      "table": "refund_feedback",
       "entityType": "pks"
     },
     {
