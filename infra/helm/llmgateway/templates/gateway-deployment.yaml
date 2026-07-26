@@ -81,15 +81,7 @@ spec:
             failureThreshold: 3
           resources:
             {{- toYaml .Values.gateway.resources | nindent 12 }}
-      {{- /*
-      Bounds every in-process drain: once this expires the orchestrator SIGKILLs
-      the pod, so a longer app-level grace period than this is a no-op. Realtime
-      sessions are the long pole (they drain for up to maxSessionSeconds plus a
-      minute), so the default scales with them rather than silently truncating
-      calls when realtime is switched on.
-      */}}
-      {{- $realtimeDrain := ternary (add (int (.Values.realtime.config.maxSessionSeconds | default 3600)) 120) 0 .Values.realtime.enabled }}
-      terminationGracePeriodSeconds: {{ .Values.gateway.terminationGracePeriodSeconds | default (max 120 $realtimeDrain) }}
+      terminationGracePeriodSeconds: 120
       {{- with .Values.gateway.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

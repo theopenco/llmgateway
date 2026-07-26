@@ -38,7 +38,6 @@ import { tracingMiddleware } from "./middleware/tracing.js";
 import { models } from "./models/route.js";
 import { moderationsRoute } from "./moderations/route.js";
 import { ocrRoute } from "./ocr/route.js";
-import { realtimeClientSecretsRoute } from "./realtime/client-secrets-route.js";
 import { responses } from "./responses/responses.js";
 import { speechRoute } from "./speech/route.js";
 import { transcriptionsRoute } from "./transcriptions/route.js";
@@ -354,7 +353,6 @@ v1.route("/messages", anthropic);
 v1.route("/responses", responses);
 v1.route("/audio/speech", speechRoute);
 v1.route("/audio/transcriptions", transcriptionsRoute);
-v1.route("/realtime", realtimeClientSecretsRoute);
 v1.route("/videos", videosRoute);
 
 app.route("/v1", v1);

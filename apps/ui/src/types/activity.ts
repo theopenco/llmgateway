@@ -35,7 +35,6 @@ export interface DailyActivity {
 	dataStorageCost: number;
 	imageInputCost: number;
 	audioInputCost: number;
-	audioOutputCost: number;
 	imageOutputCost: number;
 	videoOutputCost: number;
 	cachedInputCost: number;
@@ -76,7 +75,6 @@ export type ActivitT =
 				dataStorageCost: number;
 				imageInputCost: number;
 				audioInputCost: number;
-				audioOutputCost: number;
 				imageOutputCost: number;
 				videoOutputCost: number;
 				cachedInputCost: number;
