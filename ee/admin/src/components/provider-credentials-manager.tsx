@@ -1,8 +1,8 @@
 "use client";
 
 import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -72,6 +72,12 @@ const VARIANT_ORDER: Variant[] = ["default", "enterprise", "plans"];
  * an item value, and the API models an unpinned credential as a null region.
  */
 const ANY_REGION = "__any__";
+
+/**
+ * Sentinel for "no provider filter". Radix and the query string both need a
+ * concrete value, and an absent `provider` param is what means unfiltered.
+ */
+const ALL_PROVIDERS = "__all__";
 
 type VariantCounts = Record<Variant, number>;
 
@@ -144,6 +150,28 @@ export function ProviderCredentialsManager({
 	onReorder,
 }: ProviderCredentialsManagerProps) {
 	const router = useRouter();
+	const pathname = usePathname();
+	const searchParams = useSearchParams();
+	const providerFilter = searchParams.get("provider") ?? ALL_PROVIDERS;
+
+	// Kept in the URL so a filtered view can be reloaded, shared and navigated
+	// back to, matching how the other admin tables persist their filters.
+	const setProviderFilter = useCallback(
+		(next: string) => {
+			const params = new URLSearchParams(searchParams.toString());
+			if (next === ALL_PROVIDERS) {
+				params.delete("provider");
+			} else {
+				params.set("provider", next);
+			}
+			const query = params.toString();
+			router.replace(query ? `${pathname}?${query}` : pathname, {
+				scroll: false,
+			});
+		},
+		[searchParams, router, pathname],
+	);
+
 	const [editing, setEditing] = useState<ProviderCredential | null>(null);
 	const [creating, setCreating] = useState(false);
 	const [deleting, setDeleting] = useState<ProviderCredential | null>(null);
@@ -216,6 +244,48 @@ export function ProviderCredentialsManager({
 		setOrder(serverOrder);
 	}, [serverOrder, savingProvider]);
 
+	// Only providers that actually have credentials — filtering to an empty
+	// provider is a dead end, and the create dialog is where you go to add one.
+	const filterOptions = useMemo(() => {
+		const options = Array.from(serverOrder.entries()).map(
+			([provider, ids]) => ({
+				value: provider,
+				label: catalogById.get(provider)?.name ?? provider,
+				keywords: provider,
+				icon: <ProviderIcon provider={provider} />,
+				annotation: (
+					<Badge variant="secondary" className="text-[11px]">
+						{ids.length}
+					</Badge>
+				),
+			}),
+		);
+		return [
+			{
+				value: ALL_PROVIDERS,
+				label: "All providers",
+				annotation: (
+					<Badge variant="secondary" className="text-[11px]">
+						{credentials.length}
+					</Badge>
+				),
+			},
+			...options,
+		];
+	}, [serverOrder, catalogById, credentials.length]);
+
+	// Display-only: `order` keeps every provider so the counts in the create
+	// dialog and the reorder payloads stay whole. Filtering by provider also
+	// leaves each shown group complete, which the reorder endpoint requires.
+	const visibleGroups = useMemo(
+		() =>
+			Array.from(order.entries()).filter(
+				([provider]) =>
+					providerFilter === ALL_PROVIDERS || provider === providerFilter,
+			),
+		[order, providerFilter],
+	);
+
 	function applyReorder(provider: string, ids: string[]) {
 		if (!preDragOrder.current) {
 			preDragOrder.current = new Map(order);
@@ -260,7 +330,18 @@ export function ProviderCredentialsManager({
 
 	return (
 		<div className="flex flex-col gap-4">
-			<div className="flex justify-end">
+			<div className="flex flex-wrap items-center justify-between gap-3">
+				<div className="w-full sm:w-72">
+					<SearchableSelect
+						value={providerFilter}
+						onValueChange={setProviderFilter}
+						options={filterOptions}
+						placeholder="All providers"
+						searchPlaceholder="Filter by provider..."
+						emptyMessage="No providers found."
+						aria-label="Filter by provider"
+					/>
+				</div>
 				<Button onClick={() => setCreating(true)}>
 					<Plus className="mr-1 h-4 w-4" />
 					Add credential
@@ -296,11 +377,31 @@ export function ProviderCredentialsManager({
 								</TableCell>
 							</TableRow>
 						</TableBody>
+					) : visibleGroups.length === 0 ? (
+						// Reachable by hand-editing the query string, or by following a
+						// link to a provider whose last credential has since been removed.
+						<TableBody>
+							<TableRow>
+								<TableCell
+									colSpan={9}
+									className="py-10 text-center text-muted-foreground"
+								>
+									No credentials for this provider.{" "}
+									<button
+										type="button"
+										className="underline underline-offset-2"
+										onClick={() => setProviderFilter(ALL_PROVIDERS)}
+									>
+										Show all providers
+									</button>
+								</TableCell>
+							</TableRow>
+						</TableBody>
 					) : (
 						// One tbody per provider: several are valid inside a table and
 						// stack seamlessly, and it makes dragging a row into another
 						// provider's group structurally impossible.
-						Array.from(order.entries()).map(([provider, ids]) => (
+						visibleGroups.map(([provider, ids]) => (
 							<ReorderableList
 								key={provider}
 								as="tbody"
