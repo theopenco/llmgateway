@@ -31,6 +31,11 @@ ALWAYS run `pnpm format` before committing code. Run `pnpm build` if API routes 
 - `pnpm format` - Format code and fix linting issues. ALWAYS run this before committing code.
 - `pnpm lint` - Check linting and formatting (without fixing)
 
+ALWAYS prefer `pnpm format` over `pnpm lint`. They check the same rules, but
+`format` auto-fixes what it can, so running `lint` first just reports problems
+you would then have to fix by hand. Reach for `lint` only when you specifically
+need a read-only check (e.g. verifying CI would pass without touching files).
+
 ### Writing code
 
 This is a pure TypeScript project. Never use `any` or `as any` unless absolutely necessary.
