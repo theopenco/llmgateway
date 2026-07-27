@@ -167,6 +167,7 @@ export function extractTokenUsage(
 			}
 			break;
 		case "anthropic":
+		case "vertex-anthropic":
 			{
 				const usage = data.message?.usage ?? data.usage;
 				if (!usage) {
