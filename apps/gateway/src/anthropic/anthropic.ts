@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
@@ -296,7 +298,7 @@ interface AnthropicWebSearchResult {
 }
 
 function generateServerToolUseId(): string {
-	return `srvtoolu_${Math.random().toString(36).substring(2, 10)}`;
+	return `srvtoolu_${randomUUID()}`;
 }
 
 // Map the inner chat completions response's url_citation annotations onto
@@ -492,9 +494,7 @@ anthropic.openapi(messages, async (c) => {
 
 		// Handle assistant messages with function_call (legacy OpenAI format)
 		if (message.role === "assistant" && message.function_call) {
-			const toolCallId =
-				message.function_call.id ??
-				`call_${Math.random().toString(36).substring(2, 10)}`;
+			const toolCallId = message.function_call.id ?? `call_${randomUUID()}`;
 			pendingLegacyToolCallIds.push(toolCallId);
 
 			const toolCalls = [
@@ -1180,6 +1180,24 @@ anthropic.openapi(messages, async (c) => {
 										seenCitationKeys,
 									);
 									if (webSearchResults.length > 0) {
+										// Anthropic streams blocks strictly sequentially: a text
+										// block open before the search (preamble) is closed first,
+										// and the text citing the results opens as a NEW block
+										// after them. Close any open text block so later text
+										// deltas don't interleave with an index that precedes the
+										// search blocks.
+										if (currentTextBlockIndex !== null) {
+											contentBlocks[currentTextBlockIndex].stopped = true;
+											await stream.writeSSE({
+												data: JSON.stringify({
+													type: "content_block_stop",
+													index: currentTextBlockIndex,
+												}),
+												event: "content_block_stop",
+											});
+											currentTextBlockIndex = null;
+										}
+
 										const serverToolUseId = generateServerToolUseId();
 										const serverToolUseIndex = contentBlocks.length;
 										contentBlocks.push({
@@ -1240,10 +1258,16 @@ anthropic.openapi(messages, async (c) => {
 								if (delta.content) {
 									// Find or create a text block
 									if (currentTextBlockIndex === null) {
-										// Look for existing text block (search from end)
+										// Look for existing text block (search from end). Skip
+										// blocks already closed (e.g. a preamble text block
+										// stopped when web-search blocks were emitted) — text
+										// after the search results must open a new block.
 										let lastTextBlockIndex = -1;
 										for (let i = contentBlocks.length - 1; i >= 0; i--) {
-											if (contentBlocks[i].type === "text") {
+											if (
+												contentBlocks[i].type === "text" &&
+												!contentBlocks[i].stopped
+											) {
 												lastTextBlockIndex = i;
 												break;
 											}

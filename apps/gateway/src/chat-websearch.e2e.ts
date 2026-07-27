@@ -355,10 +355,19 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 			expect(res.status).toBe(200);
 			expect(Array.isArray(json.content)).toBe(true);
 
-			const blockTypes = json.content.map((b: { type: string }) => b.type);
+			const blockTypes: string[] = json.content.map(
+				(b: { type: string }) => b.type,
+			);
 			expect(blockTypes).toContain("server_tool_use");
 			expect(blockTypes).toContain("web_search_tool_result");
 			expect(blockTypes).toContain("text");
+
+			// Anthropic's block order: server_tool_use precedes its
+			// web_search_tool_result, and the text citing the results follows them.
+			const serverToolUseIndex = blockTypes.indexOf("server_tool_use");
+			const toolResultIndex = blockTypes.indexOf("web_search_tool_result");
+			expect(serverToolUseIndex).toBeLessThan(toolResultIndex);
+			expect(blockTypes.lastIndexOf("text")).toBeGreaterThan(toolResultIndex);
 
 			const serverToolUse = json.content.find(
 				(b: { type: string }) => b.type === "server_tool_use",
@@ -430,42 +439,64 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 				);
 			}
 
-			const starts = streamResult.chunks.filter(
-				(chunk: any) => chunk.type === "content_block_start",
+			interface AnthropicStreamChunk {
+				type?: string;
+				index?: number;
+				content_block?: {
+					type?: string;
+					tool_use_id?: string;
+					content?: Array<{ type?: string; url?: string; title?: string }>;
+				};
+				usage?: { input_tokens?: number; output_tokens?: number };
+			}
+			const chunks = streamResult.chunks as AnthropicStreamChunk[];
+
+			const starts = chunks.filter(
+				(chunk) => chunk.type === "content_block_start",
 			);
-			const startTypes = starts.map((chunk: any) => chunk.content_block?.type);
+			const startTypes = starts.map((chunk) => chunk.content_block?.type);
 			expect(startTypes).toContain("server_tool_use");
 			expect(startTypes).toContain("web_search_tool_result");
 			expect(startTypes).toContain("text");
 
+			// Anthropic's block order: server_tool_use starts before its
+			// web_search_tool_result, and the text block citing the results starts
+			// after them (a preamble text block before the search may exist, so
+			// compare against the last text block).
+			const serverToolUseStart = starts.find(
+				(chunk) => chunk.content_block?.type === "server_tool_use",
+			);
 			const toolResultStart = starts.find(
-				(chunk: any) => chunk.content_block?.type === "web_search_tool_result",
+				(chunk) => chunk.content_block?.type === "web_search_tool_result",
 			);
-			expect(Array.isArray(toolResultStart.content_block.content)).toBe(true);
-			expect(toolResultStart.content_block.content.length).toBeGreaterThan(0);
-			expect(toolResultStart.content_block.content[0].type).toBe(
-				"web_search_result",
-			);
-			expect(toolResultStart.content_block.content[0].url).toMatch(
-				/^https?:\/\//,
-			);
+			const lastTextStart = [...starts]
+				.reverse()
+				.find((chunk) => chunk.content_block?.type === "text");
+			expect(serverToolUseStart!.index!).toBeLessThan(toolResultStart!.index!);
+			expect(lastTextStart!.index!).toBeGreaterThan(toolResultStart!.index!);
+
+			const toolResultContent = toolResultStart!.content_block!.content!;
+			expect(Array.isArray(toolResultContent)).toBe(true);
+			expect(toolResultContent.length).toBeGreaterThan(0);
+			expect(toolResultContent[0].type).toBe("web_search_result");
+			expect(toolResultContent[0].url).toMatch(/^https?:\/\//);
 
 			// Every started block must be stopped exactly once.
-			const stopIndexes = streamResult.chunks
-				.filter((chunk: any) => chunk.type === "content_block_stop")
-				.map((chunk: any) => chunk.index);
+			const stopIndexes = chunks
+				.filter((chunk) => chunk.type === "content_block_stop")
+				.map((chunk) => chunk.index);
 			for (const start of starts) {
 				expect(
-					stopIndexes.filter((index: number) => index === start.index).length,
+					stopIndexes.filter((index) => index === start.index).length,
 				).toBe(1);
 			}
 
 			// The final message_delta must still carry usage.
-			const messageDelta = streamResult.chunks.find(
-				(chunk: any) => chunk.type === "message_delta",
+			const messageDelta = chunks.find(
+				(chunk) => chunk.type === "message_delta",
 			);
-			expect(messageDelta.usage.input_tokens).toBeGreaterThan(0);
-			expect(messageDelta.usage.output_tokens).toBeGreaterThan(0);
+			expect(messageDelta!.usage!.input_tokens).toBeGreaterThan(0);
+			expect(messageDelta!.usage!.output_tokens).toBeGreaterThan(0);
 		},
 	);
 });
