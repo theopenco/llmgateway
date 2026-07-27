@@ -231,11 +231,20 @@ const anthropicRequestSchema = z.object({
 });
 
 const anthropicContentBlockSchema = z.object({
-	type: z.enum(["text", "tool_use"]),
+	type: z.enum([
+		"text",
+		"tool_use",
+		"thinking",
+		"server_tool_use",
+		"web_search_tool_result",
+	]),
 	text: z.string().optional(),
+	thinking: z.string().optional(),
 	id: z.string().optional(),
 	name: z.string().optional(),
 	input: z.record(z.unknown()).optional(),
+	tool_use_id: z.string().optional(),
+	content: z.array(z.unknown()).optional(),
 });
 
 const anthropicResponseSchema = z.object({
@@ -277,6 +286,69 @@ const anthropicResponseSchema = z.object({
 });
 
 type AnthropicRequest = z.infer<typeof anthropicRequestSchema>;
+
+interface AnthropicWebSearchResult {
+	type: "web_search_result";
+	url: string;
+	title: string;
+	encrypted_content: string;
+	page_age: string | null;
+}
+
+function generateServerToolUseId(): string {
+	return `srvtoolu_${Math.random().toString(36).substring(2, 10)}`;
+}
+
+// Map the inner chat completions response's url_citation annotations onto
+// Anthropic web_search_result entries. The OpenAI-format annotations only
+// carry url/title, so the Anthropic-only fields (encrypted_content, page_age)
+// are emitted as empty placeholders. Duplicate url/title pairs are collapsed;
+// `seen` lets streaming callers dedupe across multiple annotation chunks.
+function mapAnnotationsToWebSearchResults(
+	annotations: unknown,
+	seen?: Set<string>,
+): AnthropicWebSearchResult[] {
+	if (!Array.isArray(annotations)) {
+		return [];
+	}
+	const seenKeys = seen ?? new Set<string>();
+	const results: AnthropicWebSearchResult[] = [];
+	for (const annotation of annotations) {
+		if (
+			!annotation ||
+			typeof annotation !== "object" ||
+			(annotation as { type?: string }).type !== "url_citation"
+		) {
+			continue;
+		}
+		const urlCitation = (
+			annotation as {
+				url_citation?: { url?: string; title?: string };
+			}
+		).url_citation;
+		if (!urlCitation || typeof urlCitation.url !== "string") {
+			continue;
+		}
+		const url = urlCitation.url;
+		const title =
+			typeof urlCitation.title === "string" && urlCitation.title
+				? urlCitation.title
+				: url;
+		const key = `${url}\n${title}`;
+		if (seenKeys.has(key)) {
+			continue;
+		}
+		seenKeys.add(key);
+		results.push({
+			type: "web_search_result",
+			url,
+			title,
+			encrypted_content: "",
+			page_age: null,
+		});
+	}
+	return results;
+}
 
 const messages = createRoute({
 	operationId: "v1_messages",
@@ -824,7 +896,12 @@ anthropic.openapi(messages, async (c) => {
 					id?: string;
 					name?: string;
 					input?: string;
+					// Web-search blocks are emitted complete (start + stop in one
+					// go), so the end-of-stream stop flush must skip them.
+					stopped?: boolean;
 				}> = [];
+				// Dedupe web-search citations across annotation chunks.
+				const seenCitationKeys = new Set<string>();
 				let usage: {
 					input_tokens: number;
 					output_tokens: number;
@@ -894,6 +971,9 @@ anthropic.openapi(messages, async (c) => {
 					}
 					contentBlockStopsSent = true;
 					for (let i = 0; i < contentBlocks.length; i++) {
+						if (contentBlocks[i].stopped) {
+							continue;
+						}
 						await stream.writeSSE({
 							data: JSON.stringify({
 								type: "content_block_stop",
@@ -1082,6 +1162,78 @@ anthropic.openapi(messages, async (c) => {
 										}),
 										event: "content_block_delta",
 									});
+								}
+
+								// Handle web-search citation annotations. The upstream chat
+								// completions stream surfaces provider web search results as
+								// `delta.annotations` (url_citation entries); reconstruct the
+								// Anthropic server_tool_use + web_search_tool_result block
+								// pair so native SDK clients receive sources. Both blocks are
+								// emitted complete, mirroring how Anthropic streams
+								// web_search_tool_result content in the start event.
+								if (
+									Array.isArray(delta.annotations) &&
+									delta.annotations.length > 0
+								) {
+									const webSearchResults = mapAnnotationsToWebSearchResults(
+										delta.annotations,
+										seenCitationKeys,
+									);
+									if (webSearchResults.length > 0) {
+										const serverToolUseId = generateServerToolUseId();
+										const serverToolUseIndex = contentBlocks.length;
+										contentBlocks.push({
+											type: "server_tool_use",
+											id: serverToolUseId,
+											name: "web_search",
+											stopped: true,
+										});
+										await stream.writeSSE({
+											data: JSON.stringify({
+												type: "content_block_start",
+												index: serverToolUseIndex,
+												content_block: {
+													type: "server_tool_use",
+													id: serverToolUseId,
+													name: "web_search",
+													input: {},
+												},
+											}),
+											event: "content_block_start",
+										});
+										await stream.writeSSE({
+											data: JSON.stringify({
+												type: "content_block_stop",
+												index: serverToolUseIndex,
+											}),
+											event: "content_block_stop",
+										});
+
+										const toolResultIndex = contentBlocks.length;
+										contentBlocks.push({
+											type: "web_search_tool_result",
+											stopped: true,
+										});
+										await stream.writeSSE({
+											data: JSON.stringify({
+												type: "content_block_start",
+												index: toolResultIndex,
+												content_block: {
+													type: "web_search_tool_result",
+													tool_use_id: serverToolUseId,
+													content: webSearchResults,
+												},
+											}),
+											event: "content_block_start",
+										});
+										await stream.writeSSE({
+											data: JSON.stringify({
+												type: "content_block_stop",
+												index: toolResultIndex,
+											}),
+											event: "content_block_stop",
+										});
+									}
 								}
 
 								// Handle content delta
@@ -1300,6 +1452,30 @@ anthropic.openapi(messages, async (c) => {
 		content.push({
 			type: "thinking",
 			thinking: responseReasoning,
+		});
+	}
+
+	// Reconstruct Anthropic server-side web search blocks from the inner
+	// response's url_citation annotations. The request direction already maps
+	// web_search_20250305 onto the internal web_search tool, but without this
+	// the response direction dropped the citations entirely and native
+	// Anthropic SDK clients saw no sources. Anthropic places server_tool_use +
+	// web_search_tool_result before the text that cites them.
+	const responseWebSearchResults = mapAnnotationsToWebSearchResults(
+		openaiResponse.choices?.[0]?.message?.annotations,
+	);
+	if (responseWebSearchResults.length > 0) {
+		const serverToolUseId = generateServerToolUseId();
+		content.push({
+			type: "server_tool_use",
+			id: serverToolUseId,
+			name: "web_search",
+			input: {},
+		});
+		content.push({
+			type: "web_search_tool_result",
+			tool_use_id: serverToolUseId,
+			content: responseWebSearchResults,
 		});
 	}
 
