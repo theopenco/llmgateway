@@ -499,4 +499,85 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 			expect(messageDelta!.usage!.output_tokens).toBeGreaterThan(0);
 		},
 	);
+
+	// Native SDK clients append the assistant turn verbatim, so the
+	// server_tool_use / web_search_tool_result blocks the previous test asserts
+	// come straight back on the next request. They must be accepted (and
+	// dropped) rather than rejected as an unknown content block.
+	test(
+		"native /v1/messages accepts its own web-search blocks on the next turn",
+		{ timeout: 300000 },
+		async () => {
+			const search = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-request-id": generateTestRequestId(),
+					"x-no-fallback": "true",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: "anthropic/claude-haiku-4-5",
+					max_tokens: 400,
+					tools: [{ type: "web_search_20250305", name: "web_search" }],
+					messages: [
+						{
+							role: "user",
+							content:
+								"What is the latest published version of the ai npm package?",
+						},
+					],
+				}),
+			});
+
+			expect(search.status).toBe(200);
+			const searchJson = await search.json();
+			const blockTypes: string[] = searchJson.content.map(
+				(block: { type: string }) => block.type,
+			);
+			expect(blockTypes).toContain("web_search_tool_result");
+
+			const requestId = generateTestRequestId();
+			const followUp = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-request-id": requestId,
+					"x-no-fallback": "true",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: "anthropic/claude-haiku-4-5",
+					max_tokens: 400,
+					tools: [{ type: "web_search_20250305", name: "web_search" }],
+					messages: [
+						{
+							role: "user",
+							content:
+								"What is the latest published version of the ai npm package?",
+						},
+						// Replayed verbatim, exactly as an Anthropic SDK client would.
+						{ role: "assistant", content: searchJson.content },
+						{ role: "user", content: "Thanks! Say OK." },
+					],
+				}),
+			});
+
+			const followUpJson = await followUp.json();
+			if (logMode) {
+				console.log(
+					"native messages web search follow-up:",
+					JSON.stringify(followUpJson, null, 2),
+				);
+			}
+
+			expect(followUp.status).toBe(200);
+			expect(
+				followUpJson.content.some(
+					(block: { type: string }) => block.type === "text",
+				),
+			).toBe(true);
+			await validateLogByRequestId(requestId);
+		},
+	);
 });

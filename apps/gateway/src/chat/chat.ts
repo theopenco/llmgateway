@@ -276,6 +276,7 @@ import {
 	toResponseMetadataExtras,
 	transformResponseToOpenai,
 	withCurrentRequestMetadataOnOpenAiResponse,
+	zeroCostsOnCachedResponseUsage,
 } from "./tools/transform-response-to-openai.js";
 import { transformStreamingToOpenai } from "./tools/transform-streaming-to-openai.js";
 import { validateFreeModelUsage } from "./tools/validate-free-model-usage.js";
@@ -1287,6 +1288,10 @@ const completions = createRoute({
 							organization_id: z.string().optional(),
 							project_id: z.string().optional(),
 							discount: z.number().nullable().optional(),
+							cached: z.boolean().optional().openapi({
+								description:
+									"True when the response was replayed from the gateway response cache instead of being generated upstream. Omitted otherwise.",
+							}),
 							routing: z
 								.array(
 									z.object({
@@ -5363,8 +5368,13 @@ chat.openapi(completions, async (c) => {
 		duration: cacheDuration,
 		providerCacheControlEnabled,
 	} = await isCachingEnabled(project.id);
+	// Per-request opt-out, mirroring X-No-Fallback. Agent workloads that retry a
+	// byte-identical request expect a fresh sample rather than a replay, so let
+	// a caller bypass the response cache (both read and write) without turning
+	// the project setting off.
+	const noCache = c.req.header("x-no-cache") === "true";
 	const cachingEnabled =
-		organization.devPlan !== "none" ? false : projectCachingEnabled;
+		organization.devPlan !== "none" || noCache ? false : projectCachingEnabled;
 
 	let cacheKey: string | null = null;
 	let streamingCacheKey: string | null = null;
@@ -5619,9 +5629,11 @@ chat.openapi(completions, async (c) => {
 							?.toolResults ?? null,
 				});
 
-				const cachedResponseMetadata = buildFinalResponseMetadata(
-					costs.discount ?? null,
-				);
+				const cachedResponseMetadata = {
+					...buildFinalResponseMetadata(costs.discount ?? null),
+					cached: true,
+				};
+				c.header("x-llmgateway-cache", "HIT");
 				let hasMetadataChunk = false;
 				for (
 					let chunkIndex = cachedStreamingResponse.chunks.length - 1;
@@ -5697,6 +5709,15 @@ chat.openapi(completions, async (c) => {
 											: {};
 									data = JSON.stringify({
 										...parsed,
+										// The replay is free; the stored chunk still carries the
+										// original call's cost.
+										...(parsed.usage
+											? {
+													usage: zeroCostsOnCachedResponseUsage(
+														parsed.usage as Record<string, unknown>,
+													),
+												}
+											: {}),
 										metadata: {
 											...metadata,
 											...cachedResponseMetadata,
@@ -5774,17 +5795,27 @@ chat.openapi(completions, async (c) => {
 					},
 				);
 
+				// A replay is served from Redis with no upstream call, so it is free
+				// and must not report the original call's cost. Mark it explicitly
+				// too — byte-identical bodies are otherwise indistinguishable from a
+				// fresh sample, and the replayed usage (e.g. a prompt-cache write)
+				// describes the original request, not this one.
 				const responseForCurrentRequest =
 					withCurrentRequestMetadataOnOpenAiResponse(
-						cachedResponse,
+						{
+							...cachedResponse,
+							usage: zeroCostsOnCachedResponseUsage(cachedResponse.usage),
+						},
 						requestId,
 						{
 							logId: finalLogId,
 							organizationId: project.organizationId,
 							projectId: apiKey.projectId,
 							discount: cachedCosts.discount ?? null,
+							cached: true,
 						},
 					);
+				c.header("x-llmgateway-cache", "HIT");
 
 				// Extract plugin IDs for logging (cached non-streaming)
 				const cachedPluginIds = plugins?.map((p) => p.id) ?? [];
