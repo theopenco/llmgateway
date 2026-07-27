@@ -1,5 +1,6 @@
 import { WebSocket, WebSocketServer } from "ws";
 
+import { getCredentialSetting } from "@/chat/tools/resolve-platform-credential.js";
 import {
 	reportKeyError,
 	reportKeySuccess,
@@ -9,7 +10,6 @@ import {
 import { getClientIpFromForwardedFor } from "@/lib/client-ip.js";
 
 import { logger } from "@llmgateway/logger";
-import { getProviderEnvValue, type Provider } from "@llmgateway/models";
 
 import {
 	closeRealtimeSessionRecord,
@@ -27,6 +27,7 @@ import { RealtimeProxySession } from "./session.js";
 
 import type { RealtimeMappingMatch } from "./catalog.js";
 import type { RealtimePreflightResult } from "./preflight.js";
+import type { Provider } from "@llmgateway/models";
 import type { ClientRequest, IncomingMessage, Server } from "node:http";
 import type { Duplex } from "node:stream";
 
@@ -159,9 +160,14 @@ async function connectUpstream(
 	preflight: RealtimePreflightResult,
 ): Promise<WebSocket> {
 	const providerId = preflight.match.mapping.providerId as Provider;
+	// Base URL of the platform credential serving the session: the managed
+	// credential's own config when one is active, the provider's env var
+	// otherwise. BYOK base URLs are rejected in preflight.
 	const baseUrl =
-		getProviderEnvValue(providerId, "baseUrl", preflight.configIndex) ??
-		"https://api.openai.com";
+		getCredentialSetting(providerId, "baseUrl", preflight.managedKey, {
+			configIndex: preflight.configIndex,
+			variant: preflight.envVariant,
+		}) ?? "https://api.openai.com";
 	const url = `${baseUrl.replace(/^http/, "ws")}/v1/realtime?model=${encodeURIComponent(preflight.match.mapping.externalId)}`;
 
 	const upstream = new WebSocket(url, {
@@ -505,9 +511,9 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 						preflight.match.modelId,
 					);
 				}
-				if (preflight.providerKey?.id) {
+				if (preflight.trackedKeyHealthId) {
 					reportTrackedKeyError(
-						preflight.providerKey.id,
+						preflight.trackedKeyHealthId,
 						0,
 						undefined,
 						preflight.match.modelId,
@@ -534,9 +540,9 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 					preflight.match.modelId,
 				);
 			}
-			if (preflight.providerKey?.id) {
+			if (preflight.trackedKeyHealthId) {
 				reportTrackedKeySuccess(
-					preflight.providerKey.id,
+					preflight.trackedKeyHealthId,
 					preflight.match.modelId,
 				);
 			}
