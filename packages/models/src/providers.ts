@@ -897,6 +897,42 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
+		id: "aws-mantle",
+		name: "AWS Mantle",
+		description:
+			"Amazon Bedrock Mantle - OpenAI frontier models served on AWS via the Responses API",
+		env: {
+			required: {
+				apiKey: "LLM_AWS_MANTLE_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_AWS_MANTLE_BASE_URL",
+				region: "LLM_AWS_MANTLE_REGION",
+			},
+		},
+		priority: 2,
+		streaming: true,
+		cancellation: true,
+		color: "#FF9900",
+		website: "https://aws.amazon.com/bedrock",
+		statusPageUrl: "https://health.aws.amazon.com/health/status",
+		announcement: null,
+		apiKeyInstructions:
+			"Use AWS Bedrock Long-Term API Keys (not IAM service account or private keys)",
+		termsUrl: "https://aws.amazon.com/service-terms",
+		privacyPolicyUrl: "https://aws.amazon.com/privacy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: 2,
+			iso27001: true,
+			gdpr: true,
+		},
+	},
+	{
 		id: "azure",
 		name: "Azure",
 		description: "Microsoft Azure - enterprise-grade OpenAI models",

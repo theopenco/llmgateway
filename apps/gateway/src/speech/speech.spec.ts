@@ -85,6 +85,45 @@ describe("speech", () => {
 		expect(Number(log?.outputCost)).toBeCloseTo(42 * 10e-6, 10);
 	});
 
+	test("/v1/audio/speech does not persist payload when retention is disabled", async () => {
+		await db
+			.update(tables.organization)
+			.set({ retentionLevel: "none" })
+			.where(eq(tables.organization.id, "org-id"));
+
+		await seedKeys(
+			"real-token-speech-retention-none",
+			"token-id-speech-retention-none",
+		);
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-retention-none",
+			},
+			body: JSON.stringify({
+				model: "gemini-2.5-flash-preview-tts",
+				input: "secret retention payload",
+				voice: "Kore",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+
+		const logs = await waitForLogs(1);
+		const log = logs.find(
+			(l) => l.usedModel === "google-ai-studio/gemini-2.5-flash-preview-tts",
+		);
+		expect(log).toBeDefined();
+		expect(log?.hasError).toBe(false);
+		expect(log?.finishReason).toBe("stop");
+		// Payload never reaches the database for a non-retaining org.
+		expect(log?.messages).toBeNull();
+		expect(log?.content).toBeNull();
+		expect(log?.reasoningContent).toBeNull();
+	});
+
 	test("/v1/audio/speech returns raw PCM when requested", async () => {
 		await seedKeys("real-token-speech-pcm", "token-id-speech-pcm");
 

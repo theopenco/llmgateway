@@ -3,22 +3,18 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import {
-	AudioLines,
 	MessageSquare,
 	Edit2,
 	Trash2,
 	MoreVerticalIcon,
-	ImagePlus,
-	Film,
 	Pin,
 	PinOff,
-	Users,
 	ChevronDown,
 	ChevronUp,
-	Folder,
 	LogOut,
 	ExternalLink,
-	PenTool,
+	Sparkles,
+	Trophy,
 } from "lucide-react";
 // import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -37,6 +33,7 @@ import { toast } from "sonner";
 
 import { CreditsDisplay } from "@/components/credits/credits-display";
 import { ThemeToggle } from "@/components/landing/theme-toggle";
+import { SidebarLoungePoints } from "@/components/lounge/sidebar-points";
 import { Button } from "@/components/ui/button";
 import {
 	DropdownMenu,
@@ -68,10 +65,12 @@ import { useOrganization } from "@/hooks/useOrganization";
 import { useUser } from "@/hooks/useUser";
 import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
 import { useAuth } from "@/lib/auth-client";
+import { withOrgParam } from "@/lib/utils";
 
 import { ChatSidebarSkeleton } from "./chat-sidebar-skeleton";
 import { OrganizationSwitcher } from "./organization-switcher";
 import { SidebarChatSearch, SidebarNewAction } from "./sidebar-actions";
+import { StudioNav } from "./studio-nav";
 // import { ProjectSwitcher } from "./project-switcher";
 
 import type { Organization, Project } from "@/lib/types";
@@ -499,8 +498,7 @@ export const ChatSidebar = function ChatSidebar({
 	// Preserve the selected organization across playground navigation so users
 	// don't have to re-pick their org on every page.
 	const orgIdParam = searchParams.get("orgId");
-	const withOrg = (path: string) =>
-		orgIdParam ? `${path}?orgId=${orgIdParam}` : path;
+	const withOrg = (path: string) => withOrgParam(path, orgIdParam);
 	const posthog = usePostHog();
 	const { state: sidebarState, isMobile, setOpenMobile } = useSidebar();
 	const showOrganizationSwitcher = pathname === "/" || pathname === "/group";
@@ -532,6 +530,12 @@ export const ChatSidebar = function ChatSidebar({
 				.split("; ")
 				.includes(`${HISTORY_COLLAPSED_STORAGE_KEY}=1`),
 	);
+	// Transitions stay off until after hydration so a cookie-collapsed list
+	// doesn't animate shut on every page load.
+	const [historyTransitionReady, setHistoryTransitionReady] = useState(false);
+	useEffect(() => {
+		setHistoryTransitionReady(true);
+	}, []);
 
 	const toggleHistoryCollapsed = useCallback(() => {
 		setIsHistoryCollapsed((prev) => {
@@ -769,6 +773,7 @@ export const ChatSidebar = function ChatSidebar({
 							</div>
 						</div>
 					</div>
+					<StudioNav />
 				</SidebarHeader>
 			</Sidebar>
 		);
@@ -804,91 +809,8 @@ export const ChatSidebar = function ChatSidebar({
 						onAction={onNewChat}
 						isLoading={isPageLoading}
 					/>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							asChild
-							tooltip="Chat"
-							isActive={pathname === "/"}
-						>
-							<Link href={withOrg("/")} prefetch={true}>
-								<MessageSquare className="h-4 w-4" />
-								<span>Chat</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							asChild
-							tooltip="Projects"
-							isActive={pathname === "/projects"}
-						>
-							<Link href={withOrg("/projects")} prefetch={true}>
-								<Folder className="h-4 w-4" />
-								<span>Projects</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							asChild
-							tooltip="Group Chat"
-							isActive={pathname === "/group"}
-						>
-							<Link href={withOrg("/group")} prefetch={true}>
-								<Users className="h-4 w-4" />
-								<span>Group Chat</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							asChild
-							tooltip="Image Studio"
-							isActive={pathname === "/image"}
-						>
-							<Link href={withOrg("/image")} prefetch={true}>
-								<ImagePlus className="h-4 w-4" />
-								<span>Image Studio</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							asChild
-							tooltip="Video Studio"
-							isActive={pathname === "/video"}
-						>
-							<Link href={withOrg("/video")} prefetch={true}>
-								<Film className="h-4 w-4" />
-								<span>Video Studio</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							asChild
-							tooltip="Audio Studio"
-							isActive={pathname === "/audio"}
-						>
-							<Link href={withOrg("/audio")} prefetch={true}>
-								<AudioLines className="h-4 w-4" />
-								<span>Audio Studio</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton
-							asChild
-							tooltip="Canvas"
-							isActive={pathname === "/canvas"}
-						>
-							<Link href={withOrg("/canvas")} prefetch={true}>
-								<PenTool className="h-4 w-4" />
-								<span>Canvas</span>
-							</Link>
-						</SidebarMenuButton>
-					</SidebarMenuItem>
 				</SidebarMenu>
+				<StudioNav />
 			</SidebarHeader>
 
 			<SidebarContent className="overflow-hidden pb-2">
@@ -949,63 +871,84 @@ export const ChatSidebar = function ChatSidebar({
 							}`}
 						/>
 					</button>
-					{isHistoryCollapsed ? null : chats.length === 0 ? (
-						<div className="flex flex-col items-center justify-center py-8 text-center">
-							<MessageSquare className="h-12 w-12 text-muted-foreground/50 mb-4" />
-							<p className="text-sm text-muted-foreground mb-2">
-								No chat history
-							</p>
-							<p className="text-xs text-muted-foreground">
-								Start a new conversation to see it here
-							</p>
-						</div>
-					) : (
-						<>
-							{pinnedChats.length > 0 && (
-								<div className="shrink-0 max-h-[45%] overflow-y-auto border-b border-sidebar-border/60 pb-1">
-									<div className="px-5 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider group-data-[collapsible=icon]:hidden">
-										Pinned
-									</div>
-									{pinnedChats.map((chat) => (
-										<div key={chat.id} style={{ height: ROW_HEIGHT_CHAT }}>
-											<ChatHistoryItem
-												chat={chat}
-												currentChatId={currentChatId}
-												editingId={editingId}
-												editTitle={editTitle}
-												pendingFocusChatId={pendingFocusChatId}
-												isPageLoading={isPageLoading}
-												isMobile={isMobile}
-												onChatSelect={handleChatSelect}
-												onEditTitleChange={setEditTitle}
-												onSaveTitle={saveTitle}
-												onCancelEdit={cancelEditTitle}
-												onDeleteChat={handleDeleteChat}
-												onTogglePin={handleTogglePin}
-												onStartEdit={handleEditTitle}
-												onEditFocused={onEditFocused}
-											/>
-										</div>
-									))}
+					{/* Collapse animates height so the rotating chevron's promise is
+					    kept; grid-rows keeps the transition interruptible. */}
+					<div
+						className={`grid min-h-0 flex-1 ${
+							historyTransitionReady
+								? "transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-[opacity]"
+								: ""
+						} ${
+							isHistoryCollapsed
+								? "grid-rows-[0fr] opacity-0"
+								: "grid-rows-[1fr] opacity-100"
+						}`}
+					>
+						<div
+							className="flex min-h-0 flex-col overflow-hidden"
+							aria-hidden={isHistoryCollapsed}
+							{...(isHistoryCollapsed ? { inert: true } : {})}
+						>
+							{chats.length === 0 ? (
+								<div className="flex flex-col items-center justify-center py-8 text-center">
+									<MessageSquare className="h-12 w-12 text-muted-foreground/50 mb-4" />
+									<p className="text-sm text-muted-foreground mb-2">
+										No chat history
+									</p>
+									<p className="text-xs text-muted-foreground">
+										Start a new conversation to see it here
+									</p>
 								</div>
+							) : (
+								<>
+									{pinnedChats.length > 0 && (
+										<div className="shrink-0 max-h-[45%] overflow-y-auto border-b border-sidebar-border/60 pb-1">
+											<div className="px-5 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider group-data-[collapsible=icon]:hidden">
+												Pinned
+											</div>
+											{pinnedChats.map((chat) => (
+												<div key={chat.id} style={{ height: ROW_HEIGHT_CHAT }}>
+													<ChatHistoryItem
+														chat={chat}
+														currentChatId={currentChatId}
+														editingId={editingId}
+														editTitle={editTitle}
+														pendingFocusChatId={pendingFocusChatId}
+														isPageLoading={isPageLoading}
+														isMobile={isMobile}
+														onChatSelect={handleChatSelect}
+														onEditTitleChange={setEditTitle}
+														onSaveTitle={saveTitle}
+														onCancelEdit={cancelEditTitle}
+														onDeleteChat={handleDeleteChat}
+														onTogglePin={handleTogglePin}
+														onStartEdit={handleEditTitle}
+														onEditFocused={onEditFocused}
+													/>
+												</div>
+											))}
+										</div>
+									)}
+									{historyRows.length > 0 && (
+										<List
+											className="min-h-0 w-full flex-1"
+											style={{ width: "100%" }}
+											rowComponent={ChatHistoryRowComponent}
+											rowCount={historyRows.length}
+											rowHeight={getChatHistoryRowHeight}
+											rowProps={rowProps}
+											overscanCount={8}
+										/>
+									)}
+								</>
 							)}
-							{historyRows.length > 0 && (
-								<List
-									className="min-h-0 w-full flex-1"
-									style={{ width: "100%" }}
-									rowComponent={ChatHistoryRowComponent}
-									rowCount={historyRows.length}
-									rowHeight={getChatHistoryRowHeight}
-									rowProps={rowProps}
-									overscanCount={8}
-								/>
-							)}
-						</>
-					)}
+						</div>
+					</div>
 				</div>
 			</SidebarContent>
 
 			<SidebarFooter>
+				<SidebarLoungePoints />
 				<div className="group-data-[collapsible=icon]:hidden">
 					<CreditsDisplay
 						organization={
@@ -1053,6 +996,19 @@ export const ChatSidebar = function ChatSidebar({
 								align="end"
 								sideOffset={4}
 							>
+								<DropdownMenuItem asChild>
+									<Link href="/profile" prefetch={true}>
+										<Sparkles className="mr-2 h-4 w-4" />
+										Profile &amp; Points
+									</Link>
+								</DropdownMenuItem>
+								<DropdownMenuItem asChild>
+									<Link href="/leaderboard" prefetch={true}>
+										<Trophy className="mr-2 h-4 w-4" />
+										Leaderboard
+									</Link>
+								</DropdownMenuItem>
+								<DropdownMenuSeparator />
 								<DropdownMenuItem asChild>
 									<a
 										href={

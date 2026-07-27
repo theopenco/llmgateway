@@ -115,6 +115,7 @@ export function getProviderHeaders(
 				Authorization: `Bearer ${token}`,
 			};
 		case "aws-bedrock":
+		case "aws-mantle":
 			return {
 				...requestIdHeader,
 				Authorization: `Bearer ${token}`,

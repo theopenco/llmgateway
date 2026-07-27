@@ -1,4 +1,5 @@
 import { redisClient } from "@llmgateway/cache";
+import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import { calculatePromptTokensFromMessages } from "./calculate-prompt-tokens.js";
@@ -8,6 +9,7 @@ import {
 	extractBedrockCacheCreationDetails,
 } from "./extract-token-usage.js";
 import { mapFinishReasonToOpenai } from "./map-finish-reason-to-openai.js";
+import { buildEncryptedReasoningDetail } from "./reasoning-details.js";
 import { transformOpenaiStreaming } from "./transform-openai-streaming.js";
 
 import type { Annotation, StreamingDelta } from "./types.js";
@@ -561,9 +563,12 @@ export function transformStreamingToOpenai(
 					}
 
 					if (part.functionCall) {
-						const callIndex = toolCalls.length;
-						const toolCallId =
-							part.functionCall.name + "_" + Date.now() + "_" + callIndex;
+						// The id doubles as the `thought_signature:<id>` Redis key, so it
+						// MUST be globally unique — a name+timestamp id collides whenever
+						// two callers invoke the same tool in the same millisecond, and
+						// replaying a call with another call's signature makes Gemini
+						// reject the turn ("Corrupted thought signature").
+						const toolCallId = `${part.functionCall.name}_${shortid(24)}`;
 						toolCalls.push({
 							id: toolCallId,
 							type: "function",
@@ -749,6 +754,7 @@ export function transformStreamingToOpenai(
 		case "azure":
 		case "sakana":
 		case "meta":
+		case "aws-mantle":
 		case "openai": {
 			// Azure precedes every stream with a prompt-filter-only chunk that has
 			// empty id/object/model and no choices. The default OpenAI fallback
@@ -836,7 +842,20 @@ export function transformStreamingToOpenai(
 								choices: [
 									{
 										index: 0,
-										delta: { role: "assistant" },
+										delta: {
+											role: "assistant",
+											// Mark the start of each upstream message output item so
+											// the Responses translator can preserve exact item
+											// boundaries (e.g. two commentary messages split by a
+											// tool call), along with the item's phase.
+											...(item?.type === "message" && {
+												message_start: true,
+											}),
+											...(item?.type === "message" &&
+												typeof item.phase === "string" && {
+													phase: item.phase,
+												}),
+										},
 										finish_reason: null,
 									},
 								],
@@ -852,7 +871,24 @@ export function transformStreamingToOpenai(
 					case "response.reasoning_summary_part.done":
 					case "response.web_search_call.in_progress":
 					case "response.web_search_call.searching":
-					case "response.web_search_call.completed":
+					case "response.web_search_call.completed": {
+						// A completed reasoning item may carry encrypted reasoning
+						// (store:false + include:["reasoning.encrypted_content"]).
+						// Surface it as a reasoning_details delta so clients can replay
+						// it on later turns to preserve reasoning across calls.
+						const doneItem = data.item;
+						const encryptedReasoning =
+							data.type === "response.output_item.done" &&
+							doneItem?.type === "reasoning" &&
+							typeof doneItem.encrypted_content === "string" &&
+							doneItem.encrypted_content.length > 0
+								? [
+										buildEncryptedReasoningDetail(
+											doneItem,
+											data.output_index ?? 0,
+										),
+									]
+								: null;
 						transformedData = {
 							id: data.response?.id ?? `chatcmpl-${Date.now()}`,
 							object: "chat.completion.chunk",
@@ -862,13 +898,24 @@ export function transformStreamingToOpenai(
 							choices: [
 								{
 									index: 0,
-									delta: { role: "assistant" },
+									delta: {
+										role: "assistant",
+										...(encryptedReasoning && {
+											reasoning_details: encryptedReasoning,
+										}),
+										...(data.type === "response.output_item.done" &&
+											doneItem?.type === "message" &&
+											typeof doneItem.phase === "string" && {
+												phase: doneItem.phase,
+											}),
+									},
 									finish_reason: null,
 								},
 							],
 							usage: null,
 						};
 						break;
+					}
 
 					case "response.reasoning_summary_part.added":
 					case "response.reasoning_summary_text.delta":
@@ -1013,6 +1060,14 @@ export function transformStreamingToOpenai(
 					}
 
 					case "response.completed": {
+						// A response whose output contains function calls must end with
+						// finish_reason "tool_calls" — OpenAI-compatible clients key tool
+						// execution off the terminal finish reason, not just the deltas.
+						const completedWithToolCalls = Array.isArray(data.response?.output)
+							? data.response.output.some(
+									(item: { type?: string }) => item.type === "function_call",
+								)
+							: false;
 						const responseUsage = data.response?.usage;
 						let usage = null;
 						if (responseUsage) {
@@ -1042,12 +1097,15 @@ export function transformStreamingToOpenai(
 								{
 									index: 0,
 									delta: {},
-									finish_reason: "stop",
+									finish_reason: completedWithToolCalls ? "tool_calls" : "stop",
 								},
 							],
 							usage,
 							...(typeof data.response?.service_tier === "string" && {
 								service_tier: data.response.service_tier,
+							}),
+							...(typeof data.response?.reasoning?.context === "string" && {
+								reasoning_context: data.response.reasoning.context,
 							}),
 						};
 						break;
@@ -1093,6 +1151,9 @@ export function transformStreamingToOpenai(
 							usage,
 							...(typeof data.response?.service_tier === "string" && {
 								service_tier: data.response.service_tier,
+							}),
+							...(typeof data.response?.reasoning?.context === "string" && {
+								reasoning_context: data.response.reasoning.context,
 							}),
 						};
 						break;

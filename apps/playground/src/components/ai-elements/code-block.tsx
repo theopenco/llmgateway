@@ -1,6 +1,7 @@
 "use client";
 
 import { CheckIcon, CopyIcon } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
 	createContext,
 	memo,
@@ -461,6 +462,7 @@ export const CodeBlockCopyButton = ({
 	const [isCopied, setIsCopied] = useState(false);
 	const timeoutRef = useRef<number>(0);
 	const { code } = use(CodeBlockContext);
+	const reduceMotion = useReducedMotion();
 
 	const copyToClipboard = useCallback(async () => {
 		if (typeof window === "undefined" || !navigator?.clipboard?.writeText) {
@@ -490,8 +492,6 @@ export const CodeBlockCopyButton = ({
 		[],
 	);
 
-	const Icon = isCopied ? CheckIcon : CopyIcon;
-
 	return (
 		<Button
 			className={cn("shrink-0", className)}
@@ -500,7 +500,34 @@ export const CodeBlockCopyButton = ({
 			variant="ghost"
 			{...props}
 		>
-			{children ?? <Icon size={14} />}
+			{children ?? (
+				<span className="relative flex size-4 items-center justify-center">
+					<AnimatePresence initial={false}>
+						<motion.span
+							key={isCopied ? "check" : "copy"}
+							initial={
+								reduceMotion
+									? { opacity: 0 }
+									: { opacity: 0, transform: "scale(0.45) rotate(-18deg)" }
+							}
+							animate={
+								reduceMotion
+									? { opacity: 1 }
+									: { opacity: 1, transform: "scale(1) rotate(0deg)" }
+							}
+							exit={
+								reduceMotion
+									? { opacity: 0 }
+									: { opacity: 0, transform: "scale(0.45) rotate(18deg)" }
+							}
+							transition={{ duration: 0.16, ease: "easeOut" }}
+							className="absolute inset-0 flex items-center justify-center"
+						>
+							{isCopied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
+						</motion.span>
+					</AnimatePresence>
+				</span>
+			)}
 		</Button>
 	);
 };

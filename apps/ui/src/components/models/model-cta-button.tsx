@@ -5,6 +5,7 @@ import { ArrowRight, Play } from "lucide-react";
 import { useSessionStatus, useUser } from "@/hooks/useUser";
 import { Button } from "@/lib/components/button";
 import { useAppConfig } from "@/lib/config";
+import { getLoungeStudioPath } from "@/lib/model-utils";
 
 export function ModelCtaButton({
 	modelId,
@@ -27,11 +28,7 @@ export function ModelCtaButton({
 	const isLoggedIn = !!user && !isLoading;
 
 	if (isLoggedIn) {
-		const studioPath = output?.includes("video")
-			? "/video"
-			: output?.includes("image")
-				? "/image"
-				: "";
+		const studioPath = getLoungeStudioPath(output);
 		return (
 			<Button
 				variant="default"

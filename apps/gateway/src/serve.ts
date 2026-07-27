@@ -9,8 +9,14 @@ import {
 import { logger, toError } from "@llmgateway/logger";
 
 import { app } from "./app.js";
+import {
+	closeUpstreamDispatcher,
+	installUpstreamDispatcher,
+} from "./lib/upstream-dispatcher.js";
 import { metricsApp } from "./metrics-app.js";
+import { attachRealtimeServer } from "./realtime/server.js";
 
+import type { RealtimeServer } from "./realtime/server.js";
 import type { ServerType } from "@hono/node-server";
 import type { NodeSDK } from "@opentelemetry/sdk-node";
 import type { Server } from "node:http";
@@ -27,12 +33,21 @@ const metricsPort = Number(process.env.METRICS_PORT) || 9090;
 // Default to 620s (above GCP's 600s) to ensure the LB closes first.
 const keepAliveTimeoutS = Number(process.env.KEEP_ALIVE_TIMEOUT_S) || 620;
 
+// Host the /v1/realtime WebSocket proxy inside this process, so realtime
+// sessions are served on the gateway port with no extra deployment to operate.
+// Opt-in because a process that mints client secrets without an attached
+// listener would hand out credentials for a path nothing serves.
+const realtimeInline = process.env.REALTIME_INLINE === "true";
+
 let sdk: NodeSDK | null = null;
 let metricsServer: ServerType | null = null;
+let realtime: RealtimeServer | null = null;
 
 async function startServer() {
 	// Tag every DB query with the originating service for Cloud SQL Query Insights
 	setQueryTags({ application: "gateway" });
+
+	installUpstreamDispatcher();
 
 	// Initialize tracing for gateway service
 	try {
@@ -54,10 +69,17 @@ async function startServer() {
 
 	logger.info("Server starting", { port });
 
-	return serve({
+	const server = serve({
 		port,
 		fetch: app.fetch,
 	});
+
+	if (realtimeInline) {
+		realtime = attachRealtimeServer(server as Server);
+		logger.info("Realtime WebSocket proxy attached inline", { port });
+	}
+
+	return server;
 }
 
 let isShuttingDown = false;
@@ -68,6 +90,17 @@ let isShuttingDown = false;
 // terminationGracePeriodSeconds (minus any preStop sleep).
 const shutdownGracePeriodMs =
 	Number(process.env.SHUTDOWN_GRACE_PERIOD_MS) || 1200000;
+
+// Realtime sessions are long-lived WebSockets rather than request/response, so
+// closeServer()'s idle-connection draining never retires them: a live call is
+// "idle" between audio frames. They get their own explicit drain, bounded by
+// the session-duration cap plus a minute so a rolling deploy converges even if
+// a session runs to its limit. Must stay <= the pod's
+// terminationGracePeriodSeconds, or the orchestrator SIGKILLs mid-call and the
+// wait accomplishes nothing.
+const realtimeShutdownGracePeriodMs =
+	Number(process.env.REALTIME_SHUTDOWN_GRACE_PERIOD_MS) ||
+	((Number(process.env.REALTIME_MAX_SESSION_SECONDS) || 3600) + 60) * 1000;
 
 const closeServer = (server: ServerType): Promise<void> => {
 	return new Promise((resolve, reject) => {
@@ -115,6 +148,34 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 	});
 
 	try {
+		// Stop accepting new realtime sessions, then let the live calls hang up
+		// on their own rather than cutting them off mid-conversation. This runs
+		// before closeServer() because the WebSockets would otherwise keep the
+		// HTTP server open past its own grace period anyway.
+		if (realtime) {
+			logger.info("Draining realtime sessions", {
+				activeSessions: realtime.sessionCount(),
+				gracePeriodMs: realtimeShutdownGracePeriodMs,
+			});
+			realtime.stopAccepting();
+
+			const deadline = Date.now() + realtimeShutdownGracePeriodMs;
+			while (realtime.sessionCount() > 0 && Date.now() < deadline) {
+				await new Promise((resolve) => setTimeout(resolve, 1000));
+			}
+
+			if (realtime.sessionCount() > 0) {
+				logger.warn("Force-closing remaining realtime sessions", {
+					remaining: realtime.sessionCount(),
+				});
+				realtime.closeAll(1001, "server_shutdown");
+				// Session finalization and its final billing writes are
+				// fire-and-forget; let them flush before closeDatabase() below.
+				await new Promise((resolve) => setTimeout(resolve, 2000));
+			}
+			logger.info("Realtime sessions drained");
+		}
+
 		logger.info("Closing HTTP server");
 		await closeServer(server);
 		logger.info("HTTP server closed");
@@ -124,6 +185,9 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 			await closeServer(metricsServer);
 			logger.info("Metrics server closed");
 		}
+
+		logger.info("Closing upstream dispatcher");
+		await closeUpstreamDispatcher();
 
 		logger.info("Closing database connection");
 		await closeDatabase();

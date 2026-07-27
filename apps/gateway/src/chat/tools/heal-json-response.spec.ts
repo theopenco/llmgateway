@@ -216,6 +216,15 @@ describe("healJsonResponse", () => {
 			// The healed content should be valid JSON
 			expect(() => JSON.parse(result.content)).not.toThrow();
 		});
+
+		it("should complete when a string value contains a brace", () => {
+			const input = '{"note": "a}b"';
+			const result = healJsonResponse(input);
+
+			expect(result.healed).toBe(true);
+			expect(result.healingMethod).toBe("truncation_completion");
+			expect(JSON.parse(result.content)).toEqual({ note: "a}b" });
+		});
 	});
 
 	describe("combined strategies", () => {

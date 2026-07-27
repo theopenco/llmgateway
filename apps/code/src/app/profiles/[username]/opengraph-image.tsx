@@ -91,167 +91,156 @@ export default async function OgImage({
 			: null;
 
 	return new ImageResponse(
-		(
+		<div
+			style={{
+				width: "100%",
+				height: "100%",
+				display: "flex",
+				flexDirection: "column",
+				background: "#0a0a0b",
+				padding: "64px",
+				fontFamily: "sans-serif",
+				position: "relative",
+			}}
+		>
+			{/* Top: brand + top coding agent */}
 			<div
 				style={{
-					width: "100%",
-					height: "100%",
 					display: "flex",
-					flexDirection: "column",
-					background: "#0a0a0b",
-					padding: "64px",
-					fontFamily: "sans-serif",
-					position: "relative",
+					alignItems: "center",
+					justifyContent: "space-between",
 				}}
 			>
-				{/* Top: brand + top coding agent */}
-				<div
-					style={{
-						display: "flex",
-						alignItems: "center",
-						justifyContent: "space-between",
-					}}
-				>
-					<div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-						<div
-							style={{
-								display: "flex",
-								alignItems: "center",
-								justifyContent: "center",
-								width: "44px",
-								height: "44px",
-								borderRadius: "12px",
-								background: "#fafafa",
-								color: "#0a0a0b",
-								fontSize: "24px",
-								fontWeight: 700,
-							}}
-						>
-							{"</>"}
-						</div>
-						<div
-							style={{ display: "flex", alignItems: "baseline", gap: "10px" }}
-						>
-							<span
-								style={{ color: "#fafafa", fontSize: "30px", fontWeight: 700 }}
-							>
-								DevPass
-							</span>
-							<span style={{ color: "#71717a", fontSize: "20px" }}>
-								by LLM Gateway
-							</span>
-						</div>
+				<div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+					<div
+						style={{
+							display: "flex",
+							alignItems: "center",
+							justifyContent: "center",
+							width: "44px",
+							height: "44px",
+							borderRadius: "12px",
+							background: "#fafafa",
+							color: "#0a0a0b",
+							fontSize: "24px",
+							fontWeight: 700,
+						}}
+					>
+						{"</>"}
 					</div>
+					<div style={{ display: "flex", alignItems: "baseline", gap: "10px" }}>
+						<span
+							style={{ color: "#fafafa", fontSize: "30px", fontWeight: 700 }}
+						>
+							DevPass
+						</span>
+						<span style={{ color: "#71717a", fontSize: "20px" }}>
+							by LLM Gateway
+						</span>
+					</div>
+				</div>
 
-					{topAgentLabel && (
+				{topAgentLabel && (
+					<div
+						style={{
+							display: "flex",
+							alignItems: "center",
+							gap: "10px",
+							padding: "10px 18px",
+							borderRadius: "9999px",
+							background: "rgba(16,185,129,0.12)",
+							border: "1px solid rgba(16,185,129,0.35)",
+						}}
+					>
 						<div
 							style={{
-								display: "flex",
-								alignItems: "center",
-								gap: "10px",
-								padding: "10px 18px",
+								width: "10px",
+								height: "10px",
 								borderRadius: "9999px",
-								background: "rgba(16,185,129,0.12)",
-								border: "1px solid rgba(16,185,129,0.35)",
+								background: "#10b981",
 							}}
+						/>
+						<span
+							style={{ color: "#fafafa", fontSize: "22px", fontWeight: 600 }}
 						>
-							<div
-								style={{
-									width: "10px",
-									height: "10px",
-									borderRadius: "9999px",
-									background: "#10b981",
-								}}
-							/>
-							<span
-								style={{ color: "#fafafa", fontSize: "22px", fontWeight: 600 }}
-							>
-								{topAgentLabel}
-							</span>
-						</div>
-					)}
-				</div>
+							{topAgentLabel}
+						</span>
+					</div>
+				)}
+			</div>
 
-				{/* Name */}
-				<div
-					style={{
-						display: "flex",
-						flexDirection: "column",
-						marginTop: "44px",
-					}}
-				>
-					<span style={{ color: "#fafafa", fontSize: "64px", fontWeight: 700 }}>
-						{displayName}
+			{/* Name */}
+			<div
+				style={{
+					display: "flex",
+					flexDirection: "column",
+					marginTop: "44px",
+				}}
+			>
+				<span style={{ color: "#fafafa", fontSize: "64px", fontWeight: 700 }}>
+					{displayName}
+				</span>
+				{handle && (
+					<span
+						style={{ color: "#a1a1aa", fontSize: "28px", marginTop: "4px" }}
+					>
+						{handle}
 					</span>
-					{handle && (
-						<span
-							style={{ color: "#a1a1aa", fontSize: "28px", marginTop: "4px" }}
-						>
-							{handle}
-						</span>
-					)}
-				</div>
+				)}
+			</div>
 
-				{/* Stats */}
-				<div style={{ display: "flex", gap: "48px", marginTop: "32px" }}>
-					<div style={{ display: "flex", flexDirection: "column" }}>
-						<span
-							style={{ color: "#fafafa", fontSize: "38px", fontWeight: 600 }}
-						>
-							{formatTokens(profile?.stats.totalTokens ?? 0)}
-						</span>
-						<span style={{ color: "#71717a", fontSize: "18px" }}>tokens</span>
-					</div>
-					<div style={{ display: "flex", flexDirection: "column" }}>
-						<span
-							style={{ color: "#fafafa", fontSize: "38px", fontWeight: 600 }}
-						>
-							{profile?.stats.currentStreak ?? 0}d
-						</span>
-						<span style={{ color: "#71717a", fontSize: "18px" }}>streak</span>
-					</div>
-					<div style={{ display: "flex", flexDirection: "column" }}>
-						<span
-							style={{ color: "#fafafa", fontSize: "38px", fontWeight: 600 }}
-						>
-							{profile?.stats.activeDays ?? 0}
-						</span>
-						<span style={{ color: "#71717a", fontSize: "18px" }}>
-							active days
-						</span>
-					</div>
+			{/* Stats */}
+			<div style={{ display: "flex", gap: "48px", marginTop: "32px" }}>
+				<div style={{ display: "flex", flexDirection: "column" }}>
+					<span style={{ color: "#fafafa", fontSize: "38px", fontWeight: 600 }}>
+						{formatTokens(profile?.stats.totalTokens ?? 0)}
+					</span>
+					<span style={{ color: "#71717a", fontSize: "18px" }}>tokens</span>
 				</div>
-
-				{/* Heatmap */}
-				<div
-					style={{
-						display: "flex",
-						gap: "4px",
-						marginTop: "auto",
-					}}
-				>
-					{weeks.map((week, wi) => (
-						<div
-							key={wi}
-							style={{ display: "flex", flexDirection: "column", gap: "4px" }}
-						>
-							{week.map((count, di) => (
-								<div
-									key={di}
-									style={{
-										width: "14px",
-										height: "14px",
-										borderRadius: "3px",
-										background:
-											count < 0 ? "transparent" : cellColor(count, max),
-									}}
-								/>
-							))}
-						</div>
-					))}
+				<div style={{ display: "flex", flexDirection: "column" }}>
+					<span style={{ color: "#fafafa", fontSize: "38px", fontWeight: 600 }}>
+						{profile?.stats.currentStreak ?? 0}d
+					</span>
+					<span style={{ color: "#71717a", fontSize: "18px" }}>streak</span>
+				</div>
+				<div style={{ display: "flex", flexDirection: "column" }}>
+					<span style={{ color: "#fafafa", fontSize: "38px", fontWeight: 600 }}>
+						{profile?.stats.activeDays ?? 0}
+					</span>
+					<span style={{ color: "#71717a", fontSize: "18px" }}>
+						active days
+					</span>
 				</div>
 			</div>
-		),
+
+			{/* Heatmap */}
+			<div
+				style={{
+					display: "flex",
+					gap: "4px",
+					marginTop: "auto",
+				}}
+			>
+				{weeks.map((week, wi) => (
+					<div
+						key={wi}
+						style={{ display: "flex", flexDirection: "column", gap: "4px" }}
+					>
+						{week.map((count, di) => (
+							<div
+								key={di}
+								style={{
+									width: "14px",
+									height: "14px",
+									borderRadius: "3px",
+									background: count < 0 ? "transparent" : cellColor(count, max),
+								}}
+							/>
+						))}
+					</div>
+				))}
+			</div>
+		</div>,
 		size,
 	);
 }

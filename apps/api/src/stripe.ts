@@ -31,11 +31,13 @@ import { getStripe, type StripeMode } from "./routes/payments.js";
 import {
 	notifyChatPlanCancelled,
 	notifyChatPlanRenewed,
+	notifyChatPlanResumed,
 	notifyChatPlanSubscribed,
 	notifyCreditsPurchased,
 	notifyRefund,
 	notifyDevPlanCancelled,
 	notifyDevPlanRenewed,
+	notifyDevPlanResumed,
 	notifyDevPlanSubscribed,
 	notifyResetPassPurchased,
 } from "./utils/discord.js";
@@ -482,10 +484,7 @@ async function getSubscriptionCardFingerprint(
 					expand: ["payment_intent"],
 				});
 				const paymentIntent = (invoice as any).payment_intent as
-					| Stripe.PaymentIntent
-					| string
-					| null
-					| undefined;
+					Stripe.PaymentIntent | string | null | undefined;
 				const pi =
 					typeof paymentIntent === "string"
 						? await getStripe().paymentIntents.retrieve(paymentIntent)
@@ -3682,8 +3681,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 	}
 	subscriptionMetadata ??= {};
 	const initialDevPlanTier = subscriptionMetadata.devPlan as
-		| DevPlanTier
-		| undefined;
+		DevPlanTier | undefined;
 	const initialDevPlanCycle: DevPlanCycle =
 		subscriptionMetadata.devPlanCycle === "annual" ? "annual" : "monthly";
 	const isInitialDevPlanSubscription =
@@ -4787,6 +4785,20 @@ export async function handleSubscriptionUpdated(
 					source: "stripe_subscription_updated",
 				},
 			});
+			const resumeEmail =
+				(metadata?.userEmail as string | undefined) ??
+				organization.billingEmail;
+			if (resumeEmail) {
+				const resumeUser = await db.query.user.findFirst({
+					where: { email: { eq: resumeEmail } },
+				});
+				await notifyChatPlanResumed(
+					resumeEmail,
+					resumeUser?.name,
+					organization.chatPlan ?? "unknown",
+				);
+			}
+
 			logger.info(
 				`Reactivated chat plan subscription for organization ${organizationId}`,
 			);
@@ -4899,6 +4911,20 @@ export async function handleSubscriptionUpdated(
 					source: "stripe_subscription_updated",
 				},
 			});
+			const resumeEmail =
+				(metadata?.userEmail as string | undefined) ??
+				organization.billingEmail;
+			if (resumeEmail) {
+				const resumeUser = await db.query.user.findFirst({
+					where: { email: { eq: resumeEmail } },
+				});
+				await notifyDevPlanResumed(
+					resumeEmail,
+					resumeUser?.name,
+					organization.devPlan ?? "unknown",
+				);
+			}
+
 			logger.info(
 				`Reactivated dev plan subscription for organization ${organizationId}`,
 			);
