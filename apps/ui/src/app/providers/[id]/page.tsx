@@ -5,6 +5,7 @@ import { Navbar } from "@/components/landing/navbar";
 import { Hero } from "@/components/providers/hero";
 import { ProviderModelsGrid } from "@/components/providers/provider-models-grid";
 import { JsonLd } from "@/components/seo/json-ld";
+import { fetchModels } from "@/lib/fetch-models";
 
 import {
 	models as modelDefinitions,
@@ -39,6 +40,20 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 
 	if (!provider || provider.name === "LLM Gateway") {
 		notFound();
+	}
+
+	const apiModels = await fetchModels();
+	const discountByModelId = new Map<string, string>();
+	for (const apiModel of apiModels) {
+		for (const mapping of apiModel.mappings) {
+			if (
+				mapping.providerId === provider.id &&
+				mapping.discount &&
+				parseFloat(mapping.discount) > 0
+			) {
+				discountByModelId.set(apiModel.id, mapping.discount);
+			}
+		}
 	}
 
 	// Convert ModelDefinition to ApiModel-like structure
@@ -132,7 +147,7 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 										: null,
 							}))
 						: null,
-					discount: null,
+					discount: discountByModelId.get(def.id) ?? null,
 					stability: map.stability ?? null,
 					supportedParameters: map.supportedParameters ?? null,
 					deprecatedAt: map.deprecatedAt?.toISOString() ?? null,
