@@ -315,6 +315,8 @@ describe("fallback and error status code handling", () => {
 				totalDuration: totalDurationMs,
 				totalTimeToFirstToken,
 				totalTimeToFirstReasoningToken: 0,
+				timeToFirstTokenCount: totalRequests,
+				timeToFirstReasoningTokenCount: 0,
 			})
 			.onConflictDoUpdate({
 				target: [
@@ -332,6 +334,8 @@ describe("fallback and error status code handling", () => {
 					totalDuration: totalDurationMs,
 					totalTimeToFirstToken,
 					totalTimeToFirstReasoningToken: 0,
+					timeToFirstTokenCount: totalRequests,
+					timeToFirstReasoningTokenCount: 0,
 				},
 			});
 	}

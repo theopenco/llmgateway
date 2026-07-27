@@ -2886,6 +2886,12 @@ export const modelProviderMappingHistory = pgTable(
 		totalDuration: integer().notNull().default(0),
 		totalTimeToFirstToken: integer().notNull().default(0),
 		totalTimeToFirstReasoningToken: integer().notNull().default(0),
+		// Number of logs that actually contributed a time-to-first-token sample.
+		// Only streamed, non-cached, non-errored requests record one, so this is
+		// the correct denominator for the average — dividing the sum by the
+		// request count instead would dilute it with every non-streaming request.
+		timeToFirstTokenCount: integer().notNull().default(0),
+		timeToFirstReasoningTokenCount: integer().notNull().default(0),
 		totalCost: real().notNull().default(0),
 	},
 	(table) => [
@@ -2965,6 +2971,10 @@ export const modelHistory = pgTable(
 		totalDuration: integer().notNull().default(0),
 		totalTimeToFirstToken: integer().notNull().default(0),
 		totalTimeToFirstReasoningToken: integer().notNull().default(0),
+		// See model_provider_mapping_history: the denominator for the TTFT
+		// average, counting only requests that produced a first-token sample.
+		timeToFirstTokenCount: integer().notNull().default(0),
+		timeToFirstReasoningTokenCount: integer().notNull().default(0),
 		totalCost: real().notNull().default(0),
 	},
 	(table) => [
@@ -3019,6 +3029,10 @@ export const modelProviderMappingHistoryHourly = pgTable(
 		totalDuration: integer().notNull().default(0),
 		totalTimeToFirstToken: integer().notNull().default(0),
 		totalTimeToFirstReasoningToken: integer().notNull().default(0),
+		// See model_provider_mapping_history: the denominator for the TTFT
+		// average, counting only requests that produced a first-token sample.
+		timeToFirstTokenCount: integer().notNull().default(0),
+		timeToFirstReasoningTokenCount: integer().notNull().default(0),
 		totalCost: real().notNull().default(0),
 	},
 	(table) => [
@@ -3092,6 +3106,10 @@ export const modelHistoryHourly = pgTable(
 		totalDuration: integer().notNull().default(0),
 		totalTimeToFirstToken: integer().notNull().default(0),
 		totalTimeToFirstReasoningToken: integer().notNull().default(0),
+		// See model_provider_mapping_history: the denominator for the TTFT
+		// average, counting only requests that produced a first-token sample.
+		timeToFirstTokenCount: integer().notNull().default(0),
+		timeToFirstReasoningTokenCount: integer().notNull().default(0),
 		totalCost: real().notNull().default(0),
 	},
 	(table) => [

@@ -474,9 +474,12 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.cachedCount}), 0)`.as(
 					"cachedCount",
 				),
+			// Only streamed requests record a time-to-first-token, so the average
+			// divides by the sample count rather than by the non-cached request
+			// count — otherwise non-streaming traffic drags it towards zero.
 			avgTimeToFirstToken: sql<
 				number | null
-			>`CASE WHEN SUM(${modelProviderMappingHistory.logsCount}) - SUM(${modelProviderMappingHistory.cachedCount}) > 0 THEN SUM(${modelProviderMappingHistory.totalTimeToFirstToken})::float / (SUM(${modelProviderMappingHistory.logsCount}) - SUM(${modelProviderMappingHistory.cachedCount})) ELSE NULL END`.as(
+			>`CASE WHEN SUM(${modelProviderMappingHistory.timeToFirstTokenCount}) > 0 THEN SUM(${modelProviderMappingHistory.totalTimeToFirstToken})::float / SUM(${modelProviderMappingHistory.timeToFirstTokenCount}) ELSE NULL END`.as(
 				"avgTimeToFirstToken",
 			),
 			totalDuration:
@@ -687,6 +690,10 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalTimeToFirstToken}), 0)`.as(
 						"total_ttft",
 					),
+				timeToFirstTokenCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.timeToFirstTokenCount}), 0)`.as(
+						"ttft_count",
+					),
 				totalTokens:
 					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalTokens}), 0)`.as(
 						"total_tokens",
@@ -730,6 +737,7 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 				cachedCount: number;
 				totalDuration: number;
 				totalTimeToFirstToken: number;
+				timeToFirstTokenCount: number;
 				totalTokens: number;
 				totalOutputTokens: number;
 			}>;
@@ -764,6 +772,7 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			cachedCount: Number(r.cachedCount),
 			totalDuration: Number(r.totalDuration),
 			totalTimeToFirstToken: Number(r.totalTimeToFirstToken),
+			timeToFirstTokenCount: Number(r.timeToFirstTokenCount),
 			totalTokens: Number(r.totalTokens),
 			totalOutputTokens: Number(r.totalOutputTokens),
 		});
@@ -774,20 +783,19 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 		let totalLogs = 0;
 		let totalErrors = 0;
 		let totalUpstreamErrors = 0;
-		let totalCached = 0;
 		let totalDuration = 0;
 		let totalTtft = 0;
+		let totalTtftCount = 0;
 		let totalOutputTokens = 0;
 
 		const points = p.points.map((pt) => {
 			totalLogs += pt.logsCount;
 			totalErrors += pt.errorsCount;
 			totalUpstreamErrors += pt.upstreamErrorsCount;
-			totalCached += pt.cachedCount;
 			totalDuration += pt.totalDuration;
 			totalTtft += pt.totalTimeToFirstToken;
+			totalTtftCount += pt.timeToFirstTokenCount;
 			totalOutputTokens += pt.totalOutputTokens;
-			const nonCached = pt.logsCount - pt.cachedCount;
 			return {
 				timestamp: pt.timestamp,
 				logsCount: pt.logsCount,
@@ -796,9 +804,11 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 				gatewayErrorsCount: pt.gatewayErrorsCount,
 				upstreamErrorsCount: pt.upstreamErrorsCount,
 				cachedCount: pt.cachedCount,
+				// Only streamed requests contribute a TTFT sample, so divide by the
+				// sample count instead of the request count.
 				avgTtft:
-					nonCached > 0
-						? Math.round(pt.totalTimeToFirstToken / nonCached)
+					pt.timeToFirstTokenCount > 0
+						? Math.round(pt.totalTimeToFirstToken / pt.timeToFirstTokenCount)
 						: null,
 				avgDuration:
 					pt.logsCount > 0 ? Math.round(pt.totalDuration / pt.logsCount) : null,
@@ -806,7 +816,6 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			};
 		});
 
-		const nonCachedTotal = totalLogs - totalCached;
 		const uptime =
 			totalLogs > 0
 				? Math.round(((totalLogs - totalUpstreamErrors) / totalLogs) * 1000) /
@@ -827,7 +836,7 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			upstreamErrorsCount: totalUpstreamErrors,
 			uptime,
 			avgTtft:
-				nonCachedTotal > 0 ? Math.round(totalTtft / nonCachedTotal) : null,
+				totalTtftCount > 0 ? Math.round(totalTtft / totalTtftCount) : null,
 			avgDuration: totalLogs > 0 ? Math.round(totalDuration / totalLogs) : null,
 			tokensPerSecond,
 			points,
