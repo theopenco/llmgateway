@@ -96,6 +96,7 @@ export default function DevPassProductPage() {
 			<Navbar />
 			<main className="min-h-screen bg-background">
 				<ProductHero
+					accent="emerald"
 					eyebrow="Product · DevPass"
 					title="One key. Every model. Three flat prices."
 					subtitle="All-access dev plans for AI coding."
@@ -116,28 +117,27 @@ export default function DevPassProductPage() {
 					]}
 				/>
 
-				<div className="container mx-auto px-4 py-16">
-					<div className="max-w-6xl mx-auto">
-						<section className="mb-20 space-y-20">
-							<ProductScreenshot
-								slug="devpass"
-								alt="DevPass landing page with flat-price dev plans"
-								title="Flat prices, provider rates"
-								description="Lite, Pro, and Max — every plan includes 200+ models metered at provider rates, with a first-month money-back guarantee."
-							/>
-							<ProductScreenshot
-								slug="devpass-dashboard"
-								alt="DevPass dashboard showing usage overview and coding agents"
-								title="Your coding usage, live"
-								description="Track your allowance, per-agent model usage, and activity heatmap from the DevPass dashboard."
-							/>
-						</section>
+				<div className="mx-auto max-w-6xl space-y-24 px-6 py-20 md:space-y-36 md:py-28">
+					<section className="space-y-24 md:space-y-32">
+						<ProductScreenshot
+							slug="devpass"
+							alt="DevPass landing page with flat-price dev plans"
+							title="Flat prices, provider rates"
+							description="Lite, Pro, and Max — every plan includes 200+ models metered at provider rates, with a first-month money-back guarantee."
+						/>
+						<ProductScreenshot
+							slug="devpass-dashboard"
+							alt="DevPass dashboard showing usage overview and coding agents"
+							title="Your coding usage, live"
+							description="Track your allowance, per-agent model usage, and activity heatmap from the DevPass dashboard."
+						/>
+					</section>
 
-						<ProductFeatureGrid title="Why DevPass" features={features} />
-					</div>
+					<ProductFeatureGrid title="Why DevPass" features={features} />
 				</div>
 
 				<ProductClosingCta
+					accent="emerald"
 					title="Stop watching your token balance"
 					description="Pick a plan, set two env vars, get back to building."
 					ctas={[{ label: "Get DevPass", href: DEVPASS_URL, external: true }]}

@@ -94,6 +94,7 @@ export default function ObservabilityProductPage() {
 			<Navbar />
 			<main className="min-h-screen bg-background">
 				<ProductHero
+					accent="violet"
 					eyebrow="Product · Observability"
 					title="See every request. Know every cost."
 					subtitle="Real-time analytics for your entire LLM stack."
@@ -114,43 +115,42 @@ export default function ObservabilityProductPage() {
 					]}
 				/>
 
-				<div className="container mx-auto px-4 py-16">
-					<div className="max-w-6xl mx-auto">
-						<section className="mb-20 space-y-20">
-							<ProductScreenshot
-								slug="dashboard"
-								alt="LLM Gateway analytics dashboard with usage and cost metrics"
-								title="Your LLM operations at a glance"
-								description="Real-time usage metrics, cost breakdowns, and performance monitoring across all your LLM operations."
-							/>
-							<ProductScreenshot
-								slug="activity"
-								alt="LLM Gateway activity view with per-request logs"
-								title="Every request, inspectable"
-								description="Filter request logs by model, provider, API key, finish reason, or session — then drill into any single request."
-							/>
-							<ProductScreenshot
-								slug="usage"
-								alt="LLM Gateway usage and metrics charts"
-								title="Usage & metrics"
-								description="Requests, models, errors, caching, and costs — dedicated charts for each, per project or across your org."
-							/>
-							<ProductScreenshot
-								slug="model-usage"
-								alt="LLM Gateway usage broken down by model"
-								title="Spend by model, not just in total"
-								description="Stack usage by model or provider over any window to spot the expensive outliers."
-							/>
-						</section>
-
-						<ProductFeatureGrid
-							title="Observability that pays for itself"
-							features={features}
+				<div className="mx-auto max-w-6xl space-y-24 px-6 py-20 md:space-y-36 md:py-28">
+					<section className="space-y-24 md:space-y-32">
+						<ProductScreenshot
+							slug="dashboard"
+							alt="LLM Gateway analytics dashboard with usage and cost metrics"
+							title="Your LLM operations at a glance"
+							description="Real-time usage metrics, cost breakdowns, and performance monitoring across all your LLM operations."
 						/>
-					</div>
+						<ProductScreenshot
+							slug="activity"
+							alt="LLM Gateway activity view with per-request logs"
+							title="Every request, inspectable"
+							description="Filter request logs by model, provider, API key, finish reason, or session — then drill into any single request."
+						/>
+						<ProductScreenshot
+							slug="usage"
+							alt="LLM Gateway usage and metrics charts"
+							title="Usage & metrics"
+							description="Requests, models, errors, caching, and costs — dedicated charts for each, per project or across your org."
+						/>
+						<ProductScreenshot
+							slug="model-usage"
+							alt="LLM Gateway usage broken down by model"
+							title="Spend by model, not just in total"
+							description="Stack usage by model or provider over any window to spot the expensive outliers."
+						/>
+					</section>
+
+					<ProductFeatureGrid
+						title="Observability that pays for itself"
+						features={features}
+					/>
 				</div>
 
 				<ProductClosingCta
+					accent="violet"
 					title="Know what your AI actually costs"
 					description="Every plan includes observability — start free with your own provider keys."
 					ctas={[
