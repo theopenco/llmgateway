@@ -8,7 +8,14 @@ import type { ModelDefinition } from "@llmgateway/models";
  * single signal used to gate every route.
  */
 export type ModelOutput =
-	"text" | "image" | "video" | "embedding" | "audio" | "ocr" | "transcription";
+	| "text"
+	| "image"
+	| "video"
+	| "embedding"
+	| "audio"
+	| "ocr"
+	| "transcription"
+	| "rerank";
 
 const OUTPUT_ENDPOINT: Record<
 	ModelOutput,
@@ -24,6 +31,7 @@ const OUTPUT_ENDPOINT: Record<
 		label: "a transcription",
 		endpoint: "/v1/audio/transcriptions",
 	},
+	rerank: { label: "a rerank", endpoint: "/v1/rerank" },
 };
 
 /**

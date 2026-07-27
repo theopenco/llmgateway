@@ -33,6 +33,7 @@ const modelSchema = z.object({
 				"audio",
 				"ocr",
 				"transcription",
+				"rerank",
 			]),
 		),
 		tokenizer: z.string().optional(),
@@ -252,6 +253,7 @@ modelsApi.openapi(listModels, async (c) => {
 				| "audio"
 				| "ocr"
 				| "transcription"
+				| "rerank"
 			)[] = model.output ?? ["text"];
 
 			// Source the model-level pricing from the cheapest provider mapping
