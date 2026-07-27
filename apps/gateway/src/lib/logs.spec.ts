@@ -45,6 +45,9 @@ describe("getUnifiedFinishReason", () => {
 		expect(getUnifiedFinishReason("refusal", "anthropic")).toBe(
 			UnifiedFinishReason.CONTENT_FILTER,
 		);
+		expect(
+			getUnifiedFinishReason("model_context_window_exceeded", "anthropic"),
+		).toBe(UnifiedFinishReason.LENGTH_LIMIT);
 	});
 
 	it("maps Vertex Anthropic finish reasons correctly", () => {
@@ -63,12 +66,24 @@ describe("getUnifiedFinishReason", () => {
 		expect(getUnifiedFinishReason("refusal", "vertex-anthropic")).toBe(
 			UnifiedFinishReason.CONTENT_FILTER,
 		);
+		expect(
+			getUnifiedFinishReason(
+				"model_context_window_exceeded",
+				"vertex-anthropic",
+			),
+		).toBe(UnifiedFinishReason.LENGTH_LIMIT);
 	});
 
 	it("maps aws-bedrock refusal to content filter", () => {
 		expect(getUnifiedFinishReason("refusal", "aws-bedrock")).toBe(
 			UnifiedFinishReason.CONTENT_FILTER,
 		);
+	});
+
+	it("maps aws-bedrock model_context_window_exceeded to length limit", () => {
+		expect(
+			getUnifiedFinishReason("model_context_window_exceeded", "aws-bedrock"),
+		).toBe(UnifiedFinishReason.LENGTH_LIMIT);
 	});
 
 	it("maps Google AI Studio finish reasons correctly (original Google format)", () => {
@@ -334,6 +349,12 @@ describe("isLengthLimitFinishReason", () => {
 
 	it("returns true for Anthropic max_tokens finish reason", () => {
 		expect(isLengthLimitFinishReason("max_tokens", "anthropic")).toBe(true);
+	});
+
+	it("returns true for Anthropic model_context_window_exceeded finish reason", () => {
+		expect(
+			isLengthLimitFinishReason("model_context_window_exceeded", "anthropic"),
+		).toBe(true);
 	});
 
 	it("returns false for normal stop finish reasons", () => {

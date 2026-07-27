@@ -136,7 +136,10 @@ export function parseProviderResponse(
 			const stopReason = json.stopReason;
 			if (stopReason === "end_turn") {
 				finishReason = "stop";
-			} else if (stopReason === "max_tokens") {
+			} else if (
+				stopReason === "max_tokens" ||
+				stopReason === "model_context_window_exceeded"
+			) {
 				finishReason = "length";
 			} else if (stopReason === "tool_use") {
 				finishReason = "tool_calls";
