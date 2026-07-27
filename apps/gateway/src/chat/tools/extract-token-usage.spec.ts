@@ -405,6 +405,29 @@ describe("extractTokenUsage", () => {
 		});
 	});
 
+	describe("azure-anthropic", () => {
+		// Claude on Microsoft Foundry streams the Anthropic Messages wire format
+		// too, so it must extract usage identically to the direct provider.
+		it("matches the direct anthropic provider for the same chunk", () => {
+			const data = {
+				type: "message_start",
+				message: {
+					usage: {
+						input_tokens: 100,
+						cache_creation_input_tokens: 50,
+						cache_read_input_tokens: 800,
+						output_tokens: 2928,
+						output_tokens_details: { thinking_tokens: 1502 },
+					},
+				},
+			};
+
+			expect(extractTokenUsage(data, "azure-anthropic")).toEqual(
+				extractTokenUsage(data, "anthropic"),
+			);
+		});
+	});
+
 	describe("alibaba", () => {
 		it("extracts prompt_tokens_details.cache_creation_input_tokens into 5m cache write fields", () => {
 			const data = {
