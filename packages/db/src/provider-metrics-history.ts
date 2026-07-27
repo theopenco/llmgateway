@@ -23,6 +23,8 @@ interface HistoryRow {
 	weightedOutputTokens: string | number | null;
 	weightedTTFT: string | number | null;
 	weightedTTFRT: string | number | null;
+	weightedTTFTCount: string | number | null;
+	weightedTTFRTCount: string | number | null;
 }
 
 function rowToMetrics(row: HistoryRow): ProviderMetrics | undefined {
@@ -33,6 +35,8 @@ function rowToMetrics(row: HistoryRow): ProviderMetrics | undefined {
 	const weightedOutputTokens = Number(row.weightedOutputTokens ?? 0);
 	const weightedTTFT = Number(row.weightedTTFT ?? 0);
 	const weightedTTFRT = Number(row.weightedTTFRT ?? 0);
+	const weightedTTFTCount = Number(row.weightedTTFTCount ?? 0);
+	const weightedTTFRTCount = Number(row.weightedTTFRTCount ?? 0);
 
 	if (totalLogs <= 0 || weightedLogs <= 0) {
 		return undefined;
@@ -41,9 +45,18 @@ function rowToMetrics(row: HistoryRow): ProviderMetrics | undefined {
 	const successfulRequests = weightedLogs - weightedRoutingErrors;
 	const uptime = Math.max(0, (successfulRequests / weightedLogs) * 100);
 
-	const effectiveTTFT = weightedTTFRT > 0 ? weightedTTFRT : weightedTTFT;
+	// Only streamed requests record a first-token latency, so each average
+	// divides by its own sample count. Dividing by the request count instead
+	// would make providers look faster the more non-streaming traffic they see.
+	const useReasoning = weightedTTFRT > 0 && weightedTTFRTCount > 0;
+	const effectiveTTFT = useReasoning ? weightedTTFRT : weightedTTFT;
+	const effectiveTTFTCount = useReasoning
+		? weightedTTFRTCount
+		: weightedTTFTCount;
 	const averageLatency =
-		effectiveTTFT > 0 ? effectiveTTFT / weightedLogs : undefined;
+		effectiveTTFT > 0 && effectiveTTFTCount > 0
+			? effectiveTTFT / effectiveTTFTCount
+			: undefined;
 
 	const throughput =
 		weightedDuration > 0
@@ -95,7 +108,9 @@ export async function getProviderMetricsFromHistory(
 		);
 	}
 
-	const cacheKey = `providerMetrics:history:${routingHistoryCacheKey(history)}:${modelIds.join(",")}`;
+	// The version segment is bumped whenever the selected columns change so a
+	// rolling deploy doesn't read rows cached in the previous shape.
+	const cacheKey = `providerMetrics:history:v2:${routingHistoryCacheKey(history)}:${modelIds.join(",")}`;
 
 	const rows = await swrWrap<HistoryRow[]>(
 		cacheKey,
@@ -148,6 +163,14 @@ export async function getProviderMetricsFromHistory(
 					weightedTTFRT:
 						sql<string>`coalesce(sum(${modelProviderMappingHistory.totalTimeToFirstReasoningToken} * ${weightExpr}), 0)::bigint`.as(
 							"weighted_ttfrt",
+						),
+					weightedTTFTCount:
+						sql<string>`coalesce(sum(${modelProviderMappingHistory.timeToFirstTokenCount} * ${weightExpr}), 0)::bigint`.as(
+							"weighted_ttft_count",
+						),
+					weightedTTFRTCount:
+						sql<string>`coalesce(sum(${modelProviderMappingHistory.timeToFirstReasoningTokenCount} * ${weightExpr}), 0)::bigint`.as(
+							"weighted_ttfrt_count",
 						),
 				})
 				.from(modelProviderMappingHistory)

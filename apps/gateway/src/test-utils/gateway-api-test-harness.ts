@@ -240,6 +240,8 @@ export function createGatewayApiTestHarness() {
 					totalDuration: totalDurationMs,
 					totalTimeToFirstToken,
 					totalTimeToFirstReasoningToken: 0,
+					timeToFirstTokenCount: totalRequests,
+					timeToFirstReasoningTokenCount: 0,
 				})
 				.onConflictDoUpdate({
 					target: [
@@ -257,6 +259,8 @@ export function createGatewayApiTestHarness() {
 						totalDuration: totalDurationMs,
 						totalTimeToFirstToken,
 						totalTimeToFirstReasoningToken: 0,
+						timeToFirstTokenCount: totalRequests,
+						timeToFirstReasoningTokenCount: 0,
 					},
 				});
 		},

@@ -1478,6 +1478,13 @@
       "when": 1785105737293,
       "tag": "1785105737_glamorous_micromacro",
       "breakpoints": true
+    },
+    {
+      "idx": 211,
+      "version": "8",
+      "when": 1785190051892,
+      "tag": "1785190051_white_colossus",
+      "breakpoints": true
     }
   ]
 }
