@@ -13,6 +13,7 @@ import {
 	type ProviderModelMapping,
 } from "@llmgateway/models";
 import { isPremiumModel } from "@llmgateway/shared";
+import { isMappingDeactivated } from "@llmgateway/shared/components";
 
 import type {
 	ApiModel,
@@ -176,6 +177,14 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 			return bDate - aDate; // Descending (newest first)
 		});
 
+	// Deactivated models are still reachable behind the grid's toggle, but they
+	// are not part of what this provider currently offers.
+	const activeProviderModels = providerModels.filter((model) =>
+		model.providerDetails.some(
+			({ provider: mapping }) => !isMappingDeactivated(mapping),
+		),
+	);
+
 	const providerUrl = `https://llmgateway.io/providers/${provider.id}`;
 
 	const organizationSchema = {
@@ -194,8 +203,8 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 		"@context": "https://schema.org",
 		"@type": "ItemList",
 		name: `${provider.name} models on LLM Gateway`,
-		numberOfItems: providerModels.length,
-		itemListElement: providerModels.map((model, index) => ({
+		numberOfItems: activeProviderModels.length,
+		itemListElement: activeProviderModels.map((model, index) => ({
 			"@type": "ListItem",
 			position: index + 1,
 			url: `https://llmgateway.io/models/${encodeURIComponent(model.id)}`,
@@ -266,8 +275,11 @@ export async function generateMetadata({
 		return {};
 	}
 
-	const modelCount = modelDefinitions.filter((model) =>
-		model.providers.some((p) => p.providerId === provider.id),
+	const modelCount = (modelDefinitions as readonly ModelDefinition[]).filter(
+		(model) =>
+			model.providers.some(
+				(p) => p.providerId === provider.id && !isMappingDeactivated(p),
+			),
 	).length;
 	const description = `Access ${modelCount} ${provider.name} models through LLM Gateway's OpenAI-compatible API with per-token pricing, automatic fallback, caching, and cost analytics.`;
 

@@ -6,7 +6,9 @@ import {
 	getProviderCountries,
 	models as modelDefinitions,
 	providers as providerDefinitions,
+	type ModelDefinition,
 } from "@llmgateway/models";
+import { isMappingDeactivated } from "@llmgateway/shared/components";
 
 import type { MetadataRoute } from "next";
 
@@ -409,7 +411,16 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
 	// Model pages
 	const modelPages: MetadataRoute.Sitemap = [];
-	for (const model of modelDefinitions) {
+	for (const model of modelDefinitions as readonly ModelDefinition[]) {
+		// Fully deactivated models are hidden from the public directory, so they
+		// are not advertised for crawling either (the pages still resolve).
+		if (
+			model.providers.length > 0 &&
+			model.providers.every((p) => isMappingDeactivated(p))
+		) {
+			continue;
+		}
+
 		// Main model page
 		modelPages.push({
 			url: `${baseUrl}/models/${encodeURIComponent(model.id)}`,

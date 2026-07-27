@@ -42,10 +42,14 @@ import {
 	isProviderCompliant,
 	models as modelDefinitions,
 	providers as providerDefinitions,
+	type ModelDefinition,
 	type ProviderCompliancePolicy,
 	type ProviderId,
 } from "@llmgateway/models";
-import { providerLogoUrls } from "@llmgateway/shared/components";
+import {
+	isMappingDeactivated,
+	providerLogoUrls,
+} from "@llmgateway/shared/components";
 
 type SortKey = "fastest" | "slowest" | "popular" | "name" | "uptime";
 
@@ -63,8 +67,11 @@ const getProviderLogo = (providerId: ProviderId) => {
 
 const getModelsCountByProvider = (): Record<string, number> => {
 	const counts: Record<string, number> = {};
-	for (const model of modelDefinitions) {
+	for (const model of modelDefinitions as readonly ModelDefinition[]) {
 		for (const providerMapping of model.providers) {
+			if (isMappingDeactivated(providerMapping)) {
+				continue;
+			}
 			const providerId = providerMapping.providerId;
 			counts[providerId] = (counts[providerId] || 0) + 1;
 		}
