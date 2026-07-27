@@ -86,6 +86,13 @@ export function getUnifiedFinishReason(
 	if (finishReason === "refusal") {
 		return UnifiedFinishReason.CONTENT_FILTER;
 	}
+	// Anthropic models stop with `model_context_window_exceeded` when generation
+	// hits the model's context window before `max_tokens`. Like `refusal`, it
+	// surfaces across the direct API, Vertex, and Bedrock, so map it uniformly
+	// here as a length limit.
+	if (finishReason === "model_context_window_exceeded") {
+		return UnifiedFinishReason.LENGTH_LIMIT;
+	}
 
 	switch (provider) {
 		case "anthropic":

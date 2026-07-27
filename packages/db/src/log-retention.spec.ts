@@ -31,6 +31,12 @@ function baseLogData(overrides: Partial<LogInsertData> = {}): LogInsertData {
 		toolChoice: "auto",
 		toolResults: [{ id: "1" }],
 		responsesApiData: { foo: "bar" },
+		// Debug payloads (captured under `x-debug`) hold the full request and
+		// response bodies exchanged with the provider.
+		rawRequest: { messages: [{ role: "user", content: "secret prompt" }] },
+		rawResponse: { choices: [{ message: { content: "secret completion" } }] },
+		upstreamRequest: { input: [{ type: "reasoning", encrypted_content: "s" }] },
+		upstreamResponse: { output: [{ type: "message" }] },
 		...overrides,
 	} as LogInsertData;
 }
@@ -46,6 +52,10 @@ describe("stripRetentionSensitiveLogFields", () => {
 		expect(stripped.toolChoice).toBeNull();
 		expect(stripped.toolResults).toBeNull();
 		expect(stripped.responsesApiData).toBeNull();
+		expect(stripped.rawRequest).toBeNull();
+		expect(stripped.rawResponse).toBeNull();
+		expect(stripped.upstreamRequest).toBeNull();
+		expect(stripped.upstreamResponse).toBeNull();
 	});
 
 	it("nulls exactly the documented field list and nothing else", () => {

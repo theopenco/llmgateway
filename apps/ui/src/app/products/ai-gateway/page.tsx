@@ -11,6 +11,7 @@ import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import {
 	ProductClosingCta,
+	ProductCodeBlock,
 	ProductFeatureGrid,
 	ProductHero,
 	ProductScreenshot,
@@ -107,6 +108,7 @@ export default function AiGatewayProductPage() {
 			<Navbar />
 			<main className="min-h-screen bg-background">
 				<ProductHero
+					accent="blue"
 					eyebrow="Product · AI Gateway"
 					title="One API for every LLM"
 					subtitle={`${MARKETING_STATS.models} models. ${MARKETING_STATS.providers} providers. Zero code changes.`}
@@ -127,36 +129,35 @@ export default function AiGatewayProductPage() {
 					]}
 				/>
 
-				<div className="container mx-auto px-4 py-16">
-					<div className="max-w-6xl mx-auto">
-						<section className="mb-20">
-							<h2 className="text-3xl font-bold mb-8 text-center">
+				<div className="mx-auto max-w-6xl space-y-24 px-6 py-20 md:space-y-36 md:py-28">
+					<section>
+						<div className="scroll-reveal mx-auto mb-10 max-w-xl text-center">
+							<h2 className="text-3xl font-semibold tracking-[-0.02em] md:text-4xl">
 								Migrate by changing one line
 							</h2>
-							<pre className="p-6 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-950 overflow-x-auto max-w-3xl mx-auto">
-								<code className="text-sm text-zinc-50 font-mono">
-									{codeExample}
-								</code>
-							</pre>
-						</section>
+							<p className="mt-3 text-pretty leading-relaxed text-muted-foreground">
+								Point your existing OpenAI SDK at the gateway. Everything else
+								stays the same.
+							</p>
+						</div>
+						<ProductCodeBlock code={codeExample} filename="app.ts" />
+					</section>
 
-						<section className="mb-20 space-y-20">
-							<ProductScreenshot
-								slug="api-keys"
-								alt="LLM Gateway API keys management"
-								title="Project-scoped API keys"
-								description="Create keys per project, set usage and spending limits, and rotate them without touching your code."
-							/>
-						</section>
+					<ProductScreenshot
+						slug="api-keys"
+						alt="LLM Gateway API keys management"
+						title="Project-scoped API keys"
+						description="Create keys per project, set usage and spending limits, and rotate them without touching your code."
+					/>
 
-						<ProductFeatureGrid
-							title="Built for production traffic"
-							features={features}
-						/>
-					</div>
+					<ProductFeatureGrid
+						title="Built for production traffic"
+						features={features}
+					/>
 				</div>
 
 				<ProductClosingCta
+					accent="blue"
 					title="Ship with any model, today"
 					description="Bring your own provider keys for free, pay as you go with a flat 5% platform fee, or self-host the open-source gateway."
 					ctas={[

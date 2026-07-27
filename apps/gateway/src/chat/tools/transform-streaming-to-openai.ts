@@ -1,4 +1,5 @@
 import { redisClient } from "@llmgateway/cache";
+import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import { calculatePromptTokensFromMessages } from "./calculate-prompt-tokens.js";
@@ -8,6 +9,7 @@ import {
 	extractBedrockCacheCreationDetails,
 } from "./extract-token-usage.js";
 import { mapFinishReasonToOpenai } from "./map-finish-reason-to-openai.js";
+import { buildEncryptedReasoningDetail } from "./reasoning-details.js";
 import { transformOpenaiStreaming } from "./transform-openai-streaming.js";
 
 import type { Annotation, StreamingDelta } from "./types.js";
@@ -561,9 +563,12 @@ export function transformStreamingToOpenai(
 					}
 
 					if (part.functionCall) {
-						const callIndex = toolCalls.length;
-						const toolCallId =
-							part.functionCall.name + "_" + Date.now() + "_" + callIndex;
+						// The id doubles as the `thought_signature:<id>` Redis key, so it
+						// MUST be globally unique — a name+timestamp id collides whenever
+						// two callers invoke the same tool in the same millisecond, and
+						// replaying a call with another call's signature makes Gemini
+						// reject the turn ("Corrupted thought signature").
+						const toolCallId = `${part.functionCall.name}_${shortid(24)}`;
 						toolCalls.push({
 							id: toolCallId,
 							type: "function",
@@ -837,7 +842,20 @@ export function transformStreamingToOpenai(
 								choices: [
 									{
 										index: 0,
-										delta: { role: "assistant" },
+										delta: {
+											role: "assistant",
+											// Mark the start of each upstream message output item so
+											// the Responses translator can preserve exact item
+											// boundaries (e.g. two commentary messages split by a
+											// tool call), along with the item's phase.
+											...(item?.type === "message" && {
+												message_start: true,
+											}),
+											...(item?.type === "message" &&
+												typeof item.phase === "string" && {
+													phase: item.phase,
+												}),
+										},
 										finish_reason: null,
 									},
 								],
@@ -853,7 +871,24 @@ export function transformStreamingToOpenai(
 					case "response.reasoning_summary_part.done":
 					case "response.web_search_call.in_progress":
 					case "response.web_search_call.searching":
-					case "response.web_search_call.completed":
+					case "response.web_search_call.completed": {
+						// A completed reasoning item may carry encrypted reasoning
+						// (store:false + include:["reasoning.encrypted_content"]).
+						// Surface it as a reasoning_details delta so clients can replay
+						// it on later turns to preserve reasoning across calls.
+						const doneItem = data.item;
+						const encryptedReasoning =
+							data.type === "response.output_item.done" &&
+							doneItem?.type === "reasoning" &&
+							typeof doneItem.encrypted_content === "string" &&
+							doneItem.encrypted_content.length > 0
+								? [
+										buildEncryptedReasoningDetail(
+											doneItem,
+											data.output_index ?? 0,
+										),
+									]
+								: null;
 						transformedData = {
 							id: data.response?.id ?? `chatcmpl-${Date.now()}`,
 							object: "chat.completion.chunk",
@@ -863,13 +898,24 @@ export function transformStreamingToOpenai(
 							choices: [
 								{
 									index: 0,
-									delta: { role: "assistant" },
+									delta: {
+										role: "assistant",
+										...(encryptedReasoning && {
+											reasoning_details: encryptedReasoning,
+										}),
+										...(data.type === "response.output_item.done" &&
+											doneItem?.type === "message" &&
+											typeof doneItem.phase === "string" && {
+												phase: doneItem.phase,
+											}),
+									},
 									finish_reason: null,
 								},
 							],
 							usage: null,
 						};
 						break;
+					}
 
 					case "response.reasoning_summary_part.added":
 					case "response.reasoning_summary_text.delta":
@@ -1058,6 +1104,9 @@ export function transformStreamingToOpenai(
 							...(typeof data.response?.service_tier === "string" && {
 								service_tier: data.response.service_tier,
 							}),
+							...(typeof data.response?.reasoning?.context === "string" && {
+								reasoning_context: data.response.reasoning.context,
+							}),
 						};
 						break;
 					}
@@ -1102,6 +1151,9 @@ export function transformStreamingToOpenai(
 							usage,
 							...(typeof data.response?.service_tier === "string" && {
 								service_tier: data.response.service_tier,
+							}),
+							...(typeof data.response?.reasoning?.context === "string" && {
+								reasoning_context: data.response.reasoning.context,
 							}),
 						};
 						break;
@@ -1271,7 +1323,10 @@ export function transformStreamingToOpenai(
 			} else if (eventType === "messageStop") {
 				const stopReason = data.stopReason;
 				let finishReason = "stop";
-				if (stopReason === "max_tokens") {
+				if (
+					stopReason === "max_tokens" ||
+					stopReason === "model_context_window_exceeded"
+				) {
 					finishReason = "length";
 				} else if (stopReason === "tool_use") {
 					finishReason = "tool_calls";
@@ -1379,6 +1434,7 @@ export function transformStreamingToOpenai(
 		case "bytedance":
 		case "minimax":
 		case "embercloud":
+		case "runware":
 		case "gonka24":
 		case "granite":
 		case "tundra":

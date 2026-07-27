@@ -110,6 +110,7 @@ export default function LoungeProductPage() {
 			<Navbar />
 			<main className="min-h-screen bg-background">
 				<ProductHero
+					accent="amber"
 					eyebrow="Product · Lounge"
 					title="Every frontier model. One membership."
 					subtitle="The members' lounge for AI."
@@ -134,43 +135,43 @@ export default function LoungeProductPage() {
 					]}
 				/>
 
-				<div className="container mx-auto px-4 py-16">
-					<div className="max-w-6xl mx-auto">
-						<section className="mb-20 space-y-20">
-							<ProductScreenshot
-								slug="playground"
-								alt="Lounge chat with multiple frontier AI models"
-								title="One chat for every model"
-								description="Claude Opus, GPT-5, Gemini Pro, and Grok in a single conversation view — with real-time usage and per-message cost."
-							/>
-							<ProductScreenshot
-								slug="image-studio"
-								alt="Lounge Image Studio generating images with multiple AI models"
-								title="Image Studio"
-								description="Generate and edit images with multiple providers and compare outputs side by side with adjustable settings."
-							/>
-							<ProductScreenshot
-								slug="video-studio"
-								alt="Lounge Video Studio generating AI videos"
-								title="Video Studio"
-								description="Create AI-generated videos with Sora, Veo, Kling, and more — resolution, duration, and audio options in one interface."
-							/>
-							<ProductScreenshot
-								slug="audio-studio"
-								alt="Lounge Audio Studio generating speech from text"
-								title="Audio Studio"
-								description="Text to speech with ElevenLabs, OpenAI, and Gemini voices — pick a voice, generate, and download."
-							/>
-						</section>
-
-						<ProductFeatureGrid
-							title="Everything in the Lounge"
-							features={studios}
+				<div className="mx-auto max-w-6xl space-y-24 px-6 py-20 md:space-y-36 md:py-28">
+					<section className="space-y-24 md:space-y-32">
+						<ProductScreenshot
+							slug="playground"
+							alt="Lounge chat with multiple frontier AI models"
+							title="One chat for every model"
+							description="Claude Opus, GPT-5, Gemini Pro, and Grok in a single conversation view — with real-time usage and per-message cost."
 						/>
-					</div>
+						<ProductScreenshot
+							slug="image-studio"
+							alt="Lounge Image Studio generating images with multiple AI models"
+							title="Image Studio"
+							description="Generate and edit images with multiple providers and compare outputs side by side with adjustable settings."
+						/>
+						<ProductScreenshot
+							slug="video-studio"
+							alt="Lounge Video Studio generating AI videos"
+							title="Video Studio"
+							description="Create AI-generated videos with Sora, Veo, Kling, and more — resolution, duration, and audio options in one interface."
+						/>
+						<ProductScreenshot
+							slug="audio-studio"
+							alt="Lounge Audio Studio generating speech from text"
+							title="Audio Studio"
+							description="Text to speech with ElevenLabs, OpenAI, and Gemini voices — pick a voice, generate, and download."
+						/>
+					</section>
+
+					<ProductFeatureGrid
+						title="Everything in the Lounge"
+						features={studios}
+						columns={4}
+					/>
 				</div>
 
 				<ProductClosingCta
+					accent="amber"
 					title="Take a seat in the Lounge"
 					description="Memberships start at $9/mo with a 7-day money-back guarantee. Your allowance refills every cycle, metered at provider rates."
 					ctas={[

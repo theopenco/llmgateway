@@ -1560,6 +1560,74 @@ describe("prepareRequestBody - xAI reasoning_effort", () => {
 });
 
 describe("prepareRequestBody - Google AI Studio", () => {
+	// web_search is passed separately from `tools`; the gateway extracts it from
+	// the request before calling prepareRequestBody.
+	const googleTools = (tools: any, webSearchTool?: any) =>
+		prepareRequestBody(
+			"google-ai-studio",
+			"gemini-3.5-flash",
+			null,
+			"gemini-3.5-flash",
+			[{ role: "user", content: "hi" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			tools,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			webSearchTool,
+		) as Promise<any>;
+
+	test("opts into server-side tool invocation when web_search joins functions", async () => {
+		// Gemini 3 rejects built-in tools alongside functionDeclarations unless
+		// this is set; agentic clients (Codex CLI) always send both.
+		const requestBody = await googleTools(
+			[
+				{
+					type: "function",
+					function: { name: "calc", parameters: { type: "object" } },
+				},
+			],
+			{ type: "web_search" },
+		);
+
+		expect(requestBody.tools).toEqual([
+			{ functionDeclarations: [expect.objectContaining({ name: "calc" })] },
+			{ google_search: {} },
+		]);
+		expect(requestBody.toolConfig?.includeServerSideToolInvocations).toBe(true);
+	});
+
+	test("leaves toolConfig alone when web_search is the only tool", async () => {
+		const requestBody = await googleTools(undefined, { type: "web_search" });
+
+		expect(requestBody.tools).toEqual([{ google_search: {} }]);
+		expect(requestBody.toolConfig).toBeUndefined();
+	});
+
+	test("leaves toolConfig alone when there is no built-in tool", async () => {
+		const requestBody = await googleTools([
+			{
+				type: "function",
+				function: { name: "calc", parameters: { type: "object" } },
+			},
+		]);
+
+		expect(requestBody.toolConfig).toBeUndefined();
+	});
+
 	test("should map gateway 0.5K image size to Google 512", async () => {
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
@@ -3844,6 +3912,57 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			expect(requestBody.max_completion_tokens).toBe(32000);
 			expect(requestBody.max_tokens).toBeUndefined();
 		});
+
+		test("strips reasoning_details from chat-completions messages", async () => {
+			const requestBody = (await prepareRequestBody(
+				"openai",
+				"gpt-5",
+				null,
+				"gpt-5",
+				[
+					{ role: "user", content: "Hello!" },
+					{
+						role: "assistant",
+						content: "Hi!",
+						reasoning_details: [
+							{
+								type: "reasoning.encrypted",
+								data: "gAAAA-blob",
+								format: "openai-responses-v1",
+							},
+						],
+					},
+					{ role: "user", content: "Again" },
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false, // useResponsesApi
+			)) as any;
+
+			expect(
+				requestBody.messages.every(
+					(m: any) => m.reasoning_details === undefined,
+				),
+			).toBe(true);
+		});
 	});
 
 	describe("azure-ai-foundry", () => {
@@ -4218,6 +4337,90 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				{ role: "system", content: [{ type: "input_text", text: "be terse" }] },
 				{ role: "user", content: [{ type: "input_text", text: "hello" }] },
 			]);
+		});
+
+		test("runs stateless and requests encrypted reasoning payloads", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([{ role: "user", content: "Hello!" }]),
+			)) as any;
+
+			expect(requestBody.store).toBe(false);
+			expect(requestBody.include).toEqual(["reasoning.encrypted_content"]);
+		});
+
+		test("replays encrypted reasoning_details as reasoning input items", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([
+					{ role: "user", content: "weather in Berlin?" },
+					{
+						role: "assistant",
+						content: "",
+						reasoning_details: [
+							{
+								type: "reasoning.encrypted",
+								data: "gAAAA-encrypted-blob",
+								id: "rs_upstream",
+								format: "openai-responses-v1",
+								index: 0,
+							},
+						],
+						tool_calls: [
+							{
+								id: "call_abc",
+								type: "function",
+								function: {
+									name: "get_weather",
+									arguments: JSON.stringify({ city: "Berlin" }),
+								},
+							},
+						],
+					},
+					{
+						role: "tool",
+						tool_call_id: "call_abc",
+						content: JSON.stringify({ temperature: 17 }),
+					},
+				]),
+			)) as any;
+
+			const reasoningIndex = requestBody.input.findIndex(
+				(i: any) => i.type === "reasoning",
+			);
+			const functionCallIndex = requestBody.input.findIndex(
+				(i: any) => i.type === "function_call",
+			);
+			expect(reasoningIndex).toBeGreaterThan(-1);
+			expect(reasoningIndex).toBeLessThan(functionCallIndex);
+			expect(requestBody.input[reasoningIndex]).toEqual({
+				type: "reasoning",
+				id: "rs_upstream",
+				summary: [],
+				encrypted_content: "gAAAA-encrypted-blob",
+			});
+		});
+
+		test("skips foreign-format reasoning_details entries", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([
+					{ role: "user", content: "hello" },
+					{
+						role: "assistant",
+						content: "hi",
+						reasoning_details: [
+							{
+								type: "reasoning.encrypted",
+								data: "anthropic-blob",
+								format: "anthropic-claude-v1",
+							},
+						],
+					},
+					{ role: "user", content: "again" },
+				]),
+			)) as any;
+
+			expect(requestBody.input.some((i: any) => i.type === "reasoning")).toBe(
+				false,
+			);
 		});
 	});
 

@@ -1590,6 +1590,35 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
+		id: "runware",
+		name: "Runware",
+		description:
+			"Runware provides fast, cost-efficient inference for open and frontier LLMs through an OpenAI-compatible API.",
+		env: {
+			required: {
+				apiKey: "LLM_RUNWARE_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_RUNWARE_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: false,
+		color: "#a8f399",
+		website: "https://runware.ai",
+		statusPageUrl: "https://status.runware.ai/",
+		announcement: "Launch offer: 30% off all Runware models until August 26",
+		termsUrl: "https://runware.ai/terms",
+		privacyPolicyUrl: "https://runware.ai/privacy",
+		headquarters: "GB",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: true,
+			retentionPeriod: null,
+		},
+	},
+	{
 		id: "gonka24",
 		name: "Gonka24",
 		description:
@@ -1705,6 +1734,7 @@ export const PROVIDER_COUNTRY_NAMES: Record<string, string> = {
 	FR: "France",
 	JP: "Japan",
 	AU: "Australia",
+	GB: "United Kingdom",
 };
 
 /** Convert an ISO 3166-1 alpha-2 country code to its Unicode flag emoji. */

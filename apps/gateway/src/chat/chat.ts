@@ -1491,6 +1491,7 @@ chat.openapi(completions, async (c) => {
 	// Extract reasoning.effort and reasoning.max_tokens for unified reasoning configuration
 	const reasoning_object_effort = validationResult.data.reasoning?.effort;
 	const reasoning_max_tokens = validationResult.data.reasoning?.max_tokens;
+	const reasoning_context = validationResult.data.reasoning?.context;
 
 	// Validate that reasoning_effort and reasoning.effort are not both specified
 	if (
@@ -1771,6 +1772,21 @@ chat.openapi(completions, async (c) => {
 	// grok-image) are intentionally allowed — they are served by the
 	// chat-completions image flow.
 	validateModelOutput(modelInfo, requestedModel, ["text", "image"]);
+
+	// Realtime models and the ASR models that transcribe their input audio
+	// declare text output but are only served over the dedicated WebSocket
+	// endpoint, so the output-based gate above doesn't catch them. Reject them
+	// here with the correct endpoint pointer.
+	if (
+		modelInfo.providers.length > 0 &&
+		modelInfo.providers.every(
+			(p) => p.realtime === true || p.realtimeTranscription === true,
+		)
+	) {
+		throw new HTTPException(400, {
+			message: `Model ${requestedModel} is a realtime model and cannot be used with /v1/chat/completions. Connect to the /v1/realtime WebSocket endpoint instead.`,
+		});
+	}
 
 	// Validate that models requiring image input have at least one image in the request
 	if (
@@ -6214,6 +6230,7 @@ chat.openapi(completions, async (c) => {
 			verbosity,
 			prompt_cache_options,
 			sessionId,
+			reasoning_context,
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
@@ -13024,6 +13041,50 @@ chat.openapi(completions, async (c) => {
 		audioInputTokens,
 		usedProvider === "openai" ? readServiceTierValue(json) : undefined,
 	);
+	// Attach opaque reasoning payloads (e.g. OpenAI encrypted reasoning) to the
+	// assistant message so clients can replay them on later turns to preserve
+	// reasoning across calls without stored responses.
+	if (
+		parsedResponse.reasoningDetails &&
+		parsedResponse.reasoningDetails.length > 0 &&
+		transformedResponse.choices?.[0]?.message
+	) {
+		transformedResponse.choices[0].message.reasoning_details =
+			parsedResponse.reasoningDetails;
+	}
+	// Surface the OpenAI Responses assistant-message phase so stateless clients
+	// can replay it as part of complete conversation history.
+	if (
+		parsedResponse.messagePhase &&
+		transformedResponse.choices?.[0]?.message
+	) {
+		transformedResponse.choices[0].message.phase = parsedResponse.messagePhase;
+	}
+	// Mark pre-tool commentary (message item before the first function_call in
+	// the provider's output) so the Responses converter can rebuild the
+	// original item order.
+	if (
+		parsedResponse.messageBeforeToolCalls === true &&
+		transformedResponse.choices?.[0]?.message
+	) {
+		transformedResponse.choices[0].message.content_before_tool_calls = true;
+	}
+	// Surface separate phased assistant message items (e.g. commentary and
+	// final_answer) so the Responses layer can rebuild every original item.
+	if (
+		parsedResponse.messageItems &&
+		parsedResponse.messageItems.length > 0 &&
+		transformedResponse.choices?.[0]?.message
+	) {
+		transformedResponse.choices[0].message.message_items =
+			parsedResponse.messageItems;
+	}
+	// Surface the effective reasoning context the provider applied so the
+	// Responses layer reports the served mode rather than echoing the request.
+	if (parsedResponse.reasoningContext) {
+		(transformedResponse as Record<string, unknown>).reasoning_context =
+			parsedResponse.reasoningContext;
+	}
 	const transformedMetadata =
 		transformedResponse.metadata &&
 		typeof transformedResponse.metadata === "object"

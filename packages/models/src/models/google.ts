@@ -2253,6 +2253,27 @@ export const googleModels = [
 				jsonOutput: true,
 			},
 			{
+				providerId: "runware",
+				externalId: "google-gemma-4-31b",
+				inputPrice: "0.102e-6",
+				outputPrice: "0.297e-6",
+				cachedInputPrice: "0.012e-6",
+				requestPrice: "0",
+				contextSize: 262144,
+				maxOutput: 65536,
+				streaming: true,
+				reasoning: true,
+				// Runware maps reasoning_effort onto its thinkingLevel setting and
+				// 400s minimal/low/medium for this model.
+				reasoningEfforts: ["none", "high", "xhigh", "max"],
+				vision: true,
+				tools: true,
+				// Runware rejects json_object for this model ("Missing required
+				// parameter: 'jsonSchema'") and its json_schema path hangs until the
+				// upstream inference timeout, so no structured-output mode is offered.
+				jsonOutput: false,
+			},
+			{
 				providerId: "novita",
 				externalId: "google/gemma-4-31b-it",
 				inputPrice: "0.13e-6",

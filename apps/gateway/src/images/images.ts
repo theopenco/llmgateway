@@ -313,10 +313,12 @@ async function extractImagesFromChatResponse(
 	}
 
 	if (imageObjects.length === 0) {
+		// A content-filtered generation is an expected, user-caused outcome, not an
+		// operational problem: the internal chat completions request already logged
+		// the request with a content_filter finish reason (the provider's raw reason
+		// is mapped to the OpenAI-canonical "content_filter" before it reaches here),
+		// so there is nothing to warn about.
 		if (chatResponse.choices?.[0]?.finish_reason === "content_filter") {
-			logger.warn("Images API - content filtered response", {
-				model,
-			});
 			return [];
 		}
 

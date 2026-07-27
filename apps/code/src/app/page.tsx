@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { FlickeringGrid } from "@/components/ui/flickering-grid";
 import { Marquee } from "@/components/ui/marquee";
 import { NumberTicker } from "@/components/ui/number-ticker";
+import { marqueeTools } from "@/lib/agent-tools";
 import { getConfig } from "@/lib/config-server";
 
 import {
@@ -26,9 +27,6 @@ import {
 } from "@llmgateway/shared";
 import {
 	AnthropicIcon,
-	AutohandIcon,
-	ClineIcon,
-	DevPassCodeIcon,
 	EmpryoIcon,
 	OpenCodeIcon,
 	SoulForgeIcon,
@@ -42,19 +40,6 @@ export const metadata: Metadata = {
 
 const modelCount = parseInt(MARKETING_STATS.models, 10);
 const providerCount = parseInt(MARKETING_STATS.providers, 10);
-
-const marqueeTools = [
-	{ name: "DevPass Code", icon: DevPassCodeIcon },
-	{ name: "Claude Code", icon: AnthropicIcon },
-	{ name: "OpenCode", icon: OpenCodeIcon },
-	{ name: "Empryo", icon: EmpryoIcon },
-	{ name: "SoulForge", icon: SoulForgeIcon },
-	{ name: "Autohand", icon: AutohandIcon },
-	{ name: "Cline", icon: ClineIcon },
-	{ name: "Cursor" },
-	{ name: "Aider" },
-	{ name: "Continue" },
-] as const;
 
 const featuredTools = [
 	{

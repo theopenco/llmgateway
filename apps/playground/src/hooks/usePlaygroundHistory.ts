@@ -141,6 +141,104 @@ export function useDeleteAudioHistory() {
 	});
 }
 
+export function useRealtimeHistory(enabled = true, organizationId?: string) {
+	const api = useApi();
+	return api.useQuery(
+		"get",
+		"/playground/realtime-history",
+		{ params: { query: organizationId ? { organizationId } : {} } },
+		{ enabled },
+	);
+}
+
+// Full call including its transcript, fetched only when a call is opened.
+// Calls are immutable apart from title renames (which invalidate this query),
+// so the data never goes stale.
+export function useRealtimeHistoryItem(id: string | null) {
+	const api = useApi();
+	return api.useQuery(
+		"get",
+		"/playground/realtime-history/{id}",
+		{ params: { path: { id: id ?? "" } } },
+		{ enabled: !!id, staleTime: Infinity },
+	);
+}
+
+export function useSaveRealtimeHistory() {
+	const queryClient = useQueryClient();
+	const api = useApi();
+	return api.useMutation("post", "/playground/realtime-history", {
+		onSuccess: (data, variables) => {
+			// Seed the detail cache from the request body so opening the call
+			// that just ended doesn't round-trip for a transcript we already have.
+			if (variables?.body) {
+				queryClient.setQueryData(
+					api.queryOptions("get", "/playground/realtime-history/{id}", {
+						params: { path: { id: data.item.id } },
+					}).queryKey,
+					{
+						item: {
+							...data.item,
+							transcript: variables.body.transcript,
+							usage: variables.body.usage ?? null,
+						},
+					},
+				);
+			}
+			void queryClient.invalidateQueries({
+				queryKey: api.queryOptions("get", "/playground/realtime-history")
+					.queryKey,
+			});
+		},
+	});
+}
+
+export function useRenameRealtimeHistory() {
+	const queryClient = useQueryClient();
+	const api = useApi();
+	return api.useMutation("patch", "/playground/realtime-history/{id}", {
+		onSuccess: (_data, variables) => {
+			void queryClient.invalidateQueries({
+				queryKey: api.queryOptions("get", "/playground/realtime-history")
+					.queryKey,
+			});
+			const id = variables.params?.path?.id;
+			if (id) {
+				void queryClient.invalidateQueries({
+					queryKey: api.queryOptions(
+						"get",
+						"/playground/realtime-history/{id}",
+						{ params: { path: { id } } },
+					).queryKey,
+				});
+			}
+		},
+	});
+}
+
+export function useDeleteRealtimeHistory() {
+	const queryClient = useQueryClient();
+	const api = useApi();
+	return api.useMutation("delete", "/playground/realtime-history/{id}", {
+		onSuccess: (_data, variables) => {
+			void queryClient.invalidateQueries({
+				queryKey: api.queryOptions("get", "/playground/realtime-history")
+					.queryKey,
+			});
+			const id = variables.params?.path?.id;
+			if (id) {
+				queryClient.removeQueries({
+					queryKey: api.queryOptions(
+						"get",
+						"/playground/realtime-history/{id}",
+						{ params: { path: { id } } },
+					).queryKey,
+				});
+			}
+		},
+	});
+}
+
 export function useVideoHistory(enabled = true, organizationId?: string) {
 	const api = useApi();
 	return api.useQuery(

@@ -298,6 +298,45 @@ describe("transformOpenaiStreaming", () => {
 		expect(result.choices[0].delta).not.toHaveProperty("reasoning_details");
 	});
 
+	test("preserves opaque (encrypted) reasoning_details entries while normalizing text ones", () => {
+		const input = {
+			id: "test-id",
+			object: "chat.completion.chunk",
+			created: 1234567890,
+			model: "gpt-5.5",
+			choices: [
+				{
+					index: 0,
+					delta: {
+						role: "assistant",
+						reasoning_details: [
+							{ text: "step 1" },
+							{
+								type: "reasoning.encrypted",
+								data: "gAAAA-encrypted-blob",
+								id: "rs_upstream",
+								format: "openai-responses-v1",
+							},
+						],
+					},
+				},
+			],
+			usage: null,
+		};
+
+		const result = transformOpenaiStreaming(input, "gpt-5.5");
+
+		expect(result.choices[0].delta).toHaveProperty("reasoning", "step 1");
+		expect(result.choices[0].delta.reasoning_details).toEqual([
+			{
+				type: "reasoning.encrypted",
+				data: "gAAAA-encrypted-blob",
+				id: "rs_upstream",
+				format: "openai-responses-v1",
+			},
+		]);
+	});
+
 	test("renames Alibaba nested cache_creation_input_tokens to cache_write_tokens / cache_creation_tokens", () => {
 		const input = {
 			id: "test-id",
