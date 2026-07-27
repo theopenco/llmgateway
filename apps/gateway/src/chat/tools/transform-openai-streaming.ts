@@ -110,9 +110,22 @@ export function transformOpenaiStreaming(
 		if (normalizedReasoning) {
 			const {
 				reasoning_content: _reasoningContent,
-				reasoning_details: _reasoningDetails,
+				reasoning_details: reasoningDetails,
 				...rest
 			} = newDelta;
+			// Keep opaque (non-text) reasoning details — e.g. encrypted reasoning
+			// payloads — since their content cannot be folded into the plain
+			// `reasoning` string and clients need them to replay reasoning.
+			const opaqueDetails = Array.isArray(reasoningDetails)
+				? reasoningDetails.filter(
+						(detail: any) =>
+							detail &&
+							typeof detail === "object" &&
+							typeof detail.text !== "string",
+					)
+				: [];
+			const preservedDetails =
+				opaqueDetails.length > 0 ? { reasoning_details: opaqueDetails } : {};
 			// If the model doesn't support reasoning, treat reasoning_content as
 			// regular content (some providers return the actual answer in
 			// reasoning_content for non-reasoning models).
@@ -120,11 +133,13 @@ export function transformOpenaiStreaming(
 			if (!supportsReasoning) {
 				return {
 					...rest,
+					...preservedDetails,
 					...(!rest.content && { content: normalizedReasoning }),
 				};
 			}
 			return {
 				...rest,
+				...preservedDetails,
 				reasoning: normalizedReasoning,
 			};
 		}
