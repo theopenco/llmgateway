@@ -13,12 +13,16 @@ import { AuthLink } from "@/components/shared/auth-link";
 import { Button } from "@/lib/components/button";
 import { getConfig } from "@/lib/config-server";
 import Logo from "@/lib/icons/Logo";
+import { cn } from "@/lib/utils";
 
 import {
 	providers as providerDefinitions,
 	type ProviderId,
 } from "@llmgateway/models";
-import { providerLogoUrls } from "@llmgateway/shared/components";
+import {
+	providerLogoUrls,
+	RunwareWordmarkIcon,
+} from "@llmgateway/shared/components";
 
 interface HeroProps {
 	providerId: ProviderId;
@@ -76,6 +80,18 @@ export function Hero({ providerId }: HeroProps) {
 	].filter((link): link is { label: string; href: string } => link !== null);
 
 	const getProviderIcon = (providerId: ProviderId) => {
+		// Runware's brand asset is a wide wordmark, so give it the full slot
+		// width instead of the square icon treatment.
+		if (providerId === "runware") {
+			return (
+				<RunwareWordmarkIcon
+					className="h-auto w-full"
+					aria-label="Runware"
+					role="img"
+				/>
+			);
+		}
+
 		const LogoComponent = providerLogoUrls[providerId];
 		if (LogoComponent) {
 			return <LogoComponent className="h-24 w-24 object-contain" />;
@@ -282,7 +298,14 @@ export function Hero({ providerId }: HeroProps) {
 					<div className="flex items-center h-32">
 						<div className="w-0.5 h-52 bg-muted-foreground opacity-50 rounded rotate-[30deg]" />
 					</div>
-					<div className="h-24 w-24 relative top-10">
+					<div
+						className={cn(
+							"relative top-10",
+							providerId === "runware"
+								? "flex h-24 w-56 items-center sm:w-64"
+								: "h-24 w-24",
+						)}
+					>
 						{getProviderIcon(providerId)}
 					</div>
 				</div>
