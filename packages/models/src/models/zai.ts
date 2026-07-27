@@ -153,10 +153,6 @@ export const zaiModels = [
 				reasoning: true,
 				vision: false,
 				tools: true,
-				// Runware's GLM backend hangs until its own 60s inference timeout on
-				// tool_choice: "required" specifically; auto/none/named-function all
-				// work, so downgrade "required" to "auto" rather than mark unstable.
-				supportedToolChoices: ["auto", "none"],
 				jsonOutput: true,
 			},
 			{
