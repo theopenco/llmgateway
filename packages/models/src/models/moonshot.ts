@@ -688,7 +688,6 @@ export const moonshotModels = [
 			{
 				providerId: "together-ai",
 				externalId: "moonshotai/Kimi-K3",
-				// Model page: https://www.together.ai/models/kimi-k3
 				inputPrice: "3.0e-6",
 				cachedInputPrice: "0.3e-6",
 				outputPrice: "15.0e-6",
