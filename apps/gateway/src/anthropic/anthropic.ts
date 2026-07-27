@@ -709,6 +709,13 @@ anthropic.openapi(messages, async (c) => {
 			"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
 			...internalApiOriginHeaders("messages"),
 			...(sessionId ? { "x-session-id": sessionId } : {}),
+			// Forward the fallback opt-out (presence-sensitive: the inner handler
+			// checks headers.has()) so a hard provider pin (provider/model prefix
+			// + x-no-fallback) works on the native Anthropic lane the same way it
+			// does on /v1/chat/completions.
+			...(c.req.header("x-no-fallback") !== undefined
+				? { "x-no-fallback": c.req.header("x-no-fallback")! }
+				: {}),
 			// Signal to the inner /v1/chat/completions handler that the caller used
 			// Anthropic's explicit-budget thinking API (`thinking.type: "enabled"`).
 			// On adaptive-only models the budget maps to an unsupported

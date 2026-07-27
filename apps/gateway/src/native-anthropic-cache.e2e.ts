@@ -10,6 +10,8 @@ import {
 	logMode,
 } from "@/chat-helpers.e2e.js";
 
+import { db, tables } from "@llmgateway/db";
+
 import { app } from "./app.js";
 import { waitForLogByRequestId } from "./test-utils/test-helpers.js";
 
@@ -934,6 +936,109 @@ describeCache(
 					Number(logRow.cacheWriteTokens),
 				);
 				expect(Number(logRow.cacheWrite1hTokens ?? 0)).toBe(0);
+			},
+		);
+
+		// Production repro for the "write-only /v1/messages" report: on a project
+		// with gateway response caching enabled, identical /v1/messages requests
+		// are served from the gateway's Redis response cache. Before the fix the
+		// replay repeated the priming call's usage verbatim — every identical call
+		// showed cache_creation_input_tokens > 0 and cache_read_input_tokens: 0 —
+		// so clients concluded prompt caching never produced reads. A replay must
+		// instead report the prompt as cached input with no cache-write claim.
+		(hasAnthropicKey ? test : test.skip)(
+			"gateway response-cache replays report cache reads, not stale writes",
+			getTestOptions(),
+			async () => {
+				await db
+					.insert(tables.project)
+					.values({
+						id: "project-id-gw-cache",
+						name: "Gateway Cache Test Project",
+						organizationId: "org-id",
+						mode: "api-keys",
+						cachingEnabled: true,
+						cacheDurationSeconds: 120,
+					})
+					.onConflictDoUpdate({
+						target: tables.project.id,
+						set: { cachingEnabled: true, cacheDurationSeconds: 120 },
+					});
+				await db
+					.insert(tables.apiKey)
+					.values({
+						id: "token-id-gw-cache",
+						token: "real-token-gw-cache",
+						projectId: "project-id-gw-cache",
+						description: "Gateway cache test key",
+						createdBy: "user-id",
+					})
+					.onConflictDoNothing();
+
+				const body = {
+					model: "anthropic/claude-haiku-4-5",
+					max_tokens: 50,
+					system: [
+						{
+							type: "text" as const,
+							text: buildUniqueLongSystemPrompt(`gw-cache-${Date.now()}`),
+							cache_control: { type: "ephemeral" as const },
+						},
+					],
+					messages: [{ role: "user" as const, content: "Just reply OK." }],
+				};
+
+				const send = async () => {
+					const requestId = generateTestRequestId();
+					const res = await app.request("/v1/messages", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							"x-request-id": requestId,
+							Authorization: `Bearer real-token-gw-cache`,
+						},
+						body: JSON.stringify(body),
+					});
+					const json = await res.json();
+					if (logMode) {
+						console.log(
+							"gateway-cache replay /v1/messages",
+							requestId,
+							"status",
+							res.status,
+							"usage",
+							JSON.stringify(json.usage),
+						);
+					}
+					return { status: res.status, json };
+				};
+
+				// Prime both the provider prompt cache and the gateway response
+				// cache. setCache is a no-op under NODE_ENV=test, so briefly flip it
+				// the way api.spec.ts's cached-responses-are-free test does.
+				const originalNodeEnv = process.env.NODE_ENV;
+				let first: { status: number; json: any };
+				try {
+					process.env.NODE_ENV = "development";
+					first = await send();
+				} finally {
+					process.env.NODE_ENV = originalNodeEnv;
+				}
+				expect(first.status).toBe(200);
+				expect(first.json.usage).toBeDefined();
+
+				// The second identical call is normally a gateway-cache replay
+				// (cache_read == full prompt). If a concurrent test's beforeEach
+				// flushed Redis in between, it degrades to a real provider call,
+				// which still must surface a provider cache read — either way,
+				// read > 0 and no fresh write.
+				const second = await sendUntilCacheRead(send);
+				expect(second.status).toBe(200);
+				expect(
+					second.json.usage.cache_read_input_tokens,
+					`expected cache_read_input_tokens > 0 after ${second.attempts} attempts`,
+				).toBeGreaterThan(0);
+				expect(second.json.usage.cache_creation_input_tokens).toBe(0);
 			},
 		);
 	},

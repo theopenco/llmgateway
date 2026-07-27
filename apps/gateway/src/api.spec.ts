@@ -4566,6 +4566,22 @@ describe("api", () => {
 		const secondRes = await makeRequest();
 		expect(secondRes.status).toBe(200);
 
+		// The replayed body must not repeat the origin call's provider-cache
+		// accounting: a gateway cache hit reports the entire prompt as cached
+		// input, no cache write, and zero cost.
+		const secondJson = await secondRes.json();
+		expect(secondJson.usage.prompt_tokens).toBeGreaterThan(0);
+		expect(secondJson.usage.prompt_tokens_details.cached_tokens).toBe(
+			secondJson.usage.prompt_tokens,
+		);
+		expect(secondJson.usage.prompt_tokens_details.cache_write_tokens).toBe(0);
+		expect(secondJson.usage.prompt_tokens_details).not.toHaveProperty(
+			"cache_creation_tokens",
+		);
+		if (typeof secondJson.usage.cost === "number") {
+			expect(secondJson.usage.cost).toBe(0);
+		}
+
 		const afterSecond = await waitForLogs(2);
 		expect(afterSecond.length).toBe(2);
 		const cachedLog = afterSecond.find((log) => log.cached);

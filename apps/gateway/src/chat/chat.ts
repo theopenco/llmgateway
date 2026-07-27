@@ -272,6 +272,7 @@ import {
 import {
 	applyExtendedUsageFields,
 	stripRequestScopedMetadataFromOpenAiResponse,
+	toGatewayCacheHitUsage,
 	toResponseMetadataExtras,
 	transformResponseToOpenai,
 	withCurrentRequestMetadataOnOpenAiResponse,
@@ -5680,6 +5681,16 @@ chat.openapi(completions, async (c) => {
 											: {};
 									data = JSON.stringify({
 										...parsed,
+										// Replayed chunks must not claim the origin call's
+										// provider-cache activity (e.g. its priming cache write) —
+										// this replay is a free gateway cache hit.
+										...("usage" in parsed
+											? {
+													usage: toGatewayCacheHitUsage(
+														parsed.usage as Record<string, unknown> | null,
+													),
+												}
+											: {}),
 										metadata: {
 											...metadata,
 											...cachedResponseMetadata,
@@ -5759,7 +5770,13 @@ chat.openapi(completions, async (c) => {
 
 				const responseForCurrentRequest =
 					withCurrentRequestMetadataOnOpenAiResponse(
-						cachedResponse,
+						// Serve the cache hit with rewritten usage: the stored response's
+						// provider-cache accounting (e.g. the priming call's cache write)
+						// describes the origin call, not this free replay.
+						{
+							...cachedResponse,
+							usage: toGatewayCacheHitUsage(cachedResponse.usage),
+						},
 						requestId,
 						{
 							logId: finalLogId,

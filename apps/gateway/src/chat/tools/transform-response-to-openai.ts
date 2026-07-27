@@ -347,6 +347,57 @@ function buildUsageObject(
 }
 
 /**
+ * Rewrite the client-visible usage of a gateway response-cache hit.
+ *
+ * A cache hit is served entirely from Redis with no upstream provider call.
+ * Replaying the origin call's usage verbatim is misleading: when the origin
+ * call was the one that primed a provider prompt cache, its usage carries a
+ * fresh cache_write_tokens/cache_creation claim, so every replay looks like a
+ * repeated cache write billed at the write premium — clients (and the
+ * /v1/messages translation, which maps these fields onto Anthropic's
+ * cache_read_input_tokens/cache_creation_input_tokens) then report zero cache
+ * reads forever on identical requests. Instead, report the entire prompt as
+ * cached input (the strongest cache hit the OpenAI usage vocabulary can
+ * express), drop the stale cache-write claims, and zero the cost fields to
+ * match the log row's documented `cost: 0` billing for cached responses.
+ */
+export function toGatewayCacheHitUsage(
+	usage: Record<string, any>,
+): Record<string, any>;
+export function toGatewayCacheHitUsage(
+	usage: Record<string, any> | null | undefined,
+): Record<string, any> | null | undefined;
+export function toGatewayCacheHitUsage(
+	usage: Record<string, any> | null | undefined,
+): Record<string, any> | null | undefined {
+	if (!usage || typeof usage !== "object") {
+		return usage;
+	}
+	const next: Record<string, any> = { ...usage };
+	const promptTokens =
+		typeof next.prompt_tokens === "number" ? next.prompt_tokens : 0;
+	const promptDetails = {
+		...((next.prompt_tokens_details as Record<string, any> | undefined) ?? {}),
+	};
+	promptDetails.cached_tokens = promptTokens;
+	promptDetails.cache_write_tokens = 0;
+	delete promptDetails.cache_creation_tokens;
+	delete promptDetails.cache_creation;
+	next.prompt_tokens_details = promptDetails;
+	if (typeof next.cost === "number") {
+		next.cost = 0;
+	}
+	if (next.cost_details && typeof next.cost_details === "object") {
+		next.cost_details = Object.fromEntries(
+			Object.entries(next.cost_details as Record<string, unknown>).map(
+				([key, value]) => [key, typeof value === "number" ? 0 : value],
+			),
+		);
+	}
+	return next;
+}
+
+/**
  * Transforms response to OpenAI format for non-OpenAI providers
  */
 export function transformResponseToOpenai(
