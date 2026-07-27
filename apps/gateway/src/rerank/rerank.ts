@@ -5,7 +5,10 @@ import { buildRoutingAttempt } from "@/chat/tools/build-routing-attempt.js";
 import { createLogEntry } from "@/chat/tools/create-log-entry.js";
 import { extractCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
 import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
-import { getProviderEnv } from "@/chat/tools/get-provider-env.js";
+import {
+	getCredentialSetting,
+	resolvePlatformCredential,
+} from "@/chat/tools/resolve-platform-credential.js";
 import {
 	getErrorType,
 	isRetryableErrorType,
@@ -51,11 +54,13 @@ import { validateModelOutput } from "@/lib/validate-model-output.js";
 import {
 	getProviderDefaultBaseUrl,
 	getProviderHeaders,
+	readProviderKey,
 } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 import {
-	getProviderEnvValue,
+	getOrganizationEnvVariant,
 	models as modelDefinitions,
+	type Provider,
 } from "@llmgateway/models";
 
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
@@ -553,6 +558,8 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 
 	interface RerankAttempt {
 		providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
+		/** Platform-managed credential when one served this attempt. */
+		managedKey: InferSelectModel<typeof tables.providerKey> | undefined;
 		usedToken: string;
 		configIndex: number;
 		envVarName: string | undefined;
@@ -571,9 +578,12 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 	async function resolveAttempt(): Promise<ResolveResult> {
 		let providerKeyInner:
 			InferSelectModel<typeof tables.providerKey> | undefined;
+		let managedKeyInner:
+			InferSelectModel<typeof tables.providerKey> | undefined;
 		let usedToken: string | undefined;
 		let configIndex = 0;
 		let envVarName: string | undefined;
+		const envVariant = getOrganizationEnvVariant(organization);
 
 		const excludedProviderKeyIds = failedKeys.providerKeyIdsFor(
 			providerId,
@@ -583,6 +593,24 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 			providerId,
 			undefined,
 		);
+
+		const resolveCredits = async () => {
+			const platformCredential = await resolvePlatformCredential(
+				providerId as Provider,
+				{
+					selectionScope: upstreamModel,
+					variant: envVariant,
+					region: undefined,
+					requiresServiceTier: false,
+					excludedEnvIndices: excludedEnvKeyIndices,
+					excludedProviderKeyIds,
+				},
+			);
+			managedKeyInner = platformCredential.managedKey;
+			usedToken = platformCredential.token;
+			configIndex = platformCredential.configIndex;
+			envVarName = platformCredential.envVarName;
+		};
 
 		if (project.mode === "api-keys") {
 			providerKeyInner = await findProviderKey(
@@ -596,7 +624,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 					message: `No API key set for provider: ${providerId}. Please add a provider key in your settings or add credits and switch to credits or hybrid mode.`,
 				});
 			}
-			usedToken = providerKeyInner.token;
+			usedToken = readProviderKey(providerKeyInner);
 		} else if (project.mode === "credits") {
 			assertCreditsAvailableForRerank(
 				organization,
@@ -606,13 +634,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 					`Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
 			);
 
-			const envResult = getProviderEnv(providerId, {
-				selectionScope: upstreamModel,
-				excludedIndices: excludedEnvKeyIndices,
-			});
-			usedToken = envResult.token;
-			configIndex = envResult.configIndex;
-			envVarName = envResult.envVarName;
+			await resolveCredits();
 		} else if (project.mode === "hybrid") {
 			providerKeyInner = await findProviderKey(
 				project.organizationId,
@@ -621,7 +643,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 				excludedProviderKeyIds,
 			);
 			if (providerKeyInner) {
-				usedToken = providerKeyInner.token;
+				usedToken = readProviderKey(providerKeyInner);
 			} else {
 				assertCreditsAvailableForRerank(
 					organization,
@@ -631,13 +653,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 						`No API key set for provider. Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
 				);
 
-				const envResult = getProviderEnv(providerId, {
-					selectionScope: upstreamModel,
-					excludedIndices: excludedEnvKeyIndices,
-				});
-				usedToken = envResult.token;
-				configIndex = envResult.configIndex;
-				envVarName = envResult.envVarName;
+				await resolveCredits();
 			}
 		} else {
 			throw new HTTPException(400, {
@@ -651,7 +667,15 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 			});
 		}
 
-		const envBaseUrl = getProviderEnvValue(providerId, "baseUrl", configIndex);
+		// Base URL of the platform credential serving the attempt: the managed
+		// credential's own config when one is active, the provider's env var
+		// otherwise. A BYOK key's base URL still wins when set.
+		const envBaseUrl = getCredentialSetting(
+			providerId as Provider,
+			"baseUrl",
+			managedKeyInner,
+			{ configIndex, variant: envVariant },
+		);
 		const resolvedBaseUrl =
 			providerKeyInner?.baseUrl ??
 			envBaseUrl ??
@@ -695,6 +719,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 			kind: "ok",
 			attempt: {
 				providerKey: providerKeyInner,
+				managedKey: managedKeyInner,
 				usedToken,
 				configIndex,
 				envVarName,
@@ -710,7 +735,8 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 		failedKeys.remember(providerId, undefined, {
 			envVarName: failedAttempt.envVarName,
 			configIndex: failedAttempt.configIndex,
-			providerKeyId: failedAttempt.providerKey?.id,
+			providerKeyId:
+				failedAttempt.providerKey?.id ?? failedAttempt.managedKey?.id,
 		});
 		try {
 			const next = await resolveAttempt();
@@ -721,7 +747,8 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 				next.attempt.usedToken === failedAttempt.usedToken &&
 				next.attempt.envVarName === failedAttempt.envVarName &&
 				next.attempt.configIndex === failedAttempt.configIndex &&
-				next.attempt.providerKey?.id === failedAttempt.providerKey?.id
+				next.attempt.providerKey?.id === failedAttempt.providerKey?.id &&
+				next.attempt.managedKey?.id === failedAttempt.managedKey?.id
 			) {
 				return null;
 			}
@@ -751,7 +778,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 				requestId,
 				project,
 				apiKey,
-				providerKeyId: attempt.providerKey?.id,
+				organizationProviderKeyId: attempt.providerKey?.id,
 				usedModel: `${providerId}/${modelDefId}`,
 				usedModelMapping: upstreamModel,
 				usedProvider: providerId,
@@ -822,9 +849,11 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 						upstreamModel,
 					);
 				}
-				if (attempt.providerKey?.id) {
+				const failedTrackedKeyId =
+					attempt.providerKey?.id ?? attempt.managedKey?.id;
+				if (failedTrackedKeyId) {
 					reportTrackedKeyError(
-						attempt.providerKey.id,
+						failedTrackedKeyId,
 						0,
 						undefined,
 						upstreamModel,
@@ -969,9 +998,11 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 						upstreamModel,
 					);
 				}
-				if (attempt.providerKey?.id) {
+				const failedTrackedKeyId =
+					attempt.providerKey?.id ?? attempt.managedKey?.id;
+				if (failedTrackedKeyId) {
 					reportTrackedKeyError(
-						attempt.providerKey.id,
+						failedTrackedKeyId,
 						status,
 						upstreamText,
 						upstreamModel,
@@ -1100,8 +1131,10 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 					upstreamModel,
 				);
 			}
-			if (attempt.providerKey?.id) {
-				reportTrackedKeySuccess(attempt.providerKey.id, upstreamModel);
+			const trackedKeyHealthId =
+				attempt.providerKey?.id ?? attempt.managedKey?.id;
+			if (trackedKeyHealthId) {
+				reportTrackedKeySuccess(trackedKeyHealthId, upstreamModel);
 			}
 
 			// Translate response from DeepInfra → Cohere format

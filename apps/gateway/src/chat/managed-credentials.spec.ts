@@ -536,5 +536,45 @@ describe("managed provider credentials", () => {
 
 			await expectCreditsLog();
 		});
+
+		test("rerank served by a managed credential bills as credits", async () => {
+			await seedApiKey();
+			await seedManagedCredential({
+				id: "managed-deepinfra-rerank",
+				provider: "deepinfra",
+				token: "sk-managed-rerank",
+			});
+
+			const previousEnvKey = process.env.LLM_DEEPINFRA_API_KEY;
+			delete process.env.LLM_DEEPINFRA_API_KEY;
+			const captured = captureUpstream({
+				scores: [0.9, 0.1],
+				input_tokens: 5,
+			});
+
+			try {
+				const res = await app.request("/v1/rerank", {
+					method: "POST",
+					headers: {
+						Authorization: "Bearer real-token",
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify({
+						model: "deepinfra/qwen3-reranker-8b",
+						query: "what is a gateway",
+						documents: ["a gateway routes requests", "a cat sleeps"],
+					}),
+				});
+				expect(res.status).toBe(200);
+			} finally {
+				if (previousEnvKey !== undefined) {
+					process.env.LLM_DEEPINFRA_API_KEY = previousEnvKey;
+				}
+			}
+
+			expect(captured).toHaveLength(1);
+			expect(captured[0].authorization).toBe("Bearer sk-managed-rerank");
+			await expectCreditsLog();
+		});
 	});
 });
