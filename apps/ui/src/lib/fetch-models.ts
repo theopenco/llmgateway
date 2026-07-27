@@ -42,27 +42,6 @@ export const fetchModelDiscounts = cache(
 	},
 );
 
-export const fetchProviderDiscounts = cache(
-	async (providerId: string): Promise<DiscountData[]> => {
-		const config = getConfig();
-		try {
-			const response = await fetch(
-				`${config.apiBackendUrl}/public/discounts/provider/${encodeURIComponent(providerId)}`,
-				{ next: { revalidate: 60 } },
-			);
-			if (!response.ok) {
-				console.error("Failed to fetch discounts:", response.statusText);
-				return [];
-			}
-			const data = await response.json();
-			return data.discounts ?? [];
-		} catch (error) {
-			console.error("Error fetching discounts:", error);
-			return [];
-		}
-	},
-);
-
 export const fetchProviders = cache(async (): Promise<ApiProvider[]> => {
 	const config = getConfig();
 	return await fetchProvidersFromApi(config.apiBackendUrl);
