@@ -670,7 +670,8 @@ export const modelSurveyResponse = pgTable(
 		requestCount: integer().notNull(),
 		devPlanTier: text({ enum: MODEL_SURVEY_TIERS }).notNull(),
 		// Tier of the free Reset Pass granted for this response. Null when no
-		// pass was granted (only the org's first response each year rewards).
+		// pass was granted (only the org's first response of each quarterly
+		// wave rewards; the pass stacks on any passes already held).
 		rewardTier: text({ enum: MODEL_SURVEY_TIERS }),
 	},
 	(table) => [
