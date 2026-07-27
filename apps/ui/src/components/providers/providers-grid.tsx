@@ -31,6 +31,10 @@ import {
 	SelectValue,
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
+import {
+	gateProviderStats,
+	type ProviderWindowStats,
+} from "@/lib/provider-stats";
 
 import {
 	countryCodeToFlag,
@@ -201,23 +205,18 @@ export function ProvidersGrid({
 	);
 
 	const statsByProvider = useMemo(() => {
-		const map = new Map<
-			string,
-			{
-				uptime: number | null;
-				avgTimeToFirstToken: number | null;
-				throughput: number | null;
-				logsCount: number;
-			}
-		>();
+		const map = new Map<string, ProviderWindowStats>();
 		if (statsData?.providers) {
 			for (const row of statsData.providers) {
-				map.set(row.providerId, {
-					uptime: row.uptime,
-					avgTimeToFirstToken: row.avgTimeToFirstToken,
-					throughput: row.throughput,
-					logsCount: row.logsCount,
-				});
+				map.set(
+					row.providerId,
+					gateProviderStats({
+						logsCount: row.logsCount,
+						uptime: row.uptime,
+						avgTimeToFirstToken: row.avgTimeToFirstToken,
+						throughput: row.throughput,
+					}),
+				);
 			}
 		}
 		return map;
