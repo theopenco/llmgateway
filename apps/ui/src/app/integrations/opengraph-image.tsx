@@ -111,214 +111,209 @@ const VSCodeIcon = () => (
 
 export default async function IntegrationsOgImage() {
 	return new ImageResponse(
-		(
+		<div
+			style={{
+				width: "100%",
+				height: "100%",
+				display: "flex",
+				flexDirection: "column",
+				justifyContent: "space-between",
+				alignItems: "stretch",
+				background: "#000000",
+				color: "white",
+				fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+				padding: 60,
+				boxSizing: "border-box",
+			}}
+		>
+			{/* Header with logo */}
 			<div
 				style={{
-					width: "100%",
-					height: "100%",
 					display: "flex",
-					flexDirection: "column",
-					justifyContent: "space-between",
-					alignItems: "stretch",
-					background: "#000000",
-					color: "white",
-					fontFamily:
-						"system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
-					padding: 60,
-					boxSizing: "border-box",
+					flexDirection: "row",
+					alignItems: "center",
+					gap: 16,
 				}}
 			>
-				{/* Header with logo */}
+				<div
+					style={{
+						width: 48,
+						height: 48,
+						display: "flex",
+						alignItems: "center",
+						justifyContent: "center",
+						color: "#ffffff",
+					}}
+				>
+					<Logo style={{ width: 48, height: 48 }} />
+				</div>
 				<div
 					style={{
 						display: "flex",
 						flexDirection: "row",
 						alignItems: "center",
-						gap: 16,
+						gap: 8,
+						fontSize: 24,
+						color: "#9CA3AF",
 					}}
 				>
-					<div
-						style={{
-							width: 48,
-							height: 48,
-							display: "flex",
-							alignItems: "center",
-							justifyContent: "center",
-							color: "#ffffff",
-						}}
-					>
-						<Logo style={{ width: 48, height: 48 }} />
-					</div>
-					<div
-						style={{
-							display: "flex",
-							flexDirection: "row",
-							alignItems: "center",
-							gap: 8,
-							fontSize: 24,
-							color: "#9CA3AF",
-						}}
-					>
-						<span style={{ color: "#ffffff", fontWeight: 600 }}>
-							LLM Gateway
-						</span>
-						<span style={{ opacity: 0.6 }}>•</span>
-						<span>Integrations</span>
-					</div>
+					<span style={{ color: "#ffffff", fontWeight: 600 }}>LLM Gateway</span>
+					<span style={{ opacity: 0.6 }}>•</span>
+					<span>Integrations</span>
 				</div>
+			</div>
 
-				{/* Main content */}
+			{/* Main content */}
+			<div
+				style={{
+					display: "flex",
+					flexDirection: "column",
+					alignItems: "center",
+					justifyContent: "center",
+					flex: 1,
+					gap: 48,
+				}}
+			>
 				<div
 					style={{
 						display: "flex",
 						flexDirection: "column",
 						alignItems: "center",
-						justifyContent: "center",
-						flex: 1,
-						gap: 48,
+						gap: 16,
 					}}
 				>
-					<div
+					<h1
 						style={{
-							display: "flex",
-							flexDirection: "column",
-							alignItems: "center",
-							gap: 16,
+							fontSize: 72,
+							fontWeight: 700,
+							margin: 0,
+							letterSpacing: "-0.02em",
 						}}
 					>
-						<h1
-							style={{
-								fontSize: 72,
-								fontWeight: 700,
-								margin: 0,
-								letterSpacing: "-0.02em",
-							}}
-						>
-							Integrations
-						</h1>
-						<p
-							style={{
-								fontSize: 28,
-								color: "#9CA3AF",
-								margin: 0,
-								textAlign: "center",
-							}}
-						>
-							Connect with your favorite AI tools
-						</p>
-					</div>
-
-					{/* Integration icons */}
-					<div
+						Integrations
+					</h1>
+					<p
 						style={{
-							display: "flex",
-							flexDirection: "row",
-							alignItems: "center",
-							justifyContent: "center",
-							gap: 32,
+							fontSize: 28,
+							color: "#9CA3AF",
+							margin: 0,
+							textAlign: "center",
 						}}
 					>
-						<div
-							style={{
-								width: 88,
-								height: 88,
-								borderRadius: 16,
-								backgroundColor: "#1a1a1a",
-								border: "1px solid rgba(255,255,255,0.1)",
-								display: "flex",
-								alignItems: "center",
-								justifyContent: "center",
-							}}
-						>
-							<AnthropicIcon />
-						</div>
-						<div
-							style={{
-								width: 88,
-								height: 88,
-								borderRadius: 16,
-								backgroundColor: "#1a1a1a",
-								border: "1px solid rgba(255,255,255,0.1)",
-								display: "flex",
-								alignItems: "center",
-								justifyContent: "center",
-							}}
-						>
-							<CursorIcon />
-						</div>
-						<div
-							style={{
-								width: 88,
-								height: 88,
-								borderRadius: 16,
-								backgroundColor: "#1a1a1a",
-								border: "1px solid rgba(255,255,255,0.1)",
-								display: "flex",
-								alignItems: "center",
-								justifyContent: "center",
-							}}
-						>
-							<ClineIcon />
-						</div>
-						<div
-							style={{
-								width: 88,
-								height: 88,
-								borderRadius: 16,
-								backgroundColor: "#1a1a1a",
-								border: "1px solid rgba(255,255,255,0.1)",
-								display: "flex",
-								alignItems: "center",
-								justifyContent: "center",
-							}}
-						>
-							<N8nIcon />
-						</div>
-						<div
-							style={{
-								width: 88,
-								height: 88,
-								borderRadius: 16,
-								backgroundColor: "#1a1a1a",
-								border: "1px solid rgba(255,255,255,0.1)",
-								display: "flex",
-								alignItems: "center",
-								justifyContent: "center",
-							}}
-						>
-							<OpenCodeIcon />
-						</div>
-						<div
-							style={{
-								width: 88,
-								height: 88,
-								borderRadius: 16,
-								backgroundColor: "#1a1a1a",
-								border: "1px solid rgba(255,255,255,0.1)",
-								display: "flex",
-								alignItems: "center",
-								justifyContent: "center",
-							}}
-						>
-							<VSCodeIcon />
-						</div>
-					</div>
+						Connect with your favorite AI tools
+					</p>
 				</div>
 
-				{/* Footer */}
+				{/* Integration icons */}
 				<div
 					style={{
 						display: "flex",
 						flexDirection: "row",
-						justifyContent: "flex-end",
-						fontSize: 20,
-						color: "#9CA3AF",
+						alignItems: "center",
+						justifyContent: "center",
+						gap: 32,
 					}}
 				>
-					<span>llmgateway.io</span>
+					<div
+						style={{
+							width: 88,
+							height: 88,
+							borderRadius: 16,
+							backgroundColor: "#1a1a1a",
+							border: "1px solid rgba(255,255,255,0.1)",
+							display: "flex",
+							alignItems: "center",
+							justifyContent: "center",
+						}}
+					>
+						<AnthropicIcon />
+					</div>
+					<div
+						style={{
+							width: 88,
+							height: 88,
+							borderRadius: 16,
+							backgroundColor: "#1a1a1a",
+							border: "1px solid rgba(255,255,255,0.1)",
+							display: "flex",
+							alignItems: "center",
+							justifyContent: "center",
+						}}
+					>
+						<CursorIcon />
+					</div>
+					<div
+						style={{
+							width: 88,
+							height: 88,
+							borderRadius: 16,
+							backgroundColor: "#1a1a1a",
+							border: "1px solid rgba(255,255,255,0.1)",
+							display: "flex",
+							alignItems: "center",
+							justifyContent: "center",
+						}}
+					>
+						<ClineIcon />
+					</div>
+					<div
+						style={{
+							width: 88,
+							height: 88,
+							borderRadius: 16,
+							backgroundColor: "#1a1a1a",
+							border: "1px solid rgba(255,255,255,0.1)",
+							display: "flex",
+							alignItems: "center",
+							justifyContent: "center",
+						}}
+					>
+						<N8nIcon />
+					</div>
+					<div
+						style={{
+							width: 88,
+							height: 88,
+							borderRadius: 16,
+							backgroundColor: "#1a1a1a",
+							border: "1px solid rgba(255,255,255,0.1)",
+							display: "flex",
+							alignItems: "center",
+							justifyContent: "center",
+						}}
+					>
+						<OpenCodeIcon />
+					</div>
+					<div
+						style={{
+							width: 88,
+							height: 88,
+							borderRadius: 16,
+							backgroundColor: "#1a1a1a",
+							border: "1px solid rgba(255,255,255,0.1)",
+							display: "flex",
+							alignItems: "center",
+							justifyContent: "center",
+						}}
+					>
+						<VSCodeIcon />
+					</div>
 				</div>
 			</div>
-		),
+
+			{/* Footer */}
+			<div
+				style={{
+					display: "flex",
+					flexDirection: "row",
+					justifyContent: "flex-end",
+					fontSize: 20,
+					color: "#9CA3AF",
+				}}
+			>
+				<span>llmgateway.io</span>
+			</div>
+		</div>,
 		size,
 	);
 }

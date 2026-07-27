@@ -117,6 +117,13 @@ E2E tests are organized for optimal performance:
   - `apps/gateway/src/api-individual.e2e.ts` - Contains individual test cases that need isolation
 - **Concurrent mode**: The main test suite uses `{ concurrent: true }` to enable parallel execution of `.each()` tests
 
+#### Gateway test harness resets shared state per test
+
+The gateway integration specs use `createGatewayApiTestHarness()` (`apps/gateway/src/test-utils/gateway-api-test-harness.ts`), whose `beforeEach` **deletes and re-seeds all test data before every test** — including the shared organization, which is always re-seeded with `retentionLevel: "retain"`, `plan: "pro"`, and `credits: "100.00"`. Because of this:
+
+- A test may freely mutate shared org/project state (`retentionLevel`, `credits`, `plan`, project `mode`, etc.) **without restoring it afterward** — the next test's `beforeEach` re-seed guarantees isolation. Do not add manual restore/cleanup for these mutations; it is redundant and inconsistent with the rest of the suite.
+- A test that depends on a specific value should either rely on the documented seed default (e.g. `retentionLevel: "retain"`) or set it explicitly at the top of the test — never on a value left behind by a previous test.
+
 ### Database Operations
 
 NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.
@@ -208,6 +215,7 @@ When creating a new package in `packages/`, include these config files. Copy the
 - Use conventional commit message format and limit the commit message title to max 50 characters
 - Do not --amend commits after pushing to remote
 - Never force push on main/default branch; force pushing is only acceptable on feature branches
+- When checking out an existing PR or remote branch, always set its upstream (`git checkout -B <branch> FETCH_HEAD && git branch --set-upstream-to=origin/<branch>`, or `gh pr checkout <n>`) so plain `git pull --rebase` and `git push` work afterwards
 - When resolving conflicts involving `pnpm-lock.yaml`, just run `pnpm install` to automatically resolve them
 - When writing pull request titles, use the conventional commit message format and limit to max 50 characters
 - Always open pull requests as normal ready-for-review PRs, not draft PRs, unless the user explicitly asks for a draft PR

@@ -654,8 +654,7 @@ function createMcpServer(apiKey: string): McpServer {
 					: undefined;
 
 				let parsedFilename:
-					| { baseName: string; fileExt: string | undefined }
-					| undefined;
+					{ baseName: string; fileExt: string | undefined } | undefined;
 				if (resolvedUploadDir && input.filename) {
 					const rawName = input.filename;
 					if (

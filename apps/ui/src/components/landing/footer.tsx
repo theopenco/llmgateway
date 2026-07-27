@@ -111,6 +111,24 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
+										href="/products/ai-gateway"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										AI Gateway
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/products/observability"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Observability
+									</Link>
+								</li>
+								<li>
+									<Link
 										href="/models"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch={true}
@@ -137,14 +155,13 @@ export default function Footer() {
 									</Link>
 								</li>
 								<li>
-									<a
-										href={config.playgroundUrl}
+									<Link
+										href="/products/lounge"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
-										rel="noopener"
-										target="_blank"
+										prefetch={true}
 									>
-										Chat Playground
-									</a>
+										Lounge
+									</Link>
 								</li>
 								<li>
 									<Link
@@ -156,12 +173,13 @@ export default function Footer() {
 									</Link>
 								</li>
 								<li>
-									<a
-										href="https://devpass.llmgateway.io"
+									<Link
+										href="/products/devpass"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
 									>
 										DevPass
-									</a>
+									</Link>
 								</li>
 								<li>
 									<Link

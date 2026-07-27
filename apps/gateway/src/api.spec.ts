@@ -904,6 +904,136 @@ describe("api", () => {
 		);
 	});
 
+	test("/v1/chat/completions strips log payload when retention is disabled", async () => {
+		await db
+			.update(tables.organization)
+			.set({ retentionLevel: "none" })
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-retention-none",
+			token: "real-token-retention-none",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-retention-none",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const requestId = "retention-none-request-id";
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-retention-none",
+				"x-request-id": requestId,
+			},
+			body: JSON.stringify({
+				model: "gpt-4o-mini",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+
+		const logs = await waitForLogs(1);
+		const logRow = logs.find((log) => log.requestId === requestId);
+
+		expect(logRow).toBeTruthy();
+		// Metadata / metering is still recorded for a non-retaining org...
+		expect(logRow?.usedProvider).toBe("openai");
+		expect(logRow?.finishReason).toBe("stop");
+		expect(Number(logRow?.promptTokens)).toBeGreaterThan(0);
+		// ...but the request/response payload never reaches the database because
+		// the gateway strips it before publishing to the log queue.
+		expect(logRow?.messages).toBeNull();
+		expect(logRow?.content).toBeNull();
+		expect(logRow?.reasoningContent).toBeNull();
+	});
+
+	test("/v1/chat/completions retains log payload when retention is enabled", async () => {
+		// The seeded org defaults to retentionLevel: "retain".
+		await db.insert(tables.apiKey).values({
+			id: "token-id-retention-retain",
+			token: "real-token-retention-retain",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-retention-retain",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const requestId = "retention-retain-request-id";
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-retention-retain",
+				"x-request-id": requestId,
+			},
+			body: JSON.stringify({
+				model: "gpt-4o-mini",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+
+		const logs = await waitForLogs(1);
+		const logRow = logs.find((log) => log.requestId === requestId);
+
+		expect(logRow).toBeTruthy();
+		expect(logRow?.messages).toEqual([{ role: "user", content: "Hello!" }]);
+		expect(typeof logRow?.content).toBe("string");
+		expect((logRow?.content ?? "").length).toBeGreaterThan(0);
+	});
+
+	test("/v1/responses is rejected outright when retention is disabled", async () => {
+		// The Responses API stores conversation state, so it is gated to
+		// retaining orgs — a non-retaining org is rejected before any request or
+		// response payload can be processed or logged.
+		await db
+			.update(tables.organization)
+			.set({ retentionLevel: "none" })
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-responses-retention-none",
+			token: "real-token-responses-retention-none",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/responses", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-responses-retention-none",
+			},
+			body: JSON.stringify({
+				model: "gpt-4o-mini",
+				input: "secret retention payload",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.error.code).toBe("data_retention_required");
+	});
+
 	test("/v1/chat/completions rejects Vertex service tiers outside the global endpoint", async () => {
 		const originalVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
 		process.env.LLM_GOOGLE_VERTEX_REGION = "us-central1";
@@ -1560,6 +1690,55 @@ describe("api", () => {
 		} finally {
 			fetchSpy.mockRestore();
 		}
+	});
+
+	test("/v1/moderations does not persist payload when retention is disabled", async () => {
+		await db
+			.update(tables.organization)
+			.set({ retentionLevel: "none" })
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const requestId = "moderation-retention-none-request-id";
+		const res = await app.request("/v1/moderations", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+				"x-request-id": requestId,
+			},
+			body: JSON.stringify({
+				input: "I want to attack someone.",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+
+		const logs = await waitForLogs(1);
+		const moderationLog = logs.find((log) => log.requestId === requestId);
+
+		expect(moderationLog).toBeTruthy();
+		expect(moderationLog?.usedProvider).toBe("openai");
+		expect(moderationLog?.finishReason).toBe("stop");
+		// Payload never reaches the database for a non-retaining org.
+		expect(moderationLog?.messages).toBeNull();
+		expect(moderationLog?.content).toBeNull();
+		expect(moderationLog?.reasoningContent).toBeNull();
 	});
 
 	test("/v1/moderations e2e success", async () => {
@@ -2889,6 +3068,48 @@ describe("api", () => {
 		expect(logs).toHaveLength(1);
 	});
 
+	test("/v1/images/edits client-error log omits payload when retention is disabled", async () => {
+		await db
+			.update(tables.organization)
+			.set({ retentionLevel: "none" })
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-image-edit-retention-none",
+			token: "real-token-image-edit-retention-none",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const requestId = "image-edit-retention-none-request";
+		const oversizedImageDataUrl = `data:image/png;base64,${"A".repeat(28 * 1024 * 1024)}`;
+
+		const res = await app.request("/v1/images/edits", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-image-edit-retention-none",
+				"x-request-id": requestId,
+			},
+			body: JSON.stringify({
+				model: "gemini-3-pro-image-preview",
+				prompt: "secret retention payload",
+				images: [{ image_url: oversizedImageDataUrl }],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+
+		const log = await waitForLogByRequestId(requestId);
+		// The client-error log is still recorded...
+		expect(log.finishReason).toBe("client_error");
+		expect(log.hasError).toBe(true);
+		// ...but the prompt is never persisted for a non-retaining org.
+		expect(log.messages).toBeNull();
+		expect(log.content).toBeNull();
+	});
+
 	test("/v1/images/generations forwards X-No-Fallback to chat completions", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-image-no-fallback",
@@ -3126,12 +3347,15 @@ describe("api", () => {
 				return await originalFetch(input as RequestInfo | URL, init);
 			});
 
+		const requestId = "image-generation-content-filter-request";
+
 		try {
 			const res = await app.request("/v1/images/generations", {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
 					Authorization: "Bearer real-token-image-generation-content-filter",
+					"x-request-id": requestId,
 				},
 				body: JSON.stringify({
 					model: "llmgateway/custom",
@@ -3146,6 +3370,12 @@ describe("api", () => {
 		} finally {
 			fetchSpy.mockRestore();
 		}
+
+		// The empty-data response is only acceptable because the request is still
+		// classified as content filtered in the logs.
+		const log = await waitForLogByRequestId(requestId);
+		expect(log.finishReason).toBe("content_filter");
+		expect(log.unifiedFinishReason).toBe("content_filter");
 	});
 
 	test("/v1/images/edits returns empty data for content filter", async () => {
@@ -3165,6 +3395,7 @@ describe("api", () => {
 			baseUrl: mockServerUrl,
 		});
 
+		const requestId = "image-edits-content-filter-request";
 		const originalFetch = globalThis.fetch;
 		const fetchSpy = vi
 			.spyOn(globalThis, "fetch")
@@ -3217,6 +3448,7 @@ describe("api", () => {
 				headers: {
 					"Content-Type": "application/json",
 					Authorization: "Bearer real-token-image-edits-content-filter",
+					"x-request-id": requestId,
 				},
 				body: JSON.stringify({
 					model: "llmgateway/custom",
@@ -3237,6 +3469,12 @@ describe("api", () => {
 		} finally {
 			fetchSpy.mockRestore();
 		}
+
+		// The empty-data response is only acceptable because the request is still
+		// classified as content filtered in the logs.
+		const log = await waitForLogByRequestId(requestId);
+		expect(log.finishReason).toBe("content_filter");
+		expect(log.unifiedFinishReason).toBe("content_filter");
 	});
 
 	test("/v1/chat/completions blocks with openai content filter mode", async () => {

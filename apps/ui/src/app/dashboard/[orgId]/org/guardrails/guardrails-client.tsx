@@ -139,9 +139,7 @@ export function GuardrailsClient() {
 	const [newRule, setNewRule] = useState({
 		name: "",
 		type: "blocked_terms" as
-			| "blocked_terms"
-			| "custom_regex"
-			| "topic_restriction",
+			"blocked_terms" | "custom_regex" | "topic_restriction",
 		action: "block" as "block" | "redact" | "warn" | "allow",
 		terms: "",
 		pattern: "",

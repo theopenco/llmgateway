@@ -101,7 +101,7 @@ function dateKey(d: Date): string {
 	return `${yyyy}-${mm}-${dd}`;
 }
 
-function computeStreaks(activeDates: Set<string>): {
+export function computeStreaks(activeDates: Set<string>): {
 	currentStreak: number;
 	longestStreak: number;
 } {

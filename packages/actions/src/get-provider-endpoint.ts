@@ -209,11 +209,9 @@ export function getProviderEndpoint(
 	let regionBaseUrl: string | undefined;
 	if (region) {
 		const providerDef = providers.find((p) => p.id === provider) as
-			| ProviderDefinition
-			| undefined;
+			ProviderDefinition | undefined;
 		const endpointMap = providerDef?.regionConfig?.endpointMap as
-			| Record<string, string>
-			| undefined;
+			Record<string, string> | undefined;
 		regionBaseUrl = endpointMap?.[region];
 	}
 
@@ -380,6 +378,19 @@ export function getProviderEndpoint(
 					envBaseUrl ??
 					regionBaseUrl ??
 					"https://bedrock-runtime.us-east-1.amazonaws.com";
+				break;
+			}
+			case "aws-mantle": {
+				// Bedrock Mantle: OpenAI frontier models on AWS, Responses API only.
+				// GPT-5.6 Sol is deployed in us-east-1/us-east-2 only (Terra/Luna
+				// additionally in us-west-2), so default to us-east-1 where the
+				// whole family is available.
+				const envBaseUrl = skipEnvVars
+					? undefined
+					: getProviderEnvValue("aws-mantle", "baseUrl", configIndex);
+				const mantleRegion =
+					envValueOrDefault("aws-mantle", "region", "us-east-1") ?? "us-east-1";
+				url = envBaseUrl ?? `https://bedrock-mantle.${mantleRegion}.api.aws`;
 				break;
 			}
 			case "azure": {
@@ -608,8 +619,7 @@ export function getProviderEndpoint(
 			const awsRegionPrefix = region
 				? (
 						providers.find((p) => p.id === "aws-bedrock") as
-							| ProviderDefinition
-							| undefined
+							ProviderDefinition | undefined
 					)?.regionConfig?.modelPrefixMap?.[region]
 				: undefined;
 			// envValueOrDefault honors skipEnvVars (BYOK), so the server's
@@ -623,6 +633,10 @@ export function getProviderEndpoint(
 			const endpoint = stream ? "converse-stream" : "converse";
 			return `${url}/model/${prefix}${externalId}/${endpoint}`;
 		}
+		case "aws-mantle":
+			// Bedrock Mantle only exposes the OpenAI Responses API — Chat
+			// Completions requests are rejected upstream.
+			return appendPath(url, "/openai/v1/responses");
 		case "azure": {
 			const deploymentType =
 				providerKeyOptions?.azure_deployment_type ??

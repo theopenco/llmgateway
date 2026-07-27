@@ -17,6 +17,7 @@ import {
 	assertApiKeyWithinUsageLimits,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
+import { resolveChatApiOrigin } from "@/lib/api-origin.js";
 import {
 	findApiKeyByToken,
 	findProjectById,
@@ -379,8 +380,7 @@ function filterRegionsByAvailableKeys(
 			return true;
 		}
 		const providerDef = providers.find((p) => p.id === mapping.providerId) as
-			| ProviderDefinition
-			| undefined;
+			ProviderDefinition | undefined;
 		if (!providerDef?.regionConfig) {
 			return true;
 		}
@@ -468,8 +468,7 @@ function resolveRegionFromProviderKey(
 	key: InferSelectModel<typeof tables.providerKey>,
 ): string | undefined {
 	const providerDef = providers.find((p) => p.id === key.provider) as
-		| ProviderDefinition
-		| undefined;
+		ProviderDefinition | undefined;
 	if (!providerDef?.regionConfig) {
 		return undefined;
 	}
@@ -484,8 +483,7 @@ function resolveExplicitRegionFromProviderKey(
 	key: InferSelectModel<typeof tables.providerKey>,
 ): string | undefined {
 	const providerDef = providers.find((p) => p.id === key.provider) as
-		| ProviderDefinition
-		| undefined;
+		ProviderDefinition | undefined;
 	if (!providerDef?.regionConfig) {
 		return undefined;
 	}
@@ -506,8 +504,7 @@ function buildProviderLockedRegions(
 	const locked = new Map<string, string>();
 	for (const key of providerKeys) {
 		const providerDef = providers.find((p) => p.id === key.provider) as
-			| ProviderDefinition
-			| undefined;
+			ProviderDefinition | undefined;
 		const regionKey = providerDef?.regionConfig?.optionsKey;
 		if (regionKey && key.options) {
 			const lockedRegion = (key.options as Record<string, string | undefined>)[
@@ -1165,9 +1162,6 @@ export async function inspectImmediateStreamingProviderError(
 	};
 }
 
-// Reusable TextDecoder to avoid per-chunk allocation in the streaming hot path
-const sharedTextDecoder = new TextDecoder();
-
 export const chat = new OpenAPIHono<ServerTypes>();
 
 const completions = createRoute({
@@ -1579,6 +1573,11 @@ chat.openapi(completions, async (c) => {
 		routingPromptTokens += Math.round(JSON.stringify(tools).length / 4);
 	}
 
+	// The API surface the caller actually used: "chat-completions" unless
+	// /v1/messages, /v1/responses or /v1/images re-dispatched the request through
+	// here. Declared ahead of the log wrappers so every log path can record it.
+	const apiOrigin = resolveChatApiOrigin(c);
+
 	// Extract and validate source from x-source header with HTTP-Referer fallback
 	let source = validateSource(
 		c.req.header("x-source"),
@@ -1759,6 +1758,21 @@ chat.openapi(completions, async (c) => {
 	// chat-completions image flow.
 	validateModelOutput(modelInfo, requestedModel, ["text", "image"]);
 
+	// Realtime models and the ASR models that transcribe their input audio
+	// declare text output but are only served over the dedicated WebSocket
+	// endpoint, so the output-based gate above doesn't catch them. Reject them
+	// here with the correct endpoint pointer.
+	if (
+		modelInfo.providers.length > 0 &&
+		modelInfo.providers.every(
+			(p) => p.realtime === true || p.realtimeTranscription === true,
+		)
+	) {
+		throw new HTTPException(400, {
+			message: `Model ${requestedModel} is a realtime model and cannot be used with /v1/chat/completions. Connect to the /v1/realtime WebSocket endpoint instead.`,
+		});
+	}
+
 	// Validate that models requiring image input have at least one image in the request
 	if (
 		modelInfo.imageInputRequired &&
@@ -1817,7 +1831,12 @@ chat.openapi(completions, async (c) => {
 	// balance) so the existing credit-gating logic bills the wallet, while the
 	// log's endCustomerWalletId redirects the worker's debit to that wallet.
 	// (Shared with embeddings/moderations via apps/gateway/src/lib/end-user-session.ts.)
-	const endUserWallet = (await loadEndUserWallet(apiKey)) ?? undefined;
+	// Both lookups depend only on the api key, so they run concurrently.
+	const [endUserWalletOrNull, initialProject] = await Promise.all([
+		loadEndUserWallet(apiKey),
+		findProjectById(apiKey.projectId),
+	]);
+	const endUserWallet = endUserWalletOrNull ?? undefined;
 
 	// Test-mode end-user wallets are funded by Stripe-sandbox top-ups, so they may
 	// only spend on free models — force free-models-only auto routing for them, and
@@ -1826,7 +1845,7 @@ chat.openapi(completions, async (c) => {
 		free_models_only || endUserWallet?.mode === "test";
 
 	// Get the project to determine mode for routing decisions
-	let project = await findProjectById(apiKey.projectId);
+	let project = initialProject;
 
 	if (!project) {
 		throw new HTTPException(500, {
@@ -1983,6 +2002,13 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
+	// Organization data retention level. Captured here (right after the org is
+	// resolved) so every log path — including the early rejections below and the
+	// insertLog wrapper further down — can decide whether payload fields should
+	// be persisted. Orgs backing end-user wallets are always regular PAYG orgs,
+	// so the withWalletCredits substitution below never changes this value.
+	const retentionLevel = organization.retentionLevel ?? "none";
+
 	// Note: the end-user-wallet credits substitution (withWalletCredits) happens
 	// further below — orgs backing end-user wallets are always regular
 	// PAYG/credits orgs, never dev-plan orgs, so it cannot affect the dev-plan
@@ -2102,6 +2128,7 @@ chat.openapi(completions, async (c) => {
 						),
 						...(logIdOverride ? { id: logIdOverride } : {}),
 						responsesApiData,
+						apiOrigin,
 						content: null,
 						responseSize: 0,
 						finishReason: "client_error",
@@ -2142,7 +2169,7 @@ chat.openapi(completions, async (c) => {
 						usedServiceTier: null,
 						dataStorageCost: "0",
 					},
-					{ syncInsert: syncLogInsert },
+					{ syncInsert: syncLogInsert, retentionLevel },
 				);
 			} catch (error) {
 				logger.error("Failed to log unsupported service tier rejection", {
@@ -2445,8 +2472,8 @@ chat.openapi(completions, async (c) => {
 	// get correct x-source attribution without blocking any requests.
 	const isDevPlanSourceRestricted = Boolean(
 		organization?.kind === "devpass" &&
-			organization.devPlan !== "none" &&
-			process.env.DEVPASS_ENFORCE_SOURCE_RESTRICTION === "true",
+		organization.devPlan !== "none" &&
+		process.env.DEVPASS_ENFORCE_SOURCE_RESTRICTION === "true",
 	);
 	if (isDevPlanSourceRestricted && !isRecognizedCodingAgent(source)) {
 		throw new HTTPException(403, {
@@ -2581,6 +2608,7 @@ chat.openapi(completions, async (c) => {
 						),
 						...(logIdOverride ? { id: logIdOverride } : {}),
 						responsesApiData,
+						apiOrigin,
 						content: null,
 						responseSize: 0,
 						finishReason: "client_error",
@@ -2617,7 +2645,7 @@ chat.openapi(completions, async (c) => {
 						usedServiceTier: null,
 						dataStorageCost: "0",
 					},
-					{ syncInsert: syncLogInsert },
+					{ syncInsert: syncLogInsert, retentionLevel },
 				);
 			} catch (error) {
 				logger.error("Failed to log budget-thinking rejection", {
@@ -2641,9 +2669,6 @@ chat.openapi(completions, async (c) => {
 	let usedExternalId: string = requestedModel;
 	let usedRegion: string | undefined = requestedRegion;
 	let routingMetadata: RoutingMetadata | undefined;
-
-	// Extract retention level for data storage cost calculation
-	const retentionLevel = organization?.retentionLevel ?? "none";
 
 	// Get image size limits from environment variables or use defaults
 	const freeLimitMB = Number(process.env.IMAGE_SIZE_LIMIT_FREE_MB) || 50;
@@ -2746,8 +2771,7 @@ chat.openapi(completions, async (c) => {
 	// them, and only fails when none remain; a pinned provider with no eligible
 	// key returns a clear 400 instead of silently downgrading.
 	let serviceTierOrgKeys:
-		| InferSelectModel<typeof tables.providerKey>[]
-		| undefined;
+		InferSelectModel<typeof tables.providerKey>[] | undefined;
 	const isProviderServiceTierEligible = (providerId: string): boolean => {
 		const dbKeys = (serviceTierOrgKeys ?? []).filter(
 			(key) => key.provider === providerId,
@@ -5083,13 +5107,17 @@ chat.openapi(completions, async (c) => {
 			{
 				...logData,
 				sessionId: logData.sessionId ?? sessionId ?? null,
+				apiOrigin: logData.apiOrigin ?? apiOrigin,
 				internalContentFilter: shouldTagContentFilter
 					? true
 					: logData.internalContentFilter,
 				gatewayContentFilterResponse:
 					logData.gatewayContentFilterResponse ?? gatewayContentFilterResponse,
 			},
-			options,
+			// Default the retention level from the resolved organization so payload
+			// fields are stripped before publishing to the log queue for
+			// non-retaining orgs. A caller-supplied value still wins.
+			{ retentionLevel, ...options },
 		);
 
 	if (contentFilterBlocked) {
@@ -5290,8 +5318,7 @@ chat.openapi(completions, async (c) => {
 		// default region so it appears in logs and metadata.
 		if (!usedRegion) {
 			const providerDef = providers.find((p) => p.id === usedProvider) as
-				| { regionConfig?: { defaultRegion: string } }
-				| undefined;
+				{ regionConfig?: { defaultRegion: string } } | undefined;
 			if (providerDef?.regionConfig) {
 				usedRegion = providerDef.regionConfig.defaultRegion;
 			}
@@ -8355,6 +8382,10 @@ chat.openapi(completions, async (c) => {
 				let handledTerminalProviderEvent = false;
 				let buffer = ""; // Buffer for accumulating partial data across chunks (string for SSE)
 				let binaryBuffer = new Uint8Array(0); // Buffer for binary event streams (AWS Bedrock)
+				// Per-request decoder: decoding with { stream: true } keeps partial
+				// multibyte state between calls, so it must never be shared across
+				// concurrent streams
+				const streamTextDecoder = new TextDecoder();
 				let rawUpstreamData = ""; // Raw data received from upstream provider
 				// Raw upstream chunk that carried a finish_reason signalling an upstream
 				// failure (e.g. "error"), preserved so the log shows the actual provider
@@ -8439,7 +8470,7 @@ chat.openapi(completions, async (c) => {
 							}
 						} else {
 							// Convert the Uint8Array to a string for SSE
-							chunk = sharedTextDecoder.decode(value, { stream: true });
+							chunk = streamTextDecoder.decode(value, { stream: true });
 						}
 
 						// Log error on large chunks (1MB+) - should almost never happen
@@ -10133,8 +10164,7 @@ chat.openapi(completions, async (c) => {
 						(!streamingToolCalls || streamingToolCalls.length === 0);
 
 					let streamingCostsEarly:
-						| Awaited<ReturnType<typeof calculateCosts>>
-						| undefined;
+						Awaited<ReturnType<typeof calculateCosts>> | undefined;
 
 					if (hasUpstreamErrorFinishReason || hasEmptyResponse) {
 						const errorMessage = hasUpstreamErrorFinishReason

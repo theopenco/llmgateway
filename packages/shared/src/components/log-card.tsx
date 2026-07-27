@@ -361,9 +361,7 @@ export function LogCard({
 	const toolResults = log.toolResults as ToolCall[] | undefined;
 	const tools = log.tools as unknown[] | undefined;
 	const toolChoice = log.toolChoice as
-		| Record<string, unknown>
-		| string
-		| undefined;
+		Record<string, unknown> | string | undefined;
 	const messages = log.messages as unknown | undefined;
 	const responseFormat = log.responseFormat as { type?: string } | undefined;
 	const params = log.params as Record<string, any> | undefined;
@@ -371,8 +369,7 @@ export function LogCard({
 
 	// Extract image_config from params and compute remaining params
 	const imageConfig = params?.image_config as
-		| Record<string, string | number>
-		| undefined;
+		Record<string, string | number> | undefined;
 	const remainingParams = params
 		? Object.fromEntries(
 				Object.entries(params).filter(([key]) => key !== "image_config"),

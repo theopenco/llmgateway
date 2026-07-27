@@ -53,6 +53,10 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.user.id,
 			to: r.playgroundVideoHistory.userId,
 		}),
+		loungePointEvents: r.many.loungePointEvent({
+			from: r.user.id,
+			to: r.loungePointEvent.userId,
+		}),
 	},
 	organization: {
 		userOrganizations: r.many.userOrganization(),
@@ -597,6 +601,12 @@ export const relations = defineRelations(schema, (r) => ({
 	playgroundVideoHistory: {
 		user: r.one.user({
 			from: r.playgroundVideoHistory.userId,
+			to: r.user.id,
+		}),
+	},
+	loungePointEvent: {
+		user: r.one.user({
+			from: r.loungePointEvent.userId,
 			to: r.user.id,
 		}),
 	},

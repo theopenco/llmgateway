@@ -2,7 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowUpRight, Loader2, Plane, Stamp } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
 import { usePostHog } from "posthog-js/react";
 import { useState } from "react";
@@ -114,7 +114,10 @@ export default function ResetPassCard({
 	const queryClient = useQueryClient();
 	const { uiUrl, posthogKey } = useAppConfig();
 	const posthog = usePostHog();
-	const [justStamped, setJustStamped] = useState(false);
+	const [stampOverlay, setStampOverlay] = useState<
+		{ kind: "redeemed" } | { kind: "purchased"; amount: number } | null
+	>(null);
+	const reduceMotion = useReducedMotion();
 
 	const available = includedRemaining + purchased;
 	const nothingToReset = premiumCreditsUsed <= 0;
@@ -158,8 +161,8 @@ export default function ResetPassCard({
 		"/dev-plans/reset-pass/redeem",
 		{
 			onSuccess: async () => {
-				setJustStamped(true);
-				setTimeout(() => setJustStamped(false), 2200);
+				setStampOverlay({ kind: "redeemed" });
+				setTimeout(() => setStampOverlay(null), 2200);
 				await invalidateStatus();
 			},
 			onError: () => {
@@ -173,9 +176,8 @@ export default function ResetPassCard({
 		"/dev-plans/reset-pass/purchase",
 		{
 			onSuccess: async (data) => {
-				toast.success("Reset Pass stamped into your passport", {
-					description: `$${data.amount} was charged to your saved payment method.`,
-				});
+				setStampOverlay({ kind: "purchased", amount: data.amount });
+				setTimeout(() => setStampOverlay(null), 2200);
 				await invalidateStatus();
 			},
 			onError: (error) => {
@@ -203,24 +205,50 @@ export default function ResetPassCard({
 
 	return (
 		<div className="relative mt-4 overflow-hidden rounded-lg border border-dashed border-stone-400/70 bg-stone-50/70 dark:border-stone-600/70 dark:bg-stone-900/30">
-			{/* Full-card stamp slammed on a successful redeem */}
+			{/* Full-card stamp slammed on a successful redeem or purchase */}
 			<AnimatePresence>
-				{justStamped && (
+				{stampOverlay && (
 					<motion.div
-						initial={{ opacity: 0, scale: 2.2, rotate: -18 }}
-						animate={{ opacity: 1, scale: 1, rotate: -8 }}
+						key={stampOverlay.kind}
+						initial={
+							reduceMotion
+								? { opacity: 0 }
+								: stampOverlay.kind === "redeemed"
+									? { opacity: 0, scale: 2.2, rotate: -18 }
+									: { opacity: 0, scale: 2.2, rotate: 16 }
+						}
+						animate={
+							reduceMotion
+								? { opacity: 1 }
+								: {
+										opacity: 1,
+										scale: 1,
+										rotate: stampOverlay.kind === "redeemed" ? -8 : 6,
+									}
+						}
 						exit={{ opacity: 0 }}
 						transition={{ type: "spring", duration: 0.4 }}
 						className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
 					>
-						<div className="rounded-md border-4 border-double border-emerald-700/80 px-6 py-2 text-center font-mono uppercase text-emerald-800 mix-blend-multiply dark:border-emerald-400/80 dark:text-emerald-300 dark:mix-blend-screen">
-							<div className="text-sm font-bold tracking-[0.3em]">
-								Allowance restored
+						{stampOverlay.kind === "redeemed" ? (
+							<div className="rounded-md border-4 border-double border-emerald-700/80 px-6 py-2 text-center font-mono uppercase text-emerald-800 mix-blend-multiply dark:border-emerald-400/80 dark:text-emerald-300 dark:mix-blend-screen">
+								<div className="text-sm font-bold tracking-[0.3em]">
+									Allowance restored
+								</div>
+								<div className="mt-0.5 text-[9px] tracking-[0.2em]">
+									Fresh week · full premium limit
+								</div>
 							</div>
-							<div className="mt-0.5 text-[9px] tracking-[0.2em]">
-								Fresh week · full premium limit
+						) : (
+							<div className="rounded-md border-4 border-double border-indigo-700/80 px-6 py-2 text-center font-mono uppercase text-indigo-800 mix-blend-multiply dark:border-indigo-400/80 dark:text-indigo-300 dark:mix-blend-screen">
+								<div className="text-sm font-bold tracking-[0.3em]">
+									Pass acquired
+								</div>
+								<div className="mt-0.5 text-[9px] tracking-[0.2em]">
+									${stampOverlay.amount} charged · redeem anytime
+								</div>
 							</div>
-						</div>
+						)}
 					</motion.div>
 				)}
 			</AnimatePresence>

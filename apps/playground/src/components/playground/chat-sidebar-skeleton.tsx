@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/sidebar";
 import { Wordmark } from "@/components/ui/wordmark";
 
+import { StudioNav } from "./studio-nav";
+
 import type { Organization } from "@/lib/types";
 
 interface ChatSidebarSkeletonProps {
@@ -52,6 +54,7 @@ export const ChatSidebarSkeleton = ({
 						</SidebarMenuButton>
 					</SidebarMenuItem>
 				</SidebarMenu>
+				<StudioNav />
 			</SidebarHeader>
 
 			<SidebarContent className="px-2 py-4">

@@ -121,7 +121,7 @@ export default function CodingAgents({
 
 	const since = useMemo(() => {
 		const d = new Date();
-		d.setDate(d.getDate() - 30);
+		d.setDate(d.getDate() - 7);
 		return d.toISOString();
 	}, []);
 	const until = useMemo(() => new Date().toISOString(), []);
@@ -161,7 +161,8 @@ export default function CodingAgents({
 				<div>
 					<h2 className="font-semibold">Coding Agents</h2>
 					<p className="mt-0.5 text-sm text-muted-foreground">
-						Per-tool usage, costs, and recent activity from the last 30 days.
+						Per-tool usage, costs, and recent activity from the last 7 days.
+						Open an agent to expand the time window.
 					</p>
 				</div>
 				{agentStats.length > 0 && (

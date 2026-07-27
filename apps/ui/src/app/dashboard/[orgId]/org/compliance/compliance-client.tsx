@@ -146,9 +146,7 @@ export function ComplianceClient() {
 
 	const [policy, setPolicy] = useState<ProviderCompliancePolicy>(
 		(selectedOrganization?.providerCompliancePolicy as
-			| ProviderCompliancePolicy
-			| null
-			| undefined) ?? DEFAULT_POLICY,
+			ProviderCompliancePolicy | null | undefined) ?? DEFAULT_POLICY,
 	);
 
 	// Reset local edits to the selected org's saved policy when the org changes,
@@ -159,9 +157,7 @@ export function ComplianceClient() {
 			loadedOrgId.current = selectedOrganization?.id;
 			setPolicy(
 				(selectedOrganization?.providerCompliancePolicy as
-					| ProviderCompliancePolicy
-					| null
-					| undefined) ?? DEFAULT_POLICY,
+					ProviderCompliancePolicy | null | undefined) ?? DEFAULT_POLICY,
 			);
 		}
 	}, [
