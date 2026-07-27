@@ -18,6 +18,11 @@ const providerStatRowSchema = z.object({
 	errorsCount: z.number(),
 	cachedCount: z.number(),
 	avgTimeToFirstToken: z.number().nullable(),
+	// How many requests actually contributed a TTFT sample (streamed ones only).
+	// Exposed so callers can gate the display of avgTimeToFirstToken on its own
+	// sample size rather than on logsCount, which counts non-streaming requests
+	// that never fed into the average.
+	timeToFirstTokenCount: z.number(),
 	throughput: z.number().nullable(),
 	uptime: z.number().nullable(),
 	updatedAt: z.string().nullable(),
@@ -143,6 +148,7 @@ publicProvidersStats.openapi(listRoute, async (c) => {
 			errorsCount,
 			cachedCount,
 			avgTimeToFirstToken,
+			timeToFirstTokenCount,
 			throughput,
 			uptime,
 			updatedAt: r.updatedAt ? new Date(r.updatedAt).toISOString() : null,

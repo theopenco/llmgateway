@@ -70,6 +70,9 @@ describe("public providers stats", () => {
 		const provider = await fetchProviderStats();
 		expect(provider.logsCount).toBe(10);
 		expect(provider.avgTimeToFirstToken).toBe(200);
+		// Exposed so the UI can gate the TTFT card on the sample size behind the
+		// average rather than on logsCount.
+		expect(provider.timeToFirstTokenCount).toBe(4);
 	});
 
 	test("reports no TTFT when nothing was streamed", async () => {
@@ -82,5 +85,6 @@ describe("public providers stats", () => {
 		const provider = await fetchProviderStats();
 		expect(provider.logsCount).toBe(25);
 		expect(provider.avgTimeToFirstToken).toBeNull();
+		expect(provider.timeToFirstTokenCount).toBe(0);
 	});
 });

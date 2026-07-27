@@ -30,6 +30,7 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import {
 	hasEnoughRequestsForStats,
+	hasEnoughTtftSamplesForStats,
 	MIN_REQUESTS_FOR_STATS,
 } from "@/lib/provider-stats";
 import { cn } from "@/lib/utils";
@@ -90,6 +91,9 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 	const dataKeys = Object.keys(config);
 
 	const hasEnoughData = hasEnoughRequestsForStats(provider.logsCount);
+	// TTFT only has samples from streamed requests, so it gates on its own count
+	// rather than on the request count that feeds uptime/duration/throughput.
+	const hasEnoughTtftData = hasEnoughTtftSamplesForStats(provider.ttftCount);
 
 	const errorRate =
 		provider.logsCount > 0
@@ -160,7 +164,7 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 						icon={Clock}
 						label="Avg TTFT"
 						value={
-							hasEnoughData && provider.avgTtft !== null
+							hasEnoughTtftData && provider.avgTtft !== null
 								? `${provider.avgTtft}ms`
 								: "—"
 						}
