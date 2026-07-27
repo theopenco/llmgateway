@@ -723,6 +723,15 @@ export const moonshotModels = [
 				// into `reasoning_content` and leaves `content` empty on this
 				// deployment, so JSON mode is unusable here.
 				jsonOutput: false,
+				// The endpoint intermittently stalls: roughly one in eight simple
+				// requests takes ~35s instead of the usual ~2s, and reasoning streams
+				// occasionally run past 120s without completing. together-ai serves
+				// the same model at the same price with steady ~2s latency, so keep
+				// nebius out of automatic provider selection (it stays usable when
+				// pinned explicitly) and out of the e2e suite, where the stalls blow
+				// the per-test timeout budget.
+				stability: "unstable",
+				test: "skip",
 			},
 		],
 	},
