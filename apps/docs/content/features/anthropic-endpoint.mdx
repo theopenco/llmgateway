@@ -155,3 +155,22 @@ Cache usage comes back in Anthropic's native fields: `usage.cache_creation_input
 	Control](/features/caching/provider-cache-control) for the per-model
 	thresholds and details.
 </Callout>
+
+### Web Search
+
+Anthropic's server-side web search tool works on this endpoint. Pass it as usual and the response carries `server_tool_use` and `web_search_tool_result` blocks before the text that cites them, so Anthropic SDK clients surface sources:
+
+```json
+{
+	"model": "claude-haiku-4-5",
+	"max_tokens": 400,
+	"messages": [{ "role": "user", "content": "What shipped in Node 24?" }],
+	"tools": [{ "type": "web_search_20250305", "name": "web_search" }]
+}
+```
+
+Replaying the assistant turn verbatim on the next request is supported: the `server_tool_use` and `web_search_tool_result` blocks are accepted and dropped, since the provider re-runs the search rather than reusing the previous results.
+
+### Gateway Response Cache
+
+If [gateway caching](/features/caching/gateway-caching) is enabled on the project, a byte-identical request is replayed from cache instead of being sent upstream. Because the replayed body is identical (same `id`, same `usage`), the `x-llmgateway-cache: HIT` response header is the marker to check. Send `x-no-cache: true` to bypass the cache for a single request.

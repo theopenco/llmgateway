@@ -76,6 +76,27 @@ const anthropicMessageSchema = z.object({
 					type: z.literal("redacted_thinking"),
 					data: z.string(),
 				}),
+				// Anthropic server-tool blocks (web search) echoed back in
+				// conversation history. The gateway emits them on responses, so
+				// native SDK clients replay them on the next turn; they carry no
+				// representation in the internal OpenAI-format request (the
+				// `encrypted_content` Anthropic requires is not reconstructible from
+				// url_citation annotations), so they're accepted here and stripped
+				// during transformation.
+				z.object({
+					type: z.literal("server_tool_use"),
+					id: z.string(),
+					name: z.string(),
+					input: z.record(z.unknown()).optional(),
+				}),
+				z.object({
+					type: z.literal("web_search_tool_result"),
+					tool_use_id: z.string(),
+					// Either an array of web_search_result entries or an error object.
+					content: z
+						.union([z.array(z.unknown()), z.record(z.unknown())])
+						.optional(),
+				}),
 			]),
 		),
 	]),
@@ -297,8 +318,32 @@ interface AnthropicWebSearchResult {
 	page_age: string | null;
 }
 
+// Response-only Anthropic content blocks. Clients replay the assistant turn
+// verbatim on the next request, so these arrive back here; none of them has an
+// OpenAI-format equivalent, so they're dropped on the request direction.
+const NON_FORWARDABLE_CONTENT_BLOCK_TYPES = new Set([
+	"thinking",
+	"redacted_thinking",
+	"server_tool_use",
+	"web_search_tool_result",
+]);
+
 function generateServerToolUseId(): string {
 	return `srvtoolu_${randomUUID()}`;
+}
+
+// Anthropic message ids are `msg_`-prefixed and SDK clients key on that prefix.
+// The inner /v1/chat/completions response carries an OpenAI-style
+// `chatcmpl-` id, so normalize it here — reusing the inner id keeps the
+// response correlatable with the gateway log instead of inventing a new one.
+function toAnthropicMessageId(id: unknown): string {
+	if (typeof id !== "string" || id.length === 0) {
+		return `msg_${randomUUID()}`;
+	}
+	if (id.startsWith("msg_")) {
+		return id;
+	}
+	return `msg_${id.replace(/^chatcmpl[-_]/, "")}`;
 }
 
 // Map the inner chat completions response's url_citation annotations onto
@@ -617,18 +662,33 @@ anthropic.openapi(messages, async (c) => {
 
 		// Handle regular messages and multi-modal content
 		if (Array.isArray(message.content)) {
+			// Blocks that exist only in the Anthropic response format (extended
+			// thinking, server-side web search) are dropped: the internal
+			// OpenAI-format request has no equivalent, and forwarding them verbatim
+			// would reach the provider as an unknown content type.
+			const forwardableBlocks = message.content.filter(
+				(block) => !NON_FORWARDABLE_CONTENT_BLOCK_TYPES.has(block.type),
+			);
+
+			// A turn made up entirely of dropped blocks (e.g. a `pause_turn` reply
+			// carrying only server_tool_use) would otherwise become an empty
+			// message, which providers reject.
+			if (forwardableBlocks.length === 0) {
+				continue;
+			}
+
 			// Check if this is complex multi-modal content that should be flattened
-			const hasOnlyText = message.content.every(
+			const hasOnlyText = forwardableBlocks.every(
 				(block) => block.type === "text",
 			);
-			const hasAnyCacheControl = message.content.some(
+			const hasAnyCacheControl = forwardableBlocks.some(
 				(block) => block.type === "text" && block.cache_control,
 			);
 
 			if (hasOnlyText && !hasAnyCacheControl) {
 				// For text-only content with no cache markers, flatten to a simple
 				// string to avoid content type issues.
-				const textContent = message.content
+				const textContent = forwardableBlocks
 					.filter((block) => block.type === "text")
 					.map((block) => block.text)
 					.join("");
@@ -641,31 +701,26 @@ anthropic.openapi(messages, async (c) => {
 				// For multi-modal content, or text content with cache_control markers,
 				// transform blocks while preserving cache_control so the inner
 				// completions path can forward it to Anthropic.
-				const content = message.content
-					.filter(
-						(block) =>
-							block.type !== "thinking" && block.type !== "redacted_thinking",
-					)
-					.map((block) => {
-						if (block.type === "text" && block.text) {
-							return {
-								type: "text",
-								text: block.text,
-								...(block.cache_control && {
-									cache_control: block.cache_control,
-								}),
-							};
-						}
-						if (block.type === "image" && block.source) {
-							return {
-								type: "image_url",
-								image_url: {
-									url: `data:${block.source.media_type};base64,${block.source.data}`,
-								},
-							};
-						}
-						return block;
-					});
+				const content = forwardableBlocks.map((block) => {
+					if (block.type === "text" && block.text) {
+						return {
+							type: "text",
+							text: block.text,
+							...(block.cache_control && {
+								cache_control: block.cache_control,
+							}),
+						};
+					}
+					if (block.type === "image" && block.source) {
+						return {
+							type: "image_url",
+							image_url: {
+								url: `data:${block.source.media_type};base64,${block.source.data}`,
+							},
+						};
+					}
+					return block;
+				});
 
 				openaiMessages.push({
 					role: message.role,
@@ -788,6 +843,11 @@ anthropic.openapi(messages, async (c) => {
 			...(c.req.header("x-no-fallback") !== undefined
 				? { "x-no-fallback": c.req.header("x-no-fallback")! }
 				: {}),
+			// Forward the gateway response-cache opt-out so a native Anthropic
+			// caller can request a fresh sample for a byte-identical body.
+			...(c.req.header("x-no-cache") !== undefined
+				? { "x-no-cache": c.req.header("x-no-cache")! }
+				: {}),
 			// Signal to the inner /v1/chat/completions handler that the caller used
 			// Anthropic's explicit-budget thinking API (`thinking.type: "enabled"`).
 			// On adaptive-only models the budget maps to an unsupported
@@ -858,6 +918,16 @@ anthropic.openapi(messages, async (c) => {
 			}),
 			response.status as 400 | 401 | 402 | 403 | 404 | 429 | 500,
 		);
+	}
+
+	// Surface gateway response-cache replays to native Anthropic clients. The
+	// Anthropic response body has no metadata envelope to carry the marker the
+	// inner /v1/chat/completions puts on `metadata.cached`, so forward the
+	// header instead — without it a replayed body (same id, same usage) is
+	// indistinguishable from a fresh sample.
+	const innerCacheStatus = response.headers.get("x-llmgateway-cache");
+	if (innerCacheStatus) {
+		c.header("x-llmgateway-cache", innerCacheStatus);
 	}
 
 	// Handle streaming response
@@ -1079,7 +1149,7 @@ anthropic.openapi(messages, async (c) => {
 								}
 
 								if (!messageId && chunk.id) {
-									messageId = chunk.id;
+									messageId = toAnthropicMessageId(chunk.id);
 									model = chunk.model ?? anthropicRequest.model;
 
 									// Send message_start event
@@ -1551,7 +1621,7 @@ anthropic.openapi(messages, async (c) => {
 		| undefined;
 
 	const anthropicResponse = {
-		id: openaiResponse.id,
+		id: toAnthropicMessageId(openaiResponse.id),
 		type: "message" as const,
 		role: "assistant" as const,
 		model: openaiResponse.model,
