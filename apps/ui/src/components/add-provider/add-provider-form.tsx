@@ -10,6 +10,7 @@ import {
 	Loader2,
 	LogIn,
 	MailWarning,
+	TrendingUp,
 } from "lucide-react";
 import Link from "next/link";
 import { usePostHog } from "posthog-js/react";
@@ -210,15 +211,28 @@ export function AddProviderForm({
 					</div>
 
 					{initialPayment !== "success" && (
-						<div className="mb-8 flex items-start gap-3 rounded-xl border border-border bg-muted/30 p-4">
-							<Info className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-							<p className="text-sm text-muted-foreground">
-								There is a{" "}
-								<span className="font-semibold text-foreground">$1000</span> fee
-								to list a provider, collected securely via Stripe right after
-								you submit. It is refunded in full if we don't end up listing
-								your provider.
-							</p>
+						<div className="mb-8 space-y-3">
+							<div className="flex items-start gap-3 rounded-xl border border-border bg-muted/30 p-4">
+								<Info className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+								<p className="text-sm text-muted-foreground">
+									There is a{" "}
+									<span className="font-semibold text-foreground">$2500</span>{" "}
+									fee to list a provider, collected securely via Stripe right
+									after you submit. It is refunded in full if we don't end up
+									listing your provider.
+								</p>
+							</div>
+							<div className="flex items-start gap-3 rounded-xl border border-border bg-muted/30 p-4">
+								<TrendingUp className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+								<p className="text-sm text-muted-foreground">
+									The fee buys a listing, not traffic — we can't guarantee any
+									volume. Requests are routed on the merits of the model
+									catalogue you offer: mostly price, but also latency,
+									throughput, and uptime. A provider whose models are
+									competitive on those gets picked; one that isn't may see
+									little to no traffic.
+								</p>
+							</div>
 						</div>
 					)}
 
@@ -226,7 +240,7 @@ export function AddProviderForm({
 						<div className="mb-8 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-700 dark:text-amber-400">
 							Payment was canceled, so your provider isn't queued for listing
 							yet. Your details were saved — submit the form again to retry the
-							$1000 listing fee whenever you're ready.
+							$2500 listing fee whenever you're ready.
 						</div>
 					)}
 
@@ -240,10 +254,12 @@ export function AddProviderForm({
 									Payment received!
 								</h3>
 								<p className="text-muted-foreground">
-									Thanks — we've received your $1000 listing fee and your
+									Thanks — we've received your $2500 listing fee and your
 									provider details. Our team will review your provider and
 									follow up. The fee is refunded in full if we don't end up
-									listing it.
+									listing it. It covers the listing only — traffic isn't
+									guaranteed and depends on how your model catalogue compares on
+									price, latency, throughput, and uptime.
 								</p>
 							</div>
 						) : isSuccess ? (
