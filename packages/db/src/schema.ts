@@ -2927,14 +2927,19 @@ export const modelProviderMappingHistory = pgTable(
 		// Covering index for the public provider stats aggregation
 		// (filter by minuteTimestamp range, group by providerId, sum metrics).
 		// Including the summed columns as trailing keys enables an index-only
-		// scan so Postgres never has to touch the heap for this query.
-		index("model_provider_mapping_history_provider_stats_idx").on(
+		// scan so Postgres never has to touch the heap for this query. The v2
+		// suffix is a new name rather than a rebuild in place, so production can
+		// build the replacement CONCURRENTLY before this migration runs — a
+		// rebuild under the same name would lock a table the worker writes to
+		// every minute for the duration of the scan.
+		index("model_provider_mapping_history_provider_stats_v2_idx").on(
 			table.minuteTimestamp,
 			table.providerId,
 			table.logsCount,
 			table.errorsCount,
 			table.cachedCount,
 			table.totalTimeToFirstToken,
+			table.timeToFirstTokenCount,
 			table.totalOutputTokens,
 			table.totalDuration,
 		),
@@ -3059,13 +3064,16 @@ export const modelProviderMappingHistoryHourly = pgTable(
 		),
 		// Covering index for the public provider stats aggregation
 		// (filter by hourTimestamp range, group by providerId, sum metrics).
-		index("mpm_history_hourly_provider_stats_idx").on(
+		// See model_provider_mapping_history_provider_stats_v2_idx for why this is
+		// a new name rather than a rebuild in place.
+		index("mpm_history_hourly_provider_stats_v2_idx").on(
 			table.hourTimestamp,
 			table.providerId,
 			table.logsCount,
 			table.errorsCount,
 			table.cachedCount,
 			table.totalTimeToFirstToken,
+			table.timeToFirstTokenCount,
 			table.totalOutputTokens,
 			table.totalDuration,
 		),
