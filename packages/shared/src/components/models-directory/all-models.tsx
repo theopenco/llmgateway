@@ -73,6 +73,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
+import { isMappingDeactivated } from "./deactivation";
 import { formatDeprecationDate } from "./format";
 import { ModelCard } from "./model-card";
 import { applyCategoryFilter } from "./model-category-filters";
@@ -672,6 +673,7 @@ export function AllModels({
 			discounted: searchParams.get("discounted") === "true",
 		},
 		selectedProvider: searchParams.get("provider") ?? "all",
+		showDeactivated: searchParams.get("deactivated") === "true",
 		inputPrice: {
 			min: searchParams.get("inputPriceMin") ?? "",
 			max: searchParams.get("inputPriceMax") ?? "",
@@ -701,46 +703,52 @@ export function AllModels({
 		[router, searchParams],
 	);
 
-	// Calculate total counts (excluding deprecated models)
+	// Calculate total counts (excluding deprecated and deactivated models)
 	const { totalModelCount, totalProviderCount } = useMemo(() => {
 		const now = new Date();
 
-		// Count models that have at least one non-deprecated mapping
-		const nonDeprecatedModelCount = models.filter((model) =>
-			model.mappings.some(
-				(mapping) =>
-					!mapping.deprecatedAt || new Date(mapping.deprecatedAt) > now,
-			),
+		// Count models that have at least one visible mapping
+		const visibleModelCount = models.filter((model) =>
+			model.mappings.some((mapping) => {
+				if (mapping.deprecatedAt && new Date(mapping.deprecatedAt) <= now) {
+					return false;
+				}
+				return filters.showDeactivated || !isMappingDeactivated(mapping, now);
+			}),
 		).length;
 
 		return {
-			totalModelCount: nonDeprecatedModelCount,
+			totalModelCount: visibleModelCount,
 			totalProviderCount: providers.length,
 		};
-	}, [models, providers]);
+	}, [models, providers, filters.showDeactivated]);
 
 	const modelsWithProviders: ModelWithProviders[] = useMemo(() => {
 		const now = new Date();
 
 		const baseModels = models
 			.map((model) => {
-				// Filter out deprecated provider mappings
-				const nonDeprecatedMappings = model.mappings.filter((mapping) => {
-					if (!mapping.deprecatedAt) {
-						return true;
+				// Filter out deprecated provider mappings, plus deactivated ones
+				// unless the visitor opted into seeing them
+				const visibleMappings = model.mappings.filter((mapping) => {
+					if (mapping.deprecatedAt && new Date(mapping.deprecatedAt) <= now) {
+						return false;
 					}
-					return new Date(mapping.deprecatedAt) > now;
+					if (!filters.showDeactivated && isMappingDeactivated(mapping, now)) {
+						return false;
+					}
+					return true;
 				});
 
 				return {
 					...model,
-					providerDetails: nonDeprecatedMappings.map((mapping) => ({
+					providerDetails: visibleMappings.map((mapping) => ({
 						provider: mapping,
 						providerInfo: providers.find((p) => p.id === mapping.providerId)!,
 					})),
 				};
 			})
-			// Filter out models with no non-deprecated provider mappings
+			// Filter out models with no visible provider mappings
 			.filter((model) => model.providerDetails.length > 0);
 
 		// Apply category pre-filter if provided
@@ -1308,6 +1316,7 @@ export function AllModels({
 		(filters.tier && filters.tier !== "all") ||
 		Object.values(filters.capabilities).some(Boolean) ||
 		(filters.selectedProvider && filters.selectedProvider !== "all") ||
+		filters.showDeactivated ||
 		filters.inputPrice.min ||
 		filters.inputPrice.max ||
 		filters.outputPrice.min ||
@@ -1484,6 +1493,7 @@ export function AllModels({
 				discounted: false,
 			},
 			selectedProvider: "all",
+			showDeactivated: false,
 			inputPrice: { min: "", max: "" },
 			outputPrice: { min: "", max: "" },
 			contextSize: { min: "", max: "" },
@@ -1510,6 +1520,7 @@ export function AllModels({
 			free: undefined,
 			discounted: undefined,
 			provider: undefined,
+			deactivated: undefined,
 			inputPriceMin: undefined,
 			inputPriceMax: undefined,
 			outputPriceMin: undefined,
@@ -1792,6 +1803,24 @@ export function AllModels({
 								})}
 							</SelectContent>
 						</Select>
+
+						<div className="font-medium text-sm">Status</div>
+						<Toggle
+							variant="outline"
+							size="sm"
+							pressed={filters.showDeactivated}
+							onPressedChange={(pressed) => {
+								setFilters((prev) => ({ ...prev, showDeactivated: pressed }));
+								updateUrlWithFilters({
+									deactivated: pressed ? "true" : undefined,
+									page: undefined,
+								});
+							}}
+							className="gap-1.5"
+						>
+							<AlertCircle className="h-3.5 w-3.5 text-red-500" />
+							<span className="text-xs">Show deactivated</span>
+						</Toggle>
 					</div>
 
 					<div className="space-y-3">
@@ -2111,6 +2140,7 @@ export function AllModels({
 														: 0,
 													Object.values(filters.capabilities).filter(Boolean)
 														.length,
+													filters.showDeactivated ? 1 : 0,
 													[
 														filters.inputPrice.min,
 														filters.inputPrice.max,
