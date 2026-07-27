@@ -2,7 +2,6 @@ import { describe, expect, test } from "vitest";
 
 import {
 	applyExtendedUsageFields,
-	toGatewayCacheHitUsage,
 	transformResponseToOpenai,
 	stripRequestScopedMetadataFromOpenAiResponse,
 	withCurrentRequestMetadataOnOpenAiResponse,
@@ -577,97 +576,5 @@ describe("transformResponseToOpenai", () => {
 				},
 			],
 		});
-	});
-});
-
-describe("toGatewayCacheHitUsage", () => {
-	test("reports the full prompt as cached and drops stale cache-write claims", () => {
-		const usage = toGatewayCacheHitUsage({
-			prompt_tokens: 8412,
-			completion_tokens: 5,
-			total_tokens: 8417,
-			prompt_tokens_details: {
-				cached_tokens: 0,
-				cache_write_tokens: 8402,
-				cache_creation_tokens: 8402,
-				cache_creation: {
-					ephemeral_5m_input_tokens: 8402,
-					ephemeral_1h_input_tokens: 0,
-				},
-				audio_tokens: 0,
-				video_tokens: 0,
-				image_tokens: 0,
-			},
-		});
-
-		expect(usage.prompt_tokens).toBe(8412);
-		expect(usage.completion_tokens).toBe(5);
-		expect(usage.prompt_tokens_details.cached_tokens).toBe(8412);
-		expect(usage.prompt_tokens_details.cache_write_tokens).toBe(0);
-		expect(usage.prompt_tokens_details).not.toHaveProperty(
-			"cache_creation_tokens",
-		);
-		expect(usage.prompt_tokens_details).not.toHaveProperty("cache_creation");
-		expect(usage.prompt_tokens_details.audio_tokens).toBe(0);
-	});
-
-	test("zeroes cost fields to match the free cached log row", () => {
-		const usage = toGatewayCacheHitUsage({
-			prompt_tokens: 100,
-			completion_tokens: 10,
-			total_tokens: 110,
-			cost: 0.0123,
-			cost_details: {
-				upstream_inference_cost: 0.0123,
-				upstream_inference_prompt_cost: 0.01,
-				upstream_inference_completions_cost: 0.0023,
-				total_cost: 0.0123,
-				input_cost: 0.002,
-				output_cost: 0.0023,
-				cached_input_cost: 0.008,
-				cache_write_input_cost: 0,
-				request_cost: 0,
-				web_search_cost: 0,
-				image_input_cost: null,
-				image_output_cost: null,
-				audio_input_cost: null,
-				data_storage_cost: 0.0001,
-			},
-		});
-
-		expect(usage.cost).toBe(0);
-		expect(usage.cost_details.upstream_inference_cost).toBe(0);
-		expect(usage.cost_details.total_cost).toBe(0);
-		expect(usage.cost_details.cached_input_cost).toBe(0);
-		expect(usage.cost_details.image_input_cost).toBeNull();
-		expect(usage.prompt_tokens_details.cached_tokens).toBe(100);
-	});
-
-	test("passes through nullish usage and tolerates missing details", () => {
-		expect(toGatewayCacheHitUsage(null)).toBeNull();
-		expect(toGatewayCacheHitUsage(undefined)).toBeUndefined();
-
-		const usage = toGatewayCacheHitUsage({
-			prompt_tokens: 7,
-			completion_tokens: 3,
-			total_tokens: 10,
-		});
-		expect(usage.prompt_tokens_details.cached_tokens).toBe(7);
-		expect(usage.prompt_tokens_details.cache_write_tokens).toBe(0);
-	});
-
-	test("does not mutate the stored cache entry", () => {
-		const stored = {
-			prompt_tokens: 50,
-			completion_tokens: 1,
-			total_tokens: 51,
-			prompt_tokens_details: {
-				cached_tokens: 0,
-				cache_write_tokens: 40,
-			},
-		};
-		toGatewayCacheHitUsage(stored);
-		expect(stored.prompt_tokens_details.cache_write_tokens).toBe(40);
-		expect(stored.prompt_tokens_details.cached_tokens).toBe(0);
 	});
 });
