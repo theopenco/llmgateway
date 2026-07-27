@@ -83,6 +83,7 @@ export const zaiModels = [
 			{
 				providerId: "granite",
 				externalId: "glm-5.2",
+				deactivatedAt: new Date("2026-07-27"),
 				inputPrice: "1.4e-6",
 				cachedInputPrice: "0.26e-6",
 				outputPrice: "4.4e-6",
