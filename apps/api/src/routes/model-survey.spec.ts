@@ -208,7 +208,7 @@ describe("model survey submit", () => {
 		).toBe(400);
 	});
 
-	it("records the response and grants one reset pass per org per year", async () => {
+	it("records the response and grants one reset pass per org per quarter", async () => {
 		await insertOrg();
 		await seedModelStats("survey-coder-large", "openai", 80);
 		await seedModelStats("survey-coder-small", "anthropic", 120);
@@ -323,6 +323,30 @@ describe("model survey submit", () => {
 		expect(json.response.quarter).toBe(QUARTER);
 		expect(json.rewardGranted).toBe(true);
 		expect((await getOrg()).devPlanResetPassesPro).toBe(1);
+	});
+
+	it("stacks the reward on top of already-held purchased passes", async () => {
+		await insertOrg({ devPlanResetPassesPro: 2, devPlanResetPassesLite: 1 });
+		await seedModelStats("survey-coder-large", "openai", 80);
+		await seedModelStats("survey-coder-small", "anthropic", 120);
+
+		const res = await submitRequest(validBody, token);
+		expect(res.status).toBe(200);
+		expect((await res.json()).rewardGranted).toBe(true);
+
+		const org = await getOrg();
+		expect(org.devPlanResetPassesPro).toBe(3);
+		expect(org.devPlanResetPassesLite).toBe(1);
+
+		// The second entry of the same wave records but never stacks a second
+		// reward on top, no matter how many passes the org already holds.
+		const second = await submitRequest(
+			{ ...validBody, modelId: "survey-coder-small" },
+			token,
+		);
+		expect(second.status).toBe(200);
+		expect((await second.json()).rewardGranted).toBe(false);
+		expect((await getOrg()).devPlanResetPassesPro).toBe(3);
 	});
 
 	it("grants the pass on the org's current tier", async () => {

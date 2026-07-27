@@ -54,3 +54,10 @@ console.log(response.data[0].embedding);
 	Embedding models are billed only for input tokens. There are no output tokens
 	since embeddings are fixed-size vectors.
 </Callout>
+
+## Improving retrieval quality
+
+Vector similarity is fast but approximate. For RAG, pair embeddings with
+[rerank](/features/rerank): use embeddings to pull a broad candidate set, then
+rerank those candidates to pick the few documents that actually go in the
+prompt.

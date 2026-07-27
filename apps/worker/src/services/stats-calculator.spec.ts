@@ -273,6 +273,70 @@ describe("stats-calculator", () => {
 			expect(claudeRecord?.cachedCount).toBe(0); // No cached requests for claude
 		});
 
+		it("should only count requests that recorded a time to first token", async () => {
+			const previousMinuteStart = new Date("2024-01-01T12:29:00.000Z");
+
+			const base = {
+				requestId: "req",
+				organizationId: "org-1",
+				projectId: "proj-1",
+				apiKeyId: "key-1",
+				duration: 1000,
+				requestedModel: "gpt-4",
+				requestedProvider: "openai",
+				usedModel: "openai/gpt-4",
+				usedProvider: "openai",
+				responseSize: 100,
+				hasError: false,
+				promptTokens: "80",
+				completionTokens: "100",
+				totalTokens: "180",
+				unifiedFinishReason: "completed",
+				mode: "api-keys" as const,
+				usedMode: "api-keys" as const,
+				createdAt: new Date(previousMinuteStart.getTime() + 30000),
+			};
+
+			await db.insert(log).values([
+				// Streamed: contributes both a TTFT sample and its latency.
+				{ ...base, id: "log-streamed", streamed: true, timeToFirstToken: 200 },
+				// Non-streaming requests never record a TTFT, so they must not end
+				// up in the denominator — otherwise the average is halved here.
+				{
+					...base,
+					id: "log-non-streamed",
+					streamed: false,
+					timeToFirstToken: null,
+				},
+			]);
+
+			await calculateMinutelyHistory();
+
+			// Filter on the mapping: the rollup also writes zero-stat rows for
+			// every other active mapping, so an unfiltered select would pick an
+			// arbitrary one.
+			const [mappingRecord] = await db
+				.select()
+				.from(modelProviderMappingHistory)
+				.where(
+					and(
+						eq(modelProviderMappingHistory.modelId, "gpt-4"),
+						eq(modelProviderMappingHistory.providerId, "openai"),
+					),
+				);
+			expect(mappingRecord?.logsCount).toBe(2);
+			expect(mappingRecord?.totalTimeToFirstToken).toBe(200);
+			expect(mappingRecord?.timeToFirstTokenCount).toBe(1);
+
+			const [modelRecord] = await db
+				.select()
+				.from(modelHistory)
+				.where(eq(modelHistory.modelId, "gpt-4"));
+			expect(modelRecord?.logsCount).toBe(2);
+			expect(modelRecord?.totalTimeToFirstToken).toBe(200);
+			expect(modelRecord?.timeToFirstTokenCount).toBe(1);
+		});
+
 		it("should attribute region-suffixed logs to the matching regional mappings", async () => {
 			const previousMinuteStart = new Date("2024-01-01T12:29:00.000Z");
 

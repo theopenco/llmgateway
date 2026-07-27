@@ -3,10 +3,13 @@ import { createServer, type Server } from "node:http";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { db, tables } from "@llmgateway/db";
+import { models } from "@llmgateway/models";
 
 import { app } from "./app.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
 import { waitForLogByRequestId } from "./test-utils/test-helpers.js";
+
+import type { ProviderModelMapping } from "@llmgateway/models";
 
 async function readSseText(
 	stream: ReadableStream<Uint8Array> | null,
@@ -26,6 +29,14 @@ async function readSseText(
 	}
 	return text;
 }
+
+// Any active stealth provider with an OpenAI-compatible chat endpoint works
+// here; the leaky mock below speaks that shape. Routing skips deactivated
+// mappings, so if this one is ever retired swap in another active stealth
+// mapping instead of dropping the coverage.
+const STEALTH_PROVIDER = "tundra";
+const STEALTH_MODEL_ID = "kimi-k2.6";
+const STEALTH_MODEL = `${STEALTH_PROVIDER}/${STEALTH_MODEL_ID}`;
 
 // The secret markers a stealth provider's raw error could leak: the vendor
 // name inside the error body and the host of the secret base URL.
@@ -61,7 +72,7 @@ describe("stealth provider error redaction (routes)", () => {
 								id: "cmpl-1",
 								object: "chat.completion.chunk",
 								created: 1,
-								model: "glm-5.2",
+								model: STEALTH_MODEL_ID,
 								choices: [
 									{
 										index: 0,
@@ -90,15 +101,15 @@ describe("stealth provider error redaction (routes)", () => {
 		leakyServerUrl = `http://127.0.0.1:${address.port}`;
 
 		for (const key of [
-			"LLM_GRANITE_API_KEY",
-			"LLM_GRANITE_BASE_URL",
+			"LLM_TUNDRA_API_KEY",
+			"LLM_TUNDRA_BASE_URL",
 			"LLM_GLACIER_API_KEY",
 			"LLM_GLACIER_BASE_URL",
 		]) {
 			savedEnv[key] = process.env[key];
 		}
-		process.env.LLM_GRANITE_API_KEY = "granite-env-key";
-		process.env.LLM_GRANITE_BASE_URL = leakyServerUrl;
+		process.env.LLM_TUNDRA_API_KEY = "tundra-env-key";
+		process.env.LLM_TUNDRA_BASE_URL = leakyServerUrl;
 		process.env.LLM_GLACIER_API_KEY = "glacier-env-key";
 		process.env.LLM_GLACIER_BASE_URL = leakyServerUrl;
 	});
@@ -135,6 +146,18 @@ describe("stealth provider error redaction (routes)", () => {
 		expect(payload).not.toContain("insufficient_quota");
 	}
 
+	test("the pinned stealth mapping is still routable", () => {
+		const mapping: ProviderModelMapping | undefined = models
+			.find((model) => model.id === STEALTH_MODEL_ID)
+			?.providers.find((provider) => provider.providerId === STEALTH_PROVIDER);
+		if (!mapping) {
+			throw new Error(`${STEALTH_MODEL} is missing from the model catalogue`);
+		}
+		expect(
+			Boolean(mapping.deactivatedAt && mapping.deactivatedAt <= new Date()),
+		).toBe(false);
+	});
+
 	async function expectRedactedLog(requestId: string) {
 		const log = await waitForLogByRequestId(requestId);
 		expect(log.hasError).toBe(true);
@@ -158,7 +181,7 @@ describe("stealth provider error redaction (routes)", () => {
 				"x-request-id": requestId,
 			},
 			body: JSON.stringify({
-				model: "granite/glm-5.2",
+				model: STEALTH_MODEL,
 				messages: [{ role: "user", content: "nonstream leak check" }],
 			}),
 		});
@@ -168,7 +191,7 @@ describe("stealth provider error redaction (routes)", () => {
 		expectNoLeak(text);
 		const json = JSON.parse(text);
 		expect(json.error.message).toBe(
-			"Error from provider granite: 500 Internal Server Error",
+			`Error from provider ${STEALTH_PROVIDER}: 500 Internal Server Error`,
 		);
 		expect(json.error.responseText).toBe(
 			"Upstream provider error (500 Internal Server Error)",
@@ -190,7 +213,7 @@ describe("stealth provider error redaction (routes)", () => {
 				"x-request-id": requestId,
 			},
 			body: JSON.stringify({
-				model: "granite/glm-5.2",
+				model: STEALTH_MODEL,
 				stream: true,
 				messages: [{ role: "user", content: "stream http500 leak check" }],
 			}),
@@ -199,7 +222,7 @@ describe("stealth provider error redaction (routes)", () => {
 		const text = await readSseText(res.body);
 		expectNoLeak(text);
 		expect(text).toContain(
-			"Error from provider granite: 500 Internal Server Error",
+			`Error from provider ${STEALTH_PROVIDER}: 500 Internal Server Error`,
 		);
 
 		await expectRedactedLog(requestId);
@@ -218,7 +241,7 @@ describe("stealth provider error redaction (routes)", () => {
 				"x-request-id": requestId,
 			},
 			body: JSON.stringify({
-				model: "granite/glm-5.2",
+				model: STEALTH_MODEL,
 				stream: true,
 				messages: [{ role: "user", content: "immediate error leak check" }],
 			}),
@@ -245,7 +268,7 @@ describe("stealth provider error redaction (routes)", () => {
 				"x-request-id": requestId,
 			},
 			body: JSON.stringify({
-				model: "granite/glm-5.2",
+				model: STEALTH_MODEL,
 				stream: true,
 				messages: [{ role: "user", content: "midstream error leak check" }],
 			}),
@@ -269,7 +292,7 @@ describe("stealth provider error redaction (routes)", () => {
 				"x-no-fallback": "true",
 			},
 			body: JSON.stringify({
-				model: "granite/glm-5.2",
+				model: STEALTH_MODEL,
 				input: "responses leak check",
 			}),
 		});
@@ -289,7 +312,7 @@ describe("stealth provider error redaction (routes)", () => {
 				"x-no-fallback": "true",
 			},
 			body: JSON.stringify({
-				model: "granite/glm-5.2",
+				model: STEALTH_MODEL,
 				max_tokens: 128,
 				messages: [{ role: "user", content: "messages leak check" }],
 			}),
@@ -310,7 +333,7 @@ describe("stealth provider error redaction (routes)", () => {
 				"x-no-fallback": "true",
 			},
 			body: JSON.stringify({
-				model: "granite/glm-5.2",
+				model: STEALTH_MODEL,
 				max_tokens: 128,
 				stream: true,
 				messages: [
@@ -345,9 +368,8 @@ describe("stealth provider error redaction (routes)", () => {
 	test("network errors do not leak the stealth base URL host", async () => {
 		await setupCreditsApiKey("stealth-token-network");
 
-		const originalBaseUrl = process.env.LLM_GRANITE_BASE_URL;
-		process.env.LLM_GRANITE_BASE_URL =
-			"http://secret-stealth-host.invalid:9999";
+		const originalBaseUrl = process.env.LLM_TUNDRA_BASE_URL;
+		process.env.LLM_TUNDRA_BASE_URL = "http://secret-stealth-host.invalid:9999";
 		try {
 			const requestId = "stealth-network-request";
 			const res = await app.request("/v1/chat/completions", {
@@ -359,7 +381,7 @@ describe("stealth provider error redaction (routes)", () => {
 					"x-request-id": requestId,
 				},
 				body: JSON.stringify({
-					model: "granite/glm-5.2",
+					model: STEALTH_MODEL,
 					messages: [{ role: "user", content: "network error leak check" }],
 				}),
 			});
@@ -370,7 +392,7 @@ describe("stealth provider error redaction (routes)", () => {
 			const json = JSON.parse(text);
 			expect(json.error.message).toBe("Failed to connect to provider");
 		} finally {
-			process.env.LLM_GRANITE_BASE_URL = originalBaseUrl;
+			process.env.LLM_TUNDRA_BASE_URL = originalBaseUrl;
 		}
 	});
 });

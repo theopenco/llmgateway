@@ -670,7 +670,8 @@ export const modelSurveyResponse = pgTable(
 		requestCount: integer().notNull(),
 		devPlanTier: text({ enum: MODEL_SURVEY_TIERS }).notNull(),
 		// Tier of the free Reset Pass granted for this response. Null when no
-		// pass was granted (only the org's first response each year rewards).
+		// pass was granted (only the org's first response of each quarterly
+		// wave rewards; the pass stacks on any passes already held).
 		rewardTier: text({ enum: MODEL_SURVEY_TIERS }),
 	},
 	(table) => [
@@ -1731,6 +1732,7 @@ export const API_ORIGINS = [
 	"ocr",
 	"speech",
 	"transcriptions",
+	"rerank",
 ] as const;
 
 export type ApiOrigin = (typeof API_ORIGINS)[number];
@@ -2982,6 +2984,12 @@ export const modelProviderMappingHistory = pgTable(
 		totalDuration: integer().notNull().default(0),
 		totalTimeToFirstToken: integer().notNull().default(0),
 		totalTimeToFirstReasoningToken: integer().notNull().default(0),
+		// Number of logs that actually contributed a time-to-first-token sample.
+		// Only streamed, non-cached, non-errored requests record one, so this is
+		// the correct denominator for the average — dividing the sum by the
+		// request count instead would dilute it with every non-streaming request.
+		timeToFirstTokenCount: integer().notNull().default(0),
+		timeToFirstReasoningTokenCount: integer().notNull().default(0),
 		totalCost: real().notNull().default(0),
 	},
 	(table) => [
@@ -3015,14 +3023,19 @@ export const modelProviderMappingHistory = pgTable(
 		// Covering index for the public provider stats aggregation
 		// (filter by minuteTimestamp range, group by providerId, sum metrics).
 		// Including the summed columns as trailing keys enables an index-only
-		// scan so Postgres never has to touch the heap for this query.
-		index("model_provider_mapping_history_provider_stats_idx").on(
+		// scan so Postgres never has to touch the heap for this query. The v2
+		// suffix is a new name rather than a rebuild in place, so production can
+		// build the replacement CONCURRENTLY before this migration runs — a
+		// rebuild under the same name would lock a table the worker writes to
+		// every minute for the duration of the scan.
+		index("model_provider_mapping_history_provider_stats_v2_idx").on(
 			table.minuteTimestamp,
 			table.providerId,
 			table.logsCount,
 			table.errorsCount,
 			table.cachedCount,
 			table.totalTimeToFirstToken,
+			table.timeToFirstTokenCount,
 			table.totalOutputTokens,
 			table.totalDuration,
 		),
@@ -3061,6 +3074,10 @@ export const modelHistory = pgTable(
 		totalDuration: integer().notNull().default(0),
 		totalTimeToFirstToken: integer().notNull().default(0),
 		totalTimeToFirstReasoningToken: integer().notNull().default(0),
+		// See model_provider_mapping_history: the denominator for the TTFT
+		// average, counting only requests that produced a first-token sample.
+		timeToFirstTokenCount: integer().notNull().default(0),
+		timeToFirstReasoningTokenCount: integer().notNull().default(0),
 		totalCost: real().notNull().default(0),
 	},
 	(table) => [
@@ -3115,6 +3132,10 @@ export const modelProviderMappingHistoryHourly = pgTable(
 		totalDuration: integer().notNull().default(0),
 		totalTimeToFirstToken: integer().notNull().default(0),
 		totalTimeToFirstReasoningToken: integer().notNull().default(0),
+		// See model_provider_mapping_history: the denominator for the TTFT
+		// average, counting only requests that produced a first-token sample.
+		timeToFirstTokenCount: integer().notNull().default(0),
+		timeToFirstReasoningTokenCount: integer().notNull().default(0),
 		totalCost: real().notNull().default(0),
 	},
 	(table) => [
@@ -3139,13 +3160,16 @@ export const modelProviderMappingHistoryHourly = pgTable(
 		),
 		// Covering index for the public provider stats aggregation
 		// (filter by hourTimestamp range, group by providerId, sum metrics).
-		index("mpm_history_hourly_provider_stats_idx").on(
+		// See model_provider_mapping_history_provider_stats_v2_idx for why this is
+		// a new name rather than a rebuild in place.
+		index("mpm_history_hourly_provider_stats_v2_idx").on(
 			table.hourTimestamp,
 			table.providerId,
 			table.logsCount,
 			table.errorsCount,
 			table.cachedCount,
 			table.totalTimeToFirstToken,
+			table.timeToFirstTokenCount,
 			table.totalOutputTokens,
 			table.totalDuration,
 		),
@@ -3188,6 +3212,10 @@ export const modelHistoryHourly = pgTable(
 		totalDuration: integer().notNull().default(0),
 		totalTimeToFirstToken: integer().notNull().default(0),
 		totalTimeToFirstReasoningToken: integer().notNull().default(0),
+		// See model_provider_mapping_history: the denominator for the TTFT
+		// average, counting only requests that produced a first-token sample.
+		timeToFirstTokenCount: integer().notNull().default(0),
+		timeToFirstReasoningTokenCount: integer().notNull().default(0),
 		totalCost: real().notNull().default(0),
 	},
 	(table) => [

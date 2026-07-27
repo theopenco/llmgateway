@@ -146,6 +146,12 @@ export interface ProviderDefinition {
 	// Whether requests that match the gateway content filter should avoid this provider
 	// when an alternative provider is available.
 	contentFilter?: boolean;
+	/**
+	 * Highest `temperature` this provider accepts. The OpenAI schema allows up
+	 * to 2, but some providers reject anything above their own ceiling with a
+	 * 400, so the gateway clamps the requested value instead of failing.
+	 */
+	maxTemperature?: number;
 	/** Region routing config - when set, provider supports multiple geographic endpoints */
 	regionConfig?: ProviderRegionConfig;
 	/**
@@ -254,6 +260,8 @@ export const providers: ProviderDefinition[] = [
 		},
 		streaming: true,
 		cancellation: true,
+		// the Messages API rejects temperature above 1 ("temperature: range: 0..1")
+		maxTemperature: 1,
 		color: "#8b5cf6",
 		website: "https://anthropic.com",
 		statusPageUrl: "https://status.claude.com",
@@ -499,6 +507,8 @@ export const providers: ProviderDefinition[] = [
 		},
 		streaming: true,
 		cancellation: true,
+		// same Messages API ceiling as anthropic
+		maxTemperature: 1,
 		color: "#4285f4",
 		website: "https://cloud.google.com/vertex-ai",
 		statusPageUrl: "https://status.cloud.google.com",
@@ -1019,6 +1029,9 @@ export const providers: ProviderDefinition[] = [
 		},
 		streaming: true,
 		cancellation: true,
+		// every GLM model rejects temperature above 1 with a 400
+		// ("The temperature parameter is illegal", range [0,1])
+		maxTemperature: 1,
 		color: "#22c55e",
 		website: "https://z.ai",
 		statusPageUrl: null,
@@ -1615,7 +1628,7 @@ export const providers: ProviderDefinition[] = [
 			apiTraining: false,
 			consumerTraining: false,
 			promptLogging: true,
-			retentionPeriod: null,
+			retentionPeriod: "30 days",
 		},
 	},
 	{

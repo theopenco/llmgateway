@@ -215,7 +215,8 @@ export function isTextOutput(output: string[] | null | undefined): boolean {
 	return (
 		!output?.includes("image") &&
 		!output?.includes("video") &&
-		!output?.includes("embedding")
+		!output?.includes("embedding") &&
+		!output?.includes("rerank")
 	);
 }
 

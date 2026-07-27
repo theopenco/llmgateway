@@ -4448,9 +4448,11 @@ admin.openapi(getProviderStats, async (c) => {
 				totalCost: sql<number>`COALESCE(SUM(${mph.totalCost}), 0)`.as(
 					"totalCost",
 				),
+				// Only streamed requests record a time-to-first-token, so the
+				// average divides by the sample count, not the request count.
 				avgTimeToFirstToken: sql<
 					number | null
-				>`CASE WHEN SUM(${mph.logsCount}) - SUM(${mph.cachedCount}) > 0 THEN SUM(${mph.totalTimeToFirstToken})::float / (SUM(${mph.logsCount}) - SUM(${mph.cachedCount})) ELSE NULL END`.as(
+				>`CASE WHEN SUM(${mph.timeToFirstTokenCount}) > 0 THEN SUM(${mph.totalTimeToFirstToken})::float / SUM(${mph.timeToFirstTokenCount}) ELSE NULL END`.as(
 					"avgTimeToFirstToken",
 				),
 			})
@@ -5403,6 +5405,10 @@ admin.openapi(getModelDetail, async (c) => {
 					sql<number>`COALESCE(SUM(${mph.totalTimeToFirstToken}), 0)`.as(
 						"total_ttft",
 					),
+				ttftCount:
+					sql<number>`COALESCE(SUM(${mph.timeToFirstTokenCount}), 0)`.as(
+						"ttft_count",
+					),
 			})
 			.from(mph)
 			.where(and(eq(mph.modelId, modelId), gte(mphTs, startDate)))
@@ -5422,15 +5428,17 @@ admin.openapi(getModelDetail, async (c) => {
 		statsRows.map((r) => {
 			const logsCount = Number(r.logsCount ?? 0);
 			const cachedCount = Number(r.cachedCount ?? 0);
-			const nonCached = logsCount - cachedCount;
 			const totalTtft = Number(r.totalTtft ?? 0);
+			// Only streamed requests record a time-to-first-token, so the average
+			// divides by the sample count, not the request count.
+			const ttftCount = Number(r.ttftCount ?? 0);
 			return [
 				r.providerId,
 				{
 					logsCount,
 					errorsCount: Number(r.errorsCount ?? 0),
 					cachedCount,
-					avgTtft: nonCached > 0 ? totalTtft / nonCached : null,
+					avgTtft: ttftCount > 0 ? totalTtft / ttftCount : null,
 				},
 			];
 		}),
@@ -5464,6 +5472,7 @@ admin.openapi(getModelDetail, async (c) => {
 			acc.unknownFinishCount += Number(r.unknownFinishCount ?? 0);
 			acc.cachedCount += Number(r.cachedCount ?? 0);
 			acc.totalTtft += Number(r.totalTtft ?? 0);
+			acc.ttftCount += Number(r.ttftCount ?? 0);
 			return acc;
 		},
 		{
@@ -5480,11 +5489,11 @@ admin.openapi(getModelDetail, async (c) => {
 			unknownFinishCount: 0,
 			cachedCount: 0,
 			totalTtft: 0,
+			ttftCount: 0,
 		},
 	);
 	const hasWindowData = agg.logsCount > 0;
-	const aggNonCached = agg.logsCount - agg.cachedCount;
-	const aggAvgTtft = aggNonCached > 0 ? agg.totalTtft / aggNonCached : null;
+	const aggAvgTtft = agg.ttftCount > 0 ? agg.totalTtft / agg.ttftCount : null;
 
 	return c.json({
 		model: {
@@ -6193,6 +6202,7 @@ function mapHistoryRows(
 		cachedCount: number;
 		totalDuration: number;
 		totalTimeToFirstToken: number;
+		timeToFirstTokenCount: number;
 		totalTokens: number;
 		totalCost?: number;
 	}[],
@@ -6210,8 +6220,10 @@ function mapHistoryRows(
 		const cachedCount = Number(r.cachedCount);
 		const totalDuration = Number(r.totalDuration);
 		const totalTimeToFirstToken = Number(r.totalTimeToFirstToken);
+		// Only streamed requests record a time-to-first-token, so the average
+		// divides by the sample count, not the request count.
+		const timeToFirstTokenCount = Number(r.timeToFirstTokenCount);
 		const totalTokens = Number(r.totalTokens);
-		const nonCached = logsCount - cachedCount;
 
 		let totalCost: number;
 		if (r.totalCost !== undefined && r.totalCost !== null) {
@@ -6232,7 +6244,9 @@ function mapHistoryRows(
 			upstreamErrorsCount: Number(r.upstreamErrorsCount ?? 0),
 			cachedCount,
 			avgTtft:
-				nonCached > 0 ? Math.round(totalTimeToFirstToken / nonCached) : null,
+				timeToFirstTokenCount > 0
+					? Math.round(totalTimeToFirstToken / timeToFirstTokenCount)
+					: null,
 			avgDuration: logsCount > 0 ? Math.round(totalDuration / logsCount) : null,
 			totalTokens,
 			totalCost,
@@ -6305,6 +6319,10 @@ admin.openapi(getProviderHistory, async (c) => {
 					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalTimeToFirstToken})`.as(
 						"total_ttft",
 					),
+				timeToFirstTokenCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.timeToFirstTokenCount})`.as(
+						"ttft_count",
+					),
 				totalTokens:
 					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalTokens})`.as(
 						"total_tokens",
@@ -6362,6 +6380,10 @@ admin.openapi(getProviderHistory, async (c) => {
 				totalTimeToFirstToken:
 					sql<number>`SUM(${modelProviderMappingHistory.totalTimeToFirstToken})`.as(
 						"total_ttft",
+					),
+				timeToFirstTokenCount:
+					sql<number>`SUM(${modelProviderMappingHistory.timeToFirstTokenCount})`.as(
+						"ttft_count",
 					),
 				totalTokens:
 					sql<number>`SUM(${modelProviderMappingHistory.totalTokens})`.as(
@@ -6514,6 +6536,10 @@ admin.openapi(getModelHistory, async (c) => {
 					sql<number>`SUM(${modelHistoryHourly.totalTimeToFirstToken})`.as(
 						"total_ttft",
 					),
+				timeToFirstTokenCount:
+					sql<number>`SUM(${modelHistoryHourly.timeToFirstTokenCount})`.as(
+						"ttft_count",
+					),
 				totalTokens: sql<number>`SUM(${modelHistoryHourly.totalTokens})`.as(
 					"total_tokens",
 				),
@@ -6561,6 +6587,10 @@ admin.openapi(getModelHistory, async (c) => {
 			totalTimeToFirstToken:
 				sql<number>`SUM(${modelHistory.totalTimeToFirstToken})`.as(
 					"total_ttft",
+				),
+			timeToFirstTokenCount:
+				sql<number>`SUM(${modelHistory.timeToFirstTokenCount})`.as(
+					"ttft_count",
 				),
 			totalTokens: sql<number>`SUM(${modelHistory.totalTokens})`.as(
 				"total_tokens",
@@ -6738,6 +6768,10 @@ admin.openapi(getMappingHistory, async (c) => {
 					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalTimeToFirstToken})`.as(
 						"total_ttft",
 					),
+				timeToFirstTokenCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.timeToFirstTokenCount})`.as(
+						"ttft_count",
+					),
 				totalTokens:
 					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalTokens})`.as(
 						"total_tokens",
@@ -6796,6 +6830,10 @@ admin.openapi(getMappingHistory, async (c) => {
 			totalTimeToFirstToken:
 				sql<number>`SUM(${modelProviderMappingHistory.totalTimeToFirstToken})`.as(
 					"total_ttft",
+				),
+			timeToFirstTokenCount:
+				sql<number>`SUM(${modelProviderMappingHistory.timeToFirstTokenCount})`.as(
+					"ttft_count",
 				),
 			totalTokens:
 				sql<number>`SUM(${modelProviderMappingHistory.totalTokens})`.as(
@@ -6938,6 +6976,10 @@ admin.openapi(getProviderDetail, async (c) => {
 					sql<number>`COALESCE(SUM(${mph.totalTimeToFirstToken}), 0)`.as(
 						"total_ttft",
 					),
+				ttftCount:
+					sql<number>`COALESCE(SUM(${mph.timeToFirstTokenCount}), 0)`.as(
+						"ttft_count",
+					),
 				totalCost: sql<number>`COALESCE(SUM(${mph.totalCost}), 0)`.as(
 					"total_cost",
 				),
@@ -6953,9 +6995,11 @@ admin.openapi(getProviderDetail, async (c) => {
 		const s = statsByModel.get(m.modelId);
 		const logsCount = Number(s?.logsCount ?? 0);
 		const cachedCount = Number(s?.cachedCount ?? 0);
-		const nonCached = logsCount - cachedCount;
 		const totalTtft = Number(s?.totalTtft ?? 0);
-		const avgTtft = nonCached > 0 ? totalTtft / nonCached : null;
+		// Only streamed requests record a time-to-first-token, so the average
+		// divides by the sample count, not the request count.
+		const ttftCount = Number(s?.ttftCount ?? 0);
+		const avgTtft = ttftCount > 0 ? totalTtft / ttftCount : null;
 		return {
 			modelId: m.modelId,
 			externalId: m.externalId,
@@ -6983,6 +7027,7 @@ admin.openapi(getProviderDetail, async (c) => {
 			acc.upstreamErrorsCount += Number(r.upstreamErrorsCount ?? 0);
 			acc.cachedCount += Number(r.cachedCount ?? 0);
 			acc.totalTtft += Number(r.totalTtft ?? 0);
+			acc.ttftCount += Number(r.ttftCount ?? 0);
 			return acc;
 		},
 		{
@@ -6993,11 +7038,11 @@ admin.openapi(getProviderDetail, async (c) => {
 			upstreamErrorsCount: 0,
 			cachedCount: 0,
 			totalTtft: 0,
+			ttftCount: 0,
 		},
 	);
 	const hasWindowData = agg.logsCount > 0;
-	const aggNonCached = agg.logsCount - agg.cachedCount;
-	const aggAvgTtft = aggNonCached > 0 ? agg.totalTtft / aggNonCached : null;
+	const aggAvgTtft = agg.ttftCount > 0 ? agg.totalTtft / agg.ttftCount : null;
 
 	return c.json({
 		provider: {
@@ -7196,9 +7241,11 @@ admin.openapi(getMappingDetail, async (c) => {
 			cachedCount: sql<number>`COALESCE(SUM(${mph.cachedCount}), 0)`.as(
 				"cached_count",
 			),
+			// Only streamed requests record a time-to-first-token, so the average
+			// divides by the sample count, not the request count.
 			avgTtft: sql<
 				number | null
-			>`CASE WHEN SUM(${mph.logsCount}) - SUM(${mph.cachedCount}) > 0 THEN SUM(${mph.totalTimeToFirstToken})::float / (SUM(${mph.logsCount}) - SUM(${mph.cachedCount})) ELSE NULL END`.as(
+			>`CASE WHEN SUM(${mph.timeToFirstTokenCount}) > 0 THEN SUM(${mph.totalTimeToFirstToken})::float / SUM(${mph.timeToFirstTokenCount}) ELSE NULL END`.as(
 				"avg_ttft",
 			),
 		})

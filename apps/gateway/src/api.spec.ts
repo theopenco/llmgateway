@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
 import { db, eq, tables } from "@llmgateway/db";
@@ -535,6 +537,216 @@ describe("api", () => {
 			(block: any) => block.type === "thinking",
 		);
 		expect(thinkingIndex).toBeLessThan(textIndex);
+	});
+
+	// The gateway emits server_tool_use + web_search_tool_result blocks for
+	// native web search, so SDK clients replay them on the following turn. They
+	// have no OpenAI-format equivalent and must be dropped, not rejected and not
+	// forwarded verbatim.
+	test("/v1/messages accepts web-search blocks in conversation history", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		let capturedBody: any;
+		const originalFetch = globalThis.fetch;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+
+				if (url.includes(`${mockServerUrl}/v1/chat/completions`)) {
+					capturedBody = JSON.parse(init?.body as string);
+				}
+
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+
+		try {
+			const res = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					max_tokens: 1024,
+					messages: [
+						{ role: "user", content: "What is the latest ai release?" },
+						{
+							role: "assistant",
+							content: [
+								{
+									type: "server_tool_use",
+									id: "srvtoolu_1",
+									name: "web_search",
+									input: { query: "latest ai release" },
+								},
+								{
+									type: "web_search_tool_result",
+									tool_use_id: "srvtoolu_1",
+									content: [
+										{
+											type: "web_search_result",
+											url: "https://example.com",
+											title: "Example",
+										},
+									],
+								},
+								{ type: "text", text: "The latest release is 7.0.37." },
+							],
+						},
+						{ role: "user", content: "Thanks!" },
+					],
+				}),
+			});
+
+			// Before the fix this returned 400 with a Zod invalid_union error.
+			expect(res.status).toBe(200);
+
+			// The response-only blocks must not reach the provider.
+			const forwarded = JSON.stringify(capturedBody?.messages ?? []);
+			expect(forwarded).not.toContain("server_tool_use");
+			expect(forwarded).not.toContain("web_search_tool_result");
+			expect(forwarded).toContain("The latest release is 7.0.37.");
+		} finally {
+			fetchSpy.mockRestore();
+		}
+	});
+
+	// The Anthropic response body has no metadata envelope, so the header is the
+	// only way a native client can tell a response-cache replay (identical id,
+	// identical usage) from a fresh sample.
+	test("/v1/messages marks gateway response-cache replays", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		await db
+			.update(tables.project)
+			.set({ cachingEnabled: true })
+			.where(eq(tables.project.id, "project-id"));
+
+		const body = JSON.stringify({
+			model: "llmgateway/custom",
+			max_tokens: 1024,
+			messages: [{ role: "user", content: `Cache me! ${randomUUID()}` }],
+		});
+
+		const makeRequest = (headers: Record<string, string> = {}) =>
+			app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+					...headers,
+				},
+				body,
+			});
+
+		// setCache is a no-op under NODE_ENV=test, so briefly flip it to prime the
+		// cache the way production would.
+		const originalNodeEnv = process.env.NODE_ENV;
+		try {
+			process.env.NODE_ENV = "development";
+			const firstRes = await makeRequest();
+			expect(firstRes.status).toBe(200);
+			expect(firstRes.headers.get("x-llmgateway-cache")).toBeNull();
+		} finally {
+			process.env.NODE_ENV = originalNodeEnv;
+		}
+
+		const secondRes = await makeRequest();
+		expect(secondRes.status).toBe(200);
+		expect(secondRes.headers.get("x-llmgateway-cache")).toBe("HIT");
+
+		// ...and the opt-out reaches the inner completions endpoint.
+		const bypassRes = await makeRequest({ "x-no-cache": "true" });
+		expect(bypassRes.status).toBe(200);
+		expect(bypassRes.headers.get("x-llmgateway-cache")).toBeNull();
+	});
+
+	// Anthropic SDK clients key on the `msg_` id prefix; the inner
+	// /v1/chat/completions response carries an OpenAI-style `chatcmpl-` id.
+	test("/v1/messages returns an Anthropic msg_ id", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const makeRequest = (stream: boolean) =>
+			app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					max_tokens: 1024,
+					stream,
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+		const res = await makeRequest(false);
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.id).toMatch(/^msg_/);
+
+		const streamRes = await makeRequest(true);
+		expect(streamRes.status).toBe(200);
+		const events = (await streamRes.text())
+			.split("\n")
+			.filter((line) => line.startsWith("data: "))
+			.map((line) => line.slice(6).trim())
+			.filter((data) => data && data !== "[DONE]")
+			.map((data) => JSON.parse(data));
+
+		const messageStart = events.find((e) => e.type === "message_start");
+		expect(messageStart).toBeTruthy();
+		expect(messageStart.message.id).toMatch(/^msg_/);
 	});
 
 	test("/v1/messages surfaces reasoning as thinking_delta events (streaming)", async () => {
@@ -4528,17 +4740,20 @@ describe("api", () => {
 			.set({ cachingEnabled: true })
 			.where(eq(tables.project.id, "project-id"));
 
+		// The primed entry outlives the test (cacheDurationSeconds defaults to
+		// 60), so vary the prompt per run or a re-run starts on a hit.
 		const body = JSON.stringify({
 			model: "openai/gpt-4o-mini",
-			messages: [{ role: "user", content: "Cache me!" }],
+			messages: [{ role: "user", content: `Cache me! ${randomUUID()}` }],
 		});
 
-		const makeRequest = () =>
+		const makeRequest = (headers: Record<string, string> = {}) =>
 			app.request("/v1/chat/completions", {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
 					Authorization: "Bearer real-token-cache",
+					...headers,
 				},
 				body,
 			});
@@ -4555,6 +4770,10 @@ describe("api", () => {
 			process.env.NODE_ENV = originalNodeEnv;
 		}
 		expect(firstRes.status).toBe(200);
+		const firstJson = await firstRes.json();
+		expect(firstRes.headers.get("x-llmgateway-cache")).toBeNull();
+		expect(firstJson.metadata.cached).toBeUndefined();
+		expect(firstJson.usage.cost).toBeGreaterThan(0);
 
 		const afterFirst = await waitForLogs(1);
 		expect(afterFirst.length).toBe(1);
@@ -4565,6 +4784,20 @@ describe("api", () => {
 		// Second identical request: served entirely from the gateway cache.
 		const secondRes = await makeRequest();
 		expect(secondRes.status).toBe(200);
+
+		// A replay must be distinguishable from a fresh sample: same body, same
+		// id, so the marker is the only signal a caller has.
+		expect(secondRes.headers.get("x-llmgateway-cache")).toBe("HIT");
+		const secondJson = await secondRes.json();
+		expect(secondJson.metadata.cached).toBe(true);
+		// ...and it must not report the original call's cost, which the caller
+		// was not charged for.
+		expect(secondJson.usage.cost).toBe(0);
+		expect(secondJson.usage.cost_details.total_cost).toBe(0);
+		expect(secondJson.usage.cost_details.input_cost).toBe(0);
+		expect(secondJson.usage.cost_details.output_cost).toBe(0);
+		// Token counts still describe the returned completion.
+		expect(secondJson.usage.prompt_tokens).toBeGreaterThan(0);
 
 		const afterSecond = await waitForLogs(2);
 		expect(afterSecond.length).toBe(2);
@@ -4581,6 +4814,95 @@ describe("api", () => {
 
 		// Token counts are still recorded for analytics.
 		expect(Number(cachedLog?.promptTokens)).toBeGreaterThan(0);
+
+		// x-no-cache bypasses the replay and goes upstream for a fresh sample.
+		const bypassRes = await makeRequest({ "x-no-cache": "true" });
+		expect(bypassRes.status).toBe(200);
+		expect(bypassRes.headers.get("x-llmgateway-cache")).toBeNull();
+		const bypassJson = await bypassRes.json();
+		expect(bypassJson.metadata.cached).toBeUndefined();
+		expect(bypassJson.usage.cost).toBeGreaterThan(0);
+
+		const afterBypass = await waitForLogs(3);
+		expect(afterBypass.filter((log) => log.cached).length).toBe(1);
+	});
+
+	test("/v1/chat/completions streaming cache hits are marked and free", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-cache-stream",
+			token: "real-token-cache-stream",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-cache-stream",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		await db
+			.update(tables.project)
+			.set({ cachingEnabled: true })
+			.where(eq(tables.project.id, "project-id"));
+
+		const body = JSON.stringify({
+			model: "openai/gpt-4o-mini",
+			stream: true,
+			messages: [{ role: "user", content: `Stream cache me! ${randomUUID()}` }],
+		});
+
+		const makeRequest = () =>
+			app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-cache-stream",
+				},
+				body,
+			});
+
+		// setStreamingCache is a no-op under NODE_ENV=test, so briefly flip it to
+		// prime the cache the way production would.
+		const findCostChunk = (chunks: any[]) =>
+			chunks.find((chunk) => chunk?.usage?.cost !== undefined);
+
+		const originalNodeEnv = process.env.NODE_ENV;
+		try {
+			process.env.NODE_ENV = "development";
+			const firstRes = await makeRequest();
+			expect(firstRes.status).toBe(200);
+			const first = await readAll(firstRes.body);
+			expect(firstRes.headers.get("x-llmgateway-cache")).toBeNull();
+			expect(findCostChunk(first.chunks).usage.cost).toBeGreaterThan(0);
+		} finally {
+			process.env.NODE_ENV = originalNodeEnv;
+		}
+		await waitForLogs(1);
+
+		const secondRes = await makeRequest();
+		expect(secondRes.status).toBe(200);
+		expect(secondRes.headers.get("x-llmgateway-cache")).toBe("HIT");
+
+		const replay = await readAll(secondRes.body);
+		const metadataChunk = replay.chunks.find(
+			(chunk: any) => chunk?.metadata !== undefined,
+		);
+		expect(metadataChunk.metadata.cached).toBe(true);
+
+		// The stored chunks carry the original call's cost; the replay must not.
+		const replayCostChunk = findCostChunk(replay.chunks);
+		expect(replayCostChunk.usage.cost).toBe(0);
+		expect(replayCostChunk.usage.cost_details.total_cost).toBe(0);
+		expect(replayCostChunk.usage.prompt_tokens).toBeGreaterThan(0);
+
+		const logs = await waitForLogs(2);
+		const cachedLog = logs.find((log) => log.cached);
+		expect(cachedLog).toBeTruthy();
+		expect(Number(cachedLog?.cost)).toBe(0);
 	});
 
 	test("/v1/chat/completions hybrid prefers provider key over regional env token", async () => {
@@ -4998,9 +5320,16 @@ describe("api", () => {
 				return await originalFetch(input as RequestInfo | URL, init);
 			});
 
+		// The primed entry outlives the test (cacheDurationSeconds defaults to
+		// 60), so vary the prompt per run or a re-run starts on a hit.
 		const body = JSON.stringify({
 			model: "anthropic/claude-opus-4-8",
-			messages: [{ role: "user", content: "Cache this anthropic response!" }],
+			messages: [
+				{
+					role: "user",
+					content: `Cache this anthropic response! ${randomUUID()}`,
+				},
+			],
 		});
 
 		const makeRequest = () =>

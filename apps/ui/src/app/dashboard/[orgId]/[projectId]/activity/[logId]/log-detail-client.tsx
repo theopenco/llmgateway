@@ -219,6 +219,7 @@ const API_ORIGIN_LABELS: Record<string, string> = {
 	ocr: "OCR",
 	speech: "Speech",
 	transcriptions: "Transcriptions",
+	rerank: "Rerank",
 };
 
 // "session-sticky" is intentionally excluded: it scores providers with the

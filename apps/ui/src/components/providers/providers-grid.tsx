@@ -31,6 +31,10 @@ import {
 	SelectValue,
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
+import {
+	gateProviderStats,
+	type ProviderWindowStats,
+} from "@/lib/provider-stats";
 
 import {
 	countryCodeToFlag,
@@ -38,10 +42,14 @@ import {
 	isProviderCompliant,
 	models as modelDefinitions,
 	providers as providerDefinitions,
+	type ModelDefinition,
 	type ProviderCompliancePolicy,
 	type ProviderId,
 } from "@llmgateway/models";
-import { providerLogoUrls } from "@llmgateway/shared/components";
+import {
+	isMappingDeactivated,
+	providerLogoUrls,
+} from "@llmgateway/shared/components";
 
 type SortKey = "fastest" | "slowest" | "popular" | "name" | "uptime";
 
@@ -59,8 +67,11 @@ const getProviderLogo = (providerId: ProviderId) => {
 
 const getModelsCountByProvider = (): Record<string, number> => {
 	const counts: Record<string, number> = {};
-	for (const model of modelDefinitions) {
+	for (const model of modelDefinitions as readonly ModelDefinition[]) {
 		for (const providerMapping of model.providers) {
+			if (isMappingDeactivated(providerMapping)) {
+				continue;
+			}
 			const providerId = providerMapping.providerId;
 			counts[providerId] = (counts[providerId] || 0) + 1;
 		}
@@ -201,23 +212,18 @@ export function ProvidersGrid({
 	);
 
 	const statsByProvider = useMemo(() => {
-		const map = new Map<
-			string,
-			{
-				uptime: number | null;
-				avgTimeToFirstToken: number | null;
-				throughput: number | null;
-				logsCount: number;
-			}
-		>();
+		const map = new Map<string, ProviderWindowStats>();
 		if (statsData?.providers) {
 			for (const row of statsData.providers) {
-				map.set(row.providerId, {
-					uptime: row.uptime,
-					avgTimeToFirstToken: row.avgTimeToFirstToken,
-					throughput: row.throughput,
-					logsCount: row.logsCount,
-				});
+				map.set(
+					row.providerId,
+					gateProviderStats({
+						logsCount: row.logsCount,
+						uptime: row.uptime,
+						avgTimeToFirstToken: row.avgTimeToFirstToken,
+						throughput: row.throughput,
+					}),
+				);
 			}
 		}
 		return map;

@@ -1277,6 +1277,8 @@ function generateSeedModelProviderMappingHistory(
 				totalDuration: logs * randomInt(200, 5000),
 				totalTimeToFirstToken: logs * randomInt(50, 500),
 				totalTimeToFirstReasoningToken: 0,
+				timeToFirstTokenCount: logs,
+				timeToFirstReasoningTokenCount: 0,
 			});
 		}
 	}
@@ -1310,6 +1312,8 @@ function generateSeedModelHistory() {
 				totalDuration: logCount * randomInt(200, 5000),
 				totalTimeToFirstToken: logCount * randomInt(50, 500),
 				totalTimeToFirstReasoningToken: 0,
+				timeToFirstTokenCount: logCount,
+				timeToFirstReasoningTokenCount: 0,
 			});
 		}
 	}
