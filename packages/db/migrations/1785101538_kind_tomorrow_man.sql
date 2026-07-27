@@ -50,8 +50,6 @@ ALTER TABLE "log" ADD COLUMN "realtime_usage" jsonb;--> statement-breakpoint
 ALTER TABLE "project_hourly_model_stats" ADD COLUMN "audio_output_cost" real DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE "project_hourly_source_stats" ADD COLUMN "audio_output_cost" real DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE "project_hourly_stats" ADD COLUMN "audio_output_cost" real DEFAULT 0 NOT NULL;--> statement-breakpoint
-CREATE UNIQUE INDEX "log_realtime_session_usage_key_unique" ON "log" ("realtime_session_id","realtime_usage_key") WHERE realtime_usage_key IS NOT NULL;--> statement-breakpoint
-CREATE INDEX "log_realtime_unsettled_organization_id_idx" ON "log" ("organization_id") WHERE realtime_session_id IS NOT NULL AND processed_at IS NULL;--> statement-breakpoint
 CREATE INDEX "playground_realtime_history_user_id_idx" ON "playground_realtime_history" ("user_id");--> statement-breakpoint
 CREATE INDEX "realtime_session_organization_id_created_at_idx" ON "realtime_session" ("organization_id","created_at");--> statement-breakpoint
 CREATE INDEX "realtime_session_project_id_created_at_idx" ON "realtime_session" ("project_id","created_at");--> statement-breakpoint

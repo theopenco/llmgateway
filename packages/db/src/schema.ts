@@ -1880,19 +1880,6 @@ export const log = pgTable(
 		index("log_processed_at_null_idx")
 			.on(table.createdAt)
 			.where(sql`processed_at IS NULL`),
-		// Idempotent realtime billing: one row per (session, usage key) even if
-		// the upstream provider redelivers a terminal usage event.
-		uniqueIndex("log_realtime_session_usage_key_unique")
-			.on(table.realtimeSessionId, table.realtimeUsageKey)
-			.where(sql`realtime_usage_key IS NOT NULL`),
-		// The realtime spend gate reads an organization's unsettled realtime
-		// spend (organization_id = ? AND realtime_session_id IS NOT NULL AND
-		// processed_at IS NULL). The partial predicate keeps the index to the
-		// unprocessed realtime backlog the worker is still draining rather than
-		// every realtime log row ever written.
-		index("log_realtime_unsettled_organization_id_idx")
-			.on(table.organizationId)
-			.where(sql`realtime_session_id IS NOT NULL AND processed_at IS NULL`),
 	],
 );
 
