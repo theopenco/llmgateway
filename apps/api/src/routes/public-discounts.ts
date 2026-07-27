@@ -64,3 +64,54 @@ publicDiscounts.openapi(getModelDiscounts, async (c) => {
 		discounts,
 	});
 });
+
+const getProviderDiscounts = createRoute({
+	method: "get",
+	path: "/provider/{providerId}",
+	request: {
+		params: z.object({
+			providerId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						discounts: z.array(discountSchema).openapi({}),
+					}),
+				},
+			},
+			description: "Active global discounts for the specified provider",
+		},
+	},
+});
+
+publicDiscounts.openapi(getProviderDiscounts, async (c) => {
+	const { providerId } = c.req.param();
+
+	const now = new Date();
+	const notExpired = or(
+		isNull(tables.discount.expiresAt),
+		gte(tables.discount.expiresAt, now),
+	);
+
+	const discounts = await db
+		.select()
+		.from(tables.discount)
+		.where(
+			and(
+				isNull(tables.discount.organizationId),
+				or(
+					isNull(tables.discount.provider),
+					eq(tables.discount.provider, providerId),
+				),
+				notExpired,
+			),
+		)
+		.orderBy(desc(tables.discount.createdAt));
+
+	return c.json({
+		discounts,
+	});
+});
