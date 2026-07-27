@@ -704,6 +704,11 @@ export const moonshotModels = [
 			{
 				providerId: "nebius",
 				externalId: "moonshotai/Kimi-K3",
+				// Named tool choice is rejected with a 400 ("Named tool choice is not
+				// supported for Kimi K3"), and "required" is silently broken: the
+				// upstream emits the call as text in `reasoning_content` and returns
+				// `finish_reason: "stop"` with no `tool_calls`.
+				supportedToolChoices: ["auto", "none"],
 				inputPrice: "3.0e-6",
 				outputPrice: "15.0e-6",
 				requestPrice: "0",
@@ -714,7 +719,10 @@ export const moonshotModels = [
 				reasoning: true,
 				vision: true,
 				tools: true,
-				jsonOutput: true,
+				// `response_format: {"type": "json_object"}` routes the whole answer
+				// into `reasoning_content` and leaves `content` empty on this
+				// deployment, so JSON mode is unusable here.
+				jsonOutput: false,
 			},
 		],
 	},
