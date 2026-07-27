@@ -3963,6 +3963,50 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				),
 			).toBe(true);
 		});
+
+		test("strips reasoning from replayed assistant turns on fireworks", async () => {
+			const requestBody = (await prepareRequestBody(
+				"fireworks",
+				"accounts/fireworks/models/kimi-k3",
+				null,
+				"kimi-k3",
+				[
+					{ role: "user", content: "My name is Ada." },
+					{
+						role: "assistant",
+						content: "Got it, Ada!",
+						reasoning: "The user told me their name.",
+					},
+					{ role: "user", content: "What is my name?" },
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false, // useResponsesApi
+			)) as any;
+
+			expect(
+				requestBody.messages.every((m: any) => m.reasoning === undefined),
+			).toBe(true);
+			expect(requestBody.messages[1].content).toBe("Got it, Ada!");
+		});
 	});
 
 	describe("azure-ai-foundry", () => {

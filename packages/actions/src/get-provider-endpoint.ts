@@ -130,6 +130,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	embercloud: "https://api.embercloud.ai",
 	deepinfra: "https://api.deepinfra.com/v1/openai",
 	gonka24: "https://api.gonka24.com",
+	fireworks: "https://api.fireworks.ai/inference",
 };
 
 export function getProviderDefaultBaseUrl(

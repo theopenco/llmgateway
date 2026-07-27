@@ -1639,6 +1639,38 @@ export const providers: ProviderDefinition[] = [
 		headquarters: null,
 		dataPolicy: null,
 	},
+	{
+		id: "fireworks",
+		name: "Fireworks AI",
+		description:
+			"Fireworks AI serves open-weight models on a fast, OpenAI-compatible inference platform.",
+		env: {
+			required: {
+				apiKey: "LLM_FIREWORKS_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_FIREWORKS_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#6720FF",
+		website: "https://fireworks.ai",
+		statusPageUrl: "https://status.fireworks.ai",
+		announcement: null,
+		termsUrl: "https://fireworks.ai/terms-of-service",
+		privacyPolicyUrl: "https://fireworks.ai/privacy-policy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: 2,
+			iso27001: true,
+			gdpr: true,
+		},
+	},
 ] as const satisfies ProviderDefinition[];
 
 export type ProviderId = (typeof providers)[number]["id"];

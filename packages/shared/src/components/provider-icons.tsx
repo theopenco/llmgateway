@@ -1299,6 +1299,19 @@ export const Gonka24Icon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 	</svg>
 );
 
+export const FireworksIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
+	props,
+) => (
+	<svg
+		xmlns="http://www.w3.org/2000/svg"
+		viewBox="0 0 638 315"
+		fill="currentColor"
+		{...props}
+	>
+		<path d="M318.563 221.755c-17.7 0-33.584-10.508-40.357-26.777L196.549 0h47.793l74.5 178.361L393.273 0h47.793L358.92 195.048c-6.808 16.199-22.657 26.707-40.357 26.707M425.111 314.933c-17.63 0-33.444-10.439-40.287-26.567-6.877-16.269-3.317-34.842 9.112-47.445L542.657 90.2803l18.572 43.8137-136.153 137.654 194.071-1.082 18.573 43.813-212.574.524-.07-.07zM0 314.408l18.5727-43.813 194.0703 1.082L76.525 133.988l18.5727-43.8132L243.819 240.816c12.428 12.568 16.024 31.21 9.111 47.444-6.842 16.164-22.727 26.567-40.287 26.567L.0698221 314.339z" />
+	</svg>
+);
+
 export const DeepInfraIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	props,
 ) => (
@@ -1552,6 +1565,7 @@ export const ProviderIcons = {
 	sakana: SakanaIcon,
 	"scx-ai": ScxIcon,
 	gonka24: Gonka24Icon,
+	fireworks: FireworksIcon,
 	runware: RunwareIcon,
 } as const;
 
@@ -1601,6 +1615,7 @@ export const providerLogoUrls: Partial<
 	sakana: ProviderIcons.sakana,
 	"scx-ai": ProviderIcons["scx-ai"],
 	gonka24: ProviderIcons.gonka24,
+	fireworks: ProviderIcons.fireworks,
 	runware: ProviderIcons.runware,
 };
 
