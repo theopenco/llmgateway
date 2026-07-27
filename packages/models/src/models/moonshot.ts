@@ -408,6 +408,21 @@ export const moonshotModels = [
 				],
 			},
 			{
+				providerId: "runware",
+				externalId: "moonshotai-kimi-k2-6",
+				inputPrice: "0.6e-6",
+				outputPrice: "3.05e-6",
+				cachedInputPrice: "0.13e-6",
+				requestPrice: "0",
+				contextSize: 262144,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
 				providerId: "canopywave",
 				externalId: "moonshotai/kimi-k2.6",
 				// canopywave's kimi-k2.6 deployment 503s on every request ("No
