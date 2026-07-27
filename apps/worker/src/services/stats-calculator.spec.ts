@@ -312,9 +312,18 @@ describe("stats-calculator", () => {
 
 			await calculateMinutelyHistory();
 
+			// Filter on the mapping: the rollup also writes zero-stat rows for
+			// every other active mapping, so an unfiltered select would pick an
+			// arbitrary one.
 			const [mappingRecord] = await db
 				.select()
-				.from(modelProviderMappingHistory);
+				.from(modelProviderMappingHistory)
+				.where(
+					and(
+						eq(modelProviderMappingHistory.modelId, "gpt-4"),
+						eq(modelProviderMappingHistory.providerId, "openai"),
+					),
+				);
 			expect(mappingRecord?.logsCount).toBe(2);
 			expect(mappingRecord?.totalTimeToFirstToken).toBe(200);
 			expect(mappingRecord?.timeToFirstTokenCount).toBe(1);
