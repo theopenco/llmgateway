@@ -1,12 +1,23 @@
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 import {
 	computeRms,
 	floatToPcm16Base64,
+	PCM_RECORDER_WORKLET_URL,
 	pcm16Base64ToFloat,
 	resampleLinear,
 	rmsToLevel,
 } from "./realtime-audio";
+
+const playgroundRoot = resolve(
+	dirname(fileURLToPath(import.meta.url)),
+	"../..",
+);
+const repoRoot = resolve(playgroundRoot, "../..");
 
 describe("resampleLinear", () => {
 	it("passes through when rates match", () => {
@@ -119,4 +130,29 @@ describe("rmsToLevel", () => {
 			previous = level;
 		}
 	});
+});
+
+// The worklet is a .js file under apps/, so the blanket `apps/**/*.js`
+// exclusions in .gitignore and .dockerignore both swallow it unless negated.
+// When the deployed image lacks it, addModule() 404s, the hook tears the call
+// down, and the browser only reports "WebSocket is closed before the connection
+// is established" — so guard the asset here rather than in production.
+describe("pcm-recorder worklet asset", () => {
+	it("is present in the playground public directory", () => {
+		const worklet = join(playgroundRoot, "public", PCM_RECORDER_WORKLET_URL);
+		expect(existsSync(worklet)).toBe(true);
+	});
+
+	it.each([".gitignore", ".dockerignore"])(
+		"survives the blanket apps/**/*.js exclusion in %s",
+		(ignoreFile) => {
+			const lines = readFileSync(join(repoRoot, ignoreFile), "utf8")
+				.split("\n")
+				.map((line) => line.trim());
+			if (!lines.includes("apps/**/*.js")) {
+				return;
+			}
+			expect(lines).toContain("!apps/playground/public/worklets/*.js");
+		},
+	);
 });

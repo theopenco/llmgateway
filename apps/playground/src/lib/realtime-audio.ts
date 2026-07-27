@@ -234,6 +234,14 @@ export interface MicrophoneCaptureHandles {
 }
 
 /**
+ * Served from apps/playground/public. Because it is a .js file under apps/,
+ * both .gitignore and .dockerignore blanket-exclude it and need an explicit
+ * negation — without one the deployed image 404s here and the failure surfaces
+ * as an opaque WebSocket close.
+ */
+export const PCM_RECORDER_WORKLET_URL = "/worklets/pcm-recorder.js";
+
+/**
  * Wire a microphone stream through the pcm-recorder AudioWorklet. The
  * worklet output goes through a zero-gain node so microphone audio is
  * processed without being played back locally. onChunk receives raw Float32
@@ -244,7 +252,7 @@ export async function startMicrophoneCapture(
 	stream: MediaStream,
 	onChunk: (samples: Float32Array) => void,
 ): Promise<MicrophoneCaptureHandles> {
-	await context.audioWorklet.addModule("/worklets/pcm-recorder.js");
+	await context.audioWorklet.addModule(PCM_RECORDER_WORKLET_URL);
 	const source = context.createMediaStreamSource(stream);
 	const worklet = new AudioWorkletNode(context, "pcm-recorder", {
 		numberOfInputs: 1,
