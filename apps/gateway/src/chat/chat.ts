@@ -189,6 +189,7 @@ import {
 	shouldApplyContentFilterToModel,
 } from "./tools/check-content-filter.js";
 import { chunkMayCompleteSseEvent } from "./tools/chunk-may-complete-sse-event.js";
+import { clampTemperature } from "./tools/clamp-temperature.js";
 import { collapseImageGenSse } from "./tools/collapse-image-gen-sse.js";
 import { convertImagesToBase64 } from "./tools/convert-images-to-base64.js";
 import { countInputImages } from "./tools/count-input-images.js";
@@ -6083,6 +6084,8 @@ chat.openapi(completions, async (c) => {
 			top_p = undefined;
 		}
 	}
+
+	temperature = clampTemperature(temperature, usedProvider);
 
 	// Check if the request can be canceled
 	let requestCanBeCanceled =
