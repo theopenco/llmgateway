@@ -28,6 +28,17 @@ export const customIcons: Record<string, IconComponent> = {
 			<path d="M12.5 12.5H22V22h-9.5z" />
 		</svg>
 	),
+	Okta: (props) => (
+		<svg
+			style={{ flex: "none", lineHeight: "1" }}
+			xmlns="http://www.w3.org/2000/svg"
+			viewBox="0 0 24 24"
+			fill="currentColor"
+			{...props}
+		>
+			<path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm0 15a5 5 0 1 1 0-10 5 5 0 0 1 0 10z" />
+		</svg>
+	),
 	N8n: (props) => (
 		<svg
 			style={{ flex: "none", lineHeight: "1" }}

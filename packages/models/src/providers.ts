@@ -134,6 +134,8 @@ export interface ProviderDefinition {
 	statusPageUrl?: string | null;
 	// Announcement text
 	announcement?: string | null;
+	// Short marketing badge shown on this provider's model cards (e.g. "Up to 4x faster")
+	modelCardBadge?: string | null;
 	// Instructions for creating an API key
 	apiKeyInstructions?: string;
 	// Learn more URL for API key creation
@@ -144,6 +146,12 @@ export interface ProviderDefinition {
 	// Whether requests that match the gateway content filter should avoid this provider
 	// when an alternative provider is available.
 	contentFilter?: boolean;
+	/**
+	 * Highest `temperature` this provider accepts. The OpenAI schema allows up
+	 * to 2, but some providers reject anything above their own ceiling with a
+	 * 400, so the gateway clamps the requested value instead of failing.
+	 */
+	maxTemperature?: number;
 	/** Region routing config - when set, provider supports multiple geographic endpoints */
 	regionConfig?: ProviderRegionConfig;
 	/**
@@ -252,6 +260,8 @@ export const providers: ProviderDefinition[] = [
 		},
 		streaming: true,
 		cancellation: true,
+		// the Messages API rejects temperature above 1 ("temperature: range: 0..1")
+		maxTemperature: 1,
 		color: "#8b5cf6",
 		website: "https://anthropic.com",
 		statusPageUrl: "https://status.claude.com",
@@ -327,6 +337,29 @@ export const providers: ProviderDefinition[] = [
 			required: {
 				apiKey: "LLM_GLACIER_API_KEY",
 				baseUrl: "LLM_GLACIER_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#4285f4",
+		website: null,
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: null,
+		privacyPolicyUrl: null,
+		headquarters: null,
+		dataPolicy: null,
+		priority: 1.2,
+	},
+	{
+		id: "iceberg",
+		name: "Iceberg",
+		description:
+			"Iceberg is a stealth provider with Google AI Studio-compatible Gemini endpoints.",
+		env: {
+			required: {
+				apiKey: "LLM_ICEBERG_API_KEY",
+				baseUrl: "LLM_ICEBERG_BASE_URL",
 			},
 		},
 		streaming: true,
@@ -474,6 +507,8 @@ export const providers: ProviderDefinition[] = [
 		},
 		streaming: true,
 		cancellation: true,
+		// same Messages API ceiling as anthropic
+		maxTemperature: 1,
 		color: "#4285f4",
 		website: "https://cloud.google.com/vertex-ai",
 		statusPageUrl: "https://status.cloud.google.com",
@@ -872,6 +907,42 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
+		id: "aws-mantle",
+		name: "AWS Mantle",
+		description:
+			"Amazon Bedrock Mantle - OpenAI frontier models served on AWS via the Responses API",
+		env: {
+			required: {
+				apiKey: "LLM_AWS_MANTLE_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_AWS_MANTLE_BASE_URL",
+				region: "LLM_AWS_MANTLE_REGION",
+			},
+		},
+		priority: 2,
+		streaming: true,
+		cancellation: true,
+		color: "#FF9900",
+		website: "https://aws.amazon.com/bedrock",
+		statusPageUrl: "https://health.aws.amazon.com/health/status",
+		announcement: null,
+		apiKeyInstructions:
+			"Use AWS Bedrock Long-Term API Keys (not IAM service account or private keys)",
+		termsUrl: "https://aws.amazon.com/service-terms",
+		privacyPolicyUrl: "https://aws.amazon.com/privacy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: 2,
+			iso27001: true,
+			gdpr: true,
+		},
+	},
+	{
 		id: "azure",
 		name: "Azure",
 		description: "Microsoft Azure - enterprise-grade OpenAI models",
@@ -958,6 +1029,9 @@ export const providers: ProviderDefinition[] = [
 		},
 		streaming: true,
 		cancellation: true,
+		// every GLM model rejects temperature above 1 with a 400
+		// ("The temperature parameter is illegal", range [0,1])
+		maxTemperature: 1,
 		color: "#22c55e",
 		website: "https://z.ai",
 		statusPageUrl: null,
@@ -1165,6 +1239,33 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: false,
 			retentionPeriod: "0 days",
 			soc2: 2,
+		},
+	},
+	{
+		id: "scx-ai",
+		name: "SCX.ai",
+		description:
+			"SCX.ai is an Australian sovereign AI platform providing OpenAI-compatible Turbo inference endpoints — up to 4x faster than comparable providers — for a range of open models and SCX's own models, hosted on renewable-powered infrastructure.",
+		env: {
+			required: {
+				apiKey: "LLM_SCX_AI_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#1a1a2e",
+		modelCardBadge: "Up to 4x faster",
+		website: "https://scx.ai",
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: "https://scx.ai/terms",
+		privacyPolicyUrl: "https://scx.ai/privacy",
+		headquarters: "AU",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
 		},
 	},
 	{
@@ -1501,6 +1602,56 @@ export const providers: ProviderDefinition[] = [
 			gdpr: true,
 		},
 	},
+	{
+		id: "runware",
+		name: "Runware",
+		description:
+			"Runware provides fast, cost-efficient inference for open and frontier LLMs through an OpenAI-compatible API.",
+		env: {
+			required: {
+				apiKey: "LLM_RUNWARE_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_RUNWARE_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: false,
+		color: "#a8f399",
+		website: "https://runware.ai",
+		statusPageUrl: "https://status.runware.ai/",
+		announcement: "Launch offer: 30% off all Runware models until August 26",
+		termsUrl: "https://runware.ai/terms",
+		privacyPolicyUrl: "https://runware.ai/privacy",
+		headquarters: "GB",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: true,
+			retentionPeriod: "30 days",
+		},
+	},
+	{
+		id: "gonka24",
+		name: "Gonka24",
+		description:
+			"Gonka24 serves open-weight large language models via an OpenAI-compatible inference gateway.",
+		env: {
+			required: {
+				apiKey: "LLM_GONKA_24_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#000000",
+		website: "https://gonka24.com",
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: null,
+		privacyPolicyUrl: null,
+		headquarters: null,
+		dataPolicy: null,
+	},
 ] as const satisfies ProviderDefinition[];
 
 export type ProviderId = (typeof providers)[number]["id"];
@@ -1595,6 +1746,8 @@ export const PROVIDER_COUNTRY_NAMES: Record<string, string> = {
 	NL: "Netherlands",
 	FR: "France",
 	JP: "Japan",
+	AU: "Australia",
+	GB: "United Kingdom",
 };
 
 /** Convert an ISO 3166-1 alpha-2 country code to its Unicode flag emoji. */

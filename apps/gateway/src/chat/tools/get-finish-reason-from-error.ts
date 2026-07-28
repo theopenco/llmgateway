@@ -8,6 +8,7 @@ import { isContentFilterErrorText } from "@llmgateway/shared";
  * 429 status codes indicate upstream rate limiting (treated as upstream error)
  * 404 status codes indicate model/endpoint not found at provider (treated as upstream error)
  * 401/403 status codes indicate authentication/authorization issues (gateway configuration errors)
+ * 405 status codes indicate the upstream rejected the request method (gateway endpoint mapping error)
  * Other 4xx status codes indicate client errors
  * Special client errors (like JSON format validation) are classified as client_error
  *
@@ -38,6 +39,14 @@ export function getFinishReasonFromError(
 	// account problem, not a client error, so classify as gateway_error to allow
 	// fallback to another provider.
 	if (statusCode === 402) {
+		return "gateway_error";
+	}
+
+	// 405 Method Not Allowed means the upstream rejected the HTTP method the
+	// gateway used — a gateway-side endpoint/method mapping problem for the
+	// selected provider or key, never a client fault, so classify as
+	// gateway_error so the request can be retried with another key or provider.
+	if (statusCode === 405) {
 		return "gateway_error";
 	}
 

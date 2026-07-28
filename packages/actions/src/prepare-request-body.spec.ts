@@ -1029,13 +1029,7 @@ describe("prepareRequestBody - Alibaba thinking", () => {
 	async function prepare(options: {
 		model: string;
 		reasoningEffort?:
-			| "none"
-			| "minimal"
-			| "low"
-			| "medium"
-			| "high"
-			| "xhigh"
-			| "max";
+			"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 		reasoningMaxTokens?: number;
 		maxTokens?: number;
 		supportsReasoning?: boolean;
@@ -1141,13 +1135,7 @@ describe("prepareRequestBody - MiniMax thinking", () => {
 	async function prepare(options: {
 		model: string;
 		reasoningEffort?:
-			| "none"
-			| "minimal"
-			| "low"
-			| "medium"
-			| "high"
-			| "xhigh"
-			| "max";
+			"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 	}) {
 		return (await prepareRequestBody(
 			"minimax",
@@ -1216,13 +1204,7 @@ describe("prepareRequestBody - Xiaomi thinking", () => {
 	async function prepare(options: {
 		model: string;
 		reasoningEffort?:
-			| "none"
-			| "minimal"
-			| "low"
-			| "medium"
-			| "high"
-			| "xhigh"
-			| "max";
+			"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 	}) {
 		return (await prepareRequestBody(
 			"xiaomi",
@@ -1284,6 +1266,182 @@ describe("prepareRequestBody - Xiaomi thinking", () => {
 		});
 		expect(requestBody.thinking).toBeUndefined();
 		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - DeepSeek thinking", () => {
+	async function prepare(options: {
+		model: string;
+		reasoningEffort?:
+			"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+		supportsReasoning?: boolean;
+	}) {
+		return (await prepareRequestBody(
+			"deepseek",
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			options.reasoningEffort, // reasoning_effort
+			options.supportsReasoning ?? true, // supportsReasoning
+		)) as unknown as Record<string, unknown>;
+	}
+
+	test("maps none to thinking disabled and never forwards reasoning_effort", async () => {
+		const requestBody = await prepare({
+			model: "deepseek-v4-pro",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("forwards native effort tiers verbatim without a thinking parameter", async () => {
+		const requestBody = await prepare({
+			model: "deepseek-v4-pro",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.reasoning_effort).toBe("high");
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test("forwards max natively", async () => {
+		const requestBody = await prepare({
+			model: "deepseek-v4-pro",
+			reasoningEffort: "max",
+		});
+		expect(requestBody.reasoning_effort).toBe("max");
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test("keeps the provider default when no reasoning_effort is requested", async () => {
+		const requestBody = await prepare({ model: "deepseek-v4-pro" });
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("forwards unsupported tiers verbatim so the provider rejects them", async () => {
+		const requestBody = await prepare({
+			model: "deepseek-v4-pro",
+			reasoningEffort: "xhigh",
+		});
+		expect(requestBody.reasoning_effort).toBe("xhigh");
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test("drops none for models that do not declare it in reasoningEfforts", async () => {
+		// deepseek-v3.2 on the deepseek provider has reasoning: false
+		// and no reasoningEfforts, so supportsReasoning is false
+		const requestBody = await prepare({
+			model: "deepseek-v3.2",
+			reasoningEffort: "none",
+			supportsReasoning: false,
+		});
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - Z.ai thinking", () => {
+	async function prepare(options: {
+		model: string;
+		reasoningEffort?:
+			"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+		responseFormat?: Parameters<typeof prepareRequestBody>[11];
+		tools?: Parameters<typeof prepareRequestBody>[12];
+	}) {
+		return (await prepareRequestBody(
+			"zai",
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			options.responseFormat, // response_format
+			options.tools, // tools
+			undefined, // tool_choice
+			options.reasoningEffort, // reasoning_effort
+			true, // supportsReasoning
+		)) as unknown as Record<string, unknown>;
+	}
+
+	test("maps none to thinking disabled", async () => {
+		const requestBody = await prepare({
+			model: "glm-4.7",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+	});
+
+	test("enables thinking for explicit effort tiers", async () => {
+		const requestBody = await prepare({
+			model: "glm-4.7",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.thinking).toEqual({ type: "enabled" });
+	});
+
+	test("disables thinking by default when no effort is requested", async () => {
+		const requestBody = await prepare({ model: "glm-4.7" });
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+	});
+
+	test("treats minimal as disabled", async () => {
+		const requestBody = await prepare({
+			model: "glm-4.7",
+			reasoningEffort: "minimal",
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+	});
+
+	test("none disables thinking even when tools are present", async () => {
+		const requestBody = await prepare({
+			model: "glm-4.7",
+			reasoningEffort: "none",
+			tools: [
+				{
+					type: "function",
+					function: { name: "get_weather" },
+				},
+			],
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+	});
+
+	test("none disables thinking even with a response_format", async () => {
+		const requestBody = await prepare({
+			model: "glm-4.7",
+			reasoningEffort: "none",
+			responseFormat: { type: "json_object" },
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+	});
+
+	test("leaves thinking on provider default for tool requests without an effort", async () => {
+		const requestBody = await prepare({
+			model: "glm-4.7",
+			tools: [
+				{
+					type: "function",
+					function: { name: "get_weather" },
+				},
+			],
+		});
+		expect(requestBody.thinking).toBeUndefined();
 	});
 });
 
@@ -1402,6 +1560,74 @@ describe("prepareRequestBody - xAI reasoning_effort", () => {
 });
 
 describe("prepareRequestBody - Google AI Studio", () => {
+	// web_search is passed separately from `tools`; the gateway extracts it from
+	// the request before calling prepareRequestBody.
+	const googleTools = (tools: any, webSearchTool?: any) =>
+		prepareRequestBody(
+			"google-ai-studio",
+			"gemini-3.5-flash",
+			null,
+			"gemini-3.5-flash",
+			[{ role: "user", content: "hi" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			tools,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			webSearchTool,
+		) as Promise<any>;
+
+	test("opts into server-side tool invocation when web_search joins functions", async () => {
+		// Gemini 3 rejects built-in tools alongside functionDeclarations unless
+		// this is set; agentic clients (Codex CLI) always send both.
+		const requestBody = await googleTools(
+			[
+				{
+					type: "function",
+					function: { name: "calc", parameters: { type: "object" } },
+				},
+			],
+			{ type: "web_search" },
+		);
+
+		expect(requestBody.tools).toEqual([
+			{ functionDeclarations: [expect.objectContaining({ name: "calc" })] },
+			{ google_search: {} },
+		]);
+		expect(requestBody.toolConfig?.includeServerSideToolInvocations).toBe(true);
+	});
+
+	test("leaves toolConfig alone when web_search is the only tool", async () => {
+		const requestBody = await googleTools(undefined, { type: "web_search" });
+
+		expect(requestBody.tools).toEqual([{ google_search: {} }]);
+		expect(requestBody.toolConfig).toBeUndefined();
+	});
+
+	test("leaves toolConfig alone when there is no built-in tool", async () => {
+		const requestBody = await googleTools([
+			{
+				type: "function",
+				function: { name: "calc", parameters: { type: "object" } },
+			},
+		]);
+
+		expect(requestBody.toolConfig).toBeUndefined();
+	});
+
 	test("should map gateway 0.5K image size to Google 512", async () => {
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
@@ -1443,6 +1669,54 @@ describe("prepareRequestBody - Google AI Studio", () => {
 			"TEXT",
 			"IMAGE",
 		]);
+	});
+
+	test("converts json_schema with array type (nullable) to Google schema", async () => {
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.5-flash",
+			null,
+			"gemini-2.5-flash",
+			[{ role: "user", content: "Extract the user info" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				type: "json_schema",
+				json_schema: {
+					name: "user_info",
+					schema: {
+						type: "object",
+						properties: {
+							name: { type: "string" },
+							nickname: { type: ["string", "null"] },
+							tags: { type: ["array", "null"], items: { type: "string" } },
+						},
+						required: ["name", "nickname"],
+					},
+				},
+			},
+		)) as any;
+
+		expect(requestBody.generationConfig.responseMimeType).toBe(
+			"application/json",
+		);
+		expect(requestBody.generationConfig.responseSchema).toEqual({
+			type: "OBJECT",
+			properties: {
+				name: { type: "STRING" },
+				nickname: { type: "STRING", nullable: true },
+				tags: {
+					type: "ARRAY",
+					nullable: true,
+					items: { type: "STRING" },
+				},
+			},
+			required: ["name", "nickname"],
+		});
 	});
 
 	test("should map gateway 0.5K image size to Google 512 for Vertex", async () => {
@@ -3638,6 +3912,57 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			expect(requestBody.max_completion_tokens).toBe(32000);
 			expect(requestBody.max_tokens).toBeUndefined();
 		});
+
+		test("strips reasoning_details from chat-completions messages", async () => {
+			const requestBody = (await prepareRequestBody(
+				"openai",
+				"gpt-5",
+				null,
+				"gpt-5",
+				[
+					{ role: "user", content: "Hello!" },
+					{
+						role: "assistant",
+						content: "Hi!",
+						reasoning_details: [
+							{
+								type: "reasoning.encrypted",
+								data: "gAAAA-blob",
+								format: "openai-responses-v1",
+							},
+						],
+					},
+					{ role: "user", content: "Again" },
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false, // useResponsesApi
+			)) as any;
+
+			expect(
+				requestBody.messages.every(
+					(m: any) => m.reasoning_details === undefined,
+				),
+			).toBe(true);
+		});
 	});
 
 	describe("azure-ai-foundry", () => {
@@ -4012,6 +4337,90 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				{ role: "system", content: [{ type: "input_text", text: "be terse" }] },
 				{ role: "user", content: [{ type: "input_text", text: "hello" }] },
 			]);
+		});
+
+		test("runs stateless and requests encrypted reasoning payloads", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([{ role: "user", content: "Hello!" }]),
+			)) as any;
+
+			expect(requestBody.store).toBe(false);
+			expect(requestBody.include).toEqual(["reasoning.encrypted_content"]);
+		});
+
+		test("replays encrypted reasoning_details as reasoning input items", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([
+					{ role: "user", content: "weather in Berlin?" },
+					{
+						role: "assistant",
+						content: "",
+						reasoning_details: [
+							{
+								type: "reasoning.encrypted",
+								data: "gAAAA-encrypted-blob",
+								id: "rs_upstream",
+								format: "openai-responses-v1",
+								index: 0,
+							},
+						],
+						tool_calls: [
+							{
+								id: "call_abc",
+								type: "function",
+								function: {
+									name: "get_weather",
+									arguments: JSON.stringify({ city: "Berlin" }),
+								},
+							},
+						],
+					},
+					{
+						role: "tool",
+						tool_call_id: "call_abc",
+						content: JSON.stringify({ temperature: 17 }),
+					},
+				]),
+			)) as any;
+
+			const reasoningIndex = requestBody.input.findIndex(
+				(i: any) => i.type === "reasoning",
+			);
+			const functionCallIndex = requestBody.input.findIndex(
+				(i: any) => i.type === "function_call",
+			);
+			expect(reasoningIndex).toBeGreaterThan(-1);
+			expect(reasoningIndex).toBeLessThan(functionCallIndex);
+			expect(requestBody.input[reasoningIndex]).toEqual({
+				type: "reasoning",
+				id: "rs_upstream",
+				summary: [],
+				encrypted_content: "gAAAA-encrypted-blob",
+			});
+		});
+
+		test("skips foreign-format reasoning_details entries", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([
+					{ role: "user", content: "hello" },
+					{
+						role: "assistant",
+						content: "hi",
+						reasoning_details: [
+							{
+								type: "reasoning.encrypted",
+								data: "anthropic-blob",
+								format: "anthropic-claude-v1",
+							},
+						],
+					},
+					{ role: "user", content: "again" },
+				]),
+			)) as any;
+
+			expect(requestBody.input.some((i: any) => i.type === "reasoning")).toBe(
+				false,
+			);
 		});
 	});
 

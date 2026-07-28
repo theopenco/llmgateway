@@ -43,6 +43,7 @@ import {
 	type StabilityLevel,
 	type ModelDefinition,
 } from "@llmgateway/models";
+import { isMappingDeactivated } from "@llmgateway/shared/components";
 
 import type { Metadata } from "next";
 
@@ -115,7 +116,24 @@ export default async function ModelPage({ params }: PageProps) {
 			discount: globalDiscount,
 		};
 	});
-	const currentModelDiscount = getBestDiscount(allDiscounts, decodedName);
+	// Aggregated metrics (pricing, context, capabilities) describe what can
+	// actually be routed today, so deactivated providers are excluded. Models
+	// whose providers are all deactivated fall back to showing everything.
+	const activeProviders = modelProviders.filter(
+		(p) => !isMappingDeactivated(p),
+	);
+	const visibleProviders =
+		activeProviders.length > 0 ? activeProviders : modelProviders;
+
+	const currentModelDiscount = getBestDiscount(
+		allDiscounts,
+		decodedName,
+		Array.from(new Set(activeProviders.map((p) => p.providerId))),
+	);
+	const currentModelDiscountProvider = currentModelDiscount?.provider
+		? (providerDefinitions.find((p) => p.id === currentModelDiscount.provider)
+				?.name ?? currentModelDiscount.provider)
+		: null;
 
 	const adaptedModel = adaptModel(modelDef, modelProviders);
 
@@ -144,7 +162,7 @@ export default async function ModelPage({ params }: PageProps) {
 		],
 	};
 
-	const providerPrices = modelProviders
+	const providerPrices = visibleProviders
 		.filter((p) => p.inputPrice)
 		.map((p) => applyDiscount(perMillion(p.inputPrice)!, p.discount));
 	const lowestInputPrice = Math.min(...providerPrices);
@@ -168,7 +186,7 @@ export default async function ModelPage({ params }: PageProps) {
 			priceCurrency: "USD",
 			lowPrice: isFinite(lowestInputPrice) ? lowestInputPrice : 0,
 			highPrice: isFinite(highestInputPrice) ? highestInputPrice : 0,
-			offerCount: modelProviders.length,
+			offerCount: visibleProviders.length,
 			availability: "https://schema.org/InStock",
 			url: `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`,
 		},
@@ -281,15 +299,15 @@ export default async function ModelPage({ params }: PageProps) {
 						<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm text-muted-foreground mb-4">
 							<div>
 								{Math.max(
-									...modelProviders.map((p) => p.contextSize ?? 0),
+									...visibleProviders.map((p) => p.contextSize ?? 0),
 								).toLocaleString()}{" "}
 								context
 							</div>
-							{modelProviders.some((p) => p.inputPrice) && (
+							{visibleProviders.some((p) => p.inputPrice) && (
 								<div>
 									Starting at{" "}
 									{(() => {
-										const inputPrices = modelProviders
+										const inputPrices = visibleProviders
 											.filter((p) => p.inputPrice)
 											.map((p) => ({
 												price: applyDiscount(
@@ -310,18 +328,18 @@ export default async function ModelPage({ params }: PageProps) {
 											: `$${minPrice.toFixed(2)}/M`;
 									})()}{" "}
 									input tokens
-									{modelProviders.some(
+									{visibleProviders.some(
 										(p) => (p.pricingTiers?.length ?? 0) > 1,
 									) && (
 										<span className="text-muted-foreground/70"> (tiered)</span>
 									)}
 								</div>
 							)}
-							{modelProviders.some((p) => p.outputPrice) && (
+							{visibleProviders.some((p) => p.outputPrice) && (
 								<div>
 									Starting at{" "}
 									{(() => {
-										const outputPrices = modelProviders
+										const outputPrices = visibleProviders
 											.filter((p) => p.outputPrice)
 											.map((p) => ({
 												price: applyDiscount(
@@ -342,18 +360,20 @@ export default async function ModelPage({ params }: PageProps) {
 											: `$${minPrice.toFixed(2)}/M`;
 									})()}{" "}
 									output tokens
-									{modelProviders.some(
+									{visibleProviders.some(
 										(p) => (p.pricingTiers?.length ?? 0) > 1,
 									) && (
 										<span className="text-muted-foreground/70"> (tiered)</span>
 									)}
 								</div>
 							)}
-							{modelProviders.some((p) => p.imageOutputPrice !== undefined) && (
+							{visibleProviders.some(
+								(p) => p.imageOutputPrice !== undefined,
+							) && (
 								<div>
 									Starting at{" "}
 									{(() => {
-										const imageOutputPrices = modelProviders
+										const imageOutputPrices = visibleProviders
 											.filter((p) => p.imageOutputPrice !== undefined)
 											.map((p) => ({
 												price: applyDiscount(
@@ -381,7 +401,7 @@ export default async function ModelPage({ params }: PageProps) {
 									image output tokens
 								</div>
 							)}
-							{modelProviders.some(
+							{visibleProviders.some(
 								(p) =>
 									p.perSecondPrice && Object.keys(p.perSecondPrice).length > 0,
 							) && (
@@ -389,7 +409,7 @@ export default async function ModelPage({ params }: PageProps) {
 									Starting at{" "}
 									{(() => {
 										let minPrice: number | undefined;
-										for (const p of modelProviders) {
+										for (const p of visibleProviders) {
 											if (!p.perSecondPrice) {
 												continue;
 											}
@@ -411,11 +431,11 @@ export default async function ModelPage({ params }: PageProps) {
 									video generation
 								</div>
 							)}
-							{modelProviders.some((p) => p.ocrPagePrice !== undefined) && (
+							{visibleProviders.some((p) => p.ocrPagePrice !== undefined) && (
 								<div>
 									Starting at{" "}
 									{(() => {
-										const pagePrices = modelProviders
+										const pagePrices = visibleProviders
 											.filter((p) => p.ocrPagePrice !== undefined)
 											.map((p) => Number(p.ocrPagePrice))
 											.filter((n) => Number.isFinite(n));
@@ -439,11 +459,13 @@ export default async function ModelPage({ params }: PageProps) {
 									label: string;
 									color: string;
 								}> = [];
-								const hasStreaming = modelProviders.some((p) => p.streaming);
-								const hasVision = modelProviders.some((p) => p.vision);
-								const hasTools = modelProviders.some((p) => p.tools);
-								const hasReasoning = modelProviders.some((p) => p.reasoning);
-								const hasJsonOutput = modelProviders.some((p) => p.jsonOutput);
+								const hasStreaming = visibleProviders.some((p) => p.streaming);
+								const hasVision = visibleProviders.some((p) => p.vision);
+								const hasTools = visibleProviders.some((p) => p.tools);
+								const hasReasoning = visibleProviders.some((p) => p.reasoning);
+								const hasJsonOutput = visibleProviders.some(
+									(p) => p.jsonOutput,
+								);
 								const hasImageGen = Array.isArray(modelDef.output)
 									? modelDef.output.includes("image")
 									: false;
@@ -536,7 +558,10 @@ export default async function ModelPage({ params }: PageProps) {
 
 					{currentModelDiscount && (
 						<div className="mb-6">
-							<GlobalDiscountBanner discount={currentModelDiscount} />
+							<GlobalDiscountBanner
+								discount={currentModelDiscount}
+								providerName={currentModelDiscountProvider}
+							/>
 						</div>
 					)}
 
@@ -546,7 +571,7 @@ export default async function ModelPage({ params }: PageProps) {
 						</h2>
 						<ProviderTabs
 							modelId={decodedName}
-							providerIds={modelProviders.map((p) => p.providerId)}
+							providerIds={visibleProviders.map((p) => p.providerId)}
 							activeProviderId=""
 						/>
 					</div>
@@ -589,8 +614,7 @@ export async function generateMetadata({
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
 	const model = modelDefinitions.find((m) => m.id === decodedName) as
-		| ModelDefinition
-		| undefined;
+		ModelDefinition | undefined;
 
 	if (!model) {
 		return {};

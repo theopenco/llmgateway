@@ -53,7 +53,7 @@ const pricingFeatures: PricingFeature[] = [
 	},
 	{
 		name: "Chat and API Access",
-		description: "Access via API and Playground",
+		description: "Access via API and Lounge",
 		learnMoreLink: "/guides",
 		learnMoreText: "View integration guides →",
 		free: true,
@@ -164,7 +164,7 @@ const pricingFeatures: PricingFeature[] = [
 	},
 	{
 		name: "Chat App (Whitelabel)",
-		description: "Ship the playground under your own brand & domain",
+		description: "Ship the chat app under your own brand & domain",
 		learnMoreLink: "/enterprise/white-label",
 		learnMoreText: "Learn more →",
 		free: false,

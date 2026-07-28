@@ -80,6 +80,7 @@ export const CODING_AGENT_SOURCES = [
 	"open-code",
 	"cursor",
 	"autohand",
+	"empryo",
 	"soulforge",
 	"cline",
 	"codex",
@@ -100,7 +101,7 @@ function dateKey(d: Date): string {
 	return `${yyyy}-${mm}-${dd}`;
 }
 
-function computeStreaks(activeDates: Set<string>): {
+export function computeStreaks(activeDates: Set<string>): {
 	currentStreak: number;
 	longestStreak: number;
 } {

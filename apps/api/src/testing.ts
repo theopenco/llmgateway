@@ -4,6 +4,7 @@ import {
 	sql,
 	projectHourlyStats,
 	projectHourlyModelStats,
+	projectHourlySourceStats,
 	apiKeyHourlyStats,
 	apiKeyHourlyModelStats,
 	eq,
@@ -42,6 +43,7 @@ export async function deleteAll() {
 			await db.delete(tables.auditLog);
 			await db.delete(projectHourlyStats);
 			await db.delete(projectHourlyModelStats);
+			await db.delete(projectHourlySourceStats);
 			await db.delete(apiKeyHourlyStats);
 			await db.delete(apiKeyHourlyModelStats);
 			await db.delete(tables.apiKey);
@@ -176,6 +178,14 @@ function getCommonAggregationFields() {
 		imageOutputCost:
 			sql<number>`coalesce(sum(${tables.log.imageOutputCost}), 0)`.as(
 				"imageOutputCost",
+			),
+		audioInputCost:
+			sql<number>`coalesce(sum(${tables.log.audioInputCost}), 0)`.as(
+				"audioInputCost",
+			),
+		audioOutputCost:
+			sql<number>`coalesce(sum(${tables.log.audioOutputCost}), 0)`.as(
+				"audioOutputCost",
 			),
 		videoOutputCost:
 			sql<number>`coalesce(sum(${tables.log.videoOutputCost}), 0)`.as(

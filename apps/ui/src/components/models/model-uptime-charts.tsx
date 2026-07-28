@@ -28,6 +28,11 @@ import {
 	type ChartConfig,
 } from "@/lib/components/chart";
 import { useApi } from "@/lib/fetch-client";
+import {
+	hasEnoughRequestsForStats,
+	hasEnoughTtftSamplesForStats,
+	MIN_REQUESTS_FOR_STATS,
+} from "@/lib/provider-stats";
 import { cn } from "@/lib/utils";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
@@ -35,12 +40,6 @@ import { getProviderIcon } from "@llmgateway/shared/components";
 import type { paths } from "@/lib/api/v1";
 
 type ActiveMetric = "requests" | "errors" | "latency" | "tokens";
-
-// Derived metrics (uptime %, error rate, latency averages, throughput) are only
-// statistically meaningful once a provider has served a reasonable number of
-// requests. Below this threshold we show "—" instead so the numbers don't look
-// misleading.
-const MIN_REQUESTS_FOR_STATS = 1000;
 
 type UptimeResponse =
 	paths["/internal/models/{modelId}/uptime"]["get"]["responses"]["200"]["content"]["application/json"];
@@ -91,7 +90,10 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 	const config = chartConfigs[activeMetric];
 	const dataKeys = Object.keys(config);
 
-	const hasEnoughData = provider.logsCount > MIN_REQUESTS_FOR_STATS;
+	const hasEnoughData = hasEnoughRequestsForStats(provider.logsCount);
+	// TTFT only has samples from streamed requests, so it gates on its own count
+	// rather than on the request count that feeds uptime/duration/throughput.
+	const hasEnoughTtftData = hasEnoughTtftSamplesForStats(provider.ttftCount);
 
 	const errorRate =
 		provider.logsCount > 0
@@ -162,7 +164,7 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 						icon={Clock}
 						label="Avg TTFT"
 						value={
-							hasEnoughData && provider.avgTtft !== null
+							hasEnoughTtftData && provider.avgTtft !== null
 								? `${provider.avgTtft}ms`
 								: "—"
 						}

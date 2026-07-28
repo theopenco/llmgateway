@@ -1745,4 +1745,146 @@ describe("activity endpoint", () => {
 		expect(twoDaysAgoData.totalTokens).toBe(50);
 		expect(twoDaysAgoData.cost).toBeCloseTo(0.1, 2);
 	});
+
+	describe("GET /activity/sources", () => {
+		beforeEach(async () => {
+			const hoursAgo = (hours: number) => {
+				const ms = hours * 60 * 60 * 1000;
+				return new Date(Date.now() - ms);
+			};
+
+			// One opencode row per time bucket so each wider range picks up
+			// exactly one more row: 1h -> 1, 4h -> 2, 24h -> 3, 7d -> 4, 30d -> 5.
+			await db.insert(tables.projectHourlySourceStats).values([
+				...[0, 2, 12, 72, 360].map((hours) => ({
+					projectId: "test-project-id",
+					hourTimestamp: hoursAgo(hours),
+					source: "opencode",
+					requestCount: 1,
+					inputTokens: "10",
+					outputTokens: "20",
+					totalTokens: "30",
+					cost: 0.5,
+				})),
+				{
+					projectId: "test-project-id",
+					hourTimestamp: hoursAgo(0),
+					source: "cursor",
+					requestCount: 2,
+					inputTokens: "100",
+					outputTokens: "200",
+					totalTokens: "300",
+					cost: 5,
+				},
+			]);
+		});
+
+		test.each([
+			["1h", 1],
+			["4h", 2],
+			["24h", 3],
+			["7d", 4],
+			["30d", 5],
+		])(
+			"timeRange=%s aggregates the matching hour buckets",
+			async (timeRange, expectedRequests) => {
+				const res = await app.request(
+					`/activity/sources?projectId=test-project-id&timeRange=${timeRange}`,
+					{
+						headers: {
+							Cookie: token,
+						},
+					},
+				);
+
+				expect(res.status).toBe(200);
+				const data = await res.json();
+				const opencode = data.sources.find(
+					(s: { source: string }) => s.source === "opencode",
+				);
+				expect(opencode).toBeDefined();
+				expect(opencode.requestCount).toBe(expectedRequests);
+				expect(opencode.totalTokens).toBe(expectedRequests * 30);
+				expect(opencode.cost).toBeCloseTo(expectedRequests * 0.5, 5);
+			},
+		);
+
+		test("should default to 7d when no timeRange is provided", async () => {
+			const res = await app.request(
+				"/activity/sources?projectId=test-project-id",
+				{
+					headers: {
+						Cookie: token,
+					},
+				},
+			);
+
+			expect(res.status).toBe(200);
+			const data = await res.json();
+			const opencode = data.sources.find(
+				(s: { source: string }) => s.source === "opencode",
+			);
+			expect(opencode.requestCount).toBe(4);
+		});
+
+		test("should group by source and order by cost descending", async () => {
+			const res = await app.request(
+				"/activity/sources?projectId=test-project-id&timeRange=1h",
+				{
+					headers: {
+						Cookie: token,
+					},
+				},
+			);
+
+			expect(res.status).toBe(200);
+			const data = await res.json();
+			expect(data.sources.map((s: { source: string }) => s.source)).toEqual([
+				"cursor",
+				"opencode",
+			]);
+
+			const cursor = data.sources[0];
+			expect(cursor.requestCount).toBe(2);
+			expect(cursor.inputTokens).toBe(100);
+			expect(cursor.outputTokens).toBe(200);
+			expect(cursor.totalTokens).toBe(300);
+			expect(cursor.cost).toBeCloseTo(5, 5);
+			expect(typeof cursor.lastUsedAt).toBe("string");
+		});
+
+		test("should reject an invalid timeRange", async () => {
+			const res = await app.request(
+				"/activity/sources?projectId=test-project-id&timeRange=365d",
+				{
+					headers: {
+						Cookie: token,
+					},
+				},
+			);
+
+			expect(res.status).toBe(400);
+		});
+
+		test("should require authentication", async () => {
+			const res = await app.request(
+				"/activity/sources?projectId=test-project-id",
+			);
+
+			expect(res.status).toBe(401);
+		});
+
+		test("should reject projects the user cannot access", async () => {
+			const res = await app.request(
+				"/activity/sources?projectId=some-other-project-id",
+				{
+					headers: {
+						Cookie: token,
+					},
+				},
+			);
+
+			expect(res.status).toBe(403);
+		});
+	});
 });

@@ -315,6 +315,13 @@ export function useAddMessage() {
 				}).queryKey;
 				void queryClient.invalidateQueries({ queryKey: chatQueryKey });
 			}
+
+			// Messages earn Lounge points; refresh the sidebar pill and profile.
+			const pointsQueryKey = api.queryOptions(
+				"get",
+				"/lounge/points/me",
+			).queryKey;
+			void queryClient.invalidateQueries({ queryKey: pointsQueryKey });
 		},
 		onError: (error) => {
 			toast.error(getErrorMessage(error));

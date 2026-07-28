@@ -155,6 +155,12 @@ Use IAM rules when you want a key to be valid, but only for a specific subset of
 models or providers. For a deeper explanation, see the [API Keys & IAM Rules
 feature page](/features/api-keys).
 
+Org admins can additionally set [member-level IAM
+rules](/features/api-keys#member-level-iam-rules) on the [Team
+page](/learn/team). Those act as a ceiling for every key the member creates:
+key rules can only narrow access within them, never expand it. The IAM page
+shows a notice when organization-level restrictions apply to your keys.
+
 ## Plan Limits
 
 The page also shows how many API keys your current project is using relative to

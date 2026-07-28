@@ -67,14 +67,12 @@ type ProjectBase = InferSelectModel<typeof tables.project>;
 type OrganizationBase = InferSelectModel<typeof tables.organization>;
 type UserBase = InferSelectModel<typeof tables.user>;
 type ApiKeyIamRuleBase = InferSelectModel<typeof tables.apiKeyIamRule>;
+type UserIamRuleBase = InferSelectModel<typeof tables.userIamRule>;
 
 export type ApiKey = Omit<ApiKeyBase, "status" | "keyType"> & {
 	status: "active" | "inactive" | "deleted" | null;
 	keyType:
-		| "user"
-		| "platform_secret"
-		| "platform_publishable"
-		| "end_user_customer";
+		"user" | "platform_secret" | "platform_publishable" | "end_user_customer";
 };
 
 export type EndCustomer = Omit<
@@ -100,12 +98,7 @@ export type WalletLedger = Omit<
 	"type"
 > & {
 	type:
-		| "topup"
-		| "bonus"
-		| "usage_debit"
-		| "refund"
-		| "adjustment"
-		| "reversal";
+		"topup" | "bonus" | "usage_debit" | "refund" | "adjustment" | "reversal";
 };
 
 export type WebhookEndpoint = Omit<
@@ -140,6 +133,19 @@ export type Organization = Omit<
 export type User = UserBase;
 
 export type ApiKeyIamRule = Omit<ApiKeyIamRuleBase, "status" | "ruleType"> & {
+	ruleType:
+		| "allow_models"
+		| "deny_models"
+		| "allow_pricing"
+		| "deny_pricing"
+		| "allow_providers"
+		| "deny_providers"
+		| "allow_ip_cidrs"
+		| "deny_ip_cidrs";
+	status: "active" | "inactive";
+};
+
+export type UserIamRule = Omit<UserIamRuleBase, "status" | "ruleType"> & {
 	ruleType:
 		| "allow_models"
 		| "deny_models"
@@ -229,6 +235,14 @@ export type SerializedApiKey = Omit<
 
 export type SerializedApiKeyIamRule = Omit<
 	ApiKeyIamRule,
+	"createdAt" | "updatedAt"
+> & {
+	createdAt: string;
+	updatedAt: string;
+};
+
+export type SerializedUserIamRule = Omit<
+	UserIamRule,
 	"createdAt" | "updatedAt"
 > & {
 	createdAt: string;

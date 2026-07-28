@@ -141,6 +141,27 @@ export const completionsRequestSchema = z.object({
 						.passthrough(),
 				)
 				.optional(),
+			phase: z.enum(["commentary", "final_answer"]).optional().openapi({
+				description:
+					"OpenAI Responses assistant-message phase. Replayed upstream for OpenAI Responses API models; stripped for other providers.",
+			}),
+			content_before_tool_calls: z.boolean().optional().openapi({
+				description:
+					"Marks assistant content that preceded the message's tool calls (pre-tool commentary on OpenAI Responses API models), so replay preserves the original item order. Stripped for other providers.",
+			}),
+			message_items: z
+				.array(
+					z.object({
+						text: z.string(),
+						phase: z.enum(["commentary", "final_answer"]).optional(),
+						preceding_tool_calls: z.number().int().nonnegative().optional(),
+					}),
+				)
+				.optional()
+				.openapi({
+					description:
+						"Separate phased assistant message items (e.g. commentary and final_answer) emitted by OpenAI Responses API models in a single turn. preceding_tool_calls records how many of the message's tool calls came before each item. Replayed upstream as individual message items in their original order; stripped for other providers.",
+				}),
 		}),
 	),
 	temperature: z
@@ -325,6 +346,14 @@ export const completionsRequestSchema = z.object({
 					"Exact number of tokens to allocate for reasoning. When specified, overrides effort. Supported by Anthropic and Google thinking models.",
 				example: 4000,
 			}),
+			context: z
+				.enum(["auto", "current_turn", "all_turns"])
+				.optional()
+				.openapi({
+					description:
+						"How much replayed reasoning the model considers (OpenAI Responses API models only). Omitting the field is equivalent to 'auto'. Forwarded upstream as reasoning.context; ignored by other providers.",
+					example: "current_turn",
+				}),
 		})
 		.optional()
 		.openapi({

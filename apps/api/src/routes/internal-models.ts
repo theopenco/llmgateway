@@ -17,6 +17,7 @@ import {
 } from "@llmgateway/db";
 import {
 	models as modelDefinitions,
+	providers as providerDefinitions,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
 
@@ -35,6 +36,7 @@ const providerSchema = z.object({
 	color: z.string().nullable(),
 	website: z.string().nullable(),
 	announcement: z.string().nullable(),
+	modelCardBadge: z.string().nullable(),
 	status: z.enum(["active", "inactive"]),
 });
 
@@ -68,8 +70,11 @@ const modelProviderMappingSchema = z.object({
 	imageInputTokensByResolution: z.record(z.number()).nullable(),
 	imageOutputTokensByResolution: z.record(z.number()).nullable(),
 	inputCharacterPrice: z.string().nullable(),
+	inputAudioPrice: z.string().nullable(),
+	cachedInputAudioPrice: z.string().nullable(),
 	outputAudioPrice: z.string().nullable(),
 	requestPrice: z.string().nullable(),
+	inputAudioHourPrice: z.string().nullable(),
 	contextSize: z.number().nullable(),
 	maxOutput: z.number().nullable(),
 	streaming: z.boolean(),
@@ -86,6 +91,8 @@ const modelProviderMappingSchema = z.object({
 	jsonOutputSchema: z.boolean().nullable(),
 	webSearch: z.boolean().nullable(),
 	webSearchPrice: z.string().nullable(),
+	realtime: z.boolean().nullable(),
+	supportedVoices: z.array(z.string()).nullable(),
 	discount: z.string().nullable(),
 	stability: z.enum(["stable", "beta", "unstable", "experimental"]).nullable(),
 	supportedParameters: z.array(z.string()).nullable(),
@@ -242,6 +249,8 @@ internalModels.openapi(getModelsRoute, async (c) => {
 				reasoningEfforts: sharedMapping?.reasoningEfforts ?? null,
 				audio: sharedMapping?.audio ?? null,
 				document: sharedMapping?.document ?? null,
+				realtime: sharedMapping?.realtime ?? null,
+				supportedVoices: sharedMapping?.supportedVoices ?? null,
 				imageOutputPrice:
 					sharedMapping?.imageOutputPrice !== undefined
 						? String(sharedMapping.imageOutputPrice)
@@ -254,9 +263,21 @@ internalModels.openapi(getModelsRoute, async (c) => {
 					sharedMapping?.inputCharacterPrice !== undefined
 						? String(sharedMapping.inputCharacterPrice)
 						: null,
+				inputAudioPrice:
+					sharedMapping?.inputAudioPrice !== undefined
+						? String(sharedMapping.inputAudioPrice)
+						: null,
+				cachedInputAudioPrice:
+					sharedMapping?.cachedInputAudioPrice !== undefined
+						? String(sharedMapping.cachedInputAudioPrice)
+						: null,
 				outputAudioPrice:
 					sharedMapping?.outputAudioPrice !== undefined
 						? String(sharedMapping.outputAudioPrice)
+						: null,
+				inputAudioHourPrice:
+					sharedMapping?.inputAudioHourPrice !== undefined
+						? String(sharedMapping.inputAudioHourPrice)
 						: null,
 				supportedVideoSizes: sharedMapping?.supportedVideoSizes ?? null,
 				supportedVideoDurationsSeconds:
@@ -360,7 +381,15 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 		},
 	});
 
-	return c.json({ providers });
+	// modelCardBadge only exists in the catalogue, not the provider table
+	return c.json({
+		providers: providers.map((provider) => ({
+			...provider,
+			modelCardBadge:
+				providerDefinitions.find((p) => p.id === provider.id)?.modelCardBadge ??
+				null,
+		})),
+	});
 });
 
 // GET /internal/models/{modelId}/benchmarks - Per-provider performance stats
@@ -445,9 +474,12 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.cachedCount}), 0)`.as(
 					"cachedCount",
 				),
+			// Only streamed requests record a time-to-first-token, so the average
+			// divides by the sample count rather than by the non-cached request
+			// count — otherwise non-streaming traffic drags it towards zero.
 			avgTimeToFirstToken: sql<
 				number | null
-			>`CASE WHEN SUM(${modelProviderMappingHistory.logsCount}) - SUM(${modelProviderMappingHistory.cachedCount}) > 0 THEN SUM(${modelProviderMappingHistory.totalTimeToFirstToken})::float / (SUM(${modelProviderMappingHistory.logsCount}) - SUM(${modelProviderMappingHistory.cachedCount})) ELSE NULL END`.as(
+			>`CASE WHEN SUM(${modelProviderMappingHistory.timeToFirstTokenCount}) > 0 THEN SUM(${modelProviderMappingHistory.totalTimeToFirstToken})::float / SUM(${modelProviderMappingHistory.timeToFirstTokenCount}) ELSE NULL END`.as(
 				"avgTimeToFirstToken",
 			),
 			totalDuration:
@@ -560,6 +592,9 @@ const uptimeProviderSchema = z.object({
 	upstreamErrorsCount: z.number(),
 	uptime: z.number().nullable(),
 	avgTtft: z.number().nullable(),
+	// Streamed-request count behind avgTtft, so callers can gate its display on
+	// its own sample size instead of logsCount.
+	ttftCount: z.number(),
 	avgDuration: z.number().nullable(),
 	tokensPerSecond: z.number().nullable(),
 	points: z.array(uptimePointSchema),
@@ -658,6 +693,10 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalTimeToFirstToken}), 0)`.as(
 						"total_ttft",
 					),
+				timeToFirstTokenCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.timeToFirstTokenCount}), 0)`.as(
+						"ttft_count",
+					),
 				totalTokens:
 					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.totalTokens}), 0)`.as(
 						"total_tokens",
@@ -701,6 +740,7 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 				cachedCount: number;
 				totalDuration: number;
 				totalTimeToFirstToken: number;
+				timeToFirstTokenCount: number;
 				totalTokens: number;
 				totalOutputTokens: number;
 			}>;
@@ -735,6 +775,7 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			cachedCount: Number(r.cachedCount),
 			totalDuration: Number(r.totalDuration),
 			totalTimeToFirstToken: Number(r.totalTimeToFirstToken),
+			timeToFirstTokenCount: Number(r.timeToFirstTokenCount),
 			totalTokens: Number(r.totalTokens),
 			totalOutputTokens: Number(r.totalOutputTokens),
 		});
@@ -745,20 +786,19 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 		let totalLogs = 0;
 		let totalErrors = 0;
 		let totalUpstreamErrors = 0;
-		let totalCached = 0;
 		let totalDuration = 0;
 		let totalTtft = 0;
+		let totalTtftCount = 0;
 		let totalOutputTokens = 0;
 
 		const points = p.points.map((pt) => {
 			totalLogs += pt.logsCount;
 			totalErrors += pt.errorsCount;
 			totalUpstreamErrors += pt.upstreamErrorsCount;
-			totalCached += pt.cachedCount;
 			totalDuration += pt.totalDuration;
 			totalTtft += pt.totalTimeToFirstToken;
+			totalTtftCount += pt.timeToFirstTokenCount;
 			totalOutputTokens += pt.totalOutputTokens;
-			const nonCached = pt.logsCount - pt.cachedCount;
 			return {
 				timestamp: pt.timestamp,
 				logsCount: pt.logsCount,
@@ -767,9 +807,11 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 				gatewayErrorsCount: pt.gatewayErrorsCount,
 				upstreamErrorsCount: pt.upstreamErrorsCount,
 				cachedCount: pt.cachedCount,
+				// Only streamed requests contribute a TTFT sample, so divide by the
+				// sample count instead of the request count.
 				avgTtft:
-					nonCached > 0
-						? Math.round(pt.totalTimeToFirstToken / nonCached)
+					pt.timeToFirstTokenCount > 0
+						? Math.round(pt.totalTimeToFirstToken / pt.timeToFirstTokenCount)
 						: null,
 				avgDuration:
 					pt.logsCount > 0 ? Math.round(pt.totalDuration / pt.logsCount) : null,
@@ -777,7 +819,6 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			};
 		});
 
-		const nonCachedTotal = totalLogs - totalCached;
 		const uptime =
 			totalLogs > 0
 				? Math.round(((totalLogs - totalUpstreamErrors) / totalLogs) * 1000) /
@@ -798,7 +839,8 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			upstreamErrorsCount: totalUpstreamErrors,
 			uptime,
 			avgTtft:
-				nonCachedTotal > 0 ? Math.round(totalTtft / nonCachedTotal) : null,
+				totalTtftCount > 0 ? Math.round(totalTtft / totalTtftCount) : null,
+			ttftCount: totalTtftCount,
 			avgDuration: totalLogs > 0 ? Math.round(totalDuration / totalLogs) : null,
 			tokensPerSecond,
 			points,

@@ -29,6 +29,14 @@ export function mapFinishReasonToOpenai(
 		return "content_filter";
 	}
 
+	// Anthropic models stop with `model_context_window_exceeded` when generation
+	// hits the model's context window before `max_tokens`. Like `refusal`, it
+	// surfaces across the direct API, Vertex, and Bedrock, so map it uniformly
+	// to the OpenAI-canonical length limit.
+	if (finishReason === "model_context_window_exceeded") {
+		return "length";
+	}
+
 	switch (finishReason) {
 		case "stop":
 		case "length":
@@ -40,6 +48,7 @@ export function mapFinishReasonToOpenai(
 	switch (usedProvider) {
 		case "google-ai-studio":
 		case "glacier":
+		case "iceberg":
 		case "google-vertex":
 		case "quartz":
 			if (!finishReason) {

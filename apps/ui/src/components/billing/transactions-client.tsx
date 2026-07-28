@@ -35,6 +35,12 @@ import {
 import { useToast } from "@/lib/components/use-toast";
 import { useFetchClient } from "@/lib/fetch-client";
 
+import {
+	isRefundFeedbackComplete,
+	type RefundReason,
+} from "@llmgateway/shared";
+import { RefundReasonFieldset } from "@llmgateway/shared/components";
+
 interface RefundEligibility {
 	eligible: boolean;
 	reason?:
@@ -60,7 +66,12 @@ interface Transaction {
 		| "credit_gift"
 		| "subscription_start"
 		| "subscription_cancel"
-		| "subscription_end";
+		| "subscription_end"
+		| "dev_plan_start"
+		| "dev_plan_renewal"
+		| "dev_plan_reset_pass"
+		| "chat_plan_start"
+		| "chat_plan_renewal";
 	creditAmount: string | null;
 	amount: string | null;
 	status: "pending" | "completed" | "failed";
@@ -84,6 +95,17 @@ const REFUND_INELIGIBILITY_COPY: Record<
 	pass_already_used: "This Reset Pass has already been redeemed",
 };
 
+// Refunding a plan payment does not just return the money: the webhook cancels
+// the Stripe subscription outright, so the dialog has to say so.
+function isPlanPayment(type: Transaction["type"]): boolean {
+	return (
+		type === "dev_plan_start" ||
+		type === "dev_plan_renewal" ||
+		type === "chat_plan_start" ||
+		type === "chat_plan_renewal"
+	);
+}
+
 function RefundButton({
 	orgId,
 	transaction,
@@ -95,6 +117,12 @@ function RefundButton({
 	const router = useRouter();
 	const { toast } = useToast();
 	const [loading, setLoading] = useState(false);
+	const [open, setOpen] = useState(false);
+	const [reason, setReason] = useState<RefundReason | null>(null);
+	const [comments, setComments] = useState("");
+
+	const trimmedComments = comments.trim();
+	const canSubmit = isRefundFeedbackComplete(reason, comments);
 
 	const refund = transaction.refund;
 	if (!refund) {
@@ -102,12 +130,16 @@ function RefundButton({
 	}
 
 	async function handleRefund() {
+		if (!reason) {
+			return;
+		}
 		setLoading(true);
 		try {
 			const { response } = await fetchClient.POST(
 				"/orgs/{id}/transactions/{transactionId}/refund",
 				{
 					params: { path: { id: orgId, transactionId: transaction.id } },
+					body: { reason, comments: trimmedComments || undefined },
 				},
 			);
 			if (!response.ok) {
@@ -115,9 +147,13 @@ function RefundButton({
 			}
 			toast({
 				title: "Refund processing",
-				description:
-					"Your refund has been submitted and will appear in your transaction history shortly.",
+				description: isPlanPayment(transaction.type)
+					? "Your subscription has been cancelled and the refund will appear in your transaction history shortly."
+					: "Your refund has been submitted and will appear in your transaction history shortly.",
 			});
+			setOpen(false);
+			setReason(null);
+			setComments("");
 			router.refresh();
 		} catch {
 			toast({
@@ -152,7 +188,7 @@ function RefundButton({
 	}
 
 	return (
-		<AlertDialog>
+		<AlertDialog open={open} onOpenChange={setOpen}>
 			<AlertDialogTrigger asChild>
 				<Button variant="outline" size="sm" disabled={loading}>
 					{loading ? (
@@ -163,20 +199,53 @@ function RefundButton({
 					Refund
 				</Button>
 			</AlertDialogTrigger>
-			<AlertDialogContent>
+			<AlertDialogContent className="max-h-[85vh] overflow-y-auto">
 				<AlertDialogHeader>
-					<AlertDialogTitle>Refund this purchase?</AlertDialogTitle>
+					<AlertDialogTitle>
+						{isPlanPayment(transaction.type)
+							? "Refund and cancel your subscription?"
+							: "Refund this purchase?"}
+					</AlertDialogTitle>
 					<AlertDialogDescription>
-						${Number(transaction.amount ?? 0).toFixed(2)} will be refunded to
-						your original payment method and{" "}
-						{Number(transaction.creditAmount ?? 0).toFixed(2)} credits will be
-						removed from your balance. This cannot be undone.
+						{isPlanPayment(transaction.type)
+							? `Refunding cancels your subscription completely: $${Number(
+									transaction.amount ?? 0,
+								).toFixed(
+									2,
+								)} goes back to your original payment method and the plan ends right away — not at the end of the billing period — so the rest of this cycle's credits are lost. To use it again you would have to subscribe from scratch. This cannot be undone.`
+							: transaction.type === "dev_plan_reset_pass"
+								? `$${Number(transaction.amount ?? 0).toFixed(2)} will be refunded to your original payment method and the unused Reset Pass removed from your account. Your plan is not affected. This cannot be undone.`
+								: `$${Number(transaction.amount ?? 0).toFixed(2)} will be refunded to your original payment method and ${Number(
+										transaction.creditAmount ?? 0,
+									).toFixed(
+										2,
+									)} credits will be removed from your balance. This cannot be undone.`}
 					</AlertDialogDescription>
 				</AlertDialogHeader>
+				<RefundReasonFieldset
+					idPrefix={transaction.id}
+					reason={reason}
+					onReasonChange={setReason}
+					comments={comments}
+					onCommentsChange={setComments}
+					disabled={loading}
+				/>
 				<AlertDialogFooter>
-					<AlertDialogCancel>Cancel</AlertDialogCancel>
-					<AlertDialogAction onClick={handleRefund}>
-						Request refund
+					<AlertDialogCancel disabled={loading}>
+						{isPlanPayment(transaction.type)
+							? "Keep my subscription"
+							: "Never mind"}
+					</AlertDialogCancel>
+					<AlertDialogAction
+						disabled={loading || !canSubmit}
+						onClick={(e) => {
+							e.preventDefault();
+							void handleRefund();
+						}}
+					>
+						{isPlanPayment(transaction.type)
+							? "Refund and cancel"
+							: "Request refund"}
 					</AlertDialogAction>
 				</AlertDialogFooter>
 			</AlertDialogContent>

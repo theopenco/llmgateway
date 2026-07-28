@@ -27,6 +27,25 @@ interface PeriodPair {
 	previous: number;
 }
 
+interface UrlTraffic {
+	url: string;
+	pageviews: number;
+	visitors: number;
+}
+
+interface ConvertingUrl {
+	url: string;
+	signups: number;
+	payers: number;
+}
+
+interface BlogConversion {
+	path: string;
+	readers: number;
+	signups: number;
+	payers: number;
+}
+
 interface ReportData {
 	products: Map<string, { current: ProductTraffic; previous: ProductTraffic }>;
 	overall: { current: ProductTraffic; previous: ProductTraffic };
@@ -34,6 +53,9 @@ interface ReportData {
 	sources: Array<{ source: string; visitors: number }>;
 	sourcesByProduct: Map<string, Array<{ source: string; visitors: number }>>;
 	traffic: Map<string, PeriodPair>; // bucket -> human/bot/ai
+	topPages: UrlTraffic[];
+	convertingPages: ConvertingUrl[];
+	blogConversions: BlogConversion[];
 }
 
 const PRODUCTS: ReadonlyArray<{ host: string; label: string }> = [
@@ -43,19 +65,45 @@ const PRODUCTS: ReadonlyArray<{ host: string; label: string }> = [
 	{ host: "docs.llmgateway.io", label: "Docs" },
 ];
 
-const EVENTS: ReadonlyArray<{ event: string; label: string }> = [
+// `unique: true` counts distinct persons instead of raw events. Click events
+// use it because a single bot hammering a page can otherwise dominate the
+// weekly number (e.g. 708 pricing clicks from one crawler on 2026-07-11).
+const EVENTS: ReadonlyArray<{
+	event: string;
+	label: string;
+	unique?: boolean;
+}> = [
 	{ event: "user_signed_up", label: "Signups" },
 	{ event: "credits_purchased", label: "Credit purchases" },
 	{ event: "dev_plan_started", label: "DevPass starts" },
 	{ event: "chat_plan_started", label: "Chat plan starts" },
+	{ event: "reset_pass_purchased", label: "Reset passes" },
 	{ event: "onboarding_completed", label: "Onboarding done" },
 	{ event: "playground_chat_sent", label: "Playground chats" },
-	{ event: "cta_clicked", label: "CTA clicks" },
-	{ event: "pricing_plan_clicked", label: "Pricing clicks" },
+	{ event: "cta_clicked", label: "CTA clickers", unique: true },
+	{ event: "pricing_plan_clicked", label: "Pricing clickers", unique: true },
 	{ event: "enterprise_contact_submitted", label: "Enterprise leads" },
 ];
 
 const HOST_LIST = PRODUCTS.map((p) => `'${p.host}'`).join(",");
+
+// The blog is served by the marketing site (apps/ui) only.
+const BLOG_HOST = "llmgateway.io";
+
+// Events that mean the person paid us money. Payment events are captured
+// server-side against the purchasing user's id (see apps/api/src/stripe.ts),
+// which is the same id the frontends pass to posthog.identify, so they share
+// a person with that user's pageview journey.
+const PAYMENT_EVENTS = [
+	"credits_purchased",
+	"dev_plan_started",
+	"chat_plan_started",
+	"reset_pass_purchased",
+] as const;
+const PAYMENT_EVENT_LIST = PAYMENT_EVENTS.map((e) => `'${e}'`).join(",");
+
+// How far before a conversion a pageview may occur and still get credit.
+const ATTRIBUTION_LOOKBACK_DAYS = 30;
 
 function nonEmpty(value: string | undefined): string | undefined {
 	if (!value || value.trim() === "") {
@@ -227,7 +275,8 @@ async function fetchReport(window: ReportWindow): Promise<ReportData> {
 
 	const eventList = EVENTS.map((e) => `'${e.event}'`).join(",");
 	const eventsQuery = `
-		SELECT event, ${periodExpr} AS period, count() AS hits
+		SELECT event, ${periodExpr} AS period, count() AS hits,
+			count(DISTINCT person_id) AS unique_hits
 		FROM events
 		WHERE event IN (${eventList}) AND ${rangeExpr}
 		GROUP BY event, period`;
@@ -275,15 +324,87 @@ async function fetchReport(window: ReportWindow): Promise<ReportData> {
 			AND properties.$host IN (${HOST_LIST})
 		GROUP BY period, bucket`;
 
-	const [perHost, overall, events, sources, sourcesByHost, traffic] =
-		await Promise.all([
-			runHogql(perHostQuery),
-			runHogql(overallQuery),
-			runHogql(eventsQuery),
-			runHogql(sourcesQuery),
-			runHogql(sourcesByProductQuery),
-			runHogql(trafficQuery),
-		]);
+	const topPagesQuery = `
+		SELECT concat(properties.$host, properties.$pathname) AS url,
+			count() AS pageviews,
+			count(DISTINCT person_id) AS visitors
+		FROM events
+		WHERE event = '$pageview'
+			AND timestamp >= toDateTime('${curStart}') AND timestamp < toDateTime('${curEnd}')
+			AND properties.$host IN (${HOST_LIST})
+		GROUP BY url
+		ORDER BY pageviews DESC
+		LIMIT 10`;
+
+	// Persons who converted (signed up / paid) during the current period, with
+	// the timestamp of their first conversion of each kind.
+	const lookbackStart = hogqlTimestamp(
+		shiftDays(window.current.start, -ATTRIBUTION_LOOKBACK_DAYS),
+	);
+	const convertersSubquery = `
+		SELECT person_id,
+			min(if(event = 'user_signed_up', timestamp, NULL)) AS signed_up_at,
+			min(if(event IN (${PAYMENT_EVENT_LIST}), timestamp, NULL)) AS paid_at
+		FROM events
+		WHERE event IN ('user_signed_up',${PAYMENT_EVENT_LIST})
+			AND timestamp >= toDateTime('${curStart}') AND timestamp < toDateTime('${curEnd}')
+		GROUP BY person_id`;
+
+	// A page "converts" a person when they viewed it within the lookback
+	// window before their first signup/payment of the period.
+	const attributedTo = (conversionColumn: string): string =>
+		`ifNull(e.timestamp <= ${conversionColumn} AND e.timestamp >= ${conversionColumn} - INTERVAL ${ATTRIBUTION_LOOKBACK_DAYS} DAY, 0)`;
+
+	const convertingPagesQuery = `
+		SELECT concat(e.properties.$host, e.properties.$pathname) AS url,
+			uniqIf(e.person_id, ${attributedTo("c.paid_at")}) AS payers,
+			uniqIf(e.person_id, ${attributedTo("c.signed_up_at")}) AS signups
+		FROM events AS e
+		JOIN (${convertersSubquery}) AS c ON e.person_id = c.person_id
+		WHERE e.event = '$pageview'
+			AND e.timestamp >= toDateTime('${lookbackStart}') AND e.timestamp < toDateTime('${curEnd}')
+			AND e.properties.$host IN (${HOST_LIST})
+		GROUP BY url
+		HAVING payers > 0 OR signups > 0
+		ORDER BY payers DESC, signups DESC
+		LIMIT 5`;
+
+	const blogConversionsQuery = `
+		SELECT e.properties.$pathname AS path,
+			uniqIf(e.person_id, e.timestamp >= toDateTime('${curStart}')) AS readers,
+			uniqIf(e.person_id, ${attributedTo("c.signed_up_at")}) AS signups,
+			uniqIf(e.person_id, ${attributedTo("c.paid_at")}) AS payers
+		FROM events AS e
+		LEFT JOIN (${convertersSubquery}) AS c ON e.person_id = c.person_id
+		WHERE e.event = '$pageview'
+			AND e.timestamp >= toDateTime('${lookbackStart}') AND e.timestamp < toDateTime('${curEnd}')
+			AND e.properties.$host = '${BLOG_HOST}'
+			AND e.properties.$pathname LIKE '/blog/%'
+		GROUP BY path
+		ORDER BY payers DESC, signups DESC, readers DESC
+		LIMIT 5`;
+
+	const [
+		perHost,
+		overall,
+		events,
+		sources,
+		sourcesByHost,
+		traffic,
+		topPages,
+		convertingPages,
+		blogConversions,
+	] = await Promise.all([
+		runHogql(perHostQuery),
+		runHogql(overallQuery),
+		runHogql(eventsQuery),
+		runHogql(sourcesQuery),
+		runHogql(sourcesByProductQuery),
+		runHogql(trafficQuery),
+		runHogql(topPagesQuery),
+		runHogql(convertingPagesQuery),
+		runHogql(blogConversionsQuery),
+	]);
 
 	const products = new Map<
 		string,
@@ -320,18 +441,23 @@ async function fetchReport(window: ReportWindow): Promise<ReportData> {
 	}
 
 	const eventsData = new Map<string, PeriodPair>();
+	const uniqueEvents = new Set(
+		EVENTS.filter((e) => e.unique).map((e) => e.event),
+	);
 	for (const { event } of EVENTS) {
 		eventsData.set(event, { current: 0, previous: 0 });
 	}
 	for (const row of events) {
-		const entry = eventsData.get(String(row[0]));
+		const event = String(row[0]);
+		const entry = eventsData.get(event);
 		if (!entry) {
 			continue;
 		}
+		const value = uniqueEvents.has(event) ? num(row[3]) : num(row[2]);
 		if (row[1] === "current") {
-			entry.current = num(row[2]);
+			entry.current = value;
 		} else {
-			entry.previous = num(row[2]);
+			entry.previous = value;
 		}
 	}
 
@@ -374,6 +500,25 @@ async function fetchReport(window: ReportWindow): Promise<ReportData> {
 		}
 	}
 
+	const topPagesData = topPages.map((row) => ({
+		url: String(row[0]),
+		pageviews: num(row[1]),
+		visitors: num(row[2]),
+	}));
+
+	const convertingPagesData = convertingPages.map((row) => ({
+		url: String(row[0]),
+		payers: num(row[1]),
+		signups: num(row[2]),
+	}));
+
+	const blogConversionsData = blogConversions.map((row) => ({
+		path: String(row[0]),
+		readers: num(row[1]),
+		signups: num(row[2]),
+		payers: num(row[3]),
+	}));
+
 	return {
 		products,
 		overall: overallData,
@@ -381,6 +526,9 @@ async function fetchReport(window: ReportWindow): Promise<ReportData> {
 		sources: sourcesData,
 		sourcesByProduct,
 		traffic: trafficData,
+		topPages: topPagesData,
+		convertingPages: convertingPagesData,
+		blogConversions: blogConversionsData,
 	};
 }
 
@@ -398,6 +546,10 @@ function formatDelta(current: number, previous: number): string {
 }
 
 type Align = "left" | "right";
+
+function truncatePath(value: string, max: number): string {
+	return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+}
 
 function renderTable(
 	headers: string[],
@@ -458,6 +610,37 @@ function buildEmbed(window: ReportWindow, data: ReportData) {
 		"right",
 	]);
 
+	const topPagesTable = renderTable(
+		["Page", "Views", "Visitors"],
+		data.topPages.map((p) => [
+			truncatePath(p.url, 40),
+			formatInt(p.pageviews),
+			formatInt(p.visitors),
+		]),
+		["left", "right", "right"],
+	);
+
+	const convertingTable = renderTable(
+		["Page", "Payers", "Signups"],
+		data.convertingPages.map((p) => [
+			truncatePath(p.url, 40),
+			formatInt(p.payers),
+			formatInt(p.signups),
+		]),
+		["left", "right", "right"],
+	);
+
+	const blogTable = renderTable(
+		["Post", "Readers", "Signups", "Payers"],
+		data.blogConversions.map((b) => [
+			truncatePath(b.path.replace(/^\/blog\//, ""), 34),
+			formatInt(b.readers),
+			formatInt(b.signups),
+			formatInt(b.payers),
+		]),
+		["left", "right", "right", "right"],
+	);
+
 	const sources = data.sources
 		.map((s) => `${s.source} (${formatInt(s.visitors)})`)
 		.join(" · ");
@@ -488,6 +671,18 @@ function buildEmbed(window: ReportWindow, data: ReportData) {
 		"**Conversions & engagement**",
 		"```",
 		eventTable,
+		"```",
+		"**Top pages**",
+		"```",
+		data.topPages.length > 0 ? topPagesTable : "no data",
+		"```",
+		"**Top converting pages** · viewed before signup/purchase",
+		"```",
+		data.convertingPages.length > 0 ? convertingTable : "no data",
+		"```",
+		"**Blog posts** · readers this period, conversions they drove",
+		"```",
+		data.blogConversions.length > 0 ? blogTable : "no data",
 		"```",
 		`**Top sources** · ${sources || "no data"}`,
 		"",

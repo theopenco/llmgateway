@@ -181,4 +181,13 @@ describe("providerKeyBaseUrlSupportsServiceTier", () => {
 			),
 		).toBe(true);
 	});
+
+	it("allows a custom base URL on glacier (no static default upstream)", () => {
+		expect(
+			providerKeyBaseUrlSupportsServiceTier(
+				"glacier",
+				"https://glacier.internal/v1beta",
+			),
+		).toBe(true);
+	});
 });

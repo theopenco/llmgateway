@@ -1,6 +1,9 @@
 import { HTTPException } from "hono/http-exception";
 
-import { findActiveIamRules } from "@/lib/cached-queries.js";
+import {
+	findActiveIamRules,
+	findActiveUserIamRules,
+} from "@/lib/cached-queries.js";
 import { anyCidrMatches } from "@/lib/client-ip.js";
 import { validateEndUserSessionModelAccess } from "@/lib/end-user-session.js";
 
@@ -40,37 +43,40 @@ export interface IamValidationResult {
 	allowedProviders?: ProviderId[];
 }
 
-export async function validateModelAccess(
-	apiKeyId: string,
-	requestedModel: string,
-	requestedProvider?: string,
-	activeModelInfo?: ModelDefinition,
-	clientIp?: string,
+// Scope-specific guidance appended to denial reasons so the caller knows which
+// layer denied: their own key's rules, or the member-level ceiling their org
+// admin set (which key rules can only further restrict, never expand).
+const scopeDenialSuffix = {
+	key: " Adapt your LLMGateway API key IAM permissions in the dashboard or contact your LLMGateway API Key issuer.",
+	member:
+		" This restriction is an organization member IAM rule set by your org admin.",
+} as const;
+
+type IamRuleScope = keyof typeof scopeDenialSuffix;
+
+// Evaluate one scope's rule set (member-level or key-level). Allow rules of
+// the same type are unioned within the scope; deny rules always apply. The
+// caller chains scopes by seeding `initialAllowedProviders` with the previous
+// scope's surviving set, which gives AND semantics across scopes — including
+// when this scope has zero rules (empty rules pass the initial set through
+// unchanged rather than resetting to all model providers).
+async function evaluateIamRuleSet(
+	iamRules: IamRule[],
+	modelDef: ModelDefinition,
+	requestedProvider: string | undefined,
+	initialAllowedProviders: Set<ProviderId>,
+	clientIp: string | undefined,
+	scope: IamRuleScope,
 ): Promise<IamValidationResult> {
-	// Get all active IAM rules for this API key (using cacheable select builder)
-	const iamRules = await findActiveIamRules(apiKeyId);
-
-	// Use the provided active model info (with deactivated providers filtered out)
-	// or fall back to looking up from the global models list
-	const modelDef =
-		activeModelInfo ?? models.find((m) => m.id === requestedModel);
-	if (!modelDef) {
-		return { allowed: false, reason: `Model ${requestedModel} not found` };
-	}
-
-	// If no rules exist, allow all access (backwards compatibility)
 	if (iamRules.length === 0) {
 		return {
 			allowed: true,
-			allowedProviders: modelDef.providers.map((p) => p.providerId),
+			allowedProviders: Array.from(initialAllowedProviders),
 		};
 	}
 
-	// Get all provider IDs for this model (only active providers if activeModelInfo was provided)
-	const modelProviderIds = modelDef.providers.map((p) => p.providerId);
-
 	// Track which providers are allowed/denied by IAM rules
-	let allowedProviders: Set<ProviderId> = new Set(modelProviderIds);
+	let allowedProviders: Set<ProviderId> = new Set(initialAllowedProviders);
 
 	// Allow rules of the same type are unioned: the request passes the group if
 	// ANY rule in it allows the request. Deny rules always apply individually.
@@ -121,7 +127,8 @@ export async function validateModelAccess(
 				allowed: false,
 				reason:
 					(firstDenial?.reason ?? "Request denied by IAM rules.") +
-					` Adapt your LLMGateway API key IAM permissions in the dashboard or contact your LLMGateway API Key issuer. (Rule ID${group.length > 1 ? "s" : ""}: ${group.map((r) => r.id).join(", ")})`,
+					scopeDenialSuffix[scope] +
+					` (Rule ID${group.length > 1 ? "s" : ""}: ${group.map((r) => r.id).join(", ")})`,
 			};
 		}
 		if (unionedProviders) {
@@ -141,8 +148,7 @@ export async function validateModelAccess(
 			return {
 				allowed: false,
 				reason:
-					result.reason +
-					` Adapt your LLMGateway API key IAM permissions in the dashboard or contact your LLMGateway API Key issuer. (Rule ID: ${rule.id})`,
+					result.reason + scopeDenialSuffix[scope] + ` (Rule ID: ${rule.id})`,
 			};
 		}
 		if (result.allowedProviders) {
@@ -154,26 +160,78 @@ export async function validateModelAccess(
 	if (allowedProviders.size === 0) {
 		return {
 			allowed: false,
-			reason: `No providers are allowed for model ${requestedModel} due to IAM rules`,
+			reason:
+				`No providers are allowed for model ${modelDef.id} due to IAM rules.` +
+				scopeDenialSuffix[scope],
 		};
 	}
 
 	return { allowed: true, allowedProviders: Array.from(allowedProviders) };
 }
 
-export async function validateRequestModelAccess(
-	apiKey: GatewayApiKey,
+export async function validateModelAccess(
+	apiKeyId: string,
 	requestedModel: string,
 	requestedProvider?: string,
 	activeModelInfo?: ModelDefinition,
 	clientIp?: string,
-	options: { autoRouting?: boolean } = {},
 ): Promise<IamValidationResult> {
+	// Get all active IAM rules for this API key (using cacheable select builder)
+	const iamRules = await findActiveIamRules(apiKeyId);
+
+	// Use the provided active model info (with deactivated providers filtered out)
+	// or fall back to looking up from the global models list
+	const modelDef =
+		activeModelInfo ?? models.find((m) => m.id === requestedModel);
+	if (!modelDef) {
+		return { allowed: false, reason: `Model ${requestedModel} not found` };
+	}
+
+	return await evaluateIamRuleSet(
+		iamRules,
+		modelDef,
+		requestedProvider,
+		new Set(modelDef.providers.map((p) => p.providerId)),
+		clientIp,
+		"key",
+	);
+}
+
+export async function validateRequestModelAccess(params: {
+	apiKey: GatewayApiKey;
+	organizationId: string;
+	requestedModel: string;
+	requestedProvider?: string;
+	activeModelInfo?: ModelDefinition;
+	clientIp?: string;
+	autoRouting?: boolean;
+	// When set, only rules of these types are evaluated (member and key level).
+	// Used by endpoints running a fixed pseudo-model outside the catalogue
+	// (moderations): model/pricing allowlists can never name that model, so
+	// evaluating them would deny with no way to allowlist it.
+	applicableRuleTypes?: readonly IamRule["ruleType"][];
+}): Promise<IamValidationResult> {
+	const {
+		apiKey,
+		organizationId,
+		requestedModel,
+		requestedProvider,
+		activeModelInfo,
+		clientIp,
+		autoRouting,
+		applicableRuleTypes,
+	} = params;
+
+	const filterRules = (rules: IamRule[]) =>
+		applicableRuleTypes
+			? rules.filter((rule) => applicableRuleTypes.includes(rule.ruleType))
+			: rules;
+
 	const sessionValidation = validateEndUserSessionModelAccess(
 		apiKey,
 		requestedModel,
 		activeModelInfo,
-		options,
+		{ autoRouting },
 	);
 	if (sessionValidation) {
 		if (
@@ -189,12 +247,43 @@ export async function validateRequestModelAccess(
 		return sessionValidation;
 	}
 
-	return await validateModelAccess(
-		apiKey.id,
-		requestedModel,
+	const modelDef =
+		activeModelInfo ?? models.find((m) => m.id === requestedModel);
+	if (!modelDef) {
+		return { allowed: false, reason: `Model ${requestedModel} not found` };
+	}
+
+	// Member-level rules are the ceiling set by org owners/admins; the key's own
+	// rules are evaluated second, seeded with the member stage's surviving
+	// provider set, so key rules can only narrow access, never expand it.
+	// Member rules only bind normal developer keys: platform keys are org
+	// infrastructure whose `createdBy` is merely whoever clicked create, and
+	// end-user sessions were already handled above.
+	const memberRules =
+		apiKey.keyType === "user"
+			? await findActiveUserIamRules(apiKey.createdBy, organizationId)
+			: [];
+
+	const memberResult = await evaluateIamRuleSet(
+		filterRules(memberRules),
+		modelDef,
 		requestedProvider,
-		activeModelInfo,
+		new Set(modelDef.providers.map((p) => p.providerId)),
 		clientIp,
+		"member",
+	);
+	if (!memberResult.allowed) {
+		return memberResult;
+	}
+
+	const keyRules = await findActiveIamRules(apiKey.id);
+	return await evaluateIamRuleSet(
+		filterRules(keyRules),
+		modelDef,
+		requestedProvider,
+		new Set(memberResult.allowedProviders),
+		clientIp,
+		"key",
 	);
 }
 

@@ -26,6 +26,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
 
+import {
+	isRefundFeedbackComplete,
+	type RefundReason,
+} from "@llmgateway/shared";
+import { RefundReasonFieldset } from "@llmgateway/shared/components";
+
 import type { paths } from "@/lib/api/v1";
 import type { ReactNode } from "react";
 
@@ -138,12 +144,21 @@ function RefundButton({ invoice }: { invoice: Invoice }) {
 	const api = useApi();
 	const queryClient = useQueryClient();
 	const isResetPass = invoice.type === "dev_plan_reset_pass";
+	const [open, setOpen] = useState(false);
+	const [reason, setReason] = useState<RefundReason | null>(null);
+	const [comments, setComments] = useState("");
+
+	const trimmedComments = comments.trim();
+	const canSubmit = isRefundFeedbackComplete(reason, comments);
 
 	const refundMutation = api.useMutation(
 		"post",
 		"/dev-plans/invoices/{invoiceId}/refund",
 		{
 			onSuccess: () => {
+				setOpen(false);
+				setReason(null);
+				setComments("");
 				toast.success(
 					isResetPass
 						? "Refund processing. The unused pass has been returned and the refund will arrive within a few business days."
@@ -190,7 +205,7 @@ function RefundButton({ invoice }: { invoice: Invoice }) {
 	}
 
 	return (
-		<AlertDialog>
+		<AlertDialog open={open} onOpenChange={setOpen}>
 			<AlertDialogTrigger asChild>
 				<Button variant="outline" size="sm" disabled={refundMutation.isPending}>
 					{refundMutation.isPending ? (
@@ -201,27 +216,43 @@ function RefundButton({ invoice }: { invoice: Invoice }) {
 					<span className="sr-only sm:not-sr-only">Refund</span>
 				</Button>
 			</AlertDialogTrigger>
-			<AlertDialogContent>
+			<AlertDialogContent className="max-h-[85vh] overflow-y-auto">
 				<AlertDialogHeader>
 					<AlertDialogTitle>
-						{isResetPass ? "Refund this Reset Pass?" : "Refund this payment?"}
+						{isResetPass
+							? "Refund this Reset Pass?"
+							: "Refund and cancel your DevPass?"}
 					</AlertDialogTitle>
 					<AlertDialogDescription>
 						{isResetPass
 							? `${formatAmount(invoice.amount, invoice.currency)} will be refunded to your payment method and the unused pass removed from your passport. Your DevPass plan is not affected. This cannot be undone.`
-							: `${formatAmount(invoice.amount, invoice.currency)} will be refunded to your payment method and your DevPass will be cancelled immediately. This cannot be undone.`}
+							: `Refunding cancels your subscription completely: ${formatAmount(invoice.amount, invoice.currency)} goes back to your payment method and your DevPass ends right away — not at the end of the billing period — so the rest of this cycle's credits are lost. To use DevPass again you would have to subscribe from scratch. This cannot be undone.`}
 					</AlertDialogDescription>
 				</AlertDialogHeader>
+				<RefundReasonFieldset
+					idPrefix={invoice.id}
+					reason={reason}
+					onReasonChange={setReason}
+					comments={comments}
+					onCommentsChange={setComments}
+					disabled={refundMutation.isPending}
+				/>
 				<AlertDialogFooter>
-					<AlertDialogCancel>
+					<AlertDialogCancel disabled={refundMutation.isPending}>
 						{isResetPass ? "Keep my pass" : "Keep my DevPass"}
 					</AlertDialogCancel>
 					<AlertDialogAction
-						onClick={() =>
+						disabled={refundMutation.isPending || !canSubmit}
+						onClick={(e) => {
+							e.preventDefault();
+							if (!reason) {
+								return;
+							}
 							refundMutation.mutate({
 								params: { path: { invoiceId: invoice.id } },
-							})
-						}
+								body: { reason, comments: trimmedComments || undefined },
+							});
+						}}
 					>
 						{isResetPass ? "Refund pass" : "Refund and cancel"}
 					</AlertDialogAction>

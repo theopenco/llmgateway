@@ -50,8 +50,7 @@ export function getValidationModel(
 
 	// Resolve the selected region from provider key options
 	const providerDef = providers.find((p) => p.id === provider) as
-		| ProviderDefinition
-		| undefined;
+		ProviderDefinition | undefined;
 	const regionKey = providerDef?.regionConfig?.optionsKey;
 	const selectedRegion = regionKey
 		? ((providerKeyOptions as Record<string, string | undefined> | undefined)?.[
@@ -104,6 +103,7 @@ export function getValidationModel(
 				providerMapping.videoGenerations ||
 				providerMapping.embeddings ||
 				providerMapping.speechGenerations ||
+				providerMapping.transcriptions ||
 				providerMapping.ocr
 			) {
 				return [];
@@ -215,8 +215,7 @@ export async function validateProviderKey(
 
 		// Resolve region from provider key options for region-aware providers
 		const providerDef = providers.find((p) => p.id === provider) as
-			| ProviderDefinition
-			| undefined;
+			ProviderDefinition | undefined;
 		const regionOptionsKey = providerDef?.regionConfig?.optionsKey;
 		const validationRegion = regionOptionsKey
 			? ((
@@ -230,6 +229,7 @@ export async function validateProviderKey(
 			effectiveModelId, // Pass model ID for providers that need it in the URL (e.g., aws-bedrock, azure)
 			provider === "google-ai-studio" ||
 				provider === "glacier" ||
+				provider === "iceberg" ||
 				provider === "google-vertex" ||
 				provider === "quartz" ||
 				provider === "vertex-anthropic"

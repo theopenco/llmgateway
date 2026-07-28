@@ -262,6 +262,35 @@
 	}
 }
 
+@keyframes scroll-reveal-in {
+	from {
+		opacity: 0;
+		transform: translateY(24px) scale(0.985);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+
+/*
+ * Scroll-driven reveal for below-the-fold marketing sections. CSS-only (no
+ * hydration gate, so SSR HTML paints immediately) and progressive: browsers
+ * without scroll-driven animations render the final state, and reduced-motion
+ * users get no movement.
+ */
+@utility scroll-reveal {
+	@supports (animation-timeline: view()) {
+		animation: scroll-reveal-in linear both;
+		animation-timeline: view();
+		animation-range: entry 5% cover 28%;
+
+		@media (prefers-reduced-motion: reduce) {
+			animation: none;
+		}
+	}
+}
+
 @utility hero-enter-delay-1 {
 	animation-delay: 0.15s;
 }

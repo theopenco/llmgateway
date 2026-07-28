@@ -37,6 +37,7 @@ import {
 } from "@/lib/components/tooltip";
 import { useAppConfig } from "@/lib/config";
 import { XIcon } from "@/lib/icons/XIcon";
+import { getLoungeStudioPath } from "@/lib/model-utils";
 import { formatContextSize, formatDeprecationDate } from "@/lib/utils";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
@@ -806,12 +807,12 @@ export function ModelProviderCard({
 					asChild
 				>
 					<a
-						href={`${config.playgroundUrl}?model=${encodeURIComponent(providerModelName)}`}
+						href={`${config.playgroundUrl}${getLoungeStudioPath(modelOutput)}?model=${encodeURIComponent(providerModelName)}`}
 						target="_blank"
 						rel="noopener noreferrer"
 					>
 						<Play className="h-4 w-4" />
-						Try in Playground
+						Try in Lounge
 					</a>
 				</Button>
 			</CardContent>

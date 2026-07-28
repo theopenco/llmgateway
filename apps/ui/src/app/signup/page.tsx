@@ -45,8 +45,8 @@ const createFormSchema = (isHosted: boolean) =>
 			: z.string().email({
 					message: "Please enter a valid email address",
 				}),
-		password: z.string().min(8, {
-			message: "Password must be at least 8 characters",
+		password: z.string().min(12, {
+			message: "Password must be at least 12 characters",
 		}),
 		newsletter: z.boolean(),
 	});
@@ -251,7 +251,7 @@ export default function Signup() {
 										</div>
 									</FormControl>
 									<p className="text-xs text-muted-foreground">
-										Minimum 8 characters
+										Minimum 12 characters
 									</p>
 									<FormMessage />
 								</FormItem>

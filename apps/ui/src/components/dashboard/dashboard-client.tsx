@@ -211,8 +211,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 	// Get metric type from URL params, default to "costs"
 	const metricParam = searchParams.get("metric");
 	const metric = (metricParam === "requests" ? "requests" : "costs") as
-		| "costs"
-		| "requests";
+		"costs" | "requests";
 
 	// If no from/to params exist, add them to the URL immediately
 	useEffect(() => {
@@ -628,7 +627,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 														<CardDescription className="mt-1">
 															Add credits to your organization to unlock all
 															paid models. Free models are always available via
-															the playground.
+															the Lounge.
 														</CardDescription>
 													</div>
 												</div>
@@ -684,7 +683,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 															rel="noopener noreferrer"
 														>
 															<FlaskConical className="mr-2 h-4 w-4" />
-															Try free models
+															Try models in the Lounge
 															<ExternalLink className="ml-1.5 h-3 w-3" />
 														</a>
 													</Button>
@@ -740,7 +739,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 														rel="noopener noreferrer"
 													>
 														<FlaskConical className="mr-2 h-4 w-4" />
-														Playground
+														Lounge
 														<ExternalLink className="ml-1.5 h-3 w-3" />
 													</a>
 												</Button>

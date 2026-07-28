@@ -37,6 +37,7 @@ import {
 	providerKey as providerKeyTable,
 	rateLimit as rateLimitTable,
 	user as userTable,
+	userIamRule as userIamRuleTable,
 	userOrganization as userOrganizationTable,
 	wallet as walletTable,
 } from "@llmgateway/db";
@@ -61,6 +62,7 @@ import type {
 	project,
 	providerKey,
 	user,
+	userIamRule,
 	userOrganization,
 	wallet,
 } from "@llmgateway/db";
@@ -69,6 +71,7 @@ import type {
 type ApiKey = InferSelectModel<typeof apiKey>;
 type EndUserSession = InferSelectModel<typeof endUserSession>;
 type ApiKeyIamRule = InferSelectModel<typeof apiKeyIamRule>;
+type UserIamRule = InferSelectModel<typeof userIamRule>;
 export type CustomModel = InferSelectModel<typeof customModel>;
 type Organization = InferSelectModel<typeof organization>;
 type Project = InferSelectModel<typeof project>;
@@ -89,6 +92,7 @@ const providerKeyTableName = getTableName(providerKeyTable);
 const customModelTableName = getTableName(customModelTable);
 const rateLimitTableName = getTableName(rateLimitTable);
 const userTableName = getTableName(userTable);
+const userIamRuleTableName = getTableName(userIamRuleTable);
 const userOrganizationTableName = getTableName(userOrganizationTable);
 const walletTableName = getTableName(walletTable);
 
@@ -564,6 +568,41 @@ export async function findActiveIamRules(
 						eq(apiKeyIamRuleTable.status, "active"),
 					),
 				),
+	);
+}
+
+/**
+ * Find all active member-level IAM rules for a user in an organization
+ * (cacheable). These are the ceiling set by org owners/admins; API-key rules
+ * can only further restrict within them.
+ */
+export async function findActiveUserIamRules(
+	userId: string,
+	organizationId: string,
+): Promise<UserIamRule[]> {
+	return await swrWrap(
+		`userIamRules:${organizationId}:${userId}`,
+		// Depend on user_organization too so membership changes (which cascade
+		// rule deletion in Postgres without touching the rule table via cdb)
+		// still invalidate this entry.
+		[userIamRuleTableName, userOrganizationTableName],
+		async () => {
+			const rows = await db
+				.select({ rule: userIamRuleTable })
+				.from(userIamRuleTable)
+				.innerJoin(
+					userOrganizationTable,
+					eq(userOrganizationTable.id, userIamRuleTable.userOrganizationId),
+				)
+				.where(
+					and(
+						eq(userOrganizationTable.userId, userId),
+						eq(userOrganizationTable.organizationId, organizationId),
+						eq(userIamRuleTable.status, "active"),
+					),
+				);
+			return rows.map((row) => row.rule);
+		},
 	);
 }
 

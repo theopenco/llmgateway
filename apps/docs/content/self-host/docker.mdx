@@ -76,7 +76,7 @@ LLM_OPENAI_API_KEY=sk-...
 LLM_ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-LLM Gateway supports multiple API keys per provider for load balancing — provide comma-separated values. See [Docker Compose](/self-host/docker-compose#multiple-api-keys-and-load-balancing) for details.
+LLM Gateway supports multiple API keys per provider for load balancing — provide comma-separated values. See [Docker Compose](/self-host/docker-compose#multiple-api-keys-and-load-balancing) for details. Provider env vars also support optional `__ENTERPRISE` / `__PLANS` suffix overrides used only for enterprise-plan or plan-based (DevPass/Chat plan) organizations — see [Enterprise and plan provider env overrides](/self-host/docker-compose#enterprise-and-plan-provider-env-overrides).
 
 ## Next steps
 

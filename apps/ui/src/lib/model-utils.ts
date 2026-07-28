@@ -41,6 +41,21 @@ export function getProviderForModel(
 	return providers.find((p) => p.id === primaryProvider?.providerId);
 }
 
+export function getLoungeStudioPath(
+	output: readonly string[] | null | undefined,
+): string {
+	if (output?.includes("video")) {
+		return "/video";
+	}
+	if (output?.includes("image")) {
+		return "/image";
+	}
+	if (output?.includes("audio")) {
+		return "/audio";
+	}
+	return "";
+}
+
 export function getModelCapabilities(model: ModelDefinition): string[] {
 	const capabilities: string[] = [];
 	const provider = model.providers[0];

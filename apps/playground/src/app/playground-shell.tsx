@@ -5,11 +5,8 @@ import { LastUsedProjectTracker } from "@/components/last-used-project-tracker";
 import ChatPageClient from "@/components/playground/chat-page-client";
 import OrgPageClient from "@/components/playground/org-page-client";
 import { PlaygroundSeoSection } from "@/components/seo/playground-seo-section";
+import { CHAT_CONTEXT_COOKIE } from "@/lib/constants";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
-import {
-	CHAT_MODEL_COOKIE,
-	decodeModelPreference,
-} from "@/lib/model-preferences";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { Organization, Project } from "@/lib/types";
@@ -47,9 +44,6 @@ export async function renderPlaygroundShell({
 	const { projectId } = searchParams;
 	let { model } = searchParams;
 	const cookieStore = await cookies();
-	const initialModelPreference = decodeModelPreference(
-		cookieStore.get(CHAT_MODEL_COOKIE)?.value,
-	);
 
 	if (hints === "search" && !model) {
 		model = "google-ai-studio/gemini-3-flash-preview";
@@ -87,7 +81,9 @@ export async function renderPlaygroundShell({
 	// org land on that org instead; the Chat plan context stays the default only
 	// when no org has credits, so the plan upsell can take over. Runs before the
 	// chat-org fetch so redirected users never get a Chat org provisioned.
-	if (!orgId && !orgShareView) {
+	// Skipped when the user explicitly picked the Chat plan context in the org
+	// switcher (cookie) — this fallback must not override an explicit choice.
+	if (!orgId && !orgShareView && !cookieStore.get(CHAT_CONTEXT_COOKIE)) {
 		const chatPlanStatusData = await fetchServerData(
 			"GET",
 			"/chat-plans/status",
@@ -248,7 +244,10 @@ export async function renderPlaygroundShell({
 			) : null}
 			<PlaygroundSeoSection variant="chat" />
 			<ChatPageClient
-				models={models.filter((m) => !m.output?.includes("embedding"))}
+				models={models.filter(
+					(m) =>
+						!m.output?.includes("embedding") && !m.output?.includes("rerank"),
+				)}
 				providers={providers}
 				organizations={organizations}
 				selectedOrganization={selectedOrganization}
@@ -256,7 +255,6 @@ export async function renderPlaygroundShell({
 				selectedProject={selectedProject}
 				initialPrompt={q}
 				enableWebSearch={hints === "search"}
-				initialModelPreference={initialModelPreference}
 			/>
 		</>
 	);

@@ -2,6 +2,7 @@ import { logger } from "@llmgateway/logger";
 import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import { parseDataUrl } from "./parse-data-url.js";
+import { RequestError } from "./request-error.js";
 
 /**
  * Generates a user-friendly error message for image size limits
@@ -89,7 +90,7 @@ export async function processImageUrl(
 		logger.warn("Non-HTTPS URL provided for image fetch in production", {
 			url: url.substring(0, 20) + "...",
 		});
-		throw new Error("Image URLs must use HTTPS protocol in production");
+		throw new RequestError("Image URLs must use HTTPS protocol in production");
 	}
 
 	// SSRF: a tenant-supplied content URL must not resolve to an internal host.

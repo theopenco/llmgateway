@@ -1,3 +1,4 @@
+import { z } from "@hono/zod-openapi";
 import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 
@@ -5,15 +6,20 @@ import { getStripe } from "@/routes/payments.js";
 import { getPaymentIntentFromInvoicePayments } from "@/stripe.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
+import { db, tables } from "@llmgateway/db";
 import {
 	CHAT_PLAN_PRICES,
 	DEV_PLAN_PRICES,
 	DEV_PLAN_RESET_PASS_PRICES,
+	isRefundFeedbackComplete,
+	REFUND_COMMENTS_MAX_LENGTH,
+	REFUND_REASONS,
 	type ChatPlanTier,
 	type DevPlanTier,
 } from "@llmgateway/shared";
 
-import type { tables } from "@llmgateway/db";
+import type { RefundFeedbackKind } from "@llmgateway/db";
+import type { RefundReason } from "@llmgateway/shared";
 
 type OrganizationRow = typeof tables.organization.$inferSelect;
 type TransactionRow = typeof tables.transaction.$inferSelect;
@@ -78,6 +84,43 @@ export function isSelfRefundCandidateType(
 ): type is SelfRefundableType {
 	return (SELF_REFUNDABLE_TYPES as readonly string[]).includes(type);
 }
+
+const REFUND_FEEDBACK_KIND_BY_TYPE: Record<
+	SelfRefundableType,
+	RefundFeedbackKind
+> = {
+	credit_topup: "credits",
+	dev_plan_start: "devpass",
+	dev_plan_renewal: "devpass",
+	dev_plan_reset_pass: "devpass",
+	chat_plan_start: "chat",
+	chat_plan_renewal: "chat",
+};
+
+export function refundFeedbackKindForType(type: string): RefundFeedbackKind {
+	return isSelfRefundCandidateType(type)
+		? REFUND_FEEDBACK_KIND_BY_TYPE[type]
+		: "credits";
+}
+
+/**
+ * Body both self-refund endpoints take: a required category so every refund
+ * yields comparable data, plus optional freeform detail.
+ */
+export const refundFeedbackBodySchema = z.object({
+	reason: z.enum(REFUND_REASONS).openapi({
+		description: "Closest category for why the customer wants a refund",
+	}),
+	comments: z
+		.string()
+		.trim()
+		.max(REFUND_COMMENTS_MAX_LENGTH)
+		.optional()
+		.openapi({
+			description:
+				"Freeform detail. Optional, except when reason is 'other' — that category carries no signal on its own.",
+		}),
+});
 
 function ineligible(
 	reason: SelfRefundIneligibilityReason,
@@ -388,16 +431,45 @@ export function computeSelfRefundEligibility({
  * the resulting customer.subscription.deleted resets the plan fields. Keeping
  * the cancellation in the webhook means it fires for every refund source, not
  * just this endpoint.
+ *
+ * `reason` and the optional `comments` are why the user says they are
+ * refunding; they are stored before the refund is issued so the feedback
+ * survives a Stripe failure.
  */
 export async function executeSelfRefund({
 	organization,
 	transaction,
 	userId,
+	reason,
+	comments,
 }: {
 	organization: OrganizationRow;
 	transaction: TransactionRow;
 	userId: string;
+	reason: RefundReason;
+	comments?: string;
 }): Promise<{ stripeRefundId: string }> {
+	if (!isRefundFeedbackComplete(reason, comments)) {
+		throw new HTTPException(400, {
+			message: "Tell us what happened so we know what to fix.",
+		});
+	}
+
+	await db
+		.insert(tables.refundFeedback)
+		.values({
+			organizationId: organization.id,
+			userId,
+			transactionId: transaction.id,
+			kind: refundFeedbackKindForType(transaction.type),
+			reason,
+			comments: comments ?? null,
+		})
+		.onConflictDoUpdate({
+			target: tables.refundFeedback.transactionId,
+			set: { reason, comments: comments ?? null, userId },
+		});
+
 	const stripe = getStripe();
 
 	let paymentIntentId = transaction.stripePaymentIntentId;

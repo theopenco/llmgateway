@@ -24,9 +24,7 @@ interface OpenAIStreamChunk {
 }
 
 type StreamingChunk =
-	| AnthropicStreamChunk
-	| GoogleStreamChunk
-	| OpenAIStreamChunk;
+	AnthropicStreamChunk | GoogleStreamChunk | OpenAIStreamChunk;
 
 export function extractReasoning(
 	data: StreamingChunk,
@@ -47,6 +45,7 @@ export function extractReasoning(
 		}
 		case "google-ai-studio":
 		case "glacier":
+		case "iceberg":
 		case "google-vertex":
 		case "quartz": {
 			const chunk = data as GoogleStreamChunk;

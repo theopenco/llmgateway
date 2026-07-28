@@ -38,8 +38,11 @@ import { tracingMiddleware } from "./middleware/tracing.js";
 import { models } from "./models/route.js";
 import { moderationsRoute } from "./moderations/route.js";
 import { ocrRoute } from "./ocr/route.js";
+import { realtimeClientSecretsRoute } from "./realtime/client-secrets-route.js";
+import { rerankRoute } from "./rerank/route.js";
 import { responses } from "./responses/responses.js";
 import { speechRoute } from "./speech/route.js";
+import { transcriptionsRoute } from "./transcriptions/route.js";
 import { videosRoute } from "./videos/route.js";
 
 import type { ServerTypes } from "./vars.js";
@@ -109,12 +112,14 @@ app.use(
 // Excludes /mcp endpoint which handles its own content type validation
 // Excludes /oauth endpoints which accept form-urlencoded or JSON
 // Excludes /v1/images endpoints which accept multipart/form-data for file uploads
+// Excludes /v1/audio/transcriptions which accepts multipart/form-data audio uploads
 app.use("*", async (c, next) => {
 	if (
 		c.req.method === "POST" &&
 		!c.req.path.startsWith("/mcp") &&
 		!c.req.path.startsWith("/oauth") &&
-		!c.req.path.startsWith("/v1/images")
+		!c.req.path.startsWith("/v1/images") &&
+		!c.req.path.startsWith("/v1/audio/transcriptions")
 	) {
 		const contentType = c.req.header("Content-Type");
 		if (!contentType || !contentType.includes("application/json")) {
@@ -346,9 +351,12 @@ v1.route("/key", keyRoute);
 v1.route("/models", models);
 v1.route("/moderations", moderationsRoute);
 v1.route("/ocr", ocrRoute);
+v1.route("/rerank", rerankRoute);
 v1.route("/messages", anthropic);
 v1.route("/responses", responses);
 v1.route("/audio/speech", speechRoute);
+v1.route("/audio/transcriptions", transcriptionsRoute);
+v1.route("/realtime", realtimeClientSecretsRoute);
 v1.route("/videos", videosRoute);
 
 app.route("/v1", v1);

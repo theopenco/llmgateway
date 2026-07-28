@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { FlickeringGrid } from "@/components/ui/flickering-grid";
 import { Marquee } from "@/components/ui/marquee";
 import { NumberTicker } from "@/components/ui/number-ticker";
+import { marqueeTools } from "@/lib/agent-tools";
 import { getConfig } from "@/lib/config-server";
 
 import {
@@ -26,9 +27,7 @@ import {
 } from "@llmgateway/shared";
 import {
 	AnthropicIcon,
-	AutohandIcon,
-	ClineIcon,
-	DevPassCodeIcon,
+	EmpryoIcon,
 	OpenCodeIcon,
 	SoulForgeIcon,
 } from "@llmgateway/shared/components";
@@ -41,18 +40,6 @@ export const metadata: Metadata = {
 
 const modelCount = parseInt(MARKETING_STATS.models, 10);
 const providerCount = parseInt(MARKETING_STATS.providers, 10);
-
-const marqueeTools = [
-	{ name: "DevPass Code", icon: DevPassCodeIcon },
-	{ name: "Claude Code", icon: AnthropicIcon },
-	{ name: "OpenCode", icon: OpenCodeIcon },
-	{ name: "SoulForge", icon: SoulForgeIcon },
-	{ name: "Autohand", icon: AutohandIcon },
-	{ name: "Cline", icon: ClineIcon },
-	{ name: "Cursor" },
-	{ name: "Aider" },
-	{ name: "Continue" },
-] as const;
 
 const featuredTools = [
 	{
@@ -68,6 +55,13 @@ const featuredTools = [
 		description:
 			"LLM Gateway is built into OpenCode. Run `opencode`, type `/connect`, paste your DevPass key. No env vars, no config files.",
 		setup: "/connect → LLM Gateway",
+	},
+	{
+		name: "Empryo",
+		icon: EmpryoIcon,
+		description:
+			"The AI coding agent that edits symbols, not strings. Maps your repo on launch and edits by symbol name. Run `empryo`, type `/keys`, paste your DevPass key.",
+		setup: "/keys → paste your key",
 	},
 	{
 		name: "SoulForge",
@@ -89,7 +83,7 @@ const steps = [
 		step: "02",
 		title: "Plug it into your agent",
 		description:
-			"Two env vars for Claude Code, /connect in OpenCode, /keys in SoulForge. No SDK changes, no code refactor.",
+			"Two env vars for Claude Code, /connect in OpenCode, /keys in Empryo. No SDK changes, no code refactor.",
 	},
 	{
 		step: "03",
@@ -344,8 +338,8 @@ export default function LandingPage() {
 									DevPass Code
 								</span>{" "}
 								— our own terminal agent — is the bearer: one-click browser
-								login, no keys to copy. Claude Code, OpenCode, SoulForge, and
-								every OpenAI-compatible tool get stamped in with two env vars.
+								login, no keys to copy. Claude Code, OpenCode, Empryo, and every
+								OpenAI-compatible tool get stamped in with two env vars.
 							</p>
 						</div>
 

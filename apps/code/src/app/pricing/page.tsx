@@ -61,7 +61,7 @@ const productSchema = {
 	"@type": "Product",
 	name: "DevPass by LLM Gateway",
 	description:
-		"Flat-rate AI coding plans with access to 200+ models — Claude Opus 4.8, GPT-5.5, Gemini 3.1 Pro, GLM-4.7, and more. Works with Claude Code, OpenCode, SoulForge, and any OpenAI-compatible tool.",
+		"Flat-rate AI coding plans with access to 200+ models — Claude Opus 4.8, GPT-5.5, Gemini 3.1 Pro, GLM-4.7, and more. Works with Claude Code, OpenCode, Empryo, SoulForge, and any OpenAI-compatible tool.",
 	brand: {
 		"@type": "Brand",
 		name: "LLM Gateway",
@@ -178,7 +178,7 @@ const includedInEveryPlan = [
 	"All 200+ models — flagships land day one",
 	"Claude Opus 4.8, GPT-5.5, Gemini 3.1 Pro",
 	"Open-weight coders — GLM-4.7, Qwen3, Kimi K2.6",
-	"DevPass Code, Claude Code, OpenCode, SoulForge",
+	"DevPass Code, Claude Code, OpenCode, Empryo, SoulForge",
 	"Any OpenAI/Anthropic-compatible tool",
 	"Real-time dashboard with per-request cost & latency",
 	"Switch tiers anytime — no lock-in, no cancellation fee",
@@ -445,8 +445,9 @@ export default function PricingPage() {
 							Still deciding?
 						</h2>
 						<p className="mb-8 text-muted-foreground">
-							Start on Pro — most developers ship from there. Upgrade any time
-							and your new allowance kicks in instantly.
+							Start on Pro — most developers ship from there. An instant upgrade
+							brings the new allowance right away and rolls your unused credits
+							on top.
 						</p>
 						<div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
 							<GetDevPassButton

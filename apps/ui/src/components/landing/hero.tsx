@@ -39,6 +39,9 @@ const PROVIDER_LOGOS: { name: string; providerId: ProviderId }[] = [
 	{ name: "Cerebras", providerId: "cerebras" },
 	{ name: "Google Vertex", providerId: "google-vertex" },
 	{ name: "MiniMax", providerId: "minimax" },
+	{ name: "SCX.ai", providerId: "scx-ai" },
+	{ name: "Gonka24", providerId: "gonka24" },
+	{ name: "Runware", providerId: "runware" },
 ];
 
 interface MigrationData {
@@ -104,7 +107,9 @@ export function Hero({
 						<div className="h-320 -translate-y-[350px] absolute left-0 top-0 w-56 -rotate-45 bg-[radial-gradient(50%_50%_at_50%_50%,hsla(0,0%,85%,.04)_0,hsla(0,0%,45%,.02)_80%,transparent_100%)]" />
 					</div>
 					<section>
-						<div className="relative pt-24 md:pt-36">
+						{/* pt-36 (not pt-24) on mobile clears the Runware promo banner
+						    stacked above the fixed navbar; revert when the promo ends. */}
+						<div className="relative pt-36">
 							<div
 								aria-hidden
 								className="absolute inset-0 -z-10 size-full [background:radial-gradient(125%_125%_at_50%_100%,transparent_0%,var(--background)_75%)]"

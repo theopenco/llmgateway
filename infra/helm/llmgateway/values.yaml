@@ -135,9 +135,37 @@ gateway:
     healthCheckSkipDatabase: ""
     healthCheckTimeoutMs: 15000
     maxStreamingBufferMb: 50
+  # Hard deadline for pod shutdown; caps every in-process drain above. Defaults
+  # to 120s, or realtime.config.maxSessionSeconds + 120 when realtime.enabled.
+  # Set explicitly only to override that.
+  terminationGracePeriodSeconds: ""
   extraEnv: []
   nodeSelector: {}
   tolerations: []
+
+# =============================================================================
+# Realtime (/v1/realtime WebSocket proxy)
+# =============================================================================
+# Hosted inside the gateway process, not as its own deployment: a separate
+# deployment would need the same drain-before-shutdown behaviour anyway, so it
+# buys isolation at the cost of another service to operate. Disabled by default
+# (staged rollout).
+#
+# Enabling this raises the gateway's terminationGracePeriodSeconds to cover
+# maxSessionSeconds, because a rolling deploy waits for live calls to hang up
+# before retiring a pod. Sessions also pin a caller to one pod for their whole
+# duration, so watch gateway memory as concurrency grows.
+realtime:
+  enabled: false
+  config:
+    # Hard per-session duration cap in seconds (OpenAI caps sessions at 60m).
+    # Also sets how long a gateway pod may spend draining on shutdown.
+    maxSessionSeconds: 3600
+    # Hard per-session spend cap in USD.
+    maxSessionSpendUsd: "10"
+    # Redis-leased concurrency caps.
+    maxSessionsPerOrg: 20
+    maxSessionsPerKey: 10
 
 # =============================================================================
 # UI Dashboard (Next.js)
@@ -396,12 +424,14 @@ llmProviders:
   # LLM_MISTRAL_API_KEY: ""
   # LLM_PERPLEXITY_API_KEY: ""
   # LLM_TOGETHER_AI_API_KEY: ""
+  # LLM_SCX_AI_API_KEY: ""
   # LLM_ALIBABA_API_KEY: ""
   # LLM_NEBIUS_API_KEY: ""
   # LLM_CEREBRAS_API_KEY: ""
   # LLM_MOONSHOT_API_KEY: ""
   # LLM_NOVITA_AI_API_KEY: ""
   # LLM_AWS_BEDROCK_API_KEY: ""
+  # LLM_AWS_MANTLE_API_KEY: ""
   # LLM_AZURE_API_KEY: ""
   # LLM_INFERENCE_NET_API_KEY: ""
   # LLM_NANO_GPT_API_KEY: ""

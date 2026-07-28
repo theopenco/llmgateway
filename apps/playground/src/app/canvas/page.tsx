@@ -17,7 +17,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
 	title: "Canvas — Build UIs from JSON Specs with Live Preview",
 	description:
-		"Build UIs from JSON specs with live preview, PDF and image export. Powered by LLM Gateway Playground.",
+		"Build UIs from JSON specs with live preview, PDF and image export. Part of Lounge by LLM Gateway.",
 	alternates: { canonical: "/canvas" },
 };
 

@@ -67,29 +67,55 @@ const faqData: FaqItem[] = [
 	{
 		question: "What happens if I hit my monthly limit?",
 		answer:
-			"Requests pause until your allowance resets at the start of the next billing cycle. Or upgrade to a higher tier at any time: you pay the new tier's full price, your billing cycle restarts, and you get the new tier's full monthly allowance immediately.",
+			"Requests pause until your allowance resets at the start of the next billing cycle. Or upgrade to a higher tier at any time: an immediate upgrade charges the new tier's full price, restarts your billing cycle, and grants the new tier's full monthly allowance right away — plus anything left of your current allowance rolls over. Credits only roll over on an immediate upgrade, never at a regular renewal.",
 		content: (
 			<>
 				Requests pause until your allowance resets at the start of the next
 				billing cycle. Or <strong>upgrade to a higher tier at any time</strong>:
-				you pay the new tier&apos;s full price, your billing cycle restarts, and
-				you get the new tier&apos;s full monthly allowance immediately.
+				an immediate upgrade charges the new tier&apos;s full price, restarts
+				your billing cycle, and grants the new tier&apos;s full monthly
+				allowance right away — plus anything left of your current allowance
+				rolls over. Credits only roll over on an immediate upgrade, never at a
+				regular renewal.
 			</>
 		),
 	},
 	{
 		question: "Can I change plans anytime?",
 		answer:
-			"Yes. Upgrades take effect immediately: you're charged the new tier's full price, your billing cycle restarts, and you get the new tier's full allowance right away (unspent credits from the old cycle don't carry over). Downgrades take effect at your next renewal. There's no lock-in and no cancellation fee.",
+			"Yes. Upgrades can take effect immediately — you're charged the new tier's full price, your billing cycle restarts, and you get the new tier's full allowance right away, plus any unspent credits from the cycle being replaced roll over until your next renewal — or you can schedule the upgrade for your next renewal instead. Downgrades take effect at your next renewal. There's no lock-in and no cancellation fee.",
 	},
 	{
 		question: "Do I need a subscription, or is there pay-as-you-go?",
 		answer: `Both work. DevPass plans turn every dollar into $3 of model usage. If you'd rather not subscribe, LLM Gateway offers pay-as-you-go: top up credits and pay per token at provider rates with a flat ${MARKETING_STATS.platformFee} platform fee, or bring your own provider keys for free.`,
 	},
 	{
+		question: "Can my team or company use DevPass?",
+		answer:
+			"No. DevPass is intended for private, personal use by individual developers — one developer, one account. It can't be purchased or shared as a team or company, and there are no team plans. For teams and companies, use LLM Gateway's pay-as-you-go product instead, and reach out to contact@llmgateway.io for custom solutions and volume discounts.",
+		content: (
+			<>
+				<p>
+					No. DevPass is intended for{" "}
+					<strong>private, personal use by individual developers</strong> — one
+					developer, one account. It can&apos;t be purchased or shared as a team
+					or company, and there are no team plans.
+				</p>
+				<p className="mt-3">
+					For teams and companies, use LLM Gateway&apos;s pay-as-you-go product
+					instead — and reach out to{" "}
+					<Link href="mailto:contact@llmgateway.io" className="underline">
+						contact@llmgateway.io
+					</Link>{" "}
+					for custom solutions and volume discounts.
+				</p>
+			</>
+		),
+	},
+	{
 		question: "Which tools and SDKs work with DevPass?",
 		answer:
-			"Anything that speaks the OpenAI or Anthropic API — Claude Code, SoulForge, Cursor, Cline, Continue, Aider, the OpenAI and Anthropic SDKs, and more. Set two environment variables and you're in.",
+			"Anything that speaks the OpenAI or Anthropic API — Claude Code, Empryo, SoulForge, Cursor, Cline, Continue, Aider, the OpenAI and Anthropic SDKs, and more. Set two environment variables and you're in.",
 	},
 	{
 		question: "Are all 200+ models included on every plan?",
@@ -135,6 +161,35 @@ const faqData: FaqItem[] = [
 	{
 		question: "What if I hit the weekly premium allowance mid-week?",
 		answer: `Redeem a Reset Pass: it instantly restores your full weekly premium allowance and starts a fresh 7-day window. A pass removes the weekly limit only — it doesn't add credits, so usage still draws from your monthly allowance. Pro includes ${DEV_PLAN_INCLUDED_RESET_PASSES.pro} pass per billing cycle and Max includes ${DEV_PLAN_INCLUDED_RESET_PASSES.max}; extra passes are a one-time purchase from your dashboard ($${DEV_PLAN_RESET_PASS_PRICES.lite} on Lite, $${DEV_PLAN_RESET_PASS_PRICES.pro} on Pro, $${DEV_PLAN_RESET_PASS_PRICES.max} on Max). Standard models keep working the whole time, and if you're resetting every week, upgrading a tier is usually the better deal.`,
+	},
+	{
+		question: "Does the weekly premium allowance reset when my plan renews?",
+		answer:
+			"Yes. Every monthly renewal resets everything at once: your monthly credits, your weekly premium allowance (a fresh 7-day window starts at renewal), and your included Reset Passes. Between renewals the window is rolling — when 7 days end, the next window starts with your next premium request, and redeeming a Reset Pass clears the window so the next request starts a fresh one. There's no reset schedule to manage — neither the weekly window nor unused included passes carry into the next cycle. Purchased Reset Passes are separate: they persist until redeemed.",
+		content: (
+			<>
+				<p>
+					Yes. Every monthly renewal resets everything at once: your monthly
+					credits, your weekly premium allowance (a fresh 7-day window starts at
+					renewal), and your included Reset Passes.
+				</p>
+				<p className="mt-3">
+					Between renewals the window is rolling — when 7 days end, the next
+					window starts with your next premium request, and redeeming a Reset
+					Pass clears the window so the next request starts a fresh one.
+					There&apos;s no reset schedule to manage — neither the weekly window
+					nor unused included passes carry into the next cycle. Purchased Reset
+					Passes are separate: they persist until redeemed. See{" "}
+					<Link
+						href="https://docs.llmgateway.io/learn/reset-passes"
+						className="underline"
+					>
+						Reset Passes
+					</Link>{" "}
+					for the full mechanics.
+				</p>
+			</>
+		),
 	},
 	{
 		question: "Can I get a refund?",

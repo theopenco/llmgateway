@@ -18,6 +18,11 @@ const providerStatRowSchema = z.object({
 	errorsCount: z.number(),
 	cachedCount: z.number(),
 	avgTimeToFirstToken: z.number().nullable(),
+	// How many requests actually contributed a TTFT sample (streamed ones only).
+	// Exposed so callers can gate the display of avgTimeToFirstToken on its own
+	// sample size rather than on logsCount, which counts non-streaming requests
+	// that never fed into the average.
+	timeToFirstTokenCount: z.number(),
 	throughput: z.number().nullable(),
 	uptime: z.number().nullable(),
 	updatedAt: z.string().nullable(),
@@ -92,6 +97,7 @@ publicProvidersStats.openapi(listRoute, async (c) => {
 			errorsCount: sql<string>`COALESCE(SUM(${mph.errorsCount}), 0)`,
 			cachedCount: sql<string>`COALESCE(SUM(${mph.cachedCount}), 0)`,
 			totalTimeToFirstToken: sql<string>`COALESCE(SUM(${mph.totalTimeToFirstToken}), 0)`,
+			timeToFirstTokenCount: sql<string>`COALESCE(SUM(${mph.timeToFirstTokenCount}), 0)`,
 			totalOutputTokens: sql<string>`COALESCE(SUM(${mph.totalOutputTokens}), 0)`,
 			totalDuration: sql<string>`COALESCE(SUM(${mph.totalDuration}), 0)`,
 			updatedAt: sql<Date | null>`MAX(${mphTs})`,
@@ -106,7 +112,9 @@ publicProvidersStats.openapi(listRoute, async (c) => {
 		// so the result expires on the TTL alone rather than being busted by the
 		// worker's continuous minute-row inserts.
 		.$withCache({
-			tag: `publicProviderStats:${window}`,
+			// The version prefix is bumped whenever the selected columns change so
+			// a rolling deploy doesn't serve rows cached in the previous shape.
+			tag: `publicProviderStats:v2:${window}`,
 			autoInvalidate: false,
 			config: { ex: STATS_CACHE_TTL_SECONDS },
 		});
@@ -116,12 +124,17 @@ publicProvidersStats.openapi(listRoute, async (c) => {
 		const errorsCount = Number(r.errorsCount) || 0;
 		const cachedCount = Number(r.cachedCount) || 0;
 		const totalTimeToFirstToken = Number(r.totalTimeToFirstToken) || 0;
+		const timeToFirstTokenCount = Number(r.timeToFirstTokenCount) || 0;
 		const totalOutputTokens = Number(r.totalOutputTokens) || 0;
 		const totalDuration = Number(r.totalDuration) || 0;
 
-		const nonCachedLogs = logsCount - cachedCount;
+		// Only streamed requests record a time-to-first-token, so the average
+		// divides by the number of samples rather than by the request count —
+		// otherwise non-streaming traffic drags the reported TTFT towards zero.
 		const avgTimeToFirstToken =
-			nonCachedLogs > 0 ? totalTimeToFirstToken / nonCachedLogs : null;
+			timeToFirstTokenCount > 0
+				? totalTimeToFirstToken / timeToFirstTokenCount
+				: null;
 
 		const throughput =
 			totalDuration > 0 ? (totalOutputTokens / totalDuration) * 1000 : null;
@@ -135,6 +148,7 @@ publicProvidersStats.openapi(listRoute, async (c) => {
 			errorsCount,
 			cachedCount,
 			avgTimeToFirstToken,
+			timeToFirstTokenCount,
 			throughput,
 			uptime,
 			updatedAt: r.updatedAt ? new Date(r.updatedAt).toISOString() : null,

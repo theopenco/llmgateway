@@ -10,6 +10,7 @@ import {
 
 import {
 	and,
+	API_ORIGINS,
 	asc,
 	db,
 	desc,
@@ -155,9 +156,11 @@ const logSchema = z.object({
 	contentFilterCost: z.number().nullable().optional(),
 	imageInputTokens: z.string().nullable(),
 	audioInputTokens: z.string().nullable(),
+	audioOutputTokens: z.string().nullable(),
 	imageOutputTokens: z.string().nullable(),
 	imageInputCost: z.number().nullable(),
 	audioInputCost: z.number().nullable(),
+	audioOutputCost: z.number().nullable(),
 	imageOutputCost: z.number().nullable(),
 	videoOutputCost: z.number().nullable(),
 	videoDownloadCount: z.number().nullable(),
@@ -169,6 +172,7 @@ const logSchema = z.object({
 	customHeaders: z.any().nullable(),
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
 	usedMode: z.enum(["api-keys", "credits"]),
+	apiOrigin: z.enum(API_ORIGINS).nullable(),
 	source: z.string().nullable(),
 	sessionId: z.string().nullable().optional(),
 	routingMetadata: z

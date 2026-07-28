@@ -2,6 +2,10 @@ import * as crypto from "node:crypto";
 
 import { redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
+import {
+	type EnvVarVariant,
+	getVariantEnvVarNameFor,
+} from "@llmgateway/models";
 
 interface ServiceAccountKey {
 	client_email: string;
@@ -10,38 +14,49 @@ interface ServiceAccountKey {
 	project_id: string;
 }
 
+const BASE_ENV_VAR = "LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON";
 const REDIS_KEY = "gcp:vertex-anthropic:access_token";
 const TTL_SECONDS = 50 * 60;
 const TTL_MS = TTL_SECONDS * 1000;
 
-let memoryCache: { token: string; expiresAt: number } | null = null;
+// Caches are keyed by the resolved env var name so enterprise/plans variant
+// credentials never share tokens with the base credential.
+const memoryCache = new Map<string, { token: string; expiresAt: number }>();
 
-let serviceAccountKey: ServiceAccountKey | null = null;
+const serviceAccountKeys = new Map<string, ServiceAccountKey>();
 
-function getServiceAccountKey(): ServiceAccountKey | null {
-	if (serviceAccountKey) {
-		return serviceAccountKey;
+function resolveEnvVarName(variant?: EnvVarVariant): string {
+	return getVariantEnvVarNameFor(BASE_ENV_VAR, variant) ?? BASE_ENV_VAR;
+}
+
+function getServiceAccountKey(
+	variant?: EnvVarVariant,
+): ServiceAccountKey | null {
+	const envVarName = resolveEnvVarName(variant);
+	const cached = serviceAccountKeys.get(envVarName);
+	if (cached) {
+		return cached;
 	}
 
-	const inlineJson = process.env.LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON;
+	const inlineJson = process.env[envVarName];
 	if (!inlineJson) {
 		return null;
 	}
 
 	try {
-		serviceAccountKey = JSON.parse(inlineJson) as ServiceAccountKey;
-		return serviceAccountKey;
+		const parsed = JSON.parse(inlineJson) as ServiceAccountKey;
+		serviceAccountKeys.set(envVarName, parsed);
+		return parsed;
 	} catch (err) {
-		logger.error(
-			"Failed to parse LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON",
-			err,
-		);
+		logger.error(`Failed to parse ${envVarName}`, err);
 		return null;
 	}
 }
 
-export function getVertexAnthropicProjectId(): string | null {
-	const sa = getServiceAccountKey();
+export function getVertexAnthropicProjectId(
+	variant?: EnvVarVariant,
+): string | null {
+	const sa = getServiceAccountKey(variant);
 	return sa?.project_id ?? null;
 }
 
@@ -98,20 +113,30 @@ async function fetchNewToken(sa: ServiceAccountKey): Promise<string> {
 	return data.access_token;
 }
 
-export async function getGcpAccessToken(): Promise<string | null> {
-	const sa = getServiceAccountKey();
+export async function getGcpAccessToken(
+	variant?: EnvVarVariant,
+): Promise<string | null> {
+	const envVarName = resolveEnvVarName(variant);
+	const sa = getServiceAccountKey(variant);
 	if (!sa) {
 		return null;
 	}
 
-	if (memoryCache && memoryCache.expiresAt > Date.now()) {
-		return memoryCache.token;
+	const redisKey =
+		envVarName === BASE_ENV_VAR ? REDIS_KEY : `${REDIS_KEY}:${envVarName}`;
+
+	const memoryCached = memoryCache.get(envVarName);
+	if (memoryCached && memoryCached.expiresAt > Date.now()) {
+		return memoryCached.token;
 	}
 
 	try {
-		const cached = await redisClient.get(REDIS_KEY);
+		const cached = await redisClient.get(redisKey);
 		if (cached) {
-			memoryCache = { token: cached, expiresAt: Date.now() + 60_000 };
+			memoryCache.set(envVarName, {
+				token: cached,
+				expiresAt: Date.now() + 60_000,
+			});
 			return cached;
 		}
 	} catch (err) {
@@ -124,7 +149,7 @@ export async function getGcpAccessToken(): Promise<string | null> {
 	const token = await fetchNewToken(sa);
 
 	try {
-		await redisClient.set(REDIS_KEY, token, "EX", TTL_SECONDS);
+		await redisClient.set(redisKey, token, "EX", TTL_SECONDS);
 	} catch (err) {
 		logger.debug(
 			"Redis unavailable for token cache write",
@@ -132,6 +157,6 @@ export async function getGcpAccessToken(): Promise<string | null> {
 		);
 	}
 
-	memoryCache = { token, expiresAt: Date.now() + TTL_MS };
+	memoryCache.set(envVarName, { token, expiresAt: Date.now() + TTL_MS });
 	return token;
 }

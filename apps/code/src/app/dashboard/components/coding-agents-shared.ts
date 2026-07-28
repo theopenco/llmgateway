@@ -5,6 +5,7 @@ import {
 	CodexIcon,
 	CursorIcon,
 	DevPassCodeIcon,
+	EmpryoIcon,
 	N8nIcon,
 	OpenClawIcon,
 	OpenCodeIcon,
@@ -62,6 +63,13 @@ export const AGENTS: AgentDefinition[] = [
 		icon: AutohandIcon,
 		sources: ["autohand"],
 		guideUrl: "/guides/autohand",
+	},
+	{
+		id: "empryo",
+		label: "Empryo",
+		icon: EmpryoIcon,
+		sources: ["empryo"],
+		guideUrl: "/guides/empryo",
 	},
 	{
 		id: "soulforge",
@@ -126,6 +134,12 @@ export interface AgentStats {
 }
 
 export function formatTokens(count: number): string {
+	if (count >= 1_000_000_000_000) {
+		return `${(count / 1_000_000_000_000).toFixed(1)}T`;
+	}
+	if (count >= 1_000_000_000) {
+		return `${(count / 1_000_000_000).toFixed(1)}B`;
+	}
 	if (count >= 1_000_000) {
 		return `${(count / 1_000_000).toFixed(1)}M`;
 	}

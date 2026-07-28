@@ -62,11 +62,11 @@ export const DEFAULT_INTEGRATION_GUIDES: IntegrationGuide[] = [
 	{
 		name: "Cursor",
 		description:
-			"Use LLM Gateway with Cursor IDE in plan mode only. Cursor's coding agent does not work with external API endpoints.",
+			"Use LLM Gateway with Cursor IDE in plan and agent mode. Tab autocomplete and inline edit stay on Cursor's backend.",
 		href: "https://docs.llmgateway.io/guides/cursor",
 		icon: CursorIcon,
 		comingSoon: false,
-		badge: "Plan mode only",
+		badge: "Plan + Agent mode",
 	},
 	{
 		name: "Codex CLI",
