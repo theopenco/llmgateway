@@ -5,7 +5,7 @@ import {
 	scrypt,
 } from "crypto";
 
-import { redisClient } from "@llmgateway/cache";
+import { redisClient, storageRedisClient } from "@llmgateway/cache";
 import {
 	models as allModels,
 	providers as allProviders,
@@ -2568,7 +2568,7 @@ async function seed() {
 	});
 
 	await closeDatabase();
-	await redisClient.quit();
+	await Promise.all([redisClient.quit(), storageRedisClient.quit()]);
 }
 
 void seed();

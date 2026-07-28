@@ -28,6 +28,11 @@ export const storageRedisClient = new Redis({
 		? process.env.STORAGE_REDIS_PASSWORD
 		: process.env.REDIS_PASSWORD,
 	enableAutoPipelining: true,
+	// Connect on first command. Many consumers of @llmgateway/cache (seed
+	// script, one-off scripts, the API) never touch storage functions; an
+	// eager connection would keep their event loop alive on exit unless every
+	// such path remembered to quit this client too.
+	lazyConnect: true,
 });
 
 storageRedisClient.on("error", (err) =>
