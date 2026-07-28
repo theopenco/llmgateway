@@ -36,6 +36,7 @@ import {
 	type StabilityLevel,
 	type ModelDefinition,
 } from "@llmgateway/models";
+import { isMappingDeactivated } from "@llmgateway/shared/components";
 
 import type { Metadata } from "next";
 
@@ -86,11 +87,14 @@ export default async function ModelProviderPage({ params }: PageProps) {
 		}),
 	]);
 	const discounts = discountData?.discounts ?? [];
-	const bannerDiscount = findEffectiveProviderDiscount(
-		discounts,
-		decodedProvider,
-		decodedName,
+	// A provider whose mappings are all deactivated still renders this page, but
+	// nothing can be routed to it — so it must not advertise a discounted price.
+	const hasRoutableMapping = providerMappings.some(
+		(mapping) => !isMappingDeactivated(mapping),
 	);
+	const bannerDiscount = hasRoutableMapping
+		? findEffectiveProviderDiscount(discounts, decodedProvider, decodedName)
+		: null;
 
 	const providerMapping = {
 		...staticProviderMapping,
