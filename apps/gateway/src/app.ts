@@ -13,7 +13,7 @@ import {
 	UnsupportedAudioFormatError,
 	UnsupportedDocumentFormatError,
 } from "@llmgateway/actions";
-import { redisClient } from "@llmgateway/cache";
+import { redisClient, storageRedisClient } from "@llmgateway/cache";
 import { db } from "@llmgateway/db";
 import {
 	createHonoRequestLogger,
@@ -326,7 +326,14 @@ app.openapi(root, async (c) => {
 	const TIMEOUT_MS = Number(process.env.HEALTH_CHECK_TIMEOUT_MS) || 15000;
 
 	const healthChecker = new HealthChecker({
-		redisClient,
+		// Ping both the main and the storage Redis; either failing marks the
+		// gateway unhealthy (they may be the same instance via env fallback).
+		redisClient: {
+			ping: async () => {
+				await Promise.all([redisClient.ping(), storageRedisClient.ping()]);
+				return "PONG";
+			},
+		},
 		db,
 		logger,
 	});

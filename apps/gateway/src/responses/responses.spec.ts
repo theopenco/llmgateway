@@ -43,8 +43,17 @@ vi.mock("@llmgateway/db", async (importOriginal) => {
 const redisGet = vi.fn();
 vi.mock("@llmgateway/cache", () => ({
 	redisClient: {
+		get: vi.fn(),
+		set: vi.fn().mockResolvedValue("OK"),
+	},
+	storageRedisClient: {
 		get: (...args: unknown[]) => redisGet(...args),
 		set: vi.fn().mockResolvedValue("OK"),
+		mget: vi.fn().mockResolvedValue([]),
+		pipeline: vi.fn(() => ({
+			set: vi.fn(),
+			exec: vi.fn().mockResolvedValue([]),
+		})),
 	},
 }));
 

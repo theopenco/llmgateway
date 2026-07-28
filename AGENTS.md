@@ -52,11 +52,11 @@ Do not run test files or suites in parallel unless the repository instructions f
 - `pnpm test:unit` - Run unit tests (\*.spec.ts files)
 - `pnpm test:e2e` - Run end-to-end tests (\*.e2e.ts files)
 
-When running curl commands against the local API, you can use `test-token` as authentication.
+When running curl commands against the local API, you can use `test-token` as authentication. To exercise retention-off behavior, use `test-token-no-retention` instead — it belongs to a seeded sibling org with `retentionLevel: "none"` (the default `test-token` org retains all data for easier debugging).
 
 Every seeded account's password is its own email address (password == email). For example, log into the dashboard as `admin@example.com` with the password `admin@example.com`. This applies to all users created by `packages/db/src/seed.ts`, including:
 
-- `admin@example.com` — default test admin (owns "Test Organization" + a DevPass Pro workspace)
+- `admin@example.com` — default test admin (owns "Test Organization", "Test No Retention Organization" + a DevPass Pro workspace)
 - `enterprise@example.com` — owner of the enterprise org
 - `developer@example.com` — project-scoped developer in the enterprise org (RBAC testing)
 - the bulk demo users such as `alice.chen@techcorp.io`, `bob@startupinc.com`, etc.

@@ -1653,29 +1653,24 @@ chat.openapi(completions, async (c) => {
 	const responsesContext = responsesContextKey
 		? getResponsesContext(responsesContextKey)
 		: undefined;
-	const syncLogInsert = responsesContext?.syncInsert ?? false;
 	const logIdOverride = responsesContext?.logId;
 	const finalLogId = logIdOverride ?? shortid();
-	const responsesApiData: unknown = responsesContext?.responsesApiData ?? null;
 
-	// Wrapper that injects Responses API fields into every log entry.
-	// Only override the id for the final log entry (retried !== true) to avoid
-	// PK conflicts when the request retries across multiple providers.
+	// Wrapper that logs Responses API proxy requests under the resp_ id the
+	// client sees. Only override the id for the final log entry (retried !==
+	// true) to avoid PK conflicts when the request retries across multiple
+	// providers.
 	const insertLogEntry = (logData: LogInsertData) =>
-		insertLog(
-			{
-				// Service tiers default from the request-level requested tier and the
-				// served tier resolved so far, so every log path (guardrail/validation
-				// rejections, cache hits, streaming/upstream errors, fetch errors)
-				// records them. Explicit values in logData still win.
-				requestedServiceTier,
-				usedServiceTier: servedServiceTier,
-				...logData,
-				...(logIdOverride && !logData.retried ? { id: logIdOverride } : {}),
-				responsesApiData,
-			},
-			{ syncInsert: syncLogInsert },
-		);
+		insertLog({
+			// Service tiers default from the request-level requested tier and the
+			// served tier resolved so far, so every log path (guardrail/validation
+			// rejections, cache hits, streaming/upstream errors, fetch errors)
+			// records them. Explicit values in logData still win.
+			requestedServiceTier,
+			usedServiceTier: servedServiceTier,
+			...logData,
+			...(logIdOverride && !logData.retried ? { id: logIdOverride } : {}),
+		});
 
 	// Check for X-No-Fallback header to disable provider fallback on low uptime
 	const xNoFallbackHeaderSet =
@@ -2128,7 +2123,6 @@ chat.openapi(completions, async (c) => {
 							image_config,
 						),
 						...(logIdOverride ? { id: logIdOverride } : {}),
-						responsesApiData,
 						apiOrigin,
 						content: null,
 						responseSize: 0,
@@ -2170,7 +2164,7 @@ chat.openapi(completions, async (c) => {
 						usedServiceTier: null,
 						dataStorageCost: "0",
 					},
-					{ syncInsert: syncLogInsert, retentionLevel },
+					{ retentionLevel },
 				);
 			} catch (error) {
 				logger.error("Failed to log unsupported service tier rejection", {
@@ -2608,7 +2602,6 @@ chat.openapi(completions, async (c) => {
 							image_config,
 						),
 						...(logIdOverride ? { id: logIdOverride } : {}),
-						responsesApiData,
 						apiOrigin,
 						content: null,
 						responseSize: 0,
@@ -2646,7 +2639,7 @@ chat.openapi(completions, async (c) => {
 						usedServiceTier: null,
 						dataStorageCost: "0",
 					},
-					{ syncInsert: syncLogInsert, retentionLevel },
+					{ retentionLevel },
 				);
 			} catch (error) {
 				logger.error("Failed to log budget-thinking rejection", {

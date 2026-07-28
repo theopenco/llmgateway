@@ -1369,6 +1369,40 @@ async function seed() {
 		createdBy: "test-user-id",
 	});
 
+	// Sibling org for the test admin with data retention disabled, so
+	// retention-off behavior (e.g. the Responses API without stored log
+	// payloads) can be exercised locally while the default Test Organization
+	// stays on "retain" for easier debugging.
+	await upsert(tables.organization, {
+		id: "test-no-retention-org-id",
+		name: "Test No Retention Organization",
+		billingEmail: "admin@example.com",
+		credits: 5,
+		retentionLevel: "none",
+	});
+
+	await upsert(tables.userOrganization, {
+		id: "test-no-retention-user-org-id",
+		userId: "test-user-id",
+		organizationId: "test-no-retention-org-id",
+		role: "owner",
+	});
+
+	await upsert(tables.project, {
+		id: "test-no-retention-project-id",
+		name: "Test No Retention Project",
+		organizationId: "test-no-retention-org-id",
+		mode: "hybrid",
+	});
+
+	await upsert(tables.apiKey, {
+		id: "test-no-retention-api-key-id",
+		token: "test-token-no-retention",
+		projectId: "test-no-retention-project-id",
+		description: "Test API Key (no data retention)",
+		createdBy: "test-user-id",
+	});
+
 	// Embeddable Payments SDK POC: a project with the SDK enabled and a 50%
 	// end-user top-up bonus, plus a live platform secret key, so the end-user
 	// wallet + bonus flow can be exercised end-to-end locally (mint a session with
