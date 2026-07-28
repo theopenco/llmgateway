@@ -2451,22 +2451,27 @@ export const googleModels = [
 				jsonOutput: true,
 			},
 			{
-				// RanoAI serves Gemma 4 on Furiosa RNGD NPUs. Their docs advertise a
-				// 131K window and multimodal input, but the deployment measurably
-				// caps prompts at 4096 tokens and prompt + max_tokens at 8192, drops
-				// image parts (the model receives `[object Object]`), emits tool
-				// calls as raw `<|tool_call>…` text in `content` instead of OpenAI
-				// `tool_calls`, and returns no reasoning field (verified 2026-07-27).
+				// RanoAI serves Gemma 4 on Furiosa RNGD NPUs. The NPU deployment
+				// enforces a 20480-token window (prompt + max_tokens), not the
+				// 131K its /v1/models still advertises. Gemma 4 has no reasoning
+				// feature, so no reasoning field is ever returned.
+				//
+				// Tools stay disabled: non-streaming tool calls are correct, but
+				// streaming ones emit `finish_reason: "tool_calls"` with no
+				// `tool_calls` delta at all, and tool-result follow-ups leak raw
+				// `<|channel>thought<channel|>` template markers into `content`
+				// (or drop it to null when `tools` is not re-declared). Re-enable
+				// once those are fixed upstream (verified 2026-07-28).
 				providerId: "ranoai",
 				externalId: "gemma-4-31b",
 				inputPrice: "0.1e-6",
 				outputPrice: "0.3e-6",
 				requestPrice: "0",
-				contextSize: 8192,
-				maxOutput: 4096,
+				contextSize: 20480,
+				maxOutput: 20480,
 				streaming: true,
 				reasoning: false,
-				vision: false,
+				vision: true,
 				tools: false,
 				jsonOutput: true,
 			},
