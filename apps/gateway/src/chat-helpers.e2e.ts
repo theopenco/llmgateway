@@ -13,6 +13,7 @@ import {
 	getTestOptions,
 	expandAllProviderRegions,
 } from "@llmgateway/models";
+import { uniqueId } from "@llmgateway/shared/random";
 
 import {
 	clearCache,
@@ -23,7 +24,7 @@ export { getConcurrentTestOptions, getTestOptions };
 
 // Helper function to generate unique request IDs for tests
 export function generateTestRequestId(): string {
-	return `test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+	return uniqueId("test");
 }
 
 export const fullMode = process.env.FULL_MODE;
