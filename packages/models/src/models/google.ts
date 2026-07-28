@@ -2456,12 +2456,11 @@ export const googleModels = [
 				// 131K its /v1/models still advertises. Gemma 4 has no reasoning
 				// feature, so no reasoning field is ever returned.
 				//
-				// Tools stay disabled: non-streaming tool calls are correct, but
-				// streaming ones emit `finish_reason: "tool_calls"` with no
-				// `tool_calls` delta at all, and tool-result follow-ups leak raw
-				// `<|channel>thought<channel|>` template markers into `content`
-				// (or drop it to null when `tools` is not re-declared). Re-enable
-				// once those are fixed upstream (verified 2026-07-28).
+				// Only `auto` tool_choice is sound: "none" still emits the raw
+				// `call:name{args}` template text into `content` whenever the
+				// model wants a tool, "required" returns `finish_reason:
+				// "tool_calls"` with an empty `tool_calls` array, and a named
+				// function choice is ignored (verified 2026-07-28).
 				providerId: "ranoai",
 				externalId: "gemma-4-31b",
 				inputPrice: "0.1e-6",
@@ -2472,8 +2471,9 @@ export const googleModels = [
 				streaming: true,
 				reasoning: false,
 				vision: true,
-				tools: false,
+				tools: true,
 				jsonOutput: true,
+				supportedToolChoices: ["auto"],
 			},
 		],
 	},
