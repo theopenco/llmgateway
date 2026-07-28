@@ -12,6 +12,14 @@ n8n is a powerful workflow automation tool that can be enhanced with AI capabili
 
 ![n8n workflow with LLM Gateway](/guides/n8n/overview.png)
 
+<Callout type="info">
+	**Using DevPass?** This integration also works with a
+	[DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without
+	a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) —
+	provider-pinned routing is not available on coding plans; the gateway picks
+	the provider for you.
+</Callout>
+
 ## Prerequisites
 
 - An LLM Gateway account with an API key

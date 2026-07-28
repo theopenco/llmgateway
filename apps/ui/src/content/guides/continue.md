@@ -10,6 +10,8 @@ date: 2026-05-11
 
 One config file. Any model. Full cost visibility.
 
+> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
+
 ## Prerequisites
 
 - An LLM Gateway API key — [sign up free](https://llmgateway.io/signup) (no credit card required)

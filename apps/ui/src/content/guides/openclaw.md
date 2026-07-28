@@ -8,6 +8,8 @@ date: 2026-01-26
 
 OpenClaw is a self-hosted gateway that connects your favorite chat apps—WhatsApp, Telegram, Discord, iMessage, and more—to AI coding agents. With LLM Gateway as a custom provider, you can route all your OpenClaw traffic through a single API, use any of 200+ models, and keep full visibility into usage and costs.
 
+> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
+
 ## Quick Start
 
 Add LLM Gateway as a custom provider in your `~/.openclaw/openclaw.json`:
