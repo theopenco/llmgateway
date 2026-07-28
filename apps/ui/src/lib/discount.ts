@@ -22,15 +22,32 @@ function isValidDiscount(discount?: string | null): boolean {
 // Discounts are always keyed by the root model id — the provider-specific
 // externalId is reserved for upstream requests and is never persisted as a
 // discount target.
-export function getBestDiscount(
+export function findEffectiveProviderDiscount(
 	discounts: DiscountData[],
+	providerId: string,
 	modelId: string,
 ): DiscountData | null {
 	const valid = discounts.filter((d) => isValidDiscount(d.discountPercent));
-	// Precedence: model-specific > fully global
-	const modelSpecific = valid.find((d) => d.model === modelId);
-	if (modelSpecific) {
-		return modelSpecific;
+	// Precedence: provider+model > provider > model > fully global
+	const providerModel = valid.find(
+		(d) => d.provider === providerId && d.model === modelId,
+	);
+	if (providerModel) {
+		return providerModel;
+	}
+
+	const providerOnly = valid.find(
+		(d) => d.provider === providerId && d.model === null,
+	);
+	if (providerOnly) {
+		return providerOnly;
+	}
+
+	const modelOnly = valid.find(
+		(d) => d.provider === null && d.model === modelId,
+	);
+	if (modelOnly) {
+		return modelOnly;
 	}
 
 	const fullyGlobal = valid.find(
@@ -43,42 +60,37 @@ export function getBestDiscount(
 	return null;
 }
 
+// The banner on a model page advertises the best deal a user can actually get
+// for that model right now, so it takes the highest effective discount across
+// the providers passed in. Callers pass only routable (non-deactivated)
+// providers, otherwise the banner would promise a price nobody can be served.
+export function getBestDiscount(
+	discounts: DiscountData[],
+	modelId: string,
+	providerIds: string[],
+): DiscountData | null {
+	let best: DiscountData | null = null;
+	for (const providerId of providerIds) {
+		const match = findEffectiveProviderDiscount(discounts, providerId, modelId);
+		if (
+			match &&
+			(!best || Number(match.discountPercent) > Number(best.discountPercent))
+		) {
+			best = match;
+		}
+	}
+	return best;
+}
+
 export function getEffectiveProviderDiscount(
 	discounts: DiscountData[],
 	providerId: string,
 	modelId: string,
 ): string | undefined {
-	const valid = discounts.filter((d) => isValidDiscount(d.discountPercent));
-	// Precedence: provider+model > provider > model > fully global
-	const providerModel = valid.find(
-		(d) => d.provider === providerId && d.model === modelId,
+	return (
+		findEffectiveProviderDiscount(discounts, providerId, modelId)
+			?.discountPercent ?? undefined
 	);
-	if (providerModel) {
-		return providerModel.discountPercent;
-	}
-
-	const providerOnly = valid.find(
-		(d) => d.provider === providerId && d.model === null,
-	);
-	if (providerOnly) {
-		return providerOnly.discountPercent;
-	}
-
-	const modelOnly = valid.find(
-		(d) => d.provider === null && d.model === modelId,
-	);
-	if (modelOnly) {
-		return modelOnly.discountPercent;
-	}
-
-	const fullyGlobal = valid.find(
-		(d) => d.provider === null && d.model === null,
-	);
-	if (fullyGlobal) {
-		return fullyGlobal.discountPercent;
-	}
-
-	return undefined;
 }
 
 export function discountFraction(discount?: string | null): number {
