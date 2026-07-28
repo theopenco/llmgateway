@@ -3977,6 +3977,13 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 						content: "Got it, Ada!",
 						reasoning: "The user told me their name.",
 					},
+					{
+						role: "assistant",
+						content: "Anything else?",
+						reasoning: "Dropped — Fireworks rejects this field.",
+						reasoning_content:
+							"Kept — a caller-supplied field we pass through.",
+					},
 					{ role: "user", content: "What is my name?" },
 				],
 				false,
@@ -4006,6 +4013,12 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				requestBody.messages.every((m: any) => m.reasoning === undefined),
 			).toBe(true);
 			expect(requestBody.messages[1].content).toBe("Got it, Ada!");
+			// Stripping `reasoning` must not disturb a caller-supplied
+			// `reasoning_content` on the same message.
+			expect(requestBody.messages[2].content).toBe("Anything else?");
+			expect(requestBody.messages[2].reasoning_content).toBe(
+				"Kept — a caller-supplied field we pass through.",
+			);
 		});
 	});
 

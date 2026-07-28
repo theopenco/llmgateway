@@ -1750,7 +1750,10 @@ export async function prepareRequestBody(
 	// permitted, field: 'messages[N].reasoning'". This breaks every multi-turn
 	// continuation of a reasoning model. The providers that actually consume the
 	// field translate it to `reasoning_content` above, so dropping it here costs
-	// nothing.
+	// nothing. Do not "rescue" the text into `reasoning_content` instead:
+	// Fireworks accepts that field but silently discards it, so replaying an
+	// ~800-token `reasoning_content` leaves prompt_tokens byte-identical to
+	// omitting it. Any existing `reasoning_content` is left untouched below.
 	if (usedProvider === "fireworks") {
 		processedMessages = processedMessages.map((m) => {
 			if (m.reasoning === undefined) {
