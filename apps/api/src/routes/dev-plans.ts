@@ -2,7 +2,10 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { voidPendingCycleRenewalInvoices } from "@/lib/pending-renewal.js";
+import {
+	repriceDraftRenewalInvoice,
+	voidPendingCycleRenewalInvoices,
+} from "@/lib/pending-renewal.js";
 import {
 	computeSelfRefundEligibility,
 	executeSelfRefund,
@@ -1446,6 +1449,16 @@ devPlans.openapi(changeTier, async (c) => {
 				},
 			});
 
+			// If Stripe already drafted the upcoming renewal invoice (this change
+			// landed inside the pre-renewal finalization window), it still bills the
+			// old price — re-price it to match the tier taking effect at renewal.
+			await repriceDraftRenewalInvoice({
+				subscriptionId,
+				customer: subscription.customer,
+				newPriceId,
+				newTier,
+			});
+
 			await db
 				.update(tables.organization)
 				.set({
@@ -1649,6 +1662,15 @@ devPlans.openapi(cancelDowngrade, async (c) => {
 				},
 			},
 		);
+
+		// Scheduling the change may have re-priced a drafted renewal invoice to the
+		// target tier; re-price it back so the renewal bills the current tier.
+		await repriceDraftRenewalInvoice({
+			subscriptionId: personalOrg.devPlanStripeSubscriptionId,
+			customer: subscription.customer,
+			newPriceId: currentTierPriceId,
+			newTier: currentTier,
+		});
 
 		await db
 			.update(tables.organization)
