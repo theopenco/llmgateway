@@ -216,8 +216,7 @@ export function validateModelCapabilities(
 					reasoningProviders.flatMap(
 						(provider) =>
 							((provider as ProviderModelMapping).reasoningEfforts as
-								| string[]
-								| undefined) ?? [],
+								string[] | undefined) ?? [],
 					),
 				),
 			);
