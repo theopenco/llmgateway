@@ -125,6 +125,23 @@ describe("getProviderFilterReasons", () => {
 		);
 	});
 
+	it("flags mappings that reject a trailing assistant message", () => {
+		expect(
+			getProviderFilterReasons(mapping({ supportsAssistantPrefill: false }), {
+				hasAssistantPrefill: true,
+			}),
+		).toEqual(["assistant prefill not supported"]);
+		expect(
+			getProviderFilterReasons(mapping(), { hasAssistantPrefill: true }),
+		).toEqual([]);
+		expect(
+			getProviderFilterReasons(
+				mapping({ supportsAssistantPrefill: false }),
+				{},
+			),
+		).toEqual([]);
+	});
+
 	it("flags max_tokens above the provider's max output", () => {
 		expect(
 			getProviderFilterReasons(mapping({ maxOutput: 4096 }), {

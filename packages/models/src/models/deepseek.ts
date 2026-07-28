@@ -301,6 +301,9 @@ export const deepseekModels = [
 				// parameter: 'jsonSchema'"); only schema-based output is supported.
 				jsonOutput: false,
 				jsonOutputSchema: true,
+				// Runware 400s ("a conversation cannot end on an assistant turn") when
+				// the last message is an assistant turn (verified 2026-07-28).
+				supportsAssistantPrefill: false,
 			},
 			{
 				providerId: "together-ai",
@@ -456,6 +459,9 @@ export const deepseekModels = [
 				// parameter: 'jsonSchema'"); only schema-based output is supported.
 				jsonOutput: false,
 				jsonOutputSchema: true,
+				// Runware 400s ("a conversation cannot end on an assistant turn") when
+				// the last message is an assistant turn (verified 2026-07-28).
+				supportsAssistantPrefill: false,
 			},
 			{
 				providerId: "novita",
