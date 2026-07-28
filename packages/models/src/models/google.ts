@@ -2456,11 +2456,11 @@ export const googleModels = [
 				// 131K its /v1/models still advertises. Gemma 4 has no reasoning
 				// feature, so no reasoning field is ever returned.
 				//
-				// Only `auto` tool_choice is sound: "none" still emits the raw
-				// `call:name{args}` template text into `content` whenever the
-				// model wants a tool, "required" returns `finish_reason:
-				// "tool_calls"` with an empty `tool_calls` array, and a named
-				// function choice is ignored (verified 2026-07-28).
+				// "required" returns `finish_reason: "tool_calls"` with an empty
+				// `tool_calls` array, and a named function choice is ignored
+				// (asking for get_time yields get_weather), so both downgrade to
+				// "auto". "auto" and "none" are honoured correctly
+				// (verified 2026-07-28).
 				providerId: "ranoai",
 				externalId: "gemma-4-31b",
 				inputPrice: "0.1e-6",
@@ -2473,7 +2473,7 @@ export const googleModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
-				supportedToolChoices: ["auto"],
+				supportedToolChoices: ["auto", "none"],
 			},
 		],
 	},
