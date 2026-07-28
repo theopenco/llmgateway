@@ -157,6 +157,12 @@ export function ComplianceAttestationCard({
 			},
 			{
 				onSuccess: () => {
+					// The card stays mounted after a clear (it is keyed on the provider
+					// key id), so drop the stale form values too — otherwise a follow-up
+					// save would silently re-attest what the user just cleared.
+					if (!body) {
+						setForm(buildInitialState(null));
+					}
 					toast({
 						title: body ? "Attestation saved" : "Attestation cleared",
 						description: body
