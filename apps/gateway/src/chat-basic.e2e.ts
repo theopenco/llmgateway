@@ -13,11 +13,13 @@ import {
 	validateResponse,
 } from "@/chat-helpers.e2e.js";
 
+import { uniqueId } from "@llmgateway/shared/random";
+
 import { app } from "./app.js";
 
 // Helper function to generate unique request IDs for tests
 export function generateTestRequestId(): string {
-	return `test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+	return uniqueId("test");
 }
 
 describe("e2e", getConcurrentTestOptions(), () => {

@@ -2268,13 +2268,15 @@ describe("fallback and error status code handling", () => {
 		test("non-streaming: retries after random exploration selects a bad provider", async () => {
 			await setupMultiProviderKeys();
 
-			const randomSpy = vi
-				.spyOn(Math, "random")
-				.mockReturnValueOnce(0)
-				.mockReturnValue(0);
+			// An exploration rate of 1 always trips the epsilon-greedy branch, so the
+			// test does not depend on the value the secure RNG happens to produce.
+			// The mock fails the first upstream call regardless of which provider
+			// exploration lands on, so the retry assertions stay deterministic.
+			const originalExplorationRate = process.env.EXPLORATION_RATE;
 			const originalArgv = process.argv;
 			const originalNodeEnv = process.env.NODE_ENV;
 			const originalVitest = process.env.VITEST;
+			process.env.EXPLORATION_RATE = "1";
 			delete process.env.NODE_ENV;
 			delete process.env.VITEST;
 			process.argv = ["node", "/tmp/not-a-test-run.mjs"];
@@ -2330,7 +2332,11 @@ describe("fallback and error status code handling", () => {
 				);
 				expect(failedLog?.retried).toBe(true);
 			} finally {
-				randomSpy.mockRestore();
+				if (originalExplorationRate !== undefined) {
+					process.env.EXPLORATION_RATE = originalExplorationRate;
+				} else {
+					delete process.env.EXPLORATION_RATE;
+				}
 				process.argv = originalArgv;
 				if (originalNodeEnv !== undefined) {
 					process.env.NODE_ENV = originalNodeEnv;

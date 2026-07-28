@@ -2,6 +2,8 @@ import { Zap, Shield, Globe } from "lucide-react";
 
 import { TweetCard } from "@/lib/components/tweet-card";
 
+import { randomItem } from "@llmgateway/shared/random";
+
 const TWEET_IDS = [
 	"1970126770205757516",
 	"1967955025315106997",
@@ -13,16 +15,12 @@ const TWEET_IDS = [
 	"1958469139632464022",
 ];
 
-function pickRandom<T>(arr: T[]): T {
-	return arr[Math.floor(Math.random() * arr.length)]!;
-}
-
 export async function AuthBrandPanel({
 	variant,
 }: {
 	variant: "login" | "signup";
 }) {
-	const tweetId = pickRandom(TWEET_IDS);
+	const tweetId = randomItem(TWEET_IDS)!;
 
 	return (
 		<div className="relative hidden w-1/2 overflow-hidden bg-gradient-to-br from-zinc-100 via-zinc-50 to-zinc-100 dark:from-zinc-900 dark:via-zinc-800 dark:to-zinc-900 lg:flex lg:flex-col lg:justify-between">

@@ -129,6 +129,16 @@ export {
 
 export { selectLoadBalancedItem } from "./load-balance.js";
 
+export {
+	fillRandomFloats,
+	randomFloat,
+	randomFloatBetween,
+	randomInt,
+	randomItem,
+	randomToken,
+	uniqueId,
+} from "./random.js";
+
 export { MARKETING_STATS, RUNWARE_PROMO } from "./marketing.js";
 
 export { isContentFilterErrorText } from "./content-filter.js";

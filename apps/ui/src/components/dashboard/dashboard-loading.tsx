@@ -1,6 +1,8 @@
 import { Card, CardContent, CardHeader } from "@/lib/components/card";
 import { Skeleton } from "@/lib/components/skeleton";
 
+import { randomFloatBetween } from "@llmgateway/shared/random";
+
 export function DashboardLoading() {
 	return (
 		<div className="min-h-screen bg-background text-foreground p-6">
@@ -46,8 +48,7 @@ export function DashboardLoading() {
 								<div key={i} className="flex flex-col items-center gap-2">
 									<Skeleton
 										className="w-8"
-										// eslint-disable-next-line no-mixed-operators
-										style={{ height: `${Math.random() * 150 + 50}px` }}
+										style={{ height: `${randomFloatBetween(50, 200)}px` }}
 									/>
 									<Skeleton className="h-3 w-12" />
 								</div>
