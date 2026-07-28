@@ -25,6 +25,7 @@ import { ModelRating } from "@/components/models/model-rating";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { Badge } from "@/lib/components/badge";
+import { findEffectiveProviderDiscount } from "@/lib/discount";
 import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -35,6 +36,7 @@ import {
 	type StabilityLevel,
 	type ModelDefinition,
 } from "@llmgateway/models";
+import { isMappingDeactivated } from "@llmgateway/shared/components";
 
 import type { Metadata } from "next";
 
@@ -85,66 +87,19 @@ export default async function ModelProviderPage({ params }: PageProps) {
 		}),
 	]);
 	const discounts = discountData?.discounts ?? [];
-	const globalDiscount = (() => {
-		const providerModel = discounts.find(
-			(d) => d.provider === decodedProvider && d.model === decodedName,
-		);
-		if (providerModel) {
-			return providerModel.discountPercent;
-		}
-		const providerOnly = discounts.find(
-			(d) => d.provider === decodedProvider && d.model === null,
-		);
-		if (providerOnly) {
-			return providerOnly.discountPercent;
-		}
-		const modelOnly = discounts.find(
-			(d) => d.provider === null && d.model === decodedName,
-		);
-		if (modelOnly) {
-			return modelOnly.discountPercent;
-		}
-		const fullyGlobal = discounts.find(
-			(d) => d.provider === null && d.model === null,
-		);
-		if (fullyGlobal) {
-			return fullyGlobal.discountPercent;
-		}
-		return undefined;
-	})();
+	// A provider whose mappings are all deactivated still renders this page, but
+	// nothing can be routed to it — so it must not advertise a discounted price.
+	const hasRoutableMapping = providerMappings.some(
+		(mapping) => !isMappingDeactivated(mapping),
+	);
+	const bannerDiscount = hasRoutableMapping
+		? findEffectiveProviderDiscount(discounts, decodedProvider, decodedName)
+		: null;
 
 	const providerMapping = {
 		...staticProviderMapping,
-		discount: globalDiscount,
+		discount: bannerDiscount?.discountPercent,
 	};
-
-	const bannerDiscount: DiscountData | null = (() => {
-		const providerModel = discounts.find(
-			(d) => d.provider === decodedProvider && d.model === decodedName,
-		);
-		if (providerModel) {
-			return providerModel;
-		}
-		const providerOnly = discounts.find(
-			(d) => d.provider === decodedProvider && d.model === null,
-		);
-		if (providerOnly) {
-			return providerOnly;
-		}
-		const modelOnly = discounts.find(
-			(d) => d.provider === null && d.model === decodedName,
-		);
-		if (modelOnly) {
-			return modelOnly;
-		}
-		const fullyGlobal = discounts.find(
-			(d) => d.provider === null && d.model === null,
-		);
-		if (fullyGlobal) {
-			return fullyGlobal;
-		}
-		return null;
-	})();
 
 	const getStabilityBadgeProps = (stability?: StabilityLevel) => {
 		switch (stability) {
@@ -415,7 +370,14 @@ export default async function ModelProviderPage({ params }: PageProps) {
 
 					{bannerDiscount && (
 						<div className="mb-6">
-							<GlobalDiscountBanner discount={bannerDiscount} />
+							<GlobalDiscountBanner
+								discount={bannerDiscount}
+								providerName={
+									bannerDiscount.provider
+										? (providerInfo?.name ?? bannerDiscount.provider)
+										: null
+								}
+							/>
 						</div>
 					)}
 
@@ -449,7 +411,11 @@ export default async function ModelProviderPage({ params }: PageProps) {
 								providerMappings.map((p) => ({
 									...p,
 									providerInfo,
-									discount: globalDiscount,
+									// Regions deactivate independently, and the cards can reveal a
+									// deactivated one — it must not show a discounted price.
+									discount: isMappingDeactivated(p)
+										? undefined
+										: bannerDiscount?.discountPercent,
 								})),
 							)}
 						/>
