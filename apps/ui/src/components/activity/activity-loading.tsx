@@ -1,5 +1,7 @@
 import { Skeleton } from "@/lib/components/skeleton";
 
+import { randomFloatBetween } from "@llmgateway/shared/random";
+
 export function ActivityLoading() {
 	return (
 		<div className="min-h-screen bg-background text-foreground p-6">
@@ -47,8 +49,7 @@ export function ActivityLoading() {
 								>
 									<div
 										className="w-full flex flex-col justify-end"
-										// eslint-disable-next-line no-mixed-operators
-										style={{ height: `${Math.random() * 80 + 20}%` }}
+										style={{ height: `${randomFloatBetween(20, 100)}%` }}
 									>
 										<Skeleton className="w-full h-full bg-gradient-to-t from-blue-600 to-blue-400 rounded-t" />
 									</div>

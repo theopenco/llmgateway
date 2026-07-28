@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { redisClient } from "@/auth/config.js";
 import { app } from "@/index.js";
 
+import { randomInt, uniqueId } from "@llmgateway/shared/random";
+
 const BURST_LIMIT_MAX = 5;
 const RATE_LIMIT_MAX = 20;
 const DAILY_LIMIT_MAX = 60;
@@ -12,12 +14,12 @@ const META_BURST_LIMIT_MAX = 30;
 // Unique identifiers per call so runs never collide with earlier state in
 // Redis (the rate-limit keys live for up to 24 hours).
 function uniqueIp(): string {
-	const octet = () => Math.floor(Math.random() * 256);
+	const octet = () => randomInt(0, 256);
 	return `10.${octet()}.${octet()}.${octet()}`;
 }
 
 function uniqueClientId(): string {
-	return `spec-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+	return uniqueId("spec");
 }
 
 // Seeds a single limiter bucket to its threshold so the next request trips

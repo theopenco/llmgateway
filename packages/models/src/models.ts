@@ -506,6 +506,14 @@ export interface ProviderModelMapping {
 	 */
 	supportsDeveloperRole?: boolean;
 	/**
+	 * Whether this mapping's upstream accepts a conversation whose last message is
+	 * an assistant turn (assistant prefill / continuation). Defaults to `true`
+	 * (assumed supported). When set to `false`, routing skips this mapping for
+	 * requests that end on an assistant message, since the upstream rejects them
+	 * with a 400 ("a conversation cannot end on an assistant turn").
+	 */
+	supportsAssistantPrefill?: boolean;
+	/**
 	 * Test skip/only functionality
 	 */
 	test?: "skip" | "only";

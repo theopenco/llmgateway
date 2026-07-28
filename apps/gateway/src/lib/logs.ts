@@ -354,7 +354,12 @@ export async function insertLog(
 		finishReason: logData.finishReason ?? null,
 		streaming: logData.streamed ?? false,
 		durationMs: logData.duration || 0,
-		ttftMs: logData.timeToFirstToken ?? undefined,
+		// Reasoning models stream thinking before any content, so the first
+		// reasoning token is the real first-token latency when present.
+		ttftMs:
+			logData.timeToFirstReasoningToken ??
+			logData.timeToFirstToken ??
+			undefined,
 		inputTokens: logData.promptTokens
 			? Number(logData.promptTokens)
 			: undefined,
