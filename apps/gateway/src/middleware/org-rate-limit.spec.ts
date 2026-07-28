@@ -24,9 +24,8 @@ vi.mock("@/lib/org-rate-limit.js", () => ({
 const { orgRateLimitMiddleware } = await import("./org-rate-limit.js");
 const { parseApiToken } = await import("@/lib/extract-api-token.js");
 const { findOrganizationCachedById } = await import("@/lib/cached-queries.js");
-const { API_ORIGIN_HEADER, internalApiOriginHeaders } = await import(
-	"@/lib/api-origin.js"
-);
+const { API_ORIGIN_HEADER, internalApiOriginHeaders } =
+	await import("@/lib/api-origin.js");
 const lib = await import("@/lib/org-rate-limit.js");
 
 const chatConfig: PathRateLimitConfig = {

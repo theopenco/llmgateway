@@ -1,10 +1,10 @@
+import { isInternalApiOrigin } from "@/lib/api-origin.js";
 import { findOrganizationCachedById } from "@/lib/cached-queries.js";
 import {
 	buildAnthropicErrorBody,
 	buildOpenAIErrorBody,
 } from "@/lib/error-response.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
-import { isInternalApiOrigin } from "@/lib/api-origin.js";
 import {
 	checkOrgRateLimit,
 	getOrganizationLifetimeSpend,

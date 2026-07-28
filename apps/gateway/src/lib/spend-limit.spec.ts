@@ -16,9 +16,8 @@ vi.mock("./org-rate-limit.js", () => ({
 	getOrgSpendTier: vi.fn(),
 }));
 
-const { checkSpendLimit, recordSpend, isSpendCapEnabled } = await import(
-	"./spend-limit.js"
-);
+const { checkSpendLimit, recordSpend, isSpendCapEnabled } =
+	await import("./spend-limit.js");
 const { redisClient } = await import("@llmgateway/cache");
 const orl = await import("./org-rate-limit.js");
 

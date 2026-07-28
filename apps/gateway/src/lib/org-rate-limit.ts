@@ -93,6 +93,13 @@ export const PATH_RATE_LIMITS: readonly PathRateLimitConfig[] = [
 		chatDefaultRpm: 120,
 	},
 	{
+		key: "rerank",
+		prefix: "/v1/rerank",
+		defaultRpm: 1200,
+		devDefaultRpm: 120,
+		chatDefaultRpm: 120,
+	},
+	{
 		key: "models",
 		prefix: "/v1/models",
 		defaultRpm: 1200,
@@ -116,6 +123,13 @@ export const PATH_RATE_LIMITS: readonly PathRateLimitConfig[] = [
 	{
 		key: "audio_speech",
 		prefix: "/v1/audio/speech",
+		defaultRpm: 300,
+		devDefaultRpm: 120,
+		chatDefaultRpm: 30,
+	},
+	{
+		key: "audio_transcriptions",
+		prefix: "/v1/audio/transcriptions",
 		defaultRpm: 300,
 		devDefaultRpm: 120,
 		chatDefaultRpm: 30,

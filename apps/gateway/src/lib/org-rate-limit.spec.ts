@@ -83,12 +83,23 @@ describe("resolvePathRateLimit", () => {
 		expect(resolvePathRateLimit("/v1/models")?.key).toBe("models");
 		expect(resolvePathRateLimit("/v1/messages")?.key).toBe("messages");
 		expect(resolvePathRateLimit("/v1/ocr")?.key).toBe("ocr");
+		expect(resolvePathRateLimit("/v1/rerank")?.key).toBe("rerank");
+		expect(resolvePathRateLimit("/v1/audio/transcriptions")?.key).toBe(
+			"audio_transcriptions",
+		);
 	});
 
 	it("matches sub-paths", () => {
 		expect(resolvePathRateLimit("/v1/images/generations")?.key).toBe("images");
 		expect(resolvePathRateLimit("/v1/audio/speech")?.key).toBe("audio_speech");
 		expect(resolvePathRateLimit("/v1/videos/abc/content")?.key).toBe("videos");
+	});
+
+	it("distinguishes the two /v1/audio subpaths", () => {
+		expect(resolvePathRateLimit("/v1/audio/speech")?.key).toBe("audio_speech");
+		expect(resolvePathRateLimit("/v1/audio/transcriptions")?.key).toBe(
+			"audio_transcriptions",
+		);
 	});
 
 	it("returns null for non-rate-limited paths", () => {
