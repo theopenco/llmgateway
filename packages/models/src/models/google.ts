@@ -2452,9 +2452,10 @@ export const googleModels = [
 			},
 			{
 				// RanoAI serves Gemma 4 on Furiosa RNGD NPUs. The NPU deployment
-				// enforces a 20480-token window (prompt + max_tokens), not the
-				// 131K its /v1/models still advertises. Gemma 4 has no reasoning
-				// feature, so no reasoning field is ever returned.
+				// enforces a 20480-token window (prompt + max_tokens). Unlike the
+				// deepinfra/together-ai/cerebras/runware deployments of this same
+				// model, it emits no reasoning: `reasoning_effort` is accepted but
+				// no reasoning field or reasoning_tokens ever comes back.
 				//
 				// "auto" and "none" are honoured correctly. "required" and named
 				// function choices are accepted and now return well-formed
@@ -2476,6 +2477,8 @@ export const googleModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				jsonOutputSchema: true,
+				supportsN: true,
 				supportedToolChoices: ["auto", "none"],
 			},
 		],
