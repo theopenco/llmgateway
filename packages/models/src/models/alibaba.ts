@@ -443,6 +443,7 @@ export const alibabaModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-10-10"),
 			},
 		],
 	},
@@ -1335,6 +1336,7 @@ export const alibabaModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-10-10"),
 			},
 			{
 				providerId: "novita",
@@ -1352,6 +1354,7 @@ export const alibabaModels = [
 				// novita rejects tool_choice "required" and named function choices
 				// with invalid_request_error; "auto" and "none" work
 				supportedToolChoices: ["auto", "none"],
+				deactivatedAt: new Date("2026-10-10"),
 			},
 		],
 	},
@@ -2427,6 +2430,7 @@ export const alibabaModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-10-10"),
 			},
 		],
 	},
@@ -2763,6 +2767,7 @@ export const alibabaModels = [
 					"tools",
 					"reasoning_effort",
 				],
+				deactivatedAt: new Date("2026-10-10"),
 			},
 		],
 	},
