@@ -72,8 +72,9 @@ export interface RealtimePreflightResult {
  * tenant (organization + project) rather than on the API key: keys are rotatable
  * credentials, so deriving from one would reset the upstream abuse-tracking
  * identity on every rotation, and no part of a credential should ever be fed
- * into a fast digest. Organization and project ids are unguessable v4 UUIDs, and
- * hashing them keeps internal ids from leaking to the provider.
+ * into a fast digest. Both ids are 20-character CSPRNG nanoids (~119 bits each),
+ * so a plain digest needs no salt or pepper: there is no small input space to
+ * enumerate, and the hash exists only to keep internal ids off the wire.
  */
 function deriveSafetyIdentifier(
 	organizationId: string,
