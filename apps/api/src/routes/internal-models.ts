@@ -592,6 +592,9 @@ const uptimeProviderSchema = z.object({
 	upstreamErrorsCount: z.number(),
 	uptime: z.number().nullable(),
 	avgTtft: z.number().nullable(),
+	// Streamed-request count behind avgTtft, so callers can gate its display on
+	// its own sample size instead of logsCount.
+	ttftCount: z.number(),
 	avgDuration: z.number().nullable(),
 	tokensPerSecond: z.number().nullable(),
 	points: z.array(uptimePointSchema),
@@ -837,6 +840,7 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			uptime,
 			avgTtft:
 				totalTtftCount > 0 ? Math.round(totalTtft / totalTtftCount) : null,
+			ttftCount: totalTtftCount,
 			avgDuration: totalLogs > 0 ? Math.round(totalDuration / totalLogs) : null,
 			tokensPerSecond,
 			points,

@@ -4,8 +4,26 @@
 // instead of showing misleading small-sample averages.
 export const MIN_REQUESTS_FOR_STATS = 1000;
 
+// TTFT is averaged over streamed requests only — non-streaming requests never
+// record a first-token time — so it needs its own, separate sample gate. A
+// provider can serve 5k requests with only a handful streamed, which would sail
+// past MIN_REQUESTS_FOR_STATS while resting on a 3-sample average.
+//
+// The bar is lower than MIN_REQUESTS_FOR_STATS because it guards a different
+// kind of statistic: uptime needs many samples to tell 99.9% from 99%, whereas
+// the mean of a latency distribution stabilises after far fewer. Reusing 1000
+// here would hide well-sampled TTFT from any provider whose traffic is mostly
+// non-streaming.
+export const MIN_TTFT_SAMPLES_FOR_STATS = 100;
+
 export function hasEnoughRequestsForStats(logsCount: number): boolean {
 	return logsCount > MIN_REQUESTS_FOR_STATS;
+}
+
+export function hasEnoughTtftSamplesForStats(
+	timeToFirstTokenCount: number,
+): boolean {
+	return timeToFirstTokenCount > MIN_TTFT_SAMPLES_FOR_STATS;
 }
 
 export interface ProviderWindowStats {
@@ -16,15 +34,19 @@ export interface ProviderWindowStats {
 }
 
 export function gateProviderStats(
-	stats: ProviderWindowStats,
+	stats: ProviderWindowStats & { timeToFirstTokenCount: number },
 ): ProviderWindowStats {
-	if (hasEnoughRequestsForStats(stats.logsCount)) {
-		return stats;
-	}
+	const enoughRequests = hasEnoughRequestsForStats(stats.logsCount);
 	return {
 		logsCount: stats.logsCount,
-		uptime: null,
-		avgTimeToFirstToken: null,
-		throughput: null,
+		// Uptime and throughput are averaged over every request, so they gate on
+		// the request count; TTFT gates on its own sample count.
+		uptime: enoughRequests ? stats.uptime : null,
+		throughput: enoughRequests ? stats.throughput : null,
+		avgTimeToFirstToken: hasEnoughTtftSamplesForStats(
+			stats.timeToFirstTokenCount,
+		)
+			? stats.avgTimeToFirstToken
+			: null,
 	};
 }

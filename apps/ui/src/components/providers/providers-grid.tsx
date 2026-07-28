@@ -221,6 +221,7 @@ export function ProvidersGrid({
 						logsCount: row.logsCount,
 						uptime: row.uptime,
 						avgTimeToFirstToken: row.avgTimeToFirstToken,
+						timeToFirstTokenCount: row.timeToFirstTokenCount,
 						throughput: row.throughput,
 					}),
 				);
