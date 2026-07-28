@@ -4138,12 +4138,25 @@ chat.openapi(completions, async (c) => {
 						});
 					}
 				}
+				// A trailing assistant message is ordinary traffic, so its mere
+				// presence says nothing about why routing came up empty. Only blame
+				// assistant prefill when dropping that constraint would have left a
+				// candidate — otherwise the failure is about keys, regions or another
+				// capability and must keep its own message.
+				const excludedOnlyByAssistantPrefill =
+					hasAssistantPrefill &&
+					filterEligibleModelProviders(preparedModelProviders, {
+						...eligibilityOptions,
+						n,
+						stream,
+						hasAssistantPrefill: false,
+					}).length > 0;
 				throw new HTTPException(400, {
 					message: hasAudio
 						? `No provider with audio support is available for model ${usedInternalModel}. The request contains audio but none of the ${audience} providers support audio input.`
 						: hasImages
 							? `No provider with vision support is available for model ${usedInternalModel}. The request contains images but none of the ${audience} providers support vision.`
-							: hasAssistantPrefill
+							: excludedOnlyByAssistantPrefill
 								? `No provider that accepts a trailing assistant message is available for model ${usedInternalModel}. The conversation ends on an assistant turn but none of the ${audience} providers support assistant prefill.`
 								: project.mode === "api-keys"
 									? `No provider key set for any of the providers that support model ${usedInternalModel}. Please add the provider key in the settings or switch the project mode to credits or hybrid.`
