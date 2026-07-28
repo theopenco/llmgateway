@@ -751,6 +751,38 @@ export const moonshotModels = [
 				tools: true,
 				jsonOutput: true,
 			},
+			{
+				providerId: "canopywave",
+				externalId: "moonshotai/kimi-k3",
+				// A named function choice is rejected with a 400 ("tool_choice
+				// 'specified' is incompatible with thinking enabled"); "required"
+				// works and reliably returns a tool call.
+				supportedToolChoices: ["auto", "none", "required"],
+				inputPrice: "3.0e-6",
+				cachedInputPrice: "0.3e-6",
+				outputPrice: "15.0e-6",
+				requestPrice: "0",
+				// A 300K-token prompt was served correctly; prompts beyond ~1M are
+				// rejected with a 429 because the upstream TPM quota is 1M.
+				contextSize: 1048576,
+				maxOutput: 1048576,
+				streaming: true,
+				reasoning: true,
+				// This deployment accepts every effort tier, including "none"
+				// (which returns zero reasoning tokens) and "minimal".
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
 		],
 	},
 ] as const satisfies ModelDefinition[];
