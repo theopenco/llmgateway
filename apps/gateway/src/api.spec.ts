@@ -1400,10 +1400,10 @@ describe("api", () => {
 		expect((logRow?.content ?? "").length).toBeGreaterThan(0);
 	});
 
-	test("/v1/responses is rejected outright when retention is disabled", async () => {
-		// The Responses API stores conversation state, so it is gated to
-		// retaining orgs — a non-retaining org is rejected before any request or
-		// response payload can be processed or logged.
+	test("/v1/responses works when retention is disabled and keeps state out of the log", async () => {
+		// Responses API state lives in the dedicated responses storage (30d
+		// TTL), not the log table, so a non-retaining org can use the full
+		// stateful API while its log rows stay metadata-only.
 		await db
 			.update(tables.organization)
 			.set({ retentionLevel: "none" })
@@ -1415,6 +1415,14 @@ describe("api", () => {
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-responses-retention-none",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
 		});
 
 		const res = await app.request("/v1/responses", {
@@ -1429,9 +1437,29 @@ describe("api", () => {
 			}),
 		});
 
-		expect(res.status).toBe(400);
+		expect(res.status).toBe(200);
 		const json = await res.json();
-		expect(json.error.code).toBe("data_retention_required");
+		expect(json.id).toMatch(/^resp_/);
+		expect(json.output.length).toBeGreaterThan(0);
+
+		// The stored response is retrievable (state lives in responses storage).
+		const getRes = await app.request(`/v1/responses/${json.id}`, {
+			headers: {
+				Authorization: "Bearer real-token-responses-retention-none",
+			},
+		});
+		expect(getRes.status).toBe(200);
+		const stored = await getRes.json();
+		expect(stored.id).toBe(json.id);
+		expect(stored.output.length).toBeGreaterThan(0);
+
+		// The log row keeps metadata only — no payload, no responsesApiData.
+		const logs = await waitForLogs(1);
+		const logRow = logs.find((log) => log.id === json.id);
+		expect(logRow).toBeTruthy();
+		expect(logRow?.messages).toBeNull();
+		expect(logRow?.content).toBeNull();
+		expect(logRow?.responsesApiData).toBeNull();
 	});
 
 	test("/v1/chat/completions rejects Vertex service tiers outside the global endpoint", async () => {

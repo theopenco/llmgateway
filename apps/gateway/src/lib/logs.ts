@@ -1,7 +1,5 @@
 import { publishToQueue, LOG_QUEUE } from "@llmgateway/cache";
 import {
-	db,
-	log,
 	stripRetentionSensitiveLogFields,
 	UnifiedFinishReason,
 	type LogInsertData,
@@ -14,7 +12,7 @@ import {
 	shouldRedactProviderError,
 } from "./stealth-provider-errors.js";
 
-import type { InferInsertModel } from "@llmgateway/db";
+import type { InferInsertModel, log } from "@llmgateway/db";
 
 /**
  * Check if a finish reason is expected to map to UNKNOWN
@@ -295,7 +293,7 @@ export type LogData = InferInsertModel<typeof log>;
 
 export async function insertLog(
 	logData: LogInsertData,
-	options?: { syncInsert?: boolean; retentionLevel?: "retain" | "none" | null },
+	options?: { retentionLevel?: "retain" | "none" | null },
 ): Promise<unknown> {
 	// Fail closed on retention: unless the organization is explicitly known to
 	// retain data, strip the request/response payload fields here — before the
@@ -374,11 +372,6 @@ export async function insertLog(
 			: undefined,
 		errorType,
 	});
-
-	if (options?.syncInsert) {
-		await db.insert(log).values(logData as LogData);
-		return 1;
-	}
 
 	await publishToQueue(LOG_QUEUE, logData);
 	return 1; // Return 1 to match test expectations
