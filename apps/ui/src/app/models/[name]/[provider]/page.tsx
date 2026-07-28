@@ -411,7 +411,11 @@ export default async function ModelProviderPage({ params }: PageProps) {
 								providerMappings.map((p) => ({
 									...p,
 									providerInfo,
-									discount: bannerDiscount?.discountPercent,
+									// Regions deactivate independently, and the cards can reveal a
+									// deactivated one — it must not show a discounted price.
+									discount: isMappingDeactivated(p)
+										? undefined
+										: bannerDiscount?.discountPercent,
 								})),
 							)}
 						/>
