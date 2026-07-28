@@ -2457,13 +2457,14 @@ export const googleModels = [
 				// feature, so no reasoning field is ever returned.
 				//
 				// "auto" and "none" are honoured correctly. "required" is accepted
-				// but not enforced — it behaves like "auto", and when the model
-				// declines to call a tool it still reports `finish_reason:
-				// "tool_calls"` alongside an empty `tool_calls` array. A named
-				// function choice is likewise ignored (asking for get_time
-				// yields get_weather). Downgrading both to "auto" leaves tool
-				// selection unchanged while restoring a correct finish_reason
-				// (verified 2026-07-28).
+				// but not enforced — it behaves like "auto", and on the
+				// non-streaming path only, when the model declines to call a
+				// tool, it reports `finish_reason: "tool_calls"` on a message
+				// carrying no `tool_calls` key at all. The streaming path
+				// returns "stop" for the same request. A named function choice
+				// is likewise ignored (asking for get_time yields get_weather).
+				// Downgrading both to "auto" leaves tool selection unchanged
+				// while restoring a correct finish_reason (verified 2026-07-28).
 				providerId: "ranoai",
 				externalId: "gemma-4-31b",
 				inputPrice: "0.1e-6",
