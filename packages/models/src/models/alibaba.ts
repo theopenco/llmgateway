@@ -1550,6 +1550,37 @@ export const alibabaModels = [
 				inputPrice: "0.03e-6",
 				outputPrice: "0.13e-6",
 				cachedInputPrice: "0.006e-6",
+				cacheReadInputPrice: "0.003e-6",
+				cacheWriteInputPrice: "0.0375e-6",
+				pricingTiers: [
+					{
+						name: "Up to 32K",
+						upToTokens: 32000,
+						inputPrice: "0.03e-6",
+						outputPrice: "0.13e-6",
+						cachedInputPrice: "0.006e-6",
+						cacheReadInputPrice: "0.003e-6",
+						cacheWriteInputPrice: "0.0375e-6",
+					},
+					{
+						name: "32K-256K",
+						upToTokens: 256000,
+						inputPrice: "0.10e-6",
+						outputPrice: "0.40e-6",
+						cachedInputPrice: "0.02e-6",
+						cacheReadInputPrice: "0.01e-6",
+						cacheWriteInputPrice: "0.125e-6",
+					},
+					{
+						name: "256K-1M",
+						upToTokens: 1000000,
+						inputPrice: "0.20e-6",
+						outputPrice: "0.80e-6",
+						cachedInputPrice: "0.04e-6",
+						cacheReadInputPrice: "0.02e-6",
+						cacheWriteInputPrice: "0.25e-6",
+					},
+				],
 				regions: [{ id: "singapore" }, { id: "cn-beijing" }],
 				requestPrice: "0",
 				contextSize: 1000000,
@@ -1659,6 +1690,10 @@ export const alibabaModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				// deepinfra appends a stray ] to tool call arguments on
+				// tool_choice "required" (~53% of calls malformed), so
+				// "required" coerces to "auto" via supportedToolChoices
+				supportedToolChoices: ["auto", "none", "function"],
 				jsonOutput: true,
 				supportedParameters: [
 					"temperature",
