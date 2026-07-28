@@ -490,6 +490,11 @@ export function LogDetailClient({
 			? (Number(log.completionTokens) / (log.duration / 1000)).toFixed(1)
 			: null;
 
+	// Reasoning models stream thinking before any content, so the first
+	// reasoning token is the real first-token latency when present.
+	const timeToFirstToken =
+		log.timeToFirstReasoningToken ?? log.timeToFirstToken;
+
 	return (
 		<div className="flex flex-col">
 			<div className="flex-1 space-y-6 p-4 pt-6 md:p-8">
@@ -559,14 +564,14 @@ export function LogDetailClient({
 							{throughput ? `${throughput} t/s` : "-"}
 						</p>
 					</div>
-					{log.timeToFirstToken && (
+					{timeToFirstToken && (
 						<div className="rounded-lg border bg-card p-3">
 							<div className="flex items-center gap-2 text-muted-foreground mb-1">
 								<Clock className="h-3.5 w-3.5" />
 								<span className="text-xs">TTFT</span>
 							</div>
 							<p className="text-lg font-semibold tabular-nums">
-								{formatDuration(log.timeToFirstToken)}
+								{formatDuration(timeToFirstToken)}
 							</p>
 						</div>
 					)}
