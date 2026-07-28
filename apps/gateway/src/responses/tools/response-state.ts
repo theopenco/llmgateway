@@ -262,8 +262,10 @@ export async function getStoredResponse(
 			const resolveRefs = (refList: string[]) =>
 				refList.flatMap((ref) => {
 					if (!itemsByRef.has(ref)) {
-						// Should not happen: items are written with (and re-refreshed
-						// alongside) every record that references them.
+						// Items are written with (and re-refreshed alongside) every
+						// record that references them, but the storage backend may
+						// evict least-recently-used keys under memory pressure —
+						// degrade by dropping the missing item rather than failing.
 						logger.warn("Stored response item missing from storage", {
 							responseId,
 							projectId,
