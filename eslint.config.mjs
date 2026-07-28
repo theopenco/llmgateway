@@ -91,6 +91,15 @@ export default [
 						"provider_key.token is the legacy plaintext column and is NULL for encrypted rows. Use readProviderKey(row) from @llmgateway/actions (or hasProviderKey(row) to test existence without decrypting).",
 				},
 			],
+			"no-restricted-properties": [
+				"error",
+				{
+					object: "Math",
+					property: "random",
+					message:
+						"Math.random() is not cryptographically secure. Use randomFloat/randomInt/randomItem/randomToken/uniqueId from @llmgateway/shared/random instead.",
+				},
+			],
 			"no-unused-vars": [
 				"error",
 				{

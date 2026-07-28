@@ -29,6 +29,10 @@
 			"types": "./dist/api-key-hash.d.ts",
 			"import": "./dist/api-key-hash.js"
 		},
+		"./random": {
+			"types": "./dist/random.d.ts",
+			"import": "./dist/random.js"
+		},
 		"./routing-config": {
 			"types": "./dist/routing-config.d.ts",
 			"import": "./dist/routing-config.js"

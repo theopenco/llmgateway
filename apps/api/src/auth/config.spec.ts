@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { db, eq, tables } from "@llmgateway/db";
+import { randomInt } from "@llmgateway/shared/random";
 
 import { apiAuth, isClientJsonError, redisClient } from "./config.js";
 
@@ -186,7 +187,7 @@ describe("API auth hooks functionality", () => {
 				headers: {
 					"Content-Type": "application/json",
 					Origin: codeUrl,
-					"CF-Connecting-IP": `192.168.30.${Math.floor(Math.random() * 255)}`,
+					"CF-Connecting-IP": `192.168.30.${randomInt(0, 255)}`,
 				},
 				body: JSON.stringify({ email, password, name: "Dev User" }),
 			}),
@@ -244,7 +245,7 @@ describe("API auth hooks functionality", () => {
 				headers: {
 					"Content-Type": "application/json",
 					Origin: codeUrl,
-					"CF-Connecting-IP": `192.168.31.${Math.floor(Math.random() * 255)}`,
+					"CF-Connecting-IP": `192.168.31.${randomInt(0, 255)}`,
 				},
 				body: JSON.stringify({ email, password, name: "Dev User" }),
 			}),
@@ -325,7 +326,7 @@ describe("API auth hooks functionality", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"CF-Connecting-IP": `192.168.10.${Math.floor(Math.random() * 255)}`,
+					"CF-Connecting-IP": `192.168.10.${randomInt(0, 255)}`,
 				},
 				body: JSON.stringify({ email, password, name: "Test User" }),
 			}),
@@ -359,7 +360,7 @@ describe("API auth hooks functionality", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"CF-Connecting-IP": `192.168.20.${Math.floor(Math.random() * 255)}`,
+					"CF-Connecting-IP": `192.168.20.${randomInt(0, 255)}`,
 				},
 				body: JSON.stringify({ email, password }),
 			}),
@@ -384,7 +385,7 @@ describe("API auth hooks functionality", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"CF-Connecting-IP": `192.168.21.${Math.floor(Math.random() * 255)}`,
+					"CF-Connecting-IP": `192.168.21.${randomInt(0, 255)}`,
 				},
 				body: JSON.stringify({ email, password, name: "Alice Wonder" }),
 			}),

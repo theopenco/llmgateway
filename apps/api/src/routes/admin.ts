@@ -32,8 +32,10 @@ import {
 	aliasedTable,
 	and,
 	asc,
+	avgEffectiveTtftSql,
 	db,
 	desc,
+	effectiveTtftTotals,
 	eq,
 	gte,
 	inArray,
@@ -4450,11 +4452,9 @@ admin.openapi(getProviderStats, async (c) => {
 				),
 				// Only streamed requests record a time-to-first-token, so the
 				// average divides by the sample count, not the request count.
-				avgTimeToFirstToken: sql<
-					number | null
-				>`CASE WHEN SUM(${mph.timeToFirstTokenCount}) > 0 THEN SUM(${mph.totalTimeToFirstToken})::float / SUM(${mph.timeToFirstTokenCount}) ELSE NULL END`.as(
-					"avgTimeToFirstToken",
-				),
+				// Reasoning-token samples take precedence so thinking mappings
+				// aren't measured on their (much later) first content token.
+				avgTimeToFirstToken: avgEffectiveTtftSql(mph).as("avgTimeToFirstToken"),
 			})
 			.from(mph)
 			.where(and(gte(mphTs, startDate), lt(mphTs, endDateExclusive)))
@@ -4469,7 +4469,7 @@ admin.openapi(getProviderStats, async (c) => {
 			errorsCount: sql`COALESCE(${providerStatsSub.errorsCount}, 0)`,
 			cachedCount: sql`COALESCE(${providerStatsSub.cachedCount}, 0)`,
 			totalCost: sql`COALESCE(${providerStatsSub.totalCost}, 0)`,
-			avgTimeToFirstToken: sql`COALESCE(${providerStatsSub.avgTimeToFirstToken}, ${tables.provider.avgTimeToFirstToken})`,
+			avgTimeToFirstToken: sql`COALESCE(${providerStatsSub.avgTimeToFirstToken}, ${tables.provider.avgTimeToFirstReasoningToken}, ${tables.provider.avgTimeToFirstToken})`,
 			modelCount: sql`COALESCE(${modelCountSub.count}, 0)`,
 			updatedAt: tables.provider.updatedAt,
 		} as const;
@@ -4512,7 +4512,7 @@ admin.openapi(getProviderStats, async (c) => {
 						),
 					avgTimeToFirstToken: sql<
 						number | null
-					>`COALESCE(${providerStatsSub.avgTimeToFirstToken}, ${tables.provider.avgTimeToFirstToken})`.as(
+					>`COALESCE(${providerStatsSub.avgTimeToFirstToken}, ${tables.provider.avgTimeToFirstReasoningToken}, ${tables.provider.avgTimeToFirstToken})`.as(
 						"avgTimeToFirstToken",
 					),
 					modelCount: sql<number>`COALESCE(${modelCountSub.count}, 0)`.as(
@@ -4572,7 +4572,7 @@ admin.openapi(getProviderStats, async (c) => {
 		errorsCount: tables.provider.errorsCount,
 		cachedCount: tables.provider.cachedCount,
 		totalCost: sql`0`,
-		avgTimeToFirstToken: tables.provider.avgTimeToFirstToken,
+		avgTimeToFirstToken: sql`COALESCE(${tables.provider.avgTimeToFirstReasoningToken}, ${tables.provider.avgTimeToFirstToken})`,
 		modelCount: sql`COALESCE(${modelCountSub.count}, 0)`,
 		updatedAt: tables.provider.updatedAt,
 	} as const;
@@ -4588,7 +4588,11 @@ admin.openapi(getProviderStats, async (c) => {
 			logsCount: tables.provider.logsCount,
 			errorsCount: tables.provider.errorsCount,
 			cachedCount: tables.provider.cachedCount,
-			avgTimeToFirstToken: tables.provider.avgTimeToFirstToken,
+			avgTimeToFirstToken: sql<
+				number | null
+			>`COALESCE(${tables.provider.avgTimeToFirstReasoningToken}, ${tables.provider.avgTimeToFirstToken})`.as(
+				"avgTimeToFirstToken",
+			),
 			modelCount: sql<number>`COALESCE(${modelCountSub.count}, 0)`.as(
 				"modelCount",
 			),
@@ -4819,7 +4823,7 @@ admin.openapi(getModelStats, async (c) => {
 			gatewayErrorsCount: sql`COALESCE(${modelAggSub.gatewayErrorsCount}, 0)`,
 			upstreamErrorsCount: sql`COALESCE(${modelAggSub.upstreamErrorsCount}, 0)`,
 			cachedCount: sql`COALESCE(${modelAggSub.cachedCount}, 0)`,
-			avgTimeToFirstToken: tables.model.avgTimeToFirstToken,
+			avgTimeToFirstToken: sql`COALESCE(${tables.model.avgTimeToFirstReasoningToken}, ${tables.model.avgTimeToFirstToken})`,
 			providerCount: sql`COALESCE(${providerCountSub.count}, 0)`,
 			updatedAt: tables.model.updatedAt,
 		} as const;
@@ -4875,7 +4879,11 @@ admin.openapi(getModelStats, async (c) => {
 				cachedCount: sql<number>`COALESCE(${modelAggSub.cachedCount}, 0)`.as(
 					"cachedCount",
 				),
-				avgTimeToFirstToken: tables.model.avgTimeToFirstToken,
+				avgTimeToFirstToken: sql<
+					number | null
+				>`COALESCE(${tables.model.avgTimeToFirstReasoningToken}, ${tables.model.avgTimeToFirstToken})`.as(
+					"avgTimeToFirstToken",
+				),
 				providerCount: sql<number>`COALESCE(${providerCountSub.count}, 0)`.as(
 					"providerCount",
 				),
@@ -4998,7 +5006,7 @@ admin.openapi(getModelStats, async (c) => {
 		gatewayErrorsCount: tables.model.gatewayErrorsCount,
 		upstreamErrorsCount: tables.model.upstreamErrorsCount,
 		cachedCount: tables.model.cachedCount,
-		avgTimeToFirstToken: tables.model.avgTimeToFirstToken,
+		avgTimeToFirstToken: sql`COALESCE(${tables.model.avgTimeToFirstReasoningToken}, ${tables.model.avgTimeToFirstToken})`,
 		providerCount: sql`COALESCE(${providerCountSub.count}, 0)`,
 		updatedAt: tables.model.updatedAt,
 	} as const;
@@ -5019,7 +5027,11 @@ admin.openapi(getModelStats, async (c) => {
 			gatewayErrorsCount: tables.model.gatewayErrorsCount,
 			upstreamErrorsCount: tables.model.upstreamErrorsCount,
 			cachedCount: tables.model.cachedCount,
-			avgTimeToFirstToken: tables.model.avgTimeToFirstToken,
+			avgTimeToFirstToken: sql<
+				number | null
+			>`COALESCE(${tables.model.avgTimeToFirstReasoningToken}, ${tables.model.avgTimeToFirstToken})`.as(
+				"avgTimeToFirstToken",
+			),
 			providerCount: sql<number>`COALESCE(${providerCountSub.count}, 0)`.as(
 				"providerCount",
 			),
@@ -5351,7 +5363,11 @@ admin.openapi(getModelDetail, async (c) => {
 		db
 			.select({
 				providerId: tables.modelProviderMapping.providerId,
-				avgTimeToFirstToken: tables.modelProviderMapping.avgTimeToFirstToken,
+				avgTimeToFirstToken: sql<
+					number | null
+				>`COALESCE(${tables.modelProviderMapping.avgTimeToFirstReasoningToken}, ${tables.modelProviderMapping.avgTimeToFirstToken})`.as(
+					"avgTimeToFirstToken",
+				),
 				updatedAt: tables.modelProviderMapping.updatedAt,
 			})
 			.from(tables.modelProviderMapping)
@@ -5409,6 +5425,14 @@ admin.openapi(getModelDetail, async (c) => {
 					sql<number>`COALESCE(SUM(${mph.timeToFirstTokenCount}), 0)`.as(
 						"ttft_count",
 					),
+				totalTtfrt:
+					sql<number>`COALESCE(SUM(${mph.totalTimeToFirstReasoningToken}), 0)`.as(
+						"total_ttfrt",
+					),
+				ttfrtCount:
+					sql<number>`COALESCE(SUM(${mph.timeToFirstReasoningTokenCount}), 0)`.as(
+						"ttfrt_count",
+					),
 			})
 			.from(mph)
 			.where(and(eq(mph.modelId, modelId), gte(mphTs, startDate)))
@@ -5428,10 +5452,16 @@ admin.openapi(getModelDetail, async (c) => {
 		statsRows.map((r) => {
 			const logsCount = Number(r.logsCount ?? 0);
 			const cachedCount = Number(r.cachedCount ?? 0);
-			const totalTtft = Number(r.totalTtft ?? 0);
 			// Only streamed requests record a time-to-first-token, so the average
-			// divides by the sample count, not the request count.
-			const ttftCount = Number(r.ttftCount ?? 0);
+			// divides by the sample count, not the request count. Reasoning-token
+			// samples take precedence so thinking mappings aren't measured on
+			// their (much later) first content token.
+			const { total: totalTtft, count: ttftCount } = effectiveTtftTotals({
+				totalTimeToFirstToken: Number(r.totalTtft ?? 0),
+				timeToFirstTokenCount: Number(r.ttftCount ?? 0),
+				totalTimeToFirstReasoningToken: Number(r.totalTtfrt ?? 0),
+				timeToFirstReasoningTokenCount: Number(r.ttfrtCount ?? 0),
+			});
 			return [
 				r.providerId,
 				{
@@ -5473,6 +5503,8 @@ admin.openapi(getModelDetail, async (c) => {
 			acc.cachedCount += Number(r.cachedCount ?? 0);
 			acc.totalTtft += Number(r.totalTtft ?? 0);
 			acc.ttftCount += Number(r.ttftCount ?? 0);
+			acc.totalTtfrt += Number(r.totalTtfrt ?? 0);
+			acc.ttfrtCount += Number(r.ttfrtCount ?? 0);
 			return acc;
 		},
 		{
@@ -5490,10 +5522,20 @@ admin.openapi(getModelDetail, async (c) => {
 			cachedCount: 0,
 			totalTtft: 0,
 			ttftCount: 0,
+			totalTtfrt: 0,
+			ttfrtCount: 0,
 		},
 	);
 	const hasWindowData = agg.logsCount > 0;
-	const aggAvgTtft = agg.ttftCount > 0 ? agg.totalTtft / agg.ttftCount : null;
+	const { total: aggEffectiveTtft, count: aggEffectiveTtftCount } =
+		effectiveTtftTotals({
+			totalTimeToFirstToken: agg.totalTtft,
+			timeToFirstTokenCount: agg.ttftCount,
+			totalTimeToFirstReasoningToken: agg.totalTtfrt,
+			timeToFirstReasoningTokenCount: agg.ttfrtCount,
+		});
+	const aggAvgTtft =
+		aggEffectiveTtftCount > 0 ? aggEffectiveTtft / aggEffectiveTtftCount : null;
 
 	return c.json({
 		model: {
@@ -5522,8 +5564,10 @@ admin.openapi(getModelDetail, async (c) => {
 			unknownFinishCount: agg.unknownFinishCount,
 			cachedCount: hasWindowData ? agg.cachedCount : model.cachedCount,
 			avgTimeToFirstToken: hasWindowData
-				? (aggAvgTtft ?? model.avgTimeToFirstToken)
-				: model.avgTimeToFirstToken,
+				? (aggAvgTtft ??
+					model.avgTimeToFirstReasoningToken ??
+					model.avgTimeToFirstToken)
+				: (model.avgTimeToFirstReasoningToken ?? model.avgTimeToFirstToken),
 			providerCount: providerStats.length,
 			updatedAt: model.updatedAt.toISOString(),
 		},
@@ -6203,6 +6247,8 @@ function mapHistoryRows(
 		totalDuration: number;
 		totalTimeToFirstToken: number;
 		timeToFirstTokenCount: number;
+		totalTimeToFirstReasoningToken: number;
+		timeToFirstReasoningTokenCount: number;
 		totalTokens: number;
 		totalCost?: number;
 	}[],
@@ -6219,10 +6265,21 @@ function mapHistoryRows(
 		const errorsCount = Number(r.errorsCount);
 		const cachedCount = Number(r.cachedCount);
 		const totalDuration = Number(r.totalDuration);
-		const totalTimeToFirstToken = Number(r.totalTimeToFirstToken);
 		// Only streamed requests record a time-to-first-token, so the average
-		// divides by the sample count, not the request count.
-		const timeToFirstTokenCount = Number(r.timeToFirstTokenCount);
+		// divides by the sample count, not the request count. Reasoning-token
+		// samples take precedence so thinking mappings aren't measured on their
+		// (much later) first content token.
+		const { total: totalTimeToFirstToken, count: timeToFirstTokenCount } =
+			effectiveTtftTotals({
+				totalTimeToFirstToken: Number(r.totalTimeToFirstToken),
+				timeToFirstTokenCount: Number(r.timeToFirstTokenCount),
+				totalTimeToFirstReasoningToken: Number(
+					r.totalTimeToFirstReasoningToken,
+				),
+				timeToFirstReasoningTokenCount: Number(
+					r.timeToFirstReasoningTokenCount,
+				),
+			});
 		const totalTokens = Number(r.totalTokens);
 
 		let totalCost: number;
@@ -6323,6 +6380,14 @@ admin.openapi(getProviderHistory, async (c) => {
 					sql<number>`SUM(${modelProviderMappingHistoryHourly.timeToFirstTokenCount})`.as(
 						"ttft_count",
 					),
+				totalTimeToFirstReasoningToken:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalTimeToFirstReasoningToken})`.as(
+						"total_ttfrt",
+					),
+				timeToFirstReasoningTokenCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.timeToFirstReasoningTokenCount})`.as(
+						"ttfrt_count",
+					),
 				totalTokens:
 					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalTokens})`.as(
 						"total_tokens",
@@ -6384,6 +6449,14 @@ admin.openapi(getProviderHistory, async (c) => {
 				timeToFirstTokenCount:
 					sql<number>`SUM(${modelProviderMappingHistory.timeToFirstTokenCount})`.as(
 						"ttft_count",
+					),
+				totalTimeToFirstReasoningToken:
+					sql<number>`SUM(${modelProviderMappingHistory.totalTimeToFirstReasoningToken})`.as(
+						"total_ttfrt",
+					),
+				timeToFirstReasoningTokenCount:
+					sql<number>`SUM(${modelProviderMappingHistory.timeToFirstReasoningTokenCount})`.as(
+						"ttfrt_count",
 					),
 				totalTokens:
 					sql<number>`SUM(${modelProviderMappingHistory.totalTokens})`.as(
@@ -6540,6 +6613,14 @@ admin.openapi(getModelHistory, async (c) => {
 					sql<number>`SUM(${modelHistoryHourly.timeToFirstTokenCount})`.as(
 						"ttft_count",
 					),
+				totalTimeToFirstReasoningToken:
+					sql<number>`SUM(${modelHistoryHourly.totalTimeToFirstReasoningToken})`.as(
+						"total_ttfrt",
+					),
+				timeToFirstReasoningTokenCount:
+					sql<number>`SUM(${modelHistoryHourly.timeToFirstReasoningTokenCount})`.as(
+						"ttfrt_count",
+					),
 				totalTokens: sql<number>`SUM(${modelHistoryHourly.totalTokens})`.as(
 					"total_tokens",
 				),
@@ -6591,6 +6672,14 @@ admin.openapi(getModelHistory, async (c) => {
 			timeToFirstTokenCount:
 				sql<number>`SUM(${modelHistory.timeToFirstTokenCount})`.as(
 					"ttft_count",
+				),
+			totalTimeToFirstReasoningToken:
+				sql<number>`SUM(${modelHistory.totalTimeToFirstReasoningToken})`.as(
+					"total_ttfrt",
+				),
+			timeToFirstReasoningTokenCount:
+				sql<number>`SUM(${modelHistory.timeToFirstReasoningTokenCount})`.as(
+					"ttfrt_count",
 				),
 			totalTokens: sql<number>`SUM(${modelHistory.totalTokens})`.as(
 				"total_tokens",
@@ -6772,6 +6861,14 @@ admin.openapi(getMappingHistory, async (c) => {
 					sql<number>`SUM(${modelProviderMappingHistoryHourly.timeToFirstTokenCount})`.as(
 						"ttft_count",
 					),
+				totalTimeToFirstReasoningToken:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalTimeToFirstReasoningToken})`.as(
+						"total_ttfrt",
+					),
+				timeToFirstReasoningTokenCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.timeToFirstReasoningTokenCount})`.as(
+						"ttfrt_count",
+					),
 				totalTokens:
 					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalTokens})`.as(
 						"total_tokens",
@@ -6834,6 +6931,14 @@ admin.openapi(getMappingHistory, async (c) => {
 			timeToFirstTokenCount:
 				sql<number>`SUM(${modelProviderMappingHistory.timeToFirstTokenCount})`.as(
 					"ttft_count",
+				),
+			totalTimeToFirstReasoningToken:
+				sql<number>`SUM(${modelProviderMappingHistory.totalTimeToFirstReasoningToken})`.as(
+					"total_ttfrt",
+				),
+			timeToFirstReasoningTokenCount:
+				sql<number>`SUM(${modelProviderMappingHistory.timeToFirstReasoningTokenCount})`.as(
+					"ttfrt_count",
 				),
 			totalTokens:
 				sql<number>`SUM(${modelProviderMappingHistory.totalTokens})`.as(
@@ -6943,7 +7048,11 @@ admin.openapi(getProviderDetail, async (c) => {
 				externalId: tables.modelProviderMapping.externalId,
 				region: tables.modelProviderMapping.region,
 				status: tables.modelProviderMapping.status,
-				avgTimeToFirstToken: tables.modelProviderMapping.avgTimeToFirstToken,
+				avgTimeToFirstToken: sql<
+					number | null
+				>`COALESCE(${tables.modelProviderMapping.avgTimeToFirstReasoningToken}, ${tables.modelProviderMapping.avgTimeToFirstToken})`.as(
+					"avgTimeToFirstToken",
+				),
 				updatedAt: tables.modelProviderMapping.updatedAt,
 			})
 			.from(tables.modelProviderMapping)
@@ -6980,6 +7089,14 @@ admin.openapi(getProviderDetail, async (c) => {
 					sql<number>`COALESCE(SUM(${mph.timeToFirstTokenCount}), 0)`.as(
 						"ttft_count",
 					),
+				totalTtfrt:
+					sql<number>`COALESCE(SUM(${mph.totalTimeToFirstReasoningToken}), 0)`.as(
+						"total_ttfrt",
+					),
+				ttfrtCount:
+					sql<number>`COALESCE(SUM(${mph.timeToFirstReasoningTokenCount}), 0)`.as(
+						"ttfrt_count",
+					),
 				totalCost: sql<number>`COALESCE(SUM(${mph.totalCost}), 0)`.as(
 					"total_cost",
 				),
@@ -6995,10 +7112,16 @@ admin.openapi(getProviderDetail, async (c) => {
 		const s = statsByModel.get(m.modelId);
 		const logsCount = Number(s?.logsCount ?? 0);
 		const cachedCount = Number(s?.cachedCount ?? 0);
-		const totalTtft = Number(s?.totalTtft ?? 0);
 		// Only streamed requests record a time-to-first-token, so the average
-		// divides by the sample count, not the request count.
-		const ttftCount = Number(s?.ttftCount ?? 0);
+		// divides by the sample count, not the request count. Reasoning-token
+		// samples take precedence so thinking mappings aren't measured on their
+		// (much later) first content token.
+		const { total: totalTtft, count: ttftCount } = effectiveTtftTotals({
+			totalTimeToFirstToken: Number(s?.totalTtft ?? 0),
+			timeToFirstTokenCount: Number(s?.ttftCount ?? 0),
+			totalTimeToFirstReasoningToken: Number(s?.totalTtfrt ?? 0),
+			timeToFirstReasoningTokenCount: Number(s?.ttfrtCount ?? 0),
+		});
 		const avgTtft = ttftCount > 0 ? totalTtft / ttftCount : null;
 		return {
 			modelId: m.modelId,
@@ -7028,6 +7151,8 @@ admin.openapi(getProviderDetail, async (c) => {
 			acc.cachedCount += Number(r.cachedCount ?? 0);
 			acc.totalTtft += Number(r.totalTtft ?? 0);
 			acc.ttftCount += Number(r.ttftCount ?? 0);
+			acc.totalTtfrt += Number(r.totalTtfrt ?? 0);
+			acc.ttfrtCount += Number(r.ttfrtCount ?? 0);
 			return acc;
 		},
 		{
@@ -7039,10 +7164,20 @@ admin.openapi(getProviderDetail, async (c) => {
 			cachedCount: 0,
 			totalTtft: 0,
 			ttftCount: 0,
+			totalTtfrt: 0,
+			ttfrtCount: 0,
 		},
 	);
 	const hasWindowData = agg.logsCount > 0;
-	const aggAvgTtft = agg.ttftCount > 0 ? agg.totalTtft / agg.ttftCount : null;
+	const { total: aggEffectiveTtft, count: aggEffectiveTtftCount } =
+		effectiveTtftTotals({
+			totalTimeToFirstToken: agg.totalTtft,
+			timeToFirstTokenCount: agg.ttftCount,
+			totalTimeToFirstReasoningToken: agg.totalTtfrt,
+			timeToFirstReasoningTokenCount: agg.ttfrtCount,
+		});
+	const aggAvgTtft =
+		aggEffectiveTtftCount > 0 ? aggEffectiveTtft / aggEffectiveTtftCount : null;
 
 	return c.json({
 		provider: {
@@ -7065,8 +7200,11 @@ admin.openapi(getProviderDetail, async (c) => {
 				: providerRow.upstreamErrorsCount,
 			cachedCount: hasWindowData ? agg.cachedCount : providerRow.cachedCount,
 			avgTimeToFirstToken: hasWindowData
-				? (aggAvgTtft ?? providerRow.avgTimeToFirstToken)
-				: providerRow.avgTimeToFirstToken,
+				? (aggAvgTtft ??
+					providerRow.avgTimeToFirstReasoningToken ??
+					providerRow.avgTimeToFirstToken)
+				: (providerRow.avgTimeToFirstReasoningToken ??
+					providerRow.avgTimeToFirstToken),
 			modelCount: mappings.length,
 			updatedAt: providerRow.updatedAt.toISOString(),
 		},
@@ -7167,7 +7305,11 @@ admin.openapi(getMappingDetail, async (c) => {
 			gatewayErrorsCount: tables.modelProviderMapping.gatewayErrorsCount,
 			upstreamErrorsCount: tables.modelProviderMapping.upstreamErrorsCount,
 			cachedCount: tables.modelProviderMapping.cachedCount,
-			avgTimeToFirstToken: tables.modelProviderMapping.avgTimeToFirstToken,
+			avgTimeToFirstToken: sql<
+				number | null
+			>`COALESCE(${tables.modelProviderMapping.avgTimeToFirstReasoningToken}, ${tables.modelProviderMapping.avgTimeToFirstToken})`.as(
+				"avgTimeToFirstToken",
+			),
 			updatedAt: tables.modelProviderMapping.updatedAt,
 		})
 		.from(tables.modelProviderMapping)
@@ -7242,12 +7384,10 @@ admin.openapi(getMappingDetail, async (c) => {
 				"cached_count",
 			),
 			// Only streamed requests record a time-to-first-token, so the average
-			// divides by the sample count, not the request count.
-			avgTtft: sql<
-				number | null
-			>`CASE WHEN SUM(${mph.timeToFirstTokenCount}) > 0 THEN SUM(${mph.totalTimeToFirstToken})::float / SUM(${mph.timeToFirstTokenCount}) ELSE NULL END`.as(
-				"avg_ttft",
-			),
+			// divides by the sample count, not the request count. Reasoning-token
+			// samples take precedence so thinking mappings aren't measured on
+			// their (much later) first content token.
+			avgTtft: avgEffectiveTtftSql(mph).as("avg_ttft"),
 		})
 		.from(mph)
 		.where(and(eq(mph.modelProviderMappingId, m.id), gte(mphTs, startDate)));
@@ -8390,7 +8530,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 		gatewayErrorsCount: sql`COALESCE(${statsJoin.gatewayErrorsCount}, 0)`,
 		upstreamErrorsCount: sql`COALESCE(${statsJoin.upstreamErrorsCount}, 0)`,
 		cost: sql`COALESCE(${statsJoin.cost}, 0)`,
-		avgTimeToFirstToken: tables.modelProviderMapping.avgTimeToFirstToken,
+		avgTimeToFirstToken: sql`COALESCE(${tables.modelProviderMapping.avgTimeToFirstReasoningToken}, ${tables.modelProviderMapping.avgTimeToFirstToken})`,
 		updatedAt: tables.modelProviderMapping.updatedAt,
 	} as const;
 
@@ -8433,7 +8573,11 @@ admin.openapi(getModelProviderMappings, async (c) => {
 					"cachedCount",
 				),
 				cost: sql<number>`COALESCE(${statsJoin.cost}, 0)`.as("cost"),
-				avgTimeToFirstToken: tables.modelProviderMapping.avgTimeToFirstToken,
+				avgTimeToFirstToken: sql<
+					number | null
+				>`COALESCE(${tables.modelProviderMapping.avgTimeToFirstReasoningToken}, ${tables.modelProviderMapping.avgTimeToFirstToken})`.as(
+					"avgTimeToFirstToken",
+				),
 				inputPrice: tables.modelProviderMapping.inputPrice,
 				outputPrice: tables.modelProviderMapping.outputPrice,
 				contextSize: tables.modelProviderMapping.contextSize,

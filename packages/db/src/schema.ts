@@ -19,7 +19,10 @@ import { customAlphabet } from "nanoid";
 
 import type { gatewayContentFilterResponseSchema } from "./log-payloads.js";
 import type { errorDetails, tools, toolChoice, toolResults } from "./types.js";
-import type { ProviderCompliancePolicy } from "@llmgateway/models";
+import type {
+	ProviderComplianceAttestation,
+	ProviderCompliancePolicy,
+} from "@llmgateway/models";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type z from "zod";
 
@@ -1557,6 +1560,19 @@ export interface ProviderKeyOptions {
  */
 export type ProviderKeyVariant = "default" | "enterprise" | "plans";
 
+/**
+ * Org-supplied compliance posture for a custom provider key. LLMGateway does
+ * not verify these claims — they are the organization's own attestation about
+ * infrastructure it operates, evaluated against its provider compliance
+ * policy. Null (the default) keeps the fail-closed behaviour (blocked under
+ * any enabled policy). attestedAt / attestedByUserId are written server-side
+ * only.
+ */
+export interface ProviderKeyComplianceAttestation extends ProviderComplianceAttestation {
+	attestedAt?: string;
+	attestedByUserId?: string;
+}
+
 export const providerKey = pgTable(
 	"provider_key",
 	{
@@ -1587,6 +1603,8 @@ export const providerKey = pgTable(
 		// When true (custom providers only), requests through this key are
 		// restricted to models defined in its custom model catalog.
 		customModelsOnly: boolean().notNull().default(false),
+		// Custom providers only. See ProviderKeyComplianceAttestation.
+		complianceAttestation: jsonb().$type<ProviderKeyComplianceAttestation>(),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
@@ -1650,6 +1668,10 @@ export const providerKey = pgTable(
 		check(
 			"provider_key_managed_org_scope",
 			sql`(${table.managed} = true AND ${table.organizationId} IS NULL) OR (${table.managed} = false AND ${table.organizationId} IS NOT NULL)`,
+		),
+		check(
+			"provider_key_attestation_custom_only",
+			sql`${table.complianceAttestation} IS NULL OR ${table.provider} = 'custom'`,
 		),
 	],
 );

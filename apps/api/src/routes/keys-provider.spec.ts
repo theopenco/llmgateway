@@ -364,6 +364,148 @@ describe("provider keys route", () => {
 		expect(providerKey?.status).toBe("deleted");
 	});
 
+	describe("PATCH /keys/provider/{id} complianceAttestation", () => {
+		async function seedCustomKey(plan: "pro" | "enterprise" = "enterprise") {
+			await db
+				.update(tables.organization)
+				.set({ plan })
+				.where(eq(tables.organization.id, "test-org-id"));
+			await db.insert(tables.providerKey).values({
+				id: "test-custom-key-id",
+				token: "test-custom-token",
+				provider: "custom",
+				name: "mycustom",
+				baseUrl: "https://example.com",
+				organizationId: "test-org-id",
+			});
+		}
+
+		async function patchAttestation(
+			id: string,
+			complianceAttestation: unknown,
+		) {
+			return await app.request(`/keys/provider/${id}`, {
+				method: "PATCH",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+				},
+				body: JSON.stringify({ complianceAttestation }),
+			});
+		}
+
+		test("rejects attestation on a non-custom key", async () => {
+			await db
+				.update(tables.organization)
+				.set({ plan: "enterprise" })
+				.where(eq(tables.organization.id, "test-org-id"));
+
+			const res = await patchAttestation("test-provider-key-id", { soc2: 2 });
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(json.message).toContain(
+				"complianceAttestation can only be set on custom provider keys",
+			);
+		});
+
+		test("rejects attestation for non-enterprise organizations", async () => {
+			await seedCustomKey("pro");
+
+			const res = await patchAttestation("test-custom-key-id", { soc2: 2 });
+			expect(res.status).toBe(403);
+			const json = await res.json();
+			expect(json.message).toContain("enterprise plan");
+		});
+
+		test("stores server-side provenance and ignores client-supplied attestedByUserId", async () => {
+			await seedCustomKey();
+
+			const res = await patchAttestation("test-custom-key-id", {
+				soc2: 2,
+				apiTraining: false,
+				headquarters: "US",
+				attestedByUserId: "forged-user-id",
+				attestedAt: "1999-01-01T00:00:00.000Z",
+			});
+			expect(res.status).toBe(200);
+
+			const providerKey = await db.query.providerKey.findFirst({
+				where: { id: { eq: "test-custom-key-id" } },
+			});
+			expect(providerKey?.complianceAttestation).toMatchObject({
+				soc2: 2,
+				apiTraining: false,
+				headquarters: "US",
+				attestedByUserId: "test-user-id",
+			});
+			expect(providerKey?.complianceAttestation?.attestedAt).not.toBe(
+				"1999-01-01T00:00:00.000Z",
+			);
+			expect(
+				new Date(providerKey!.complianceAttestation!.attestedAt!).getTime(),
+			).toBeGreaterThan(Date.now() - 60_000);
+		});
+
+		test("null clears the attestation", async () => {
+			await seedCustomKey();
+
+			const set = await patchAttestation("test-custom-key-id", { soc2: 1 });
+			expect(set.status).toBe(200);
+
+			const clear = await patchAttestation("test-custom-key-id", null);
+			expect(clear.status).toBe(200);
+
+			const providerKey = await db.query.providerKey.findFirst({
+				where: { id: { eq: "test-custom-key-id" } },
+			});
+			expect(providerKey?.complianceAttestation).toBeNull();
+		});
+
+		test("writes an audit log entry with old and new values", async () => {
+			await seedCustomKey();
+
+			const res = await patchAttestation("test-custom-key-id", { soc2: 2 });
+			expect(res.status).toBe(200);
+
+			const entries = await db.query.auditLog.findMany({
+				where: {
+					organizationId: { eq: "test-org-id" },
+					action: { eq: "provider_key.update" },
+				},
+			});
+			const entry = entries.find(
+				(e) =>
+					(
+						e.metadata as {
+							changes?: Record<string, { old: unknown; new: unknown }>;
+						}
+					)?.changes?.complianceAttestation,
+			);
+			expect(entry).toBeDefined();
+			const change = (
+				entry!.metadata as {
+					changes: Record<string, { old: unknown; new: unknown }>;
+				}
+			).changes.complianceAttestation;
+			expect(change.old).toBeNull();
+			expect(change.new).toMatchObject({
+				soc2: 2,
+				attestedByUserId: "test-user-id",
+			});
+		});
+
+		test("rejects invalid headquarters country codes", async () => {
+			await seedCustomKey();
+
+			for (const headquarters of ["USA", "us"]) {
+				const res = await patchAttestation("test-custom-key-id", {
+					headquarters,
+				});
+				expect(res.status).toBe(400);
+			}
+		});
+	});
+
 	// The gateway resolves provider keys through a cached select (cdb) wrapped
 	// in an SWR fallback mirror, both indexed by the provider_key table (see
 	// apps/gateway/src/lib/cached-queries.ts). Mutations must go through cdb so

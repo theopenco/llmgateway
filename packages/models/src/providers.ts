@@ -1652,6 +1652,38 @@ export const providers: ProviderDefinition[] = [
 		headquarters: null,
 		dataPolicy: null,
 	},
+	{
+		id: "fireworks",
+		name: "Fireworks AI",
+		description:
+			"Fireworks AI serves open-weight models on a fast, OpenAI-compatible inference platform.",
+		env: {
+			required: {
+				apiKey: "LLM_FIREWORKS_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_FIREWORKS_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#6720FF",
+		website: "https://fireworks.ai",
+		statusPageUrl: "https://status.fireworks.ai",
+		announcement: null,
+		termsUrl: "https://fireworks.ai/terms-of-service",
+		privacyPolicyUrl: "https://fireworks.ai/privacy-policy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: 2,
+			iso27001: true,
+			gdpr: true,
+		},
+	},
 ] as const satisfies ProviderDefinition[];
 
 export type ProviderId = (typeof providers)[number]["id"];
@@ -1674,20 +1706,33 @@ export function getServiceTier(
 	);
 }
 
+/** Self-attested compliance posture for a deployment outside the catalogue. */
+export interface ProviderComplianceAttestation {
+	soc2?: 1 | 2 | null;
+	iso27001?: boolean | null;
+	gdpr?: boolean | null;
+	apiTraining?: boolean | null;
+	consumerTraining?: boolean | null;
+	promptLogging?: boolean | null;
+	retentionPeriod?: string | null;
+	/** ISO 3166-1 alpha-2 country the deployment is operated from. */
+	headquarters?: string | null;
+}
+
 /**
- * Whether a provider satisfies an organization's compliance policy. Fail-closed:
- * any active requirement that the provider's {@link ProviderDataPolicy} does not
- * explicitly satisfy (including a missing `dataPolicy`) makes the provider
- * non-compliant. A disabled policy treats every provider as compliant.
+ * Core fail-closed compliance predicate shared by catalogue providers and
+ * self-attested custom deployments: any active requirement that the data
+ * policy does not explicitly satisfy (including a missing policy) fails.
+ * A disabled policy treats everything as compliant.
  */
-export function isProviderCompliant(
-	provider: ProviderDefinition,
+export function isDataPolicyCompliant(
+	dataPolicy: ProviderDataPolicy | null | undefined,
+	headquarters: string | null | undefined,
 	policy: ProviderCompliancePolicy,
 ): boolean {
 	if (!policy.enabled) {
 		return true;
 	}
-	const dataPolicy = provider.dataPolicy;
 	if (policy.requireSoc2 && !dataPolicy?.soc2) {
 		return false;
 	}
@@ -1715,12 +1760,58 @@ export function isProviderCompliant(
 	if (
 		policy.allowedCountries &&
 		policy.allowedCountries.length > 0 &&
-		(!provider.headquarters ||
-			!policy.allowedCountries.includes(provider.headquarters))
+		(!headquarters || !policy.allowedCountries.includes(headquarters))
 	) {
 		return false;
 	}
 	return true;
+}
+
+/**
+ * Whether a provider satisfies an organization's compliance policy. Fail-closed:
+ * any active requirement that the provider's {@link ProviderDataPolicy} does not
+ * explicitly satisfy (including a missing `dataPolicy`) makes the provider
+ * non-compliant. A disabled policy treats every provider as compliant.
+ */
+export function isProviderCompliant(
+	provider: ProviderDefinition,
+	policy: ProviderCompliancePolicy,
+): boolean {
+	return isDataPolicyCompliant(
+		provider.dataPolicy,
+		provider.headquarters,
+		policy,
+	);
+}
+
+/**
+ * Whether a self-attested compliance posture satisfies an organization's
+ * compliance policy. Fail-closed: a missing attestation never satisfies an
+ * enabled policy.
+ */
+export function isAttestationCompliant(
+	attestation: ProviderComplianceAttestation | null | undefined,
+	policy: ProviderCompliancePolicy,
+): boolean {
+	if (!policy.enabled) {
+		return true;
+	}
+	if (!attestation) {
+		return false;
+	}
+	return isDataPolicyCompliant(
+		{
+			apiTraining: attestation.apiTraining ?? null,
+			consumerTraining: attestation.consumerTraining ?? null,
+			promptLogging: attestation.promptLogging ?? null,
+			retentionPeriod: attestation.retentionPeriod ?? null,
+			soc2: attestation.soc2 ?? null,
+			iso27001: attestation.iso27001 ?? null,
+			gdpr: attestation.gdpr ?? null,
+		},
+		attestation.headquarters ?? null,
+		policy,
+	);
 }
 
 export interface ProviderCountry {

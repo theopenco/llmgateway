@@ -12,10 +12,11 @@ import {
 	models,
 	providers,
 } from "@llmgateway/models";
+import { uniqueId } from "@llmgateway/shared/random";
 
 // Helper function to generate unique IDs for tests
 function generateTestId(): string {
-	return `test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+	return uniqueId("test");
 }
 
 // Helper function to check if a provider has any active models

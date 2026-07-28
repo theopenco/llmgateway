@@ -57,11 +57,11 @@ Do not run test files or suites in parallel unless the repository instructions f
 - `pnpm test:unit` - Run unit tests (\*.spec.ts files)
 - `pnpm test:e2e` - Run end-to-end tests (\*.e2e.ts files)
 
-When running curl commands against the local API, you can use `test-token` as authentication.
+When running curl commands against the local API, you can use `test-token` as authentication. To exercise retention-off behavior, use `test-token-no-retention` instead — it belongs to a seeded sibling org with `retentionLevel: "none"` (the default `test-token` org retains all data for easier debugging).
 
 Every seeded account's password is its own email address (password == email). For example, log into the dashboard as `admin@example.com` with the password `admin@example.com`. This applies to all users created by `packages/db/src/seed.ts`, including:
 
-- `admin@example.com` — default test admin (owns "Test Organization" + a DevPass Pro workspace)
+- `admin@example.com` — default test admin (owns "Test Organization", "Test No Retention Organization" + a DevPass Pro workspace)
 - `enterprise@example.com` — owner of the enterprise org
 - `developer@example.com` — project-scoped developer in the enterprise org (RBAC testing)
 - the bulk demo users such as `alice.chen@techcorp.io`, `bob@startupinc.com`, etc.
@@ -145,6 +145,8 @@ NOTE: these commands can only be run in the root directory of the repository, no
 
 - **Gateway** (`apps/gateway`) - LLM request routing and provider management (Hono + Zod + OpenAPI)
 - **API** (`apps/api`) - Backend API for user management, billing, analytics (Hono + Zod + OpenAPI)
+
+Production domain mapping (counterintuitive — do not mix these up): `api.llmgateway.io` serves `apps/gateway` (the LLM gateway, :4001 in dev), and `internal.llmgateway.io` serves `apps/api` (the backend API, :4002 in dev).
 - **UI** (`apps/ui`) - Frontend dashboard (Next.js App Router)
 - **Playground** (`apps/playground`) - Interactive LLM testing environment (Next.js App Router)
 - **Code** (`apps/code`) - Dev plans + coding tools landing & dashboard (Next.js App Router)
@@ -244,6 +246,7 @@ When creating a new package in `packages/`, include these config files. Copy the
 - NEVER run the full E2E suite across all models. Instead, scope `pnpm test:e2e` to the model(s) you changed with `TEST_MODELS`, e.g. `TEST_MODELS="granite/glm-5.2" FULL_MODE=true pnpm test:e2e`. This runs every e2e file (streaming, reasoning, tool calls, json, etc.) but only for the pinned mapping, so do NOT invoke the individual `*.e2e.ts` files one by one — let `TEST_MODELS` filter the whole suite in a single run.
 - Run `pnpm build` to ensure production builds work
 - Run `pnpm format` after code changes
+- The CI e2e workflow (`.github/workflows/e2e.yml`) does NOT run automatically on pull requests, because e2e runs spend real money on provider API calls. Trigger it on demand by commenting `/e2e` on the pull request (only for maintainers/collaborators, and only for branches in this repository, not forks), or via `workflow_dispatch`.
 
 ### Service URLs (Development)
 

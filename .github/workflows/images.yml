@@ -22,6 +22,8 @@ concurrency:
 jobs:
   setup:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       image_tag: ${{ steps.set-tag.outputs.IMAGE_TAG }}
       short_sha: ${{ steps.set-tag.outputs.SHORT_SHA }}
@@ -453,6 +455,8 @@ jobs:
       - setup
       - merge-split
     if: github.event_name == 'push' && needs.merge-split.result == 'success'
+    permissions:
+      contents: read
     steps:
       - name: Trigger infra image update
         env:

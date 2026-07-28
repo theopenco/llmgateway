@@ -4,9 +4,11 @@ import {
 	countryCodeToFlag,
 	getProviderCountries,
 	getProviderDefinition,
+	isAttestationCompliant,
 	isProviderCompliant,
 	PROVIDER_COUNTRY_NAMES,
 	providers,
+	type ProviderComplianceAttestation,
 	type ProviderCompliancePolicy,
 	type ProviderDefinition,
 } from "./providers.js";
@@ -287,6 +289,172 @@ describe("isProviderCompliant", () => {
 		);
 		expect(isProviderCompliant(compliant, policy)).toBe(true);
 		expect(isProviderCompliant(wrongCountry, policy)).toBe(false);
+	});
+});
+
+describe("isAttestationCompliant", () => {
+	it("treats any attestation (including none) as compliant when the policy is disabled", () => {
+		const policy: ProviderCompliancePolicy = {
+			enabled: false,
+			requireSoc2: true,
+		};
+		expect(isAttestationCompliant(undefined, policy)).toBe(true);
+		expect(isAttestationCompliant(null, policy)).toBe(true);
+		expect(isAttestationCompliant({ soc2: 2 }, policy)).toBe(true);
+	});
+
+	it("fails closed when no attestation is on file", () => {
+		expect(
+			isAttestationCompliant(null, { enabled: true, requireSoc2: true }),
+		).toBe(false);
+		expect(
+			isAttestationCompliant(undefined, { enabled: true, requireGdpr: true }),
+		).toBe(false);
+		expect(
+			isAttestationCompliant(null, {
+				enabled: true,
+				allowedCountries: ["US"],
+			}),
+		).toBe(false);
+	});
+
+	it("an empty attestation fails every single-requirement policy", () => {
+		const singleRequirementPolicies: ProviderCompliancePolicy[] = [
+			{ enabled: true, requireSoc2: true },
+			{ enabled: true, requireSoc2Type2: true },
+			{ enabled: true, requireIso27001: true },
+			{ enabled: true, requireSoc2OrIso27001: true },
+			{ enabled: true, requireGdpr: true },
+			{ enabled: true, blockApiTraining: true },
+			{ enabled: true, blockPromptLogging: true },
+			{ enabled: true, allowedCountries: ["US"] },
+		];
+		for (const policy of singleRequirementPolicies) {
+			expect(isAttestationCompliant({}, policy)).toBe(false);
+		}
+	});
+
+	it("evaluates SOC 2 report types like catalogue providers", () => {
+		expect(
+			isAttestationCompliant({ soc2: 2 }, { enabled: true, requireSoc2: true }),
+		).toBe(true);
+		expect(
+			isAttestationCompliant(
+				{ soc2: 2 },
+				{ enabled: true, requireSoc2Type2: true },
+			),
+		).toBe(true);
+		expect(
+			isAttestationCompliant(
+				{ soc2: 2 },
+				{ enabled: true, requireSoc2OrIso27001: true },
+			),
+		).toBe(true);
+		expect(
+			isAttestationCompliant({ soc2: 1 }, { enabled: true, requireSoc2: true }),
+		).toBe(true);
+		expect(
+			isAttestationCompliant(
+				{ soc2: 1 },
+				{ enabled: true, requireSoc2Type2: true },
+			),
+		).toBe(false);
+		expect(
+			isAttestationCompliant(
+				{ soc2: 1 },
+				{ enabled: true, requireSoc2OrIso27001: true },
+			),
+		).toBe(false);
+	});
+
+	it("blockApiTraining / blockPromptLogging require an explicit false", () => {
+		expect(
+			isAttestationCompliant(
+				{ apiTraining: false },
+				{ enabled: true, blockApiTraining: true },
+			),
+		).toBe(true);
+		expect(
+			isAttestationCompliant(
+				{ apiTraining: null },
+				{ enabled: true, blockApiTraining: true },
+			),
+		).toBe(false);
+		expect(
+			isAttestationCompliant(
+				{ apiTraining: true },
+				{ enabled: true, blockApiTraining: true },
+			),
+		).toBe(false);
+		expect(
+			isAttestationCompliant(
+				{ promptLogging: false },
+				{ enabled: true, blockPromptLogging: true },
+			),
+		).toBe(true);
+		expect(
+			isAttestationCompliant(
+				{ promptLogging: null },
+				{ enabled: true, blockPromptLogging: true },
+			),
+		).toBe(false);
+		expect(
+			isAttestationCompliant(
+				{ promptLogging: true },
+				{ enabled: true, blockPromptLogging: true },
+			),
+		).toBe(false);
+	});
+
+	it("allowedCountries checks the attested headquarters, failing closed when absent", () => {
+		const policy: ProviderCompliancePolicy = {
+			enabled: true,
+			allowedCountries: ["US"],
+		};
+		expect(isAttestationCompliant({ headquarters: "US" }, policy)).toBe(true);
+		expect(isAttestationCompliant({ headquarters: "CN" }, policy)).toBe(false);
+		expect(isAttestationCompliant({ headquarters: null }, policy)).toBe(false);
+		expect(isAttestationCompliant({}, policy)).toBe(false);
+	});
+
+	it("matches isProviderCompliant for an equivalent catalogue provider (parity guard)", () => {
+		const openai = getProviderDefinition("openai")!;
+		const attestation: ProviderComplianceAttestation = {
+			soc2: openai.dataPolicy?.soc2 ?? null,
+			iso27001: openai.dataPolicy?.iso27001 ?? null,
+			gdpr: openai.dataPolicy?.gdpr ?? null,
+			apiTraining: openai.dataPolicy?.apiTraining ?? null,
+			consumerTraining: openai.dataPolicy?.consumerTraining ?? null,
+			promptLogging: openai.dataPolicy?.promptLogging ?? null,
+			retentionPeriod: openai.dataPolicy?.retentionPeriod ?? null,
+			headquarters: openai.headquarters ?? null,
+		};
+		const policies: ProviderCompliancePolicy[] = [
+			{ enabled: false },
+			{ enabled: true },
+			{ enabled: true, requireSoc2: true },
+			{ enabled: true, requireSoc2Type2: true },
+			{ enabled: true, requireIso27001: true },
+			{ enabled: true, requireSoc2OrIso27001: true },
+			{ enabled: true, requireGdpr: true },
+			{ enabled: true, blockApiTraining: true },
+			{ enabled: true, blockPromptLogging: true },
+			{ enabled: true, allowedCountries: ["US"] },
+			{ enabled: true, allowedCountries: ["FR"] },
+			{ enabled: true, requireSoc2: true, blockApiTraining: true },
+			{
+				enabled: true,
+				requireSoc2Type2: true,
+				blockPromptLogging: true,
+				allowedCountries: ["US"],
+			},
+		];
+		for (const policy of policies) {
+			expect(
+				isAttestationCompliant(attestation, policy),
+				`attestation/provider divergence for policy ${JSON.stringify(policy)}`,
+			).toBe(isProviderCompliant(openai, policy));
+		}
 	});
 });
 

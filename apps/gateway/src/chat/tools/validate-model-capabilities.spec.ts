@@ -61,6 +61,49 @@ const textImageModel = (() => {
 	return m;
 })();
 
+// gemma-4-31b-it has runware (supportsAssistantPrefill: false) alongside
+// providers that accept a trailing assistant message.
+const mixedPrefillModel = getModel("gemma-4-31b-it");
+
+describe("validateModelCapabilities - assistant prefill", () => {
+	it("rejects when the explicit provider rejects a trailing assistant message", () => {
+		expect(() =>
+			validateModelCapabilities(
+				mixedPrefillModel,
+				"gemma-4-31b-it",
+				"runware",
+				{ hasAssistantPrefill: true },
+			),
+		).toThrow(HTTPException);
+	});
+
+	it("allows when a sibling provider accepts a trailing assistant message", () => {
+		expect(() =>
+			validateModelCapabilities(
+				mixedPrefillModel,
+				"gemma-4-31b-it",
+				undefined,
+				{
+					hasAssistantPrefill: true,
+				},
+			),
+		).not.toThrow();
+	});
+
+	it("allows the same provider when the conversation does not end on an assistant turn", () => {
+		expect(() =>
+			validateModelCapabilities(
+				mixedPrefillModel,
+				"gemma-4-31b-it",
+				"runware",
+				{
+					hasAssistantPrefill: false,
+				},
+			),
+		).not.toThrow();
+	});
+});
+
 describe("validateModelCapabilities - vision", () => {
 	it("rejects when explicit provider does not support vision", () => {
 		expect(() =>

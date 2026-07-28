@@ -42,40 +42,16 @@ import {
 import { CreateProviderKeyDialog } from "./create-provider-key-dialog";
 import { reorderProviderKeys } from "./reorder-provider-keys";
 
+import type { paths } from "@/lib/api/v1";
 import type { Organization } from "@/lib/types";
-import type { ProviderKeyOptions } from "@llmgateway/db";
 
-interface ProviderKey {
-	id: string;
-	createdAt: string;
-	updatedAt: string;
-	provider: string;
-	name: string | null;
-	baseUrl: string | null;
-	options: ProviderKeyOptions | null;
-	status: "active" | "inactive" | "deleted" | null;
-	customModelsOnly: boolean;
-	organizationId: string;
-	maskedToken: string;
-}
+type ProviderKeysResponse =
+	paths["/keys/provider"]["get"]["responses"][200]["content"]["application/json"];
+type ProviderKey = ProviderKeysResponse["providerKeys"][number];
 
 interface ProviderKeysListProps {
 	selectedOrganization: Organization | null;
-	initialData?: {
-		providerKeys: {
-			id: string;
-			createdAt: string;
-			updatedAt: string;
-			provider: string;
-			name: string | null;
-			baseUrl: string | null;
-			options: ProviderKeyOptions | null;
-			status: "active" | "inactive" | "deleted" | null;
-			customModelsOnly: boolean;
-			organizationId: string;
-			maskedToken: string;
-		}[];
-	};
+	initialData?: ProviderKeysResponse;
 }
 
 function formatOptionLabel(key: string, value: string): string {
@@ -409,6 +385,22 @@ export function ProviderKeysList({
 																				{providerKey.name}
 																			</Badge>
 																		)}
+																	{provider.id === "custom" &&
+																		(providerKey.complianceAttestation ? (
+																			<Badge
+																				variant="secondary"
+																				className="text-xs"
+																			>
+																				Attested
+																			</Badge>
+																		) : (
+																			<Badge
+																				variant="outline"
+																				className="text-xs"
+																			>
+																				Not attested
+																			</Badge>
+																		))}
 																	<span className="max-w-[200px] truncate font-mono text-xs text-muted-foreground">
 																		{providerKey.maskedToken}
 																	</span>

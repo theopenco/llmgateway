@@ -29,6 +29,7 @@ import {
 } from "@/lib/components/chart";
 import { useApi } from "@/lib/fetch-client";
 import {
+	formatCompact,
 	hasEnoughRequestsForStats,
 	hasEnoughTtftSamplesForStats,
 	MIN_REQUESTS_FOR_STATS,
@@ -71,19 +72,6 @@ const metricTabs: { key: ActiveMetric; label: string }[] = [
 	{ key: "tokens", label: "Tokens" },
 ];
 
-function formatCompact(n: number): string {
-	if (n >= 1_000_000_000) {
-		return `${(n / 1_000_000_000).toFixed(1)}B`;
-	}
-	if (n >= 1_000_000) {
-		return `${(n / 1_000_000).toFixed(1)}M`;
-	}
-	if (n >= 1_000) {
-		return `${(n / 1_000).toFixed(1)}k`;
-	}
-	return n.toLocaleString();
-}
-
 function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 	const [activeMetric, setActiveMetric] = useState<ActiveMetric>("requests");
 	const ProviderIcon = getProviderIcon(provider.providerId);
@@ -91,9 +79,10 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 	const dataKeys = Object.keys(config);
 
 	const hasEnoughData = hasEnoughRequestsForStats(provider.logsCount);
-	// TTFT only has samples from streamed requests, so it gates on its own count
-	// rather than on the request count that feeds uptime/duration/throughput.
-	const hasEnoughTtftData = hasEnoughTtftSamplesForStats(provider.ttftCount);
+	// TTFT only has samples from streamed requests, so on top of the request
+	// threshold it also gates on its own streamed-sample count.
+	const hasEnoughTtftData =
+		hasEnoughData && hasEnoughTtftSamplesForStats(provider.ttftCount);
 
 	const errorRate =
 		provider.logsCount > 0

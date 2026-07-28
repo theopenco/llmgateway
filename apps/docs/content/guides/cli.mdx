@@ -10,6 +10,14 @@ import { Tabs, Tab } from "fumadocs-ui/components/tabs";
 
 The **LLM Gateway CLI** (`@llmgateway/cli`) is a command-line utility for launching coding agents pre-configured with LLM Gateway, scaffolding projects, discovering models, and managing your LLM Gateway account — API keys, spending budgets, and usage analytics — straight from the terminal.
 
+<Callout type="info">
+	**Using DevPass?** This integration also works with a
+	[DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without
+	a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) —
+	provider-pinned routing is not available on coding plans; the gateway picks
+	the provider for you.
+</Callout>
+
 ## Installation
 
 <Tabs items={["npx (Recommended)", "Global Install"]}>

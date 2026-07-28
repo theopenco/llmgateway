@@ -43,6 +43,7 @@ import {
 	getActiveCompliancePolicy,
 	isProviderIdCompliant,
 	logComplianceBlock,
+	type ComplianceCheckContext,
 } from "@/lib/compliance.js";
 import {
 	calculateCosts,
@@ -231,6 +232,7 @@ import {
 } from "./tools/messages-contain-audio.js";
 import { messagesContainDocuments } from "./tools/messages-contain-documents.js";
 import { messagesContainImages } from "./tools/messages-contain-images.js";
+import { messagesEndWithAssistant } from "./tools/messages-end-with-assistant.js";
 import { mightBeCompleteJson } from "./tools/might-be-complete-json.js";
 import { normalizeClientErrorBody } from "./tools/normalize-client-error.js";
 import {
@@ -563,6 +565,7 @@ function filterEligibleModelProviders(
 		hasAudio: boolean;
 		audioFormats?: string[];
 		hasDocuments: boolean;
+		hasAssistantPrefill?: boolean;
 		maxTokens?: number;
 		reasoningEffort?: string;
 		n?: number;
@@ -1560,6 +1563,9 @@ chat.openapi(completions, async (c) => {
 		? getAudioFormatsFromMessages(messages as BaseMessage[])
 		: [];
 	const hasDocuments = messagesContainDocuments(messages as BaseMessage[]);
+	const hasAssistantPrefill = messagesEndWithAssistant(
+		messages as BaseMessage[],
+	);
 
 	// Extract web_search tool from tools array if present
 	// The web_search tool is a special tool that enables native web search for providers that support it
@@ -1675,29 +1681,24 @@ chat.openapi(completions, async (c) => {
 	const responsesContext = responsesContextKey
 		? getResponsesContext(responsesContextKey)
 		: undefined;
-	const syncLogInsert = responsesContext?.syncInsert ?? false;
 	const logIdOverride = responsesContext?.logId;
 	const finalLogId = logIdOverride ?? shortid();
-	const responsesApiData: unknown = responsesContext?.responsesApiData ?? null;
 
-	// Wrapper that injects Responses API fields into every log entry.
-	// Only override the id for the final log entry (retried !== true) to avoid
-	// PK conflicts when the request retries across multiple providers.
+	// Wrapper that logs Responses API proxy requests under the resp_ id the
+	// client sees. Only override the id for the final log entry (retried !==
+	// true) to avoid PK conflicts when the request retries across multiple
+	// providers.
 	const insertLogEntry = (logData: LogInsertData) =>
-		insertLog(
-			{
-				// Service tiers default from the request-level requested tier and the
-				// served tier resolved so far, so every log path (guardrail/validation
-				// rejections, cache hits, streaming/upstream errors, fetch errors)
-				// records them. Explicit values in logData still win.
-				requestedServiceTier,
-				usedServiceTier: servedServiceTier,
-				...logData,
-				...(logIdOverride && !logData.retried ? { id: logIdOverride } : {}),
-				responsesApiData,
-			},
-			{ syncInsert: syncLogInsert },
-		);
+		insertLog({
+			// Service tiers default from the request-level requested tier and the
+			// served tier resolved so far, so every log path (guardrail/validation
+			// rejections, cache hits, streaming/upstream errors, fetch errors)
+			// records them. Explicit values in logData still win.
+			requestedServiceTier,
+			usedServiceTier: servedServiceTier,
+			...logData,
+			...(logIdOverride && !logData.retried ? { id: logIdOverride } : {}),
+		});
 
 	// Check for X-No-Fallback header to disable provider fallback on low uptime
 	const xNoFallbackHeaderSet =
@@ -2157,7 +2158,6 @@ chat.openapi(completions, async (c) => {
 							image_config,
 						),
 						...(logIdOverride ? { id: logIdOverride } : {}),
-						responsesApiData,
 						apiOrigin,
 						content: null,
 						responseSize: 0,
@@ -2199,7 +2199,7 @@ chat.openapi(completions, async (c) => {
 						usedServiceTier: null,
 						dataStorageCost: "0",
 					},
-					{ syncInsert: syncLogInsert, retentionLevel },
+					{ retentionLevel },
 				);
 			} catch (error) {
 				logger.error("Failed to log unsupported service tier rejection", {
@@ -2570,6 +2570,7 @@ chat.openapi(completions, async (c) => {
 			webSearchTool,
 			hasImages,
 			hasDocuments,
+			hasAssistantPrefill,
 		});
 	} catch (capabilityError) {
 		// The /v1/messages layer flags requests that used Anthropic's explicit-budget
@@ -2637,7 +2638,6 @@ chat.openapi(completions, async (c) => {
 							image_config,
 						),
 						...(logIdOverride ? { id: logIdOverride } : {}),
-						responsesApiData,
 						apiOrigin,
 						content: null,
 						responseSize: 0,
@@ -2675,7 +2675,7 @@ chat.openapi(completions, async (c) => {
 						usedServiceTier: null,
 						dataStorageCost: "0",
 					},
-					{ syncInsert: syncLogInsert, retentionLevel },
+					{ retentionLevel },
 				);
 			} catch (error) {
 				logger.error("Failed to log budget-thinking rejection", {
@@ -2741,6 +2741,29 @@ chat.openapi(completions, async (c) => {
 			)
 		: routingExpandedModelProviders;
 
+	// Resolved before the compliance gate: a custom provider key's self-attested
+	// posture is what the policy is evaluated against, and the auto-routing
+	// filter below is synchronous, so the attestation must already be in hand.
+	// Do not move the compliance gate above this block. Relies on
+	// unique(organizationId, name) on provider_key: this row is the same one the
+	// request-execution path resolves later.
+	const customProviderKey =
+		requestedProvider === "custom" && customProviderName
+			? await findCustomProviderKey(project.organizationId, customProviderName)
+			: undefined;
+	if (
+		requestedProvider === "custom" &&
+		customProviderName &&
+		!customProviderKey
+	) {
+		throw new HTTPException(400, {
+			message: `Provider '${customProviderName}' not found.`,
+		});
+	}
+	const complianceContext: ComplianceCheckContext = {
+		customAttestation: customProviderKey?.complianceAttestation ?? null,
+	};
+
 	// Enterprise provider compliance guardrails: drop providers that do not meet
 	// the org's required certifications/data policies, and block the request when
 	// none remain. Applied after every (re)computation of the IAM-filtered arrays.
@@ -2749,7 +2772,9 @@ chat.openapi(completions, async (c) => {
 	const applyCompliancePolicy = <T extends { providerId: string }>(
 		list: T[],
 	): T[] =>
-		compliancePolicy ? filterCompliantProviders(list, compliancePolicy) : list;
+		compliancePolicy
+			? filterCompliantProviders(list, compliancePolicy, complianceContext)
+			: list;
 
 	const enforceCompliancePolicy = async () => {
 		if (!compliancePolicy) {
@@ -2768,7 +2793,7 @@ chat.openapi(completions, async (c) => {
 			usedProvider !== undefined &&
 			usedProvider !== "llmgateway" &&
 			usedProvider !== "custom" &&
-			!isProviderIdCompliant(usedProvider, compliancePolicy);
+			!isProviderIdCompliant(usedProvider, compliancePolicy, complianceContext);
 		if (iamFilteredModelProviders.length === 0 || pinnedBlocked) {
 			await logComplianceBlock(project.organizationId, {
 				apiKeyId: apiKey.id,
@@ -2866,17 +2891,7 @@ chat.openapi(completions, async (c) => {
 	let customPricingMapping: ProviderModelMapping | undefined;
 
 	// Validate the custom provider against the database if one was requested
-	if (requestedProvider === "custom" && customProviderName) {
-		const customProviderKey = await findCustomProviderKey(
-			project.organizationId,
-			customProviderName,
-		);
-		if (!customProviderKey) {
-			throw new HTTPException(400, {
-				message: `Provider '${customProviderName}' not found.`,
-			});
-		}
-
+	if (customProviderKey) {
 		// Resolve the per-key custom model catalog entry. When the key is
 		// restricted to its catalog, requests for undefined models are rejected so
 		// cost attribution and limits are always known.
@@ -3063,6 +3078,7 @@ chat.openapi(completions, async (c) => {
 			hasAudio,
 			audioFormats,
 			hasDocuments,
+			hasAssistantPrefill,
 			// web_search is extracted from tools above and can leave an empty
 			// array; an empty tools list must not require function-tool support.
 			hasTools:
@@ -3501,6 +3517,7 @@ chat.openapi(completions, async (c) => {
 					hasAudio,
 					audioFormats,
 					hasDocuments,
+					hasAssistantPrefill,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 					n,
@@ -3891,6 +3908,7 @@ chat.openapi(completions, async (c) => {
 						hasAudio,
 						audioFormats,
 						hasDocuments,
+						hasAssistantPrefill,
 						maxTokens: max_tokens,
 						reasoningEffort: reasoning_effort,
 						n,
@@ -4105,6 +4123,7 @@ chat.openapi(completions, async (c) => {
 				hasAudio,
 				audioFormats,
 				hasDocuments,
+				hasAssistantPrefill,
 				maxTokens: max_tokens,
 				reasoningEffort: reasoning_effort,
 			};
@@ -4157,14 +4176,29 @@ chat.openapi(completions, async (c) => {
 						});
 					}
 				}
+				// A trailing assistant message is ordinary traffic, so its mere
+				// presence says nothing about why routing came up empty. Only blame
+				// assistant prefill when dropping that constraint would have left a
+				// candidate — otherwise the failure is about keys, regions or another
+				// capability and must keep its own message.
+				const excludedOnlyByAssistantPrefill =
+					hasAssistantPrefill &&
+					filterEligibleModelProviders(preparedModelProviders, {
+						...eligibilityOptions,
+						n,
+						stream,
+						hasAssistantPrefill: false,
+					}).length > 0;
 				throw new HTTPException(400, {
 					message: hasAudio
 						? `No provider with audio support is available for model ${usedInternalModel}. The request contains audio but none of the ${audience} providers support audio input.`
 						: hasImages
 							? `No provider with vision support is available for model ${usedInternalModel}. The request contains images but none of the ${audience} providers support vision.`
-							: project.mode === "api-keys"
-								? `No provider key set for any of the providers that support model ${usedInternalModel}. Please add the provider key in the settings or switch the project mode to credits or hybrid.`
-								: `No available provider could be found for model ${usedInternalModel}`,
+							: excludedOnlyByAssistantPrefill
+								? `No provider that accepts a trailing assistant message is available for model ${usedInternalModel}. The conversation ends on an assistant turn but none of the ${audience} providers support assistant prefill.`
+								: project.mode === "api-keys"
+									? `No provider key set for any of the providers that support model ${usedInternalModel}. Please add the provider key in the settings or switch the project mode to credits or hybrid.`
+									: `No available provider could be found for model ${usedInternalModel}`,
 				});
 			}
 
@@ -4445,6 +4479,7 @@ chat.openapi(completions, async (c) => {
 					hasAudio,
 					audioFormats,
 					hasDocuments,
+					hasAssistantPrefill,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 					n,

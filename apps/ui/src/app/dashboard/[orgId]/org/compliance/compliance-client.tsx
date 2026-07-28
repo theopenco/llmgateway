@@ -2,6 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { Ban, Check, Save } from "lucide-react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -24,6 +25,7 @@ import { cn } from "@/lib/utils";
 
 import {
 	getProviderCountries,
+	isAttestationCompliant,
 	isProviderCompliant,
 	providers,
 	type ProviderCompliancePolicy,
@@ -56,6 +58,34 @@ function ProviderChip({
 		>
 			{Logo ? <Logo className="h-4 w-4 shrink-0" /> : null}
 			<span>{provider.name}</span>
+			{tone === "allowed" ? (
+				<Check className="h-3.5 w-3.5 shrink-0" />
+			) : (
+				<Ban className="h-3.5 w-3.5 shrink-0" />
+			)}
+		</div>
+	);
+}
+
+// Chip for an org's own custom providers — these have no catalogue
+// ProviderDefinition, so ProviderChip can't be reused.
+function CustomProviderChip({
+	name,
+	tone,
+}: {
+	name: string;
+	tone: "allowed" | "blocked";
+}) {
+	return (
+		<div
+			className={cn(
+				"inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium",
+				tone === "allowed"
+					? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+					: "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400",
+			)}
+		>
+			<span className="font-mono">{name}</span>
 			{tone === "allowed" ? (
 				<Check className="h-3.5 w-3.5 shrink-0" />
 			) : (
@@ -126,7 +156,7 @@ const PROVIDER_COUNTRIES = getProviderCountries();
 export function ComplianceClient() {
 	const params = useParams();
 	const organizationId = params.orgId as string;
-	const { selectedOrganization } = useDashboardNavigation();
+	const { selectedOrganization, buildOrgUrl } = useDashboardNavigation();
 	const { user } = useUser();
 	const { data: teamData, isLoading: isLoadingTeam } =
 		useTeamMembers(organizationId);
@@ -181,6 +211,24 @@ export function ComplianceClient() {
 		return { allowed: allowedList, blocked: blockedList };
 	}, [policy]);
 	const totalProviders = allowed.length + blocked.length;
+
+	// The org's own custom providers, evaluated against their self-attested
+	// compliance posture (fail-closed: no attestation on file → blocked).
+	const { data: providerKeysData } = api.useQuery("get", "/keys/provider", {});
+	const customProviders = useMemo(() => {
+		const keys = (providerKeysData?.providerKeys ?? []).filter(
+			(key) =>
+				key.provider === "custom" &&
+				key.status !== "deleted" &&
+				key.organizationId === selectedOrganization?.id,
+		);
+		return keys.map((key) => ({
+			id: key.id,
+			name: key.name ?? key.id,
+			compliant: isAttestationCompliant(key.complianceAttestation, policy),
+			attested: Boolean(key.complianceAttestation),
+		}));
+	}, [providerKeysData, selectedOrganization?.id, policy]);
 
 	const canManage =
 		selectedOrganization?.plan === "enterprise" &&
@@ -415,6 +463,56 @@ export function ComplianceClient() {
 									</p>
 								)}
 							</div>
+							{customProviders.length > 0 && (
+								<div className="space-y-3">
+									<Label>Your custom providers</Label>
+									<p className="text-sm text-muted-foreground">
+										Evaluated against each provider key&apos;s self-attested
+										compliance posture, recorded on the{" "}
+										<Link
+											href={buildOrgUrl("org/custom-models")}
+											className="underline underline-offset-4"
+										>
+											Custom Models
+										</Link>{" "}
+										page.
+									</p>
+									<div className="flex flex-wrap gap-2">
+										{customProviders.map((provider) => (
+											<CustomProviderChip
+												key={provider.id}
+												name={provider.name}
+												tone={provider.compliant ? "allowed" : "blocked"}
+											/>
+										))}
+									</div>
+									{customProviders.some(
+										(provider) => !provider.compliant && !provider.attested,
+									) && (
+										<p className="text-sm text-muted-foreground">
+											{customProviders
+												.filter(
+													(provider) =>
+														!provider.compliant && !provider.attested,
+												)
+												.map((provider) => (
+													<span key={provider.id} className="block">
+														No attestation on file — requests through{" "}
+														<span className="font-mono">{provider.name}/*</span>{" "}
+														will be blocked.{" "}
+														<Link
+															href={`${buildOrgUrl("org/custom-models")}?providerKey=${provider.id}`}
+															className="underline underline-offset-4"
+														>
+															Record an attestation
+														</Link>
+														.
+													</span>
+												))}
+										</p>
+									)}
+								</div>
+							)}
 						</CardContent>
 					)}
 				</Card>

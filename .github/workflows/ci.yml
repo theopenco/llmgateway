@@ -7,6 +7,10 @@ on:
   merge_group:
     branches:
       - main
+
+permissions:
+  contents: read
+
 jobs:
   quality:
     if: github.event_name == 'pull_request' && github.head_ref != 'main'
