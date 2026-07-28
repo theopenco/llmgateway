@@ -11,10 +11,12 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 <Callout type="info">
 	**Using DevPass?** This integration also works with a
-	[DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without
-	a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) —
-	provider-pinned routing is not available on coding plans; the gateway picks
-	the provider for you.
+	[DevPass](https://devpass.llmgateway.io) plan key. Keep the `llmgateway/`
+	prefix in your OpenClaw config — it names OpenClaw's local provider entry
+	(e.g. `llmgateway/gpt-5.4`). But the model ID after it must be a root ID
+	without a gateway provider prefix (`llmgateway/claude-sonnet-4-5`, not
+	`llmgateway/anthropic/claude-sonnet-4-5`) — provider-pinned routing is not
+	available on coding plans; the gateway picks the provider for you.
 </Callout>
 
 ## Setup

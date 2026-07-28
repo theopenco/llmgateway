@@ -2,13 +2,13 @@
 id: github-copilot
 slug: github-copilot
 title: GitHub Copilot App Integration
-description: Use any model in GitHub's Copilot desktop app through LLM Gateway. One BYOK provider, every model, full cost tracking.
+description: Use any tool-calling model in GitHub's Copilot desktop app through LLM Gateway. One BYOK provider, full cost tracking.
 date: 2026-07-28
 ---
 
 The [GitHub Copilot app](https://github.com/features/ai/github-app) is GitHub's desktop app for agent-driven development — start agent sessions from issues, pull requests, or prompts, run parallel workflows in isolated workspaces, and merge PRs without leaving the app. It supports bring your own key (BYOK), so you can run agent sessions against your own model provider.
 
-Add LLM Gateway as that provider and every session can use Claude, Gemini, GPT, or any of 200+ models — with full cost visibility in your dashboard.
+Add LLM Gateway as that provider and every session can use Claude, Gemini, GPT, or any model in the [catalog](https://llmgateway.io/models) that supports tool calling — with full cost visibility in your dashboard.
 
 One provider entry. No config files. Works on any Copilot plan, or with no Copilot plan at all.
 
@@ -26,7 +26,7 @@ One provider entry. No config files. Works on any Copilot plan, or with no Copil
 2. Select **Add provider** and choose the **OpenAI-compatible** provider type
 3. Set the **Base URL** to:
 
-```
+```txt
 https://api.llmgateway.io/v1
 ```
 
@@ -38,25 +38,25 @@ https://api.llmgateway.io/v1
 
 LLM Gateway's `/v1` endpoint is fully OpenAI-compatible. The Copilot app fetches the model list from the gateway and routes each agent session through it, and we route requests to the right provider behind the scenes. This means:
 
-- **Use any model** — Claude, Gemini, GPT, or 200+ others in Copilot agent sessions
+- **Use any tool-calling model** — Claude, Gemini, GPT, and the rest of the catalog in Copilot agent sessions
 - **Keep your workflow** — sessions, workspaces, and PR merging work exactly the same
 - **Track costs** — every request appears in your LLM Gateway dashboard
 - **Automatic caching** — repeated requests hit cache, saving money
 
 ## Choosing Models
 
-All models available to your account show up in the app's model picker. Browse the [models page](https://llmgateway.io/models) to compare capabilities and pricing, or check [discounted models](/models?discounted=true) for savings up to 90%.
+All models available to your account show up in the app's model picker; agent sessions work with models that support tool calling and streaming. Browse the [models page](https://llmgateway.io/models) to compare capabilities and pricing, or check [discounted models](/models?discounted=true) for savings up to 90%.
 
 ## Good to Know
 
 - **Keys stay local** — the app stores your API key in the OS keychain and never reads it back into the UI.
 - **Any plan works** — BYOK providers work on every Copilot plan, including Free. You don't need a paid Copilot subscription to run agent sessions through LLM Gateway.
-- **Business and Enterprise** — your organization admin must have the Copilot CLI enabled in policy settings for the app, and BYOK can be restricted by policy.
+- **Business and Enterprise** — adding model providers is gated by the **Enable custom models** (BYOK) policy, which your admin must turn on. Accessing the Copilot app itself also requires the Copilot CLI enabled in policy settings.
 - **Agent sessions only** — BYOK covers the app's model-powered agent sessions. Inline code completions in your editor still use Copilot's own service.
 
 ## GitHub Copilot in VS Code
 
-Copilot Chat in VS Code supports custom endpoints too. Run **Chat: Manage Language Models** from the Command Palette, choose **Add Models** → **Custom Endpoint**, enter your LLM Gateway API key, and point the model `url` at `https://api.llmgateway.io/v1/chat/completions` in the generated `chatLanguageModels.json`. Your gateway models then appear in the VS Code chat model picker.
+Copilot Chat in VS Code supports custom endpoints too. Run **Chat: Manage Language Models** from the Command Palette, choose **Add Models** → **Custom Endpoint**, enter your LLM Gateway API key, and select **Chat Completions** as the API type (LLM Gateway is OpenAI-compatible). Then point the model `url` at `https://api.llmgateway.io/v1/chat/completions` in the generated `chatLanguageModels.json`. Your gateway models then appear in the VS Code chat model picker.
 
 ## Troubleshooting
 
@@ -75,7 +75,7 @@ Your LLM Gateway organization is out of credits. Top up in the [dashboard](https
 
 ### Provider option is missing
 
-BYOK in the Copilot app shipped in June 2026 — update to the latest app version. On Business or Enterprise plans, ask your admin to enable the Copilot CLI policy and allow BYOK.
+BYOK in the Copilot app shipped in June 2026 — update to the latest app version. On Business or Enterprise plans, ask your admin to enable the **Enable custom models** (BYOK) policy — and the Copilot CLI policy if you can't access the app at all.
 
 ## Get Started
 
