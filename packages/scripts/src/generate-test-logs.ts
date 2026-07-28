@@ -148,6 +148,10 @@ function logNormalRandom(median: number, sigma: number): number {
 	return median * Math.exp(sigma * z);
 }
 
+// Keeps the millisecond span randomDate draws from well inside the safe
+// integer range that randomInt requires.
+const MAX_DAYS_BACK = 36500;
+
 function randomDate(daysBack: number): Date {
 	const now = new Date();
 	const msBack = randomInt(0, daysBack * 24 * 60 * 60 * 1000 + 1);
@@ -300,6 +304,13 @@ async function main() {
 
 	if (isNaN(count) || count <= 0) {
 		console.error("Error: count must be a positive integer");
+		process.exit(1);
+	}
+
+	if (!Number.isInteger(daysBack) || daysBack < 0 || daysBack > MAX_DAYS_BACK) {
+		console.error(
+			`Error: daysBack must be an integer between 0 and ${MAX_DAYS_BACK}`,
+		);
 		process.exit(1);
 	}
 

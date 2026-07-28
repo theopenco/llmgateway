@@ -130,6 +130,7 @@ export {
 export { selectLoadBalancedItem } from "./load-balance.js";
 
 export {
+	fillRandomFloats,
 	randomFloat,
 	randomFloatBetween,
 	randomInt,

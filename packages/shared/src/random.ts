@@ -1,4 +1,7 @@
 const UINT32_RANGE = 0x1_0000_0000;
+const UINT53_RANGE = 9007199254740992;
+// crypto.getRandomValues rejects requests larger than 65536 bytes.
+const MAX_RANDOM_BYTES = 65536;
 
 function nextUint32(): number {
 	const buffer = new Uint32Array(1);
@@ -6,16 +9,19 @@ function nextUint32(): number {
 	return buffer[0]!;
 }
 
+function nextUint53(): number {
+	const buffer = new Uint32Array(2);
+	crypto.getRandomValues(buffer);
+	// 27 high bits + 26 low bits: the 53 a double represents exactly.
+	return (buffer[0]! >>> 5) * 67108864 + (buffer[1]! >>> 6); // eslint-disable-line no-mixed-operators
+}
+
 /**
  * Cryptographically secure drop-in replacement for `Math.random()`.
  * Returns a float in [0, 1) with the same 53 bits of precision.
  */
 export function randomFloat(): number {
-	const buffer = new Uint32Array(2);
-	crypto.getRandomValues(buffer);
-	const high = buffer[0]! >>> 5;
-	const low = buffer[1]! >>> 6;
-	return (high * 67108864 + low) / 9007199254740992; // eslint-disable-line no-mixed-operators
+	return nextUint53() / UINT53_RANGE;
 }
 
 /**
@@ -32,15 +38,22 @@ export function randomInt(minInclusive: number, maxExclusive: number): number {
 		);
 	}
 
-	if (range > UINT32_RANGE) {
-		return min + Math.floor(randomFloat() * range);
+	if (!Number.isSafeInteger(min) || !Number.isSafeInteger(min + range)) {
+		throw new RangeError(
+			`randomInt requires bounds within the safe integer range, got ${minInclusive} and ${maxExclusive}`,
+		);
 	}
 
-	// Discard values from the incomplete final bucket to avoid modulo bias.
-	const limit = UINT32_RANGE - (UINT32_RANGE % range);
-	let value = nextUint32();
+	// Sample from the smallest space that covers the range, then discard the
+	// incomplete final bucket so the modulo cannot favour the low end.
+	const wide = range > UINT32_RANGE;
+	const space = wide ? UINT53_RANGE : UINT32_RANGE;
+	const next = wide ? nextUint53 : nextUint32;
+	const limit = space - (space % range);
+
+	let value = next();
 	while (value >= limit) {
-		value = nextUint32();
+		value = next();
 	}
 
 	return min + (value % range);
@@ -64,6 +77,31 @@ export function randomItem<T>(items: readonly T[]): T | undefined {
 	return items[randomInt(0, items.length)];
 }
 
+/**
+ * Fills the target with floats in [0, 1), using one `getRandomValues` call per
+ * 16384 values. Prefer this over calling `randomFloat()` in a loop on a hot
+ * path such as an animation frame, where per-value crypto calls dominate.
+ */
+export function fillRandomFloats(target: Float32Array): void {
+	if (target.length === 0) {
+		return;
+	}
+
+	const chunkLength = Math.min(Math.floor(MAX_RANDOM_BYTES / 4), target.length);
+	const scratch = new Uint32Array(chunkLength);
+
+	for (let offset = 0; offset < target.length; offset += chunkLength) {
+		const count = Math.min(chunkLength, target.length - offset);
+		crypto.getRandomValues(
+			count === chunkLength ? scratch : scratch.subarray(0, count),
+		);
+
+		for (let i = 0; i < count; i++) {
+			target[offset + i] = scratch[i]! / UINT32_RANGE;
+		}
+	}
+}
+
 const TOKEN_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz";
 
 /**
@@ -74,13 +112,23 @@ export function randomToken(length = 12): string {
 		return "";
 	}
 
+	// A fractional length would truncate to a zero-byte request part way
+	// through and spin forever, so reject it before allocating anything.
+	if (!Number.isSafeInteger(length)) {
+		throw new RangeError(
+			`randomToken requires a safe integer length, got ${length}`,
+		);
+	}
+
 	// Bytes at or above the last whole multiple of the alphabet size are
 	// rejected so every character is uniformly distributed.
 	const limit = 256 - (256 % TOKEN_ALPHABET.length);
 
 	let token = "";
 	while (token.length < length) {
-		const bytes = new Uint8Array(length - token.length);
+		const bytes = new Uint8Array(
+			Math.min(length - token.length, MAX_RANDOM_BYTES),
+		);
 		crypto.getRandomValues(bytes);
 
 		bytes.forEach((byte) => {

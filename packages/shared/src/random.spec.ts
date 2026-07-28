@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import {
+	fillRandomFloats,
 	randomFloat,
 	randomFloatBetween,
 	randomInt,
@@ -50,6 +51,61 @@ describe("randomInt", () => {
 		expect(() => randomInt(5, 5)).toThrow(RangeError);
 		expect(() => randomInt(10, 5)).toThrow(RangeError);
 	});
+
+	test("stays in bounds for a range wider than 2^32", () => {
+		// 100 days in milliseconds — the span generate-test-logs draws from.
+		const max = 100 * 24 * 60 * 60 * 1000;
+		expect(max).toBeGreaterThan(2 ** 32);
+
+		for (let i = 0; i < 1000; i++) {
+			const value = randomInt(0, max);
+			expect(Number.isSafeInteger(value)).toBe(true);
+			expect(value).toBeGreaterThanOrEqual(0);
+			expect(value).toBeLessThan(max);
+		}
+	});
+
+	test("spreads a wide range across its whole span", () => {
+		const max = 2 ** 40;
+		const buckets = new Set<number>();
+		for (let i = 0; i < 200; i++) {
+			buckets.add(Math.floor((randomInt(0, max) / max) * 4));
+		}
+		expect(buckets.size).toBe(4);
+	});
+
+	test("rejects bounds outside the safe integer range", () => {
+		expect(() => randomInt(0, 2 ** 53)).toThrow(RangeError);
+		expect(() => randomInt(-(2 ** 53), 0)).toThrow(RangeError);
+	});
+});
+
+describe("fillRandomFloats", () => {
+	test("fills every slot with a value in [0, 1)", () => {
+		const target = new Float32Array(1000);
+		fillRandomFloats(target);
+
+		for (const value of Array.from(target)) {
+			expect(value).toBeGreaterThanOrEqual(0);
+			expect(value).toBeLessThan(1);
+		}
+		expect(new Set(Array.from(target)).size).toBeGreaterThan(900);
+	});
+
+	test("fills buffers larger than one crypto chunk", () => {
+		// getRandomValues caps at 65536 bytes, so this spans several chunks.
+		const target = new Float32Array(40000);
+		fillRandomFloats(target);
+
+		expect(Array.from(target).every((v) => v >= 0 && v < 1)).toBe(true);
+		expect(
+			new Set(Array.from(target.subarray(16384, 33000))).size,
+		).toBeGreaterThan(15000);
+	});
+
+	test("handles an empty buffer", () => {
+		expect(() => fillRandomFloats(new Float32Array(0))).not.toThrow();
+	});
 });
 
 describe("randomFloatBetween", () => {
@@ -89,6 +145,18 @@ describe("randomToken", () => {
 	test("returns an empty string for a non-positive length", () => {
 		expect(randomToken(0)).toBe("");
 		expect(randomToken(-1)).toBe("");
+	});
+
+	test("rejects a fractional length instead of looping forever", () => {
+		// A fractional length truncates to a zero-byte request part way through,
+		// which would never let the loop reach its target length.
+		expect(() => randomToken(1.5)).toThrow(RangeError);
+		expect(() => randomToken(Number.NaN)).toThrow(RangeError);
+		expect(() => randomToken(Number.POSITIVE_INFINITY)).toThrow(RangeError);
+	});
+
+	test("fills lengths beyond one crypto chunk", () => {
+		expect(randomToken(70000)).toMatch(/^[0-9a-z]{70000}$/);
 	});
 
 	test("does not repeat", () => {
