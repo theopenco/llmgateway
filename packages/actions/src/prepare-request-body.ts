@@ -142,6 +142,31 @@ function stripSchemaDefaults(
 	return schema;
 }
 
+/**
+ * Drops a function schema's `properties` key when it holds no properties.
+ * `{"type":"object","properties":{}}` — what every SDK emits for a
+ * parameter-less tool — and `{"type":"object"}` describe the same
+ * unconstrained object, but Runware's self-hosted vLLM path rejects the former
+ * with "Function schema properties must be a non-empty object".
+ */
+function dropEmptySchemaProperties(parameters: unknown): unknown {
+	if (
+		!parameters ||
+		typeof parameters !== "object" ||
+		Array.isArray(parameters) ||
+		!("properties" in parameters)
+	) {
+		return parameters;
+	}
+	const { properties, ...rest } = parameters as Record<string, unknown>;
+	const hasProperties =
+		!!properties &&
+		typeof properties === "object" &&
+		!Array.isArray(properties) &&
+		Object.keys(properties).length > 0;
+	return hasProperties ? parameters : rest;
+}
+
 function getProviderMapping(
 	modelDef: ModelDefinition | undefined,
 	usedProvider: ProviderId,
@@ -1756,6 +1781,26 @@ export async function prepareRequestBody(
 		if (functionTools.length > 0) {
 			requestBody.tools = functionTools;
 		}
+	}
+
+	// Runware routes its DeepSeek models through a self-hosted vLLM whose request
+	// validator 400s on parameter-less tools ("Function schema properties must be
+	// a non-empty object", verified live 2026-07-28). DeepSeek upstream and
+	// Runware's partner-API models accept them, so this is Runware-specific.
+	// Runware has no dedicated case in the switch below, so apply it here.
+	if (usedProvider === "runware" && Array.isArray(requestBody.tools)) {
+		requestBody.tools = requestBody.tools.map(
+			(tool: { function?: { parameters?: unknown } }) =>
+				tool?.function?.parameters
+					? {
+							...tool,
+							function: {
+								...tool.function,
+								parameters: dropEmptySchemaProperties(tool.function.parameters),
+							},
+						}
+					: tool,
+		);
 	}
 
 	// Resolve tool_choice against what the mapping declares it accepts. Fall

@@ -1351,6 +1351,93 @@ describe("prepareRequestBody - DeepSeek thinking", () => {
 	});
 });
 
+describe("prepareRequestBody - Runware tool schemas", () => {
+	async function prepare(
+		provider: Parameters<typeof prepareRequestBody>[0],
+		tools: Parameters<typeof prepareRequestBody>[12],
+	) {
+		return (await prepareRequestBody(
+			provider,
+			"deepseek-v4-flash",
+			null,
+			"deepseek-v4-flash",
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			tools,
+		)) as unknown as Record<string, any>;
+	}
+
+	function tool(parameters: unknown) {
+		return [
+			{
+				type: "function" as const,
+				function: {
+					name: "get_time",
+					description: "Get the current time",
+					parameters: parameters as any,
+				},
+			},
+		];
+	}
+
+	test("drops empty properties so parameter-less tools are accepted", async () => {
+		const requestBody = await prepare(
+			"runware",
+			tool({ type: "object", properties: {}, required: [] }),
+		);
+
+		expect(requestBody.tools[0].function.parameters).toEqual({
+			type: "object",
+			required: [],
+		});
+	});
+
+	test("drops properties that is not an object", async () => {
+		const requestBody = await prepare(
+			"runware",
+			tool({ type: "object", properties: [] }),
+		);
+
+		expect(requestBody.tools[0].function.parameters).toEqual({
+			type: "object",
+		});
+	});
+
+	test("keeps populated properties untouched", async () => {
+		const parameters = {
+			type: "object",
+			properties: { tz: { type: "string" } },
+			required: ["tz"],
+		};
+		const requestBody = await prepare("runware", tool(parameters));
+
+		expect(requestBody.tools[0].function.parameters).toEqual(parameters);
+	});
+
+	test("leaves nested empty properties alone", async () => {
+		const parameters = {
+			type: "object",
+			properties: { opts: { type: "object", properties: {} } },
+		};
+		const requestBody = await prepare("runware", tool(parameters));
+
+		expect(requestBody.tools[0].function.parameters).toEqual(parameters);
+	});
+
+	test("does not touch other providers", async () => {
+		const parameters = { type: "object", properties: {}, required: [] };
+		const requestBody = await prepare("deepseek", tool(parameters));
+
+		expect(requestBody.tools[0].function.parameters).toEqual(parameters);
+	});
+});
+
 describe("prepareRequestBody - Z.ai thinking", () => {
 	async function prepare(options: {
 		model: string;
