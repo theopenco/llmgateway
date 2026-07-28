@@ -2456,15 +2456,14 @@ export const googleModels = [
 				// 131K its /v1/models still advertises. Gemma 4 has no reasoning
 				// feature, so no reasoning field is ever returned.
 				//
-				// "auto" and "none" are honoured correctly. "required" is accepted
-				// but not enforced — it behaves like "auto", and on the
-				// non-streaming path only, when the model declines to call a
-				// tool, it reports `finish_reason: "tool_calls"` on a message
-				// carrying no `tool_calls` key at all. The streaming path
-				// returns "stop" for the same request. A named function choice
-				// is likewise ignored (asking for get_time yields get_weather).
-				// Downgrading both to "auto" leaves tool selection unchanged
-				// while restoring a correct finish_reason (verified 2026-07-28).
+				// "auto" and "none" are honoured correctly. "required" and named
+				// function choices are accepted and now return well-formed
+				// responses, but neither is enforced: "required" lets the model
+				// answer without calling a tool, and a named choice is ignored
+				// (asking for get_time yields get_weather). Since the upstream
+				// simply disregards both constraints, downgrading them to "auto"
+				// is behaviourally identical and keeps the mapping from implying
+				// a guarantee it cannot make (verified 2026-07-28).
 				providerId: "ranoai",
 				externalId: "gemma-4-31b",
 				inputPrice: "0.1e-6",
