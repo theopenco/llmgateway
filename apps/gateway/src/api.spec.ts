@@ -18,6 +18,9 @@ import {
 	waitForLogs,
 } from "./test-utils/test-helpers.js";
 
+import type { ProviderKeyComplianceAttestation } from "@llmgateway/db";
+import type { ProviderCompliancePolicy } from "@llmgateway/models";
+
 describe("api", () => {
 	const harness = createGatewayApiTestHarness();
 	let mockServerUrl = "";
@@ -1066,6 +1069,191 @@ describe("api", () => {
 				messages: [{ role: "user", content: "Hello country!" }],
 			}),
 		});
+
+		expect(res.status).toBe(200);
+	});
+
+	async function seedCustomProviderCompliance(options: {
+		policy?: ProviderCompliancePolicy;
+		attestation?: ProviderKeyComplianceAttestation | null;
+	}) {
+		if (options.policy) {
+			await db
+				.update(tables.organization)
+				.set({
+					plan: "enterprise",
+					providerCompliancePolicy: options.policy,
+				})
+				.where(eq(tables.organization.id, "org-id"));
+		}
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-custom-compliance",
+			token: "real-token-custom-compliance",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-custom-compliance",
+			token: "sk-test-key",
+			provider: "custom",
+			name: "mycustom",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+			complianceAttestation: options.attestation ?? null,
+		});
+	}
+
+	async function requestCustomProvider(model = "mycustom/gpt-4o-mini") {
+		return await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-custom-compliance",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model,
+				messages: [{ role: "user", content: `Hello custom ${randomUUID()}` }],
+			}),
+		});
+	}
+
+	test("/v1/chat/completions blocks a custom provider without an attestation", async () => {
+		// Regression lock on the fail-closed default: no attestation on file →
+		// blocked under any enabled policy.
+		await seedCustomProviderCompliance({
+			policy: { enabled: true, requireSoc2: true },
+		});
+
+		const res = await requestCustomProvider();
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(json.error.message).toContain("provider compliance policy");
+
+		const violations = await db.query.guardrailViolation.findMany({
+			where: { organizationId: { eq: "org-id" } },
+		});
+		expect(violations.some((v) => v.category === "provider_compliance")).toBe(
+			true,
+		);
+	});
+
+	test("/v1/chat/completions allows a custom provider whose attestation meets the policy", async () => {
+		await seedCustomProviderCompliance({
+			policy: { enabled: true, requireSoc2: true },
+			attestation: { soc2: 2 },
+		});
+
+		const res = await requestCustomProvider();
+
+		expect(res.status).toBe(200);
+	});
+
+	test("/v1/chat/completions blocks a custom provider whose attestation misses a requirement", async () => {
+		// blockPromptLogging requires an explicit promptLogging: false; an
+		// attestation admitting logging fails.
+		await seedCustomProviderCompliance({
+			policy: { enabled: true, blockPromptLogging: true },
+			attestation: { soc2: 2, promptLogging: true },
+		});
+
+		const res = await requestCustomProvider();
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(json.error.message).toContain("provider compliance policy");
+	});
+
+	test("/v1/chat/completions blocks a custom provider attested outside the allowed countries", async () => {
+		await seedCustomProviderCompliance({
+			policy: { enabled: true, allowedCountries: ["FR"] },
+			attestation: { headquarters: "US" },
+		});
+
+		const res = await requestCustomProvider();
+		expect(res.status).toBe(403);
+		expect((await res.json()).error.message).toContain(
+			"provider compliance policy",
+		);
+	});
+
+	test("/v1/chat/completions allows a custom provider attested inside the allowed countries", async () => {
+		await seedCustomProviderCompliance({
+			policy: { enabled: true, allowedCountries: ["US"] },
+			attestation: { headquarters: "US" },
+		});
+
+		const res = await requestCustomProvider();
+		expect(res.status).toBe(200);
+	});
+
+	test("/v1/chat/completions never applies a custom attestation to catalogue providers", async () => {
+		// The org holds a fully compliant attestation on its custom key, but a
+		// request pinned to OpenAI must still be judged on OpenAI's catalogue
+		// data policy (promptLogging: true → blocked).
+		await seedCustomProviderCompliance({
+			policy: { enabled: true, blockPromptLogging: true },
+			attestation: {
+				soc2: 2,
+				iso27001: true,
+				gdpr: true,
+				apiTraining: false,
+				consumerTraining: false,
+				promptLogging: false,
+				headquarters: "US",
+			},
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-openai-not-attested",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-custom-compliance",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o",
+				messages: [{ role: "user", content: "Hello catalogue!" }],
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		expect((await res.json()).error.message).toContain(
+			"provider compliance policy",
+		);
+	});
+
+	test("/v1/chat/completions returns 400 for an unknown custom provider under an enabled policy", async () => {
+		// The custom key lookup now runs before the compliance gate, so an unknown
+		// provider name yields the more accurate 400 instead of a compliance 403.
+		await seedCustomProviderCompliance({
+			policy: { enabled: true, requireSoc2: true },
+		});
+
+		const res = await requestCustomProvider("nonexistent/gpt-4o-mini");
+
+		expect(res.status).toBe(400);
+		expect((await res.json()).error.message).toContain(
+			"Provider 'nonexistent' not found",
+		);
+	});
+
+	test("/v1/chat/completions allows a custom provider without attestation when no policy is enabled", async () => {
+		await seedCustomProviderCompliance({});
+
+		const res = await requestCustomProvider();
 
 		expect(res.status).toBe(200);
 	});
