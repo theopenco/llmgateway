@@ -229,6 +229,7 @@ import {
 } from "./tools/messages-contain-audio.js";
 import { messagesContainDocuments } from "./tools/messages-contain-documents.js";
 import { messagesContainImages } from "./tools/messages-contain-images.js";
+import { messagesEndWithAssistant } from "./tools/messages-end-with-assistant.js";
 import { mightBeCompleteJson } from "./tools/might-be-complete-json.js";
 import { normalizeClientErrorBody } from "./tools/normalize-client-error.js";
 import {
@@ -549,6 +550,7 @@ function filterEligibleModelProviders(
 		hasAudio: boolean;
 		audioFormats?: string[];
 		hasDocuments: boolean;
+		hasAssistantPrefill?: boolean;
 		maxTokens?: number;
 		reasoningEffort?: string;
 		n?: number;
@@ -1546,6 +1548,9 @@ chat.openapi(completions, async (c) => {
 		? getAudioFormatsFromMessages(messages as BaseMessage[])
 		: [];
 	const hasDocuments = messagesContainDocuments(messages as BaseMessage[]);
+	const hasAssistantPrefill = messagesEndWithAssistant(
+		messages as BaseMessage[],
+	);
 
 	// Extract web_search tool from tools array if present
 	// The web_search tool is a special tool that enables native web search for providers that support it
@@ -2550,6 +2555,7 @@ chat.openapi(completions, async (c) => {
 			webSearchTool,
 			hasImages,
 			hasDocuments,
+			hasAssistantPrefill,
 		});
 	} catch (capabilityError) {
 		// The /v1/messages layer flags requests that used Anthropic's explicit-budget
@@ -3042,6 +3048,7 @@ chat.openapi(completions, async (c) => {
 			hasAudio,
 			audioFormats,
 			hasDocuments,
+			hasAssistantPrefill,
 			// web_search is extracted from tools above and can leave an empty
 			// array; an empty tools list must not require function-tool support.
 			hasTools:
@@ -3480,6 +3487,7 @@ chat.openapi(completions, async (c) => {
 					hasAudio,
 					audioFormats,
 					hasDocuments,
+					hasAssistantPrefill,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 					n,
@@ -3868,6 +3876,7 @@ chat.openapi(completions, async (c) => {
 						hasAudio,
 						audioFormats,
 						hasDocuments,
+						hasAssistantPrefill,
 						maxTokens: max_tokens,
 						reasoningEffort: reasoning_effort,
 						n,
@@ -4081,6 +4090,7 @@ chat.openapi(completions, async (c) => {
 				hasAudio,
 				audioFormats,
 				hasDocuments,
+				hasAssistantPrefill,
 				maxTokens: max_tokens,
 				reasoningEffort: reasoning_effort,
 			};
@@ -4133,14 +4143,29 @@ chat.openapi(completions, async (c) => {
 						});
 					}
 				}
+				// A trailing assistant message is ordinary traffic, so its mere
+				// presence says nothing about why routing came up empty. Only blame
+				// assistant prefill when dropping that constraint would have left a
+				// candidate — otherwise the failure is about keys, regions or another
+				// capability and must keep its own message.
+				const excludedOnlyByAssistantPrefill =
+					hasAssistantPrefill &&
+					filterEligibleModelProviders(preparedModelProviders, {
+						...eligibilityOptions,
+						n,
+						stream,
+						hasAssistantPrefill: false,
+					}).length > 0;
 				throw new HTTPException(400, {
 					message: hasAudio
 						? `No provider with audio support is available for model ${usedInternalModel}. The request contains audio but none of the ${audience} providers support audio input.`
 						: hasImages
 							? `No provider with vision support is available for model ${usedInternalModel}. The request contains images but none of the ${audience} providers support vision.`
-							: project.mode === "api-keys"
-								? `No provider key set for any of the providers that support model ${usedInternalModel}. Please add the provider key in the settings or switch the project mode to credits or hybrid.`
-								: `No available provider could be found for model ${usedInternalModel}`,
+							: excludedOnlyByAssistantPrefill
+								? `No provider that accepts a trailing assistant message is available for model ${usedInternalModel}. The conversation ends on an assistant turn but none of the ${audience} providers support assistant prefill.`
+								: project.mode === "api-keys"
+									? `No provider key set for any of the providers that support model ${usedInternalModel}. Please add the provider key in the settings or switch the project mode to credits or hybrid.`
+									: `No available provider could be found for model ${usedInternalModel}`,
 				});
 			}
 
@@ -4421,6 +4446,7 @@ chat.openapi(completions, async (c) => {
 					hasAudio,
 					audioFormats,
 					hasDocuments,
+					hasAssistantPrefill,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 					n,

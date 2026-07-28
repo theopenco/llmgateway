@@ -9,6 +9,7 @@ export interface ProviderFilterOptions {
 	hasAudio?: boolean;
 	audioFormats?: string[];
 	hasDocuments?: boolean;
+	hasAssistantPrefill?: boolean;
 	hasTools?: boolean;
 	reasoningEffort?: string;
 	reasoningMaxTokens?: number;
@@ -97,6 +98,12 @@ export function getProviderFilterReasons(
 	}
 	if (options.hasDocuments && provider.document !== true) {
 		reasons.push("documents not supported");
+	}
+	if (
+		options.hasAssistantPrefill &&
+		provider.supportsAssistantPrefill === false
+	) {
+		reasons.push("assistant prefill not supported");
 	}
 	if (
 		options.maxTokens !== undefined &&
