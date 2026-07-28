@@ -1,5 +1,7 @@
 const UINT32_RANGE = 0x1_0000_0000;
 const UINT53_RANGE = 9007199254740992;
+// 2^24 — the largest power of two a float32 mantissa represents exactly.
+const FLOAT32_FRACTION_RANGE = 16777216;
 // crypto.getRandomValues rejects requests larger than 65536 bytes.
 const MAX_RANDOM_BYTES = 65536;
 
@@ -97,7 +99,10 @@ export function fillRandomFloats(target: Float32Array): void {
 		);
 
 		for (let i = 0; i < count; i++) {
-			target[offset + i] = scratch[i]! / UINT32_RANGE;
+			// 24-bit fractions land exactly on the float32 mantissa grid. A full
+			// uint32 divided by 2^32 would round up to 1 for the top 128 values,
+			// breaking the [0, 1) contract once stored in a Float32Array.
+			target[offset + i] = (scratch[i]! >>> 8) / FLOAT32_FRACTION_RANGE;
 		}
 	}
 }

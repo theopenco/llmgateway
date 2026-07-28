@@ -106,6 +106,19 @@ describe("fillRandomFloats", () => {
 	test("handles an empty buffer", () => {
 		expect(() => fillRandomFloats(new Float32Array(0))).not.toThrow();
 	});
+
+	test("emits values on the exact float32 fraction grid", () => {
+		// Sampling alone only catches a value rounding up to 1 once in ~33m
+		// draws, so assert the invariant that rules it out: every value is a
+		// multiple of 2^-24, which float32 stores exactly and caps below 1.
+		const target = new Float32Array(5000);
+		fillRandomFloats(target);
+
+		for (const value of Array.from(target)) {
+			expect(Number.isInteger(value * 16777216)).toBe(true);
+			expect(value).toBeLessThanOrEqual((16777216 - 1) / 16777216);
+		}
+	});
 });
 
 describe("randomFloatBetween", () => {
