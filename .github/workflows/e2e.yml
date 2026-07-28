@@ -22,6 +22,7 @@ jobs:
     permissions:
       contents: read
       issues: write
+      pull-requests: read
     outputs:
       ref: ${{ steps.target.outputs.ref }}
     steps:
