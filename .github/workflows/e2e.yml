@@ -10,6 +10,9 @@ on:
       - "**/*.e2e.ts"
       - ".github/workflows/e2e.yml"
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
