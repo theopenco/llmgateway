@@ -2552,6 +2552,7 @@ chat.openapi(completions, async (c) => {
 			webSearchTool,
 			hasImages,
 			hasDocuments,
+			hasAssistantPrefill,
 		});
 	} catch (capabilityError) {
 		// The /v1/messages layer flags requests that used Anthropic's explicit-budget
