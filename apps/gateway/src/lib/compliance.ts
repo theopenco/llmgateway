@@ -4,7 +4,9 @@ import { logViolation } from "@llmgateway/guardrails";
 import { logger, toError } from "@llmgateway/logger";
 import {
 	getProviderDefinition,
+	isAttestationCompliant,
 	isProviderCompliant,
+	type ProviderComplianceAttestation,
 	type ProviderCompliancePolicy,
 } from "@llmgateway/models";
 
@@ -27,11 +29,22 @@ export function getActiveCompliancePolicy(
 		: undefined;
 }
 
+/** Request-scoped facts the policy needs beyond the catalogue. */
+export interface ComplianceCheckContext {
+	customAttestation?: ProviderComplianceAttestation | null;
+}
+
 /** Whether a provider id satisfies the policy (unknown providers fail closed). */
 export function isProviderIdCompliant(
 	providerId: string,
 	policy: ProviderCompliancePolicy,
+	context?: ComplianceCheckContext,
 ): boolean {
+	// "custom" has a catalogue entry with a null dataPolicy, so it must be
+	// short-circuited before the lookup below or it always fails closed.
+	if (providerId === "custom") {
+		return isAttestationCompliant(context?.customAttestation, policy);
+	}
 	const definition = getProviderDefinition(providerId);
 	return definition ? isProviderCompliant(definition, policy) : false;
 }
@@ -40,9 +53,10 @@ export function isProviderIdCompliant(
 export function filterCompliantProviders<T extends { providerId: string }>(
 	list: T[],
 	policy: ProviderCompliancePolicy,
+	context?: ComplianceCheckContext,
 ): T[] {
 	return list.filter((provider) =>
-		isProviderIdCompliant(provider.providerId, policy),
+		isProviderIdCompliant(provider.providerId, policy, context),
 	);
 }
 

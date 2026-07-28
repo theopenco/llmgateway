@@ -42,6 +42,7 @@ import {
 	getActiveCompliancePolicy,
 	isProviderIdCompliant,
 	logComplianceBlock,
+	type ComplianceCheckContext,
 } from "@/lib/compliance.js";
 import {
 	calculateCosts,
@@ -2721,6 +2722,29 @@ chat.openapi(completions, async (c) => {
 			)
 		: routingExpandedModelProviders;
 
+	// Resolved before the compliance gate: a custom provider key's self-attested
+	// posture is what the policy is evaluated against, and the auto-routing
+	// filter below is synchronous, so the attestation must already be in hand.
+	// Do not move the compliance gate above this block. Relies on
+	// unique(organizationId, name) on provider_key: this row is the same one the
+	// request-execution path resolves later.
+	const customProviderKey =
+		requestedProvider === "custom" && customProviderName
+			? await findCustomProviderKey(project.organizationId, customProviderName)
+			: undefined;
+	if (
+		requestedProvider === "custom" &&
+		customProviderName &&
+		!customProviderKey
+	) {
+		throw new HTTPException(400, {
+			message: `Provider '${customProviderName}' not found.`,
+		});
+	}
+	const complianceContext: ComplianceCheckContext = {
+		customAttestation: customProviderKey?.complianceAttestation ?? null,
+	};
+
 	// Enterprise provider compliance guardrails: drop providers that do not meet
 	// the org's required certifications/data policies, and block the request when
 	// none remain. Applied after every (re)computation of the IAM-filtered arrays.
@@ -2729,7 +2753,9 @@ chat.openapi(completions, async (c) => {
 	const applyCompliancePolicy = <T extends { providerId: string }>(
 		list: T[],
 	): T[] =>
-		compliancePolicy ? filterCompliantProviders(list, compliancePolicy) : list;
+		compliancePolicy
+			? filterCompliantProviders(list, compliancePolicy, complianceContext)
+			: list;
 
 	const enforceCompliancePolicy = async () => {
 		if (!compliancePolicy) {
@@ -2748,7 +2774,7 @@ chat.openapi(completions, async (c) => {
 			usedProvider !== undefined &&
 			usedProvider !== "llmgateway" &&
 			usedProvider !== "custom" &&
-			!isProviderIdCompliant(usedProvider, compliancePolicy);
+			!isProviderIdCompliant(usedProvider, compliancePolicy, complianceContext);
 		if (iamFilteredModelProviders.length === 0 || pinnedBlocked) {
 			await logComplianceBlock(project.organizationId, {
 				apiKeyId: apiKey.id,
@@ -2846,17 +2872,7 @@ chat.openapi(completions, async (c) => {
 	let customPricingMapping: ProviderModelMapping | undefined;
 
 	// Validate the custom provider against the database if one was requested
-	if (requestedProvider === "custom" && customProviderName) {
-		const customProviderKey = await findCustomProviderKey(
-			project.organizationId,
-			customProviderName,
-		);
-		if (!customProviderKey) {
-			throw new HTTPException(400, {
-				message: `Provider '${customProviderName}' not found.`,
-			});
-		}
-
+	if (customProviderKey) {
 		// Resolve the per-key custom model catalog entry. When the key is
 		// restricted to its catalog, requests for undefined models are rejected so
 		// cost attribution and limits are always known.
