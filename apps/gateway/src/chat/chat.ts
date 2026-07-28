@@ -114,6 +114,7 @@ import {
 	InvalidFileContentError,
 	parseGoogleUpstreamDocumentError,
 	prepareRequestBody,
+	providerSupportsCaching,
 	selectProviderMapping,
 	RequestError,
 	UnsupportedAudioFormatError,
@@ -691,6 +692,7 @@ async function addContentFilterRoutingMetadata(
 								throughput: metrics?.throughput ?? 0,
 								price: price.toNumber(),
 								discount: discount.toNumber(),
+								cacheSupported: providerSupportsCaching(provider),
 								contentFilterProvider: true,
 								excludedByContentFilter: true,
 							};
@@ -1920,6 +1922,7 @@ chat.openapi(completions, async (c) => {
 				score: maxScore + 1000 + offset,
 				price: price.toNumber(),
 				discount: discount.toNumber(),
+				cacheSupported: providerSupportsCaching(candidate),
 				hybrid_demoted: true,
 			});
 			offset++;
@@ -3745,6 +3748,7 @@ chat.openapi(completions, async (c) => {
 							score: -1,
 							price: originalProviderPrice.toNumber(),
 							discount: originalProviderDiscount.toNumber(),
+							cacheSupported: providerSupportsCaching(originalProviderInfo),
 							rate_limited: true as const,
 						};
 
@@ -3985,6 +3989,7 @@ chat.openapi(completions, async (c) => {
 								uptime: currentUptime,
 								latency: metrics.averageLatency,
 								throughput: metrics.throughput,
+								cacheSupported: providerSupportsCaching(originalProviderInfo),
 							};
 
 							if (cheapestResult) {
@@ -4316,6 +4321,7 @@ chat.openapi(completions, async (c) => {
 									score: -1,
 									price: price.toNumber(),
 									discount: discount.toNumber(),
+									cacheSupported: providerSupportsCaching(providerInfo),
 									rate_limited: true,
 								});
 							}
