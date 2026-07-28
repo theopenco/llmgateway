@@ -13,6 +13,7 @@ import {
 } from "@llmgateway/models";
 import {
 	AWSBedrockIconStatic,
+	FireworksIconStatic,
 	getProviderIcon,
 	GoogleStudioAIIconStatic,
 	MinimaxIconStatic,
@@ -70,27 +71,30 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 		const decodedProvider = decodeURIComponent(provider);
 
 		const model = modelDefinitions.find((m) => m.id === decodedName) as
-			ModelDefinition | undefined;
+			| ModelDefinition
+			| undefined;
 
 		if (!model) {
 			return new ImageResponse(
-				<div
-					style={{
-						width: "100%",
-						height: "100%",
-						display: "flex",
-						alignItems: "center",
-						justifyContent: "center",
-						background: "#020817",
-						color: "white",
-						fontSize: 48,
-						fontWeight: 700,
-						fontFamily:
-							"system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
-					}}
-				>
-					Model not found
-				</div>,
+				(
+					<div
+						style={{
+							width: "100%",
+							height: "100%",
+							display: "flex",
+							alignItems: "center",
+							justifyContent: "center",
+							background: "#020817",
+							color: "white",
+							fontSize: 48,
+							fontWeight: 700,
+							fontFamily:
+								"system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+						}}
+					>
+						Model not found
+					</div>
+				),
 				size,
 			);
 		}
@@ -110,7 +114,9 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 						? GoogleStudioAIIconStatic
 						: selectedMapping.providerId === "xai"
 							? XAIIconStatic
-							: getProviderIcon(selectedMapping.providerId)
+							: selectedMapping.providerId === "fireworks"
+								? FireworksIconStatic
+								: getProviderIcon(selectedMapping.providerId)
 			: null;
 		const discounts = await fetchModelDiscounts(decodedName);
 		const effectiveDiscount = selectedMapping
@@ -182,7 +188,9 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 								? GoogleStudioAIIconStatic
 								: providerId === "xai"
 									? XAIIconStatic
-									: getProviderIcon(providerId);
+									: providerId === "fireworks"
+										? FireworksIconStatic
+										: getProviderIcon(providerId);
 				const info = providerDefinitions.find((p) => p.id === providerId);
 				return {
 					id: providerId,
@@ -278,494 +286,500 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 		};
 
 		return new ImageResponse(
-			<div
-				style={{
-					width: "100%",
-					height: "100%",
-					display: "flex",
-					flexDirection: "column",
-					justifyContent: "space-between",
-					background: "#000000",
-					color: "white",
-					fontFamily:
-						"system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
-					padding: 56,
-					boxSizing: "border-box",
-				}}
-			>
-				{/* Header */}
+			(
 				<div
 					style={{
+						width: "100%",
+						height: "100%",
 						display: "flex",
-						flexDirection: "row",
+						flexDirection: "column",
 						justifyContent: "space-between",
-						alignItems: "flex-start",
+						background: "#000000",
+						color: "white",
+						fontFamily:
+							"system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+						padding: 56,
+						boxSizing: "border-box",
 					}}
 				>
+					{/* Header */}
 					<div
 						style={{
 							display: "flex",
 							flexDirection: "row",
-							alignItems: "center",
-							gap: 20,
+							justifyContent: "space-between",
+							alignItems: "flex-start",
 						}}
 					>
-						<div
-							style={{
-								width: 88,
-								height: 88,
-								borderRadius: 20,
-								backgroundColor: "#111827",
-								border: "2px solid rgba(148,163,184,0.3)",
-								display: "flex",
-								alignItems: "center",
-								justifyContent: "center",
-								overflow: "hidden",
-							}}
-						>
-							{ProviderIcon ? (
-								<ProviderIcon width={56} height={56} />
-							) : (
-								<span
-									style={{
-										fontSize: 36,
-										fontWeight: 700,
-									}}
-								>
-									{(
-										providerInfo?.name ??
-										(selectedMapping?.providerId || "LLM")
-									)
-										.charAt(0)
-										.toUpperCase()}
-								</span>
-							)}
-						</div>
-						<div
-							style={{
-								display: "flex",
-								flexDirection: "column",
-								gap: 6,
-							}}
-						>
-							<span
-								style={{
-									fontSize: 52,
-									fontWeight: 700,
-									letterSpacing: "-0.02em",
-								}}
-							>
-								{model.name ?? model.id}
-							</span>
-							<div
-								style={{
-									display: "flex",
-									flexDirection: "row",
-									alignItems: "center",
-									gap: 10,
-									fontSize: 24,
-									color: "#9CA3AF",
-								}}
-							>
-								<span>{providerInfo?.name ?? selectedMapping?.providerId}</span>
-								<span style={{ opacity: 0.5 }}>•</span>
-								<span>{model.family} family</span>
-							</div>
-						</div>
-					</div>
-
-					{supportingProviders.length > 1 && (
 						<div
 							style={{
 								display: "flex",
 								flexDirection: "row",
 								alignItems: "center",
-								gap: 8,
+								gap: 20,
 							}}
 						>
-							{supportingProviders.map(({ id, Icon }) => (
-								<div
-									key={id}
-									style={{
-										width: 48,
-										height: 48,
-										borderRadius: 12,
-										backgroundColor: "#111827",
-										border: "1px solid rgba(148,163,184,0.3)",
-										display: "flex",
-										alignItems: "center",
-										justifyContent: "center",
-										overflow: "hidden",
-									}}
-								>
-									<Icon width={30} height={30} />
-								</div>
-							))}
-						</div>
-					)}
-				</div>
-
-				{/* Pricing Grid - Main Focus */}
-				<div
-					style={{
-						display: "flex",
-						flexDirection: "column",
-						gap: 28,
-					}}
-				>
-					{(hasTokenPricing ||
-						(requestPrice !== undefined && requestPrice !== 0) ||
-						(perSecondPrice && Object.keys(perSecondPrice).length > 0) ||
-						hasOcrPricing ||
-						hasCharPricing ||
-						hasAudioHourPricing) && (
-						<span
-							style={{
-								color: "#6B7280",
-								fontSize: 24,
-								fontWeight: 500,
-								textTransform: "uppercase",
-								letterSpacing: "0.1em",
-							}}
-						>
-							{hasAudioHourPricing
-								? "Audio Transcription Pricing"
-								: hasCharPricing
-									? "Per Character Pricing"
-									: isVideoGen && perSecondPrice
-										? "Pricing per second"
-										: hasOcrPricing
-											? "Pricing per 1K pages"
-											: isImageGen &&
-												  requestPrice !== undefined &&
-												  requestPrice !== 0 &&
-												  !hasTokenPricing
-												? "Pricing per request"
-												: requestPrice !== undefined && requestPrice !== 0
-													? "Pricing"
-													: "Pricing per 1M tokens"}
-						</span>
-					)}
-					<div
-						style={{
-							display: "flex",
-							flexDirection: "row",
-							gap: 32,
-						}}
-					>
-						{/* Context */}
-						<div
-							style={{
-								display: "flex",
-								flexDirection: "column",
-								gap: 10,
-								padding: "28px 36px",
-								backgroundColor: "#0A0A0A",
-								borderRadius: 20,
-								border: "1px solid #1F2937",
-							}}
-						>
-							<span
-								style={{
-									color: "#9CA3AF",
-									fontSize: 20,
-									fontWeight: 500,
-									textTransform: "uppercase",
-									letterSpacing: "0.05em",
-								}}
-							>
-								Context
-							</span>
-							<span style={{ fontSize: 56, fontWeight: 700 }}>
-								{contextSize ? formatContextSize(contextSize) : "—"}
-							</span>
-						</div>
-
-						{/* Per-hour input audio price for transcription models */}
-						{hasAudioHourPricing && (
 							<div
 								style={{
-									display: "flex",
-									flexDirection: "column",
-									gap: 10,
-									padding: "28px 36px",
-									backgroundColor: "#0A0A0A",
+									width: 88,
+									height: 88,
 									borderRadius: 20,
-									border: "1px solid #1F2937",
+									backgroundColor: "#111827",
+									border: "2px solid rgba(148,163,184,0.3)",
+									display: "flex",
+									alignItems: "center",
+									justifyContent: "center",
+									overflow: "hidden",
 								}}
 							>
-								<span
-									style={{
-										color: "#9CA3AF",
-										fontSize: 20,
-										fontWeight: 500,
-										textTransform: "uppercase",
-										letterSpacing: "0.05em",
-									}}
-								>
-									Input audio
-								</span>
-								{formatUnitPrice(inputAudioHourPrice ?? 0, "/hour")}
-							</div>
-						)}
-
-						{/* Per-character input text price for speech models */}
-						{hasCharPricing && (
-							<div
-								style={{
-									display: "flex",
-									flexDirection: "column",
-									gap: 10,
-									padding: "28px 36px",
-									backgroundColor: "#0A0A0A",
-									borderRadius: 20,
-									border: "1px solid #1F2937",
-								}}
-							>
-								<span
-									style={{
-										color: "#9CA3AF",
-										fontSize: 20,
-										fontWeight: 500,
-										textTransform: "uppercase",
-										letterSpacing: "0.05em",
-									}}
-								>
-									Input text
-								</span>
-								{formatUnitPrice(
-									(inputCharacterPrice ?? 0) * 1000,
-									"/1K chars",
-								)}
-							</div>
-						)}
-
-						{/* Per-Second Price for video gen */}
-						{isVideoGen &&
-							perSecondPrice &&
-							Object.entries(perSecondPrice)
-								.slice(0, 2)
-								.map(([key, price]) => (
-									<div
-										key={key}
+								{ProviderIcon ? (
+									<ProviderIcon width={56} height={56} />
+								) : (
+									<span
 										style={{
-											display: "flex",
-											flexDirection: "column",
-											gap: 10,
-											padding: "28px 36px",
-											backgroundColor: "#0A0A0A",
-											borderRadius: 20,
-											border: "1px solid #1F2937",
+											fontSize: 36,
+											fontWeight: 700,
 										}}
 									>
-										<span
-											style={{
-												color: "#9CA3AF",
-												fontSize: 20,
-												fontWeight: 500,
-												textTransform: "uppercase",
-												letterSpacing: "0.05em",
-											}}
-										>
-											{key === "default"
-												? "Per Second"
-												: key.replace(/_/g, " ")}
-										</span>
-										<span style={{ fontWeight: 700, fontSize: 56 }}>
-											${price.toFixed(4)}
-										</span>
+										{(
+											providerInfo?.name ??
+											(selectedMapping?.providerId || "LLM")
+										)
+											.charAt(0)
+											.toUpperCase()}
+									</span>
+								)}
+							</div>
+							<div
+								style={{
+									display: "flex",
+									flexDirection: "column",
+									gap: 6,
+								}}
+							>
+								<span
+									style={{
+										fontSize: 52,
+										fontWeight: 700,
+										letterSpacing: "-0.02em",
+									}}
+								>
+									{model.name ?? model.id}
+								</span>
+								<div
+									style={{
+										display: "flex",
+										flexDirection: "row",
+										alignItems: "center",
+										gap: 10,
+										fontSize: 24,
+										color: "#9CA3AF",
+									}}
+								>
+									<span>
+										{providerInfo?.name ?? selectedMapping?.providerId}
+									</span>
+									<span style={{ opacity: 0.5 }}>•</span>
+									<span>{model.family} family</span>
+								</div>
+							</div>
+						</div>
+
+						{supportingProviders.length > 1 && (
+							<div
+								style={{
+									display: "flex",
+									flexDirection: "row",
+									alignItems: "center",
+									gap: 8,
+								}}
+							>
+								{supportingProviders.map(({ id, Icon }) => (
+									<div
+										key={id}
+										style={{
+											width: 48,
+											height: 48,
+											borderRadius: 12,
+											backgroundColor: "#111827",
+											border: "1px solid rgba(148,163,184,0.3)",
+											display: "flex",
+											alignItems: "center",
+											justifyContent: "center",
+											overflow: "hidden",
+										}}
+									>
+										<Icon width={30} height={30} />
 									</div>
 								))}
-
-						{/* Request Price */}
-						{requestPrice !== undefined && requestPrice !== 0 && (
-							<div
-								style={{
-									display: "flex",
-									flexDirection: "column",
-									gap: 10,
-									padding: "28px 36px",
-									backgroundColor: "#0A0A0A",
-									borderRadius: 20,
-									border: "1px solid #1F2937",
-								}}
-							>
-								<span
-									style={{
-										color: "#9CA3AF",
-										fontSize: 20,
-										fontWeight: 500,
-										textTransform: "uppercase",
-										letterSpacing: "0.05em",
-									}}
-								>
-									Per Request
-								</span>
-								<span style={{ fontWeight: 700, fontSize: 56 }}>
-									${requestPrice.toFixed(4)}
-								</span>
-							</div>
-						)}
-
-						{/* OCR per-1K-pages price */}
-						{ocrPagePrice !== undefined && ocrPagePrice > 0 && (
-							<div
-								style={{
-									display: "flex",
-									flexDirection: "column",
-									gap: 10,
-									padding: "28px 36px",
-									backgroundColor: "#0A0A0A",
-									borderRadius: 20,
-									border: "1px solid #1F2937",
-								}}
-							>
-								<span
-									style={{
-										color: "#9CA3AF",
-										fontSize: 20,
-										fontWeight: 500,
-										textTransform: "uppercase",
-										letterSpacing: "0.05em",
-									}}
-								>
-									Per 1K Pages
-								</span>
-								<span style={{ fontWeight: 700, fontSize: 56 }}>
-									${(ocrPagePrice * 1000).toFixed(2)}
-								</span>
-							</div>
-						)}
-
-						{/* Input - only show if has token pricing */}
-						{hasTokenPricing && (
-							<div
-								style={{
-									display: "flex",
-									flexDirection: "column",
-									gap: 10,
-									padding: "28px 36px",
-									backgroundColor: "#0A0A0A",
-									borderRadius: 20,
-									border: "1px solid #1F2937",
-								}}
-							>
-								<span
-									style={{
-										color: "#9CA3AF",
-										fontSize: 20,
-										fontWeight: 500,
-										textTransform: "uppercase",
-										letterSpacing: "0.05em",
-									}}
-								>
-									{hasPricingTiers ? "Input (starting at)" : "Input"}
-								</span>
-								{formatDollars(pricing?.input ?? undefined, discountNum)}
-							</div>
-						)}
-
-						{/* Output - only show if has token pricing */}
-						{hasTokenPricing && (
-							<div
-								style={{
-									display: "flex",
-									flexDirection: "column",
-									gap: 10,
-									padding: "28px 36px",
-									backgroundColor: "#0A0A0A",
-									borderRadius: 20,
-									border: "1px solid #1F2937",
-								}}
-							>
-								<span
-									style={{
-										color: "#9CA3AF",
-										fontSize: 20,
-										fontWeight: 500,
-										textTransform: "uppercase",
-										letterSpacing: "0.05em",
-									}}
-								>
-									{hasPricingTiers ? "Output (starting at)" : "Output"}
-								</span>
-								{formatDollars(pricing?.output ?? undefined, discountNum)}
 							</div>
 						)}
 					</div>
-				</div>
 
-				{/* Footer */}
-				<div
-					style={{
-						display: "flex",
-						flexDirection: "row",
-						justifyContent: "space-between",
-						alignItems: "center",
-					}}
-				>
+					{/* Pricing Grid - Main Focus */}
+					<div
+						style={{
+							display: "flex",
+							flexDirection: "column",
+							gap: 28,
+						}}
+					>
+						{(hasTokenPricing ||
+							(requestPrice !== undefined && requestPrice !== 0) ||
+							(perSecondPrice && Object.keys(perSecondPrice).length > 0) ||
+							hasOcrPricing ||
+							hasCharPricing ||
+							hasAudioHourPricing) && (
+							<span
+								style={{
+									color: "#6B7280",
+									fontSize: 24,
+									fontWeight: 500,
+									textTransform: "uppercase",
+									letterSpacing: "0.1em",
+								}}
+							>
+								{hasAudioHourPricing
+									? "Audio Transcription Pricing"
+									: hasCharPricing
+										? "Per Character Pricing"
+										: isVideoGen && perSecondPrice
+											? "Pricing per second"
+											: hasOcrPricing
+												? "Pricing per 1K pages"
+												: isImageGen &&
+													  requestPrice !== undefined &&
+													  requestPrice !== 0 &&
+													  !hasTokenPricing
+													? "Pricing per request"
+													: requestPrice !== undefined && requestPrice !== 0
+														? "Pricing"
+														: "Pricing per 1M tokens"}
+							</span>
+						)}
+						<div
+							style={{
+								display: "flex",
+								flexDirection: "row",
+								gap: 32,
+							}}
+						>
+							{/* Context */}
+							<div
+								style={{
+									display: "flex",
+									flexDirection: "column",
+									gap: 10,
+									padding: "28px 36px",
+									backgroundColor: "#0A0A0A",
+									borderRadius: 20,
+									border: "1px solid #1F2937",
+								}}
+							>
+								<span
+									style={{
+										color: "#9CA3AF",
+										fontSize: 20,
+										fontWeight: 500,
+										textTransform: "uppercase",
+										letterSpacing: "0.05em",
+									}}
+								>
+									Context
+								</span>
+								<span style={{ fontSize: 56, fontWeight: 700 }}>
+									{contextSize ? formatContextSize(contextSize) : "—"}
+								</span>
+							</div>
+
+							{/* Per-hour input audio price for transcription models */}
+							{hasAudioHourPricing && (
+								<div
+									style={{
+										display: "flex",
+										flexDirection: "column",
+										gap: 10,
+										padding: "28px 36px",
+										backgroundColor: "#0A0A0A",
+										borderRadius: 20,
+										border: "1px solid #1F2937",
+									}}
+								>
+									<span
+										style={{
+											color: "#9CA3AF",
+											fontSize: 20,
+											fontWeight: 500,
+											textTransform: "uppercase",
+											letterSpacing: "0.05em",
+										}}
+									>
+										Input audio
+									</span>
+									{formatUnitPrice(inputAudioHourPrice ?? 0, "/hour")}
+								</div>
+							)}
+
+							{/* Per-character input text price for speech models */}
+							{hasCharPricing && (
+								<div
+									style={{
+										display: "flex",
+										flexDirection: "column",
+										gap: 10,
+										padding: "28px 36px",
+										backgroundColor: "#0A0A0A",
+										borderRadius: 20,
+										border: "1px solid #1F2937",
+									}}
+								>
+									<span
+										style={{
+											color: "#9CA3AF",
+											fontSize: 20,
+											fontWeight: 500,
+											textTransform: "uppercase",
+											letterSpacing: "0.05em",
+										}}
+									>
+										Input text
+									</span>
+									{formatUnitPrice(
+										(inputCharacterPrice ?? 0) * 1000,
+										"/1K chars",
+									)}
+								</div>
+							)}
+
+							{/* Per-Second Price for video gen */}
+							{isVideoGen &&
+								perSecondPrice &&
+								Object.entries(perSecondPrice)
+									.slice(0, 2)
+									.map(([key, price]) => (
+										<div
+											key={key}
+											style={{
+												display: "flex",
+												flexDirection: "column",
+												gap: 10,
+												padding: "28px 36px",
+												backgroundColor: "#0A0A0A",
+												borderRadius: 20,
+												border: "1px solid #1F2937",
+											}}
+										>
+											<span
+												style={{
+													color: "#9CA3AF",
+													fontSize: 20,
+													fontWeight: 500,
+													textTransform: "uppercase",
+													letterSpacing: "0.05em",
+												}}
+											>
+												{key === "default"
+													? "Per Second"
+													: key.replace(/_/g, " ")}
+											</span>
+											<span style={{ fontWeight: 700, fontSize: 56 }}>
+												${price.toFixed(4)}
+											</span>
+										</div>
+									))}
+
+							{/* Request Price */}
+							{requestPrice !== undefined && requestPrice !== 0 && (
+								<div
+									style={{
+										display: "flex",
+										flexDirection: "column",
+										gap: 10,
+										padding: "28px 36px",
+										backgroundColor: "#0A0A0A",
+										borderRadius: 20,
+										border: "1px solid #1F2937",
+									}}
+								>
+									<span
+										style={{
+											color: "#9CA3AF",
+											fontSize: 20,
+											fontWeight: 500,
+											textTransform: "uppercase",
+											letterSpacing: "0.05em",
+										}}
+									>
+										Per Request
+									</span>
+									<span style={{ fontWeight: 700, fontSize: 56 }}>
+										${requestPrice.toFixed(4)}
+									</span>
+								</div>
+							)}
+
+							{/* OCR per-1K-pages price */}
+							{ocrPagePrice !== undefined && ocrPagePrice > 0 && (
+								<div
+									style={{
+										display: "flex",
+										flexDirection: "column",
+										gap: 10,
+										padding: "28px 36px",
+										backgroundColor: "#0A0A0A",
+										borderRadius: 20,
+										border: "1px solid #1F2937",
+									}}
+								>
+									<span
+										style={{
+											color: "#9CA3AF",
+											fontSize: 20,
+											fontWeight: 500,
+											textTransform: "uppercase",
+											letterSpacing: "0.05em",
+										}}
+									>
+										Per 1K Pages
+									</span>
+									<span style={{ fontWeight: 700, fontSize: 56 }}>
+										${(ocrPagePrice * 1000).toFixed(2)}
+									</span>
+								</div>
+							)}
+
+							{/* Input - only show if has token pricing */}
+							{hasTokenPricing && (
+								<div
+									style={{
+										display: "flex",
+										flexDirection: "column",
+										gap: 10,
+										padding: "28px 36px",
+										backgroundColor: "#0A0A0A",
+										borderRadius: 20,
+										border: "1px solid #1F2937",
+									}}
+								>
+									<span
+										style={{
+											color: "#9CA3AF",
+											fontSize: 20,
+											fontWeight: 500,
+											textTransform: "uppercase",
+											letterSpacing: "0.05em",
+										}}
+									>
+										{hasPricingTiers ? "Input (starting at)" : "Input"}
+									</span>
+									{formatDollars(pricing?.input ?? undefined, discountNum)}
+								</div>
+							)}
+
+							{/* Output - only show if has token pricing */}
+							{hasTokenPricing && (
+								<div
+									style={{
+										display: "flex",
+										flexDirection: "column",
+										gap: 10,
+										padding: "28px 36px",
+										backgroundColor: "#0A0A0A",
+										borderRadius: 20,
+										border: "1px solid #1F2937",
+									}}
+								>
+									<span
+										style={{
+											color: "#9CA3AF",
+											fontSize: 20,
+											fontWeight: 500,
+											textTransform: "uppercase",
+											letterSpacing: "0.05em",
+										}}
+									>
+										{hasPricingTiers ? "Output (starting at)" : "Output"}
+									</span>
+									{formatDollars(pricing?.output ?? undefined, discountNum)}
+								</div>
+							)}
+						</div>
+					</div>
+
+					{/* Footer */}
 					<div
 						style={{
 							display: "flex",
 							flexDirection: "row",
+							justifyContent: "space-between",
 							alignItems: "center",
-							gap: 14,
 						}}
 					>
 						<div
 							style={{
-								width: 44,
-								height: 44,
 								display: "flex",
+								flexDirection: "row",
 								alignItems: "center",
-								justifyContent: "center",
-								color: "#ffffff",
+								gap: 14,
 							}}
 						>
-							<Logo style={{ width: 40, height: 40 }} />
+							<div
+								style={{
+									width: 44,
+									height: 44,
+									display: "flex",
+									alignItems: "center",
+									justifyContent: "center",
+									color: "#ffffff",
+								}}
+							>
+								<Logo style={{ width: 40, height: 40 }} />
+							</div>
+							<span
+								style={{
+									fontSize: 26,
+									fontWeight: 600,
+									color: "#E5E7EB",
+								}}
+							>
+								LLM Gateway
+							</span>
 						</div>
 						<span
 							style={{
-								fontSize: 26,
-								fontWeight: 600,
-								color: "#E5E7EB",
+								fontSize: 24,
+								color: "#6B7280",
 							}}
 						>
-							LLM Gateway
+							llmgateway.io
 						</span>
 					</div>
-					<span
-						style={{
-							fontSize: 24,
-							color: "#6B7280",
-						}}
-					>
-						llmgateway.io
-					</span>
 				</div>
-			</div>,
+			),
 			size,
 		);
 	} catch (error) {
 		console.error("Error generating OpenGraph image:", error);
 		return new ImageResponse(
-			<div
-				style={{
-					width: "100%",
-					height: "100%",
-					display: "flex",
-					alignItems: "center",
-					justifyContent: "center",
-					background: "#020817",
-					color: "white",
-					fontSize: 40,
-					fontWeight: 700,
-					fontFamily:
-						"system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
-				}}
-			>
-				LLM Gateway Model
-			</div>,
+			(
+				<div
+					style={{
+						width: "100%",
+						height: "100%",
+						display: "flex",
+						alignItems: "center",
+						justifyContent: "center",
+						background: "#020817",
+						color: "white",
+						fontSize: 40,
+						fontWeight: 700,
+						fontFamily:
+							"system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+					}}
+				>
+					LLM Gateway Model
+				</div>
+			),
 			size,
 		);
 	}

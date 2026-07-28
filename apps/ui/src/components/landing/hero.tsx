@@ -42,6 +42,7 @@ const PROVIDER_LOGOS: { name: string; providerId: ProviderId }[] = [
 	{ name: "SCX.ai", providerId: "scx-ai" },
 	{ name: "Gonka24", providerId: "gonka24" },
 	{ name: "Runware", providerId: "runware" },
+	{ name: "Fireworks", providerId: "fireworks" },
 ];
 
 interface MigrationData {
