@@ -20,7 +20,7 @@ const providerStatRowSchema = z.object({
 	avgTimeToFirstToken: z.number().nullable(),
 	// How many requests actually contributed a TTFT sample (streamed ones only).
 	// Exposed so callers can gate the display of avgTimeToFirstToken on its own
-	// sample size rather than on logsCount, which counts non-streaming requests
+	// sample size in addition to logsCount, which counts non-streaming requests
 	// that never fed into the average.
 	timeToFirstTokenCount: z.number(),
 	throughput: z.number().nullable(),
