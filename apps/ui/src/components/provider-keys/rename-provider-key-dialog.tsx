@@ -18,7 +18,10 @@ import { Label } from "@/lib/components/label";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 
-const NAME_REGEX = /^[a-z]+(-[a-z]+)*$/;
+import {
+	CUSTOM_PROVIDER_NAME_MESSAGE,
+	CUSTOM_PROVIDER_NAME_REGEX,
+} from "@llmgateway/shared";
 
 export function RenameProviderKeyDialog({
 	providerKeyId,
@@ -48,11 +51,10 @@ export function RenameProviderKeyDialog({
 		e.preventDefault();
 
 		const trimmed = name.trim();
-		if (!NAME_REGEX.test(trimmed)) {
+		if (!CUSTOM_PROVIDER_NAME_REGEX.test(trimmed)) {
 			toast({
 				title: "Invalid name",
-				description:
-					"Use only lowercase letters a-z with single hyphens between them.",
+				description: CUSTOM_PROVIDER_NAME_MESSAGE,
 				variant: "destructive",
 			});
 			return;

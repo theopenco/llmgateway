@@ -509,6 +509,24 @@ describe("provider keys route", () => {
 			expect(json.providerKey.name).toBe("mycustom");
 		});
 
+		test("allows reusing the name of a soft-deleted custom provider", async () => {
+			await seedCustomKey();
+			await db.insert(tables.providerKey).values({
+				id: "test-custom-key-deleted",
+				token: "test-custom-token-two",
+				provider: "custom",
+				name: "freedname",
+				baseUrl: "https://example.com",
+				organizationId: "test-org-id",
+				status: "deleted",
+			});
+
+			const res = await patchName("test-custom-key-id", "freedname");
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.providerKey.name).toBe("freedname");
+		});
+
 		test("rejects invalid name formats", async () => {
 			await seedCustomKey();
 

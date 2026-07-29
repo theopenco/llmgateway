@@ -10,6 +10,10 @@ import { logAuditEvent } from "@llmgateway/audit";
 import { cdb, db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { isStealthProvider, providers } from "@llmgateway/models";
+import {
+	CUSTOM_PROVIDER_NAME_MESSAGE,
+	CUSTOM_PROVIDER_NAME_REGEX,
+} from "@llmgateway/shared";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import type { ServerTypes } from "@/vars.js";
@@ -94,14 +98,9 @@ const providerKeySchema = z.object({
 	organizationId: z.string(),
 });
 
-// Custom provider names double as the model prefix in request model strings
-// (e.g. "myprovider/some-model"), so the format is restricted.
 const customProviderNameSchema = z
 	.string()
-	.regex(
-		/^[a-z]+(-[a-z]+)*$/,
-		"Name must contain only lowercase letters a-z and single hyphens between them",
-	);
+	.regex(CUSTOM_PROVIDER_NAME_REGEX, CUSTOM_PROVIDER_NAME_MESSAGE);
 
 // Schema for creating a new provider key
 // Regular API keys must be printable ASCII without whitespace, but
