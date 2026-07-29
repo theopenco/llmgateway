@@ -315,6 +315,14 @@ Body parameters (all optional, at least one required):
 
 Response (200): the updated API key, including its configured limits, consumed `usage` / `currentPeriodUsage`, and the `currentPeriodResetAt` window-reset time (same fields as the [list endpoint](#list-gateway-api-keys)). The plain token is **not** included — it is only returned at creation.
 
+<Callout type="info">
+	Two dashboard-only key features have no master API equivalent yet: [expiration
+	(TTL)](/features/api-keys#expiration-ttl) and [rolling a key's
+	secret](/features/api-keys#rotating-rolling-api-keys). To replace a key
+	programmatically, create a new one and delete the old one once your clients
+	have switched over.
+</Callout>
+
 ### Delete a gateway API key
 
 `DELETE /v1/master/keys/{id}`
