@@ -40,6 +40,7 @@ import {
 	complianceBlockMessage,
 	filterCompliantProviders,
 	getActiveCompliancePolicy,
+	isModelIdCompliant,
 	isProviderIdCompliant,
 	logComplianceBlock,
 	type ComplianceCheckContext,
@@ -2699,6 +2700,7 @@ chat.openapi(completions, async (c) => {
 		organizationId: project.organizationId,
 		requestedModel: modelInfo.id,
 		requestedProvider,
+		customProviderName,
 		activeModelInfo: modelInfo,
 		clientIp,
 	});
@@ -2742,6 +2744,7 @@ chat.openapi(completions, async (c) => {
 	}
 	const complianceContext: ComplianceCheckContext = {
 		customAttestation: customProviderKey?.complianceAttestation ?? null,
+		customProviderName,
 	};
 
 	// Enterprise provider compliance guardrails: drop providers that do not meet
@@ -2774,7 +2777,19 @@ chat.openapi(completions, async (c) => {
 			usedProvider !== "llmgateway" &&
 			usedProvider !== "custom" &&
 			!isProviderIdCompliant(usedProvider, compliancePolicy, complianceContext);
-		if (iamFilteredModelProviders.length === 0 || pinnedBlocked) {
+		// The policy's model lists block the model outright, regardless of which
+		// provider would serve it (custom-provider requests also answer to their
+		// `<customProvider>/<model>` ref).
+		const modelBlocked = !isModelIdCompliant(
+			modelInfo.id,
+			compliancePolicy,
+			complianceContext,
+		);
+		if (
+			iamFilteredModelProviders.length === 0 ||
+			pinnedBlocked ||
+			modelBlocked
+		) {
 			await logComplianceBlock(project.organizationId, {
 				apiKeyId: apiKey.id,
 				model: requestedModel,
@@ -3166,10 +3181,12 @@ chat.openapi(completions, async (c) => {
 				: availableModelProviders;
 
 			// Drop providers that don't meet the org's compliance policy so auto
-			// routing picks a compliant provider instead of being blocked later.
-			const complianceFilteredProviders = applyCompliancePolicy(
-				cachedFilteredProviders,
-			);
+			// routing picks a compliant provider instead of being blocked later. A
+			// model excluded by the policy's model lists loses all its providers.
+			const complianceFilteredProviders =
+				compliancePolicy && !isModelIdCompliant(modelDef.id, compliancePolicy)
+					? []
+					: applyCompliancePolicy(cachedFilteredProviders);
 			if (cachedFilteredProviders.length > 0) {
 				anyPreComplianceCandidate = true;
 				if (complianceFilteredProviders.length > 0) {

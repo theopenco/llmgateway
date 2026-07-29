@@ -129,6 +129,8 @@ Control access to specific providers:
 - **Allow Providers**: Only allow access to specific providers
 - **Deny Providers**: Block access to specific providers
 
+Provider rules can also target your organization's own [custom providers](/features/custom-providers). The generic `custom` entry matches every custom provider, while a `custom:<name>` entry (offered in the selector for each of your custom providers) matches only the custom provider with that name. Model rules can likewise reference a custom-catalog model as `<name>/<model>`.
+
 #### Pricing Rules
 
 Control access based on model pricing:

@@ -114,6 +114,33 @@ export interface ProviderCompliancePolicy {
 	 * whenever this list is non-empty (fail-closed).
 	 */
 	allowedCountries?: string[];
+	/**
+	 * Deny list of individual providers. Entries are catalogue provider ids
+	 * (e.g. "openai") or `custom:<name>` refs (see {@link customProviderRef})
+	 * for the org's own custom providers. A listed provider is always blocked,
+	 * even when it satisfies every other requirement, and regardless of any
+	 * user-, member-, or API-key-level rule that would allow it.
+	 */
+	blockedProviders?: string[];
+	/**
+	 * Fine-grained provider allow list. When non-empty, only listed providers
+	 * (same ref format as {@link ProviderCompliancePolicy.blockedProviders})
+	 * may be routed to — and they must still satisfy every other requirement.
+	 * Empty/omitted applies no allow-list restriction.
+	 */
+	allowedProviders?: string[];
+	/**
+	 * Deny list of individual models. Entries are catalogue model ids (e.g.
+	 * "gpt-5.2") or `<customProvider>/<model>` refs for models served through
+	 * an org custom provider. A listed model is always blocked.
+	 */
+	blockedModels?: string[];
+	/**
+	 * Fine-grained model allow list. When non-empty, only listed models (same
+	 * ref format as {@link ProviderCompliancePolicy.blockedModels}) may be
+	 * requested. Empty/omitted applies no allow-list restriction.
+	 */
+	allowedModels?: string[];
 }
 
 export interface ProviderDefinition {
@@ -1768,19 +1795,82 @@ export function isDataPolicyCompliant(
 }
 
 /**
+ * Policy-list ref for one of the org's own custom providers. Custom providers
+ * share the single catalogue id "custom", so restriction lists address them as
+ * `custom:<name>` (the provider key's routing-prefix name) to stay
+ * unambiguous next to catalogue provider ids.
+ */
+export function customProviderRef(customProviderName: string): string {
+	return `custom:${customProviderName}`;
+}
+
+/**
+ * Whether a provider ref passes the policy's fine-grained provider lists.
+ * The deny list always wins; a non-empty allow list blocks every provider
+ * not on it. This is only the list check — certification/data-policy
+ * requirements are evaluated separately.
+ */
+export function isProviderRefAllowedByPolicy(
+	providerRef: string,
+	policy: ProviderCompliancePolicy,
+): boolean {
+	if (!policy.enabled) {
+		return true;
+	}
+	if (policy.blockedProviders?.includes(providerRef)) {
+		return false;
+	}
+	if (
+		policy.allowedProviders &&
+		policy.allowedProviders.length > 0 &&
+		!policy.allowedProviders.includes(providerRef)
+	) {
+		return false;
+	}
+	return true;
+}
+
+/**
+ * Whether a model passes the policy's fine-grained model lists. `modelRefs`
+ * holds every ref the requested model answers to (the catalogue model id, and
+ * for custom providers additionally `<customProvider>/<model>`): the model is
+ * blocked when any ref is on the deny list, and a non-empty allow list must
+ * contain at least one of the refs.
+ */
+export function isModelAllowedByPolicy(
+	modelRefs: readonly string[],
+	policy: ProviderCompliancePolicy,
+): boolean {
+	if (!policy.enabled) {
+		return true;
+	}
+	if (policy.blockedModels?.some((ref) => modelRefs.includes(ref))) {
+		return false;
+	}
+	if (
+		policy.allowedModels &&
+		policy.allowedModels.length > 0 &&
+		!policy.allowedModels.some((ref) => modelRefs.includes(ref))
+	) {
+		return false;
+	}
+	return true;
+}
+
+/**
  * Whether a provider satisfies an organization's compliance policy. Fail-closed:
  * any active requirement that the provider's {@link ProviderDataPolicy} does not
  * explicitly satisfy (including a missing `dataPolicy`) makes the provider
- * non-compliant. A disabled policy treats every provider as compliant.
+ * non-compliant, as does an entry on the policy's fine-grained provider lists.
+ * A disabled policy treats every provider as compliant.
  */
 export function isProviderCompliant(
 	provider: ProviderDefinition,
 	policy: ProviderCompliancePolicy,
 ): boolean {
-	return isDataPolicyCompliant(
-		provider.dataPolicy,
-		provider.headquarters,
-		policy,
+	return (
+		isProviderRefAllowedByPolicy(provider.id, policy) &&
+		isDataPolicyCompliant(provider.dataPolicy, provider.headquarters, policy)
 	);
 }
 
