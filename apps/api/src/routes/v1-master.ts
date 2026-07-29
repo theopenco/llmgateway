@@ -10,6 +10,7 @@ import {
 	validateIamRuleInput,
 } from "@/lib/iam-rules.js";
 import { maskToken } from "@/lib/maskToken.js";
+import { assertOrganizationProviderKey } from "@/lib/organization-provider-key.js";
 import {
 	applyCustomModelUpdate,
 	createCustomModelSchema,
@@ -1464,6 +1465,11 @@ async function loadCustomProviderKeyForOrg(id: string, organizationId: string) {
 			message: "Custom provider not found in this organization",
 		});
 	}
+
+	// Narrows organizationId to non-null for consumers (insertCustomModel etc.).
+	// Guaranteed by the org check above: platform-managed rows have a NULL
+	// organizationId and can never match a master key's organization.
+	assertOrganizationProviderKey(providerKey);
 
 	return providerKey;
 }
