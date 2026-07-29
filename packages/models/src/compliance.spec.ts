@@ -206,10 +206,10 @@ describe("isProviderCompliant", () => {
 		).toBe(false);
 	});
 
-	it("requireSoc2Type2 blocks a real Type 1 provider (canopywave)", () => {
-		// canopywave holds SOC 2 Type 1; it passes requireSoc2 but not requireSoc2Type2.
+	it("requireSoc2Type2 allows a real Type 2 provider (canopywave)", () => {
+		// canopywave holds SOC 2 Type 2; it passes both requireSoc2 and requireSoc2Type2.
 		const canopywave = getProviderDefinition("canopywave")!;
-		expect(canopywave.dataPolicy?.soc2).toBe(1);
+		expect(canopywave.dataPolicy?.soc2).toBe(2);
 		expect(
 			isProviderCompliant(canopywave, { enabled: true, requireSoc2: true }),
 		).toBe(true);
@@ -218,7 +218,7 @@ describe("isProviderCompliant", () => {
 				enabled: true,
 				requireSoc2Type2: true,
 			}),
-		).toBe(false);
+		).toBe(true);
 	});
 
 	it("blocks a non-compliant real provider and allows a compliant one", () => {
