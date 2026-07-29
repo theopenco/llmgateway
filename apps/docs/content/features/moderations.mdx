@@ -38,6 +38,21 @@ The `input` field accepts:
 
 The default model is `omni-moderation-latest`.
 
+## Pricing
+
+Starting **Friday, August 7, 2026**, moderation requests are billed at a
+flat **$0.00001 per request**, independent of the input size, the number of
+inputs, or the moderation model you pick. Only successful requests are billed —
+failed and retried attempts cost nothing. Before that date, moderation requests
+are free.
+
+Because the endpoint becomes paid, it also starts requiring a credit balance
+from that date: moderation requests from an organization with no credits are
+rejected with `402`. Top up before August 7 to avoid an interruption.
+
+When your project runs in `api-keys` mode and the request is served with your
+own OpenAI key, no credits are deducted and no balance is required.
+
 ## curl
 
 ### Single text input
