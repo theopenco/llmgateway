@@ -90,6 +90,67 @@ export ANTHROPIC_MODEL=gemini-2.5-pro
 export ANTHROPIC_MODEL=anthropic/claude-3-5-sonnet-20241022
 ```
 
+## Predefining Models in a Settings File
+
+Environment variables are read once at startup, so changing `ANTHROPIC_MODEL` means restarting Claude Code. To switch models mid-session instead, put the configuration in `~/.claude/settings.json` (user-wide) or `.claude/settings.json` (per project) and use `/model` to switch on the fly:
+
+```json title="~/.claude/settings.json"
+{
+	"env": {
+		"ANTHROPIC_BASE_URL": "https://api.llmgateway.io",
+		"ANTHROPIC_AUTH_TOKEN": "llmgtwy_your_api_key_here"
+	},
+	"model": "claude-sonnet-5"
+}
+```
+
+`model` sets the model a new session starts on. `/model` overrides it for the running session and saves your choice as the new default.
+
+### Restricting the Model List
+
+`availableModels` limits which models the `/model` picker offers — useful for keeping a team on an approved, budget-appropriate set:
+
+```json title="~/.claude/settings.json"
+{
+	"availableModels": ["claude-sonnet-5", "claude-haiku-4-5"],
+	"fallbackModel": ["claude-haiku-4-5"]
+}
+```
+
+`fallbackModel` names the models to try when the primary one is unavailable, capped at three.
+
+## Fetching Models From LLM Gateway
+
+Claude Code can populate its `/model` picker directly from our catalog instead of you hardcoding IDs. Set the discovery flag alongside the base URL:
+
+```bash
+export ANTHROPIC_BASE_URL=https://api.llmgateway.io
+export ANTHROPIC_AUTH_TOKEN=llmgtwy_your_api_key_here
+export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1
+```
+
+On startup Claude Code calls our [`/v1/models`](https://api.llmgateway.io/v1/models) endpoint and adds what it returns to the picker, labeled **From gateway**. Entries are cached in `~/.claude/cache/gateway-models.json` and refreshed on each launch, so a failed lookup falls back to the previous list rather than breaking your session. Requires Claude Code v2.1.129 or later.
+
+<Callout type="warn">
+	Claude Code discards discovered models whose ID does not start with `claude`
+	or `anthropic`. Discovery therefore surfaces only the Claude models in our
+	catalog — models like GPT-5 or Gemini are filtered out by the client, not by
+	the gateway. To make one of those selectable, add it explicitly with
+	`ANTHROPIC_CUSTOM_MODEL_OPTION` as shown below.
+</Callout>
+
+### Adding a Non-Claude Model to the Picker
+
+`ANTHROPIC_CUSTOM_MODEL_OPTION` adds a single custom entry to the `/model` picker, which is how you expose a model that the discovery filter drops:
+
+```bash
+export ANTHROPIC_CUSTOM_MODEL_OPTION=gpt-5
+export ANTHROPIC_CUSTOM_MODEL_OPTION_NAME="GPT-5 via LLM Gateway"
+export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="Routed through LLM Gateway"
+```
+
+Only one custom entry is supported at a time. If you also set `availableModels`, include the custom ID in that list or it will be filtered back out. For switching between several non-Claude models, keep using `ANTHROPIC_MODEL` per session, or define a per-project `.claude/settings.json` for each.
+
 ## Environment Variables
 
 ### ANTHROPIC_MODEL
