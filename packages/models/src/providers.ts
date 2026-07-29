@@ -1182,7 +1182,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: 1,
+			soc2: 2,
 			iso27001: false,
 			gdpr: false,
 		},
