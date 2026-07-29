@@ -20,10 +20,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import {
-	useRealtimeCall,
-	type RealtimeCallStatus,
-} from "@/hooks/use-realtime-call";
+import { useVoiceCall, type VoiceCallStatus } from "@/hooks/use-voice-call";
 import {
 	useRealtimeHistory,
 	useRealtimeHistoryItem,
@@ -36,6 +33,10 @@ import {
 	REALTIME_MODEL_COOKIE,
 	setModelPreferenceCookie,
 } from "@/lib/model-preferences";
+import {
+	isKnownModelValue,
+	resolveSelectedMapping,
+} from "@/lib/realtime-model-value";
 
 import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 import type { Organization, Project } from "@/lib/types";
@@ -50,7 +51,7 @@ interface RealtimePageClientProps {
 	initialModelPreference?: string | null;
 }
 
-const STATUS_LABELS: Record<RealtimeCallStatus, string> = {
+const STATUS_LABELS: Record<VoiceCallStatus, string> = {
 	idle: "Ready",
 	"preparing-audio": "Preparing audio…",
 	"requesting-mic": "Requesting microphone…",
@@ -110,22 +111,24 @@ export default function RealtimePageClient({
 
 	const [selectedModel, setSelectedModel] = useState<string>(() => {
 		const modelParam = searchParams.get("model");
-		if (modelParam && realtimeModels.some((m) => m.id === modelParam)) {
+		if (modelParam && isKnownModelValue(realtimeModels, modelParam)) {
 			return modelParam;
 		}
 		const stored =
 			getModelPreferenceCookie(REALTIME_MODEL_COOKIE) ?? initialModelPreference;
-		if (stored && realtimeModels.some((m) => m.id === stored)) {
+		if (stored && isKnownModelValue(realtimeModels, stored)) {
 			return stored;
 		}
 		return realtimeModels[0]?.id ?? "";
 	});
 
-	const selectedModelDef = useMemo(
-		() => realtimeModels.find((m) => m.id === selectedModel) ?? null,
+	// A provider-pinned selection must resolve to that provider's mapping: it
+	// decides both the voice list and which wire protocol the call speaks, and
+	// the gateway pins the same mapping from the same model string.
+	const selectedMapping = useMemo(
+		() => resolveSelectedMapping(realtimeModels, selectedModel),
 		[realtimeModels, selectedModel],
 	);
-	const selectedMapping = selectedModelDef?.mappings[0] ?? null;
 	const voices = useMemo(
 		() => selectedMapping?.supportedVoices ?? [],
 		[selectedMapping],
@@ -165,9 +168,12 @@ export default function RealtimePageClient({
 		start,
 		end,
 		reset,
-	} = useRealtimeCall({
+	} = useVoiceCall({
 		model: selectedModel || null,
 		voice: voice || null,
+		// Realtime mappings are already filtered to the active ones, so the first
+		// mapping is the provider the gateway will pin the session to.
+		provider: selectedMapping?.providerId ?? null,
 		onCallError,
 	});
 
@@ -189,7 +195,7 @@ export default function RealtimePageClient({
 	// browser is the only place a realtime transcript exists — the gateway
 	// deliberately does not store conversation content.
 	const savedCallRef = useRef(false);
-	const previousStatusRef = useRef<RealtimeCallStatus>("idle");
+	const previousStatusRef = useRef<VoiceCallStatus>("idle");
 	// Latest-ref so the unmount cleanup below saves current (not first-render)
 	// call state.
 	const persistCallRef = useRef<() => void>(() => {});
@@ -544,6 +550,9 @@ export default function RealtimePageClient({
 												className="gap-2 rounded-full px-8"
 												disabled={
 													!selectedModel ||
+													// Without a resolved mapping the provider — and so the
+													// wire protocol the call must speak — is unknown.
+													!selectedMapping ||
 													!isAuthenticated ||
 													!hasBillingContext
 												}
