@@ -1,6 +1,8 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
+import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
 
 import { useDeleteAccount, useUpdateUser } from "@/hooks/useUser";
@@ -46,6 +48,8 @@ function formatProviderName(providerId: string): string {
 export function AccountClient() {
 	const { user } = useUser();
 	const router = useRouter();
+	const queryClient = useQueryClient();
+	const posthog = usePostHog();
 
 	const [name, setName] = useState(user?.name ?? "");
 	const [email, setEmail] = useState(user?.email ?? "");
@@ -95,12 +99,18 @@ export function AccountClient() {
 		try {
 			await deleteAccountMutation.mutateAsync({});
 
+			posthog.reset();
+
 			toast({
 				title: "Account Deleted",
 				description: "Your account has been successfully deleted.",
 			});
 
-			router.refresh();
+			// Drop all cached queries (session, user, orgs) so stale authenticated
+			// state can't redirect the now-anonymous user back into the dashboard
+			// or onboarding.
+			queryClient.clear();
+			router.push("/login");
 		} catch (error) {
 			toast({
 				title: "Error",
