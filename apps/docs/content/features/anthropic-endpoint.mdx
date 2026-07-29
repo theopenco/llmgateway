@@ -40,6 +40,13 @@ export ANTHROPIC_MODEL=gpt-5  # or any model from our catalog
 claude
 ```
 
+<Callout type="info">
+	Environment variables are read once at startup. To switch models mid-session
+	with `/model`, restrict the picker with `availableModels`, or have Claude Code
+	populate its picker from our catalog automatically via gateway model
+	discovery, see the [Claude Code guide](/guides/claude-code).
+</Callout>
+
 ### Choosing Models
 
 You can use any model from the [models page](https://llmgateway.io/models). Popular options for Claude Code include:
