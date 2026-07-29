@@ -1,6 +1,5 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -12,7 +11,6 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { useApi } from "@/lib/fetch-client";
 
 type RoutingStrategy = "auto" | "price" | "throughput" | "latency";
@@ -39,22 +37,14 @@ const SERVICE_TIER_OPTIONS: Array<{ value: ServiceTier; label: string }> = [
 
 interface DevPlanSettingsProps {
 	devPlanServiceTier: ServiceTier;
-	retentionLevel: "retain" | "none";
 	defaultRoutingStrategy: RoutingStrategy;
 }
 
 export default function DevPlanSettings({
 	devPlanServiceTier: initialServiceTier,
-	retentionLevel: initialRetentionLevel,
 	defaultRoutingStrategy: initialRoutingStrategy,
 }: DevPlanSettingsProps) {
 	const api = useApi();
-	const queryClient = useQueryClient();
-
-	const [retainData, setRetainData] = useState(
-		initialRetentionLevel === "retain",
-	);
-	const [isUpdatingRetention, setIsUpdatingRetention] = useState(false);
 
 	const [routingStrategy, setRoutingStrategy] = useState<RoutingStrategy>(
 		initialRoutingStrategy,
@@ -69,14 +59,6 @@ export default function DevPlanSettings({
 		"patch",
 		"/dev-plans/settings",
 	);
-
-	const invalidateStatus = () =>
-		queryClient.invalidateQueries({
-			predicate: (query) => {
-				const key = query.queryKey;
-				return Array.isArray(key) && key[1] === "/dev-plans/status";
-			},
-		});
 
 	const handleRoutingChange = async (value: string) => {
 		const strategy = value as RoutingStrategy;
@@ -121,24 +103,6 @@ export default function DevPlanSettings({
 			toast.error("Failed to update service tier");
 		} finally {
 			setIsUpdatingServiceTier(false);
-		}
-	};
-
-	const handleRetentionToggle = async (checked: boolean) => {
-		setIsUpdatingRetention(true);
-		try {
-			await updateSettingsMutation.mutateAsync({
-				body: { retentionLevel: checked ? "retain" : "none" },
-			});
-			setRetainData(checked);
-			await invalidateStatus();
-			toast.success(
-				checked ? "Data retention enabled" : "Switched to metadata-only",
-			);
-		} catch {
-			toast.error("Failed to update data retention");
-		} finally {
-			setIsUpdatingRetention(false);
 		}
 	};
 
@@ -231,28 +195,6 @@ export default function DevPlanSettings({
 								))}
 							</SelectContent>
 						</Select>
-					</div>
-				</div>
-
-				<div className="rounded-xl border p-5 space-y-4">
-					<div className="flex items-center justify-between gap-4">
-						<div className="space-y-0.5">
-							<Label htmlFor="retain-data" className="text-sm font-medium">
-								Retain request data
-							</Label>
-							<p className="text-xs text-muted-foreground">
-								Store full request and response payloads for analytics and
-								debugging. When off, only metadata is kept. Storage is billed,
-								and this is only required when using the Responses API or for
-								debugging purposes.
-							</p>
-						</div>
-						<Switch
-							id="retain-data"
-							checked={retainData}
-							onCheckedChange={handleRetentionToggle}
-							disabled={isUpdatingRetention}
-						/>
 					</div>
 				</div>
 			</div>
