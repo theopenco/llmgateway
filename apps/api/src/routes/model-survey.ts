@@ -287,7 +287,7 @@ const submitSurvey = createRoute({
 				},
 			},
 			description:
-				"Survey response recorded. The org's first response of the year grants a free Reset Pass.",
+				"Survey response recorded. The org's first response of the quarterly wave grants a free Reset Pass; later responses in the same wave record without a second pass.",
 		},
 	},
 });

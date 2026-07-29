@@ -172,19 +172,9 @@ function fixJsonSyntax(content: string): string {
 function completeTruncatedJson(content: string): string | null {
 	let completed = content.trim();
 
-	// Count opening and closing brackets
-	const openBraces = (completed.match(/{/g) ?? []).length;
-	const closeBraces = (completed.match(/}/g) ?? []).length;
-	const openBrackets = (completed.match(/\[/g) ?? []).length;
-	const closeBrackets = (completed.match(/]/g) ?? []).length;
-
-	// If already balanced, return as-is
-	if (openBraces === closeBraces && openBrackets === closeBrackets) {
-		return completed;
-	}
-
-	// Add missing closing brackets/braces
-	// We need to track the order of opening brackets to close them correctly
+	// Track unclosed structures with a string-aware scan. A naive bracket count
+	// would mistake braces inside string values (e.g. `{"note": "a}b"`) for
+	// balance and skip completion, leaving the JSON truncated.
 	const stack: string[] = [];
 	let inString = false;
 	let escapeNext = false;

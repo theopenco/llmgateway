@@ -5,7 +5,7 @@ import {
 	scrypt,
 } from "crypto";
 
-import { redisClient } from "@llmgateway/cache";
+import { redisClient, storageRedisClient } from "@llmgateway/cache";
 import {
 	models as allModels,
 	providers as allProviders,
@@ -1088,6 +1088,7 @@ function generateProjectHourlySourceStats(projects: ProjectDef[]) {
 					imageInputCost: 0,
 					imageOutputCost: 0,
 					audioInputCost: 0,
+					audioOutputCost: 0,
 					videoOutputCost: 0,
 					cachedInputCost: 0,
 					cacheWriteInputCost: 0,
@@ -1276,6 +1277,8 @@ function generateSeedModelProviderMappingHistory(
 				totalDuration: logs * randomInt(200, 5000),
 				totalTimeToFirstToken: logs * randomInt(50, 500),
 				totalTimeToFirstReasoningToken: 0,
+				timeToFirstTokenCount: logs,
+				timeToFirstReasoningTokenCount: 0,
 			});
 		}
 	}
@@ -1309,6 +1312,8 @@ function generateSeedModelHistory() {
 				totalDuration: logCount * randomInt(200, 5000),
 				totalTimeToFirstToken: logCount * randomInt(50, 500),
 				totalTimeToFirstReasoningToken: 0,
+				timeToFirstTokenCount: logCount,
+				timeToFirstReasoningTokenCount: 0,
 			});
 		}
 	}
@@ -1368,6 +1373,40 @@ async function seed() {
 		createdBy: "test-user-id",
 	});
 
+	// Sibling org for the test admin with data retention disabled, so
+	// retention-off behavior (e.g. the Responses API without stored log
+	// payloads) can be exercised locally while the default Test Organization
+	// stays on "retain" for easier debugging.
+	await upsert(tables.organization, {
+		id: "test-no-retention-org-id",
+		name: "Test No Retention Organization",
+		billingEmail: "admin@example.com",
+		credits: 5,
+		retentionLevel: "none",
+	});
+
+	await upsert(tables.userOrganization, {
+		id: "test-no-retention-user-org-id",
+		userId: "test-user-id",
+		organizationId: "test-no-retention-org-id",
+		role: "owner",
+	});
+
+	await upsert(tables.project, {
+		id: "test-no-retention-project-id",
+		name: "Test No Retention Project",
+		organizationId: "test-no-retention-org-id",
+		mode: "hybrid",
+	});
+
+	await upsert(tables.apiKey, {
+		id: "test-no-retention-api-key-id",
+		token: "test-token-no-retention",
+		projectId: "test-no-retention-project-id",
+		description: "Test API Key (no data retention)",
+		createdBy: "test-user-id",
+	});
+
 	// Embeddable Payments SDK POC: a project with the SDK enabled and a 50%
 	// end-user top-up bonus, plus a live platform secret key, so the end-user
 	// wallet + bonus flow can be exercised end-to-end locally (mint a session with
@@ -1415,7 +1454,7 @@ async function seed() {
 		name: "Test User's Workspace",
 		billingEmail: "admin@example.com",
 		credits: 0,
-		retentionLevel: "retain",
+		retentionLevel: "none",
 		plan: "free",
 		kind: "devpass",
 		devPlan: "pro",
@@ -1843,6 +1882,7 @@ async function seed() {
 				imageInputCost: 0,
 				imageOutputCost: 0,
 				audioInputCost: 0,
+				audioOutputCost: 0,
 				videoOutputCost: 0,
 				cachedInputCost: 0,
 				cacheWriteInputCost: 0,
@@ -1908,6 +1948,7 @@ async function seed() {
 				imageInputCost: 0,
 				imageOutputCost: 0,
 				audioInputCost: 0,
+				audioOutputCost: 0,
 				videoOutputCost: 0,
 				cachedInputCost: 0,
 				cacheWriteInputCost: 0,
@@ -1933,7 +1974,7 @@ async function seed() {
 		name: "Test User's Workspace",
 		billingEmail: "admin@example.com",
 		credits: 0,
-		retentionLevel: "retain",
+		retentionLevel: "none",
 		plan: "free",
 		kind: "devpass",
 		devPlan: "pro",
@@ -2133,12 +2174,16 @@ async function seed() {
 			billingEmail: org.billingEmail,
 			plan: org.plan,
 			credits: org.credits,
+			// DevPass and Chat orgs are always metadata-only; retention is not
+			// offered on those products.
 			retentionLevel:
-				org.plan === "enterprise"
-					? "retain"
-					: secureRandom() < 0.5
+				org.kind !== "default"
+					? "none"
+					: org.plan === "enterprise"
 						? "retain"
-						: "none",
+						: secureRandom() < 0.5
+							? "retain"
+							: "none",
 			status: org.status,
 			kind: org.kind,
 			devPlan: org.devPlan,
@@ -2483,6 +2528,7 @@ async function seed() {
 				imageInputCost: 0,
 				imageOutputCost: 0,
 				audioInputCost: 0,
+				audioOutputCost: 0,
 				videoOutputCost: 0,
 				cachedInputCost: 0,
 				cacheWriteInputCost: 0,
@@ -2530,7 +2576,7 @@ async function seed() {
 	});
 
 	await closeDatabase();
-	await redisClient.quit();
+	await Promise.all([redisClient.quit(), storageRedisClient.quit()]);
 }
 
 void seed();

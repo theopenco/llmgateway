@@ -11,6 +11,7 @@ import {
 	type ModelWithPricing,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
+import { randomFloat, randomInt } from "@llmgateway/shared/random";
 import {
 	getDefaultRoutingConfig,
 	type ResolvedRoutingConfig,
@@ -201,7 +202,7 @@ function findProviderMapping<P extends ModelWithPricing["providers"][number]>(
 	);
 }
 
-function providerSupportsCaching(
+export function providerSupportsCaching(
 	providerInfo:
 		| {
 				cachedInputPrice?: string;
@@ -561,10 +562,10 @@ export async function getCheapestFromAvailableProviders<
 	if (
 		!sessionSticky &&
 		!isTestProcess() &&
-		Math.random() < getExplorationRate(cfg)
+		randomFloat() < getExplorationRate(cfg)
 	) {
 		const randomProvider =
-			stableProviders[Math.floor(Math.random() * stableProviders.length)];
+			stableProviders[randomInt(0, stableProviders.length)];
 		return {
 			provider: randomProvider,
 			metadata: {

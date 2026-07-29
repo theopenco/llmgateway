@@ -482,25 +482,23 @@ export default async function ShareOgImage({ params }: OgImageProps) {
 	} catch (error) {
 		console.error("Error generating share OpenGraph image:", error);
 		return new ImageResponse(
-			(
-				<div
-					style={{
-						width: "100%",
-						height: "100%",
-						display: "flex",
-						alignItems: "center",
-						justifyContent: "center",
-						background: "#0a0a0a",
-						color: "white",
-						fontSize: 48,
-						fontWeight: 700,
-						fontFamily:
-							"system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
-					}}
-				>
-					Lounge · Shared chat
-				</div>
-			),
+			<div
+				style={{
+					width: "100%",
+					height: "100%",
+					display: "flex",
+					alignItems: "center",
+					justifyContent: "center",
+					background: "#0a0a0a",
+					color: "white",
+					fontSize: 48,
+					fontWeight: 700,
+					fontFamily:
+						"system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+				}}
+			>
+				Lounge · Shared chat
+			</div>,
 			size,
 		);
 	}

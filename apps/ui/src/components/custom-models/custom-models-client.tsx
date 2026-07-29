@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 
+import { ComplianceAttestationCard } from "@/components/custom-models/compliance-attestation-card";
 import { CustomModelDialog } from "@/components/custom-models/custom-model-dialog";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import {
@@ -269,6 +270,15 @@ export function CustomModelsClient() {
 								)}
 							</CardContent>
 						</Card>
+
+						{selectedKey && selectedOrganization && (
+							<ComplianceAttestationCard
+								key={selectedKey.id}
+								providerKey={selectedKey}
+								organizationId={selectedOrganization.id}
+								isEnterprise={isEnterprise}
+							/>
+						)}
 
 						<Card>
 							<CardContent className="pt-6">

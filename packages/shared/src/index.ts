@@ -53,6 +53,18 @@ export {
 } from "./dev-plans.js";
 
 export {
+	REFUND_COMMENTS_MAX_LENGTH,
+	REFUND_REASON_ASSURANCE,
+	REFUND_REASON_HEADING,
+	REFUND_REASON_OPTIONS,
+	REFUND_REASONS,
+	isRefundFeedbackComplete,
+	refundCommentsRequired,
+	type RefundReason,
+	type RefundReasonOption,
+} from "./refunds.js";
+
+export {
 	CHAT_PLAN_PRICES,
 	CHAT_PLAN_STARTER_BLOCKED_MODEL_PATTERNS,
 	type ChatPlanCycle,
@@ -117,9 +129,24 @@ export {
 
 export { selectLoadBalancedItem } from "./load-balance.js";
 
-export { MARKETING_STATS } from "./marketing.js";
+export {
+	fillRandomFloats,
+	randomFloat,
+	randomFloatBetween,
+	randomInt,
+	randomItem,
+	randomToken,
+	uniqueId,
+} from "./random.js";
+
+export { MARKETING_STATS, RUNWARE_PROMO } from "./marketing.js";
 
 export { isContentFilterErrorText } from "./content-filter.js";
+
+export {
+	CUSTOM_PROVIDER_NAME_MESSAGE,
+	CUSTOM_PROVIDER_NAME_REGEX,
+} from "./custom-providers.js";
 
 export {
 	validateApiKeyLimitsWithinMemberBudget,

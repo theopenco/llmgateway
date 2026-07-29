@@ -26,6 +26,7 @@ import {
 	complianceBlockMessage,
 	filterCompliantProviders,
 	getActiveCompliancePolicy,
+	isModelIdCompliant,
 	isProviderIdCompliant,
 	logComplianceBlock,
 } from "@/lib/compliance.js";
@@ -1713,11 +1714,11 @@ async function hasVideoProviderConfiguration(
 		);
 		return Boolean(
 			providerKey &&
-				(providerKey.baseUrl ??
-					getProviderEnvValue(providerId, "baseUrl") ??
-					defaultBaseUrl) &&
-				(!isGoogleVertexVideoProvider(providerId) ||
-					Boolean(getProviderEnvValue(providerId, "project"))),
+			(providerKey.baseUrl ??
+				getProviderEnvValue(providerId, "baseUrl") ??
+				defaultBaseUrl) &&
+			(!isGoogleVertexVideoProvider(providerId) ||
+				Boolean(getProviderEnvValue(providerId, "project"))),
 		);
 	}
 
@@ -1737,8 +1738,8 @@ async function hasVideoProviderConfiguration(
 			(providerKey.baseUrl ??
 				getProviderEnvValue(providerId, "baseUrl") ??
 				defaultBaseUrl) &&
-				(!isGoogleVertexVideoProvider(providerId) ||
-					Boolean(getProviderEnvValue(providerId, "project"))),
+			(!isGoogleVertexVideoProvider(providerId) ||
+				Boolean(getProviderEnvValue(providerId, "project"))),
 		);
 	}
 
@@ -2845,17 +2846,7 @@ async function fetchUpstreamJson(
 		});
 		throw new HTTPException(
 			response.status as
-				| 400
-				| 401
-				| 403
-				| 404
-				| 409
-				| 422
-				| 429
-				| 500
-				| 502
-				| 503
-				| 504,
+				400 | 401 | 403 | 404 | 409 | 422 | 429 | 500 | 502 | 503 | 504,
 			{
 				message:
 					typeof body.error === "object" &&
@@ -3725,8 +3716,7 @@ async function createMinimaxVideoJob(
 	});
 
 	const baseResp = rawResponse.base_resp as
-		| { status_code?: number; status_msg?: string }
-		| undefined;
+		{ status_code?: number; status_msg?: string } | undefined;
 	if (baseResp && baseResp.status_code !== 0) {
 		throw new HTTPException(502, {
 			message: `MiniMax video API error: ${baseResp.status_msg ?? "unknown error"} (code ${baseResp.status_code})`,
@@ -4228,6 +4218,7 @@ async function insertVideoClientErrorLog(options: {
 	const responseText = options.message;
 	await db.insert(tables.log).values({
 		requestId: options.requestId,
+		apiOrigin: "videos",
 		organizationId: options.organization.id,
 		projectId: options.project.id,
 		apiKeyId: options.apiKey.id,
@@ -4458,11 +4449,16 @@ videos.openapi(createVideo, async (c) => {
 		const pinnedBlocked =
 			requestedProvider !== undefined &&
 			!isProviderIdCompliant(requestedProvider, videoCompliancePolicy);
+		// The policy's model lists block the model outright.
+		const modelBlocked = !isModelIdCompliant(
+			modelInfo.id,
+			videoCompliancePolicy,
+		);
 		const compliantProviders = filterCompliantProviders(
 			modelInfo.providers as ProviderModelMapping[],
 			videoCompliancePolicy,
 		);
-		if (pinnedBlocked || compliantProviders.length === 0) {
+		if (pinnedBlocked || modelBlocked || compliantProviders.length === 0) {
 			await logComplianceBlock(project.organizationId, {
 				apiKeyId: apiKey.id,
 				model: normalizedModel,

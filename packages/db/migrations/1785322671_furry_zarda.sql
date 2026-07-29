@@ -1,0 +1,2 @@
+ALTER TABLE "provider_key" DROP CONSTRAINT "provider_key_organization_id_name_unique";--> statement-breakpoint
+CREATE UNIQUE INDEX "provider_key_organization_id_name_unique" ON "provider_key" ("organization_id","name") WHERE status <> 'deleted';

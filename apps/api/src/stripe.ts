@@ -484,10 +484,7 @@ async function getSubscriptionCardFingerprint(
 					expand: ["payment_intent"],
 				});
 				const paymentIntent = (invoice as any).payment_intent as
-					| Stripe.PaymentIntent
-					| string
-					| null
-					| undefined;
+					Stripe.PaymentIntent | string | null | undefined;
 				const pi =
 					typeof paymentIntent === "string"
 						? await getStripe().paymentIntents.retrieve(paymentIntent)
@@ -1184,6 +1181,8 @@ export async function finalizeDevPlanSetupSession(
 			subscribedUser?.name,
 			devPlanTier,
 			devPlanCycle,
+			parseFloat(invoiceAmount),
+			invoiceCurrency,
 		);
 	}
 
@@ -1564,6 +1563,8 @@ async function handleCheckoutSessionCompleted(
 					subscribedUser?.name,
 					devPlanTier,
 					devPlanCycle,
+					(session.amount_total ?? 0) / 100,
+					(session.currency ?? "USD").toUpperCase(),
 				);
 			}
 		} else {
@@ -3684,8 +3685,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 	}
 	subscriptionMetadata ??= {};
 	const initialDevPlanTier = subscriptionMetadata.devPlan as
-		| DevPlanTier
-		| undefined;
+		DevPlanTier | undefined;
 	const initialDevPlanCycle: DevPlanCycle =
 		subscriptionMetadata.devPlanCycle === "annual" ? "annual" : "monthly";
 	const isInitialDevPlanSubscription =
@@ -3835,6 +3835,8 @@ export async function handleInvoicePaymentSucceeded(event: {
 				subscribedUser?.name,
 				initialDevPlanTier,
 				initialDevPlanCycle,
+				invoice.amount_paid / 100,
+				invoice.currency.toUpperCase(),
 			);
 		}
 

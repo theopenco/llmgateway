@@ -42,13 +42,7 @@ export type Price = string;
  * actually supports is declared per mapping via `reasoningEfforts`.
  */
 export type ReasoningEffort =
-	| "none"
-	| "minimal"
-	| "low"
-	| "medium"
-	| "high"
-	| "xhigh"
-	| "max";
+	"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 /**
  * Pricing tier for models with context-length based pricing
@@ -512,6 +506,14 @@ export interface ProviderModelMapping {
 	 */
 	supportsDeveloperRole?: boolean;
 	/**
+	 * Whether this mapping's upstream accepts a conversation whose last message is
+	 * an assistant turn (assistant prefill / continuation). Defaults to `true`
+	 * (assumed supported). When set to `false`, routing skips this mapping for
+	 * requests that end on an assistant message, since the upstream rejects them
+	 * with a 400 ("a conversation cannot end on an assistant turn").
+	 */
+	supportsAssistantPrefill?: boolean;
+	/**
 	 * Test skip/only functionality
 	 */
 	test?: "skip" | "only";
@@ -549,6 +551,26 @@ export interface ProviderModelMapping {
 	 */
 	speechGenerations?: boolean;
 	/**
+	 * Whether this model uses the dedicated realtime WebSocket API.
+	 * When true, sessions are served by the gateway's /v1/realtime endpoint
+	 * (server-to-server WebSocket proxy) rather than /v1/chat/completions.
+	 * Pricing uses the modality-specific token prices on this mapping
+	 * (inputPrice/cachedInputPrice/outputPrice for text, inputAudioPrice/
+	 * cachedInputAudioPrice/outputAudioPrice for audio, imageInputPrice/
+	 * cachedImageInputPrice for image input).
+	 */
+	realtime?: boolean;
+	/**
+	 * Whether this mapping can transcribe input audio for realtime sessions.
+	 * When true, the gateway's /v1/realtime proxy allows this mapping as the
+	 * `input_audio_transcription.model` of a realtime session and bills each
+	 * `conversation.item.input_audio_transcription.completed` event against
+	 * this mapping's token prices (inputPrice for text tokens, inputAudioPrice
+	 * for audio tokens, outputPrice for output tokens). Only token-metered ASR
+	 * mappings may set this; duration-billed models are not priceable here.
+	 */
+	realtimeTranscription?: boolean;
+	/**
 	 * Whether this model uses a dedicated transcription (speech-to-text) API.
 	 * When true, requests are routed to the gateway's /v1/audio/transcriptions
 	 * endpoint, which turns audio into text rather than returning a chat
@@ -562,6 +584,11 @@ export interface ProviderModelMapping {
 	 * returning a chat completion. Billed per page processed via ocrPagePrice.
 	 */
 	ocr?: boolean;
+	/**
+	 * Whether this model uses a dedicated rerank API.
+	 * When true, requests are routed to the gateway's /v1/rerank endpoint.
+	 */
+	rerank?: boolean;
 	/**
 	 * Prebuilt voices supported for speech generation models. The first entry is
 	 * used as the default when the caller does not specify a `voice`.
@@ -611,14 +638,7 @@ export interface ProviderModelMapping {
 export type StabilityLevel = "stable" | "beta" | "unstable" | "experimental";
 
 export type Quantization =
-	| "int4"
-	| "int8"
-	| "fp4"
-	| "fp6"
-	| "fp8"
-	| "fp16"
-	| "bf16"
-	| "fp32";
+	"int4" | "int8" | "fp4" | "fp6" | "fp8" | "fp16" | "bf16" | "fp32";
 
 export interface ModelDefinition {
 	/**
@@ -663,6 +683,7 @@ export interface ModelDefinition {
 		| "audio"
 		| "ocr"
 		| "transcription"
+		| "rerank"
 	)[];
 	/**
 	 * Whether this model requires an image input to function (e.g. image editing models).

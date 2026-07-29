@@ -41,6 +41,7 @@ import {
 	isPremiumModel,
 } from "@llmgateway/shared";
 
+import { clampTemperature } from "./clamp-temperature.js";
 import {
 	getProviderEnv,
 	getServiceTierIneligibleEnvIndices,
@@ -614,6 +615,8 @@ export async function resolveProviderContext(
 			top_p = undefined;
 		}
 	}
+
+	temperature = clampTemperature(temperature, usedProvider);
 
 	// --- max_tokens validation ---
 	if (max_tokens !== undefined && providerMappingForSelected) {

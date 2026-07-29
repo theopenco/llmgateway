@@ -770,6 +770,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 				requestedProvider: providerId,
 				messages: normalizedMessages,
 				source,
+				apiOrigin: "transcriptions",
 				customHeaders,
 				debugMode,
 				userAgent,
@@ -1072,17 +1073,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 						? upstreamJson
 						: normalizedUpstreamError,
 					status as
-						| 400
-						| 401
-						| 403
-						| 404
-						| 410
-						| 413
-						| 429
-						| 500
-						| 502
-						| 503
-						| 504,
+						400 | 401 | 403 | 404 | 410 | 413 | 429 | 500 | 502 | 503 | 504,
 				);
 			}
 

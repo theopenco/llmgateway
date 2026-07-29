@@ -14,7 +14,8 @@ export type ModelOutput =
 	| "embedding"
 	| "audio"
 	| "ocr"
-	| "transcription";
+	| "transcription"
+	| "rerank";
 
 const OUTPUT_ENDPOINT: Record<
 	ModelOutput,
@@ -30,6 +31,7 @@ const OUTPUT_ENDPOINT: Record<
 		label: "a transcription",
 		endpoint: "/v1/audio/transcriptions",
 	},
+	rerank: { label: "a rerank", endpoint: "/v1/rerank" },
 };
 
 /**

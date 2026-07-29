@@ -26,6 +26,12 @@ import {
 } from "@/components/ui/tooltip";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
 
+import {
+	isRefundFeedbackComplete,
+	type RefundReason,
+} from "@llmgateway/shared";
+import { RefundReasonFieldset } from "@llmgateway/shared/components";
+
 import type { paths } from "@/lib/api/v1";
 
 type Transaction =
@@ -174,12 +180,21 @@ function RefundButton({
 }) {
 	const api = useApi();
 	const queryClient = useQueryClient();
+	const [open, setOpen] = useState(false);
+	const [reason, setReason] = useState<RefundReason | null>(null);
+	const [comments, setComments] = useState("");
+
+	const trimmedComments = comments.trim();
+	const canSubmit = isRefundFeedbackComplete(reason, comments);
 
 	const refundMutation = api.useMutation(
 		"post",
 		"/orgs/{id}/transactions/{transactionId}/refund",
 		{
 			onSuccess: () => {
+				setOpen(false);
+				setReason(null);
+				setComments("");
 				toast.success(
 					isPlanPayment(transaction.type)
 						? "Refund processing. Your chat plan has been cancelled and the refund will arrive within a few business days."
@@ -232,7 +247,7 @@ function RefundButton({
 	}
 
 	return (
-		<AlertDialog>
+		<AlertDialog open={open} onOpenChange={setOpen}>
 			<AlertDialogTrigger asChild>
 				<Button variant="outline" size="sm" disabled={refundMutation.isPending}>
 					{refundMutation.isPending ? (
@@ -243,7 +258,7 @@ function RefundButton({
 					<span className="sr-only sm:not-sr-only">Refund</span>
 				</Button>
 			</AlertDialogTrigger>
-			<AlertDialogContent>
+			<AlertDialogContent className="max-h-[85vh] overflow-y-auto">
 				<AlertDialogHeader>
 					<AlertDialogTitle>
 						{isPlanPayment(transaction.type)
@@ -256,18 +271,34 @@ function RefundButton({
 							: `${formatAmount(transaction.amount, transaction.currency)} will be refunded to your payment method. The purchased credits will be removed from your balance. This cannot be undone.`}
 					</AlertDialogDescription>
 				</AlertDialogHeader>
+				<RefundReasonFieldset
+					idPrefix={transaction.id}
+					reason={reason}
+					onReasonChange={setReason}
+					comments={comments}
+					onCommentsChange={setComments}
+					disabled={refundMutation.isPending}
+				/>
 				<AlertDialogFooter>
-					<AlertDialogCancel>
-						{isPlanPayment(transaction.type) ? "Keep my membership" : "Cancel"}
+					<AlertDialogCancel disabled={refundMutation.isPending}>
+						{isPlanPayment(transaction.type)
+							? "Keep my membership"
+							: "Never mind"}
 					</AlertDialogCancel>
 					<AlertDialogAction
-						onClick={() =>
+						disabled={refundMutation.isPending || !canSubmit}
+						onClick={(e) => {
+							e.preventDefault();
+							if (!reason) {
+								return;
+							}
 							refundMutation.mutate({
 								params: {
 									path: { id: orgId, transactionId: transaction.id },
 								},
-							})
-						}
+								body: { reason, comments: trimmedComments || undefined },
+							});
+						}}
 					>
 						{isPlanPayment(transaction.type)
 							? "Refund and cancel"

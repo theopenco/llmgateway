@@ -18,7 +18,8 @@ Use this page to:
 - Set all-time and recurring spend limits per key
 - Set an expiration (TTL) so a key disables itself automatically
 - Track usage for each key, including the active recurring window
-- Enable or disable keys without deleting them
+- Rename keys and enable or disable them without deleting them
+- Roll a key's secret in place if it may have leaked
 - Configure IAM rules for model, provider, and pricing access
 
 <Callout type="warning">
@@ -111,14 +112,42 @@ Each key in the list shows:
 
 ## Actions
 
-For each API key you can:
+The actions menu on each key offers:
 
-- **Update limits**: Change all-time or recurring limits
-- **Disable or enable**: Pause usage without deleting the key (reactivating an
-  expired key prompts for a new expiration)
-- **Configure IAM rules**: Restrict which models, providers, or pricing tiers the key can use
 - **View Statistics**: Open a dedicated analytics page for that key (see below)
+- **Manage IAM Rules**: Restrict which models, providers, or pricing tiers the key can use
+- **Rename Key**: Change the key's label without touching its secret or history
+- **Activate / Deactivate Key**: Pause usage without deleting the key (reactivating
+  an expired key prompts for a new expiration)
+- **Roll Key**: Generate a new secret for the key and invalidate the old one (see below)
+- **Update limits**: Change all-time or recurring limits
 - **Delete**: Permanently remove the key
+
+<Callout type="info">
+	The auto-generated playground key is managed for you: it cannot be renamed,
+	rolled, deactivated, or deleted. Members with the developer role can only
+	modify keys they created themselves.
+</Callout>
+
+## Rolling a Key
+
+**Roll Key** replaces a key's secret while keeping the key itself. The name,
+usage history and statistics, all-time and recurring limits (including the
+current period window), IAM rules, and expiration all stay exactly as they were —
+only the secret changes.
+
+This is the fastest fix when a secret leaks into a commit, a log, or a shared
+environment: you cut off the exposed value without recreating the key or losing
+its spend tracking.
+
+1. Open the key's actions menu and choose **Roll Key**
+2. Confirm in the dialog
+3. Copy the new secret and update every client using the old one
+
+<Callout type="warning">
+	The previous secret stops working immediately, and the new one is shown only
+	once. Requests still using the old secret fail with `401 Unauthorized`.
+</Callout>
 
 ## Per-Key Statistics
 
@@ -150,6 +179,7 @@ Supported rule types include:
 - **Allow/Deny models**
 - **Allow/Deny providers**
 - **Allow/Deny pricing**
+- **Allow/Deny IP ranges (CIDR)** — Enterprise plan only
 
 Use IAM rules when you want a key to be valid, but only for a specific subset of
 models or providers. For a deeper explanation, see the [API Keys & IAM Rules
@@ -163,11 +193,16 @@ shows a notice when organization-level restrictions apply to your keys.
 
 ## Plan Limits
 
-The page also shows how many API keys your current project is using relative to
-your plan allowance.
+The page also shows how many API keys you are using relative to your plan
+allowance. The cap counts **active** keys across every project in the
+organization, so deactivated and deleted keys do not count against it.
 
 - **Free**: Standard API key count limit
+- **Pro**: A larger allowance
 - **Enterprise**: Custom limits
 
-If you reach the project key limit, the **Create API Key** button is disabled
-until you delete unused keys or upgrade.
+Owners and admins can also set a per-member key cap on the [Team
+page](/learn/team), which applies on top of the organization-wide allowance.
+
+If you reach the limit, the **Create API Key** button is disabled until you
+delete or deactivate unused keys, or upgrade.

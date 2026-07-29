@@ -51,6 +51,7 @@ import { cn } from "@/lib/utils";
 
 import { MARKETING_STATS } from "@llmgateway/shared";
 
+import { RunwarePromoBanner } from "./runware-promo-banner";
 import { ThemeToggle } from "./theme-toggle";
 
 import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
@@ -163,7 +164,7 @@ export const Navbar = ({
 	}> = [
 		{
 			title: "AI Gateway",
-			href: "/features/unified-api-interface",
+			href: "/products/ai-gateway",
 			description: `Route requests to ${MARKETING_STATS.models} LLMs through a single, unified API endpoint.`,
 			icon: Network,
 			gradient:
@@ -171,27 +172,25 @@ export const Navbar = ({
 		},
 		{
 			title: "DevPass",
-			href: "https://devpass.llmgateway.io",
+			href: "/products/devpass",
 			description:
 				"Fixed-price monthly plans for Claude Code, Cursor, and every coding tool.",
 			icon: Code,
 			gradient:
 				"hover:from-indigo-500/20 hover:to-blue-600/30 hover:shadow-indigo-500/10 group-hover/product:text-indigo-500 dark:group-hover/product:text-indigo-400",
-			external: true,
 		},
 		{
 			title: "Lounge",
-			href: config.playgroundUrl ?? "#",
+			href: "/products/lounge",
 			description:
 				"Every frontier model in one chat — plus image, video and audio studios.",
 			icon: MessagesSquare,
 			gradient:
 				"hover:from-blue-500/20 hover:to-cyan-600/30 hover:shadow-blue-500/10 group-hover/product:text-blue-500 dark:group-hover/product:text-blue-400",
-			external: true,
 		},
 		{
 			title: "Observability",
-			href: "/features/performance-monitoring",
+			href: "/products/observability",
 			description:
 				"Monitor usage, costs, and latency with real-time analytics dashboards.",
 			icon: Activity,
@@ -425,6 +424,7 @@ export const Navbar = ({
 				data-state={menuState && "active"}
 				className={cn("z-20 w-full px-2 group", sticky && "fixed")}
 			>
+				<RunwarePromoBanner collapsed={isScrolled} />
 				<div
 					className={cn(
 						"mt-2 mx-auto max-w-[1400px] px-6 transition-all duration-300",

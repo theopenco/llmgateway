@@ -10,6 +10,14 @@ import { Tabs, Tab } from "fumadocs-ui/components/tabs";
 
 LLM Gateway provides a Model Context Protocol (MCP) server that enables AI assistants like Claude Code to access multiple LLM providers through a unified interface. This allows you to use any model from OpenAI, Anthropic, Google, and more directly from your AI coding assistant.
 
+<Callout type="info">
+	**Using DevPass?** This integration also works with a
+	[DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without
+	a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) —
+	provider-pinned routing is not available on coding plans; the gateway picks
+	the provider for you.
+</Callout>
+
 ## What is MCP?
 
 The Model Context Protocol (MCP) is an open standard that allows AI assistants to connect with external tools and data sources. LLM Gateway's MCP server exposes tools for:

@@ -1,4 +1,5 @@
 import { redisClient } from "@llmgateway/cache";
+import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import { estimateTokens } from "./estimate-tokens.js";
@@ -8,12 +9,13 @@ import {
 } from "./extract-token-usage.js";
 import { dedupeGoogleCandidateParts } from "./google-candidates.js";
 import {
+	buildEncryptedReasoningDetail,
 	extractReasoningDetailsText,
 	splitReasoningFromTaggedContent,
 } from "./reasoning-details.js";
 
 import type { Annotation, ImageObject } from "./types.js";
-import type { Provider } from "@llmgateway/models";
+import type { Provider, ReasoningDetail } from "@llmgateway/models";
 
 /**
  * Parses response content and metadata from different providers
@@ -29,6 +31,15 @@ export function parseProviderResponse(
 ) {
 	let content = null;
 	let reasoningContent = null;
+	let reasoningDetails: ReasoningDetail[] | null = null;
+	let messagePhase: string | null = null;
+	let messageBeforeToolCalls: boolean | null = null;
+	let messageItems: Array<{
+		text: string;
+		phase?: string;
+		preceding_tool_calls: number;
+	}> | null = null;
+	let reasoningContext: string | null = null;
 	let finishReason = null;
 	let promptTokens = null;
 	let completionTokens = null;
@@ -136,7 +147,10 @@ export function parseProviderResponse(
 			const stopReason = json.stopReason;
 			if (stopReason === "end_turn") {
 				finishReason = "stop";
-			} else if (stopReason === "max_tokens") {
+			} else if (
+				stopReason === "max_tokens" ||
+				stopReason === "model_context_window_exceeded"
+			) {
 				finishReason = "length";
 			} else if (stopReason === "tool_use") {
 				finishReason = "tool_calls";
@@ -350,14 +364,12 @@ export function parseProviderResponse(
 
 			// Extract images from Google response parts
 			const imageParts = parts.filter((part: any) => part.inlineData);
-			images = imageParts.map(
-				(part: any): ImageObject => ({
-					type: "image_url",
-					image_url: {
-						url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`,
-					},
-				}),
-			);
+			images = imageParts.map((part: any): ImageObject => ({
+				type: "image_url",
+				image_url: {
+					url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`,
+				},
+			}));
 
 			// Set content label for image generation when no text content is present
 			if (!content && images.length > 0) {
@@ -381,7 +393,14 @@ export function parseProviderResponse(
 					.filter((part: any) => part.functionCall)
 					.map((part: any, index: number) => {
 						const toolCall: any = {
-							id: `${part.functionCall.name}_${json.candidates?.[0]?.index ?? 0}_${index}`, // Google doesn't provide ID, so generate one
+							// Google doesn't provide an id, so generate one. It MUST be
+							// globally unique: the id is the `thought_signature:<id>` Redis
+							// key, and Gemini rejects a replayed call whose signature came
+							// from a different call ("Corrupted thought signature"). A
+							// name+index id collapsed to e.g. `read_file_0_0` for every
+							// caller, so concurrent conversations — across organizations —
+							// overwrote each other's signature in one shared slot.
+							id: `${part.functionCall.name}_${shortid(24)}`,
 							type: "function",
 							function: {
 								name: part.functionCall.name,
@@ -596,14 +615,12 @@ export function parseProviderResponse(
 					// Extract images from content array
 					const imageItems = messageContent.filter((item: any) => item.image);
 					if (imageItems.length > 0) {
-						images = imageItems.map(
-							(item: any): ImageObject => ({
-								type: "image_url",
-								image_url: {
-									url: item.image,
-								},
-							}),
-						);
+						images = imageItems.map((item: any): ImageObject => ({
+							type: "image_url",
+							image_url: {
+								url: item.image,
+							},
+						}));
 						content = imageLabel;
 						finishReason = alibabaChoices[0]?.finish_reason ?? "stop";
 						// DashScope image generation uses different usage format
@@ -701,14 +718,12 @@ export function parseProviderResponse(
 			if (usedProvider === "xai" && json.data && Array.isArray(json.data)) {
 				const imageData = json.data;
 				if (imageData.length > 0) {
-					images = imageData.map(
-						(item: any): ImageObject => ({
-							type: "image_url",
-							image_url: {
-								url: item.url,
-							},
-						}),
-					);
+					images = imageData.map((item: any): ImageObject => ({
+						type: "image_url",
+						image_url: {
+							url: item.url,
+						},
+					}));
 					content = imageLabel;
 					finishReason = "stop";
 					// Grok Imagine image generation doesn't return token usage
@@ -723,14 +738,12 @@ export function parseProviderResponse(
 			if (usedProvider === "zai" && json.data && Array.isArray(json.data)) {
 				const imageData = json.data;
 				if (imageData.length > 0) {
-					images = imageData.map(
-						(item: any): ImageObject => ({
-							type: "image_url",
-							image_url: {
-								url: item.url,
-							},
-						}),
-					);
+					images = imageData.map((item: any): ImageObject => ({
+						type: "image_url",
+						image_url: {
+							url: item.url,
+						},
+					}));
 					content = imageLabel;
 					finishReason = "stop";
 					// CogView image generation doesn't return token usage
@@ -749,14 +762,12 @@ export function parseProviderResponse(
 			) {
 				const imageData = json.data;
 				if (imageData.length > 0) {
-					images = imageData.map(
-						(item: any): ImageObject => ({
-							type: "image_url",
-							image_url: {
-								url: item.url,
-							},
-						}),
-					);
+					images = imageData.map((item: any): ImageObject => ({
+						type: "image_url",
+						image_url: {
+							url: item.url,
+						},
+					}));
 					content = imageLabel;
 					finishReason = "stop";
 					// Seedream image generation doesn't return token usage
@@ -790,24 +801,136 @@ export function parseProviderResponse(
 				const messageOutput = json.output.find(
 					(item: any) => item.type === "message",
 				);
-				const reasoningOutput = json.output.find(
-					(item: any) => item.type === "reasoning",
+				// A response can carry several reasoning items (e.g. one before
+				// each tool call), so collect them all once — both the summary text
+				// and the encrypted payloads below are derived from every item.
+				// Each entry keeps its position in json.output as its index.
+				const reasoningOutputs = json.output.flatMap(
+					(item: any, index: number) =>
+						item.type === "reasoning" ? [{ item, index }] : [],
+				);
+				const firstFunctionCallIdx = json.output.findIndex(
+					(item: any) => item.type === "function_call",
 				);
 
-				// Extract message content
-				if (messageOutput?.content?.[0]?.text) {
+				// Collect ALL message items (models may emit separate phased
+				// assistant messages, e.g. commentary and final_answer) with
+				// their phase and exact position among the function_call items
+				// (how many calls precede each message), so the original
+				// interleaving can be reconstructed item-for-item.
+				let functionCallsSeen = 0;
+				const allMessageOutputs: Array<{
+					text: string;
+					phase?: string;
+					preceding_tool_calls: number;
+				}> = [];
+				for (const item of json.output) {
+					if (item.type === "function_call") {
+						functionCallsSeen++;
+					} else if (item.type === "message") {
+						allMessageOutputs.push({
+							text: Array.isArray(item.content)
+								? item.content
+										.map((part: any) =>
+											typeof part?.text === "string" ? part.text : "",
+										)
+										.join("")
+								: "",
+							...(typeof item.phase === "string" && {
+								phase: item.phase,
+							}),
+							preceding_tool_calls: functionCallsSeen,
+						});
+					}
+				}
+
+				// Extract message content. With multiple phased messages, join
+				// them so nothing is dropped from the chat-completions surface.
+				if (allMessageOutputs.length > 1) {
+					content = allMessageOutputs
+						.map((m: { text: string }) => m.text)
+						.filter(Boolean)
+						.join("\n\n");
+				} else if (messageOutput?.content?.[0]?.text) {
 					content = messageOutput.content[0].text;
 				}
 
-				// Extract reasoning content from summary (may hold multiple parts)
-				if (Array.isArray(reasoningOutput?.summary)) {
-					const summaryText = reasoningOutput.summary
-						.map((part: any) => part?.text ?? "")
-						.filter(Boolean)
-						.join("\n\n");
-					if (summaryText) {
-						reasoningContent = summaryText;
+				// Preserve the per-item structure whenever position matters —
+				// multiple messages, or any message alongside function calls
+				// (a single message may sit BETWEEN two calls, which the flat
+				// chat shape cannot express otherwise). Empty-text messages are
+				// dropped, matching the converter's empty-message guard.
+				const positionedMessages = allMessageOutputs.filter(
+					(m) => m.text.trim() !== "",
+				);
+				if (
+					positionedMessages.length > 0 &&
+					(allMessageOutputs.length > 1 || functionCallsSeen > 0)
+				) {
+					messageItems = positionedMessages;
+				}
+
+				// Preserve the assistant-message phase (e.g. "final_answer") so
+				// clients can replay it in stateless Responses history. With
+				// multiple messages the per-item phases live in messageItems.
+				if (
+					allMessageOutputs.length <= 1 &&
+					typeof messageOutput?.phase === "string"
+				) {
+					messagePhase = messageOutput.phase;
+				}
+
+				// Capture the effective reasoning context the provider applied
+				// (current_turn/all_turns) so the Responses layer can report it.
+				if (
+					json.reasoning?.context === "current_turn" ||
+					json.reasoning?.context === "all_turns"
+				) {
+					reasoningContext = json.reasoning.context;
+				}
+
+				// Record whether the message item preceded the first function_call
+				// (pre-tool commentary) so the Responses converter can rebuild the
+				// output array in the provider's original item order. With
+				// multiple messages the per-item flags live in messageItems.
+				if (allMessageOutputs.length <= 1) {
+					const messageIdx = json.output.findIndex(
+						(item: any) => item.type === "message",
+					);
+					if (messageIdx !== -1 && firstFunctionCallIdx !== -1) {
+						messageBeforeToolCalls = messageIdx < firstFunctionCallIdx;
 					}
+				}
+
+				// Extract reasoning content from every item's summary (each may hold
+				// multiple parts). Taking only the first item would silently drop the
+				// reasoning that preceded later tool calls, and would disagree with
+				// the streaming path, which aggregates every summary delta.
+				const summaryText = reasoningOutputs
+					.flatMap(({ item }: any) =>
+						Array.isArray(item.summary)
+							? item.summary.map((part: any) => part?.text ?? "")
+							: [],
+					)
+					.filter(Boolean)
+					.join("\n\n");
+				if (summaryText) {
+					reasoningContent = summaryText;
+				}
+
+				// Collect encrypted reasoning payloads (returned when the upstream
+				// request sets store:false + include:["reasoning.encrypted_content"])
+				// so clients can replay them on later turns to preserve reasoning
+				// without stored responses.
+				const encryptedReasoningDetails = reasoningOutputs.flatMap(
+					({ item, index }: any) =>
+						typeof item.encrypted_content === "string" &&
+						item.encrypted_content.length > 0
+							? [buildEncryptedReasoningDetail(item, index)]
+							: [],
+				);
+				if (encryptedReasoningDetails.length > 0) {
+					reasoningDetails = encryptedReasoningDetails;
 				}
 
 				// Extract tool calls (if any) from the output array and transform to OpenAI format
@@ -835,6 +958,13 @@ export function parseProviderResponse(
 					} else {
 						finishReason = "stop";
 					}
+				} else if (json.status === "incomplete") {
+					// Mirror the streaming path: surface content-filter truncation
+					// distinctly; everything else (max_output_tokens) is "incomplete".
+					finishReason =
+						json.incomplete_details?.reason === "content_filter"
+							? "content_filter"
+							: "incomplete";
 				} else {
 					finishReason = json.status;
 				}
@@ -1085,6 +1215,11 @@ export function parseProviderResponse(
 	return {
 		content,
 		reasoningContent,
+		reasoningDetails,
+		messagePhase,
+		messageBeforeToolCalls,
+		messageItems,
+		reasoningContext,
 		finishReason,
 		promptTokens,
 		completionTokens,

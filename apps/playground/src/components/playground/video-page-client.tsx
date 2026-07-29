@@ -764,7 +764,7 @@ export default function VideoPageClient({
 								`HTTP ${response.status}: ${response.statusText}`;
 							throw new Error(
 								isChatPlanContext &&
-								isInsufficientCreditsError(response.status, rawMessage)
+									isInsufficientCreditsError(response.status, rawMessage)
 									? chatPlanCreditErrorMessage(chatPlanSubscribed, "videos")
 									: rawMessage,
 							);

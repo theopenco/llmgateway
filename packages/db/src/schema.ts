@@ -19,7 +19,10 @@ import { customAlphabet } from "nanoid";
 
 import type { gatewayContentFilterResponseSchema } from "./log-payloads.js";
 import type { errorDetails, tools, toolChoice, toolResults } from "./types.js";
-import type { ProviderCompliancePolicy } from "@llmgateway/models";
+import type {
+	ProviderComplianceAttestation,
+	ProviderCompliancePolicy,
+} from "@llmgateway/models";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type z from "zod";
 
@@ -568,6 +571,55 @@ export const chatPlanCancellationFeedback = pgTable(
 	],
 );
 
+// Which product a self-service refund was issued against, so feedback can be
+// read per surface without joining back to the transaction type.
+export const REFUND_FEEDBACK_KINDS = ["credits", "devpass", "chat"] as const;
+
+export type RefundFeedbackKind = (typeof REFUND_FEEDBACK_KINDS)[number];
+
+export const REFUND_FEEDBACK_REASONS = [
+	"not_working",
+	"missing_features",
+	"too_expensive",
+	"bought_by_mistake",
+	"switched_alternative",
+	"other",
+] as const;
+
+// "Why are you refunding?" answer collected right before a self-service refund
+// is issued: a required category plus optional freeform details. One row per
+// refunded transaction.
+export const refundFeedback = pgTable(
+	"refund_feedback",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		transactionId: text()
+			.notNull()
+			.references(() => transaction.id, { onDelete: "cascade" }),
+		kind: text({ enum: REFUND_FEEDBACK_KINDS }).notNull(),
+		reason: text({ enum: REFUND_FEEDBACK_REASONS }).notNull(),
+		comments: text(),
+	},
+	(table) => [
+		uniqueIndex("refund_feedback_transaction_id_unique").on(
+			table.transactionId,
+		),
+		index("refund_feedback_organization_id_idx").on(table.organizationId),
+		index("refund_feedback_created_at_idx").on(table.createdAt),
+	],
+);
+
 // Shared literals for the model survey, consumed by the table below and the
 // zod schemas in the API's model-survey routes.
 export const MODEL_SURVEY_USE_CASES = [
@@ -621,7 +673,8 @@ export const modelSurveyResponse = pgTable(
 		requestCount: integer().notNull(),
 		devPlanTier: text({ enum: MODEL_SURVEY_TIERS }).notNull(),
 		// Tier of the free Reset Pass granted for this response. Null when no
-		// pass was granted (only the org's first response each year rewards).
+		// pass was granted (only the org's first response of each quarterly
+		// wave rewards; the pass stacks on any passes already held).
 		rewardTier: text({ enum: MODEL_SURVEY_TIERS }),
 	},
 	(table) => [
@@ -1492,6 +1545,19 @@ export interface ProviderKeyOptions {
 	vertex_anthropic_region?: string;
 }
 
+/**
+ * Org-supplied compliance posture for a custom provider key. LLMGateway does
+ * not verify these claims — they are the organization's own attestation about
+ * infrastructure it operates, evaluated against its provider compliance
+ * policy. Null (the default) keeps the fail-closed behaviour (blocked under
+ * any enabled policy). attestedAt / attestedByUserId are written server-side
+ * only.
+ */
+export interface ProviderKeyComplianceAttestation extends ProviderComplianceAttestation {
+	attestedAt?: string;
+	attestedByUserId?: string;
+}
+
 export const providerKey = pgTable(
 	"provider_key",
 	{
@@ -1509,6 +1575,8 @@ export const providerKey = pgTable(
 		// When true (custom providers only), requests through this key are
 		// restricted to models defined in its custom model catalog.
 		customModelsOnly: boolean().notNull().default(false),
+		// Custom providers only. See ProviderKeyComplianceAttestation.
+		complianceAttestation: jsonb().$type<ProviderKeyComplianceAttestation>(),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
@@ -1517,8 +1585,16 @@ export const providerKey = pgTable(
 			.references(() => organization.id, { onDelete: "cascade" }),
 	},
 	(table) => [
-		unique().on(table.organizationId, table.name),
+		// Uniqueness applies only to live rows so a soft-deleted provider's name
+		// can be reused (create and rename both soft-delete via status).
+		uniqueIndex("provider_key_organization_id_name_unique")
+			.on(table.organizationId, table.name)
+			.where(sql`status <> 'deleted'`),
 		index("provider_key_organization_id_idx").on(table.organizationId),
+		check(
+			"provider_key_attestation_custom_only",
+			sql`${table.complianceAttestation} IS NULL OR ${table.provider} = 'custom'`,
+		),
 	],
 );
 
@@ -1583,6 +1659,27 @@ export const customModel = pgTable(
 		index("custom_model_organization_id_idx").on(table.organizationId),
 	],
 );
+
+/**
+ * The gateway API surface a request came in through. `/v1/messages` and
+ * `/v1/responses` re-dispatch internally through `/v1/chat/completions`, so the
+ * origin is carried across that hop rather than inferred from the route.
+ */
+export const API_ORIGINS = [
+	"chat-completions",
+	"messages",
+	"responses",
+	"embeddings",
+	"images",
+	"videos",
+	"moderations",
+	"ocr",
+	"speech",
+	"transcriptions",
+	"rerank",
+] as const;
+
+export type ApiOrigin = (typeof API_ORIGINS)[number];
 
 export const log = pgTable(
 	"log",
@@ -1682,6 +1779,8 @@ export const log = pgTable(
 		usedMode: text({
 			enum: ["api-keys", "credits"],
 		}).notNull(),
+		// Null on rows written before this column existed.
+		apiOrigin: text({ enum: API_ORIGINS }),
 		source: text(),
 		sessionId: text(),
 		customHeaders: json().$type<{ [key: string]: string }>(),
@@ -1760,6 +1859,25 @@ export const log = pgTable(
 			jsonb().$type<z.infer<typeof gatewayContentFilterResponseSchema>>(),
 		responsesApiId: text(),
 		responsesApiData: jsonb(),
+		// Realtime WebSocket sessions: one log row per billable terminal event
+		// (e.g. one per response.done). realtimeUsageKey is a semantic identity
+		// such as "response:<upstream_response_id>" so redelivered provider
+		// events cannot double-bill (enforced by the partial unique index below).
+		realtimeSessionId: text(),
+		realtimeUsageKey: text(),
+		// Exact billing amount as a decimal string. When set, the worker debits
+		// this instead of the float `cost` column, which stays populated for
+		// dashboards and legacy queries.
+		billingCost: decimal(),
+		audioOutputTokens: decimal(),
+		audioOutputCost: real(),
+		// Sanitized normalized usage plus the exact price snapshot (decimal
+		// strings) used to compute billingCost, for billing auditability.
+		realtimeUsage: jsonb().$type<{
+			usage?: Record<string, number>;
+			pricing?: Record<string, string>;
+			status?: string;
+		}>(),
 	},
 	(table) => [
 		index("log_project_id_created_at_idx").on(table.projectId, table.createdAt),
@@ -1794,6 +1912,80 @@ export const log = pgTable(
 		index("log_processed_at_null_idx")
 			.on(table.createdAt)
 			.where(sql`processed_at IS NULL`),
+		// Idempotent realtime billing: one row per (session, usage key) even if
+		// the upstream provider redelivers a terminal usage event.
+		uniqueIndex("log_realtime_session_usage_key_unique")
+			.on(table.realtimeSessionId, table.realtimeUsageKey)
+			.where(sql`realtime_usage_key IS NOT NULL`),
+		// The realtime spend gate reads an organization's unsettled realtime
+		// spend (organization_id = ? AND realtime_session_id IS NOT NULL AND
+		// processed_at IS NULL). The partial predicate keeps the index to the
+		// unprocessed realtime backlog the worker is still draining rather than
+		// every realtime log row ever written.
+		index("log_realtime_unsettled_organization_id_idx")
+			.on(table.organizationId)
+			.where(sql`realtime_session_id IS NOT NULL AND processed_at IS NULL`),
+	],
+);
+
+export const realtimeSession = pgTable(
+	"realtime_session",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		projectId: text()
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+		apiKeyId: text()
+			.notNull()
+			.references(() => apiKey.id, { onDelete: "cascade" }),
+		requestedModel: text().notNull(),
+		usedModel: text().notNull(),
+		usedModelMapping: text(),
+		usedProvider: text().notNull(),
+		mode: text({
+			enum: ["api-keys", "credits", "hybrid"],
+		}).notNull(),
+		usedMode: text({
+			enum: ["api-keys", "credits"],
+		}).notNull(),
+		// Session id reported by the upstream provider (session.created).
+		upstreamSessionId: text(),
+		status: text({
+			enum: ["open", "closed", "error"],
+		})
+			.notNull()
+			.default("open"),
+		closeReason: text(),
+		responseCount: integer().notNull().default(0),
+		// Running total of exact billed cost across this session's log rows.
+		totalCost: decimal().notNull().default("0"),
+		bytesIn: integer().notNull().default(0),
+		bytesOut: integer().notNull().default(0),
+		connectedAt: timestamp().notNull().defaultNow(),
+		closedAt: timestamp(),
+		lastActivityAt: timestamp(),
+	},
+	(table) => [
+		index("realtime_session_organization_id_created_at_idx").on(
+			table.organizationId,
+			table.createdAt,
+		),
+		index("realtime_session_project_id_created_at_idx").on(
+			table.projectId,
+			table.createdAt,
+		),
+		index("realtime_session_api_key_id_created_at_idx").on(
+			table.apiKeyId,
+			table.createdAt,
+		),
 	],
 );
 
@@ -2726,6 +2918,12 @@ export const modelProviderMappingHistory = pgTable(
 		totalDuration: integer().notNull().default(0),
 		totalTimeToFirstToken: integer().notNull().default(0),
 		totalTimeToFirstReasoningToken: integer().notNull().default(0),
+		// Number of logs that actually contributed a time-to-first-token sample.
+		// Only streamed, non-cached, non-errored requests record one, so this is
+		// the correct denominator for the average — dividing the sum by the
+		// request count instead would dilute it with every non-streaming request.
+		timeToFirstTokenCount: integer().notNull().default(0),
+		timeToFirstReasoningTokenCount: integer().notNull().default(0),
 		totalCost: real().notNull().default(0),
 	},
 	(table) => [
@@ -2759,14 +2957,19 @@ export const modelProviderMappingHistory = pgTable(
 		// Covering index for the public provider stats aggregation
 		// (filter by minuteTimestamp range, group by providerId, sum metrics).
 		// Including the summed columns as trailing keys enables an index-only
-		// scan so Postgres never has to touch the heap for this query.
-		index("model_provider_mapping_history_provider_stats_idx").on(
+		// scan so Postgres never has to touch the heap for this query. The v2
+		// suffix is a new name rather than a rebuild in place, so production can
+		// build the replacement CONCURRENTLY before this migration runs — a
+		// rebuild under the same name would lock a table the worker writes to
+		// every minute for the duration of the scan.
+		index("model_provider_mapping_history_provider_stats_v2_idx").on(
 			table.minuteTimestamp,
 			table.providerId,
 			table.logsCount,
 			table.errorsCount,
 			table.cachedCount,
 			table.totalTimeToFirstToken,
+			table.timeToFirstTokenCount,
 			table.totalOutputTokens,
 			table.totalDuration,
 		),
@@ -2805,6 +3008,10 @@ export const modelHistory = pgTable(
 		totalDuration: integer().notNull().default(0),
 		totalTimeToFirstToken: integer().notNull().default(0),
 		totalTimeToFirstReasoningToken: integer().notNull().default(0),
+		// See model_provider_mapping_history: the denominator for the TTFT
+		// average, counting only requests that produced a first-token sample.
+		timeToFirstTokenCount: integer().notNull().default(0),
+		timeToFirstReasoningTokenCount: integer().notNull().default(0),
 		totalCost: real().notNull().default(0),
 	},
 	(table) => [
@@ -2859,6 +3066,10 @@ export const modelProviderMappingHistoryHourly = pgTable(
 		totalDuration: integer().notNull().default(0),
 		totalTimeToFirstToken: integer().notNull().default(0),
 		totalTimeToFirstReasoningToken: integer().notNull().default(0),
+		// See model_provider_mapping_history: the denominator for the TTFT
+		// average, counting only requests that produced a first-token sample.
+		timeToFirstTokenCount: integer().notNull().default(0),
+		timeToFirstReasoningTokenCount: integer().notNull().default(0),
 		totalCost: real().notNull().default(0),
 	},
 	(table) => [
@@ -2883,13 +3094,16 @@ export const modelProviderMappingHistoryHourly = pgTable(
 		),
 		// Covering index for the public provider stats aggregation
 		// (filter by hourTimestamp range, group by providerId, sum metrics).
-		index("mpm_history_hourly_provider_stats_idx").on(
+		// See model_provider_mapping_history_provider_stats_v2_idx for why this is
+		// a new name rather than a rebuild in place.
+		index("mpm_history_hourly_provider_stats_v2_idx").on(
 			table.hourTimestamp,
 			table.providerId,
 			table.logsCount,
 			table.errorsCount,
 			table.cachedCount,
 			table.totalTimeToFirstToken,
+			table.timeToFirstTokenCount,
 			table.totalOutputTokens,
 			table.totalDuration,
 		),
@@ -2932,6 +3146,10 @@ export const modelHistoryHourly = pgTable(
 		totalDuration: integer().notNull().default(0),
 		totalTimeToFirstToken: integer().notNull().default(0),
 		totalTimeToFirstReasoningToken: integer().notNull().default(0),
+		// See model_provider_mapping_history: the denominator for the TTFT
+		// average, counting only requests that produced a first-token sample.
+		timeToFirstTokenCount: integer().notNull().default(0),
+		timeToFirstReasoningTokenCount: integer().notNull().default(0),
 		totalCost: real().notNull().default(0),
 	},
 	(table) => [
@@ -3182,9 +3400,7 @@ export interface TopicRestrictionRuleConfig {
 }
 
 export type CustomRuleConfig =
-	| BlockedTermsRuleConfig
-	| CustomRegexRuleConfig
-	| TopicRestrictionRuleConfig;
+	BlockedTermsRuleConfig | CustomRegexRuleConfig | TopicRestrictionRuleConfig;
 
 export const guardrailConfig = pgTable(
 	"guardrail_config",
@@ -3515,6 +3731,7 @@ export const projectHourlyStats = pgTable(
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
 		audioInputCost: real().notNull().default(0),
+		audioOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -3582,6 +3799,7 @@ export const projectHourlyModelStats = pgTable(
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
 		audioInputCost: real().notNull().default(0),
+		audioOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -3674,6 +3892,7 @@ export const projectHourlySourceStats = pgTable(
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
 		audioInputCost: real().notNull().default(0),
+		audioOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -3752,6 +3971,7 @@ export const apiKeyHourlyStats = pgTable(
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
 		audioInputCost: real().notNull().default(0),
+		audioOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -3830,6 +4050,7 @@ export const apiKeyHourlyModelStats = pgTable(
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
 		audioInputCost: real().notNull().default(0),
+		audioOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -3915,6 +4136,7 @@ export const globalModelStats = pgTable(
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
 		audioInputCost: real().notNull().default(0),
+		audioOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -3989,6 +4211,7 @@ export const globalSourceStats = pgTable(
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
 		audioInputCost: real().notNull().default(0),
+		audioOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -4174,5 +4397,52 @@ export const loungePointEvent = pgTable(
 			table.userId,
 			table.createdAt,
 		),
+	],
+);
+
+// Transcript history for playground realtime voice calls. The gateway
+// deliberately does not persist realtime conversation content (see
+// apps/gateway/src/realtime/billing.ts), so the playground stores the
+// transcript its own client assembled, scoped to the user who spoke it.
+export const playgroundRealtimeHistory = pgTable(
+	"playground_realtime_history",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		// Organization context the call was placed under. Null means the
+		// default "Chat plan" context. Used to separate history per organization.
+		organizationId: text().references(() => organization.id, {
+			onDelete: "set null",
+		}),
+		title: text().notNull(),
+		model: text().notNull(),
+		voice: text(),
+		durationSeconds: integer().notNull().default(0),
+		transcript: jsonb().notNull().$type<
+			{
+				role: "user" | "assistant";
+				text: string;
+				status: "partial" | "final" | "interrupted";
+				timestamp: number;
+			}[]
+		>(),
+		usage: jsonb().$type<{
+			responses: number;
+			inputTokens: number;
+			outputTokens: number;
+			totalTokens: number;
+			audioInputTokens: number;
+			audioOutputTokens: number;
+		}>(),
+	},
+	(table) => [
+		index("playground_realtime_history_user_id_idx").on(table.userId),
 	],
 );

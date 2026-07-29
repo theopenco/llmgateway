@@ -88,8 +88,20 @@ function ScoreMeter({ label, value }: { label: string; value: number }) {
 
 function ModelRow({ model, rank }: { model: ModelSurveyModel; rank: number }) {
 	const topUseCase = model.useCases[0];
+	// Only the rows near the fold stagger in; deep rows render instantly so a
+	// long registry never feels like it's loading.
+	const staggered = rank <= 10;
+	const staggerStep = (rank - 1) * 70;
+	const delayMs = 140 + staggerStep;
 	return (
-		<div className="border-b border-dashed border-stone-300/80 px-4 py-5 last:border-b-0 dark:border-stone-700/80 sm:flex sm:flex-wrap sm:items-center sm:gap-x-6 sm:gap-y-4 sm:px-6">
+		<div
+			className={`border-b border-dashed border-stone-300/80 px-4 py-5 last:border-b-0 dark:border-stone-700/80 sm:flex sm:flex-wrap sm:items-center sm:gap-x-6 sm:gap-y-4 sm:px-6 ${
+				staggered
+					? "motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-3 motion-safe:fill-mode-both"
+					: ""
+			}`}
+			style={staggered ? { animationDelay: `${delayMs}ms` } : undefined}
+		>
 			<div className="flex min-w-0 items-center gap-4 sm:flex-1">
 				<div
 					className={
@@ -186,7 +198,7 @@ export default async function CensusPage({
 				{/* Hero */}
 				<section className="relative overflow-hidden border-b">
 					<div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_55%_55%_at_50%_-5%,_var(--tw-gradient-stops))] from-emerald-500/10 via-transparent to-transparent" />
-					<div className="container relative mx-auto max-w-3xl px-4 pt-16 pb-12 text-center sm:pt-20">
+					<div className="container relative mx-auto max-w-3xl px-4 pt-16 pb-12 text-center motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-3 motion-safe:fill-mode-both sm:pt-20">
 						<div className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-1.5 font-mono text-xs font-medium uppercase tracking-[0.15em] text-emerald-600 dark:text-emerald-400">
 							<ClipboardCheck className="h-3.5 w-3.5" />
 							{isCurrentYear
@@ -232,8 +244,12 @@ export default async function CensusPage({
 									label: "Models on the registry",
 									value: results.totalModelsRated,
 								},
-							].map((stat) => (
-								<div key={stat.label}>
+							].map((stat, index) => (
+								<div
+									key={stat.label}
+									className="motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-3 motion-safe:fill-mode-both"
+									style={{ animationDelay: `${index * 70}ms` }}
+								>
 									<div className="font-mono text-2xl font-bold tabular-nums sm:text-3xl">
 										{stat.value.toLocaleString()}
 									</div>

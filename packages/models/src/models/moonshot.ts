@@ -408,6 +408,21 @@ export const moonshotModels = [
 				],
 			},
 			{
+				providerId: "runware",
+				externalId: "moonshotai-kimi-k2-6",
+				inputPrice: "0.6e-6",
+				outputPrice: "3.05e-6",
+				cachedInputPrice: "0.13e-6",
+				requestPrice: "0",
+				contextSize: 262144,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
 				providerId: "canopywave",
 				externalId: "moonshotai/kimi-k2.6",
 				// canopywave's kimi-k2.6 deployment 503s on every request ("No
@@ -666,6 +681,104 @@ export const moonshotModels = [
 				maxOutput: 1048576,
 				streaming: true,
 				reasoning: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
+				providerId: "together-ai",
+				externalId: "moonshotai/Kimi-K3",
+				inputPrice: "3.0e-6",
+				cachedInputPrice: "0.3e-6",
+				outputPrice: "15.0e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 1000000,
+				quantization: "fp4",
+				streaming: true,
+				reasoning: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
+				providerId: "nebius",
+				externalId: "moonshotai/Kimi-K3",
+				// Named tool choice is rejected with a 400 ("Named tool choice is not
+				// supported for Kimi K3"), and "required" is silently broken: the
+				// upstream emits the call as text in `reasoning_content` and returns
+				// `finish_reason: "stop"` with no `tool_calls`.
+				supportedToolChoices: ["auto", "none"],
+				inputPrice: "3.0e-6",
+				outputPrice: "15.0e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 1048576,
+				quantization: "fp4",
+				streaming: true,
+				reasoning: true,
+				vision: true,
+				tools: true,
+				// `response_format: {"type": "json_object"}` routes the whole answer
+				// into `reasoning_content` and leaves `content` empty on this
+				// deployment, so JSON mode is unusable here.
+				jsonOutput: false,
+				// The endpoint intermittently stalls: roughly one in eight simple
+				// requests takes ~35s instead of the usual ~2s, and reasoning streams
+				// occasionally run past 120s without completing. together-ai serves
+				// the same model at the same price with steady ~2s latency, so keep
+				// nebius out of automatic provider selection (it stays usable when
+				// pinned explicitly) and out of the e2e suite, where the stalls blow
+				// the per-test timeout budget.
+				stability: "unstable",
+				test: "skip",
+			},
+			{
+				providerId: "fireworks",
+				externalId: "accounts/fireworks/models/kimi-k3",
+				inputPrice: "3.0e-6",
+				cachedInputPrice: "0.3e-6",
+				outputPrice: "15.0e-6",
+				requestPrice: "0",
+				contextSize: 1040384,
+				maxOutput: 1040384,
+				streaming: true,
+				reasoning: true,
+				// Unlike the native Moonshot deployment (which only takes "max"),
+				// Fireworks accepts the full effort enum and rejects "minimal".
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
+				providerId: "canopywave",
+				externalId: "moonshotai/kimi-k3",
+				// A named function choice is rejected with a 400 ("tool_choice
+				// 'specified' is incompatible with thinking enabled"); "required"
+				// works and reliably returns a tool call.
+				supportedToolChoices: ["auto", "none", "required"],
+				inputPrice: "3.0e-6",
+				cachedInputPrice: "0.3e-6",
+				outputPrice: "15.0e-6",
+				requestPrice: "0",
+				// A 300K-token prompt was served correctly; prompts beyond ~1M are
+				// rejected with a 429 because the upstream TPM quota is 1M.
+				contextSize: 1048576,
+				maxOutput: 1048576,
+				streaming: true,
+				reasoning: true,
+				// This deployment accepts every effort tier, including "none"
+				// (which returns zero reasoning tokens) and "minimal".
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				vision: true,
 				tools: true,
 				jsonOutput: true,

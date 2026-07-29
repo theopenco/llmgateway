@@ -598,8 +598,7 @@ function extractLogExtra(args: unknown[]): object | undefined {
 		return errArg as Error;
 	}
 	return args.find((arg) => arg && typeof arg === "object") as
-		| object
-		| undefined;
+		object | undefined;
 }
 
 export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
@@ -885,8 +884,7 @@ The LLM Gateway Team`.trim();
 					// Apply name fallback for email/password signup before user creation
 					if (ctx.path.startsWith("/sign-up/email")) {
 						const body = ctx.body as
-							| { email?: string; name?: string | null }
-							| undefined;
+							{ email?: string; name?: string | null } | undefined;
 						if (body?.email) {
 							body.name = resolveSignupName(body.name, body.email);
 						}

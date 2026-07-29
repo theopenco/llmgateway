@@ -77,6 +77,8 @@ interface MappingMinuteStats {
 	totalDuration: number;
 	totalTimeToFirstToken: number;
 	totalTimeToFirstReasoningToken: number;
+	timeToFirstTokenCount: number;
+	timeToFirstReasoningTokenCount: number;
 	totalCost: number;
 }
 
@@ -108,6 +110,8 @@ function createEmptyMappingMinuteStats(
 		totalDuration: 0,
 		totalTimeToFirstToken: 0,
 		totalTimeToFirstReasoningToken: 0,
+		timeToFirstTokenCount: 0,
+		timeToFirstReasoningTokenCount: 0,
 		totalCost: 0,
 	};
 }
@@ -137,6 +141,9 @@ function mergeMappingMinuteStats(
 	target.totalTimeToFirstToken += source.totalTimeToFirstToken;
 	target.totalTimeToFirstReasoningToken +=
 		source.totalTimeToFirstReasoningToken;
+	target.timeToFirstTokenCount += source.timeToFirstTokenCount;
+	target.timeToFirstReasoningTokenCount +=
+		source.timeToFirstReasoningTokenCount;
 	target.totalCost += source.totalCost;
 	return target;
 }
@@ -166,6 +173,8 @@ const HISTORY_METRIC_COLUMNS = [
 	"totalDuration",
 	"totalTimeToFirstToken",
 	"totalTimeToFirstReasoningToken",
+	"timeToFirstTokenCount",
+	"timeToFirstReasoningTokenCount",
 	"totalCost",
 ] as const;
 
@@ -342,6 +351,17 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 				sql<number>`coalesce(sum(${log.timeToFirstReasoningToken}), 0)::int`.as(
 					"totalTimeToFirstReasoningToken",
 				),
+			// Only streamed, non-cached, successful requests record a
+			// time-to-first-token, so the averages must divide by how many samples
+			// there actually were rather than by the request count.
+			timeToFirstTokenCount:
+				sql<number>`count(${log.timeToFirstToken})::int`.as(
+					"timeToFirstTokenCount",
+				),
+			timeToFirstReasoningTokenCount:
+				sql<number>`count(${log.timeToFirstReasoningToken})::int`.as(
+					"timeToFirstReasoningTokenCount",
+				),
 			totalCost: sql<number>`coalesce(sum(${log.cost}), 0)`.as("totalCost"),
 		})
 		.from(log)
@@ -404,6 +424,9 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 		const totalTimeToFirstToken = stat?.totalTimeToFirstToken ?? 0;
 		const totalTimeToFirstReasoningToken =
 			stat?.totalTimeToFirstReasoningToken ?? 0;
+		const timeToFirstTokenCount = stat?.timeToFirstTokenCount ?? 0;
+		const timeToFirstReasoningTokenCount =
+			stat?.timeToFirstReasoningTokenCount ?? 0;
 		const totalCost = stat?.totalCost ?? 0;
 
 		// Collect the history record for this minute; written in one bulk upsert
@@ -431,6 +454,8 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 			totalDuration,
 			totalTimeToFirstToken,
 			totalTimeToFirstReasoningToken,
+			timeToFirstTokenCount,
+			timeToFirstReasoningTokenCount,
 			totalCost,
 		});
 	}
@@ -551,6 +576,17 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 			totalTimeToFirstReasoningToken:
 				sql<number>`coalesce(sum(${log.timeToFirstReasoningToken}), 0)::int`.as(
 					"totalTimeToFirstReasoningToken",
+				),
+			// Only streamed, non-cached, successful requests record a
+			// time-to-first-token, so the averages must divide by how many samples
+			// there actually were rather than by the request count.
+			timeToFirstTokenCount:
+				sql<number>`count(${log.timeToFirstToken})::int`.as(
+					"timeToFirstTokenCount",
+				),
+			timeToFirstReasoningTokenCount:
+				sql<number>`count(${log.timeToFirstReasoningToken})::int`.as(
+					"timeToFirstReasoningTokenCount",
 				),
 			totalCost: sql<number>`coalesce(sum(${log.cost}), 0)`.as("totalCost"),
 		})
@@ -675,6 +711,9 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 		const totalTimeToFirstToken = stat?.totalTimeToFirstToken ?? 0;
 		const totalTimeToFirstReasoningToken =
 			stat?.totalTimeToFirstReasoningToken ?? 0;
+		const timeToFirstTokenCount = stat?.timeToFirstTokenCount ?? 0;
+		const timeToFirstReasoningTokenCount =
+			stat?.timeToFirstReasoningTokenCount ?? 0;
 		const totalCost = stat?.totalCost ?? 0;
 
 		if (logsCount > 0) {
@@ -708,6 +747,8 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 			totalDuration,
 			totalTimeToFirstToken,
 			totalTimeToFirstReasoningToken,
+			timeToFirstTokenCount,
+			timeToFirstReasoningTokenCount,
 			totalCost,
 		});
 	}
@@ -959,6 +1000,8 @@ async function calculateModelHistoryForHour(targetHour: Date) {
 			totalDuration: sql<number>`coalesce(sum(${modelHistory.totalDuration}), 0)::int`,
 			totalTimeToFirstToken: sql<number>`coalesce(sum(${modelHistory.totalTimeToFirstToken}), 0)::int`,
 			totalTimeToFirstReasoningToken: sql<number>`coalesce(sum(${modelHistory.totalTimeToFirstReasoningToken}), 0)::int`,
+			timeToFirstTokenCount: sql<number>`coalesce(sum(${modelHistory.timeToFirstTokenCount}), 0)::int`,
+			timeToFirstReasoningTokenCount: sql<number>`coalesce(sum(${modelHistory.timeToFirstReasoningTokenCount}), 0)::int`,
 			totalCost: sql<number>`coalesce(sum(${modelHistory.totalCost}), 0)`,
 		})
 		.from(modelHistory)
@@ -1020,6 +1063,8 @@ async function calculateMappingHistoryForHour(targetHour: Date) {
 			totalDuration: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalDuration}), 0)::int`,
 			totalTimeToFirstToken: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalTimeToFirstToken}), 0)::int`,
 			totalTimeToFirstReasoningToken: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalTimeToFirstReasoningToken}), 0)::int`,
+			timeToFirstTokenCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.timeToFirstTokenCount}), 0)::int`,
+			timeToFirstReasoningTokenCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.timeToFirstReasoningTokenCount}), 0)::int`,
 			totalCost: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalCost}), 0)`,
 		})
 		.from(modelProviderMappingHistory)

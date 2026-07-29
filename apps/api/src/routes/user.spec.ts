@@ -124,6 +124,55 @@ describe("user passkey deletion", () => {
 	});
 });
 
+describe("user account deletion", () => {
+	let token: string;
+
+	beforeEach(async () => {
+		token = await createTestUser();
+	});
+
+	afterEach(async () => {
+		await deleteAll();
+	});
+
+	it("DELETE /user/me should delete the user and clear the session cookie", async () => {
+		const res = await app.request("/user/me", {
+			method: "DELETE",
+			headers: {
+				Cookie: token,
+			},
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.message).toBe("Account deleted successfully");
+
+		const deletedUser = await db.query.user.findFirst({
+			where: {
+				id: {
+					eq: "test-user-id",
+				},
+			},
+		});
+		expect(deletedUser).toBeUndefined();
+
+		const setCookies = res.headers.getSetCookie();
+		const sessionCookie = setCookies.find((cookie) =>
+			cookie.includes("session_token="),
+		);
+		expect(sessionCookie).toBeDefined();
+		// Cleared cookies are set to an empty value with an immediate expiry.
+		expect(sessionCookie).toMatch(/session_token=;|Max-Age=0/);
+	});
+
+	it("DELETE /user/me should require authentication", async () => {
+		const res = await app.request("/user/me", {
+			method: "DELETE",
+		});
+		expect(res.status).toBe(401);
+	});
+});
+
 describe("user accounts and email editability", () => {
 	let token: string;
 

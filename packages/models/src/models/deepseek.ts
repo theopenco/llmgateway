@@ -282,6 +282,30 @@ export const deepseekModels = [
 				],
 			},
 			{
+				providerId: "runware",
+				externalId: "deepseek-v4-pro",
+				inputPrice: "0.961e-6",
+				outputPrice: "1.922e-6",
+				cachedInputPrice: "0.079e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 384000,
+				streaming: true,
+				reasoning: true,
+				// Runware maps reasoning_effort onto its thinkingLevel setting and
+				// 400s minimal/low/medium for this model.
+				reasoningEfforts: ["none", "high", "xhigh", "max"],
+				vision: false,
+				tools: true,
+				// Runware rejects json_object for this model ("Missing required
+				// parameter: 'jsonSchema'"); only schema-based output is supported.
+				jsonOutput: false,
+				jsonOutputSchema: true,
+				// Runware 400s ("a conversation cannot end on an assistant turn") when
+				// the last message is an assistant turn (verified 2026-07-28).
+				supportsAssistantPrefill: false,
+			},
+			{
 				providerId: "together-ai",
 				externalId: "deepseek-ai/DeepSeek-V4-Pro",
 				inputPrice: "1.74e-6",
@@ -414,6 +438,30 @@ export const deepseekModels = [
 					"tools",
 					"reasoning_effort",
 				],
+			},
+			{
+				providerId: "runware",
+				externalId: "deepseek-v4-flash",
+				inputPrice: "0.076e-6",
+				outputPrice: "0.153e-6",
+				cachedInputPrice: "0.014e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 384000,
+				streaming: true,
+				reasoning: true,
+				// Runware maps reasoning_effort onto its thinkingLevel setting and
+				// 400s minimal/low/medium for this model.
+				reasoningEfforts: ["none", "high", "xhigh", "max"],
+				vision: false,
+				tools: true,
+				// Runware rejects json_object for this model ("Missing required
+				// parameter: 'jsonSchema'"); only schema-based output is supported.
+				jsonOutput: false,
+				jsonOutputSchema: true,
+				// Runware 400s ("a conversation cannot end on an assistant turn") when
+				// the last message is an assistant turn (verified 2026-07-28).
+				supportsAssistantPrefill: false,
 			},
 			{
 				providerId: "novita",

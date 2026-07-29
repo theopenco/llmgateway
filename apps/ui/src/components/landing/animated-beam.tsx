@@ -5,6 +5,8 @@ import { useEffect, useId, useState } from "react";
 import { motion } from "@/components/motion-wrapper";
 import { cn } from "@/lib/utils";
 
+import { randomFloatBetween } from "@llmgateway/shared/random";
+
 import type { RefObject } from "react";
 
 export interface AnimatedBeamProps {
@@ -34,8 +36,7 @@ export const AnimatedBeam: React.FC<AnimatedBeamProps> = ({
 	toRef,
 	curvature = 0,
 	reverse = false, // Include the reverse prop
-	// eslint-disable-next-line no-mixed-operators
-	duration = Math.random() * 3 + 4,
+	duration = randomFloatBetween(4, 7),
 	delay = 0,
 	pathColor = "gray",
 	pathWidth = 2,

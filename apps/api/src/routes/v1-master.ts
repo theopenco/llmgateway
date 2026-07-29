@@ -11,6 +11,14 @@ import {
 } from "@/lib/iam-rules.js";
 import { maskToken } from "@/lib/maskToken.js";
 import {
+	applyCustomModelUpdate,
+	createCustomModelSchema,
+	customModelSchema,
+	insertCustomModel,
+	softDeleteCustomModel,
+	updateCustomModelSchema,
+} from "@/routes/custom-models.js";
+import {
 	buildApiKeyLimitAuditChanges,
 	createApiKeyForProject,
 	hasPeriodConfigChanged,
@@ -19,6 +27,16 @@ import {
 	parseApiKeyPeriodConfig,
 	type PartialApiKeyLimitConfig,
 } from "@/routes/keys-api.js";
+import {
+	assertCustomProviderNameAvailable,
+	assertProviderBaseUrlAllowed,
+	complianceAttestationSchema,
+	customProviderNameSchema,
+	isValidProviderToken,
+	providerKeyResponseSchema,
+	serializeProviderKey,
+	stampComplianceAttestation,
+} from "@/routes/keys-provider.js";
 import { createProjectForOrg } from "@/routes/projects.js";
 import { memberIamRuleSchema } from "@/routes/team.js";
 import { isPlaygroundApiKey } from "@/utils/playground-key.js";
@@ -34,6 +52,7 @@ import {
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 import type { ServerTypes } from "@/vars.js";
+import type { ProviderKeyComplianceAttestation } from "@llmgateway/db";
 
 export const v1Master = new OpenAPIHono<ServerTypes>();
 
@@ -1423,6 +1442,585 @@ v1Master.openapi(deleteMemberIamRule, async (c) => {
 	});
 
 	return c.json({ message: "Member IAM rule deleted successfully" });
+});
+
+// Custom providers are BYOK provider keys with `provider: "custom"`, addressed
+// by the gateway as `custom/<name>/<model>`. Only custom keys are exposed here:
+// catalog providers require an upstream credential check that isn't meaningful
+// for unattended provisioning.
+async function loadCustomProviderKeyForOrg(id: string, organizationId: string) {
+	const providerKey = await db.query.providerKey.findFirst({
+		where: { id: { eq: id } },
+	});
+
+	if (
+		!providerKey ||
+		providerKey.status === "deleted" ||
+		providerKey.organizationId !== organizationId ||
+		providerKey.provider !== "custom"
+	) {
+		throw new HTTPException(404, {
+			message: "Custom provider not found in this organization",
+		});
+	}
+
+	return providerKey;
+}
+
+async function loadCustomModelForOrg(id: string, organizationId: string) {
+	const customModel = await db.query.customModel.findFirst({
+		where: {
+			id: { eq: id },
+			organizationId: { eq: organizationId },
+			status: { ne: "deleted" },
+		},
+	});
+
+	if (!customModel) {
+		throw new HTTPException(404, {
+			message: "Custom model not found in this organization",
+		});
+	}
+
+	return customModel;
+}
+
+const providerTokenField = z
+	.string()
+	.min(1, "API key is required")
+	.refine(isValidProviderToken, {
+		message:
+			"API key contains invalid characters. Make sure you copied the actual key, not a masked version.",
+	});
+
+const createCustomProviderBody = z.object({
+	name: customProviderNameSchema,
+	baseUrl: z.string().url(),
+	token: providerTokenField,
+	customModelsOnly: z.boolean().optional(),
+	complianceAttestation: complianceAttestationSchema.optional(),
+});
+
+const updateCustomProviderBody = z
+	.object({
+		baseUrl: z.string().url().optional(),
+		token: providerTokenField.optional(),
+		status: z.enum(["active", "inactive"]).optional(),
+		customModelsOnly: z.boolean().optional(),
+		complianceAttestation: complianceAttestationSchema.nullable().optional(),
+	})
+	.refine((v) => Object.keys(v).length > 0, {
+		message: "At least one field must be provided",
+	});
+
+const createCustomProvider = createRoute({
+	method: "post",
+	path: "/custom-providers",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: createCustomProviderBody,
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						customProvider: providerKeyResponseSchema.openapi({}),
+					}),
+				},
+			},
+			description: "Custom provider created successfully via master key.",
+		},
+	},
+});
+
+v1Master.openapi(createCustomProvider, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { name, baseUrl, token, customModelsOnly, complianceAttestation } =
+		c.req.valid("json");
+
+	await assertProviderBaseUrlAllowed(baseUrl);
+	await assertCustomProviderNameAvailable(masterKey.organizationId, name);
+
+	const [providerKey] = await cdb
+		.insert(tables.providerKey)
+		.values({
+			organizationId: masterKey.organizationId,
+			provider: "custom",
+			name,
+			baseUrl,
+			token,
+			customModelsOnly: customModelsOnly ?? false,
+			complianceAttestation: complianceAttestation
+				? stampComplianceAttestation(complianceAttestation, masterKey.createdBy)
+				: null,
+		})
+		.returning();
+
+	await logAuditEvent({
+		organizationId: masterKey.organizationId,
+		userId: masterKey.createdBy,
+		action: "provider_key.create",
+		resourceType: "provider_key",
+		resourceId: providerKey.id,
+		metadata: { provider: "custom", resourceName: name },
+	});
+
+	return c.json({ customProvider: serializeProviderKey(providerKey) }, 201);
+});
+
+const listCustomProviders = createRoute({
+	method: "get",
+	path: "/custom-providers",
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						customProviders: z.array(providerKeyResponseSchema).openapi({}),
+					}),
+				},
+			},
+			description:
+				"List the non-deleted custom providers in the master key's organization.",
+		},
+	},
+});
+
+v1Master.openapi(listCustomProviders, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const providerKeys = await db.query.providerKey.findMany({
+		where: {
+			organizationId: { eq: masterKey.organizationId },
+			provider: { eq: "custom" },
+			status: { ne: "deleted" },
+		},
+		orderBy: { createdAt: "asc" },
+	});
+
+	return c.json({ customProviders: providerKeys.map(serializeProviderKey) });
+});
+
+const getCustomProvider = createRoute({
+	method: "get",
+	path: "/custom-providers/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						customProvider: providerKeyResponseSchema.openapi({}),
+					}),
+				},
+			},
+			description: "Get a single custom provider via master key.",
+		},
+	},
+});
+
+v1Master.openapi(getCustomProvider, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.param();
+
+	const providerKey = await loadCustomProviderKeyForOrg(
+		id,
+		masterKey.organizationId,
+	);
+
+	return c.json({ customProvider: serializeProviderKey(providerKey) });
+});
+
+const updateCustomProvider = createRoute({
+	method: "patch",
+	path: "/custom-providers/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: updateCustomProviderBody,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						customProvider: providerKeyResponseSchema.openapi({}),
+					}),
+				},
+			},
+			description: "Custom provider updated successfully via master key.",
+		},
+	},
+});
+
+v1Master.openapi(updateCustomProvider, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.param();
+	const { baseUrl, token, status, customModelsOnly, complianceAttestation } =
+		c.req.valid("json");
+
+	const existing = await loadCustomProviderKeyForOrg(
+		id,
+		masterKey.organizationId,
+	);
+
+	if (baseUrl !== undefined) {
+		await assertProviderBaseUrlAllowed(baseUrl);
+	}
+
+	const updates: {
+		baseUrl?: string;
+		token?: string;
+		status?: "active" | "inactive";
+		customModelsOnly?: boolean;
+		complianceAttestation?: ProviderKeyComplianceAttestation | null;
+	} = {};
+	if (baseUrl !== undefined) {
+		updates.baseUrl = baseUrl;
+	}
+	if (token !== undefined) {
+		updates.token = token;
+	}
+	if (status !== undefined) {
+		updates.status = status;
+	}
+	if (customModelsOnly !== undefined) {
+		updates.customModelsOnly = customModelsOnly;
+	}
+	if (complianceAttestation !== undefined) {
+		updates.complianceAttestation = stampComplianceAttestation(
+			complianceAttestation,
+			masterKey.createdBy,
+		);
+	}
+
+	const [updated] = await cdb
+		.update(tables.providerKey)
+		.set(updates)
+		.where(eq(tables.providerKey.id, id))
+		.returning();
+
+	const changes: Record<string, { old: unknown; new: unknown }> = {};
+	if (baseUrl !== undefined && existing.baseUrl !== baseUrl) {
+		changes.baseUrl = { old: existing.baseUrl, new: baseUrl };
+	}
+	// The token itself is never written to the audit log, only the fact it rotated.
+	if (token !== undefined && existing.token !== token) {
+		changes.token = { old: "<redacted>", new: "<rotated>" };
+	}
+	if (status !== undefined && existing.status !== status) {
+		changes.status = { old: existing.status, new: status };
+	}
+	if (
+		customModelsOnly !== undefined &&
+		existing.customModelsOnly !== customModelsOnly
+	) {
+		changes.customModelsOnly = {
+			old: existing.customModelsOnly,
+			new: customModelsOnly,
+		};
+	}
+	if (complianceAttestation !== undefined) {
+		changes.complianceAttestation = {
+			old: existing.complianceAttestation ?? null,
+			new: updates.complianceAttestation ?? null,
+		};
+	}
+
+	if (Object.keys(changes).length > 0) {
+		await logAuditEvent({
+			organizationId: masterKey.organizationId,
+			userId: masterKey.createdBy,
+			action: "provider_key.update",
+			resourceType: "provider_key",
+			resourceId: id,
+			metadata: {
+				provider: "custom",
+				resourceName: existing.name ?? undefined,
+				changes,
+			},
+		});
+	}
+
+	return c.json({ customProvider: serializeProviderKey(updated) });
+});
+
+const deleteCustomProvider = createRoute({
+	method: "delete",
+	path: "/custom-providers/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "Custom provider deleted successfully via master key.",
+		},
+	},
+});
+
+v1Master.openapi(deleteCustomProvider, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.param();
+
+	const existing = await loadCustomProviderKeyForOrg(
+		id,
+		masterKey.organizationId,
+	);
+
+	await cdb
+		.update(tables.providerKey)
+		.set({ status: "deleted" })
+		.where(eq(tables.providerKey.id, id));
+
+	await logAuditEvent({
+		organizationId: masterKey.organizationId,
+		userId: masterKey.createdBy,
+		action: "provider_key.delete",
+		resourceType: "provider_key",
+		resourceId: id,
+		metadata: { provider: "custom", resourceName: existing.name ?? undefined },
+	});
+
+	return c.json({ message: "Custom provider deleted successfully" });
+});
+
+const createCustomModel = createRoute({
+	method: "post",
+	path: "/custom-models",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: createCustomModelSchema,
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: z.object({ customModel: customModelSchema.openapi({}) }),
+				},
+			},
+			description: "Custom model created successfully via master key.",
+		},
+	},
+});
+
+v1Master.openapi(createCustomModel, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { providerKeyId, ...fields } = c.req.valid("json");
+
+	const providerKey = await loadCustomProviderKeyForOrg(
+		providerKeyId,
+		masterKey.organizationId,
+	);
+
+	const customModel = await insertCustomModel(
+		providerKey,
+		masterKey.createdBy,
+		fields,
+	);
+
+	return c.json({ customModel }, 201);
+});
+
+const listCustomModels = createRoute({
+	method: "get",
+	path: "/custom-models",
+	request: {
+		query: z.object({
+			providerKeyId: z.string().min(1).optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						customModels: z.array(customModelSchema).openapi({}),
+					}),
+				},
+			},
+			description:
+				"List the custom models in the master key's organization, with their context window, limits and per-token pricing. Optionally filter by providerKeyId.",
+		},
+	},
+});
+
+v1Master.openapi(listCustomModels, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { providerKeyId } = c.req.valid("query");
+
+	if (providerKeyId) {
+		await loadCustomProviderKeyForOrg(providerKeyId, masterKey.organizationId);
+	}
+
+	const customModels = await db.query.customModel.findMany({
+		where: {
+			organizationId: { eq: masterKey.organizationId },
+			status: { ne: "deleted" },
+			...(providerKeyId ? { providerKeyId: { eq: providerKeyId } } : {}),
+		},
+		orderBy: { createdAt: "asc" },
+	});
+
+	return c.json({ customModels });
+});
+
+const getCustomModel = createRoute({
+	method: "get",
+	path: "/custom-models/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ customModel: customModelSchema.openapi({}) }),
+				},
+			},
+			description: "Get a single custom model via master key.",
+		},
+	},
+});
+
+v1Master.openapi(getCustomModel, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.param();
+
+	const customModel = await loadCustomModelForOrg(id, masterKey.organizationId);
+
+	return c.json({ customModel });
+});
+
+const updateCustomModel = createRoute({
+	method: "patch",
+	path: "/custom-models/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: updateCustomModelSchema,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ customModel: customModelSchema.openapi({}) }),
+				},
+			},
+			description: "Custom model updated successfully via master key.",
+		},
+	},
+});
+
+v1Master.openapi(updateCustomModel, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.param();
+	const fields = c.req.valid("json");
+
+	const existing = await loadCustomModelForOrg(id, masterKey.organizationId);
+
+	const customModel = await applyCustomModelUpdate(
+		existing,
+		masterKey.createdBy,
+		fields,
+	);
+
+	return c.json({ customModel });
+});
+
+const deleteCustomModel = createRoute({
+	method: "delete",
+	path: "/custom-models/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "Custom model deleted successfully via master key.",
+		},
+	},
+});
+
+v1Master.openapi(deleteCustomModel, async (c) => {
+	const masterKey = c.get("masterKey");
+	if (!masterKey) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.param();
+
+	const existing = await loadCustomModelForOrg(id, masterKey.organizationId);
+
+	await softDeleteCustomModel(existing, masterKey.createdBy);
+
+	return c.json({ message: "Custom model deleted successfully" });
 });
 
 export default v1Master;

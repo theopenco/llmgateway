@@ -115,6 +115,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	deepseek: "https://api.deepseek.com",
 	perplexity: "https://api.perplexity.ai",
 	novita: "https://api.novita.ai/v3/openai",
+	runware: "https://api.runware.ai",
 	moonshot: "https://api.moonshot.ai",
 	meta: "https://api.meta.ai",
 	nebius: "https://api.tokenfactory.nebius.com",
@@ -129,6 +130,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	embercloud: "https://api.embercloud.ai",
 	deepinfra: "https://api.deepinfra.com/v1/openai",
 	gonka24: "https://api.gonka24.com",
+	fireworks: "https://api.fireworks.ai/inference",
 };
 
 export function getProviderDefaultBaseUrl(
@@ -208,11 +210,9 @@ export function getProviderEndpoint(
 	let regionBaseUrl: string | undefined;
 	if (region) {
 		const providerDef = providers.find((p) => p.id === provider) as
-			| ProviderDefinition
-			| undefined;
+			ProviderDefinition | undefined;
 		const endpointMap = providerDef?.regionConfig?.endpointMap as
-			| Record<string, string>
-			| undefined;
+			Record<string, string> | undefined;
 		regionBaseUrl = endpointMap?.[region];
 	}
 
@@ -620,8 +620,7 @@ export function getProviderEndpoint(
 			const awsRegionPrefix = region
 				? (
 						providers.find((p) => p.id === "aws-bedrock") as
-							| ProviderDefinition
-							| undefined
+							ProviderDefinition | undefined
 					)?.regionConfig?.modelPrefixMap?.[region]
 				: undefined;
 			// envValueOrDefault honors skipEnvVars (BYOK), so the server's

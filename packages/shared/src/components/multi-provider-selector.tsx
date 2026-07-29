@@ -16,23 +16,19 @@ import {
 } from "./ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 
-import type { ProviderDefinition } from "@llmgateway/models";
-
-interface ApiProvider {
+/**
+ * Minimal structural shape a selectable provider entry must have. Catalogue
+ * `ProviderDefinition`s, DB-backed API provider rows, and synthetic entries
+ * (e.g. an org's custom providers as `custom:<name>` refs) all satisfy it.
+ */
+export interface SelectableProviderOption {
 	id: string;
-	createdAt: string;
 	name: string | null;
-	description: string | null;
-	streaming: boolean | null;
-	cancellation: boolean | null;
-	color: string | null;
-	website: string | null;
-	announcement: string | null;
-	status: "active" | "inactive";
+	color?: string | null;
 }
 
 interface MultiProviderSelectorProps {
-	providers: readonly ProviderDefinition[] | ApiProvider[];
+	providers: readonly SelectableProviderOption[];
 	selectedProviders: string[];
 	onProvidersChange: (providers: string[]) => void;
 	placeholder?: string;

@@ -143,11 +143,13 @@ export function getProviderHeaders(
 		case "meta":
 		case "alibaba":
 		case "nebius":
+		case "fireworks":
 		case "zai":
 		case "canopywave":
 		case "embercloud":
 		case "deepinfra":
 		case "custom":
+		case "runware":
 		default:
 			return {
 				...requestIdHeader,
