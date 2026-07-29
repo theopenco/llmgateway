@@ -37,6 +37,7 @@ import {
 	isKnownModelValue,
 	resolveSelectedMapping,
 } from "@/lib/realtime-model-value";
+import { cn } from "@/lib/utils";
 
 import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 import type { Organization, Project } from "@/lib/types";
@@ -366,6 +367,8 @@ export default function RealtimePageClient({
 	}, [posthog, selectedModel, start, voice]);
 
 	const hasBillingContext = !!selectedOrganization && !!selectedProject;
+	const isIdleEmptyState =
+		!inCall && !isViewingHistory && displayedTurns.length === 0;
 
 	return (
 		<SidebarProvider>
@@ -442,7 +445,12 @@ export default function RealtimePageClient({
 						</div>
 					</header>
 
-					<div className="flex flex-1 flex-col overflow-y-auto">
+					<div
+						className={cn(
+							"flex flex-1 flex-col overflow-y-auto",
+							isIdleEmptyState && "justify-center",
+						)}
+					>
 						{!hasBillingContext && isAuthenticated ? (
 							<div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
 								<Phone className="text-muted-foreground/50 h-12 w-12" />
@@ -470,7 +478,12 @@ export default function RealtimePageClient({
 							</div>
 						) : (
 							<>
-								<div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-3 p-4">
+								<div
+									className={cn(
+										"mx-auto flex w-full max-w-3xl flex-col gap-3 p-4",
+										!isIdleEmptyState && "flex-1",
+									)}
+								>
 									{isViewingHistory && viewedCall && (
 										<div className="bg-muted/40 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-4 py-2.5 text-xs">
 											<span className="text-sm font-medium">
@@ -497,7 +510,12 @@ export default function RealtimePageClient({
 										</div>
 									)}
 									{displayedTurns.length === 0 ? (
-										<div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+										<div
+											className={cn(
+												"flex flex-col items-center justify-center gap-3 text-center",
+												!isIdleEmptyState && "flex-1",
+											)}
+										>
 											<Phone className="text-muted-foreground/50 h-12 w-12" />
 											<p className="text-muted-foreground text-sm">
 												{isViewedCallLoading
@@ -530,7 +548,7 @@ export default function RealtimePageClient({
 									)}
 								</div>
 
-								<div className="border-t">
+								<div className={cn(!isIdleEmptyState && "border-t")}>
 									{status === "live" && (
 										<div className="mx-auto flex w-full max-w-3xl items-center justify-center pt-5">
 											<VoiceActivityIndicator

@@ -1356,6 +1356,191 @@ describe("validateRequestModelAccess — member + key composition", () => {
 });
 
 // ===========================
+// Custom provider matching (custom:<name> refs, <name>/<model> refs)
+// ===========================
+
+/** The synthetic model definition chat.ts builds for custom-provider requests. */
+const customProviderModel: ModelDefinition = {
+	id: "my-model",
+	family: "custom",
+	providers: [
+		{
+			providerId: "custom",
+			externalId: "my-model",
+			streaming: true,
+			inputPrice: "0",
+			outputPrice: "0",
+		},
+	],
+};
+
+describe("validateRequestModelAccess — custom provider refs", () => {
+	beforeEach(() => {
+		vi.mocked(mockCachedQueries.findActiveUserIamRules).mockResolvedValue([]);
+	});
+
+	it("deny_providers with custom:<name> blocks only that custom provider", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "deny_providers",
+				ruleValue: { providers: ["custom:acme"] },
+			}),
+		]);
+
+		const denied = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			requestedModel: customProviderModel.id,
+			requestedProvider: "custom",
+			customProviderName: "acme",
+			activeModelInfo: customProviderModel,
+		});
+		expect(denied.allowed).toBe(false);
+		expect(denied.reason).toContain("denied providers list");
+
+		const allowed = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			requestedModel: customProviderModel.id,
+			requestedProvider: "custom",
+			customProviderName: "other",
+			activeModelInfo: customProviderModel,
+		});
+		expect(allowed.allowed).toBe(true);
+	});
+
+	it("allow_providers with custom:<name> admits only that custom provider", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "allow_providers",
+				ruleValue: { providers: ["custom:acme"] },
+			}),
+		]);
+
+		const allowed = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			requestedModel: customProviderModel.id,
+			requestedProvider: "custom",
+			customProviderName: "acme",
+			activeModelInfo: customProviderModel,
+		});
+		expect(allowed.allowed).toBe(true);
+		expect(allowed.allowedProviders).toEqual(["custom"]);
+
+		const denied = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			requestedModel: customProviderModel.id,
+			requestedProvider: "custom",
+			customProviderName: "other",
+			activeModelInfo: customProviderModel,
+		});
+		expect(denied.allowed).toBe(false);
+	});
+
+	it("the plain custom entry still matches every custom provider", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "allow_providers",
+				ruleValue: { providers: ["custom"] },
+			}),
+		]);
+
+		const result = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			requestedModel: customProviderModel.id,
+			requestedProvider: "custom",
+			customProviderName: "acme",
+			activeModelInfo: customProviderModel,
+		});
+		expect(result.allowed).toBe(true);
+	});
+
+	it("model rules match the <name>/<model> ref for custom providers", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "deny_models",
+				ruleValue: { models: ["acme/my-model"] },
+			}),
+		]);
+
+		const denied = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			requestedModel: customProviderModel.id,
+			requestedProvider: "custom",
+			customProviderName: "acme",
+			activeModelInfo: customProviderModel,
+		});
+		expect(denied.allowed).toBe(false);
+
+		const allowed = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			requestedModel: customProviderModel.id,
+			requestedProvider: "custom",
+			customProviderName: "other",
+			activeModelInfo: customProviderModel,
+		});
+		expect(allowed.allowed).toBe(true);
+	});
+
+	it("allow_models with a <name>/<model> ref admits that custom model", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "allow_models",
+				ruleValue: { models: ["acme/my-model"] },
+			}),
+		]);
+
+		const allowed = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			requestedModel: customProviderModel.id,
+			requestedProvider: "custom",
+			customProviderName: "acme",
+			activeModelInfo: customProviderModel,
+		});
+		expect(allowed.allowed).toBe(true);
+
+		const denied = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			requestedModel: customProviderModel.id,
+			requestedProvider: "custom",
+			customProviderName: "other",
+			activeModelInfo: customProviderModel,
+		});
+		expect(denied.allowed).toBe(false);
+	});
+
+	it("member-level custom:<name> ceilings bind API keys", async () => {
+		vi.mocked(mockCachedQueries.findActiveUserIamRules).mockResolvedValue([
+			makeMemberRule({
+				ruleType: "deny_providers",
+				ruleValue: { providers: ["custom:acme"] },
+			}),
+		]);
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([]);
+
+		const result = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			requestedModel: customProviderModel.id,
+			requestedProvider: "custom",
+			customProviderName: "acme",
+			activeModelInfo: customProviderModel,
+		});
+		expect(result.allowed).toBe(false);
+		expect(result.reason).toContain(
+			"organization member IAM rule set by your org admin",
+		);
+	});
+});
+
+// ===========================
 // throwIamException
 // ===========================
 

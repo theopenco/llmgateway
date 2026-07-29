@@ -1721,7 +1721,6 @@ const getStatus = createRoute({
 						projectId: z.string().nullable(),
 						apiKey: z.string().nullable(),
 						devPlanServiceTier: z.enum(["default", "flex"]),
-						retentionLevel: z.enum(["retain", "none"]),
 						defaultRoutingStrategy: z.enum([
 							"auto",
 							"price",
@@ -1782,7 +1781,6 @@ devPlans.openapi(getStatus, async (c) => {
 			projectId: null,
 			apiKey: null,
 			devPlanServiceTier: "default" as const,
-			retentionLevel: "none" as const,
 			defaultRoutingStrategy: "auto" as const,
 		});
 	}
@@ -1882,7 +1880,6 @@ devPlans.openapi(getStatus, async (c) => {
 		projectId,
 		apiKey,
 		devPlanServiceTier: personalOrg.devPlanServiceTier,
-		retentionLevel: personalOrg.retentionLevel,
 		defaultRoutingStrategy,
 	});
 });
@@ -1900,7 +1897,6 @@ const updateSettings = createRoute({
 						// plan credits by using cheaper flex processing where the
 						// selected provider supports it.
 						devPlanServiceTier: z.enum(["default", "flex"]).optional(),
-						retentionLevel: z.enum(["retain", "none"]).optional(),
 						// Coding plans optimize for prompt caching, so only the
 						// default weighted routing or the price strategy are allowed.
 						defaultRoutingStrategy: z.enum(["auto", "price"]).optional(),
@@ -1916,7 +1912,6 @@ const updateSettings = createRoute({
 					schema: z.object({
 						success: z.boolean(),
 						devPlanServiceTier: z.enum(["default", "flex"]),
-						retentionLevel: z.enum(["retain", "none"]),
 						defaultRoutingStrategy: z.enum([
 							"auto",
 							"price",
@@ -1933,8 +1928,7 @@ const updateSettings = createRoute({
 
 devPlans.openapi(updateSettings, async (c) => {
 	const user = c.get("user");
-	const { devPlanServiceTier, retentionLevel, defaultRoutingStrategy } =
-		c.req.valid("json");
+	const { devPlanServiceTier, defaultRoutingStrategy } = c.req.valid("json");
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -1970,14 +1964,10 @@ devPlans.openapi(updateSettings, async (c) => {
 
 	const updateData: {
 		devPlanServiceTier?: "default" | "flex";
-		retentionLevel?: "retain" | "none";
 	} = {};
 
 	if (devPlanServiceTier !== undefined) {
 		updateData.devPlanServiceTier = devPlanServiceTier;
-	}
-	if (retentionLevel !== undefined) {
-		updateData.retentionLevel = retentionLevel;
 	}
 
 	const changes: Record<string, { old: unknown; new: unknown }> = {};
@@ -1995,15 +1985,6 @@ devPlans.openapi(updateSettings, async (c) => {
 			changes.devPlanServiceTier = {
 				old: personalOrg.devPlanServiceTier,
 				new: devPlanServiceTier,
-			};
-		}
-		if (
-			retentionLevel !== undefined &&
-			retentionLevel !== personalOrg.retentionLevel
-		) {
-			changes.retentionLevel = {
-				old: personalOrg.retentionLevel,
-				new: retentionLevel,
 			};
 		}
 	}
@@ -2055,7 +2036,6 @@ devPlans.openapi(updateSettings, async (c) => {
 	return c.json({
 		success: true,
 		devPlanServiceTier: devPlanServiceTier ?? personalOrg.devPlanServiceTier,
-		retentionLevel: retentionLevel ?? personalOrg.retentionLevel,
 		defaultRoutingStrategy: effectiveRoutingStrategy,
 	});
 });

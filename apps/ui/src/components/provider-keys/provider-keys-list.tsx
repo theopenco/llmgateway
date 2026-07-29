@@ -36,27 +36,14 @@ import { isStealthProvider, providers } from "@llmgateway/models";
 import { getProviderIcon } from "@llmgateway/shared/components";
 
 import { CreateProviderKeyDialog } from "./create-provider-key-dialog";
+import { RenameProviderKeyDialog } from "./rename-provider-key-dialog";
 
+import type { paths } from "@/lib/api/v1";
 import type { Organization } from "@/lib/types";
-import type { ProviderKeyOptions } from "@llmgateway/db";
 
 interface ProviderKeysListProps {
 	selectedOrganization: Organization | null;
-	initialData?: {
-		providerKeys: {
-			id: string;
-			createdAt: string;
-			updatedAt: string;
-			provider: string;
-			name: string | null;
-			baseUrl: string | null;
-			options: ProviderKeyOptions | null;
-			status: "active" | "inactive" | "deleted" | null;
-			customModelsOnly: boolean;
-			organizationId: string;
-			maskedToken: string;
-		}[];
-	};
+	initialData?: paths["/keys/provider"]["get"]["responses"][200]["content"]["application/json"];
 }
 
 function formatOptionLabel(key: string, value: string): string {
@@ -310,6 +297,19 @@ export function ProviderKeysList({
 																	{providerKey.name}
 																</Badge>
 															)}
+															{provider.id === "custom" &&
+																(providerKey.complianceAttestation ? (
+																	<Badge
+																		variant="secondary"
+																		className="text-xs"
+																	>
+																		Attested
+																	</Badge>
+																) : (
+																	<Badge variant="outline" className="text-xs">
+																		Not attested
+																	</Badge>
+																))}
 															<span className="max-w-[200px] truncate font-mono text-xs text-muted-foreground">
 																{providerKey.maskedToken}
 															</span>
@@ -350,15 +350,27 @@ export function ProviderKeysList({
 															<DropdownMenuContent align="end">
 																<DropdownMenuLabel>Actions</DropdownMenuLabel>
 																{provider.id === "custom" && (
-																	<DropdownMenuItem asChild>
-																		<Link
-																			href={
-																				`${buildOrgUrl("org/custom-models")}?providerKey=${providerKey.id}` as never
-																			}
+																	<>
+																		<RenameProviderKeyDialog
+																			providerKeyId={providerKey.id}
+																			currentName={providerKey.name}
 																		>
-																			Manage models
-																		</Link>
-																	</DropdownMenuItem>
+																			<DropdownMenuItem
+																				onSelect={(e) => e.preventDefault()}
+																			>
+																				Rename
+																			</DropdownMenuItem>
+																		</RenameProviderKeyDialog>
+																		<DropdownMenuItem asChild>
+																			<Link
+																				href={
+																					`${buildOrgUrl("org/custom-models")}?providerKey=${providerKey.id}` as never
+																				}
+																			>
+																				Manage models
+																			</Link>
+																		</DropdownMenuItem>
+																	</>
 																)}
 																<DropdownMenuItem
 																	onClick={() =>

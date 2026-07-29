@@ -116,8 +116,6 @@ export default async function ModelPage({ params }: PageProps) {
 			discount: globalDiscount,
 		};
 	});
-	const currentModelDiscount = getBestDiscount(allDiscounts, decodedName);
-
 	// Aggregated metrics (pricing, context, capabilities) describe what can
 	// actually be routed today, so deactivated providers are excluded. Models
 	// whose providers are all deactivated fall back to showing everything.
@@ -126,6 +124,16 @@ export default async function ModelPage({ params }: PageProps) {
 	);
 	const visibleProviders =
 		activeProviders.length > 0 ? activeProviders : modelProviders;
+
+	const currentModelDiscount = getBestDiscount(
+		allDiscounts,
+		decodedName,
+		Array.from(new Set(activeProviders.map((p) => p.providerId))),
+	);
+	const currentModelDiscountProvider = currentModelDiscount?.provider
+		? (providerDefinitions.find((p) => p.id === currentModelDiscount.provider)
+				?.name ?? currentModelDiscount.provider)
+		: null;
 
 	const adaptedModel = adaptModel(modelDef, modelProviders);
 
@@ -550,7 +558,10 @@ export default async function ModelPage({ params }: PageProps) {
 
 					{currentModelDiscount && (
 						<div className="mb-6">
-							<GlobalDiscountBanner discount={currentModelDiscount} />
+							<GlobalDiscountBanner
+								discount={currentModelDiscount}
+								providerName={currentModelDiscountProvider}
+							/>
 						</div>
 					)}
 

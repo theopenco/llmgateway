@@ -10,6 +10,14 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 [Cline](https://cline.bot) is an autonomous AI coding assistant that lives in your VS Code editor. It can create and edit files, run terminal commands, and help you build complex projects. You can configure Cline to use LLM Gateway for access to multiple AI providers with unified billing and cost tracking.
 
+<Callout type="info">
+	**Using DevPass?** This integration also works with a
+	[DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without
+	a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) —
+	provider-pinned routing is not available on coding plans; the gateway picks
+	the provider for you.
+</Callout>
+
 ## Prerequisites
 
 - VS Code based IDE installed

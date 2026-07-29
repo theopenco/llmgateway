@@ -375,6 +375,116 @@ describe("e2e", getConcurrentTestOptions(), () => {
 					finalText.includes("72") ||
 					finalText.includes("weather"),
 			).toBe(true);
+
+			// The stored first response is retrievable by id (state lives in the
+			// dedicated responses storage, independent of data retention).
+			const getRes = await app.request(`/v1/responses/${firstJson.id}`, {
+				headers: { Authorization: `Bearer real-token` },
+			});
+			expect(getRes.status).toBe(200);
+			const storedJson = await getRes.json();
+			expect(storedJson.id).toBe(firstJson.id);
+			const storedFnCall = getFunctionCall(storedJson);
+			expect(storedFnCall?.name).toBe("get_weather");
+			expect(storedFnCall?.call_id).toBe(fnCall?.call_id);
+		},
+	);
+
+	// Stateless variant of the tool-call round trip: no previous_response_id —
+	// the client replays the full history itself (user message + the returned
+	// function_call item + the tool result), exactly how Codex-style clients
+	// drive the Responses API. Nothing is stored, so the replayed function_call
+	// item must convert back into an assistant tool_calls message ahead of the
+	// tool result or strict providers reject the orphaned tool message.
+	test.each(responsesToolCallModels)(
+		"responses tool calls stateless $model",
+		getTestOptions(),
+		async ({ model }) => {
+			const tools = [
+				{
+					type: "function",
+					name: "get_weather",
+					description: "Get the current weather for a given city",
+					parameters: {
+						type: "object",
+						properties: {
+							city: {
+								type: "string",
+								description: "The city name to get weather for",
+							},
+						},
+						required: ["city"],
+					},
+				},
+			];
+			const firstInput = [
+				{
+					role: "user",
+					content: "What's the weather like in San Francisco?",
+				},
+			];
+
+			const firstRequestId = generateTestRequestId();
+			const firstRes = await postResponses(
+				{
+					model,
+					store: false,
+					input: firstInput,
+					tools,
+					tool_choice: "required",
+				},
+				firstRequestId,
+			);
+			const firstJson = await firstRes.json();
+			if (logMode) {
+				console.log(
+					"responses tool calls stateless first:",
+					JSON.stringify(firstJson, null, 2),
+				);
+			}
+
+			expect(firstRes.status).toBe(200);
+			const fnCall = getFunctionCall(firstJson);
+			expect(fnCall).toBeDefined();
+			expect(fnCall?.name).toBe("get_weather");
+			expect(typeof fnCall?.call_id).toBe("string");
+			const parsedArgs = JSON.parse(fnCall?.arguments ?? "{}");
+			expect(parsedArgs.city.toLowerCase()).toContain("san francisco");
+
+			const secondRequestId = generateTestRequestId();
+			const secondRes = await postResponses(
+				{
+					model,
+					store: false,
+					input: [
+						...firstInput,
+						...firstJson.output,
+						{
+							type: "function_call_output",
+							call_id: fnCall?.call_id,
+							output: "72F and sunny",
+						},
+					],
+					tools,
+				},
+				secondRequestId,
+			);
+			const secondJson = await secondRes.json();
+			if (logMode) {
+				console.log(
+					"responses tool calls stateless second:",
+					JSON.stringify(secondJson, null, 2),
+				);
+			}
+
+			expect(secondRes.status).toBe(200);
+			const finalText = getOutputText(secondJson).toLowerCase();
+			expect(finalText.length).toBeGreaterThan(0);
+			expect(
+				finalText.includes("sunny") ||
+					finalText.includes("72") ||
+					finalText.includes("weather"),
+			).toBe(true);
 		},
 	);
 });

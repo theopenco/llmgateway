@@ -8,6 +8,8 @@ import { anyCidrMatches } from "@/lib/client-ip.js";
 import { validateEndUserSessionModelAccess } from "@/lib/end-user-session.js";
 
 import {
+	customModelRef,
+	customProviderRef,
 	models,
 	type ModelDefinition,
 	type ProviderId,
@@ -54,6 +56,37 @@ const scopeDenialSuffix = {
 
 type IamRuleScope = keyof typeof scopeDenialSuffix;
 
+// Whether a rule's provider entry matches a provider id. Custom providers all
+// share the provider id "custom", so rules can address one of them
+// individually with a `custom:<name>` entry; the plain "custom" entry keeps
+// matching every custom provider.
+function providerEntryMatches(
+	entry: string,
+	providerId: string,
+	customProviderName: string | undefined,
+): boolean {
+	if (entry === providerId) {
+		return true;
+	}
+	return (
+		providerId === "custom" &&
+		customProviderName !== undefined &&
+		entry === customProviderRef(customProviderName)
+	);
+}
+
+// Every ref a model answers to in model rules. Custom-provider models are not
+// in the catalogue, so rules address them as `<customProvider>/<model>`; the
+// bare upstream model name also matches for symmetry with catalogue models.
+function modelRuleRefs(
+	modelDef: ModelDefinition,
+	customProviderName: string | undefined,
+): string[] {
+	return customProviderName
+		? [modelDef.id, customModelRef(customProviderName, modelDef.id)]
+		: [modelDef.id];
+}
+
 // Evaluate one scope's rule set (member-level or key-level). Allow rules of
 // the same type are unioned within the scope; deny rules always apply. The
 // caller chains scopes by seeding `initialAllowedProviders` with the previous
@@ -67,6 +100,7 @@ async function evaluateIamRuleSet(
 	initialAllowedProviders: Set<ProviderId>,
 	clientIp: string | undefined,
 	scope: IamRuleScope,
+	customProviderName?: string,
 ): Promise<IamValidationResult> {
 	if (iamRules.length === 0) {
 		return {
@@ -109,6 +143,7 @@ async function evaluateIamRuleSet(
 				requestedProvider,
 				allowedProviders,
 				clientIp,
+				customProviderName,
 			);
 			if (result.allowed) {
 				groupAllowed = true;
@@ -143,6 +178,7 @@ async function evaluateIamRuleSet(
 			requestedProvider,
 			allowedProviders,
 			clientIp,
+			customProviderName,
 		);
 		if (!result.allowed) {
 			return {
@@ -202,6 +238,10 @@ export async function validateRequestModelAccess(params: {
 	organizationId: string;
 	requestedModel: string;
 	requestedProvider?: string;
+	// Routing-prefix name of the custom provider handling the request, when
+	// requestedProvider is "custom". Lets rules match `custom:<name>` provider
+	// entries and `<name>/<model>` model entries for that one custom provider.
+	customProviderName?: string;
 	activeModelInfo?: ModelDefinition;
 	clientIp?: string;
 	autoRouting?: boolean;
@@ -216,6 +256,7 @@ export async function validateRequestModelAccess(params: {
 		organizationId,
 		requestedModel,
 		requestedProvider,
+		customProviderName,
 		activeModelInfo,
 		clientIp,
 		autoRouting,
@@ -271,6 +312,7 @@ export async function validateRequestModelAccess(params: {
 		new Set(modelDef.providers.map((p) => p.providerId)),
 		clientIp,
 		"member",
+		customProviderName,
 	);
 	if (!memberResult.allowed) {
 		return memberResult;
@@ -284,6 +326,7 @@ export async function validateRequestModelAccess(params: {
 		new Set(memberResult.allowedProviders),
 		clientIp,
 		"key",
+		customProviderName,
 	);
 }
 
@@ -321,12 +364,18 @@ async function evaluateRule(
 	requestedProvider: string | undefined,
 	currentAllowedProviders: Set<ProviderId>,
 	clientIp: string | undefined,
+	customProviderName: string | undefined,
 ): Promise<RuleEvaluationResult> {
 	const { ruleType, ruleValue } = rule;
 
 	switch (ruleType) {
 		case "allow_models":
-			if (ruleValue.models && !ruleValue.models.includes(modelDef.id)) {
+			if (
+				ruleValue.models &&
+				!modelRuleRefs(modelDef, customProviderName).some((ref) =>
+					ruleValue.models!.includes(ref),
+				)
+			) {
 				return {
 					allowed: false,
 					reason: `Model ${modelDef.id} is not in the allowed models list`,
@@ -335,7 +384,12 @@ async function evaluateRule(
 			break;
 
 		case "deny_models":
-			if (ruleValue.models && ruleValue.models.includes(modelDef.id)) {
+			if (
+				ruleValue.models &&
+				modelRuleRefs(modelDef, customProviderName).some((ref) =>
+					ruleValue.models!.includes(ref),
+				)
+			) {
 				return {
 					allowed: false,
 					reason: `Model ${modelDef.id} is in the denied models list`,
@@ -345,16 +399,29 @@ async function evaluateRule(
 
 		case "allow_providers":
 			if (ruleValue.providers) {
+				const allowEntries = ruleValue.providers;
 				const newAllowedProviders = new Set<ProviderId>();
 				for (const provider of currentAllowedProviders) {
-					if (ruleValue.providers.includes(provider)) {
+					if (
+						allowEntries.some((entry) =>
+							providerEntryMatches(entry, provider, customProviderName),
+						)
+					) {
 						newAllowedProviders.add(provider);
 					}
 				}
 
 				if (requestedProvider) {
 					// Specific provider requested - check if it's allowed
-					if (!ruleValue.providers.includes(requestedProvider)) {
+					if (
+						!allowEntries.some((entry) =>
+							providerEntryMatches(
+								entry,
+								requestedProvider,
+								customProviderName,
+							),
+						)
+					) {
 						return {
 							allowed: false,
 							reason: `Provider ${requestedProvider} is not in the allowed providers list`,
@@ -375,16 +442,29 @@ async function evaluateRule(
 
 		case "deny_providers":
 			if (ruleValue.providers) {
+				const denyEntries = ruleValue.providers;
 				const newAllowedProviders = new Set<ProviderId>();
 				for (const provider of currentAllowedProviders) {
-					if (!ruleValue.providers.includes(provider)) {
+					if (
+						!denyEntries.some((entry) =>
+							providerEntryMatches(entry, provider, customProviderName),
+						)
+					) {
 						newAllowedProviders.add(provider);
 					}
 				}
 
 				if (requestedProvider) {
 					// Specific provider requested - check if it's denied
-					if (ruleValue.providers.includes(requestedProvider)) {
+					if (
+						denyEntries.some((entry) =>
+							providerEntryMatches(
+								entry,
+								requestedProvider,
+								customProviderName,
+							),
+						)
+					) {
 						return {
 							allowed: false,
 							reason: `Provider ${requestedProvider} is in the denied providers list`,

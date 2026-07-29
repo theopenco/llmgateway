@@ -86,6 +86,7 @@ export const googleModels = [
 				supportsN: true,
 				supportsNStreaming: false,
 				maxN: 8,
+				deactivatedAt: new Date("2026-10-16"),
 			},
 			{
 				providerId: "google-vertex",
@@ -127,6 +128,7 @@ export const googleModels = [
 				supportsN: true,
 				supportsNStreaming: false,
 				maxN: 8,
+				deactivatedAt: new Date("2026-10-16"),
 			},
 		],
 	},
@@ -456,6 +458,7 @@ export const googleModels = [
 				supportsN: true,
 				supportsNStreaming: false,
 				maxN: 8,
+				deactivatedAt: new Date("2026-10-16"),
 			},
 			{
 				providerId: "google-vertex",
@@ -483,6 +486,7 @@ export const googleModels = [
 				supportsN: true,
 				supportsNStreaming: false,
 				maxN: 8,
+				deactivatedAt: new Date("2026-10-16"),
 			},
 		],
 	},
@@ -516,6 +520,7 @@ export const googleModels = [
 				supportsN: true,
 				supportsNStreaming: false,
 				maxN: 8,
+				deactivatedAt: new Date("2026-10-16"),
 			},
 			{
 				providerId: "google-vertex",
@@ -539,6 +544,7 @@ export const googleModels = [
 				supportsN: true,
 				supportsNStreaming: false,
 				maxN: 8,
+				deactivatedAt: new Date("2026-10-16"),
 			},
 		],
 	},
@@ -2272,6 +2278,9 @@ export const googleModels = [
 				// parameter: 'jsonSchema'") and its json_schema path hangs until the
 				// upstream inference timeout, so no structured-output mode is offered.
 				jsonOutput: false,
+				// Runware 400s ("a conversation cannot end on an assistant turn") when
+				// the last message is an assistant turn (verified 2026-07-28).
+				supportsAssistantPrefill: false,
 			},
 			{
 				providerId: "novita",

@@ -12,6 +12,10 @@ data:
   API_BACKEND_URL: {{ include "llmgateway.serviceUrl" (dict "context" . "name" "api") | quote }}
   REDIS_HOST: {{ include "llmgateway.redis.host" . | quote }}
   REDIS_PORT: {{ include "llmgateway.redis.port" . | quote }}
+  {{- if or .Values.storageRedis.enabled .Values.externalStorageRedis.host }}
+  STORAGE_REDIS_HOST: {{ include "llmgateway.storageRedis.host" . | quote }}
+  STORAGE_REDIS_PORT: {{ include "llmgateway.storageRedis.port" . | quote }}
+  {{- end }}
 
   # Public-facing URLs
   {{- if .Values.urls.ui }}

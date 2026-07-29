@@ -49,6 +49,35 @@ describe("Models API", () => {
 		expect(firstModel).toHaveProperty("structured_outputs");
 	});
 
+	// Claude Code populates its /model picker from GET /v1/models?limit=1000 when
+	// CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1. It reads `id` and the optional
+	// `display_name` off each `data` entry and drops ids that don't start with
+	// "claude"/"anthropic", so our Claude models must keep carrying a label.
+	test("GET /v1/models serves the Claude Code gateway discovery contract", async () => {
+		const res = await app.request("/v1/models?limit=1000");
+		expect(res.status).toBe(200);
+
+		const json = await res.json();
+		expect(Array.isArray(json.data)).toBe(true);
+
+		for (const model of json.data) {
+			expect(typeof model.id).toBe("string");
+			expect(typeof model.display_name).toBe("string");
+			expect(model.display_name.length).toBeGreaterThan(0);
+		}
+
+		const discoverable = json.data.filter(
+			(m: { id: string }) =>
+				m.id.startsWith("claude") || m.id.startsWith("anthropic"),
+		);
+		expect(discoverable.length).toBeGreaterThan(0);
+
+		const sonnet = discoverable.find(
+			(m: { id: string }) => m.id === "claude-sonnet-5",
+		);
+		expect(sonnet?.display_name).toBe("Claude Sonnet 5");
+	});
+
 	test("GET /v1/models exposes min_cacheable_tokens on provider mappings that define it", async () => {
 		const res = await app.request("/v1/models");
 		expect(res.status).toBe(200);

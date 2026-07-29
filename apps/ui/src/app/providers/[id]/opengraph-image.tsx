@@ -6,6 +6,7 @@ import {
 } from "@llmgateway/models";
 import {
 	AWSBedrockIconStatic,
+	FireworksIconStatic,
 	getProviderIcon,
 	GoogleStudioAIIconStatic,
 	MinimaxIconStatic,
@@ -62,7 +63,9 @@ export default async function ProviderOgImage({ params }: ImageProps) {
 						? GoogleStudioAIIconStatic
 						: provider.id === "xai"
 							? XAIIconStatic
-							: getProviderIcon(provider.id);
+							: provider.id === "fireworks"
+								? FireworksIconStatic
+								: getProviderIcon(provider.id);
 
 		// Count how many models this provider offers
 		const supportedModels = modelDefinitions.filter((model) =>

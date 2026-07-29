@@ -97,4 +97,23 @@ describe("gateProviderStats", () => {
 			throughput: null,
 		});
 	});
+
+	// A provider can clear the streamed-sample bar while still being low-traffic
+	// overall; every stat stays hidden so surfaces show one consistent
+	// "stats hidden until N requests" state instead of a lone TTFT.
+	it("hides TTFT below the request threshold despite enough samples", () => {
+		const gated = gateProviderStats({
+			logsCount: MIN_TTFT_SAMPLES_FOR_STATS + 50,
+			uptime: 100,
+			avgTimeToFirstToken: 114820,
+			timeToFirstTokenCount: MIN_TTFT_SAMPLES_FOR_STATS + 50,
+			throughput: 12,
+		});
+		expect(gated).toEqual({
+			logsCount: MIN_TTFT_SAMPLES_FOR_STATS + 50,
+			uptime: null,
+			avgTimeToFirstToken: null,
+			throughput: null,
+		});
+	});
 });

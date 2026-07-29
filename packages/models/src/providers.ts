@@ -114,6 +114,33 @@ export interface ProviderCompliancePolicy {
 	 * whenever this list is non-empty (fail-closed).
 	 */
 	allowedCountries?: string[];
+	/**
+	 * Deny list of individual providers. Entries are catalogue provider ids
+	 * (e.g. "openai") or `custom:<name>` refs (see {@link customProviderRef})
+	 * for the org's own custom providers. A listed provider is always blocked,
+	 * even when it satisfies every other requirement, and regardless of any
+	 * user-, member-, or API-key-level rule that would allow it.
+	 */
+	blockedProviders?: string[];
+	/**
+	 * Fine-grained provider allow list. When non-empty, only listed providers
+	 * (same ref format as {@link ProviderCompliancePolicy.blockedProviders})
+	 * may be routed to — and they must still satisfy every other requirement.
+	 * Empty/omitted applies no allow-list restriction.
+	 */
+	allowedProviders?: string[];
+	/**
+	 * Deny list of individual models. Entries are catalogue model ids (e.g.
+	 * "gpt-5.2") or `<customProvider>/<model>` refs for models served through
+	 * an org custom provider. A listed model is always blocked.
+	 */
+	blockedModels?: string[];
+	/**
+	 * Fine-grained model allow list. When non-empty, only listed models (same
+	 * ref format as {@link ProviderCompliancePolicy.blockedModels}) may be
+	 * requested. Empty/omitted applies no allow-list restriction.
+	 */
+	allowedModels?: string[];
 }
 
 export interface ProviderDefinition {
@@ -1182,7 +1209,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: 1,
+			soc2: 2,
 			iso27001: false,
 			gdpr: false,
 		},
@@ -1652,6 +1679,38 @@ export const providers: ProviderDefinition[] = [
 		headquarters: null,
 		dataPolicy: null,
 	},
+	{
+		id: "fireworks",
+		name: "Fireworks AI",
+		description:
+			"Fireworks AI serves open-weight models on a fast, OpenAI-compatible inference platform.",
+		env: {
+			required: {
+				apiKey: "LLM_FIREWORKS_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_FIREWORKS_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#6720FF",
+		website: "https://fireworks.ai",
+		statusPageUrl: "https://status.fireworks.ai",
+		announcement: null,
+		termsUrl: "https://fireworks.ai/terms-of-service",
+		privacyPolicyUrl: "https://fireworks.ai/privacy-policy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: 2,
+			iso27001: true,
+			gdpr: true,
+		},
+	},
 ] as const satisfies ProviderDefinition[];
 
 export type ProviderId = (typeof providers)[number]["id"];
@@ -1674,20 +1733,33 @@ export function getServiceTier(
 	);
 }
 
+/** Self-attested compliance posture for a deployment outside the catalogue. */
+export interface ProviderComplianceAttestation {
+	soc2?: 1 | 2 | null;
+	iso27001?: boolean | null;
+	gdpr?: boolean | null;
+	apiTraining?: boolean | null;
+	consumerTraining?: boolean | null;
+	promptLogging?: boolean | null;
+	retentionPeriod?: string | null;
+	/** ISO 3166-1 alpha-2 country the deployment is operated from. */
+	headquarters?: string | null;
+}
+
 /**
- * Whether a provider satisfies an organization's compliance policy. Fail-closed:
- * any active requirement that the provider's {@link ProviderDataPolicy} does not
- * explicitly satisfy (including a missing `dataPolicy`) makes the provider
- * non-compliant. A disabled policy treats every provider as compliant.
+ * Core fail-closed compliance predicate shared by catalogue providers and
+ * self-attested custom deployments: any active requirement that the data
+ * policy does not explicitly satisfy (including a missing policy) fails.
+ * A disabled policy treats everything as compliant.
  */
-export function isProviderCompliant(
-	provider: ProviderDefinition,
+export function isDataPolicyCompliant(
+	dataPolicy: ProviderDataPolicy | null | undefined,
+	headquarters: string | null | undefined,
 	policy: ProviderCompliancePolicy,
 ): boolean {
 	if (!policy.enabled) {
 		return true;
 	}
-	const dataPolicy = provider.dataPolicy;
 	if (policy.requireSoc2 && !dataPolicy?.soc2) {
 		return false;
 	}
@@ -1715,12 +1787,133 @@ export function isProviderCompliant(
 	if (
 		policy.allowedCountries &&
 		policy.allowedCountries.length > 0 &&
-		(!provider.headquarters ||
-			!policy.allowedCountries.includes(provider.headquarters))
+		(!headquarters || !policy.allowedCountries.includes(headquarters))
 	) {
 		return false;
 	}
 	return true;
+}
+
+/**
+ * Policy-list ref for one of the org's own custom providers. Custom providers
+ * share the single catalogue id "custom", so restriction lists address them as
+ * `custom:<name>` (the provider key's routing-prefix name) to stay
+ * unambiguous next to catalogue provider ids.
+ */
+export function customProviderRef(customProviderName: string): string {
+	return `custom:${customProviderName}`;
+}
+
+/**
+ * Policy-list ref for a model served by one of the org's custom providers,
+ * addressed as `<name>/<model>` (the custom provider's routing-prefix name
+ * plus the custom-catalog model name).
+ */
+export function customModelRef(
+	customProviderName: string,
+	modelName: string,
+): string {
+	return `${customProviderName}/${modelName}`;
+}
+
+/**
+ * Whether a provider ref passes the policy's fine-grained provider lists.
+ * The deny list always wins; a non-empty allow list blocks every provider
+ * not on it. This is only the list check — certification/data-policy
+ * requirements are evaluated separately.
+ */
+export function isProviderRefAllowedByPolicy(
+	providerRef: string,
+	policy: ProviderCompliancePolicy,
+): boolean {
+	if (!policy.enabled) {
+		return true;
+	}
+	if (policy.blockedProviders?.includes(providerRef)) {
+		return false;
+	}
+	if (
+		policy.allowedProviders &&
+		policy.allowedProviders.length > 0 &&
+		!policy.allowedProviders.includes(providerRef)
+	) {
+		return false;
+	}
+	return true;
+}
+
+/**
+ * Whether a model passes the policy's fine-grained model lists. `modelRefs`
+ * holds every ref the requested model answers to (the catalogue model id, and
+ * for custom providers additionally `<customProvider>/<model>`): the model is
+ * blocked when any ref is on the deny list, and a non-empty allow list must
+ * contain at least one of the refs.
+ */
+export function isModelAllowedByPolicy(
+	modelRefs: readonly string[],
+	policy: ProviderCompliancePolicy,
+): boolean {
+	if (!policy.enabled) {
+		return true;
+	}
+	if (policy.blockedModels?.some((ref) => modelRefs.includes(ref))) {
+		return false;
+	}
+	if (
+		policy.allowedModels &&
+		policy.allowedModels.length > 0 &&
+		!policy.allowedModels.some((ref) => modelRefs.includes(ref))
+	) {
+		return false;
+	}
+	return true;
+}
+
+/**
+ * Whether a provider satisfies an organization's compliance policy. Fail-closed:
+ * any active requirement that the provider's {@link ProviderDataPolicy} does not
+ * explicitly satisfy (including a missing `dataPolicy`) makes the provider
+ * non-compliant, as does an entry on the policy's fine-grained provider lists.
+ * A disabled policy treats every provider as compliant.
+ */
+export function isProviderCompliant(
+	provider: ProviderDefinition,
+	policy: ProviderCompliancePolicy,
+): boolean {
+	return (
+		isProviderRefAllowedByPolicy(provider.id, policy) &&
+		isDataPolicyCompliant(provider.dataPolicy, provider.headquarters, policy)
+	);
+}
+
+/**
+ * Whether a self-attested compliance posture satisfies an organization's
+ * compliance policy. Fail-closed: a missing attestation never satisfies an
+ * enabled policy.
+ */
+export function isAttestationCompliant(
+	attestation: ProviderComplianceAttestation | null | undefined,
+	policy: ProviderCompliancePolicy,
+): boolean {
+	if (!policy.enabled) {
+		return true;
+	}
+	if (!attestation) {
+		return false;
+	}
+	return isDataPolicyCompliant(
+		{
+			apiTraining: attestation.apiTraining ?? null,
+			consumerTraining: attestation.consumerTraining ?? null,
+			promptLogging: attestation.promptLogging ?? null,
+			retentionPeriod: attestation.retentionPeriod ?? null,
+			soc2: attestation.soc2 ?? null,
+			iso27001: attestation.iso27001 ?? null,
+			gdpr: attestation.gdpr ?? null,
+		},
+		attestation.headquarters ?? null,
+		policy,
+	);
 }
 
 export interface ProviderCountry {

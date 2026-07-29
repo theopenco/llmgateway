@@ -14,6 +14,7 @@ import {
 	ClineIcon,
 	CursorIcon,
 	DevPassCodeIcon,
+	GitHubCopilotIcon,
 	HermesIcon,
 	KiloCodeIcon,
 	KimiIcon,
@@ -94,6 +95,15 @@ const integrations: Integration[] = [
 		href: "/guides/continue",
 		icon: ContinueIcon,
 		comingSoon: false,
+	},
+	{
+		name: "GitHub Copilot app",
+		description:
+			"Use LLM Gateway as a model provider in GitHub's Copilot desktop app for agent sessions with any model.",
+		href: "/guides/github-copilot",
+		icon: GitHubCopilotIcon,
+		comingSoon: false,
+		badge: "BYOK",
 	},
 	{
 		name: "Hermes Agent",

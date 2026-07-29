@@ -13,6 +13,7 @@ import {
 } from "@llmgateway/models";
 import {
 	AWSBedrockIconStatic,
+	FireworksIconStatic,
 	getProviderIcon,
 	GoogleStudioAIIconStatic,
 	MinimaxIconStatic,
@@ -110,7 +111,9 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 						? GoogleStudioAIIconStatic
 						: selectedMapping.providerId === "xai"
 							? XAIIconStatic
-							: getProviderIcon(selectedMapping.providerId)
+							: selectedMapping.providerId === "fireworks"
+								? FireworksIconStatic
+								: getProviderIcon(selectedMapping.providerId)
 			: null;
 		const discounts = await fetchModelDiscounts(decodedName);
 		const effectiveDiscount = selectedMapping
@@ -182,7 +185,9 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 								? GoogleStudioAIIconStatic
 								: providerId === "xai"
 									? XAIIconStatic
-									: getProviderIcon(providerId);
+									: providerId === "fireworks"
+										? FireworksIconStatic
+										: getProviderIcon(providerId);
 				const info = providerDefinitions.find((p) => p.id === providerId);
 				return {
 					id: providerId,

@@ -11,6 +11,14 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 One config change. No code changes. Full cost tracking.
 
+<Callout type="info">
+	**Using DevPass?** This integration also works with a
+	[DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without
+	a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) —
+	provider-pinned routing is not available on coding plans; the gateway picks
+	the provider for you.
+</Callout>
+
 ## Prerequisites
 
 - Hermes Agent installed — see [installation](#installation) below or visit the [Hermes Agent repo](https://github.com/nousresearch/hermes-agent)
@@ -126,7 +134,7 @@ Once you press `Y`, Hermes launches a full agent session connected to LLM Gatewa
 
 ## DevPass Compatibility
 
-Hermes Agent is fully compatible with [DevPass coding plans](/features/coding-agents). The gateway automatically detects Hermes via multiple signals:
+Hermes Agent is fully compatible with DevPass coding plans. The gateway automatically detects Hermes via multiple signals:
 
 - **X-Source header** — Hermes sends `X-Source: https://hermes-agent.nousresearch.com` (auto-detected)
 - **User-Agent** — `HermesAgent/<version>` is recognized

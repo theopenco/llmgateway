@@ -18,6 +18,9 @@ import {
 	waitForLogs,
 } from "./test-utils/test-helpers.js";
 
+import type { ProviderKeyComplianceAttestation } from "@llmgateway/db";
+import type { ProviderCompliancePolicy } from "@llmgateway/models";
+
 describe("api", () => {
 	const harness = createGatewayApiTestHarness();
 	let mockServerUrl = "";
@@ -1070,6 +1073,487 @@ describe("api", () => {
 		expect(res.status).toBe(200);
 	});
 
+	async function seedCustomProviderCompliance(options: {
+		policy?: ProviderCompliancePolicy;
+		attestation?: ProviderKeyComplianceAttestation | null;
+	}) {
+		if (options.policy) {
+			await db
+				.update(tables.organization)
+				.set({
+					plan: "enterprise",
+					providerCompliancePolicy: options.policy,
+				})
+				.where(eq(tables.organization.id, "org-id"));
+		}
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-custom-compliance",
+			token: "real-token-custom-compliance",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-custom-compliance",
+			token: "sk-test-key",
+			provider: "custom",
+			name: "mycustom",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+			complianceAttestation: options.attestation ?? null,
+		});
+	}
+
+	async function requestCustomProvider(model = "mycustom/gpt-4o-mini") {
+		return await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-custom-compliance",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model,
+				messages: [{ role: "user", content: `Hello custom ${randomUUID()}` }],
+			}),
+		});
+	}
+
+	test("/v1/chat/completions blocks a custom provider without an attestation", async () => {
+		// Regression lock on the fail-closed default: no attestation on file →
+		// blocked under any enabled policy.
+		await seedCustomProviderCompliance({
+			policy: { enabled: true, requireSoc2: true },
+		});
+
+		const res = await requestCustomProvider();
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(json.error.message).toContain("provider compliance policy");
+
+		const violations = await db.query.guardrailViolation.findMany({
+			where: { organizationId: { eq: "org-id" } },
+		});
+		expect(violations.some((v) => v.category === "provider_compliance")).toBe(
+			true,
+		);
+	});
+
+	test("/v1/chat/completions allows a custom provider whose attestation meets the policy", async () => {
+		await seedCustomProviderCompliance({
+			policy: { enabled: true, requireSoc2: true },
+			attestation: { soc2: 2 },
+		});
+
+		const res = await requestCustomProvider();
+
+		expect(res.status).toBe(200);
+	});
+
+	test("/v1/chat/completions blocks a custom provider whose attestation misses a requirement", async () => {
+		// blockPromptLogging requires an explicit promptLogging: false; an
+		// attestation admitting logging fails.
+		await seedCustomProviderCompliance({
+			policy: { enabled: true, blockPromptLogging: true },
+			attestation: { soc2: 2, promptLogging: true },
+		});
+
+		const res = await requestCustomProvider();
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(json.error.message).toContain("provider compliance policy");
+	});
+
+	test("/v1/chat/completions blocks a custom provider attested outside the allowed countries", async () => {
+		await seedCustomProviderCompliance({
+			policy: { enabled: true, allowedCountries: ["FR"] },
+			attestation: { headquarters: "US" },
+		});
+
+		const res = await requestCustomProvider();
+		expect(res.status).toBe(403);
+		expect((await res.json()).error.message).toContain(
+			"provider compliance policy",
+		);
+	});
+
+	test("/v1/chat/completions allows a custom provider attested inside the allowed countries", async () => {
+		await seedCustomProviderCompliance({
+			policy: { enabled: true, allowedCountries: ["US"] },
+			attestation: { headquarters: "US" },
+		});
+
+		const res = await requestCustomProvider();
+		expect(res.status).toBe(200);
+	});
+
+	test("/v1/chat/completions never applies a custom attestation to catalogue providers", async () => {
+		// The org holds a fully compliant attestation on its custom key, but a
+		// request pinned to OpenAI must still be judged on OpenAI's catalogue
+		// data policy (promptLogging: true → blocked).
+		await seedCustomProviderCompliance({
+			policy: { enabled: true, blockPromptLogging: true },
+			attestation: {
+				soc2: 2,
+				iso27001: true,
+				gdpr: true,
+				apiTraining: false,
+				consumerTraining: false,
+				promptLogging: false,
+				headquarters: "US",
+			},
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-openai-not-attested",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-custom-compliance",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o",
+				messages: [{ role: "user", content: "Hello catalogue!" }],
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		expect((await res.json()).error.message).toContain(
+			"provider compliance policy",
+		);
+	});
+
+	test("/v1/chat/completions returns 400 for an unknown custom provider under an enabled policy", async () => {
+		// The custom key lookup now runs before the compliance gate, so an unknown
+		// provider name yields the more accurate 400 instead of a compliance 403.
+		await seedCustomProviderCompliance({
+			policy: { enabled: true, requireSoc2: true },
+		});
+
+		const res = await requestCustomProvider("nonexistent/gpt-4o-mini");
+
+		expect(res.status).toBe(400);
+		expect((await res.json()).error.message).toContain(
+			"Provider 'nonexistent' not found",
+		);
+	});
+
+	test("/v1/chat/completions allows a custom provider without attestation when no policy is enabled", async () => {
+		await seedCustomProviderCompliance({});
+
+		const res = await requestCustomProvider();
+
+		expect(res.status).toBe(200);
+	});
+
+	test("/v1/chat/completions blocks a provider on the policy's blockedProviders list", async () => {
+		// OpenAI meets every attribute requirement here (none are set); the deny
+		// list alone blocks it.
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				providerCompliancePolicy: {
+					enabled: true,
+					blockedProviders: ["openai"],
+				},
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-blocked-provider",
+			token: "real-token-blocked-provider",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-blocked-provider",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-blocked-provider",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o",
+				messages: [{ role: "user", content: "Hello blocked provider!" }],
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(json.error.message).toContain("provider compliance policy");
+
+		const violations = await db.query.guardrailViolation.findMany({
+			where: { organizationId: { eq: "org-id" } },
+		});
+		expect(violations.some((v) => v.category === "provider_compliance")).toBe(
+			true,
+		);
+	});
+
+	test("/v1/chat/completions org policy overrides API-key IAM allow rules", async () => {
+		// The org policy always takes precedence: an explicit allow_providers
+		// rule on the API key cannot grant access to a policy-blocked provider.
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				providerCompliancePolicy: {
+					enabled: true,
+					blockedProviders: ["openai"],
+				},
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-policy-over-iam",
+			token: "real-token-policy-over-iam",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.apiKeyIamRule).values({
+			id: "iam-allow-openai-policy-over-iam",
+			apiKeyId: "token-id-policy-over-iam",
+			ruleType: "allow_providers",
+			ruleValue: { providers: ["openai"] },
+			status: "active",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-policy-over-iam",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-policy-over-iam",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o",
+				messages: [{ role: "user", content: "Hello policy precedence!" }],
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		expect((await res.json()).error.message).toContain(
+			"provider compliance policy",
+		);
+	});
+
+	test("/v1/chat/completions blocks providers absent from allowedProviders", async () => {
+		// A non-empty allow list without OpenAI blocks the pinned request.
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				providerCompliancePolicy: {
+					enabled: true,
+					allowedProviders: ["anthropic"],
+				},
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-allowed-provider-block",
+			token: "real-token-allowed-provider-block",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-allowed-provider-block",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-allowed-provider-block",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o",
+				messages: [{ role: "user", content: "Hello allow list block!" }],
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		expect((await res.json()).error.message).toContain(
+			"provider compliance policy",
+		);
+	});
+
+	test("/v1/chat/completions allows providers on allowedProviders", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				providerCompliancePolicy: {
+					enabled: true,
+					allowedProviders: ["anthropic", "openai"],
+				},
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-allowed-provider-pass",
+			token: "real-token-allowed-provider-pass",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-allowed-provider-pass",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-allowed-provider-pass",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o",
+				messages: [{ role: "user", content: "Hello allow list pass!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+	});
+
+	test("/v1/chat/completions blocks a model on the policy's blockedModels list", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				providerCompliancePolicy: {
+					enabled: true,
+					blockedModels: ["gpt-4o"],
+				},
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-blocked-model",
+			token: "real-token-blocked-model",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-blocked-model",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const request = (model: string, content: string) =>
+			app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-blocked-model",
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model,
+					messages: [{ role: "user", content }],
+				}),
+			});
+
+		const blocked = await request("openai/gpt-4o", "Hello blocked model!");
+		expect(blocked.status).toBe(403);
+		expect((await blocked.json()).error.message).toContain(
+			"provider compliance policy",
+		);
+
+		// A sibling model on the same provider is unaffected.
+		const allowed = await request("openai/gpt-4o-mini", "Hello allowed model!");
+		expect(allowed.status).toBe(200);
+	});
+
+	test("/v1/chat/completions blocks an individually restricted custom provider", async () => {
+		// The attestation satisfies the policy, but the custom provider is on the
+		// deny list via its custom:<name> ref.
+		await seedCustomProviderCompliance({
+			policy: {
+				enabled: true,
+				requireSoc2: true,
+				blockedProviders: ["custom:mycustom"],
+			},
+			attestation: { soc2: 2 },
+		});
+
+		const res = await requestCustomProvider();
+
+		expect(res.status).toBe(403);
+		expect((await res.json()).error.message).toContain(
+			"provider compliance policy",
+		);
+	});
+
+	test("/v1/chat/completions blocks a custom model via its <provider>/<model> ref", async () => {
+		await seedCustomProviderCompliance({
+			policy: {
+				enabled: true,
+				blockedModels: ["mycustom/gpt-4o-mini"],
+			},
+			attestation: { soc2: 2 },
+		});
+
+		const blocked = await requestCustomProvider("mycustom/gpt-4o-mini");
+		expect(blocked.status).toBe(403);
+		expect((await blocked.json()).error.message).toContain(
+			"provider compliance policy",
+		);
+
+		const allowed = await requestCustomProvider("mycustom/gpt-4o");
+		expect(allowed.status).toBe(200);
+	});
+
 	test("/v1/chat/completions rejects unsupported service tiers", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-unsupported-service-tier",
@@ -1212,10 +1696,10 @@ describe("api", () => {
 		expect((logRow?.content ?? "").length).toBeGreaterThan(0);
 	});
 
-	test("/v1/responses is rejected outright when retention is disabled", async () => {
-		// The Responses API stores conversation state, so it is gated to
-		// retaining orgs — a non-retaining org is rejected before any request or
-		// response payload can be processed or logged.
+	test("/v1/responses works when retention is disabled and keeps state out of the log", async () => {
+		// Responses API state lives in the dedicated responses storage (30d
+		// TTL), not the log table, so a non-retaining org can use the full
+		// stateful API while its log rows stay metadata-only.
 		await db
 			.update(tables.organization)
 			.set({ retentionLevel: "none" })
@@ -1227,6 +1711,14 @@ describe("api", () => {
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-responses-retention-none",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
 		});
 
 		const res = await app.request("/v1/responses", {
@@ -1241,9 +1733,29 @@ describe("api", () => {
 			}),
 		});
 
-		expect(res.status).toBe(400);
+		expect(res.status).toBe(200);
 		const json = await res.json();
-		expect(json.error.code).toBe("data_retention_required");
+		expect(json.id).toMatch(/^resp_/);
+		expect(json.output.length).toBeGreaterThan(0);
+
+		// The stored response is retrievable (state lives in responses storage).
+		const getRes = await app.request(`/v1/responses/${json.id}`, {
+			headers: {
+				Authorization: "Bearer real-token-responses-retention-none",
+			},
+		});
+		expect(getRes.status).toBe(200);
+		const stored = await getRes.json();
+		expect(stored.id).toBe(json.id);
+		expect(stored.output.length).toBeGreaterThan(0);
+
+		// The log row keeps metadata only — no payload, no responsesApiData.
+		const logs = await waitForLogs(1);
+		const logRow = logs.find((log) => log.id === json.id);
+		expect(logRow).toBeTruthy();
+		expect(logRow?.messages).toBeNull();
+		expect(logRow?.content).toBeNull();
+		expect(logRow?.responsesApiData).toBeNull();
 	});
 
 	test("/v1/chat/completions rejects Vertex service tiers outside the global endpoint", async () => {

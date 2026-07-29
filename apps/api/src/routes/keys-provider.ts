@@ -10,16 +10,42 @@ import { logAuditEvent } from "@llmgateway/audit";
 import { cdb, db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { isStealthProvider, providers } from "@llmgateway/models";
+import {
+	CUSTOM_PROVIDER_NAME_MESSAGE,
+	CUSTOM_PROVIDER_NAME_REGEX,
+} from "@llmgateway/shared";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import type { ServerTypes } from "@/vars.js";
+import type { ProviderKeyComplianceAttestation } from "@llmgateway/db";
 import type { ProviderId } from "@llmgateway/models";
 
 export const keysProvider = new OpenAPIHono<ServerTypes>();
 
+// Self-attested compliance posture for a custom provider key. Client-supplied
+// fields only — attestedAt/attestedByUserId are stamped server-side.
+export const complianceAttestationSchema = z.object({
+	soc2: z
+		.union([z.literal(1), z.literal(2)])
+		.nullable()
+		.optional()
+		.openapi({ type: "integer", enum: [1, 2, null] }),
+	iso27001: z.boolean().nullable().optional(),
+	gdpr: z.boolean().nullable().optional(),
+	apiTraining: z.boolean().nullable().optional(),
+	consumerTraining: z.boolean().nullable().optional(),
+	promptLogging: z.boolean().nullable().optional(),
+	retentionPeriod: z.string().max(64).nullable().optional(),
+	headquarters: z
+		.string()
+		.regex(/^[A-Z]{2}$/, "Must be an ISO 3166-1 alpha-2 country code")
+		.nullable()
+		.optional(),
+});
+
 // Create a schema for provider key responses
 // Using z.object directly instead of createSelectSchema due to compatibility issues
-const providerKeySchema = z.object({
+export const providerKeySchema = z.object({
 	id: z.string(),
 	createdAt: z.date(),
 	updatedAt: z.date(),
@@ -63,15 +89,96 @@ const providerKeySchema = z.object({
 		.nullable(),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	customModelsOnly: z.boolean(),
+	complianceAttestation: complianceAttestationSchema
+		.extend({
+			attestedAt: z.string().optional(),
+			attestedByUserId: z.string().optional(),
+		})
+		.nullable(),
 	organizationId: z.string(),
 });
+
+// Provider keys are only ever returned with a masked token, never the plaintext.
+export const providerKeyResponseSchema = providerKeySchema
+	.omit({ token: true })
+	.extend({
+		maskedToken: z.string(),
+	});
+
+export function serializeProviderKey<T extends { token: string }>(
+	providerKey: T,
+) {
+	const { token, ...rest } = providerKey;
+	return { ...rest, maskedToken: maskToken(token) };
+}
+
+// The custom provider name is the routing segment used in `custom/<name>/<model>`
+// model strings, so it must stay URL-safe and unique within the organization.
+export const customProviderNameSchema = z
+	.string()
+	.regex(CUSTOM_PROVIDER_NAME_REGEX, CUSTOM_PROVIDER_NAME_MESSAGE);
+
+export async function assertCustomProviderNameAvailable(
+	organizationId: string,
+	name: string,
+) {
+	const existing = await db.query.providerKey.findFirst({
+		where: {
+			status: { ne: "deleted" },
+			provider: { eq: "custom" },
+			name: { eq: name },
+			organizationId: { eq: organizationId },
+		},
+	});
+
+	if (existing) {
+		throw new HTTPException(400, {
+			message: `A custom provider named '${name}' already exists for this organization`,
+		});
+	}
+}
+
+/**
+ * SSRF guard: reject base URLs that resolve to internal/reserved addresses
+ * before they are stored or used as an outbound fetch target. No-op unless the
+ * hosted provider URL guard is enabled.
+ */
+export async function assertProviderBaseUrlAllowed(baseUrl: string) {
+	try {
+		await assertSafeProviderUrl(baseUrl);
+	} catch (error) {
+		throw new HTTPException(400, {
+			message:
+				error instanceof Error
+					? error.message
+					: "Provider base URL is not allowed",
+		});
+	}
+}
+
+/**
+ * Provenance is stamped server-side only so the audit trail can't be forged by
+ * the request body.
+ */
+export function stampComplianceAttestation(
+	attestation: z.infer<typeof complianceAttestationSchema> | null,
+	userId: string,
+): ProviderKeyComplianceAttestation | null {
+	return attestation
+		? {
+				...attestation,
+				attestedAt: new Date().toISOString(),
+				attestedByUserId: userId,
+			}
+		: null;
+}
 
 // Schema for creating a new provider key
 // Regular API keys must be printable ASCII without whitespace, but
 // service-account keys (Vertex providers) are JSON blobs that may be
 // pretty-printed, so ASCII whitespace is allowed when the value parses as a
 // JSON object.
-function isValidProviderToken(value: string): boolean {
+export function isValidProviderToken(value: string): boolean {
 	if (/^[\x21-\x7E]+$/.test(value)) {
 		return true;
 	}
@@ -101,13 +208,7 @@ const createProviderKeySchema = z.object({
 		message:
 			"API key contains invalid characters. Make sure you copied the actual key, not a masked version.",
 	}),
-	name: z
-		.string()
-		.regex(
-			/^[a-z]+(-[a-z]+)*$/,
-			"Name must contain only lowercase letters a-z and single hyphens between them",
-		)
-		.optional(),
+	name: customProviderNameSchema.optional(),
 	baseUrl: z.string().url().optional(),
 	options: z
 		.object({
@@ -151,12 +252,25 @@ const createProviderKeySchema = z.object({
 const updateProviderKeyStatusSchema = z
 	.object({
 		status: z.enum(["active", "inactive"]).optional(),
+		// Custom providers only: renames the provider, which changes the model
+		// prefix used in requests (e.g. "myprovider/some-model").
+		name: customProviderNameSchema.optional(),
 		// Custom providers only: restrict requests to catalog-defined models.
 		customModelsOnly: z.boolean().optional(),
+		// Custom providers only: self-attested compliance posture. `null` clears
+		// the attestation (restoring the fail-closed blocked state).
+		complianceAttestation: complianceAttestationSchema.nullable().optional(),
 	})
-	.refine((v) => v.status !== undefined || v.customModelsOnly !== undefined, {
-		message: "No updatable fields provided",
-	});
+	.refine(
+		(v) =>
+			v.status !== undefined ||
+			v.name !== undefined ||
+			v.customModelsOnly !== undefined ||
+			v.complianceAttestation !== undefined,
+		{
+			message: "No updatable fields provided",
+		},
+	);
 
 // Create a new provider key
 const create = createRoute({
@@ -176,12 +290,7 @@ const create = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
-						providerKey: providerKeySchema
-							.omit({ token: true })
-							.extend({
-								maskedToken: z.string(),
-							})
-							.openapi({}),
+						providerKey: providerKeyResponseSchema.openapi({}),
 					}),
 				},
 			},
@@ -261,45 +370,12 @@ keysProvider.openapi(create, async (c) => {
 		});
 	}
 
-	// SSRF guard: reject base URLs that resolve to internal/reserved addresses
-	// before they are stored or used as an outbound fetch target. No-op unless
-	// the hosted provider URL guard is enabled.
 	if (baseUrl) {
-		try {
-			await assertSafeProviderUrl(baseUrl);
-		} catch (error) {
-			throw new HTTPException(400, {
-				message:
-					error instanceof Error
-						? error.message
-						: "Provider base URL is not allowed",
-			});
-		}
+		await assertProviderBaseUrlAllowed(baseUrl);
 	}
 
 	if (provider === "custom" && name) {
-		const existingCustomProvider = await db.query.providerKey.findFirst({
-			where: {
-				status: {
-					ne: "deleted",
-				},
-				provider: {
-					eq: "custom",
-				},
-				name: {
-					eq: name,
-				},
-				organizationId: {
-					eq: organizationId,
-				},
-			},
-		});
-
-		if (existingCustomProvider) {
-			throw new HTTPException(400, {
-				message: `A custom provider named '${name}' already exists for this organization`,
-			});
-		}
+		await assertCustomProviderNameAvailable(organizationId, name);
 	}
 
 	let validationResult;
@@ -383,13 +459,7 @@ keysProvider.openapi(create, async (c) => {
 		},
 	});
 
-	return c.json({
-		providerKey: {
-			...providerKey,
-			maskedToken: maskToken(userToken),
-			token: undefined,
-		},
-	});
+	return c.json({ providerKey: serializeProviderKey(providerKey) });
 });
 
 // List all provider keys
@@ -402,14 +472,7 @@ const list = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
-						providerKeys: z
-							.array(
-								providerKeySchema.omit({ token: true }).extend({
-									// Only return a masked version of the token
-									maskedToken: z.string(),
-								}),
-							)
-							.openapi({}),
+						providerKeys: z.array(providerKeyResponseSchema).openapi({}),
 					}),
 				},
 			},
@@ -442,13 +505,7 @@ keysProvider.openapi(list, async (c) => {
 		},
 	});
 
-	return c.json({
-		providerKeys: providerKeys.map((key) => ({
-			...key,
-			maskedToken: maskToken(key.token),
-			token: undefined,
-		})),
-	});
+	return c.json({ providerKeys: providerKeys.map(serializeProviderKey) });
 });
 
 // List provider keys with minimal fields (provider + status only)
@@ -628,12 +685,7 @@ const updateStatus = createRoute({
 				"application/json": {
 					schema: z.object({
 						message: z.string(),
-						providerKey: providerKeySchema
-							.omit({ token: true })
-							.extend({
-								maskedToken: z.string(),
-							})
-							.openapi({}),
+						providerKey: providerKeyResponseSchema.openapi({}),
 					}),
 				},
 			},
@@ -671,7 +723,8 @@ keysProvider.openapi(updateStatus, async (c) => {
 	}
 
 	const { id } = c.req.param();
-	const { status, customModelsOnly } = c.req.valid("json");
+	const { status, name, customModelsOnly, complianceAttestation } =
+		c.req.valid("json");
 
 	// Get all active organization IDs the user has access to
 	const organizationIds = await getAdminOrganizationIds(user.id);
@@ -697,6 +750,18 @@ keysProvider.openapi(updateStatus, async (c) => {
 		});
 	}
 
+	if (name !== undefined) {
+		if (providerKey.provider !== "custom") {
+			throw new HTTPException(400, {
+				message: "name can only be changed on custom provider keys",
+			});
+		}
+
+		if (name !== providerKey.name) {
+			await assertCustomProviderNameAvailable(providerKey.organizationId, name);
+		}
+	}
+
 	if (customModelsOnly !== undefined) {
 		if (providerKey.provider !== "custom") {
 			throw new HTTPException(400, {
@@ -711,15 +776,40 @@ keysProvider.openapi(updateStatus, async (c) => {
 		}
 	}
 
+	if (complianceAttestation !== undefined) {
+		if (providerKey.provider !== "custom") {
+			throw new HTTPException(400, {
+				message:
+					"complianceAttestation can only be set on custom provider keys",
+			});
+		}
+		if (providerKey.organization?.plan !== "enterprise") {
+			throw new HTTPException(403, {
+				message: "Compliance attestations require an enterprise plan",
+			});
+		}
+	}
+
 	const updates: {
 		status?: "active" | "inactive";
+		name?: string;
 		customModelsOnly?: boolean;
+		complianceAttestation?: ProviderKeyComplianceAttestation | null;
 	} = {};
 	if (status !== undefined) {
 		updates.status = status;
 	}
+	if (name !== undefined) {
+		updates.name = name;
+	}
 	if (customModelsOnly !== undefined) {
 		updates.customModelsOnly = customModelsOnly;
+	}
+	if (complianceAttestation !== undefined) {
+		updates.complianceAttestation = stampComplianceAttestation(
+			complianceAttestation,
+			user.id,
+		);
 	}
 
 	// Update the provider key
@@ -733,6 +823,9 @@ keysProvider.openapi(updateStatus, async (c) => {
 	if (status !== undefined && providerKey.status !== status) {
 		changes.status = { old: providerKey.status, new: status };
 	}
+	if (name !== undefined && providerKey.name !== name) {
+		changes.name = { old: providerKey.name, new: name };
+	}
 	if (
 		customModelsOnly !== undefined &&
 		providerKey.customModelsOnly !== customModelsOnly
@@ -740,6 +833,12 @@ keysProvider.openapi(updateStatus, async (c) => {
 		changes.customModelsOnly = {
 			old: providerKey.customModelsOnly,
 			new: customModelsOnly,
+		};
+	}
+	if (complianceAttestation !== undefined) {
+		changes.complianceAttestation = {
+			old: providerKey.complianceAttestation ?? null,
+			new: updates.complianceAttestation ?? null,
 		};
 	}
 
@@ -759,11 +858,7 @@ keysProvider.openapi(updateStatus, async (c) => {
 
 	return c.json({
 		message: "Provider key updated",
-		providerKey: {
-			...updatedProviderKey,
-			maskedToken: maskToken(updatedProviderKey.token),
-			token: undefined,
-		},
+		providerKey: serializeProviderKey(updatedProviderKey),
 	});
 });
 

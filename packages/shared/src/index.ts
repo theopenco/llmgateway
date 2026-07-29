@@ -129,9 +129,24 @@ export {
 
 export { selectLoadBalancedItem } from "./load-balance.js";
 
+export {
+	fillRandomFloats,
+	randomFloat,
+	randomFloatBetween,
+	randomInt,
+	randomItem,
+	randomToken,
+	uniqueId,
+} from "./random.js";
+
 export { MARKETING_STATS, RUNWARE_PROMO } from "./marketing.js";
 
 export { isContentFilterErrorText } from "./content-filter.js";
+
+export {
+	CUSTOM_PROVIDER_NAME_MESSAGE,
+	CUSTOM_PROVIDER_NAME_REGEX,
+} from "./custom-providers.js";
 
 export {
 	validateApiKeyLimitsWithinMemberBudget,
