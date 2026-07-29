@@ -25,6 +25,10 @@ import {
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { isStealthProvider, providers } from "@llmgateway/models";
+import {
+	CUSTOM_PROVIDER_NAME_MESSAGE,
+	CUSTOM_PROVIDER_NAME_REGEX,
+} from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
@@ -36,7 +40,7 @@ export const keysProvider = new OpenAPIHono<ServerTypes>();
 
 // Self-attested compliance posture for a custom provider key. Client-supplied
 // fields only — attestedAt/attestedByUserId are stamped server-side.
-const complianceAttestationSchema = z.object({
+export const complianceAttestationSchema = z.object({
 	soc2: z
 		.union([z.literal(1), z.literal(2)])
 		.nullable()
@@ -57,7 +61,7 @@ const complianceAttestationSchema = z.object({
 
 // Create a schema for provider key responses
 // Using z.object directly instead of createSelectSchema due to compatibility issues
-const providerKeySchema = z.object({
+export const providerKeySchema = z.object({
 	id: z.string(),
 	createdAt: z.date(),
 	updatedAt: z.date(),
@@ -112,8 +116,9 @@ const providerKeySchema = z.object({
 
 // Public response shape for provider key endpoints. Listed explicitly
 // (not via .omit) so that any future secret-bearing column added to
-// the provider_key table does not leak by default.
-const providerKeyPublicSchema = z.object({
+// the provider_key table does not leak by default. Shared with the
+// master-key custom-provider API, which serves the same rows.
+export const providerKeyPublicSchema = z.object({
 	id: z.string(),
 	createdAt: z.date(),
 	updatedAt: z.date(),
@@ -133,7 +138,7 @@ type ProviderKeyRow = typeof tables.providerKey.$inferSelect;
 // Every row served by these routes is organization-owned: they all query by
 // organizationId. Platform-managed credentials (organizationId NULL) are
 // administered from the admin dashboard and never surface here.
-function toPublicProviderKey(row: ProviderKeyRow) {
+export function toPublicProviderKey(row: ProviderKeyRow) {
 	assertOrganizationProviderKey(row);
 	return {
 		id: row.id,
@@ -153,12 +158,73 @@ function toPublicProviderKey(row: ProviderKeyRow) {
 	};
 }
 
+// The custom provider name is the routing segment used in `custom/<name>/<model>`
+// model strings, so it must stay URL-safe and unique within the organization.
+export const customProviderNameSchema = z
+	.string()
+	.regex(CUSTOM_PROVIDER_NAME_REGEX, CUSTOM_PROVIDER_NAME_MESSAGE);
+
+export async function assertCustomProviderNameAvailable(
+	organizationId: string,
+	name: string,
+) {
+	const existing = await db.query.providerKey.findFirst({
+		where: {
+			status: { ne: "deleted" },
+			provider: { eq: "custom" },
+			name: { eq: name },
+			organizationId: { eq: organizationId },
+		},
+	});
+
+	if (existing) {
+		throw new HTTPException(400, {
+			message: `A custom provider named '${name}' already exists for this organization`,
+		});
+	}
+}
+
+/**
+ * SSRF guard: reject base URLs that resolve to internal/reserved addresses
+ * before they are stored or used as an outbound fetch target. No-op unless the
+ * hosted provider URL guard is enabled.
+ */
+export async function assertProviderBaseUrlAllowed(baseUrl: string) {
+	try {
+		await assertSafeProviderUrl(baseUrl);
+	} catch (error) {
+		throw new HTTPException(400, {
+			message:
+				error instanceof Error
+					? error.message
+					: "Provider base URL is not allowed",
+		});
+	}
+}
+
+/**
+ * Provenance is stamped server-side only so the audit trail can't be forged by
+ * the request body.
+ */
+export function stampComplianceAttestation(
+	attestation: z.infer<typeof complianceAttestationSchema> | null,
+	userId: string,
+): ProviderKeyComplianceAttestation | null {
+	return attestation
+		? {
+				...attestation,
+				attestedAt: new Date().toISOString(),
+				attestedByUserId: userId,
+			}
+		: null;
+}
+
 // Schema for creating a new provider key
 // Regular API keys must be printable ASCII without whitespace, but
 // service-account keys (Vertex providers) are JSON blobs that may be
 // pretty-printed, so ASCII whitespace is allowed when the value parses as a
 // JSON object.
-function isValidProviderToken(value: string): boolean {
+export function isValidProviderToken(value: string): boolean {
 	if (/^[\x21-\x7E]+$/.test(value)) {
 		return true;
 	}
@@ -188,13 +254,7 @@ const createProviderKeySchema = z.object({
 		message:
 			"API key contains invalid characters. Make sure you copied the actual key, not a masked version.",
 	}),
-	name: z
-		.string()
-		.regex(
-			/^[a-z]+(-[a-z]+)*$/,
-			"Name must contain only lowercase letters a-z and single hyphens between them",
-		)
-		.optional(),
+	name: customProviderNameSchema.optional(),
 	baseUrl: z.string().url().optional(),
 	options: z
 		.object({
@@ -238,6 +298,9 @@ const createProviderKeySchema = z.object({
 const updateProviderKeyStatusSchema = z
 	.object({
 		status: z.enum(["active", "inactive"]).optional(),
+		// Custom providers only: renames the provider, which changes the model
+		// prefix used in requests (e.g. "myprovider/some-model").
+		name: customProviderNameSchema.optional(),
 		// Custom providers only: restrict requests to catalog-defined models.
 		customModelsOnly: z.boolean().optional(),
 		// Custom providers only: self-attested compliance posture. `null` clears
@@ -247,6 +310,7 @@ const updateProviderKeyStatusSchema = z
 	.refine(
 		(v) =>
 			v.status !== undefined ||
+			v.name !== undefined ||
 			v.customModelsOnly !== undefined ||
 			v.complianceAttestation !== undefined,
 		{
@@ -352,45 +416,12 @@ keysProvider.openapi(create, async (c) => {
 		});
 	}
 
-	// SSRF guard: reject base URLs that resolve to internal/reserved addresses
-	// before they are stored or used as an outbound fetch target. No-op unless
-	// the hosted provider URL guard is enabled.
 	if (baseUrl) {
-		try {
-			await assertSafeProviderUrl(baseUrl);
-		} catch (error) {
-			throw new HTTPException(400, {
-				message:
-					error instanceof Error
-						? error.message
-						: "Provider base URL is not allowed",
-			});
-		}
+		await assertProviderBaseUrlAllowed(baseUrl);
 	}
 
 	if (provider === "custom" && name) {
-		const existingCustomProvider = await db.query.providerKey.findFirst({
-			where: {
-				status: {
-					ne: "deleted",
-				},
-				provider: {
-					eq: "custom",
-				},
-				name: {
-					eq: name,
-				},
-				organizationId: {
-					eq: organizationId,
-				},
-			},
-		});
-
-		if (existingCustomProvider) {
-			throw new HTTPException(400, {
-				message: `A custom provider named '${name}' already exists for this organization`,
-			});
-		}
+		await assertCustomProviderNameAvailable(organizationId, name);
 	}
 
 	let validationResult;
@@ -772,7 +803,7 @@ keysProvider.openapi(updateStatus, async (c) => {
 	}
 
 	const { id } = c.req.param();
-	const { status, customModelsOnly, complianceAttestation } =
+	const { status, name, customModelsOnly, complianceAttestation } =
 		c.req.valid("json");
 
 	// Get all active organization IDs the user has access to
@@ -800,6 +831,18 @@ keysProvider.openapi(updateStatus, async (c) => {
 	}
 
 	assertOrganizationProviderKey(providerKey);
+
+	if (name !== undefined) {
+		if (providerKey.provider !== "custom") {
+			throw new HTTPException(400, {
+				message: "name can only be changed on custom provider keys",
+			});
+		}
+
+		if (name !== providerKey.name) {
+			await assertCustomProviderNameAvailable(providerKey.organizationId, name);
+		}
+	}
 
 	if (customModelsOnly !== undefined) {
 		if (providerKey.provider !== "custom") {
@@ -831,25 +874,24 @@ keysProvider.openapi(updateStatus, async (c) => {
 
 	const updates: {
 		status?: "active" | "inactive";
+		name?: string;
 		customModelsOnly?: boolean;
 		complianceAttestation?: ProviderKeyComplianceAttestation | null;
 	} = {};
 	if (status !== undefined) {
 		updates.status = status;
 	}
+	if (name !== undefined) {
+		updates.name = name;
+	}
 	if (customModelsOnly !== undefined) {
 		updates.customModelsOnly = customModelsOnly;
 	}
 	if (complianceAttestation !== undefined) {
-		// Provenance is stamped server-side only so the audit trail can't be
-		// forged by the request body.
-		updates.complianceAttestation = complianceAttestation
-			? {
-					...complianceAttestation,
-					attestedAt: new Date().toISOString(),
-					attestedByUserId: user.id,
-				}
-			: null;
+		updates.complianceAttestation = stampComplianceAttestation(
+			complianceAttestation,
+			user.id,
+		);
 	}
 
 	// Update the provider key
@@ -862,6 +904,9 @@ keysProvider.openapi(updateStatus, async (c) => {
 	const changes: Record<string, { old: unknown; new: unknown }> = {};
 	if (status !== undefined && providerKey.status !== status) {
 		changes.status = { old: providerKey.status, new: status };
+	}
+	if (name !== undefined && providerKey.name !== name) {
+		changes.name = { old: providerKey.name, new: name };
 	}
 	if (
 		customModelsOnly !== undefined &&

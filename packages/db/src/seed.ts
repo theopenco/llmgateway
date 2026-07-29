@@ -1454,7 +1454,7 @@ async function seed() {
 		name: "Test User's Workspace",
 		billingEmail: "admin@example.com",
 		credits: 0,
-		retentionLevel: "retain",
+		retentionLevel: "none",
 		plan: "free",
 		kind: "devpass",
 		devPlan: "pro",
@@ -1974,7 +1974,7 @@ async function seed() {
 		name: "Test User's Workspace",
 		billingEmail: "admin@example.com",
 		credits: 0,
-		retentionLevel: "retain",
+		retentionLevel: "none",
 		plan: "free",
 		kind: "devpass",
 		devPlan: "pro",
@@ -2174,12 +2174,16 @@ async function seed() {
 			billingEmail: org.billingEmail,
 			plan: org.plan,
 			credits: org.credits,
+			// DevPass and Chat orgs are always metadata-only; retention is not
+			// offered on those products.
 			retentionLevel:
-				org.plan === "enterprise"
-					? "retain"
-					: secureRandom() < 0.5
+				org.kind !== "default"
+					? "none"
+					: org.plan === "enterprise"
 						? "retain"
-						: "none",
+						: secureRandom() < 0.5
+							? "retain"
+							: "none",
 			status: org.status,
 			kind: org.kind,
 			devPlan: org.devPlan,

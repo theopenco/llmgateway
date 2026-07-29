@@ -55,6 +55,13 @@ async function sendDiscordNotification(
 	}
 }
 
+function formatAmount(amount: number, currency: string): string {
+	const normalized = currency.toUpperCase();
+	return normalized === "USD"
+		? `$${amount.toFixed(2)}`
+		: `${amount.toFixed(2)} ${normalized}`;
+}
+
 export async function notifyUserSignup(
 	email: string,
 	name: string | null | undefined,
@@ -172,6 +179,8 @@ export async function notifyDevPlanSubscribed(
 	name: string | null | undefined,
 	devPlan: string,
 	cycle: string,
+	amount: number,
+	currency: string,
 ): Promise<void> {
 	const displayName = name ?? "Unknown";
 
@@ -179,7 +188,7 @@ export async function notifyDevPlanSubscribed(
 		embeds: [
 			{
 				title: "DevPass Subscribed",
-				color: 0x22c55e, // Green
+				color: 0x3b82f6, // Blue
 				fields: [
 					{
 						name: "Email",
@@ -194,6 +203,11 @@ export async function notifyDevPlanSubscribed(
 					{
 						name: "Plan",
 						value: `${devPlan.toUpperCase()} (${cycle})`,
+						inline: true,
+					},
+					{
+						name: "Amount",
+						value: formatAmount(amount, currency),
 						inline: true,
 					},
 				],

@@ -595,6 +595,17 @@ organization.openapi(updateOrganization, async (c) => {
 		});
 	}
 
+	// DevPass and Chat organizations never retain request/response payloads, and
+	// the products expose no setting for it. Reject attempts to turn it on.
+	if (
+		retentionLevel !== undefined &&
+		userOrganization.organization?.kind !== "default"
+	) {
+		throw new HTTPException(400, {
+			message: "Data retention is not available for this organization",
+		});
+	}
+
 	// Provider compliance policies are an enterprise feature managed by owners
 	// and admins (matching the Guardrails settings page).
 	if (providerCompliancePolicy !== undefined) {
