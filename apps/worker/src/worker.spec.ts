@@ -354,6 +354,7 @@ describe("worker", () => {
 				messages: [{ role: "user", content: "hello" }],
 				rawRequest: { input: "hello" },
 				upstreamResponse: { output: "response content" },
+				payloadRef: "logs/org/project/retention-test.json.zst",
 				userAgent: "test-user-agent",
 				gatewayContentFilterResponse: [
 					{
@@ -393,6 +394,7 @@ describe("worker", () => {
 			expect(cleanedLog?.upstreamResponse).toBeNull();
 			expect(cleanedLog?.userAgent).toBeNull();
 			expect(cleanedLog?.gatewayContentFilterResponse).toBeNull();
+			expect(cleanedLog?.payloadRef).toBeNull();
 			expect(cleanedLog?.dataRetentionCleanedUp).toBe(true);
 		});
 	});

@@ -26,6 +26,48 @@ services:
     environment:
       CI: ${CI}
 
+  # MinIO: local S3-compatible object storage for offloaded log payload blobs
+  # (PAYLOAD_STORAGE_S3_* env). Prod uses GCS via its S3-interoperability API.
+  minio:
+    container_name: minio
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    command: ["server", "/data", "--console-address", ":9001"]
+    restart: always
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      CI: ${CI}
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+    volumes:
+      - minio_data:/data
+
+  # One-shot bucket bootstrap: creates the payload bucket and its 30-day
+  # expiry lifecycle rule (blob retention lives here, not in the retention
+  # job). Retries on its own so it doesn't depend on setup's fixed sleep.
+  minio-init:
+    container_name: minio-init
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        for i in $$(seq 1 30); do
+          mc alias set local http://minio:9000 minioadmin minioadmin && break
+          sleep 1
+        done
+        mc mb -p local/llmgateway-payloads
+        mc ilm rule add local/llmgateway-payloads --expire-days 30 || true
+
   # Storage Redis: Responses API state (30d retention) + gateway response
   # cache. AOF persistence because it holds a source of truth, not just cache.
   redis-storage:
@@ -50,4 +92,5 @@ services:
       - redis_storage_data:/data
 
 volumes:
+  minio_data:
   redis_storage_data:

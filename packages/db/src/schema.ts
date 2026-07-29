@@ -1855,6 +1855,10 @@ export const log = pgTable(
 			jsonb().$type<z.infer<typeof gatewayContentFilterResponseSchema>>(),
 		responsesApiId: text(),
 		responsesApiData: jsonb(),
+		// Object-storage key of the offloaded payload blob (messages, raw
+		// request/response, tool results, …) when payload storage is enabled;
+		// null on legacy rows and when payloads live in the columns above.
+		payloadRef: text(),
 		// Realtime WebSocket sessions: one log row per billable terminal event
 		// (e.g. one per response.done). realtimeUsageKey is a semantic identity
 		// such as "response:<upstream_response_id>" so redelivered provider

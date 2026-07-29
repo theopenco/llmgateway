@@ -33,6 +33,11 @@ import {
 	toolResults,
 	tools,
 } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
+import {
+	getLogPayload,
+	isPayloadStorageEnabled,
+} from "@llmgateway/shared/payload-storage";
 import { buildSignedGatewayVideoLogContentUrl } from "@llmgateway/shared/video-access";
 
 import type { ServerTypes } from "@/vars.js";
@@ -51,6 +56,20 @@ type LogRecord = Omit<
 const { internalErrorDetails: _internalErrorDetails, ...publicLogColumns } =
 	getTableColumns(tables.log);
 
+// Detail-only payload columns: rendered nowhere in list views and, on legacy
+// rows written before payload offloading, still multi-MB inline — the list
+// query skips them entirely. payloadRef is transport-internal (resolved into
+// the payload fields by the detail handler) and never leaves the API.
+const {
+	rawRequest: _rawRequest,
+	rawResponse: _rawResponse,
+	upstreamRequest: _upstreamRequest,
+	upstreamResponse: _upstreamResponse,
+	responsesApiData: _responsesApiData,
+	payloadRef: _payloadRef,
+	...listLogColumns
+} = publicLogColumns;
+
 const logSelection = {
 	...publicLogColumns,
 	organizationName: tables.organization.name,
@@ -58,9 +77,23 @@ const logSelection = {
 	apiKeyName: tables.apiKey.description,
 };
 
-async function enrichLogsWithVideoContentUrls<T extends LogRecord>(
-	logEntries: T[],
-): Promise<T[]> {
+const logListSelection = {
+	...listLogColumns,
+	organizationName: tables.organization.name,
+	projectName: tables.project.name,
+	apiKeyName: tables.apiKey.description,
+};
+
+async function enrichLogsWithVideoContentUrls<
+	T extends Pick<
+		LogRecord,
+		| "id"
+		| "content"
+		| "videoOutputCost"
+		| "videoDownloadCount"
+		| "lastVideoDownloadedAt"
+	>,
+>(logEntries: T[]): Promise<T[]> {
 	const hasVideoLogState = (log: T) =>
 		log.videoOutputCost !== null ||
 		log.videoDownloadCount > 0 ||
@@ -232,6 +265,10 @@ const logSchema = z.object({
 	gatewayContentFilterResponse: gatewayContentFilterResponseSchema
 		.nullable()
 		.optional(),
+	// True when the row's offloaded payload blob could not be fetched (e.g.
+	// already deleted by the bucket lifecycle rule); the payload fields then
+	// carry the stored previews instead of the full data.
+	payloadUnavailable: z.boolean().optional(),
 });
 
 // GET /logs/:id - Fetch a single log by ID
@@ -691,7 +728,7 @@ logs.openapi(get, async (c) => {
 
 	// Execute the query using select
 	let dbQuery = db
-		.select(logSelection)
+		.select(logListSelection)
 		.from(tables.log)
 		.leftJoin(
 			tables.organization,
@@ -967,5 +1004,34 @@ logs.openapi(getById, async (c) => {
 		});
 	}
 
-	return c.json({ log });
+	// Hydrate offloaded payload fields from object storage. The blob wins over
+	// the truncated previews stored in the row; a missing or unreadable blob
+	// degrades to the previews with payloadUnavailable set rather than failing
+	// the whole detail view.
+	let payloadUnavailable = false;
+	if (log.payloadRef && isPayloadStorageEnabled()) {
+		let payload: Record<string, unknown> | null = null;
+		try {
+			payload = await getLogPayload(log.payloadRef);
+		} catch (error) {
+			logger.warn("Failed to fetch log payload from storage", {
+				payloadRef: log.payloadRef,
+				error,
+			});
+		}
+		if (payload) {
+			log = { ...log, ...(payload as Partial<typeof log>) };
+		} else {
+			payloadUnavailable = true;
+		}
+	}
+
+	const { payloadRef: _logPayloadRef, ...logForResponse } = log;
+
+	return c.json({
+		log: {
+			...logForResponse,
+			...(payloadUnavailable ? { payloadUnavailable: true } : {}),
+		},
+	});
 });

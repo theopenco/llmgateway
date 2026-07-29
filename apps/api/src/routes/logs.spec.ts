@@ -1,9 +1,34 @@
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { randomUUID } from "node:crypto";
+
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	test,
+} from "vitest";
 
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
+import {
+	buildPayloadKey,
+	ensurePayloadStorageBucket,
+	putLogPayload,
+} from "@llmgateway/shared/payload-storage";
+
+const PAYLOAD_ENV_KEYS = [
+	"PAYLOAD_STORAGE_S3_BUCKET",
+	"PAYLOAD_STORAGE_S3_ENDPOINT",
+	"PAYLOAD_STORAGE_S3_REGION",
+	"PAYLOAD_STORAGE_S3_ACCESS_KEY_ID",
+	"PAYLOAD_STORAGE_S3_SECRET_ACCESS_KEY",
+	"PAYLOAD_STORAGE_S3_FORCE_PATH_STYLE",
+	"PAYLOAD_STORAGE_S3_PREFIX",
+] as const;
 
 describe("logs route", () => {
 	let token: string;
@@ -797,6 +822,142 @@ describe("logs route", () => {
 			const json = await res.json();
 			const ids = json.logs.map((log: { id: string }) => log.id);
 			expect(ids).toContain("teammate-log-id");
+		});
+	});
+
+	describe("payload storage", () => {
+		const envSnapshot = Object.fromEntries(
+			PAYLOAD_ENV_KEYS.map((key) => [key, process.env[key]]),
+		);
+
+		beforeAll(async () => {
+			process.env.PAYLOAD_STORAGE_S3_BUCKET = "llmgateway-payloads";
+			process.env.PAYLOAD_STORAGE_S3_ENDPOINT = "http://localhost:9000";
+			process.env.PAYLOAD_STORAGE_S3_REGION = "us-east-1";
+			process.env.PAYLOAD_STORAGE_S3_ACCESS_KEY_ID = "minioadmin";
+			process.env.PAYLOAD_STORAGE_S3_SECRET_ACCESS_KEY = "minioadmin";
+			process.env.PAYLOAD_STORAGE_S3_FORCE_PATH_STYLE = "true";
+			delete process.env.PAYLOAD_STORAGE_S3_PREFIX;
+			await ensurePayloadStorageBucket();
+		});
+
+		afterAll(() => {
+			for (const key of PAYLOAD_ENV_KEYS) {
+				const value = envSnapshot[key];
+				if (value === undefined) {
+					Reflect.deleteProperty(process.env, key);
+				} else {
+					process.env[key] = value;
+				}
+			}
+		});
+
+		async function insertOffloadedLog(payloadRef: string) {
+			await db.insert(tables.log).values({
+				id: "test-log-offloaded",
+				requestId: "test-log-offloaded",
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "test-api-key-id",
+				duration: 100,
+				requestedModel: "gpt-4",
+				requestedProvider: "openai",
+				usedModel: "gpt-4",
+				usedProvider: "openai",
+				responseSize: 1000,
+				content: "preview content… [truncated]",
+				messages: [{ role: "user", content: "preview… [truncated]" }],
+				toolResults: null,
+				rawRequest: null,
+				finishReason: "stop",
+				mode: "api-keys",
+				usedMode: "api-keys",
+				payloadRef,
+			});
+		}
+
+		test("detail route hydrates offloaded payload fields from the blob", async () => {
+			const payloadRef = buildPayloadKey(
+				"test-org-id",
+				"test-project-id",
+				`hydrate-${randomUUID()}`,
+			);
+			const fullMessages = [
+				{ role: "user", content: "the full original message" },
+			];
+			await putLogPayload(payloadRef, {
+				messages: fullMessages,
+				content: "the full original response content",
+				toolResults: [{ output: "full tool output" }],
+				rawRequest: { body: { debug: true } },
+			});
+			await insertOffloadedLog(payloadRef);
+
+			const res = await app.request("/logs/test-log-offloaded", {
+				method: "GET",
+				headers: {
+					Cookie: token,
+				},
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.log.messages).toEqual(fullMessages);
+			expect(json.log.content).toBe("the full original response content");
+			expect(json.log.toolResults).toEqual([{ output: "full tool output" }]);
+			expect(json.log.rawRequest).toEqual({ body: { debug: true } });
+			expect("payloadRef" in json.log).toBe(false);
+			expect(json.log.payloadUnavailable).toBeUndefined();
+		});
+
+		test("detail route degrades to previews when the blob is gone", async () => {
+			await insertOffloadedLog(
+				buildPayloadKey(
+					"test-org-id",
+					"test-project-id",
+					`missing-${randomUUID()}`,
+				),
+			);
+
+			const res = await app.request("/logs/test-log-offloaded", {
+				method: "GET",
+				headers: {
+					Cookie: token,
+				},
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.log.payloadUnavailable).toBe(true);
+			expect(json.log.content).toBe("preview content… [truncated]");
+			expect(json.log.messages).toEqual([
+				{ role: "user", content: "preview… [truncated]" },
+			]);
+			expect("payloadRef" in json.log).toBe(false);
+		});
+
+		test("list responses omit detail-only payload columns", async () => {
+			const params = new URLSearchParams({ projectId: "test-project-id" });
+			const res = await app.request("/logs?" + params, {
+				method: "GET",
+				headers: {
+					Cookie: token,
+				},
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.logs.length).toBeGreaterThan(0);
+			for (const entry of json.logs) {
+				expect("rawRequest" in entry).toBe(false);
+				expect("rawResponse" in entry).toBe(false);
+				expect("upstreamRequest" in entry).toBe(false);
+				expect("upstreamResponse" in entry).toBe(false);
+				expect("responsesApiData" in entry).toBe(false);
+				expect("payloadRef" in entry).toBe(false);
+			}
+			// Preview-backed columns still serve list views.
+			expect(json.logs[0].content).toBeTruthy();
 		});
 	});
 });
