@@ -33,6 +33,7 @@ import {
 	buildOpenAIErrorBody,
 } from "./lib/error-response.js";
 import { mcpHandler, registerMcpOAuthRoutes } from "./mcp/mcp.js";
+import { corsMiddleware } from "./middleware/cors.js";
 import { tracingMiddleware } from "./middleware/tracing.js";
 import { models } from "./models/route.js";
 import { moderationsRoute } from "./moderations/route.js";
@@ -89,6 +90,7 @@ const requestLifecycleMiddleware = createRequestLifecycleMiddleware({
 app.use("*", tracingMiddleware);
 app.use("*", requestLifecycleMiddleware);
 app.use("*", honoRequestLogger);
+app.use("*", corsMiddleware);
 
 // Middleware to check for application/json content type on POST requests
 // Excludes /mcp endpoint which handles its own content type validation
