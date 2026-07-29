@@ -1313,6 +1313,63 @@ describe("api", () => {
 		);
 	});
 
+	test("/v1/chat/completions org policy overrides API-key IAM allow rules", async () => {
+		// The org policy always takes precedence: an explicit allow_providers
+		// rule on the API key cannot grant access to a policy-blocked provider.
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				providerCompliancePolicy: {
+					enabled: true,
+					blockedProviders: ["openai"],
+				},
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-policy-over-iam",
+			token: "real-token-policy-over-iam",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.apiKeyIamRule).values({
+			id: "iam-allow-openai-policy-over-iam",
+			apiKeyId: "token-id-policy-over-iam",
+			ruleType: "allow_providers",
+			ruleValue: { providers: ["openai"] },
+			status: "active",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-policy-over-iam",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-policy-over-iam",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o",
+				messages: [{ role: "user", content: "Hello policy precedence!" }],
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		expect((await res.json()).error.message).toContain(
+			"provider compliance policy",
+		);
+	});
+
 	test("/v1/chat/completions blocks providers absent from allowedProviders", async () => {
 		// A non-empty allow list without OpenAI blocks the pinned request.
 		await db
