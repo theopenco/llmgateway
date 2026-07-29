@@ -42,6 +42,14 @@ import { getOrganizationEnvVariant, models } from "@llmgateway/models";
 import type { ServerTypes } from "@/vars.js";
 import type { InferSelectModel, tables } from "@llmgateway/db";
 
+/**
+ * Flat per-request price for `/v1/moderations`, in USD. OpenAI serves the
+ * moderation models for free, but we still pay for the request handling,
+ * logging and storage around it, so every successful moderation is billed at
+ * this fixed rate regardless of input size or moderation model.
+ */
+export const MODERATION_REQUEST_PRICE = 0.00001;
+
 const moderationInputTextSchema = z.string().openapi({
 	description: "Plain text input to classify.",
 	example: "I want to harm someone.",
@@ -183,6 +191,71 @@ function getResponseContent(responseJson: unknown): string | null {
 	return JSON.stringify(responseJson);
 }
 
+function getAvailableCredits(
+	organization: InferSelectModel<typeof tables.organization>,
+) {
+	const regularCredits = parseFloat(organization.credits ?? "0");
+	const devPlanCreditsRemaining =
+		organization.devPlan !== "none"
+			? parseFloat(organization.devPlanCreditsLimit ?? "0") -
+				parseFloat(organization.devPlanCreditsUsed ?? "0")
+			: 0;
+	const chatPlanCreditsRemaining =
+		organization.chatPlan !== "none"
+			? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
+				parseFloat(organization.chatPlanCreditsUsed ?? "0")
+			: 0;
+
+	return {
+		devPlanCreditsRemaining,
+		chatPlanCreditsRemaining,
+		totalAvailableCredits:
+			regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining,
+	};
+}
+
+/**
+ * Moderation is billed per request, so a request that would be served with our
+ * credentials needs a credit balance behind it. Mirrors the credit gate on the
+ * other paid endpoints; there is no free-model escape hatch here because the
+ * moderation pseudo-model is always billed.
+ */
+function assertCreditsAvailableForModeration(
+	organization: InferSelectModel<typeof tables.organization>,
+	insufficientCreditsMessage: string,
+	devPlanCreditLimitMessage: (renewalDate: string) => string,
+) {
+	const {
+		devPlanCreditsRemaining,
+		chatPlanCreditsRemaining,
+		totalAvailableCredits,
+	} = getAvailableCredits(organization);
+
+	if (totalAvailableCredits > 0) {
+		return;
+	}
+
+	if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
+		const renewalDate = organization.devPlanExpiresAt
+			? new Date(organization.devPlanExpiresAt).toLocaleDateString()
+			: "your next billing date";
+		throw new HTTPException(402, {
+			message: devPlanCreditLimitMessage(renewalDate),
+		});
+	}
+
+	if (organization.chatPlan !== "none" && chatPlanCreditsRemaining <= 0) {
+		const renewalDate = organization.chatPlanExpiresAt
+			? new Date(organization.chatPlanExpiresAt).toLocaleDateString()
+			: "your next billing date";
+		throw new HTTPException(402, {
+			message: `Chat Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+		});
+	}
+
+	throw new HTTPException(402, { message: insufficientCreditsMessage });
+}
+
 export const moderations = new OpenAPIHono<ServerTypes>();
 
 const createModeration = createRoute({
@@ -229,6 +302,14 @@ const createModeration = createRoute({
 				},
 			},
 			description: "Unauthorized request.",
+		},
+		402: {
+			content: {
+				"application/json": {
+					schema: moderationErrorSchema,
+				},
+			},
+			description: "Payment required / insufficient credits.",
 		},
 		403: {
 			content: {
@@ -423,7 +504,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 	// can never name it and evaluating them would deny existing keys with no way
 	// to allowlist it. deny/allow_providers ["openai"] and IP CIDR rules still
 	// gate moderation. End-user sessions are exempt: their model allowlists
-	// target chat models and must not block the free moderation endpoint.
+	// target chat models and must not block the moderation endpoint.
 	if (!apiKey.endUserSession) {
 		const iamValidation = await validateRequestModelAccess({
 			apiKey,
@@ -432,7 +513,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 			activeModelInfo: {
 				id: "openai-moderation",
 				family: "openai",
-				free: true,
+				free: false,
 				providers: [
 					{
 						providerId: "openai",
@@ -488,6 +569,13 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		}
 		usedToken = providerKey.token;
 	} else if (project.mode === "credits") {
+		assertCreditsAvailableForModeration(
+			organization,
+			`Organization ${organization.id} has insufficient credits`,
+			(renewalDate) =>
+				`Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+		);
+
 		const envResult = getProviderEnv("openai", {
 			selectionScope: upstreamModel,
 			variant: envVariant,
@@ -504,6 +592,13 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		if (providerKey) {
 			usedToken = providerKey.token;
 		} else {
+			assertCreditsAvailableForModeration(
+				organization,
+				"No API key set for provider and organization has insufficient credits",
+				(renewalDate) =>
+					`No API key set for provider. Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+			);
+
 			const envResult = getProviderEnv("openai", {
 				selectionScope: upstreamModel,
 				variant: envVariant,
@@ -853,13 +948,13 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 					inputCost: 0,
 					outputCost: 0,
 					cachedInputCost: 0,
-					requestCost: 0,
+					requestCost: MODERATION_REQUEST_PRICE,
 					webSearchCost: 0,
 					imageInputTokens: null,
 					imageOutputTokens: null,
 					imageInputCost: null,
 					imageOutputCost: null,
-					cost: 0,
+					cost: MODERATION_REQUEST_PRICE,
 					estimatedCost: false,
 					discount: null,
 					pricingTier: null,
