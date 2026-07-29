@@ -1181,6 +1181,8 @@ export async function finalizeDevPlanSetupSession(
 			subscribedUser?.name,
 			devPlanTier,
 			devPlanCycle,
+			parseFloat(invoiceAmount),
+			invoiceCurrency,
 		);
 	}
 
@@ -1561,6 +1563,8 @@ async function handleCheckoutSessionCompleted(
 					subscribedUser?.name,
 					devPlanTier,
 					devPlanCycle,
+					(session.amount_total ?? 0) / 100,
+					(session.currency ?? "USD").toUpperCase(),
 				);
 			}
 		} else {
@@ -3831,6 +3835,8 @@ export async function handleInvoicePaymentSucceeded(event: {
 				subscribedUser?.name,
 				initialDevPlanTier,
 				initialDevPlanCycle,
+				invoice.amount_paid / 100,
+				invoice.currency.toUpperCase(),
 			);
 		}
 
