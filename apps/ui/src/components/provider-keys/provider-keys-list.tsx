@@ -36,6 +36,7 @@ import { isStealthProvider, providers } from "@llmgateway/models";
 import { getProviderIcon } from "@llmgateway/shared/components";
 
 import { CreateProviderKeyDialog } from "./create-provider-key-dialog";
+import { RenameProviderKeyDialog } from "./rename-provider-key-dialog";
 
 import type { paths } from "@/lib/api/v1";
 import type { Organization } from "@/lib/types";
@@ -349,15 +350,27 @@ export function ProviderKeysList({
 															<DropdownMenuContent align="end">
 																<DropdownMenuLabel>Actions</DropdownMenuLabel>
 																{provider.id === "custom" && (
-																	<DropdownMenuItem asChild>
-																		<Link
-																			href={
-																				`${buildOrgUrl("org/custom-models")}?providerKey=${providerKey.id}` as never
-																			}
+																	<>
+																		<RenameProviderKeyDialog
+																			providerKeyId={providerKey.id}
+																			currentName={providerKey.name}
 																		>
-																			Manage models
-																		</Link>
-																	</DropdownMenuItem>
+																			<DropdownMenuItem
+																				onSelect={(e) => e.preventDefault()}
+																			>
+																				Rename
+																			</DropdownMenuItem>
+																		</RenameProviderKeyDialog>
+																		<DropdownMenuItem asChild>
+																			<Link
+																				href={
+																					`${buildOrgUrl("org/custom-models")}?providerKey=${providerKey.id}` as never
+																				}
+																			>
+																				Manage models
+																			</Link>
+																		</DropdownMenuItem>
+																	</>
 																)}
 																<DropdownMenuItem
 																	onClick={() =>
