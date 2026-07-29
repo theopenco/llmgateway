@@ -58,7 +58,7 @@ export ANTHROPIC_MODEL=gpt-5-mini
 ### Use Google's Gemini
 
 ```bash
-export ANTHROPIC_MODEL=gemini-2.5-pro
+export ANTHROPIC_MODEL=gemini-3.1-pro-preview
 ```
 
 ### Use Anthropic's Claude Models
@@ -121,7 +121,7 @@ On startup Claude Code calls our `/v1/models` endpoint and adds what it returns 
     "claude-haiku-4-5",
     "gpt-5",
     "gpt-5-mini",
-    "gemini-2.5-pro",
+    "gemini-3.1-pro-preview",
     "kimi-k3"
   ]
 }

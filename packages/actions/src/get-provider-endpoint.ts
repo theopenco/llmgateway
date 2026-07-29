@@ -49,7 +49,7 @@ function buildVertexCompatibleEndpoint(
 	variant?: EnvVarVariant,
 ): string {
 	const endpoint = stream ? "streamGenerateContent" : "generateContent";
-	const model = externalId ?? "gemini-2.5-flash-lite";
+	const model = externalId ?? "gemini-3.1-flash-lite";
 
 	const projectId =
 		providerKeyOptions?.google_vertex_project_id ??
