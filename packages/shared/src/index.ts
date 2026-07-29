@@ -144,6 +144,11 @@ export { MARKETING_STATS, RUNWARE_PROMO } from "./marketing.js";
 export { isContentFilterErrorText } from "./content-filter.js";
 
 export {
+	CUSTOM_PROVIDER_NAME_MESSAGE,
+	CUSTOM_PROVIDER_NAME_REGEX,
+} from "./custom-providers.js";
+
+export {
 	validateApiKeyLimitsWithinMemberBudget,
 	SSO_TEAM_DEFAULT_DEVELOPER_BUDGET,
 	type ApiKeyLimitConstraints,

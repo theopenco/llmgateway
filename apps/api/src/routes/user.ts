@@ -502,15 +502,23 @@ user.openapi(deleteUser, async (c) => {
 		});
 	}
 
+	// Sign out before deleting the user: the delete cascades the session rows
+	// away, after which better-auth can no longer resolve the session to revoke
+	// it or emit the cookie-clearing headers.
+	const signOutResult = await auth.api.signOut({
+		headers: c.req.raw.headers,
+		returnHeaders: true,
+	});
+
 	await db.delete(tables.user).where(eq(tables.user.id, authUser.id));
 
 	await notifyUserAccountDeleted(userRecord.email, userRecord.name);
 
 	await deleteResendContact(userRecord.email);
 
-	await auth.api.signOut({
-		headers: c.req.raw.headers,
-	});
+	for (const cookie of signOutResult.headers.getSetCookie()) {
+		c.header("set-cookie", cookie, { append: true });
+	}
 
 	return c.json({
 		message: "Account deleted successfully",

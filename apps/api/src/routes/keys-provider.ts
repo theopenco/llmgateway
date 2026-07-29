@@ -10,6 +10,10 @@ import { logAuditEvent } from "@llmgateway/audit";
 import { cdb, db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { isStealthProvider, providers } from "@llmgateway/models";
+import {
+	CUSTOM_PROVIDER_NAME_MESSAGE,
+	CUSTOM_PROVIDER_NAME_REGEX,
+} from "@llmgateway/shared";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import type { ServerTypes } from "@/vars.js";
@@ -112,10 +116,7 @@ export function serializeProviderKey<T extends { token: string }>(
 // model strings, so it must stay URL-safe and unique within the organization.
 export const customProviderNameSchema = z
 	.string()
-	.regex(
-		/^[a-z]+(-[a-z]+)*$/,
-		"Name must contain only lowercase letters a-z and single hyphens between them",
-	);
+	.regex(CUSTOM_PROVIDER_NAME_REGEX, CUSTOM_PROVIDER_NAME_MESSAGE);
 
 export async function assertCustomProviderNameAvailable(
 	organizationId: string,
@@ -251,6 +252,9 @@ const createProviderKeySchema = z.object({
 const updateProviderKeyStatusSchema = z
 	.object({
 		status: z.enum(["active", "inactive"]).optional(),
+		// Custom providers only: renames the provider, which changes the model
+		// prefix used in requests (e.g. "myprovider/some-model").
+		name: customProviderNameSchema.optional(),
 		// Custom providers only: restrict requests to catalog-defined models.
 		customModelsOnly: z.boolean().optional(),
 		// Custom providers only: self-attested compliance posture. `null` clears
@@ -260,6 +264,7 @@ const updateProviderKeyStatusSchema = z
 	.refine(
 		(v) =>
 			v.status !== undefined ||
+			v.name !== undefined ||
 			v.customModelsOnly !== undefined ||
 			v.complianceAttestation !== undefined,
 		{
@@ -718,7 +723,7 @@ keysProvider.openapi(updateStatus, async (c) => {
 	}
 
 	const { id } = c.req.param();
-	const { status, customModelsOnly, complianceAttestation } =
+	const { status, name, customModelsOnly, complianceAttestation } =
 		c.req.valid("json");
 
 	// Get all active organization IDs the user has access to
@@ -743,6 +748,18 @@ keysProvider.openapi(updateStatus, async (c) => {
 		throw new HTTPException(404, {
 			message: "Provider key not found",
 		});
+	}
+
+	if (name !== undefined) {
+		if (providerKey.provider !== "custom") {
+			throw new HTTPException(400, {
+				message: "name can only be changed on custom provider keys",
+			});
+		}
+
+		if (name !== providerKey.name) {
+			await assertCustomProviderNameAvailable(providerKey.organizationId, name);
+		}
 	}
 
 	if (customModelsOnly !== undefined) {
@@ -775,11 +792,15 @@ keysProvider.openapi(updateStatus, async (c) => {
 
 	const updates: {
 		status?: "active" | "inactive";
+		name?: string;
 		customModelsOnly?: boolean;
 		complianceAttestation?: ProviderKeyComplianceAttestation | null;
 	} = {};
 	if (status !== undefined) {
 		updates.status = status;
+	}
+	if (name !== undefined) {
+		updates.name = name;
 	}
 	if (customModelsOnly !== undefined) {
 		updates.customModelsOnly = customModelsOnly;
@@ -801,6 +822,9 @@ keysProvider.openapi(updateStatus, async (c) => {
 	const changes: Record<string, { old: unknown; new: unknown }> = {};
 	if (status !== undefined && providerKey.status !== status) {
 		changes.status = { old: providerKey.status, new: status };
+	}
+	if (name !== undefined && providerKey.name !== name) {
+		changes.name = { old: providerKey.name, new: name };
 	}
 	if (
 		customModelsOnly !== undefined &&

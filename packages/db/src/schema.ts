@@ -1581,7 +1581,11 @@ export const providerKey = pgTable(
 			.references(() => organization.id, { onDelete: "cascade" }),
 	},
 	(table) => [
-		unique().on(table.organizationId, table.name),
+		// Uniqueness applies only to live rows so a soft-deleted provider's name
+		// can be reused (create and rename both soft-delete via status).
+		uniqueIndex("provider_key_organization_id_name_unique")
+			.on(table.organizationId, table.name)
+			.where(sql`status <> 'deleted'`),
 		index("provider_key_organization_id_idx").on(table.organizationId),
 		check(
 			"provider_key_attestation_custom_only",
