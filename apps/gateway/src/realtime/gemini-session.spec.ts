@@ -927,6 +927,77 @@ describe("GeminiRealtimeProxySession draining", () => {
 		);
 	});
 
+	// The provider charges for a generation as soon as it reports the usage
+	// snapshot. If the terminal event never arrives, shutting down without
+	// charging it means Google bills us and the customer is not billed at all.
+	it("charges a buffered usage snapshot when the drain times out", async () => {
+		process.env.REALTIME_DRAIN_TIMEOUT_MS = "20";
+		try {
+			const { client, clientSends, upstreamSends } = await openSession();
+
+			clientSends({
+				realtimeInput: {
+					audio: { data: "AAA=", mimeType: "audio/pcm;rate=16000" },
+				},
+			});
+			await flush();
+			// Usage arrives, but the turnComplete that would close the stage never
+			// does — the client vanishes first.
+			upstreamSends({ usageMetadata: validUsage });
+			await flush();
+
+			client.readyState = 3;
+			client.emit("close");
+			await new Promise((resolve) => setTimeout(resolve, 60));
+			await flush();
+
+			expect(recordRealtimeResponse).toHaveBeenCalledTimes(1);
+			expect(recordRealtimeResponse).toHaveBeenCalledWith(
+				expect.objectContaining({ responseStatus: "cancelled" }),
+			);
+			expect(closeRealtimeSessionRecord).toHaveBeenCalledWith(
+				"rts_g1",
+				"closed",
+				"client_disconnected_drain_timeout",
+				expect.anything(),
+			);
+		} finally {
+			delete process.env.REALTIME_DRAIN_TIMEOUT_MS;
+		}
+	});
+
+	it("charges a buffered usage snapshot when the server force-closes", async () => {
+		const { session, upstreamSends } = await openSession();
+
+		upstreamSends({ usageMetadata: validUsage });
+		await flush();
+
+		session.close(1001, "server_shutdown");
+		await flush();
+
+		expect(recordRealtimeResponse).toHaveBeenCalledTimes(1);
+		expect(closeRealtimeSessionRecord).toHaveBeenCalledWith(
+			"rts_g1",
+			"closed",
+			"server_shutdown",
+			expect.anything(),
+		);
+	});
+
+	it("does not double-charge a stage already billed at its terminal event", async () => {
+		const { session, upstreamSends } = await openSession();
+
+		upstreamSends({ usageMetadata: validUsage });
+		await flush();
+		upstreamSends({ serverContent: { turnComplete: true } });
+		await flush();
+
+		session.close(1001, "server_shutdown");
+		await flush();
+
+		expect(recordRealtimeResponse).toHaveBeenCalledTimes(1);
+	});
+
 	it("closes immediately when nothing billable is outstanding", async () => {
 		const { client } = await openSession();
 

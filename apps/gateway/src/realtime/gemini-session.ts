@@ -290,13 +290,13 @@ export class GeminiRealtimeProxySession {
 						"Maximum realtime session duration reached. Reconnect to continue.",
 					),
 				);
-				this.shutdown(1000, "session_duration_limit");
+				this.settleAndShutdown(1000, "session_duration_limit");
 			}, maxSessionMs()),
 		);
 
 		const ping = setInterval(() => {
 			if (!this.clientAlive || !this.upstreamAlive) {
-				this.shutdown(1011, "ping_timeout");
+				this.settleAndShutdown(1011, "ping_timeout");
 				return;
 			}
 			this.clientAlive = false;
@@ -1149,6 +1149,46 @@ export class GeminiRealtimeProxySession {
 		}
 	}
 
+	/**
+	 * Close the session, first charging a generation stage whose usage snapshot
+	 * has arrived but whose terminal event never will. Every locally initiated
+	 * shutdown goes through here — a timer, a dead socket, a process drain —
+	 * because the provider has already charged for that work and dropping the
+	 * snapshot silently underbills it. The upstream-close path does the same
+	 * thing inline.
+	 *
+	 * Nothing recurses: billStage() takes the snapshot before doing anything
+	 * else, so the shutdown it performs on failure re-enters here with no
+	 * pending usage left and falls straight through to the hard stop.
+	 */
+	private settleAndShutdown(code: number, reason: string): void {
+		if (this.finalized || this.pendingUsage === null) {
+			this.shutdown(code, reason);
+			return;
+		}
+		// Serialized behind the upstream queue so a terminal event racing this
+		// cannot charge the same snapshot twice under two stage numbers.
+		this.upstreamQueue = this.upstreamQueue
+			.then(async () => {
+				await this.billStage("cancelled", { requireUsage: false });
+				this.shutdown(code, reason);
+			})
+			.catch((error: unknown) => {
+				logger.error(
+					"Failed to charge the trailing Gemini realtime stage",
+					error as Error,
+				);
+				this.shutdown(code, reason);
+			});
+	}
+
+	/**
+	 * Force-close from outside (server drain). Charges any buffered stage first.
+	 */
+	public close(code: number, reason: string): void {
+		this.settleAndShutdown(code, reason);
+	}
+
 	// --- Lifecycle ---
 
 	private async handleClientClose(): Promise<void> {
@@ -1176,7 +1216,7 @@ export class GeminiRealtimeProxySession {
 					sessionId: this.sessionRecordId,
 					...this.diagnostics(),
 				});
-				this.shutdown(1000, "client_disconnected_drain_timeout");
+				this.settleAndShutdown(1000, "client_disconnected_drain_timeout");
 			}, drainTimeoutMs());
 			return;
 		}
@@ -1351,7 +1391,7 @@ export class GeminiRealtimeProxySession {
 					clearInterval(this.backpressurePoller);
 					this.backpressurePoller = null;
 				}
-				this.shutdown(1011, "backpressure_timeout");
+				this.settleAndShutdown(1011, "backpressure_timeout");
 			}
 		}, 100);
 	}

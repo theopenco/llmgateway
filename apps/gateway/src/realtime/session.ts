@@ -1272,6 +1272,15 @@ export class RealtimeProxySession {
 	}
 
 	/**
+	 * Force-close from outside (server drain). This provider reports usage
+	 * inside the terminal event itself, so there is never a buffered snapshot
+	 * awaiting a charge and closing is an immediate hard stop.
+	 */
+	public close(code: number, reason: string): void {
+		this.shutdown(code, reason);
+	}
+
+	/**
 	 * Close both sockets and finalize the session record. Idempotent.
 	 */
 	public shutdown(code: number, reason: string): void {

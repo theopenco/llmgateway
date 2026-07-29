@@ -40,7 +40,12 @@ const maxMessageBytes = () =>
  * ever needs to count sessions and force-close them during shutdown.
  */
 interface ShutdownableSession {
-	shutdown: (code: number, reason: string) => void;
+	/**
+	 * Force-close the session. Implementations settle any billable work that is
+	 * still outstanding before finalizing, so a server drain cannot drop a
+	 * charge the provider has already made.
+	 */
+	close: (code: number, reason: string) => void;
 }
 
 function writeHttpError(
@@ -587,7 +592,7 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 		},
 		closeAll: (code, reason) => {
 			for (const session of [...sessions]) {
-				session.shutdown(code, reason);
+				session.close(code, reason);
 			}
 		},
 	};
