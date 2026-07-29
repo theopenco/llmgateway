@@ -92,8 +92,10 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 
 ## Renaming API Keys
 
-A key's name is only a label, so you can change it at any time from the dashboard
-without affecting the secret, its usage history, limits, or IAM rules.
+A key's name is only a label, so you can change it at any time — from the
+dashboard, or with the `description` field on [`PATCH
+/v1/master/keys/{id}`](/features/master-keys#update-a-gateway-api-key) — without
+affecting the secret, its usage history, limits, or IAM rules.
 
 ## Disabling/Enabling API Keys
 
