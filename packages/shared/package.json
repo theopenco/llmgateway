@@ -15,6 +15,10 @@
 			"import": "./dist/gcs.js",
 			"default": "./dist/gcs.js"
 		},
+		"./payload-storage": {
+			"types": "./dist/payload-storage.d.ts",
+			"import": "./dist/payload-storage.js"
+		},
 		"./video-access": {
 			"types": "./dist/video-access.d.ts",
 			"import": "./dist/video-access.js",
@@ -118,6 +122,7 @@
 		"lint": "eslint . && prettier --check ."
 	},
 	"dependencies": {
+		"@aws-sdk/client-s3": "3.1097.0",
 		"@google-cloud/storage": "7.19.0",
 		"@llmgateway/models": "workspace:*",
 		"@opentelemetry/api": "1.9.0",

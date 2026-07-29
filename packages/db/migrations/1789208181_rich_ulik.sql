@@ -1,0 +1,1 @@
+ALTER TABLE "log" ADD COLUMN "payload_ref" text;
