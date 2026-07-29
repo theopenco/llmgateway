@@ -108,11 +108,32 @@ export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1
 
 On startup Claude Code calls our `/v1/models` endpoint and adds what it returns to the picker, labeled **From gateway**. Entries are cached in `~/.claude/cache/gateway-models.json` and refreshed on each launch, so a failed lookup falls back to the previous list rather than breaking your session. Requires Claude Code v2.1.129 or later.
 
-> **Heads up:** Claude Code discards discovered models whose ID does not start with `claude` or `anthropic`. Discovery therefore surfaces only the Claude models in our catalog — models like GPT-5 or Gemini are filtered out by the client, not by the gateway. To make one of those selectable, add it explicitly with `ANTHROPIC_CUSTOM_MODEL_OPTION` as shown below.
+> **Heads up:** Claude Code discards discovered models whose ID does not start with `claude` or `anthropic`, so discovery alone surfaces only the Claude models in our catalog. Models like GPT-5 or Gemini are filtered out by the client, not by the gateway. List them in `availableModels` to add them to the picker.
 
-### Adding a Non-Claude Model to the Picker
+### Adding Non-Claude Models to the Picker
 
-`ANTHROPIC_CUSTOM_MODEL_OPTION` adds a single custom entry to the `/model` picker, which is how you expose a model that the discovery filter drops:
+`availableModels` is not limited to Claude model IDs. Any ID you list that has no built-in row gets its own row in the `/model` picker, which is how you put the rest of our catalog in front of the picker:
+
+```json
+{
+  "availableModels": [
+    "claude-sonnet-5",
+    "claude-haiku-4-5",
+    "gpt-5",
+    "gpt-5-mini",
+    "gemini-2.5-pro",
+    "kimi-k3"
+  ]
+}
+```
+
+Requires Claude Code v2.1.199 or later; on earlier versions these IDs are still selectable, but only by typing `/model <id>` rather than picking a row.
+
+> **Note:** `availableModels` is an allowlist, so it replaces the built-in list rather than extending it. Any model you leave out becomes unselectable — naming it with `--model` or `ANTHROPIC_MODEL` silently starts the session on a different model instead. Include every model you want to keep, Claude ones included.
+
+### Adding a Single Model Without an Allowlist
+
+If you only need one extra model and don't want to enumerate an allowlist, `ANTHROPIC_CUSTOM_MODEL_OPTION` appends one entry to the picker:
 
 ```bash
 export ANTHROPIC_CUSTOM_MODEL_OPTION=gpt-5
@@ -120,7 +141,7 @@ export ANTHROPIC_CUSTOM_MODEL_OPTION_NAME="GPT-5 via LLM Gateway"
 export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="Routed through LLM Gateway"
 ```
 
-Only one custom entry is supported at a time. If you also set `availableModels`, include the custom ID in that list or it will be filtered back out. For switching between several non-Claude models, keep using `ANTHROPIC_MODEL` per session, or define a per-project `.claude/settings.json` for each.
+Only one custom entry is supported at a time. If you also set `availableModels`, include this ID in that list or it will be filtered back out.
 
 ## Environment Variables
 
