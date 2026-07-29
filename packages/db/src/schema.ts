@@ -1549,8 +1549,7 @@ export interface ProviderKeyOptions {
  * any enabled policy). attestedAt / attestedByUserId are written server-side
  * only.
  */
-export interface ProviderKeyComplianceAttestation
-	extends ProviderComplianceAttestation {
+export interface ProviderKeyComplianceAttestation extends ProviderComplianceAttestation {
 	attestedAt?: string;
 	attestedByUserId?: string;
 }
@@ -3397,9 +3396,7 @@ export interface TopicRestrictionRuleConfig {
 }
 
 export type CustomRuleConfig =
-	| BlockedTermsRuleConfig
-	| CustomRegexRuleConfig
-	| TopicRestrictionRuleConfig;
+	BlockedTermsRuleConfig | CustomRegexRuleConfig | TopicRestrictionRuleConfig;
 
 export const guardrailConfig = pgTable(
 	"guardrail_config",
