@@ -46,7 +46,7 @@ const featuredTools = [
 		name: "Claude Code",
 		icon: AnthropicIcon,
 		description:
-			"Two env vars and Claude Code routes through LLM Gateway. Use any model — Claude, GPT-5, Gemini, GLM — with a single ANTHROPIC_MODEL flip.",
+			"Two env vars and Claude Code routes through LLM Gateway. Use any model — Claude, GPT-5, Gemini, GLM — and switch mid-session with /model.",
 		setup: "ANTHROPIC_BASE_URL + AUTH_TOKEN",
 	},
 	{
