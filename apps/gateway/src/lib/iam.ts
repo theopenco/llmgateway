@@ -8,6 +8,8 @@ import { anyCidrMatches } from "@/lib/client-ip.js";
 import { validateEndUserSessionModelAccess } from "@/lib/end-user-session.js";
 
 import {
+	customModelRef,
+	customProviderRef,
 	models,
 	type ModelDefinition,
 	type ProviderId,
@@ -69,7 +71,7 @@ function providerEntryMatches(
 	return (
 		providerId === "custom" &&
 		customProviderName !== undefined &&
-		entry === `custom:${customProviderName}`
+		entry === customProviderRef(customProviderName)
 	);
 }
 
@@ -81,7 +83,7 @@ function modelRuleRefs(
 	customProviderName: string | undefined,
 ): string[] {
 	return customProviderName
-		? [modelDef.id, `${customProviderName}/${modelDef.id}`]
+		? [modelDef.id, customModelRef(customProviderName, modelDef.id)]
 		: [modelDef.id];
 }
 

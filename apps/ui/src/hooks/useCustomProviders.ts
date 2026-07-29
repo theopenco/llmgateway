@@ -5,7 +5,11 @@ import { useMemo } from "react";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useApi } from "@/lib/fetch-client";
 
-import { customProviderRef, type ModelDefinition } from "@llmgateway/models";
+import {
+	customModelRef,
+	customProviderRef,
+	type ModelDefinition,
+} from "@llmgateway/models";
 
 export interface CustomProviderOption {
 	/** Restriction-list ref for this custom provider (`custom:<name>`). */
@@ -52,13 +56,17 @@ export function useCustomProviderSelection() {
 			)
 			.map((model) => {
 				const providerName = keyNameById.get(model.providerKeyId)!;
-				const ref = `${providerName}/${model.modelName}`;
+				const ref = customModelRef(providerName, model.modelName);
 				return {
 					id: ref,
 					name: model.displayName ? `${model.displayName} (${ref})` : ref,
 					family: "custom",
 					providers: [
-						{ providerId: "custom" as const, externalId: model.modelName },
+						{
+							providerId: "custom" as const,
+							externalId: model.modelName,
+							streaming: true,
+						},
 					],
 				};
 			});

@@ -1805,6 +1805,18 @@ export function customProviderRef(customProviderName: string): string {
 }
 
 /**
+ * Policy-list ref for a model served by one of the org's custom providers,
+ * addressed as `<name>/<model>` (the custom provider's routing-prefix name
+ * plus the custom-catalog model name).
+ */
+export function customModelRef(
+	customProviderName: string,
+	modelName: string,
+): string {
+	return `${customProviderName}/${modelName}`;
+}
+
+/**
  * Whether a provider ref passes the policy's fine-grained provider lists.
  * The deny list always wins; a non-empty allow list blocks every provider
  * not on it. This is only the list check — certification/data-policy

@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { logViolation } from "@llmgateway/guardrails";
 import { logger, toError } from "@llmgateway/logger";
 import {
+	customModelRef,
 	customProviderRef,
 	getProviderDefinition,
 	isAttestationCompliant,
@@ -72,7 +73,7 @@ export function isModelIdCompliant(
 	context?: ComplianceCheckContext,
 ): boolean {
 	const modelRefs = context?.customProviderName
-		? [modelId, `${context.customProviderName}/${modelId}`]
+		? [modelId, customModelRef(context.customProviderName, modelId)]
 		: [modelId];
 	return isModelAllowedByPolicy(modelRefs, policy);
 }
