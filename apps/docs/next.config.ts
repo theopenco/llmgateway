@@ -26,6 +26,11 @@ const nextConfig: NextConfig = {
 	redirects() {
 		return [
 			{
+				source: "/features/coding-agents",
+				destination: "/features/source",
+				permanent: true,
+			},
+			{
 				source: "/features/llm-sdk",
 				destination: "/features/embeddable-payments",
 				permanent: true,
