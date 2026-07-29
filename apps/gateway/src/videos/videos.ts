@@ -26,6 +26,7 @@ import {
 	complianceBlockMessage,
 	filterCompliantProviders,
 	getActiveCompliancePolicy,
+	isModelIdCompliant,
 	isProviderIdCompliant,
 	logComplianceBlock,
 } from "@/lib/compliance.js";
@@ -4448,11 +4449,16 @@ videos.openapi(createVideo, async (c) => {
 		const pinnedBlocked =
 			requestedProvider !== undefined &&
 			!isProviderIdCompliant(requestedProvider, videoCompliancePolicy);
+		// The policy's model lists block the model outright.
+		const modelBlocked = !isModelIdCompliant(
+			modelInfo.id,
+			videoCompliancePolicy,
+		);
 		const compliantProviders = filterCompliantProviders(
 			modelInfo.providers as ProviderModelMapping[],
 			videoCompliancePolicy,
 		);
-		if (pinnedBlocked || compliantProviders.length === 0) {
+		if (pinnedBlocked || modelBlocked || compliantProviders.length === 0) {
 			await logComplianceBlock(project.organizationId, {
 				apiKeyId: apiKey.id,
 				model: normalizedModel,

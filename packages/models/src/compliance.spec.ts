@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
 	countryCodeToFlag,
+	customProviderRef,
 	getProviderCountries,
 	getProviderDefinition,
 	isAttestationCompliant,
+	isModelAllowedByPolicy,
 	isProviderCompliant,
+	isProviderRefAllowedByPolicy,
 	PROVIDER_COUNTRY_NAMES,
 	providers,
 	type ProviderComplianceAttestation,
@@ -289,6 +292,163 @@ describe("isProviderCompliant", () => {
 		);
 		expect(isProviderCompliant(compliant, policy)).toBe(true);
 		expect(isProviderCompliant(wrongCountry, policy)).toBe(false);
+	});
+});
+
+describe("isProviderRefAllowedByPolicy", () => {
+	it("applies no restriction when the policy is disabled or has no lists", () => {
+		expect(
+			isProviderRefAllowedByPolicy("openai", {
+				enabled: false,
+				blockedProviders: ["openai"],
+			}),
+		).toBe(true);
+		expect(isProviderRefAllowedByPolicy("openai", { enabled: true })).toBe(
+			true,
+		);
+	});
+
+	it("blocks providers on the deny list", () => {
+		const policy: ProviderCompliancePolicy = {
+			enabled: true,
+			blockedProviders: ["openai", customProviderRef("acme")],
+		};
+		expect(isProviderRefAllowedByPolicy("openai", policy)).toBe(false);
+		expect(isProviderRefAllowedByPolicy("custom:acme", policy)).toBe(false);
+		expect(isProviderRefAllowedByPolicy("anthropic", policy)).toBe(true);
+		expect(isProviderRefAllowedByPolicy("custom:other", policy)).toBe(true);
+	});
+
+	it("a non-empty allow list blocks everything not on it", () => {
+		const policy: ProviderCompliancePolicy = {
+			enabled: true,
+			allowedProviders: ["anthropic", customProviderRef("acme")],
+		};
+		expect(isProviderRefAllowedByPolicy("anthropic", policy)).toBe(true);
+		expect(isProviderRefAllowedByPolicy("custom:acme", policy)).toBe(true);
+		expect(isProviderRefAllowedByPolicy("openai", policy)).toBe(false);
+		expect(isProviderRefAllowedByPolicy("custom:other", policy)).toBe(false);
+	});
+
+	it("an empty allow list applies no restriction", () => {
+		expect(
+			isProviderRefAllowedByPolicy("openai", {
+				enabled: true,
+				allowedProviders: [],
+			}),
+		).toBe(true);
+	});
+
+	it("the deny list wins over the allow list", () => {
+		expect(
+			isProviderRefAllowedByPolicy("openai", {
+				enabled: true,
+				allowedProviders: ["openai"],
+				blockedProviders: ["openai"],
+			}),
+		).toBe(false);
+	});
+});
+
+describe("isModelAllowedByPolicy", () => {
+	it("applies no restriction when the policy is disabled or has no lists", () => {
+		expect(
+			isModelAllowedByPolicy(["gpt-5.2"], {
+				enabled: false,
+				blockedModels: ["gpt-5.2"],
+			}),
+		).toBe(true);
+		expect(isModelAllowedByPolicy(["gpt-5.2"], { enabled: true })).toBe(true);
+	});
+
+	it("blocks a model when any of its refs is on the deny list", () => {
+		const policy: ProviderCompliancePolicy = {
+			enabled: true,
+			blockedModels: ["acme/my-model"],
+		};
+		expect(isModelAllowedByPolicy(["my-model", "acme/my-model"], policy)).toBe(
+			false,
+		);
+		expect(isModelAllowedByPolicy(["my-model", "other/my-model"], policy)).toBe(
+			true,
+		);
+	});
+
+	it("a non-empty allow list requires one matching ref", () => {
+		const policy: ProviderCompliancePolicy = {
+			enabled: true,
+			allowedModels: ["claude-sonnet-4-6", "acme/my-model"],
+		};
+		expect(isModelAllowedByPolicy(["claude-sonnet-4-6"], policy)).toBe(true);
+		expect(isModelAllowedByPolicy(["my-model", "acme/my-model"], policy)).toBe(
+			true,
+		);
+		expect(isModelAllowedByPolicy(["gpt-5.2"], policy)).toBe(false);
+	});
+
+	it("an empty allow list applies no restriction", () => {
+		expect(
+			isModelAllowedByPolicy(["gpt-5.2"], { enabled: true, allowedModels: [] }),
+		).toBe(true);
+	});
+
+	it("the deny list wins over the allow list", () => {
+		expect(
+			isModelAllowedByPolicy(["gpt-5.2"], {
+				enabled: true,
+				allowedModels: ["gpt-5.2"],
+				blockedModels: ["gpt-5.2"],
+			}),
+		).toBe(false);
+	});
+});
+
+describe("isProviderCompliant with provider lists", () => {
+	const compliantDataPolicy = {
+		apiTraining: false,
+		consumerTraining: false,
+		promptLogging: false,
+		soc2: 2 as const,
+	};
+
+	it("blocks a listed provider even when it meets every requirement", () => {
+		const provider = makeProvider(compliantDataPolicy, "US");
+		expect(
+			isProviderCompliant(provider, {
+				enabled: true,
+				requireSoc2: true,
+				blockedProviders: ["test"],
+			}),
+		).toBe(false);
+	});
+
+	it("still requires certifications for allow-listed providers", () => {
+		const uncertified = makeProvider(null, "US");
+		expect(
+			isProviderCompliant(uncertified, {
+				enabled: true,
+				requireSoc2: true,
+				allowedProviders: ["test"],
+			}),
+		).toBe(false);
+		const certified = makeProvider(compliantDataPolicy, "US");
+		expect(
+			isProviderCompliant(certified, {
+				enabled: true,
+				requireSoc2: true,
+				allowedProviders: ["test"],
+			}),
+		).toBe(true);
+	});
+
+	it("blocks providers absent from a non-empty allow list", () => {
+		const provider = makeProvider(compliantDataPolicy, "US");
+		expect(
+			isProviderCompliant(provider, {
+				enabled: true,
+				allowedProviders: ["anthropic"],
+			}),
+		).toBe(false);
 	});
 });
 

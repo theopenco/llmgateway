@@ -41,6 +41,19 @@ The selector only offers countries that are referenced by a provider in the cata
 
 The country filter composes with the certification and data-policy requirements above — a provider must satisfy all active requirements to be allowed.
 
+## Provider & model restrictions
+
+Beyond attribute-based requirements, the **Provider & Model Restrictions** card lets you block or allow individual providers and models:
+
+- **Blocked providers / blocked models** — deny lists. A listed provider or model is always blocked, even when it satisfies every requirement above.
+- **Allowed providers / allowed models** — fine-grained allow lists. When non-empty, only the listed providers (or models) may be used; everything else is blocked. An empty list applies no restriction.
+
+Deny lists always win over allow lists, and both compose with the requirements above — an allow-listed provider must still satisfy every active certification, data-policy, and country requirement.
+
+The selectors include your organization's own [custom providers](/features/custom-providers) (stored as `custom:<name>` refs) and their custom-catalog models (stored as `<name>/<model>` refs), so a specific custom deployment can be blocked or allow-listed individually just like a catalogue provider.
+
+These restrictions are **organization-wide** and take precedence over member-level and API-key-level [IAM rules](/features/api-keys): they are enforced after IAM evaluation, so no user-, team-, or key-level allow rule can grant access to a provider or model the compliance policy excludes.
+
 ## Enforcement
 
 When no available provider for a model meets the policy — or a pinned provider is non-compliant — the gateway returns a `403`:
@@ -48,7 +61,7 @@ When no available provider for a model meets the policy — or a pinned provider
 ```json
 {
 	"error": {
-		"message": "This request was blocked by your organization's provider compliance policy. No available provider for deepseek-v3.2 meets the required certifications. Contact your LLMGateway admin to adjust the policy."
+		"message": "This request was blocked by your organization's provider compliance policy. No available provider for deepseek-v3.2 meets the required certifications or provider/model restrictions. Contact your LLMGateway admin to adjust the policy."
 	}
 }
 ```
