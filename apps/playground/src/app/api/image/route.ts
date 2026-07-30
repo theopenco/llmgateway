@@ -168,9 +168,13 @@ export async function POST(req: Request) {
 					controller.enqueue(encoder.encode(JSON.stringify({ images }) + "\n"));
 				} catch (error: unknown) {
 					const { message, status } = describeImageGenerationError(error);
-					controller.enqueue(
-						encoder.encode(JSON.stringify({ error: message, status }) + "\n"),
-					);
+					try {
+						controller.enqueue(
+							encoder.encode(JSON.stringify({ error: message, status }) + "\n"),
+						);
+					} catch {
+						// stream cancelled/closed — nothing to deliver to
+					}
 				} finally {
 					clearInterval(keepaliveTimer);
 					try {

@@ -1,3 +1,5 @@
+import { isRecord } from "@/lib/message-metadata";
+
 export interface GeneratedImage {
 	base64: string;
 	mediaType: string;
@@ -348,8 +350,8 @@ export function describeImageGenerationError(error: unknown): {
 		const err = error as Record<string, unknown>;
 		if (typeof err.responseBody === "string") {
 			try {
-				const body = JSON.parse(err.responseBody);
-				if (typeof body.message === "string") {
+				const body: unknown = JSON.parse(err.responseBody);
+				if (isRecord(body) && typeof body.message === "string") {
 					message = body.message;
 				}
 			} catch {

@@ -897,6 +897,11 @@ export async function POST(req: Request) {
 						}
 					: {}),
 			});
+			// Safety net: nothing awaits `generation` until execute() runs, so
+			// attach a no-op rejection handler in case stream setup throws
+			// first. execute still awaits the original promise, so errors
+			// reach onError as usual.
+			generation.catch(() => {});
 
 			const stream = createUIMessageStream({
 				execute: async ({ writer }) => {
