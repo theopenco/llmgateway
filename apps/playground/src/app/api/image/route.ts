@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 
 import { PLAYGROUND_KEY_COOKIE_NAME } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
+import { describeImageGenerationError } from "@/lib/image-gen";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 
@@ -103,30 +104,36 @@ export async function POST(req: Request) {
 		}
 	}
 
-	const generation = generateImage({
-		model: llmgateway.image(selectedModel),
-		prompt:
-			input_images && input_images.length > 0
+	let generation: ReturnType<typeof generateImage>;
+	try {
+		generation = generateImage({
+			model: llmgateway.image(selectedModel),
+			prompt:
+				input_images && input_images.length > 0
+					? {
+							images: input_images.map((fp) => fp.url),
+							text: prompt,
+						}
+					: prompt,
+			n: image_config?.n ?? 1,
+			...(image_config?.image_size
+				? { size: image_config.image_size as `${number}x${number}` }
+				: {}),
+			...(image_config?.aspect_ratio && image_config.aspect_ratio !== "auto"
+				? { aspectRatio: image_config.aspect_ratio }
+				: {}),
+			...(image_config?.image_quality
 				? {
-						images: input_images.map((fp) => fp.url),
-						text: prompt,
+						providerOptions: {
+							llmgateway: { quality: image_config.image_quality },
+						},
 					}
-				: prompt,
-		n: image_config?.n ?? 1,
-		...(image_config?.image_size
-			? { size: image_config.image_size as `${number}x${number}` }
-			: {}),
-		...(image_config?.aspect_ratio && image_config.aspect_ratio !== "auto"
-			? { aspectRatio: image_config.aspect_ratio }
-			: {}),
-		...(image_config?.image_quality
-			? {
-					providerOptions: {
-						llmgateway: { quality: image_config.image_quality },
-					},
-				}
-			: {}),
-	});
+				: {}),
+		});
+	} catch (error: unknown) {
+		const { message, status } = describeImageGenerationError(error);
+		return new Response(JSON.stringify({ error: message }), { status });
+	}
 
 	// Image generation can run for minutes (gpt-image-2 at high quality),
 	// far past typical proxy/load-balancer idle timeouts. A buffered JSON
@@ -137,10 +144,11 @@ export async function POST(req: Request) {
 	// result (or error) in-band, mirroring the chat route's SSE keepalives.
 	const KEEPALIVE_INTERVAL_MS = 15_000;
 	const encoder = new TextEncoder();
+	let keepaliveTimer: ReturnType<typeof setInterval> | undefined;
 
 	const stream = new ReadableStream<Uint8Array>({
 		start(controller) {
-			const keepaliveTimer = setInterval(() => {
+			keepaliveTimer = setInterval(() => {
 				try {
 					controller.enqueue(
 						encoder.encode(JSON.stringify({ ping: 1 }) + "\n"),
@@ -159,37 +167,9 @@ export async function POST(req: Request) {
 					}));
 					controller.enqueue(encoder.encode(JSON.stringify({ images }) + "\n"));
 				} catch (error: unknown) {
-					const status =
-						typeof error === "object" &&
-						error !== null &&
-						"status" in error &&
-						typeof (error as { status: unknown }).status === "number"
-							? (error as { status: number }).status
-							: 500;
-
-					const message =
-						error instanceof Error ? error.message : "Image generation failed";
-
-					let detailedMessage: string | undefined;
-					if (typeof error === "object" && error !== null) {
-						const err = error as Record<string, unknown>;
-						if (typeof err.responseBody === "string") {
-							try {
-								const body = JSON.parse(err.responseBody);
-								if (typeof body.message === "string") {
-									detailedMessage = body.message;
-								}
-							} catch {
-								// ignore parse errors
-							}
-						}
-					}
-
+					const { message, status } = describeImageGenerationError(error);
 					controller.enqueue(
-						encoder.encode(
-							JSON.stringify({ error: detailedMessage ?? message, status }) +
-								"\n",
-						),
+						encoder.encode(JSON.stringify({ error: message, status }) + "\n"),
 					);
 				} finally {
 					clearInterval(keepaliveTimer);
@@ -200,6 +180,9 @@ export async function POST(req: Request) {
 					}
 				}
 			})();
+		},
+		cancel() {
+			clearInterval(keepaliveTimer);
 		},
 	});
 

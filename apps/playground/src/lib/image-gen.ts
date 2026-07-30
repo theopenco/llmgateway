@@ -316,12 +316,49 @@ export async function streamImageParts(
 }
 
 export class ImageGenerationError extends Error {
-	status: number;
+	public status: number;
 
-	constructor(message: string, status: number) {
+	public constructor(message: string, status: number) {
 		super(message);
 		this.status = status;
 	}
+}
+
+/**
+ * Derive a user-facing message and HTTP status from an image generation
+ * failure. Prefers the gateway's detailed message embedded in the provider
+ * error's responseBody, falling back to the Error message and status 500.
+ */
+export function describeImageGenerationError(error: unknown): {
+	message: string;
+	status: number;
+} {
+	const status =
+		typeof error === "object" &&
+		error !== null &&
+		"status" in error &&
+		typeof (error as { status: unknown }).status === "number"
+			? (error as { status: number }).status
+			: 500;
+
+	let message =
+		error instanceof Error ? error.message : "Image generation failed";
+
+	if (typeof error === "object" && error !== null) {
+		const err = error as Record<string, unknown>;
+		if (typeof err.responseBody === "string") {
+			try {
+				const body = JSON.parse(err.responseBody);
+				if (typeof body.message === "string") {
+					message = body.message;
+				}
+			} catch {
+				// ignore parse errors
+			}
+		}
+	}
+
+	return { message, status };
 }
 
 /**
@@ -351,27 +388,32 @@ export async function readImageGenerationResponse(
 		throw new ImageGenerationError("No response body", 500);
 	}
 
-	const decoder = new TextDecoder();
-	let buffer = "";
-	let result: {
+	interface ImageGenerationPayload {
 		images?: GeneratedImage[];
 		error?: string;
 		status?: number;
-	} | null = null;
+	}
 
-	const handleLine = (line: string) => {
+	const decoder = new TextDecoder();
+	let buffer = "";
+	let result: ImageGenerationPayload | null = null;
+
+	// Parse one NDJSON line; returns the payload object or null for blank,
+	// malformed, or keepalive-ping lines.
+	const parseLine = (line: string): ImageGenerationPayload | null => {
 		const trimmed = line.trim();
 		if (!trimmed) {
-			return;
+			return null;
 		}
 		try {
 			const event = JSON.parse(trimmed);
 			if (event && typeof event === "object" && !("ping" in event)) {
-				result = event;
+				return event as ImageGenerationPayload;
 			}
 		} catch {
 			// skip malformed lines
 		}
+		return null;
 	};
 
 	while (true) {
@@ -383,26 +425,23 @@ export async function readImageGenerationResponse(
 		const lines = buffer.split("\n");
 		buffer = lines.pop() ?? "";
 		for (const line of lines) {
-			handleLine(line);
+			result = parseLine(line) ?? result;
 		}
 	}
-	handleLine(buffer);
+	// Flush any UTF-8 sequence split across the final chunk boundary.
+	buffer += decoder.decode();
+	result = parseLine(buffer) ?? result;
 
-	const final = result as {
-		images?: GeneratedImage[];
-		error?: string;
-		status?: number;
-	} | null;
-	if (final?.error) {
-		throw new ImageGenerationError(final.error, final.status ?? 500);
+	if (result?.error) {
+		throw new ImageGenerationError(result.error, result.status ?? 500);
 	}
-	if (!final?.images) {
+	if (!result?.images) {
 		throw new ImageGenerationError(
 			"The connection was interrupted before the image arrived. Check your activity history — the image may still have been generated.",
 			500,
 		);
 	}
-	return final.images;
+	return result.images;
 }
 
 export function downloadImage(image: GeneratedImage, filename?: string) {
