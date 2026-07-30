@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { useCustomProviderSelection } from "@/hooks/useCustomProviders";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useTeamMembers } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
@@ -24,15 +25,22 @@ import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
 import {
+	customProviderRef,
 	getProviderCountries,
 	isAttestationCompliant,
 	isProviderCompliant,
+	isProviderRefAllowedByPolicy,
+	models,
 	providers,
 	type ProviderCompliancePolicy,
 	type ProviderDefinition,
 	type ProviderId,
 } from "@llmgateway/models";
-import { providerLogoUrls } from "@llmgateway/shared/components";
+import {
+	MultiModelSelector,
+	MultiProviderSelector,
+	providerLogoUrls,
+} from "@llmgateway/shared/components";
 
 import { ContactSalesCard } from "./contact-sales-card";
 
@@ -153,6 +161,15 @@ const DEFAULT_POLICY: ProviderCompliancePolicy = { enabled: false };
 
 const PROVIDER_COUNTRIES = getProviderCountries();
 
+// Catalogue providers offered by the restriction selectors (custom providers
+// are appended per-org at render time as `custom:<name>` refs).
+const SELECTABLE_PROVIDERS = providers.filter(
+	(provider) => !HIDDEN_PROVIDER_IDS.has(provider.id),
+);
+
+type RestrictionListKey =
+	"blockedProviders" | "allowedProviders" | "blockedModels" | "allowedModels";
+
 export function ComplianceClient() {
 	const params = useParams();
 	const organizationId = params.orgId as string;
@@ -213,7 +230,8 @@ export function ComplianceClient() {
 	const totalProviders = allowed.length + blocked.length;
 
 	// The org's own custom providers, evaluated against their self-attested
-	// compliance posture (fail-closed: no attestation on file → blocked).
+	// compliance posture (fail-closed: no attestation on file → blocked) and
+	// the policy's fine-grained provider lists (`custom:<name>` refs).
 	const { data: providerKeysData } = api.useQuery("get", "/keys/provider", {});
 	const customProviders = useMemo(() => {
 		const keys = (providerKeysData?.providerKeys ?? []).filter(
@@ -225,10 +243,33 @@ export function ComplianceClient() {
 		return keys.map((key) => ({
 			id: key.id,
 			name: key.name ?? key.id,
-			compliant: isAttestationCompliant(key.complianceAttestation, policy),
+			compliant:
+				isProviderRefAllowedByPolicy(
+					customProviderRef(key.name ?? key.id),
+					policy,
+				) && isAttestationCompliant(key.complianceAttestation, policy),
 			attested: Boolean(key.complianceAttestation),
 		}));
 	}, [providerKeysData, selectedOrganization?.id, policy]);
+
+	// Custom providers/models as selector entries for the restriction lists.
+	const { customProviderOptions, customModelOptions } =
+		useCustomProviderSelection();
+	const selectableProviders = useMemo(
+		() => [...SELECTABLE_PROVIDERS, ...customProviderOptions],
+		[customProviderOptions],
+	);
+	const selectableModels = useMemo(
+		() => [...models, ...customModelOptions],
+		[customModelOptions],
+	);
+
+	const setRestrictionList = (key: RestrictionListKey, values: string[]) => {
+		setPolicy((p) => ({
+			...p,
+			[key]: values.length > 0 ? values : undefined,
+		}));
+	};
 
 	const canManage =
 		selectedOrganization?.plan === "enterprise" &&
@@ -408,6 +449,90 @@ export function ComplianceClient() {
 									</button>
 								);
 							})}
+						</div>
+					</CardContent>
+				</Card>
+
+				<Card>
+					<CardHeader>
+						<CardTitle>Provider &amp; Model Restrictions</CardTitle>
+						<CardDescription>
+							Block or allow individual providers and models — including your
+							own custom providers. These organization-wide lists are enforced
+							on top of the requirements above and take precedence over any
+							member or API key IAM rule.
+						</CardDescription>
+					</CardHeader>
+					<CardContent
+						className={
+							policy.enabled
+								? undefined
+								: "opacity-60 pointer-events-none select-none"
+						}
+					>
+						<div className="grid gap-6 md:grid-cols-2">
+							<div className="space-y-2">
+								<Label>Blocked providers</Label>
+								<p className="text-sm text-muted-foreground">
+									Requests to these providers are always blocked, even when they
+									meet every requirement above.
+								</p>
+								<MultiProviderSelector
+									providers={selectableProviders}
+									selectedProviders={policy.blockedProviders ?? []}
+									onProvidersChange={(values) =>
+										setRestrictionList("blockedProviders", values)
+									}
+									placeholder="Select providers to block..."
+								/>
+							</div>
+							<div className="space-y-2">
+								<Label>Allowed providers</Label>
+								<p className="text-sm text-muted-foreground">
+									When set, only these providers may be used. Leave empty to
+									allow every provider that meets the requirements above.
+								</p>
+								<MultiProviderSelector
+									providers={selectableProviders}
+									selectedProviders={policy.allowedProviders ?? []}
+									onProvidersChange={(values) =>
+										setRestrictionList("allowedProviders", values)
+									}
+									placeholder="Select allowed providers..."
+								/>
+							</div>
+							<div className="space-y-2">
+								<Label>Blocked models</Label>
+								<p className="text-sm text-muted-foreground">
+									Requests for these models are always blocked, on every
+									provider.
+								</p>
+								<MultiModelSelector
+									models={selectableModels}
+									providers={providers}
+									selectedModels={policy.blockedModels ?? []}
+									onModelsChange={(values) =>
+										setRestrictionList("blockedModels", values)
+									}
+									placeholder="Select models to block..."
+								/>
+							</div>
+							<div className="space-y-2">
+								<Label>Allowed models</Label>
+								<p className="text-sm text-muted-foreground">
+									When set, only these models may be requested. Leave empty to
+									allow all models.
+								</p>
+								<MultiModelSelector
+									models={selectableModels}
+									providers={providers}
+									selectedModels={policy.allowedModels ?? []}
+									onModelsChange={(values) =>
+										setRestrictionList("allowedModels", values)
+									}
+									placeholder="Select allowed models..."
+								/>
+							</div>
 						</div>
 					</CardContent>
 				</Card>

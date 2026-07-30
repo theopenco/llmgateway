@@ -31,7 +31,7 @@ const imageGenerationsRequestSchema = z.object({
 	model: z.string().optional().default("auto").openapi({
 		description:
 			"The model to use for image generation. Defaults to auto which selects an appropriate image generation model.",
-		example: "gemini-2.5-flash-image",
+		example: "gemini-3.1-flash-image-preview",
 	}),
 	n: z.number().int().min(1).max(10).optional().default(1).openapi({
 		description: "The number of images to generate. Must be between 1 and 10.",
@@ -333,7 +333,7 @@ async function extractImagesFromChatResponse(
 		});
 		throw new HTTPException(500, {
 			message:
-				"The model did not generate any images. Try a different model with image generation capabilities (e.g., gemini-2.5-flash-image, gemini-3-pro-image-preview).",
+				"The model did not generate any images. Try a different model with image generation capabilities (e.g., gemini-3.1-flash-image-preview, gemini-3-pro-image-preview).",
 		});
 	}
 
