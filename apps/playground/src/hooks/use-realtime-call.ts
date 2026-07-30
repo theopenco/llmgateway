@@ -65,7 +65,10 @@ const SPEAKING_HOLD_MS = 300;
  * Ceiling on retained assistant PCM for one call (~8 minutes of speech at
  * 24kHz mono PCM16). Past it, audio capture stops for the rest of the call so
  * a long conversation cannot grow an unbounded in-memory buffer or an
- * unsendable save payload; the transcript text is still recorded in full.
+ * unsendable save payload; the transcript text is still recorded in full. A
+ * continued call starts with its seeded turns' audio already counted, so
+ * repeated continuations cannot grow one saved conversation past this budget
+ * either.
  */
 const MAX_CALL_AUDIO_BYTES = 24 * 1024 * 1024;
 
@@ -170,6 +173,41 @@ export function useRealtimeCall({
 	}, []);
 
 	/**
+	 * Encode every finished item's buffered PCM into a WAV and hang it off the
+	 * matching transcript entry. This runs at response.done rather than at the
+	 * transcript's own done event because audio deltas can still trail the
+	 * transcript. An interrupted turn keeps every delta that arrived — a little
+	 * more than the listener actually heard, but the entry already reads as
+	 * interrupted, and truncating to the played duration would cost a decode
+	 * pass for no real gain.
+	 */
+	const finalizeResponseAudio = useCallback(() => {
+		const pending = audioChunksRef.current;
+		if (pending.size === 0) {
+			return;
+		}
+		const encoded = new Map<string, string>();
+		pending.forEach((chunks, itemId) => {
+			if (chunks.length > 0) {
+				encoded.set(itemId, pcm16ChunksToWavBase64(chunks));
+			}
+		});
+		pending.clear();
+		if (encoded.size === 0) {
+			return;
+		}
+		setTranscript((prev) =>
+			prev.map((entry) => {
+				const base64 =
+					entry.role === "assistant" ? encoded.get(entry.id) : undefined;
+				return base64
+					? { ...entry, audio: { base64, mediaType: "audio/wav" as const } }
+					: entry;
+			}),
+		);
+	}, []);
+
+	/**
 	 * Tear down every media/audio/network resource. Safe to call from any
 	 * state and idempotent per call attempt.
 	 */
@@ -218,11 +256,15 @@ export function useRealtimeCall({
 			void context.close().catch(() => {});
 		}
 		responseActiveRef.current = false;
+		// Ending mid-response: encode whatever assistant audio is already
+		// buffered so the final turn keeps its replay clip instead of losing
+		// it with the buffers.
+		finalizeResponseAudio();
 		audioChunksRef.current.clear();
 		audioBytesRef.current = 0;
 		seedRef.current = null;
 		updateStatus("idle");
-	}, [updateStatus]);
+	}, [finalizeResponseAudio, updateStatus]);
 
 	const failCall = useCallback(
 		(message: string) => {
@@ -279,41 +321,6 @@ export function useRealtimeCall({
 		},
 		[],
 	);
-
-	/**
-	 * Encode every finished item's buffered PCM into a WAV and hang it off the
-	 * matching transcript entry. This runs at response.done rather than at the
-	 * transcript's own done event because audio deltas can still trail the
-	 * transcript. An interrupted turn keeps every delta that arrived — a little
-	 * more than the listener actually heard, but the entry already reads as
-	 * interrupted, and truncating to the played duration would cost a decode
-	 * pass for no real gain.
-	 */
-	const finalizeResponseAudio = useCallback(() => {
-		const pending = audioChunksRef.current;
-		if (pending.size === 0) {
-			return;
-		}
-		const encoded = new Map<string, string>();
-		pending.forEach((chunks, itemId) => {
-			if (chunks.length > 0) {
-				encoded.set(itemId, pcm16ChunksToWavBase64(chunks));
-			}
-		});
-		pending.clear();
-		if (encoded.size === 0) {
-			return;
-		}
-		setTranscript((prev) =>
-			prev.map((entry) => {
-				const base64 =
-					entry.role === "assistant" ? encoded.get(entry.id) : undefined;
-				return base64
-					? { ...entry, audio: { base64, mediaType: "audio/wav" as const } }
-					: entry;
-			}),
-		);
-	}, []);
 
 	const handleBargeIn = useCallback(() => {
 		const playback = playbackRef.current;
@@ -380,11 +387,14 @@ export function useRealtimeCall({
 						// Replay a continued call's prior turns before going live, so the
 						// model has the earlier conversation in context. Fire-and-forget
 						// is safe: microphone chunks are dropped until the status flips
-						// to "live" below, so nothing can race ahead of the seed.
-						// Only the text is replayed — the realtime API cannot accept
-						// assistant audio items — and the content type is the role's
-						// side of the GA enum: input_text for user, output_text for
-						// assistant.
+						// to "live" below, so nothing can race ahead of the seed, and a
+						// rejected item surfaces through the server's "error" event like
+						// any other session fault. Only the text is replayed — the
+						// realtime API cannot accept assistant audio items — and the
+						// content type is the role's side of the GA enum: input_text for
+						// user, output_text for assistant. Interrupted turns are replayed
+						// in full: the heard-text boundary is unknowable client-side, and
+						// the full text is what the transcript already shows the user.
 						const seed = seedRef.current;
 						seedRef.current = null;
 						for (const entry of seed ?? []) {
@@ -765,6 +775,15 @@ export function useRealtimeCall({
 			seedRef.current = seed?.length ? seed : null;
 			if (seed?.length) {
 				setTranscript(seed);
+				// Seeded audio counts toward the call's audio budget (see
+				// MAX_CALL_AUDIO_BYTES); base64 decodes to 3/4 of its length.
+				audioBytesRef.current = seed.reduce(
+					(total, entry) =>
+						entry.audio
+							? total + Math.ceil((entry.audio.base64.length * 3) / 4)
+							: total,
+					0,
+				);
 			}
 			// The AudioContext must be created and resumed synchronously inside the
 			// click gesture (before any await) or Safari drops the user activation.

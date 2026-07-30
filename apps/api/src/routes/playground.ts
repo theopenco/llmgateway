@@ -1433,65 +1433,66 @@ playground.openapi(updateRealtimeHistory, async (c) => {
 	const body = c.req.valid("json");
 
 	// Appending needs the current transcript/duration/usage, so this is a
-	// read-modify-write. Two continuations of the same call finishing at once
-	// could drop one side's turns, which needs two concurrent live calls on one
-	// saved conversation — not reachable from the single-call UI.
-	const [existing] = await db
-		.select()
-		.from(tables.playgroundRealtimeHistory)
-		.where(
-			and(
-				eq(tables.playgroundRealtimeHistory.id, id),
-				eq(tables.playgroundRealtimeHistory.userId, user.id),
-			),
-		);
+	// read-modify-write. The row lock serializes two continuations of the same
+	// call finishing at once (e.g. from two tabs), so the later one appends to
+	// the earlier one's result instead of overwriting it from a stale read.
+	const row = await db.transaction(async (tx) => {
+		const [existing] = await tx
+			.select()
+			.from(tables.playgroundRealtimeHistory)
+			.where(
+				and(
+					eq(tables.playgroundRealtimeHistory.id, id),
+					eq(tables.playgroundRealtimeHistory.userId, user.id),
+				),
+			)
+			.for("update");
 
-	if (!existing) {
-		throw new HTTPException(404, { message: "Not found" });
-	}
+		if (!existing) {
+			throw new HTTPException(404, { message: "Not found" });
+		}
 
-	const addUsage = body.addUsage;
-	const previousUsage = existing.usage;
+		const addUsage = body.addUsage;
+		const previousUsage = existing.usage;
 
-	const [row] = await db
-		.update(tables.playgroundRealtimeHistory)
-		.set({
-			...(body.title !== undefined ? { title: body.title } : {}),
-			...(body.appendTranscript
-				? { transcript: [...existing.transcript, ...body.appendTranscript] }
-				: {}),
-			...(body.addDurationSeconds !== undefined
-				? {
-						durationSeconds: existing.durationSeconds + body.addDurationSeconds,
-					}
-				: {}),
-			...(addUsage
-				? {
-						usage: {
-							responses: (previousUsage?.responses ?? 0) + addUsage.responses,
-							inputTokens:
-								(previousUsage?.inputTokens ?? 0) + addUsage.inputTokens,
-							outputTokens:
-								(previousUsage?.outputTokens ?? 0) + addUsage.outputTokens,
-							totalTokens:
-								(previousUsage?.totalTokens ?? 0) + addUsage.totalTokens,
-							audioInputTokens:
-								(previousUsage?.audioInputTokens ?? 0) +
-								addUsage.audioInputTokens,
-							audioOutputTokens:
-								(previousUsage?.audioOutputTokens ?? 0) +
-								addUsage.audioOutputTokens,
-						},
-					}
-				: {}),
-		})
-		.where(
-			and(
-				eq(tables.playgroundRealtimeHistory.id, id),
-				eq(tables.playgroundRealtimeHistory.userId, user.id),
-			),
-		)
-		.returning();
+		const [updated] = await tx
+			.update(tables.playgroundRealtimeHistory)
+			.set({
+				...(body.title !== undefined ? { title: body.title } : {}),
+				...(body.appendTranscript
+					? { transcript: [...existing.transcript, ...body.appendTranscript] }
+					: {}),
+				...(body.addDurationSeconds !== undefined
+					? {
+							durationSeconds:
+								existing.durationSeconds + body.addDurationSeconds,
+						}
+					: {}),
+				...(addUsage
+					? {
+							usage: {
+								responses: (previousUsage?.responses ?? 0) + addUsage.responses,
+								inputTokens:
+									(previousUsage?.inputTokens ?? 0) + addUsage.inputTokens,
+								outputTokens:
+									(previousUsage?.outputTokens ?? 0) + addUsage.outputTokens,
+								totalTokens:
+									(previousUsage?.totalTokens ?? 0) + addUsage.totalTokens,
+								audioInputTokens:
+									(previousUsage?.audioInputTokens ?? 0) +
+									addUsage.audioInputTokens,
+								audioOutputTokens:
+									(previousUsage?.audioOutputTokens ?? 0) +
+									addUsage.audioOutputTokens,
+							},
+						}
+					: {}),
+			})
+			.where(eq(tables.playgroundRealtimeHistory.id, existing.id))
+			.returning();
+
+		return updated;
+	});
 
 	if (!row) {
 		throw new HTTPException(404, { message: "Not found" });

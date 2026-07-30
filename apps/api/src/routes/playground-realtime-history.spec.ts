@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db } from "@llmgateway/db";
+import { db, tables } from "@llmgateway/db";
 
 const usage = {
 	responses: 2,
@@ -137,7 +137,32 @@ describe("playground realtime history", () => {
 	});
 
 	test("PATCH 404s on a call the user does not own", async () => {
-		const res = await patchCall(token, "does-not-exist", { title: "Nope" });
+		const missing = await patchCall(token, "does-not-exist", { title: "Nope" });
+		expect(missing.status).toBe(404);
+
+		// Another user's existing call must look identical to a missing one.
+		await db.insert(tables.user).values({
+			id: "other-user-id",
+			name: "Other User",
+			email: "other@example.com",
+			emailVerified: true,
+		});
+		const [theirs] = await db
+			.insert(tables.playgroundRealtimeHistory)
+			.values({
+				userId: "other-user-id",
+				title: "Their call",
+				model: "openai/gpt-realtime",
+				transcript: [turn("their message")],
+			})
+			.returning({ id: tables.playgroundRealtimeHistory.id });
+
+		const res = await patchCall(token, theirs.id, { title: "Nope" });
 		expect(res.status).toBe(404);
+
+		const row = await db.query.playgroundRealtimeHistory.findFirst({
+			where: { id: { eq: theirs.id } },
+		});
+		expect(row?.title).toBe("Their call");
 	});
 });
