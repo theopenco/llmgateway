@@ -25,6 +25,7 @@ export const tencentModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				jsonOutputSchema: true,
 			},
 			{
 				providerId: "novita",
@@ -40,7 +41,7 @@ export const tencentModels = [
 				reasoningEfforts: ["none", "low", "high"],
 				vision: false,
 				tools: true,
-				jsonOutput: true,
+				jsonOutputSchema: true,
 			},
 		],
 	},
