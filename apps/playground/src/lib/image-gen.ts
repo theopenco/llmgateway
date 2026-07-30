@@ -315,6 +315,96 @@ export async function streamImageParts(
 	}
 }
 
+export class ImageGenerationError extends Error {
+	status: number;
+
+	constructor(message: string, status: number) {
+		super(message);
+		this.status = status;
+	}
+}
+
+/**
+ * Consume the /api/image newline-delimited JSON response. The route streams
+ * `{"ping":1}` keepalives while the model works (image generation can take
+ * minutes, past proxy idle timeouts), then a final `{"images":[...]}` or
+ * `{"error":"...","status":4xx}` object. Throws ImageGenerationError so
+ * callers can inspect the in-band status code.
+ */
+export async function readImageGenerationResponse(
+	response: Response,
+): Promise<GeneratedImage[]> {
+	if (!response.ok) {
+		// Pre-stream failures (auth, validation) are plain JSON with a real
+		// HTTP status.
+		const errorData = (await response.json().catch(() => null)) as {
+			error?: string;
+		} | null;
+		throw new ImageGenerationError(
+			errorData?.error ?? `HTTP ${response.status}: ${response.statusText}`,
+			response.status,
+		);
+	}
+
+	const reader = response.body?.getReader();
+	if (!reader) {
+		throw new ImageGenerationError("No response body", 500);
+	}
+
+	const decoder = new TextDecoder();
+	let buffer = "";
+	let result: {
+		images?: GeneratedImage[];
+		error?: string;
+		status?: number;
+	} | null = null;
+
+	const handleLine = (line: string) => {
+		const trimmed = line.trim();
+		if (!trimmed) {
+			return;
+		}
+		try {
+			const event = JSON.parse(trimmed);
+			if (event && typeof event === "object" && !("ping" in event)) {
+				result = event;
+			}
+		} catch {
+			// skip malformed lines
+		}
+	};
+
+	while (true) {
+		const { done, value } = await reader.read();
+		if (done) {
+			break;
+		}
+		buffer += decoder.decode(value, { stream: true });
+		const lines = buffer.split("\n");
+		buffer = lines.pop() ?? "";
+		for (const line of lines) {
+			handleLine(line);
+		}
+	}
+	handleLine(buffer);
+
+	const final = result as {
+		images?: GeneratedImage[];
+		error?: string;
+		status?: number;
+	} | null;
+	if (final?.error) {
+		throw new ImageGenerationError(final.error, final.status ?? 500);
+	}
+	if (!final?.images) {
+		throw new ImageGenerationError(
+			"The connection was interrupted before the image arrived. Check your activity history — the image may still have been generated.",
+			500,
+		);
+	}
+	return final.images;
+}
+
 export function downloadImage(image: GeneratedImage, filename?: string) {
 	const dataUrl = `data:${image.mediaType};base64,${image.base64}`;
 	const ext = image.mediaType.split("/")[1] ?? "png";

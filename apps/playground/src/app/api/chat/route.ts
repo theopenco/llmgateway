@@ -814,7 +814,12 @@ export async function POST(req: Request) {
 				);
 			}
 
-			const result = await generateImage({
+			// Kick off generation without awaiting so the stream response (and
+			// its SSE bytes) starts flowing immediately. Image generation can
+			// run for minutes (gpt-image-2 at high quality); awaiting here
+			// buffers the whole response and lets proxies kill the idle
+			// connection while the gateway request still completes.
+			const generation = generateImage({
 				model: llmgateway.image(selectedModel),
 				prompt:
 					fileParts.length > 0
@@ -843,6 +848,7 @@ export async function POST(req: Request) {
 						messageId: crypto.randomUUID(),
 					});
 					writer.write({ type: "start-step" });
+					const result = await generation;
 					for (const image of result.images) {
 						const mediaType = image.mediaType || "image/png";
 						writer.write({
@@ -854,9 +860,71 @@ export async function POST(req: Request) {
 					writer.write({ type: "finish-step" });
 					writer.write({ type: "finish", finishReason: "stop" });
 				},
+				onError: (error) => {
+					if (error instanceof Error) {
+						const err = error as Error & { responseBody?: unknown };
+						if (typeof err.responseBody === "string") {
+							try {
+								const body = JSON.parse(err.responseBody);
+								if (typeof body.message === "string") {
+									return body.message;
+								}
+							} catch {
+								// ignore parse errors
+							}
+						}
+						return error.message;
+					}
+					return "Image generation failed";
+				},
 			});
 
-			return createUIMessageStreamResponse({ stream });
+			// Mirror the chat path's SSE keepalive so proxies don't cut the
+			// connection while the image model works.
+			const KEEPALIVE_INTERVAL_MS = 15_000;
+			const encoder = new TextEncoder();
+			const sseResponse = createUIMessageStreamResponse({ stream });
+			const upstreamBody = sseResponse.body;
+			if (!upstreamBody) {
+				return sseResponse;
+			}
+			const reader = upstreamBody.getReader();
+			const bodyWithKeepalive = new ReadableStream<Uint8Array>({
+				start(controller) {
+					const keepaliveTimer = setInterval(() => {
+						try {
+							controller.enqueue(encoder.encode(": ping\n\n"));
+						} catch {
+							clearInterval(keepaliveTimer);
+						}
+					}, KEEPALIVE_INTERVAL_MS);
+
+					void (async () => {
+						try {
+							while (true) {
+								const { done, value } = await reader.read();
+								if (done) {
+									clearInterval(keepaliveTimer);
+									controller.close();
+									return;
+								}
+								controller.enqueue(value);
+							}
+						} catch (err) {
+							clearInterval(keepaliveTimer);
+							controller.error(err);
+						}
+					})();
+				},
+				cancel() {
+					void reader.cancel();
+				},
+			});
+
+			return new Response(bodyWithKeepalive, {
+				status: sseResponse.status,
+				headers: sseResponse.headers,
+			});
 		} catch (error: unknown) {
 			const status =
 				typeof error === "object" &&

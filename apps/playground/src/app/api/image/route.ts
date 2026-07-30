@@ -103,69 +103,111 @@ export async function POST(req: Request) {
 		}
 	}
 
-	try {
-		const result = await generateImage({
-			model: llmgateway.image(selectedModel),
-			prompt:
-				input_images && input_images.length > 0
-					? {
-							images: input_images.map((fp) => fp.url),
-							text: prompt,
-						}
-					: prompt,
-			n: image_config?.n ?? 1,
-			...(image_config?.image_size
-				? { size: image_config.image_size as `${number}x${number}` }
-				: {}),
-			...(image_config?.aspect_ratio && image_config.aspect_ratio !== "auto"
-				? { aspectRatio: image_config.aspect_ratio }
-				: {}),
-			...(image_config?.image_quality
+	const generation = generateImage({
+		model: llmgateway.image(selectedModel),
+		prompt:
+			input_images && input_images.length > 0
 				? {
-						providerOptions: {
-							llmgateway: { quality: image_config.image_quality },
-						},
+						images: input_images.map((fp) => fp.url),
+						text: prompt,
 					}
-				: {}),
-		});
-
-		const images = result.images.map((image) => ({
-			base64: image.base64,
-			mediaType: image.mediaType || "image/png",
-		}));
-
-		return new Response(JSON.stringify({ images }), {
-			headers: { "Content-Type": "application/json" },
-		});
-	} catch (error: unknown) {
-		const status =
-			typeof error === "object" &&
-			error !== null &&
-			"status" in error &&
-			typeof (error as { status: unknown }).status === "number"
-				? (error as { status: number }).status
-				: 500;
-
-		const message =
-			error instanceof Error ? error.message : "Image generation failed";
-
-		let detailedMessage: string | undefined;
-		if (typeof error === "object" && error !== null) {
-			const err = error as Record<string, unknown>;
-			if (typeof err.responseBody === "string") {
-				try {
-					const body = JSON.parse(err.responseBody);
-					if (typeof body.message === "string") {
-						detailedMessage = body.message;
-					}
-				} catch {
-					// ignore parse errors
+				: prompt,
+		n: image_config?.n ?? 1,
+		...(image_config?.image_size
+			? { size: image_config.image_size as `${number}x${number}` }
+			: {}),
+		...(image_config?.aspect_ratio && image_config.aspect_ratio !== "auto"
+			? { aspectRatio: image_config.aspect_ratio }
+			: {}),
+		...(image_config?.image_quality
+			? {
+					providerOptions: {
+						llmgateway: { quality: image_config.image_quality },
+					},
 				}
-			}
-		}
+			: {}),
+	});
 
-		return new Response(JSON.stringify({ error: detailedMessage ?? message }), {
-			status,
-		});
-	}
+	// Image generation can run for minutes (gpt-image-2 at high quality),
+	// far past typical proxy/load-balancer idle timeouts. A buffered JSON
+	// response sends zero bytes until the model finishes, so the connection
+	// gets killed upstream while the gateway request still completes — the
+	// user sees a failure but the image shows up in their activity. Stream
+	// newline-delimited JSON keepalive pings while waiting, then deliver the
+	// result (or error) in-band, mirroring the chat route's SSE keepalives.
+	const KEEPALIVE_INTERVAL_MS = 15_000;
+	const encoder = new TextEncoder();
+
+	const stream = new ReadableStream<Uint8Array>({
+		start(controller) {
+			const keepaliveTimer = setInterval(() => {
+				try {
+					controller.enqueue(
+						encoder.encode(JSON.stringify({ ping: 1 }) + "\n"),
+					);
+				} catch {
+					clearInterval(keepaliveTimer);
+				}
+			}, KEEPALIVE_INTERVAL_MS);
+
+			void (async () => {
+				try {
+					const result = await generation;
+					const images = result.images.map((image) => ({
+						base64: image.base64,
+						mediaType: image.mediaType || "image/png",
+					}));
+					controller.enqueue(encoder.encode(JSON.stringify({ images }) + "\n"));
+				} catch (error: unknown) {
+					const status =
+						typeof error === "object" &&
+						error !== null &&
+						"status" in error &&
+						typeof (error as { status: unknown }).status === "number"
+							? (error as { status: number }).status
+							: 500;
+
+					const message =
+						error instanceof Error ? error.message : "Image generation failed";
+
+					let detailedMessage: string | undefined;
+					if (typeof error === "object" && error !== null) {
+						const err = error as Record<string, unknown>;
+						if (typeof err.responseBody === "string") {
+							try {
+								const body = JSON.parse(err.responseBody);
+								if (typeof body.message === "string") {
+									detailedMessage = body.message;
+								}
+							} catch {
+								// ignore parse errors
+							}
+						}
+					}
+
+					controller.enqueue(
+						encoder.encode(
+							JSON.stringify({ error: detailedMessage ?? message, status }) +
+								"\n",
+						),
+					);
+				} finally {
+					clearInterval(keepaliveTimer);
+					try {
+						controller.close();
+					} catch {
+						// already closed/errored
+					}
+				}
+			})();
+		},
+	});
+
+	return new Response(stream, {
+		headers: {
+			"Content-Type": "application/x-ndjson",
+			"Cache-Control": "no-cache",
+			"X-Accel-Buffering": "no",
+		},
+	});
 }
