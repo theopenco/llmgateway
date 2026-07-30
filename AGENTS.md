@@ -254,6 +254,7 @@ When creating a new package in `packages/`, include these config files. Copy the
 - Admin: http://localhost:3006
 - PostgreSQL: localhost:5432
 - Redis: localhost:6379
+- Storage Redis: localhost:6479 (only used when a `STORAGE_REDIS_*` var is set; otherwise the main Redis connection is reused)
 
 ## Folder Structure
 
