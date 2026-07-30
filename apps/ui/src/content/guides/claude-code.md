@@ -110,6 +110,12 @@ export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1
 
 On startup Claude Code calls our `/v1/models` endpoint and adds what it returns to the picker, labeled **From gateway**. Entries are cached in `~/.claude/cache/gateway-models.json` and refreshed on each launch, so a failed lookup falls back to the previous list rather than breaking your session. Requires Claude Code v2.1.129 or later.
 
+The [LLM Gateway CLI](https://docs.llmgateway.io/developers/cli#configure) can apply this whole setup (base URL, auth token, and the discovery flag) to your `~/.claude/settings.json` in one command:
+
+```bash
+npx @llmgateway/cli configure claude
+```
+
 > **Heads up:** Claude Code drops discovered models whose ID does not start with `claude` or `anthropic`, before they ever reach the picker — the cache it writes to `~/.claude/cache/gateway-models.json` contains only the surviving entries. Discovery therefore surfaces just the Claude models in our catalog. GPT-5, Gemini, and custom models are filtered out by the client, not by the gateway.
 
 ### Adding Non-Claude Models to the Picker
