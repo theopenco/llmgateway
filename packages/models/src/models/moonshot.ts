@@ -752,6 +752,22 @@ export const moonshotModels = [
 				jsonOutput: true,
 			},
 			{
+				providerId: "fireworks",
+				externalId: "accounts/fireworks/routers/kimi-k3-fast",
+				inputPrice: "4.5e-6",
+				cachedInputPrice: "0.45e-6", // confirmed directly via Fireworks' Serverless Pricing page (Kimi K3 Fast row: $4.50 / $0.45 / $22.50)
+				outputPrice: "22.5e-6",
+				requestPrice: "0",
+				contextSize: 1040384,
+				maxOutput: 1040384,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				vision: true,
+				tools: true,
+				// jsonOutput intentionally omitted — not confirmed whether the Fast router supports response_format for this specific tier; needs live verification before setting
+			},
+			{
 				providerId: "canopywave",
 				externalId: "moonshotai/kimi-k3",
 				// A named function choice is rejected with a 400 ("tool_choice
