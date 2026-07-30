@@ -140,14 +140,6 @@ You can also pin one as your default model, or per-agent:
 
 For providers with multiple regions, append a region suffix to pin both provider and region, e.g. `aws-bedrock/claude-sonnet-5:us`. See the [routing docs](/features/routing#provider-specific-routing) for the full syntax, and each model's available providers on the [models page](https://llmgateway.io/models).
 
-<Callout type="info">
-	Prefer to keep OpenCode config untouched? You can instead pin at the API key
-	level: add an `allow_providers` [IAM rule](/features/api-keys#iam-rules) to
-	the key you use in OpenCode, and all requests through that key — including
-	root model IDs picked from the built-in list — will only ever route to the
-	providers you allow.
-</Callout>
-
 ### Disabling Fallback
 
 By default, LLM Gateway automatically fails over to alternative providers if your chosen provider is experiencing downtime — even for provider-pinned model IDs. To make the pin strict, pass the `X-No-Fallback` header. Requests will then be sent only to the provider you specified, with no automatic fallback.
