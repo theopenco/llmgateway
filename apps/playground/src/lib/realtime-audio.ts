@@ -36,6 +36,35 @@ export function resampleLinear(
 }
 
 /**
+ * Base64-encode raw bytes. Chunked because String.fromCharCode is applied as a
+ * variadic call and a whole call's worth of audio would blow the argument
+ * limit.
+ */
+export function bytesToBase64(bytes: Uint8Array): string {
+	let binary = "";
+	const chunkSize = 0x8000;
+	for (let i = 0; i < bytes.length; i += chunkSize) {
+		binary += String.fromCharCode.apply(
+			null,
+			Array.from(bytes.subarray(i, i + chunkSize)),
+		);
+	}
+	return btoa(binary);
+}
+
+/**
+ * Decode base64 into raw bytes.
+ */
+export function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
+	const binary = atob(base64);
+	const bytes = new Uint8Array(binary.length);
+	for (let i = 0; i < binary.length; i++) {
+		bytes[i] = binary.charCodeAt(i);
+	}
+	return bytes;
+}
+
+/**
  * Encode Float32 samples ([-1, 1]) as little-endian PCM16 base64.
  */
 export function floatToPcm16Base64(samples: Float32Array): string {
@@ -45,16 +74,52 @@ export function floatToPcm16Base64(samples: Float32Array): string {
 		const clamped = Math.max(-1, Math.min(1, samples[i]));
 		view.setInt16(i * 2, Math.round(clamped * 0x7fff), true);
 	}
-	let binary = "";
-	const bytes = new Uint8Array(buffer);
-	const chunkSize = 0x8000;
-	for (let i = 0; i < bytes.length; i += chunkSize) {
-		binary += String.fromCharCode.apply(
-			null,
-			Array.from(bytes.subarray(i, i + chunkSize)),
-		);
+	return bytesToBase64(new Uint8Array(buffer));
+}
+
+const WAV_HEADER_BYTES = 44;
+
+/**
+ * Wrap base64 PCM16 chunks (as received on the wire) in a WAV container and
+ * return it base64-encoded, ready to store or hand to an <audio> element. The
+ * payload bytes are copied through verbatim — no float round-trip — so the
+ * stored audio is bit-identical to what was played.
+ */
+export function pcm16ChunksToWavBase64(
+	base64Chunks: string[],
+	sampleRate: number = REALTIME_SAMPLE_RATE,
+): string {
+	const chunks = base64Chunks.map(base64ToBytes);
+	const dataSize = chunks.reduce((total, chunk) => total + chunk.length, 0);
+	const output = new Uint8Array(WAV_HEADER_BYTES + dataSize);
+	const view = new DataView(output.buffer);
+	const writeAscii = (offset: number, text: string) => {
+		for (let i = 0; i < text.length; i++) {
+			view.setUint8(offset + i, text.charCodeAt(i));
+		}
+	};
+	const channels = 1;
+	const bitsPerSample = 16;
+	const blockAlign = (channels * bitsPerSample) / 8;
+	writeAscii(0, "RIFF");
+	view.setUint32(4, 36 + dataSize, true);
+	writeAscii(8, "WAVE");
+	writeAscii(12, "fmt ");
+	view.setUint32(16, 16, true);
+	view.setUint16(20, 1, true);
+	view.setUint16(22, channels, true);
+	view.setUint32(24, sampleRate, true);
+	view.setUint32(28, sampleRate * blockAlign, true);
+	view.setUint16(32, blockAlign, true);
+	view.setUint16(34, bitsPerSample, true);
+	writeAscii(36, "data");
+	view.setUint32(40, dataSize, true);
+	let offset = WAV_HEADER_BYTES;
+	for (const chunk of chunks) {
+		output.set(chunk, offset);
+		offset += chunk.length;
 	}
-	return btoa(binary);
+	return bytesToBase64(output);
 }
 
 /**
