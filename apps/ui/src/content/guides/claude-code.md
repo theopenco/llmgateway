@@ -96,6 +96,8 @@ Environment variables are read once at startup, so changing `ANTHROPIC_MODEL` me
 
 `fallbackModel` names the models to try when the primary one is unavailable, capped at three.
 
+`availableModels` only filters the rows Claude Code already has — it never creates new ones. To put a non-Claude model in the picker, see [Adding Non-Claude Models to the Picker](#adding-non-claude-models-to-the-picker) below.
+
 ## Fetching Models From LLM Gateway
 
 Claude Code can populate its `/model` picker directly from our catalog instead of you hardcoding IDs. Set the discovery flag alongside the base URL:
@@ -108,40 +110,32 @@ export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1
 
 On startup Claude Code calls our `/v1/models` endpoint and adds what it returns to the picker, labeled **From gateway**. Entries are cached in `~/.claude/cache/gateway-models.json` and refreshed on each launch, so a failed lookup falls back to the previous list rather than breaking your session. Requires Claude Code v2.1.129 or later.
 
-> **Heads up:** Claude Code discards discovered models whose ID does not start with `claude` or `anthropic`, so discovery alone surfaces only the Claude models in our catalog. Models like GPT-5 or Gemini are filtered out by the client, not by the gateway. List them in `availableModels` to add them to the picker.
+> **Heads up:** Claude Code drops discovered models whose ID does not start with `claude` or `anthropic`, before they ever reach the picker — the cache it writes to `~/.claude/cache/gateway-models.json` contains only the surviving entries. Discovery therefore surfaces just the Claude models in our catalog. GPT-5, Gemini, and custom models are filtered out by the client, not by the gateway.
 
 ### Adding Non-Claude Models to the Picker
 
-`availableModels` is not limited to Claude model IDs. Any ID you list that has no built-in row gets its own row in the `/model` picker, which is how you put the rest of our catalog in front of the picker:
+The `/model` picker is a Claude-model list. Its own header says so: _"Switch between Claude models… For other/previous model names, specify with `--model`."_ Neither gateway discovery nor `availableModels` adds a non-Claude row — `availableModels` filters the rows Claude Code already has rather than creating new ones.
 
-```json
-{
-  "availableModels": [
-    "claude-sonnet-5",
-    "claude-haiku-4-5",
-    "gpt-5",
-    "gpt-5-mini",
-    "gemini-3.1-pro-preview",
-    "kimi-k3"
-  ]
-}
-```
-
-Requires Claude Code v2.1.199 or later; on earlier versions these IDs are still selectable, but only by typing `/model <id>` rather than picking a row.
-
-> **Note:** `availableModels` is an allowlist, so it replaces the built-in list rather than extending it. Any model you leave out becomes unselectable — naming it with `--model` or `ANTHROPIC_MODEL` silently starts the session on a different model instead. Include every model you want to keep, Claude ones included.
-
-### Adding a Single Model Without an Allowlist
-
-If you only need one extra model and don't want to enumerate an allowlist, `ANTHROPIC_CUSTOM_MODEL_OPTION` appends one entry to the picker:
+`ANTHROPIC_CUSTOM_MODEL_OPTION` is the one setting that adds a non-Claude row:
 
 ```bash
-export ANTHROPIC_CUSTOM_MODEL_OPTION=gpt-5
-export ANTHROPIC_CUSTOM_MODEL_OPTION_NAME="GPT-5 via LLM Gateway"
+export ANTHROPIC_CUSTOM_MODEL_OPTION=gemini-3.5-flash
+export ANTHROPIC_CUSTOM_MODEL_OPTION_NAME="Gemini 3.5 Flash"
 export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="Routed through LLM Gateway"
 ```
 
-Only one custom entry is supported at a time. If you also set `availableModels`, include this ID in that list or it will be filtered back out.
+The entry appears at the bottom of the picker under your chosen name. Only one is supported at a time, so it suits a single alternate model rather than a menu. If you also set `availableModels`, include this ID there or it will be filtered back out.
+
+### Selecting Any Other Model
+
+For everything else — including custom models — name the model directly. These paths accept any ID our gateway routes, with no picker row involved:
+
+```bash
+export ANTHROPIC_MODEL=gemini-3.5-flash   # session default
+claude --model gemini-3.5-flash           # single session
+```
+
+To rotate between several non-Claude models, keep a per-project `.claude/settings.json` with the `model` you want for that repo.
 
 ## Environment Variables
 

@@ -41,10 +41,10 @@ claude
 ```
 
 <Callout type="info">
-	Environment variables are read once at startup. To switch models mid-session
-	with `/model`, restrict the picker with `availableModels`, or have Claude Code
-	populate its picker from our catalog automatically via gateway model
-	discovery, see the [Claude Code guide](/guides/claude-code).
+	Environment variables are read once at startup. The `/model` picker lists
+	Claude models only, so non-Claude models are selected with `ANTHROPIC_MODEL`
+	or `--model`. See the [Claude Code guide](/guides/claude-code) for the
+	settings-file options and gateway model discovery.
 </Callout>
 
 ### Choosing Models
