@@ -1,5 +1,5 @@
 diff --git a/dist/commonjs/index.d.ts b/dist/commonjs/index.d.ts
-index f3e2de9d87e1ce462517e49f35733bed8bdf85af..af4e6e3610c1833bbafa250a8218e59233f2208c 100644
+index f3e2de9..af4e6e3 100644
 --- a/dist/commonjs/index.d.ts
 +++ b/dist/commonjs/index.d.ts
 @@ -5,4 +5,7 @@ export type BraceExpansionOptions = {
@@ -12,13 +12,13 @@ index f3e2de9d87e1ce462517e49f35733bed8bdf85af..af4e6e3610c1833bbafa250a8218e592
  //# sourceMappingURL=index.d.ts.map
 \ No newline at end of file
 diff --git a/dist/commonjs/index.js b/dist/commonjs/index.js
-index be9df86be09c7655787a65c55ae6da01858894c3..d2844a0189495dc94e16afc5bb629c522e0df130 100644
+index be9df86..0744f0b 100644
 --- a/dist/commonjs/index.js
 +++ b/dist/commonjs/index.js
-@@ -261,3 +261,15 @@ function expand_(str, max, maxLength, isTop) {
+@@ -260,4 +260,16 @@ function expand_(str, max, maxLength, isTop) {
+     }
      return acc;
  }
- //# sourceMappingURL=index.js.map
 +// Backward-compat: expose the callable `expand` as the CommonJS default export.
 +// brace-expansion <5 used `module.exports = expand`, and consumers such as
 +// minimatch@3.x do `const expand = require('brace-expansion')` then call it
@@ -31,9 +31,10 @@ index be9df86be09c7655787a65c55ae6da01858894c3..d2844a0189495dc94e16afc5bb629c52
 +expand.EXPANSION_MAX_LENGTH = exports.EXPANSION_MAX_LENGTH;
 +Object.defineProperty(expand, "__esModule", { value: true });
 +module.exports = expand;
+ //# sourceMappingURL=index.js.map
 \ No newline at end of file
 diff --git a/dist/esm/index.d.ts b/dist/esm/index.d.ts
-index f3e2de9d87e1ce462517e49f35733bed8bdf85af..af4e6e3610c1833bbafa250a8218e59233f2208c 100644
+index f3e2de9..af4e6e3 100644
 --- a/dist/esm/index.d.ts
 +++ b/dist/esm/index.d.ts
 @@ -5,4 +5,7 @@ export type BraceExpansionOptions = {
@@ -46,13 +47,15 @@ index f3e2de9d87e1ce462517e49f35733bed8bdf85af..af4e6e3610c1833bbafa250a8218e592
  //# sourceMappingURL=index.d.ts.map
 \ No newline at end of file
 diff --git a/dist/esm/index.js b/dist/esm/index.js
-index 6dc0392fc0feedb811e63d70a30be2736af17a3a..88b481d7fa0b246d7100781d4c4f61b472acd2cc 100644
+index 6dc0392..633d61a 100644
 --- a/dist/esm/index.js
 +++ b/dist/esm/index.js
-@@ -257,3 +257,6 @@ function expand_(str, max, maxLength, isTop) {
+@@ -256,4 +256,7 @@ function expand_(str, max, maxLength, isTop) {
+     }
      return acc;
  }
- //# sourceMappingURL=index.js.map
 +// Provide a default export mirroring the pre-5.x callable export so consumers
 +// doing `import expand from 'brace-expansion'` keep working.
 +export default expand;
+ //# sourceMappingURL=index.js.map
+\ No newline at end of file

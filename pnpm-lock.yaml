@@ -57,7 +57,7 @@ packageExtensionsChecksum: sha256-7EyWhva5Lcamo6pe18OzfUc27A7xbWt39+G/ofluF9k=
 
 patchedDependencies:
   brace-expansion@5.0.8:
-    hash: 7629e26d6eb30e64c89238ea359dc60bc2e6dfc38e471997181f81e581109979
+    hash: 3dac86b614043eca2b402aa43952515e990242adc4be98ed894be852fe567c98
     path: patches/brace-expansion@5.0.8.patch
   gray-matter@4.0.3:
     hash: 5e73cf5a4218f9a21d163ff21105495be3eea8c20af0f515db916ab0157fe5bc
@@ -18507,7 +18507,7 @@ snapshots:
 
   bottleneck@2.19.5: {}
 
-  brace-expansion@5.0.8(patch_hash=7629e26d6eb30e64c89238ea359dc60bc2e6dfc38e471997181f81e581109979):
+  brace-expansion@5.0.8(patch_hash=3dac86b614043eca2b402aa43952515e990242adc4be98ed894be852fe567c98):
     dependencies:
       balanced-match: 4.0.4
 
@@ -22337,19 +22337,19 @@ snapshots:
 
   minimatch@10.2.5:
     dependencies:
-      brace-expansion: 5.0.8(patch_hash=7629e26d6eb30e64c89238ea359dc60bc2e6dfc38e471997181f81e581109979)
+      brace-expansion: 5.0.8(patch_hash=3dac86b614043eca2b402aa43952515e990242adc4be98ed894be852fe567c98)
 
   minimatch@3.1.5:
     dependencies:
-      brace-expansion: 5.0.8(patch_hash=7629e26d6eb30e64c89238ea359dc60bc2e6dfc38e471997181f81e581109979)
+      brace-expansion: 5.0.8(patch_hash=3dac86b614043eca2b402aa43952515e990242adc4be98ed894be852fe567c98)
 
   minimatch@5.1.9:
     dependencies:
-      brace-expansion: 5.0.8(patch_hash=7629e26d6eb30e64c89238ea359dc60bc2e6dfc38e471997181f81e581109979)
+      brace-expansion: 5.0.8(patch_hash=3dac86b614043eca2b402aa43952515e990242adc4be98ed894be852fe567c98)
 
   minimatch@9.0.9:
     dependencies:
-      brace-expansion: 5.0.8(patch_hash=7629e26d6eb30e64c89238ea359dc60bc2e6dfc38e471997181f81e581109979)
+      brace-expansion: 5.0.8(patch_hash=3dac86b614043eca2b402aa43952515e990242adc4be98ed894be852fe567c98)
 
   minimist@1.2.8: {}
 
