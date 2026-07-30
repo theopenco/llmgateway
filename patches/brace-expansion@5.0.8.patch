@@ -1,0 +1,31 @@
+diff --git a/dist/commonjs/index.js b/dist/commonjs/index.js
+index be9df86be09c7655787a65c55ae6da01858894c3..25b4bc28ab55aca5e14ec9e24d2e1540732fe4e6 100644
+--- a/dist/commonjs/index.js
++++ b/dist/commonjs/index.js
+@@ -261,3 +261,15 @@ function expand_(str, max, maxLength, isTop) {
+     return acc;
+ }
+ //# sourceMappingURL=index.js.map
++// Backward-compat: expose the callable `expand` as the CommonJS default export.
++// brace-expansion <5 used `module.exports = expand`, and consumers such as
++// minimatch@3.x do `const expand = require('brace-expansion')` then call it
++// directly. 5.x switched to a named-only `exports.expand`, which breaks them
++// ("expand is not a function"). Re-attach the named members onto the function
++// and export it as the default while keeping `.expand` for modern callers.
++expand.expand = expand;
++expand.default = expand;
++expand.EXPANSION_MAX = exports.EXPANSION_MAX;
++expand.EXPANSION_MAX_LENGTH = exports.EXPANSION_MAX_LENGTH;
++Object.defineProperty(expand, "__esModule", { value: true });
++module.exports = expand;
+diff --git a/dist/esm/index.js b/dist/esm/index.js
+index 6dc0392fc0feedb811e63d70a30be2736af17a3a..1a912d5e9778afe14cb678c7264dc057240a7185 100644
+--- a/dist/esm/index.js
++++ b/dist/esm/index.js
+@@ -257,3 +257,6 @@ function expand_(str, max, maxLength, isTop) {
+     return acc;
+ }
+ //# sourceMappingURL=index.js.map
++// Provide a default export mirroring the pre-5.x callable export so consumers
++// doing `import expand from 'brace-expansion'` keep working.
++export default expand;
