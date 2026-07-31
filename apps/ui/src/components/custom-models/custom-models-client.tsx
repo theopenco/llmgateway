@@ -3,12 +3,14 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 import { ComplianceAttestationCard } from "@/components/custom-models/compliance-attestation-card";
 import { CustomModelDialog } from "@/components/custom-models/custom-model-dialog";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
+import { useTeamMembers } from "@/hooks/useTeam";
+import { useUser } from "@/hooks/useUser";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -56,12 +58,24 @@ type ListResponse =
 export type CustomModel = ListResponse["customModels"][number];
 
 export function CustomModelsClient() {
+	const params = useParams();
+	const organizationId = params.orgId as string;
 	const { selectedOrganization, buildOrgUrl } = useDashboardNavigation();
 	const api = useApi();
 	const queryClient = useQueryClient();
 	const searchParams = useSearchParams();
 
 	const isEnterprise = selectedOrganization?.plan === "enterprise";
+
+	// Project-scoped developers can browse the catalog but not manage it —
+	// mutations are owner/admin-only (enforced server-side as well).
+	const { user } = useUser();
+	const { data: teamData } = useTeamMembers(organizationId);
+	const currentUserRole = teamData?.members.find(
+		(member) => member.userId === user?.id,
+	)?.role;
+	const isOrgAdmin = currentUserRole === "owner" || currentUserRole === "admin";
+	const canManage = isEnterprise && isOrgAdmin;
 
 	const providerKeysQueryKey = api.queryOptions(
 		"get",
@@ -163,6 +177,9 @@ export function CustomModelsClient() {
 						<h2 className="flex items-center gap-2 text-3xl font-bold tracking-tight">
 							Custom Models
 							{!isEnterprise && <Badge variant="outline">Enterprise</Badge>}
+							{isEnterprise && currentUserRole === "developer" && (
+								<Badge variant="outline">Read-only</Badge>
+							)}
 						</h2>
 						<p className="text-muted-foreground">
 							Define pricing and limits for models served through your custom
@@ -178,7 +195,7 @@ export function CustomModelsClient() {
 					</div>
 					{selectedKey && (
 						<CustomModelDialog providerKeyId={selectedKey.id}>
-							<Button disabled={!isEnterprise}>
+							<Button disabled={!canManage}>
 								<Plus className="mr-2 h-4 w-4" />
 								Add custom model
 							</Button>
@@ -253,7 +270,7 @@ export function CustomModelsClient() {
 										<Switch
 											id="custom-models-only"
 											checked={Boolean(selectedKey.customModelsOnly)}
-											disabled={!isEnterprise || toggleMutation.isPending}
+											disabled={!canManage || toggleMutation.isPending}
 											onCheckedChange={handleToggle}
 										/>
 										<div className="space-y-1">
@@ -276,7 +293,7 @@ export function CustomModelsClient() {
 								key={selectedKey.id}
 								providerKey={selectedKey}
 								organizationId={selectedOrganization.id}
-								isEnterprise={isEnterprise}
+								canManage={canManage}
 							/>
 						)}
 
@@ -324,7 +341,7 @@ export function CustomModelsClient() {
 																<Button
 																	variant="ghost"
 																	size="sm"
-																	disabled={!isEnterprise}
+																	disabled={!canManage}
 																>
 																	<Pencil className="h-4 w-4" />
 																	<span className="sr-only">Edit</span>
@@ -335,7 +352,7 @@ export function CustomModelsClient() {
 																	<Button
 																		variant="ghost"
 																		size="sm"
-																		disabled={!isEnterprise}
+																		disabled={!canManage}
 																		className="text-destructive focus:text-destructive"
 																	>
 																		<Trash2 className="h-4 w-4" />

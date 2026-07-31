@@ -2,7 +2,10 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { getAdminOrganizationIds } from "@/utils/authorization.js";
+import {
+	getActiveUserOrganizationIds,
+	getAdminOrganizationIds,
+} from "@/utils/authorization.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { cdb, db, eq, tables } from "@llmgateway/db";
@@ -298,7 +301,10 @@ customModels.openapi(list, async (c) => {
 
 	const { providerKeyId } = c.req.valid("query");
 
-	const organizationIds = await getAdminOrganizationIds(user.id);
+	// Reads are member-level so every org member (including project-scoped
+	// developers) can browse the custom-model catalog; create/update/delete
+	// stay owner/admin-gated via getManageableProviderKey.
+	const organizationIds = await getActiveUserOrganizationIds(user.id);
 	if (!organizationIds.length) {
 		return c.json({ customModels: [] });
 	}

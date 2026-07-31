@@ -111,11 +111,11 @@ function buildInitialState(
 export function ComplianceAttestationCard({
 	providerKey,
 	organizationId,
-	isEnterprise,
+	canManage,
 }: {
 	providerKey: ProviderKeyItem;
 	organizationId: string;
-	isEnterprise: boolean;
+	canManage: boolean;
 }) {
 	const api = useApi();
 	const queryClient = useQueryClient();
@@ -239,7 +239,7 @@ export function ComplianceAttestationCard({
 						<Select
 							value={form.soc2}
 							onValueChange={(v) => set("soc2", v)}
-							disabled={!isEnterprise}
+							disabled={!canManage}
 						>
 							<SelectTrigger id="attest-soc2">
 								<SelectValue />
@@ -257,7 +257,7 @@ export function ComplianceAttestationCard({
 							<Select
 								value={form[key]}
 								onValueChange={(v) => set(key, v)}
-								disabled={!isEnterprise}
+								disabled={!canManage}
 							>
 								<SelectTrigger id={`attest-${key}`}>
 									<SelectValue />
@@ -277,7 +277,7 @@ export function ComplianceAttestationCard({
 							placeholder='e.g. "0 days" or "30 days"'
 							value={form.retentionPeriod}
 							onChange={(e) => set("retentionPeriod", e.target.value)}
-							disabled={!isEnterprise}
+							disabled={!canManage}
 						/>
 					</div>
 					<div className="space-y-2">
@@ -293,7 +293,7 @@ export function ComplianceAttestationCard({
 							onChange={(e) =>
 								set("headquarters", e.target.value.toUpperCase())
 							}
-							disabled={!isEnterprise}
+							disabled={!canManage}
 						/>
 						<datalist id="attest-headquarters-countries">
 							{PROVIDER_COUNTRIES.map((country) => (
@@ -345,7 +345,7 @@ export function ComplianceAttestationCard({
 								<AlertDialogTrigger asChild>
 									<Button
 										variant="outline"
-										disabled={!isEnterprise || mutation.isPending}
+										disabled={!canManage || mutation.isPending}
 										className="text-destructive"
 									>
 										Clear
@@ -375,7 +375,7 @@ export function ComplianceAttestationCard({
 						)}
 						<Button
 							onClick={handleSave}
-							disabled={!isEnterprise || mutation.isPending}
+							disabled={!canManage || mutation.isPending}
 						>
 							{mutation.isPending ? "Saving..." : "Save attestation"}
 						</Button>

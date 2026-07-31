@@ -3,7 +3,10 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { maskToken } from "@/lib/maskToken.js";
-import { getAdminOrganizationIds } from "@/utils/authorization.js";
+import {
+	getActiveUserOrganizationIds,
+	getAdminOrganizationIds,
+} from "@/utils/authorization.js";
 
 import { validateProviderKey } from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
@@ -489,8 +492,10 @@ keysProvider.openapi(list, async (c) => {
 		});
 	}
 
-	// Get all active organization IDs the user has access to
-	const organizationIds = await getAdminOrganizationIds(user.id);
+	// Reads are member-level so every org member (including project-scoped
+	// developers) can see which providers/custom models are available; tokens
+	// are masked and all mutations stay owner/admin-gated.
+	const organizationIds = await getActiveUserOrganizationIds(user.id);
 
 	if (!organizationIds.length) {
 		return c.json({ providerKeys: [] });
@@ -542,7 +547,8 @@ keysProvider.openapi(listActive, async (c) => {
 		});
 	}
 
-	const organizationIds = await getAdminOrganizationIds(user.id);
+	// Member-level read: exposes only provider ids and status.
+	const organizationIds = await getActiveUserOrganizationIds(user.id);
 
 	if (!organizationIds.length) {
 		return c.json({ providerKeys: [] });
