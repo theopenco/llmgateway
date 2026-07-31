@@ -129,6 +129,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	canopywave: "https://inference.canopywave.io",
 	embercloud: "https://api.embercloud.ai",
 	deepinfra: "https://api.deepinfra.com/v1/openai",
+	poolside: "https://inference.poolside.ai",
 	gonka24: "https://api.gonka24.com",
 	fireworks: "https://api.fireworks.ai/inference",
 };
@@ -816,6 +817,7 @@ export function getProviderEndpoint(
 		case "embercloud":
 		case "tundra":
 		case "scx-ai":
+		case "poolside":
 		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;

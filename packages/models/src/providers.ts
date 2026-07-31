@@ -1630,6 +1630,35 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
+		id: "poolside",
+		name: "Poolside",
+		description:
+			"Poolside's Laguna models with native reasoning and 1M token context for agentic coding.",
+		env: {
+			required: {
+				apiKey: "LLM_POOLSIDE_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_POOLSIDE_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#000000",
+		website: "https://poolside.ai",
+		statusPageUrl: "https://status.poolside.ai",
+		announcement: null,
+		termsUrl: "https://poolside.ai/legal/terms-of-service",
+		privacyPolicyUrl: "https://poolside.ai/legal/privacy-policy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+		},
+	},
+	{
 		id: "runware",
 		name: "Runware",
 		description:

@@ -1330,6 +1330,19 @@ export const FireworksIconStatic: React.FC<React.SVGProps<SVGSVGElement>> = (
 	</svg>
 );
 
+export const PoolsideIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
+	props,
+) => (
+	<svg
+		{...props}
+		xmlns="http://www.w3.org/2000/svg"
+		viewBox="0 0 24 24"
+		fill="currentColor"
+	>
+		<path d="M4 2h9.5A5.5 5.5 0 0 1 19 7.5 5.5 5.5 0 0 1 13.5 13H9v9H4V2zm5 5v4h4.5a2 2 0 0 0 0-4H9z" />
+	</svg>
+);
+
 export const DeepInfraIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	props,
 ) => (
@@ -1579,6 +1592,7 @@ export const ProviderIcons = {
 	xiaomi: XiaomiIcon,
 	embercloud: EmberCloudIcon,
 	deepinfra: DeepInfraIcon,
+	poolside: PoolsideIcon,
 	reve: ReveIcon,
 	sakana: SakanaIcon,
 	"scx-ai": ScxIcon,
@@ -1629,6 +1643,7 @@ export const providerLogoUrls: Partial<
 	xiaomi: ProviderIcons.xiaomi,
 	embercloud: ProviderIcons.embercloud,
 	deepinfra: ProviderIcons.deepinfra,
+	poolside: ProviderIcons.poolside,
 	reve: ProviderIcons.reve,
 	sakana: ProviderIcons.sakana,
 	"scx-ai": ProviderIcons["scx-ai"],

@@ -17,6 +17,7 @@ import { nvidiaModels } from "./models/nvidia.js";
 import { openaiModels } from "./models/openai.js";
 import { openbmbModels } from "./models/openbmb.js";
 import { perplexityModels } from "./models/perplexity.js";
+import { poolsideModels } from "./models/poolside.js";
 import { reveModels } from "./models/reve.js";
 import { sakanaModels } from "./models/sakana.js";
 import { tencentModels } from "./models/tencent.js";
@@ -735,6 +736,7 @@ export const models = [
 	...baaiModels,
 	...bytedanceModels,
 	...nousresearchModels,
+	...poolsideModels,
 	...reveModels,
 	...sakanaModels,
 	...tencentModels,
