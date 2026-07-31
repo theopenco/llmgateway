@@ -50,9 +50,6 @@ export const elevenlabsModels = [
 				externalId: "eleven_multilingual_v2",
 				inputPrice: "0",
 				outputPrice: "0",
-				// Billed per input character. ElevenLabs bills full-rate (1 credit
-				// per character) for the multilingual/v3 models; published API rates
-				// land around $0.11 per 1,000 characters.
 				inputCharacterPrice: "110e-6",
 				requestPrice: "0",
 				contextSize: 10000,
@@ -103,8 +100,6 @@ export const elevenlabsModels = [
 				externalId: "eleven_flash_v2_5",
 				inputPrice: "0",
 				outputPrice: "0",
-				// Flash/Turbo bill at the discounted half-credit rate (~$0.055 per
-				// 1,000 characters).
 				inputCharacterPrice: "55e-6",
 				requestPrice: "0",
 				contextSize: 40000,
