@@ -1149,8 +1149,9 @@ export class RealtimeProxySession {
 		// Recorded for auditability only: realtime deliberately does NOT honour
 		// BILL_CANCELLED_REQUESTS. A cancelled response still reports the audio
 		// it already generated, and the upstream provider bills us for it, so
-		// every terminal response is charged regardless of status. This differs
-		// from the HTTP path, where cancelled requests are free by default.
+		// every terminal response is charged regardless of status. The HTTP path
+		// bills cancelled requests by default too (BILL_CANCELLED_REQUESTS), but
+		// can be opted out of; realtime cannot.
 		const responseStatus =
 			response && typeof response.status === "string"
 				? response.status
