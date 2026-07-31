@@ -107,6 +107,14 @@ export interface ProviderCompliancePolicy {
 	/** Require the provider to NOT log prompts (promptLogging === false). */
 	blockPromptLogging?: boolean;
 	/**
+	 * Block stealth providers (see {@link isStealthProvider}) — undisclosed
+	 * platforms whose data policy and headquarters are unknown. They already
+	 * fail every certification/data-policy requirement (fail-closed on a null
+	 * `dataPolicy`), so this exists to exclude them even when no other
+	 * requirement is active.
+	 */
+	blockStealthProviders?: boolean;
+	/**
 	 * Restrict routing to providers headquartered in one of these ISO 3166-1
 	 * alpha-2 country codes. Empty/omitted means no country restriction. Only
 	 * codes present in the catalogue (see {@link getProviderCountries}) are
@@ -1756,6 +1764,23 @@ export interface ProviderComplianceAttestation {
 }
 
 /**
+ * Whether a provider is a "stealth" provider — one that has no default base URL
+ * and instead requires the base URL to be supplied via a `baseUrl` env var
+ * (`env.required.baseUrl`). Because the platform behind such a provider is
+ * undisclosed, users cannot self-configure a provider key for it (they can't
+ * know the endpoint), so these are hidden from the UI provider selector.
+ */
+export function isStealthProvider(
+	provider: ProviderId | ProviderDefinition,
+): boolean {
+	const def =
+		typeof provider === "string"
+			? providers.find((p) => p.id === provider)
+			: provider;
+	return Boolean(def?.env.required.baseUrl);
+}
+
+/**
  * Machine-readable reason a provider (or attestation) fails a compliance
  * policy. Requirement keys mirror {@link ProviderCompliancePolicy}; the list
  * keys report a hit on the fine-grained provider lists, and `noAttestation`
@@ -1769,6 +1794,7 @@ export type ComplianceFailureReason =
 	| "requireGdpr"
 	| "blockApiTraining"
 	| "blockPromptLogging"
+	| "blockStealthProviders"
 	| "allowedCountries"
 	| "blockedProviders"
 	| "allowedProviders"
@@ -1942,6 +1968,31 @@ export function isProviderCompliant(
 }
 
 /**
+ * Every requirement a catalogue provider fails: the certification/data-policy
+ * checks plus the provider-level stealth check. Deliberately excludes the
+ * fine-grained provider lists, so callers editing those lists (the dashboard
+ * pickers) can show whether a provider would otherwise satisfy the policy.
+ */
+export function getProviderRequirementFailures(
+	provider: ProviderDefinition,
+	policy: ProviderCompliancePolicy,
+): ComplianceFailureReason[] {
+	const failures = getDataPolicyComplianceFailures(
+		provider.dataPolicy,
+		provider.headquarters,
+		policy,
+	);
+	if (
+		policy.enabled &&
+		policy.blockStealthProviders &&
+		isStealthProvider(provider)
+	) {
+		failures.push("blockStealthProviders");
+	}
+	return failures;
+}
+
+/**
  * Every reason a catalogue provider fails an organization's compliance policy:
  * fine-grained provider-list hits plus unmet certification/data-policy
  * requirements. Empty when the provider is compliant.
@@ -1952,11 +2003,7 @@ export function getProviderComplianceFailures(
 ): ComplianceFailureReason[] {
 	return [
 		...getProviderRefPolicyListFailures(provider.id, policy),
-		...getDataPolicyComplianceFailures(
-			provider.dataPolicy,
-			provider.headquarters,
-			policy,
-		),
+		...getProviderRequirementFailures(provider, policy),
 	];
 }
 

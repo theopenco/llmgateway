@@ -33,10 +33,10 @@ import { cn } from "@/lib/utils";
 import {
 	customProviderRef,
 	getAttestationComplianceFailures,
-	getDataPolicyComplianceFailures,
 	getProviderComplianceFailures,
 	getProviderCountries,
 	getProviderRefPolicyListFailures,
+	getProviderRequirementFailures,
 	models,
 	providers,
 	type ComplianceFailureReason,
@@ -68,6 +68,7 @@ const FAILURE_LABELS: Record<ComplianceFailureReason, string> = {
 	requireGdpr: "Not GDPR compliant",
 	blockApiTraining: "May train on API prompts",
 	blockPromptLogging: "May log prompts",
+	blockStealthProviders: "Stealth provider",
 	allowedCountries: "Headquarters not in an allowed country",
 	blockedProviders: "On the blocked-providers list",
 	allowedProviders: "Not on the allowed-providers list",
@@ -185,7 +186,8 @@ type RequirementKey =
 	| "requireSoc2OrIso27001"
 	| "requireGdpr"
 	| "blockApiTraining"
-	| "blockPromptLogging";
+	| "blockPromptLogging"
+	| "blockStealthProviders";
 
 const REQUIREMENTS: {
 	key: RequirementKey;
@@ -229,6 +231,12 @@ const REQUIREMENTS: {
 		key: "blockPromptLogging",
 		name: "No prompt logging",
 		description: "Block providers that log prompts.",
+	},
+	{
+		key: "blockStealthProviders",
+		name: "No stealth providers",
+		description:
+			"Block stealth providers — undisclosed platforms whose data policy and headquarters are unknown.",
 	},
 ];
 
@@ -354,11 +362,7 @@ export function ComplianceClient() {
 		useCustomProviderSelection();
 	const selectableProviders = useMemo<SelectableProviderOption[]>(() => {
 		const catalogueOptions = SELECTABLE_PROVIDERS.map((provider) => {
-			const failures = getDataPolicyComplianceFailures(
-				provider.dataPolicy,
-				provider.headquarters,
-				policy,
-			);
+			const failures = getProviderRequirementFailures(provider, policy);
 			return {
 				id: provider.id,
 				name: provider.name,
