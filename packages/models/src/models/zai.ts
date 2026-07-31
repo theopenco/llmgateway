@@ -126,7 +126,6 @@ export const zaiModels = [
 				providerId: "alibaba",
 				externalId: "glm-5.2",
 				inputPrice: "1.4e-6",
-				// implicit cache hits bill at 20% of the input price
 				cachedInputPrice: "0.28e-6",
 				outputPrice: "4.4e-6",
 				regions: [{ id: "singapore" }],
@@ -499,7 +498,7 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				webSearch: true,
-				webSearchPrice: "0.01", // $0.01 per search
+				webSearchPrice: "0.01",
 				jsonOutput: true,
 			},
 			{
@@ -740,7 +739,7 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				webSearch: true,
-				webSearchPrice: "0.01", // $0.01 per search
+				webSearchPrice: "0.01",
 				jsonOutput: true,
 			},
 			{
@@ -761,7 +760,6 @@ export const zaiModels = [
 				jsonOutput: true,
 			},
 			{
-				// Cerebras: FP16/FP8 (weights only)
 				providerId: "cerebras",
 				test: "skip",
 				externalId: "zai-glm-4.7",
@@ -1026,11 +1024,10 @@ export const zaiModels = [
 				// function choices for glm-4.6 (verified live 2026-07-14)
 				supportedToolChoices: ["auto", "none"],
 				webSearch: true,
-				webSearchPrice: "0.01", // $0.01 per search
+				webSearchPrice: "0.01",
 				jsonOutput: true,
 			},
 			{
-				// Cerebras: FP16/FP8 (weights only)
 				providerId: "cerebras",
 				test: "skip",
 				deactivatedAt: new Date("2026-01-20"),

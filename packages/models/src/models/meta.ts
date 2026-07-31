@@ -103,7 +103,6 @@ export const metaModels = [
 				jsonOutput: false,
 			},
 			{
-				// Cerebras: FP16
 				providerId: "cerebras",
 				externalId: "llama3.1-8b",
 				inputPrice: "0.1e-6",
@@ -272,7 +271,6 @@ export const metaModels = [
 				],
 			},
 			{
-				// Cerebras: FP16
 				providerId: "cerebras",
 				test: "skip",
 				externalId: "llama-3.3-70b",

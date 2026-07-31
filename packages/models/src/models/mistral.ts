@@ -242,7 +242,6 @@ export const mistralModels = [
 				inputPrice: "0",
 				outputPrice: "0",
 				requestPrice: "0",
-				// $4 per 1,000 pages processed.
 				ocrPagePrice: "0.004",
 				contextSize: 0,
 				maxOutput: undefined,
