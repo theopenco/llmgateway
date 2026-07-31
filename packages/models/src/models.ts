@@ -94,6 +94,38 @@ export interface PricingTier {
 }
 
 /**
+ * Peak-hour pricing for models with time-of-day pricing (e.g. DeepSeek's
+ * announced peak hours of 9:00-12:00 and 14:00-18:00 Beijing time, UTC+8,
+ * at 2x the regular rates). When set, the mapping's regular prices are the
+ * off-peak rates and these prices apply during the provider's peak hours.
+ * Inert scaffold: providers (e.g. DeepSeek) that have not yet activated
+ * peak pricing leave `active` unset/false and the cost engine ignores this.
+ */
+export interface PeakPricing {
+	/**
+	 * Whether the provider has activated peak-hour pricing. When false/unset,
+	 * the field is scaffold only and must not affect billing.
+	 */
+	active?: boolean;
+	/**
+	 * Peak hour windows in the provider's local time (HH:MM-HH:MM, e.g. "09:00-12:00").
+	 */
+	peakHours?: string[];
+	/**
+	 * Price per input token in USD during peak hours
+	 */
+	inputPrice?: Price;
+	/**
+	 * Price per output token in USD during peak hours
+	 */
+	outputPrice?: Price;
+	/**
+	 * Price per cached input token in USD during peak hours
+	 */
+	cachedInputPrice?: Price;
+}
+
+/**
  * Pricing and availability for a specific geographic region.
  * When defined on a ProviderModelMapping, the first entry is the default region.
  * Top-level inputPrice/outputPrice always reflect the default (first) region
@@ -138,6 +170,11 @@ export interface ProviderRegion {
 	 * When absent, falls back to the mapping-level pricingTiers.
 	 */
 	pricingTiers?: PricingTier[];
+	/**
+	 * Peak-hour pricing for this region.
+	 * When absent, falls back to the mapping-level peakPricing.
+	 */
+	peakPricing?: PeakPricing;
 	/**
 	 * Price per request in USD for this region.
 	 * When absent, falls back to the mapping-level requestPrice.
@@ -306,6 +343,13 @@ export interface ProviderModelMapping {
 	 * Tiers should be sorted by upToTokens in ascending order.
 	 */
 	pricingTiers?: PricingTier[];
+	/**
+	 * Peak-hour pricing for models with time-of-day pricing. When set, the
+	 * regular inputPrice/outputPrice are the off-peak rates and these apply
+	 * during the provider's peak hours. Inert until the provider activates
+	 * peak pricing (`active: true`); see PeakPricing.
+	 */
+	peakPricing?: PeakPricing;
 	/**
 	 * Maximum context window size in tokens
 	 */

@@ -54,6 +54,15 @@ const pricingTierSchema = z.object({
 	cacheWriteInputPrice1h: z.string().nullable(),
 });
 
+// Peak-hour pricing schema (inert scaffold until providers activate it)
+const peakPricingSchema = z.object({
+	active: z.boolean().nullable(),
+	peakHours: z.array(z.string()).nullable(),
+	inputPrice: z.string().nullable(),
+	outputPrice: z.string().nullable(),
+	cachedInputPrice: z.string().nullable(),
+});
+
 // Model provider mapping schema
 const modelProviderMappingSchema = z.object({
 	id: z.string(),
@@ -105,6 +114,7 @@ const modelProviderMappingSchema = z.object({
 	supportsVideoWithoutAudio: z.boolean().nullable(),
 	perSecondPrice: z.record(z.string()).nullable(),
 	pricingTiers: z.array(pricingTierSchema).nullable(),
+	peakPricing: peakPricingSchema.nullable(),
 	serviceTiers: z.array(z.string()).nullable(),
 	deprecatedAt: z.coerce.date().nullable(),
 	deactivatedAt: z.coerce.date().nullable(),
@@ -327,6 +337,28 @@ internalModels.openapi(getModelsRoute, async (c) => {
 								? String(t.cacheWriteInputPrice1h)
 								: null,
 					}));
+				})(),
+				peakPricing: (() => {
+					const regionDef = mapping.region
+						? sharedMapping?.regions?.find((r) => r.id === mapping.region)
+						: null;
+					const raw =
+						regionDef?.peakPricing ?? sharedMapping?.peakPricing ?? null;
+					if (!raw) {
+						return null;
+					}
+					return {
+						active: raw.active ?? false,
+						peakHours: raw.peakHours ?? null,
+						inputPrice:
+							raw.inputPrice !== undefined ? String(raw.inputPrice) : null,
+						outputPrice:
+							raw.outputPrice !== undefined ? String(raw.outputPrice) : null,
+						cachedInputPrice:
+							raw.cachedInputPrice !== undefined
+								? String(raw.cachedInputPrice)
+								: null,
+					};
 				})(),
 				serviceTiers: (() => {
 					const tiers = sharedMapping?.serviceTiers ?? null;

@@ -71,6 +71,13 @@ export interface ApiModelProviderMapping {
 		cacheWriteInputPrice: string | null;
 		cacheWriteInputPrice1h: string | null;
 	}> | null;
+	peakPricing: {
+		active: boolean | null;
+		peakHours: string[] | null;
+		inputPrice: string | null;
+		outputPrice: string | null;
+		cachedInputPrice: string | null;
+	} | null;
 	serviceTiers?: string[] | null;
 	discount: string | null;
 	stability: "stable" | "beta" | "unstable" | "experimental" | null;

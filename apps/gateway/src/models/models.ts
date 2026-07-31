@@ -67,6 +67,17 @@ const modelSchema = z.object({
 					input_cache_write_1h: z.string().optional(),
 					ocr_page: z.string().optional(),
 					input_audio_hour: z.string().optional(),
+					peak: z
+						.object({
+							prompt: z.string(),
+							completion: z.string(),
+							input_cache_read: z.string(),
+						})
+						.optional()
+						.openapi({
+							description:
+								"Peak-hour prices (scaffold): applied during the provider's peak hours once the provider activates peak pricing. Inert until then.",
+						}),
 				})
 				.optional(),
 			streaming: z.union([z.boolean(), z.literal("only")]),
@@ -113,6 +124,17 @@ const modelSchema = z.object({
 		internal_reasoning: z.string().optional(),
 		ocr_page: z.string().optional(),
 		input_audio_hour: z.string().optional(),
+		peak: z
+			.object({
+				prompt: z.string(),
+				completion: z.string(),
+				input_cache_read: z.string(),
+			})
+			.optional()
+			.openapi({
+				description:
+					"Peak-hour prices (scaffold): applied during the provider's peak hours once the provider activates peak pricing. Inert until then.",
+			}),
 	}),
 	context_length: z.number().optional(),
 	per_request_limits: z.record(z.string()).optional(),
@@ -407,6 +429,13 @@ function buildPricingFields(p: ProviderModelMapping | undefined) {
 		input_cache_write_1h: p?.cacheWriteInputPrice1h?.toString() ?? "0",
 		ocr_page: p?.ocrPagePrice?.toString(),
 		input_audio_hour: p?.inputAudioHourPrice?.toString(),
+		peak: p?.peakPricing
+			? {
+					prompt: p.peakPricing.inputPrice?.toString() ?? "0",
+					completion: p.peakPricing.outputPrice?.toString() ?? "0",
+					input_cache_read: p.peakPricing.cachedInputPrice?.toString() ?? "0",
+				}
+			: undefined,
 	};
 }
 
