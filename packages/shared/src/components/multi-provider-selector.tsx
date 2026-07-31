@@ -101,16 +101,18 @@ export function MultiProviderSelector({
 								{ProviderIcon && <ProviderIcon className="h-3 w-3" />}
 								{provider?.name ?? providerId}
 								{provider?.meetsPolicy === false && (
-									<ShieldAlert
-										className="h-3 w-3 text-red-500"
-										aria-label="Does not meet policy requirements"
-									>
-										<title>
-											{provider.policyNotes?.length
+									<span
+										title={
+											provider.policyNotes?.length
 												? provider.policyNotes.join("; ")
-												: "Does not meet policy requirements"}
-										</title>
-									</ShieldAlert>
+												: "Does not meet policy requirements"
+										}
+									>
+										<ShieldAlert
+											className="h-3 w-3 text-red-500"
+											aria-label="Does not meet policy requirements"
+										/>
+									</span>
 								)}
 								<Button
 									variant="ghost"
@@ -159,7 +161,11 @@ export function MultiProviderSelector({
 						)}
 						<div className="max-h-[300px] overflow-y-auto">
 							<CommandList>
-								<CommandEmpty>No providers found.</CommandEmpty>
+								<CommandEmpty>
+									{isPolicyAware && compatibleOnly
+										? "No providers meet the policy requirements."
+										: "No providers found."}
+								</CommandEmpty>
 								{visibleProviders.map((provider) => {
 									const isSelected = selectedProviders.includes(provider.id);
 									const ProviderIcon = getProviderIcon(provider.id);
@@ -178,12 +184,13 @@ export function MultiProviderSelector({
 												<div className="min-w-0">
 													<span className="font-medium">{provider.name}</span>
 													{provider.meetsPolicy === false &&
-														(provider.policyNotes?.length ?? 0) > 0 && (
+														provider.policyNotes &&
+														provider.policyNotes.length > 0 && (
 															<p
 																className="truncate text-xs text-red-600 dark:text-red-400"
-																title={provider.policyNotes!.join("; ")}
+																title={provider.policyNotes.join("; ")}
 															>
-																{provider.policyNotes!.join(" · ")}
+																{provider.policyNotes.join(" · ")}
 															</p>
 														)}
 												</div>
