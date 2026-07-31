@@ -30,10 +30,10 @@ import {
 } from "@/components/ui/select";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import {
-	useRealtimeCall,
-	type RealtimeTranscriptEntry,
-	type RealtimeCallStatus,
-} from "@/hooks/use-realtime-call";
+	useVoiceCall,
+	type VoiceCallStatus,
+	type VoiceCallTranscriptEntry,
+} from "@/hooks/use-voice-call";
 import {
 	useRealtimeHistory,
 	useRealtimeHistoryItem,
@@ -48,6 +48,10 @@ import {
 	setModelPreferenceCookie,
 } from "@/lib/model-preferences";
 import { base64ToBytes } from "@/lib/realtime-audio";
+import {
+	isKnownModelValue,
+	resolveSelectedMapping,
+} from "@/lib/realtime-model-value";
 import { cn } from "@/lib/utils";
 
 import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
@@ -63,7 +67,7 @@ interface RealtimePageClientProps {
 	initialModelPreference?: string | null;
 }
 
-const STATUS_LABELS: Record<RealtimeCallStatus, string> = {
+const STATUS_LABELS: Record<VoiceCallStatus, string> = {
 	idle: "Ready",
 	"preparing-audio": "Preparing audio…",
 	"requesting-mic": "Requesting microphone…",
@@ -135,22 +139,24 @@ export default function RealtimePageClient({
 
 	const [selectedModel, setSelectedModel] = useState<string>(() => {
 		const modelParam = searchParams.get("model");
-		if (modelParam && realtimeModels.some((m) => m.id === modelParam)) {
+		if (modelParam && isKnownModelValue(realtimeModels, modelParam)) {
 			return modelParam;
 		}
 		const stored =
 			getModelPreferenceCookie(REALTIME_MODEL_COOKIE) ?? initialModelPreference;
-		if (stored && realtimeModels.some((m) => m.id === stored)) {
+		if (stored && isKnownModelValue(realtimeModels, stored)) {
 			return stored;
 		}
 		return realtimeModels[0]?.id ?? "";
 	});
 
-	const selectedModelDef = useMemo(
-		() => realtimeModels.find((m) => m.id === selectedModel) ?? null,
+	// A provider-pinned selection must resolve to that provider's mapping: it
+	// decides both the voice list and which wire protocol the call speaks, and
+	// the gateway pins the same mapping from the same model string.
+	const selectedMapping = useMemo(
+		() => resolveSelectedMapping(realtimeModels, selectedModel),
 		[realtimeModels, selectedModel],
 	);
-	const selectedMapping = selectedModelDef?.mappings[0] ?? null;
 	const voices = useMemo(
 		() => selectedMapping?.supportedVoices ?? [],
 		[selectedMapping],
@@ -190,9 +196,13 @@ export default function RealtimePageClient({
 		start,
 		end,
 		reset,
-	} = useRealtimeCall({
+		supportsResume,
+	} = useVoiceCall({
 		model: selectedModel || null,
 		voice: voice || null,
+		// Realtime mappings are already filtered to the active ones, so the first
+		// mapping is the provider the gateway will pin the session to.
+		provider: selectedMapping?.providerId ?? null,
 		onCallError,
 	});
 
@@ -215,7 +225,7 @@ export default function RealtimePageClient({
 	// browser is the only place a realtime transcript exists — the gateway
 	// deliberately does not store conversation content.
 	const savedCallRef = useRef(false);
-	const previousStatusRef = useRef<RealtimeCallStatus>("idle");
+	const previousStatusRef = useRef<VoiceCallStatus>("idle");
 	// Set while this session continues a saved call: its turns are appended to
 	// that row instead of starting a second history entry.
 	const continuedCallIdRef = useRef<string | null>(null);
@@ -233,7 +243,7 @@ export default function RealtimePageClient({
 		const continuedCallId = continuedCallIdRef.current;
 		// Upstream item ids are dropped: they identify a session that no longer
 		// exists and are not needed to replay the conversation.
-		const toEntry = (entry: RealtimeTranscriptEntry) => ({
+		const toEntry = (entry: VoiceCallTranscriptEntry) => ({
 			role: entry.role,
 			text: entry.text,
 			status: entry.status,
@@ -531,7 +541,7 @@ export default function RealtimePageClient({
 		if (!viewedCall || !selectedModel) {
 			return;
 		}
-		const seed: RealtimeTranscriptEntry[] = viewedCall.transcript
+		const seed: VoiceCallTranscriptEntry[] = viewedCall.transcript
 			.filter(
 				(entry) => entry.status !== "partial" && entry.text.trim().length > 0,
 			)
@@ -827,6 +837,9 @@ export default function RealtimePageClient({
 													className="gap-2 rounded-full px-8"
 													disabled={
 														!selectedModel ||
+														// Without a resolved mapping the provider — and so the
+														// wire protocol the call must speak — is unknown.
+														!selectedMapping ||
 														!isAuthenticated ||
 														!hasBillingContext
 													}
@@ -835,13 +848,14 @@ export default function RealtimePageClient({
 													<Phone className="h-4 w-4" />
 													Start call
 												</Button>
-												{isViewingHistory && (
+												{isViewingHistory && supportsResume && (
 													<Button
 														size="lg"
 														variant="outline"
 														className="gap-2 rounded-full px-8"
 														disabled={
 															!selectedModel ||
+															!selectedMapping ||
 															!isAuthenticated ||
 															!hasBillingContext
 														}
