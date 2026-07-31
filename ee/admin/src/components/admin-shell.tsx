@@ -271,7 +271,9 @@ export function AdminShell({ children }: AdminShellProps) {
 					</SidebarGroup>
 				</SidebarContent>
 				<SidebarFooter className="border-t border-sidebar-border/60 space-y-2 p-2">
-					<ThemeToggle size="compact" className="w-full justify-center" />
+					<div className="flex justify-center">
+						<ThemeToggle size="compact" />
+					</div>
 					<Button
 						variant="ghost"
 						size="sm"
