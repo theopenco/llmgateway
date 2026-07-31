@@ -28,8 +28,11 @@ Enable a policy under **Settings → Compliance** in the dashboard and toggle th
 | **GDPR compliant**            | it is GDPR compliant                               |
 | **No training on prompts**    | it does not train on API prompts                   |
 | **No prompt logging**         | it does not log prompts                            |
+| **No stealth providers**      | it is not a stealth provider                       |
 
 Every requirement is **fail-closed**: a provider passes only if its published data policy explicitly satisfies the requirement. If an attribute is unknown for a provider, that provider is treated as non-compliant.
+
+Stealth providers are undisclosed platforms that LLM Gateway routes to without naming the operator, so their data policy and headquarters are unknown. That already makes them fail every certification and data-policy requirement above, but **No stealth providers** excludes them explicitly — useful when you want them gone without turning on any other requirement.
 
 The settings page shows a live **Provider Impact** preview of which providers are allowed (green) and which are blocked (red) under the current policy, so you can see the impact before saving. Hovering a blocked provider lists exactly which requirements it does not meet — a missing certification, its data policy, its headquarters country, or a provider-list restriction.
 

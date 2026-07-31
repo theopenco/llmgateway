@@ -12,6 +12,7 @@ import {
 	isModelAllowedByPolicy,
 	isProviderCompliant,
 	isProviderRefAllowedByPolicy,
+	isStealthProvider,
 	PROVIDER_COUNTRY_NAMES,
 	providers,
 	type ProviderComplianceAttestation,
@@ -794,5 +795,84 @@ describe("compliance failure reasons", () => {
 				isProviderCompliant(provider, policy),
 			);
 		}
+	});
+});
+
+describe("blockStealthProviders", () => {
+	const stealth: ProviderDefinition = {
+		id: "stealthy",
+		name: "Stealthy",
+		description: "",
+		env: { required: { apiKey: "TEST", baseUrl: "TEST_BASE_URL" } },
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			soc2: 2,
+			iso27001: true,
+			gdpr: true,
+		},
+		headquarters: "US",
+	};
+
+	it("blocks stealth providers that satisfy every other requirement", () => {
+		const policy: ProviderCompliancePolicy = {
+			enabled: true,
+			blockStealthProviders: true,
+		};
+		expect(getProviderComplianceFailures(stealth, policy)).toEqual([
+			"blockStealthProviders",
+		]);
+		expect(isProviderCompliant(stealth, policy)).toBe(false);
+	});
+
+	it("leaves stealth providers alone when the toggle is off or the policy is disabled", () => {
+		expect(getProviderComplianceFailures(stealth, { enabled: true })).toEqual(
+			[],
+		);
+		expect(
+			getProviderComplianceFailures(stealth, {
+				enabled: false,
+				blockStealthProviders: true,
+			}),
+		).toEqual([]);
+	});
+
+	it("does not affect non-stealth providers", () => {
+		expect(
+			getProviderComplianceFailures(makeProvider(stealth.dataPolicy, "US"), {
+				enabled: true,
+				blockStealthProviders: true,
+			}),
+		).toEqual([]);
+	});
+
+	it("blocks every catalogue stealth provider", () => {
+		const policy: ProviderCompliancePolicy = {
+			enabled: true,
+			blockStealthProviders: true,
+		};
+		const stealthProviders = providers.filter(isStealthProvider);
+		expect(stealthProviders.length).toBeGreaterThan(0);
+		for (const provider of stealthProviders) {
+			expect(getProviderComplianceFailures(provider, policy)).toContain(
+				"blockStealthProviders",
+			);
+		}
+	});
+
+	it("does not apply to custom-provider attestations", () => {
+		const attestation: ProviderComplianceAttestation = {
+			soc2: 2,
+			apiTraining: false,
+			promptLogging: false,
+			headquarters: "US",
+		};
+		expect(
+			getAttestationComplianceFailures(attestation, {
+				enabled: true,
+				blockStealthProviders: true,
+			}),
+		).toEqual([]);
 	});
 });

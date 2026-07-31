@@ -1,15 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import {
-	getSupportedServiceTiers,
-	isStealthProvider,
-	supportsServiceTier,
-} from "./helpers.js";
+import { getSupportedServiceTiers, supportsServiceTier } from "./helpers.js";
 import { anthropicModels } from "./models/anthropic.js";
 import { models } from "./models.js";
 import {
 	formatServiceTierMultiplier,
 	getServiceTier,
+	isStealthProvider,
 	providers,
 } from "./providers.js";
 import {
