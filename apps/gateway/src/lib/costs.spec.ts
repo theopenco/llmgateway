@@ -878,6 +878,33 @@ describe("calculateCosts", () => {
 			expect(result.totalCost).toBeCloseTo(standardCost * 2, 8);
 		});
 
+		it("applies the Fireworks Priority multiplier (1.25x) to token costs", async () => {
+			const result = await calculateCosts(
+				"kimi-k3",
+				"fireworks",
+				null,
+				1000,
+				700,
+				200,
+				undefined,
+				null,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "priority" },
+			);
+			// Fireworks publishes Kimi K3 Priority at $3.75 / $0.375 / $18.75 per
+			// million, i.e. exactly 1.25x the standard $3.00 / $0.30 / $15.00.
+			expect(result.inputCost).toBeCloseTo(800 * 3.75e-6, 8);
+			expect(result.cachedInputCost).toBeCloseTo(200 * 0.375e-6, 8);
+			expect(result.outputCost).toBeCloseTo(700 * 18.75e-6, 8);
+		});
+
 		it("bills a downgraded request (servedServiceTier null) at standard rates", async () => {
 			const result = await calculateCosts(
 				"gemini-2.5-pro",

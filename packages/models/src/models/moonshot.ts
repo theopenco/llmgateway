@@ -740,6 +740,10 @@ export const moonshotModels = [
 				cachedInputPrice: "0.3e-6",
 				outputPrice: "15.0e-6",
 				requestPrice: "0",
+				// Fireworks publishes a Priority rate card for Kimi K3 at exactly
+				// 1.25x the standard rates ($3.75 / $0.375 / $18.75 per million),
+				// which is the provider-level multiplier — no override needed.
+				serviceTiers: ["priority"],
 				contextSize: 1040384,
 				maxOutput: 1040384,
 				streaming: true,

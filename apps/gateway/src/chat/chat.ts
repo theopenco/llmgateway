@@ -104,6 +104,7 @@ import { validateModelOutput } from "@/lib/validate-model-output.js";
 
 import {
 	applyGoogleServiceTier,
+	assumeServedServiceTier,
 	getCheapestFromAvailableProviders,
 	getDiscountedProviderSelectionPrice,
 	getGcpServiceAccountAccessToken,
@@ -763,7 +764,8 @@ function isVertexCompatibleProvider(provider: string): boolean {
  * Dev-only verification log confirming a requested processing tier reached the
  * provider. AI Studio reports the served tier in the `x-gemini-service-tier`
  * response header; Vertex reports it in `usageMetadata.trafficType` (logged
- * separately once the response body is parsed).
+ * separately once the response body is parsed); Fireworks reports nothing, so
+ * an accepted request is attributed to the tier it was sent at.
  */
 function logServiceTierRequest(
 	provider: string,
@@ -773,7 +775,7 @@ function logServiceTierRequest(
 	if (
 		process.env.NODE_ENV === "production" ||
 		(serviceTier !== "flex" && serviceTier !== "priority") ||
-		!isGoogleCompatibleProvider(provider)
+		!(isGoogleCompatibleProvider(provider) || provider === "fireworks")
 	) {
 		return;
 	}
@@ -783,7 +785,13 @@ function logServiceTierRequest(
 		transport: isVertexCompatibleProvider(provider)
 			? "X-Vertex-AI-LLM-Shared-Request-Type header"
 			: "service_tier body field",
-		servedServiceTier: res?.headers.get("x-gemini-service-tier") ?? null,
+		servedServiceTier:
+			res?.headers.get("x-gemini-service-tier") ??
+			assumeServedServiceTier(
+				provider as Provider,
+				serviceTier,
+				res?.ok ?? false,
+			),
 		status: res?.status,
 	});
 }
@@ -7145,9 +7153,17 @@ chat.openapi(completions, async (c) => {
 						logServiceTierRequest(usedProvider, forwardedServiceTier, res);
 						// AI Studio reports the served tier in a response header; Vertex
 						// reports it later in usageMetadata.trafficType (set below).
-						servedServiceTier = resolveServedServiceTier({
-							serviceTierHeader: res?.headers.get("x-gemini-service-tier"),
-						});
+						// Providers that report no tier at all (Fireworks) fall back to
+						// the tier the accepted request was sent at.
+						servedServiceTier =
+							resolveServedServiceTier({
+								serviceTierHeader: res?.headers.get("x-gemini-service-tier"),
+							}) ??
+							assumeServedServiceTier(
+								usedProvider,
+								forwardedServiceTier,
+								res?.ok ?? false,
+							);
 					} catch (error) {
 						// Clean up the event listeners
 						c.req.raw.signal.removeEventListener("abort", onAbort);
@@ -11398,10 +11414,18 @@ chat.openapi(completions, async (c) => {
 
 			logServiceTierRequest(usedProvider, forwardedServiceTier, res);
 			// AI Studio reports the served tier in a response header; Vertex reports
-			// it later in usageMetadata.trafficType (set below).
-			servedServiceTier = resolveServedServiceTier({
-				serviceTierHeader: res?.headers.get("x-gemini-service-tier"),
-			});
+			// it later in usageMetadata.trafficType (set below). Providers that
+			// report no tier at all (Fireworks) fall back to the tier the accepted
+			// request was sent at.
+			servedServiceTier =
+				resolveServedServiceTier({
+					serviceTierHeader: res?.headers.get("x-gemini-service-tier"),
+				}) ??
+				assumeServedServiceTier(
+					usedProvider,
+					forwardedServiceTier,
+					res?.ok ?? false,
+				);
 		} catch (error) {
 			// Check for timeout error first (AbortSignal.timeout throws TimeoutError)
 			if (isTimeoutError(error)) {
@@ -13032,6 +13056,15 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// OpenAI echoes the served tier in its response payload; providers that
+	// report no tier of their own (Fireworks) echo the tier the gateway
+	// resolved so clients still see what the request actually ran at.
+	const echoedServiceTier =
+		usedProvider === "openai"
+			? readServiceTierValue(json)
+			: (assumeServedServiceTier(usedProvider, servedServiceTier, true) ??
+				undefined);
+
 	// Transform response to OpenAI format for non-OpenAI providers
 	// Include costs in response for all users
 	const shouldIncludeCosts = true;
@@ -13081,7 +13114,7 @@ chat.openapi(completions, async (c) => {
 		cacheCreation5mTokens,
 		cacheCreation1hTokens,
 		audioInputTokens,
-		usedProvider === "openai" ? readServiceTierValue(json) : undefined,
+		echoedServiceTier,
 	);
 	// Attach opaque reasoning payloads (e.g. OpenAI encrypted reasoning) to the
 	// assistant message so clients can replay them on later turns to preserve

@@ -154,6 +154,22 @@ describe("model service tier support", () => {
 		).toEqual(["flex"]);
 	});
 
+	it("returns the Fireworks Priority tier for Kimi K3 only", () => {
+		expect(
+			getSupportedServiceTiers("kimi-k3", "fireworks").map((tier) => tier.id),
+		).toEqual(["priority"]);
+		expect(
+			getSupportedServiceTiers("kimi-k3", "fireworks").find(
+				(tier) => tier.id === "priority",
+			)?.multiplier,
+		).toBe(1.25);
+		// Fireworks' schema accepts "flex", but it has no published flex rate
+		// card, so the gateway must not route flex traffic there.
+		expect(supportsServiceTier("kimi-k3", "fireworks", "flex")).toBe(false);
+		// Other providers serving the same model expose no tiers.
+		expect(getSupportedServiceTiers("kimi-k3", "novita")).toEqual([]);
+	});
+
 	it("returns explicit Google AI Studio tiers for supported models", () => {
 		expect(
 			getSupportedServiceTiers("gemini-2.5-pro", "google-ai-studio").map(

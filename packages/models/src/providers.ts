@@ -1698,6 +1698,15 @@ export const providers: ProviderDefinition[] = [
 		website: "https://fireworks.ai",
 		statusPageUrl: "https://status.fireworks.ai",
 		announcement: null,
+		serviceTiers: [
+			{
+				id: "priority",
+				name: "Priority",
+				multiplier: 1.25,
+				description:
+					"Queue precedence over standard traffic and protection from load shedding during congestion, at a 25% premium.",
+			},
+		],
 		termsUrl: "https://fireworks.ai/terms-of-service",
 		privacyPolicyUrl: "https://fireworks.ai/privacy-policy",
 		headquarters: "US",
