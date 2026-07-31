@@ -4427,6 +4427,8 @@ export const playgroundRealtimeHistory = pgTable(
 				text: string;
 				status: "partial" | "final" | "interrupted";
 				timestamp: number;
+				// Assistant speech for the turn, retained so it can be replayed.
+				audio?: { base64: string; mediaType: "audio/wav" };
 			}[]
 		>(),
 		usage: jsonb().$type<{
