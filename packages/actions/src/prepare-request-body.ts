@@ -3940,6 +3940,14 @@ export async function prepareRequestBody(
 				requestBody.response_format = response_format;
 			}
 
+			// Fireworks selects the processing tier with the OpenAI-compatible
+			// `service_tier` body field on its chat completions endpoint. Its
+			// schema only accepts auto/default/flex/priority, and supportedServiceTier
+			// already narrows to the tiers the catalog declares for this mapping.
+			if (usedProvider === "fireworks" && supportedServiceTier) {
+				requestBody.service_tier = supportedServiceTier;
+			}
+
 			// Vertex's OpenAI-compatible chat completions endpoint requires the
 			// model field to be partner-prefixed, e.g. "xai/grok-4.20-reasoning".
 			// Derive the prefix from the model family so we don't have to encode

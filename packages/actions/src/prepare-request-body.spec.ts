@@ -770,6 +770,76 @@ describe("prepareRequestBody - OpenAI service tiers", () => {
 	});
 });
 
+describe("prepareRequestBody - Fireworks service tiers", () => {
+	async function prepareFireworksRequest(options: {
+		provider?: "fireworks" | "novita";
+		serviceTier?: "flex" | "priority";
+	}) {
+		return (await prepareRequestBody(
+			options.provider ?? "fireworks",
+			"kimi-k3",
+			null,
+			"accounts/fireworks/models/kimi-k3",
+			[{ role: "user", content: "Hello!" }] as any,
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			undefined,
+			undefined,
+			true,
+			undefined,
+			options.serviceTier,
+		)) as { service_tier?: string };
+	}
+
+	test("forwards priority to Fireworks chat completions", async () => {
+		const requestBody = await prepareFireworksRequest({
+			serviceTier: "priority",
+		});
+
+		expect(requestBody.service_tier).toBe("priority");
+	});
+
+	test("does not forward flex, which Fireworks has no rate card for", async () => {
+		const requestBody = await prepareFireworksRequest({ serviceTier: "flex" });
+
+		expect(requestBody.service_tier).toBeUndefined();
+	});
+
+	test("does not forward a tier to another provider serving the same model", async () => {
+		const requestBody = await prepareFireworksRequest({
+			provider: "novita",
+			serviceTier: "priority",
+		});
+
+		expect(requestBody.service_tier).toBeUndefined();
+	});
+
+	test("omits service_tier for standard requests", async () => {
+		const requestBody = await prepareFireworksRequest({});
+
+		expect(requestBody.service_tier).toBeUndefined();
+	});
+});
+
 describe("prepareRequestBody - verbosity", () => {
 	test("forwards verbosity to gpt-5.6 chat completions", async () => {
 		const requestBody = (await prepareOpenAITextRequest({

@@ -1600,6 +1600,76 @@ describe("api", () => {
 		);
 	});
 
+	test("/v1/chat/completions rejects flex on Fireworks, which only sells priority", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-fireworks-flex",
+			token: "real-token-fireworks-flex",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-fireworks-flex",
+			},
+			body: JSON.stringify({
+				model: "fireworks/kimi-k3",
+				service_tier: "flex",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.error).toMatchObject({
+			param: "service_tier",
+			code: "unsupported_service_tier",
+		});
+	});
+
+	test("/v1/chat/completions rejects a Fireworks tier request on a proxied key", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-fireworks-proxy-tier",
+			token: "real-token-fireworks-proxy-tier",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		// Fireworks never reports the tier it served, so a priority request is
+		// billed at the tier it was sent at. A proxy base URL may silently drop
+		// the field, which would overbill — the request must be rejected instead.
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-fireworks-proxy-tier",
+			token: "sk-test-key",
+			provider: "fireworks",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-fireworks-proxy-tier",
+			},
+			body: JSON.stringify({
+				model: "fireworks/kimi-k3",
+				service_tier: "priority",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.error.message).toContain(
+			"requires a provider key that targets the original upstream endpoint",
+		);
+	});
+
 	test("/v1/chat/completions strips log payload when retention is disabled", async () => {
 		await db
 			.update(tables.organization)

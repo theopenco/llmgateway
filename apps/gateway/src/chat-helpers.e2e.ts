@@ -6,6 +6,7 @@ import {
 	type ModelDefinition,
 	getProviderDefinition,
 	getProviderEnvVar,
+	getSupportedServiceTiers,
 	models,
 	type ProviderModelMapping,
 	providers,
@@ -913,6 +914,30 @@ export const reasoningEffortModels = fullMode
 
 export const verbosityModels = testModels.filter((m) =>
 	m.providers.some((p: ProviderModelMapping) => p.verbosity === true),
+);
+
+/**
+ * One case per (provider mapping, service tier) the catalogue declares, so a
+ * mapping that opts into Flex/Priority is exercised against the real upstream.
+ * Only provider-pinned entries are used — the tier is a per-mapping property,
+ * and the tests pin the provider with x-no-fallback so an upstream that rejects
+ * the tier surfaces instead of falling back.
+ */
+export const serviceTierModels = testModels.flatMap((m) =>
+	m.originalModel
+		? m.providers.flatMap((p: ProviderModelMapping) =>
+				getSupportedServiceTiers(
+					m.originalModel as string,
+					p.providerId,
+					p.region ?? null,
+				).map((tier) => ({
+					model: m.model,
+					serviceTier: tier.id,
+					multiplier: tier.multiplier,
+					mapping: p,
+				})),
+			)
+		: [],
 );
 
 export const streamingReasoningModels = reasoningModels.filter((m) =>
