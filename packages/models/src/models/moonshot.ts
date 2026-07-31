@@ -12,7 +12,6 @@ export const moonshotModels = [
 				providerId: "groq",
 				externalId: "moonshotai/kimi-k2-instruct",
 				// Frequently over capacity on Groq (503)
-				// Ref: https://groqstatus.com
 				stability: "unstable",
 				inputPrice: "1.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -264,8 +263,6 @@ export const moonshotModels = [
 				providerId: "together-ai",
 				externalId: "moonshotai/Kimi-K2.5",
 				// Together.ai intermittently returns 500 for this model (~98.7% uptime)
-				// Ref: https://status.together.ai
-				// Model page: https://www.together.ai/models/kimi-k2-5
 				stability: "unstable",
 				inputPrice: "0.5e-6",
 				outputPrice: "2.8e-6",
@@ -783,6 +780,34 @@ export const moonshotModels = [
 					"xhigh",
 					"max",
 				],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
+		],
+	},
+	{
+		id: "kimi-k3-fast",
+		name: "Kimi K3 Fast",
+		description:
+			"Kimi K3 served on Fireworks' low-latency Fast router, trading a higher token price for faster generation.",
+		family: "moonshot",
+		releasedAt: new Date("2026-07-16"),
+		providers: [
+			{
+				providerId: "fireworks",
+				externalId: "accounts/fireworks/routers/kimi-k3-fast",
+				inputPrice: "4.5e-6",
+				cachedInputPrice: "0.45e-6",
+				outputPrice: "22.5e-6",
+				requestPrice: "0",
+				contextSize: 1040384,
+				maxOutput: 1040384,
+				streaming: true,
+				reasoning: true,
+				// Like the standard Fireworks deployment, the full effort enum is
+				// accepted and "minimal" is rejected with a 400.
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
 				vision: true,
 				tools: true,
 				jsonOutput: true,

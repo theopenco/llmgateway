@@ -364,7 +364,7 @@ export function ProviderKeysList({
 																		<DropdownMenuItem asChild>
 																			<Link
 																				href={
-																					`${buildOrgUrl("org/custom-models")}?providerKey=${providerKey.id}` as never
+																					`${buildOrgUrl("org/models")}?providerKey=${providerKey.id}` as never
 																				}
 																			>
 																				Manage models

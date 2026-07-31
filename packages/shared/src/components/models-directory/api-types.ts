@@ -78,6 +78,12 @@ export interface ApiModelProviderMapping {
 	deprecatedAt: string | null;
 	deactivatedAt: string | null;
 	status: "active" | "inactive";
+	/**
+	 * Org directory only: human-readable reasons this mapping is not routable
+	 * under the viewing organization's provider compliance policy. Absent or
+	 * empty on public surfaces and for eligible mappings.
+	 */
+	blockedReasons?: string[];
 }
 
 export interface ApiModel {
@@ -99,6 +105,12 @@ export interface ApiModel {
 	 * function the gateway uses to enforce the DevPass weekly cap.
 	 */
 	premium: boolean;
+	/**
+	 * Org directory only: distinguishes catalogue models from models defined in
+	 * the organization's own custom-model catalog. Absent on public surfaces
+	 * (treated as "catalog").
+	 */
+	source?: "catalog" | "custom";
 }
 
 type NextFetchInit = RequestInit & { next?: { revalidate?: number } };
