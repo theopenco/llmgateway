@@ -33,6 +33,7 @@ import { cn } from "@/lib/utils";
 import {
 	customProviderRef,
 	getAttestationComplianceFailures,
+	getDataPolicyComplianceFailures,
 	getProviderComplianceFailures,
 	getProviderCountries,
 	getProviderRefPolicyListFailures,
@@ -47,6 +48,7 @@ import {
 	MultiModelSelector,
 	MultiProviderSelector,
 	providerLogoUrls,
+	type SelectableProviderOption,
 } from "@llmgateway/shared/components";
 
 import { ContactSalesCard } from "./contact-sales-card";
@@ -339,14 +341,53 @@ export function ComplianceClient() {
 			};
 		});
 	}, [providerKeysData, selectedOrganization?.id, policy]);
+	const compliantCustomCount = customProviders.filter(
+		(provider) => provider.compliant,
+	).length;
 
 	// Custom providers/models as selector entries for the restriction lists.
+	// Each entry carries its requirement-level compatibility (certifications,
+	// data policy, headquarters — deliberately NOT the allowed/blocked lists,
+	// which the pickers themselves edit), so the dropdowns can show which
+	// providers would satisfy the policy if selected.
 	const { customProviderOptions, customModelOptions } =
 		useCustomProviderSelection();
-	const selectableProviders = useMemo(
-		() => [...SELECTABLE_PROVIDERS, ...customProviderOptions],
-		[customProviderOptions],
-	);
+	const selectableProviders = useMemo<SelectableProviderOption[]>(() => {
+		const catalogueOptions = SELECTABLE_PROVIDERS.map((provider) => {
+			const failures = getDataPolicyComplianceFailures(
+				provider.dataPolicy,
+				provider.headquarters,
+				policy,
+			);
+			return {
+				id: provider.id,
+				name: provider.name,
+				color: provider.color,
+				meetsPolicy: failures.length === 0,
+				policyNotes: failures.map((reason) =>
+					failureLabel(reason, provider.headquarters),
+				),
+			};
+		});
+		const attestationByKeyId = new Map(
+			(providerKeysData?.providerKeys ?? []).map((key) => [
+				key.id,
+				key.complianceAttestation,
+			]),
+		);
+		const customOptions = customProviderOptions.map((option) => {
+			const attestation = attestationByKeyId.get(option.providerKeyId);
+			const failures = getAttestationComplianceFailures(attestation, policy);
+			return {
+				...option,
+				meetsPolicy: failures.length === 0,
+				policyNotes: failures.map((reason) =>
+					failureLabel(reason, attestation?.headquarters),
+				),
+			};
+		});
+		return [...catalogueOptions, ...customOptions];
+	}, [customProviderOptions, providerKeysData, policy]);
 	const selectableModels = useMemo(
 		() => [...models, ...customModelOptions],
 		[customModelOptions],
@@ -548,7 +589,10 @@ export function ComplianceClient() {
 							Block or allow individual providers and models — including your
 							own custom providers. These organization-wide lists are enforced
 							on top of the requirements above and take precedence over any
-							member or API key IAM rule.
+							member or API key IAM rule. In the provider dropdowns, a green
+							shield marks providers that meet the certification, data-policy,
+							and headquarters requirements above; a red shield lists the
+							requirements they miss.
 						</CardDescription>
 					</CardHeader>
 					<CardContent
@@ -630,7 +674,15 @@ export function ComplianceClient() {
 						<CardTitle>Provider Impact</CardTitle>
 						<CardDescription>
 							{policy.enabled
-								? `${allowed.length} of ${totalProviders} providers meet this policy.`
+								? `${allowed.length} of ${totalProviders} catalogue providers meet this policy.${
+										customProviders.length > 0
+											? ` ${compliantCustomCount} of ${customProviders.length} custom ${
+													customProviders.length === 1
+														? "provider complies"
+														: "providers comply"
+												}.`
+											: ""
+									}`
 								: "Enable the policy to restrict which providers can be used."}
 						</CardDescription>
 					</CardHeader>
@@ -664,7 +716,10 @@ export function ComplianceClient() {
 									</div>
 								) : (
 									<p className="text-sm text-muted-foreground">
-										No providers meet this policy. Requests will be blocked.
+										No catalogue providers meet this policy.{" "}
+										{compliantCustomCount > 0
+											? "Only the compliant custom providers below can serve requests."
+											: "Requests will be blocked."}
 									</p>
 								)}
 							</div>
