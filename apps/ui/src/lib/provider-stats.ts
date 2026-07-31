@@ -17,6 +17,9 @@ export const MIN_REQUESTS_FOR_STATS = 1000;
 export const MIN_TTFT_SAMPLES_FOR_STATS = 100;
 
 export function formatCompact(n: number): string {
+	if (n >= 1_000_000_000_000) {
+		return `${(n / 1_000_000_000_000).toFixed(1)}T`;
+	}
 	if (n >= 1_000_000_000) {
 		return `${(n / 1_000_000_000).toFixed(1)}B`;
 	}
