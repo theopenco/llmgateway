@@ -1235,11 +1235,12 @@ function generateSeedModelProviderMappings() {
 	return mappings;
 }
 
-function generateSeedModelProviderMappingHistory(
+// Pick one mapping per provider (up to `limit`) so every provider has
+// history data without seeding every mapping.
+function selectTopMappingsPerProvider(
 	mappings: Array<Record<string, any>>,
+	limit: number,
 ) {
-	const history: Array<Record<string, any>> = [];
-	// Pick one mapping per provider to ensure all providers have history data
 	const seenProviders = new Set<string>();
 	const topMappings: Array<Record<string, any>> = [];
 	for (const m of mappings) {
@@ -1247,10 +1248,18 @@ function generateSeedModelProviderMappingHistory(
 			seenProviders.add(m.providerId);
 			topMappings.push(m);
 		}
-		if (topMappings.length >= 50) {
+		if (topMappings.length >= limit) {
 			break;
 		}
 	}
+	return topMappings;
+}
+
+function generateSeedModelProviderMappingHistory(
+	mappings: Array<Record<string, any>>,
+) {
+	const history: Array<Record<string, any>> = [];
+	const topMappings = selectTopMappingsPerProvider(mappings, 50);
 	for (const mapping of topMappings) {
 		for (let i = 0; i < 144; i++) {
 			const ts = minutesAgo(i * 10);
@@ -1320,11 +1329,13 @@ function generateSeedModelHistory() {
 	return history;
 }
 
-// 30 days of hourly per-model rollups so long-window surfaces (the public
+// 60 days of hourly per-model rollups so long-window surfaces (the public
 // rankings page, 7d/30d stats windows and their previous-window trend
-// comparison) have data locally. Each model gets a rank-weighted volume with
-// a per-model daily growth factor so trends differ realistically.
-const HISTORY_HOURLY_DAYS = 30;
+// comparison) have data locally. 60 days covers the 30d window plus the
+// equal-length previous window its trend compares against. Each model gets a
+// rank-weighted volume with a per-model daily growth factor so trends differ
+// realistically.
+const HISTORY_HOURLY_DAYS = 60;
 
 function hourlyModelVolume(rankIndex: number, hoursBack: number) {
 	/* eslint-disable no-mixed-operators */
@@ -1383,17 +1394,7 @@ function generateSeedModelProviderMappingHistoryHourly(
 	const history: Array<Record<string, any>> = [];
 	// Same one-mapping-per-provider selection as the minute-level seed so every
 	// provider has long-window data too.
-	const seenProviders = new Set<string>();
-	const topMappings: Array<Record<string, any>> = [];
-	for (const m of mappings) {
-		if (!seenProviders.has(m.providerId)) {
-			seenProviders.add(m.providerId);
-			topMappings.push(m);
-		}
-		if (topMappings.length >= 50) {
-			break;
-		}
-	}
+	const topMappings = selectTopMappingsPerProvider(mappings, 50);
 	for (const [mi, mapping] of topMappings.entries()) {
 		for (let h = 0; h < HISTORY_HOURLY_DAYS * 24; h++) {
 			const ts = hoursAgo(h);

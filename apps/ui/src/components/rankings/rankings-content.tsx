@@ -123,13 +123,13 @@ export function RankingsContent({
 	providerNames,
 }: RankingsContentProps) {
 	const api = useApi();
-	const [window, setWindow] = useState<StatsWindow>("7d");
+	const [statsWindow, setStatsWindow] = useState<StatsWindow>("7d");
 	const [showAllModels, setShowAllModels] = useState(false);
 
 	const { data, isLoading } = api.useQuery(
 		"get",
 		"/public/models/stats",
-		{ params: { query: { window } } },
+		{ params: { query: { window: statsWindow } } },
 		{
 			refetchOnWindowFocus: false,
 			staleTime: 5 * 60_000,
@@ -154,6 +154,11 @@ export function RankingsContent({
 		});
 		return config;
 	}, [series, modelMeta]);
+
+	const chartedKeys = useMemo(
+		() => new Set(series.map((entry) => chartKey(entry.modelId))),
+		[series],
+	);
 
 	const chartData = useMemo(() => {
 		const rows = new Map<string, Record<string, number | string>>();
@@ -189,7 +194,7 @@ export function RankingsContent({
 		.reduce((sum, p) => sum + p.totalTokens, 0);
 
 	const tickFormatter = (value: string) =>
-		window === "24h"
+		statsWindow === "24h"
 			? format(new Date(value), "HH:mm")
 			: format(new Date(value), "MMM d");
 
@@ -207,11 +212,11 @@ export function RankingsContent({
 							key={option.value}
 							type="button"
 							role="tab"
-							aria-selected={window === option.value}
-							onClick={() => setWindow(option.value)}
+							aria-selected={statsWindow === option.value}
+							onClick={() => setStatsWindow(option.value)}
 							className={cn(
 								"rounded-md px-3 py-1.5 text-sm transition-colors",
-								window === option.value
+								statsWindow === option.value
 									? "bg-foreground text-background font-medium"
 									: "text-muted-foreground hover:text-foreground",
 							)}
@@ -302,7 +307,9 @@ export function RankingsContent({
 													return ts
 														? format(
 																new Date(ts),
-																window === "24h" ? "MMM d, HH:mm" : "MMM d",
+																statsWindow === "24h"
+																	? "MMM d, HH:mm"
+																	: "MMM d",
 															)
 														: "";
 												}}
@@ -398,7 +405,7 @@ export function RankingsContent({
 											leaderTokens > 0
 												? (model.totalTokens / leaderTokens) * 100
 												: 0;
-										const isCharted = index < series.length;
+										const isCharted = chartedKeys.has(chartKey(model.modelId));
 										return (
 											<li key={model.modelId}>
 												<Link
@@ -434,7 +441,7 @@ export function RankingsContent({
 																	width: `${Math.max(share, 1.5)}%`,
 																	background: isCharted
 																		? `var(--color-${chartKey(model.modelId)})`
-																		: "hsl(var(--muted-foreground) / 0.5)",
+																		: "color-mix(in oklab, var(--muted-foreground) 50%, transparent)",
 																}}
 															/>
 														</span>

@@ -28,6 +28,7 @@ import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-aut
 import { ModelUsageStats } from "@/components/models/model-usage-stats";
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { RelatedModels } from "@/components/models/related-models";
+import { JsonLd } from "@/components/seo/json-ld";
 import { Badge } from "@/lib/components/badge";
 import {
 	applyDiscount,
@@ -203,27 +204,7 @@ export default async function ModelPage({ params }: PageProps) {
 
 	return (
 		<>
-			<script
-				type="application/ld+json"
-				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-				dangerouslySetInnerHTML={{
-					__html: JSON.stringify(breadcrumbSchema),
-				}}
-			/>
-			<script
-				type="application/ld+json"
-				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-				dangerouslySetInnerHTML={{
-					__html: JSON.stringify(productSchema),
-				}}
-			/>
-			<script
-				type="application/ld+json"
-				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-				dangerouslySetInnerHTML={{
-					__html: JSON.stringify(faqSchema),
-				}}
-			/>
+			<JsonLd data={[breadcrumbSchema, productSchema, faqSchema]} />
 			<Navbar />
 			<div className="min-h-screen bg-background pt-24 md:pt-32 pb-16">
 				<div className="container mx-auto px-4 py-8">
@@ -326,6 +307,7 @@ export default async function ModelPage({ params }: PageProps) {
 										year: "numeric",
 										month: "long",
 										day: "numeric",
+										timeZone: "UTC",
 									})}
 								</div>
 							)}

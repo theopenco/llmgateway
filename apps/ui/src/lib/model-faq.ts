@@ -21,10 +21,13 @@ interface FaqProviderInfo {
 }
 
 function formatReleaseDate(date: Date): string {
+	// Release dates are declared as UTC midnights; formatting in the server's
+	// local timezone would shift them to the previous day west of UTC.
 	return date.toLocaleDateString("en-US", {
 		year: "numeric",
 		month: "long",
 		day: "numeric",
+		timeZone: "UTC",
 	});
 }
 

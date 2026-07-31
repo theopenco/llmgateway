@@ -7,20 +7,14 @@ import { formatCompact, gateProviderStats } from "@/lib/provider-stats";
 import { cn } from "@/lib/utils";
 
 // Live 7-day performance band for a provider detail page, from the same
-// public stats the /providers grid uses plus token volume from the public
-// model stats aggregation. Renders nothing until the provider has traffic.
+// public stats endpoint the /providers grid uses. Renders nothing until the
+// provider has traffic.
 export function ProviderStatsRow({ providerId }: { providerId: string }) {
 	const api = useApi();
 
 	const { data: providerStats } = api.useQuery(
 		"get",
 		"/public/providers/stats",
-		{ params: { query: { window: "7d" as const } } },
-		{ refetchOnWindowFocus: false, staleTime: 5 * 60_000 },
-	);
-	const { data: modelStats } = api.useQuery(
-		"get",
-		"/public/models/stats",
 		{ params: { query: { window: "7d" as const } } },
 		{ refetchOnWindowFocus: false, staleTime: 5 * 60_000 },
 	);
@@ -37,9 +31,7 @@ export function ProviderStatsRow({ providerId }: { providerId: string }) {
 		timeToFirstTokenCount: row.timeToFirstTokenCount,
 		throughput: row.throughput,
 	});
-	const totalTokens = modelStats?.providers.find(
-		(p) => p.providerId === providerId,
-	)?.totalTokens;
+	const totalTokens = row.totalTokens;
 
 	const stats: Array<{
 		key: string;
@@ -58,10 +50,7 @@ export function ProviderStatsRow({ providerId }: { providerId: string }) {
 			key: "tokens",
 			label: "Tokens processed (7d)",
 			icon: Cpu,
-			value:
-				totalTokens !== undefined && totalTokens > 0
-					? formatCompact(totalTokens)
-					: null,
+			value: totalTokens > 0 ? formatCompact(totalTokens) : null,
 		},
 		{
 			key: "uptime",
