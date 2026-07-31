@@ -1,7 +1,11 @@
 "use client";
 
+import { useCallback } from "react";
+
 import { useGeminiRealtimeCall } from "@/hooks/use-gemini-realtime-call";
 import { useRealtimeCall } from "@/hooks/use-realtime-call";
+
+import type { RealtimeTranscriptEntry } from "@/hooks/use-realtime-call";
 
 export type {
 	RealtimeCallStatus as VoiceCallStatus,
@@ -51,5 +55,22 @@ export function useVoiceCall({
 		voice,
 		onCallError,
 	});
-	return isGemini ? geminiCall : openaiCall;
+	const startOpenai = openaiCall.start;
+	const startGemini = geminiCall.start;
+	// Normalized start: the OpenAI hook accepts a seed transcript to continue a
+	// saved call, the Gemini hook does not (BidiGenerateContent has no
+	// conversation-item replay yet). Callers gate the continue action on
+	// supportsResume, so a seed can never be silently dropped here.
+	const start = useCallback(
+		(seed?: RealtimeTranscriptEntry[]) => {
+			if (isGemini) {
+				startGemini();
+			} else {
+				startOpenai(seed);
+			}
+		},
+		[isGemini, startGemini, startOpenai],
+	);
+	const active = isGemini ? geminiCall : openaiCall;
+	return { ...active, start, supportsResume: !isGemini };
 }

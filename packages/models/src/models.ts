@@ -19,6 +19,7 @@ import { openbmbModels } from "./models/openbmb.js";
 import { perplexityModels } from "./models/perplexity.js";
 import { reveModels } from "./models/reve.js";
 import { sakanaModels } from "./models/sakana.js";
+import { tencentModels } from "./models/tencent.js";
 import { xaiModels } from "./models/xai.js";
 import { xiaomiModels } from "./models/xiaomi.js";
 import { zaiModels } from "./models/zai.js";
@@ -736,6 +737,7 @@ export const models = [
 	...nousresearchModels,
 	...reveModels,
 	...sakanaModels,
+	...tencentModels,
 	...nvidiaModels,
 	...openbmbModels,
 	...zaiModels,

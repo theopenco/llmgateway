@@ -43,7 +43,7 @@ services:
       ]
     restart: always
     ports:
-      - "6380:6379"
+      - "6479:6379"
     environment:
       CI: ${CI}
     volumes:
