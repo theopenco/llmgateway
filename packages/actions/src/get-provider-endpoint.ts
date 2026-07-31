@@ -108,6 +108,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	"inference.net": "https://api.inference.net",
 	"together-ai": "https://api.together.ai",
 	"scx-ai": "https://api.scx.ai",
+	"scx-ai-gp": "https://api.scx.ai",
 	mistral: "https://api.mistral.ai",
 	xai: "https://api.x.ai",
 	groq: "https://api.groq.com/openai",
@@ -816,6 +817,7 @@ export function getProviderEndpoint(
 		case "embercloud":
 		case "tundra":
 		case "scx-ai":
+		case "scx-ai-gp":
 		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;
