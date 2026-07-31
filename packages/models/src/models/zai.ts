@@ -176,9 +176,9 @@ export const zaiModels = [
 			{
 				providerId: "scx-ai-gp",
 				externalId: "GLM-5.2",
-				inputPrice: "1e-6",
+				inputPrice: "1.02e-6",
 				cachedInputPrice: "0.2e-6",
-				outputPrice: "3.143e-6",
+				outputPrice: "3.21e-6",
 				requestPrice: "0",
 				contextSize: 1000000,
 				// SCX rejects max_tokens above 131072 ("expected a value <= 131072"),
