@@ -193,7 +193,7 @@ export function CustomModelsClient() {
 							.
 						</p>
 					</div>
-					{selectedKey && (
+					{selectedKey && isOrgAdmin && (
 						<CustomModelDialog providerKeyId={selectedKey.id}>
 							<Button disabled={!canManage}>
 								<Plus className="mr-2 h-4 w-4" />
@@ -265,30 +265,35 @@ export function CustomModelsClient() {
 									</Select>
 								</div>
 
-								{selectedKey && (
-									<div className="flex items-start gap-3">
-										<Switch
-											id="custom-models-only"
-											checked={Boolean(selectedKey.customModelsOnly)}
-											disabled={!canManage || toggleMutation.isPending}
-											onCheckedChange={handleToggle}
-										/>
-										<div className="space-y-1">
-											<Label htmlFor="custom-models-only">
-												Only allow catalog models
-											</Label>
-											<p className="max-w-sm text-xs text-muted-foreground">
-												When on, requests through this provider are limited to
-												the models defined below so cost and context limits are
-												always enforced.
-											</p>
+								{selectedKey &&
+									(isOrgAdmin ? (
+										<div className="flex items-start gap-3">
+											<Switch
+												id="custom-models-only"
+												checked={Boolean(selectedKey.customModelsOnly)}
+												disabled={!canManage || toggleMutation.isPending}
+												onCheckedChange={handleToggle}
+											/>
+											<div className="space-y-1">
+												<Label htmlFor="custom-models-only">
+													Only allow catalog models
+												</Label>
+												<p className="max-w-sm text-xs text-muted-foreground">
+													When on, requests through this provider are limited to
+													the models defined below so cost and context limits
+													are always enforced.
+												</p>
+											</div>
 										</div>
-									</div>
-								)}
+									) : (
+										selectedKey.customModelsOnly && (
+											<Badge variant="secondary">Catalog models only</Badge>
+										)
+									))}
 							</CardContent>
 						</Card>
 
-						{selectedKey && selectedOrganization && (
+						{selectedKey && selectedOrganization && isOrgAdmin && (
 							<ComplianceAttestationCard
 								key={selectedKey.id}
 								providerKey={selectedKey}
@@ -312,7 +317,9 @@ export function CustomModelsClient() {
 												<TableHead>Max output</TableHead>
 												<TableHead>Input price</TableHead>
 												<TableHead>Output price</TableHead>
-												<TableHead className="text-right">Actions</TableHead>
+												{isOrgAdmin && (
+													<TableHead className="text-right">Actions</TableHead>
+												)}
 											</TableRow>
 										</TableHeader>
 										<TableBody>
@@ -332,62 +339,64 @@ export function CustomModelsClient() {
 													<TableCell>
 														{formatPrice(model.outputPrice)}
 													</TableCell>
-													<TableCell className="text-right">
-														<div className="flex justify-end gap-1">
-															<CustomModelDialog
-																providerKeyId={selectedKey!.id}
-																model={model}
-															>
-																<Button
-																	variant="ghost"
-																	size="sm"
-																	disabled={!canManage}
+													{isOrgAdmin && (
+														<TableCell className="text-right">
+															<div className="flex justify-end gap-1">
+																<CustomModelDialog
+																	providerKeyId={selectedKey!.id}
+																	model={model}
 																>
-																	<Pencil className="h-4 w-4" />
-																	<span className="sr-only">Edit</span>
-																</Button>
-															</CustomModelDialog>
-															<AlertDialog>
-																<AlertDialogTrigger asChild>
 																	<Button
 																		variant="ghost"
 																		size="sm"
 																		disabled={!canManage}
-																		className="text-destructive focus:text-destructive"
 																	>
-																		<Trash2 className="h-4 w-4" />
-																		<span className="sr-only">Delete</span>
+																		<Pencil className="h-4 w-4" />
+																		<span className="sr-only">Edit</span>
 																	</Button>
-																</AlertDialogTrigger>
-																<AlertDialogContent>
-																	<AlertDialogHeader>
-																		<AlertDialogTitle>
-																			Delete custom model?
-																		</AlertDialogTitle>
-																		<AlertDialogDescription>
-																			Requests for{" "}
-																			<span className="font-mono">
-																				{model.modelName}
-																			</span>{" "}
-																			will no longer be priced or limited from
-																			this catalog.
-																		</AlertDialogDescription>
-																	</AlertDialogHeader>
-																	<AlertDialogFooter>
-																		<AlertDialogCancel>
-																			Cancel
-																		</AlertDialogCancel>
-																		<AlertDialogAction
-																			onClick={() => handleDelete(model.id)}
-																			className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+																</CustomModelDialog>
+																<AlertDialog>
+																	<AlertDialogTrigger asChild>
+																		<Button
+																			variant="ghost"
+																			size="sm"
+																			disabled={!canManage}
+																			className="text-destructive focus:text-destructive"
 																		>
-																			Delete
-																		</AlertDialogAction>
-																	</AlertDialogFooter>
-																</AlertDialogContent>
-															</AlertDialog>
-														</div>
-													</TableCell>
+																			<Trash2 className="h-4 w-4" />
+																			<span className="sr-only">Delete</span>
+																		</Button>
+																	</AlertDialogTrigger>
+																	<AlertDialogContent>
+																		<AlertDialogHeader>
+																			<AlertDialogTitle>
+																				Delete custom model?
+																			</AlertDialogTitle>
+																			<AlertDialogDescription>
+																				Requests for{" "}
+																				<span className="font-mono">
+																					{model.modelName}
+																				</span>{" "}
+																				will no longer be priced or limited from
+																				this catalog.
+																			</AlertDialogDescription>
+																		</AlertDialogHeader>
+																		<AlertDialogFooter>
+																			<AlertDialogCancel>
+																				Cancel
+																			</AlertDialogCancel>
+																			<AlertDialogAction
+																				onClick={() => handleDelete(model.id)}
+																				className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+																			>
+																				Delete
+																			</AlertDialogAction>
+																		</AlertDialogFooter>
+																	</AlertDialogContent>
+																</AlertDialog>
+															</div>
+														</TableCell>
+													)}
 												</TableRow>
 											))}
 										</TableBody>
