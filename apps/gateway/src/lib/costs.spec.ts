@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
 	calculateCosts,
 	isRefusalFinishReason,
+	shouldBillCancelledRequests,
 	zeroInferenceCosts,
 } from "./costs.js";
 
@@ -1782,5 +1783,40 @@ describe("zeroInferenceCosts", () => {
 		expect(costs.totalCost).toBe(0);
 		// Storage retention is billed separately from inference.
 		expect(costs.dataStorageCost).toBe(0.01);
+	});
+});
+
+describe("shouldBillCancelledRequests", () => {
+	const original = process.env.BILL_CANCELLED_REQUESTS;
+
+	afterEach(() => {
+		if (original === undefined) {
+			delete process.env.BILL_CANCELLED_REQUESTS;
+		} else {
+			process.env.BILL_CANCELLED_REQUESTS = original;
+		}
+	});
+
+	// Regression for GHSA-724j-f2pf-phf7: an unset value must bill cancelled
+	// requests so a client cannot abort a stream after receiving content to
+	// dodge usage/cost accounting.
+	it("defaults to true when unset", () => {
+		delete process.env.BILL_CANCELLED_REQUESTS;
+		expect(shouldBillCancelledRequests()).toBe(true);
+	});
+
+	it("defaults to true for an empty string (Helm's empty ConfigMap value)", () => {
+		process.env.BILL_CANCELLED_REQUESTS = "";
+		expect(shouldBillCancelledRequests()).toBe(true);
+	});
+
+	it("stays enabled when explicitly set to true", () => {
+		process.env.BILL_CANCELLED_REQUESTS = "true";
+		expect(shouldBillCancelledRequests()).toBe(true);
+	});
+
+	it("only disables billing when explicitly set to false", () => {
+		process.env.BILL_CANCELLED_REQUESTS = "false";
+		expect(shouldBillCancelledRequests()).toBe(false);
 	});
 });
