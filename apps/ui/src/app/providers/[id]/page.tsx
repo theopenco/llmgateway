@@ -4,6 +4,7 @@ import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import { Hero } from "@/components/providers/hero";
 import { ProviderModelsGrid } from "@/components/providers/provider-models-grid";
+import { ProviderStatsRow } from "@/components/providers/provider-stats-row";
 import { JsonLd } from "@/components/seo/json-ld";
 import { fetchModels } from "@/lib/fetch-models";
 
@@ -258,6 +259,8 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 			<main>
 				<Navbar />
 				<Hero providerId={provider.id} />
+
+				<ProviderStatsRow providerId={provider.id} />
 
 				<section className="py-12 bg-background">
 					<div className="container mx-auto px-4">
