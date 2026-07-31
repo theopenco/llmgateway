@@ -1747,6 +1747,73 @@ export interface ProviderComplianceAttestation {
 }
 
 /**
+ * Machine-readable reason a provider (or attestation) fails a compliance
+ * policy. Requirement keys mirror {@link ProviderCompliancePolicy}; the list
+ * keys report a hit on the fine-grained provider lists, and `noAttestation`
+ * marks a custom provider with no self-attested posture on file.
+ */
+export type ComplianceFailureReason =
+	| "requireSoc2"
+	| "requireSoc2Type2"
+	| "requireIso27001"
+	| "requireSoc2OrIso27001"
+	| "requireGdpr"
+	| "blockApiTraining"
+	| "blockPromptLogging"
+	| "allowedCountries"
+	| "blockedProviders"
+	| "allowedProviders"
+	| "noAttestation";
+
+/**
+ * Every active requirement of the policy that the data policy does not
+ * explicitly satisfy (fail-closed, so a missing data policy fails all active
+ * requirements). Empty when compliant; always empty for a disabled policy.
+ */
+export function getDataPolicyComplianceFailures(
+	dataPolicy: ProviderDataPolicy | null | undefined,
+	headquarters: string | null | undefined,
+	policy: ProviderCompliancePolicy,
+): ComplianceFailureReason[] {
+	if (!policy.enabled) {
+		return [];
+	}
+	const failures: ComplianceFailureReason[] = [];
+	if (policy.requireSoc2 && !dataPolicy?.soc2) {
+		failures.push("requireSoc2");
+	}
+	if (policy.requireSoc2Type2 && dataPolicy?.soc2 !== 2) {
+		failures.push("requireSoc2Type2");
+	}
+	if (policy.requireIso27001 && dataPolicy?.iso27001 !== true) {
+		failures.push("requireIso27001");
+	}
+	if (
+		policy.requireSoc2OrIso27001 &&
+		!(dataPolicy?.soc2 === 2 || dataPolicy?.iso27001 === true)
+	) {
+		failures.push("requireSoc2OrIso27001");
+	}
+	if (policy.requireGdpr && dataPolicy?.gdpr !== true) {
+		failures.push("requireGdpr");
+	}
+	if (policy.blockApiTraining && dataPolicy?.apiTraining !== false) {
+		failures.push("blockApiTraining");
+	}
+	if (policy.blockPromptLogging && dataPolicy?.promptLogging !== false) {
+		failures.push("blockPromptLogging");
+	}
+	if (
+		policy.allowedCountries &&
+		policy.allowedCountries.length > 0 &&
+		(!headquarters || !policy.allowedCountries.includes(headquarters))
+	) {
+		failures.push("allowedCountries");
+	}
+	return failures;
+}
+
+/**
  * Core fail-closed compliance predicate shared by catalogue providers and
  * self-attested custom deployments: any active requirement that the data
  * policy does not explicitly satisfy (including a missing policy) fails.
@@ -1757,41 +1824,10 @@ export function isDataPolicyCompliant(
 	headquarters: string | null | undefined,
 	policy: ProviderCompliancePolicy,
 ): boolean {
-	if (!policy.enabled) {
-		return true;
-	}
-	if (policy.requireSoc2 && !dataPolicy?.soc2) {
-		return false;
-	}
-	if (policy.requireSoc2Type2 && dataPolicy?.soc2 !== 2) {
-		return false;
-	}
-	if (policy.requireIso27001 && dataPolicy?.iso27001 !== true) {
-		return false;
-	}
-	if (
-		policy.requireSoc2OrIso27001 &&
-		!(dataPolicy?.soc2 === 2 || dataPolicy?.iso27001 === true)
-	) {
-		return false;
-	}
-	if (policy.requireGdpr && dataPolicy?.gdpr !== true) {
-		return false;
-	}
-	if (policy.blockApiTraining && dataPolicy?.apiTraining !== false) {
-		return false;
-	}
-	if (policy.blockPromptLogging && dataPolicy?.promptLogging !== false) {
-		return false;
-	}
-	if (
-		policy.allowedCountries &&
-		policy.allowedCountries.length > 0 &&
-		(!headquarters || !policy.allowedCountries.includes(headquarters))
-	) {
-		return false;
-	}
-	return true;
+	return (
+		getDataPolicyComplianceFailures(dataPolicy, headquarters, policy).length ===
+		0
+	);
 }
 
 /**
@@ -1826,20 +1862,33 @@ export function isProviderRefAllowedByPolicy(
 	providerRef: string,
 	policy: ProviderCompliancePolicy,
 ): boolean {
+	return getProviderRefPolicyListFailures(providerRef, policy).length === 0;
+}
+
+/**
+ * The fine-grained provider-list checks a provider ref fails: an entry on the
+ * deny list, or absence from a non-empty allow list. Empty when the ref passes
+ * both lists; always empty for a disabled policy.
+ */
+export function getProviderRefPolicyListFailures(
+	providerRef: string,
+	policy: ProviderCompliancePolicy,
+): ComplianceFailureReason[] {
 	if (!policy.enabled) {
-		return true;
+		return [];
 	}
+	const failures: ComplianceFailureReason[] = [];
 	if (policy.blockedProviders?.includes(providerRef)) {
-		return false;
+		failures.push("blockedProviders");
 	}
 	if (
 		policy.allowedProviders &&
 		policy.allowedProviders.length > 0 &&
 		!policy.allowedProviders.includes(providerRef)
 	) {
-		return false;
+		failures.push("allowedProviders");
 	}
-	return true;
+	return failures;
 }
 
 /**
@@ -1880,10 +1929,26 @@ export function isProviderCompliant(
 	provider: ProviderDefinition,
 	policy: ProviderCompliancePolicy,
 ): boolean {
-	return (
-		isProviderRefAllowedByPolicy(provider.id, policy) &&
-		isDataPolicyCompliant(provider.dataPolicy, provider.headquarters, policy)
-	);
+	return getProviderComplianceFailures(provider, policy).length === 0;
+}
+
+/**
+ * Every reason a catalogue provider fails an organization's compliance policy:
+ * fine-grained provider-list hits plus unmet certification/data-policy
+ * requirements. Empty when the provider is compliant.
+ */
+export function getProviderComplianceFailures(
+	provider: ProviderDefinition,
+	policy: ProviderCompliancePolicy,
+): ComplianceFailureReason[] {
+	return [
+		...getProviderRefPolicyListFailures(provider.id, policy),
+		...getDataPolicyComplianceFailures(
+			provider.dataPolicy,
+			provider.headquarters,
+			policy,
+		),
+	];
 }
 
 /**
@@ -1895,13 +1960,25 @@ export function isAttestationCompliant(
 	attestation: ProviderComplianceAttestation | null | undefined,
 	policy: ProviderCompliancePolicy,
 ): boolean {
+	return getAttestationComplianceFailures(attestation, policy).length === 0;
+}
+
+/**
+ * Every reason a self-attested compliance posture fails an organization's
+ * compliance policy. A missing attestation fails closed as `noAttestation`
+ * (even when no individual requirement is active). Empty when compliant.
+ */
+export function getAttestationComplianceFailures(
+	attestation: ProviderComplianceAttestation | null | undefined,
+	policy: ProviderCompliancePolicy,
+): ComplianceFailureReason[] {
 	if (!policy.enabled) {
-		return true;
+		return [];
 	}
 	if (!attestation) {
-		return false;
+		return ["noAttestation"];
 	}
-	return isDataPolicyCompliant(
+	return getDataPolicyComplianceFailures(
 		{
 			apiTraining: attestation.apiTraining ?? null,
 			consumerTraining: attestation.consumerTraining ?? null,
