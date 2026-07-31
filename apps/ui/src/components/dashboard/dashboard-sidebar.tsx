@@ -474,13 +474,12 @@ function OrganizationSection({
 						toggleSidebar={toggleSidebar}
 					/>
 					<OrgNavItem
-						href={buildOrgUrl("org/custom-models")}
-						label="Custom Models"
+						href={buildOrgUrl("org/models")}
+						label="Models"
 						icon={AnimatedBotMessageSquare}
-						isActive={isActive("org/custom-models")}
+						isActive={isActive("org/models")}
 						isMobile={isMobile}
 						toggleSidebar={toggleSidebar}
-						showEnterpriseBadge={showEnterpriseBadge}
 					/>
 					<OrgNavItem
 						href={buildOrgUrl("org/analytics")}
@@ -626,13 +625,12 @@ function DeveloperOrgSection({
 			<SidebarGroupContent className="mt-2">
 				<SidebarMenu>
 					<OrgNavItem
-						href={buildOrgUrl("org/custom-models")}
-						label="Custom Models"
+						href={buildOrgUrl("org/models")}
+						label="Models"
 						icon={AnimatedBotMessageSquare}
-						isActive={isActive("org/custom-models")}
+						isActive={isActive("org/models")}
 						isMobile={isMobile}
 						toggleSidebar={toggleSidebar}
-						showEnterpriseBadge={!isEnterprise}
 					/>
 				</SidebarMenu>
 			</SidebarGroupContent>
@@ -1139,7 +1137,7 @@ export function DashboardSidebar({
 				{selectedOrganization?.role === "developer" ? (
 					// Project-scoped "developer" members get a minimal, personal nav:
 					// their own usage dashboard, their own API keys, and a read-only
-					// view of the org's custom-models catalog.
+					// view of the org's models directory.
 					<>
 						<SidebarGroup>
 							<SidebarGroupLabel className="text-muted-foreground px-2 text-xs font-medium">

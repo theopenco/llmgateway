@@ -1,0 +1,63 @@
+---
+title: Models
+description: Browse every model your organization can use — catalog and custom — with compliance eligibility
+icon: BotMessageSquare
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+import { ThemedImage } from "@/components/themed-image";
+
+The Models page shows every model available to your organization in one directory: the full LLM Gateway catalog plus any models defined for your own [custom providers](/features/custom-providers). When your organization enforces a [provider compliance policy](/features/compliance), the page also shows exactly which models are eligible to route to — and why the rest are blocked.
+
+<ThemedImage alt="Models" basePath="/learn/models" />
+
+Every organization member can browse this page, including project-scoped `developer` members, so your whole team can see which providers and models are available without needing admin access. Management actions are only visible to owners and admins.
+
+## The directory
+
+The directory is the same table you know from the public [models page](https://llmgateway.io/models), with one row per provider mapping:
+
+| Column                 | Description                                                             |
+| ---------------------- | ----------------------------------------------------------------------- |
+| **Provider**           | The provider serving the model; custom providers carry a `Custom` badge |
+| **Model ID**           | The model id; the copy button copies the exact string to request        |
+| **Input / Output $/M** | Prices per million tokens (per-request/per-character where applicable)  |
+| **Cache Read $/M**     | Cached input price where supported                                      |
+| **Features**           | Capability icons: streaming, vision, tools, reasoning, JSON output, …   |
+
+Search matches model names, ids, aliases, and providers. The **Filters** panel offers the same controls as the public directory — use case, capabilities, provider, price and context ranges — plus two controls specific to this page:
+
+- **Source** — show **Catalog & custom** (default), only **Catalog models**, or only **Custom models**. The selector appears once your organization has custom models.
+- **Eligible only** — hide models blocked by your organization's compliance policy.
+
+<ThemedImage alt="Models filters" basePath="/learn/models-filters" />
+
+## Compliance eligibility
+
+When your organization is on the Enterprise plan and its provider compliance policy is enabled, every row is evaluated with the same fail-closed rules the gateway enforces at request time — certifications (SOC 2, ISO 27001, GDPR), data-policy requirements (no training on prompts, no prompt logging), country restrictions, and provider/model allow and deny lists.
+
+Rows that fail render greyed out with a red ban icon; hover it to see the exact reasons, such as "No SOC 2 Type 2 report" or "Not on the allowed-providers list". Custom providers are evaluated against their [compliance attestation](/features/custom-providers#compliance-attestation) — without an attestation on file, all requests through them are blocked while a policy is active.
+
+<Callout type="info">
+	Eligibility marking requires an active compliance policy, available on the
+	[**Enterprise plan**](https://llmgateway.io/enterprise). Without one, the
+	directory simply lists all models. Configure the policy on the
+	[Compliance](/features/compliance) page.
+</Callout>
+
+## Custom models
+
+Models from your organization's custom-model catalog appear in the same table, addressed as `<provider>/<model>` (e.g. `internal-vllm/llama-4-maverick`) — the exact model string to send to the gateway. Their pricing, context size, and capability flags come from the catalog entries you define.
+
+Owners and admins additionally see the **Custom model catalog** section below the directory:
+
+- **Custom provider** — pick which custom provider key's catalog to manage
+- **Only allow catalog models** — when on, requests through the provider are limited to the models defined in its catalog so cost and context limits are always enforced
+- **Compliance attestation** — record the compliance posture of the infrastructure behind the provider; the policy evaluates it with the same fail-closed rules as catalogue providers
+- **Add / edit / delete custom models** — define per-model pricing, context and output limits, and capabilities
+
+<Callout type="info">
+	The custom model catalog requires the [**Enterprise
+	plan**](https://llmgateway.io/enterprise). Custom provider keys themselves are
+	created on the [Provider Keys](/learn/provider-keys) page.
+</Callout>
