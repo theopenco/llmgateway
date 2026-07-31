@@ -484,6 +484,8 @@ stripe:
   devPlanMaxPriceId: ""
 
 billing:
+  # Bill cancelled/aborted streaming requests for the inference already consumed.
+  # Defaults to enabled in code; set to "false" only to opt out (see GHSA-724j-f2pf-phf7).
   billCancelledRequests: ""
   platformFeePercentage: ""
 

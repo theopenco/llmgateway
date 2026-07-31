@@ -10,6 +10,7 @@ import { useCustomProviderSelection } from "@/hooks/useCustomProviders";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useTeamMembers } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
+import { failureLabel } from "@/lib/compliance-failure-labels";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
@@ -20,16 +21,23 @@ import {
 } from "@/lib/components/card";
 import { Label } from "@/lib/components/label";
 import { Switch } from "@/lib/components/switch";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipProvider,
+	TooltipTrigger,
+} from "@/lib/components/tooltip";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
 import {
 	customProviderRef,
+	getAttestationComplianceFailures,
+	getProviderComplianceFailures,
 	getProviderCountries,
-	isAttestationCompliant,
-	isProviderCompliant,
-	isProviderRefAllowedByPolicy,
+	getProviderRefPolicyListFailures,
+	getProviderRequirementFailures,
 	models,
 	providers,
 	type ProviderCompliancePolicy,
@@ -40,38 +48,74 @@ import {
 	MultiModelSelector,
 	MultiProviderSelector,
 	providerLogoUrls,
+	type SelectableProviderOption,
 } from "@llmgateway/shared/components";
 
 import { ContactSalesCard } from "./contact-sales-card";
 
+import type { ReactElement } from "react";
+
 // Internal/virtual providers that should never appear in the impact preview.
 const HIDDEN_PROVIDER_IDS = new Set(["llmgateway", "custom"]);
+
+// Wraps a chip in a tooltip listing why the provider is blocked.
+function BlockedReasonsTooltip({
+	reasons,
+	children,
+}: {
+	reasons: string[];
+	children: ReactElement;
+}) {
+	if (reasons.length === 0) {
+		return children;
+	}
+	return (
+		<TooltipProvider delayDuration={200}>
+			<Tooltip>
+				<TooltipTrigger asChild>{children}</TooltipTrigger>
+				<TooltipContent className="max-w-xs">
+					<ul
+						className={cn(reasons.length > 1 && "list-disc pl-4 space-y-0.5")}
+					>
+						{reasons.map((reason) => (
+							<li key={reason}>{reason}</li>
+						))}
+					</ul>
+				</TooltipContent>
+			</Tooltip>
+		</TooltipProvider>
+	);
+}
 
 function ProviderChip({
 	provider,
 	tone,
+	reasons = [],
 }: {
 	provider: ProviderDefinition;
 	tone: "allowed" | "blocked";
+	reasons?: string[];
 }) {
 	const Logo = providerLogoUrls[provider.id as ProviderId];
 	return (
-		<div
-			className={cn(
-				"inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium",
-				tone === "allowed"
-					? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-					: "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400",
-			)}
-		>
-			{Logo ? <Logo className="h-4 w-4 shrink-0" /> : null}
-			<span>{provider.name}</span>
-			{tone === "allowed" ? (
-				<Check className="h-3.5 w-3.5 shrink-0" />
-			) : (
-				<Ban className="h-3.5 w-3.5 shrink-0" />
-			)}
-		</div>
+		<BlockedReasonsTooltip reasons={reasons}>
+			<div
+				className={cn(
+					"inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium",
+					tone === "allowed"
+						? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+						: "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400",
+				)}
+			>
+				{Logo ? <Logo className="h-4 w-4 shrink-0" /> : null}
+				<span>{provider.name}</span>
+				{tone === "allowed" ? (
+					<Check className="h-3.5 w-3.5 shrink-0" />
+				) : (
+					<Ban className="h-3.5 w-3.5 shrink-0" />
+				)}
+			</div>
+		</BlockedReasonsTooltip>
 	);
 }
 
@@ -80,26 +124,30 @@ function ProviderChip({
 function CustomProviderChip({
 	name,
 	tone,
+	reasons = [],
 }: {
 	name: string;
 	tone: "allowed" | "blocked";
+	reasons?: string[];
 }) {
 	return (
-		<div
-			className={cn(
-				"inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium",
-				tone === "allowed"
-					? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-					: "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400",
-			)}
-		>
-			<span className="font-mono">{name}</span>
-			{tone === "allowed" ? (
-				<Check className="h-3.5 w-3.5 shrink-0" />
-			) : (
-				<Ban className="h-3.5 w-3.5 shrink-0" />
-			)}
-		</div>
+		<BlockedReasonsTooltip reasons={reasons}>
+			<div
+				className={cn(
+					"inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium",
+					tone === "allowed"
+						? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+						: "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400",
+				)}
+			>
+				<span className="font-mono">{name}</span>
+				{tone === "allowed" ? (
+					<Check className="h-3.5 w-3.5 shrink-0" />
+				) : (
+					<Ban className="h-3.5 w-3.5 shrink-0" />
+				)}
+			</div>
+		</BlockedReasonsTooltip>
 	);
 }
 
@@ -110,7 +158,8 @@ type RequirementKey =
 	| "requireSoc2OrIso27001"
 	| "requireGdpr"
 	| "blockApiTraining"
-	| "blockPromptLogging";
+	| "blockPromptLogging"
+	| "blockStealthProviders";
 
 const REQUIREMENTS: {
 	key: RequirementKey;
@@ -154,6 +203,12 @@ const REQUIREMENTS: {
 		key: "blockPromptLogging",
 		name: "No prompt logging",
 		description: "Block providers that log prompts.",
+	},
+	{
+		key: "blockStealthProviders",
+		name: "No stealth providers",
+		description:
+			"Block stealth providers — undisclosed platforms whose data policy and headquarters are unknown.",
 	},
 ];
 
@@ -214,15 +269,22 @@ export function ComplianceClient() {
 
 	const { allowed, blocked } = useMemo(() => {
 		const allowedList: ProviderDefinition[] = [];
-		const blockedList: ProviderDefinition[] = [];
+		const blockedList: { provider: ProviderDefinition; reasons: string[] }[] =
+			[];
 		for (const provider of providers) {
 			if (HIDDEN_PROVIDER_IDS.has(provider.id)) {
 				continue;
 			}
-			if (isProviderCompliant(provider, policy)) {
+			const failures = getProviderComplianceFailures(provider, policy);
+			if (failures.length === 0) {
 				allowedList.push(provider);
 			} else {
-				blockedList.push(provider);
+				blockedList.push({
+					provider,
+					reasons: failures.map((reason) =>
+						failureLabel(reason, provider.headquarters),
+					),
+				});
 			}
 		}
 		return { allowed: allowedList, blocked: blockedList };
@@ -240,25 +302,68 @@ export function ComplianceClient() {
 				key.status !== "deleted" &&
 				key.organizationId === selectedOrganization?.id,
 		);
-		return keys.map((key) => ({
-			id: key.id,
-			name: key.name ?? key.id,
-			compliant:
-				isProviderRefAllowedByPolicy(
+		return keys.map((key) => {
+			const failures = [
+				...getProviderRefPolicyListFailures(
 					customProviderRef(key.name ?? key.id),
 					policy,
-				) && isAttestationCompliant(key.complianceAttestation, policy),
-			attested: Boolean(key.complianceAttestation),
-		}));
+				),
+				...getAttestationComplianceFailures(key.complianceAttestation, policy),
+			];
+			return {
+				id: key.id,
+				name: key.name ?? key.id,
+				compliant: failures.length === 0,
+				attested: Boolean(key.complianceAttestation),
+				reasons: failures.map((reason) =>
+					failureLabel(reason, key.complianceAttestation?.headquarters),
+				),
+			};
+		});
 	}, [providerKeysData, selectedOrganization?.id, policy]);
+	const compliantCustomCount = customProviders.filter(
+		(provider) => provider.compliant,
+	).length;
 
 	// Custom providers/models as selector entries for the restriction lists.
+	// Each entry carries its requirement-level compatibility (certifications,
+	// data policy, headquarters — deliberately NOT the allowed/blocked lists,
+	// which the pickers themselves edit), so the dropdowns can show which
+	// providers would satisfy the policy if selected.
 	const { customProviderOptions, customModelOptions } =
 		useCustomProviderSelection();
-	const selectableProviders = useMemo(
-		() => [...SELECTABLE_PROVIDERS, ...customProviderOptions],
-		[customProviderOptions],
-	);
+	const selectableProviders = useMemo<SelectableProviderOption[]>(() => {
+		const catalogueOptions = SELECTABLE_PROVIDERS.map((provider) => {
+			const failures = getProviderRequirementFailures(provider, policy);
+			return {
+				id: provider.id,
+				name: provider.name,
+				color: provider.color,
+				meetsPolicy: failures.length === 0,
+				policyNotes: failures.map((reason) =>
+					failureLabel(reason, provider.headquarters),
+				),
+			};
+		});
+		const attestationByKeyId = new Map(
+			(providerKeysData?.providerKeys ?? []).map((key) => [
+				key.id,
+				key.complianceAttestation,
+			]),
+		);
+		const customOptions = customProviderOptions.map((option) => {
+			const attestation = attestationByKeyId.get(option.providerKeyId);
+			const failures = getAttestationComplianceFailures(attestation, policy);
+			return {
+				...option,
+				meetsPolicy: failures.length === 0,
+				policyNotes: failures.map((reason) =>
+					failureLabel(reason, attestation?.headquarters),
+				),
+			};
+		});
+		return [...catalogueOptions, ...customOptions];
+	}, [customProviderOptions, providerKeysData, policy]);
 	const selectableModels = useMemo(
 		() => [...models, ...customModelOptions],
 		[customModelOptions],
@@ -460,7 +565,10 @@ export function ComplianceClient() {
 							Block or allow individual providers and models — including your
 							own custom providers. These organization-wide lists are enforced
 							on top of the requirements above and take precedence over any
-							member or API key IAM rule.
+							member or API key IAM rule. In the provider dropdowns, a green
+							shield marks providers that meet the certification, data-policy,
+							and headquarters requirements above; a red shield lists the
+							requirements they miss.
 						</CardDescription>
 					</CardHeader>
 					<CardContent
@@ -542,12 +650,32 @@ export function ComplianceClient() {
 						<CardTitle>Provider Impact</CardTitle>
 						<CardDescription>
 							{policy.enabled
-								? `${allowed.length} of ${totalProviders} providers meet this policy.`
+								? `${allowed.length} of ${totalProviders} catalogue providers meet this policy.${
+										customProviders.length > 0
+											? ` ${compliantCustomCount} of ${customProviders.length} custom ${
+													customProviders.length === 1
+														? "provider complies"
+														: "providers comply"
+												}.`
+											: ""
+									}`
 								: "Enable the policy to restrict which providers can be used."}
 						</CardDescription>
 					</CardHeader>
 					{policy.enabled && (
 						<CardContent className="space-y-6">
+							{(policy.allowedProviders?.length ?? 0) > 0 && (
+								<div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-300">
+									An allowed-providers list is active: only the{" "}
+									{policy.allowedProviders!.length === 1
+										? "provider"
+										: `${policy.allowedProviders!.length} providers`}{" "}
+									on it can be used, and every other provider is blocked
+									regardless of certifications or data policy. Add providers to
+									the &quot;Allowed providers&quot; list above to make them
+									available.
+								</div>
+							)}
 							<div className="space-y-3">
 								<Label className="text-emerald-700 dark:text-emerald-400">
 									Allowed ({allowed.length})
@@ -564,7 +692,10 @@ export function ComplianceClient() {
 									</div>
 								) : (
 									<p className="text-sm text-muted-foreground">
-										No providers meet this policy. Requests will be blocked.
+										No catalogue providers meet this policy.{" "}
+										{compliantCustomCount > 0
+											? "Only the compliant custom providers below can serve requests."
+											: "Requests will be blocked."}
 									</p>
 								)}
 							</div>
@@ -573,15 +704,22 @@ export function ComplianceClient() {
 									Blocked ({blocked.length})
 								</Label>
 								{blocked.length > 0 ? (
-									<div className="flex flex-wrap gap-2">
-										{blocked.map((provider) => (
-											<ProviderChip
-												key={provider.id}
-												provider={provider}
-												tone="blocked"
-											/>
-										))}
-									</div>
+									<>
+										<p className="text-sm text-muted-foreground">
+											Hover over a provider to see which requirements it does
+											not meet.
+										</p>
+										<div className="flex flex-wrap gap-2">
+											{blocked.map(({ provider, reasons }) => (
+												<ProviderChip
+													key={provider.id}
+													provider={provider}
+													tone="blocked"
+													reasons={reasons}
+												/>
+											))}
+										</div>
+									</>
 								) : (
 									<p className="text-sm text-muted-foreground">
 										No providers are blocked by this policy.
@@ -595,7 +733,7 @@ export function ComplianceClient() {
 										Evaluated against each provider key&apos;s self-attested
 										compliance posture, recorded on the{" "}
 										<Link
-											href={buildOrgUrl("org/custom-models")}
+											href={buildOrgUrl("org/models")}
 											className="underline underline-offset-4"
 										>
 											Custom Models
@@ -608,6 +746,7 @@ export function ComplianceClient() {
 												key={provider.id}
 												name={provider.name}
 												tone={provider.compliant ? "allowed" : "blocked"}
+												reasons={provider.compliant ? [] : provider.reasons}
 											/>
 										))}
 									</div>
@@ -626,7 +765,7 @@ export function ComplianceClient() {
 														<span className="font-mono">{provider.name}/*</span>{" "}
 														will be blocked.{" "}
 														<Link
-															href={`${buildOrgUrl("org/custom-models")}?providerKey=${provider.id}`}
+															href={`${buildOrgUrl("org/models")}?providerKey=${provider.id}`}
 															className="underline underline-offset-4"
 														>
 															Record an attestation

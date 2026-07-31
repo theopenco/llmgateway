@@ -1,6 +1,6 @@
 ---
 title: Service Tiers
-description: Trade latency against cost on supported OpenAI and Google models with Flex and Priority processing tiers.
+description: Trade latency against cost on supported OpenAI, Google, and Fireworks models with Flex and Priority processing tiers.
 icon: Gauge
 ---
 
@@ -8,7 +8,7 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 # Service Tiers
 
-Some OpenAI and Google models support selectable **processing tiers** that trade
+Some OpenAI, Google, and Fireworks models support selectable **processing tiers** that trade
 latency and availability against price. You pick one per request with the
 OpenAI-compatible `service_tier` parameter, and LLM Gateway forwards it only
 when the selected provider/model mapping supports that tier.
@@ -62,6 +62,13 @@ the exact tiers exposed by each provider card.
 - **Google AI Studio / Gemini API** (`google-ai-studio`) — sent as a
   `service_tier` field in the request body for configured models that opt in.
 
+- **Fireworks AI** (`fireworks`) — sent as a `service_tier` field in the request
+  body on its OpenAI-compatible chat completions endpoint. Only Priority is
+  offered (Fireworks publishes no Flex rate card), billed at a 1.25x multiplier.
+  Fireworks does not report the tier it served, but a Priority request is either
+  served at Priority or shed with a 503, so an accepted request is billed at the
+  tier it was sent at.
+
 <Callout type="info">
 	Tiers are supported on a **subset** of models, and the Flex and Priority
 	subsets differ by provider. For example, Google Flex PayGo lists Gemini 3
@@ -70,14 +77,14 @@ the exact tiers exposed by each provider card.
 </Callout>
 
 <Callout type="warn">
-	Flex and Priority are only honored when the request reaches Google directly,
-	so a `google-vertex` / `google-ai-studio` provider key with a **custom base
-	URL** (a proxy) is excluded from service-tier routing — a proxy may silently
-	drop the tier and serve standard. With multiple providers/keys, the gateway
-	routes around the ineligible key automatically; if a request pins a provider
-	whose only key uses a custom base URL, it returns a 400 instead of silently
-	downgrading. Keys with no custom base URL (the managed default) are always
-	eligible.
+	Flex and Priority are only honored when the request reaches the provider
+	directly, so a `google-vertex` / `google-ai-studio` / `fireworks` provider key
+	with a **custom base URL** (a proxy) is excluded from service-tier routing — a
+	proxy may silently drop the tier and serve standard. With multiple
+	providers/keys, the gateway routes around the ineligible key automatically; if
+	a request pins a provider whose only key uses a custom base URL, it returns a
+	400 instead of silently downgrading. Keys with no custom base URL (the managed
+	default) are always eligible.
 </Callout>
 
 ## Pricing uses multipliers
@@ -105,7 +112,9 @@ The served tier is read back from the provider response — Vertex reports it in
 `usageMetadata.trafficType` (`ON_DEMAND_PRIORITY` / `ON_DEMAND_FLEX` /
 `ON_DEMAND`), Google AI Studio reports it in the `x-gemini-service-tier`
 response header, and OpenAI can return `service_tier` in response payloads or
-stream events.
+stream events. Providers that report no tier at all (Fireworks) never downgrade
+silently — they reject the request instead — so an accepted request is billed at
+the tier it was sent at.
 
 <Callout type="warn">
 	LLM Gateway rejects unsupported tier requests before provider routing. For
@@ -123,3 +132,4 @@ each tier.
 - [OpenAI API pricing](https://openai.com/api/pricing/)
 - [Google Flex PayGo](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/flex-paygo)
 - [Google Priority PayGo](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/priority-paygo)
+- [Fireworks Serverless Priority and Fast](https://docs.fireworks.ai/serverless/priority-and-fast)

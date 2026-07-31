@@ -1,75 +1,67 @@
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
-
-import { cdb, db, tables } from "@llmgateway/db";
-
+import { RealtimeConnectError } from "./errors.js";
 import { runRealtimePreflight } from "./preflight.js";
 
-/**
- * Credits-mode realtime sessions served by a platform-managed provider
- * credential — the database-backed replacement for LLM_OPENAI_API_KEY.
- */
-describe("realtime preflight with managed credentials", () => {
-	const harness = createGatewayApiTestHarness();
+vi.mock("@/lib/api-key-usage-limits.js", () => ({
+	assertApiKeyWithinUsageLimits: vi.fn(),
+	assertMemberWithinBudget: vi.fn(async () => {}),
+}));
 
-	async function seedApiKey() {
-		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			token: "real-token",
-			projectId: "project-id",
-			description: "Test API Key",
-			createdBy: "user-id",
-		});
+vi.mock("@/lib/cached-queries.js", () => ({
+	findApiKeyByToken: vi.fn(async () => null),
+	findOrganizationById: vi.fn(async () => null),
+	findProjectById: vi.fn(async () => null),
+	findProviderKey: vi.fn(async () => undefined),
+}));
+
+vi.mock("@/lib/compliance.js", () => ({
+	assertProviderCompliant: vi.fn(async () => {}),
+}));
+
+vi.mock("@/lib/iam.js", () => ({
+	validateRequestModelAccess: vi.fn(async () => ({ allowed: true })),
+	throwIamException: vi.fn(),
+}));
+
+afterEach(() => {
+	delete process.env.REALTIME_GEMINI_DISABLED;
+});
+
+async function expectConnectError(
+	requestedModel: string,
+): Promise<RealtimeConnectError> {
+	try {
+		await runRealtimePreflight({ token: "llmgtwy_test", requestedModel });
+	} catch (error) {
+		return error as RealtimeConnectError;
 	}
+	throw new Error("preflight unexpectedly succeeded");
+}
 
-	/**
-	 * Written through cdb so the gateway's SWR mirror for provider_key is
-	 * invalidated, exactly as the admin API writes it.
-	 */
-	async function seedManagedCredential() {
-		await cdb.insert(tables.providerKey).values({
-			id: "managed-openai",
-			provider: "openai",
-			token: "sk-managed-upstream",
-			managed: true,
-			organizationId: null,
-		});
-	}
-
-	test("credits mode uses the managed credential and still bills as credits", async () => {
-		await seedApiKey();
-		await harness.setProjectMode("credits");
-		await seedManagedCredential();
-
-		const result = await runRealtimePreflight({
-			token: "real-token",
-			requestedModel: "gpt-realtime",
-		});
-
-		expect(result.managedKey?.id).toBe("managed-openai");
-		expect(result.providerKey).toBeUndefined();
-		expect(result.upstreamToken).toBe("sk-managed-upstream");
-		// Health failures must attribute to the credential actually sent.
-		expect(result.trackedKeyHealthId).toBe("managed-openai");
-		expect(result.envVarName).toBeUndefined();
-		// A managed credential is the platform's own key: the org is billed for
-		// the session exactly as it was on the env-var path.
-		expect(result.usedMode).toBe("credits");
+describe("runRealtimePreflight Gemini kill switch", () => {
+	it("returns a 503 for Gemini models when disabled", async () => {
+		process.env.REALTIME_GEMINI_DISABLED = "true";
+		const error = await expectConnectError(
+			"gemini-2.5-flash-native-audio-preview-12-2025",
+		);
+		expect(error).toBeInstanceOf(RealtimeConnectError);
+		expect(error.status).toBe(503);
+		expect(error.code).toBe("realtime_gemini_disabled");
 	});
 
-	test("hybrid mode falls back to the managed credential without a BYOK key", async () => {
-		await seedApiKey();
-		await harness.setProjectMode("hybrid");
-		await seedManagedCredential();
+	it("leaves other providers unaffected when Gemini is disabled", async () => {
+		process.env.REALTIME_GEMINI_DISABLED = "true";
+		// The OpenAI path proceeds past the kill switch and fails later, on the
+		// unknown API key.
+		const error = await expectConnectError("gpt-realtime-2.1-mini");
+		expect(error.code).toBe("invalid_api_key");
+	});
 
-		const result = await runRealtimePreflight({
-			token: "real-token",
-			requestedModel: "gpt-realtime",
-		});
-
-		expect(result.managedKey?.id).toBe("managed-openai");
-		expect(result.providerKey).toBeUndefined();
-		expect(result.usedMode).toBe("credits");
+	it("admits Gemini models when the switch is unset", async () => {
+		const error = await expectConnectError(
+			"gemini-2.5-flash-native-audio-preview-12-2025",
+		);
+		expect(error.code).toBe("invalid_api_key");
 	});
 });

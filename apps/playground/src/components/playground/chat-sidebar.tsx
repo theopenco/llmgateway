@@ -11,6 +11,7 @@ import {
 	PinOff,
 	ChevronDown,
 	ChevronUp,
+	CreditCard,
 	LogOut,
 	ExternalLink,
 	Sparkles,
@@ -1006,6 +1007,12 @@ export const ChatSidebar = function ChatSidebar({
 									<Link href="/leaderboard" prefetch={true}>
 										<Trophy className="mr-2 h-4 w-4" />
 										Leaderboard
+									</Link>
+								</DropdownMenuItem>
+								<DropdownMenuItem asChild>
+									<Link href="/pricing" prefetch={true}>
+										<CreditCard className="mr-2 h-4 w-4" />
+										Membership &amp; Billing
 									</Link>
 								</DropdownMenuItem>
 								<DropdownMenuSeparator />

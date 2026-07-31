@@ -93,6 +93,7 @@ const providerCompliancePolicySchema = z.object({
 	requireGdpr: z.boolean().optional(),
 	blockApiTraining: z.boolean().optional(),
 	blockPromptLogging: z.boolean().optional(),
+	blockStealthProviders: z.boolean().optional(),
 	allowedCountries: z
 		.array(
 			z.string().refine((code) => providerCountryCodes.has(code), {

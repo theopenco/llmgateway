@@ -51,3 +51,17 @@ Once a DevPass plan reaches its weekly premium cap, premium requests are paused 
 ## Reset Passes
 
 You don't have to wait out the window: redeeming a [**Reset Pass**](/learn/reset-passes) instantly restores the full weekly premium allowance and starts a fresh 7-day window. A pass removes the weekly limit only — it grants no extra credits, so premium usage after a reset still draws from the plan's monthly allowance. Pro includes 1 pass per billing cycle and Max includes 2; extra passes are a one-time purchase from the DevPass dashboard. See the [Reset Passes page](/learn/reset-passes) for how redemption, included passes, and billing work.
+
+## Provider routing on DevPass
+
+DevPass plans always use the gateway's [smart routing](/features/routing): request a model by its plain id (e.g. `claude-sonnet-5`) and the gateway picks the best provider in real time based on uptime, throughput, price, and prompt-cache support. [Sticky session routing](/features/routing#sticky-session-routing) still keeps each coding session on one provider automatically, so upstream prompt caches stay warm across a conversation.
+
+<Callout type="warn">
+	**Provider pinning is not available on DevPass.** Provider-prefixed model ids
+	such as `openai/gpt-4o` — which pin a request to one specific provider on
+	pay-as-you-go — are rejected with a `403` on DevPass coding plans, as is
+	custom provider routing. If you need to target an exact provider or region,
+	use [pay-as-you-go credits](https://llmgateway.io) with the LLM Gateway API,
+	where [provider-specific routing](/features/routing#provider-specific-routing)
+	is fully supported.
+</Callout>

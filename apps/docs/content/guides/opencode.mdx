@@ -111,7 +111,13 @@ After updating `config.json`, restart OpenCode to see the new models.
 
 OpenCode's built-in model list only shows root model IDs (e.g. `claude-sonnet-5`), which LLM Gateway routes to the best available provider automatically. If you want a model to always run on one specific provider — for example to guarantee a fixed price, a compliance boundary, or consistent behavior — use LLM Gateway's [`provider/model` syntax](/features/routing#provider-specific-routing) as the model ID.
 
-Add the pinned variants you want as custom models, and they show up in OpenCode's model picker alongside the built-in list:
+Instead of writing these entries by hand, you can generate the full catalog — every coding model, pinned per upstream provider, with display names, context limits, and pricing — with the [LLM Gateway CLI](https://docs.llmgateway.io/developers/cli#configure):
+
+```bash
+npx @llmgateway/cli configure opencode
+```
+
+Or add the pinned variants you want manually as custom models, and they show up in OpenCode's model picker alongside the built-in list:
 
 ```json
 {
