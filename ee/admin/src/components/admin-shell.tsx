@@ -22,6 +22,7 @@ import {
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
+import { ThemeToggle } from "@/components/landing/theme-toggle";
 import { Button } from "@/components/ui/button";
 import {
 	Sidebar,
@@ -75,6 +76,7 @@ function MobileHeader() {
 					</span>
 				</div>
 			</div>
+			<ThemeToggle size="compact" className="ml-auto" />
 		</header>
 	);
 }
@@ -268,7 +270,8 @@ export function AdminShell({ children }: AdminShellProps) {
 						</SidebarMenu>
 					</SidebarGroup>
 				</SidebarContent>
-				<SidebarFooter className="border-t border-sidebar-border/60">
+				<SidebarFooter className="border-t border-sidebar-border/60 space-y-2 p-2">
+					<ThemeToggle size="compact" className="w-full justify-center" />
 					<Button
 						variant="ghost"
 						size="sm"

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { RunwarePromoBanner } from "@/components/RunwarePromoBanner";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/ui/logo";
 import { useUser } from "@/hooks/useUser";
@@ -59,6 +60,7 @@ export function Header() {
 							Docs
 						</a>
 					</Button>
+					<ThemeToggle size="compact" />
 					{isAuthenticated ? (
 						<Button size="sm" asChild>
 							<Link href="/dashboard">Dashboard</Link>
@@ -132,6 +134,7 @@ export function Header() {
 					>
 						Docs
 					</a>
+					<ThemeToggle size="compact" />
 					{isAuthenticated ? (
 						<Button size="sm" className="w-full" asChild>
 							<Link href="/dashboard" onClick={() => setMenuOpen(false)}>

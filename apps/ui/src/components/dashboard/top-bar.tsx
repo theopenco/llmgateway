@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 
 import { ChangelogNotifications } from "@/components/dashboard/changelog-notifications";
+import { ModeToggle } from "@/components/mode-toggle";
 import { ModelSearch } from "@/components/shared/model-search";
 import { Separator } from "@/lib/components/separator";
 import { SidebarTrigger } from "@/lib/components/sidebar";
@@ -52,6 +53,7 @@ export function TopBar({
 					<ModelSearch />
 				</div>
 				<ChangelogNotifications entries={announcementEntries} />
+				<ModeToggle />
 			</div>
 		</header>
 	);
