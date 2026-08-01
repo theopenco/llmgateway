@@ -9,6 +9,7 @@ import {
 	isSelfRefundCandidateType,
 	refundFeedbackBodySchema,
 } from "@/lib/self-refund.js";
+import { getStripeCardErrorMessage } from "@/lib/stripe-card-error.js";
 import { posthog } from "@/posthog.js";
 import {
 	ensureStripeCustomer,
@@ -1507,6 +1508,18 @@ devPlans.openapi(changeTier, async (c) => {
 		// user-facing outcome, not a server fault, so log it at warn — never
 		// error — to avoid noisy alerts for declined cards.
 		const errCode = getStripeErrorCode(error);
+		const cardErrorMessage = getStripeCardErrorMessage(error);
+		if (cardErrorMessage) {
+			// Any card error (incorrect CVC, expired card, insufficient funds, plain
+			// decline, ...) carries Stripe's user-facing explanation — pass it
+			// through so the user learns what to fix instead of a generic failure.
+			logger.warn("Dev plan tier change payment declined", {
+				code: errCode,
+			});
+			throw new HTTPException(402, {
+				message: `${cardErrorMessage} Update your payment method and try again.`,
+			});
+		}
 		if (errCode === "card_declined" || errCode === "invoice_payment_required") {
 			logger.warn("Dev plan tier change payment declined", {
 				code: errCode,
@@ -3066,14 +3079,11 @@ devPlans.openapi(purchaseResetPass, async (c) => {
 		// tier-change handler. Anything else (configuration, outage,
 		// programming errors) is rethrown to the global error handler.
 		const stripeErr = err as { type?: string; code?: string };
-		if (
-			stripeErr?.type === "StripeCardError" ||
-			stripeErr?.code === "card_declined"
-		) {
+		const cardErrorMessage = getStripeCardErrorMessage(err);
+		if (cardErrorMessage || stripeErr?.code === "card_declined") {
 			logger.warn("Reset Pass charge declined", { code: stripeErr.code });
 			throw new HTTPException(402, {
-				message:
-					"Your card was declined. Update your payment method on the billing page and try again.",
+				message: `${cardErrorMessage ?? "Your card was declined."} Update your payment method on the billing page and try again.`,
 			});
 		}
 		throw err;
