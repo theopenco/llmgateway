@@ -21,22 +21,29 @@ export default async function BlogPage() {
 		.filter((entry: any) => !entry?.draft)
 		.map(({ ...entry }: any) => entry as BlogItem);
 
+	// Standalone top-level ItemList (referenced by the CollectionPage via @id)
+	// so parsers that only inspect top-level @type values still see the list.
+	const itemListSchema = {
+		"@context": "https://schema.org",
+		"@type": "ItemList",
+		"@id": "https://llmgateway.io/blog#post-list",
+		name: "LLM Gateway Blog",
+		numberOfItems: sortedEntries.length,
+		itemListElement: sortedEntries.map((entry, index) => ({
+			"@type": "ListItem",
+			position: index + 1,
+			url: `https://llmgateway.io/blog/${entry.slug}`,
+			name: entry.title,
+		})),
+	};
+
 	const collectionSchema = {
 		"@context": "https://schema.org",
 		"@type": "CollectionPage",
 		name: "LLM Gateway Blog",
 		description: "News, tutorials, and deep-dives from the LLM Gateway team.",
 		url: "https://llmgateway.io/blog",
-		mainEntity: {
-			"@type": "ItemList",
-			numberOfItems: sortedEntries.length,
-			itemListElement: sortedEntries.map((entry, index) => ({
-				"@type": "ListItem",
-				position: index + 1,
-				url: `https://llmgateway.io/blog/${entry.slug}`,
-				name: entry.title,
-			})),
-		},
+		mainEntity: { "@id": "https://llmgateway.io/blog#post-list" },
 	};
 
 	const breadcrumbSchema = {
@@ -60,7 +67,7 @@ export default async function BlogPage() {
 
 	return (
 		<div>
-			<JsonLd data={[collectionSchema, breadcrumbSchema]} />
+			<JsonLd data={[collectionSchema, itemListSchema, breadcrumbSchema]} />
 			<HeroRSC navbarOnly />
 			<BlogList
 				entries={sortedEntries}
@@ -75,12 +82,12 @@ export async function generateMetadata() {
 	return {
 		title: "Blog — News, Tutorials, and Deep-Dives",
 		description:
-			"News, tutorials, and deep-dives from the LLM Gateway team on AI gateways, routing, costs, and building with LLMs.",
+			"News, tutorials, and deep-dives from the LLM Gateway team on AI gateways, model routing, LLM costs, model comparisons, and shipping production AI apps.",
 		alternates: { canonical: "/blog" },
 		openGraph: {
 			title: "Blog — News, Tutorials, and Deep-Dives",
 			description:
-				"News, tutorials, and deep-dives from the LLM Gateway team on AI gateways, routing, costs, and building with LLMs.",
+				"News, tutorials, and deep-dives from the LLM Gateway team on AI gateways, model routing, LLM costs, model comparisons, and shipping production AI apps.",
 			type: "website",
 			url: "https://llmgateway.io/blog",
 		},
