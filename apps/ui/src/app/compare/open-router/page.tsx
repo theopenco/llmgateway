@@ -19,7 +19,7 @@ const openRouterFaqs: CompareFaqItem[] = [
 	{
 		question: "How does pricing compare to OpenRouter?",
 		answer:
-			"Use pay-as-you-go credits with a flat 5% platform fee, or bring your own provider keys and pay providers directly for free. Token pricing matches provider rates with no markup.",
+			"Use pay-as-you-go credits with a flat 5% platform fee, or bring your own provider keys and pay providers directly for free. Token pricing matches provider rates with no markup, and optional full data retention is billed at $0.01 per 1M tokens.",
 	},
 	{
 		question: "Which models and providers are supported?",

@@ -66,6 +66,10 @@ const pricingFeatures: PricingFeature[] = [
 	},
 	{
 		name: "Data Retention",
+		description: "Metadata is free; full payloads are $0.01/1M tokens",
+		learnMoreLink:
+			"https://docs.llmgateway.io/features/data-retention#storage-pricing",
+		learnMoreText: "See storage pricing →",
 		free: "30 days",
 		enterprise: "Unlimited",
 	},

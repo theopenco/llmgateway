@@ -19,7 +19,7 @@ const portkeyFaqs: CompareFaqItem[] = [
 	{
 		question: "How does pricing compare to Portkey?",
 		answer:
-			"Pay per token at provider rates with a flat 5% platform fee on credits, or bring your own provider keys and pay providers directly for free. There are no per-seat or request-volume tiers.",
+			"Pay per token at provider rates with a flat 5% platform fee on credits, or bring your own provider keys and pay providers directly for free. There are no per-seat or request-volume tiers, and optional full data retention is billed at $0.01 per 1M tokens.",
 	},
 	{
 		question: "Can I migrate from Portkey without changing my code?",

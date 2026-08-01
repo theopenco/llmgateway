@@ -18,8 +18,13 @@ const FAQ_ITEMS: PricingFaqItem[] = [
 	},
 	{
 		question: "Is there a fee when I bring my own API keys?",
-		answer:
-			"No. With your own provider keys (BYOK), routing through LLM Gateway is free — you pay your providers directly and still get unified analytics, caching, and failover.",
+		answer: `No platform fee. With your own provider keys (BYOK), routing through LLM Gateway is free — you pay your providers directly and still get unified analytics, caching, and failover. The only optional charge is storage: if you enable full data retention, stored requests are billed at ${MARKETING_STATS.dataStoragePrice}.`,
+		links: [
+			{
+				href: "https://docs.llmgateway.io/features/data-retention#storage-pricing",
+				label: "See storage pricing",
+			},
+		],
 	},
 	{
 		question: "How much do tokens cost for each model?",

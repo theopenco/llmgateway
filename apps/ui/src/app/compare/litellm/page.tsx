@@ -24,7 +24,7 @@ const liteLlmFaqs: CompareFaqItem[] = [
 	{
 		question: "How does pricing work compared to LiteLLM?",
 		answer:
-			"Managed usage is pay-as-you-go with a flat 5% platform fee on credits, or free when you bring your own provider keys. Self-hosting the AGPLv3 build is free.",
+			"Managed usage is pay-as-you-go with a flat 5% platform fee on credits, or free when you bring your own provider keys; optional full data retention is billed at $0.01 per 1M tokens. Self-hosting the AGPLv3 build is free.",
 	},
 	{
 		question: "Does it provide analytics and routing out of the box?",

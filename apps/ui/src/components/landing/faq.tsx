@@ -28,8 +28,7 @@ const faqData = [
 	},
 	{
 		question: "How much does it cost?",
-		answer:
-			"Credits: Pay-as-you-go with a flat 5% platform fee. BYOK: Use your own provider API keys for free. Enterprise: Custom SLA, dedicated infrastructure, and volume discounts. Self-host: Deploy free forever under AGPLv3 license.",
+		answer: `Credits: Pay-as-you-go with a flat 5% platform fee. BYOK: Use your own provider API keys for free — optional full data retention is billed at ${MARKETING_STATS.dataStoragePrice}. Enterprise: Custom SLA, dedicated infrastructure, and volume discounts. Self-host: Deploy free forever under AGPLv3 license.`,
 	},
 ];
 
@@ -198,7 +197,14 @@ export function Faq() {
 												<strong>Bring Your Own Keys – free:</strong> Use your
 												own LLM provider API keys (OpenAI, Anthropic, Google,
 												etc.) and pay providers directly. Usage tracking and
-												analytics included at no extra cost.
+												analytics included at no extra cost; optional{" "}
+												<a
+													href="https://docs.llmgateway.io/features/data-retention#storage-pricing"
+													className="underline"
+												>
+													full data retention
+												</a>{" "}
+												is billed at {MARKETING_STATS.dataStoragePrice}.
 											</li>
 											<li>
 												<strong>Enterprise:</strong> Custom SLA, dedicated

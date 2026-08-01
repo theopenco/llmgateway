@@ -24,7 +24,7 @@ const foundryFaqs: CompareFaqItem[] = [
 	{
 		question: "How does pricing compare to Azure AI Foundry?",
 		answer:
-			"Foundry bills model rates through your Azure subscription, with provisioned-throughput (PTU) reservations for guaranteed capacity. LLM Gateway charges the same provider rates with a flat 5% platform fee on credits — or 0% when you bring your own provider keys, including Azure credentials. Self-hosting the open-source gateway is free.",
+			"Foundry bills model rates through your Azure subscription, with provisioned-throughput (PTU) reservations for guaranteed capacity. LLM Gateway charges the same provider rates with a flat 5% platform fee on credits — or 0% when you bring your own provider keys, including Azure credentials. Optional full data retention is billed at $0.01 per 1M tokens. Self-hosting the open-source gateway is free.",
 	},
 	{
 		question: "How hard is it to migrate from Azure AI Foundry to LLM Gateway?",

@@ -24,7 +24,7 @@ const vercelFaqs: CompareFaqItem[] = [
 	{
 		question: "How does pricing compare to Vercel AI Gateway?",
 		answer:
-			"Both charge no markup on tokens. On the managed tier LLM Gateway adds a flat 5% platform fee on credits, or 0% when you bring your own provider keys. Self-hosting the AGPLv3 build is free, and there are no team-seat or governance add-ons gated behind a higher plan.",
+			"Both charge no markup on tokens. On the managed tier LLM Gateway adds a flat 5% platform fee on credits, or 0% when you bring your own provider keys; optional full data retention is billed at $0.01 per 1M tokens. Self-hosting the AGPLv3 build is free, and there are no team-seat or governance add-ons gated behind a higher plan.",
 	},
 	{
 		question: "What can LLM Gateway do that Vercel AI Gateway doesn't?",

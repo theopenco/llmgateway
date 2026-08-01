@@ -24,7 +24,7 @@ const bedrockFaqs: CompareFaqItem[] = [
 	{
 		question: "How does pricing compare to AWS Bedrock?",
 		answer:
-			"Bedrock bills model-provider rates through your AWS account. LLM Gateway charges the same provider rates with a flat 5% platform fee on credits — or 0% when you bring your own provider keys, including AWS credentials. Self-hosting the open-source gateway is free.",
+			"Bedrock bills model-provider rates through your AWS account. LLM Gateway charges the same provider rates with a flat 5% platform fee on credits — or 0% when you bring your own provider keys, including AWS credentials. Optional full data retention is billed at $0.01 per 1M tokens. Self-hosting the open-source gateway is free.",
 	},
 	{
 		question: "How hard is it to migrate from Bedrock to LLM Gateway?",
