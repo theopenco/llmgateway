@@ -63,6 +63,7 @@ import {
 	getGcpAccessToken,
 	getVertexAnthropicProjectId,
 } from "@/lib/gcp-token.js";
+import { getUpstreamHedgeDelayMs, hedgedFetch } from "@/lib/hedged-fetch.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import {
 	calculateDataStorageCost,
@@ -146,6 +147,10 @@ import {
 	checkGuardrails,
 	logViolation,
 } from "@llmgateway/guardrails";
+import {
+	recordPreUpstreamDuration,
+	recordUpstreamHedge,
+} from "@llmgateway/instrumentation";
 import { logger, toError } from "@llmgateway/logger";
 import {
 	type BaseMessage,
@@ -1351,6 +1356,8 @@ const completions = createRoute({
 });
 
 chat.openapi(completions, async (c) => {
+	const handlerStartTime = Date.now();
+
 	// Extract or generate request ID
 	const requestId = c.req.header("x-request-id")?.trim() || shortid(40);
 
@@ -1896,6 +1903,17 @@ chat.openapi(completions, async (c) => {
 		project.organizationId,
 	);
 
+	// The org's provider keys are consulted at several independent decision
+	// points (hybrid region filtering, dev-plan flex tier, service-tier
+	// eligibility, auto routing); memoize the lookup so only the first consumer
+	// pays for it.
+	let activeProviderKeysPromise:
+		ReturnType<typeof findActiveProviderKeys> | undefined;
+	const getActiveProviderKeys = () =>
+		(activeProviderKeysPromise ??= findActiveProviderKeys(
+			project.organizationId,
+		));
+
 	// Candidates demoted by hybrid keyed-provider preference stay in the scores
 	// as last-resort retry targets: their worst-rank score keeps them behind
 	// every keyed candidate, but the retry loop can still escape to them when a
@@ -1969,7 +1987,7 @@ chat.openapi(completions, async (c) => {
 		);
 		allModelProviders = filterRegionsByAvailableKeys(allModelProviders);
 	} else if (project.mode === "hybrid") {
-		const dbProviderKeys = await findActiveProviderKeys(project.organizationId);
+		const dbProviderKeys = await getActiveProviderKeys();
 		const providersWithDbKeys = new Set(dbProviderKeys.map((k) => k.provider));
 		const filterHybridRegions = (
 			expanded: ProviderModelMapping[],
@@ -2054,9 +2072,7 @@ chat.openapi(completions, async (c) => {
 		organization.devPlanServiceTier === "flex" &&
 		service_tier === undefined
 	) {
-		const orgKeysForDefaultTier = await findActiveProviderKeys(
-			project.organizationId,
-		);
+		const orgKeysForDefaultTier = await getActiveProviderKeys();
 		const providerHasEligibleTierCredential = (providerId: string): boolean => {
 			const hasCompliantDbKey = orgKeysForDefaultTier.some(
 				(key) =>
@@ -2858,7 +2874,7 @@ chat.openapi(completions, async (c) => {
 			return;
 		}
 		if (serviceTierOrgKeys === undefined) {
-			serviceTierOrgKeys = await findActiveProviderKeys(project.organizationId);
+			serviceTierOrgKeys = await getActiveProviderKeys();
 		}
 		iamFilteredModelProviders = iamFilteredModelProviders.filter((provider) =>
 			isProviderServiceTierEligible(provider.providerId),
@@ -3042,7 +3058,7 @@ chat.openapi(completions, async (c) => {
 		}
 
 		// Get available providers based on project mode
-		const providerKeys = await findActiveProviderKeys(project.organizationId);
+		const providerKeys = await getActiveProviderKeys();
 		const supportedProviderIds = providers
 			.filter((provider) => provider.id !== "llmgateway")
 			.map((provider) => provider.id);
@@ -6440,6 +6456,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	const startTime = Date.now();
+	recordPreUpstreamDuration(!!stream, startTime - handlerStartTime);
 	const failedKeys = createFailedKeyTracker();
 
 	function rememberFailedKey(
@@ -7148,18 +7165,41 @@ chat.openapi(completions, async (c) => {
 							routingCfg,
 						);
 
-						res = await fetch(url, {
-							method: "POST",
-							// SSRF: never follow redirects on an authenticated provider
-							// request. A tenant-supplied baseUrl (validated at registration)
-							// could still 3xx to an internal host at request time, and a
-							// redirect would also leak the upstream token. Provider endpoints
-							// never legitimately redirect.
-							redirect: "error",
-							headers,
-							body: JSON.stringify(requestBody),
-							signal: fetchSignal,
-						});
+						const hedgeProvider = usedProvider;
+						let hedgeIssued = false;
+						res = await hedgedFetch(
+							url,
+							{
+								method: "POST",
+								// SSRF: never follow redirects on an authenticated provider
+								// request. A tenant-supplied baseUrl (validated at registration)
+								// could still 3xx to an internal host at request time, and a
+								// redirect would also leak the upstream token. Provider endpoints
+								// never legitimately redirect.
+								redirect: "error",
+								headers,
+								body: JSON.stringify(requestBody),
+							},
+							{
+								signal: fetchSignal,
+								// Retries already sit behind failure classification and
+								// backoff; hedging them would add duplicate load exactly when
+								// a provider is struggling.
+								delayMs: retryAttempt === 0 ? getUpstreamHedgeDelayMs() : 0,
+								onHedge: () => {
+									hedgeIssued = true;
+									logger.info("Upstream TTFB hedge fired", {
+										requestId,
+										provider: hedgeProvider,
+									});
+								},
+								onWinner: (winner) => {
+									if (hedgeIssued) {
+										recordUpstreamHedge(hedgeProvider, winner);
+									}
+								},
+							},
+						);
 
 						logServiceTierRequest(usedProvider, forwardedServiceTier, res);
 						// AI Studio reports the served tier in a response header; Vertex

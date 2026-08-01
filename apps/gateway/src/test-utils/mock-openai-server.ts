@@ -329,6 +329,11 @@ function hasUserMessageTrigger(
 // Each test that relies on TRIGGER_FAIL_ONCE must call resetFailOnceCounter()
 // in its beforeEach to avoid cross-test interference.
 let failOnceCounter = 0;
+// Counter for TRIGGER_STALL_ONCE_<ms> - the first matching request stalls for
+// the given number of ms before responding normally; subsequent requests
+// respond immediately. Lets hedging tests make only the primary attempt slow.
+// Same shared-state caveat as failOnceCounter: reset via resetFailOnceCounter().
+let stallOnceCounter = 0;
 let currentMockServerUrl = "";
 let videoCounter = 0;
 
@@ -535,6 +540,11 @@ function getMockAvalancheSoraVideoSizeMetadata(
 
 export function resetFailOnceCounter() {
 	failOnceCounter = 0;
+	stallOnceCounter = 0;
+}
+
+export function getStallOnceCounter() {
+	return stallOnceCounter;
 }
 
 export function resetMockVideoState() {
@@ -876,6 +886,14 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		failOnceCounter++;
 		if (failOnceCounter === 1) {
 			await delay(100);
+		}
+	}
+
+	const stallOnceMatch = userMessage.match(/TRIGGER_STALL_ONCE_(\d+)/);
+	if (stallOnceMatch) {
+		stallOnceCounter++;
+		if (stallOnceCounter === 1) {
+			await delay(parseInt(stallOnceMatch[1], 10));
 		}
 	}
 

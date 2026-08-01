@@ -119,13 +119,35 @@ gateway:
   # -- Internal-only port for the Prometheus /metrics endpoint. Exposed via the
   # ClusterIP Service for in-cluster scraping; never routed by the ingress.
   metricsPort: 9090
+  # The gateway sits on the time-to-first-token path of every request, so its
+  # CPU limit must leave real headroom: a tight limit (e.g. 200m) makes the
+  # kernel's CFS quota throttle the Node process under any burst, which shows
+  # up as multi-second first-token stalls, not graceful degradation.
   resources:
     requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      cpu: 200m
+      cpu: 250m
       memory: 256Mi
+    limits:
+      cpu: 2000m
+      memory: 512Mi
+  # -- Pod dnsConfig. The cluster default ndots:5 sends provider hostnames
+  # (api.anthropic.com has fewer than 5 dots) through search-domain expansion,
+  # where a single dropped UDP packet stalls resolution — and with it the first
+  # token — for multiple seconds. ndots:2 skips the pointless search suffixes
+  # for external hostnames while cluster-internal lookups (which use fully
+  # qualified *.svc.cluster.local names or single-label services with fewer
+  # than 2 dots) still resolve. single-request-reopen works around dropped-UDP
+  # conntrack races (glibc base image); timeout+attempts bound a worst-case
+  # DNS stall at ~4s instead of the 10s+ resolver default.
+  dnsConfig:
+    options:
+      - name: ndots
+        value: "2"
+      - name: timeout
+        value: "2"
+      - name: attempts
+        value: "2"
+      - name: single-request-reopen
   config:
     gatewayTimeoutMs: 1500000
     aiStreamingTimeoutMs: 1200000
@@ -135,6 +157,15 @@ gateway:
     healthCheckSkipDatabase: ""
     healthCheckTimeoutMs: 15000
     maxStreamingBufferMb: 50
+    # Origins the upstream dispatcher keeps permanently warm (DNS cache +
+    # pooled connection) so an idle pod's next request skips connection setup.
+    upstreamPrewarmOrigins: "https://api.anthropic.com,https://api.openai.com"
+    # Streaming requests whose upstream produced no response headers after
+    # this many ms race a duplicate request; first headers win, the loser is
+    # aborted. Caps the first-token tail at roughly this delay plus a normal
+    # TTFT, at the cost of duplicated input tokens for the slow tail that
+    # crosses it. 0 disables (the code default — hedging is chart opt-in).
+    upstreamHedgeDelayMs: 1500
   # Hard deadline for pod shutdown; caps every in-process drain above. Defaults
   # to 120s, or realtime.config.maxSessionSeconds + 120 when realtime.enabled.
   # Set explicitly only to override that.

@@ -102,6 +102,21 @@ data:
   {{- if .maxStreamingBufferMb }}
   MAX_STREAMING_BUFFER_MB: {{ .maxStreamingBufferMb | quote }}
   {{- end }}
+  {{- if .upstreamPrewarmOrigins }}
+  UPSTREAM_PREWARM_ORIGINS: {{ .upstreamPrewarmOrigins | quote }}
+  {{- end }}
+  {{- if .upstreamPrewarmIntervalMs }}
+  UPSTREAM_PREWARM_INTERVAL_MS: {{ .upstreamPrewarmIntervalMs | quote }}
+  {{- end }}
+  {{- if .upstreamDnsCacheTtlMs }}
+  UPSTREAM_DNS_CACHE_TTL_MS: {{ .upstreamDnsCacheTtlMs | quote }}
+  {{- end }}
+  {{- if .upstreamKeepaliveTimeoutMs }}
+  UPSTREAM_KEEPALIVE_TIMEOUT_MS: {{ .upstreamKeepaliveTimeoutMs | quote }}
+  {{- end }}
+  {{- if .upstreamHedgeDelayMs }}
+  UPSTREAM_HEDGE_DELAY_MS: {{ .upstreamHedgeDelayMs | quote }}
+  {{- end }}
   {{- end }}
 
   # API config

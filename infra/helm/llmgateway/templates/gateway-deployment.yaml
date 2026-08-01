@@ -22,6 +22,10 @@ spec:
         prometheus.io/port: {{ .Values.gateway.metricsPort | default 9090 | quote }}
     spec:
       {{- include "llmgateway.imagePullSecrets" . | nindent 6 }}
+      {{- with .Values.gateway.dnsConfig }}
+      dnsConfig:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       initContainers:
         - name: wait-for-postgresql
           image: busybox:1.37

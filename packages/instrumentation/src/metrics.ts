@@ -59,6 +59,23 @@ export const tokenUsage = new Histogram({
 	registers: [metricsRegistry],
 });
 
+// Histogram for gateway-side work before the first upstream provider attempt
+export const preUpstreamDuration = new Histogram({
+	name: "chat_completion_preupstream_ms",
+	help: "Time between request arrival and the first upstream provider attempt in milliseconds",
+	labelNames: ["streaming"] as const,
+	buckets: [10, 25, 50, 100, 200, 500, 1000, 2000],
+	registers: [metricsRegistry],
+});
+
+// Counter for TTFB hedges issued on streaming upstream requests
+export const upstreamHedgeTotal = new Counter({
+	name: "chat_upstream_hedge_total",
+	help: "Streaming upstream requests where a TTFB hedge was issued, by winning branch",
+	labelNames: ["provider", "winner"] as const,
+	registers: [metricsRegistry],
+});
+
 // Gauge for tracking concurrent in-flight requests
 export const requestsInFlight = new Gauge({
 	name: "chat_completion_requests_in_flight",
@@ -140,6 +157,27 @@ export function recordChatCompletionMetrics(metrics: ChatCompletionMetrics) {
 	if (cachedTokens !== undefined && cachedTokens > 0) {
 		tokenUsage.labels(model, provider, "cached").observe(cachedTokens);
 	}
+}
+
+/**
+ * Record gateway-side latency between request arrival and the first upstream
+ * provider attempt (auth, routing, guardrails, request preparation).
+ */
+export function recordPreUpstreamDuration(streaming: boolean, ms: number) {
+	if (ms >= 0) {
+		preUpstreamDuration.labels(streaming ? "true" : "false").observe(ms);
+	}
+}
+
+/**
+ * Record that a TTFB hedge was issued for a streaming upstream request and
+ * which branch ended up being served.
+ */
+export function recordUpstreamHedge(
+	provider: string,
+	winner: "primary" | "hedge",
+) {
+	upstreamHedgeTotal.labels(provider, winner).inc();
 }
 
 /**
