@@ -159,7 +159,12 @@ async function validateConfig(
 	provider: string,
 	config: Record<string, string>,
 ): Promise<void> {
-	if (!providers.some((p) => p.id === provider)) {
+	// "custom" is a per-organization BYOK construct (each key defines its own
+	// upstream); there is no platform-wide custom deployment a managed
+	// credential could describe, and the catalog route excludes it for the same
+	// reason. Allowing it here would advertise `custom` as credits-routable off
+	// a row that can never serve a request.
+	if (provider === "custom" || !providers.some((p) => p.id === provider)) {
 		throw new HTTPException(400, {
 			message: `Unknown provider: ${provider}`,
 		});
@@ -354,6 +359,10 @@ adminProviderCredentials.openapi(listCredentials, async (c) => {
 			provider: "asc",
 			sortOrder: "asc",
 			createdAt: "asc",
+			// Same full tiebreak as the gateway's selection order, so the row the
+			// dashboard shows first is the row that actually serves traffic even
+			// when sortOrder and createdAt tie.
+			id: "asc",
 		},
 	});
 
@@ -554,13 +563,24 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 		return c.json({ credential: toCredential(existing) });
 	}
 
+	// status <> 'deleted' repeats the read's predicate so a concurrent delete
+	// cannot have this write resurrect (or rotate the token of) a row that was
+	// soft-deleted between the read above and this statement.
 	const [updated] = await cdb
 		.update(tables.providerKey)
 		.set(updates)
 		.where(
-			and(eq(tables.providerKey.id, id), eq(tables.providerKey.managed, true)),
+			and(
+				eq(tables.providerKey.id, id),
+				eq(tables.providerKey.managed, true),
+				ne(tables.providerKey.status, "deleted"),
+			),
 		)
 		.returning();
+
+	if (!updated) {
+		throw new HTTPException(404, { message: "Credential not found" });
+	}
 
 	logger.info("Managed provider credential updated", {
 		credentialId: updated.id,
@@ -595,12 +615,18 @@ adminProviderCredentials.openapi(deleteCredential, async (c) => {
 	const { id } = c.req.valid("param");
 
 	// Soft delete: request logs reference provider-key ids for health tracking
-	// and attribution, so the row must survive.
+	// and attribution, so the row must survive. The status predicate makes a
+	// repeat delete report 404 instead of succeeding against an already-deleted
+	// row.
 	const [deleted] = await cdb
 		.update(tables.providerKey)
 		.set({ status: "deleted" })
 		.where(
-			and(eq(tables.providerKey.id, id), eq(tables.providerKey.managed, true)),
+			and(
+				eq(tables.providerKey.id, id),
+				eq(tables.providerKey.managed, true),
+				ne(tables.providerKey.status, "deleted"),
+			),
 		)
 		.returning({ id: tables.providerKey.id });
 

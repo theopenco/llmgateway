@@ -146,6 +146,14 @@ describe("admin provider credentials", () => {
 		expect(res.status).toBe(400);
 	});
 
+	test("rejects the custom provider", async () => {
+		// "custom" is a per-organization BYOK construct with no platform-wide
+		// deployment; a managed row for it could never serve a request but would
+		// advertise custom as credits-routable.
+		const res = await create({ provider: "custom", token: "x" });
+		expect(res.status).toBe(400);
+	});
+
 	test("supports several credentials for the same provider", async () => {
 		await create({
 			provider: "openai",
@@ -576,10 +584,18 @@ describe("managed credential ordering", () => {
 		const rows = await db.query.providerKey.findMany({
 			where: { managed: { eq: true }, provider: { eq: provider } },
 		});
-		return rows
-			.slice()
-			.sort((a, b) => (a.sortOrder ?? 99) - (b.sortOrder ?? 99))
-			.map((row) => [row.id, row.sortOrder] as const);
+		return (
+			rows
+				.slice()
+				// id tiebreak: two never-reordered rows both have a null sortOrder, and
+				// without it the assertion depends on Postgres heap order.
+				.sort(
+					(a, b) =>
+						(a.sortOrder ?? 99) - (b.sortOrder ?? 99) ||
+						a.id.localeCompare(b.id),
+				)
+				.map((row) => [row.id, row.sortOrder] as const)
+		);
 	}
 
 	test("persists the submitted order", async () => {

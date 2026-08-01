@@ -86,12 +86,23 @@ export function ReorderableList({
 	const [mounted, setMounted] = useState(false);
 	useEffect(() => setMounted(true), []);
 	const commitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	// Order awaiting its debounced save. Kept in a ref (with the latest
+	// onCommit) so unmount can flush it: the optimistic order has already been
+	// applied via onReorder, and discarding the save would leave the UI showing
+	// a priority the server never received.
+	const pendingCommit = useRef<string[] | null>(null);
+	const onCommitRef = useRef(onCommit);
+	onCommitRef.current = onCommit;
 	const instructionsId = `reorder-instructions-${ids[0] ?? "empty"}`;
 
 	useEffect(
 		() => () => {
 			if (commitTimer.current) {
 				clearTimeout(commitTimer.current);
+			}
+			if (pendingCommit.current) {
+				onCommitRef.current(pendingCommit.current);
+				pendingCommit.current = null;
 			}
 		},
 		[],
@@ -102,10 +113,11 @@ export function ReorderableList({
 			if (commitTimer.current) {
 				clearTimeout(commitTimer.current);
 			}
-			commitTimer.current = setTimeout(
-				() => onCommit(next),
-				KEYBOARD_COMMIT_DELAY_MS,
-			);
+			pendingCommit.current = next;
+			commitTimer.current = setTimeout(() => {
+				pendingCommit.current = null;
+				onCommit(next);
+			}, KEYBOARD_COMMIT_DELAY_MS);
 		},
 		[onCommit],
 	);
@@ -238,13 +250,19 @@ function ReorderHandle({
 			ref={buttonRef}
 			type="button"
 			data-reorder-handle={id}
-			disabled={disabled}
+			// aria-disabled, not the disabled attribute: disabling the focused
+			// handle mid-save would blur it to <body> and strand a keyboard user
+			// mid-sequence. The handlers below already guard on `disabled`.
+			aria-disabled={disabled}
 			aria-label={`Reorder ${itemLabel}: position ${index + 1} of ${ids.length}`}
 			aria-describedby={instructionsId}
 			// No preventDefault — it would stop the button taking focus, which is
 			// the whole keyboard entry point.
 			onPointerDown={(event: ReactPointerEvent) => {
-				if (!disabled) {
+				// Primary button only, mirroring the filter motion applies on its
+				// own dragListener path: a right-click must open the context menu,
+				// not start a drag session.
+				if (!disabled && event.button === 0) {
 					controls.start(event);
 				}
 			}}
