@@ -38,15 +38,23 @@ export async function generateMetadata({
 		marketingGuideCanonical(page.url) ?? `${docsBaseUrl}${path}`;
 	const image = ["/docs-og", ...slug, "image.png"].join("/");
 
+	// The root page's frontmatter title composes to a short 46-char <title> via
+	// the layout template, so it gets an absolute, keyword-carrying title
+	// instead. The visible page H1 (frontmatter title) is unchanged.
+	const isRoot = page.url === "/";
+	const metaTitle = isRoot
+		? "LLM Gateway Documentation — OpenAI-Compatible AI Gateway"
+		: page.data.title;
+
 	return {
 		metadataBase: new URL(docsBaseUrl),
-		title: page.data.title,
+		title: isRoot ? { absolute: metaTitle } : metaTitle,
 		description: page.data.description,
 		alternates: {
 			canonical: canonicalUrl,
 		},
 		openGraph: {
-			title: page.data.title,
+			title: metaTitle,
 			description: page.data.description,
 			url: canonicalUrl,
 			images: image,
@@ -55,7 +63,7 @@ export async function generateMetadata({
 		},
 		twitter: {
 			card: "summary_large_image",
-			title: page.data.title,
+			title: metaTitle,
 			description: page.data.description,
 			images: image,
 		},

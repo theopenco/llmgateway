@@ -3,6 +3,8 @@ import { HeroCompare } from "@/components/compare/hero-compare";
 import { Comparison } from "@/components/landing/comparison";
 import Footer from "@/components/landing/footer";
 
+import { MARKETING_STATS } from "@llmgateway/shared";
+
 import type { CompareFaqItem } from "@/components/compare/compare-faq";
 
 const openRouterFaqs: CompareFaqItem[] = [
@@ -18,8 +20,7 @@ const openRouterFaqs: CompareFaqItem[] = [
 	},
 	{
 		question: "How does pricing compare to OpenRouter?",
-		answer:
-			"Use pay-as-you-go credits with a flat 5% platform fee, or bring your own provider keys and pay providers directly for free. Token pricing matches provider rates with no markup.",
+		answer: `Use pay-as-you-go credits with a flat 5% platform fee, or bring your own provider keys and pay providers directly for free. Token pricing matches provider rates with no markup, and optional full data retention is billed at ${MARKETING_STATS.dataStoragePrice}.`,
 	},
 	{
 		question: "Which models and providers are supported?",

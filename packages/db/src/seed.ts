@@ -1235,11 +1235,12 @@ function generateSeedModelProviderMappings() {
 	return mappings;
 }
 
-function generateSeedModelProviderMappingHistory(
+// Pick one mapping per provider (up to `limit`) so every provider has
+// history data without seeding every mapping.
+function selectTopMappingsPerProvider(
 	mappings: Array<Record<string, any>>,
+	limit: number,
 ) {
-	const history: Array<Record<string, any>> = [];
-	// Pick one mapping per provider to ensure all providers have history data
 	const seenProviders = new Set<string>();
 	const topMappings: Array<Record<string, any>> = [];
 	for (const m of mappings) {
@@ -1247,10 +1248,18 @@ function generateSeedModelProviderMappingHistory(
 			seenProviders.add(m.providerId);
 			topMappings.push(m);
 		}
-		if (topMappings.length >= 50) {
+		if (topMappings.length >= limit) {
 			break;
 		}
 	}
+	return topMappings;
+}
+
+function generateSeedModelProviderMappingHistory(
+	mappings: Array<Record<string, any>>,
+) {
+	const history: Array<Record<string, any>> = [];
+	const topMappings = selectTopMappingsPerProvider(mappings, 50);
 	for (const mapping of topMappings) {
 		for (let i = 0; i < 144; i++) {
 			const ts = minutesAgo(i * 10);
@@ -1313,6 +1322,109 @@ function generateSeedModelHistory() {
 				totalTimeToFirstToken: logCount * randomInt(50, 500),
 				totalTimeToFirstReasoningToken: 0,
 				timeToFirstTokenCount: logCount,
+				timeToFirstReasoningTokenCount: 0,
+			});
+		}
+	}
+	return history;
+}
+
+// 60 days of hourly per-model rollups so long-window surfaces (the public
+// rankings page, 7d/30d stats windows and their previous-window trend
+// comparison) have data locally. 60 days covers the 30d window plus the
+// equal-length previous window its trend compares against. Each model gets a
+// rank-weighted volume with a per-model daily growth factor so trends differ
+// realistically.
+const HISTORY_HOURLY_DAYS = 60;
+
+function hourlyModelVolume(rankIndex: number, hoursBack: number) {
+	/* eslint-disable no-mixed-operators */
+	const baseTokensPerHour = Math.round(2_000_000 / (rankIndex + 1) ** 0.85);
+	// Daily growth between roughly -4.5% and +4.5% depending on the model, so
+	// some models trend up and others down over the window.
+	const dailyGrowth = 1 + ((rankIndex % 7) - 3) * 0.015;
+	const daysBack = hoursBack / 24;
+	const trend = dailyGrowth ** -daysBack;
+	const noise = 0.7 + secureRandom() * 0.6;
+	return Math.max(1, Math.round(baseTokensPerHour * trend * noise));
+	/* eslint-enable no-mixed-operators */
+}
+
+function generateSeedModelHistoryHourly() {
+	const history: Array<Record<string, any>> = [];
+	const topModels = (allModels as readonly ModelDefinition[]).slice(0, 50);
+	for (const [mi, m] of topModels.entries()) {
+		for (let h = 0; h < HISTORY_HOURLY_DAYS * 24; h++) {
+			const ts = hoursAgo(h);
+			ts.setMinutes(0, 0, 0);
+			const totalTokens = hourlyModelVolume(mi, h);
+			const inputTokens = Math.round(totalTokens * 0.7);
+			const outputTokens = Math.round(totalTokens * 0.25);
+			const logs = Math.max(1, Math.round(totalTokens / 1200));
+			const errors = randomInt(0, Math.max(1, Math.floor(logs * 0.02)));
+			history.push({
+				id: `mhh-${m.id}-${h}`,
+				modelId: m.id,
+				hourTimestamp: ts,
+				logsCount: logs,
+				errorsCount: errors,
+				clientErrorsCount: Math.floor(errors * 0.3),
+				gatewayErrorsCount: Math.floor(errors * 0.1),
+				upstreamErrorsCount: Math.floor(errors * 0.6),
+				cachedCount: randomInt(0, Math.floor(logs * 0.15)),
+				totalInputTokens: inputTokens,
+				totalOutputTokens: outputTokens,
+				totalTokens,
+				totalReasoningTokens: totalTokens - inputTokens - outputTokens,
+				totalCachedTokens: randomInt(0, Math.floor(inputTokens * 0.3)),
+				totalDuration: logs * randomInt(500, 5000),
+				totalTimeToFirstToken: logs * randomInt(100, 800),
+				totalTimeToFirstReasoningToken: 0,
+				timeToFirstTokenCount: logs,
+				timeToFirstReasoningTokenCount: 0,
+			});
+		}
+	}
+	return history;
+}
+
+function generateSeedModelProviderMappingHistoryHourly(
+	mappings: Array<Record<string, any>>,
+) {
+	const history: Array<Record<string, any>> = [];
+	// Same one-mapping-per-provider selection as the minute-level seed so every
+	// provider has long-window data too.
+	const topMappings = selectTopMappingsPerProvider(mappings, 50);
+	for (const [mi, mapping] of topMappings.entries()) {
+		for (let h = 0; h < HISTORY_HOURLY_DAYS * 24; h++) {
+			const ts = hoursAgo(h);
+			ts.setMinutes(0, 0, 0);
+			const totalTokens = hourlyModelVolume(mi, h);
+			const inputTokens = Math.round(totalTokens * 0.7);
+			const outputTokens = Math.round(totalTokens * 0.25);
+			const logs = Math.max(1, Math.round(totalTokens / 1200));
+			const errors = randomInt(0, Math.max(1, Math.floor(logs * 0.02)));
+			history.push({
+				id: `mpmhh-${mapping.id}-${h}`,
+				modelId: mapping.modelId,
+				providerId: mapping.providerId,
+				modelProviderMappingId: mapping.id,
+				hourTimestamp: ts,
+				logsCount: logs,
+				errorsCount: errors,
+				clientErrorsCount: Math.floor(errors * 0.3),
+				gatewayErrorsCount: Math.floor(errors * 0.1),
+				upstreamErrorsCount: Math.floor(errors * 0.6),
+				cachedCount: randomInt(0, Math.floor(logs * 0.15)),
+				totalInputTokens: inputTokens,
+				totalOutputTokens: outputTokens,
+				totalTokens,
+				totalReasoningTokens: totalTokens - inputTokens - outputTokens,
+				totalCachedTokens: randomInt(0, Math.floor(inputTokens * 0.3)),
+				totalDuration: logs * randomInt(500, 5000),
+				totalTimeToFirstToken: logs * randomInt(100, 800),
+				totalTimeToFirstReasoningToken: 0,
+				timeToFirstTokenCount: logs,
 				timeToFirstReasoningTokenCount: 0,
 			});
 		}
@@ -2560,6 +2672,16 @@ async function seed() {
 
 	const seedModelHistory = generateSeedModelHistory();
 	await bulkInsert(tables.modelHistory, seedModelHistory);
+
+	const seedMappingHistoryHourly =
+		generateSeedModelProviderMappingHistoryHourly(seedMappings);
+	await bulkInsert(
+		tables.modelProviderMappingHistoryHourly,
+		seedMappingHistoryHourly,
+	);
+
+	const seedModelHistoryHourly = generateSeedModelHistoryHourly();
+	await bulkInsert(tables.modelHistoryHourly, seedModelHistoryHourly);
 
 	await upsert(tables.enterpriseContactSubmission, {
 		id: "ecs_seed_1",

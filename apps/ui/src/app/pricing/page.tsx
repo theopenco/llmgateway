@@ -1,5 +1,6 @@
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
+import { PricingFaq } from "@/components/pricing/pricing-faq";
 import { PricingHero } from "@/components/pricing/pricing-hero";
 import { PricingTable } from "@/components/pricing/pricing-table";
 import { JsonLd } from "@/components/seo/json-ld";
@@ -91,6 +92,7 @@ export default function PricingPage() {
 			<main>
 				<PricingHero />
 				<PricingTable />
+				<PricingFaq />
 			</main>
 			<Footer />
 		</>
