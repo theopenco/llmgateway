@@ -18,8 +18,10 @@ For chat completions, the session key is resolved in priority order — the firs
 
 1. The `x-session-id` header
 2. The `x-session-affinity` header (sent automatically by coding agents such as opencode)
-3. The `prompt_cache_key` body field (OpenAI-compatible)
-4. The `user` body field (OpenAI-compatible)
+3. The `session_id` header
+4. The `session-id` header
+5. The `prompt_cache_key` body field (OpenAI-compatible)
+6. The `user` body field (OpenAI-compatible)
 
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/chat/completions" \

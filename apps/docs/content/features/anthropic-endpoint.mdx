@@ -181,3 +181,7 @@ Replaying the assistant turn verbatim on the next request is supported: the `ser
 ### Gateway Response Cache
 
 If [gateway caching](/features/caching/gateway-caching) is enabled on the project, a byte-identical request is replayed from cache instead of being sent upstream. Because the replayed body is identical (same `id`, same `usage`), the `x-llmgateway-cache: HIT` response header is the marker to check. Send `x-no-cache: true` to bypass the cache for a single request.
+
+### Provider Fallback
+
+Like `/v1/chat/completions`, this endpoint falls back to the next healthy provider if the pinned one fails. Send `x-no-fallback: true` to disable fallback and see the pinned provider's actual error — see [Disabling Fallback with X-No-Fallback Header](/features/routing#disabling-fallback-with-x-no-fallback-header) for details.

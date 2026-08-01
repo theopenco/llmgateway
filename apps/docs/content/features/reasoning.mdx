@@ -189,7 +189,7 @@ If you specify `reasoning.max_tokens` for a model that doesn't support it, you'l
 	"error": {
 		"message": "Model gpt-4o does not support reasoning.max_tokens. Remove the reasoning parameter or use a model that supports explicit reasoning token budgets.",
 		"type": "invalid_request_error",
-		"code": "model_not_supported"
+		"code": null
 	}
 }
 ```
@@ -236,7 +236,7 @@ If you specify `verbosity` for a model that doesn't support it, you'll receive a
 	"error": {
 		"message": "Model gpt-4o does not support the verbosity parameter. Remove the verbosity parameter or use a model that supports it (OpenAI GPT-5 and later).",
 		"type": "invalid_request_error",
-		"code": "model_not_supported"
+		"code": null
 	}
 }
 ```
@@ -336,7 +336,7 @@ If you specify `reasoning_effort` for a model that doesn't support reasoning, yo
 	"error": {
 		"message": "Model gpt-4o does not support reasoning. Remove the reasoning_effort parameter or use a reasoning-capable model.",
 		"type": "invalid_request_error",
-		"code": "model_not_supported"
+		"code": null
 	}
 }
 ```

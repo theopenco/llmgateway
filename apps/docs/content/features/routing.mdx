@@ -208,8 +208,11 @@ Sticky session routing solves this: attach a session identifier and LLMGateway p
 For chat completions, the session key is resolved in priority order:
 
 1. The `x-session-id` header
-2. The `prompt_cache_key` body field (OpenAI-compatible)
-3. The `user` body field (OpenAI-compatible)
+2. The `x-session-affinity` header (sent by some coding agents, e.g. opencode)
+3. The `session_id` header
+4. The `session-id` header
+5. The `prompt_cache_key` body field (OpenAI-compatible)
+6. The `user` body field (OpenAI-compatible)
 
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
@@ -400,7 +403,12 @@ Automatic retry to a different provider is disabled when:
 - The maximum retry count (2) has been exhausted
 
 Retries can still happen within the same provider when multiple keys are
-configured and the current key fails with a retryable error.
+configured and the current key fails with a retryable error — including a
+**401/403 auth failure**, since that's often isolated to a single bad
+credential rather than the whole provider. Same-key retries back off
+exponentially (1s, 2s, 4s, ...) up to **2 retries** by default (configurable
+via the `SAME_KEY_MAX_RETRIES` environment variable), unlike cross-provider
+fallback which retries immediately against a different upstream.
 
 ### Routing Transparency
 

@@ -25,13 +25,21 @@ Each transaction entry includes:
 
 ## Transaction Types
 
-| Type                    | Description                         |
-| ----------------------- | ----------------------------------- |
-| **Credit Top-up**       | Manual or automatic credit purchase |
-| **Credit Refund**       | Credits refunded to your account    |
-| **Subscription Start**  | New plan subscription started       |
-| **Subscription Cancel** | Plan subscription canceled          |
-| **Subscription End**    | Plan subscription period ended      |
+| Type                                                                        | Description                                                                  |
+| --------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| **Credit Top-up / Refund / Gift**                                           | A manual/automatic credit purchase, a refund, or credits granted by an admin |
+| **Subscription Start / Cancel / End**                                       | Legacy plan subscription lifecycle events                                    |
+| **Dev Plan Start / Upgrade / Downgrade / Cancel / Resume / End / Renewal**  | [DevPass](https://llmgateway.io/devpass) subscription lifecycle events       |
+| **Dev Plan Reset Pass**                                                     | A purchased, rewarded, or gifted DevPass Reset Pass                          |
+| **Chat Plan Start / Upgrade / Downgrade / Cancel / Resume / End / Renewal** | Chat plan subscription lifecycle events                                      |
+| **End-User Top-up / Refund / Bonus**                                        | LLM SDK end-user wallet activity, for organizations issuing end-user wallets |
+| **End-User Margin Accrual / Payout**                                        | Margin earned on end-user wallet usage and its payout to the organization    |
+
+## Refunds and Invoices
+
+Eligible transactions — credit top-ups and DevPass/Chat plan payments, within a short window and below a usage threshold — show a **Request Refund** action so the organization owner can self-serve a refund without contacting support. Refunds are processed through Stripe; the transaction and credit balance update once Stripe confirms the refund via webhook.
+
+Completed payments with an associated Stripe invoice offer a **Download Invoice** action to get a PDF invoice or credit note for that transaction.
 
 ## Status Badges
 

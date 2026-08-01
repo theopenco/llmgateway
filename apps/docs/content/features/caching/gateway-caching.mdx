@@ -65,16 +65,14 @@ To use caching:
 
 The cache key is generated from these request parameters:
 
-- Model identifier
+- Provider and model identifier
 - Messages array (roles and content)
-- Temperature
+- Temperature, Top P, frequency/presence penalty
 - Max tokens
-- Top P
-- Tools/functions
-- Tool choice
 - Response format
-- System prompt
-- Other model-specific parameters
+- Reasoning effort and reasoning max tokens
+- Prompt-cache key, retention, and options
+- `n` (number of choices) and service tier
 
 <Callout type="info">
 	Requests with different parameter values, even slight variations, will not

@@ -32,8 +32,9 @@ Every significant action is logged with detailed metadata:
 
 ### Organization Management
 
-- `organization.update` — Organization settings changed
-- `organization.delete` — Organization deleted
+- `organization.create` / `organization.update` / `organization.delete` — Organization created, settings changed, or deleted
+- `organization.block` / `organization.manage` — Administrative organization actions
+- `organization.sso_auto_join.update` — SSO auto-join setting changed
 
 ### Project Management
 
@@ -43,32 +44,57 @@ Every significant action is logged with detailed metadata:
 
 ### Team Management
 
-- `team_member.add` — New member invited
+- `team_member.add` / `team_member.remove` — Member added or removed
 - `team_member.update` — Member role changed
-- `team_member.remove` — Member removed
+- `team_member.budget_update` — Member's spending limit changed
+- `team_member.invite` / `team_member.invite_accept` / `team_member.invite_revoke` — Invite sent, accepted, or revoked
+- `team_member.auto_join` — Member auto-joined via SSO
+- `team_member.iam_rule.create` / `.update` / `.delete` — Member-level IAM rule added, modified, or removed
 
 ### API Key Management
 
 - `api_key.create` — New API key created
+- `api_key.roll` — API key value rotated
 - `api_key.update_status` — API key enabled/disabled
 - `api_key.update_limit` — Usage limit changed
+- `api_key.update_description` — Key name changed
 - `api_key.delete` — API key deleted
-- `api_key.iam_rule.create` — IAM rule added
-- `api_key.iam_rule.update` — IAM rule modified
-- `api_key.iam_rule.delete` — IAM rule removed
+- `api_key.iam_rule.create` / `.update` / `.delete` — IAM rule added, modified, or removed
+
+### Master Key Management
+
+- `master_key.create` — [Master API key](/features/master-keys) created
+- `master_key.update_status` — Master key enabled/disabled
+- `master_key.delete` — Master key deleted
 
 ### Provider Key Management
 
 - `provider_key.create` — Provider key added
-- `provider_key.update` — Provider key status changed
+- `provider_key.update` — Provider key status or settings changed
 - `provider_key.delete` — Provider key removed
 
-### Billing Events
+### Custom Model Management
 
-- `subscription.create` — Subscription started
-- `subscription.cancel` — Subscription cancelled
-- `subscription.resume` — Subscription resumed
+- `custom_model.create` / `custom_model.update` / `custom_model.delete` — Custom provider model created, changed, or removed
+
+### Billing and Payments
+
+- `subscription.create` / `subscription.cancel` / `subscription.resume` / `subscription.upgrade_yearly` — Subscription lifecycle events
+- `payment.method.set_default` / `payment.method.delete` — Payment method changed
 - `payment.credit_topup` — Credits purchased
+- `payment.auto_topup.update` / `payment.auto_topup.disable` — Auto top-up settings changed
+- `payment.self_refund` — Organization owner self-served a refund
+- `credits.gift` — Credits granted by an administrator
+- `dev_plan.*` / `chat_plan.*` — DevPass and Chat plan subscription, tier, and Reset Pass events
+
+### SSO and SCIM
+
+- `sso_provider.create` / `.update` / `.delete` — SSO provider configuration changed
+- `sso_role_mapping.create` / `.delete` — SSO role mapping changed
+- `sso_default_projects.update` — SSO default project assignment changed
+- `sso.sign_in` — Member signed in via SSO
+- `scim_token.create` / `.revoke` — SCIM token issued or revoked
+- `scim.user.*` / `scim.group.*` — Directory-synced user or group provisioning events from your identity provider
 
 ## Filtering and Search
 

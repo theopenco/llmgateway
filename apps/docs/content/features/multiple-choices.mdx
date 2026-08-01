@@ -1,0 +1,51 @@
+---
+title: Multiple Choices
+description: Generate several completions for one prompt in a single request with the `n` parameter.
+icon: Copy
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Multiple Choices
+
+The OpenAI-compatible `n` parameter requests multiple independent completions for the same prompt in a single call, returned as separate entries in the `choices` array.
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-5",
+    "n": 3,
+    "messages": [
+      { "role": "user", "content": "Give me a tagline for a coffee shop." }
+    ]
+  }'
+```
+
+Each entry in the response `choices` array has its own `index` and `message`, so you can compare or pick among the generated variants.
+
+## Supported Providers
+
+`n` is only forwarded when the resolved model supports it upstream:
+
+- **OpenAI Chat Completions** models
+- **Google Gemini** models (mapped to Gemini's native `candidateCount` parameter)
+
+Requests with `n` for any other provider/model are rejected with a `400` error.
+
+## Streaming
+
+Streaming is supported for OpenAI models: choice deltas for all `n` choices are demultiplexed on a single SSE stream, distinguished by `choices[].index`.
+
+<Callout type="warn">
+	A few combinations are rejected with a `400` error instead of silently
+	falling back to `n: 1`:
+	- `n > 1` with `stream: true` **and** function `tools` — the streaming
+	  tool-call aggregator can't disambiguate concurrent tool calls across
+	  choices. Native `web_search` tools and the `web_search: true` flag are
+	  exempt from this restriction.
+	- `n > 1` with `stream: true` on Google models — Gemini's
+	  `streamGenerateContent` does not support `candidateCount`.
+	- `n > 8` on Google models — Gemini caps `candidateCount` at 8.
+</Callout>

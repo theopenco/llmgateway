@@ -4,6 +4,7 @@ description: Manage team members and their roles within your organization
 icon: UsersRound
 ---
 
+import { Callout } from "fumadocs-ui/components/callout";
 import { ThemedImage } from "@/components/themed-image";
 
 The Team page lets you invite team members, assign roles, and control access to your organization.
@@ -18,6 +19,15 @@ Click **Add Member** to invite someone by email. You'll need to:
 2. Select a role (Developer, Admin, or Owner)
 
 Your plan includes up to **5 team seats**. The current count is displayed, and the Add button is disabled when all seats are used. Contact sales for additional seats.
+
+<Callout type="info">
+	Assigning the **Developer** role requires the Enterprise plan, since it scopes
+	the member's access to a specific set of projects. On other plans, the
+	Developer option is disabled — invite as Admin instead, or upgrade to
+	Enterprise.
+</Callout>
+
+When inviting a Developer, you must also select at least one project — the developer is limited to those projects and can be granted or revoked access to additional projects later from their detail page.
 
 ## Team Members List
 
@@ -58,3 +68,7 @@ For the full rule semantics, see [Member-Level IAM Rules](/features/api-keys#mem
 | **Developer** | View and use resources only. Cannot modify settings or manage team                                    |
 
 Developers can also be given **restricted access** at the API key level, limiting which keys they can view and use.
+
+## Default Developer Budget
+
+Owners and admins on Enterprise can set an org-wide **default developer budget** — a usage limit and period usage limit applied to every Developer who doesn't have their own individual budget set. A member's own budget, when configured via **Manage budget**, always overrides the default.

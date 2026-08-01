@@ -176,6 +176,16 @@ Anthropic returns a per-TTL breakdown of cache writes when you mix `5m` and `1h`
 
 For providers that publish a separate explicit-cache read rate (for example, Alibaba Qwen charges 10% for explicit cache reads vs. 20% for automatic cache reads), LLM Gateway detects the `cache_control` markers on your request and applies the explicit rate automatically.
 
+## OpenAI Prompt Caching Fields
+
+For OpenAI models, LLM Gateway also forwards OpenAI's own prompt-caching request fields:
+
+- `prompt_cache_key` — a string used to improve cache routing for requests that share a prompt prefix. It also doubles as a fallback [sticky session](/features/sessions) key if no session header is set.
+- `prompt_cache_retention` — `"in_memory"` or `"24h"`, OpenAI's cache retention policy for eligible models.
+- `prompt_cache_options` — explicit prompt caching controls for GPT-5.6 and later: `{ "mode": "implicit" | "explicit", "ttl": "30m" }`. In `implicit` mode (the default) OpenAI places an automatic cache breakpoint at the latest message. In `explicit` mode, only content parts you mark with a `prompt_cache_breakpoint` object are cached.
+
+These fields are only forwarded to OpenAI models that support them; they have no effect on other providers.
+
 ## Related
 
 - [Gateway Caching](/features/caching/gateway-caching) — serve byte-identical requests entirely from LLM Gateway at $0 cost
