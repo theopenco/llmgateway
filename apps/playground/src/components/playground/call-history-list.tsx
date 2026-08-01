@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { SidebarMenuAction, SidebarMenuButton } from "@/components/ui/sidebar";
 import {
 	useDeleteRealtimeHistory,
-	useRenameRealtimeHistory,
+	useUpdateRealtimeHistory,
 } from "@/hooks/usePlaygroundHistory";
 import { formatCallDuration } from "@/lib/call-history";
 
@@ -315,7 +315,7 @@ export function CallHistoryList({
 	onItemClick,
 	onItemDeleted,
 }: CallHistoryListProps) {
-	const renameItem = useRenameRealtimeHistory();
+	const renameItem = useUpdateRealtimeHistory();
 	const deleteItem = useDeleteRealtimeHistory();
 	const [editingId, setEditingId] = useState<string | null>(null);
 	const [editTitle, setEditTitle] = useState("");

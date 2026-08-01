@@ -770,6 +770,76 @@ describe("prepareRequestBody - OpenAI service tiers", () => {
 	});
 });
 
+describe("prepareRequestBody - Fireworks service tiers", () => {
+	async function prepareFireworksRequest(options: {
+		provider?: "fireworks" | "novita";
+		serviceTier?: "flex" | "priority";
+	}) {
+		return (await prepareRequestBody(
+			options.provider ?? "fireworks",
+			"kimi-k3",
+			null,
+			"accounts/fireworks/models/kimi-k3",
+			[{ role: "user", content: "Hello!" }] as any,
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			undefined,
+			undefined,
+			true,
+			undefined,
+			options.serviceTier,
+		)) as { service_tier?: string };
+	}
+
+	test("forwards priority to Fireworks chat completions", async () => {
+		const requestBody = await prepareFireworksRequest({
+			serviceTier: "priority",
+		});
+
+		expect(requestBody.service_tier).toBe("priority");
+	});
+
+	test("does not forward flex, which Fireworks has no rate card for", async () => {
+		const requestBody = await prepareFireworksRequest({ serviceTier: "flex" });
+
+		expect(requestBody.service_tier).toBeUndefined();
+	});
+
+	test("does not forward a tier to another provider serving the same model", async () => {
+		const requestBody = await prepareFireworksRequest({
+			provider: "novita",
+			serviceTier: "priority",
+		});
+
+		expect(requestBody.service_tier).toBeUndefined();
+	});
+
+	test("omits service_tier for standard requests", async () => {
+		const requestBody = await prepareFireworksRequest({});
+
+		expect(requestBody.service_tier).toBeUndefined();
+	});
+});
+
 describe("prepareRequestBody - verbosity", () => {
 	test("forwards verbosity to gpt-5.6 chat completions", async () => {
 		const requestBody = (await prepareOpenAITextRequest({
@@ -3962,6 +4032,63 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 					(m: any) => m.reasoning_details === undefined,
 				),
 			).toBe(true);
+		});
+
+		test("strips reasoning from replayed assistant turns on fireworks", async () => {
+			const requestBody = (await prepareRequestBody(
+				"fireworks",
+				"accounts/fireworks/models/kimi-k3",
+				null,
+				"kimi-k3",
+				[
+					{ role: "user", content: "My name is Ada." },
+					{
+						role: "assistant",
+						content: "Got it, Ada!",
+						reasoning: "The user told me their name.",
+					},
+					{
+						role: "assistant",
+						content: "Anything else?",
+						reasoning: "Dropped — Fireworks rejects this field.",
+						reasoning_content:
+							"Kept — a caller-supplied field we pass through.",
+					},
+					{ role: "user", content: "What is my name?" },
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false, // useResponsesApi
+			)) as any;
+
+			expect(
+				requestBody.messages.every((m: any) => m.reasoning === undefined),
+			).toBe(true);
+			expect(requestBody.messages[1].content).toBe("Got it, Ada!");
+			// Stripping `reasoning` must not disturb a caller-supplied
+			// `reasoning_content` on the same message.
+			expect(requestBody.messages[2].content).toBe("Anything else?");
+			expect(requestBody.messages[2].reasoning_content).toBe(
+				"Kept — a caller-supplied field we pass through.",
+			);
 		});
 	});
 

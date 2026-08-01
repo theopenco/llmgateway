@@ -3,6 +3,7 @@ import { TweetCard } from "@/lib/components/tweet-card";
 import { MarqueeContainer } from "./marquee-container";
 
 const row1Ids = [
+	"2082200259560702374",
 	"1970126770205757516",
 	"1967955025315106997",
 	"1952967806871605594",

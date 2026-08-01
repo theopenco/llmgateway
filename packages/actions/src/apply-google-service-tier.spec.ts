@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	applyGoogleServiceTier,
+	assumeServedServiceTier,
 	isPremiumServiceTier,
 	providerKeyBaseUrlSupportsServiceTier,
 	resolveServedServiceTier,
@@ -189,5 +190,43 @@ describe("providerKeyBaseUrlSupportsServiceTier", () => {
 				"https://glacier.internal/v1beta",
 			),
 		).toBe(true);
+	});
+
+	it("rejects a proxy base URL on fireworks but allows its upstream", () => {
+		expect(
+			providerKeyBaseUrlSupportsServiceTier(
+				"fireworks",
+				"https://my-proxy.example.com/v1",
+			),
+		).toBe(false);
+		expect(
+			providerKeyBaseUrlSupportsServiceTier(
+				"fireworks",
+				"https://api.fireworks.ai/inference",
+			),
+		).toBe(true);
+		expect(providerKeyBaseUrlSupportsServiceTier("fireworks", null)).toBe(true);
+	});
+});
+
+describe("assumeServedServiceTier", () => {
+	it("attributes an accepted Fireworks request to the forwarded tier", () => {
+		expect(assumeServedServiceTier("fireworks", "priority", true)).toBe(
+			"priority",
+		);
+	});
+
+	it("returns null when the upstream rejected the request", () => {
+		expect(assumeServedServiceTier("fireworks", "priority", false)).toBeNull();
+	});
+
+	it("returns null for standard requests", () => {
+		expect(assumeServedServiceTier("fireworks", undefined, true)).toBeNull();
+		expect(assumeServedServiceTier("fireworks", "default", true)).toBeNull();
+	});
+
+	it("returns null for providers that report their served tier", () => {
+		expect(assumeServedServiceTier("openai", "priority", true)).toBeNull();
+		expect(assumeServedServiceTier("google-vertex", "flex", true)).toBeNull();
 	});
 });

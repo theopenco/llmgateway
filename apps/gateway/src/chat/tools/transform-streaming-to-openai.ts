@@ -1424,6 +1424,7 @@ export function transformStreamingToOpenai(
 		case "moonshot":
 		case "perplexity":
 		case "nebius":
+		case "fireworks":
 		case "canopywave":
 		case "inference.net":
 		case "together-ai":

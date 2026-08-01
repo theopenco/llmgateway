@@ -153,6 +153,9 @@ components:
         REDIS_HOST: redis
         REDIS_PASSWORD: redis_dev_password
         REDIS_PORT: "6379"
+        STORAGE_REDIS_HOST: redis-storage
+        STORAGE_REDIS_PASSWORD: redis_dev_password
+        STORAGE_REDIS_PORT: "6379"
         TOGETHER_AI_API_KEY: ""
         VERTEX_API_KEY: ""
       healthcheck:
@@ -250,6 +253,45 @@ components:
       - name: redis-data
         mount: /data
         subPath: ""
+  - kind: Service
+    name: redis-storage
+    dockerCompose:
+      command:
+        - redis-server
+        - "--appendonly"
+        - "yes"
+        - "--requirepass"
+        - redis_dev_password
+      healthcheck:
+        test:
+          - CMD
+          - redis-cli
+          - "--raw"
+          - incr
+          - ping
+        timeout: 3s
+        interval: 10s
+        retries: 5
+      deploy:
+        resources:
+          limits:
+            cpus: "0.1"
+            memory: 128M
+          reservations:
+            cpus: "0.1"
+            memory: 128M
+      image: "redis:8-alpine"
+      ports:
+        - "6479:6379"
+      restart: unless-stopped
+    hosts:
+      - hostname: "redis-storage-{{ env.base_domain }}"
+        path: /
+        servicePort: 6379
+    volumes:
+      - name: redis-storage-data
+        mount: /data
+        subPath: ""
   - kind: Application
     name: ui
     gitRepo: "https://github.com/theopenco/llmgateway.git"
@@ -337,5 +379,8 @@ volumes:
     size: 1Gi
     type: disk
   - name: redis-data
+    size: 1Gi
+    type: disk
+  - name: redis-storage-data
     size: 1Gi
     type: disk

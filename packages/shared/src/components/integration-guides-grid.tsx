@@ -8,8 +8,10 @@ import {
 	ClineIcon,
 	CodexIcon,
 	ContinueIcon,
+	CrushIcon,
 	CursorIcon,
 	DevPassCodeIcon,
+	GitHubCopilotIcon,
 	HermesIcon,
 	KiloCodeIcon,
 	KimiIcon,
@@ -91,6 +93,23 @@ export const DEFAULT_INTEGRATION_GUIDES: IntegrationGuide[] = [
 		href: "/guides/continue",
 		icon: ContinueIcon,
 		comingSoon: false,
+	},
+	{
+		name: "Crush",
+		description:
+			"Use LLM Gateway with Charm's Crush coding agent for AI-powered terminal coding.",
+		href: "/guides/crush",
+		icon: CrushIcon,
+		comingSoon: false,
+	},
+	{
+		name: "GitHub Copilot app",
+		description:
+			"Use LLM Gateway as a model provider in GitHub's Copilot desktop app for agent sessions with any model.",
+		href: "/guides/github-copilot",
+		icon: GitHubCopilotIcon,
+		comingSoon: false,
+		badge: "BYOK",
 	},
 	{
 		name: "Hermes Agent",

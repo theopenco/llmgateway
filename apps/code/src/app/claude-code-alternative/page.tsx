@@ -116,7 +116,7 @@ const faqs = [
 	{
 		question: "Can I keep using the Claude Code CLI with DevPass?",
 		answer:
-			"Yes. Claude Code accepts a custom endpoint, so switching is two environment variables: set ANTHROPIC_BASE_URL to the DevPass endpoint and ANTHROPIC_AUTH_TOKEN to your DevPass key, then run claude as usual. No reinstall, no SDK changes — and you can flip ANTHROPIC_MODEL to run non-Anthropic models through the same CLI.",
+			"Yes. Claude Code accepts a custom endpoint, so switching is two environment variables: set ANTHROPIC_BASE_URL to the DevPass endpoint and ANTHROPIC_AUTH_TOKEN to your DevPass key, then run claude as usual. No reinstall, no SDK changes. The /model picker lists the Claude models, and ANTHROPIC_MODEL points the same CLI at any of the other 200+.",
 	},
 	{
 		question: "How much cheaper is DevPass than Claude Max?",

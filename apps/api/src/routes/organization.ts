@@ -34,8 +34,11 @@ import {
 	tables,
 	projectHourlyStats,
 } from "@llmgateway/db";
-import { getProviderCountries } from "@llmgateway/models";
-import { CREDIT_TOP_UP_MAX_AMOUNT } from "@llmgateway/shared";
+import { getProviderCountries, models, providers } from "@llmgateway/models";
+import {
+	CREDIT_TOP_UP_MAX_AMOUNT,
+	CUSTOM_PROVIDER_NAME_REGEX,
+} from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -47,6 +50,39 @@ const providerCountryCodes = new Set(
 	getProviderCountries().map((country) => country.code),
 );
 
+// Closed sets for the compliance policy's fine-grained restriction lists.
+// Custom providers are addressed as `custom:<name>` and their models as
+// `<name>/<model>`; the names are only format-validated because provider keys
+// can be created/renamed independently of the stored policy.
+const catalogueProviderIds = new Set<string>(
+	providers.map((provider) => provider.id),
+);
+const catalogueModelIds = new Set<string>(models.map((model) => model.id));
+const customProviderRefRegex = new RegExp(
+	`^custom:${CUSTOM_PROVIDER_NAME_REGEX.source.slice(1, -1)}$`,
+);
+const customModelRefRegex = new RegExp(
+	`^${CUSTOM_PROVIDER_NAME_REGEX.source.slice(1, -1)}/.+$`,
+);
+
+const complianceProviderRefSchema = z
+	.string()
+	.max(256)
+	.refine(
+		(ref) => catalogueProviderIds.has(ref) || customProviderRefRegex.test(ref),
+		{ message: "Unknown provider" },
+	);
+
+const complianceModelRefSchema = z
+	.string()
+	.max(256)
+	.refine(
+		(ref) => catalogueModelIds.has(ref) || customModelRefRegex.test(ref),
+		{
+			message: "Unknown model",
+		},
+	);
+
 // Define schemas directly with Zod instead of using createSelectSchema
 const providerCompliancePolicySchema = z.object({
 	enabled: z.boolean(),
@@ -57,6 +93,7 @@ const providerCompliancePolicySchema = z.object({
 	requireGdpr: z.boolean().optional(),
 	blockApiTraining: z.boolean().optional(),
 	blockPromptLogging: z.boolean().optional(),
+	blockStealthProviders: z.boolean().optional(),
 	allowedCountries: z
 		.array(
 			z.string().refine((code) => providerCountryCodes.has(code), {
@@ -64,6 +101,10 @@ const providerCompliancePolicySchema = z.object({
 			}),
 		)
 		.optional(),
+	blockedProviders: z.array(complianceProviderRefSchema).max(500).optional(),
+	allowedProviders: z.array(complianceProviderRefSchema).max(500).optional(),
+	blockedModels: z.array(complianceModelRefSchema).max(500).optional(),
+	allowedModels: z.array(complianceModelRefSchema).max(500).optional(),
 });
 
 const organizationSchema = z.object({
@@ -592,6 +633,17 @@ organization.openapi(updateOrganization, async (c) => {
 	if (isBillingOrPolicyUpdate && userOrganization.role !== "owner") {
 		throw new HTTPException(403, {
 			message: "Only owners can update billing and policy settings",
+		});
+	}
+
+	// DevPass and Chat organizations never retain request/response payloads, and
+	// the products expose no setting for it. Reject attempts to turn it on.
+	if (
+		retentionLevel !== undefined &&
+		userOrganization.organization?.kind !== "default"
+	) {
+		throw new HTTPException(400, {
+			message: "Data retention is not available for this organization",
 		});
 	}
 

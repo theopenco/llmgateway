@@ -157,11 +157,17 @@ export async function POST(req: Request) {
 		);
 	}
 
-	// User transcript bubbles require a billable, catalogue-backed ASR model.
-	// Without one, fail rather than starting a session with unmetered (or
-	// silently missing) transcription.
-	const transcriptionModel = resolveDefaultTranscriptionModel(providerId);
-	if (!transcriptionModel) {
+	// Gemini Live transcribes natively: transcription is enabled in the session
+	// setup and billed through Gemini's own usageMetadata, so there is no
+	// separate ASR model to resolve or pin. Every other provider needs a
+	// billable, catalogue-backed ASR model for the user transcript bubbles, and
+	// fails rather than starting a session with unmetered (or silently missing)
+	// transcription.
+	const usesNativeTranscription = providerId === "google-ai-studio";
+	const transcriptionModel = usesNativeTranscription
+		? null
+		: resolveDefaultTranscriptionModel(providerId);
+	if (!usesNativeTranscription && !transcriptionModel) {
 		return NextResponse.json(
 			{
 				error:
@@ -203,13 +209,17 @@ export async function POST(req: Request) {
 				session: {
 					type: "realtime",
 					model,
-					audio: {
-						input: {
-							transcription: {
-								model: transcriptionModel,
-							},
-						},
-					},
+					...(transcriptionModel
+						? {
+								audio: {
+									input: {
+										transcription: {
+											model: transcriptionModel,
+										},
+									},
+								},
+							}
+						: {}),
 				},
 			}),
 			signal: controller.signal,
@@ -267,6 +277,7 @@ export async function POST(req: Request) {
 		expires_at: secret.expires_at,
 		session: secret.session ?? { type: "realtime", model },
 		transcription_model: transcriptionModel,
+		provider: providerId,
 		ws_url: resolveRealtimeWsUrl(),
 	});
 }

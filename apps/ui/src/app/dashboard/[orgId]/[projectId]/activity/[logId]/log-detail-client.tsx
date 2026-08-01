@@ -40,6 +40,7 @@ import {
 	formatServiceTierMultiplier,
 	getServiceTier,
 } from "@llmgateway/models";
+import { API_ORIGIN_LABELS } from "@llmgateway/shared/components";
 
 import type { LogDetailData } from "@/types/activity";
 import type { Log } from "@llmgateway/db";
@@ -206,22 +207,6 @@ function formatDuration(ms: number) {
 
 // Selection reasons where the weighted-score formula is bypassed entirely, so
 // every provider's score is a hardcoded 0 placeholder rather than a real value.
-// The gateway API surface the request came in through. Null on logs written
-// before the column existed.
-const API_ORIGIN_LABELS: Record<string, string> = {
-	"chat-completions": "Chat Completions",
-	messages: "Messages",
-	responses: "Responses",
-	embeddings: "Embeddings",
-	images: "Images",
-	videos: "Videos",
-	moderations: "Moderations",
-	ocr: "OCR",
-	speech: "Speech",
-	transcriptions: "Transcriptions",
-	rerank: "Rerank",
-};
-
 // "session-sticky" is intentionally excluded: it scores providers with the
 // normal weighted algorithm and pins the result for the session, so the logged
 // scores are real values worth surfacing. The all-zero fallback below hides
@@ -490,6 +475,11 @@ export function LogDetailClient({
 			? (Number(log.completionTokens) / (log.duration / 1000)).toFixed(1)
 			: null;
 
+	// Reasoning models stream thinking before any content, so the first
+	// reasoning token is the real first-token latency when present.
+	const timeToFirstToken =
+		log.timeToFirstReasoningToken ?? log.timeToFirstToken;
+
 	return (
 		<div className="flex flex-col">
 			<div className="flex-1 space-y-6 p-4 pt-6 md:p-8">
@@ -559,14 +549,14 @@ export function LogDetailClient({
 							{throughput ? `${throughput} t/s` : "-"}
 						</p>
 					</div>
-					{log.timeToFirstToken && (
+					{timeToFirstToken && (
 						<div className="rounded-lg border bg-card p-3">
 							<div className="flex items-center gap-2 text-muted-foreground mb-1">
 								<Clock className="h-3.5 w-3.5" />
 								<span className="text-xs">TTFT</span>
 							</div>
 							<p className="text-lg font-semibold tabular-nums">
-								{formatDuration(log.timeToFirstToken)}
+								{formatDuration(timeToFirstToken)}
 							</p>
 						</div>
 					)}

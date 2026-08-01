@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import {
 	closeRedisClient,
+	closeStorageRedisClient,
 	consumeFromQueue,
 	LOG_QUEUE,
 	publishToQueue,
@@ -2802,7 +2803,11 @@ export async function stopWorker(): Promise<boolean> {
 
 	// Close database and Redis connections
 	try {
-		await Promise.all([closeDatabase(), closeRedisClient()]);
+		await Promise.all([
+			closeDatabase(),
+			closeRedisClient(),
+			closeStorageRedisClient(),
+		]);
 		logger.info("All connections closed successfully");
 	} catch (error) {
 		logger.error(

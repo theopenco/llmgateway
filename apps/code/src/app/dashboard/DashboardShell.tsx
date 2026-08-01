@@ -22,6 +22,7 @@ import { toast } from "sonner";
 
 import SurveyReminderDialog from "@/app/dashboard/components/SurveyReminderDialog";
 import { EmailVerificationBanner } from "@/components/EmailVerificationBanner";
+import { ThemeToggle } from "@/components/landing/theme-toggle";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -498,6 +499,7 @@ export default function DashboardShell({
 						<span className="hidden sm:block text-sm text-muted-foreground">
 							{user?.email}
 						</span>
+						<ThemeToggle size="compact" />
 						<Button
 							variant="ghost"
 							size="sm"

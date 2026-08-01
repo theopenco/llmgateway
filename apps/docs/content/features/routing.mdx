@@ -275,6 +275,15 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   }'
 ```
 
+<Callout type="info">
+	Provider-specific routing is not available on **DevPass coding plans** —
+	provider-prefixed model ids (and custom provider routing) return a `403`
+	there. DevPass always uses the prompt-cache–aware smart routing above with
+	plain model ids. Provider pinning requires the pay-as-you-go API. See
+	[Provider routing on
+	DevPass](/learn/model-categories#provider-routing-on-devpass).
+</Callout>
+
 #### Regions
 
 Some providers expose the same model in multiple regions. In that case, LLMGateway supports two routing modes:

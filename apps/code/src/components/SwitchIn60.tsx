@@ -50,7 +50,7 @@ const TOOLS: ToolGuide[] = [
 				code: `export ANTHROPIC_BASE_URL=${API_BASE}\nexport ANTHROPIC_AUTH_TOKEN=<your-devpass-key>`,
 			},
 			{
-				label: "Run it — switch models with one ANTHROPIC_MODEL flip",
+				label: "Run it — switch models any time with /model",
 				code: "claude",
 			},
 		],

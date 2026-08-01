@@ -16,6 +16,10 @@ export const modelsApi = new OpenAPIHono<ServerTypes>();
 const modelSchema = z.object({
 	id: z.string(),
 	name: z.string(),
+	display_name: z.string().openapi({
+		description:
+			"Human-readable model label, mirroring `name`. Anthropic-format clients such as Claude Code read this field when populating their model picker from gateway model discovery.",
+	}),
 	aliases: z.array(z.string()).optional(),
 	created: z.number().optional(),
 	description: z.string().optional(),
@@ -264,6 +268,7 @@ modelsApi.openapi(listModels, async (c) => {
 			return {
 				id: model.id,
 				name: model.name ?? model.id,
+				display_name: model.name ?? model.id,
 				aliases: model.aliases,
 				created: model.releasedAt
 					? Math.floor(model.releasedAt.getTime() / 1000)

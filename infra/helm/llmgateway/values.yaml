@@ -381,6 +381,40 @@ externalRedis:
   password: ""
 
 # =============================================================================
+# Built-in Storage Redis
+# Dedicated instance for Responses API state (30-day retention) and gateway
+# response caching. Runs with AOF persistence since it holds a source of
+# truth, not just cache. Set enabled: false to use an external instance
+# (configure externalStorageRedis); with neither configured, the apps fall
+# back to the main Redis connection.
+# =============================================================================
+storageRedis:
+  enabled: true
+  image:
+    repository: redis
+    tag: "8-alpine"
+    pullPolicy: IfNotPresent
+  # -- Redis password (leave empty for no authentication)
+  password: ""
+  port: 6379
+  persistence:
+    size: 10Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 512Mi
+
+# -- External storage Redis (used when storageRedis.enabled is false)
+externalStorageRedis:
+  host: ""
+  port: 6379
+  password: ""
+
+# =============================================================================
 # Ingress
 # =============================================================================
 ingress:
@@ -449,6 +483,8 @@ stripe:
   devPlanMaxPriceId: ""
 
 billing:
+  # Bill cancelled/aborted streaming requests for the inference already consumed.
+  # Defaults to enabled in code; set to "false" only to opt out (see GHSA-724j-f2pf-phf7).
   billCancelledRequests: ""
   platformFeePercentage: ""
 

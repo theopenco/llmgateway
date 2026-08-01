@@ -19,6 +19,7 @@ import { openbmbModels } from "./models/openbmb.js";
 import { perplexityModels } from "./models/perplexity.js";
 import { reveModels } from "./models/reve.js";
 import { sakanaModels } from "./models/sakana.js";
+import { tencentModels } from "./models/tencent.js";
 import { xaiModels } from "./models/xai.js";
 import { xiaomiModels } from "./models/xiaomi.js";
 import { zaiModels } from "./models/zai.js";
@@ -506,6 +507,14 @@ export interface ProviderModelMapping {
 	 */
 	supportsDeveloperRole?: boolean;
 	/**
+	 * Whether this mapping's upstream accepts a conversation whose last message is
+	 * an assistant turn (assistant prefill / continuation). Defaults to `true`
+	 * (assumed supported). When set to `false`, routing skips this mapping for
+	 * requests that end on an assistant message, since the upstream rejects them
+	 * with a 400 ("a conversation cannot end on an assistant turn").
+	 */
+	supportsAssistantPrefill?: boolean;
+	/**
 	 * Test skip/only functionality
 	 */
 	test?: "skip" | "only";
@@ -728,6 +737,7 @@ export const models = [
 	...nousresearchModels,
 	...reveModels,
 	...sakanaModels,
+	...tencentModels,
 	...nvidiaModels,
 	...openbmbModels,
 	...zaiModels,

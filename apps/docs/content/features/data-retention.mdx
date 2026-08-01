@@ -62,6 +62,14 @@ Data retention is configured at the organization level in your dashboard setting
 
 Data is retained for 30 days for all users. Enterprise plans can have custom retention periods. After the retention period expires, data is automatically deleted.
 
+<Callout type="info">
+	The Responses API does not require data retention. Stored responses (used for
+	`previous_response_id` chaining and `GET /v1/responses/:id`) are kept in
+	dedicated storage for 30 days — matching OpenAI's own retention — regardless
+	of your organization's data retention policy, and are not billed as data
+	storage.
+</Callout>
+
 ## Accessing Stored Data
 
 When data retention is enabled, you can access your stored requests through the dashboard:

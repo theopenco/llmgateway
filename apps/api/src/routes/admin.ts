@@ -31,9 +31,12 @@ import { logAuditEvent } from "@llmgateway/audit";
 import {
 	aliasedTable,
 	and,
+	type AnyColumn,
 	asc,
+	avgEffectiveTtftSql,
 	db,
 	desc,
+	effectiveTtftTotals,
 	eq,
 	gte,
 	inArray,
@@ -45,6 +48,7 @@ import {
 	notInArray,
 	or,
 	sql,
+	type SQLWrapper,
 	tables,
 	projectHourlyStats,
 	projectHourlyModelStats,
@@ -64,6 +68,8 @@ import {
 	type DevPlanTier,
 	getDevPlanPremiumWeeklyLimit,
 	getIncludedResetPassesRemaining,
+	MAX_BULK_BLOCK_ORGANIZATIONS,
+	MIN_BULK_BLOCK_SEARCH_LENGTH,
 } from "@llmgateway/shared";
 import {
 	getResendClient,
@@ -84,9 +90,188 @@ function escapeHtml(text: string): string {
 	return text.replace(/[&<>"']/g, (char) => htmlEscapeMap[char] || char);
 }
 
+// Search terms and stored matchers are plain substrings, so LIKE
+// metacharacters must be escaped before wrapping them in wildcards. For the
+// organization search this is a safety guard, not just correctness: an
+// unescaped "%" would silently become a match-everything filter, and the bulk
+// block endpoint reuses that filter to decide which organizations get banned.
+function escapeLikePattern(value: string): string {
+	return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+/**
+ * Builds the organization search filter shared by the listing and the bulk
+ * block endpoints. Returns `undefined` for an empty search so callers must
+ * decide explicitly what "no filter" means — the listing shows everything, the
+ * bulk block endpoints reject the request.
+ */
+function buildOrganizationSearchFilter(search: string | undefined) {
+	const trimmed = search?.trim();
+	if (!trimmed) {
+		return undefined;
+	}
+
+	const textPattern = `%${escapeLikePattern(trimmed.toLowerCase())}%`;
+	const idPattern = `%${escapeLikePattern(trimmed)}%`;
+
+	return or(
+		sql`LOWER(${tables.organization.name}) LIKE ${textPattern} ESCAPE '\\'`,
+		sql`LOWER(${tables.organization.billingEmail}) LIKE ${textPattern} ESCAPE '\\'`,
+		sql`${tables.organization.id} LIKE ${idPattern} ESCAPE '\\'`,
+		sql`EXISTS (SELECT 1 FROM ${tables.userOrganization} uo JOIN ${tables.user} u ON uo.user_id = u.id WHERE uo.organization_id = ${tables.organization.id} AND LOWER(u.email) LIKE ${textPattern} ESCAPE '\\')`,
+	);
+}
+
 export const admin = new OpenAPIHono<ServerTypes>();
 
 admin.use("/*", adminMiddleware);
+
+// Token counts split by billed token type, plus the cost each type accounts for.
+// Spliced into every admin stats payload so the dashboard can explain a cost
+// figure rather than only showing the lump sum. The three costs are slices of
+// the row's total cost and do not have to add up to it: per-request, image,
+// audio, video and cache-write charges live outside this breakdown.
+const tokenBreakdownShape = {
+	inputTokens: z.number(),
+	cachedTokens: z.number(),
+	outputTokens: z.number(),
+	inputCost: z.number(),
+	cachedInputCost: z.number(),
+	outputCost: z.number(),
+};
+
+interface TokenBreakdown {
+	inputTokens: number;
+	cachedTokens: number;
+	outputTokens: number;
+	inputCost: number;
+	cachedInputCost: number;
+	outputCost: number;
+}
+
+const EMPTY_TOKEN_BREAKDOWN: TokenBreakdown = {
+	inputTokens: 0,
+	cachedTokens: 0,
+	outputTokens: 0,
+	inputCost: 0,
+	cachedInputCost: 0,
+	outputCost: 0,
+};
+
+// The history tables all expose the same six breakdown columns, so both the
+// per-row select list and the mapping back onto the API shape are shared.
+function tokenBreakdownSums(table: {
+	totalInputTokens: AnyColumn;
+	totalCachedTokens: AnyColumn;
+	totalOutputTokens: AnyColumn;
+	totalInputCost: AnyColumn;
+	totalCachedInputCost: AnyColumn;
+	totalOutputCost: AnyColumn;
+}) {
+	return {
+		inputTokens:
+			sql<number>`COALESCE(SUM(CAST(${table.totalInputTokens} AS NUMERIC)), 0)`.as(
+				"input_tokens",
+			),
+		cachedTokens:
+			sql<number>`COALESCE(SUM(CAST(${table.totalCachedTokens} AS NUMERIC)), 0)`.as(
+				"cached_tokens",
+			),
+		outputTokens:
+			sql<number>`COALESCE(SUM(CAST(${table.totalOutputTokens} AS NUMERIC)), 0)`.as(
+				"output_tokens",
+			),
+		inputCost: sql<number>`COALESCE(SUM(${table.totalInputCost}), 0)`.as(
+			"input_cost",
+		),
+		cachedInputCost:
+			sql<number>`COALESCE(SUM(${table.totalCachedInputCost}), 0)`.as(
+				"cached_input_cost",
+			),
+		outputCost: sql<number>`COALESCE(SUM(${table.totalOutputCost}), 0)`.as(
+			"output_cost",
+		),
+	};
+}
+
+// Re-select the breakdown out of a stats subquery that was left-joined onto a
+// catalogue table, so mappings with no traffic in the window come back as zeroes
+// instead of nulls.
+function tokenBreakdownFromSub(sub: Record<keyof TokenBreakdown, SQLWrapper>) {
+	return {
+		inputTokens: sql<number>`COALESCE(${sub.inputTokens}, 0)`.as(
+			"input_tokens",
+		),
+		cachedTokens: sql<number>`COALESCE(${sub.cachedTokens}, 0)`.as(
+			"cached_tokens",
+		),
+		outputTokens: sql<number>`COALESCE(${sub.outputTokens}, 0)`.as(
+			"output_tokens",
+		),
+		inputCost: sql<number>`COALESCE(${sub.inputCost}, 0)`.as("input_cost"),
+		cachedInputCost: sql<number>`COALESCE(${sub.cachedInputCost}, 0)`.as(
+			"cached_input_cost",
+		),
+		outputCost: sql<number>`COALESCE(${sub.outputCost}, 0)`.as("output_cost"),
+	};
+}
+
+// Same subquery, but rolled up across every joined row for the page-level totals.
+function tokenBreakdownSubTotals(
+	sub: Record<keyof TokenBreakdown, SQLWrapper>,
+) {
+	return {
+		inputTokens:
+			sql<number>`COALESCE(SUM(COALESCE(${sub.inputTokens}, 0)), 0)`.as(
+				"input_tokens",
+			),
+		cachedTokens:
+			sql<number>`COALESCE(SUM(COALESCE(${sub.cachedTokens}, 0)), 0)`.as(
+				"cached_tokens",
+			),
+		outputTokens:
+			sql<number>`COALESCE(SUM(COALESCE(${sub.outputTokens}, 0)), 0)`.as(
+				"output_tokens",
+			),
+		inputCost: sql<number>`COALESCE(SUM(COALESCE(${sub.inputCost}, 0)), 0)`.as(
+			"input_cost",
+		),
+		cachedInputCost:
+			sql<number>`COALESCE(SUM(COALESCE(${sub.cachedInputCost}, 0)), 0)`.as(
+				"cached_input_cost",
+			),
+		outputCost:
+			sql<number>`COALESCE(SUM(COALESCE(${sub.outputCost}, 0)), 0)`.as(
+				"output_cost",
+			),
+	};
+}
+
+function toTokenBreakdown(
+	row: Partial<Record<keyof TokenBreakdown, unknown>> | undefined,
+): TokenBreakdown {
+	return {
+		inputTokens: Number(row?.inputTokens ?? 0),
+		cachedTokens: Number(row?.cachedTokens ?? 0),
+		outputTokens: Number(row?.outputTokens ?? 0),
+		inputCost: Number(row?.inputCost ?? 0),
+		cachedInputCost: Number(row?.cachedInputCost ?? 0),
+		outputCost: Number(row?.outputCost ?? 0),
+	};
+}
+
+function addTokenBreakdown(
+	target: TokenBreakdown,
+	row: Partial<Record<keyof TokenBreakdown, unknown>>,
+): void {
+	const value = toTokenBreakdown(row);
+	target.inputTokens += value.inputTokens;
+	target.cachedTokens += value.cachedTokens;
+	target.outputTokens += value.outputTokens;
+	target.inputCost += value.inputCost;
+	target.cachedInputCost += value.cachedInputCost;
+	target.outputCost += value.outputCost;
+}
 
 const adminMetricsSchema = z.object({
 	totalSignups: z.number(),
@@ -2072,15 +2257,7 @@ admin.openapi(getOrganizations, async (c) => {
 	const sortBy = query.sortBy ?? "createdAt";
 	const sortOrder = query.sortOrder ?? "desc";
 
-	const searchLower = search?.toLowerCase();
-	const whereClause = searchLower
-		? or(
-				sql`LOWER(${tables.organization.name}) LIKE ${`%${searchLower}%`}`,
-				sql`LOWER(${tables.organization.billingEmail}) LIKE ${`%${searchLower}%`}`,
-				sql`${tables.organization.id} LIKE ${`%${search}%`}`,
-				sql`EXISTS (SELECT 1 FROM ${tables.userOrganization} uo JOIN ${tables.user} u ON uo.user_id = u.id WHERE uo.organization_id = ${tables.organization.id} AND LOWER(u.email) LIKE ${`%${searchLower}%`})`,
-			)
-		: undefined;
+	const whereClause = buildOrganizationSearchFilter(search);
 
 	const [countResult] = await db
 		.select({
@@ -4347,6 +4524,7 @@ const providerStatsSchema = z.object({
 	modelCount: z.number(),
 	totalTokens: z.number(),
 	totalCost: z.number(),
+	...tokenBreakdownShape,
 	updatedAt: z.string(),
 });
 
@@ -4355,6 +4533,7 @@ const providersListSchema = z.object({
 	total: z.number(),
 	totalTokens: z.number(),
 	totalCost: z.number(),
+	...tokenBreakdownShape,
 });
 
 const getProviderStats = createRoute({
@@ -4435,11 +4614,10 @@ admin.openapi(getProviderStats, async (c) => {
 				),
 				// Only streamed requests record a time-to-first-token, so the
 				// average divides by the sample count, not the request count.
-				avgTimeToFirstToken: sql<
-					number | null
-				>`CASE WHEN SUM(${mph.timeToFirstTokenCount}) > 0 THEN SUM(${mph.totalTimeToFirstToken})::float / SUM(${mph.timeToFirstTokenCount}) ELSE NULL END`.as(
-					"avgTimeToFirstToken",
-				),
+				// Reasoning-token samples take precedence so thinking mappings
+				// aren't measured on their (much later) first content token.
+				avgTimeToFirstToken: avgEffectiveTtftSql(mph).as("avgTimeToFirstToken"),
+				...tokenBreakdownSums(mph),
 			})
 			.from(mph)
 			.where(and(gte(mphTs, startDate), lt(mphTs, endDateExclusive)))
@@ -4454,7 +4632,7 @@ admin.openapi(getProviderStats, async (c) => {
 			errorsCount: sql`COALESCE(${providerStatsSub.errorsCount}, 0)`,
 			cachedCount: sql`COALESCE(${providerStatsSub.cachedCount}, 0)`,
 			totalCost: sql`COALESCE(${providerStatsSub.totalCost}, 0)`,
-			avgTimeToFirstToken: sql`COALESCE(${providerStatsSub.avgTimeToFirstToken}, ${tables.provider.avgTimeToFirstToken})`,
+			avgTimeToFirstToken: sql`COALESCE(${providerStatsSub.avgTimeToFirstToken}, ${tables.provider.avgTimeToFirstReasoningToken}, ${tables.provider.avgTimeToFirstToken})`,
 			modelCount: sql`COALESCE(${modelCountSub.count}, 0)`,
 			updatedAt: tables.provider.updatedAt,
 		} as const;
@@ -4472,6 +4650,7 @@ admin.openapi(getProviderStats, async (c) => {
 						sql<number>`COALESCE(SUM(COALESCE(${providerStatsSub.totalCost}, 0)), 0)`.as(
 							"totalCost",
 						),
+					...tokenBreakdownSubTotals(providerStatsSub),
 				})
 				.from(tables.provider)
 				.leftJoin(
@@ -4497,7 +4676,7 @@ admin.openapi(getProviderStats, async (c) => {
 						),
 					avgTimeToFirstToken: sql<
 						number | null
-					>`COALESCE(${providerStatsSub.avgTimeToFirstToken}, ${tables.provider.avgTimeToFirstToken})`.as(
+					>`COALESCE(${providerStatsSub.avgTimeToFirstToken}, ${tables.provider.avgTimeToFirstReasoningToken}, ${tables.provider.avgTimeToFirstToken})`.as(
 						"avgTimeToFirstToken",
 					),
 					modelCount: sql<number>`COALESCE(${modelCountSub.count}, 0)`.as(
@@ -4510,6 +4689,7 @@ admin.openapi(getProviderStats, async (c) => {
 					totalCost: sql<number>`COALESCE(${providerStatsSub.totalCost}, 0)`.as(
 						"totalCost",
 					),
+					...tokenBreakdownFromSub(providerStatsSub),
 					updatedAt: tables.provider.updatedAt,
 				})
 				.from(tables.provider)
@@ -4540,11 +4720,13 @@ admin.openapi(getProviderStats, async (c) => {
 				modelCount: Number(r.modelCount ?? 0),
 				totalTokens: Number(r.totalTokens ?? 0),
 				totalCost: Number(r.totalCost ?? 0),
+				...toTokenBreakdown(r),
 				updatedAt: r.updatedAt.toISOString(),
 			})),
 			total: rows.length,
 			totalTokens: totalTokensAgg,
 			totalCost: totalCostAgg,
+			...toTokenBreakdown(totalsResult),
 		});
 	}
 
@@ -4557,7 +4739,7 @@ admin.openapi(getProviderStats, async (c) => {
 		errorsCount: tables.provider.errorsCount,
 		cachedCount: tables.provider.cachedCount,
 		totalCost: sql`0`,
-		avgTimeToFirstToken: tables.provider.avgTimeToFirstToken,
+		avgTimeToFirstToken: sql`COALESCE(${tables.provider.avgTimeToFirstReasoningToken}, ${tables.provider.avgTimeToFirstToken})`,
 		modelCount: sql`COALESCE(${modelCountSub.count}, 0)`,
 		updatedAt: tables.provider.updatedAt,
 	} as const;
@@ -4573,7 +4755,11 @@ admin.openapi(getProviderStats, async (c) => {
 			logsCount: tables.provider.logsCount,
 			errorsCount: tables.provider.errorsCount,
 			cachedCount: tables.provider.cachedCount,
-			avgTimeToFirstToken: tables.provider.avgTimeToFirstToken,
+			avgTimeToFirstToken: sql<
+				number | null
+			>`COALESCE(${tables.provider.avgTimeToFirstReasoningToken}, ${tables.provider.avgTimeToFirstToken})`.as(
+				"avgTimeToFirstToken",
+			),
 			modelCount: sql<number>`COALESCE(${modelCountSub.count}, 0)`.as(
 				"modelCount",
 			),
@@ -4596,11 +4782,13 @@ admin.openapi(getProviderStats, async (c) => {
 			modelCount: Number(r.modelCount),
 			totalTokens: 0,
 			totalCost: 0,
+			...EMPTY_TOKEN_BREAKDOWN,
 			updatedAt: r.updatedAt.toISOString(),
 		})),
 		total: rows.length,
 		totalTokens: 0,
 		totalCost: 0,
+		...EMPTY_TOKEN_BREAKDOWN,
 	});
 });
 
@@ -4638,6 +4826,7 @@ const modelStatsSchema = z.object({
 	providerCount: z.number(),
 	totalTokens: z.number(),
 	totalCost: z.number(),
+	...tokenBreakdownShape,
 	inputPrice: z.string().nullable(),
 	outputPrice: z.string().nullable(),
 	requestPrice: z.string().nullable(),
@@ -4651,6 +4840,7 @@ const modelsListSchema = z.object({
 	offset: z.number(),
 	totalTokens: z.number(),
 	totalCost: z.number(),
+	...tokenBreakdownShape,
 });
 
 const getModelStats = createRoute({
@@ -4755,6 +4945,7 @@ admin.openapi(getModelStats, async (c) => {
 				totalCost: sql<number>`COALESCE(SUM(${mh.totalCost}), 0)`.as(
 					"totalCost",
 				),
+				...tokenBreakdownSums(mh),
 			})
 			.from(mh)
 			.where(and(gte(mhTs, startDate), lt(mhTs, endDateExclusive)))
@@ -4804,7 +4995,7 @@ admin.openapi(getModelStats, async (c) => {
 			gatewayErrorsCount: sql`COALESCE(${modelAggSub.gatewayErrorsCount}, 0)`,
 			upstreamErrorsCount: sql`COALESCE(${modelAggSub.upstreamErrorsCount}, 0)`,
 			cachedCount: sql`COALESCE(${modelAggSub.cachedCount}, 0)`,
-			avgTimeToFirstToken: tables.model.avgTimeToFirstToken,
+			avgTimeToFirstToken: sql`COALESCE(${tables.model.avgTimeToFirstReasoningToken}, ${tables.model.avgTimeToFirstToken})`,
 			providerCount: sql`COALESCE(${providerCountSub.count}, 0)`,
 			updatedAt: tables.model.updatedAt,
 		} as const;
@@ -4826,6 +5017,7 @@ admin.openapi(getModelStats, async (c) => {
 					sql<number>`COALESCE(SUM(COALESCE(${modelAggSub.totalCost}, 0)), 0)`.as(
 						"totalCost",
 					),
+				...tokenBreakdownSubTotals(modelAggSub),
 			})
 			.from(tables.model)
 			.leftJoin(modelAggSub, eq(tables.model.id, modelAggSub.modelId))
@@ -4860,7 +5052,11 @@ admin.openapi(getModelStats, async (c) => {
 				cachedCount: sql<number>`COALESCE(${modelAggSub.cachedCount}, 0)`.as(
 					"cachedCount",
 				),
-				avgTimeToFirstToken: tables.model.avgTimeToFirstToken,
+				avgTimeToFirstToken: sql<
+					number | null
+				>`COALESCE(${tables.model.avgTimeToFirstReasoningToken}, ${tables.model.avgTimeToFirstToken})`.as(
+					"avgTimeToFirstToken",
+				),
 				providerCount: sql<number>`COALESCE(${providerCountSub.count}, 0)`.as(
 					"providerCount",
 				),
@@ -4870,6 +5066,7 @@ admin.openapi(getModelStats, async (c) => {
 				totalCost: sql<number>`COALESCE(${modelAggSub.totalCost}, 0)`.as(
 					"totalCost",
 				),
+				...tokenBreakdownFromSub(modelAggSub),
 				inputPrice: pricingSub.inputPrice,
 				outputPrice: pricingSub.outputPrice,
 				requestPrice: pricingSub.requestPrice,
@@ -4919,6 +5116,7 @@ admin.openapi(getModelStats, async (c) => {
 				providerCount: Number(r.providerCount ?? 0),
 				totalTokens: Number(r.totalTokens ?? 0),
 				totalCost: Number(r.totalCost ?? 0),
+				...toTokenBreakdown(r),
 				inputPrice: r.inputPrice ?? null,
 				outputPrice: r.outputPrice ?? null,
 				requestPrice: r.requestPrice ?? null,
@@ -4929,6 +5127,7 @@ admin.openapi(getModelStats, async (c) => {
 			offset,
 			totalTokens: totalTokensAgg,
 			totalCost: totalCostAgg,
+			...toTokenBreakdown(totalsResult),
 		});
 	}
 
@@ -4983,7 +5182,7 @@ admin.openapi(getModelStats, async (c) => {
 		gatewayErrorsCount: tables.model.gatewayErrorsCount,
 		upstreamErrorsCount: tables.model.upstreamErrorsCount,
 		cachedCount: tables.model.cachedCount,
-		avgTimeToFirstToken: tables.model.avgTimeToFirstToken,
+		avgTimeToFirstToken: sql`COALESCE(${tables.model.avgTimeToFirstReasoningToken}, ${tables.model.avgTimeToFirstToken})`,
 		providerCount: sql`COALESCE(${providerCountSub.count}, 0)`,
 		updatedAt: tables.model.updatedAt,
 	} as const;
@@ -5004,7 +5203,11 @@ admin.openapi(getModelStats, async (c) => {
 			gatewayErrorsCount: tables.model.gatewayErrorsCount,
 			upstreamErrorsCount: tables.model.upstreamErrorsCount,
 			cachedCount: tables.model.cachedCount,
-			avgTimeToFirstToken: tables.model.avgTimeToFirstToken,
+			avgTimeToFirstToken: sql<
+				number | null
+			>`COALESCE(${tables.model.avgTimeToFirstReasoningToken}, ${tables.model.avgTimeToFirstToken})`.as(
+				"avgTimeToFirstToken",
+			),
 			providerCount: sql<number>`COALESCE(${providerCountSub.count}, 0)`.as(
 				"providerCount",
 			),
@@ -5039,6 +5242,7 @@ admin.openapi(getModelStats, async (c) => {
 			providerCount: Number(r.providerCount),
 			totalTokens: 0,
 			totalCost: 0,
+			...EMPTY_TOKEN_BREAKDOWN,
 			inputPrice: r.inputPrice ?? null,
 			outputPrice: r.outputPrice ?? null,
 			requestPrice: r.requestPrice ?? null,
@@ -5049,6 +5253,7 @@ admin.openapi(getModelStats, async (c) => {
 		offset,
 		totalTokens: 0,
 		totalCost: 0,
+		...EMPTY_TOKEN_BREAKDOWN,
 	});
 });
 
@@ -5108,6 +5313,7 @@ const modelProviderStatsSchema = z.object({
 	errorsCount: z.number(),
 	cachedCount: z.number(),
 	avgTimeToFirstToken: z.number().nullable(),
+	...tokenBreakdownShape,
 	updatedAt: z.string(),
 });
 
@@ -5133,6 +5339,7 @@ const modelDetailSchema = z.object({
 		cachedCount: z.number(),
 		avgTimeToFirstToken: z.number().nullable(),
 		providerCount: z.number(),
+		...tokenBreakdownShape,
 		updatedAt: z.string(),
 	}),
 	providers: z.array(modelProviderStatsSchema),
@@ -5225,6 +5432,28 @@ admin.openapi(getModelDetail, async (c) => {
 				cachedCount: sql<number>`SUM(${projectHourlyModelStats.cacheCount})`.as(
 					"cached_count",
 				),
+				inputTokens:
+					sql<number>`SUM(CAST(${projectHourlyModelStats.inputTokens} AS NUMERIC))`.as(
+						"input_tokens",
+					),
+				cachedTokens:
+					sql<number>`SUM(CAST(${projectHourlyModelStats.cachedTokens} AS NUMERIC))`.as(
+						"cached_tokens",
+					),
+				outputTokens:
+					sql<number>`SUM(CAST(${projectHourlyModelStats.outputTokens} AS NUMERIC))`.as(
+						"output_tokens",
+					),
+				inputCost: sql<number>`SUM(${projectHourlyModelStats.inputCost})`.as(
+					"input_cost",
+				),
+				cachedInputCost:
+					sql<number>`SUM(${projectHourlyModelStats.cachedInputCost})`.as(
+						"cached_input_cost",
+					),
+				outputCost: sql<number>`SUM(${projectHourlyModelStats.outputCost})`.as(
+					"output_cost",
+				),
 			})
 			.from(projectHourlyModelStats)
 			.where(
@@ -5290,6 +5519,10 @@ admin.openapi(getModelDetail, async (c) => {
 			(s, r) => s + Number(r.cachedCount),
 			0,
 		);
+		const totalBreakdown = { ...EMPTY_TOKEN_BREAKDOWN };
+		for (const r of statsRows) {
+			addTokenBreakdown(totalBreakdown, r);
+		}
 
 		return c.json({
 			model: {
@@ -5313,6 +5546,7 @@ admin.openapi(getModelDetail, async (c) => {
 				cachedCount: totalCached,
 				avgTimeToFirstToken: null,
 				providerCount: statsRows.length,
+				...totalBreakdown,
 				updatedAt: model.updatedAt.toISOString(),
 			},
 			providers: statsRows.map((r) => ({
@@ -5322,6 +5556,7 @@ admin.openapi(getModelDetail, async (c) => {
 				errorsCount: Number(r.errorsCount),
 				cachedCount: Number(r.cachedCount),
 				avgTimeToFirstToken: null,
+				...toTokenBreakdown(r),
 				updatedAt: model.updatedAt.toISOString(),
 			})),
 		});
@@ -5336,7 +5571,11 @@ admin.openapi(getModelDetail, async (c) => {
 		db
 			.select({
 				providerId: tables.modelProviderMapping.providerId,
-				avgTimeToFirstToken: tables.modelProviderMapping.avgTimeToFirstToken,
+				avgTimeToFirstToken: sql<
+					number | null
+				>`COALESCE(${tables.modelProviderMapping.avgTimeToFirstReasoningToken}, ${tables.modelProviderMapping.avgTimeToFirstToken})`.as(
+					"avgTimeToFirstToken",
+				),
 				updatedAt: tables.modelProviderMapping.updatedAt,
 			})
 			.from(tables.modelProviderMapping)
@@ -5394,6 +5633,15 @@ admin.openapi(getModelDetail, async (c) => {
 					sql<number>`COALESCE(SUM(${mph.timeToFirstTokenCount}), 0)`.as(
 						"ttft_count",
 					),
+				totalTtfrt:
+					sql<number>`COALESCE(SUM(${mph.totalTimeToFirstReasoningToken}), 0)`.as(
+						"total_ttfrt",
+					),
+				ttfrtCount:
+					sql<number>`COALESCE(SUM(${mph.timeToFirstReasoningTokenCount}), 0)`.as(
+						"ttfrt_count",
+					),
+				...tokenBreakdownSums(mph),
 			})
 			.from(mph)
 			.where(and(eq(mph.modelId, modelId), gte(mphTs, startDate)))
@@ -5413,10 +5661,16 @@ admin.openapi(getModelDetail, async (c) => {
 		statsRows.map((r) => {
 			const logsCount = Number(r.logsCount ?? 0);
 			const cachedCount = Number(r.cachedCount ?? 0);
-			const totalTtft = Number(r.totalTtft ?? 0);
 			// Only streamed requests record a time-to-first-token, so the average
-			// divides by the sample count, not the request count.
-			const ttftCount = Number(r.ttftCount ?? 0);
+			// divides by the sample count, not the request count. Reasoning-token
+			// samples take precedence so thinking mappings aren't measured on
+			// their (much later) first content token.
+			const { total: totalTtft, count: ttftCount } = effectiveTtftTotals({
+				totalTimeToFirstToken: Number(r.totalTtft ?? 0),
+				timeToFirstTokenCount: Number(r.ttftCount ?? 0),
+				totalTimeToFirstReasoningToken: Number(r.totalTtfrt ?? 0),
+				timeToFirstReasoningTokenCount: Number(r.ttfrtCount ?? 0),
+			});
 			return [
 				r.providerId,
 				{
@@ -5424,6 +5678,7 @@ admin.openapi(getModelDetail, async (c) => {
 					errorsCount: Number(r.errorsCount ?? 0),
 					cachedCount,
 					avgTtft: ttftCount > 0 ? totalTtft / ttftCount : null,
+					breakdown: toTokenBreakdown(r),
 				},
 			];
 		}),
@@ -5438,6 +5693,7 @@ admin.openapi(getModelDetail, async (c) => {
 			errorsCount: stats?.errorsCount ?? 0,
 			cachedCount: stats?.cachedCount ?? 0,
 			avgTimeToFirstToken: stats?.avgTtft ?? m.avgTimeToFirstToken,
+			...(stats?.breakdown ?? EMPTY_TOKEN_BREAKDOWN),
 			updatedAt: m.updatedAt.toISOString(),
 		};
 	});
@@ -5458,6 +5714,9 @@ admin.openapi(getModelDetail, async (c) => {
 			acc.cachedCount += Number(r.cachedCount ?? 0);
 			acc.totalTtft += Number(r.totalTtft ?? 0);
 			acc.ttftCount += Number(r.ttftCount ?? 0);
+			acc.totalTtfrt += Number(r.totalTtfrt ?? 0);
+			acc.ttfrtCount += Number(r.ttfrtCount ?? 0);
+			addTokenBreakdown(acc.breakdown, r);
 			return acc;
 		},
 		{
@@ -5475,10 +5734,21 @@ admin.openapi(getModelDetail, async (c) => {
 			cachedCount: 0,
 			totalTtft: 0,
 			ttftCount: 0,
+			totalTtfrt: 0,
+			ttfrtCount: 0,
+			breakdown: { ...EMPTY_TOKEN_BREAKDOWN },
 		},
 	);
 	const hasWindowData = agg.logsCount > 0;
-	const aggAvgTtft = agg.ttftCount > 0 ? agg.totalTtft / agg.ttftCount : null;
+	const { total: aggEffectiveTtft, count: aggEffectiveTtftCount } =
+		effectiveTtftTotals({
+			totalTimeToFirstToken: agg.totalTtft,
+			timeToFirstTokenCount: agg.ttftCount,
+			totalTimeToFirstReasoningToken: agg.totalTtfrt,
+			timeToFirstReasoningTokenCount: agg.ttfrtCount,
+		});
+	const aggAvgTtft =
+		aggEffectiveTtftCount > 0 ? aggEffectiveTtft / aggEffectiveTtftCount : null;
 
 	return c.json({
 		model: {
@@ -5507,9 +5777,12 @@ admin.openapi(getModelDetail, async (c) => {
 			unknownFinishCount: agg.unknownFinishCount,
 			cachedCount: hasWindowData ? agg.cachedCount : model.cachedCount,
 			avgTimeToFirstToken: hasWindowData
-				? (aggAvgTtft ?? model.avgTimeToFirstToken)
-				: model.avgTimeToFirstToken,
+				? (aggAvgTtft ??
+					model.avgTimeToFirstReasoningToken ??
+					model.avgTimeToFirstToken)
+				: (model.avgTimeToFirstReasoningToken ?? model.avgTimeToFirstToken),
 			providerCount: providerStats.length,
+			...agg.breakdown,
 			updatedAt: model.updatedAt.toISOString(),
 		},
 		providers: providerStats,
@@ -6030,10 +6303,22 @@ const blockOrganizationRoute = createRoute({
 	},
 });
 
-admin.openapi(blockOrganizationRoute, async (c) => {
-	const user = c.get("user");
-	const { orgId } = c.req.valid("param");
+interface BlockOrganizationOutcome {
+	cancelledSubscriptionIds: string[];
+	memberCount: number;
+	deactivatedUserCount: number;
+}
 
+/**
+ * Blocks a single organization: cancels its Stripe subscriptions, marks it
+ * deleted, deactivates members that have no other active organization, and
+ * writes the audit entry. Shared by the single-org and bulk block endpoints so
+ * both paths always apply the exact same effects.
+ */
+async function blockOrganizationById(
+	orgId: string,
+	adminUserId: string,
+): Promise<BlockOrganizationOutcome> {
 	const org = await db.query.organization.findFirst({
 		where: { id: { eq: orgId } },
 	});
@@ -6150,7 +6435,7 @@ admin.openapi(blockOrganizationRoute, async (c) => {
 
 	await logAuditEvent({
 		organizationId: orgId,
-		userId: user!.id,
+		userId: adminUserId,
 		action: "organization.block",
 		resourceType: "organization",
 		resourceId: orgId,
@@ -6164,10 +6449,339 @@ admin.openapi(blockOrganizationRoute, async (c) => {
 		},
 	});
 
+	return {
+		cancelledSubscriptionIds,
+		memberCount: memberUserIds.length,
+		deactivatedUserCount: userIdsToDeactivate.length,
+	};
+}
+
+admin.openapi(blockOrganizationRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+
+	const { cancelledSubscriptionIds } = await blockOrganizationById(
+		orgId,
+		user!.id,
+	);
+
 	return c.json({
 		message: "Organization blocked and subscriptions cancelled.",
 		cancelledSubscriptionIds,
 	});
+});
+
+// --- Bulk block organizations (filtered list) ---
+
+const bulkBlockOrganizationSchema = z.object({
+	id: z.string(),
+	name: z.string(),
+	billingEmail: z.string(),
+	plan: z.string(),
+	status: z.string().nullable(),
+	createdAt: z.string(),
+});
+
+interface BulkBlockCandidates {
+	search: string;
+	matched: number;
+	candidates: {
+		id: string;
+		name: string;
+		billingEmail: string;
+		plan: string;
+		status: string | null;
+		createdAt: Date;
+	}[];
+}
+
+/**
+ * Resolves the exact set of organizations a bulk block would affect.
+ *
+ * Every guard that prevents a bulk block from degenerating into "ban
+ * everything" lives here, so the preview and the mutation can never disagree
+ * about the target set:
+ * - an empty or too-short search throws, so there is no unfiltered code path;
+ * - the LIKE filter escapes wildcards, so "%" cannot match every row;
+ * - organizations that are already blocked are excluded;
+ * - organizations the acting admin belongs to are excluded, so an admin can
+ *   never lock themselves (or their own org's members) out;
+ * - a filter resolving to more than MAX_BULK_BLOCK_ORGANIZATIONS throws rather
+ *   than silently truncating to the first N.
+ *
+ * Callers mutate strictly by the returned ids, never by re-running the filter
+ * as the WHERE clause of an UPDATE.
+ */
+async function resolveBulkBlockCandidates(
+	search: string,
+	adminUserId: string,
+): Promise<BulkBlockCandidates> {
+	const trimmed = search.trim();
+
+	if (trimmed.length < MIN_BULK_BLOCK_SEARCH_LENGTH) {
+		throw new HTTPException(400, {
+			message: `Bulk blocking requires a search filter of at least ${MIN_BULK_BLOCK_SEARCH_LENGTH} characters.`,
+		});
+	}
+
+	const searchFilter = buildOrganizationSearchFilter(trimmed);
+
+	if (!searchFilter) {
+		throw new HTTPException(400, {
+			message: "Bulk blocking requires a search filter.",
+		});
+	}
+
+	const adminOrgLinks = await db.query.userOrganization.findMany({
+		where: { userId: { eq: adminUserId } },
+		columns: { organizationId: true },
+	});
+	const adminOrgIds = [
+		...new Set(adminOrgLinks.map((link) => link.organizationId)),
+	];
+
+	const candidateFilter = and(
+		searchFilter,
+		or(
+			isNull(tables.organization.status),
+			ne(tables.organization.status, "deleted"),
+		),
+		adminOrgIds.length > 0
+			? notInArray(tables.organization.id, adminOrgIds)
+			: undefined,
+	);
+
+	const [matchedRow] = await db
+		.select({ count: sql<number>`COUNT(*)`.as("count") })
+		.from(tables.organization)
+		.where(searchFilter);
+
+	const candidates = await db
+		.select({
+			id: tables.organization.id,
+			name: tables.organization.name,
+			billingEmail: tables.organization.billingEmail,
+			plan: tables.organization.plan,
+			status: tables.organization.status,
+			createdAt: tables.organization.createdAt,
+		})
+		.from(tables.organization)
+		.where(candidateFilter)
+		.orderBy(asc(tables.organization.createdAt))
+		.limit(MAX_BULK_BLOCK_ORGANIZATIONS + 1);
+
+	if (candidates.length > MAX_BULK_BLOCK_ORGANIZATIONS) {
+		throw new HTTPException(400, {
+			message: `This filter matches more than ${MAX_BULK_BLOCK_ORGANIZATIONS} organizations. Narrow the search before bulk blocking.`,
+		});
+	}
+
+	return {
+		search: trimmed,
+		matched: Number(matchedRow?.count ?? 0),
+		candidates,
+	};
+}
+
+const bulkBlockPreviewRoute = createRoute({
+	method: "get",
+	path: "/organizations/bulk-block/preview",
+	request: {
+		query: z.object({
+			search: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						search: z.string(),
+						matched: z.number(),
+						blockable: z.number(),
+						skipped: z.number(),
+						maxBulkSize: z.number(),
+						organizations: z.array(bulkBlockOrganizationSchema),
+					}),
+				},
+			},
+			description: "Organizations a bulk block would affect.",
+		},
+		400: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "Search filter missing, too short, or too broad.",
+		},
+	},
+});
+
+admin.openapi(bulkBlockPreviewRoute, async (c) => {
+	const user = c.get("user");
+	const { search } = c.req.valid("query");
+
+	const {
+		matched,
+		candidates,
+		search: normalizedSearch,
+	} = await resolveBulkBlockCandidates(search, user!.id);
+
+	return c.json(
+		{
+			search: normalizedSearch,
+			matched,
+			blockable: candidates.length,
+			skipped: Math.max(0, matched - candidates.length),
+			maxBulkSize: MAX_BULK_BLOCK_ORGANIZATIONS,
+			organizations: candidates.map((org) => ({
+				id: org.id,
+				name: org.name,
+				billingEmail: org.billingEmail,
+				plan: org.plan,
+				status: org.status,
+				createdAt: org.createdAt.toISOString(),
+			})),
+		},
+		200,
+	);
+});
+
+const bulkBlockOrganizationsRoute = createRoute({
+	method: "post",
+	path: "/organizations/bulk-block",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						search: z.string(),
+						// The number of organizations the admin confirmed in the UI. The
+						// server re-resolves the set and refuses to act unless it matches
+						// exactly, so a filter that widened between preview and confirm
+						// blocks nothing instead of blocking extra organizations.
+						expectedCount: z
+							.number()
+							.int()
+							.min(1)
+							.max(MAX_BULK_BLOCK_ORGANIZATIONS),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						blockedCount: z.number(),
+						failedCount: z.number(),
+						blocked: z.array(
+							z.object({
+								id: z.string(),
+								name: z.string(),
+								cancelledSubscriptionIds: z.array(z.string()),
+							}),
+						),
+						failed: z.array(
+							z.object({
+								id: z.string(),
+								name: z.string(),
+								error: z.string(),
+							}),
+						),
+					}),
+				},
+			},
+			description: "Bulk block result.",
+		},
+		400: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "Search filter missing, too short, or too broad.",
+		},
+		409: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description:
+				"The confirmed count no longer matches the filtered organizations.",
+		},
+	},
+});
+
+admin.openapi(bulkBlockOrganizationsRoute, async (c) => {
+	const user = c.get("user");
+	const { search, expectedCount } = c.req.valid("json");
+
+	const { candidates } = await resolveBulkBlockCandidates(search, user!.id);
+
+	if (candidates.length !== expectedCount) {
+		throw new HTTPException(409, {
+			message: `The filter now matches ${candidates.length} blockable organization(s) but ${expectedCount} were confirmed. Nothing was blocked — re-run the search and confirm again.`,
+		});
+	}
+
+	// Defensive: `expectedCount` is already validated as >= 1, so this can only
+	// trip if the guards above ever change. Blocking nothing is the safe outcome.
+	if (candidates.length === 0) {
+		throw new HTTPException(400, {
+			message: "No organizations matched the filter.",
+		});
+	}
+
+	const blocked: {
+		id: string;
+		name: string;
+		cancelledSubscriptionIds: string[];
+	}[] = [];
+	const failed: { id: string; name: string; error: string }[] = [];
+
+	// Sequential on purpose: each iteration talks to Stripe, and one failure must
+	// not abort the organizations that follow it.
+	for (const candidate of candidates) {
+		try {
+			const outcome = await blockOrganizationById(candidate.id, user!.id);
+			blocked.push({
+				id: candidate.id,
+				name: candidate.name,
+				cancelledSubscriptionIds: outcome.cancelledSubscriptionIds,
+			});
+		} catch (error) {
+			const message =
+				error instanceof HTTPException
+					? error.message
+					: error instanceof Error
+						? error.message
+						: "Unknown error";
+			logger.error(
+				`Bulk block failed for organization ${candidate.id}: ${message}`,
+			);
+			failed.push({ id: candidate.id, name: candidate.name, error: message });
+		}
+	}
+
+	return c.json(
+		{
+			message:
+				failed.length === 0
+					? `Blocked ${blocked.length} organization(s).`
+					: `Blocked ${blocked.length} organization(s), ${failed.length} failed.`,
+			blockedCount: blocked.length,
+			failedCount: failed.length,
+			blocked,
+			failed,
+		},
+		200,
+	);
 });
 
 // --- History endpoints ---
@@ -6184,6 +6798,7 @@ const historyDataPointSchema = z.object({
 	avgDuration: z.number().nullable(),
 	totalTokens: z.number(),
 	totalCost: z.number(),
+	...tokenBreakdownShape,
 });
 
 const historyResponseSchema = z.object({
@@ -6208,8 +6823,16 @@ function mapHistoryRows(
 		totalDuration: number;
 		totalTimeToFirstToken: number;
 		timeToFirstTokenCount: number;
+		totalTimeToFirstReasoningToken: number;
+		timeToFirstReasoningTokenCount: number;
 		totalTokens: number;
 		totalCost?: number;
+		inputTokens?: number;
+		cachedTokens?: number;
+		outputTokens?: number;
+		inputCost?: number;
+		cachedInputCost?: number;
+		outputCost?: number;
 	}[],
 	costByHour: Map<string, number> = new Map(),
 ) {
@@ -6224,10 +6847,21 @@ function mapHistoryRows(
 		const errorsCount = Number(r.errorsCount);
 		const cachedCount = Number(r.cachedCount);
 		const totalDuration = Number(r.totalDuration);
-		const totalTimeToFirstToken = Number(r.totalTimeToFirstToken);
 		// Only streamed requests record a time-to-first-token, so the average
-		// divides by the sample count, not the request count.
-		const timeToFirstTokenCount = Number(r.timeToFirstTokenCount);
+		// divides by the sample count, not the request count. Reasoning-token
+		// samples take precedence so thinking mappings aren't measured on their
+		// (much later) first content token.
+		const { total: totalTimeToFirstToken, count: timeToFirstTokenCount } =
+			effectiveTtftTotals({
+				totalTimeToFirstToken: Number(r.totalTimeToFirstToken),
+				timeToFirstTokenCount: Number(r.timeToFirstTokenCount),
+				totalTimeToFirstReasoningToken: Number(
+					r.totalTimeToFirstReasoningToken,
+				),
+				timeToFirstReasoningTokenCount: Number(
+					r.timeToFirstReasoningTokenCount,
+				),
+			});
 		const totalTokens = Number(r.totalTokens);
 
 		let totalCost: number;
@@ -6255,6 +6889,7 @@ function mapHistoryRows(
 			avgDuration: logsCount > 0 ? Math.round(totalDuration / logsCount) : null,
 			totalTokens,
 			totalCost,
+			...toTokenBreakdown(r),
 		};
 	});
 }
@@ -6328,6 +6963,14 @@ admin.openapi(getProviderHistory, async (c) => {
 					sql<number>`SUM(${modelProviderMappingHistoryHourly.timeToFirstTokenCount})`.as(
 						"ttft_count",
 					),
+				totalTimeToFirstReasoningToken:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalTimeToFirstReasoningToken})`.as(
+						"total_ttfrt",
+					),
+				timeToFirstReasoningTokenCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.timeToFirstReasoningTokenCount})`.as(
+						"ttfrt_count",
+					),
 				totalTokens:
 					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalTokens})`.as(
 						"total_tokens",
@@ -6336,6 +6979,7 @@ admin.openapi(getProviderHistory, async (c) => {
 					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalCost})`.as(
 						"total_cost",
 					),
+				...tokenBreakdownSums(modelProviderMappingHistoryHourly),
 			})
 			.from(modelProviderMappingHistoryHourly)
 			.where(
@@ -6390,10 +7034,19 @@ admin.openapi(getProviderHistory, async (c) => {
 					sql<number>`SUM(${modelProviderMappingHistory.timeToFirstTokenCount})`.as(
 						"ttft_count",
 					),
+				totalTimeToFirstReasoningToken:
+					sql<number>`SUM(${modelProviderMappingHistory.totalTimeToFirstReasoningToken})`.as(
+						"total_ttfrt",
+					),
+				timeToFirstReasoningTokenCount:
+					sql<number>`SUM(${modelProviderMappingHistory.timeToFirstReasoningTokenCount})`.as(
+						"ttfrt_count",
+					),
 				totalTokens:
 					sql<number>`SUM(${modelProviderMappingHistory.totalTokens})`.as(
 						"total_tokens",
 					),
+				...tokenBreakdownSums(modelProviderMappingHistory),
 			})
 			.from(modelProviderMappingHistory)
 			.where(
@@ -6478,6 +7131,28 @@ admin.openapi(getModelHistory, async (c) => {
 						"total_tokens",
 					),
 				cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
+				inputTokens:
+					sql<number>`SUM(CAST(${projectHourlyModelStats.inputTokens} AS NUMERIC))`.as(
+						"input_tokens",
+					),
+				cachedTokens:
+					sql<number>`SUM(CAST(${projectHourlyModelStats.cachedTokens} AS NUMERIC))`.as(
+						"cached_tokens",
+					),
+				outputTokens:
+					sql<number>`SUM(CAST(${projectHourlyModelStats.outputTokens} AS NUMERIC))`.as(
+						"output_tokens",
+					),
+				inputCost: sql<number>`SUM(${projectHourlyModelStats.inputCost})`.as(
+					"input_cost",
+				),
+				cachedInputCost:
+					sql<number>`SUM(${projectHourlyModelStats.cachedInputCost})`.as(
+						"cached_input_cost",
+					),
+				outputCost: sql<number>`SUM(${projectHourlyModelStats.outputCost})`.as(
+					"output_cost",
+				),
 			})
 			.from(projectHourlyModelStats)
 			.where(
@@ -6503,6 +7178,7 @@ admin.openapi(getModelHistory, async (c) => {
 				avgDuration: null,
 				totalTokens: Number(r.totalTokens),
 				totalCost: Number(r.cost),
+				...toTokenBreakdown(r),
 			})),
 		});
 	}
@@ -6545,12 +7221,21 @@ admin.openapi(getModelHistory, async (c) => {
 					sql<number>`SUM(${modelHistoryHourly.timeToFirstTokenCount})`.as(
 						"ttft_count",
 					),
+				totalTimeToFirstReasoningToken:
+					sql<number>`SUM(${modelHistoryHourly.totalTimeToFirstReasoningToken})`.as(
+						"total_ttfrt",
+					),
+				timeToFirstReasoningTokenCount:
+					sql<number>`SUM(${modelHistoryHourly.timeToFirstReasoningTokenCount})`.as(
+						"ttfrt_count",
+					),
 				totalTokens: sql<number>`SUM(${modelHistoryHourly.totalTokens})`.as(
 					"total_tokens",
 				),
 				totalCost: sql<number>`SUM(${modelHistoryHourly.totalCost})`.as(
 					"total_cost",
 				),
+				...tokenBreakdownSums(modelHistoryHourly),
 			})
 			.from(modelHistoryHourly)
 			.where(
@@ -6597,10 +7282,19 @@ admin.openapi(getModelHistory, async (c) => {
 				sql<number>`SUM(${modelHistory.timeToFirstTokenCount})`.as(
 					"ttft_count",
 				),
+			totalTimeToFirstReasoningToken:
+				sql<number>`SUM(${modelHistory.totalTimeToFirstReasoningToken})`.as(
+					"total_ttfrt",
+				),
+			timeToFirstReasoningTokenCount:
+				sql<number>`SUM(${modelHistory.timeToFirstReasoningTokenCount})`.as(
+					"ttfrt_count",
+				),
 			totalTokens: sql<number>`SUM(${modelHistory.totalTokens})`.as(
 				"total_tokens",
 			),
 			totalCost: sql<number>`SUM(${modelHistory.totalCost})`.as("total_cost"),
+			...tokenBreakdownSums(modelHistory),
 		})
 		.from(modelHistory)
 		.where(
@@ -6688,6 +7382,28 @@ admin.openapi(getMappingHistory, async (c) => {
 						"total_tokens",
 					),
 				cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
+				inputTokens:
+					sql<number>`SUM(CAST(${projectHourlyModelStats.inputTokens} AS NUMERIC))`.as(
+						"input_tokens",
+					),
+				cachedTokens:
+					sql<number>`SUM(CAST(${projectHourlyModelStats.cachedTokens} AS NUMERIC))`.as(
+						"cached_tokens",
+					),
+				outputTokens:
+					sql<number>`SUM(CAST(${projectHourlyModelStats.outputTokens} AS NUMERIC))`.as(
+						"output_tokens",
+					),
+				inputCost: sql<number>`SUM(${projectHourlyModelStats.inputCost})`.as(
+					"input_cost",
+				),
+				cachedInputCost:
+					sql<number>`SUM(${projectHourlyModelStats.cachedInputCost})`.as(
+						"cached_input_cost",
+					),
+				outputCost: sql<number>`SUM(${projectHourlyModelStats.outputCost})`.as(
+					"output_cost",
+				),
 			})
 			.from(projectHourlyModelStats)
 			.where(
@@ -6714,6 +7430,7 @@ admin.openapi(getMappingHistory, async (c) => {
 				avgDuration: null,
 				totalTokens: Number(r.totalTokens),
 				totalCost: Number(r.cost),
+				...toTokenBreakdown(r),
 			})),
 		});
 	}
@@ -6777,6 +7494,14 @@ admin.openapi(getMappingHistory, async (c) => {
 					sql<number>`SUM(${modelProviderMappingHistoryHourly.timeToFirstTokenCount})`.as(
 						"ttft_count",
 					),
+				totalTimeToFirstReasoningToken:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalTimeToFirstReasoningToken})`.as(
+						"total_ttfrt",
+					),
+				timeToFirstReasoningTokenCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.timeToFirstReasoningTokenCount})`.as(
+						"ttfrt_count",
+					),
 				totalTokens:
 					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalTokens})`.as(
 						"total_tokens",
@@ -6785,6 +7510,7 @@ admin.openapi(getMappingHistory, async (c) => {
 					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalCost})`.as(
 						"total_cost",
 					),
+				...tokenBreakdownSums(modelProviderMappingHistoryHourly),
 			})
 			.from(modelProviderMappingHistoryHourly)
 			.where(
@@ -6840,6 +7566,14 @@ admin.openapi(getMappingHistory, async (c) => {
 				sql<number>`SUM(${modelProviderMappingHistory.timeToFirstTokenCount})`.as(
 					"ttft_count",
 				),
+			totalTimeToFirstReasoningToken:
+				sql<number>`SUM(${modelProviderMappingHistory.totalTimeToFirstReasoningToken})`.as(
+					"total_ttfrt",
+				),
+			timeToFirstReasoningTokenCount:
+				sql<number>`SUM(${modelProviderMappingHistory.timeToFirstReasoningTokenCount})`.as(
+					"ttfrt_count",
+				),
 			totalTokens:
 				sql<number>`SUM(${modelProviderMappingHistory.totalTokens})`.as(
 					"total_tokens",
@@ -6847,6 +7581,7 @@ admin.openapi(getMappingHistory, async (c) => {
 			totalCost: sql<number>`SUM(${modelProviderMappingHistory.totalCost})`.as(
 				"total_cost",
 			),
+			...tokenBreakdownSums(modelProviderMappingHistory),
 		})
 		.from(modelProviderMappingHistory)
 		.where(
@@ -6878,6 +7613,7 @@ const providerModelStatsSchema = z.object({
 	cachedCount: z.number(),
 	avgTimeToFirstToken: z.number().nullable(),
 	totalCost: z.number(),
+	...tokenBreakdownShape,
 	updatedAt: z.string(),
 });
 
@@ -6897,6 +7633,7 @@ const providerDetailSchema = z.object({
 		cachedCount: z.number(),
 		avgTimeToFirstToken: z.number().nullable(),
 		modelCount: z.number(),
+		...tokenBreakdownShape,
 		updatedAt: z.string(),
 	}),
 	models: z.array(providerModelStatsSchema),
@@ -6948,7 +7685,11 @@ admin.openapi(getProviderDetail, async (c) => {
 				externalId: tables.modelProviderMapping.externalId,
 				region: tables.modelProviderMapping.region,
 				status: tables.modelProviderMapping.status,
-				avgTimeToFirstToken: tables.modelProviderMapping.avgTimeToFirstToken,
+				avgTimeToFirstToken: sql<
+					number | null
+				>`COALESCE(${tables.modelProviderMapping.avgTimeToFirstReasoningToken}, ${tables.modelProviderMapping.avgTimeToFirstToken})`.as(
+					"avgTimeToFirstToken",
+				),
 				updatedAt: tables.modelProviderMapping.updatedAt,
 			})
 			.from(tables.modelProviderMapping)
@@ -6985,9 +7726,18 @@ admin.openapi(getProviderDetail, async (c) => {
 					sql<number>`COALESCE(SUM(${mph.timeToFirstTokenCount}), 0)`.as(
 						"ttft_count",
 					),
+				totalTtfrt:
+					sql<number>`COALESCE(SUM(${mph.totalTimeToFirstReasoningToken}), 0)`.as(
+						"total_ttfrt",
+					),
+				ttfrtCount:
+					sql<number>`COALESCE(SUM(${mph.timeToFirstReasoningTokenCount}), 0)`.as(
+						"ttfrt_count",
+					),
 				totalCost: sql<number>`COALESCE(SUM(${mph.totalCost}), 0)`.as(
 					"total_cost",
 				),
+				...tokenBreakdownSums(mph),
 			})
 			.from(mph)
 			.where(and(eq(mph.providerId, providerId), gte(mphTs, startDate)))
@@ -7000,10 +7750,16 @@ admin.openapi(getProviderDetail, async (c) => {
 		const s = statsByModel.get(m.modelId);
 		const logsCount = Number(s?.logsCount ?? 0);
 		const cachedCount = Number(s?.cachedCount ?? 0);
-		const totalTtft = Number(s?.totalTtft ?? 0);
 		// Only streamed requests record a time-to-first-token, so the average
-		// divides by the sample count, not the request count.
-		const ttftCount = Number(s?.ttftCount ?? 0);
+		// divides by the sample count, not the request count. Reasoning-token
+		// samples take precedence so thinking mappings aren't measured on their
+		// (much later) first content token.
+		const { total: totalTtft, count: ttftCount } = effectiveTtftTotals({
+			totalTimeToFirstToken: Number(s?.totalTtft ?? 0),
+			timeToFirstTokenCount: Number(s?.ttftCount ?? 0),
+			totalTimeToFirstReasoningToken: Number(s?.totalTtfrt ?? 0),
+			timeToFirstReasoningTokenCount: Number(s?.ttfrtCount ?? 0),
+		});
 		const avgTtft = ttftCount > 0 ? totalTtft / ttftCount : null;
 		return {
 			modelId: m.modelId,
@@ -7019,6 +7775,7 @@ admin.openapi(getProviderDetail, async (c) => {
 			cachedCount,
 			avgTimeToFirstToken: avgTtft ?? m.avgTimeToFirstToken,
 			totalCost: Number(s?.totalCost ?? 0),
+			...toTokenBreakdown(s),
 			updatedAt: m.updatedAt.toISOString(),
 		};
 	});
@@ -7033,6 +7790,9 @@ admin.openapi(getProviderDetail, async (c) => {
 			acc.cachedCount += Number(r.cachedCount ?? 0);
 			acc.totalTtft += Number(r.totalTtft ?? 0);
 			acc.ttftCount += Number(r.ttftCount ?? 0);
+			acc.totalTtfrt += Number(r.totalTtfrt ?? 0);
+			acc.ttfrtCount += Number(r.ttfrtCount ?? 0);
+			addTokenBreakdown(acc.breakdown, r);
 			return acc;
 		},
 		{
@@ -7044,10 +7804,21 @@ admin.openapi(getProviderDetail, async (c) => {
 			cachedCount: 0,
 			totalTtft: 0,
 			ttftCount: 0,
+			totalTtfrt: 0,
+			ttfrtCount: 0,
+			breakdown: { ...EMPTY_TOKEN_BREAKDOWN },
 		},
 	);
 	const hasWindowData = agg.logsCount > 0;
-	const aggAvgTtft = agg.ttftCount > 0 ? agg.totalTtft / agg.ttftCount : null;
+	const { total: aggEffectiveTtft, count: aggEffectiveTtftCount } =
+		effectiveTtftTotals({
+			totalTimeToFirstToken: agg.totalTtft,
+			timeToFirstTokenCount: agg.ttftCount,
+			totalTimeToFirstReasoningToken: agg.totalTtfrt,
+			timeToFirstReasoningTokenCount: agg.ttfrtCount,
+		});
+	const aggAvgTtft =
+		aggEffectiveTtftCount > 0 ? aggEffectiveTtft / aggEffectiveTtftCount : null;
 
 	return c.json({
 		provider: {
@@ -7070,9 +7841,13 @@ admin.openapi(getProviderDetail, async (c) => {
 				: providerRow.upstreamErrorsCount,
 			cachedCount: hasWindowData ? agg.cachedCount : providerRow.cachedCount,
 			avgTimeToFirstToken: hasWindowData
-				? (aggAvgTtft ?? providerRow.avgTimeToFirstToken)
-				: providerRow.avgTimeToFirstToken,
+				? (aggAvgTtft ??
+					providerRow.avgTimeToFirstReasoningToken ??
+					providerRow.avgTimeToFirstToken)
+				: (providerRow.avgTimeToFirstReasoningToken ??
+					providerRow.avgTimeToFirstToken),
 			modelCount: mappings.length,
+			...agg.breakdown,
 			updatedAt: providerRow.updatedAt.toISOString(),
 		},
 		models: modelsOut,
@@ -7112,6 +7887,8 @@ const mappingDetailSchema = z.object({
 		unknownFinishCount: z.number(),
 		cachedCount: z.number(),
 		avgTimeToFirstToken: z.number().nullable(),
+		totalCost: z.number(),
+		...tokenBreakdownShape,
 		updatedAt: z.string(),
 	}),
 });
@@ -7172,7 +7949,11 @@ admin.openapi(getMappingDetail, async (c) => {
 			gatewayErrorsCount: tables.modelProviderMapping.gatewayErrorsCount,
 			upstreamErrorsCount: tables.modelProviderMapping.upstreamErrorsCount,
 			cachedCount: tables.modelProviderMapping.cachedCount,
-			avgTimeToFirstToken: tables.modelProviderMapping.avgTimeToFirstToken,
+			avgTimeToFirstToken: sql<
+				number | null
+			>`COALESCE(${tables.modelProviderMapping.avgTimeToFirstReasoningToken}, ${tables.modelProviderMapping.avgTimeToFirstToken})`.as(
+				"avgTimeToFirstToken",
+			),
 			updatedAt: tables.modelProviderMapping.updatedAt,
 		})
 		.from(tables.modelProviderMapping)
@@ -7247,12 +8028,14 @@ admin.openapi(getMappingDetail, async (c) => {
 				"cached_count",
 			),
 			// Only streamed requests record a time-to-first-token, so the average
-			// divides by the sample count, not the request count.
-			avgTtft: sql<
-				number | null
-			>`CASE WHEN SUM(${mph.timeToFirstTokenCount}) > 0 THEN SUM(${mph.totalTimeToFirstToken})::float / SUM(${mph.timeToFirstTokenCount}) ELSE NULL END`.as(
-				"avg_ttft",
+			// divides by the sample count, not the request count. Reasoning-token
+			// samples take precedence so thinking mappings aren't measured on
+			// their (much later) first content token.
+			avgTtft: avgEffectiveTtftSql(mph).as("avg_ttft"),
+			totalCost: sql<number>`COALESCE(SUM(${mph.totalCost}), 0)`.as(
+				"total_cost",
 			),
+			...tokenBreakdownSums(mph),
 		})
 		.from(mph)
 		.where(and(eq(mph.modelProviderMappingId, m.id), gte(mphTs, startDate)));
@@ -7305,6 +8088,8 @@ admin.openapi(getMappingDetail, async (c) => {
 					? Number(aggRow.avgTtft)
 					: m.avgTimeToFirstToken
 				: m.avgTimeToFirstToken,
+			totalCost: Number(aggRow?.totalCost ?? 0),
+			...toTokenBreakdown(aggRow),
 			updatedAt: m.updatedAt.toISOString(),
 		},
 	});
@@ -7976,6 +8761,7 @@ const projectModelProviderStatsEntrySchema = z.object({
 	cachedCount: z.number(),
 	cost: z.number(),
 	totalTokens: z.number(),
+	...tokenBreakdownShape,
 });
 
 const projectModelProviderStatsResponseSchema = z.object({
@@ -7984,6 +8770,7 @@ const projectModelProviderStatsResponseSchema = z.object({
 	totalRequests: z.number(),
 	totalTokens: z.number(),
 	totalCost: z.number(),
+	...tokenBreakdownShape,
 });
 
 const getProjectModelProviderStats = createRoute({
@@ -8101,6 +8888,30 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 			cachedCount: cachedCountExpr,
 			cost: costExpr,
 			totalTokens: totalTokensExpr,
+			inputTokens:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.inputTokens} AS NUMERIC)), 0)`.as(
+					"input_tokens",
+				),
+			cachedTokens:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.cachedTokens} AS NUMERIC)), 0)`.as(
+					"cached_tokens",
+				),
+			outputTokens:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.outputTokens} AS NUMERIC)), 0)`.as(
+					"output_tokens",
+				),
+			inputCost:
+				sql<number>`COALESCE(SUM(${projectHourlyModelStats.inputCost}), 0)`.as(
+					"input_cost",
+				),
+			cachedInputCost:
+				sql<number>`COALESCE(SUM(${projectHourlyModelStats.cachedInputCost}), 0)`.as(
+					"cached_input_cost",
+				),
+			outputCost:
+				sql<number>`COALESCE(SUM(${projectHourlyModelStats.outputCost}), 0)`.as(
+					"output_cost",
+				),
 		})
 		.from(projectHourlyModelStats)
 		.where(whereConditions)
@@ -8124,6 +8935,10 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 	const totalRequests = rows.reduce((s, r) => s + Number(r.logsCount), 0);
 	const totalTokens = rows.reduce((s, r) => s + Number(r.totalTokens), 0);
 	const totalCost = rows.reduce((s, r) => s + Number(r.cost), 0);
+	const totalBreakdown = { ...EMPTY_TOKEN_BREAKDOWN };
+	for (const r of rows) {
+		addTokenBreakdown(totalBreakdown, r);
+	}
 
 	return c.json({
 		mappings: rows.map((r) => ({
@@ -8135,11 +8950,13 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 			cachedCount: Number(r.cachedCount),
 			cost: Number(r.cost),
 			totalTokens: Number(r.totalTokens),
+			...toTokenBreakdown(r),
 		})),
 		total: rows.length,
 		totalRequests,
 		totalTokens,
 		totalCost,
+		...totalBreakdown,
 	});
 });
 
@@ -8161,6 +8978,7 @@ const modelProviderMappingEntrySchema = z.object({
 	cachedCount: z.number(),
 	cost: z.number(),
 	avgTimeToFirstToken: z.number().nullable(),
+	...tokenBreakdownShape,
 	inputPrice: z.string().nullable(),
 	outputPrice: z.string().nullable(),
 	contextSize: z.number().nullable(),
@@ -8173,6 +8991,7 @@ const modelProviderMappingsListSchema = z.object({
 	totalRequests: z.number(),
 	totalTokens: z.number(),
 	totalCost: z.number(),
+	...tokenBreakdownShape,
 });
 
 const providersWithHiddenRootMappings = providers
@@ -8320,6 +9139,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 					cost: sql<number>`COALESCE(SUM(${mappingHistory.table.totalCost}), 0)`.as(
 						"cost",
 					),
+					...tokenBreakdownSums(mappingHistory.table),
 				})
 				.from(mappingHistory.table)
 				.where(
@@ -8339,9 +9159,16 @@ admin.openapi(getModelProviderMappings, async (c) => {
 					gatewayErrorsCount: tables.modelProviderMapping.gatewayErrorsCount,
 					upstreamErrorsCount: tables.modelProviderMapping.upstreamErrorsCount,
 					cachedCount: tables.modelProviderMapping.cachedCount,
-					// Cost is only tracked in the history table, so it is only
-					// available when a date range is provided (mirrors the models list).
+					// Cost and the token breakdown are only tracked in the history
+					// table, so they are only available when a date range is provided
+					// (mirrors the models list).
 					cost: sql<number>`0`.as("cost"),
+					inputTokens: sql<number>`0`.as("input_tokens"),
+					cachedTokens: sql<number>`0`.as("cached_tokens"),
+					outputTokens: sql<number>`0`.as("output_tokens"),
+					inputCost: sql<number>`0`.as("input_cost"),
+					cachedInputCost: sql<number>`0`.as("cached_input_cost"),
+					outputCost: sql<number>`0`.as("output_cost"),
 				})
 				.from(tables.modelProviderMapping)
 				.as("mapping_stats_sub");
@@ -8361,6 +9188,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 						sql<number>`COALESCE(SUM(${mappingHistory.table.totalCost}), 0)`.as(
 							"totalCost",
 						),
+					...tokenBreakdownSums(mappingHistory.table),
 				})
 				.from(mappingHistory.table)
 				.innerJoin(
@@ -8382,6 +9210,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 					totalRequests: 0,
 					totalTokens: 0,
 					totalCost: 0,
+					...EMPTY_TOKEN_BREAKDOWN,
 				},
 			]);
 
@@ -8395,7 +9224,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 		gatewayErrorsCount: sql`COALESCE(${statsJoin.gatewayErrorsCount}, 0)`,
 		upstreamErrorsCount: sql`COALESCE(${statsJoin.upstreamErrorsCount}, 0)`,
 		cost: sql`COALESCE(${statsJoin.cost}, 0)`,
-		avgTimeToFirstToken: tables.modelProviderMapping.avgTimeToFirstToken,
+		avgTimeToFirstToken: sql`COALESCE(${tables.modelProviderMapping.avgTimeToFirstReasoningToken}, ${tables.modelProviderMapping.avgTimeToFirstToken})`,
 		updatedAt: tables.modelProviderMapping.updatedAt,
 	} as const;
 
@@ -8438,7 +9267,12 @@ admin.openapi(getModelProviderMappings, async (c) => {
 					"cachedCount",
 				),
 				cost: sql<number>`COALESCE(${statsJoin.cost}, 0)`.as("cost"),
-				avgTimeToFirstToken: tables.modelProviderMapping.avgTimeToFirstToken,
+				avgTimeToFirstToken: sql<
+					number | null
+				>`COALESCE(${tables.modelProviderMapping.avgTimeToFirstReasoningToken}, ${tables.modelProviderMapping.avgTimeToFirstToken})`.as(
+					"avgTimeToFirstToken",
+				),
+				...tokenBreakdownFromSub(statsJoin),
 				inputPrice: tables.modelProviderMapping.inputPrice,
 				outputPrice: tables.modelProviderMapping.outputPrice,
 				contextSize: tables.modelProviderMapping.contextSize,
@@ -8476,6 +9310,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 			cachedCount: Number(r.cachedCount ?? 0),
 			cost: Number(r.cost ?? 0),
 			avgTimeToFirstToken: r.avgTimeToFirstToken,
+			...toTokenBreakdown(r),
 			inputPrice: r.inputPrice,
 			outputPrice: r.outputPrice,
 			contextSize: r.contextSize,
@@ -8485,6 +9320,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 		totalRequests: Number(totalsResult?.totalRequests ?? 0),
 		totalTokens: Number(totalsResult?.totalTokens ?? 0),
 		totalCost: Number(totalsResult?.totalCost ?? 0),
+		...toTokenBreakdown(totalsResult),
 	});
 });
 
@@ -8537,12 +9373,6 @@ function resolveUnstableMappingsWindow(
 // `retried` is nullable; legacy rows predate the column and are NULL. Treat
 // those as non-retried so they are not silently dropped from the rankings.
 const unstableMappingsNotRetriedClause = sql`AND ${tables.log.retried} IS DISTINCT FROM true`;
-
-// Matchers are plain substrings, so LIKE metacharacters in the stored pattern
-// must be escaped before wrapping in wildcards.
-function escapeLikePattern(pattern: string): string {
-	return pattern.replace(/[\\%_]/g, (char) => `\\${char}`);
-}
 
 interface IgnoredErrorMatcherTarget {
 	pattern: string | null;

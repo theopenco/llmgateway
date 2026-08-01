@@ -48,6 +48,41 @@ describe("validateEmail", () => {
 			expect(result.valid).toBe(false);
 			expect(result.reason).toBe("blacklisted_domain");
 		});
+
+		it("should reject emails from web.id", () => {
+			const result = validateEmail("user@web.id");
+			expect(result.valid).toBe(false);
+			expect(result.reason).toBe("blacklisted_domain");
+		});
+
+		it("should reject emails from any web.id subdomain", () => {
+			for (const email of [
+				"user@1nawaks.web.id",
+				"user@2nawaks.web.id",
+				"user@a.b.web.id",
+			]) {
+				const result = validateEmail(email);
+				expect(result.valid).toBe(false);
+				expect(result.reason).toBe("blacklisted_domain");
+			}
+		});
+
+		it("should reject emails from web-library.net", () => {
+			const result = validateEmail("llmgwtest1@web-library.net");
+			expect(result.valid).toBe(false);
+			expect(result.reason).toBe("blacklisted_domain");
+		});
+
+		it("should reject subdomains of blacklisted domains", () => {
+			const result = validateEmail("user@mail.web-library.net");
+			expect(result.valid).toBe(false);
+			expect(result.reason).toBe("blacklisted_domain");
+		});
+
+		it("should not reject domains that merely end with a blacklisted domain string", () => {
+			const result = validateEmail("user@notduck.com");
+			expect(result.valid).toBe(true);
+		});
 	});
 
 	describe("disposable email validation", () => {

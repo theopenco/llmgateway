@@ -52,11 +52,11 @@ Do not run test files or suites in parallel unless the repository instructions f
 - `pnpm test:unit` - Run unit tests (\*.spec.ts files)
 - `pnpm test:e2e` - Run end-to-end tests (\*.e2e.ts files)
 
-When running curl commands against the local API, you can use `test-token` as authentication.
+When running curl commands against the local API, you can use `test-token` as authentication. To exercise retention-off behavior, use `test-token-no-retention` instead — it belongs to a seeded sibling org with `retentionLevel: "none"` (the default `test-token` org retains all data for easier debugging).
 
 Every seeded account's password is its own email address (password == email). For example, log into the dashboard as `admin@example.com` with the password `admin@example.com`. This applies to all users created by `packages/db/src/seed.ts`, including:
 
-- `admin@example.com` — default test admin (owns "Test Organization" + a DevPass Pro workspace)
+- `admin@example.com` — default test admin (owns "Test Organization", "Test No Retention Organization" + a DevPass Pro workspace)
 - `enterprise@example.com` — owner of the enterprise org
 - `developer@example.com` — project-scoped developer in the enterprise org (RBAC testing)
 - the bulk demo users such as `alice.chen@techcorp.io`, `bob@startupinc.com`, etc.
@@ -140,6 +140,8 @@ NOTE: these commands can only be run in the root directory of the repository, no
 
 - **Gateway** (`apps/gateway`) - LLM request routing and provider management (Hono + Zod + OpenAPI)
 - **API** (`apps/api`) - Backend API for user management, billing, analytics (Hono + Zod + OpenAPI)
+
+Production domain mapping (counterintuitive — do not mix these up): `api.llmgateway.io` serves `apps/gateway` (the LLM gateway, :4001 in dev), and `internal.llmgateway.io` serves `apps/api` (the backend API, :4002 in dev).
 - **UI** (`apps/ui`) - Frontend dashboard (Next.js App Router)
 - **Playground** (`apps/playground`) - Interactive LLM testing environment (Next.js App Router)
 - **Code** (`apps/code`) - Dev plans + coding tools landing & dashboard (Next.js App Router)
@@ -227,6 +229,8 @@ When creating a new package in `packages/`, include these config files. Copy the
 - Exception: in `packages/models`, explicit duplication of model/provider mappings is acceptable and preferred over helper-based expansion. This is the only place in the repo where duplicating model definitions is OK. NEVER add helper functions (e.g. `makeModel(...)`/`makeProvider(...)`) that build model or provider definition objects, even when it means repeating fields across entries — write each model and provider mapping out in full as a plain object literal in the `models` array. Small shared `const` values are fine, but the definition objects themselves must not be constructed by a function.
 - Models and provider mappings in `packages/models` can NEVER be removed, only deactivated. To retire a model or provider mapping, set `deactivatedAt: new Date("YYYY-MM-DD")` (today's date) on the relevant provider mapping(s) instead of deleting the definition. Historical usage records and analytics reference these definitions, so deleting them breaks lookups.
 - In `packages/models`, ALWAYS express per-token prices (`inputPrice`, `outputPrice`, `cachedInputPrice`, and any other per-token price field) using `e-6` notation so the coefficient reads directly as USD per million tokens (e.g. `"1.4e-6"` for $1.40/M — the exact number providers publish). Never use `e-3` or other exponents for per-token prices. This does NOT apply to `requestPrice`, which is a flat USD amount charged per request (e.g. `"0.035"`), nor to `perSecondPrice`.
+- In `packages/models`, never add comments that only cite a source or restate a value — e.g. "taken from provider X's pricing page", "// Ref: https://…", "verified live on <date>", or `webSearchPrice: "0.01", // $0.01 per search`. They add nothing the field does not already say, and they rot as soon as the catalogue changes. Comments explaining WHY a field is set to a non-obvious value ARE valuable and must be kept and maintained: why a capability flag is `false` or restricted (`jsonOutput: false`, `supportedToolChoices`, a trimmed `reasoningEfforts` list), why a mapping is `stability: "unstable"` / `test: "skip"` / `deactivatedAt`, or any deployment quirk that a future reader would otherwise "fix" by reverting.
+- In `packages/models`, a single model definition must never contain two provider mappings with the same `providerId` (regional variants belong in that mapping's `regions` array instead). Mapping lookup keys on `(providerId, region)` throughout the gateway — `selectProviderMapping`, `costs.ts`, `prepare-request-body.ts` — so a second same-provider mapping is unaddressable: it silently resolves back to the first one, meaning requests get validated and **billed** at the wrong mapping's prices, and e2e generates two identically-named test cases that both exercise only the first. A distinct upstream deployment (e.g. a provider's "fast"/priority router with its own `externalId` and pricing) needs its own root model entry with its own `id`.
 - No unnecessary code comments
 - Organizations backing LLM SDK end-user wallets are always regular PAYG (credits) organizations — never `devpass` or `chat` plan orgs. Gateway logic gated on the org's `kind`/plan (e.g. dev-plan model restrictions or the dev-plan default service tier) therefore never needs to account for the end-user-wallet credits substitution (`withWalletCredits`); that substitution only affects downstream credit gating.
 - Do not use broad try/catch in API handlers unless to check for specific errors; instead, let errors propagate and be handled by the global error handler
@@ -239,6 +243,7 @@ When creating a new package in `packages/`, include these config files. Copy the
 - NEVER run the full E2E suite across all models. Instead, scope `pnpm test:e2e` to the model(s) you changed with `TEST_MODELS`, e.g. `TEST_MODELS="granite/glm-5.2" FULL_MODE=true pnpm test:e2e`. This runs every e2e file (streaming, reasoning, tool calls, json, etc.) but only for the pinned mapping, so do NOT invoke the individual `*.e2e.ts` files one by one — let `TEST_MODELS` filter the whole suite in a single run.
 - Run `pnpm build` to ensure production builds work
 - Run `pnpm format` after code changes
+- The CI e2e workflow (`.github/workflows/e2e.yml`) does NOT run automatically on pull requests, because e2e runs spend real money on provider API calls. Trigger it on demand by commenting `/e2e` on the pull request (only for maintainers/collaborators, and only for branches in this repository, not forks), or via `workflow_dispatch`.
 
 ### Service URLs (Development)
 
@@ -251,6 +256,7 @@ When creating a new package in `packages/`, include these config files. Copy the
 - Admin: http://localhost:3006
 - PostgreSQL: localhost:5432
 - Redis: localhost:6379
+- Storage Redis: localhost:6479 (only used when a `STORAGE_REDIS_*` var is set; otherwise the main Redis connection is reused)
 
 ## Folder Structure
 

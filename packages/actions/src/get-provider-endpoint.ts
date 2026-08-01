@@ -49,7 +49,7 @@ function buildVertexCompatibleEndpoint(
 	variant?: EnvVarVariant,
 ): string {
 	const endpoint = stream ? "streamGenerateContent" : "generateContent";
-	const model = externalId ?? "gemini-2.5-flash-lite";
+	const model = externalId ?? "gemini-3.1-flash-lite";
 
 	const projectId =
 		providerKeyOptions?.google_vertex_project_id ??
@@ -130,6 +130,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	embercloud: "https://api.embercloud.ai",
 	deepinfra: "https://api.deepinfra.com/v1/openai",
 	gonka24: "https://api.gonka24.com",
+	fireworks: "https://api.fireworks.ai/inference",
 };
 
 export function getProviderDefaultBaseUrl(

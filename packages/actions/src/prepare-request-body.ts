@@ -1166,8 +1166,8 @@ export async function prepareRequestBody(
 
 	// `none` reasoning effort is handled natively by a few providers:
 	// OpenAI/Azure forward it (their newer models accept it to turn reasoning
-	// off), and Google, Moonshot, Alibaba, MiniMax, Xiaomi, DeepSeek, and
-	// Z.ai reason by default so they must explicitly disable thinking when
+	// off), and Google, Moonshot, Alibaba, MiniMax, Xiaomi, DeepSeek, Fireworks,
+	// and Z.ai reason by default so they must explicitly disable thinking when
 	// asked. Every other provider treats the absence of reasoning_effort as
 	// "off" already, so normalize `none` away for them to avoid forwarding an
 	// unsupported enum value.
@@ -1185,6 +1185,7 @@ export async function prepareRequestBody(
 		usedProvider === "minimax" ||
 		usedProvider === "xiaomi" ||
 		usedProvider === "deepseek" ||
+		usedProvider === "fireworks" ||
 		usedProvider === "zai" ||
 		providerMappingForOptions?.apiFormat === "openai-chat-completions";
 	if (reasoning_effort === "none" && !handlesNoneNatively) {
@@ -1742,6 +1743,26 @@ export async function prepareRequestBody(
 		}
 		return [rest];
 	});
+
+	// The OpenAI-style `reasoning` field on replayed assistant turns is tolerated
+	// (and ignored) by most OpenAI-compatible upstreams, but Fireworks validates
+	// the message schema strictly and rejects it with "Extra inputs are not
+	// permitted, field: 'messages[N].reasoning'". This breaks every multi-turn
+	// continuation of a reasoning model. The providers that actually consume the
+	// field translate it to `reasoning_content` above, so dropping it here costs
+	// nothing. Do not "rescue" the text into `reasoning_content` instead:
+	// Fireworks accepts that field but silently discards it, so replaying an
+	// ~800-token `reasoning_content` leaves prompt_tokens byte-identical to
+	// omitting it. Any existing `reasoning_content` is left untouched below.
+	if (usedProvider === "fireworks") {
+		processedMessages = processedMessages.map((m) => {
+			if (m.reasoning === undefined) {
+				return m;
+			}
+			const { reasoning: _reasoning, ...rest } = m;
+			return rest;
+		});
+	}
 
 	// Start with a base structure that can be modified for each provider
 	const requestBody: any = {
@@ -3917,6 +3938,14 @@ export async function prepareRequestBody(
 			}
 			if (response_format) {
 				requestBody.response_format = response_format;
+			}
+
+			// Fireworks selects the processing tier with the OpenAI-compatible
+			// `service_tier` body field on its chat completions endpoint. Its
+			// schema only accepts auto/default/flex/priority, and supportedServiceTier
+			// already narrows to the tiers the catalog declares for this mapping.
+			if (usedProvider === "fireworks" && supportedServiceTier) {
+				requestBody.service_tier = supportedServiceTier;
 			}
 
 			// Vertex's OpenAI-compatible chat completions endpoint requires the

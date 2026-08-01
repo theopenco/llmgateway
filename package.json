@@ -104,9 +104,7 @@
 			"valibot@<1.4.2": "^1.4.2",
 			"body-parser@<1.20.6": "^1.20.6",
 			"body-parser@>=2 <2.3.0": "^2.3.0",
-			"brace-expansion@>=1 <1.1.16": "^1.1.16",
-			"brace-expansion@>=2 <2.1.2": "^2.1.2",
-			"brace-expansion@>=5 <5.0.8": "^5.0.8",
+			"brace-expansion@<5.0.8": "5.0.8",
 			"mermaid@>=11 <11.15.0": "^11.15.0",
 			"js-yaml@<4.3.0": "^4.3.0",
 			"mdast-util-to-hast@>=13 <13.2.1": "^13.2.1",
@@ -121,7 +119,8 @@
 			"@opentelemetry/core@<2.8.0": "^2.8.0",
 			"@opentelemetry/propagator-jaeger@<2.9.0": "^2.9.0",
 			"sharp@<0.35.0": "^0.35.0",
-			"@babel/core@<=7.29.0": "^7.29.6"
+			"@babel/core@<=7.29.0": "^7.29.6",
+			"@hono/node-server@<2.0.5": "^2.0.5"
 		},
 		"packageExtensions": {
 			"@hookform/resolvers": {
@@ -131,7 +130,8 @@
 			}
 		},
 		"patchedDependencies": {
-			"gray-matter@4.0.3": "patches/gray-matter@4.0.3.patch"
+			"gray-matter@4.0.3": "patches/gray-matter@4.0.3.patch",
+			"brace-expansion@5.0.8": "patches/brace-expansion@5.0.8.patch"
 		}
 	},
 	"dependencies": {

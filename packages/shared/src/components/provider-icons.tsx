@@ -1299,6 +1299,37 @@ export const Gonka24Icon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 	</svg>
 );
 
+export const FireworksIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
+	props,
+) => (
+	<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 88 44" {...props}>
+		<path
+			fill="#6720ff"
+			fillRule="evenodd"
+			clipRule="evenodd"
+			d="M53.9877 0 43.7701 24.485 33.5428 0h-6.5609l11.2097 26.7662c.9297 2.2333 3.1103 3.6759 5.5401 3.6759s4.6056-1.4426 5.5402-3.6663L60.5487 0zm4.366 37.305 18.6908-18.8969-2.5496-6.0146-20.4161 20.6797c-1.7062 1.7301-2.195 4.2797-1.2509 6.513.9394 2.2141 3.1104 3.6471 5.5306 3.6471l.0096.0096 29.1816-.0719-2.5496-6.0146-26.6416.1486zM10.5052 18.3937l2.5496-6.0146 20.4161 20.6797c1.7062 1.7253 2.1998 4.2845 1.2509 6.513-.9393 2.219-3.1199 3.6471-5.5306 3.6471L.00958503 43.1518 0 43.1614l2.54962-6.0146 26.64158.1486z"
+		/>
+	</svg>
+);
+
+// Square-viewBox variant for OG images: satori stretches an SVG to the given
+// width/height without preserving aspect ratio, so the wide mark is
+// letterboxed inside a square viewBox instead.
+export const FireworksIconStatic: React.FC<React.SVGProps<SVGSVGElement>> = (
+	props,
+) => (
+	<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 88 88" {...props}>
+		<g transform="translate(0, 22)">
+			<path
+				fill="#6720ff"
+				fillRule="evenodd"
+				clipRule="evenodd"
+				d="M53.9877 0 43.7701 24.485 33.5428 0h-6.5609l11.2097 26.7662c.9297 2.2333 3.1103 3.6759 5.5401 3.6759s4.6056-1.4426 5.5402-3.6663L60.5487 0zm4.366 37.305 18.6908-18.8969-2.5496-6.0146-20.4161 20.6797c-1.7062 1.7301-2.195 4.2797-1.2509 6.513.9394 2.2141 3.1104 3.6471 5.5306 3.6471l.0096.0096 29.1816-.0719-2.5496-6.0146-26.6416.1486zM10.5052 18.3937l2.5496-6.0146 20.4161 20.6797c1.7062 1.7253 2.1998 4.2845 1.2509 6.513-.9393 2.219-3.1199 3.6471-5.5306 3.6471L.00958503 43.1518 0 43.1614l2.54962-6.0146 26.64158.1486z"
+			/>
+		</g>
+	</svg>
+);
+
 export const DeepInfraIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	props,
 ) => (
@@ -1552,6 +1583,7 @@ export const ProviderIcons = {
 	sakana: SakanaIcon,
 	"scx-ai": ScxIcon,
 	gonka24: Gonka24Icon,
+	fireworks: FireworksIcon,
 	runware: RunwareIcon,
 } as const;
 
@@ -1601,6 +1633,7 @@ export const providerLogoUrls: Partial<
 	sakana: ProviderIcons.sakana,
 	"scx-ai": ProviderIcons["scx-ai"],
 	gonka24: ProviderIcons.gonka24,
+	fireworks: ProviderIcons.fireworks,
 	runware: ProviderIcons.runware,
 };
 

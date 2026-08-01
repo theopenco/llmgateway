@@ -5,7 +5,7 @@
 export const MIN_REQUESTS_FOR_STATS = 1000;
 
 // TTFT is averaged over streamed requests only — non-streaming requests never
-// record a first-token time — so it needs its own, separate sample gate. A
+// record a first-token time — so it needs its own, additional sample gate. A
 // provider can serve 5k requests with only a handful streamed, which would sail
 // past MIN_REQUESTS_FOR_STATS while resting on a 3-sample average.
 //
@@ -15,6 +15,22 @@ export const MIN_REQUESTS_FOR_STATS = 1000;
 // here would hide well-sampled TTFT from any provider whose traffic is mostly
 // non-streaming.
 export const MIN_TTFT_SAMPLES_FOR_STATS = 100;
+
+export function formatCompact(n: number): string {
+	if (n >= 1_000_000_000_000) {
+		return `${(n / 1_000_000_000_000).toFixed(1)}T`;
+	}
+	if (n >= 1_000_000_000) {
+		return `${(n / 1_000_000_000).toFixed(1)}B`;
+	}
+	if (n >= 1_000_000) {
+		return `${(n / 1_000_000).toFixed(1)}M`;
+	}
+	if (n >= 1_000) {
+		return `${(n / 1_000).toFixed(1)}k`;
+	}
+	return n.toLocaleString();
+}
 
 export function hasEnoughRequestsForStats(logsCount: number): boolean {
 	return logsCount > MIN_REQUESTS_FOR_STATS;
@@ -39,14 +55,15 @@ export function gateProviderStats(
 	const enoughRequests = hasEnoughRequestsForStats(stats.logsCount);
 	return {
 		logsCount: stats.logsCount,
-		// Uptime and throughput are averaged over every request, so they gate on
-		// the request count; TTFT gates on its own sample count.
+		// Every stat hides below the request threshold, so surfaces can show one
+		// consistent "stats hidden until N requests" state; TTFT additionally
+		// gates on its own streamed-sample count.
 		uptime: enoughRequests ? stats.uptime : null,
 		throughput: enoughRequests ? stats.throughput : null,
-		avgTimeToFirstToken: hasEnoughTtftSamplesForStats(
-			stats.timeToFirstTokenCount,
-		)
-			? stats.avgTimeToFirstToken
-			: null,
+		avgTimeToFirstToken:
+			enoughRequests &&
+			hasEnoughTtftSamplesForStats(stats.timeToFirstTokenCount)
+				? stats.avgTimeToFirstToken
+				: null,
 	};
 }
