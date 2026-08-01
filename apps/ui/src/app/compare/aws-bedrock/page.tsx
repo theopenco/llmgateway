@@ -3,6 +3,8 @@ import { HeroCompare } from "@/components/compare/hero-compare";
 import { ComparisonBedrock } from "@/components/landing/comparison-bedrock";
 import Footer from "@/components/landing/footer";
 
+import { MARKETING_STATS } from "@llmgateway/shared";
+
 import type { CompareFaqItem } from "@/components/compare/compare-faq";
 
 const bedrockFaqs: CompareFaqItem[] = [
@@ -23,8 +25,7 @@ const bedrockFaqs: CompareFaqItem[] = [
 	},
 	{
 		question: "How does pricing compare to AWS Bedrock?",
-		answer:
-			"Bedrock bills model-provider rates through your AWS account. LLM Gateway charges the same provider rates with a flat 5% platform fee on credits — or 0% when you bring your own provider keys, including AWS credentials. Self-hosting the open-source gateway is free.",
+		answer: `Bedrock bills model-provider rates through your AWS account. LLM Gateway charges the same provider rates with a flat 5% platform fee on credits — or 0% when you bring your own provider keys, including AWS credentials. Optional full data retention is billed at ${MARKETING_STATS.dataStoragePrice}. Self-hosting the open-source gateway is free.`,
 	},
 	{
 		question: "How hard is it to migrate from Bedrock to LLM Gateway?",
