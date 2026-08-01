@@ -32,7 +32,7 @@ EOF
 - A good description states the problem first, then the approach, then anything a reviewer would otherwise have to reverse-engineer (non-obvious constraints, deliberate omissions, verification performed).
 - End the body with:
 
-  ```
+  ```text
   🤖 Generated with [Claude Code](https://claude.com/claude-code)
   ```
 

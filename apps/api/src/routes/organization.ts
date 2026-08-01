@@ -1466,7 +1466,9 @@ organization.openapi(getCreditsRunway, async (c) => {
 		where: { id: { eq: id } },
 	});
 
-	if (!org) {
+	// A membership row outlives the organization it points at, so check the status
+	// here as the other org-scoped reads do.
+	if (!org || org.status === "deleted") {
 		throw new HTTPException(404, { message: "Organization not found" });
 	}
 

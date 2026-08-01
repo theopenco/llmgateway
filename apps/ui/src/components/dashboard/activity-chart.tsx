@@ -33,6 +33,7 @@ import { useApi } from "@/lib/fetch-client";
 import { getBrowserTimeZone } from "@/lib/timezone";
 
 import type { TimeRangeValue } from "@/components/time-range-picker";
+import type { GroupBy } from "@/components/usage/group-by";
 import type {
 	ActivitT,
 	ActivityApiKeyUsage,
@@ -40,8 +41,6 @@ import type {
 	ActivityUserUsage,
 } from "@/types/activity";
 import type { TooltipProps } from "recharts";
-
-type GroupBy = "model" | "apiKey" | "user";
 
 interface BreakdownSource {
 	modelBreakdown: ActivityModelUsage[];

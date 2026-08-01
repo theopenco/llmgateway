@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { apiKeyScopeFilter } from "@/lib/api-key-scope-filter.js";
 import { requireEnterpriseAdmin } from "@/lib/require-enterprise-admin.js";
+import { getUserUsageBreakdown } from "@/lib/user-usage-breakdown.js";
 import {
 	getApiKeyScope,
 	getUserProjectIds,
@@ -32,7 +33,6 @@ import {
 	projectHourlySourceStats,
 	apiKeyHourlyStats,
 	apiKeyHourlyModelStats,
-	tables,
 } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
@@ -948,70 +948,19 @@ activity.openapi(getActivity, async (c) => {
 		}
 	}
 
-	// Query the per-member breakdown only when the caller asks for it. Usage is
-	// attributed to the member who created the api key (api_key.created_by),
-	// matching the organization-wide member analytics.
+	// Query the per-member breakdown only when the caller asks for it.
 	const userBreakdownByDate = new Map<
 		string,
 		z.infer<typeof userUsageSchema>[]
 	>();
 	if (breakdownDimension === "user") {
-		const userBreakdowns = await db
-			.select({
-				date: bucketDate(
-					apiKeyHourlyStats.hourTimestamp,
-					timeZone,
-					isHourly,
-				).as("date"),
-				userId: apiKey.createdBy,
-				requestCount:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCount}), 0)`.as(
-						"requestCount",
-					),
-				inputTokens:
-					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.inputTokens} AS NUMERIC)), 0)`.as(
-						"inputTokens",
-					),
-				outputTokens:
-					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.outputTokens} AS NUMERIC)), 0)`.as(
-						"outputTokens",
-					),
-				totalTokens:
-					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
-						"totalTokens",
-					),
-				cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as(
-					"cost",
-				),
-			})
-			.from(apiKeyHourlyStats)
-			.innerJoin(apiKey, eq(apiKey.id, apiKeyHourlyStats.apiKeyId))
-			.where(
-				and(
-					inArray(apiKeyHourlyStats.projectId, projectIds),
-					inArray(apiKey.keyType, ["user", "end_user_customer"]),
-					gte(apiKeyHourlyStats.hourTimestamp, startDate),
-					lte(apiKeyHourlyStats.hourTimestamp, endDate),
-				),
-			)
-			.groupBy(sql`1, ${apiKey.createdBy}`)
-			.orderBy(sql`1 ASC, ${apiKey.createdBy} ASC`);
-
-		const creatorIds = Array.from(new Set(userBreakdowns.map((r) => r.userId)));
-		const userNames = new Map(
-			creatorIds.length
-				? (
-						await db
-							.select({
-								id: tables.user.id,
-								name: tables.user.name,
-								email: tables.user.email,
-							})
-							.from(tables.user)
-							.where(inArray(tables.user.id, creatorIds))
-					).map((u) => [u.id, u.name ?? u.email] as const)
-				: [],
-		);
+		const userBreakdowns = await getUserUsageBreakdown({
+			projectIds,
+			startDate,
+			endDate,
+			timeZone,
+			isHourly,
+		});
 
 		for (const breakdown of userBreakdowns) {
 			if (!userBreakdownByDate.has(breakdown.date)) {
@@ -1019,12 +968,12 @@ activity.openapi(getActivity, async (c) => {
 			}
 			userBreakdownByDate.get(breakdown.date)!.push({
 				id: breakdown.userId,
-				name: userNames.get(breakdown.userId) ?? "Unknown user",
-				requestCount: Number(breakdown.requestCount),
-				inputTokens: Number(breakdown.inputTokens),
-				outputTokens: Number(breakdown.outputTokens),
-				totalTokens: Number(breakdown.totalTokens),
-				cost: Number(breakdown.cost),
+				name: breakdown.name,
+				requestCount: breakdown.requestCount,
+				inputTokens: breakdown.inputTokens,
+				outputTokens: breakdown.outputTokens,
+				totalTokens: breakdown.totalTokens,
+				cost: breakdown.cost,
 			});
 		}
 	}

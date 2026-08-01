@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { requireEnterpriseAdmin } from "@/lib/require-enterprise-admin.js";
+import { getUserUsageBreakdown } from "@/lib/user-usage-breakdown.js";
 import { userHasProjectAccess } from "@/utils/authorization.js";
 import {
 	bucketDate,
@@ -1112,67 +1113,21 @@ analytics.openapi(getOrgActivity, async (c) => {
 			);
 		}
 	} else if (groupBy === "user") {
-		// Attribute each key's usage to the member who created it
-		// (api_key.created_by), matching the Teams page member breakdown.
-		const rows = await db
-			.select({
-				date: bucketDate(apiKeyHourlyStats.hourTimestamp, timeZone, false).as(
-					"date",
-				),
-				userId: tables.apiKey.createdBy,
-				cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as(
-					"cost",
-				),
-				requestCount:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCount}), 0)`.as(
-						"request_count",
-					),
-				totalTokens:
-					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
-						"total_tokens",
-					),
-			})
-			.from(apiKeyHourlyStats)
-			.innerJoin(
-				tables.apiKey,
-				eq(tables.apiKey.id, apiKeyHourlyStats.apiKeyId),
-			)
-			.where(
-				and(
-					inArray(apiKeyHourlyStats.projectId, projectIds),
-					inArray(tables.apiKey.keyType, ["user", "end_user_customer"]),
-					gte(apiKeyHourlyStats.hourTimestamp, startDate),
-					lte(apiKeyHourlyStats.hourTimestamp, endDate),
-				),
-			)
-			.groupBy(sql`1, ${tables.apiKey.createdBy}`)
-			.orderBy(sql`1 ASC`);
-
-		const creatorIds = Array.from(new Set(rows.map((row) => row.userId)));
-		const userLabels = new Map(
-			creatorIds.length
-				? (
-						await db
-							.select({
-								id: tables.user.id,
-								name: tables.user.name,
-								email: tables.user.email,
-							})
-							.from(tables.user)
-							.where(inArray(tables.user.id, creatorIds))
-					).map((u) => [u.id, u.name ?? u.email] as const)
-				: [],
-		);
+		const rows = await getUserUsageBreakdown({
+			projectIds,
+			startDate,
+			endDate,
+			timeZone,
+		});
 
 		for (const row of rows) {
-			const date = String(row.date).slice(0, 10);
 			addBreakdown(
-				date,
+				row.date.slice(0, 10),
 				row.userId,
-				userLabels.get(row.userId) ?? "Unknown user",
-				Number(row.cost),
-				Number(row.requestCount),
-				Number(row.totalTokens),
+				row.name,
+				row.cost,
+				row.requestCount,
+				row.totalTokens,
 			);
 		}
 	} else {
