@@ -12,7 +12,6 @@ export const moonshotModels = [
 				providerId: "groq",
 				externalId: "moonshotai/kimi-k2-instruct",
 				// Frequently over capacity on Groq (503)
-				// Ref: https://groqstatus.com
 				stability: "unstable",
 				inputPrice: "1.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -37,6 +36,7 @@ export const moonshotModels = [
 				requestPrice: "0",
 				contextSize: 131072,
 				maxOutput: 131072,
+				quantization: "fp8",
 				streaming: true,
 				vision: false,
 				tools: true,
@@ -117,6 +117,10 @@ export const moonshotModels = [
 			{
 				providerId: "moonshot",
 				externalId: "kimi-k2-thinking",
+				// Moonshot rejects forced tool_choice ("required"/named function)
+				// when thinking is enabled, which cannot be disabled on reasoning
+				// models. Only "auto"/"none" are accepted.
+				supportedToolChoices: ["auto", "none"],
 				inputPrice: "0.6e-6",
 				outputPrice: "2.5e-6",
 				cachedInputPrice: "0.15e-6",
@@ -166,6 +170,7 @@ export const moonshotModels = [
 			{
 				providerId: "vertex-openai",
 				externalId: "moonshotai/kimi-k2-thinking-maas",
+				deactivatedAt: new Date("2026-10-21"),
 				inputPrice: "0.6e-6",
 				cachedInputPrice: "0.06e-6",
 				outputPrice: "2.5e-6",
@@ -190,6 +195,9 @@ export const moonshotModels = [
 			{
 				providerId: "moonshot",
 				externalId: "kimi-k2-thinking-turbo",
+				// Reasoning model: forced tool_choice is rejected while thinking is
+				// on, so only "auto"/"none" are accepted.
+				supportedToolChoices: ["auto", "none"],
 				// Frequently overloaded (429 engine_overloaded_error)
 				stability: "unstable",
 				inputPrice: "1.15e-6",
@@ -218,6 +226,9 @@ export const moonshotModels = [
 			{
 				providerId: "moonshot",
 				externalId: "kimi-k2.5",
+				// Reasoning model: forced tool_choice is rejected while thinking is
+				// on, so only "auto"/"none" are accepted.
+				supportedToolChoices: ["auto", "none"],
 				inputPrice: "0.6e-6",
 				outputPrice: "3.0e-6",
 				cachedInputPrice: "0.1e-6",
@@ -225,6 +236,17 @@ export const moonshotModels = [
 				contextSize: 262144,
 				maxOutput: 32768,
 				reasoning: true,
+				// Moonshot thinking is a binary toggle (`thinking.type`), not a
+				// graduated effort: none/minimal disable it, low..max enable it.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				streaming: true,
 				vision: true,
 				tools: true,
@@ -234,14 +256,13 @@ export const moonshotModels = [
 					"response_format",
 					"tools",
 					"tool_choice",
+					"reasoning_effort",
 				],
 			},
 			{
 				providerId: "together-ai",
 				externalId: "moonshotai/Kimi-K2.5",
 				// Together.ai intermittently returns 500 for this model (~98.7% uptime)
-				// Ref: https://status.together.ai
-				// Model page: https://www.together.ai/models/kimi-k2-5
 				stability: "unstable",
 				inputPrice: "0.5e-6",
 				outputPrice: "2.8e-6",
@@ -284,6 +305,7 @@ export const moonshotModels = [
 				contextSize: 262144,
 				maxOutput: 98304,
 				reasoning: true,
+				reasoningMaxTokens: true,
 				streaming: true,
 				vision: true,
 				tools: true,
@@ -329,6 +351,7 @@ export const moonshotModels = [
 				requestPrice: "0",
 				contextSize: 256000,
 				maxOutput: 131072,
+				quantization: "fp4",
 				streaming: true,
 				reasoning: true,
 				vision: true,
@@ -348,6 +371,9 @@ export const moonshotModels = [
 			{
 				providerId: "moonshot",
 				externalId: "kimi-k2.6",
+				// Reasoning model: forced tool_choice is rejected while thinking is
+				// on, so only "auto"/"none" are accepted.
+				supportedToolChoices: ["auto", "none"],
 				inputPrice: "0.95e-6",
 				cachedInputPrice: "0.16e-6",
 				outputPrice: "4.0e-6",
@@ -355,6 +381,17 @@ export const moonshotModels = [
 				contextSize: 262144,
 				maxOutput: 262144,
 				reasoning: true,
+				// Moonshot thinking is a binary toggle (`thinking.type`), not a
+				// graduated effort: none/minimal disable it, low..max enable it.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				streaming: true,
 				vision: true,
 				tools: true,
@@ -364,11 +401,31 @@ export const moonshotModels = [
 					"response_format",
 					"tools",
 					"tool_choice",
+					"reasoning_effort",
 				],
+			},
+			{
+				providerId: "runware",
+				externalId: "moonshotai-kimi-k2-6",
+				inputPrice: "0.6e-6",
+				outputPrice: "3.05e-6",
+				cachedInputPrice: "0.13e-6",
+				requestPrice: "0",
+				contextSize: 262144,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
 			},
 			{
 				providerId: "canopywave",
 				externalId: "moonshotai/kimi-k2.6",
+				// canopywave's kimi-k2.6 deployment 503s on every request ("No
+				// available prefill workers") while other models on the same key
+				// work (verified 2026-07-14)
+				stability: "unstable",
 				inputPrice: "0.5e-6",
 				cachedInputPrice: "0.1e-6",
 				outputPrice: "2.8e-6",
@@ -413,8 +470,26 @@ export const moonshotModels = [
 				jsonOutput: false,
 			},
 			{
+				providerId: "gonka24",
+				externalId: "kimi-k2.6",
+				inputPrice: "0.22e-6",
+				cachedInputPrice: "0.048e-6",
+				outputPrice: "1.137e-6",
+				requestPrice: "0",
+				contextSize: 262144,
+				maxOutput: 98304,
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
 				providerId: "tundra",
 				externalId: "kimi-k2.6",
+				// Tundra rejects tool_choice="required" with a 400; named/forced
+				// function choice works, so allow everything except "required".
+				supportedToolChoices: ["auto", "none", "function"],
 				inputPrice: "0.4e-6",
 				cachedInputPrice: "0.08e-6",
 				outputPrice: "2.2e-6",
@@ -430,9 +505,37 @@ export const moonshotModels = [
 				// keeps streaming content clean (reasoning_content -> reasoning) yet
 				// does not require structured reasoning to be returned.
 				reasoningOutput: "omit",
+				// Tundra's kimi-k2.6 deployment rejects image inputs with a 400
+				// ("image_url content is not supported for this model") even though
+				// the model is vision-capable on other providers (verified
+				// 2026-07-19), so route image requests elsewhere.
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
+				providerId: "nebius",
+				externalId: "moonshotai/Kimi-K2.6",
+				// Streaming tool calls are unreliable on this deployment: required
+				// choices can end without a tool call, while named choices can leak raw
+				// control tokens into argument deltas (verified 2026-07-22).
+				stability: "unstable",
+				// Only auto and none produced consistently valid streaming responses.
+				supportedToolChoices: ["auto", "none"],
+				inputPrice: "0.95e-6",
+				outputPrice: "4.0e-6",
+				requestPrice: "0",
+				contextSize: 262144,
+				maxOutput: undefined,
+				quantization: "int4",
+				streaming: true,
+				reasoning: true,
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				// JSON mode has intermittently returned markdown-fenced JSON, so
+				// normalize it defensively in both modes.
+				healStreamingJsonOutput: true,
 			},
 		],
 	},
@@ -447,6 +550,9 @@ export const moonshotModels = [
 			{
 				providerId: "moonshot",
 				externalId: "kimi-k2.7-code",
+				// Reasoning model: forced tool_choice is rejected while thinking is
+				// on, so only "auto"/"none" are accepted.
+				supportedToolChoices: ["auto", "none"],
 				inputPrice: "0.95e-6",
 				cachedInputPrice: "0.19e-6",
 				outputPrice: "4.0e-6",
@@ -454,6 +560,9 @@ export const moonshotModels = [
 				contextSize: 262144,
 				maxOutput: 262144,
 				reasoning: true,
+				// Thinking is always on for kimi-k2.7-code; `thinking.type:
+				// "disabled"` errors upstream, so `none`/`minimal` are not offered.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				streaming: true,
 				vision: true,
 				tools: true,
@@ -463,7 +572,27 @@ export const moonshotModels = [
 					"response_format",
 					"tools",
 					"tool_choice",
+					"reasoning_effort",
 				],
+			},
+			{
+				providerId: "nebius",
+				externalId: "moonshotai/Kimi-K2.7-Code",
+				inputPrice: "0.95e-6",
+				outputPrice: "4.0e-6",
+				requestPrice: "0",
+				// The model card advertises 256K context, and Nebius accepted an
+				// 84K-token prompt live (verified 2026-07-22).
+				contextSize: 262144,
+				maxOutput: undefined,
+				quantization: "fp4",
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: true,
+				// JSON mode returns the object in reasoning_content with empty
+				// content on this deployment (verified 2026-07-22).
+				jsonOutput: false,
 			},
 		],
 	},
@@ -478,6 +607,9 @@ export const moonshotModels = [
 			{
 				providerId: "moonshot",
 				externalId: "kimi-k2.7-code-highspeed",
+				// Reasoning model: forced tool_choice is rejected while thinking is
+				// on, so only "auto"/"none" are accepted.
+				supportedToolChoices: ["auto", "none"],
 				inputPrice: "1.9e-6",
 				cachedInputPrice: "0.38e-6",
 				outputPrice: "8.0e-6",
@@ -485,11 +617,200 @@ export const moonshotModels = [
 				contextSize: 262144,
 				maxOutput: 262144,
 				reasoning: true,
+				// Thinking is always on for kimi-k2.7-code-highspeed; `thinking.type:
+				// "disabled"` errors upstream, so `none`/`minimal` are not offered.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				streaming: true,
 				vision: true,
 				tools: true,
 				jsonOutput: false,
-				supportedParameters: ["max_tokens", "tools", "tool_choice"],
+				supportedParameters: [
+					"max_tokens",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
+			},
+		],
+	},
+	{
+		id: "kimi-k3",
+		name: "Kimi K3",
+		description:
+			"Kimi's flagship model for long-horizon coding and end-to-end knowledge work with a 1M-token context window.",
+		family: "moonshot",
+		releasedAt: new Date("2026-07-16"),
+		providers: [
+			{
+				providerId: "moonshot",
+				externalId: "kimi-k3",
+				inputPrice: "3.0e-6",
+				cachedInputPrice: "0.3e-6",
+				outputPrice: "15.0e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 1048576,
+				reasoning: true,
+				// K3 always thinks; the effort level is set via the native
+				// top-level `reasoning_effort` field (no K2-era `thinking`
+				// toggle), which currently accepts only "max".
+				reasoningEfforts: ["max"],
+				streaming: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
+			},
+			{
+				providerId: "novita",
+				externalId: "moonshotai/kimi-k3",
+				inputPrice: "3.0e-6",
+				cachedInputPrice: "0.3e-6",
+				outputPrice: "15.0e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 1048576,
+				streaming: true,
+				reasoning: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
+				providerId: "together-ai",
+				externalId: "moonshotai/Kimi-K3",
+				inputPrice: "3.0e-6",
+				cachedInputPrice: "0.3e-6",
+				outputPrice: "15.0e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 1000000,
+				quantization: "fp4",
+				streaming: true,
+				reasoning: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
+				providerId: "nebius",
+				externalId: "moonshotai/Kimi-K3",
+				// Named tool choice is rejected with a 400 ("Named tool choice is not
+				// supported for Kimi K3"), and "required" is silently broken: the
+				// upstream emits the call as text in `reasoning_content` and returns
+				// `finish_reason: "stop"` with no `tool_calls`.
+				supportedToolChoices: ["auto", "none"],
+				inputPrice: "3.0e-6",
+				outputPrice: "15.0e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 1048576,
+				quantization: "fp4",
+				streaming: true,
+				reasoning: true,
+				vision: true,
+				tools: true,
+				// `response_format: {"type": "json_object"}` routes the whole answer
+				// into `reasoning_content` and leaves `content` empty on this
+				// deployment, so JSON mode is unusable here.
+				jsonOutput: false,
+				// The endpoint intermittently stalls: roughly one in eight simple
+				// requests takes ~35s instead of the usual ~2s, and reasoning streams
+				// occasionally run past 120s without completing. together-ai serves
+				// the same model at the same price with steady ~2s latency, so keep
+				// nebius out of automatic provider selection (it stays usable when
+				// pinned explicitly) and out of the e2e suite, where the stalls blow
+				// the per-test timeout budget.
+				stability: "unstable",
+				test: "skip",
+			},
+			{
+				providerId: "fireworks",
+				externalId: "accounts/fireworks/models/kimi-k3",
+				inputPrice: "3.0e-6",
+				cachedInputPrice: "0.3e-6",
+				outputPrice: "15.0e-6",
+				requestPrice: "0",
+				// Fireworks publishes a Priority rate card for Kimi K3 at exactly
+				// 1.25x the standard rates ($3.75 / $0.375 / $18.75 per million),
+				// which is the provider-level multiplier — no override needed.
+				serviceTiers: ["priority"],
+				contextSize: 1040384,
+				maxOutput: 1040384,
+				streaming: true,
+				reasoning: true,
+				// Unlike the native Moonshot deployment (which only takes "max"),
+				// Fireworks accepts the full effort enum and rejects "minimal".
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
+				providerId: "canopywave",
+				externalId: "moonshotai/kimi-k3",
+				// A named function choice is rejected with a 400 ("tool_choice
+				// 'specified' is incompatible with thinking enabled"); "required"
+				// works and reliably returns a tool call.
+				supportedToolChoices: ["auto", "none", "required"],
+				inputPrice: "3.0e-6",
+				cachedInputPrice: "0.3e-6",
+				outputPrice: "15.0e-6",
+				requestPrice: "0",
+				// A 300K-token prompt was served correctly; prompts beyond ~1M are
+				// rejected with a 429 because the upstream TPM quota is 1M.
+				contextSize: 1048576,
+				maxOutput: 1048576,
+				streaming: true,
+				reasoning: true,
+				// This deployment accepts every effort tier, including "none"
+				// (which returns zero reasoning tokens) and "minimal".
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
+		],
+	},
+	{
+		id: "kimi-k3-fast",
+		name: "Kimi K3 Fast",
+		description:
+			"Kimi K3 served on Fireworks' low-latency Fast router, trading a higher token price for faster generation.",
+		family: "moonshot",
+		releasedAt: new Date("2026-07-16"),
+		providers: [
+			{
+				providerId: "fireworks",
+				externalId: "accounts/fireworks/routers/kimi-k3-fast",
+				inputPrice: "4.5e-6",
+				cachedInputPrice: "0.45e-6",
+				outputPrice: "22.5e-6",
+				requestPrice: "0",
+				contextSize: 1040384,
+				maxOutput: 1040384,
+				streaming: true,
+				reasoning: true,
+				// Like the standard Fireworks deployment, the full effort enum is
+				// accepted and "minimal" is rejected with a 400.
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
 			},
 		],
 	},

@@ -10,6 +10,8 @@ date: 2026-06-08
 
 Kimi Code features first-class support for the **models.dev** registry, a community-maintained model catalog. This allows Kimi Code to query and configure LLM Gateway dynamically — fetching all compatible models, capabilities (such as thinking or vision), and pricing without requiring manual TOML editing.
 
+> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
+
 ## Prerequisites
 
 - An LLM Gateway API key — [sign up free](/signup) (no credit card required)
@@ -138,7 +140,7 @@ display_name = "Qwen3.7 Max"
 
 ## Why Use LLM Gateway with Kimi Code CLI?
 
-- **280+ models** — Access GPT-5.5, Gemini, Llama, DeepSeek, and more in a single CLI configuration.
+- **200+ models** — Access GPT-5.5, Gemini, Llama, DeepSeek, and more in a single CLI configuration.
 - **Unified cost tracking** — Get a detailed breakdown of costs per prompt and session in your dashboard.
 - **Response caching** — Automatically cache repeated requests (such as parsing or building commands) to save API costs.
 - **Automatic fallback** — Keep coding even if a provider encounters temporary downtime.

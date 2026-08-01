@@ -15,13 +15,17 @@ import { z } from "zod";
 
 import { PLAYGROUND_KEY_COOKIE_NAME } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
-import { getModelImageConfig } from "@/lib/image-gen";
+import {
+	describeImageGenerationError,
+	getModelImageConfig,
+} from "@/lib/image-gen";
 import {
 	isRecord,
 	readNumber,
 	readString,
 	type PlaygroundMessageMetadata,
 } from "@/lib/message-metadata";
+import { fetchServerData } from "@/lib/server-api";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 
@@ -75,8 +79,7 @@ interface PlaygroundMetadataFinishStepPart {
 }
 
 type PlaygroundMetadataStreamPart =
-	| PlaygroundMetadataFinishStepPart
-	| { type: string };
+	PlaygroundMetadataFinishStepPart | { type: string };
 
 type GatewayResponseMetadata = Pick<
 	PlaygroundMessageMetadata,
@@ -523,6 +526,21 @@ function isImageFilePart(value: unknown): value is ImageFilePart {
 	);
 }
 
+// Joined text parts of the latest user message, e.g. for image prompts and
+// knowledge base retrieval queries.
+function getLastUserText(messages: UIMessage[]): string {
+	const lastUserMessage = [...messages]
+		.reverse()
+		.find((m) => m.role === "user");
+	if (!Array.isArray(lastUserMessage?.parts)) {
+		return "";
+	}
+	return lastUserMessage.parts
+		.filter((p): p is { type: "text"; text: string } => p.type === "text")
+		.map((p) => p.text)
+		.join("\n");
+}
+
 interface ChatRequestBody {
 	messages: UIMessage[];
 	model?: string;
@@ -556,12 +574,82 @@ interface ChatRequestBody {
 	is_image_gen?: boolean;
 	temporary_chat?: boolean;
 	skill_instructions?: string;
+	project_id?: string;
+}
+
+interface ProjectRetrievalResponse {
+	project: {
+		id: string;
+		name: string;
+		instructions: string;
+	};
+	chunks: {
+		content: string;
+		score: number;
+		fileId: string;
+		fileName: string;
+	}[];
+	memories: string[];
 }
 
 interface McpClientWrapper {
 	client: Awaited<ReturnType<typeof createMCPClient>>;
 	name: string;
 }
+
+/**
+ * Wrap an SSE body with periodic `: ping` comment lines so proxies and load
+ * balancers don't cut the connection during long silent stretches (tool
+ * calls, reasoning, image generation). Uses a push-based ReadableStream with
+ * setInterval so pings flush independently of consumer backpressure.
+ */
+function withSseKeepalive(
+	body: ReadableStream<Uint8Array | string>,
+	intervalMs: number,
+): ReadableStream<Uint8Array> {
+	const encoder = new TextEncoder();
+	const reader = body.getReader();
+	let keepaliveTimer: ReturnType<typeof setInterval> | undefined;
+
+	return new ReadableStream<Uint8Array>({
+		start(controller) {
+			keepaliveTimer = setInterval(() => {
+				try {
+					controller.enqueue(encoder.encode(": ping\n\n"));
+				} catch {
+					// Stream already closed, clean up.
+					clearInterval(keepaliveTimer);
+				}
+			}, intervalMs);
+
+			// Read upstream chunks in a loop and forward them.
+			void (async () => {
+				try {
+					while (true) {
+						const { done, value } = await reader.read();
+						if (done) {
+							clearInterval(keepaliveTimer);
+							controller.close();
+							return;
+						}
+						controller.enqueue(
+							typeof value === "string" ? encoder.encode(value) : value,
+						);
+					}
+				} catch (err) {
+					clearInterval(keepaliveTimer);
+					controller.error(err);
+				}
+			})();
+		},
+		cancel() {
+			clearInterval(keepaliveTimer);
+			void reader.cancel();
+		},
+	});
+}
+
+const KEEPALIVE_INTERVAL_MS = 15_000;
 
 export async function POST(req: Request) {
 	const user = await getUser();
@@ -584,6 +672,7 @@ export async function POST(req: Request) {
 		mcp_servers,
 		is_image_gen,
 		skill_instructions,
+		project_id,
 	}: ChatRequestBody = body;
 
 	if (!messages || !Array.isArray(messages)) {
@@ -609,6 +698,12 @@ export async function POST(req: Request) {
 			JSON.stringify({ error: "Invalid skill_instructions" }),
 			{ status: 400 },
 		);
+	}
+
+	if (project_id !== undefined && typeof project_id !== "string") {
+		return new Response(JSON.stringify({ error: "Invalid project_id" }), {
+			status: 400,
+		});
 	}
 
 	const headerApiKey = req.headers.get("x-llmgateway-key") ?? undefined;
@@ -724,12 +819,7 @@ export async function POST(req: Request) {
 			const fileParts: { url: string; mediaType: string }[] = [];
 			if (lastUserMessage) {
 				if (Array.isArray(lastUserMessage.parts)) {
-					prompt = lastUserMessage.parts
-						.filter(
-							(p): p is { type: "text"; text: string } => p.type === "text",
-						)
-						.map((p) => p.text)
-						.join("\n");
+					prompt = getLastUserText(messages);
 					for (const p of lastUserMessage.parts) {
 						if (fileParts.length >= maxInputImages) {
 							break;
@@ -781,7 +871,12 @@ export async function POST(req: Request) {
 				);
 			}
 
-			const result = await generateImage({
+			// Kick off generation without awaiting so the stream response (and
+			// its SSE bytes) starts flowing immediately. Image generation can
+			// run for minutes (gpt-image-2 at high quality); awaiting here
+			// buffers the whole response and lets proxies kill the idle
+			// connection while the gateway request still completes.
+			const generation = generateImage({
 				model: llmgateway.image(selectedModel),
 				prompt:
 					fileParts.length > 0
@@ -802,6 +897,11 @@ export async function POST(req: Request) {
 						}
 					: {}),
 			});
+			// Safety net: nothing awaits `generation` until execute() runs, so
+			// attach a no-op rejection handler in case stream setup throws
+			// first. execute still awaits the original promise, so errors
+			// reach onError as usual.
+			generation.catch(() => {});
 
 			const stream = createUIMessageStream({
 				execute: async ({ writer }) => {
@@ -810,6 +910,7 @@ export async function POST(req: Request) {
 						messageId: crypto.randomUUID(),
 					});
 					writer.write({ type: "start-step" });
+					const result = await generation;
 					for (const image of result.images) {
 						const mediaType = image.mediaType || "image/png";
 						writer.write({
@@ -821,40 +922,78 @@ export async function POST(req: Request) {
 					writer.write({ type: "finish-step" });
 					writer.write({ type: "finish", finishReason: "stop" });
 				},
+				onError: (error) => describeImageGenerationError(error).message,
 			});
 
-			return createUIMessageStreamResponse({ stream });
-		} catch (error: unknown) {
-			const status =
-				typeof error === "object" &&
-				error !== null &&
-				"status" in error &&
-				typeof (error as { status: unknown }).status === "number"
-					? (error as { status: number }).status
-					: 500;
-
-			const message =
-				error instanceof Error ? error.message : "Image generation failed";
-
-			let detailedMessage: string | undefined;
-			if (typeof error === "object" && error !== null) {
-				const err = error as Record<string, unknown>;
-				if (typeof err.responseBody === "string") {
-					try {
-						const body = JSON.parse(err.responseBody);
-						if (typeof body.message === "string") {
-							detailedMessage = body.message;
-						}
-					} catch {
-						// ignore parse errors
-					}
-				}
+			// Mirror the chat path's SSE keepalive so proxies don't cut the
+			// connection while the image model works.
+			const sseResponse = createUIMessageStreamResponse({ stream });
+			const upstreamBody = sseResponse.body;
+			if (!upstreamBody) {
+				return sseResponse;
 			}
 
 			return new Response(
-				JSON.stringify({ error: detailedMessage ?? message }),
-				{ status },
+				withSseKeepalive(upstreamBody, KEEPALIVE_INTERVAL_MS),
+				{
+					status: sseResponse.status,
+					headers: sseResponse.headers,
+				},
 			);
+		} catch (error: unknown) {
+			const { message, status } = describeImageGenerationError(error);
+			return new Response(JSON.stringify({ error: message }), { status });
+		}
+	}
+
+	// Project (knowledge base) context: retrieve the chunks most relevant to
+	// the latest user message plus the project's instructions and memories, and
+	// prepend them to the system prompt. Retrieval failures degrade to a normal
+	// chat.
+	let projectContext: string | undefined;
+	// Kept for memory extraction after the stream finishes.
+	let projectQueryText = "";
+	if (project_id) {
+		projectQueryText = getLastUserText(messages).slice(0, 10_000);
+		const retrieval = await fetchServerData<ProjectRetrievalResponse>(
+			"POST",
+			"/chat-projects/{id}/retrieve",
+			{
+				params: { path: { id: project_id } },
+				body: {
+					query: projectQueryText.trim() || "Project knowledge base overview",
+				},
+				// Bill the query embedding to the same gateway key as the chat.
+				headers: { "x-llmgateway-key": finalApiKey },
+				// Don't let a slow retrieval stall the chat; on timeout the
+				// request proceeds without project context.
+				signal: AbortSignal.timeout(15_000),
+			},
+		);
+		if (retrieval) {
+			const sections: string[] = [];
+			if (retrieval.project.instructions.trim()) {
+				sections.push(
+					`Project instructions:\n${retrieval.project.instructions}`,
+				);
+			}
+			if (retrieval.memories?.length) {
+				sections.push(
+					`Project memory — durable facts saved from earlier chats in this project:\n${retrieval.memories
+						.map((memory) => `- ${memory}`)
+						.join("\n")}`,
+				);
+			}
+			if (retrieval.chunks.length) {
+				sections.push(
+					`Relevant excerpts from the project's knowledge base files. Ground your answer in these excerpts and mention the source file when you use one:\n\n${retrieval.chunks
+						.map((chunk) => `[Source: ${chunk.fileName}]\n${chunk.content}`)
+						.join("\n\n---\n\n")}`,
+				);
+			}
+			if (sections.length) {
+				projectContext = `You are answering inside the project "${retrieval.project.name}".\n\n${sections.join("\n\n")}`;
+			}
 		}
 	}
 
@@ -1134,8 +1273,9 @@ export async function POST(req: Request) {
 			)
 			.join("\n\n");
 		const resolvedSystem =
-			[existingSystem, skill_instructions].filter(Boolean).join("\n\n") ||
-			undefined;
+			[existingSystem, skill_instructions, projectContext]
+				.filter(Boolean)
+				.join("\n\n") || undefined;
 		const result = streamText({
 			model: llmgateway.chat(selectedModel, { usage: { include: true } }),
 			messages: await convertToModelMessages(
@@ -1143,7 +1283,7 @@ export async function POST(req: Request) {
 			),
 			...(resolvedSystem ? { system: resolvedSystem } : {}),
 			...(hasTools ? { tools: allTools, maxSteps: 10 } : {}),
-			onFinish: async () => {
+			onFinish: async ({ text }) => {
 				// Clean up MCP clients when streaming is done
 				for (const { client } of mcpClients) {
 					try {
@@ -1151,6 +1291,27 @@ export async function POST(req: Request) {
 					} catch {
 						// Ignore close errors
 					}
+				}
+
+				// Fire-and-forget memory extraction from this exchange; failures
+				// never affect the chat response.
+				if (
+					project_id &&
+					body.temporary_chat !== true &&
+					projectQueryText.trim() &&
+					text?.trim()
+				) {
+					void fetchServerData("POST", "/chat-projects/{id}/memories/extract", {
+						params: { path: { id: project_id } },
+						body: {
+							userMessage: projectQueryText.slice(0, 8000),
+							assistantMessage: text.slice(0, 8000),
+						},
+						// Bill the extraction model call to the same gateway key
+						// as the chat.
+						headers: { "x-llmgateway-key": finalApiKey },
+						signal: AbortSignal.timeout(90_000),
+					});
 				}
 			},
 		});
@@ -1208,46 +1369,10 @@ export async function POST(req: Request) {
 
 		// Add SSE keepalive comments (`: ping`) to prevent proxy/load balancer
 		// timeouts on long-running requests (e.g. tool calls, reasoning).
-		// Uses a push-based ReadableStream with setInterval so that pings are
-		// flushed to the response independently of consumer backpressure.
-		const KEEPALIVE_INTERVAL_MS = 15_000;
-		const encoder = new TextEncoder();
-		const reader = sseStream.getReader();
-
-		const streamWithKeepalive = new ReadableStream<Uint8Array>({
-			start(controller) {
-				// Send a keepalive ping every KEEPALIVE_INTERVAL_MS.
-				const keepaliveTimer = setInterval(() => {
-					try {
-						controller.enqueue(encoder.encode(": ping\n\n"));
-					} catch {
-						// Stream already closed, clean up.
-						clearInterval(keepaliveTimer);
-					}
-				}, KEEPALIVE_INTERVAL_MS);
-
-				// Read upstream chunks in a loop and forward them.
-				void (async () => {
-					try {
-						while (true) {
-							const { done, value } = await reader.read();
-							if (done) {
-								clearInterval(keepaliveTimer);
-								controller.close();
-								return;
-							}
-							controller.enqueue(encoder.encode(value));
-						}
-					} catch (err) {
-						clearInterval(keepaliveTimer);
-						controller.error(err);
-					}
-				})();
-			},
-			cancel() {
-				void reader.cancel();
-			},
-		});
+		const streamWithKeepalive = withSseKeepalive(
+			sseStream,
+			KEEPALIVE_INTERVAL_MS,
+		);
 
 		return new Response(streamWithKeepalive, {
 			headers: {

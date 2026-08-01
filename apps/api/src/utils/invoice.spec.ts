@@ -3,7 +3,13 @@ import * as path from "node:path";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { generateAndEmailInvoice, generateInvoicePDF } from "./invoice.js";
+import {
+	buildInvoiceDataForTransaction,
+	generateAndEmailInvoice,
+	generateInvoicePDF,
+	isInvoiceableTransaction,
+	isRefundTransaction,
+} from "./invoice.js";
 
 import type { InvoiceData } from "./invoice.js";
 
@@ -398,5 +404,211 @@ describe("generateAndEmailInvoice", () => {
 				]),
 			}),
 		);
+	});
+});
+
+describe("isInvoiceableTransaction", () => {
+	it("returns true for a completed, positive-amount charge", () => {
+		expect(
+			isInvoiceableTransaction({ status: "completed", amount: "19.00" }),
+		).toBe(true);
+	});
+
+	it("returns false for non-completed transactions", () => {
+		expect(
+			isInvoiceableTransaction({ status: "pending", amount: "19.00" }),
+		).toBe(false);
+		expect(
+			isInvoiceableTransaction({ status: "failed", amount: "19.00" }),
+		).toBe(false);
+	});
+
+	it("returns false when there is no positive amount", () => {
+		expect(
+			isInvoiceableTransaction({ status: "completed", amount: null }),
+		).toBe(false);
+		expect(isInvoiceableTransaction({ status: "completed", amount: "0" })).toBe(
+			false,
+		);
+		expect(
+			isInvoiceableTransaction({ status: "completed", amount: "-5.00" }),
+		).toBe(false);
+	});
+});
+
+describe("buildInvoiceDataForTransaction", () => {
+	const org = {
+		id: "org-1",
+		name: "Test Organization",
+		billingEmail: "billing@example.com",
+		billingCompany: "Test Co",
+		billingAddress: "123 Main St",
+		billingTaxId: "TAX-1",
+		billingNotes: "note",
+	};
+
+	it("uses the transaction id and date as invoice identity", () => {
+		const data = buildInvoiceDataForTransaction(
+			{
+				id: "tx-1",
+				type: "chat_plan_start",
+				amount: "19.00",
+				currency: "USD",
+				description: "Chat Plan PRO started via Stripe Checkout",
+				createdAt: new Date("2026-01-15"),
+				status: "completed",
+			},
+			org,
+		);
+
+		expect(data.invoiceNumber).toBe("tx-1");
+		expect(data.invoiceDate).toEqual(new Date("2026-01-15"));
+		expect(data.organizationId).toBe("org-1");
+		expect(data.billingCompany).toBe("Test Co");
+		expect(data.currency).toBe("USD");
+		expect(data.lineItems).toEqual([
+			{
+				description: "Chat Plan PRO started via Stripe Checkout",
+				amount: 19,
+			},
+		]);
+		expect(data.documentType).toBe("invoice");
+	});
+
+	it("marks refunds as a credit note with a negative net total and original context", () => {
+		const data = buildInvoiceDataForTransaction(
+			{
+				id: "tx-refund",
+				type: "credit_refund",
+				amount: "50.00",
+				currency: "USD",
+				description: "Credit refund: $50.00 (25.0% of original purchase)",
+				createdAt: new Date("2026-04-01"),
+				status: "completed",
+				relatedTransactionId: "tx-original",
+			},
+			org,
+			{ amount: "200.00", description: "Credit Top-up" },
+		);
+
+		expect(data.documentType).toBe("credit_note");
+		expect(data.originalAmount).toBe(200);
+		expect(data.refundPercentage).toBe(25);
+		expect(data.lineItems).toEqual([
+			{ description: "Refund — Credit Top-up", amount: -50 },
+		]);
+	});
+
+	it("falls back to the refund description when the original is unknown", () => {
+		const data = buildInvoiceDataForTransaction(
+			{
+				id: "tx-refund-2",
+				type: "end_user_refund",
+				amount: "5.00",
+				currency: "USD",
+				description: "End-user top-up refund",
+				createdAt: new Date("2026-04-02"),
+				status: "completed",
+			},
+			org,
+		);
+
+		expect(data.documentType).toBe("credit_note");
+		expect(data.originalAmount).toBeUndefined();
+		expect(data.refundPercentage).toBeUndefined();
+		expect(data.lineItems).toEqual([
+			{ description: "End-user top-up refund", amount: -5 },
+		]);
+	});
+
+	it("falls back to a type label when the transaction has no description", () => {
+		const data = buildInvoiceDataForTransaction(
+			{
+				id: "tx-2",
+				type: "credit_topup",
+				amount: "50.00",
+				currency: "USD",
+				description: null,
+				createdAt: new Date("2026-02-01"),
+				status: "completed",
+			},
+			org,
+		);
+
+		expect(data.lineItems).toEqual([
+			{ description: "Credit Top-up", amount: 50 },
+		]);
+	});
+
+	it("produces a renderable PDF", () => {
+		const data = buildInvoiceDataForTransaction(
+			{
+				id: "tx-3",
+				type: "dev_plan_start",
+				amount: "25.00",
+				currency: "USD",
+				description: null,
+				createdAt: new Date("2026-03-01"),
+				status: "completed",
+			},
+			org,
+		);
+
+		const pdf = generateInvoicePDF(data);
+		expect(pdf).toBeInstanceOf(Buffer);
+		expect(pdf.length).toBeGreaterThan(0);
+	});
+
+	it("renders a refund as a credit note with original amount and negative total", () => {
+		const data = buildInvoiceDataForTransaction(
+			{
+				id: "tx-refund-pdf",
+				type: "credit_refund",
+				amount: "50.00",
+				currency: "USD",
+				description: "Credit refund",
+				createdAt: new Date("2026-05-01"),
+				status: "completed",
+				relatedTransactionId: "tx-original",
+			},
+			org,
+			{ amount: "200.00", description: "Credit Top-up" },
+		);
+
+		const pdfContent = generateInvoicePDF(data).toString("latin1");
+		expect(pdfContent).toContain("CREDIT NOTE");
+		expect(pdfContent).toContain("Credit Note Number: tx-refund-pdf");
+		expect(pdfContent).toContain("Original amount: USD 200.00");
+		expect(pdfContent).toContain("Refunded: 25.0% of original purchase");
+		// negative net total
+		expect(pdfContent).toContain("USD -50.00");
+	});
+
+	it("allows negative line item amounts for credit notes", () => {
+		expect(() =>
+			generateInvoicePDF({
+				invoiceNumber: "cn-1",
+				invoiceDate: new Date("2026-05-01"),
+				organizationName: "Org",
+				organizationId: "org-1",
+				billingEmail: "b@example.com",
+				lineItems: [{ description: "Refund", amount: -10 }],
+				currency: "USD",
+				documentType: "credit_note",
+			}),
+		).not.toThrow();
+	});
+});
+
+describe("isRefundTransaction", () => {
+	it("is true for refund transaction types", () => {
+		expect(isRefundTransaction("credit_refund")).toBe(true);
+		expect(isRefundTransaction("end_user_refund")).toBe(true);
+	});
+
+	it("is false for charge transaction types", () => {
+		expect(isRefundTransaction("credit_topup")).toBe(false);
+		expect(isRefundTransaction("chat_plan_start")).toBe(false);
+		expect(isRefundTransaction("dev_plan_start")).toBe(false);
 	});
 });

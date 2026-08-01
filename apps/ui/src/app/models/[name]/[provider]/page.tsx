@@ -9,7 +9,7 @@ import {
 	Braces,
 } from "lucide-react";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
@@ -25,11 +25,8 @@ import { ModelRating } from "@/components/models/model-rating";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { Badge } from "@/lib/components/badge";
-import {
-	buildRatingSchema,
-	digitalOfferFields,
-	type ModelRatingsData,
-} from "@/lib/rating-schema";
+import { findEffectiveProviderDiscount } from "@/lib/discount";
+import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
 import { fetchServerData } from "@/lib/server-api";
 
 import {
@@ -39,6 +36,7 @@ import {
 	type StabilityLevel,
 	type ModelDefinition,
 } from "@llmgateway/models";
+import { isMappingDeactivated } from "@llmgateway/shared/components";
 
 import type { Metadata } from "next";
 
@@ -66,7 +64,9 @@ export default async function ModelProviderPage({ params }: PageProps) {
 	);
 
 	if (providerMappings.length === 0) {
-		notFound();
+		// The model exists but this provider mapping was removed; send crawlers
+		// and old links to the model page instead of a 404.
+		permanentRedirect(`/models/${encodeURIComponent(decodedName)}`);
 	}
 
 	const staticProviderMapping = providerMappings[0];
@@ -87,66 +87,19 @@ export default async function ModelProviderPage({ params }: PageProps) {
 		}),
 	]);
 	const discounts = discountData?.discounts ?? [];
-	const globalDiscount = (() => {
-		const providerModel = discounts.find(
-			(d) => d.provider === decodedProvider && d.model === decodedName,
-		);
-		if (providerModel) {
-			return providerModel.discountPercent;
-		}
-		const providerOnly = discounts.find(
-			(d) => d.provider === decodedProvider && d.model === null,
-		);
-		if (providerOnly) {
-			return providerOnly.discountPercent;
-		}
-		const modelOnly = discounts.find(
-			(d) => d.provider === null && d.model === decodedName,
-		);
-		if (modelOnly) {
-			return modelOnly.discountPercent;
-		}
-		const fullyGlobal = discounts.find(
-			(d) => d.provider === null && d.model === null,
-		);
-		if (fullyGlobal) {
-			return fullyGlobal.discountPercent;
-		}
-		return undefined;
-	})();
+	// A provider whose mappings are all deactivated still renders this page, but
+	// nothing can be routed to it — so it must not advertise a discounted price.
+	const hasRoutableMapping = providerMappings.some(
+		(mapping) => !isMappingDeactivated(mapping),
+	);
+	const bannerDiscount = hasRoutableMapping
+		? findEffectiveProviderDiscount(discounts, decodedProvider, decodedName)
+		: null;
 
 	const providerMapping = {
 		...staticProviderMapping,
-		discount: globalDiscount,
+		discount: bannerDiscount?.discountPercent,
 	};
-
-	const bannerDiscount: DiscountData | null = (() => {
-		const providerModel = discounts.find(
-			(d) => d.provider === decodedProvider && d.model === decodedName,
-		);
-		if (providerModel) {
-			return providerModel;
-		}
-		const providerOnly = discounts.find(
-			(d) => d.provider === decodedProvider && d.model === null,
-		);
-		if (providerOnly) {
-			return providerOnly;
-		}
-		const modelOnly = discounts.find(
-			(d) => d.provider === null && d.model === decodedName,
-		);
-		if (modelOnly) {
-			return modelOnly;
-		}
-		const fullyGlobal = discounts.find(
-			(d) => d.provider === null && d.model === null,
-		);
-		if (fullyGlobal) {
-			return fullyGlobal;
-		}
-		return null;
-	})();
 
 	const getStabilityBadgeProps = (stability?: StabilityLevel) => {
 		switch (stability) {
@@ -222,10 +175,16 @@ export default async function ModelProviderPage({ params }: PageProps) {
 			"@type": "Brand",
 			name: providerInfo?.name ?? decodedProvider,
 		},
+		// AggregateOffer (not a single Offer) keeps this page a product
+		// snippet instead of a merchant-listing candidate, so Google does not
+		// require shippingDetails/hasMerchantReturnPolicy — fields that don't
+		// apply to a digital API product.
 		offers: {
-			"@type": "Offer",
+			"@type": "AggregateOffer",
 			priceCurrency: "USD",
-			price: providerMapping.inputPrice ?? 0,
+			lowPrice: providerMapping.inputPrice ?? 0,
+			highPrice: providerMapping.inputPrice ?? 0,
+			offerCount: 1,
 			priceSpecification: {
 				"@type": "UnitPriceSpecification",
 				price: providerMapping.inputPrice ?? 0,
@@ -233,11 +192,11 @@ export default async function ModelProviderPage({ params }: PageProps) {
 				unitText: "per 1M input tokens",
 			},
 			availability: "https://schema.org/InStock",
+			url: `https://llmgateway.io/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(decodedProvider)}`,
 			seller: {
 				"@type": "Organization",
 				name: "LLM Gateway",
 			},
-			...digitalOfferFields,
 		},
 		category: "AI/ML API Service",
 		...buildRatingSchema(ratingsData),
@@ -411,7 +370,14 @@ export default async function ModelProviderPage({ params }: PageProps) {
 
 					{bannerDiscount && (
 						<div className="mb-6">
-							<GlobalDiscountBanner discount={bannerDiscount} />
+							<GlobalDiscountBanner
+								discount={bannerDiscount}
+								providerName={
+									bannerDiscount.provider
+										? (providerInfo?.name ?? bannerDiscount.provider)
+										: null
+								}
+							/>
 						</div>
 					)}
 
@@ -445,7 +411,11 @@ export default async function ModelProviderPage({ params }: PageProps) {
 								providerMappings.map((p) => ({
 									...p,
 									providerInfo,
-									discount: globalDiscount,
+									// Regions deactivate independently, and the cards can reveal a
+									// deactivated one — it must not show a discounted price.
+									discount: isMappingDeactivated(p)
+										? undefined
+										: bannerDiscount?.discountPercent,
 								})),
 							)}
 						/>
@@ -483,8 +453,7 @@ export async function generateMetadata({
 	const decodedProvider = decodeURIComponent(provider);
 
 	const model = modelDefinitions.find((m) => m.id === decodedName) as
-		| ModelDefinition
-		| undefined;
+		ModelDefinition | undefined;
 
 	if (!model) {
 		return {};

@@ -65,8 +65,12 @@ export function ModelSearch({
 	const [search, setSearch] = useState("");
 	const listRef = useRef<HTMLDivElement>(null);
 
-	// Fetch models/providers via React Query if not provided as props
-	const { data: fetchedModels = [] } = useQuery<ApiModel[]>({
+	// Fetch models/providers via React Query if not provided as props. The
+	// fetch is deferred until the palette is opened so pages don't pay for the
+	// full catalogue (~700KB JSON) on load.
+	const { data: fetchedModels = [], isLoading: isLoadingModels } = useQuery<
+		ApiModel[]
+	>({
 		queryKey: ["internal-models"],
 		queryFn: async () => {
 			const response = await fetch(`${config.apiUrl}/internal/models`);
@@ -77,7 +81,7 @@ export function ModelSearch({
 			return data.models ?? [];
 		},
 		staleTime: 60 * 1000,
-		enabled: propModels === undefined,
+		enabled: propModels === undefined && open,
 	});
 
 	const { data: fetchedProviders = [] } = useQuery<ApiProvider[]>({
@@ -91,7 +95,7 @@ export function ModelSearch({
 			return data.providers ?? [];
 		},
 		staleTime: 60 * 1000,
-		enabled: propProviders === undefined,
+		enabled: propProviders === undefined && open,
 	});
 
 	const models = propModels ?? fetchedModels;
@@ -280,7 +284,9 @@ export function ModelSearch({
 						onValueChange={setSearch}
 					/>
 					<CommandList ref={listRef} className="max-h-[400px]">
-						<CommandEmpty>No results found.</CommandEmpty>
+						<CommandEmpty>
+							{isLoadingModels ? "Loading models…" : "No results found."}
+						</CommandEmpty>
 						{filteredProviders.length > 0 && (
 							<CommandGroup heading="Providers">
 								{filteredProviders.map((p) => {

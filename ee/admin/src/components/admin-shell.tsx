@@ -22,6 +22,7 @@ import {
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
+import { ThemeToggle } from "@/components/landing/theme-toggle";
 import { Button } from "@/components/ui/button";
 import {
 	Sidebar,
@@ -75,6 +76,7 @@ function MobileHeader() {
 					</span>
 				</div>
 			</div>
+			<ThemeToggle size="compact" className="ml-auto" />
 		</header>
 	);
 }
@@ -97,6 +99,9 @@ export function AdminShell({ children }: AdminShellProps) {
 	const isModelProviderMappings = pathname === "/model-provider-mappings";
 	const isUnstableMappings = pathname.startsWith("/unstable-mappings");
 	const isContactSubmissions = pathname.startsWith("/contact-submissions");
+	const isProviderListingRequests = pathname.startsWith(
+		"/provider-listing-requests",
+	);
 	const isChatSupportLogs = pathname.startsWith("/chat-support-logs");
 	const isPaymentFailures = pathname.startsWith("/payment-failures");
 
@@ -164,7 +169,7 @@ export function AdminShell({ children }: AdminShellProps) {
 								<Link href="/chat-plans" className="block">
 									<SidebarMenuButton isActive={isChatPlans} size="lg">
 										<MessageSquare className="h-4 w-4" />
-										<span>Chat Plans</span>
+										<span>Lounge Plans</span>
 									</SidebarMenuButton>
 								</Link>
 							</SidebarMenuItem>
@@ -236,6 +241,17 @@ export function AdminShell({ children }: AdminShellProps) {
 								</Link>
 							</SidebarMenuItem>
 							<SidebarMenuItem>
+								<Link href="/provider-listing-requests" className="block">
+									<SidebarMenuButton
+										isActive={isProviderListingRequests}
+										size="lg"
+									>
+										<Building2 className="h-4 w-4" />
+										<span>Provider Requests</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
 								<Link href="/chat-support-logs" className="block">
 									<SidebarMenuButton isActive={isChatSupportLogs} size="lg">
 										<MessageCircle className="h-4 w-4" />
@@ -255,6 +271,9 @@ export function AdminShell({ children }: AdminShellProps) {
 					</SidebarGroup>
 				</SidebarContent>
 				<SidebarFooter className="border-t border-sidebar-border/60">
+					<div className="flex justify-center">
+						<ThemeToggle size="compact" />
+					</div>
 					<Button
 						variant="ghost"
 						size="sm"

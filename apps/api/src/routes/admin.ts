@@ -8,7 +8,17 @@ import { maskToken } from "@/lib/maskToken.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { getStripe } from "@/routes/payments.js";
-import { notDevpassFilter } from "@/utils/devpass-filter.js";
+import {
+	CHAT_PLAN_TX_TYPES,
+	DEV_PLAN_SUBSCRIPTION_TX_TYPES,
+	DEV_PLAN_TX_TYPES,
+	firstRowPerInvoiceFilter,
+	LEGACY_DEV_PLAN_TX_TYPES,
+	notEndUserNonRevenueFilter,
+	notEndUserWalletFilter,
+	notPlanFilter,
+	paidTransactionFilter,
+} from "@/utils/devpass-filter.js";
 import {
 	HOURLY_BUCKET_THRESHOLD_MINUTES,
 	floorToHourStart,
@@ -21,9 +31,12 @@ import { logAuditEvent } from "@llmgateway/audit";
 import {
 	aliasedTable,
 	and,
+	type AnyColumn,
 	asc,
+	avgEffectiveTtftSql,
 	db,
 	desc,
+	effectiveTtftTotals,
 	eq,
 	gte,
 	inArray,
@@ -35,6 +48,7 @@ import {
 	notInArray,
 	or,
 	sql,
+	type SQLWrapper,
 	tables,
 	projectHourlyStats,
 	projectHourlyModelStats,
@@ -53,6 +67,9 @@ import {
 	DEV_PLAN_PRICES,
 	type DevPlanTier,
 	getDevPlanPremiumWeeklyLimit,
+	getIncludedResetPassesRemaining,
+	MAX_BULK_BLOCK_ORGANIZATIONS,
+	MIN_BULK_BLOCK_SEARCH_LENGTH,
 } from "@llmgateway/shared";
 import {
 	getResendClient,
@@ -73,9 +90,188 @@ function escapeHtml(text: string): string {
 	return text.replace(/[&<>"']/g, (char) => htmlEscapeMap[char] || char);
 }
 
+// Search terms and stored matchers are plain substrings, so LIKE
+// metacharacters must be escaped before wrapping them in wildcards. For the
+// organization search this is a safety guard, not just correctness: an
+// unescaped "%" would silently become a match-everything filter, and the bulk
+// block endpoint reuses that filter to decide which organizations get banned.
+function escapeLikePattern(value: string): string {
+	return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+/**
+ * Builds the organization search filter shared by the listing and the bulk
+ * block endpoints. Returns `undefined` for an empty search so callers must
+ * decide explicitly what "no filter" means — the listing shows everything, the
+ * bulk block endpoints reject the request.
+ */
+function buildOrganizationSearchFilter(search: string | undefined) {
+	const trimmed = search?.trim();
+	if (!trimmed) {
+		return undefined;
+	}
+
+	const textPattern = `%${escapeLikePattern(trimmed.toLowerCase())}%`;
+	const idPattern = `%${escapeLikePattern(trimmed)}%`;
+
+	return or(
+		sql`LOWER(${tables.organization.name}) LIKE ${textPattern} ESCAPE '\\'`,
+		sql`LOWER(${tables.organization.billingEmail}) LIKE ${textPattern} ESCAPE '\\'`,
+		sql`${tables.organization.id} LIKE ${idPattern} ESCAPE '\\'`,
+		sql`EXISTS (SELECT 1 FROM ${tables.userOrganization} uo JOIN ${tables.user} u ON uo.user_id = u.id WHERE uo.organization_id = ${tables.organization.id} AND LOWER(u.email) LIKE ${textPattern} ESCAPE '\\')`,
+	);
+}
+
 export const admin = new OpenAPIHono<ServerTypes>();
 
 admin.use("/*", adminMiddleware);
+
+// Token counts split by billed token type, plus the cost each type accounts for.
+// Spliced into every admin stats payload so the dashboard can explain a cost
+// figure rather than only showing the lump sum. The three costs are slices of
+// the row's total cost and do not have to add up to it: per-request, image,
+// audio, video and cache-write charges live outside this breakdown.
+const tokenBreakdownShape = {
+	inputTokens: z.number(),
+	cachedTokens: z.number(),
+	outputTokens: z.number(),
+	inputCost: z.number(),
+	cachedInputCost: z.number(),
+	outputCost: z.number(),
+};
+
+interface TokenBreakdown {
+	inputTokens: number;
+	cachedTokens: number;
+	outputTokens: number;
+	inputCost: number;
+	cachedInputCost: number;
+	outputCost: number;
+}
+
+const EMPTY_TOKEN_BREAKDOWN: TokenBreakdown = {
+	inputTokens: 0,
+	cachedTokens: 0,
+	outputTokens: 0,
+	inputCost: 0,
+	cachedInputCost: 0,
+	outputCost: 0,
+};
+
+// The history tables all expose the same six breakdown columns, so both the
+// per-row select list and the mapping back onto the API shape are shared.
+function tokenBreakdownSums(table: {
+	totalInputTokens: AnyColumn;
+	totalCachedTokens: AnyColumn;
+	totalOutputTokens: AnyColumn;
+	totalInputCost: AnyColumn;
+	totalCachedInputCost: AnyColumn;
+	totalOutputCost: AnyColumn;
+}) {
+	return {
+		inputTokens:
+			sql<number>`COALESCE(SUM(CAST(${table.totalInputTokens} AS NUMERIC)), 0)`.as(
+				"input_tokens",
+			),
+		cachedTokens:
+			sql<number>`COALESCE(SUM(CAST(${table.totalCachedTokens} AS NUMERIC)), 0)`.as(
+				"cached_tokens",
+			),
+		outputTokens:
+			sql<number>`COALESCE(SUM(CAST(${table.totalOutputTokens} AS NUMERIC)), 0)`.as(
+				"output_tokens",
+			),
+		inputCost: sql<number>`COALESCE(SUM(${table.totalInputCost}), 0)`.as(
+			"input_cost",
+		),
+		cachedInputCost:
+			sql<number>`COALESCE(SUM(${table.totalCachedInputCost}), 0)`.as(
+				"cached_input_cost",
+			),
+		outputCost: sql<number>`COALESCE(SUM(${table.totalOutputCost}), 0)`.as(
+			"output_cost",
+		),
+	};
+}
+
+// Re-select the breakdown out of a stats subquery that was left-joined onto a
+// catalogue table, so mappings with no traffic in the window come back as zeroes
+// instead of nulls.
+function tokenBreakdownFromSub(sub: Record<keyof TokenBreakdown, SQLWrapper>) {
+	return {
+		inputTokens: sql<number>`COALESCE(${sub.inputTokens}, 0)`.as(
+			"input_tokens",
+		),
+		cachedTokens: sql<number>`COALESCE(${sub.cachedTokens}, 0)`.as(
+			"cached_tokens",
+		),
+		outputTokens: sql<number>`COALESCE(${sub.outputTokens}, 0)`.as(
+			"output_tokens",
+		),
+		inputCost: sql<number>`COALESCE(${sub.inputCost}, 0)`.as("input_cost"),
+		cachedInputCost: sql<number>`COALESCE(${sub.cachedInputCost}, 0)`.as(
+			"cached_input_cost",
+		),
+		outputCost: sql<number>`COALESCE(${sub.outputCost}, 0)`.as("output_cost"),
+	};
+}
+
+// Same subquery, but rolled up across every joined row for the page-level totals.
+function tokenBreakdownSubTotals(
+	sub: Record<keyof TokenBreakdown, SQLWrapper>,
+) {
+	return {
+		inputTokens:
+			sql<number>`COALESCE(SUM(COALESCE(${sub.inputTokens}, 0)), 0)`.as(
+				"input_tokens",
+			),
+		cachedTokens:
+			sql<number>`COALESCE(SUM(COALESCE(${sub.cachedTokens}, 0)), 0)`.as(
+				"cached_tokens",
+			),
+		outputTokens:
+			sql<number>`COALESCE(SUM(COALESCE(${sub.outputTokens}, 0)), 0)`.as(
+				"output_tokens",
+			),
+		inputCost: sql<number>`COALESCE(SUM(COALESCE(${sub.inputCost}, 0)), 0)`.as(
+			"input_cost",
+		),
+		cachedInputCost:
+			sql<number>`COALESCE(SUM(COALESCE(${sub.cachedInputCost}, 0)), 0)`.as(
+				"cached_input_cost",
+			),
+		outputCost:
+			sql<number>`COALESCE(SUM(COALESCE(${sub.outputCost}, 0)), 0)`.as(
+				"output_cost",
+			),
+	};
+}
+
+function toTokenBreakdown(
+	row: Partial<Record<keyof TokenBreakdown, unknown>> | undefined,
+): TokenBreakdown {
+	return {
+		inputTokens: Number(row?.inputTokens ?? 0),
+		cachedTokens: Number(row?.cachedTokens ?? 0),
+		outputTokens: Number(row?.outputTokens ?? 0),
+		inputCost: Number(row?.inputCost ?? 0),
+		cachedInputCost: Number(row?.cachedInputCost ?? 0),
+		outputCost: Number(row?.outputCost ?? 0),
+	};
+}
+
+function addTokenBreakdown(
+	target: TokenBreakdown,
+	row: Partial<Record<keyof TokenBreakdown, unknown>>,
+): void {
+	const value = toTokenBreakdown(row);
+	target.inputTokens += value.inputTokens;
+	target.cachedTokens += value.cachedTokens;
+	target.outputTokens += value.outputTokens;
+	target.inputCost += value.inputCost;
+	target.cachedInputCost += value.cachedInputCost;
+	target.outputCost += value.outputCost;
+}
 
 const adminMetricsSchema = z.object({
 	totalSignups: z.number(),
@@ -89,7 +285,16 @@ const adminMetricsSchema = z.object({
 	unusedCredits: z.number(),
 	overage: z.number(),
 	totalGiftedCredits: z.number(),
+	totalBonusCredits: z.number(),
 	totalRefunds: z.number(),
+	// Gross revenue across all products (Stripe `amount`, i.e. before Stripe
+	// fees; refunds not netted out), split by product.
+	grossRevenue: z.number(),
+	grossCreditsRevenue: z.number(),
+	grossDevpassRevenue: z.number(),
+	grossResetPassRevenue: z.number(),
+	grossChatPlansRevenue: z.number(),
+	grossProSubscriptionsRevenue: z.number(),
 });
 
 const timeseriesRangeSchema = z.enum(["7d", "30d", "90d", "365d", "all"]);
@@ -102,6 +307,17 @@ const timeseriesDataPointSchema = z.object({
 	processed: z.number(),
 	refunds: z.number(),
 	net: z.number(),
+	// DevPass plan revenue (gross Stripe amount, deduplicated per invoice) and
+	// net (after refunds), cumulative like the credits series above.
+	devpassRevenue: z.number(),
+	devpassRefunds: z.number(),
+	devpassNet: z.number(),
+	// Per-day (non-cumulative) values. The cumulative series above start from a
+	// pre-range baseline, so clients cannot derive day-one deltas themselves.
+	dailySignups: z.number(),
+	dailyPaidCustomers: z.number(),
+	dailyNet: z.number(),
+	dailyDevpassNet: z.number(),
 });
 
 const adminTimeseriesSchema = z.object({
@@ -114,6 +330,9 @@ const adminTimeseriesSchema = z.object({
 		processed: z.number(),
 		refunds: z.number(),
 		net: z.number(),
+		devpassRevenue: z.number(),
+		devpassRefunds: z.number(),
+		devpassNet: z.number(),
 	}),
 });
 
@@ -135,6 +354,10 @@ const organizationSchema = z.object({
 	kind: z.enum(["default", "chat", "devpass"]),
 	plan: z.string(),
 	devPlan: z.string(),
+	// Manual seat-limit override; null = use the plan default.
+	seats: z.number().int().nullable().optional(),
+	// Manual API-key-limit override; null = use the plan default.
+	apiKeyLimit: z.number().int().nullable().optional(),
 	credits: z.string(),
 	totalCreditsAllTime: z.string().optional(),
 	totalSpent: z.string().optional(),
@@ -584,7 +807,9 @@ admin.openapi(getMetrics, async (c) => {
 
 	const verifiedUsers = Number(verifiedRow?.count ?? 0);
 
-	// Paying customers: organizations with at least one completed transaction
+	// Paying customers: organizations with at least one completed payment
+	// transaction (credit purchase, dev/chat plan charge, or end-user top-up —
+	// gifts and bookkeeping rows don't count)
 	const [payingRow] = await db
 		.select({
 			count:
@@ -594,13 +819,20 @@ admin.openapi(getMetrics, async (c) => {
 		})
 		.from(tables.transaction)
 		.where(
-			and(eq(tables.transaction.status, "completed"), transactionDateFilter),
+			and(
+				eq(tables.transaction.status, "completed"),
+				paidTransactionFilter,
+				transactionDateFilter,
+			),
 		);
 
 	const payingCustomers = Number(payingRow?.count ?? 0);
 
-	// Total revenue (completed credit-purchase transactions, excluding gifts
-	// and all DevPass subscription rows, using creditAmount to exclude Stripe fees)
+	// Total revenue: completed credit-purchase rows — org credit top-ups AND
+	// end-user wallet top-ups (`end_user_topup`, reversed on refund) — using
+	// creditAmount to exclude Stripe fees. Excludes gifts, all plan rows
+	// (DevPass/legacy subscription/Chat Plan), and the non-revenue end-user rows
+	// (developer margin + funded bonus).
 	const [revenueRow] = await db
 		.select({
 			value:
@@ -613,7 +845,8 @@ admin.openapi(getMetrics, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
-				notDevpassFilter,
+				notPlanFilter,
+				notEndUserNonRevenueFilter,
 				transactionDateFilter,
 			),
 		);
@@ -631,8 +864,11 @@ admin.openapi(getMetrics, async (c) => {
 	const totalOrganizations = Number(orgsRow?.count ?? 0);
 
 	// Total topped up (credits from completed credit-purchase transactions).
-	// Excludes DevPass virtual credits — those are granted per cycle and reset,
-	// so they would inflate the topped-up / unused-credits numbers.
+	// Excludes DevPass and Chat Plan virtual credits — those are granted per
+	// cycle and reset, so they would inflate the topped-up / unused-credits
+	// numbers — and all end-user wallet rows, which live in their own balance
+	// economy (their spend is not in `totalSpent`, so counting their top-ups
+	// would inflate unused credits).
 	const [toppedUpRow] = await db
 		.select({
 			value:
@@ -644,7 +880,8 @@ admin.openapi(getMetrics, async (c) => {
 		.where(
 			and(
 				eq(tables.transaction.status, "completed"),
-				notDevpassFilter,
+				notPlanFilter,
+				notEndUserWalletFilter,
 				transactionDateFilter,
 			),
 		);
@@ -652,7 +889,7 @@ admin.openapi(getMetrics, async (c) => {
 	const totalToppedUp = Number(toppedUpRow?.value ?? 0);
 
 	// Total spent (usage cost from hourly stats). Excludes spend from projects
-	// belonging to orgs whose usage is/was on a DevPass plan, so the
+	// belonging to orgs whose usage is/was on a DevPass or Chat Plan, so the
 	// unusedCredits derivation (toppedUp - spent) only reflects the
 	// credit-purchase economy.
 	const [spentRow] = await db
@@ -675,11 +912,13 @@ admin.openapi(getMetrics, async (c) => {
 			and(
 				projectStatsDateFilter,
 				eq(tables.organization.devPlan, "none"),
+				eq(tables.organization.chatPlan, "none"),
 				sql`NOT EXISTS (
 					SELECT 1 FROM ${tables.transaction} t
 					WHERE t.organization_id = ${tables.organization.id}
 					AND (
 						t.type IN ('dev_plan_start', 'dev_plan_upgrade', 'dev_plan_downgrade', 'dev_plan_renewal')
+						OR t.type IN ('chat_plan_start', 'chat_plan_upgrade', 'chat_plan_downgrade', 'chat_plan_renewal')
 						OR (t.type IN ('subscription_start', 'subscription_cancel', 'subscription_end') AND ${tables.organization.kind} = 'devpass')
 					)
 				)`,
@@ -688,7 +927,7 @@ admin.openapi(getMetrics, async (c) => {
 
 	const totalSpent = Number(spentRow?.value ?? 0);
 
-	// Total processed (gross Stripe amounts from completed non-gift, non-DevPass transactions)
+	// Total processed (gross Stripe amounts from completed non-gift, non-plan transactions)
 	const [processedRow] = await db
 		.select({
 			value:
@@ -701,7 +940,8 @@ admin.openapi(getMetrics, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
-				notDevpassFilter,
+				notPlanFilter,
+				notEndUserNonRevenueFilter,
 				transactionDateFilter,
 			),
 		);
@@ -727,6 +967,30 @@ admin.openapi(getMetrics, async (c) => {
 
 	const totalGiftedCredits = Number(giftedRow?.value ?? 0);
 
+	// Total developer-funded end-user top-up bonus credits granted (net of
+	// refund claw-backs). end_user_bonus rows store creditAmount as the change to
+	// the developer org's credit balance — negative when a bonus is granted,
+	// positive when clawed back on refund — so negate the sum to report the net
+	// credits actually gifted into end-user wallets. Excluded from revenue above
+	// and surfaced here so it can be subtracted/considered in stats separately.
+	const [bonusRow] = await db
+		.select({
+			value:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)), 0)`.as(
+					"value",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.transaction.type, "end_user_bonus"),
+				transactionDateFilter,
+			),
+		);
+
+	const totalBonusCredits = -Number(bonusRow?.value ?? 0);
+
 	// Total refunds (positive `amount` on credit_refund rows — Stripe-side refunds).
 	const [refundsRow] = await db
 		.select({
@@ -746,6 +1010,152 @@ admin.openapi(getMetrics, async (c) => {
 
 	const totalRefunds = Number(refundsRow?.value ?? 0);
 
+	// Gross revenue splits: actual dollars charged via Stripe (`amount`, so
+	// including Stripe fees), before netting refunds out.
+	//
+	// Credits: org credit top-ups + end-user wallet top-ups. Refund reversals
+	// are negative same-type rows, so only positive amounts count as gross.
+	const [grossCreditsRow] = await db
+		.select({
+			value:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"value",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				inArray(tables.transaction.type, ["credit_topup", "end_user_topup"]),
+				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+				transactionDateFilter,
+			),
+		);
+
+	const grossCreditsRevenue = Number(grossCreditsRow?.value ?? 0);
+
+	// DevPass: dev plan subscription payments (+ legacy `subscription_*` rows on
+	// devpass orgs), deduplicated per Stripe invoice. Mirrors
+	// /admin/devpass/timeseries. One-time Reset Pass purchases are reported as
+	// their own split below.
+	const [grossDevpassRow] = await db
+		.select({
+			value:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"value",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "devpass"),
+				inArray(tables.transaction.type, [
+					...DEV_PLAN_SUBSCRIPTION_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+				firstRowPerInvoiceFilter([
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+				transactionDateFilter,
+			),
+		);
+
+	const grossDevpassRevenue = Number(grossDevpassRow?.value ?? 0);
+
+	// Reset Passes: one-time PaymentIntent purchases on devpass orgs — no
+	// invoice, so no dedup needed. Gross like the other splits (refunds are
+	// separate `credit_refund` rows and not netted out here).
+	const [grossResetPassRow] = await db
+		.select({
+			value:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"value",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "devpass"),
+				eq(tables.transaction.type, "dev_plan_reset_pass"),
+				transactionDateFilter,
+			),
+		);
+
+	const grossResetPassRevenue = Number(grossResetPassRow?.value ?? 0);
+
+	// Chat Plans: plan payments on chat orgs, deduplicated per Stripe invoice.
+	// Mirrors /admin/chat-plans/timeseries.
+	const [grossChatPlansRow] = await db
+		.select({
+			value:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"value",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "chat"),
+				inArray(tables.transaction.type, [...CHAT_PLAN_TX_TYPES]),
+				firstRowPerInvoiceFilter(CHAT_PLAN_TX_TYPES),
+				transactionDateFilter,
+			),
+		);
+
+	const grossChatPlansRevenue = Number(grossChatPlansRow?.value ?? 0);
+
+	// Org Pro subscriptions: `subscription_*` rows on non-devpass orgs (the same
+	// legacy types double as DevPass rows on devpass orgs, counted above).
+	const [grossProSubsRow] = await db
+		.select({
+			value:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"value",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				ne(tables.organization.kind, "devpass"),
+				inArray(tables.transaction.type, [...LEGACY_DEV_PLAN_TX_TYPES]),
+				firstRowPerInvoiceFilter([
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+				transactionDateFilter,
+			),
+		);
+
+	const grossProSubscriptionsRevenue = Number(grossProSubsRow?.value ?? 0);
+
+	const grossRevenue =
+		grossCreditsRevenue +
+		grossDevpassRevenue +
+		grossResetPassRevenue +
+		grossChatPlansRevenue +
+		grossProSubscriptionsRevenue;
+
 	const rawBalance = totalToppedUp - totalSpent;
 	const unusedCredits = Math.max(0, rawBalance);
 	const overage = Math.max(0, -rawBalance);
@@ -762,7 +1172,14 @@ admin.openapi(getMetrics, async (c) => {
 		unusedCredits,
 		overage,
 		totalGiftedCredits,
+		totalBonusCredits,
 		totalRefunds,
+		grossRevenue,
+		grossCreditsRevenue,
+		grossDevpassRevenue,
+		grossResetPassRevenue,
+		grossChatPlansRevenue,
+		grossProSubscriptionsRevenue,
 	});
 });
 
@@ -852,7 +1269,8 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
-				notDevpassFilter,
+				notPlanFilter,
+				notEndUserNonRevenueFilter,
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
 			),
@@ -874,7 +1292,8 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
-				notDevpassFilter,
+				notPlanFilter,
+				notEndUserNonRevenueFilter,
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
 			),
@@ -903,6 +1322,80 @@ admin.openapi(getTimeseries, async (c) => {
 		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
 		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
 
+	// DevPass revenue per day: dev plan payments (+ legacy `subscription_*` rows
+	// on devpass orgs), gross Stripe `amount` deduplicated per invoice. Mirrors
+	// /admin/devpass/timeseries.
+	const devpassRevenuePerDay = await db
+		.select({
+			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
+			total:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "devpass"),
+				inArray(tables.transaction.type, [
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+				firstRowPerInvoiceFilter([
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+				gte(tables.transaction.createdAt, startDate),
+				lte(tables.transaction.createdAt, endDate),
+			),
+		)
+		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
+		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
+
+	// DevPass refunds per day: `credit_refund` rows linked back to a dev plan
+	// payment via `relatedTransactionId`. Mirrors /admin/devpass/timeseries.
+	const devpassRefundOriginalTx = aliasedTable(
+		tables.transaction,
+		"devpass_refund_original_tx",
+	);
+	const devpassRefundsPerDay = await db
+		.select({
+			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
+			total:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			devpassRefundOriginalTx,
+			eq(tables.transaction.relatedTransactionId, devpassRefundOriginalTx.id),
+		)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.type, "credit_refund"),
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "devpass"),
+				inArray(devpassRefundOriginalTx.type, [
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+				gte(tables.transaction.createdAt, startDate),
+				lte(tables.transaction.createdAt, endDate),
+			),
+		)
+		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
+		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
+
 	// Pre-range totals for cumulative chart
 	const [preRangeRevenueRow] = await db
 		.select({
@@ -916,7 +1409,8 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
-				notDevpassFilter,
+				notPlanFilter,
+				notEndUserNonRevenueFilter,
 				sql`${tables.transaction.createdAt} < ${startDate}`,
 			),
 		);
@@ -934,7 +1428,8 @@ admin.openapi(getTimeseries, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				ne(tables.transaction.type, "credit_gift"),
-				notDevpassFilter,
+				notPlanFilter,
+				notEndUserNonRevenueFilter,
 				sql`${tables.transaction.createdAt} < ${startDate}`,
 			),
 		);
@@ -957,6 +1452,65 @@ admin.openapi(getTimeseries, async (c) => {
 		);
 	const preRangeRefunds = Number(preRangeRefundsRow?.total ?? 0);
 
+	const [preRangeDevpassRevenueRow] = await db
+		.select({
+			total:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "devpass"),
+				inArray(tables.transaction.type, [
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+				firstRowPerInvoiceFilter([
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+				sql`${tables.transaction.createdAt} < ${startDate}`,
+			),
+		);
+	const preRangeDevpassRevenue = Number(preRangeDevpassRevenueRow?.total ?? 0);
+
+	const [preRangeDevpassRefundsRow] = await db
+		.select({
+			total:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			devpassRefundOriginalTx,
+			eq(tables.transaction.relatedTransactionId, devpassRefundOriginalTx.id),
+		)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.type, "credit_refund"),
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "devpass"),
+				inArray(devpassRefundOriginalTx.type, [
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
+				sql`${tables.transaction.createdAt} < ${startDate}`,
+			),
+		);
+	const preRangeDevpassRefunds = Number(preRangeDevpassRefundsRow?.total ?? 0);
+
 	// Count of orgs that became paying before the range (bounded SQL query)
 	const [preRangeRow] = await db
 		.select({
@@ -968,7 +1522,12 @@ admin.openapi(getTimeseries, async (c) => {
 					organizationId: tables.transaction.organizationId,
 				})
 				.from(tables.transaction)
-				.where(eq(tables.transaction.status, "completed"))
+				.where(
+					and(
+						eq(tables.transaction.status, "completed"),
+						paidTransactionFilter,
+					),
+				)
 				.groupBy(tables.transaction.organizationId)
 				.having(sql`MIN(${tables.transaction.createdAt}) < ${startDate}`)
 				.as("pre_range_orgs"),
@@ -989,7 +1548,12 @@ admin.openapi(getTimeseries, async (c) => {
 					),
 				})
 				.from(tables.transaction)
-				.where(eq(tables.transaction.status, "completed"))
+				.where(
+					and(
+						eq(tables.transaction.status, "completed"),
+						paidTransactionFilter,
+					),
+				)
 				.groupBy(tables.transaction.organizationId)
 				.having(
 					and(
@@ -1023,6 +1587,16 @@ admin.openapi(getTimeseries, async (c) => {
 		refundsMap.set(row.date, Number(row.total));
 	}
 
+	const devpassRevenueMap = new Map<string, number>();
+	for (const row of devpassRevenuePerDay) {
+		devpassRevenueMap.set(row.date, Number(row.total));
+	}
+
+	const devpassRefundsMap = new Map<string, number>();
+	for (const row of devpassRefundsPerDay) {
+		devpassRefundsMap.set(row.date, Number(row.total));
+	}
+
 	const newPaidMap = new Map<string, number>();
 	for (const row of firstTransactionPerOrg) {
 		newPaidMap.set(row.date, Number(row.count));
@@ -1037,12 +1611,21 @@ admin.openapi(getTimeseries, async (c) => {
 		processed: number;
 		refunds: number;
 		net: number;
+		devpassRevenue: number;
+		devpassRefunds: number;
+		devpassNet: number;
+		dailySignups: number;
+		dailyPaidCustomers: number;
+		dailyNet: number;
+		dailyDevpassNet: number;
 	}> = [];
 	let cumulativePaid = preRangeCount;
 	let totalSignups = 0;
 	let totalRevenue = preRangeRevenue;
 	let totalProcessed = preRangeProcessed;
 	let totalRefunds = preRangeRefunds;
+	let totalDevpassRevenue = preRangeDevpassRevenue;
+	let totalDevpassRefunds = preRangeDevpassRefunds;
 
 	const totalDays = Math.ceil(
 		(endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000),
@@ -1055,12 +1638,17 @@ admin.openapi(getTimeseries, async (c) => {
 		const dailyRevenue = revenueMap.get(dateStr) ?? 0;
 		const dailyProcessed = processedMap.get(dateStr) ?? 0;
 		const dailyRefunds = refundsMap.get(dateStr) ?? 0;
-		cumulativePaid += newPaidMap.get(dateStr) ?? 0;
+		const dailyDevpassRevenue = devpassRevenueMap.get(dateStr) ?? 0;
+		const dailyDevpassRefunds = devpassRefundsMap.get(dateStr) ?? 0;
+		const dailyPaidCustomers = newPaidMap.get(dateStr) ?? 0;
+		cumulativePaid += dailyPaidCustomers;
 
 		totalSignups += dailySignups;
 		totalRevenue += dailyRevenue;
 		totalProcessed += dailyProcessed;
 		totalRefunds += dailyRefunds;
+		totalDevpassRevenue += dailyDevpassRevenue;
+		totalDevpassRefunds += dailyDevpassRefunds;
 
 		data.push({
 			date: dateStr,
@@ -1070,6 +1658,13 @@ admin.openapi(getTimeseries, async (c) => {
 			processed: totalProcessed,
 			refunds: totalRefunds,
 			net: totalRevenue - totalRefunds,
+			devpassRevenue: totalDevpassRevenue,
+			devpassRefunds: totalDevpassRefunds,
+			devpassNet: totalDevpassRevenue - totalDevpassRefunds,
+			dailySignups,
+			dailyPaidCustomers,
+			dailyNet: dailyRevenue - dailyRefunds,
+			dailyDevpassNet: dailyDevpassRevenue - dailyDevpassRefunds,
 		});
 	}
 
@@ -1083,6 +1678,9 @@ admin.openapi(getTimeseries, async (c) => {
 			processed: totalProcessed,
 			refunds: totalRefunds,
 			net: totalRevenue - totalRefunds,
+			devpassRevenue: totalDevpassRevenue,
+			devpassRefunds: totalDevpassRefunds,
+			devpassNet: totalDevpassRevenue - totalDevpassRefunds,
 		},
 	});
 });
@@ -1493,7 +2091,7 @@ admin.openapi(getGlobalStats, async (c) => {
 				row as (typeof timeseriesBreakdownRows)[number] & { source: string }
 			).source;
 		}
-		const mapKey = `${row.date} ${key}`;
+		const mapKey = `${row.date}:${key}`;
 		const existing = timeseriesBreakdownMap.get(mapKey);
 		if (existing) {
 			existing.requestCount += Number(row.requestCount);
@@ -1659,15 +2257,7 @@ admin.openapi(getOrganizations, async (c) => {
 	const sortBy = query.sortBy ?? "createdAt";
 	const sortOrder = query.sortOrder ?? "desc";
 
-	const searchLower = search?.toLowerCase();
-	const whereClause = searchLower
-		? or(
-				sql`LOWER(${tables.organization.name}) LIKE ${`%${searchLower}%`}`,
-				sql`LOWER(${tables.organization.billingEmail}) LIKE ${`%${searchLower}%`}`,
-				sql`${tables.organization.id} LIKE ${`%${search}%`}`,
-				sql`EXISTS (SELECT 1 FROM ${tables.userOrganization} uo JOIN ${tables.user} u ON uo.user_id = u.id WHERE uo.organization_id = ${tables.organization.id} AND LOWER(u.email) LIKE ${`%${searchLower}%`})`,
-			)
-		: undefined;
+	const whereClause = buildOrganizationSearchFilter(search);
 
 	const [countResult] = await db
 		.select({
@@ -1978,6 +2568,8 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 			kind: org.kind,
 			plan: org.plan,
 			devPlan: org.devPlan,
+			seats: org.seats,
+			apiKeyLimit: org.apiKeyLimit,
 			credits: String(org.credits),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
@@ -2058,6 +2650,8 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			kind: org.kind,
 			plan: org.plan,
 			devPlan: org.devPlan,
+			seats: org.seats,
+			apiKeyLimit: org.apiKeyLimit,
 			credits: String(org.credits),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
@@ -2578,6 +3172,7 @@ const logEntrySchema = z.object({
 	dataStorageCost: z.number().nullable(),
 	hasError: z.boolean().nullable(),
 	errorDetails: z.any().nullable(),
+	internalErrorDetails: z.any().nullable(),
 	finishReason: z.string().nullable(),
 	unifiedFinishReason: z.string().nullable(),
 	cached: z.boolean().nullable(),
@@ -2585,6 +3180,7 @@ const logEntrySchema = z.object({
 	canceled: z.boolean().nullable(),
 	retried: z.boolean().nullable(),
 	retriedByLogId: z.string().nullable(),
+	apiOrigin: z.string().nullable(),
 	source: z.string().nullable(),
 	content: z.string().nullable(),
 	reasoningContent: z.string().nullable(),
@@ -2774,6 +3370,7 @@ admin.openapi(getProjectLogs, async (c) => {
 			dataStorageCost: tables.log.dataStorageCost,
 			hasError: tables.log.hasError,
 			errorDetails: tables.log.errorDetails,
+			internalErrorDetails: tables.log.internalErrorDetails,
 			finishReason: tables.log.finishReason,
 			unifiedFinishReason: tables.log.unifiedFinishReason,
 			cached: tables.log.cached,
@@ -2781,6 +3378,7 @@ admin.openapi(getProjectLogs, async (c) => {
 			canceled: tables.log.canceled,
 			retried: tables.log.retried,
 			retriedByLogId: tables.log.retriedByLogId,
+			apiOrigin: tables.log.apiOrigin,
 			source: tables.log.source,
 			content: tables.log.content,
 			reasoningContent: tables.log.reasoningContent,
@@ -3926,6 +4524,7 @@ const providerStatsSchema = z.object({
 	modelCount: z.number(),
 	totalTokens: z.number(),
 	totalCost: z.number(),
+	...tokenBreakdownShape,
 	updatedAt: z.string(),
 });
 
@@ -3934,6 +4533,7 @@ const providersListSchema = z.object({
 	total: z.number(),
 	totalTokens: z.number(),
 	totalCost: z.number(),
+	...tokenBreakdownShape,
 });
 
 const getProviderStats = createRoute({
@@ -4012,11 +4612,12 @@ admin.openapi(getProviderStats, async (c) => {
 				totalCost: sql<number>`COALESCE(SUM(${mph.totalCost}), 0)`.as(
 					"totalCost",
 				),
-				avgTimeToFirstToken: sql<
-					number | null
-				>`CASE WHEN SUM(${mph.logsCount}) - SUM(${mph.cachedCount}) > 0 THEN SUM(${mph.totalTimeToFirstToken})::float / (SUM(${mph.logsCount}) - SUM(${mph.cachedCount})) ELSE NULL END`.as(
-					"avgTimeToFirstToken",
-				),
+				// Only streamed requests record a time-to-first-token, so the
+				// average divides by the sample count, not the request count.
+				// Reasoning-token samples take precedence so thinking mappings
+				// aren't measured on their (much later) first content token.
+				avgTimeToFirstToken: avgEffectiveTtftSql(mph).as("avgTimeToFirstToken"),
+				...tokenBreakdownSums(mph),
 			})
 			.from(mph)
 			.where(and(gte(mphTs, startDate), lt(mphTs, endDateExclusive)))
@@ -4031,7 +4632,7 @@ admin.openapi(getProviderStats, async (c) => {
 			errorsCount: sql`COALESCE(${providerStatsSub.errorsCount}, 0)`,
 			cachedCount: sql`COALESCE(${providerStatsSub.cachedCount}, 0)`,
 			totalCost: sql`COALESCE(${providerStatsSub.totalCost}, 0)`,
-			avgTimeToFirstToken: sql`COALESCE(${providerStatsSub.avgTimeToFirstToken}, ${tables.provider.avgTimeToFirstToken})`,
+			avgTimeToFirstToken: sql`COALESCE(${providerStatsSub.avgTimeToFirstToken}, ${tables.provider.avgTimeToFirstReasoningToken}, ${tables.provider.avgTimeToFirstToken})`,
 			modelCount: sql`COALESCE(${modelCountSub.count}, 0)`,
 			updatedAt: tables.provider.updatedAt,
 		} as const;
@@ -4049,6 +4650,7 @@ admin.openapi(getProviderStats, async (c) => {
 						sql<number>`COALESCE(SUM(COALESCE(${providerStatsSub.totalCost}, 0)), 0)`.as(
 							"totalCost",
 						),
+					...tokenBreakdownSubTotals(providerStatsSub),
 				})
 				.from(tables.provider)
 				.leftJoin(
@@ -4074,7 +4676,7 @@ admin.openapi(getProviderStats, async (c) => {
 						),
 					avgTimeToFirstToken: sql<
 						number | null
-					>`COALESCE(${providerStatsSub.avgTimeToFirstToken}, ${tables.provider.avgTimeToFirstToken})`.as(
+					>`COALESCE(${providerStatsSub.avgTimeToFirstToken}, ${tables.provider.avgTimeToFirstReasoningToken}, ${tables.provider.avgTimeToFirstToken})`.as(
 						"avgTimeToFirstToken",
 					),
 					modelCount: sql<number>`COALESCE(${modelCountSub.count}, 0)`.as(
@@ -4087,6 +4689,7 @@ admin.openapi(getProviderStats, async (c) => {
 					totalCost: sql<number>`COALESCE(${providerStatsSub.totalCost}, 0)`.as(
 						"totalCost",
 					),
+					...tokenBreakdownFromSub(providerStatsSub),
 					updatedAt: tables.provider.updatedAt,
 				})
 				.from(tables.provider)
@@ -4117,11 +4720,13 @@ admin.openapi(getProviderStats, async (c) => {
 				modelCount: Number(r.modelCount ?? 0),
 				totalTokens: Number(r.totalTokens ?? 0),
 				totalCost: Number(r.totalCost ?? 0),
+				...toTokenBreakdown(r),
 				updatedAt: r.updatedAt.toISOString(),
 			})),
 			total: rows.length,
 			totalTokens: totalTokensAgg,
 			totalCost: totalCostAgg,
+			...toTokenBreakdown(totalsResult),
 		});
 	}
 
@@ -4134,7 +4739,7 @@ admin.openapi(getProviderStats, async (c) => {
 		errorsCount: tables.provider.errorsCount,
 		cachedCount: tables.provider.cachedCount,
 		totalCost: sql`0`,
-		avgTimeToFirstToken: tables.provider.avgTimeToFirstToken,
+		avgTimeToFirstToken: sql`COALESCE(${tables.provider.avgTimeToFirstReasoningToken}, ${tables.provider.avgTimeToFirstToken})`,
 		modelCount: sql`COALESCE(${modelCountSub.count}, 0)`,
 		updatedAt: tables.provider.updatedAt,
 	} as const;
@@ -4150,7 +4755,11 @@ admin.openapi(getProviderStats, async (c) => {
 			logsCount: tables.provider.logsCount,
 			errorsCount: tables.provider.errorsCount,
 			cachedCount: tables.provider.cachedCount,
-			avgTimeToFirstToken: tables.provider.avgTimeToFirstToken,
+			avgTimeToFirstToken: sql<
+				number | null
+			>`COALESCE(${tables.provider.avgTimeToFirstReasoningToken}, ${tables.provider.avgTimeToFirstToken})`.as(
+				"avgTimeToFirstToken",
+			),
 			modelCount: sql<number>`COALESCE(${modelCountSub.count}, 0)`.as(
 				"modelCount",
 			),
@@ -4173,11 +4782,13 @@ admin.openapi(getProviderStats, async (c) => {
 			modelCount: Number(r.modelCount),
 			totalTokens: 0,
 			totalCost: 0,
+			...EMPTY_TOKEN_BREAKDOWN,
 			updatedAt: r.updatedAt.toISOString(),
 		})),
 		total: rows.length,
 		totalTokens: 0,
 		totalCost: 0,
+		...EMPTY_TOKEN_BREAKDOWN,
 	});
 });
 
@@ -4215,6 +4826,7 @@ const modelStatsSchema = z.object({
 	providerCount: z.number(),
 	totalTokens: z.number(),
 	totalCost: z.number(),
+	...tokenBreakdownShape,
 	inputPrice: z.string().nullable(),
 	outputPrice: z.string().nullable(),
 	requestPrice: z.string().nullable(),
@@ -4228,6 +4840,7 @@ const modelsListSchema = z.object({
 	offset: z.number(),
 	totalTokens: z.number(),
 	totalCost: z.number(),
+	...tokenBreakdownShape,
 });
 
 const getModelStats = createRoute({
@@ -4332,6 +4945,7 @@ admin.openapi(getModelStats, async (c) => {
 				totalCost: sql<number>`COALESCE(SUM(${mh.totalCost}), 0)`.as(
 					"totalCost",
 				),
+				...tokenBreakdownSums(mh),
 			})
 			.from(mh)
 			.where(and(gte(mhTs, startDate), lt(mhTs, endDateExclusive)))
@@ -4381,7 +4995,7 @@ admin.openapi(getModelStats, async (c) => {
 			gatewayErrorsCount: sql`COALESCE(${modelAggSub.gatewayErrorsCount}, 0)`,
 			upstreamErrorsCount: sql`COALESCE(${modelAggSub.upstreamErrorsCount}, 0)`,
 			cachedCount: sql`COALESCE(${modelAggSub.cachedCount}, 0)`,
-			avgTimeToFirstToken: tables.model.avgTimeToFirstToken,
+			avgTimeToFirstToken: sql`COALESCE(${tables.model.avgTimeToFirstReasoningToken}, ${tables.model.avgTimeToFirstToken})`,
 			providerCount: sql`COALESCE(${providerCountSub.count}, 0)`,
 			updatedAt: tables.model.updatedAt,
 		} as const;
@@ -4403,6 +5017,7 @@ admin.openapi(getModelStats, async (c) => {
 					sql<number>`COALESCE(SUM(COALESCE(${modelAggSub.totalCost}, 0)), 0)`.as(
 						"totalCost",
 					),
+				...tokenBreakdownSubTotals(modelAggSub),
 			})
 			.from(tables.model)
 			.leftJoin(modelAggSub, eq(tables.model.id, modelAggSub.modelId))
@@ -4437,7 +5052,11 @@ admin.openapi(getModelStats, async (c) => {
 				cachedCount: sql<number>`COALESCE(${modelAggSub.cachedCount}, 0)`.as(
 					"cachedCount",
 				),
-				avgTimeToFirstToken: tables.model.avgTimeToFirstToken,
+				avgTimeToFirstToken: sql<
+					number | null
+				>`COALESCE(${tables.model.avgTimeToFirstReasoningToken}, ${tables.model.avgTimeToFirstToken})`.as(
+					"avgTimeToFirstToken",
+				),
 				providerCount: sql<number>`COALESCE(${providerCountSub.count}, 0)`.as(
 					"providerCount",
 				),
@@ -4447,6 +5066,7 @@ admin.openapi(getModelStats, async (c) => {
 				totalCost: sql<number>`COALESCE(${modelAggSub.totalCost}, 0)`.as(
 					"totalCost",
 				),
+				...tokenBreakdownFromSub(modelAggSub),
 				inputPrice: pricingSub.inputPrice,
 				outputPrice: pricingSub.outputPrice,
 				requestPrice: pricingSub.requestPrice,
@@ -4496,6 +5116,7 @@ admin.openapi(getModelStats, async (c) => {
 				providerCount: Number(r.providerCount ?? 0),
 				totalTokens: Number(r.totalTokens ?? 0),
 				totalCost: Number(r.totalCost ?? 0),
+				...toTokenBreakdown(r),
 				inputPrice: r.inputPrice ?? null,
 				outputPrice: r.outputPrice ?? null,
 				requestPrice: r.requestPrice ?? null,
@@ -4506,6 +5127,7 @@ admin.openapi(getModelStats, async (c) => {
 			offset,
 			totalTokens: totalTokensAgg,
 			totalCost: totalCostAgg,
+			...toTokenBreakdown(totalsResult),
 		});
 	}
 
@@ -4560,7 +5182,7 @@ admin.openapi(getModelStats, async (c) => {
 		gatewayErrorsCount: tables.model.gatewayErrorsCount,
 		upstreamErrorsCount: tables.model.upstreamErrorsCount,
 		cachedCount: tables.model.cachedCount,
-		avgTimeToFirstToken: tables.model.avgTimeToFirstToken,
+		avgTimeToFirstToken: sql`COALESCE(${tables.model.avgTimeToFirstReasoningToken}, ${tables.model.avgTimeToFirstToken})`,
 		providerCount: sql`COALESCE(${providerCountSub.count}, 0)`,
 		updatedAt: tables.model.updatedAt,
 	} as const;
@@ -4581,7 +5203,11 @@ admin.openapi(getModelStats, async (c) => {
 			gatewayErrorsCount: tables.model.gatewayErrorsCount,
 			upstreamErrorsCount: tables.model.upstreamErrorsCount,
 			cachedCount: tables.model.cachedCount,
-			avgTimeToFirstToken: tables.model.avgTimeToFirstToken,
+			avgTimeToFirstToken: sql<
+				number | null
+			>`COALESCE(${tables.model.avgTimeToFirstReasoningToken}, ${tables.model.avgTimeToFirstToken})`.as(
+				"avgTimeToFirstToken",
+			),
 			providerCount: sql<number>`COALESCE(${providerCountSub.count}, 0)`.as(
 				"providerCount",
 			),
@@ -4616,6 +5242,7 @@ admin.openapi(getModelStats, async (c) => {
 			providerCount: Number(r.providerCount),
 			totalTokens: 0,
 			totalCost: 0,
+			...EMPTY_TOKEN_BREAKDOWN,
 			inputPrice: r.inputPrice ?? null,
 			outputPrice: r.outputPrice ?? null,
 			requestPrice: r.requestPrice ?? null,
@@ -4626,6 +5253,7 @@ admin.openapi(getModelStats, async (c) => {
 		offset,
 		totalTokens: 0,
 		totalCost: 0,
+		...EMPTY_TOKEN_BREAKDOWN,
 	});
 });
 
@@ -4685,6 +5313,7 @@ const modelProviderStatsSchema = z.object({
 	errorsCount: z.number(),
 	cachedCount: z.number(),
 	avgTimeToFirstToken: z.number().nullable(),
+	...tokenBreakdownShape,
 	updatedAt: z.string(),
 });
 
@@ -4710,6 +5339,7 @@ const modelDetailSchema = z.object({
 		cachedCount: z.number(),
 		avgTimeToFirstToken: z.number().nullable(),
 		providerCount: z.number(),
+		...tokenBreakdownShape,
 		updatedAt: z.string(),
 	}),
 	providers: z.array(modelProviderStatsSchema),
@@ -4802,6 +5432,28 @@ admin.openapi(getModelDetail, async (c) => {
 				cachedCount: sql<number>`SUM(${projectHourlyModelStats.cacheCount})`.as(
 					"cached_count",
 				),
+				inputTokens:
+					sql<number>`SUM(CAST(${projectHourlyModelStats.inputTokens} AS NUMERIC))`.as(
+						"input_tokens",
+					),
+				cachedTokens:
+					sql<number>`SUM(CAST(${projectHourlyModelStats.cachedTokens} AS NUMERIC))`.as(
+						"cached_tokens",
+					),
+				outputTokens:
+					sql<number>`SUM(CAST(${projectHourlyModelStats.outputTokens} AS NUMERIC))`.as(
+						"output_tokens",
+					),
+				inputCost: sql<number>`SUM(${projectHourlyModelStats.inputCost})`.as(
+					"input_cost",
+				),
+				cachedInputCost:
+					sql<number>`SUM(${projectHourlyModelStats.cachedInputCost})`.as(
+						"cached_input_cost",
+					),
+				outputCost: sql<number>`SUM(${projectHourlyModelStats.outputCost})`.as(
+					"output_cost",
+				),
 			})
 			.from(projectHourlyModelStats)
 			.where(
@@ -4867,6 +5519,10 @@ admin.openapi(getModelDetail, async (c) => {
 			(s, r) => s + Number(r.cachedCount),
 			0,
 		);
+		const totalBreakdown = { ...EMPTY_TOKEN_BREAKDOWN };
+		for (const r of statsRows) {
+			addTokenBreakdown(totalBreakdown, r);
+		}
 
 		return c.json({
 			model: {
@@ -4890,6 +5546,7 @@ admin.openapi(getModelDetail, async (c) => {
 				cachedCount: totalCached,
 				avgTimeToFirstToken: null,
 				providerCount: statsRows.length,
+				...totalBreakdown,
 				updatedAt: model.updatedAt.toISOString(),
 			},
 			providers: statsRows.map((r) => ({
@@ -4899,6 +5556,7 @@ admin.openapi(getModelDetail, async (c) => {
 				errorsCount: Number(r.errorsCount),
 				cachedCount: Number(r.cachedCount),
 				avgTimeToFirstToken: null,
+				...toTokenBreakdown(r),
 				updatedAt: model.updatedAt.toISOString(),
 			})),
 		});
@@ -4913,7 +5571,11 @@ admin.openapi(getModelDetail, async (c) => {
 		db
 			.select({
 				providerId: tables.modelProviderMapping.providerId,
-				avgTimeToFirstToken: tables.modelProviderMapping.avgTimeToFirstToken,
+				avgTimeToFirstToken: sql<
+					number | null
+				>`COALESCE(${tables.modelProviderMapping.avgTimeToFirstReasoningToken}, ${tables.modelProviderMapping.avgTimeToFirstToken})`.as(
+					"avgTimeToFirstToken",
+				),
 				updatedAt: tables.modelProviderMapping.updatedAt,
 			})
 			.from(tables.modelProviderMapping)
@@ -4967,6 +5629,19 @@ admin.openapi(getModelDetail, async (c) => {
 					sql<number>`COALESCE(SUM(${mph.totalTimeToFirstToken}), 0)`.as(
 						"total_ttft",
 					),
+				ttftCount:
+					sql<number>`COALESCE(SUM(${mph.timeToFirstTokenCount}), 0)`.as(
+						"ttft_count",
+					),
+				totalTtfrt:
+					sql<number>`COALESCE(SUM(${mph.totalTimeToFirstReasoningToken}), 0)`.as(
+						"total_ttfrt",
+					),
+				ttfrtCount:
+					sql<number>`COALESCE(SUM(${mph.timeToFirstReasoningTokenCount}), 0)`.as(
+						"ttfrt_count",
+					),
+				...tokenBreakdownSums(mph),
 			})
 			.from(mph)
 			.where(and(eq(mph.modelId, modelId), gte(mphTs, startDate)))
@@ -4986,15 +5661,24 @@ admin.openapi(getModelDetail, async (c) => {
 		statsRows.map((r) => {
 			const logsCount = Number(r.logsCount ?? 0);
 			const cachedCount = Number(r.cachedCount ?? 0);
-			const nonCached = logsCount - cachedCount;
-			const totalTtft = Number(r.totalTtft ?? 0);
+			// Only streamed requests record a time-to-first-token, so the average
+			// divides by the sample count, not the request count. Reasoning-token
+			// samples take precedence so thinking mappings aren't measured on
+			// their (much later) first content token.
+			const { total: totalTtft, count: ttftCount } = effectiveTtftTotals({
+				totalTimeToFirstToken: Number(r.totalTtft ?? 0),
+				timeToFirstTokenCount: Number(r.ttftCount ?? 0),
+				totalTimeToFirstReasoningToken: Number(r.totalTtfrt ?? 0),
+				timeToFirstReasoningTokenCount: Number(r.ttfrtCount ?? 0),
+			});
 			return [
 				r.providerId,
 				{
 					logsCount,
 					errorsCount: Number(r.errorsCount ?? 0),
 					cachedCount,
-					avgTtft: nonCached > 0 ? totalTtft / nonCached : null,
+					avgTtft: ttftCount > 0 ? totalTtft / ttftCount : null,
+					breakdown: toTokenBreakdown(r),
 				},
 			];
 		}),
@@ -5009,6 +5693,7 @@ admin.openapi(getModelDetail, async (c) => {
 			errorsCount: stats?.errorsCount ?? 0,
 			cachedCount: stats?.cachedCount ?? 0,
 			avgTimeToFirstToken: stats?.avgTtft ?? m.avgTimeToFirstToken,
+			...(stats?.breakdown ?? EMPTY_TOKEN_BREAKDOWN),
 			updatedAt: m.updatedAt.toISOString(),
 		};
 	});
@@ -5028,6 +5713,10 @@ admin.openapi(getModelDetail, async (c) => {
 			acc.unknownFinishCount += Number(r.unknownFinishCount ?? 0);
 			acc.cachedCount += Number(r.cachedCount ?? 0);
 			acc.totalTtft += Number(r.totalTtft ?? 0);
+			acc.ttftCount += Number(r.ttftCount ?? 0);
+			acc.totalTtfrt += Number(r.totalTtfrt ?? 0);
+			acc.ttfrtCount += Number(r.ttfrtCount ?? 0);
+			addTokenBreakdown(acc.breakdown, r);
 			return acc;
 		},
 		{
@@ -5044,11 +5733,22 @@ admin.openapi(getModelDetail, async (c) => {
 			unknownFinishCount: 0,
 			cachedCount: 0,
 			totalTtft: 0,
+			ttftCount: 0,
+			totalTtfrt: 0,
+			ttfrtCount: 0,
+			breakdown: { ...EMPTY_TOKEN_BREAKDOWN },
 		},
 	);
 	const hasWindowData = agg.logsCount > 0;
-	const aggNonCached = agg.logsCount - agg.cachedCount;
-	const aggAvgTtft = aggNonCached > 0 ? agg.totalTtft / aggNonCached : null;
+	const { total: aggEffectiveTtft, count: aggEffectiveTtftCount } =
+		effectiveTtftTotals({
+			totalTimeToFirstToken: agg.totalTtft,
+			timeToFirstTokenCount: agg.ttftCount,
+			totalTimeToFirstReasoningToken: agg.totalTtfrt,
+			timeToFirstReasoningTokenCount: agg.ttfrtCount,
+		});
+	const aggAvgTtft =
+		aggEffectiveTtftCount > 0 ? aggEffectiveTtft / aggEffectiveTtftCount : null;
 
 	return c.json({
 		model: {
@@ -5077,9 +5777,12 @@ admin.openapi(getModelDetail, async (c) => {
 			unknownFinishCount: agg.unknownFinishCount,
 			cachedCount: hasWindowData ? agg.cachedCount : model.cachedCount,
 			avgTimeToFirstToken: hasWindowData
-				? (aggAvgTtft ?? model.avgTimeToFirstToken)
-				: model.avgTimeToFirstToken,
+				? (aggAvgTtft ??
+					model.avgTimeToFirstReasoningToken ??
+					model.avgTimeToFirstToken)
+				: (model.avgTimeToFirstReasoningToken ?? model.avgTimeToFirstToken),
 			providerCount: providerStats.length,
+			...agg.breakdown,
 			updatedAt: model.updatedAt.toISOString(),
 		},
 		providers: providerStats,
@@ -5288,6 +5991,111 @@ admin.openapi(updateReferralBonusRoute, async (c) => {
 	});
 });
 
+// Manage an organization's plan tier, seat-limit and API-key-limit overrides
+const manageOrganizationRoute = createRoute({
+	method: "patch",
+	path: "/organizations/{orgId}/manage",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						name: z.string().trim().min(1).max(255),
+						plan: z.enum(["free", "pro", "enterprise"]),
+						// Null clears the override and reverts to the plan default.
+						seats: z.number().int().min(0).max(100000).nullable(),
+						// Null clears the override and reverts to the plan default.
+						apiKeyLimit: z.number().int().min(0).max(100000).nullable(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						name: z.string(),
+						plan: z.string(),
+						seats: z.number().int().nullable(),
+						apiKeyLimit: z.number().int().nullable(),
+					}),
+				},
+			},
+			description: "Organization updated successfully.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Organization not found.",
+		},
+	},
+});
+
+admin.openapi(manageOrganizationRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+	const { name, plan, seats, apiKeyLimit } = c.req.valid("json");
+
+	const org = await db.query.organization.findFirst({
+		where: {
+			id: { eq: orgId },
+		},
+	});
+
+	if (!org || org.status === "deleted") {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	await db
+		.update(tables.organization)
+		.set({
+			name,
+			plan,
+			seats,
+			apiKeyLimit,
+		})
+		.where(eq(tables.organization.id, orgId));
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "organization.manage",
+		resourceType: "organization",
+		resourceId: orgId,
+		metadata: {
+			previousName: org.name,
+			newName: name,
+			previousPlan: org.plan,
+			newPlan: plan,
+			previousSeats: org.seats,
+			newSeats: seats,
+			previousApiKeyLimit: org.apiKeyLimit,
+			newApiKeyLimit: apiKeyLimit,
+		},
+	});
+
+	return c.json({
+		message: "Organization updated successfully",
+		name,
+		plan,
+		seats,
+		apiKeyLimit,
+	});
+});
+
 // --- Set Organization Status ---
 
 const orgStatusSchema = z.enum(["active", "deleted"]);
@@ -5475,10 +6283,22 @@ const blockOrganizationRoute = createRoute({
 	},
 });
 
-admin.openapi(blockOrganizationRoute, async (c) => {
-	const user = c.get("user");
-	const { orgId } = c.req.valid("param");
+interface BlockOrganizationOutcome {
+	cancelledSubscriptionIds: string[];
+	memberCount: number;
+	deactivatedUserCount: number;
+}
 
+/**
+ * Blocks a single organization: cancels its Stripe subscriptions, marks it
+ * deleted, deactivates members that have no other active organization, and
+ * writes the audit entry. Shared by the single-org and bulk block endpoints so
+ * both paths always apply the exact same effects.
+ */
+async function blockOrganizationById(
+	orgId: string,
+	adminUserId: string,
+): Promise<BlockOrganizationOutcome> {
 	const org = await db.query.organization.findFirst({
 		where: { id: { eq: orgId } },
 	});
@@ -5595,7 +6415,7 @@ admin.openapi(blockOrganizationRoute, async (c) => {
 
 	await logAuditEvent({
 		organizationId: orgId,
-		userId: user!.id,
+		userId: adminUserId,
 		action: "organization.block",
 		resourceType: "organization",
 		resourceId: orgId,
@@ -5609,10 +6429,339 @@ admin.openapi(blockOrganizationRoute, async (c) => {
 		},
 	});
 
+	return {
+		cancelledSubscriptionIds,
+		memberCount: memberUserIds.length,
+		deactivatedUserCount: userIdsToDeactivate.length,
+	};
+}
+
+admin.openapi(blockOrganizationRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+
+	const { cancelledSubscriptionIds } = await blockOrganizationById(
+		orgId,
+		user!.id,
+	);
+
 	return c.json({
 		message: "Organization blocked and subscriptions cancelled.",
 		cancelledSubscriptionIds,
 	});
+});
+
+// --- Bulk block organizations (filtered list) ---
+
+const bulkBlockOrganizationSchema = z.object({
+	id: z.string(),
+	name: z.string(),
+	billingEmail: z.string(),
+	plan: z.string(),
+	status: z.string().nullable(),
+	createdAt: z.string(),
+});
+
+interface BulkBlockCandidates {
+	search: string;
+	matched: number;
+	candidates: {
+		id: string;
+		name: string;
+		billingEmail: string;
+		plan: string;
+		status: string | null;
+		createdAt: Date;
+	}[];
+}
+
+/**
+ * Resolves the exact set of organizations a bulk block would affect.
+ *
+ * Every guard that prevents a bulk block from degenerating into "ban
+ * everything" lives here, so the preview and the mutation can never disagree
+ * about the target set:
+ * - an empty or too-short search throws, so there is no unfiltered code path;
+ * - the LIKE filter escapes wildcards, so "%" cannot match every row;
+ * - organizations that are already blocked are excluded;
+ * - organizations the acting admin belongs to are excluded, so an admin can
+ *   never lock themselves (or their own org's members) out;
+ * - a filter resolving to more than MAX_BULK_BLOCK_ORGANIZATIONS throws rather
+ *   than silently truncating to the first N.
+ *
+ * Callers mutate strictly by the returned ids, never by re-running the filter
+ * as the WHERE clause of an UPDATE.
+ */
+async function resolveBulkBlockCandidates(
+	search: string,
+	adminUserId: string,
+): Promise<BulkBlockCandidates> {
+	const trimmed = search.trim();
+
+	if (trimmed.length < MIN_BULK_BLOCK_SEARCH_LENGTH) {
+		throw new HTTPException(400, {
+			message: `Bulk blocking requires a search filter of at least ${MIN_BULK_BLOCK_SEARCH_LENGTH} characters.`,
+		});
+	}
+
+	const searchFilter = buildOrganizationSearchFilter(trimmed);
+
+	if (!searchFilter) {
+		throw new HTTPException(400, {
+			message: "Bulk blocking requires a search filter.",
+		});
+	}
+
+	const adminOrgLinks = await db.query.userOrganization.findMany({
+		where: { userId: { eq: adminUserId } },
+		columns: { organizationId: true },
+	});
+	const adminOrgIds = [
+		...new Set(adminOrgLinks.map((link) => link.organizationId)),
+	];
+
+	const candidateFilter = and(
+		searchFilter,
+		or(
+			isNull(tables.organization.status),
+			ne(tables.organization.status, "deleted"),
+		),
+		adminOrgIds.length > 0
+			? notInArray(tables.organization.id, adminOrgIds)
+			: undefined,
+	);
+
+	const [matchedRow] = await db
+		.select({ count: sql<number>`COUNT(*)`.as("count") })
+		.from(tables.organization)
+		.where(searchFilter);
+
+	const candidates = await db
+		.select({
+			id: tables.organization.id,
+			name: tables.organization.name,
+			billingEmail: tables.organization.billingEmail,
+			plan: tables.organization.plan,
+			status: tables.organization.status,
+			createdAt: tables.organization.createdAt,
+		})
+		.from(tables.organization)
+		.where(candidateFilter)
+		.orderBy(asc(tables.organization.createdAt))
+		.limit(MAX_BULK_BLOCK_ORGANIZATIONS + 1);
+
+	if (candidates.length > MAX_BULK_BLOCK_ORGANIZATIONS) {
+		throw new HTTPException(400, {
+			message: `This filter matches more than ${MAX_BULK_BLOCK_ORGANIZATIONS} organizations. Narrow the search before bulk blocking.`,
+		});
+	}
+
+	return {
+		search: trimmed,
+		matched: Number(matchedRow?.count ?? 0),
+		candidates,
+	};
+}
+
+const bulkBlockPreviewRoute = createRoute({
+	method: "get",
+	path: "/organizations/bulk-block/preview",
+	request: {
+		query: z.object({
+			search: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						search: z.string(),
+						matched: z.number(),
+						blockable: z.number(),
+						skipped: z.number(),
+						maxBulkSize: z.number(),
+						organizations: z.array(bulkBlockOrganizationSchema),
+					}),
+				},
+			},
+			description: "Organizations a bulk block would affect.",
+		},
+		400: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "Search filter missing, too short, or too broad.",
+		},
+	},
+});
+
+admin.openapi(bulkBlockPreviewRoute, async (c) => {
+	const user = c.get("user");
+	const { search } = c.req.valid("query");
+
+	const {
+		matched,
+		candidates,
+		search: normalizedSearch,
+	} = await resolveBulkBlockCandidates(search, user!.id);
+
+	return c.json(
+		{
+			search: normalizedSearch,
+			matched,
+			blockable: candidates.length,
+			skipped: Math.max(0, matched - candidates.length),
+			maxBulkSize: MAX_BULK_BLOCK_ORGANIZATIONS,
+			organizations: candidates.map((org) => ({
+				id: org.id,
+				name: org.name,
+				billingEmail: org.billingEmail,
+				plan: org.plan,
+				status: org.status,
+				createdAt: org.createdAt.toISOString(),
+			})),
+		},
+		200,
+	);
+});
+
+const bulkBlockOrganizationsRoute = createRoute({
+	method: "post",
+	path: "/organizations/bulk-block",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						search: z.string(),
+						// The number of organizations the admin confirmed in the UI. The
+						// server re-resolves the set and refuses to act unless it matches
+						// exactly, so a filter that widened between preview and confirm
+						// blocks nothing instead of blocking extra organizations.
+						expectedCount: z
+							.number()
+							.int()
+							.min(1)
+							.max(MAX_BULK_BLOCK_ORGANIZATIONS),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						blockedCount: z.number(),
+						failedCount: z.number(),
+						blocked: z.array(
+							z.object({
+								id: z.string(),
+								name: z.string(),
+								cancelledSubscriptionIds: z.array(z.string()),
+							}),
+						),
+						failed: z.array(
+							z.object({
+								id: z.string(),
+								name: z.string(),
+								error: z.string(),
+							}),
+						),
+					}),
+				},
+			},
+			description: "Bulk block result.",
+		},
+		400: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "Search filter missing, too short, or too broad.",
+		},
+		409: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description:
+				"The confirmed count no longer matches the filtered organizations.",
+		},
+	},
+});
+
+admin.openapi(bulkBlockOrganizationsRoute, async (c) => {
+	const user = c.get("user");
+	const { search, expectedCount } = c.req.valid("json");
+
+	const { candidates } = await resolveBulkBlockCandidates(search, user!.id);
+
+	if (candidates.length !== expectedCount) {
+		throw new HTTPException(409, {
+			message: `The filter now matches ${candidates.length} blockable organization(s) but ${expectedCount} were confirmed. Nothing was blocked — re-run the search and confirm again.`,
+		});
+	}
+
+	// Defensive: `expectedCount` is already validated as >= 1, so this can only
+	// trip if the guards above ever change. Blocking nothing is the safe outcome.
+	if (candidates.length === 0) {
+		throw new HTTPException(400, {
+			message: "No organizations matched the filter.",
+		});
+	}
+
+	const blocked: {
+		id: string;
+		name: string;
+		cancelledSubscriptionIds: string[];
+	}[] = [];
+	const failed: { id: string; name: string; error: string }[] = [];
+
+	// Sequential on purpose: each iteration talks to Stripe, and one failure must
+	// not abort the organizations that follow it.
+	for (const candidate of candidates) {
+		try {
+			const outcome = await blockOrganizationById(candidate.id, user!.id);
+			blocked.push({
+				id: candidate.id,
+				name: candidate.name,
+				cancelledSubscriptionIds: outcome.cancelledSubscriptionIds,
+			});
+		} catch (error) {
+			const message =
+				error instanceof HTTPException
+					? error.message
+					: error instanceof Error
+						? error.message
+						: "Unknown error";
+			logger.error(
+				`Bulk block failed for organization ${candidate.id}: ${message}`,
+			);
+			failed.push({ id: candidate.id, name: candidate.name, error: message });
+		}
+	}
+
+	return c.json(
+		{
+			message:
+				failed.length === 0
+					? `Blocked ${blocked.length} organization(s).`
+					: `Blocked ${blocked.length} organization(s), ${failed.length} failed.`,
+			blockedCount: blocked.length,
+			failedCount: failed.length,
+			blocked,
+			failed,
+		},
+		200,
+	);
 });
 
 // --- History endpoints ---
@@ -5629,6 +6778,7 @@ const historyDataPointSchema = z.object({
 	avgDuration: z.number().nullable(),
 	totalTokens: z.number(),
 	totalCost: z.number(),
+	...tokenBreakdownShape,
 });
 
 const historyResponseSchema = z.object({
@@ -5652,8 +6802,17 @@ function mapHistoryRows(
 		cachedCount: number;
 		totalDuration: number;
 		totalTimeToFirstToken: number;
+		timeToFirstTokenCount: number;
+		totalTimeToFirstReasoningToken: number;
+		timeToFirstReasoningTokenCount: number;
 		totalTokens: number;
 		totalCost?: number;
+		inputTokens?: number;
+		cachedTokens?: number;
+		outputTokens?: number;
+		inputCost?: number;
+		cachedInputCost?: number;
+		outputCost?: number;
 	}[],
 	costByHour: Map<string, number> = new Map(),
 ) {
@@ -5668,9 +6827,22 @@ function mapHistoryRows(
 		const errorsCount = Number(r.errorsCount);
 		const cachedCount = Number(r.cachedCount);
 		const totalDuration = Number(r.totalDuration);
-		const totalTimeToFirstToken = Number(r.totalTimeToFirstToken);
+		// Only streamed requests record a time-to-first-token, so the average
+		// divides by the sample count, not the request count. Reasoning-token
+		// samples take precedence so thinking mappings aren't measured on their
+		// (much later) first content token.
+		const { total: totalTimeToFirstToken, count: timeToFirstTokenCount } =
+			effectiveTtftTotals({
+				totalTimeToFirstToken: Number(r.totalTimeToFirstToken),
+				timeToFirstTokenCount: Number(r.timeToFirstTokenCount),
+				totalTimeToFirstReasoningToken: Number(
+					r.totalTimeToFirstReasoningToken,
+				),
+				timeToFirstReasoningTokenCount: Number(
+					r.timeToFirstReasoningTokenCount,
+				),
+			});
 		const totalTokens = Number(r.totalTokens);
-		const nonCached = logsCount - cachedCount;
 
 		let totalCost: number;
 		if (r.totalCost !== undefined && r.totalCost !== null) {
@@ -5691,10 +6863,13 @@ function mapHistoryRows(
 			upstreamErrorsCount: Number(r.upstreamErrorsCount ?? 0),
 			cachedCount,
 			avgTtft:
-				nonCached > 0 ? Math.round(totalTimeToFirstToken / nonCached) : null,
+				timeToFirstTokenCount > 0
+					? Math.round(totalTimeToFirstToken / timeToFirstTokenCount)
+					: null,
 			avgDuration: logsCount > 0 ? Math.round(totalDuration / logsCount) : null,
 			totalTokens,
 			totalCost,
+			...toTokenBreakdown(r),
 		};
 	});
 }
@@ -5764,6 +6939,18 @@ admin.openapi(getProviderHistory, async (c) => {
 					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalTimeToFirstToken})`.as(
 						"total_ttft",
 					),
+				timeToFirstTokenCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.timeToFirstTokenCount})`.as(
+						"ttft_count",
+					),
+				totalTimeToFirstReasoningToken:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalTimeToFirstReasoningToken})`.as(
+						"total_ttfrt",
+					),
+				timeToFirstReasoningTokenCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.timeToFirstReasoningTokenCount})`.as(
+						"ttfrt_count",
+					),
 				totalTokens:
 					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalTokens})`.as(
 						"total_tokens",
@@ -5772,6 +6959,7 @@ admin.openapi(getProviderHistory, async (c) => {
 					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalCost})`.as(
 						"total_cost",
 					),
+				...tokenBreakdownSums(modelProviderMappingHistoryHourly),
 			})
 			.from(modelProviderMappingHistoryHourly)
 			.where(
@@ -5822,10 +7010,23 @@ admin.openapi(getProviderHistory, async (c) => {
 					sql<number>`SUM(${modelProviderMappingHistory.totalTimeToFirstToken})`.as(
 						"total_ttft",
 					),
+				timeToFirstTokenCount:
+					sql<number>`SUM(${modelProviderMappingHistory.timeToFirstTokenCount})`.as(
+						"ttft_count",
+					),
+				totalTimeToFirstReasoningToken:
+					sql<number>`SUM(${modelProviderMappingHistory.totalTimeToFirstReasoningToken})`.as(
+						"total_ttfrt",
+					),
+				timeToFirstReasoningTokenCount:
+					sql<number>`SUM(${modelProviderMappingHistory.timeToFirstReasoningTokenCount})`.as(
+						"ttfrt_count",
+					),
 				totalTokens:
 					sql<number>`SUM(${modelProviderMappingHistory.totalTokens})`.as(
 						"total_tokens",
 					),
+				...tokenBreakdownSums(modelProviderMappingHistory),
 			})
 			.from(modelProviderMappingHistory)
 			.where(
@@ -5910,6 +7111,28 @@ admin.openapi(getModelHistory, async (c) => {
 						"total_tokens",
 					),
 				cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
+				inputTokens:
+					sql<number>`SUM(CAST(${projectHourlyModelStats.inputTokens} AS NUMERIC))`.as(
+						"input_tokens",
+					),
+				cachedTokens:
+					sql<number>`SUM(CAST(${projectHourlyModelStats.cachedTokens} AS NUMERIC))`.as(
+						"cached_tokens",
+					),
+				outputTokens:
+					sql<number>`SUM(CAST(${projectHourlyModelStats.outputTokens} AS NUMERIC))`.as(
+						"output_tokens",
+					),
+				inputCost: sql<number>`SUM(${projectHourlyModelStats.inputCost})`.as(
+					"input_cost",
+				),
+				cachedInputCost:
+					sql<number>`SUM(${projectHourlyModelStats.cachedInputCost})`.as(
+						"cached_input_cost",
+					),
+				outputCost: sql<number>`SUM(${projectHourlyModelStats.outputCost})`.as(
+					"output_cost",
+				),
 			})
 			.from(projectHourlyModelStats)
 			.where(
@@ -5935,6 +7158,7 @@ admin.openapi(getModelHistory, async (c) => {
 				avgDuration: null,
 				totalTokens: Number(r.totalTokens),
 				totalCost: Number(r.cost),
+				...toTokenBreakdown(r),
 			})),
 		});
 	}
@@ -5973,12 +7197,25 @@ admin.openapi(getModelHistory, async (c) => {
 					sql<number>`SUM(${modelHistoryHourly.totalTimeToFirstToken})`.as(
 						"total_ttft",
 					),
+				timeToFirstTokenCount:
+					sql<number>`SUM(${modelHistoryHourly.timeToFirstTokenCount})`.as(
+						"ttft_count",
+					),
+				totalTimeToFirstReasoningToken:
+					sql<number>`SUM(${modelHistoryHourly.totalTimeToFirstReasoningToken})`.as(
+						"total_ttfrt",
+					),
+				timeToFirstReasoningTokenCount:
+					sql<number>`SUM(${modelHistoryHourly.timeToFirstReasoningTokenCount})`.as(
+						"ttfrt_count",
+					),
 				totalTokens: sql<number>`SUM(${modelHistoryHourly.totalTokens})`.as(
 					"total_tokens",
 				),
 				totalCost: sql<number>`SUM(${modelHistoryHourly.totalCost})`.as(
 					"total_cost",
 				),
+				...tokenBreakdownSums(modelHistoryHourly),
 			})
 			.from(modelHistoryHourly)
 			.where(
@@ -6021,10 +7258,23 @@ admin.openapi(getModelHistory, async (c) => {
 				sql<number>`SUM(${modelHistory.totalTimeToFirstToken})`.as(
 					"total_ttft",
 				),
+			timeToFirstTokenCount:
+				sql<number>`SUM(${modelHistory.timeToFirstTokenCount})`.as(
+					"ttft_count",
+				),
+			totalTimeToFirstReasoningToken:
+				sql<number>`SUM(${modelHistory.totalTimeToFirstReasoningToken})`.as(
+					"total_ttfrt",
+				),
+			timeToFirstReasoningTokenCount:
+				sql<number>`SUM(${modelHistory.timeToFirstReasoningTokenCount})`.as(
+					"ttfrt_count",
+				),
 			totalTokens: sql<number>`SUM(${modelHistory.totalTokens})`.as(
 				"total_tokens",
 			),
 			totalCost: sql<number>`SUM(${modelHistory.totalCost})`.as("total_cost"),
+			...tokenBreakdownSums(modelHistory),
 		})
 		.from(modelHistory)
 		.where(
@@ -6112,6 +7362,28 @@ admin.openapi(getMappingHistory, async (c) => {
 						"total_tokens",
 					),
 				cost: sql<number>`SUM(${projectHourlyModelStats.cost})`.as("cost"),
+				inputTokens:
+					sql<number>`SUM(CAST(${projectHourlyModelStats.inputTokens} AS NUMERIC))`.as(
+						"input_tokens",
+					),
+				cachedTokens:
+					sql<number>`SUM(CAST(${projectHourlyModelStats.cachedTokens} AS NUMERIC))`.as(
+						"cached_tokens",
+					),
+				outputTokens:
+					sql<number>`SUM(CAST(${projectHourlyModelStats.outputTokens} AS NUMERIC))`.as(
+						"output_tokens",
+					),
+				inputCost: sql<number>`SUM(${projectHourlyModelStats.inputCost})`.as(
+					"input_cost",
+				),
+				cachedInputCost:
+					sql<number>`SUM(${projectHourlyModelStats.cachedInputCost})`.as(
+						"cached_input_cost",
+					),
+				outputCost: sql<number>`SUM(${projectHourlyModelStats.outputCost})`.as(
+					"output_cost",
+				),
 			})
 			.from(projectHourlyModelStats)
 			.where(
@@ -6138,6 +7410,7 @@ admin.openapi(getMappingHistory, async (c) => {
 				avgDuration: null,
 				totalTokens: Number(r.totalTokens),
 				totalCost: Number(r.cost),
+				...toTokenBreakdown(r),
 			})),
 		});
 	}
@@ -6197,6 +7470,18 @@ admin.openapi(getMappingHistory, async (c) => {
 					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalTimeToFirstToken})`.as(
 						"total_ttft",
 					),
+				timeToFirstTokenCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.timeToFirstTokenCount})`.as(
+						"ttft_count",
+					),
+				totalTimeToFirstReasoningToken:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalTimeToFirstReasoningToken})`.as(
+						"total_ttfrt",
+					),
+				timeToFirstReasoningTokenCount:
+					sql<number>`SUM(${modelProviderMappingHistoryHourly.timeToFirstReasoningTokenCount})`.as(
+						"ttfrt_count",
+					),
 				totalTokens:
 					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalTokens})`.as(
 						"total_tokens",
@@ -6205,6 +7490,7 @@ admin.openapi(getMappingHistory, async (c) => {
 					sql<number>`SUM(${modelProviderMappingHistoryHourly.totalCost})`.as(
 						"total_cost",
 					),
+				...tokenBreakdownSums(modelProviderMappingHistoryHourly),
 			})
 			.from(modelProviderMappingHistoryHourly)
 			.where(
@@ -6256,6 +7542,18 @@ admin.openapi(getMappingHistory, async (c) => {
 				sql<number>`SUM(${modelProviderMappingHistory.totalTimeToFirstToken})`.as(
 					"total_ttft",
 				),
+			timeToFirstTokenCount:
+				sql<number>`SUM(${modelProviderMappingHistory.timeToFirstTokenCount})`.as(
+					"ttft_count",
+				),
+			totalTimeToFirstReasoningToken:
+				sql<number>`SUM(${modelProviderMappingHistory.totalTimeToFirstReasoningToken})`.as(
+					"total_ttfrt",
+				),
+			timeToFirstReasoningTokenCount:
+				sql<number>`SUM(${modelProviderMappingHistory.timeToFirstReasoningTokenCount})`.as(
+					"ttfrt_count",
+				),
 			totalTokens:
 				sql<number>`SUM(${modelProviderMappingHistory.totalTokens})`.as(
 					"total_tokens",
@@ -6263,6 +7561,7 @@ admin.openapi(getMappingHistory, async (c) => {
 			totalCost: sql<number>`SUM(${modelProviderMappingHistory.totalCost})`.as(
 				"total_cost",
 			),
+			...tokenBreakdownSums(modelProviderMappingHistory),
 		})
 		.from(modelProviderMappingHistory)
 		.where(
@@ -6294,6 +7593,7 @@ const providerModelStatsSchema = z.object({
 	cachedCount: z.number(),
 	avgTimeToFirstToken: z.number().nullable(),
 	totalCost: z.number(),
+	...tokenBreakdownShape,
 	updatedAt: z.string(),
 });
 
@@ -6313,6 +7613,7 @@ const providerDetailSchema = z.object({
 		cachedCount: z.number(),
 		avgTimeToFirstToken: z.number().nullable(),
 		modelCount: z.number(),
+		...tokenBreakdownShape,
 		updatedAt: z.string(),
 	}),
 	models: z.array(providerModelStatsSchema),
@@ -6364,7 +7665,11 @@ admin.openapi(getProviderDetail, async (c) => {
 				externalId: tables.modelProviderMapping.externalId,
 				region: tables.modelProviderMapping.region,
 				status: tables.modelProviderMapping.status,
-				avgTimeToFirstToken: tables.modelProviderMapping.avgTimeToFirstToken,
+				avgTimeToFirstToken: sql<
+					number | null
+				>`COALESCE(${tables.modelProviderMapping.avgTimeToFirstReasoningToken}, ${tables.modelProviderMapping.avgTimeToFirstToken})`.as(
+					"avgTimeToFirstToken",
+				),
 				updatedAt: tables.modelProviderMapping.updatedAt,
 			})
 			.from(tables.modelProviderMapping)
@@ -6397,9 +7702,22 @@ admin.openapi(getProviderDetail, async (c) => {
 					sql<number>`COALESCE(SUM(${mph.totalTimeToFirstToken}), 0)`.as(
 						"total_ttft",
 					),
+				ttftCount:
+					sql<number>`COALESCE(SUM(${mph.timeToFirstTokenCount}), 0)`.as(
+						"ttft_count",
+					),
+				totalTtfrt:
+					sql<number>`COALESCE(SUM(${mph.totalTimeToFirstReasoningToken}), 0)`.as(
+						"total_ttfrt",
+					),
+				ttfrtCount:
+					sql<number>`COALESCE(SUM(${mph.timeToFirstReasoningTokenCount}), 0)`.as(
+						"ttfrt_count",
+					),
 				totalCost: sql<number>`COALESCE(SUM(${mph.totalCost}), 0)`.as(
 					"total_cost",
 				),
+				...tokenBreakdownSums(mph),
 			})
 			.from(mph)
 			.where(and(eq(mph.providerId, providerId), gte(mphTs, startDate)))
@@ -6412,9 +7730,17 @@ admin.openapi(getProviderDetail, async (c) => {
 		const s = statsByModel.get(m.modelId);
 		const logsCount = Number(s?.logsCount ?? 0);
 		const cachedCount = Number(s?.cachedCount ?? 0);
-		const nonCached = logsCount - cachedCount;
-		const totalTtft = Number(s?.totalTtft ?? 0);
-		const avgTtft = nonCached > 0 ? totalTtft / nonCached : null;
+		// Only streamed requests record a time-to-first-token, so the average
+		// divides by the sample count, not the request count. Reasoning-token
+		// samples take precedence so thinking mappings aren't measured on their
+		// (much later) first content token.
+		const { total: totalTtft, count: ttftCount } = effectiveTtftTotals({
+			totalTimeToFirstToken: Number(s?.totalTtft ?? 0),
+			timeToFirstTokenCount: Number(s?.ttftCount ?? 0),
+			totalTimeToFirstReasoningToken: Number(s?.totalTtfrt ?? 0),
+			timeToFirstReasoningTokenCount: Number(s?.ttfrtCount ?? 0),
+		});
+		const avgTtft = ttftCount > 0 ? totalTtft / ttftCount : null;
 		return {
 			modelId: m.modelId,
 			externalId: m.externalId,
@@ -6429,6 +7755,7 @@ admin.openapi(getProviderDetail, async (c) => {
 			cachedCount,
 			avgTimeToFirstToken: avgTtft ?? m.avgTimeToFirstToken,
 			totalCost: Number(s?.totalCost ?? 0),
+			...toTokenBreakdown(s),
 			updatedAt: m.updatedAt.toISOString(),
 		};
 	});
@@ -6442,6 +7769,10 @@ admin.openapi(getProviderDetail, async (c) => {
 			acc.upstreamErrorsCount += Number(r.upstreamErrorsCount ?? 0);
 			acc.cachedCount += Number(r.cachedCount ?? 0);
 			acc.totalTtft += Number(r.totalTtft ?? 0);
+			acc.ttftCount += Number(r.ttftCount ?? 0);
+			acc.totalTtfrt += Number(r.totalTtfrt ?? 0);
+			acc.ttfrtCount += Number(r.ttfrtCount ?? 0);
+			addTokenBreakdown(acc.breakdown, r);
 			return acc;
 		},
 		{
@@ -6452,11 +7783,22 @@ admin.openapi(getProviderDetail, async (c) => {
 			upstreamErrorsCount: 0,
 			cachedCount: 0,
 			totalTtft: 0,
+			ttftCount: 0,
+			totalTtfrt: 0,
+			ttfrtCount: 0,
+			breakdown: { ...EMPTY_TOKEN_BREAKDOWN },
 		},
 	);
 	const hasWindowData = agg.logsCount > 0;
-	const aggNonCached = agg.logsCount - agg.cachedCount;
-	const aggAvgTtft = aggNonCached > 0 ? agg.totalTtft / aggNonCached : null;
+	const { total: aggEffectiveTtft, count: aggEffectiveTtftCount } =
+		effectiveTtftTotals({
+			totalTimeToFirstToken: agg.totalTtft,
+			timeToFirstTokenCount: agg.ttftCount,
+			totalTimeToFirstReasoningToken: agg.totalTtfrt,
+			timeToFirstReasoningTokenCount: agg.ttfrtCount,
+		});
+	const aggAvgTtft =
+		aggEffectiveTtftCount > 0 ? aggEffectiveTtft / aggEffectiveTtftCount : null;
 
 	return c.json({
 		provider: {
@@ -6479,9 +7821,13 @@ admin.openapi(getProviderDetail, async (c) => {
 				: providerRow.upstreamErrorsCount,
 			cachedCount: hasWindowData ? agg.cachedCount : providerRow.cachedCount,
 			avgTimeToFirstToken: hasWindowData
-				? (aggAvgTtft ?? providerRow.avgTimeToFirstToken)
-				: providerRow.avgTimeToFirstToken,
+				? (aggAvgTtft ??
+					providerRow.avgTimeToFirstReasoningToken ??
+					providerRow.avgTimeToFirstToken)
+				: (providerRow.avgTimeToFirstReasoningToken ??
+					providerRow.avgTimeToFirstToken),
 			modelCount: mappings.length,
+			...agg.breakdown,
 			updatedAt: providerRow.updatedAt.toISOString(),
 		},
 		models: modelsOut,
@@ -6521,6 +7867,8 @@ const mappingDetailSchema = z.object({
 		unknownFinishCount: z.number(),
 		cachedCount: z.number(),
 		avgTimeToFirstToken: z.number().nullable(),
+		totalCost: z.number(),
+		...tokenBreakdownShape,
 		updatedAt: z.string(),
 	}),
 });
@@ -6581,7 +7929,11 @@ admin.openapi(getMappingDetail, async (c) => {
 			gatewayErrorsCount: tables.modelProviderMapping.gatewayErrorsCount,
 			upstreamErrorsCount: tables.modelProviderMapping.upstreamErrorsCount,
 			cachedCount: tables.modelProviderMapping.cachedCount,
-			avgTimeToFirstToken: tables.modelProviderMapping.avgTimeToFirstToken,
+			avgTimeToFirstToken: sql<
+				number | null
+			>`COALESCE(${tables.modelProviderMapping.avgTimeToFirstReasoningToken}, ${tables.modelProviderMapping.avgTimeToFirstToken})`.as(
+				"avgTimeToFirstToken",
+			),
 			updatedAt: tables.modelProviderMapping.updatedAt,
 		})
 		.from(tables.modelProviderMapping)
@@ -6655,11 +8007,15 @@ admin.openapi(getMappingDetail, async (c) => {
 			cachedCount: sql<number>`COALESCE(SUM(${mph.cachedCount}), 0)`.as(
 				"cached_count",
 			),
-			avgTtft: sql<
-				number | null
-			>`CASE WHEN SUM(${mph.logsCount}) - SUM(${mph.cachedCount}) > 0 THEN SUM(${mph.totalTimeToFirstToken})::float / (SUM(${mph.logsCount}) - SUM(${mph.cachedCount})) ELSE NULL END`.as(
-				"avg_ttft",
+			// Only streamed requests record a time-to-first-token, so the average
+			// divides by the sample count, not the request count. Reasoning-token
+			// samples take precedence so thinking mappings aren't measured on
+			// their (much later) first content token.
+			avgTtft: avgEffectiveTtftSql(mph).as("avg_ttft"),
+			totalCost: sql<number>`COALESCE(SUM(${mph.totalCost}), 0)`.as(
+				"total_cost",
 			),
+			...tokenBreakdownSums(mph),
 		})
 		.from(mph)
 		.where(and(eq(mph.modelProviderMappingId, m.id), gte(mphTs, startDate)));
@@ -6712,6 +8068,8 @@ admin.openapi(getMappingDetail, async (c) => {
 					? Number(aggRow.avgTtft)
 					: m.avgTimeToFirstToken
 				: m.avgTimeToFirstToken,
+			totalCost: Number(aggRow?.totalCost ?? 0),
+			...toTokenBreakdown(aggRow),
 			updatedAt: m.updatedAt.toISOString(),
 		},
 	});
@@ -6933,6 +8291,10 @@ admin.openapi(getOrgCostByModel, async (c) => {
 
 const costByModelTimeseriesModelViewSchema = z.enum(["mapping", "canonical"]);
 
+const costTimeseriesGroupBySchema = z.enum(["model", "source"]);
+
+const TOP_TIMESERIES_SERIES = 10;
+
 const costByModelTimeseriesBucketSchema = z.object({
 	model: z.string(),
 	cost: z.number(),
@@ -6949,6 +8311,7 @@ const costByModelTimeseriesResponseSchema = z.object({
 	window: tokenWindowSchema,
 	bucket: z.enum(["hour", "day"]),
 	modelView: costByModelTimeseriesModelViewSchema,
+	groupBy: costTimeseriesGroupBySchema,
 	models: z.array(z.string()),
 	data: z.array(costByModelTimeseriesPointSchema),
 });
@@ -7051,6 +8414,7 @@ admin.openapi(getOrgCostByModelTimeseries, async (c) => {
 			window,
 			bucket: bucketUnit,
 			modelView,
+			groupBy: "model" as const,
 			models: [],
 			data: [],
 		});
@@ -7070,6 +8434,7 @@ admin.openapi(getOrgCostByModelTimeseries, async (c) => {
 		window,
 		bucket: bucketUnit,
 		modelView,
+		groupBy: "model" as const,
 		models: result.models,
 		data: result.data,
 	});
@@ -7085,6 +8450,7 @@ const getProjectCostByModelTimeseries = createRoute({
 			modelView: costByModelTimeseriesModelViewSchema
 				.default("mapping")
 				.optional(),
+			groupBy: costTimeseriesGroupBySchema.default("model").optional(),
 		}),
 	},
 	responses: {
@@ -7094,7 +8460,7 @@ const getProjectCostByModelTimeseries = createRoute({
 					schema: costByModelTimeseriesResponseSchema.openapi({}),
 				},
 			},
-			description: "Project cost breakdown by model over time.",
+			description: "Project cost breakdown by model or source over time.",
 		},
 		404: {
 			description: "Project not found.",
@@ -7107,6 +8473,7 @@ admin.openapi(getProjectCostByModelTimeseries, async (c) => {
 	const query = c.req.valid("query");
 	const window = query.window ?? "7d";
 	const modelView = query.modelView ?? "mapping";
+	const groupBy = query.groupBy ?? "model";
 	const startDate = getTokenWindowStartDate(window);
 	const bucketUnit = getBucketUnitForWindow(window);
 
@@ -7121,20 +8488,31 @@ admin.openapi(getProjectCostByModelTimeseries, async (c) => {
 		throw new HTTPException(404, { message: "Project not found" });
 	}
 
-	const result = await buildCostByModelTimeseries({
-		modelView,
-		bucketUnit,
-		startDate,
-		baseFilter: and(
-			eq(projectHourlyModelStats.projectId, projectId),
-			gte(projectHourlyModelStats.hourTimestamp, startDate),
-		),
-	});
+	const result =
+		groupBy === "source"
+			? await buildCostBySourceTimeseries({
+					bucketUnit,
+					startDate,
+					baseFilter: and(
+						eq(projectHourlySourceStats.projectId, projectId),
+						gte(projectHourlySourceStats.hourTimestamp, startDate),
+					),
+				})
+			: await buildCostByModelTimeseries({
+					modelView,
+					bucketUnit,
+					startDate,
+					baseFilter: and(
+						eq(projectHourlyModelStats.projectId, projectId),
+						gte(projectHourlyModelStats.hourTimestamp, startDate),
+					),
+				});
 
 	return c.json({
 		window,
 		bucket: bucketUnit,
 		modelView,
+		groupBy,
 		models: result.models,
 		data: result.data,
 	});
@@ -7178,7 +8556,7 @@ async function buildCostByModelTimeseries({
 
 	const topKeys = [...totalByKey.entries()]
 		.sort((a, b) => b[1] - a[1])
-		.slice(0, 10)
+		.slice(0, TOP_TIMESERIES_SERIES)
 		.map(([k]) => k);
 
 	if (topKeys.length === 0) {
@@ -7220,28 +8598,126 @@ async function buildCostByModelTimeseries({
 		.groupBy(bucketExpr, projectHourlyModelStats.usedModel)
 		.orderBy(asc(bucketExpr));
 
+	return {
+		models: topKeys,
+		data: assembleCostTimeseriesPoints({
+			allBuckets,
+			rows: rows.map((row) => ({
+				bucket: row.bucket,
+				key: keyOf(row.usedModel),
+				cost: Number(row.cost),
+				requestCount: Number(row.requestCount),
+				totalTokens: Number(row.totalTokens),
+			})),
+		}),
+	};
+}
+
+async function buildCostBySourceTimeseries({
+	bucketUnit,
+	startDate,
+	baseFilter,
+}: {
+	bucketUnit: "hour" | "day";
+	startDate: Date;
+	baseFilter: ReturnType<typeof and>;
+}): Promise<{
+	models: string[];
+	data: z.infer<typeof costByModelTimeseriesPointSchema>[];
+}> {
+	const sourceTotals = await db
+		.select({
+			source: projectHourlySourceStats.source,
+			cost: sql<number>`SUM(${projectHourlySourceStats.cost})`.as("cost"),
+		})
+		.from(projectHourlySourceStats)
+		.where(baseFilter)
+		.groupBy(projectHourlySourceStats.source);
+
+	const topKeys = [...sourceTotals]
+		.sort((a, b) => Number(b.cost) - Number(a.cost))
+		.slice(0, TOP_TIMESERIES_SERIES)
+		.map((row) => row.source);
+
+	if (topKeys.length === 0) {
+		return { models: [], data: [] };
+	}
+
+	const allBuckets = generateBucketTimestamps(
+		startDate,
+		new Date(),
+		bucketUnit,
+	);
+
+	const bucketExpr = sql<string>`to_char(date_trunc(${sql.raw(`'${bucketUnit}'`)}, ${projectHourlySourceStats.hourTimestamp}), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
+
+	const rows = await db
+		.select({
+			bucket: bucketExpr.as("bucket"),
+			source: projectHourlySourceStats.source,
+			cost: sql<number>`SUM(${projectHourlySourceStats.cost})`.as("cost"),
+			requestCount:
+				sql<number>`SUM(${projectHourlySourceStats.requestCount})`.as(
+					"request_count",
+				),
+			totalTokens:
+				sql<number>`SUM(CAST(${projectHourlySourceStats.totalTokens} AS NUMERIC))`.as(
+					"total_tokens",
+				),
+		})
+		.from(projectHourlySourceStats)
+		.where(and(baseFilter, inArray(projectHourlySourceStats.source, topKeys)))
+		.groupBy(bucketExpr, projectHourlySourceStats.source)
+		.orderBy(asc(bucketExpr));
+
+	return {
+		models: topKeys,
+		data: assembleCostTimeseriesPoints({
+			allBuckets,
+			rows: rows.map((row) => ({
+				bucket: row.bucket,
+				key: row.source,
+				cost: Number(row.cost),
+				requestCount: Number(row.requestCount),
+				totalTokens: Number(row.totalTokens),
+			})),
+		}),
+	};
+}
+
+function assembleCostTimeseriesPoints({
+	allBuckets,
+	rows,
+}: {
+	allBuckets: string[];
+	rows: {
+		bucket: string;
+		key: string;
+		cost: number;
+		requestCount: number;
+		totalTokens: number;
+	}[];
+}): z.infer<typeof costByModelTimeseriesPointSchema>[] {
 	const bucketMap = new Map<
 		string,
 		Map<string, { cost: number; requestCount: number; totalTokens: number }>
 	>();
 
 	for (const row of rows) {
-		const ts = row.bucket;
-		const key = keyOf(row.usedModel);
-		const entry = bucketMap.get(ts) ?? new Map();
-		const existing = entry.get(key) ?? {
+		const entry = bucketMap.get(row.bucket) ?? new Map();
+		const existing = entry.get(row.key) ?? {
 			cost: 0,
 			requestCount: 0,
 			totalTokens: 0,
 		};
-		existing.cost += Number(row.cost);
-		existing.requestCount += Number(row.requestCount);
-		existing.totalTokens += Number(row.totalTokens);
-		entry.set(key, existing);
-		bucketMap.set(ts, entry);
+		existing.cost += row.cost;
+		existing.requestCount += row.requestCount;
+		existing.totalTokens += row.totalTokens;
+		entry.set(row.key, existing);
+		bucketMap.set(row.bucket, entry);
 	}
 
-	const data = allBuckets.map((timestamp) => ({
+	return allBuckets.map((timestamp) => ({
 		timestamp,
 		entries: Array.from(bucketMap.get(timestamp)?.entries() ?? []).map(
 			([model, v]) => ({
@@ -7252,8 +8728,6 @@ async function buildCostByModelTimeseries({
 			}),
 		),
 	}));
-
-	return { models: topKeys, data };
 }
 
 // --- Project Model-Provider Stats ---
@@ -7267,6 +8741,7 @@ const projectModelProviderStatsEntrySchema = z.object({
 	cachedCount: z.number(),
 	cost: z.number(),
 	totalTokens: z.number(),
+	...tokenBreakdownShape,
 });
 
 const projectModelProviderStatsResponseSchema = z.object({
@@ -7275,6 +8750,7 @@ const projectModelProviderStatsResponseSchema = z.object({
 	totalRequests: z.number(),
 	totalTokens: z.number(),
 	totalCost: z.number(),
+	...tokenBreakdownShape,
 });
 
 const getProjectModelProviderStats = createRoute({
@@ -7392,6 +8868,30 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 			cachedCount: cachedCountExpr,
 			cost: costExpr,
 			totalTokens: totalTokensExpr,
+			inputTokens:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.inputTokens} AS NUMERIC)), 0)`.as(
+					"input_tokens",
+				),
+			cachedTokens:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.cachedTokens} AS NUMERIC)), 0)`.as(
+					"cached_tokens",
+				),
+			outputTokens:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.outputTokens} AS NUMERIC)), 0)`.as(
+					"output_tokens",
+				),
+			inputCost:
+				sql<number>`COALESCE(SUM(${projectHourlyModelStats.inputCost}), 0)`.as(
+					"input_cost",
+				),
+			cachedInputCost:
+				sql<number>`COALESCE(SUM(${projectHourlyModelStats.cachedInputCost}), 0)`.as(
+					"cached_input_cost",
+				),
+			outputCost:
+				sql<number>`COALESCE(SUM(${projectHourlyModelStats.outputCost}), 0)`.as(
+					"output_cost",
+				),
 		})
 		.from(projectHourlyModelStats)
 		.where(whereConditions)
@@ -7415,6 +8915,10 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 	const totalRequests = rows.reduce((s, r) => s + Number(r.logsCount), 0);
 	const totalTokens = rows.reduce((s, r) => s + Number(r.totalTokens), 0);
 	const totalCost = rows.reduce((s, r) => s + Number(r.cost), 0);
+	const totalBreakdown = { ...EMPTY_TOKEN_BREAKDOWN };
+	for (const r of rows) {
+		addTokenBreakdown(totalBreakdown, r);
+	}
 
 	return c.json({
 		mappings: rows.map((r) => ({
@@ -7426,11 +8930,13 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 			cachedCount: Number(r.cachedCount),
 			cost: Number(r.cost),
 			totalTokens: Number(r.totalTokens),
+			...toTokenBreakdown(r),
 		})),
 		total: rows.length,
 		totalRequests,
 		totalTokens,
 		totalCost,
+		...totalBreakdown,
 	});
 });
 
@@ -7452,6 +8958,7 @@ const modelProviderMappingEntrySchema = z.object({
 	cachedCount: z.number(),
 	cost: z.number(),
 	avgTimeToFirstToken: z.number().nullable(),
+	...tokenBreakdownShape,
 	inputPrice: z.string().nullable(),
 	outputPrice: z.string().nullable(),
 	contextSize: z.number().nullable(),
@@ -7464,6 +8971,7 @@ const modelProviderMappingsListSchema = z.object({
 	totalRequests: z.number(),
 	totalTokens: z.number(),
 	totalCost: z.number(),
+	...tokenBreakdownShape,
 });
 
 const providersWithHiddenRootMappings = providers
@@ -7611,6 +9119,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 					cost: sql<number>`COALESCE(SUM(${mappingHistory.table.totalCost}), 0)`.as(
 						"cost",
 					),
+					...tokenBreakdownSums(mappingHistory.table),
 				})
 				.from(mappingHistory.table)
 				.where(
@@ -7630,9 +9139,16 @@ admin.openapi(getModelProviderMappings, async (c) => {
 					gatewayErrorsCount: tables.modelProviderMapping.gatewayErrorsCount,
 					upstreamErrorsCount: tables.modelProviderMapping.upstreamErrorsCount,
 					cachedCount: tables.modelProviderMapping.cachedCount,
-					// Cost is only tracked in the history table, so it is only
-					// available when a date range is provided (mirrors the models list).
+					// Cost and the token breakdown are only tracked in the history
+					// table, so they are only available when a date range is provided
+					// (mirrors the models list).
 					cost: sql<number>`0`.as("cost"),
+					inputTokens: sql<number>`0`.as("input_tokens"),
+					cachedTokens: sql<number>`0`.as("cached_tokens"),
+					outputTokens: sql<number>`0`.as("output_tokens"),
+					inputCost: sql<number>`0`.as("input_cost"),
+					cachedInputCost: sql<number>`0`.as("cached_input_cost"),
+					outputCost: sql<number>`0`.as("output_cost"),
 				})
 				.from(tables.modelProviderMapping)
 				.as("mapping_stats_sub");
@@ -7652,6 +9168,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 						sql<number>`COALESCE(SUM(${mappingHistory.table.totalCost}), 0)`.as(
 							"totalCost",
 						),
+					...tokenBreakdownSums(mappingHistory.table),
 				})
 				.from(mappingHistory.table)
 				.innerJoin(
@@ -7673,6 +9190,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 					totalRequests: 0,
 					totalTokens: 0,
 					totalCost: 0,
+					...EMPTY_TOKEN_BREAKDOWN,
 				},
 			]);
 
@@ -7686,7 +9204,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 		gatewayErrorsCount: sql`COALESCE(${statsJoin.gatewayErrorsCount}, 0)`,
 		upstreamErrorsCount: sql`COALESCE(${statsJoin.upstreamErrorsCount}, 0)`,
 		cost: sql`COALESCE(${statsJoin.cost}, 0)`,
-		avgTimeToFirstToken: tables.modelProviderMapping.avgTimeToFirstToken,
+		avgTimeToFirstToken: sql`COALESCE(${tables.modelProviderMapping.avgTimeToFirstReasoningToken}, ${tables.modelProviderMapping.avgTimeToFirstToken})`,
 		updatedAt: tables.modelProviderMapping.updatedAt,
 	} as const;
 
@@ -7729,7 +9247,12 @@ admin.openapi(getModelProviderMappings, async (c) => {
 					"cachedCount",
 				),
 				cost: sql<number>`COALESCE(${statsJoin.cost}, 0)`.as("cost"),
-				avgTimeToFirstToken: tables.modelProviderMapping.avgTimeToFirstToken,
+				avgTimeToFirstToken: sql<
+					number | null
+				>`COALESCE(${tables.modelProviderMapping.avgTimeToFirstReasoningToken}, ${tables.modelProviderMapping.avgTimeToFirstToken})`.as(
+					"avgTimeToFirstToken",
+				),
+				...tokenBreakdownFromSub(statsJoin),
 				inputPrice: tables.modelProviderMapping.inputPrice,
 				outputPrice: tables.modelProviderMapping.outputPrice,
 				contextSize: tables.modelProviderMapping.contextSize,
@@ -7767,6 +9290,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 			cachedCount: Number(r.cachedCount ?? 0),
 			cost: Number(r.cost ?? 0),
 			avgTimeToFirstToken: r.avgTimeToFirstToken,
+			...toTokenBreakdown(r),
 			inputPrice: r.inputPrice,
 			outputPrice: r.outputPrice,
 			contextSize: r.contextSize,
@@ -7776,6 +9300,7 @@ admin.openapi(getModelProviderMappings, async (c) => {
 		totalRequests: Number(totalsResult?.totalRequests ?? 0),
 		totalTokens: Number(totalsResult?.totalTokens ?? 0),
 		totalCost: Number(totalsResult?.totalCost ?? 0),
+		...toTokenBreakdown(totalsResult),
 	});
 });
 
@@ -7794,13 +9319,28 @@ const UNSTABLE_MAPPINGS_MAX_LOG_LIMIT = 1000000;
 // Supported time windows for the rankings, mapping each selectable value to its
 // SQL interval bound and an hours count surfaced to the UI for the description.
 const UNSTABLE_MAPPINGS_WINDOWS = {
+	"1h": { interval: sql`now() - interval '1 hour'`, hours: 1 },
+	"2h": { interval: sql`now() - interval '2 hours'`, hours: 2 },
 	"4h": { interval: sql`now() - interval '4 hours'`, hours: 4 },
+	"8h": { interval: sql`now() - interval '8 hours'`, hours: 8 },
+	"12h": { interval: sql`now() - interval '12 hours'`, hours: 12 },
+	"16h": { interval: sql`now() - interval '16 hours'`, hours: 16 },
 	"24h": { interval: sql`now() - interval '24 hours'`, hours: 24 },
 	"3d": { interval: sql`now() - interval '3 days'`, hours: 72 },
 	"7d": { interval: sql`now() - interval '7 days'`, hours: 168 },
 } as const;
 
-const unstableMappingsWindowSchema = z.enum(["4h", "24h", "3d", "7d"]);
+const unstableMappingsWindowSchema = z.enum([
+	"1h",
+	"2h",
+	"4h",
+	"8h",
+	"12h",
+	"16h",
+	"24h",
+	"3d",
+	"7d",
+]);
 
 type UnstableMappingsWindow = keyof typeof UNSTABLE_MAPPINGS_WINDOWS;
 
@@ -7813,6 +9353,44 @@ function resolveUnstableMappingsWindow(
 // `retried` is nullable; legacy rows predate the column and are NULL. Treat
 // those as non-retried so they are not silently dropped from the rankings.
 const unstableMappingsNotRetriedClause = sql`AND ${tables.log.retried} IS DISTINCT FROM true`;
+
+interface IgnoredErrorMatcherTarget {
+	pattern: string | null;
+	statusCode: number | null;
+}
+
+// Builds an OR chain across all stored matchers so expected upstream errors
+// can be treated as non-errors. A substring pattern is matched
+// case-insensitively against the serialized error details JSON (covering
+// status text, response body, and cause); a status code is matched against the
+// upstream `statusCode` field. When a matcher has both, both must match.
+function buildIgnoredErrorMatchExpr(matchers: IgnoredErrorMatcherTarget[]) {
+	return sql.join(
+		matchers.map((matcher) => {
+			const conditions = [];
+			if (matcher.pattern !== null) {
+				conditions.push(
+					sql`${tables.log.errorDetails}::text ILIKE ${`%${escapeLikePattern(matcher.pattern)}%`}`,
+				);
+			}
+			if (matcher.statusCode !== null) {
+				conditions.push(
+					sql`${tables.log.errorDetails}->>'statusCode' = ${String(matcher.statusCode)}`,
+				);
+			}
+			return sql`(${sql.join(conditions, sql` AND `)})`;
+		}),
+		sql` OR `,
+	);
+}
+
+async function listIgnoredErrorMatchers() {
+	return await db.query.ignoredErrorMatcher.findMany({
+		orderBy: {
+			createdAt: "desc",
+		},
+	});
+}
 
 // Gateway logs store `used_model` as the display value `provider/model[:region]`
 // (for example `openai/gpt-5-nano` or `alibaba/glm-4.6:cn-beijing`), but the
@@ -7857,6 +9435,9 @@ const unstableMappingsListSchema = z.object({
 	windowHours: z.number(),
 	logLimit: z.number(),
 	includeRetried: z.boolean(),
+	ignoreExpected: z.boolean(),
+	// Number of ignore matchers applied to this ranking (0 when disabled).
+	ignoredMatcherCount: z.number(),
 });
 
 const getUnstableMappings = createRoute({
@@ -7872,6 +9453,7 @@ const getUnstableMappings = createRoute({
 				.optional(),
 			includeRetried: z.enum(["true", "false"]).optional(),
 			window: unstableMappingsWindowSchema.optional(),
+			ignoreExpected: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
@@ -7895,8 +9477,20 @@ admin.openapi(getUnstableMappings, async (c) => {
 	const retriedClause = includeRetried
 		? sql``
 		: unstableMappingsNotRetriedClause;
+	const ignoreExpected = query.ignoreExpected !== "false";
 	const { interval: windowInterval, hours: windowHours } =
 		resolveUnstableMappingsWindow(query.window);
+
+	// When ignore matchers apply, errors matching any matcher count as
+	// successes: the log stays in the sample (denominator) but no longer counts
+	// against the mapping. NULL error details coalesce to "no match" so errors
+	// without details are still counted. The full matcher count is returned
+	// regardless so the UI can surface it even when ignoring is toggled off.
+	const ignoredMatchers = await listIgnoredErrorMatchers();
+	const hasErrorExpr =
+		ignoreExpected && ignoredMatchers.length > 0
+			? sql`(${tables.log.hasError} AND NOT COALESCE((${buildIgnoredErrorMatchExpr(ignoredMatchers)}), false))`
+			: sql`${tables.log.hasError}`;
 
 	const rows = await db.execute<{
 		used_model: string;
@@ -7909,7 +9503,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 		WITH recent_logs AS (
 			SELECT ${tables.log.usedModel} AS used_model,
 				${tables.log.usedProvider} AS used_provider,
-				${tables.log.hasError} AS has_error
+				${hasErrorExpr} AS has_error
 			FROM ${tables.log}
 			WHERE ${tables.log.createdAt} >= ${windowInterval}
 				${retriedClause}
@@ -7960,6 +9554,8 @@ admin.openapi(getUnstableMappings, async (c) => {
 		windowHours,
 		logLimit,
 		includeRetried,
+		ignoreExpected,
+		ignoredMatcherCount: ignoredMatchers.length,
 	});
 });
 
@@ -7968,6 +9564,16 @@ const unstableMappingErrorDetailSchema = z.object({
 	statusText: z.string().nullable(),
 	responseText: z.string().nullable(),
 	cause: z.string().nullable(),
+	// The gateway's internal classification stored on the log
+	// (`unified_finish_reason`, e.g. `client_error`, `gateway_error`,
+	// `upstream_error`, `content_filter`). Surfaced because the HTTP status
+	// alone is misleading: some 4xx responses are classified as gateway or
+	// upstream errors.
+	classification: z.string().nullable(),
+	// Whether the failed request was a streaming request. Streaming and
+	// non-streaming failures often have different causes, so the drilldown
+	// groups errors by this flag.
+	streamed: z.boolean(),
 	count: z.number(),
 });
 
@@ -7990,6 +9596,7 @@ const getUnstableMappingErrors = createRoute({
 				.min(1)
 				.max(UNSTABLE_MAPPINGS_MAX_LOG_LIMIT)
 				.optional(),
+			ignoreExpected: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
@@ -8006,29 +9613,43 @@ const getUnstableMappingErrors = createRoute({
 });
 
 admin.openapi(getUnstableMappingErrors, async (c) => {
-	const { model, provider, includeRetried, window, logLimit } =
+	const { model, provider, includeRetried, window, logLimit, ignoreExpected } =
 		c.req.valid("query");
 	const sampleLimit = logLimit ?? UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT;
 	const retriedClause =
 		includeRetried === "true" ? sql`` : unstableMappingsNotRetriedClause;
 	const { interval: windowInterval } = resolveUnstableMappingsWindow(window);
 
+	// Mirror the ranking view: drop errors matching an ignore matcher so the
+	// drilldown shows the same errors that counted against the mapping.
+	const ignoredMatchers =
+		ignoreExpected !== "false" ? await listIgnoredErrorMatchers() : [];
+	const ignoredClause =
+		ignoredMatchers.length > 0
+			? sql`AND NOT COALESCE((${buildIgnoredErrorMatchExpr(ignoredMatchers)}), false)`
+			: sql``;
+
 	const rows = await db.execute<{
 		status_code: string | null;
 		status_text: string | null;
 		response_text: string | null;
 		cause: string | null;
+		classification: string | null;
+		streamed: boolean;
 		count: string;
 		sampled_errors: string;
 	}>(sql`
 		WITH recent_errors AS (
-			SELECT ${tables.log.errorDetails} AS error_details
+			SELECT ${tables.log.errorDetails} AS error_details,
+				${tables.log.unifiedFinishReason} AS classification,
+				COALESCE(${tables.log.streamed}, false) AS streamed
 			FROM ${tables.log}
 			WHERE ${tables.log.hasError} = true
 				AND ${tables.log.usedModel} = ${model}
 				AND ${tables.log.usedProvider} = ${provider}
 				AND ${tables.log.createdAt} >= ${windowInterval}
 				${retriedClause}
+				${ignoredClause}
 			ORDER BY ${tables.log.createdAt} DESC
 			LIMIT ${sampleLimit}
 		)
@@ -8036,10 +9657,12 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 			error_details->>'statusText' AS status_text,
 			LEFT(error_details->>'responseText', 2000) AS response_text,
 			error_details->>'cause' AS cause,
+			classification,
+			streamed,
 			COUNT(*) AS count,
 			(SELECT COUNT(*) FROM recent_errors) AS sampled_errors
 		FROM recent_errors
-		GROUP BY status_code, status_text, response_text, cause
+		GROUP BY status_code, status_text, response_text, cause, classification, streamed
 		ORDER BY count DESC
 		LIMIT 10
 	`);
@@ -8053,10 +9676,154 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 			statusText: r.status_text,
 			responseText: r.response_text,
 			cause: r.cause,
+			classification: r.classification,
+			streamed: r.streamed,
 			count: Number(r.count),
 		})),
 		sampledErrors,
 	});
+});
+
+// ── Ignored Error Matchers ──────────────────────────────────────────────────
+
+const ignoredErrorMatcherSchema = z.object({
+	id: z.string(),
+	pattern: z.string().nullable(),
+	statusCode: z.number().nullable(),
+	createdAt: z.string(),
+});
+
+const ignoredErrorMatchersListSchema = z.object({
+	matchers: z.array(ignoredErrorMatcherSchema),
+});
+
+function serializeIgnoredErrorMatcher(matcher: {
+	id: string;
+	pattern: string | null;
+	statusCode: number | null;
+	createdAt: Date;
+}) {
+	return {
+		id: matcher.id,
+		pattern: matcher.pattern,
+		statusCode: matcher.statusCode,
+		createdAt: matcher.createdAt.toISOString(),
+	};
+}
+
+const getIgnoredErrorMatchers = createRoute({
+	method: "get",
+	path: "/unstable-mappings/ignored-errors",
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: ignoredErrorMatchersListSchema.openapi({}),
+				},
+			},
+			description:
+				"Substring matchers for expected upstream errors ignored by the unstable mappings rankings.",
+		},
+	},
+});
+
+admin.openapi(getIgnoredErrorMatchers, async (c) => {
+	const matchers = await listIgnoredErrorMatchers();
+	return c.json({ matchers: matchers.map(serializeIgnoredErrorMatcher) });
+});
+
+const createIgnoredErrorMatcher = createRoute({
+	method: "post",
+	path: "/unstable-mappings/ignored-errors",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z
+						.object({
+							pattern: z.string().trim().min(1).max(500).nullish(),
+							statusCode: z.number().int().min(100).max(599).nullish(),
+						})
+						.refine(
+							(value) =>
+								(value.pattern ?? null) !== null ||
+								(value.statusCode ?? null) !== null,
+							{ message: "Provide a pattern or a status code" },
+						)
+						.openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: ignoredErrorMatcherSchema.openapi({}),
+				},
+			},
+			description: "Created ignored error matcher.",
+		},
+		409: {
+			description:
+				"A matcher with this pattern/status code combination already exists.",
+		},
+	},
+});
+
+admin.openapi(createIgnoredErrorMatcher, async (c) => {
+	const { pattern, statusCode } = c.req.valid("json");
+
+	const [created] = await db
+		.insert(tables.ignoredErrorMatcher)
+		.values({ pattern: pattern ?? null, statusCode: statusCode ?? null })
+		.onConflictDoNothing()
+		.returning();
+
+	if (!created) {
+		throw new HTTPException(409, {
+			message:
+				"A matcher with this pattern/status code combination already exists",
+		});
+	}
+
+	return c.json(serializeIgnoredErrorMatcher(created), 201);
+});
+
+const deleteIgnoredErrorMatcher = createRoute({
+	method: "delete",
+	path: "/unstable-mappings/ignored-errors/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }).openapi({}),
+				},
+			},
+			description: "Ignored error matcher deleted.",
+		},
+		404: {
+			description: "Matcher not found.",
+		},
+	},
+});
+
+admin.openapi(deleteIgnoredErrorMatcher, async (c) => {
+	const { id } = c.req.valid("param");
+
+	const deleted = await db
+		.delete(tables.ignoredErrorMatcher)
+		.where(eq(tables.ignoredErrorMatcher.id, id))
+		.returning();
+
+	if (deleted.length === 0) {
+		throw new HTTPException(404, { message: "Matcher not found" });
+	}
+
+	return c.json({ success: true });
 });
 
 // ── Enterprise Contact Submissions ──────────────────────────────────────────
@@ -8302,9 +10069,8 @@ admin.openapi(replyContactSubmission, async (c) => {
 		throw new HTTPException(404, { message: "Submission not found" });
 	}
 
-	const { getResendClient, fromEmail, replyToEmail } = await import(
-		"@llmgateway/shared/email"
-	);
+	const { getResendClient, fromEmail, replyToEmail } =
+		await import("@llmgateway/shared/email");
 
 	const resend = getResendClient();
 	if (!resend) {
@@ -8367,9 +10133,8 @@ const sendEmail = createRoute({
 admin.openapi(sendEmail, async (c) => {
 	const { to, subject, body: emailBody } = c.req.valid("json");
 
-	const { getResendClient, fromEmail, replyToEmail } = await import(
-		"@llmgateway/shared/email"
-	);
+	const { getResendClient, fromEmail, replyToEmail } =
+		await import("@llmgateway/shared/email");
 
 	const resend = getResendClient();
 	if (!resend) {
@@ -9109,6 +10874,312 @@ admin.openapi(archiveContactSubmission, async (c) => {
 	return c.json({ success: true });
 });
 
+// ── Provider Listing Requests ─────────────────────────────────────────────────
+
+const providerListingRequestSchema = z.object({
+	id: z.string(),
+	createdAt: z.string(),
+	providerName: z.string(),
+	email: z.string(),
+	url: z.string(),
+	termsUrl: z.string().nullable(),
+	privacyUrl: z.string().nullable(),
+	statusPageUrl: z.string().nullable(),
+	country: z.string(),
+	complianceSoc2Type2: z.boolean(),
+	complianceIso27001: z.boolean(),
+	complianceGdpr: z.boolean(),
+	dataRetentionDays: z.number().nullable(),
+	trainsOnData: z.boolean().nullable(),
+	paymentStatus: z.enum(["unpaid", "paid", "refunded"]),
+	paidAt: z.string().nullable(),
+	ipAddress: z.string().nullable(),
+	userAgent: z.string().nullable(),
+	spamFilterStatus: z.string(),
+	rejectionReason: z.string().nullable(),
+	archivedAt: z.string().nullable(),
+});
+
+const providerListingRequestsListSchema = z.object({
+	requests: z.array(providerListingRequestSchema),
+	total: z.number(),
+});
+
+const providerListingRequestsSortBySchema = z.enum([
+	"createdAt",
+	"providerName",
+	"email",
+	"spamFilterStatus",
+]);
+
+const getProviderListingRequests = createRoute({
+	method: "get",
+	path: "/provider-listing-requests",
+	request: {
+		query: z.object({
+			limit: z.coerce.number().min(1).max(100).default(50).optional(),
+			offset: z.coerce.number().min(0).default(0).optional(),
+			search: z.string().optional(),
+			status: z
+				.enum(["pending", "rejected", "delivered", "delivery_failed"])
+				.optional(),
+			sortBy: providerListingRequestsSortBySchema
+				.default("createdAt")
+				.optional(),
+			sortOrder: sortOrderSchema.default("desc").optional(),
+			archived: z
+				.enum(["true", "false"])
+				.default("false")
+				.transform((v) => v === "true")
+				.optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: providerListingRequestsListSchema.openapi({}),
+				},
+			},
+			description: "List of provider listing requests.",
+		},
+	},
+});
+
+admin.openapi(getProviderListingRequests, async (c) => {
+	const {
+		limit = 50,
+		offset = 0,
+		search,
+		status,
+		sortBy = "createdAt",
+		sortOrder = "desc",
+		archived = false,
+	} = c.req.valid("query");
+
+	const t = tables.providerListingRequest;
+
+	const conditions = [];
+	if (search) {
+		conditions.push(
+			or(
+				sql`${t.providerName} ILIKE ${"%" + search + "%"}`,
+				sql`${t.email} ILIKE ${"%" + search + "%"}`,
+				sql`${t.url} ILIKE ${"%" + search + "%"}`,
+				sql`${t.country} ILIKE ${"%" + search + "%"}`,
+			),
+		);
+	}
+	if (status) {
+		conditions.push(eq(t.spamFilterStatus, status));
+	}
+	conditions.push(archived ? isNotNull(t.archivedAt) : isNull(t.archivedAt));
+
+	const where = and(...conditions);
+
+	const sortColumn = {
+		createdAt: t.createdAt,
+		providerName: t.providerName,
+		email: t.email,
+		spamFilterStatus: t.spamFilterStatus,
+	}[sortBy];
+
+	const orderFn = sortOrder === "asc" ? asc : desc;
+
+	const [requests, countResult] = await Promise.all([
+		db
+			.select({
+				id: t.id,
+				createdAt: t.createdAt,
+				providerName: t.providerName,
+				email: t.email,
+				url: t.url,
+				termsUrl: t.termsUrl,
+				privacyUrl: t.privacyUrl,
+				statusPageUrl: t.statusPageUrl,
+				country: t.country,
+				complianceSoc2Type2: t.complianceSoc2Type2,
+				complianceIso27001: t.complianceIso27001,
+				complianceGdpr: t.complianceGdpr,
+				dataRetentionDays: t.dataRetentionDays,
+				trainsOnData: t.trainsOnData,
+				paymentStatus: t.paymentStatus,
+				paidAt: t.paidAt,
+				ipAddress: t.ipAddress,
+				userAgent: t.userAgent,
+				spamFilterStatus: t.spamFilterStatus,
+				rejectionReason: t.rejectionReason,
+				archivedAt: t.archivedAt,
+			})
+			.from(t)
+			.where(where)
+			.orderBy(orderFn(sortColumn))
+			.limit(limit)
+			.offset(offset),
+		db
+			.select({ count: sql<number>`COUNT(*)`.as("count") })
+			.from(t)
+			.where(where),
+	]);
+
+	return c.json({
+		requests: requests.map((r) => ({
+			...r,
+			createdAt: r.createdAt.toISOString(),
+			paidAt: r.paidAt?.toISOString() ?? null,
+			archivedAt: r.archivedAt?.toISOString() ?? null,
+		})),
+		total: Number(countResult[0]?.count ?? 0),
+	});
+});
+
+const getProviderListingRequest = createRoute({
+	method: "get",
+	path: "/provider-listing-requests/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: providerListingRequestSchema.openapi({}),
+				},
+			},
+			description: "Single provider listing request.",
+		},
+	},
+});
+
+admin.openapi(getProviderListingRequest, async (c) => {
+	const { id } = c.req.valid("param");
+	const t = tables.providerListingRequest;
+
+	const rows = await db
+		.select({
+			id: t.id,
+			createdAt: t.createdAt,
+			providerName: t.providerName,
+			email: t.email,
+			url: t.url,
+			termsUrl: t.termsUrl,
+			privacyUrl: t.privacyUrl,
+			statusPageUrl: t.statusPageUrl,
+			country: t.country,
+			complianceSoc2Type2: t.complianceSoc2Type2,
+			complianceIso27001: t.complianceIso27001,
+			complianceGdpr: t.complianceGdpr,
+			dataRetentionDays: t.dataRetentionDays,
+			trainsOnData: t.trainsOnData,
+			paymentStatus: t.paymentStatus,
+			paidAt: t.paidAt,
+			ipAddress: t.ipAddress,
+			userAgent: t.userAgent,
+			spamFilterStatus: t.spamFilterStatus,
+			rejectionReason: t.rejectionReason,
+			archivedAt: t.archivedAt,
+		})
+		.from(t)
+		.where(eq(t.id, id))
+		.limit(1);
+
+	const request = rows[0];
+	if (!request) {
+		throw new HTTPException(404, { message: "Request not found" });
+	}
+
+	return c.json({
+		...request,
+		createdAt: request.createdAt.toISOString(),
+		paidAt: request.paidAt?.toISOString() ?? null,
+		archivedAt: request.archivedAt?.toISOString() ?? null,
+	});
+});
+
+const deleteProviderListingRequest = createRoute({
+	method: "delete",
+	path: "/provider-listing-requests/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }).openapi({}),
+				},
+			},
+			description: "Request deleted.",
+		},
+		404: {
+			description: "Request not found.",
+		},
+	},
+});
+
+admin.openapi(deleteProviderListingRequest, async (c) => {
+	const { id } = c.req.valid("param");
+
+	const existing = await db.query.providerListingRequest.findFirst({
+		where: { id: { eq: id } },
+	});
+
+	if (!existing) {
+		throw new HTTPException(404, { message: "Request not found" });
+	}
+
+	await db
+		.delete(tables.providerListingRequest)
+		.where(eq(tables.providerListingRequest.id, id));
+
+	return c.json({ success: true });
+});
+
+const archiveProviderListingRequest = createRoute({
+	method: "patch",
+	path: "/provider-listing-requests/{id}/archive",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ archived: z.boolean() }),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }).openapi({}),
+				},
+			},
+			description: "Request archived/unarchived.",
+		},
+		404: {
+			description: "Request not found.",
+		},
+	},
+});
+
+admin.openapi(archiveProviderListingRequest, async (c) => {
+	const { id } = c.req.valid("param");
+	const { archived } = c.req.valid("json");
+
+	const rows = await db
+		.update(tables.providerListingRequest)
+		.set({ archivedAt: archived ? new Date() : null })
+		.where(eq(tables.providerListingRequest.id, id))
+		.returning();
+
+	if (rows.length === 0) {
+		throw new HTTPException(404, { message: "Request not found" });
+	}
+
+	return c.json({ success: true });
+});
+
 // ── Archive Chat Support Conversation ────────────────────────────────────────
 
 const archiveChatSupportConversation = createRoute({
@@ -9340,6 +11411,7 @@ const devpassSubscriberSchema = z.object({
 	ownerName: z.string().nullable(),
 	ownerEmail: z.string().nullable(),
 	tier: devpassTierSchema,
+	pendingTier: devpassTierSchema.nullable(),
 	status: devpassStatusSchema,
 	hasPaymentIssue: z.boolean(),
 	creditsUsed: z.string(),
@@ -9352,7 +11424,6 @@ const devpassSubscriberSchema = z.object({
 	cycleDaysIn: z.number().nullable(),
 	expiresAt: z.string().nullable(),
 	cancelled: z.boolean(),
-	allowAllModels: z.boolean(),
 	mrr: z.number(),
 	realCost: z.number(),
 	margin: z.number(),
@@ -9382,6 +11453,8 @@ const devpassKpisSchema = z.object({
 	netNewThisMonth: z.number(),
 	refundsThisMonth: z.number(),
 	refundedAmountThisMonth: z.number(),
+	resetPassesSold: z.number(),
+	resetPassRevenue: z.number(),
 	weightedAvgUtilization: z.number(),
 	totalRealCostCycle: z.number(),
 	totalMrrCycle: z.number(),
@@ -9467,8 +11540,16 @@ const devpassPaymentFailureSchema = z.object({
 	source: z.string().nullable(),
 });
 
+const devpassResetPassesSchema = z.object({
+	lite: z.number(),
+	pro: z.number(),
+	max: z.number(),
+	includedRemaining: z.number(),
+});
+
 const devpassDetailSchema = z.object({
 	subscriber: devpassSubscriberSchema,
+	resetPasses: devpassResetPassesSchema,
 	transactions: z.array(devpassTransactionSchema),
 	paymentFailures: z.array(devpassPaymentFailureSchema),
 });
@@ -9496,9 +11577,61 @@ const getDevpassSubscriber = createRoute({
 	},
 });
 
+// Gift Reset Passes to a DevPass subscriber. Increments the tier-bound
+// purchased-pass inventory, so gifted passes behave exactly like bought ones:
+// redeemable only while the org is on that tier, surviving plan changes.
+const giftResetPassesRoute = createRoute({
+	method: "post",
+	path: "/devpass/{orgId}/gift-reset-passes",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						tier: z.enum(["lite", "pro", "max"]),
+						count: z.number().int().min(1).max(10),
+						comment: z.string().max(500).optional(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						resetPasses: z.object({
+							lite: z.number(),
+							pro: z.number(),
+							max: z.number(),
+						}),
+					}),
+				},
+			},
+			description: "Reset Passes gifted successfully.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Subscriber not found.",
+		},
+	},
+});
+
 const devpassTimeseriesPointSchema = z.object({
 	date: z.string(),
 	revenue: z.number(),
+	rawRevenue: z.number(),
 	cost: z.number(),
 	margin: z.number(),
 });
@@ -9507,6 +11640,7 @@ const devpassTimeseriesSchema = z.object({
 	data: z.array(devpassTimeseriesPointSchema),
 	totals: z.object({
 		revenue: z.number(),
+		rawRevenue: z.number(),
 		cost: z.number(),
 		margin: z.number(),
 	}),
@@ -9575,22 +11709,6 @@ const getDevpassUsage = createRoute({
 		},
 	},
 });
-
-const DEV_PLAN_TX_TYPES = [
-	"dev_plan_start",
-	"dev_plan_upgrade",
-	"dev_plan_downgrade",
-	"dev_plan_renewal",
-] as const;
-
-// Pre-rename rows for what is now a dev plan. The same `subscription_*` types
-// are STILL written today for non-personal org Pro subs, so always pair them
-// with `organization.kind = 'devpass'` to avoid counting org Pro revenue.
-const LEGACY_DEV_PLAN_TX_TYPES = [
-	"subscription_start",
-	"subscription_cancel",
-	"subscription_end",
-] as const;
 
 function tierPriceOf(tier: string): number {
 	if (tier === "lite" || tier === "pro" || tier === "max") {
@@ -9776,23 +11894,10 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 					...DEV_PLAN_TX_TYPES,
 					...LEGACY_DEV_PLAN_TX_TYPES,
 				]),
-				sql`NOT EXISTS (
-					SELECT 1 FROM ${tables.transaction} dup
-					WHERE dup.stripe_invoice_id = ${tables.transaction.stripeInvoiceId}
-						AND dup.stripe_invoice_id IS NOT NULL
-						AND dup.organization_id = ${tables.transaction.organizationId}
-						AND dup.id <> ${tables.transaction.id}
-						AND dup.status = 'completed'
-						AND dup.amount IS NOT NULL
-						AND dup.type IN (
-							'dev_plan_start', 'dev_plan_upgrade', 'dev_plan_downgrade', 'dev_plan_renewal',
-							'subscription_start', 'subscription_cancel', 'subscription_end'
-						)
-						AND (
-							dup.created_at < ${tables.transaction.createdAt}
-							OR (dup.created_at = ${tables.transaction.createdAt} AND dup.id < ${tables.transaction.id})
-						)
-				)`,
+				firstRowPerInvoiceFilter([
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
 			),
 		)
 		.groupBy(tables.transaction.organizationId)
@@ -9961,6 +12066,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			name: tables.organization.name,
 			billingEmail: tables.organization.billingEmail,
 			tier: tables.organization.devPlan,
+			pendingTier: tables.organization.devPlanPendingTier,
 			creditsUsed: tables.organization.devPlanCreditsUsed,
 			creditsLimit: tables.organization.devPlanCreditsLimit,
 			premiumCreditsUsed: tables.organization.devPlanPremiumCreditsUsed,
@@ -9968,7 +12074,6 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			cycleStart: tables.organization.devPlanBillingCycleStart,
 			expiresAt: tables.organization.devPlanExpiresAt,
 			cancelled: tables.organization.devPlanCancelled,
-			allowAllModels: tables.organization.devPlanAllowAllModels,
 			createdAt: tables.organization.createdAt,
 			paymentFailureCount: tables.organization.paymentFailureCount,
 			utilizationPct: utilizationExpr,
@@ -10184,6 +12289,57 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 	const refundsThisMonth = Number(refundsRow?.count ?? 0);
 	const refundedAmountThisMonth = Number(refundsRow?.total ?? 0);
 
+	// All-time Reset Pass sales on DevPass orgs. These are one-time
+	// PaymentIntent purchases (no invoice), so no invoice dedup is needed;
+	// revenue is netted against completed refunds whose original transaction
+	// is a Reset Pass purchase, mirroring the all-time revenue subquery.
+	const [resetPassRow] = await db
+		.select({
+			count: sql<number>`COUNT(*)`,
+			total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.type, "dev_plan_reset_pass"),
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "devpass"),
+			),
+		);
+	const resetPassesSold = Number(resetPassRow?.count ?? 0);
+
+	const resetPassRefundOriginalTx = aliasedTable(
+		tables.transaction,
+		"reset_pass_refund_original_tx",
+	);
+	const [resetPassRefundRow] = await db
+		.select({
+			total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			resetPassRefundOriginalTx,
+			eq(tables.transaction.relatedTransactionId, resetPassRefundOriginalTx.id),
+		)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.type, "credit_refund"),
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "devpass"),
+				eq(resetPassRefundOriginalTx.type, "dev_plan_reset_pass"),
+			),
+		);
+	const resetPassRevenue =
+		Number(resetPassRow?.total ?? 0) - Number(resetPassRefundRow?.total ?? 0);
+
 	// Weighted utilization across active subscribers
 	const [utilRow] = await db
 		.select({
@@ -10276,6 +12432,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			ownerName: row.ownerName ?? null,
 			ownerEmail: row.ownerEmail ?? null,
 			tier,
+			pendingTier: row.pendingTier ?? null,
 			status,
 			hasPaymentIssue,
 			creditsUsed: String(row.creditsUsed),
@@ -10288,7 +12445,6 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			cycleDaysIn,
 			expiresAt: expiresAt ? expiresAt.toISOString() : null,
 			cancelled,
-			allowAllModels: row.allowAllModels,
 			mrr: mrrNum,
 			realCost: Number(row.realCost ?? 0),
 			margin: marginNum,
@@ -10323,6 +12479,8 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			netNewThisMonth: startsThisMonth - endsThisMonth,
 			refundsThisMonth,
 			refundedAmountThisMonth,
+			resetPassesSold,
+			resetPassRevenue,
 			weightedAvgUtilization,
 			totalRealCostCycle,
 			totalMrrCycle,
@@ -10422,23 +12580,10 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 					...DEV_PLAN_TX_TYPES,
 					...LEGACY_DEV_PLAN_TX_TYPES,
 				]),
-				sql`NOT EXISTS (
-					SELECT 1 FROM ${tables.transaction} dup
-					WHERE dup.stripe_invoice_id = ${tables.transaction.stripeInvoiceId}
-						AND dup.stripe_invoice_id IS NOT NULL
-						AND dup.organization_id = ${tables.transaction.organizationId}
-						AND dup.id <> ${tables.transaction.id}
-						AND dup.status = 'completed'
-						AND dup.amount IS NOT NULL
-						AND dup.type IN (
-							'dev_plan_start', 'dev_plan_upgrade', 'dev_plan_downgrade', 'dev_plan_renewal',
-							'subscription_start', 'subscription_cancel', 'subscription_end'
-						)
-						AND (
-							dup.created_at < ${tables.transaction.createdAt}
-							OR (dup.created_at = ${tables.transaction.createdAt} AND dup.id < ${tables.transaction.id})
-						)
-				)`,
+				firstRowPerInvoiceFilter([
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
 			),
 		)
 		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
@@ -10529,6 +12674,7 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 	const data: Array<{
 		date: string;
 		revenue: number;
+		rawRevenue: number;
 		cost: number;
 		margin: number;
 	}> = [];
@@ -10547,15 +12693,20 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 	);
 
 	let totalRevenue = 0;
+	let totalRawRevenue = 0;
 	let totalCost = 0;
 
+	// `rawRevenue` is the gross amount collected from dev plan payments that
+	// day; `revenue` nets refunds out of it. Margin stays net-based.
 	while (cursor.getTime() <= lastDay) {
 		const iso = cursor.toISOString().slice(0, 10);
-		const revenue = (revenueMap.get(iso) ?? 0) - (refundMap.get(iso) ?? 0);
+		const rawRevenue = revenueMap.get(iso) ?? 0;
+		const revenue = rawRevenue - (refundMap.get(iso) ?? 0);
 		const cost = costMap.get(iso) ?? 0;
 		const margin = revenue - cost;
-		data.push({ date: iso, revenue, cost, margin });
+		data.push({ date: iso, revenue, rawRevenue, cost, margin });
 		totalRevenue += revenue;
+		totalRawRevenue += rawRevenue;
 		totalCost += cost;
 		cursor.setUTCDate(cursor.getUTCDate() + 1);
 	}
@@ -10564,6 +12715,7 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 		data,
 		totals: {
 			revenue: totalRevenue,
+			rawRevenue: totalRawRevenue,
 			cost: totalCost,
 			margin: totalRevenue - totalCost,
 		},
@@ -10846,23 +12998,10 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 				eq(tables.transaction.organizationId, orgId),
 				eq(tables.transaction.status, "completed"),
 				inArray(tables.transaction.type, allTimeRevenueTypes),
-				sql`NOT EXISTS (
-					SELECT 1 FROM ${tables.transaction} dup
-					WHERE dup.stripe_invoice_id = ${tables.transaction.stripeInvoiceId}
-						AND dup.stripe_invoice_id IS NOT NULL
-						AND dup.organization_id = ${tables.transaction.organizationId}
-						AND dup.id <> ${tables.transaction.id}
-						AND dup.status = 'completed'
-						AND dup.amount IS NOT NULL
-						AND dup.type IN (
-							'dev_plan_start', 'dev_plan_upgrade', 'dev_plan_downgrade', 'dev_plan_renewal',
-							'subscription_start', 'subscription_cancel', 'subscription_end'
-						)
-						AND (
-							dup.created_at < ${tables.transaction.createdAt}
-							OR (dup.created_at = ${tables.transaction.createdAt} AND dup.id < ${tables.transaction.id})
-						)
-				)`,
+				firstRowPerInvoiceFilter([
+					...DEV_PLAN_TX_TYPES,
+					...LEGACY_DEV_PLAN_TX_TYPES,
+				]),
 			),
 		);
 
@@ -10937,6 +13076,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		ownerName: owner[0]?.userName ?? null,
 		ownerEmail: owner[0]?.userEmail ?? null,
 		tier: org.devPlan,
+		pendingTier: org.devPlanPendingTier ?? null,
 		status,
 		hasPaymentIssue,
 		creditsUsed: String(org.devPlanCreditsUsed),
@@ -10953,7 +13093,6 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		cycleDaysIn,
 		expiresAt: org.devPlanExpiresAt ? org.devPlanExpiresAt.toISOString() : null,
 		cancelled: org.devPlanCancelled,
-		allowAllModels: org.devPlanAllowAllModels,
 		mrr,
 		realCost,
 		margin,
@@ -10991,8 +13130,11 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 					"dev_plan_upgrade",
 					"dev_plan_downgrade",
 					"dev_plan_cancel",
+					"dev_plan_resume",
 					"dev_plan_end",
 					"dev_plan_renewal",
+					"dev_plan_reset_pass",
+					"dev_plan_reset_pass_gift",
 					// Legacy types — pre dev_plan_* rename, still in DB for older
 					// dev plan subscribers; without these their history reads as empty.
 					"subscription_start",
@@ -11021,6 +13163,18 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 
 	return c.json({
 		subscriber,
+		resetPasses: {
+			lite: org.devPlanResetPassesLite,
+			pro: org.devPlanResetPassesPro,
+			max: org.devPlanResetPassesMax,
+			includedRemaining:
+				org.devPlan === "none"
+					? 0
+					: getIncludedResetPassesRemaining(
+							org.devPlan as DevPlanTier,
+							org.devPlanIncludedResetPassesUsed,
+						),
+		},
 		transactions: transactions.map((t) => ({
 			id: t.id,
 			createdAt: t.createdAt.toISOString(),
@@ -11040,6 +13194,79 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 			failureMessage: p.failureMessage ?? null,
 			source: p.source ?? null,
 		})),
+	});
+});
+
+admin.openapi(giftResetPassesRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+	const { tier, count, comment } = c.req.valid("json");
+
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: orgId }, kind: { eq: "devpass" } },
+	});
+
+	if (!org || org.status === "deleted") {
+		throw new HTTPException(404, { message: "Subscriber not found" });
+	}
+
+	const base = `${count}× ${tier} Reset Pass${count === 1 ? "" : "es"} gifted by Administrator`;
+	const description = comment ? `${base}: ${comment}` : base;
+
+	const { transactionId, resetPasses } = await db.transaction(async (tx) => {
+		const [txn] = await tx
+			.insert(tables.transaction)
+			.values({
+				organizationId: orgId,
+				type: "dev_plan_reset_pass_gift",
+				currency: "USD",
+				status: "completed",
+				description,
+			})
+			.returning({ id: tables.transaction.id });
+
+		const [updatedOrg] = await tx
+			.update(tables.organization)
+			.set(
+				tier === "lite"
+					? {
+							devPlanResetPassesLite: sql`${tables.organization.devPlanResetPassesLite} + ${count}`,
+						}
+					: tier === "pro"
+						? {
+								devPlanResetPassesPro: sql`${tables.organization.devPlanResetPassesPro} + ${count}`,
+							}
+						: {
+								devPlanResetPassesMax: sql`${tables.organization.devPlanResetPassesMax} + ${count}`,
+							},
+			)
+			.where(eq(tables.organization.id, orgId))
+			.returning({
+				lite: tables.organization.devPlanResetPassesLite,
+				pro: tables.organization.devPlanResetPassesPro,
+				max: tables.organization.devPlanResetPassesMax,
+			});
+
+		return { transactionId: txn.id, resetPasses: updatedOrg };
+	});
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "dev_plan.reset_pass_gift",
+		resourceType: "organization",
+		resourceId: orgId,
+		metadata: {
+			tier,
+			count,
+			comment,
+			transactionId,
+		},
+	});
+
+	return c.json({
+		message: "Reset Passes gifted successfully",
+		resetPasses,
 	});
 });
 
@@ -11295,13 +13522,6 @@ const getChatPlansUsage = createRoute({
 	},
 });
 
-const CHAT_PLAN_TX_TYPES = [
-	"chat_plan_start",
-	"chat_plan_upgrade",
-	"chat_plan_downgrade",
-	"chat_plan_renewal",
-] as const;
-
 function chatTierPriceOf(tier: string): number {
 	if (tier === "starter" || tier === "plus" || tier === "pro") {
 		return CHAT_PLAN_PRICES[tier];
@@ -11470,22 +13690,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				inArray(tables.transaction.type, [...CHAT_PLAN_TX_TYPES]),
-				sql`NOT EXISTS (
-					SELECT 1 FROM ${tables.transaction} dup
-					WHERE dup.stripe_invoice_id = ${tables.transaction.stripeInvoiceId}
-						AND dup.stripe_invoice_id IS NOT NULL
-						AND dup.organization_id = ${tables.transaction.organizationId}
-						AND dup.id <> ${tables.transaction.id}
-						AND dup.status = 'completed'
-						AND dup.amount IS NOT NULL
-						AND dup.type IN (
-							'chat_plan_start', 'chat_plan_upgrade', 'chat_plan_downgrade', 'chat_plan_renewal'
-						)
-						AND (
-							dup.created_at < ${tables.transaction.createdAt}
-							OR (dup.created_at = ${tables.transaction.createdAt} AND dup.id < ${tables.transaction.id})
-						)
-				)`,
+				firstRowPerInvoiceFilter(CHAT_PLAN_TX_TYPES),
 			),
 		)
 		.groupBy(tables.transaction.organizationId)
@@ -12054,22 +14259,7 @@ admin.openapi(getChatPlansTimeseries, async (c) => {
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
 				inArray(tables.transaction.type, [...CHAT_PLAN_TX_TYPES]),
-				sql`NOT EXISTS (
-					SELECT 1 FROM ${tables.transaction} dup
-					WHERE dup.stripe_invoice_id = ${tables.transaction.stripeInvoiceId}
-						AND dup.stripe_invoice_id IS NOT NULL
-						AND dup.organization_id = ${tables.transaction.organizationId}
-						AND dup.id <> ${tables.transaction.id}
-						AND dup.status = 'completed'
-						AND dup.amount IS NOT NULL
-						AND dup.type IN (
-							'chat_plan_start', 'chat_plan_upgrade', 'chat_plan_downgrade', 'chat_plan_renewal'
-						)
-						AND (
-							dup.created_at < ${tables.transaction.createdAt}
-							OR (dup.created_at = ${tables.transaction.createdAt} AND dup.id < ${tables.transaction.id})
-						)
-				)`,
+				firstRowPerInvoiceFilter(CHAT_PLAN_TX_TYPES),
 			),
 		)
 		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
@@ -12471,22 +14661,7 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 				eq(tables.transaction.organizationId, orgId),
 				eq(tables.transaction.status, "completed"),
 				inArray(tables.transaction.type, [...CHAT_PLAN_TX_TYPES]),
-				sql`NOT EXISTS (
-					SELECT 1 FROM ${tables.transaction} dup
-					WHERE dup.stripe_invoice_id = ${tables.transaction.stripeInvoiceId}
-						AND dup.stripe_invoice_id IS NOT NULL
-						AND dup.organization_id = ${tables.transaction.organizationId}
-						AND dup.id <> ${tables.transaction.id}
-						AND dup.status = 'completed'
-						AND dup.amount IS NOT NULL
-						AND dup.type IN (
-							'chat_plan_start', 'chat_plan_upgrade', 'chat_plan_downgrade', 'chat_plan_renewal'
-						)
-						AND (
-							dup.created_at < ${tables.transaction.createdAt}
-							OR (dup.created_at = ${tables.transaction.createdAt} AND dup.id < ${tables.transaction.id})
-						)
-				)`,
+				firstRowPerInvoiceFilter(CHAT_PLAN_TX_TYPES),
 			),
 		);
 
@@ -12607,6 +14782,7 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 					"chat_plan_upgrade",
 					"chat_plan_downgrade",
 					"chat_plan_cancel",
+					"chat_plan_resume",
 					"chat_plan_end",
 					"chat_plan_renewal",
 				]),

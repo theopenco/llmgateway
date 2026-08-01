@@ -26,13 +26,14 @@ import { Input } from "@/components/ui/input";
 import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
 import { useAppConfig } from "@/lib/config";
+import { trackSignupConversion } from "@/lib/google-tag";
 
 const formSchema = z.object({
 	name: z.string().optional(),
 	email: z.string().email({ message: "Please enter a valid email address" }),
 	password: z
 		.string()
-		.min(8, { message: "Password must be at least 8 characters" }),
+		.min(12, { message: "Password must be at least 12 characters" }),
 });
 
 function getSafeRedirectUrl(url: string | null): string {
@@ -50,7 +51,7 @@ function SignupForm() {
 	const queryClient = useQueryClient();
 	const router = useRouter();
 	const posthog = usePostHog();
-	const { posthogKey } = useAppConfig();
+	const { posthogKey, googleAdsSignupConversion } = useAppConfig();
 	const [isLoading, setIsLoading] = useState(false);
 	const { signUp } = useAuth();
 	const returnUrl = getSafeRedirectUrl(searchParams.get("returnUrl"));
@@ -98,8 +99,14 @@ function SignupForm() {
 							email: values.email,
 							name: values.name,
 							plan: selectedPlan,
+							method: "email",
 						});
 					}
+					trackSignupConversion({
+						email: values.email,
+						method: "email",
+						sendTo: googleAdsSignupConversion,
+					});
 					toast.success("Account created", {
 						description:
 							"Please check your email to verify your account before signing in.",
@@ -163,8 +170,8 @@ function SignupForm() {
 							with AI.
 						</h1>
 						<p className="mt-4 max-w-md text-lg text-zinc-400">
-							Dev plans, coding tools, and AI-powered workflows for modern
-							development teams.
+							Dev plans, coding tools, and AI-powered workflows for individual
+							developers.
 						</p>
 					</motion.div>
 
@@ -333,6 +340,7 @@ function SignupForm() {
 							setIsLoading={setIsLoading}
 							callbackPath={returnUrl}
 							errorCallbackPath="/signup"
+							newUserCallbackPath={returnUrl}
 						/>
 					</div>
 

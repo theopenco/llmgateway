@@ -48,6 +48,95 @@ export function useMyMemberBudget(organizationId: string) {
 	);
 }
 
+// The authenticated user's OWN member-level IAM rules (self-service, no admin
+// gate) — the ceiling their API-key rules can only narrow.
+export function useMyIamRules(organizationId: string) {
+	const api = useApi();
+
+	return api.useQuery(
+		"get",
+		"/team/{organizationId}/members/me/iam",
+		{
+			params: {
+				path: {
+					organizationId,
+				},
+			},
+		},
+		{
+			enabled: !!organizationId,
+		},
+	);
+}
+
+export function useMemberIamRules(organizationId: string, memberId: string) {
+	const api = useApi();
+
+	return api.useQuery(
+		"get",
+		"/team/{organizationId}/members/{memberId}/iam",
+		{
+			params: {
+				path: {
+					organizationId,
+					memberId,
+				},
+			},
+		},
+		{
+			enabled: !!organizationId && !!memberId,
+		},
+	);
+}
+
+export function useCreateMemberIamRule(
+	organizationId: string,
+	memberId: string,
+) {
+	const api = useApi();
+	const queryClient = useQueryClient();
+
+	return api.useMutation(
+		"post",
+		"/team/{organizationId}/members/{memberId}/iam",
+		{
+			onSuccess: () => {
+				void queryClient.invalidateQueries({
+					queryKey: [
+						"get",
+						"/team/{organizationId}/members/{memberId}/iam",
+						{ params: { path: { organizationId, memberId } } },
+					],
+				});
+			},
+		},
+	);
+}
+
+export function useDeleteMemberIamRule(
+	organizationId: string,
+	memberId: string,
+) {
+	const api = useApi();
+	const queryClient = useQueryClient();
+
+	return api.useMutation(
+		"delete",
+		"/team/{organizationId}/members/{memberId}/iam/{ruleId}",
+		{
+			onSuccess: () => {
+				void queryClient.invalidateQueries({
+					queryKey: [
+						"get",
+						"/team/{organizationId}/members/{memberId}/iam",
+						{ params: { path: { organizationId, memberId } } },
+					],
+				});
+			},
+		},
+	);
+}
+
 export function useAddTeamMember(organizationId: string) {
 	const api = useApi();
 	const queryClient = useQueryClient();
@@ -110,6 +199,27 @@ export function useUpdateDefaultDeveloperBudget(organizationId: string) {
 	return api.useMutation(
 		"patch",
 		"/team/{organizationId}/default-developer-budget",
+		{
+			onSuccess: () => {
+				void queryClient.invalidateQueries({
+					queryKey: [
+						"get",
+						"/team/{organizationId}/members",
+						{ params: { path: { organizationId } } },
+					],
+				});
+			},
+		},
+	);
+}
+
+export function useRevokeTeamInvite(organizationId: string) {
+	const api = useApi();
+	const queryClient = useQueryClient();
+
+	return api.useMutation(
+		"delete",
+		"/team/{organizationId}/invites/{inviteId}",
 		{
 			onSuccess: () => {
 				void queryClient.invalidateQueries({

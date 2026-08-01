@@ -1,15 +1,24 @@
 import { z } from "@hono/zod-openapi";
 
+// OpenAI explicit prompt cache breakpoint marker (GPT-5.6 and later).
+const promptCacheBreakpointSchema = z
+	.object({
+		mode: z.enum(["explicit"]).optional(),
+	})
+	.optional();
+
 const responseInputContentSchema = z.union([
 	z.object({
 		type: z.literal("input_text"),
 		text: z.string(),
+		prompt_cache_breakpoint: promptCacheBreakpointSchema,
 	}),
 	z.object({
 		type: z.literal("input_image"),
 		image_url: z.string().optional(),
 		file_id: z.string().optional(),
 		detail: z.enum(["low", "high", "auto", "original"]).optional(),
+		prompt_cache_breakpoint: promptCacheBreakpointSchema,
 	}),
 	z.object({
 		type: z.literal("input_file"),
@@ -18,6 +27,7 @@ const responseInputContentSchema = z.union([
 		file_url: z.string().optional(),
 		filename: z.string().optional(),
 		detail: z.enum(["low", "high"]).optional(),
+		prompt_cache_breakpoint: promptCacheBreakpointSchema,
 	}),
 ]);
 
@@ -38,6 +48,7 @@ const messageItemSchema = z.object({
 					z.object({
 						type: z.literal("text"),
 						text: z.string(),
+						prompt_cache_breakpoint: promptCacheBreakpointSchema,
 					}),
 					z.object({
 						type: z.literal("image_url"),
@@ -45,6 +56,7 @@ const messageItemSchema = z.object({
 							url: z.string(),
 							detail: z.enum(["low", "high", "auto"]).optional(),
 						}),
+						prompt_cache_breakpoint: promptCacheBreakpointSchema,
 					}),
 				]),
 			),
@@ -82,13 +94,26 @@ const functionCallOutputItemSchema = z.object({
 	status: z.enum(["in_progress", "completed", "incomplete"]).optional(),
 });
 
+// Clients replaying reasoning items statelessly (Codex sends the whole prior
+// output back as `input`) serialize their absent optional fields as explicit
+// nulls, so every field here must accept null as well as being omitted —
+// rejecting them 400s a client on reasoning the gateway itself just emitted.
+// Nulls are normalized to undefined so downstream conversion stays unchanged.
+const nullishToUndefined = <T extends z.ZodTypeAny>(schema: T) =>
+	schema
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val));
+
 const reasoningItemSchema = z.object({
 	type: z.literal("reasoning"),
-	id: z.string().optional(),
-	summary: z.array(z.record(z.any())).optional(),
-	content: z.array(z.record(z.any())).optional(),
-	encrypted_content: z.string().optional(),
-	status: z.enum(["in_progress", "completed", "incomplete"]).optional(),
+	id: nullishToUndefined(z.string()),
+	summary: nullishToUndefined(z.array(z.record(z.any()))),
+	content: nullishToUndefined(z.array(z.record(z.any()))),
+	encrypted_content: nullishToUndefined(z.string()),
+	status: nullishToUndefined(
+		z.enum(["in_progress", "completed", "incomplete"]),
+	),
 });
 
 // Reference to an item produced by a previous (stored) response. Stateful
@@ -127,7 +152,20 @@ export const responsesRequestSchema = z.object({
 		.nullable()
 		.optional()
 		.transform((val) => (val === null ? undefined : val)),
+	prompt_cache_options: z
+		.object({
+			mode: z.enum(["implicit", "explicit"]).optional(),
+			ttl: z.enum(["30m"]).optional(),
+		})
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val)),
 	routing: z.enum(["auto", "price", "throughput", "latency"]).optional(),
+	service_tier: z
+		.enum(["auto", "default", "flex", "priority"])
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val)),
 	temperature: z
 		.number()
 		.nullable()
@@ -160,6 +198,8 @@ export const responsesRequestSchema = z.object({
 						.optional(),
 					search_context_size: z.enum(["low", "medium", "high"]).optional(),
 					max_uses: z.number().optional(),
+					allowed_domains: z.array(z.string()).optional(),
+					blocked_domains: z.array(z.string()).optional(),
 				}),
 				// catch-all for unknown tool types (e.g. computer_use, code_interpreter)
 				z.record(z.any()),
@@ -183,15 +223,24 @@ export const responsesRequestSchema = z.object({
 		.object({
 			effort: z
 				.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"])
-				.optional()
-				.transform((val) => (val === "max" ? "high" : val)),
+				.optional(),
 			summary: z.enum(["detailed", "auto"]).optional(),
+			context: z.enum(["auto", "current_turn", "all_turns"]).optional(),
 		})
 		.nullable()
 		.optional()
 		.transform((val) => (val === null ? undefined : val)),
 	text: z.record(z.any()).optional(),
 	store: z.boolean().optional(),
+	// Additional output data to include. Only "reasoning.encrypted_content" has
+	// gateway-level behavior (returns encrypted reasoning payloads on reasoning
+	// output items so they can be replayed statelessly); other values are
+	// accepted and ignored.
+	include: z
+		.array(z.string())
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val)),
 	metadata: z.record(z.string()).optional(),
 	top_p: z
 		.number()

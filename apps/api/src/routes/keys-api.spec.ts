@@ -3,8 +3,13 @@ import { expect, test, beforeEach, describe, afterEach } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { redisClient, SWR_PREFIX, swrWrap } from "@llmgateway/cache";
-import { db, eq, getTableName, tables } from "@llmgateway/db";
+import {
+	redisClient,
+	SWR_PREFIX,
+	swrWrap,
+	waitForSwrMirrorWrites,
+} from "@llmgateway/cache";
+import { and, cdb, db, eq, getTableName, tables } from "@llmgateway/db";
 
 const ONE_MINUTE_MS = 60 * 1000;
 const ONE_HOUR_MS = 60 * ONE_MINUTE_MS;
@@ -363,6 +368,7 @@ describe("keys route", () => {
 		await swrWrap(swrCacheKey, [apiKeyTableName], async () => ({
 			token: "test-token",
 		}));
+		await waitForSwrMirrorWrites();
 		expect(await redisClient.get(SWR_PREFIX + swrCacheKey)).not.toBeNull();
 
 		const res = await app.request("/keys/api/test-api-key-id/roll", {
@@ -375,6 +381,69 @@ describe("keys route", () => {
 
 		// The cached lookup for the old token must be gone after the roll.
 		expect(await redisClient.get(SWR_PREFIX + swrCacheKey)).toBeNull();
+	});
+
+	test("POST /keys/api/{id}/iam busts the gateway's cached IAM rule lookups", async () => {
+		// The gateway enforces IAM rules through a cached select (cdb) wrapped in
+		// an SWR fallback mirror, both indexed by the api_key_iam_rule table (see
+		// findActiveIamRules in apps/gateway/src/lib/cached-queries.ts). Creating
+		// a rule through cdb must bust both layers so it applies immediately.
+		//
+		// A per-run unique API key keeps the cache keys (SWR key and Drizzle query
+		// hash, which includes the bind params) from colliding with cached entries
+		// left in Redis by earlier runs, which outlive deleteAll().
+		const apiKeyId = `cache-test-api-key-${crypto.randomUUID()}`;
+		await db.insert(tables.apiKey).values({
+			id: apiKeyId,
+			token: `${apiKeyId}-token`,
+			projectId: "test-project-id",
+			description: "IAM Cache Test Key",
+			createdBy: "test-user-id",
+		});
+		const readActiveIamRules = async () => {
+			const rules = await swrWrap(
+				`iamRules:${apiKeyId}`,
+				[getTableName(tables.apiKeyIamRule)],
+				async () =>
+					await cdb
+						.select()
+						.from(tables.apiKeyIamRule)
+						.where(
+							and(
+								eq(tables.apiKeyIamRule.apiKeyId, apiKeyId),
+								eq(tables.apiKeyIamRule.status, "active"),
+							),
+						),
+			);
+			await waitForSwrMirrorWrites();
+			return rules;
+		};
+
+		// Prime both cache layers with the "no rules" result.
+		expect(await readActiveIamRules()).toHaveLength(0);
+		expect(
+			await redisClient.get(SWR_PREFIX + `iamRules:${apiKeyId}`),
+		).not.toBeNull();
+
+		const res = await app.request(`/keys/api/${apiKeyId}/iam`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				ruleType: "allow_models",
+				ruleValue: { models: ["openai/gpt-4o-mini"] },
+			}),
+		});
+		expect(res.status).toBe(200);
+
+		// The SWR mirror for the api_key_iam_rule table must be gone...
+		expect(
+			await redisClient.get(SWR_PREFIX + `iamRules:${apiKeyId}`),
+		).toBeNull();
+		// ...and the cached select must serve the new rule, not the stale miss.
+		expect(await readActiveIamRules()).toHaveLength(1);
 	});
 
 	test("POST /keys/api creates a period usage limit", async () => {
@@ -415,6 +484,79 @@ describe("keys route", () => {
 		expect(apiKey?.periodUsageLimit).toBe("5");
 		expect(apiKey?.periodUsageDurationValue).toBe(2);
 		expect(apiKey?.periodUsageDurationUnit).toBe("day");
+	});
+
+	test("POST /keys/api rejects a limit above the member budget", async () => {
+		await db
+			.update(tables.userOrganization)
+			.set({ usageLimit: "10" })
+			.where(eq(tables.userOrganization.id, "test-user-org-id"));
+
+		const res = await app.request("/keys/api", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				description: "Over-budget key",
+				projectId: "test-project-id",
+				usageLimit: "50",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.message).toMatch(/organization limit of \$10\.00/);
+
+		const apiKey = await db.query.apiKey.findFirst({
+			where: { description: { eq: "Over-budget key" } },
+		});
+		expect(apiKey).toBeUndefined();
+	});
+
+	test("POST /keys/api allows a limit at or below the member budget", async () => {
+		await db
+			.update(tables.userOrganization)
+			.set({ usageLimit: "10" })
+			.where(eq(tables.userOrganization.id, "test-user-org-id"));
+
+		const res = await app.request("/keys/api", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				description: "Within-budget key",
+				projectId: "test-project-id",
+				usageLimit: "10",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.apiKey.usageLimit).toBe("10");
+	});
+
+	test("PATCH /keys/api/limit/{id} rejects a limit above the member budget", async () => {
+		await db
+			.update(tables.userOrganization)
+			.set({ usageLimit: "10" })
+			.where(eq(tables.userOrganization.id, "test-user-org-id"));
+
+		const res = await app.request("/keys/api/limit/test-api-key-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ usageLimit: "50" }),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.message).toMatch(/organization limit of \$10\.00/);
 	});
 
 	test("PATCH /keys/api/limit/{id} updates and resets period usage", async () => {
@@ -756,9 +898,10 @@ describe("keys route", () => {
 		expect(reactivated?.expiresAt?.toISOString()).toBe(newExpiry);
 	});
 
-	test("POST /keys/api should enforce API key limit of 20", async () => {
-		// Create 19 more API keys to reach the limit of 20
-		for (let i = 2; i <= 20; i++) {
+	test("POST /keys/api enforces the org-wide free-plan limit of 5", async () => {
+		// beforeEach already created 1 active key; add 4 more to reach the free
+		// org-wide cap of 5 active keys.
+		for (let i = 2; i <= 5; i++) {
 			await db.insert(tables.apiKey).values({
 				id: `test-api-key-id-${i}`,
 				token: `test-token-${i}`,
@@ -769,7 +912,7 @@ describe("keys route", () => {
 			});
 		}
 
-		// Try to create the 21st API key, should fail
+		// Try to create the 6th API key, should fail
 		const res = await app.request("/keys/api", {
 			method: "POST",
 			headers: {
@@ -777,7 +920,7 @@ describe("keys route", () => {
 				Cookie: token,
 			},
 			body: JSON.stringify({
-				description: "Twenty-first API Key",
+				description: "Sixth API Key",
 				projectId: "test-project-id",
 				usageLimit: null,
 			}),
@@ -786,6 +929,44 @@ describe("keys route", () => {
 		expect(res.status).toBe(400);
 		const json = await res.json();
 		expect(json.message).toContain("API key limit reached");
-		expect(json.message).toContain("Maximum 20 API keys per project");
+		expect(json.message).toContain(
+			"Maximum 5 active API keys per organization",
+		);
+	});
+
+	test("POST /keys/api respects the admin apiKeyLimit override", async () => {
+		await db
+			.update(tables.organization)
+			.set({ apiKeyLimit: 2 })
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		// beforeEach created 1 active key; add 1 more to reach the override of 2.
+		await db.insert(tables.apiKey).values({
+			id: "test-api-key-id-2",
+			token: "test-token-2",
+			projectId: "test-project-id",
+			description: "Test API Key 2",
+			status: "active",
+			createdBy: "test-user-id",
+		});
+
+		const res = await app.request("/keys/api", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				description: "Third API Key",
+				projectId: "test-project-id",
+				usageLimit: null,
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.message).toContain(
+			"Maximum 2 active API keys per organization",
+		);
 	});
 });

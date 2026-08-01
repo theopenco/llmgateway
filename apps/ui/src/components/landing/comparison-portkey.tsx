@@ -100,7 +100,7 @@ const comparisonData = [
 			{
 				title: "Model coverage",
 				description: "Models and providers available through one API",
-				llmgateway: "280+ models, 35+ providers",
+				llmgateway: "200+ models, 40+ providers",
 				portkey: "1,600+ (vendor claim)",
 			},
 			{
@@ -118,7 +118,7 @@ const comparisonData = [
 			{
 				title: "Versioned prompt management",
 				description: "Prompt registry, templates, and deployments",
-				llmgateway: "Playground only",
+				llmgateway: "Lounge only",
 				portkey: true,
 			},
 			{

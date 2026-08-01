@@ -35,6 +35,7 @@ import {
 	type ProviderId,
 	type StabilityLevel,
 } from "@llmgateway/models";
+import { isPremiumModel } from "@llmgateway/shared";
 import {
 	getProviderIcon,
 	providerLogoUrls,
@@ -91,6 +92,7 @@ const convertToApiModel = (
 	const provider = providerDefinitions.find((p) => p.id === map.providerId)!;
 	return {
 		id: def.id,
+		premium: isPremiumModel(def.id),
 		createdAt: new Date().toISOString(),
 		releasedAt: def.releasedAt?.toISOString() ?? null,
 		name: def.name ?? null,

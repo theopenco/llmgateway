@@ -8,13 +8,15 @@ import { db, tables } from "@llmgateway/db";
 import {
 	getProviderEnvVar,
 	getTestOptions,
+	isStealthProvider,
 	models,
 	providers,
 } from "@llmgateway/models";
+import { uniqueId } from "@llmgateway/shared/random";
 
 // Helper function to generate unique IDs for tests
 function generateTestId(): string {
-	return `test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+	return uniqueId("test");
 }
 
 // Helper function to check if a provider has any active models
@@ -116,8 +118,22 @@ describe(
 			return { token, orgId };
 		}
 
+		// Stealth providers have no default base URL and are rejected by
+		// POST /keys/provider, so exclude them from the happy-path table (their
+		// rejection is asserted separately below). Otherwise a CI-provided stealth
+		// key (e.g. LLM_GRANITE_API_KEY) would make the 200 expectation fail.
 		const testProviders = providers
-			.filter((provider) => provider.id !== "llmgateway")
+			.filter(
+				(provider) =>
+					provider.id !== "llmgateway" && !isStealthProvider(provider),
+			)
+			.map((provider) => ({
+				providerId: provider.id,
+				name: provider.name,
+			}));
+
+		const stealthProviders = providers
+			.filter((provider) => isStealthProvider(provider))
 			.map((provider) => ({
 				providerId: provider.id,
 				name: provider.name,
@@ -188,6 +204,40 @@ describe(
 				expect(providerKey).not.toBeNull();
 				expect(providerKey?.provider).toBe(providerId);
 				expect(providerKey?.token).toBe(envVarValue);
+			},
+		);
+
+		test.each(stealthProviders)(
+			"POST /keys/provider rejects stealth $name key",
+			async ({ providerId }) => {
+				const { token, orgId } = await setupTestData();
+
+				const res = await app.request("/keys/provider", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Cookie: token,
+					},
+					body: JSON.stringify({
+						provider: providerId,
+						token: "stealth-test-token",
+						organizationId: orgId,
+					}),
+				});
+
+				expect(res.status).toBe(400);
+
+				const providerKey = await db.query.providerKey.findFirst({
+					where: {
+						provider: {
+							eq: providerId,
+						},
+						organizationId: {
+							eq: orgId,
+						},
+					},
+				});
+				expect(providerKey).toBeUndefined();
 			},
 		);
 

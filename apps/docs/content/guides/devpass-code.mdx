@@ -11,26 +11,33 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 Log in once from your terminal with a single click in the browser — no copy-pasting API keys unless you want to.
 
+<Callout type="info">
+	**On a DevPass plan?** Use root model IDs without a provider prefix
+	(`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned
+	routing is not available on coding plans; the gateway picks the provider for
+	you.
+</Callout>
+
 ## Install
 
-DevPass Code runs on [Bun](https://bun.sh). Clone the repository and install dependencies:
+Install DevPass Code globally from npm:
 
 ```bash
-git clone https://github.com/theopenco/devpass-code.git
-cd devpass-code
-bun install
+npm i -g devpass-code
 ```
 
-Run it from source:
+Or with Homebrew:
+
+```bash
+brew install theopenco/tap/devpass-code
+```
+
+Other options: an install script (`curl -fsSL https://raw.githubusercontent.com/theopenco/devpass-code/main/install | bash`), an AUR package (`devpass-code-bin`), a Docker image (`ghcr.io/theopenco/devpass-code`), and Windows binaries on [GitHub releases](https://github.com/theopenco/devpass-code/releases).
+
+To run from source instead, clone the repository, `bun install`, then:
 
 ```bash
 bun run packages/devpass-code/src/index.ts --help
-```
-
-Or use the dev script:
-
-```bash
-bun dev
 ```
 
 ## Authenticate

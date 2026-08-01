@@ -25,16 +25,18 @@ import {
 	Shield,
 	ShieldCheck,
 	Sparkles,
+	Trophy,
 	Wrench,
 	X,
 	Zap,
 } from "lucide-react";
 import Link from "next/link";
+import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
 
 import { AuthLink } from "@/components/shared/auth-link";
 import { ModelSearch } from "@/components/shared/model-search";
-import { useUser } from "@/hooks/useUser";
+import { useSessionStatus } from "@/hooks/useUser";
 import { Button } from "@/lib/components/button";
 import {
 	NavigationMenu,
@@ -48,6 +50,9 @@ import { useAppConfig } from "@/lib/config";
 import Logo from "@/lib/icons/Logo";
 import { cn } from "@/lib/utils";
 
+import { MARKETING_STATS } from "@llmgateway/shared";
+
+import { RunwarePromoBanner } from "./runware-promo-banner";
 import { ThemeToggle } from "./theme-toggle";
 
 import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
@@ -68,8 +73,12 @@ function IconMenuItem({
 	gradient: string;
 	external?: boolean;
 }) {
+	const posthog = usePostHog();
 	const linkClassName = cn(
-		"group/product flex items-start gap-3 select-none rounded-lg p-3 no-underline outline-none transition-all duration-300 bg-linear-to-br from-transparent to-transparent",
+		// flex-row is load-bearing: NavigationMenuLink's base classes include
+		// flex-col and are concatenated onto this link via Radix Slot, so the
+		// direction must be asserted explicitly or the card stacks vertically.
+		"group/product flex flex-row items-start gap-3 select-none rounded-lg p-3 no-underline outline-none transition-all duration-300 bg-linear-to-br from-transparent to-transparent",
 		gradient,
 		"hover:shadow-lg focus:shadow-md",
 	);
@@ -94,6 +103,10 @@ function IconMenuItem({
 		</>
 	);
 
+	const handleClick = () => {
+		posthog.capture("nav_link_clicked", { link: title, area: "dropdown" });
+	};
+
 	return (
 		<li>
 			<NavigationMenuLink asChild>
@@ -103,11 +116,17 @@ function IconMenuItem({
 						target="_blank"
 						rel="noopener noreferrer"
 						className={linkClassName}
+						onClick={handleClick}
 					>
 						{inner}
 					</a>
 				) : (
-					<Link href={href as Route} prefetch={true} className={linkClassName}>
+					<Link
+						href={href as Route}
+						prefetch={true}
+						className={linkClassName}
+						onClick={handleClick}
+					>
 						{inner}
 					</Link>
 				)}
@@ -128,8 +147,13 @@ export const Navbar = ({
 	providers?: ApiProvider[];
 }) => {
 	const config = useAppConfig();
-	const { user, isLoading } = useUser();
-	const isAuthenticated = !!user && !isLoading;
+	const posthog = usePostHog();
+	const { isAuthenticated: hasSession, isLoading } = useSessionStatus();
+	const isAuthenticated = hasSession && !isLoading;
+
+	const trackNav = (link: string) => {
+		posthog.capture("nav_link_clicked", { link, area: "navbar" });
+	};
 
 	const productsLinks: Array<{
 		title: string;
@@ -141,36 +165,33 @@ export const Navbar = ({
 	}> = [
 		{
 			title: "AI Gateway",
-			href: "/features/unified-api-interface",
-			description:
-				"Route requests to 200+ LLMs through a single, unified API endpoint.",
+			href: "/products/ai-gateway",
+			description: `Route requests to ${MARKETING_STATS.models} LLMs through a single, unified API endpoint.`,
 			icon: Network,
 			gradient:
 				"hover:from-violet-500/20 hover:to-purple-600/30 hover:shadow-violet-500/10 group-hover/product:text-violet-500 dark:group-hover/product:text-violet-400",
 		},
 		{
 			title: "DevPass",
-			href: "https://devpass.llmgateway.io",
+			href: "/products/devpass",
 			description:
 				"Fixed-price monthly plans for Claude Code, Cursor, and every coding tool.",
 			icon: Code,
 			gradient:
 				"hover:from-indigo-500/20 hover:to-blue-600/30 hover:shadow-indigo-500/10 group-hover/product:text-indigo-500 dark:group-hover/product:text-indigo-400",
-			external: true,
 		},
 		{
-			title: "Chat Playground",
-			href: config.playgroundUrl ?? "#",
+			title: "Lounge",
+			href: "/products/lounge",
 			description:
-				"Test prompts and compare model responses side by side, instantly.",
+				"Every frontier model in one chat — plus image, video and audio studios.",
 			icon: MessagesSquare,
 			gradient:
 				"hover:from-blue-500/20 hover:to-cyan-600/30 hover:shadow-blue-500/10 group-hover/product:text-blue-500 dark:group-hover/product:text-blue-400",
-			external: true,
 		},
 		{
 			title: "Observability",
-			href: "/features/performance-monitoring",
+			href: "/products/observability",
 			description:
 				"Monitor usage, costs, and latency with real-time analytics dashboards.",
 			icon: Activity,
@@ -248,6 +269,15 @@ export const Navbar = ({
 				"hover:from-cyan-500/20 hover:to-blue-600/30 hover:shadow-cyan-500/10 group-hover/product:text-cyan-500 dark:group-hover/product:text-cyan-400",
 		},
 		{
+			title: "Rankings",
+			href: "/rankings",
+			description:
+				"Top models by real token volume routed through the gateway.",
+			icon: Trophy,
+			gradient:
+				"hover:from-amber-500/20 hover:to-yellow-600/30 hover:shadow-amber-500/10 group-hover/product:text-amber-500 dark:group-hover/product:text-amber-400",
+		},
+		{
 			title: "Apps",
 			href: "/apps",
 			description: "Browse apps and tools that work with LLM Gateway.",
@@ -308,7 +338,7 @@ export const Navbar = ({
 		{
 			title: "MCP Server",
 			href: "/mcp",
-			description: "Connect AI assistants to 200+ LLMs via MCP protocol.",
+			description: `Connect AI assistants to ${MARKETING_STATS.models} LLMs via MCP protocol.`,
 			icon: Server,
 			gradient:
 				"hover:from-cyan-500/20 hover:to-blue-600/30 hover:shadow-cyan-500/10 group-hover/product:text-cyan-500 dark:group-hover/product:text-cyan-400",
@@ -404,6 +434,7 @@ export const Navbar = ({
 				data-state={menuState && "active"}
 				className={cn("z-20 w-full px-2 group", sticky && "fixed")}
 			>
+				<RunwarePromoBanner collapsed={isScrolled} />
 				<div
 					className={cn(
 						"mt-2 mx-auto max-w-[1400px] px-6 transition-all duration-300",
@@ -416,12 +447,11 @@ export const Navbar = ({
 						<div className="flex w-full justify-between nav:w-auto">
 							<Link
 								href="/"
-								aria-label="home"
 								className="flex items-center space-x-2"
 								prefetch={true}
 							>
 								<Logo className="h-8 w-8 rounded-full text-black dark:text-white" />
-								<span className="text-xl font-bold tracking-tight text-zinc-900 dark:text-white">
+								<span className="text-xl font-bold tracking-tight text-zinc-900 dark:text-white whitespace-nowrap">
 									LLM Gateway
 								</span>
 							</Link>
@@ -437,18 +467,58 @@ export const Navbar = ({
 						</div>
 
 						{/* Desktop center nav */}
-						<div className="m-auto hidden items-center gap-2 nav:flex min-w-0">
-							<div className="w-[140px] lg:w-[160px]">
+						<div className="m-auto hidden items-center gap-1 nav:flex min-w-0">
+							<div className="w-[140px] xl:w-[160px]">
 								<ModelSearch models={models} providers={providers} />
 							</div>
 							<NavigationMenu viewport={false} delayDuration={300}>
-								<NavigationMenuList className="flex gap-1 text-sm">
+								<NavigationMenuList className="flex gap-0.5 text-sm">
+									{/* Most-clicked destinations surfaced as direct links —
+									    DevPass (top product) and Models (top resource) per
+									    PostHog page traffic; Chat joins on wider screens. */}
+									<NavigationMenuItem>
+										<NavigationMenuLink asChild>
+											<a
+												href="https://devpass.llmgateway.io"
+												onClick={() => trackNav("DevPass")}
+												className="text-muted-foreground hover:text-accent-foreground block duration-150 px-3 py-2 whitespace-nowrap"
+											>
+												DevPass
+											</a>
+										</NavigationMenuLink>
+									</NavigationMenuItem>
+
+									<NavigationMenuItem className="hidden min-[1360px]:block">
+										<NavigationMenuLink asChild>
+											<a
+												href={config.playgroundUrl ?? "#"}
+												onClick={() => trackNav("Chat")}
+												className="text-muted-foreground hover:text-accent-foreground block duration-150 px-3 py-2 whitespace-nowrap"
+											>
+												Lounge
+											</a>
+										</NavigationMenuLink>
+									</NavigationMenuItem>
+
+									<NavigationMenuItem>
+										<NavigationMenuLink asChild>
+											<Link
+												href="/models"
+												prefetch={true}
+												onClick={() => trackNav("Models")}
+												className="text-muted-foreground hover:text-accent-foreground block duration-150 px-3 py-2 whitespace-nowrap"
+											>
+												Models
+											</Link>
+										</NavigationMenuLink>
+									</NavigationMenuItem>
+
 									{/* Products dropdown */}
 									<NavigationMenuItem>
-										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-4 py-2 bg-transparent">
+										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-3 py-2 bg-transparent">
 											Products
 										</NavigationMenuTrigger>
-										<NavigationMenuContent>
+										<NavigationMenuContent className="md:left-1/2 md:-translate-x-1/2">
 											<ul className="grid grid-cols-2 gap-2 p-4 md:w-[520px] lg:w-[580px]">
 												{productsLinks.map((product) => (
 													<IconMenuItem
@@ -467,10 +537,10 @@ export const Navbar = ({
 
 									{/* Resources dropdown */}
 									<NavigationMenuItem>
-										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-4 py-2 bg-transparent">
+										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-3 py-2 bg-transparent">
 											Resources
 										</NavigationMenuTrigger>
-										<NavigationMenuContent>
+										<NavigationMenuContent className="md:left-1/2 md:-translate-x-1/2">
 											<ul className="grid grid-cols-2 gap-2 p-4 md:w-[680px] lg:w-[820px] lg:grid-cols-3">
 												{resourcesLinks.map((link) => (
 													<IconMenuItem
@@ -487,26 +557,12 @@ export const Navbar = ({
 										</NavigationMenuContent>
 									</NavigationMenuItem>
 
-									{/* Docs link */}
-									<NavigationMenuItem>
-										<NavigationMenuLink asChild>
-											<a
-												href={config.docsUrl ?? ""}
-												target="_blank"
-												rel="noopener noreferrer"
-												className="text-muted-foreground hover:text-accent-foreground block duration-150 px-4 py-2"
-											>
-												Docs
-											</a>
-										</NavigationMenuLink>
-									</NavigationMenuItem>
-
 									{/* AI dropdown */}
 									<NavigationMenuItem>
-										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-4 py-2 bg-transparent">
+										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-3 py-2 bg-transparent">
 											AI
 										</NavigationMenuTrigger>
-										<NavigationMenuContent>
+										<NavigationMenuContent className="md:left-1/2 md:-translate-x-1/2">
 											<ul className="grid grid-cols-2 gap-2 p-4 md:w-[520px] lg:w-[580px]">
 												{aiLinks.map((item) => (
 													<IconMenuItem
@@ -523,13 +579,29 @@ export const Navbar = ({
 										</NavigationMenuContent>
 									</NavigationMenuItem>
 
+									{/* Docs link */}
+									<NavigationMenuItem>
+										<NavigationMenuLink asChild>
+											<a
+												href={config.docsUrl ?? ""}
+												target="_blank"
+												rel="noopener noreferrer"
+												onClick={() => trackNav("Docs")}
+												className="text-muted-foreground hover:text-accent-foreground block duration-150 px-3 py-2"
+											>
+												Docs
+											</a>
+										</NavigationMenuLink>
+									</NavigationMenuItem>
+
 									{/* Pricing link */}
 									<NavigationMenuItem>
 										<NavigationMenuLink asChild>
 											<Link
 												href="/pricing"
 												prefetch={true}
-												className="text-muted-foreground hover:text-accent-foreground block duration-150 px-4 py-2"
+												onClick={() => trackNav("Pricing")}
+												className="text-muted-foreground hover:text-accent-foreground block duration-150 px-3 py-2"
 											>
 												Pricing
 											</Link>
@@ -547,6 +619,24 @@ export const Navbar = ({
 									<ModelSearch models={models} providers={providers} />
 								</div>
 								<ul className="text-base">
+									<li>
+										<a
+											href="https://devpass.llmgateway.io"
+											onClick={() => trackNav("DevPass")}
+											className="text-muted-foreground hover:text-accent-foreground block py-2.5 duration-150"
+										>
+											DevPass
+										</a>
+									</li>
+									<li>
+										<a
+											href={config.playgroundUrl ?? "#"}
+											onClick={() => trackNav("Chat")}
+											className="text-muted-foreground hover:text-accent-foreground block py-2.5 duration-150"
+										>
+											Lounge
+										</a>
+									</li>
 									<li>
 										<Link
 											href="/pricing"
@@ -662,8 +752,10 @@ export const Navbar = ({
 							</div>
 
 							<div className="flex w-full flex-col space-y-3 sm:flex-row sm:gap-3 sm:space-y-0 md:w-fit items-center">
-								{/* GitHub stars (compact) + Discord */}
-								<div className="hidden nav:flex items-center gap-1">
+								{/* GitHub stars (compact) + Discord — hidden in the narrow
+								    band above the nav breakpoint so the promoted nav links
+								    don't collide with the right-side controls. */}
+								<div className="hidden min-[1280px]:flex items-center gap-1">
 									{children}
 									<a
 										href={config.discordUrl}

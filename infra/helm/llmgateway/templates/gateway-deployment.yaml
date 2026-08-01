@@ -43,6 +43,18 @@ spec:
                 echo "Waiting for Redis..."
                 sleep 2
               done
+        {{- if or .Values.storageRedis.enabled .Values.externalStorageRedis.host }}
+        - name: wait-for-storage-redis
+          image: busybox:1.37
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z {{ include "llmgateway.storageRedis.host" . }} {{ include "llmgateway.storageRedis.port" . }}; do
+                echo "Waiting for Storage Redis..."
+                sleep 2
+              done
+        {{- end }}
       containers:
         - name: gateway
           image: {{ include "llmgateway.image" (dict "context" . "image" .Values.gateway.image) }}
@@ -81,7 +93,15 @@ spec:
             failureThreshold: 3
           resources:
             {{- toYaml .Values.gateway.resources | nindent 12 }}
-      terminationGracePeriodSeconds: 120
+      {{- /*
+      Bounds every in-process drain: once this expires the orchestrator SIGKILLs
+      the pod, so a longer app-level grace period than this is a no-op. Realtime
+      sessions are the long pole (they drain for up to maxSessionSeconds plus a
+      minute), so the default scales with them rather than silently truncating
+      calls when realtime is switched on.
+      */}}
+      {{- $realtimeDrain := ternary (add (int (.Values.realtime.config.maxSessionSeconds | default 3600)) 120) 0 .Values.realtime.enabled }}
+      terminationGracePeriodSeconds: {{ .Values.gateway.terminationGracePeriodSeconds | default (max 120 $realtimeDrain) }}
       {{- with .Values.gateway.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

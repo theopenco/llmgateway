@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import {
 	closeRedisClient,
+	closeStorageRedisClient,
 	consumeFromQueue,
 	LOG_QUEUE,
 	publishToQueue,
@@ -15,7 +16,6 @@ import {
 	addApiKeyPeriodDuration,
 	and,
 	apiKey,
-	cdb,
 	closeDatabase,
 	db,
 	enqueueWebhookDeliveries,
@@ -37,7 +37,7 @@ import {
 	assertSafeWebhookUrl,
 	calculateFees,
 	isCreditTopUpAmountInRange,
-	isPremiumModel,
+	isPremiumUsedModel,
 	isPremiumWeekExpired,
 	isPrivateOrReservedIp,
 } from "@llmgateway/shared";
@@ -122,11 +122,6 @@ const LOG_QUEUE_CONCURRENCY = Math.max(
 	1,
 	Number(process.env.LOG_QUEUE_CONCURRENCY) || 4,
 );
-// Cache organization retention levels to avoid a serial Postgres round-trip
-// before every log batch insert. retentionLevel changes rarely; the short TTL
-// bounds how long a stale value can keep retaining or stripping log payloads.
-const ORG_RETENTION_CACHE_TTL_MS =
-	Number(process.env.ORG_RETENTION_CACHE_TTL_MS) || 60_000;
 const CREDIT_BATCH_SIZE = Number(process.env.CREDIT_BATCH_SIZE) || 100;
 const BATCH_PROCESSING_INTERVAL_SECONDS =
 	Number(process.env.CREDIT_BATCH_INTERVAL) || 5;
@@ -209,6 +204,7 @@ const schema = z.object({
 	organization_id: z.string(),
 	project_id: z.string(),
 	cost: z.number().nullable(),
+	billing_cost: z.string().nullable(),
 	cached: z.boolean(),
 	api_key_id: z.string(),
 	end_user_session_id: z.string().nullable(),
@@ -290,6 +286,21 @@ export async function acquireLock(key: string): Promise<boolean> {
 
 async function releaseLock(key: string): Promise<void> {
 	await db.delete(tables.lock).where(eq(tables.lock.key, key));
+}
+
+async function recordAutoTopUpFailure(org: {
+	id: string;
+	paymentFailureCount: number | null;
+	paymentFailureStartedAt: Date | null;
+}): Promise<void> {
+	await db
+		.update(tables.organization)
+		.set({
+			paymentFailureCount: (org.paymentFailureCount ?? 0) + 1,
+			lastPaymentFailureAt: new Date(),
+			paymentFailureStartedAt: org.paymentFailureStartedAt ?? new Date(),
+		})
+		.where(eq(tables.organization.id, org.id));
 }
 
 export async function processAutoTopUp(): Promise<void> {
@@ -484,6 +495,24 @@ export async function processAutoTopUp(): Promise<void> {
 					const stripePaymentMethod = await getStripe().paymentMethods.retrieve(
 						defaultPaymentMethod.stripePaymentMethodId,
 					);
+
+					const paymentMethodCustomer =
+						typeof stripePaymentMethod.customer === "string"
+							? stripePaymentMethod.customer
+							: (stripePaymentMethod.customer?.id ?? null);
+
+					// A payment method can only be charged against the customer it
+					// is attached to; a mismatch (e.g. from a historical duplicate
+					// Stripe customer) would be rejected on every attempt, so track
+					// the failure for backoff/auto-disable instead of charging.
+					if (paymentMethodCustomer !== org.stripeCustomerId) {
+						logger.error(
+							`Default payment method ${defaultPaymentMethod.stripePaymentMethodId} for organization ${org.id} is attached to Stripe customer ${paymentMethodCustomer}, but the organization's Stripe customer is ${org.stripeCustomerId}; skipping auto top-up`,
+						);
+						await recordAutoTopUpFailure(org);
+						continue;
+					}
+
 					const country = stripePaymentMethod.card?.country;
 					isInternational = Boolean(country) && country !== "US";
 				} catch (err) {
@@ -571,12 +600,29 @@ export async function processAutoTopUp(): Promise<void> {
 							.where(eq(tables.transaction.id, pendingTransaction.id));
 					}
 				} catch (stripeError) {
-					logger.error(
-						`Stripe error for organization ${org.id}`,
+					const errObj =
 						stripeError instanceof Error
 							? stripeError
-							: new Error(String(stripeError)),
-					);
+							: new Error(String(stripeError));
+					// Card declines (insufficient funds, generic_decline, expired
+					// cards, etc.) are an expected outcome of an off-session auto
+					// top-up, not a server error, so log them at warn level to avoid
+					// noisy error alerts.
+					if (stripeError instanceof Stripe.errors.StripeCardError) {
+						logger.warn(
+							`Auto top-up card declined for organization ${org.id}`,
+							errObj,
+						);
+					} else {
+						logger.error(`Stripe error for organization ${org.id}`, errObj);
+					}
+					// A rejected paymentIntents.create never produces a
+					// payment_intent.payment_failed webhook (unlike card declines),
+					// so record the failure here or backoff/auto-disable never
+					// engage and the same doomed charge retries every cycle.
+					if (stripeError instanceof Stripe.errors.StripeInvalidRequestError) {
+						await recordAutoTopUpFailure(org);
+					}
 					// Mark transaction as failed
 					await db
 						.update(tables.transaction)
@@ -866,6 +912,7 @@ export async function batchProcessLogs(): Promise<number> {
 					organization_id: log.organizationId,
 					project_id: log.projectId,
 					cost: log.cost,
+					billing_cost: log.billingCost,
 					cached: log.cached,
 					api_key_id: log.apiKeyId,
 					end_user_session_id: log.endUserSessionId,
@@ -981,8 +1028,17 @@ export async function batchProcessLogs(): Promise<number> {
 					unifiedFinishReason: row.unified_finish_reason,
 				});
 
-				if (row.cost && row.cost > 0 && !row.cached) {
-					const apiKeyCost = new Decimal(row.cost);
+				// Prefer the exact decimal billingCost (realtime and other
+				// decimal-billed rows) over the legacy float cost column.
+				const effectiveCost =
+					row.billing_cost !== null
+						? new Decimal(row.billing_cost)
+						: row.cost !== null
+							? new Decimal(row.cost)
+							: null;
+
+				if (effectiveCost && effectiveCost.greaterThan(0) && !row.cached) {
+					const apiKeyCost = effectiveCost;
 					const usageEvent = {
 						cost: apiKeyCost,
 						createdAt: row.created_at,
@@ -1038,7 +1094,7 @@ export async function batchProcessLogs(): Promise<number> {
 					if (row.used_mode === "credits") {
 						addToBucket(
 							apiKeyCost,
-							Boolean(row.used_model && isPremiumModel(row.used_model)),
+							Boolean(row.used_model && isPremiumUsedModel(row.used_model)),
 						);
 					} else if (row.used_mode === "api-keys") {
 						if (row.data_storage_cost) {
@@ -1269,14 +1325,14 @@ export async function batchProcessLogs(): Promise<number> {
 				if (!totalCost.greaterThan(0)) {
 					continue;
 				}
-				const costNumber = totalCost.toNumber();
+				const costStr = totalCost.toString();
 				// Debit atomically and derive the resulting balance from the row we
 				// actually updated, so a concurrent top-up/reversal can't make
 				// balanceAfter or the low-balance crossing check stale.
 				const [updatedWallet] = await tx
 					.update(tables.wallet)
 					.set({
-						balance: sql`${tables.wallet.balance} - ${costNumber}`,
+						balance: sql`${tables.wallet.balance} - ${costStr}`,
 					})
 					.where(eq(tables.wallet.id, walletId))
 					.returning();
@@ -1315,7 +1371,7 @@ export async function batchProcessLogs(): Promise<number> {
 					description: "AI usage",
 				});
 
-				logger.debug(`Debited ${costNumber} from end-user wallet ${walletId}`);
+				logger.debug(`Debited ${costStr} from end-user wallet ${walletId}`);
 			}
 
 			// Apply referral earnings to referrer organizations
@@ -1370,12 +1426,12 @@ export async function batchProcessLogs(): Promise<number> {
 					}
 
 					const usageUpdate = buildApiKeyUsageUpdate(apiKeyRecord, events);
-					const costNumber = usageUpdate.totalUsageCost.toNumber();
+					const costStr = usageUpdate.totalUsageCost.toString();
 
 					await tx
 						.update(apiKey)
 						.set({
-							usage: sql`${apiKey.usage} + ${costNumber}`,
+							usage: sql`${apiKey.usage} + ${costStr}`,
 							...(usageUpdate.hasPeriodUsageUpdate && {
 								currentPeriodUsage: usageUpdate.currentPeriodUsage,
 								currentPeriodStartedAt: usageUpdate.currentPeriodStartedAt,
@@ -1383,7 +1439,7 @@ export async function batchProcessLogs(): Promise<number> {
 						})
 						.where(eq(apiKey.id, apiKeyId));
 
-					logger.debug(`Added ${costNumber} usage to API key ${apiKeyId}`);
+					logger.debug(`Added ${costStr} usage to API key ${apiKeyId}`);
 				}
 			}
 
@@ -1421,12 +1477,12 @@ export async function batchProcessLogs(): Promise<number> {
 					}
 
 					const usageUpdate = buildApiKeyUsageUpdate(sessionRecord, events);
-					const costNumber = usageUpdate.totalUsageCost.toNumber();
+					const costStr = usageUpdate.totalUsageCost.toString();
 
 					await tx
 						.update(tables.endUserSession)
 						.set({
-							usage: sql`${tables.endUserSession.usage} + ${costNumber}`,
+							usage: sql`${tables.endUserSession.usage} + ${costStr}`,
 							...(usageUpdate.hasPeriodUsageUpdate && {
 								currentPeriodUsage: usageUpdate.currentPeriodUsage,
 								currentPeriodStartedAt: usageUpdate.currentPeriodStartedAt,
@@ -1435,7 +1491,7 @@ export async function batchProcessLogs(): Promise<number> {
 						.where(eq(tables.endUserSession.id, sessionId));
 
 					logger.debug(
-						`Added ${costNumber} usage to end-user session ${sessionId}`,
+						`Added ${costStr} usage to end-user session ${sessionId}`,
 					);
 				}
 			}
@@ -1636,50 +1692,6 @@ function recordLogInsertSuccess(): void {
 	logInsertCircuit.nextAttemptAt = 0;
 }
 
-const orgRetentionCache = new Map<
-	string,
-	{ retentionLevel: "retain" | "none"; expiresAt: number }
->();
-
-// Resolve organization retention levels, serving from the in-memory cache when
-// fresh and only querying Postgres for the ids that are missing or expired.
-async function getOrganizationRetentionLevels(
-	organizationIds: string[],
-): Promise<Map<string, "retain" | "none">> {
-	const now = Date.now();
-	const result = new Map<string, "retain" | "none">();
-	const missing: string[] = [];
-
-	for (const id of organizationIds) {
-		const cached = orgRetentionCache.get(id);
-		if (cached && cached.expiresAt > now) {
-			result.set(id, cached.retentionLevel);
-		} else {
-			missing.push(id);
-		}
-	}
-
-	if (missing.length > 0) {
-		const organizations = await cdb
-			.select({
-				id: organization.id,
-				retentionLevel: organization.retentionLevel,
-			})
-			.from(organization)
-			.where(inArray(organization.id, missing));
-
-		for (const org of organizations) {
-			result.set(org.id, org.retentionLevel);
-			orgRetentionCache.set(org.id, {
-				retentionLevel: org.retentionLevel,
-				expiresAt: now + ORG_RETENTION_CACHE_TTL_MS,
-			});
-		}
-	}
-
-	return result;
-}
-
 // Returns the number of messages successfully inserted, so the drain loop can
 // decide whether to sleep (partial batch) or immediately fetch the next batch
 // (full batch, queue likely still backed up).
@@ -1697,49 +1709,21 @@ export async function processLogQueue(): Promise<number> {
 	const MAX_RETRIES = 5;
 
 	try {
+		// The gateway decides what to persist: it strips request/response payload
+		// fields before publishing for orgs that don't retain data, so the worker
+		// inserts the queued rows as-is with no per-batch org retention lookup.
 		const logData = message.map((i) => JSON.parse(i) as LogInsertData);
-		const organizationIds = Array.from(
-			new Set(logData.map((data) => data.organizationId)),
-		);
-		const selectStart = Date.now();
-		const retentionByOrg =
-			organizationIds.length > 0
-				? await getOrganizationRetentionLevels(organizationIds)
-				: new Map<string, "retain" | "none">();
-		const selectMs = Date.now() - selectStart;
-
-		const processedLogData: (
-			| LogInsertData
-			| Omit<LogInsertData, "messages" | "content">
-		)[] = logData.map((data) => {
-			if (retentionByOrg.get(data.organizationId) === "none") {
-				const {
-					messages: _messages,
-					content: _content,
-					reasoningContent: _reasoningContent,
-					tools: _tools,
-					toolChoice: _toolChoice,
-					toolResults: _toolResults,
-					responsesApiData: _responsesApiData,
-					...metadataOnly
-				} = data;
-				return metadataOnly;
-			}
-
-			return data;
-		});
 
 		// Insert logs with retry logic
 		let lastError: Error | undefined;
 		for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
 			try {
-				// Type assertion is safe here as both LogInsertData and its subset are compatible with the log insert schema
 				const insertStart = Date.now();
-				await db.insert(log).values(processedLogData as LogInsertData[]);
+				await db.insert(log).values(logData);
 				const insertMs = Date.now() - insertStart;
 				recordLogInsertSuccess();
 				logger.info(
-					`Processed log batch: ${message.length} rows (org lookup ${selectMs}ms, insert ${insertMs}ms)`,
+					`Processed log batch: ${message.length} rows (insert ${insertMs}ms)`,
 				);
 				return message.length; // Success, exit function
 			} catch (insertError) {
@@ -2796,7 +2780,11 @@ export async function stopWorker(): Promise<boolean> {
 
 	// Close database and Redis connections
 	try {
-		await Promise.all([closeDatabase(), closeRedisClient()]);
+		await Promise.all([
+			closeDatabase(),
+			closeRedisClient(),
+			closeStorageRedisClient(),
+		]);
 		logger.info("All connections closed successfully");
 	} catch (error) {
 		logger.error(

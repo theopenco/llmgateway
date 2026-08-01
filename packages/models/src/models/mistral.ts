@@ -42,6 +42,7 @@ export const mistralModels = [
 				vision: true,
 				tools: false,
 				jsonOutput: false,
+				deactivatedAt: new Date("2026-07-13"),
 			},
 		],
 	},
@@ -222,6 +223,7 @@ export const mistralModels = [
 				vision: false,
 				tools: false,
 				jsonOutput: true,
+				deactivatedAt: new Date("2026-07-13"),
 			},
 		],
 	},
@@ -240,7 +242,6 @@ export const mistralModels = [
 				inputPrice: "0",
 				outputPrice: "0",
 				requestPrice: "0",
-				// $4 per 1,000 pages processed.
 				ocrPagePrice: "0.004",
 				contextSize: 0,
 				maxOutput: undefined,

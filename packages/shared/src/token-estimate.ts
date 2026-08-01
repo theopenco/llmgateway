@@ -56,8 +56,7 @@ function resolveTokensPerImage(modelId: string): {
 	isDefault: boolean;
 } {
 	const model = models.find((m) => m.id === modelId) as
-		| ModelDefinition
-		| undefined;
+		ModelDefinition | undefined;
 	if (model) {
 		for (const provider of model.providers) {
 			const byResolution = provider.imageInputTokensByResolution;

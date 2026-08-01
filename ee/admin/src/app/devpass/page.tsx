@@ -8,6 +8,7 @@ import {
 	Info,
 	RotateCcw,
 	Search,
+	Ticket,
 	TrendingDown,
 	TrendingUp,
 	Users,
@@ -35,6 +36,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { resolveDateRange } from "@/lib/date-range";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
@@ -321,6 +323,7 @@ export default async function DevpassPage({
 		utilization?: string;
 		marginNegative?: string;
 		showChurned?: string;
+		range?: string;
 		from?: string;
 		to?: string;
 	}>;
@@ -328,8 +331,12 @@ export default async function DevpassPage({
 	await requireSession();
 
 	const params = await searchParams;
-	const from = typeof params?.from === "string" ? params?.from : undefined;
-	const to = typeof params?.to === "string" ? params?.to : undefined;
+	const range = typeof params?.range === "string" ? params?.range : undefined;
+	const { from, to } = resolveDateRange({
+		range,
+		from: params?.from,
+		to: params?.to,
+	});
 	const rawPage = parseInt(params?.page ?? "1", 10);
 	const page = Number.isFinite(rawPage) && rawPage >= 1 ? rawPage : 1;
 	const search = params?.search ?? "";
@@ -394,11 +401,15 @@ export default async function DevpassPage({
 	if (showChurned) {
 		queryParams.set("showChurned", "true");
 	}
-	if (from) {
-		queryParams.set("from", from);
-	}
-	if (to) {
-		queryParams.set("to", to);
+	if (range) {
+		queryParams.set("range", range);
+	} else {
+		if (from) {
+			queryParams.set("from", from);
+		}
+		if (to) {
+			queryParams.set("to", to);
+		}
 	}
 	queryParams.set("sortBy", sortBy);
 	queryParams.set("sortOrder", sortOrder);
@@ -414,6 +425,7 @@ export default async function DevpassPage({
 		const utilValue = formData.get("utilization") as string;
 		const marginValue = formData.get("marginNegative") as string;
 		const churnValue = formData.get("showChurned") as string;
+		const rangeValue = formData.get("range") as string;
 		const fromValue = formData.get("from") as string;
 		const toValue = formData.get("to") as string;
 		const sp = new URLSearchParams();
@@ -435,11 +447,15 @@ export default async function DevpassPage({
 		if (churnValue) {
 			sp.set("showChurned", "true");
 		}
-		if (fromValue) {
-			sp.set("from", fromValue);
-		}
-		if (toValue) {
-			sp.set("to", toValue);
+		if (rangeValue) {
+			sp.set("range", rangeValue);
+		} else {
+			if (fromValue) {
+				sp.set("from", fromValue);
+			}
+			if (toValue) {
+				sp.set("to", toValue);
+			}
 		}
 		sp.set("sortBy", sortByValue);
 		sp.set("sortOrder", sortOrderValue);
@@ -465,7 +481,7 @@ export default async function DevpassPage({
 				</Suspense>
 			</header>
 
-			<section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+			<section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
 				<div className="rounded-lg border border-border/60 bg-card p-4">
 					<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
 						<Users className="h-3.5 w-3.5" />
@@ -580,6 +596,18 @@ export default async function DevpassPage({
 				</div>
 				<div className="rounded-lg border border-border/60 bg-card p-4">
 					<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+						<Ticket className="h-3.5 w-3.5" />
+						Reset passes sold
+					</div>
+					<div className="mt-2 text-2xl font-semibold tabular-nums">
+						{kpis.resetPassesSold}
+					</div>
+					<div className="mt-1 text-xs text-muted-foreground">
+						{currencyFormatter.format(kpis.resetPassRevenue)} all-time revenue
+					</div>
+				</div>
+				<div className="rounded-lg border border-border/60 bg-card p-4">
+					<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
 						<TrendingUp className="h-3.5 w-3.5" />
 						Avg utilization
 					</div>
@@ -652,8 +680,9 @@ export default async function DevpassPage({
 					name="showChurned"
 					value={showChurned ? "true" : ""}
 				/>
-				<input type="hidden" name="from" value={from ?? ""} />
-				<input type="hidden" name="to" value={to ?? ""} />
+				<input type="hidden" name="range" value={range ?? ""} />
+				<input type="hidden" name="from" value={range ? "" : (from ?? "")} />
+				<input type="hidden" name="to" value={range ? "" : (to ?? "")} />
 				<div className="flex flex-col gap-2 sm:flex-row sm:items-center">
 					<div className="relative flex-1">
 						<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -921,6 +950,11 @@ export default async function DevpassPage({
 										<Badge variant={getTierBadgeVariant(sub.tier)}>
 											{sub.tier}
 										</Badge>
+										{sub.pendingTier && (
+											<p className="mt-1 text-xs text-amber-600">
+												→ {sub.pendingTier} next cycle
+											</p>
+										)}
 									</TableCell>
 									<TableCell>
 										<Badge variant={getStatusBadgeVariant(sub.status)}>

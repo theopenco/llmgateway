@@ -28,6 +28,7 @@ import {
 	CardTitle,
 } from "@/lib/components/card";
 import { useApi } from "@/lib/fetch-client";
+import { getBrowserTimeZone } from "@/lib/timezone";
 
 function SummaryStat({
 	label,
@@ -86,7 +87,13 @@ export function DeveloperDashboardClient() {
 		"/analytics/me",
 		{
 			params: {
-				query: { organizationId, projectId, from: fromStr, to: toStr },
+				query: {
+					organizationId,
+					projectId,
+					from: fromStr,
+					to: toStr,
+					timezone: getBrowserTimeZone(),
+				},
 			},
 		},
 		{ enabled: !!organizationId && !!projectId, refetchOnWindowFocus: false },

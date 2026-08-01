@@ -84,6 +84,7 @@ export const deepseekModels = [
 			{
 				providerId: "bytedance",
 				externalId: "deepseek-v3-1-250821",
+				deactivatedAt: new Date("2026-07-11"),
 				inputPrice: "0.56e-6",
 				cachedInputPrice: "0.112e-6",
 				outputPrice: "1.68e-6",
@@ -130,12 +131,28 @@ export const deepseekModels = [
 				requestPrice: "0",
 				contextSize: 163840,
 				maxOutput: 65536,
+				quantization: "fp8",
 				reasoning: true,
 				requiresEnableThinking: true,
 				streaming: true,
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				// reasoning_effort must NOT be forwarded: Novita ignores it on its
+				// own and, sent alongside the `chat_template_kwargs.thinking` flag,
+				// it suppresses reasoning entirely (verified live 2026-07-16).
+				// Thinking is controlled solely via requiresEnableThinking.
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+				],
 			},
 			{
 				providerId: "alibaba",
@@ -201,6 +218,7 @@ export const deepseekModels = [
 				requestPrice: "0",
 				contextSize: 160000,
 				maxOutput: 65536,
+				quantization: "fp4",
 				streaming: true,
 				vision: false,
 				tools: true,
@@ -209,6 +227,11 @@ export const deepseekModels = [
 			{
 				providerId: "vertex-openai",
 				externalId: "deepseek-ai/deepseek-v3.2-maas",
+				deactivatedAt: new Date("2026-10-21"),
+				// Vertex MaaS throttles this model's tiny concurrency quota (429
+				// RESOURCE_EXHAUSTED even for single spaced-out requests,
+				// verified 2026-07-14), flaking e2e
+				stability: "unstable",
 				inputPrice: "0.56e-6",
 				cachedInputPrice: "0.056e-6",
 				outputPrice: "1.68e-6",
@@ -242,6 +265,7 @@ export const deepseekModels = [
 				jsonOutput: true,
 				streaming: true,
 				reasoning: true,
+				reasoningEfforts: ["none", "high", "max"],
 				vision: false,
 				tools: true,
 				supportedParameters: [
@@ -254,7 +278,32 @@ export const deepseekModels = [
 					"stream",
 					"response_format",
 					"tools",
+					"reasoning_effort",
 				],
+			},
+			{
+				providerId: "runware",
+				externalId: "deepseek-v4-pro",
+				inputPrice: "0.961e-6",
+				outputPrice: "1.922e-6",
+				cachedInputPrice: "0.079e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 384000,
+				streaming: true,
+				reasoning: true,
+				// Runware maps reasoning_effort onto its thinkingLevel setting and
+				// 400s minimal/low/medium for this model.
+				reasoningEfforts: ["none", "high", "xhigh", "max"],
+				vision: false,
+				tools: true,
+				// Runware rejects json_object for this model ("Missing required
+				// parameter: 'jsonSchema'"); only schema-based output is supported.
+				jsonOutput: false,
+				jsonOutputSchema: true,
+				// Runware 400s ("a conversation cannot end on an assistant turn") when
+				// the last message is an assistant turn (verified 2026-07-28).
+				supportsAssistantPrefill: false,
 			},
 			{
 				providerId: "together-ai",
@@ -267,6 +316,7 @@ export const deepseekModels = [
 				maxOutput: 163840,
 				streaming: true,
 				reasoning: true,
+				reasoningEfforts: ["high", "max"],
 				reasoningOutput: "omit",
 				vision: false,
 				tools: true,
@@ -281,6 +331,7 @@ export const deepseekModels = [
 				outputPrice: "4.8e-6",
 				regions: [
 					{ id: "singapore" },
+					{ id: "us-virginia" },
 					{
 						id: "cn-beijing",
 						inputPrice: "1.65e-6",
@@ -293,6 +344,7 @@ export const deepseekModels = [
 				maxOutput: 393216,
 				streaming: true,
 				reasoning: true,
+				reasoningMaxTokens: true,
 				vision: false,
 				tools: true,
 				jsonOutput: true,
@@ -306,8 +358,45 @@ export const deepseekModels = [
 				requestPrice: "0",
 				contextSize: 64000,
 				maxOutput: 64000,
+				quantization: "fp4",
 				streaming: true,
 				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh"],
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
+				providerId: "bytedance",
+				externalId: "deepseek-v4-pro-260425",
+				inputPrice: "1.74e-6",
+				cachedInputPrice: "0.145e-6",
+				outputPrice: "3.48e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["minimal", "low", "medium", "high", "max"],
+				reasoningOutput: "omit" as const,
+				vision: false,
+				tools: true,
+				jsonOutput: false,
+			},
+			{
+				providerId: "nebius",
+				externalId: "deepseek-ai/DeepSeek-V4-Pro",
+				inputPrice: "1.75e-6",
+				outputPrice: "3.5e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: undefined,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				// The deployment answers inline and never returns
+				// reasoning_content (verified 2026-07-22).
+				reasoningOutput: "omit",
 				vision: false,
 				tools: true,
 				jsonOutput: true,
@@ -334,6 +423,7 @@ export const deepseekModels = [
 				jsonOutput: true,
 				streaming: true,
 				reasoning: true,
+				reasoningEfforts: ["none", "high", "max"],
 				vision: false,
 				tools: true,
 				supportedParameters: [
@@ -346,7 +436,32 @@ export const deepseekModels = [
 					"stream",
 					"response_format",
 					"tools",
+					"reasoning_effort",
 				],
+			},
+			{
+				providerId: "runware",
+				externalId: "deepseek-v4-flash",
+				inputPrice: "0.076e-6",
+				outputPrice: "0.153e-6",
+				cachedInputPrice: "0.014e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 384000,
+				streaming: true,
+				reasoning: true,
+				// Runware maps reasoning_effort onto its thinkingLevel setting and
+				// 400s minimal/low/medium for this model.
+				reasoningEfforts: ["none", "high", "xhigh", "max"],
+				vision: false,
+				tools: true,
+				// Runware rejects json_object for this model ("Missing required
+				// parameter: 'jsonSchema'"); only schema-based output is supported.
+				jsonOutput: false,
+				jsonOutputSchema: true,
+				// Runware 400s ("a conversation cannot end on an assistant turn") when
+				// the last message is an assistant turn (verified 2026-07-28).
+				supportsAssistantPrefill: false,
 			},
 			{
 				providerId: "novita",
@@ -357,6 +472,7 @@ export const deepseekModels = [
 				requestPrice: "0",
 				contextSize: 1050000,
 				maxOutput: 393216,
+				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
 				vision: false,
@@ -365,12 +481,13 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "alibaba",
-				externalId: "deepseek-v4-flash",
+				externalId: "deepseek-v4-flash-0731",
 				inputPrice: "0.2e-6",
 				cachedInputPrice: "0.04e-6",
 				outputPrice: "0.4e-6",
 				regions: [
 					{ id: "singapore" },
+					{ id: "us-virginia" },
 					{
 						id: "cn-beijing",
 						inputPrice: "0.138e-6",
@@ -383,6 +500,7 @@ export const deepseekModels = [
 				maxOutput: 393216,
 				streaming: true,
 				reasoning: true,
+				reasoningMaxTokens: true,
 				vision: false,
 				tools: true,
 				jsonOutput: true,
@@ -396,11 +514,54 @@ export const deepseekModels = [
 				requestPrice: "0",
 				contextSize: 1000000,
 				maxOutput: 393216,
+				quantization: "fp4",
 				streaming: true,
 				reasoning: true,
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+			},
+			{
+				providerId: "bytedance",
+				externalId: "deepseek-v4-flash-260425",
+				inputPrice: "0.14e-6",
+				cachedInputPrice: "0.028e-6",
+				outputPrice: "0.28e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["minimal", "low", "medium", "high", "max"],
+				reasoningOutput: "omit" as const,
+				vision: false,
+				tools: true,
+				jsonOutput: false,
+			},
+			{
+				providerId: "fireworks",
+				// The undated `deepseek-v4-flash` alias still resolves to the launch
+				// snapshot; `-0731` is the current deployment.
+				externalId: "accounts/fireworks/models/deepseek-v4-flash-0731",
+				inputPrice: "0.14e-6",
+				cachedInputPrice: "0.028e-6",
+				outputPrice: "0.28e-6",
+				requestPrice: "0",
+				// Fireworks prices DeepSeek's Priority tier at 1.5x standard rather
+				// than the 1.25x that applies to the rest of its catalogue.
+				serviceTiers: ["priority"],
+				serviceTierMultipliers: { priority: 1.5 },
+				contextSize: 1048576,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				// Fireworks rejects "minimal" for this model; the rest of the enum
+				// (plus "none" for non-thinking mode) is accepted.
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
 			},
 		],
 	},

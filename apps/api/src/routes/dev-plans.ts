@@ -2,11 +2,32 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { ensureStripeCustomer, finalizeDevPlanSetupSession } from "@/stripe.js";
+import { voidPendingCycleRenewalInvoices } from "@/lib/pending-renewal.js";
+import {
+	computeSelfRefundEligibility,
+	executeSelfRefund,
+	isSelfRefundCandidateType,
+	refundFeedbackBodySchema,
+} from "@/lib/self-refund.js";
+import { getStripeCardErrorMessage } from "@/lib/stripe-card-error.js";
+import { posthog } from "@/posthog.js";
+import {
+	ensureStripeCustomer,
+	finalizeDevPlanSetupSession,
+	fulfillResetPassPurchase,
+	getSubscriptionPaymentConfirmation,
+	isDevPlanCardDedupeEnforced,
+} from "@/stripe.js";
 import { findDefaultOrganization } from "@/utils/default-org.js";
-import { resolveDevPassBillingDetails } from "@/utils/devpass-billing.js";
-import { generateAndEmailInvoice } from "@/utils/invoice.js";
+import {
+	buildInvoiceDataForTransaction,
+	generateAndEmailInvoice,
+	generateInvoicePDF,
+	isInvoiceableTransaction,
+	isRefundTransaction,
+} from "@/utils/invoice.js";
 import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
+import { resolveDevPassBillingDetails } from "@/utils/plan-billing.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -14,17 +35,29 @@ import {
 	db,
 	tables,
 	eq,
-	sql,
 	and,
 	or,
 	lt,
+	gte,
 	isNull,
 	shortid,
+	sql,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
+	DEV_PLAN_INCLUDED_RESET_PASSES,
+	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
 	DEV_PLAN_PRICES,
-	getProratedCreditDelta,
+	DEV_PLAN_RESET_PASS_PRICES,
+	DEV_PLAN_RESET_PASS_PURCHASE_MAX_CYCLE_USAGE,
+	DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE,
+	getDevPlanCreditsLimit,
+	getDevPlanCycleUsageFraction,
+	getDevPlanPremiumWeeklyLimit,
+	getDevPlanUpgradeCredits,
+	getIncludedResetPassesRemaining,
+	getRemainingPremiumWeeklyAllowance,
+	isPremiumWeekExpired,
 	type DevPlanCycle,
 	type DevPlanTier,
 } from "@llmgateway/shared";
@@ -35,6 +68,37 @@ import type { ServerTypes } from "@/vars.js";
 import type Stripe from "stripe";
 
 export const devPlans = new OpenAPIHono<ServerTypes>();
+
+// How long an unreleased tier-change lease is honored before a retry may take
+// it over. Well above the Stripe SDK's request timeout (80s per attempt), so a
+// lease this old cannot still have an upgrade charge in flight.
+const STALE_TIER_CHANGE_CLAIM_MS = 15 * 60 * 1000;
+
+// A failed release is swallowed: the lease then simply expires via the
+// staleness window instead of blocking upgrades until renewal.
+async function releaseTierChangeLease(organizationId: string) {
+	await db
+		.update(tables.organization)
+		.set({ devPlanTierChangeClaimedAt: null })
+		.where(eq(tables.organization.id, organizationId))
+		.catch((releaseError) => {
+			logger.error(
+				"Failed to release dev plan tier-change lease",
+				releaseError instanceof Error
+					? releaseError
+					: new Error(String(releaseError)),
+			);
+		});
+}
+
+// Stripe errors carry a machine-readable `code` (e.g. `card_declined`,
+// `subscription_payment_intent_requires_action`) but the SDK types them as
+// `unknown` at the catch site, so narrow to the string code (or undefined).
+function getStripeErrorCode(error: unknown): string | undefined {
+	return typeof error === "object" && error !== null && "code" in error
+		? String((error as { code?: unknown }).code)
+		: undefined;
+}
 
 // Helper to get or create API key for personal org
 async function getOrCreatePersonalOrgApiKey(
@@ -86,6 +150,27 @@ async function findPersonalOrg(userId: string) {
 	);
 }
 
+// Purchased Reset Passes are tier-bound: only the inventory bought for the
+// org's current tier is redeemable, so a cheap Lite pass can't reset the
+// larger Pro/Max allowance.
+function getPurchasedResetPasses(
+	org: {
+		devPlanResetPassesLite: number;
+		devPlanResetPassesPro: number;
+		devPlanResetPassesMax: number;
+	},
+	tier: DevPlanTier,
+): number {
+	switch (tier) {
+		case "lite":
+			return org.devPlanResetPassesLite;
+		case "pro":
+			return org.devPlanResetPassesPro;
+		case "max":
+			return org.devPlanResetPassesMax;
+	}
+}
+
 function getDevPlanPriceId(
 	tier: DevPlanTier,
 	cycle: DevPlanCycle = "monthly",
@@ -121,189 +206,38 @@ function getInvoicePaymentIntentId(invoice: Stripe.Invoice) {
 	return getStripeId(invoiceWithPaymentIntent.payment_intent);
 }
 
-function getRemainingBillingPeriodFraction(
-	subscriptionItem: Stripe.SubscriptionItem,
-) {
-	const nowSeconds = Date.now() / 1000;
-	const periodStart = subscriptionItem.current_period_start;
-	const periodEnd = subscriptionItem.current_period_end;
-	const periodSeconds = periodEnd - periodStart;
-
-	if (periodSeconds <= 0) {
-		return 0;
-	}
-
-	return Math.min(1, Math.max(0, (periodEnd - nowSeconds) / periodSeconds));
+// The full price of a tier charged on an upgrade. Reads the Stripe price's
+// unit amount so it stays correct for both monthly and legacy annual cadences
+// (DEV_PLAN_PRICES only tracks the monthly dollar figure).
+async function getDevPlanFullPriceCents(priceId: string): Promise<number> {
+	const price = await getStripe().prices.retrieve(priceId);
+	return price.unit_amount ?? 0;
 }
 
-function getDevPlanUpgradeAmountCents(
-	currentTier: DevPlanTier,
-	newTier: DevPlanTier,
-	remainingFraction: number,
-) {
-	const fullDeltaCents =
-		(DEV_PLAN_PRICES[newTier] - DEV_PLAN_PRICES[currentTier]) * 100;
-	return Math.max(0, Math.round(fullDeltaCents * remainingFraction));
-}
-
-function getDevPlanTierChangeCreditPreview(
-	currentTier: DevPlanTier,
-	newTier: DevPlanTier,
-	remainingFraction: number,
-	currentCreditsLimit: number,
-) {
-	const isUpgrade = DEV_PLAN_PRICES[newTier] > DEV_PLAN_PRICES[currentTier];
-	const proratedCreditDelta = isUpgrade
-		? getProratedCreditDelta(currentTier, newTier, remainingFraction)
-		: 0;
-
-	return {
-		currentCreditsLimit,
-		proratedCreditDelta,
-		newCreditsLimit: currentCreditsLimit + proratedCreditDelta,
-	};
-}
-
-async function cleanupFailedUpgradeInvoice(params: {
-	invoiceId: string | null;
-	invoiceItemId: string | null;
-	finalized: boolean;
-}) {
-	const stripe = getStripe();
-	try {
-		if (params.invoiceId) {
-			if (params.finalized) {
-				await stripe.invoices.voidInvoice(params.invoiceId);
-			} else {
-				await stripe.invoices.del(params.invoiceId);
-			}
-			return;
+function getDevPlanChangeInvoiceId(subscription: Stripe.Subscription) {
+	const latestInvoice = (
+		subscription as Stripe.Subscription & {
+			latest_invoice?: string | Stripe.Invoice | null;
 		}
-
-		if (params.invoiceItemId) {
-			await stripe.invoiceItems.del(params.invoiceItemId);
-		}
-	} catch (cleanupError) {
-		logger.warn("Failed to clean up failed dev plan upgrade invoice", {
-			error:
-				cleanupError instanceof Error
-					? cleanupError.message
-					: String(cleanupError),
-			invoiceId: params.invoiceId,
-			invoiceItemId: params.invoiceItemId,
-		});
+	).latest_invoice;
+	if (!latestInvoice) {
+		return { invoiceId: null, paymentIntentId: null, amountPaid: null };
 	}
-}
-
-async function collectDevPlanUpgradeCharge(params: {
-	subscription: Stripe.Subscription;
-	organizationId: string;
-	currentTier: DevPlanTier;
-	newTier: DevPlanTier;
-	remainingFraction: number;
-}) {
-	const stripe = getStripe();
-	const customerId = getStripeId(params.subscription.customer);
-
-	if (!customerId) {
-		throw new HTTPException(500, {
-			message: "Subscription customer not found",
-		});
-	}
-
-	const amountCents = getDevPlanUpgradeAmountCents(
-		params.currentTier,
-		params.newTier,
-		params.remainingFraction,
-	);
-
-	if (amountCents <= 0) {
-		return null;
-	}
-
-	const metadata = {
-		organizationId: params.organizationId,
-		subscriptionType: "dev_plan",
-		devPlanChange: "upgrade",
-		fromTier: params.currentTier,
-		toTier: params.newTier,
-		remainingFraction: params.remainingFraction.toString(),
-	};
-
-	let invoiceItemId: string | null = null;
-	let invoiceId: string | null = null;
-	let finalized = false;
-
-	try {
-		const invoiceItem = await stripe.invoiceItems.create({
-			customer: customerId,
-			subscription: params.subscription.id,
-			amount: amountCents,
-			currency: "usd",
-			description: `Dev Plan upgrade from ${params.currentTier.toUpperCase()} to ${params.newTier.toUpperCase()}`,
-			metadata,
-		});
-		invoiceItemId = invoiceItem.id ?? null;
-
-		const invoice = await stripe.invoices.create({
-			customer: customerId,
-			subscription: params.subscription.id,
-			collection_method: "charge_automatically",
-			auto_advance: false,
-			metadata,
-			expand: ["payment_intent"],
-		});
-		if (!invoice.id) {
-			throw new HTTPException(500, {
-				message: "Upgrade invoice was not created",
-			});
-		}
-		invoiceId = invoice.id;
-
-		const finalizedInvoice = await stripe.invoices.finalizeInvoice(invoice.id, {
-			auto_advance: false,
-			expand: ["payment_intent"],
-		});
-		if (!finalizedInvoice.id) {
-			throw new HTTPException(500, {
-				message: "Upgrade invoice was not finalized",
-			});
-		}
-		finalized = true;
-
-		const paidInvoice = await stripe.invoices.pay(finalizedInvoice.id, {
-			off_session: true,
-			expand: ["payment_intent"],
-		});
-
-		if (paidInvoice.status !== "paid") {
-			throw new HTTPException(402, {
-				message:
-					"Upgrade payment could not be collected. Update your payment method and try again.",
-			});
-		}
-
+	if (typeof latestInvoice === "string") {
 		return {
-			amount: amountCents / 100,
-			invoiceId: paidInvoice.id ?? invoiceId,
-			paymentIntentId: getInvoicePaymentIntentId(paidInvoice),
+			invoiceId: latestInvoice,
+			paymentIntentId: null,
+			amountPaid: null,
 		};
-	} catch (error) {
-		await cleanupFailedUpgradeInvoice({
-			invoiceId,
-			invoiceItemId,
-			finalized,
-		});
-
-		if (error instanceof HTTPException) {
-			throw error;
-		}
-
-		throw new HTTPException(402, {
-			message:
-				"Upgrade payment could not be collected. Update your payment method and try again.",
-		});
 	}
+	return {
+		invoiceId: latestInvoice.id ?? null,
+		paymentIntentId: getInvoicePaymentIntentId(latestInvoice),
+		amountPaid:
+			typeof latestInvoice.amount_paid === "number"
+				? latestInvoice.amount_paid
+				: null,
+	};
 }
 
 // Get or create personal organization for user
@@ -360,6 +294,37 @@ devPlans.openapi(getPersonalOrg, async (c) => {
 	});
 });
 
+// Reset a personal org's dev-plan fields after its Stripe subscription has
+// fully ended (`canceled` / `incomplete_expired`). This mirrors the reset the
+// `customer.subscription.deleted` webhook performs, so the dashboard falls back
+// to the plan chooser and the user can subscribe again. It exists as a
+// self-heal for the case where that webhook was delayed or missed: without it
+// the org is stuck holding a reference to a dead subscription — resume is
+// rejected by Stripe and a fresh subscribe is blocked as "already active".
+async function resetEndedDevPlan(organizationId: string): Promise<void> {
+	await db
+		.update(tables.organization)
+		.set({
+			devPlan: "none",
+			devPlanPendingTier: null,
+			devPlanCreditsLimit: "0",
+			devPlanCreditsUsed: "0",
+			devPlanPremiumCreditsUsed: "0",
+			devPlanPremiumWeekStart: null,
+			// Included passes are a per-cycle grant, so their used-counter clears
+			// with the plan; purchased passes were paid for and survive to a
+			// future resubscribe.
+			devPlanIncludedResetPassesUsed: 0,
+			devPlanCreditsFrozen: false,
+			devPlanCreditsLimitBeforeFreeze: null,
+			devPlanStripeSubscriptionId: null,
+			devPlanExpiresAt: null,
+			devPlanCancelled: false,
+			devPlanBillingCycleStart: null,
+		})
+		.where(eq(tables.organization.id, organizationId));
+}
+
 // Subscribe to a dev plan
 const subscribe = createRoute({
 	method: "post",
@@ -413,15 +378,28 @@ devPlans.openapi(subscribe, async (c) => {
 	// Get or create personal org
 	const personalOrg = await getOrCreatePersonalOrg(user);
 
-	// Check if already has an active dev plan subscription
+	// Check if already has an active dev plan subscription. A stale reference to
+	// a subscription Stripe has already ended (deletion webhook delayed/missed)
+	// would otherwise permanently block resubscribing, so verify the recorded
+	// subscription is really live before rejecting — and self-heal if it isn't.
 	if (
 		personalOrg.devPlan !== "none" &&
 		personalOrg.devPlanStripeSubscriptionId
 	) {
-		throw new HTTPException(400, {
-			message:
-				"Already have an active dev plan. Please upgrade or cancel first.",
-		});
+		const existing = await getStripe().subscriptions.retrieve(
+			personalOrg.devPlanStripeSubscriptionId,
+		);
+		if (
+			existing.status === "canceled" ||
+			existing.status === "incomplete_expired"
+		) {
+			await resetEndedDevPlan(personalOrg.id);
+		} else {
+			throw new HTTPException(400, {
+				message:
+					"Already have an active dev plan. Please upgrade or cancel first.",
+			});
+		}
 	}
 
 	const priceId = getDevPlanPriceId(tier, cycle);
@@ -744,6 +722,10 @@ const resume = createRoute({
 				"application/json": {
 					schema: z.object({
 						success: z.boolean(),
+						// True when the subscription had already fully ended and could
+						// not be resumed — the org was reset to "none" and the user
+						// should subscribe again via the plan chooser.
+						ended: z.boolean().optional(),
 					}),
 				},
 			},
@@ -792,17 +774,21 @@ devPlans.openapi(resume, async (c) => {
 		);
 
 		// A subscription Stripe has fully ended (`canceled`, or expired before its
-		// first payment) can no longer be mutated, so there is nothing to resume —
-		// clearing cancel_at_period_end returns invalid_canceled_subscription_fields,
-		// which previously surfaced as a generic 500. Bail out with a clear message.
+		// first payment) can no longer be resumed by clearing `cancel_at_period_end`:
+		// Stripe rejects the update with `invalid_canceled_subscription_fields`
+		// ("A canceled subscription can only update its cancellation_details and
+		// metadata"). This state is normally transient — the
+		// `customer.subscription.deleted` webhook resets the org's dev plan to
+		// "none" — but a resume reaching Stripe before that webhook lands, or if it
+		// was missed, would hit the rejected update. Self-heal the stale row so the
+		// dashboard falls back to the plan chooser, and tell the client the
+		// subscription has ended so it can prompt a fresh subscribe.
 		if (
 			subscription.status === "canceled" ||
 			subscription.status === "incomplete_expired"
 		) {
-			throw new HTTPException(409, {
-				message:
-					"Your dev plan subscription has ended. Subscribe again to choose a new plan.",
-			});
+			await resetEndedDevPlan(personalOrg.id);
+			return c.json({ success: false, ended: true }, 200);
 		}
 
 		if (!subscription.cancel_at_period_end) {
@@ -857,6 +843,12 @@ const changeTierPreviewBodySchema = z.object({
 
 const changeTierBodySchema = changeTierPreviewBodySchema.extend({
 	expectedAmountDueCents: z.number().int().nonnegative().optional(),
+	// When an upgrade takes effect. "now" (default) charges the full new-tier
+	// price immediately, restarts the cycle, and rolls unused credits over;
+	// "next_cycle" schedules the new tier for the upcoming renewal like a
+	// downgrade — no charge today, current allowance kept until then.
+	// Downgrades always apply at renewal, so timing is ignored for them.
+	timing: z.enum(["now", "next_cycle"]).optional(),
 });
 
 const tierChangePreviewResponseSchema = z.object({
@@ -865,10 +857,9 @@ const tierChangePreviewResponseSchema = z.object({
 	isUpgrade: z.boolean(),
 	amountDueCents: z.number().int().nonnegative(),
 	currency: z.literal("USD"),
-	remainingFraction: z.number(),
 	currentCreditsLimit: z.number(),
-	proratedCreditDelta: z.number(),
 	newCreditsLimit: z.number(),
+	rolloverCredits: z.number(),
 	billingPeriodStart: z.string(),
 	billingPeriodEnd: z.string(),
 });
@@ -936,6 +927,7 @@ devPlans.openapi(changeTierPreview, async (c) => {
 
 	const currentTier: DevPlanTier = personalOrg.devPlan;
 	const isUpgrade = DEV_PLAN_PRICES[newTier] > DEV_PLAN_PRICES[currentTier];
+	const existingCycle: DevPlanCycle = personalOrg.devPlanCycle;
 	const subscription = await getStripe().subscriptions.retrieve(
 		personalOrg.devPlanStripeSubscriptionId,
 	);
@@ -947,16 +939,30 @@ devPlans.openapi(changeTierPreview, async (c) => {
 		});
 	}
 
-	const remainingFraction = getRemainingBillingPeriodFraction(subscriptionItem);
-	const amountDueCents = isUpgrade
-		? getDevPlanUpgradeAmountCents(currentTier, newTier, remainingFraction)
-		: 0;
-	const creditPreview = getDevPlanTierChangeCreditPreview(
-		currentTier,
-		newTier,
-		remainingFraction,
-		parseFloat(personalOrg.devPlanCreditsLimit),
-	);
+	// Upgrades charge the full new-tier price today and start a fresh billing
+	// cycle (no proration); downgrades stay deferred to renewal, so nothing is
+	// due today. On an upgrade the new allowance is the new tier's full
+	// allotment plus the unused remainder of the current cycle rolled over.
+	const currentCreditsLimit = parseFloat(personalOrg.devPlanCreditsLimit);
+	let amountDueCents = 0;
+	let newCreditsLimit = currentCreditsLimit;
+	let rolloverCredits = 0;
+	if (isUpgrade) {
+		const newPriceId = getDevPlanPriceId(newTier, existingCycle);
+		if (!newPriceId) {
+			const envSuffix =
+				existingCycle === "annual" ? "_ANNUAL_PRICE_ID" : "_PRICE_ID";
+			throw new HTTPException(500, {
+				message: `STRIPE_DEV_PLAN_${newTier.toUpperCase()}${envSuffix} environment variable is not set`,
+			});
+		}
+		amountDueCents = await getDevPlanFullPriceCents(newPriceId);
+		({ rolloverCredits, newCreditsLimit } = getDevPlanUpgradeCredits(
+			newTier,
+			personalOrg.devPlanCreditsUsed,
+			personalOrg.devPlanCreditsLimit,
+		));
+	}
 
 	return c.json({
 		currentTier,
@@ -964,10 +970,9 @@ devPlans.openapi(changeTierPreview, async (c) => {
 		isUpgrade,
 		amountDueCents,
 		currency: "USD" as const,
-		remainingFraction,
-		currentCreditsLimit: creditPreview.currentCreditsLimit,
-		proratedCreditDelta: creditPreview.proratedCreditDelta,
-		newCreditsLimit: creditPreview.newCreditsLimit,
+		currentCreditsLimit,
+		newCreditsLimit,
+		rolloverCredits,
 		billingPeriodStart: new Date(
 			subscriptionItem.current_period_start * 1000,
 		).toISOString(),
@@ -994,19 +999,26 @@ const changeTier = createRoute({
 		200: {
 			content: {
 				"application/json": {
-					schema: z.object({
-						success: z.boolean(),
-					}),
+					schema: z.union([
+						z.object({
+							success: z.boolean(),
+						}),
+						z.object({
+							status: z.literal("requires_action"),
+							clientSecret: z.string(),
+						}),
+					]),
 				},
 			},
-			description: "Dev plan tier changed successfully",
+			description:
+				"Dev plan tier changed successfully, or the upgrade payment requires customer authentication (3DS) — confirm the returned client secret with Stripe.js to complete it",
 		},
 	},
 });
 
 devPlans.openapi(changeTier, async (c) => {
 	const user = c.get("user");
-	const { newTier, expectedAmountDueCents } = c.req.valid("json");
+	const { newTier, expectedAmountDueCents, timing } = c.req.valid("json");
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -1067,11 +1079,14 @@ devPlans.openapi(changeTier, async (c) => {
 	}
 
 	const isUpgrade = DEV_PLAN_PRICES[newTier] > DEV_PLAN_PRICES[currentTier];
+	// An upgrade applies immediately unless the user opted to schedule it for
+	// the next renewal; downgrades are always deferred to renewal.
+	const applyNow = isUpgrade && timing !== "next_cycle";
 
-	// Tracks whether this request won the atomic per-cycle claim, so a failure
-	// after the claim can release it (a declined charge shouldn't burn the user's
-	// one change for the cycle).
-	let claimedCycleThisCall = false;
+	// Tracks whether this request won the upgrade lease, so only the winning
+	// request releases it — a request that lost the claim race must not clear a
+	// lease still held by the in-flight upgrade.
+	let claimedLeaseThisCall = false;
 
 	try {
 		const subscription =
@@ -1097,7 +1112,7 @@ devPlans.openapi(changeTier, async (c) => {
 		}
 
 		if (
-			isUpgrade &&
+			applyNow &&
 			subscription.status !== "active" &&
 			subscription.status !== "trialing"
 		) {
@@ -1117,47 +1132,79 @@ devPlans.openapi(changeTier, async (c) => {
 			});
 		}
 
-		// Allow only one tier change per billing cycle. Repeatedly downgrading and
-		// re-upgrading within a cycle re-charges the user for a tier they still
-		// effectively hold and churns the prorated credit accounting. Claim the
-		// cycle atomically *before* any Stripe call: a single conditional UPDATE
-		// advances the marker to this cycle's Stripe period start only if it hasn't
-		// been claimed yet (NULL or an earlier cycle). Anchoring to the Stripe
-		// period (stable across mid-cycle price swaps, since proration is
-		// suppressed) — rather than a transaction row's createdAt — both avoids a
-		// read-then-write race between concurrent requests and prevents
-		// misattributing a change near a renewal boundary to the wrong cycle.
-		const cycleStart = new Date(subscriptionItem.current_period_start * 1000);
-		const claimed = await db
-			.update(tables.organization)
-			.set({ devPlanLastTierChangeCycleStart: cycleStart })
-			.where(
-				and(
-					eq(tables.organization.id, personalOrg.id),
-					or(
-						isNull(tables.organization.devPlanLastTierChangeCycleStart),
-						lt(tables.organization.devPlanLastTierChangeCycleStart, cycleStart),
-					),
-				),
-			)
-			.returning({ id: tables.organization.id });
-		if (claimed.length === 0) {
+		// A scheduled tier change (upgrade or downgrade) doesn't hard-lock the
+		// plan: the user can still upgrade immediately, which supersedes and
+		// clears the pending change (the immediate-upgrade branch below sets
+		// devPlanPendingTier back to null). Only block scheduling *another*
+		// change while one is already pending — to revert to the current tier
+		// the user uses the dedicated cancel action.
+		if (personalOrg.devPlanPendingTier && !applyNow) {
 			throw new HTTPException(409, {
 				message:
-					"You can only change your plan once per billing cycle. Your next change takes effect at renewal.",
+					"You've already scheduled a plan change for your next renewal. Upgrade immediately or cancel the scheduled change first.",
 			});
 		}
-		claimedCycleThisCall = true;
 
-		const remainingFraction =
-			getRemainingBillingPeriodFraction(subscriptionItem);
-		const amountDueCents = isUpgrade
-			? getDevPlanUpgradeAmountCents(currentTier, newTier, remainingFraction)
+		// Guard UPGRADES against a double charge. An upgrade resets the billing
+		// cycle and charges the full new-tier price, so two racing requests (e.g. a
+		// double-clicked confirm) would each start a fresh cycle and charge again.
+		// Take a lease atomically *before* any Stripe call: a single conditional
+		// UPDATE stamps the claim time only if no lease is held, so of two racing
+		// requests only one wins and the other gets 409. The lease is released when
+		// the request completes (success or failure); if the request dies without
+		// releasing (process crash or restart mid-flight), the lease expires after
+		// the staleness window — far above the Stripe SDK's request timeout, so a
+		// lease that old cannot still have a charge in flight — and a retry
+		// re-claims it. A re-submit after a completed upgrade is not this guard's
+		// job: it is rejected by the "Already on <tier> plan" check above.
+		// Scheduled changes (downgrades and next-cycle upgrades) are exempt: they
+		// only record the target tier for renewal (no charge), so an in-flight
+		// upgrade must not block them.
+		if (applyNow) {
+			const staleClaimBefore = new Date(
+				Date.now() - STALE_TIER_CHANGE_CLAIM_MS,
+			);
+			const claimed = await db
+				.update(tables.organization)
+				.set({ devPlanTierChangeClaimedAt: new Date() })
+				.where(
+					and(
+						eq(tables.organization.id, personalOrg.id),
+						or(
+							isNull(tables.organization.devPlanTierChangeClaimedAt),
+							lt(
+								tables.organization.devPlanTierChangeClaimedAt,
+								staleClaimBefore,
+							),
+						),
+					),
+				)
+				.returning({ id: tables.organization.id });
+			if (claimed.length === 0) {
+				logger.warn("Dev plan upgrade denied: lease already held", {
+					organizationId: personalOrg.id,
+					claimedAt: personalOrg.devPlanTierChangeClaimedAt?.toISOString(),
+				});
+				throw new HTTPException(409, {
+					message:
+						"An upgrade is already being processed. Please try again in a few minutes.",
+				});
+			}
+			claimedLeaseThisCall = true;
+		}
+
+		// Immediate upgrades charge the full new-tier price today; scheduled
+		// changes are deferred to renewal and cost nothing now.
+		const amountDueCents = applyNow
+			? await getDevPlanFullPriceCents(newPriceId)
 			: 0;
 
+		// Guard against charging the user more than the preview they confirmed. The
+		// full price is deterministic per tier, so this only trips if the Stripe
+		// price changed between the preview and the confirmation.
 		if (
 			typeof expectedAmountDueCents === "number" &&
-			expectedAmountDueCents !== amountDueCents
+			amountDueCents > expectedAmountDueCents
 		) {
 			throw new HTTPException(409, {
 				message:
@@ -1165,185 +1212,262 @@ devPlans.openapi(changeTier, async (c) => {
 			});
 		}
 
-		// Tier changes suppress Stripe's default proration invoice so we can
-		// charge the prorated upgrade amount with DevPass-specific metadata and
-		// grant the matching prorated credit delta. Downgrades issue no refund.
-		const updated = await getStripe().subscriptions.update(subscriptionId, {
-			items: [
-				{
-					id: subscriptionItemId,
-					price: newPriceId,
-				},
-			],
-			proration_behavior: "none",
-			payment_behavior: "allow_incomplete",
-			metadata: {
-				...subscription.metadata,
-				devPlan: newTier,
-				devPlanCycle: existingCycle,
-			},
-		});
+		if (applyNow) {
+			// If the previous cycle just ended, its renewal invoice may still be
+			// pending (Stripe drafts it at the period boundary and charges ~an hour
+			// later). Void it before re-anchoring — otherwise it would later charge
+			// for a cycle this upgrade replaces and its webhook would clobber the
+			// fresh allowance granted below.
+			await voidPendingCycleRenewalInvoices(subscriptionId);
 
-		if (
-			isUpgrade &&
-			updated.status !== "active" &&
-			updated.status !== "trialing"
-		) {
-			throw new HTTPException(402, {
-				message:
-					"Upgrade payment could not be collected. Update your payment method and try again.",
-			});
-		}
-
-		const paidUpgrade = isUpgrade
-			? await collectDevPlanUpgradeCharge({
-					subscription: updated,
-					organizationId: personalOrg.id,
-					currentTier,
-					newTier,
-					remainingFraction,
-				}).catch(async (error: unknown) => {
-					try {
-						await getStripe().subscriptions.update(subscriptionId, {
-							items: [
-								{
-									id: subscriptionItemId,
-									price: currentPriceId,
-								},
-							],
-							proration_behavior: "none",
-							payment_behavior: "allow_incomplete",
-							metadata: {
-								...subscription.metadata,
-								devPlan: currentTier,
-								devPlanCycle: existingCycle,
-							},
-						});
-					} catch (rollbackError) {
-						logger.error(
-							"Failed to roll back dev plan tier after upgrade payment failure",
-							rollbackError instanceof Error
-								? rollbackError
-								: new Error(String(rollbackError)),
-						);
-					}
-
-					throw error;
-				})
-			: null;
-
-		if (isUpgrade) {
-			const creditPreview = getDevPlanTierChangeCreditPreview(
-				currentTier,
-				newTier,
-				remainingFraction,
-				parseFloat(personalOrg.devPlanCreditsLimit),
-			);
-
-			// Reflect the new tier immediately, and persist Stripe's actual period
-			// end as the renewal date (a mid-cycle upgrade preserves the billing
-			// anchor, so the UI shouldn't project a fresh cycle from the upgrade
-			// date). The credit grant is applied separately below, gated on winning
-			// the transaction insert.
-			await db
-				.update(tables.organization)
-				.set({
-					devPlan: newTier,
-					devPlanExpiresAt: new Date(
-						subscriptionItem.current_period_end * 1000,
-					),
-				})
-				.where(eq(tables.organization.id, personalOrg.id));
-
-			if (paidUpgrade) {
-				// Insert the unique-stripeInvoiceId marker and apply the credit grant
-				// in one transaction so they commit together. onConflictDoNothing makes
-				// this idempotent against the webhook fallback: only the path that wins
-				// the insert grants the credits and emails the invoice, so a concurrent
-				// `invoice.payment_succeeded` webhook can't double-apply the credit
-				// delta, produce a second transaction row, or send a duplicate email.
-				// Atomicity matters because both paths short-circuit on the existing
-				// marker — a crash between insert and grant would otherwise leave the
-				// invoice recorded with the credit never applied.
-				const upgradeTransaction = await db.transaction(async (tx) => {
-					const [created] = await tx
-						.insert(tables.transaction)
-						.values({
-							organizationId: personalOrg.id,
-							type: "dev_plan_upgrade",
-							amount: paidUpgrade.amount.toString(),
-							creditAmount: creditPreview.proratedCreditDelta.toString(),
-							currency: "USD",
-							status: "completed",
-							stripePaymentIntentId: paidUpgrade.paymentIntentId,
-							stripeInvoiceId: paidUpgrade.invoiceId,
-							description: `Changed from ${currentTier} to ${newTier} plan`,
-						})
-						.onConflictDoNothing()
-						.returning();
-
-					if (created) {
-						// Add the prorated credit delta on top of the existing allowance.
-						// Never recompute the limit from the tier's base allotment: that
-						// discards credits carried into this period by earlier mid-cycle
-						// changes (e.g. a downgrade then re-upgrade), which would shrink the
-						// allowance below the user's accumulated usage and hide the granted
-						// credit.
-						await tx
-							.update(tables.organization)
-							.set({
-								devPlanCreditsLimit: sql`${tables.organization.devPlanCreditsLimit} + ${creditPreview.proratedCreditDelta}`,
-							})
-							.where(eq(tables.organization.id, personalOrg.id));
-					}
-
-					return created;
+			// Swap to the new price, reset the billing cycle to now
+			// (`billing_cycle_anchor: "now"`) so Stripe immediately invoices the full
+			// new-tier price and starts a fresh period, and suppress proration
+			// (`proration_behavior: "none"`) so no partial credit or debit is applied.
+			// `error_if_incomplete` makes the update atomic: if the charge can't be
+			// collected Stripe throws and leaves the subscription on the old tier, so
+			// there's no half-applied upgrade to roll back.
+			let updated: Stripe.Subscription;
+			try {
+				updated = await getStripe().subscriptions.update(subscriptionId, {
+					items: [
+						{
+							id: subscriptionItemId,
+							price: newPriceId,
+						},
+					],
+					proration_behavior: "none",
+					billing_cycle_anchor: "now",
+					payment_behavior: "error_if_incomplete",
+					expand: ["latest_invoice.payment_intent"],
+					metadata: {
+						...subscription.metadata,
+						devPlan: newTier,
+						devPlanCycle: existingCycle,
+					},
 				});
+			} catch (updateError) {
+				const updateErrCode = getStripeErrorCode(updateError);
+				if (updateErrCode !== "subscription_payment_intent_requires_action") {
+					throw updateError;
+				}
+				// The bank demands 3DS/SCA authentication, which only the customer can
+				// complete in the browser. Re-issue the update as a Stripe pending
+				// update (`pending_if_incomplete`): nothing — price, cycle anchor, or
+				// metadata — is applied until the invoice is paid, and if the customer
+				// abandons the challenge Stripe voids the invoice and discards the
+				// update after at most 23 hours, leaving the subscription untouched.
+				// The client confirms the returned payment intent secret with
+				// Stripe.js; on success the `invoice.payment_succeeded` webhook's
+				// `subscription_update` fallback applies the tier change, credit
+				// rollover, transaction row and invoice email idempotently.
+				const pending = await getStripe().subscriptions.update(subscriptionId, {
+					items: [
+						{
+							id: subscriptionItemId,
+							price: newPriceId,
+						},
+					],
+					proration_behavior: "none",
+					billing_cycle_anchor: "now",
+					payment_behavior: "pending_if_incomplete",
+					expand: ["latest_invoice.payment_intent"],
+					metadata: {
+						...subscription.metadata,
+						devPlan: newTier,
+						devPlanCycle: existingCycle,
+					},
+				});
+				const { clientSecret } =
+					await getSubscriptionPaymentConfirmation(pending);
+				if (!clientSecret) {
+					// No confirmable payment intent to hand to the client; surface the
+					// original failure through the shared catch below.
+					throw updateError;
+				}
+				logger.info("Dev plan tier change pending customer authentication", {
+					organizationId: personalOrg.id,
+					subscriptionId,
+					newTier,
+				});
+				// Release the lease: the charge is no longer in flight server-side, and
+				// the webhook completes (or Stripe discards) the change out-of-band.
+				// Releasing here — rather than holding until the webhook resolves — keeps
+				// the common "abandon the 3DS challenge, then retry" path unblocked (the
+				// completion webhook lives in the Stripe handler and never touches the
+				// lease, so a held lease would only clear on the 15-minute staleness
+				// window). A concurrent retry during the challenge cannot double-charge:
+				// a subscription holds at most one pending update, so re-issuing simply
+				// voids the prior invoice and replaces it — last write wins.
+				if (claimedLeaseThisCall) {
+					await releaseTierChangeLease(personalOrg.id);
+				}
+				return c.json(
+					{
+						status: "requires_action" as const,
+						clientSecret,
+					},
+					200,
+				);
+			}
 
-				if (upgradeTransaction) {
-					try {
-						const billingDetails =
-							await resolveDevPassBillingDetails(personalOrg);
-						await generateAndEmailInvoice({
-							invoiceNumber: upgradeTransaction.id,
-							invoiceDate: new Date(),
-							organizationName: personalOrg.name,
-							organizationId: personalOrg.id,
-							...billingDetails,
-							lineItems: [
-								{
-									description: `Dev Plan upgrade from ${currentTier.toUpperCase()} to ${newTier.toUpperCase()} ($${creditPreview.proratedCreditDelta} credits included)`,
-									amount: paidUpgrade.amount,
-								},
-							],
-							currency: "USD",
-						});
-					} catch (e) {
-						logger.error(
-							"Invoice email failed (DevPass upgrade invoice); suppressing failure",
-							e as Error,
-						);
-					}
+			if (updated.status !== "active" && updated.status !== "trialing") {
+				throw new HTTPException(402, {
+					message:
+						"Upgrade payment could not be collected. Update your payment method and try again.",
+				});
+			}
+
+			const newExpiresAt = new Date(
+				updated.items.data[0].current_period_end * 1000,
+			);
+			const { invoiceId, paymentIntentId, amountPaid } =
+				getDevPlanChangeInvoiceId(updated);
+			const chargedAmount =
+				amountPaid !== null ? amountPaid / 100 : amountDueCents / 100;
+
+			// Insert the unique-stripeInvoiceId marker and reset the org to the new
+			// tier's full allowance in one transaction so they commit together.
+			// onConflictDoNothing keeps this idempotent against the
+			// `invoice.payment_succeeded` webhook fallback: only the path that wins
+			// the insert resets org state and emails the invoice, so a concurrent
+			// webhook can't double-apply the reset, produce a second transaction row,
+			// or send a duplicate email.
+			const upgradeResult = await db.transaction(async (tx) => {
+				// The new allowance is the new tier's full allotment plus the unused
+				// remainder of the cycle being replaced — the user already paid for
+				// it, so it rolls over instead of being forfeited. The rollover lasts
+				// until the next renewal, which resets the limit to the tier's base
+				// allotment. Recompute from a fresh row read inside the transaction:
+				// usage may have advanced during the Stripe round-trips above, and the
+				// request-start snapshot would over-grant that spend as rollover.
+				const freshOrg = await tx.query.organization.findFirst({
+					where: { id: { eq: personalOrg.id } },
+				});
+				const { rolloverCredits, newCreditsLimit } = getDevPlanUpgradeCredits(
+					newTier,
+					freshOrg?.devPlanCreditsUsed ?? personalOrg.devPlanCreditsUsed,
+					freshOrg?.devPlanCreditsLimit ?? personalOrg.devPlanCreditsLimit,
+				);
+
+				const [created] = await tx
+					.insert(tables.transaction)
+					.values({
+						organizationId: personalOrg.id,
+						type: "dev_plan_upgrade",
+						amount: chargedAmount.toString(),
+						creditAmount: newCreditsLimit.toString(),
+						currency: "USD",
+						status: "completed",
+						stripePaymentIntentId: paymentIntentId,
+						stripeInvoiceId: invoiceId,
+						description: `Changed from ${currentTier} to ${newTier} plan`,
+					})
+					.onConflictDoNothing()
+					.returning();
+
+				if (created) {
+					// Fresh billing cycle: set the limit to the new tier's full
+					// allowance plus the rollover, zero out usage (including the
+					// premium weekly window), advance the cycle start, clear any
+					// pending change and dunning freeze state, and persist the new
+					// period end as the renewal date.
+					await tx
+						.update(tables.organization)
+						.set({
+							devPlan: newTier,
+							devPlanCreditsLimit: newCreditsLimit.toString(),
+							devPlanCreditsUsed: "0",
+							devPlanPremiumCreditsUsed: "0",
+							devPlanPremiumWeekStart: new Date(),
+							devPlanIncludedResetPassesUsed: 0,
+							devPlanCreditsFrozen: false,
+							devPlanCreditsLimitBeforeFreeze: null,
+							devPlanBillingCycleStart: new Date(),
+							devPlanExpiresAt: newExpiresAt,
+							devPlanPendingTier: null,
+						})
+						.where(eq(tables.organization.id, personalOrg.id));
+				}
+
+				return created ? { created, rolloverCredits, newCreditsLimit } : null;
+			});
+
+			if (upgradeResult) {
+				const { created, rolloverCredits, newCreditsLimit } = upgradeResult;
+				try {
+					const billingDetails =
+						await resolveDevPassBillingDetails(personalOrg);
+					await generateAndEmailInvoice({
+						invoiceNumber: created.id,
+						invoiceDate: new Date(),
+						organizationName: personalOrg.name,
+						organizationId: personalOrg.id,
+						...billingDetails,
+						lineItems: [
+							{
+								description:
+									rolloverCredits > 0
+										? `Dev Plan upgrade to ${newTier.toUpperCase()} ($${getDevPlanCreditsLimit(newTier)} credits included + $${rolloverCredits} unused credits rolled over)`
+										: `Dev Plan upgrade to ${newTier.toUpperCase()} ($${newCreditsLimit} credits included)`,
+								amount: chargedAmount,
+							},
+						],
+						currency: "USD",
+					});
+				} catch (e) {
+					logger.error(
+						"Invoice email failed (DevPass upgrade invoice); suppressing failure",
+						e as Error,
+					);
 				}
 			}
 		} else {
-			// Downgrade: keep the current cycle's credits (limit and used) intact;
-			// the lower tier — and its smaller allotment — takes effect at the
-			// next renewal. No proration invoice is generated, so record the
-			// tier-change transaction here.
+			// Scheduled change (a downgrade, or an upgrade the user chose to defer):
+			// the new tier takes effect at the next renewal, so keep `devPlan` (and
+			// the current cycle's credits) on the current tier and record the target
+			// tier as pending. Swap the Stripe price with no proration and no cycle
+			// reset, so the renewal invoice bills the new price; the renewal webhook
+			// then flips `devPlan` to the pending tier and resets credits to its
+			// allotment. No invoice is generated now, so record the tier-change
+			// transaction here.
+			await getStripe().subscriptions.update(subscriptionId, {
+				items: [
+					{
+						id: subscriptionItemId,
+						price: newPriceId,
+					},
+				],
+				proration_behavior: "none",
+				payment_behavior: "allow_incomplete",
+				metadata: {
+					...subscription.metadata,
+					devPlan: newTier,
+					devPlanCycle: existingCycle,
+				},
+			});
+
 			await db
 				.update(tables.organization)
 				.set({
-					devPlan: newTier,
+					devPlanPendingTier: newTier,
 				})
 				.where(eq(tables.organization.id, personalOrg.id));
 
-			await db.insert(tables.transaction).values({
-				organizationId: personalOrg.id,
-				type: "dev_plan_downgrade",
-				description: `Changed from ${currentTier} to ${newTier} plan`,
-				status: "completed",
-			});
+			// Scheduled downgrades keep their historical no-amount transaction row.
+			// A scheduled upgrade records no transaction: `dev_plan_upgrade` rows
+			// are treated as payment rows by the invoice list and self-refund
+			// eligibility, so a $0 marker would pollute both. The audit event below
+			// captures the scheduling; the renewal itself is recorded by the
+			// `dev_plan_renewal` transaction when it bills.
+			if (!isUpgrade) {
+				await db.insert(tables.transaction).values({
+					organizationId: personalOrg.id,
+					type: "dev_plan_downgrade",
+					description: `Changed from ${currentTier} to ${newTier} plan`,
+					status: "completed",
+				});
+			}
 		}
 
 		await logAuditEvent({
@@ -1356,6 +1480,203 @@ devPlans.openapi(changeTier, async (c) => {
 				changes: {
 					tier: { old: currentTier, new: newTier },
 				},
+				timing: applyNow ? "now" : "next_cycle",
+			},
+		});
+
+		if (claimedLeaseThisCall) {
+			await releaseTierChangeLease(personalOrg.id);
+		}
+
+		return c.json({
+			success: true,
+		});
+	} catch (error) {
+		// Release the lease if we won it but the change didn't complete, so a
+		// transient failure (e.g. a declined upgrade charge) doesn't block retries
+		// for the full staleness window.
+		if (claimedLeaseThisCall) {
+			await releaseTierChangeLease(personalOrg.id);
+		}
+		if (error instanceof HTTPException) {
+			throw error;
+		}
+		// Stripe returns StripeCardError / StripeInvalidRequestError when an
+		// upgrade can't be collected (declined card, no payment method on file,
+		// etc.). Surface this to the caller as a 402 instead of a generic 500
+		// so the UI can prompt the user to update billing. This is an expected
+		// user-facing outcome, not a server fault, so log it at warn — never
+		// error — to avoid noisy alerts for declined cards.
+		const errCode = getStripeErrorCode(error);
+		const cardErrorMessage = getStripeCardErrorMessage(error);
+		if (cardErrorMessage) {
+			// Any card error (incorrect CVC, expired card, insufficient funds, plain
+			// decline, ...) carries Stripe's user-facing explanation — pass it
+			// through so the user learns what to fix instead of a generic failure.
+			logger.warn("Dev plan tier change payment declined", {
+				code: errCode,
+			});
+			throw new HTTPException(402, {
+				message: `${cardErrorMessage} Update your payment method and try again.`,
+			});
+		}
+		if (errCode === "card_declined" || errCode === "invoice_payment_required") {
+			logger.warn("Dev plan tier change payment declined", {
+				code: errCode,
+			});
+			throw new HTTPException(402, {
+				message:
+					"Upgrade payment could not be collected. Update your payment method and try again.",
+			});
+		}
+		// `error_if_incomplete` throws this when the bank demands 3DS/SCA
+		// authentication, which can't be completed server-side; the subscription
+		// is left unchanged. Also an expected user-facing outcome, so 402 + warn.
+		if (errCode === "subscription_payment_intent_requires_action") {
+			logger.warn("Dev plan tier change requires payment authentication", {
+				code: errCode,
+			});
+			throw new HTTPException(402, {
+				message:
+					"Your bank requires additional verification to complete this payment. Update or re-add your payment method and try again.",
+			});
+		}
+		logger.error(
+			"Stripe dev plan tier change error",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+		throw new HTTPException(500, {
+			message: "Failed to change dev plan tier",
+		});
+	}
+});
+
+// Cancel a scheduled downgrade and stay on the current tier
+const cancelDowngrade = createRoute({
+	method: "post",
+	path: "/cancel-downgrade",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						success: z.boolean(),
+					}),
+				},
+			},
+			description:
+				"Scheduled dev plan tier change (upgrade or downgrade) cancelled successfully",
+		},
+	},
+});
+
+devPlans.openapi(cancelDowngrade, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const userOrgs = await db.query.userOrganization.findMany({
+		where: {
+			userId: user.id,
+		},
+		with: {
+			organization: true,
+		},
+	});
+
+	const personalOrg = userOrgs.find(
+		(uo) => uo.organization?.kind === "devpass",
+	)?.organization;
+
+	if (!personalOrg) {
+		throw new HTTPException(404, {
+			message: "Personal organization not found",
+		});
+	}
+
+	if (!personalOrg.devPlanStripeSubscriptionId) {
+		throw new HTTPException(400, {
+			message: "No active dev plan subscription found",
+		});
+	}
+
+	if (!personalOrg.devPlanPendingTier || personalOrg.devPlan === "none") {
+		throw new HTTPException(400, {
+			message: "No scheduled plan change to cancel",
+		});
+	}
+
+	const currentTier: DevPlanTier = personalOrg.devPlan;
+	const existingCycle: DevPlanCycle = personalOrg.devPlanCycle;
+	const currentTierPriceId = getDevPlanPriceId(currentTier, existingCycle);
+	if (!currentTierPriceId) {
+		const envSuffix =
+			existingCycle === "annual" ? "_ANNUAL_PRICE_ID" : "_PRICE_ID";
+		throw new HTTPException(500, {
+			message: `STRIPE_DEV_PLAN_${currentTier.toUpperCase()}${envSuffix} environment variable is not set`,
+		});
+	}
+
+	try {
+		const subscription = await getStripe().subscriptions.retrieve(
+			personalOrg.devPlanStripeSubscriptionId,
+		);
+
+		if (
+			subscription.status === "canceled" ||
+			subscription.status === "incomplete_expired"
+		) {
+			throw new HTTPException(409, {
+				message:
+					"Your dev plan subscription has ended. Subscribe again to choose a new plan.",
+			});
+		}
+
+		const subscriptionItem = subscription.items.data[0];
+		const subscriptionItemId = subscriptionItem?.id;
+		if (!subscriptionItem || !subscriptionItemId) {
+			throw new HTTPException(500, {
+				message: "Subscription item not found",
+			});
+		}
+
+		// Scheduling the change swapped the Stripe price to the target tier so the
+		// renewal would bill it; reverting to the current tier's price keeps the
+		// subscriber on their current plan going forward. Proration stays suppressed
+		// (no charge or refund) — the current tier was never actually left.
+		await getStripe().subscriptions.update(
+			personalOrg.devPlanStripeSubscriptionId,
+			{
+				items: [{ id: subscriptionItemId, price: currentTierPriceId }],
+				proration_behavior: "none",
+				payment_behavior: "allow_incomplete",
+				metadata: {
+					...subscription.metadata,
+					devPlan: currentTier,
+					devPlanCycle: existingCycle,
+				},
+			},
+		);
+
+		await db
+			.update(tables.organization)
+			.set({ devPlanPendingTier: null })
+			.where(eq(tables.organization.id, personalOrg.id));
+
+		await logAuditEvent({
+			organizationId: personalOrg.id,
+			userId: user.id,
+			action: "dev_plan.cancel_downgrade",
+			resourceType: "dev_plan",
+			resourceId: personalOrg.devPlanStripeSubscriptionId,
+			metadata: {
+				cancelledPendingTier: personalOrg.devPlanPendingTier,
+				tier: currentTier,
 			},
 		});
 
@@ -1363,50 +1684,15 @@ devPlans.openapi(changeTier, async (c) => {
 			success: true,
 		});
 	} catch (error) {
-		// Release the per-cycle claim if we won it but the change didn't complete,
-		// so a transient failure (e.g. a declined upgrade charge) doesn't lock the
-		// user out of changing tiers until renewal. Restores the prior marker value
-		// read before the claim.
-		if (claimedCycleThisCall) {
-			await db
-				.update(tables.organization)
-				.set({
-					devPlanLastTierChangeCycleStart:
-						personalOrg.devPlanLastTierChangeCycleStart,
-				})
-				.where(eq(tables.organization.id, personalOrg.id))
-				.catch((rollbackError) => {
-					logger.error(
-						"Failed to release dev plan tier-change cycle claim after error",
-						rollbackError instanceof Error
-							? rollbackError
-							: new Error(String(rollbackError)),
-					);
-				});
-		}
 		if (error instanceof HTTPException) {
 			throw error;
 		}
 		logger.error(
-			"Stripe dev plan tier change error",
+			"Stripe dev plan cancel-downgrade error",
 			error instanceof Error ? error : new Error(String(error)),
 		);
-		// Stripe returns StripeCardError / StripeInvalidRequestError when an
-		// upgrade can't be collected (declined card, no payment method on file,
-		// etc.). Surface this to the caller as a 402 instead of a generic 500
-		// so the UI can prompt the user to update billing.
-		const errCode =
-			typeof error === "object" && error !== null && "code" in error
-				? String((error as { code?: unknown }).code)
-				: undefined;
-		if (errCode === "card_declined" || errCode === "invoice_payment_required") {
-			throw new HTTPException(402, {
-				message:
-					"Upgrade payment could not be collected. Update your payment method and try again.",
-			});
-		}
 		throw new HTTPException(500, {
-			message: "Failed to change dev plan tier",
+			message: "Failed to cancel scheduled plan change",
 		});
 	}
 });
@@ -1423,10 +1709,23 @@ const getStatus = createRoute({
 					schema: z.object({
 						hasPersonalOrg: z.boolean(),
 						devPlan: z.enum(["none", "lite", "pro", "max"]),
+						devPlanPendingTier: z.enum(["lite", "pro", "max"]).nullable(),
 						devPlanCycle: z.enum(["monthly", "annual"]),
 						devPlanCreditsUsed: z.string(),
 						devPlanCreditsLimit: z.string(),
 						devPlanCreditsRemaining: z.string(),
+						devPlanPremiumWeeklyLimit: z.string(),
+						devPlanPremiumCreditsUsed: z.string(),
+						devPlanPremiumWeekResetsAt: z.string().nullable(),
+						// Purchased Reset Passes redeemable on the current tier
+						// (purchased inventory is tier-bound).
+						devPlanResetPasses: z.number(),
+						// Plan-included Reset Passes: per-cycle grant and how many
+						// of those are still available this cycle.
+						devPlanIncludedResetPasses: z.number(),
+						devPlanIncludedResetPassesRemaining: z.number(),
+						// One-time price of a Reset Pass for the current tier.
+						devPlanResetPassPrice: z.number().nullable(),
 						devPlanBillingCycleStart: z.string().nullable(),
 						devPlanCancelled: z.boolean(),
 						devPlanExpiresAt: z.string().nullable(),
@@ -1434,8 +1733,7 @@ const getStatus = createRoute({
 						organizationId: z.string().nullable(),
 						projectId: z.string().nullable(),
 						apiKey: z.string().nullable(),
-						devPlanAllowAllModels: z.boolean(),
-						retentionLevel: z.enum(["retain", "none"]),
+						devPlanServiceTier: z.enum(["default", "flex"]),
 						defaultRoutingStrategy: z.enum([
 							"auto",
 							"price",
@@ -1476,10 +1774,18 @@ devPlans.openapi(getStatus, async (c) => {
 		return c.json({
 			hasPersonalOrg: false,
 			devPlan: "none" as const,
+			devPlanPendingTier: null,
 			devPlanCycle: "monthly" as const,
 			devPlanCreditsUsed: "0",
 			devPlanCreditsLimit: "0",
 			devPlanCreditsRemaining: "0",
+			devPlanPremiumWeeklyLimit: "0",
+			devPlanPremiumCreditsUsed: "0",
+			devPlanPremiumWeekResetsAt: null,
+			devPlanResetPasses: 0,
+			devPlanIncludedResetPasses: 0,
+			devPlanIncludedResetPassesRemaining: 0,
+			devPlanResetPassPrice: null,
 			devPlanBillingCycleStart: null,
 			devPlanCancelled: false,
 			devPlanExpiresAt: null,
@@ -1487,8 +1793,7 @@ devPlans.openapi(getStatus, async (c) => {
 			organizationId: null,
 			projectId: null,
 			apiKey: null,
-			devPlanAllowAllModels: false,
-			retentionLevel: "none" as const,
+			devPlanServiceTier: "default" as const,
 			defaultRoutingStrategy: "auto" as const,
 		});
 	}
@@ -1496,6 +1801,27 @@ devPlans.openapi(getStatus, async (c) => {
 	const creditsUsed = parseFloat(personalOrg.devPlanCreditsUsed);
 	const creditsLimit = parseFloat(personalOrg.devPlanCreditsLimit);
 	const creditsRemaining = Math.max(0, creditsLimit - creditsUsed);
+
+	// Weekly premium fair-use allowance, computed with the same helpers the
+	// gateway uses for enforcement. An expired window reports zero usage and no
+	// reset date — the full allowance is already available again.
+	const premiumWeeklyLimit =
+		personalOrg.devPlan !== "none"
+			? getDevPlanPremiumWeeklyLimit(personalOrg.devPlan)
+			: 0;
+	const premiumWeekExpired = isPremiumWeekExpired(
+		personalOrg.devPlanPremiumWeekStart,
+	);
+	const premiumCreditsUsed = premiumWeekExpired
+		? 0
+		: parseFloat(personalOrg.devPlanPremiumCreditsUsed ?? "0");
+	const premiumWeekResetsAt =
+		!premiumWeekExpired && personalOrg.devPlanPremiumWeekStart
+			? new Date(
+					personalOrg.devPlanPremiumWeekStart.getTime() +
+						DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
+				).toISOString()
+			: null;
 
 	// Get API key and project if user has an active dev plan
 	let apiKey: string | null = null;
@@ -1531,10 +1857,33 @@ devPlans.openapi(getStatus, async (c) => {
 	return c.json({
 		hasPersonalOrg: true,
 		devPlan: personalOrg.devPlan,
+		devPlanPendingTier: personalOrg.devPlanPendingTier,
 		devPlanCycle: personalOrg.devPlanCycle,
 		devPlanCreditsUsed: personalOrg.devPlanCreditsUsed,
 		devPlanCreditsLimit: personalOrg.devPlanCreditsLimit,
 		devPlanCreditsRemaining: creditsRemaining.toFixed(2),
+		devPlanPremiumWeeklyLimit: premiumWeeklyLimit.toFixed(2),
+		devPlanPremiumCreditsUsed: premiumCreditsUsed.toFixed(2),
+		devPlanPremiumWeekResetsAt: premiumWeekResetsAt,
+		devPlanResetPasses:
+			personalOrg.devPlan !== "none"
+				? getPurchasedResetPasses(personalOrg, personalOrg.devPlan)
+				: 0,
+		devPlanIncludedResetPasses:
+			personalOrg.devPlan !== "none"
+				? DEV_PLAN_INCLUDED_RESET_PASSES[personalOrg.devPlan]
+				: 0,
+		devPlanIncludedResetPassesRemaining:
+			personalOrg.devPlan !== "none"
+				? getIncludedResetPassesRemaining(
+						personalOrg.devPlan,
+						personalOrg.devPlanIncludedResetPassesUsed,
+					)
+				: 0,
+		devPlanResetPassPrice:
+			personalOrg.devPlan !== "none"
+				? DEV_PLAN_RESET_PASS_PRICES[personalOrg.devPlan]
+				: null,
 		devPlanBillingCycleStart:
 			personalOrg.devPlanBillingCycleStart?.toISOString() ?? null,
 		devPlanCancelled: personalOrg.devPlanCancelled,
@@ -1543,8 +1892,7 @@ devPlans.openapi(getStatus, async (c) => {
 		organizationId: personalOrg.id,
 		projectId,
 		apiKey,
-		devPlanAllowAllModels: personalOrg.devPlanAllowAllModels,
-		retentionLevel: personalOrg.retentionLevel,
+		devPlanServiceTier: personalOrg.devPlanServiceTier,
 		defaultRoutingStrategy,
 	});
 });
@@ -1558,8 +1906,10 @@ const updateSettings = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
-						devPlanAllowAllModels: z.boolean().optional(),
-						retentionLevel: z.enum(["retain", "none"]).optional(),
+						// Default processing tier for DevPass routing. "flex" saves
+						// plan credits by using cheaper flex processing where the
+						// selected provider supports it.
+						devPlanServiceTier: z.enum(["default", "flex"]).optional(),
 						// Coding plans optimize for prompt caching, so only the
 						// default weighted routing or the price strategy are allowed.
 						defaultRoutingStrategy: z.enum(["auto", "price"]).optional(),
@@ -1574,8 +1924,7 @@ const updateSettings = createRoute({
 				"application/json": {
 					schema: z.object({
 						success: z.boolean(),
-						devPlanAllowAllModels: z.boolean(),
-						retentionLevel: z.enum(["retain", "none"]),
+						devPlanServiceTier: z.enum(["default", "flex"]),
 						defaultRoutingStrategy: z.enum([
 							"auto",
 							"price",
@@ -1592,8 +1941,7 @@ const updateSettings = createRoute({
 
 devPlans.openapi(updateSettings, async (c) => {
 	const user = c.get("user");
-	const { devPlanAllowAllModels, retentionLevel, defaultRoutingStrategy } =
-		c.req.valid("json");
+	const { devPlanServiceTier, defaultRoutingStrategy } = c.req.valid("json");
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -1628,15 +1976,11 @@ devPlans.openapi(updateSettings, async (c) => {
 	}
 
 	const updateData: {
-		devPlanAllowAllModels?: boolean;
-		retentionLevel?: "retain" | "none";
+		devPlanServiceTier?: "default" | "flex";
 	} = {};
 
-	if (devPlanAllowAllModels !== undefined) {
-		updateData.devPlanAllowAllModels = devPlanAllowAllModels;
-	}
-	if (retentionLevel !== undefined) {
-		updateData.retentionLevel = retentionLevel;
+	if (devPlanServiceTier !== undefined) {
+		updateData.devPlanServiceTier = devPlanServiceTier;
 	}
 
 	const changes: Record<string, { old: unknown; new: unknown }> = {};
@@ -1648,21 +1992,12 @@ devPlans.openapi(updateSettings, async (c) => {
 			.where(eq(tables.organization.id, personalOrg.id));
 
 		if (
-			devPlanAllowAllModels !== undefined &&
-			devPlanAllowAllModels !== personalOrg.devPlanAllowAllModels
+			devPlanServiceTier !== undefined &&
+			devPlanServiceTier !== personalOrg.devPlanServiceTier
 		) {
-			changes.devPlanAllowAllModels = {
-				old: personalOrg.devPlanAllowAllModels,
-				new: devPlanAllowAllModels,
-			};
-		}
-		if (
-			retentionLevel !== undefined &&
-			retentionLevel !== personalOrg.retentionLevel
-		) {
-			changes.retentionLevel = {
-				old: personalOrg.retentionLevel,
-				new: retentionLevel,
+			changes.devPlanServiceTier = {
+				old: personalOrg.devPlanServiceTier,
+				new: devPlanServiceTier,
 			};
 		}
 	}
@@ -1713,9 +2048,7 @@ devPlans.openapi(updateSettings, async (c) => {
 
 	return c.json({
 		success: true,
-		devPlanAllowAllModels:
-			devPlanAllowAllModels ?? personalOrg.devPlanAllowAllModels,
-		retentionLevel: retentionLevel ?? personalOrg.retentionLevel,
+		devPlanServiceTier: devPlanServiceTier ?? personalOrg.devPlanServiceTier,
 		defaultRoutingStrategy: effectiveRoutingStrategy,
 	});
 });
@@ -1919,6 +2252,7 @@ const getInvoices = createRoute({
 									"dev_plan_start",
 									"dev_plan_renewal",
 									"dev_plan_upgrade",
+									"dev_plan_reset_pass",
 								]),
 								date: z.string(),
 								amount: z.string().nullable(),
@@ -1926,6 +2260,25 @@ const getInvoices = createRoute({
 								currency: z.string(),
 								status: z.enum(["pending", "completed", "failed"]),
 								description: z.string().nullable(),
+								refund: z
+									.object({
+										eligible: z.boolean(),
+										reason: z
+											.enum([
+												"unsupported_type",
+												"not_completed",
+												"already_refunded",
+												"window_expired",
+												"not_owner",
+												"not_latest_purchase",
+												"plan_inactive",
+												"credits_frozen",
+												"usage_exceeded",
+												"pass_already_used",
+											])
+											.optional(),
+									})
+									.optional(),
 							}),
 						),
 					}),
@@ -1948,28 +2301,231 @@ devPlans.openapi(getInvoices, async (c) => {
 		return c.json({ invoices: [] });
 	}
 
+	// Eligibility needs the full transaction list (refund rows, ordering across
+	// types); the dev-plan billing events are filtered out of it for display.
 	const transactions = await db.query.transaction.findMany({
 		where: {
 			organizationId: { eq: personalOrg.id },
-			type: { in: ["dev_plan_start", "dev_plan_renewal", "dev_plan_upgrade"] },
 		},
 		orderBy: {
 			createdAt: "desc",
 		},
 	});
 
-	const invoices = transactions.map((t) => ({
-		id: t.id,
-		type: t.type as "dev_plan_start" | "dev_plan_renewal" | "dev_plan_upgrade",
-		date: t.createdAt.toISOString(),
-		amount: t.amount,
-		creditAmount: t.creditAmount,
-		currency: t.currency,
-		status: t.status,
-		description: t.description,
-	}));
+	const membership = await db.query.userOrganization.findFirst({
+		where: {
+			userId: { eq: user.id },
+			organizationId: { eq: personalOrg.id },
+		},
+	});
+
+	const invoices = transactions
+		.filter((t) =>
+			[
+				"dev_plan_start",
+				"dev_plan_renewal",
+				"dev_plan_upgrade",
+				"dev_plan_reset_pass",
+			].includes(t.type),
+		)
+		.map((t) => ({
+			id: t.id,
+			type: t.type as
+				| "dev_plan_start"
+				| "dev_plan_renewal"
+				| "dev_plan_upgrade"
+				| "dev_plan_reset_pass",
+			date: t.createdAt.toISOString(),
+			amount: t.amount,
+			creditAmount: t.creditAmount,
+			currency: t.currency,
+			status: t.status,
+			description: t.description,
+			refund: isSelfRefundCandidateType(t.type)
+				? computeSelfRefundEligibility({
+						organization: personalOrg,
+						role: membership?.role,
+						transactions,
+						transaction: t,
+					})
+				: undefined,
+		}));
 
 	return c.json({ invoices });
+});
+
+// Self-service refund for a DevPass billing event. Only the first (or latest)
+// barely-used payment qualifies; refunding a plan payment also cancels the
+// DevPass immediately, while refunding an unused Reset Pass just returns the
+// pass and leaves the plan running. See lib/self-refund.ts for the
+// eligibility rules.
+const selfRefundInvoice = createRoute({
+	method: "post",
+	path: "/invoices/{invoiceId}/refund",
+	request: {
+		params: z.object({
+			invoiceId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: refundFeedbackBodySchema,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						status: z.literal("refund_processing"),
+						stripeRefundId: z.string(),
+					}),
+				},
+			},
+			description:
+				"Refund created; bookkeeping is applied when Stripe confirms via webhook. A plan-payment refund cancels the DevPass immediately, a Reset Pass refund removes the unused pass and leaves the plan running",
+		},
+	},
+});
+
+devPlans.openapi(selfRefundInvoice, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { invoiceId } = c.req.param();
+	const { reason, comments } = c.req.valid("json");
+
+	const personalOrg = await findPersonalOrg(user.id);
+	if (!personalOrg) {
+		throw new HTTPException(404, { message: "No DevPass organization found" });
+	}
+
+	const transactions = await db.query.transaction.findMany({
+		where: {
+			organizationId: { eq: personalOrg.id },
+		},
+	});
+	const transaction = transactions.find((t) => t.id === invoiceId);
+	if (!transaction) {
+		throw new HTTPException(404, { message: "Invoice not found" });
+	}
+
+	const membership = await db.query.userOrganization.findFirst({
+		where: {
+			userId: { eq: user.id },
+			organizationId: { eq: personalOrg.id },
+		},
+	});
+
+	const eligibility = computeSelfRefundEligibility({
+		organization: personalOrg,
+		role: membership?.role,
+		transactions,
+		transaction,
+	});
+	if (!eligibility.eligible) {
+		throw new HTTPException(400, {
+			message: `This payment is not eligible for a self-service refund: ${eligibility.reason}`,
+		});
+	}
+
+	const { stripeRefundId } = await executeSelfRefund({
+		organization: personalOrg,
+		transaction,
+		userId: user.id,
+		reason,
+		comments,
+	});
+
+	return c.json({
+		status: "refund_processing" as const,
+		stripeRefundId,
+	});
+});
+
+// Download a PDF invoice for a single DevPass billing event. Billing details
+// mirror the invoice originally emailed at purchase time (see stripe.ts).
+const downloadInvoice = createRoute({
+	method: "get",
+	path: "/invoices/{invoiceId}/pdf",
+	request: {
+		params: z.object({
+			invoiceId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/pdf": {
+					schema: z.any().openapi({ type: "string", format: "binary" }),
+				},
+			},
+			description: "PDF invoice for the specified DevPass billing event",
+		},
+	},
+});
+
+devPlans.openapi(downloadInvoice, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { invoiceId } = c.req.param();
+
+	const personalOrg = await findPersonalOrg(user.id);
+	if (!personalOrg) {
+		throw new HTTPException(404, { message: "Invoice not found" });
+	}
+
+	const transaction = await db.query.transaction.findFirst({
+		where: {
+			id: { eq: invoiceId },
+			organizationId: { eq: personalOrg.id },
+		},
+	});
+	if (!transaction || !isInvoiceableTransaction(transaction)) {
+		throw new HTTPException(404, { message: "Invoice not found" });
+	}
+
+	const billingDetails = await resolveDevPassBillingDetails(personalOrg);
+
+	const originalTransaction =
+		isRefundTransaction(transaction.type) && transaction.relatedTransactionId
+			? await db.query.transaction.findFirst({
+					where: {
+						id: { eq: transaction.relatedTransactionId },
+						organizationId: { eq: personalOrg.id },
+					},
+				})
+			: null;
+
+	const pdf = generateInvoicePDF(
+		buildInvoiceDataForTransaction(
+			transaction,
+			{
+				id: personalOrg.id,
+				name: personalOrg.name,
+				...billingDetails,
+			},
+			originalTransaction,
+		),
+	);
+
+	const prefix = isRefundTransaction(transaction.type)
+		? "credit-note"
+		: "invoice";
+	c.header("Content-Type", "application/pdf");
+	c.header(
+		"Content-Disposition",
+		`attachment; filename="${prefix}-${transaction.id}.pdf"`,
+	);
+	return c.body(new Uint8Array(pdf));
 });
 
 // Rotate the dev-plan API key — invalidates the current key and issues a new one
@@ -2312,29 +2868,32 @@ devPlans.openapi(updatePaymentMethod, async (c) => {
 
 	// Enforce one card per DevPass account: reject a card already linked to a
 	// different org and detach it so it isn't silently left on this customer.
-	const conflictingOrg = await db.query.organization.findFirst({
-		where: {
-			devPlanCardFingerprint: { eq: fingerprint },
-			id: { ne: personalOrg.id },
-		},
-	});
-	if (conflictingOrg) {
-		try {
-			await getStripe().paymentMethods.detach(paymentMethodId);
-		} catch (err) {
-			logger.warn(
-				`Failed to detach duplicate dev plan card ${paymentMethodId}`,
-				{ error: err instanceof Error ? err.message : String(err) },
+	// Skipped in local development so the same Stripe test card can be reused.
+	if (isDevPlanCardDedupeEnforced()) {
+		const conflictingOrg = await db.query.organization.findFirst({
+			where: {
+				devPlanCardFingerprint: { eq: fingerprint },
+				id: { ne: personalOrg.id },
+			},
+		});
+		if (conflictingOrg) {
+			try {
+				await getStripe().paymentMethods.detach(paymentMethodId);
+			} catch (err) {
+				logger.warn(
+					`Failed to detach duplicate dev plan card ${paymentMethodId}`,
+					{ error: err instanceof Error ? err.message : String(err) },
+				);
+			}
+			return c.json(
+				{
+					error: "duplicate_card" as const,
+					message:
+						"This card is already associated with another DevPass account. Please use a different payment method.",
+				},
+				409,
 			);
 		}
-		return c.json(
-			{
-				error: "duplicate_card" as const,
-				message:
-					"This card is already associated with another DevPass account. Please use a different payment method.",
-			},
-			409,
-		);
 	}
 
 	// confirmCardSetup already attaches the card to the customer; attach again
@@ -2384,4 +2943,399 @@ devPlans.openapi(updatePaymentMethod, async (c) => {
 		},
 		200,
 	);
+});
+
+// Buy a Reset Pass — charges the saved payment method directly (the dashboard
+// shows a confirmation dialog first), so there is no Stripe Checkout redirect.
+// The charge and the fulfilment are synchronous: on success one pass is added
+// to the tier-bound inventory for the org's current tier.
+const purchaseResetPass = createRoute({
+	method: "post",
+	path: "/reset-pass/purchase",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						success: z.boolean(),
+						// Purchased passes now redeemable on the current tier.
+						devPlanResetPasses: z.number(),
+						amount: z.number(),
+					}),
+				},
+			},
+			description: "Reset Pass purchased successfully",
+		},
+	},
+});
+
+devPlans.openapi(purchaseResetPass, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	if (!user.emailVerified) {
+		throw new HTTPException(403, {
+			message: "Email verification required",
+		});
+	}
+
+	const personalOrg = await findPersonalOrg(user.id);
+
+	if (!personalOrg) {
+		throw new HTTPException(404, {
+			message: "Personal organization not found",
+		});
+	}
+
+	if (personalOrg.devPlan === "none") {
+		throw new HTTPException(400, {
+			message: "An active dev plan is required to buy a Reset Pass.",
+		});
+	}
+
+	// A pass lifts the weekly premium cap, but the unlocked spend still draws
+	// from the monthly credit pool — selling one against a nearly exhausted
+	// pool would only confuse buyers, so the purchase waits for the renewal.
+	// (At 100% the dashboard replaces the pass card with an upgrade/PAYG
+	// promo; this gate is the server-side backstop for that state too.)
+	if (
+		getDevPlanCycleUsageFraction(
+			personalOrg.devPlanCreditsUsed,
+			personalOrg.devPlanCreditsLimit,
+		) > DEV_PLAN_RESET_PASS_PURCHASE_MAX_CYCLE_USAGE
+	) {
+		throw new HTTPException(400, {
+			message:
+				"You've used more than 95% of this cycle's credit allowance, so a Reset Pass would give you almost nothing to use right now. You can buy one again when your credits renew.",
+		});
+	}
+
+	const tier = personalOrg.devPlan;
+	const price = DEV_PLAN_RESET_PASS_PRICES[tier];
+	const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
+
+	// Charge the payment method on file: the subscription's default first,
+	// falling back to the customer's default. DevPass subscriptions are
+	// card-only, so this is always a card.
+	let paymentMethodId: string | null = null;
+	if (personalOrg.devPlanStripeSubscriptionId) {
+		try {
+			const subscription = await getStripe().subscriptions.retrieve(
+				personalOrg.devPlanStripeSubscriptionId,
+			);
+			paymentMethodId = getStripeId(subscription.default_payment_method);
+		} catch (err) {
+			logger.warn("Could not read subscription payment method", {
+				error: err instanceof Error ? err.message : String(err),
+			});
+		}
+	}
+	if (!paymentMethodId) {
+		const customer = await getStripe().customers.retrieve(stripeCustomerId);
+		if (!customer.deleted) {
+			paymentMethodId = getStripeId(
+				customer.invoice_settings?.default_payment_method,
+			);
+		}
+	}
+	if (!paymentMethodId) {
+		throw new HTTPException(400, {
+			message:
+				"No saved payment method found. Update your payment method on the billing page and try again.",
+		});
+	}
+
+	// `kind` (not `baseAmount`) in the metadata keeps this PaymentIntent out
+	// of handlePaymentIntentSucceeded's credit top-up path and routes it to
+	// the Reset Pass fulfilment recovery branch instead.
+	let paymentIntent: Stripe.PaymentIntent;
+	try {
+		paymentIntent = await getStripe().paymentIntents.create({
+			amount: Math.round(price * 100),
+			currency: "usd",
+			customer: stripeCustomerId,
+			payment_method: paymentMethodId,
+			off_session: true,
+			confirm: true,
+			description: `DevPass Reset Pass (${tier.toUpperCase()})`,
+			metadata: {
+				organizationId: personalOrg.id,
+				kind: "dev_plan_reset_pass",
+				devPlan: tier,
+				userEmail: user.email,
+				userId: user.id,
+			},
+		});
+	} catch (err) {
+		// Stripe raises StripeCardError when the saved card can't be charged
+		// (declined, expired, insufficient funds, 3DS required off-session) —
+		// an expected user-facing outcome surfaced as 402, mirroring the
+		// tier-change handler. Anything else (configuration, outage,
+		// programming errors) is rethrown to the global error handler.
+		const stripeErr = err as { type?: string; code?: string };
+		const cardErrorMessage = getStripeCardErrorMessage(err);
+		if (cardErrorMessage || stripeErr?.code === "card_declined") {
+			logger.warn("Reset Pass charge declined", { code: stripeErr.code });
+			throw new HTTPException(402, {
+				message: `${cardErrorMessage ?? "Your card was declined."} Update your payment method on the billing page and try again.`,
+			});
+		}
+		throw err;
+	}
+
+	if (paymentIntent.status !== "succeeded") {
+		throw new HTTPException(402, {
+			message:
+				"The payment could not be completed. Update your payment method on the billing page and try again.",
+		});
+	}
+
+	// Fulfilment is shared with the `payment_intent.succeeded` webhook, which
+	// re-runs it as the recovery path if this request dies right here — the
+	// charge can never be lost, and the dedup inside makes reruns no-ops.
+	await fulfillResetPassPurchase(paymentIntent);
+
+	const updatedOrg = await db.query.organization.findFirst({
+		where: { id: { eq: personalOrg.id } },
+	});
+
+	await logAuditEvent({
+		organizationId: personalOrg.id,
+		userId: user.id,
+		action: "dev_plan.reset_pass_purchase",
+		resourceType: "dev_plan",
+		resourceId: paymentIntent.id,
+		metadata: {
+			tier,
+			price,
+		},
+	});
+
+	return c.json({
+		success: true,
+		devPlanResetPasses: updatedOrg
+			? getPurchasedResetPasses(updatedOrg, tier)
+			: 0,
+		amount: (paymentIntent.amount_received || paymentIntent.amount) / 100,
+	});
+});
+
+// Redeem a Reset Pass: zero the weekly premium usage and clear the window so
+// a fresh 7-day window starts with the next premium request (the same state a
+// naturally expired week resolves to). Included (plan-granted) passes are
+// consumed before purchased ones since they expire with the billing cycle.
+const redeemResetPass = createRoute({
+	method: "post",
+	path: "/reset-pass/redeem",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						success: z.boolean(),
+						source: z.enum(["included", "purchased"]),
+						devPlanResetPasses: z.number(),
+						devPlanIncludedResetPassesRemaining: z.number(),
+					}),
+				},
+			},
+			description: "Reset Pass redeemed successfully",
+		},
+	},
+});
+
+devPlans.openapi(redeemResetPass, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	if (!user.emailVerified) {
+		throw new HTTPException(403, {
+			message: "Email verification required",
+		});
+	}
+
+	const personalOrg = await findPersonalOrg(user.id);
+
+	if (!personalOrg) {
+		throw new HTTPException(404, {
+			message: "Personal organization not found",
+		});
+	}
+
+	if (personalOrg.devPlan === "none") {
+		throw new HTTPException(400, {
+			message: "An active dev plan is required to redeem a Reset Pass.",
+		});
+	}
+
+	// With the monthly credit pool nearly exhausted, a reset would restore a
+	// weekly cap the user can't actually spend against — burning the pass for
+	// almost nothing. The pass keeps until the cycle renews, so hold it.
+	if (
+		getDevPlanCycleUsageFraction(
+			personalOrg.devPlanCreditsUsed,
+			personalOrg.devPlanCreditsLimit,
+		) > DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE
+	) {
+		throw new HTTPException(400, {
+			message:
+				"You've used more than 90% of this cycle's credit allowance — redeeming now would waste the pass on usage you can't spend. Your pass stays available for when your credits renew.",
+		});
+	}
+
+	const tier = personalOrg.devPlan;
+	const weeklyLimit = getDevPlanPremiumWeeklyLimit(tier);
+	const remaining = getRemainingPremiumWeeklyAllowance(
+		tier,
+		personalOrg.devPlanPremiumCreditsUsed,
+		personalOrg.devPlanPremiumWeekStart,
+	);
+
+	// Redeeming with an untouched allowance would burn the pass for nothing.
+	// A partially-used allowance implies an active (unexpired) window, so the
+	// stored week start is necessarily set — the null check narrows the type
+	// for the compare-and-swap below.
+	const observedPremiumWeekStart = personalOrg.devPlanPremiumWeekStart;
+	if (remaining >= weeklyLimit || !observedPremiumWeekStart) {
+		throw new HTTPException(400, {
+			message:
+				"Your weekly premium allowance is already at its full limit — nothing to reset.",
+		});
+	}
+
+	const includedRemaining = getIncludedResetPassesRemaining(
+		tier,
+		personalOrg.devPlanIncludedResetPassesUsed,
+	);
+	const source: "included" | "purchased" | null =
+		includedRemaining > 0
+			? "included"
+			: getPurchasedResetPasses(personalOrg, tier) > 0
+				? "purchased"
+				: null;
+
+	if (!source) {
+		throw new HTTPException(400, {
+			message:
+				"No Reset Passes available. Buy one to reset your premium allowance now.",
+		});
+	}
+
+	// Purchased inventory is tier-bound, so the decrement targets the column
+	// for the org's current tier.
+	const purchasedColumn =
+		tier === "lite"
+			? tables.organization.devPlanResetPassesLite
+			: tier === "pro"
+				? tables.organization.devPlanResetPassesPro
+				: tables.organization.devPlanResetPassesMax;
+	const purchasedDecrement =
+		tier === "lite"
+			? {
+					devPlanResetPassesLite: sql`${tables.organization.devPlanResetPassesLite} - 1`,
+				}
+			: tier === "pro"
+				? {
+						devPlanResetPassesPro: sql`${tables.organization.devPlanResetPassesPro} - 1`,
+					}
+				: {
+						devPlanResetPassesMax: sql`${tables.organization.devPlanResetPassesMax} - 1`,
+					};
+
+	// The WHERE clause makes the redeem atomic in two ways. The counter guard
+	// stops a concurrent redeem that already consumed the last pass from
+	// driving the inventory negative. The compare-and-swap on the observed
+	// premium usage and week start stops two concurrent redeems (with enough
+	// inventory for both) from each burning a pass to reset the same
+	// allowance: the first reset rewrites both fields, so the loser's
+	// predicates match zero rows.
+	const updated = await db
+		.update(tables.organization)
+		.set({
+			devPlanPremiumCreditsUsed: "0",
+			devPlanPremiumWeekStart: null,
+			...(source === "included"
+				? {
+						devPlanIncludedResetPassesUsed: sql`${tables.organization.devPlanIncludedResetPassesUsed} + 1`,
+					}
+				: purchasedDecrement),
+		})
+		.where(
+			and(
+				eq(tables.organization.id, personalOrg.id),
+				eq(
+					tables.organization.devPlanPremiumCreditsUsed,
+					personalOrg.devPlanPremiumCreditsUsed,
+				),
+				eq(
+					tables.organization.devPlanPremiumWeekStart,
+					observedPremiumWeekStart,
+				),
+				source === "included"
+					? lt(
+							tables.organization.devPlanIncludedResetPassesUsed,
+							DEV_PLAN_INCLUDED_RESET_PASSES[tier],
+						)
+					: gte(purchasedColumn, 1),
+			),
+		)
+		.returning({
+			devPlanResetPassesLite: tables.organization.devPlanResetPassesLite,
+			devPlanResetPassesPro: tables.organization.devPlanResetPassesPro,
+			devPlanResetPassesMax: tables.organization.devPlanResetPassesMax,
+			devPlanIncludedResetPassesUsed:
+				tables.organization.devPlanIncludedResetPassesUsed,
+		});
+
+	if (updated.length === 0) {
+		throw new HTTPException(409, {
+			message:
+				"The pass was redeemed by another request. Refresh to see your current allowance.",
+		});
+	}
+
+	await logAuditEvent({
+		organizationId: personalOrg.id,
+		userId: user.id,
+		action: "dev_plan.reset_pass_redeem",
+		resourceType: "dev_plan",
+		metadata: {
+			tier,
+			source,
+			premiumCreditsUsedBeforeReset: personalOrg.devPlanPremiumCreditsUsed,
+		},
+	});
+
+	posthog.capture({
+		distinctId: user.id,
+		event: "reset_pass_redeemed",
+		groups: { organization: personalOrg.id },
+		properties: {
+			devPlan: tier,
+			source,
+			organization: personalOrg.id,
+		},
+	});
+
+	return c.json({
+		success: true,
+		source,
+		devPlanResetPasses: getPurchasedResetPasses(updated[0], tier),
+		devPlanIncludedResetPassesRemaining: getIncludedResetPassesRemaining(
+			tier,
+			updated[0].devPlanIncludedResetPassesUsed,
+		),
+	});
 });

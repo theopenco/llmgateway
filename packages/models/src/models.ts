@@ -1,6 +1,7 @@
 import { alibabaModels } from "./models/alibaba.js";
 import { anthropicModels } from "./models/anthropic.js";
 import { atlascloudModels } from "./models/atlascloud.js";
+import { baaiModels } from "./models/baai.js";
 import { bytedanceModels } from "./models/bytedance.js";
 import { deepseekModels } from "./models/deepseek.js";
 import { elevenlabsModels } from "./models/elevenlabs.js";
@@ -14,9 +15,11 @@ import { moonshotModels } from "./models/moonshot.js";
 import { nousresearchModels } from "./models/nousresearch.js";
 import { nvidiaModels } from "./models/nvidia.js";
 import { openaiModels } from "./models/openai.js";
+import { openbmbModels } from "./models/openbmb.js";
 import { perplexityModels } from "./models/perplexity.js";
 import { reveModels } from "./models/reve.js";
 import { sakanaModels } from "./models/sakana.js";
+import { tencentModels } from "./models/tencent.js";
 import { xaiModels } from "./models/xai.js";
 import { xiaomiModels } from "./models/xiaomi.js";
 import { zaiModels } from "./models/zai.js";
@@ -33,6 +36,14 @@ export type Model = (typeof models)[number]["id"];
  * the Decimal-based cost engine.
  */
 export type Price = string;
+
+/**
+ * Reasoning effort tiers accepted by the unified reasoning_effort parameter,
+ * in ascending order of effort. Which subset a given provider mapping
+ * actually supports is declared per mapping via `reasoningEfforts`.
+ */
+export type ReasoningEffort =
+	"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 /**
  * Pricing tier for models with context-length based pricing
@@ -159,6 +170,12 @@ export interface ProviderRegion {
 	test?: "skip" | "only";
 }
 
+/**
+ * The distinct `tool_choice` modes a provider/model mapping may accept.
+ * "function" represents a named function choice (`{type:"function",...}`).
+ */
+export type ToolChoiceMode = "auto" | "none" | "required" | "function";
+
 export interface ProviderModelMapping {
 	providerId: (typeof providers)[number]["id"];
 	/**
@@ -187,6 +204,13 @@ export interface ProviderModelMapping {
 	 * the OpenAI speech endpoint returns audio bytes without token usage.
 	 */
 	inputCharacterPrice?: Price;
+	/**
+	 * Price per hour of input audio in USD. Used by transcription
+	 * (speech-to-text) models that bill on audio duration rather than tokens
+	 * (e.g. xAI STT at $0.10/hour). Cost is computed against the `duration`
+	 * (seconds) reported by the upstream transcription response.
+	 */
+	inputAudioHourPrice?: Price;
 	/**
 	 * Price per image output token in USD (for models with separate text/image output pricing)
 	 */
@@ -291,6 +315,12 @@ export interface ProviderModelMapping {
 	 */
 	maxOutput?: number;
 	/**
+	 * Weight quantization the provider serves this model at (e.g. "fp8").
+	 * Only set when the provider explicitly documents the serving precision;
+	 * when absent, the quantization is unknown or undisclosed.
+	 */
+	quantization?: Quantization;
+	/**
 	 * Whether this specific model supports streaming for this provider.
 	 * - true: supports both streaming and non-streaming
 	 * - false: does not support streaming
@@ -323,6 +353,11 @@ export interface ProviderModelMapping {
 	 * Whether this model supports reasoning mode
 	 */
 	reasoning?: boolean;
+	/**
+	 * Whether this model supports the OpenAI `verbosity` parameter
+	 * (low/medium/high response detail control, GPT-5 and later)
+	 */
+	verbosity?: boolean;
 	/**
 	 * Whether the provider returns reasoning inside tagged content (e.g. &lt;think&gt;...&lt;/think&gt;)
 	 * that needs to be split into separate reasoning and content fields
@@ -404,6 +439,17 @@ export interface ProviderModelMapping {
 	 */
 	reasoningMode?: "enabled" | "adaptive";
 	/**
+	 * Exact `reasoning_effort` values this provider mapping supports, in
+	 * ascending order of effort. Effort tiers differ per model generation
+	 * (e.g. GPT-5 accepts `minimal`..`high`, GPT-5.6 accepts `none`..`max`,
+	 * Anthropic thinking models accept `low`..`max`), so each mapping declares
+	 * its own list. The gateway forwards effort values to the provider as-is
+	 * (unsupported values fail upstream); this metadata is exposed via the
+	 * models APIs so clients can present valid options. When unset, the
+	 * supported values are not (yet) declared for this mapping.
+	 */
+	reasoningEfforts?: ReasoningEffort[];
+	/**
 	 * Whether this specific model supports tool calling for this provider
 	 */
 	tools?: boolean;
@@ -445,6 +491,30 @@ export interface ProviderModelMapping {
 	 */
 	supportedParameters?: string[];
 	/**
+	 * Which `tool_choice` modes the upstream accepts for this mapping. When
+	 * omitted or empty, all modes are assumed supported. When set, a requested
+	 * `tool_choice` whose mode is not listed is downgraded to "auto" so
+	 * forced-tool requests still succeed instead of erroring upstream.
+	 * Modes: "auto", "none", "required", "function" (a named function choice).
+	 */
+	supportedToolChoices?: ToolChoiceMode[];
+	/**
+	 * Whether this mapping's upstream accepts the OpenAI-only `developer` message
+	 * role. Defaults to `true` (assumed supported). When set to `false`, the
+	 * gateway rewrites `developer` messages to `system` before forwarding, since
+	 * some OpenAI-compatible providers reject `developer` with a 400 ("developer
+	 * is not one of ['system', 'assistant', 'user', 'tool', 'function']").
+	 */
+	supportsDeveloperRole?: boolean;
+	/**
+	 * Whether this mapping's upstream accepts a conversation whose last message is
+	 * an assistant turn (assistant prefill / continuation). Defaults to `true`
+	 * (assumed supported). When set to `false`, routing skips this mapping for
+	 * requests that end on an assistant message, since the upstream rejects them
+	 * with a 400 ("a conversation cannot end on an assistant turn").
+	 */
+	supportsAssistantPrefill?: boolean;
+	/**
 	 * Test skip/only functionality
 	 */
 	test?: "skip" | "only";
@@ -482,12 +552,44 @@ export interface ProviderModelMapping {
 	 */
 	speechGenerations?: boolean;
 	/**
+	 * Whether this model uses the dedicated realtime WebSocket API.
+	 * When true, sessions are served by the gateway's /v1/realtime endpoint
+	 * (server-to-server WebSocket proxy) rather than /v1/chat/completions.
+	 * Pricing uses the modality-specific token prices on this mapping
+	 * (inputPrice/cachedInputPrice/outputPrice for text, inputAudioPrice/
+	 * cachedInputAudioPrice/outputAudioPrice for audio, imageInputPrice/
+	 * cachedImageInputPrice for image input).
+	 */
+	realtime?: boolean;
+	/**
+	 * Whether this mapping can transcribe input audio for realtime sessions.
+	 * When true, the gateway's /v1/realtime proxy allows this mapping as the
+	 * `input_audio_transcription.model` of a realtime session and bills each
+	 * `conversation.item.input_audio_transcription.completed` event against
+	 * this mapping's token prices (inputPrice for text tokens, inputAudioPrice
+	 * for audio tokens, outputPrice for output tokens). Only token-metered ASR
+	 * mappings may set this; duration-billed models are not priceable here.
+	 */
+	realtimeTranscription?: boolean;
+	/**
+	 * Whether this model uses a dedicated transcription (speech-to-text) API.
+	 * When true, requests are routed to the gateway's /v1/audio/transcriptions
+	 * endpoint, which turns audio into text rather than returning a chat
+	 * completion. Billed on audio duration via inputAudioHourPrice.
+	 */
+	transcriptions?: boolean;
+	/**
 	 * Whether this model uses a dedicated OCR (optical character recognition)
 	 * API. When true, requests are routed to the gateway's /v1/ocr endpoint,
 	 * which extracts text/markdown from documents and images rather than
 	 * returning a chat completion. Billed per page processed via ocrPagePrice.
 	 */
 	ocr?: boolean;
+	/**
+	 * Whether this model uses a dedicated rerank API.
+	 * When true, requests are routed to the gateway's /v1/rerank endpoint.
+	 */
+	rerank?: boolean;
 	/**
 	 * Prebuilt voices supported for speech generation models. The first entry is
 	 * used as the default when the caller does not specify a `voice`.
@@ -536,6 +638,9 @@ export interface ProviderModelMapping {
 
 export type StabilityLevel = "stable" | "beta" | "unstable" | "experimental";
 
+export type Quantization =
+	"int4" | "int8" | "fp4" | "fp6" | "fp8" | "fp16" | "bf16" | "fp32";
+
 export interface ModelDefinition {
 	/**
 	 * Unique identifier for the model
@@ -571,7 +676,16 @@ export interface ModelDefinition {
 	/**
 	 * Output formats supported by the model (defaults to ['text'] if not specified)
 	 */
-	output?: ("text" | "image" | "video" | "embedding" | "audio" | "ocr")[];
+	output?: (
+		| "text"
+		| "image"
+		| "video"
+		| "embedding"
+		| "audio"
+		| "ocr"
+		| "transcription"
+		| "rerank"
+	)[];
 	/**
 	 * Whether this model requires an image input to function (e.g. image editing models).
 	 */
@@ -618,11 +732,14 @@ export const models = [
 	...moonshotModels,
 	...alibabaModels,
 	...atlascloudModels,
+	...baaiModels,
 	...bytedanceModels,
 	...nousresearchModels,
 	...reveModels,
 	...sakanaModels,
+	...tencentModels,
 	...nvidiaModels,
+	...openbmbModels,
 	...zaiModels,
 	...elevenlabsModels,
 ] as const satisfies ModelDefinition[];

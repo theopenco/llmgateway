@@ -15,20 +15,30 @@ import { CodeCTATracker } from "@/components/LandingTracker";
 import { PricingPlans } from "@/components/PricingPlans";
 import { Button } from "@/components/ui/button";
 import { getConfig } from "@/lib/config-server";
+import { buildDevPassProductSchema } from "@/lib/product-schema";
+import { formatUsageRatio } from "@/lib/utils";
 
-import { DEV_PLAN_PRICES, getDevPlanCreditsLimit } from "@llmgateway/shared";
+import {
+	DEV_PLAN_INCLUDED_RESET_PASSES,
+	DEV_PLAN_PREMIUM_WEEKLY_PERCENT,
+	DEV_PLAN_PRICES,
+	DEV_PLAN_RESET_PASS_PRICES,
+	getDevPlanCreditsLimit,
+	HIGH_COST_INPUT_PRICE,
+	HIGH_COST_OUTPUT_PRICE,
+} from "@llmgateway/shared";
 
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
 	title: "Pricing — DevPass",
 	description:
-		"Flat-rate AI coding plans. Lite, Pro, and Max — every plan includes 280+ models metered at provider rates.",
+		"Flat-rate AI coding plans. Lite, Pro, and Max — every plan includes 200+ models metered at provider rates.",
 	alternates: { canonical: "/pricing" },
 	openGraph: {
 		title: "Pricing — DevPass",
 		description:
-			"Flat-rate AI coding plans. Every plan includes 280+ models — Claude Opus 4.7, GPT-5.5, Gemini 3.1 Pro, GLM-4.7, and more.",
+			"Flat-rate AI coding plans. Every plan includes 200+ models — Claude Opus 4.8, GPT-5.5, Gemini 3.1 Pro, GLM-4.7, and more.",
 	},
 };
 
@@ -40,167 +50,48 @@ interface UsageRow {
 	emphasis?: boolean;
 }
 
-function formatUsd(amount: number): string {
-	return Number.isInteger(amount)
-		? `$${amount}`
-		: `$${amount.toFixed(2).replace(/\.?0+$/, "")}`;
-}
-
 const liteCredits = getDevPlanCreditsLimit("lite");
 const proCredits = getDevPlanCreditsLimit("pro");
 const maxCredits = getDevPlanCreditsLimit("max");
 
-const productSchema = {
-	"@context": "https://schema.org",
-	"@type": "Product",
-	name: "DevPass by LLM Gateway",
-	description:
-		"Flat-rate AI coding plans with access to 280+ models — Claude Opus 4.7, GPT-5.5, Gemini 3.1 Pro, GLM-4.7, and more. Works with Claude Code, OpenCode, SoulForge, and any OpenAI-compatible tool.",
-	brand: {
-		"@type": "Brand",
-		name: "LLM Gateway",
-	},
-	offers: {
-		"@type": "AggregateOffer",
-		priceCurrency: "USD",
-		lowPrice: DEV_PLAN_PRICES.lite,
-		highPrice: DEV_PLAN_PRICES.max,
-		offerCount: 3,
-		offers: [
-			{
-				"@type": "Offer",
-				name: "DevPass Lite",
-				price: DEV_PLAN_PRICES.lite,
-				priceCurrency: "USD",
-				url: "https://devpass.llmgateway.io/pricing",
-				availability: "https://schema.org/InStock",
-				priceSpecification: {
-					"@type": "UnitPriceSpecification",
-					price: DEV_PLAN_PRICES.lite,
-					priceCurrency: "USD",
-					unitCode: "MON",
-					referenceQuantity: {
-						"@type": "QuantitativeValue",
-						value: 1,
-						unitCode: "MON",
-					},
-				},
-			},
-			{
-				"@type": "Offer",
-				name: "DevPass Pro",
-				price: DEV_PLAN_PRICES.pro,
-				priceCurrency: "USD",
-				url: "https://devpass.llmgateway.io/pricing",
-				availability: "https://schema.org/InStock",
-				priceSpecification: {
-					"@type": "UnitPriceSpecification",
-					price: DEV_PLAN_PRICES.pro,
-					priceCurrency: "USD",
-					unitCode: "MON",
-					referenceQuantity: {
-						"@type": "QuantitativeValue",
-						value: 1,
-						unitCode: "MON",
-					},
-				},
-			},
-			{
-				"@type": "Offer",
-				name: "DevPass Max",
-				price: DEV_PLAN_PRICES.max,
-				priceCurrency: "USD",
-				url: "https://devpass.llmgateway.io/pricing",
-				availability: "https://schema.org/InStock",
-				priceSpecification: {
-					"@type": "UnitPriceSpecification",
-					price: DEV_PLAN_PRICES.max,
-					priceCurrency: "USD",
-					unitCode: "MON",
-					referenceQuantity: {
-						"@type": "QuantitativeValue",
-						value: 1,
-						unitCode: "MON",
-					},
-				},
-			},
-		],
-	},
-};
+const premiumInputPerM = Math.round(HIGH_COST_INPUT_PRICE * 1_000_000);
+const premiumOutputPerM = Math.round(HIGH_COST_OUTPUT_PRICE * 1_000_000);
+
+const productSchema = buildDevPassProductSchema(
+	"https://devpass.llmgateway.io/pricing",
+);
 
 const usageRows: UsageRow[] = [
 	{
-		label: "You pay",
-		lite: `${formatUsd(DEV_PLAN_PRICES.lite)}/mo`,
-		pro: `${formatUsd(DEV_PLAN_PRICES.pro)}/mo`,
-		max: `${formatUsd(DEV_PLAN_PRICES.max)}/mo`,
-	},
-	{
-		label: "Monthly model usage at provider rates",
-		lite: formatUsd(liteCredits),
-		pro: formatUsd(proCredits),
-		max: formatUsd(maxCredits),
+		label: "Usage value (metered at provider rates)",
+		lite: `${formatUsageRatio(liteCredits, DEV_PLAN_PRICES.lite)} what you pay`,
+		pro: `${formatUsageRatio(proCredits, DEV_PLAN_PRICES.pro)} what you pay`,
+		max: `${formatUsageRatio(maxCredits, DEV_PLAN_PRICES.max)} what you pay`,
 		emphasis: true,
 	},
 	{
-		label: "Models included",
-		lite: "200+",
-		pro: "200+",
-		max: "200+",
+		label: `Premium model fair-use ($${premiumInputPerM}+/M input or $${premiumOutputPerM}+/M output)`,
+		lite: `${Math.round(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.lite * 100)}% of credits`,
+		pro: `${Math.round(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.pro * 100)}% of credits`,
+		max: `${Math.round(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.max * 100)}% of credits`,
 	},
 	{
-		label: "Latest flagships (Opus 4.7, GPT-5.5, Gemini 3.1 Pro)",
-		lite: true,
-		pro: true,
-		max: true,
+		label: "Reset Passes included (instant premium-allowance reset)",
+		lite: `Buy anytime · $${DEV_PLAN_RESET_PASS_PRICES.lite}`,
+		pro: `${DEV_PLAN_INCLUDED_RESET_PASSES.pro}/month · extras $${DEV_PLAN_RESET_PASS_PRICES.pro}`,
+		max: `${DEV_PLAN_INCLUDED_RESET_PASSES.max}/month · extras $${DEV_PLAN_RESET_PASS_PRICES.max}`,
 	},
 	{
-		label: "Open-weight Chinese coders (GLM-4.7, Qwen3, Kimi K2.6)",
-		lite: true,
-		pro: true,
-		max: true,
-	},
-	{
-		label: "Works with Claude Code, OpenCode, SoulForge",
-		lite: true,
-		pro: true,
-		max: true,
-	},
-	{
-		label: "Any OpenAI/Anthropic-compatible tool",
-		lite: true,
-		pro: true,
-		max: true,
-	},
-	{
-		label: "Real-time usage dashboard",
-		lite: true,
-		pro: true,
-		max: true,
-	},
-	{
-		label: "Per-request cost & latency analytics",
-		lite: true,
-		pro: true,
-		max: true,
-	},
-	{
-		label: "Switch tiers anytime (prorated)",
-		lite: true,
-		pro: true,
-		max: true,
-	},
-	{
-		label: "Email support",
-		lite: true,
-		pro: true,
-		max: true,
-	},
-	{
-		label: "Priority support",
+		label: "Priority routing on flagship models",
 		lite: false,
 		pro: true,
 		max: true,
+	},
+	{
+		label: "Support",
+		lite: "Email",
+		pro: "Priority",
+		max: "Front of queue",
 	},
 	{
 		label: "Headroom for all-day agent runs",
@@ -208,6 +99,17 @@ const usageRows: UsageRow[] = [
 		pro: false,
 		max: true,
 	},
+];
+
+const includedInEveryPlan = [
+	"All 200+ models — flagships land day one",
+	"Claude Opus 4.8, GPT-5.5, Gemini 3.1 Pro",
+	"Open-weight coders — GLM-4.7, Qwen3, Kimi K2.6",
+	"DevPass Code, Claude Code, OpenCode, Empryo, SoulForge",
+	"Any OpenAI/Anthropic-compatible tool",
+	"Real-time dashboard with per-request cost & latency",
+	"Switch tiers anytime — no lock-in, no cancellation fee",
+	"7-day first-month guarantee",
 ];
 
 function Cell({
@@ -238,7 +140,9 @@ function Cell({
 	return (
 		<span
 			className={`font-mono text-sm tabular-nums ${
-				emphasis ? "font-bold text-foreground" : "font-medium text-foreground"
+				emphasis
+					? "font-bold text-emerald-600 dark:text-emerald-400"
+					: "font-medium text-foreground"
 			}`}
 		>
 			{value}
@@ -298,29 +202,24 @@ export default function PricingPage() {
 								pro: proCredits,
 								max: maxCredits,
 							}}
+							paygoUrl={config.uiUrl}
 						/>
-						<p className="mx-auto mt-6 max-w-3xl text-center text-xs text-muted-foreground">
-							Premium-tier frontier models (Anthropic Opus, OpenAI
-							Pro/reasoning, Gemini Pro, Grok 4) are subject to a weekly
-							fair-use allowance ($10 / $50 / $140 for Lite / Pro / Max) in
-							addition to the monthly credit allowance. All other 280+ models
-							use the full monthly allowance with the 3x multiplier.
-						</p>
 					</div>
 				</section>
 
 				<section className="py-20 px-4">
 					<div className="container mx-auto max-w-5xl">
 						<div className="mb-12 max-w-2xl">
-							<p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+							<p className="mb-3 font-mono text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
 								Compare plans
 							</p>
 							<h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
-								What&apos;s in each plan
+								Where the plans differ
 							</h2>
 							<p className="mt-3 text-muted-foreground">
-								Every tier ships with the full model catalog. The only thing
-								that changes is how much usage you have to play with each month.
+								Every tier ships with the full model catalog. Three dials
+								change: your monthly usage allowance, the weekly premium-model
+								fair-use, and support.
 							</p>
 						</div>
 
@@ -338,10 +237,10 @@ export default function PricingPage() {
 													${DEV_PLAN_PRICES.lite}/mo
 												</div>
 											</th>
-											<th className="px-5 py-4 text-center font-medium">
+											<th className="bg-emerald-500/[0.06] px-5 py-4 text-center font-medium">
 												<div className="font-semibold text-foreground">
 													Pro
-													<span className="ml-1.5 rounded-full bg-foreground px-1.5 py-0.5 text-[9px] font-semibold text-background">
+													<span className="ml-1.5 rounded-full bg-emerald-600 px-1.5 py-0.5 text-[9px] font-semibold text-white dark:bg-emerald-500 dark:text-emerald-950">
 														POPULAR
 													</span>
 												</div>
@@ -379,7 +278,7 @@ export default function PricingPage() {
 												<td className="px-5 py-3.5 text-center">
 													<Cell value={row.lite} emphasis={row.emphasis} />
 												</td>
-												<td className="px-5 py-3.5 text-center bg-muted/20">
+												<td className="bg-emerald-500/[0.04] px-5 py-3.5 text-center">
 													<Cell value={row.pro} emphasis={row.emphasis} />
 												</td>
 												<td className="px-5 py-3.5 text-center">
@@ -397,6 +296,25 @@ export default function PricingPage() {
 							(input, output, and cached tokens). Every request shows its dollar
 							value in your dashboard in real time.
 						</p>
+
+						<div className="mt-10 rounded-2xl border border-dashed bg-muted/20 p-6 sm:p-8">
+							<p className="mb-5 font-mono text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+								Included in every plan
+							</p>
+							<ul className="grid gap-x-10 gap-y-3 sm:grid-cols-2">
+								{includedInEveryPlan.map((item) => (
+									<li key={item} className="flex items-start gap-2.5">
+										<Check
+											aria-hidden="true"
+											className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400"
+										/>
+										<span className="text-sm text-muted-foreground">
+											{item}
+										</span>
+									</li>
+								))}
+							</ul>
+						</div>
 					</div>
 				</section>
 
@@ -454,8 +372,9 @@ export default function PricingPage() {
 							Still deciding?
 						</h2>
 						<p className="mb-8 text-muted-foreground">
-							Start on Pro — most developers ship from there. Switch tiers any
-							time, prorated.
+							Start on Pro — most developers ship from there. An instant upgrade
+							brings the new allowance right away and rolls your unused credits
+							on top.
 						</p>
 						<div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
 							<GetDevPassButton

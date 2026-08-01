@@ -36,7 +36,7 @@ const formSchema = z.object({
 	email: z.string().email({ message: "Please enter a valid email address" }),
 	password: z
 		.string()
-		.min(8, { message: "Password must be at least 8 characters" }),
+		.min(12, { message: "Password must be at least 12 characters" }),
 });
 
 function getSafeRedirectUrl(url: string | null): string {
@@ -138,12 +138,12 @@ function Signup() {
 			<ChatBrandPanel
 				headline={
 					<>
-						Every model.
+						Every model
 						<br />
-						One chat.
+						is waiting inside.
 					</>
 				}
-				subline="Chat with GPT, Claude, Gemini, and hundreds more. Compare answers side by side, then create images, video, and audio — all with one account."
+				subline="Chat with GPT, Claude, Gemini, and hundreds more. Compare answers side by side, then create images, video, and audio — all with one membership."
 			/>
 
 			<div className="flex w-full flex-col justify-center px-6 py-10 sm:px-12 lg:w-1/2 lg:px-16 xl:px-24">

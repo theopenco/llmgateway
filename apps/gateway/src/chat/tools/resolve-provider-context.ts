@@ -5,9 +5,9 @@ import {
 	findCustomProviderKey,
 	findProviderKey,
 } from "@/lib/cached-queries.js";
-import { getVertexOpenAIAccessToken } from "@/lib/vertex-openai-token.js";
 
 import {
+	getGcpServiceAccountAccessToken,
 	getProviderEndpoint,
 	getProviderHeaders,
 	isPremiumServiceTier,
@@ -17,12 +17,14 @@ import {
 } from "@llmgateway/actions";
 import {
 	type BaseMessage,
-	getRegionSpecificEnvValue,
-	getProviderEnvVar,
+	getOrganizationEnvVariant,
+	getRegionSpecificEnvVarName,
+	getVariantEnvVarNameFor,
 	hasMaxTokens,
 	type ModelDefinition,
 	type OpenAIRequestBody,
 	type OpenAIToolInput,
+	type PromptCacheOptions,
 	type PromptCacheRetention,
 	type Provider,
 	type ProviderRequestBody,
@@ -39,6 +41,7 @@ import {
 	isPremiumModel,
 } from "@llmgateway/shared";
 
+import { clampTemperature } from "./clamp-temperature.js";
 import {
 	getProviderEnv,
 	getServiceTierIneligibleEnvIndices,
@@ -86,6 +89,12 @@ export interface ProviderContext {
 	top_p: number | undefined;
 	frequency_penalty: number | undefined;
 	presence_penalty: number | undefined;
+	/**
+	 * Parameters dropped because the selected mapping's supportedParameters
+	 * doesn't include them. Merged into routingMetadata.strippedParameters so
+	 * retry fallbacks keep the logged metadata accurate.
+	 */
+	strippedParameters: string[];
 	headers: Record<string, string>;
 	usedRegion: string | undefined;
 }
@@ -118,6 +127,8 @@ export interface ProviderContextOptions {
 	reasoning_max_tokens: number | undefined;
 	prompt_cache_key: string | undefined;
 	prompt_cache_retention: PromptCacheRetention | undefined;
+	prompt_cache_options: PromptCacheOptions | undefined;
+	session_id: string | undefined;
 	effort: "low" | "medium" | "high" | undefined;
 	webSearchTool: WebSearchTool | undefined;
 	image_config:
@@ -140,6 +151,7 @@ export interface ProviderContextOptions {
 	n?: number;
 	providerCacheControlEnabled: boolean;
 	service_tier?: "auto" | "default" | "flex" | "priority";
+	verbosity?: "low" | "medium" | "high";
 }
 
 interface ProjectInfo {
@@ -150,6 +162,8 @@ interface ProjectInfo {
 interface OrgInfo {
 	id: string;
 	credits: string | null;
+	plan: string;
+	kind: string;
 	devPlan: string;
 	devPlanCreditsLimit: string | null;
 	devPlanCreditsUsed: string | null;
@@ -196,13 +210,30 @@ export function assertDevPlanPremiumCapNotExceeded(
 		weekStart.getTime() + DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
 	);
 	const msUntilReset = Math.max(0, resetAt.getTime() - Date.now());
-	const daysUntilReset = Math.max(
-		1,
-		Math.ceil(msUntilReset / (24 * 60 * 60 * 1000)),
-	);
 	throw new HTTPException(402, {
-		message: `You've used your weekly allowance for premium-tier models on the ${tier} plan. Upgrade for a higher allowance, or use any standard model now. Resets in ${daysUntilReset} day${daysUntilReset === 1 ? "" : "s"}.`,
+		message: `You've used your weekly allowance for premium-tier models on the ${tier} plan. Redeem a Reset Pass from your dashboard for an instant reset, upgrade for a higher allowance, or use any standard model now. Resets in ${formatTimeUntilReset(msUntilReset)}.`,
 	});
+}
+
+/**
+ * Formats a duration as "N days and M hours", dropping zero components and
+ * rounding up to the next hour so the wait is never understated.
+ */
+export function formatTimeUntilReset(ms: number): string {
+	if (ms < 60 * 60 * 1000) {
+		return "less than an hour";
+	}
+	const totalHours = Math.ceil(ms / (60 * 60 * 1000));
+	const days = Math.floor(totalHours / 24);
+	const hours = totalHours % 24;
+	const parts: string[] = [];
+	if (days > 0) {
+		parts.push(`${days} day${days === 1 ? "" : "s"}`);
+	}
+	if (hours > 0) {
+		parts.push(`${hours} hour${hours === 1 ? "" : "s"}`);
+	}
+	return parts.join(" and ");
 }
 
 // Mirrors the initial credit gate in chat.ts so retry/fallback paths that
@@ -312,6 +343,10 @@ export async function resolveProviderContext(
 	let configIndex = 0;
 	let envVarName: string | undefined;
 
+	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
+	// this org's env-credential reads. Undefined = base vars only.
+	const envVariant = getOrganizationEnvVariant(organization);
+
 	// Flex/Priority is only honored when the request reaches the provider's real
 	// upstream endpoint. Skip provider keys whose custom base URL (proxy) may
 	// silently drop the tier, so a compliant key (or the managed env credential)
@@ -331,7 +366,7 @@ export async function resolveProviderContext(
 		if (!serviceTierKeyFilter) {
 			return options.excludedEnvKeyIndices;
 		}
-		const ineligible = getServiceTierIneligibleEnvIndices(provider);
+		const ineligible = getServiceTierIneligibleEnvIndices(provider, envVariant);
 		if (ineligible.size === 0) {
 			return options.excludedEnvKeyIndices;
 		}
@@ -368,6 +403,7 @@ export async function resolveProviderContext(
 		const envResult = getProviderEnv(usedProvider as Provider, {
 			excludedIndices: serviceTierEnvExcludedIndices(usedProvider as Provider),
 			selectionScope: usedInternalModel,
+			variant: envVariant,
 		});
 		usedToken = envResult.token;
 		configIndex = envResult.configIndex;
@@ -399,6 +435,7 @@ export async function resolveProviderContext(
 					usedProvider as Provider,
 				),
 				selectionScope: usedInternalModel,
+				variant: envVariant,
 			});
 			usedToken = envResult.token;
 			configIndex = envResult.configIndex;
@@ -438,17 +475,21 @@ export async function resolveProviderContext(
 		}
 	}
 
-	// Override token with region-specific env var if available (credits/hybrid mode)
+	// Override with region-specific env var if a non-default region is selected
+	// (credits/hybrid mode). Health attribution must follow the credential we
+	// actually send.
 	if (usedRegion && !providerKey) {
-		const regionToken = getRegionSpecificEnvValue(usedProvider, usedRegion);
-		if (regionToken) {
-			usedToken = regionToken;
-			// Update envVarName to reflect the regional env var
-			const baseEnvVar = getProviderEnvVar(usedProvider);
-			if (baseEnvVar) {
-				const regionSuffix = usedRegion.toUpperCase().replace(/-/g, "_");
-				const regionalEnvVar = `${baseEnvVar}__${regionSuffix}`;
-				envVarName = process.env[regionalEnvVar] ? regionalEnvVar : baseEnvVar;
+		const regionEnvVarName = getRegionSpecificEnvVarName(
+			usedProvider,
+			usedRegion,
+			envVariant,
+		);
+		if (regionEnvVarName) {
+			const regionToken = process.env[regionEnvVarName];
+			if (regionToken) {
+				usedToken = regionToken;
+				envVarName = regionEnvVarName;
+				configIndex = 0;
 			}
 		}
 	}
@@ -491,6 +532,7 @@ export async function resolveProviderContext(
 					providerKey?.options ?? undefined,
 					configIndex,
 					isBYOK,
+					envVariant,
 				)
 			: undefined;
 	const url = getProviderEndpoint(
@@ -499,6 +541,7 @@ export async function resolveProviderContext(
 		upstreamModelName,
 		usedProvider === "google-ai-studio" ||
 			usedProvider === "glacier" ||
+			usedProvider === "iceberg" ||
 			usedProvider === "google-vertex" ||
 			usedProvider === "quartz" ||
 			usedProvider === "vertex-anthropic"
@@ -514,6 +557,7 @@ export async function resolveProviderContext(
 		isBYOK,
 		usedInternalModel,
 		vertexTokenType,
+		envVariant,
 	);
 
 	if (!url) {
@@ -532,29 +576,35 @@ export async function resolveProviderContext(
 	let frequency_penalty = originalParams.frequency_penalty;
 	let presence_penalty = originalParams.presence_penalty;
 
+	const strippedParameters: string[] = [];
 	if (providerMappingForSelected) {
 		const supported = providerMappingForSelected.supportedParameters;
 		if (supported && supported.length > 0) {
 			if (temperature !== undefined && !supported.includes("temperature")) {
 				temperature = undefined;
+				strippedParameters.push("temperature");
 			}
 			if (top_p !== undefined && !supported.includes("top_p")) {
 				top_p = undefined;
+				strippedParameters.push("top_p");
 			}
 			if (
 				frequency_penalty !== undefined &&
 				!supported.includes("frequency_penalty")
 			) {
 				frequency_penalty = undefined;
+				strippedParameters.push("frequency_penalty");
 			}
 			if (
 				presence_penalty !== undefined &&
 				!supported.includes("presence_penalty")
 			) {
 				presence_penalty = undefined;
+				strippedParameters.push("presence_penalty");
 			}
 			if (max_tokens !== undefined && !supported.includes("max_tokens")) {
 				max_tokens = undefined;
+				strippedParameters.push("max_tokens");
 			}
 		}
 	}
@@ -565,6 +615,8 @@ export async function resolveProviderContext(
 			top_p = undefined;
 		}
 	}
+
+	temperature = clampTemperature(temperature, usedProvider);
 
 	// --- max_tokens validation ---
 	if (max_tokens !== undefined && providerMappingForSelected) {
@@ -643,6 +695,9 @@ export async function resolveProviderContext(
 		options.providerCacheControlEnabled,
 		options.n,
 		options.service_tier,
+		options.verbosity,
+		options.prompt_cache_options,
+		options.session_id,
 	);
 
 	// Post-validation of max_tokens in request body
@@ -674,8 +729,13 @@ export async function resolveProviderContext(
 	if (usedProvider === "vertex-openai") {
 		const fullSaJson = providerKey
 			? usedToken
-			: (process.env.LLM_VERTEX_OPENAI_SERVICE_ACCOUNT_JSON ?? "");
-		usedToken = await getVertexOpenAIAccessToken(fullSaJson);
+			: (process.env[
+					getVariantEnvVarNameFor(
+						"LLM_VERTEX_OPENAI_SERVICE_ACCOUNT_JSON",
+						envVariant,
+					) ?? "LLM_VERTEX_OPENAI_SERVICE_ACCOUNT_JSON"
+				] ?? "");
+		usedToken = await getGcpServiceAccountAccessToken(fullSaJson);
 	}
 
 	// --- Headers ---
@@ -728,6 +788,7 @@ export async function resolveProviderContext(
 		top_p,
 		frequency_penalty,
 		presence_penalty,
+		strippedParameters,
 		headers,
 		usedRegion,
 	};

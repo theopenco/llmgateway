@@ -20,6 +20,9 @@ export const xiaomiModels = [
 				maxOutput: 131072,
 				streaming: true,
 				reasoning: true,
+				// Xiaomi accepts low/medium/high natively and rejects the other
+				// tiers with a 400; `none` maps to the binary thinking disable.
+				reasoningEfforts: ["none", "low", "medium", "high"],
 				vision: false,
 				tools: true,
 				jsonOutput: true,
@@ -35,6 +38,7 @@ export const xiaomiModels = [
 		releasedAt: new Date("2026-03-18"),
 		providers: [
 			{
+				deactivatedAt: new Date("2026-06-30"),
 				providerId: "xiaomi" as const,
 				externalId: "mimo-v2-pro",
 				inputPrice: "1e-6",
@@ -70,6 +74,9 @@ export const xiaomiModels = [
 				maxOutput: 131072,
 				streaming: true,
 				reasoning: true,
+				// Xiaomi accepts low/medium/high natively and rejects the other
+				// tiers with a 400; `none` maps to the binary thinking disable.
+				reasoningEfforts: ["none", "low", "medium", "high"],
 				vision: true,
 				tools: true,
 				jsonOutput: true,
@@ -85,6 +92,7 @@ export const xiaomiModels = [
 		releasedAt: new Date("2026-03-18"),
 		providers: [
 			{
+				deactivatedAt: new Date("2026-06-30"),
 				providerId: "xiaomi" as const,
 				externalId: "mimo-v2-omni",
 				inputPrice: "0.4e-6",

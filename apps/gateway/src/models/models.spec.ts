@@ -49,6 +49,101 @@ describe("Models API", () => {
 		expect(firstModel).toHaveProperty("structured_outputs");
 	});
 
+	// Claude Code populates its /model picker from GET /v1/models?limit=1000 when
+	// CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1. It reads `id` and the optional
+	// `display_name` off each `data` entry and drops ids that don't start with
+	// "claude"/"anthropic", so our Claude models must keep carrying a label.
+	test("GET /v1/models serves the Claude Code gateway discovery contract", async () => {
+		const res = await app.request("/v1/models?limit=1000");
+		expect(res.status).toBe(200);
+
+		const json = await res.json();
+		expect(Array.isArray(json.data)).toBe(true);
+
+		for (const model of json.data) {
+			expect(typeof model.id).toBe("string");
+			expect(typeof model.display_name).toBe("string");
+			expect(model.display_name.length).toBeGreaterThan(0);
+		}
+
+		const discoverable = json.data.filter(
+			(m: { id: string }) =>
+				m.id.startsWith("claude") || m.id.startsWith("anthropic"),
+		);
+		expect(discoverable.length).toBeGreaterThan(0);
+
+		const sonnet = discoverable.find(
+			(m: { id: string }) => m.id === "claude-sonnet-5",
+		);
+		expect(sonnet?.display_name).toBe("Claude Sonnet 5");
+	});
+
+	test("GET /v1/models exposes min_cacheable_tokens on provider mappings that define it", async () => {
+		const res = await app.request("/v1/models");
+		expect(res.status).toBe(200);
+		const json = await res.json();
+
+		const haiku = json.data.find(
+			(m: { id: string }) => m.id === "claude-haiku-4-5",
+		);
+		expect(haiku).toBeDefined();
+		const anthropicMapping = haiku.providers.find(
+			(p: { providerId: string }) => p.providerId === "anthropic",
+		);
+		expect(anthropicMapping.min_cacheable_tokens).toBe(4096);
+
+		// Models without a defined threshold must omit the field entirely.
+		const gpt4o = json.data.find((m: { id: string }) => m.id === "gpt-4o");
+		if (gpt4o) {
+			for (const p of gpt4o.providers) {
+				expect(p.min_cacheable_tokens).toBeUndefined();
+			}
+		}
+	});
+
+	test("GET /v1/models exposes reasoning_efforts on provider mappings that define them", async () => {
+		const res = await app.request("/v1/models");
+		expect(res.status).toBe(200);
+		const json = await res.json();
+
+		const sol = json.data.find((m: { id: string }) => m.id === "gpt-5.6-sol");
+		expect(sol).toBeDefined();
+		const openaiMapping = sol.providers.find(
+			(p: { providerId: string }) => p.providerId === "openai",
+		);
+		expect(openaiMapping.reasoning_efforts).toEqual([
+			"none",
+			"low",
+			"medium",
+			"high",
+			"xhigh",
+			"max",
+		]);
+
+		const opus = json.data.find(
+			(m: { id: string }) => m.id === "claude-opus-4-7",
+		);
+		expect(opus).toBeDefined();
+		const anthropicMapping = opus.providers.find(
+			(p: { providerId: string }) => p.providerId === "anthropic",
+		);
+		expect(anthropicMapping.reasoning_efforts).toEqual([
+			"low",
+			"medium",
+			"high",
+			"xhigh",
+			"max",
+		]);
+
+		// Mappings without declared effort values must omit the field entirely.
+		const gpt4o = json.data.find((m: { id: string }) => m.id === "gpt-4o");
+		if (gpt4o) {
+			for (const p of gpt4o.providers) {
+				expect(p.reasoning_efforts).toBeUndefined();
+			}
+		}
+	});
+
 	test("GET /v1/models should exclude deactivated models by default", async () => {
 		const res = await app.request("/v1/models");
 		expect(res.status).toBe(200);

@@ -5,19 +5,24 @@ import {
 	BarChart3,
 	Code,
 	CreditCard,
+	ExternalLink,
 	Loader2,
 	LogOut,
 	Settings,
+	Stamp,
 	UserRound,
 } from "lucide-react";
+import { motion, useReducedMotion } from "motion/react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import SurveyReminderDialog from "@/app/dashboard/components/SurveyReminderDialog";
 import { EmailVerificationBanner } from "@/components/EmailVerificationBanner";
+import { ThemeToggle } from "@/components/landing/theme-toggle";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -33,6 +38,10 @@ import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
+import {
+	trackPurchaseConversion,
+	trackSignupConversion,
+} from "@/lib/google-tag";
 import { useStripe } from "@/lib/stripe";
 import { cn } from "@/lib/utils";
 
@@ -52,9 +61,18 @@ const navItems: Array<{ label: string; href: Route; icon: typeof BarChart3 }> =
 	[
 		{ label: "Usage", href: "/dashboard" as Route, icon: BarChart3 },
 		{ label: "Billing", href: "/dashboard/billing" as Route, icon: CreditCard },
-		{ label: "Profile", href: "/profile" as Route, icon: UserRound },
+		{ label: "Profile", href: "/dashboard/profile" as Route, icon: UserRound },
 		{ label: "Settings", href: "/dashboard/settings" as Route, icon: Settings },
 	];
+
+// Pages that live on the DevPass site but outside the dashboard shell, so
+// they're rendered in their own subtle nav section with a link-out marker.
+// The census link is appended per render so its year stays current.
+const staticResourceNavItems: Array<{
+	label: string;
+	href: Route;
+	icon: typeof BarChart3;
+}> = [{ label: "Coding models", href: "/coding-models" as Route, icon: Code }];
 
 type SetupActivationStatus =
 	| "loading_stripe"
@@ -86,8 +104,8 @@ const setupActivationCopy: Record<
 			"DevPass will activate as soon as Stripe confirms the payment.",
 	},
 	success: {
-		title: "DevPass activated",
-		description: "Refreshing your dashboard.",
+		title: "Welcome aboard",
+		description: "Loading your dashboard.",
 	},
 	error: {
 		title: "Activation failed",
@@ -122,13 +140,25 @@ export default function DashboardShell({
 	initialUser?: UserMe | null;
 	initialDevPlanStatus?: DevPlanStatus | null;
 }) {
+	const resourceNavItems = useMemo(
+		() => [
+			...staticResourceNavItems,
+			{
+				label: "Model census",
+				href: `/data/${new Date().getUTCFullYear()}` as Route,
+				icon: Stamp,
+			},
+		],
+		[],
+	);
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
 	const posthog = usePostHog();
 	const { signOut } = useAuth();
 	const config = useAppConfig();
-	const { posthogKey } = config;
+	const { posthogKey, googleAdsPurchaseConversion, googleAdsSignupConversion } =
+		config;
 	const api = useApi();
 	const { stripe, isLoading: stripeLoading } = useStripe();
 	const queryClient = useQueryClient();
@@ -145,6 +175,43 @@ export default function DashboardShell({
 	const subscribeMutation = api.useMutation("post", "/dev-plans/subscribe");
 	const finalizeMutation = api.useMutation("post", "/dev-plans/finalize");
 	const setupSessionId = searchParams.get("setup_session_id");
+	const signupMethod = searchParams.get("signup_method");
+	const signupTracked = useRef(false);
+
+	// OAuth signups redirect away from /signup before it can capture anything,
+	// so better-auth sends brand-new accounts here with ?signup_method=<provider>
+	// (see SocialAuthButtons) and we fire the same analytics as the email path.
+	useEffect(() => {
+		if (!signupMethod || !user || signupTracked.current) {
+			return;
+		}
+		signupTracked.current = true;
+		if (posthogKey) {
+			posthog.capture("user_signed_up", {
+				email: user.email,
+				name: user.name,
+				method: signupMethod,
+			});
+		}
+		trackSignupConversion({
+			email: user.email,
+			method: signupMethod,
+			sendTo: googleAdsSignupConversion,
+		});
+		const params = new URLSearchParams(searchParams.toString());
+		params.delete("signup_method");
+		const query = params.toString();
+		router.replace((query ? `${pathname}?${query}` : pathname) as Route);
+	}, [
+		signupMethod,
+		user,
+		posthog,
+		posthogKey,
+		googleAdsSignupConversion,
+		searchParams,
+		router,
+		pathname,
+	]);
 
 	const [subscribingTier, setSubscribingTier] = useState<PlanTier | null>(null);
 	const [duplicateCardError, setDuplicateCardError] = useState<string | null>(
@@ -152,12 +219,24 @@ export default function DashboardShell({
 	);
 	const [setupActivationStatus, setSetupActivationStatus] =
 		useState<SetupActivationStatus | null>(null);
+	const reduceMotion = useReducedMotion();
 	const activeSetupSession = useRef<string | null>(null);
 	const finalizeDevPlanRef = useRef(finalizeMutation.mutateAsync);
+	const purchaseTrackedSession = useRef<string | null>(null);
+	const devPlanStatusRef = useRef(devPlanStatus);
+	const userEmailRef = useRef(user?.email);
 
 	useEffect(() => {
 		finalizeDevPlanRef.current = finalizeMutation.mutateAsync;
 	}, [finalizeMutation.mutateAsync]);
+
+	useEffect(() => {
+		devPlanStatusRef.current = devPlanStatus;
+	}, [devPlanStatus]);
+
+	useEffect(() => {
+		userEmailRef.current = user?.email;
+	}, [user?.email]);
 
 	useEffect(() => {
 		const sessionId = setupSessionId;
@@ -232,19 +311,36 @@ export default function DashboardShell({
 		};
 
 		finalizeDevPlan()
-			.then((result) => {
+			.then(async (result) => {
 				if (signal.aborted) {
 					return;
 				}
 				if (result?.status === "ok" || result?.status === "already_processed") {
 					setSetupActivationStatus("success");
-					toast.success("DevPass activated");
+					if (purchaseTrackedSession.current !== sessionId) {
+						purchaseTrackedSession.current = sessionId;
+						const tier = devPlanStatusRef.current?.devPlan;
+						const planData =
+							tier && tier !== "none"
+								? plans.find((plan) => plan.tier === tier)
+								: undefined;
+						trackPurchaseConversion({
+							email: userEmailRef.current ?? "",
+							value: planData?.price,
+							currency: "USD",
+							transactionId: sessionId,
+							sendTo: googleAdsPurchaseConversion,
+						});
+					}
 					void queryClient.invalidateQueries({
 						predicate: (query) => {
 							const key = query.queryKey;
 							return Array.isArray(key) && key[1] === "/dev-plans/status";
 						},
 					});
+					// Hold the success screen long enough for the stamp to land and
+					// be read before the setup param is cleared and the card unmounts.
+					await wait(1600, signal);
 				} else if (result?.status === "payment_pending") {
 					shouldClearSetupParam = false;
 					setSetupActivationStatus("processing");
@@ -305,6 +401,7 @@ export default function DashboardShell({
 		router,
 		stripe,
 		stripeLoading,
+		googleAdsPurchaseConversion,
 	]);
 
 	const handleSubscribe = async (tier: PlanTier): Promise<void> => {
@@ -382,6 +479,8 @@ export default function DashboardShell({
 				</AlertDialogContent>
 			</AlertDialog>
 
+			<SurveyReminderDialog active={Boolean(hasActivePlan)} />
+
 			{/* Header */}
 			<header className="border-b border-border/50">
 				<div className="container mx-auto flex items-center justify-between px-4 py-3">
@@ -400,6 +499,7 @@ export default function DashboardShell({
 						<span className="hidden sm:block text-sm text-muted-foreground">
 							{user?.email}
 						</span>
+						<ThemeToggle size="compact" />
 						<Button
 							variant="ghost"
 							size="sm"
@@ -418,14 +518,41 @@ export default function DashboardShell({
 			{activeSetupActivationCopy ? (
 				<main className="container mx-auto flex min-h-[calc(100vh-120px)] max-w-3xl items-center justify-center px-4 py-12">
 					<div className="w-full rounded-xl border bg-background p-8 text-center shadow-sm sm:p-12">
-						<div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-muted">
-							<Loader2
-								className={cn(
-									"h-10 w-10 text-foreground",
-									activeSetupActivationStatus !== "error" && "animate-spin",
-								)}
-							/>
-						</div>
+						{activeSetupActivationStatus === "success" ? (
+							<motion.div
+								initial={
+									reduceMotion
+										? { opacity: 0 }
+										: { opacity: 0, scale: 2.4, rotate: -18 }
+								}
+								animate={
+									reduceMotion
+										? { opacity: 1 }
+										: { opacity: 1, scale: 1, rotate: -8 }
+								}
+								transition={{ type: "spring", duration: 0.4 }}
+								className="mx-auto mb-6 flex justify-center"
+							>
+								<div className="rounded-md border-4 border-double border-emerald-700/80 px-6 py-3 text-center font-mono uppercase text-emerald-800 mix-blend-multiply dark:border-emerald-400/80 dark:text-emerald-300 dark:mix-blend-screen">
+									<div className="flex items-center justify-center gap-2 text-base font-bold tracking-[0.3em]">
+										<Stamp className="h-4 w-4" />
+										DevPass activated
+									</div>
+									<div className="mt-0.5 text-[9px] tracking-[0.2em]">
+										Visa granted · welcome aboard
+									</div>
+								</div>
+							</motion.div>
+						) : (
+							<div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-muted">
+								<Loader2
+									className={cn(
+										"h-10 w-10 text-foreground",
+										activeSetupActivationStatus !== "error" && "animate-spin",
+									)}
+								/>
+							</div>
+						)}
 						<h1 className="text-2xl font-semibold sm:text-3xl">
 							{activeSetupActivationCopy.title}
 						</h1>
@@ -438,7 +565,7 @@ export default function DashboardShell({
 				<div className="container mx-auto flex flex-col gap-8 px-4 py-8 lg:flex-row">
 					<aside className="lg:w-56 lg:shrink-0">
 						<div className="flex gap-1 lg:flex-col">
-							{navItems.map((item) => (
+							{[...navItems, ...resourceNavItems].map((item) => (
 								<Skeleton key={item.href} className="h-9 w-full lg:w-full" />
 							))}
 						</div>
@@ -474,6 +601,22 @@ export default function DashboardShell({
 									>
 										<Icon className="h-4 w-4" />
 										{item.label}
+									</Link>
+								);
+							})}
+							<div className="my-1 hidden border-t border-border/50 lg:block" />
+							{resourceNavItems.map((item) => {
+								const Icon = item.icon;
+								return (
+									<Link
+										key={item.href}
+										href={item.href}
+										prefetch
+										className="flex shrink-0 items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+									>
+										<Icon className="h-4 w-4" />
+										{item.label}
+										<ExternalLink className="ml-auto h-3 w-3 text-muted-foreground/60" />
 									</Link>
 								);
 							})}

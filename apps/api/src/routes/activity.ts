@@ -6,6 +6,12 @@ import {
 	getUserProjectIds,
 	userHasProjectAccess,
 } from "@/utils/authorization.js";
+import {
+	bucketDate,
+	generateTimeSlots,
+	isValidTimeZone,
+	zonedTimeToUtc,
+} from "@/utils/timezone.js";
 
 import {
 	db,
@@ -25,84 +31,8 @@ import {
 } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
-import type { SQLWrapper } from "@llmgateway/db";
 
 export const activity = new OpenAPIHono<ServerTypes>();
-
-function isValidTimeZone(timeZone: string): boolean {
-	try {
-		Intl.DateTimeFormat("en-US", { timeZone });
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-// Intl.DateTimeFormat construction is expensive and generateTimeSlots calls it
-// in a loop (up to ~8800 iterations for 365d), so reuse one formatter per zone.
-const timeZoneFormatters = new Map<string, Intl.DateTimeFormat>();
-
-function getTimeZoneFormatter(timeZone: string): Intl.DateTimeFormat {
-	let formatter = timeZoneFormatters.get(timeZone);
-	if (!formatter) {
-		formatter = new Intl.DateTimeFormat("en-US", {
-			timeZone,
-			year: "numeric",
-			month: "2-digit",
-			day: "2-digit",
-			hour: "2-digit",
-			minute: "2-digit",
-			second: "2-digit",
-			hourCycle: "h23",
-		});
-		timeZoneFormatters.set(timeZone, formatter);
-	}
-	return formatter;
-}
-
-function getTimeZoneParts(date: Date, timeZone: string) {
-	const parts = getTimeZoneFormatter(timeZone).formatToParts(date);
-	const result: Record<string, string> = {};
-	for (const part of parts) {
-		result[part.type] = part.value;
-	}
-	return result;
-}
-
-function formatInTimeZone(
-	date: Date,
-	timeZone: string,
-	isHourly: boolean,
-): string {
-	const p = getTimeZoneParts(date, timeZone);
-	const day = `${p.year}-${p.month}-${p.day}`;
-	return isHourly ? `${day}T${p.hour}:${p.minute}:${p.second}` : day;
-}
-
-function timeZoneOffsetMs(date: Date, timeZone: string): number {
-	const p = getTimeZoneParts(date, timeZone);
-	const asUtc = Date.UTC(
-		Number(p.year),
-		Number(p.month) - 1,
-		Number(p.day),
-		Number(p.hour),
-		Number(p.minute),
-		Number(p.second),
-	);
-	const wholeSecondsMs = Math.trunc(date.getTime() / 1000) * 1000;
-	return asUtc - wholeSecondsMs;
-}
-
-// Interpret a local wall-clock ISO string (no offset) in the given timezone
-// and return the corresponding UTC instant. Two passes to converge across DST
-// boundaries.
-function zonedTimeToUtc(localIso: string, timeZone: string): Date {
-	const wallClock = new Date(localIso + "Z");
-	const guess = new Date(
-		wallClock.getTime() - timeZoneOffsetMs(wallClock, timeZone),
-	);
-	return new Date(wallClock.getTime() - timeZoneOffsetMs(guess, timeZone));
-}
 
 // Define the response schema for model-specific usage
 const modelUsageSchema = z.object({
@@ -142,6 +72,7 @@ const dailyActivitySchema = z.object({
 	dataStorageCost: z.number(),
 	imageInputCost: z.number(),
 	audioInputCost: z.number(),
+	audioOutputCost: z.number(),
 	imageOutputCost: z.number(),
 	videoOutputCost: z.number(),
 	cachedInputCost: z.number(),
@@ -163,28 +94,6 @@ const dailyActivitySchema = z.object({
 
 type ActivityRow = z.infer<typeof dailyActivitySchema>;
 
-// Walk UTC hour boundaries (matching the hourly rollup buckets) and label each
-// in the requested timezone, deduping consecutive labels for daily granularity
-// and DST fall-back overlaps.
-function generateTimeSlots(
-	startDate: Date,
-	endDate: Date,
-	isHourly: boolean,
-	timeZone: string,
-): string[] {
-	const slots: string[] = [];
-	const cur = new Date(startDate);
-	cur.setUTCMinutes(0, 0, 0);
-	while (cur.getTime() <= endDate.getTime()) {
-		const slot = formatInTimeZone(cur, timeZone, isHourly);
-		if (slots[slots.length - 1] !== slot) {
-			slots.push(slot);
-		}
-		cur.setUTCHours(cur.getUTCHours() + 1);
-	}
-	return slots;
-}
-
 function buildEmptyActivityRow(date: string): ActivityRow {
 	return {
 		date,
@@ -201,6 +110,7 @@ function buildEmptyActivityRow(date: string): ActivityRow {
 		dataStorageCost: 0,
 		imageInputCost: 0,
 		audioInputCost: 0,
+		audioOutputCost: 0,
 		imageOutputCost: 0,
 		videoOutputCost: 0,
 		cachedInputCost: 0,
@@ -334,15 +244,6 @@ activity.openapi(getActivity, async (c) => {
 	// SQL expressions that change based on granularity
 	const isHourly = granularity === "hourly";
 
-	// Bucket UTC-stored hour timestamps as wall-clock strings in the caller's
-	// timezone, so daily grouping happens at local midnight rather than UTC.
-	// Grouping/ordering use positional references because a repeated bind
-	// parameter would make the GROUP BY expression differ from the SELECT one.
-	const bucketDate = (column: SQLWrapper) =>
-		isHourly
-			? sql<string>`to_char(${column} AT TIME ZONE 'UTC' AT TIME ZONE ${timeZone}, 'YYYY-MM-DD"T"HH24:MI:SS')`
-			: sql<string>`to_char(${column} AT TIME ZONE 'UTC' AT TIME ZONE ${timeZone}, 'YYYY-MM-DD')`;
-
 	// Projects the user can access (RBAC-aware: developers are limited to their
 	// granted projects).
 	const accessibleProjectIds = await getUserProjectIds(user.id);
@@ -372,7 +273,11 @@ activity.openapi(getActivity, async (c) => {
 		// Query aggregated data from apiKeyHourlyStats table
 		const hourlyAggregates = await db
 			.select({
-				date: bucketDate(apiKeyHourlyStats.hourTimestamp).as("date"),
+				date: bucketDate(
+					apiKeyHourlyStats.hourTimestamp,
+					timeZone,
+					isHourly,
+				).as("date"),
 				requestCount:
 					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCount}), 0)`.as(
 						"requestCount",
@@ -427,6 +332,10 @@ activity.openapi(getActivity, async (c) => {
 				audioInputCost:
 					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.audioInputCost}), 0)`.as(
 						"audioInputCost",
+					),
+				audioOutputCost:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.audioOutputCost}), 0)`.as(
+						"audioOutputCost",
 					),
 				imageOutputCost:
 					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.imageOutputCost}), 0)`.as(
@@ -492,7 +401,11 @@ activity.openapi(getActivity, async (c) => {
 		// Query model breakdown from apiKeyHourlyModelStats table
 		const modelBreakdowns = await db
 			.select({
-				date: bucketDate(apiKeyHourlyModelStats.hourTimestamp).as("date"),
+				date: bucketDate(
+					apiKeyHourlyModelStats.hourTimestamp,
+					timeZone,
+					isHourly,
+				).as("date"),
 				usedModel: apiKeyHourlyModelStats.usedModel,
 				usedProvider: apiKeyHourlyModelStats.usedProvider,
 				requestCount:
@@ -566,6 +479,7 @@ activity.openapi(getActivity, async (c) => {
 			const discountSavings = Number(day.discountSavings);
 			const imageInputCost = Number(day.imageInputCost);
 			const audioInputCost = Number(day.audioInputCost);
+			const audioOutputCost = Number(day.audioOutputCost);
 			const imageOutputCost = Number(day.imageOutputCost);
 			const videoOutputCost = Number(day.videoOutputCost);
 			const cachedInputCost = Number(day.cachedInputCost);
@@ -598,6 +512,7 @@ activity.openapi(getActivity, async (c) => {
 				dataStorageCost,
 				imageInputCost,
 				audioInputCost,
+				audioOutputCost,
 				imageOutputCost,
 				videoOutputCost,
 				cachedInputCost,
@@ -633,7 +548,9 @@ activity.openapi(getActivity, async (c) => {
 	// Query aggregated data from projectHourlyStats table
 	const hourlyAggregates = await db
 		.select({
-			date: bucketDate(projectHourlyStats.hourTimestamp).as("date"),
+			date: bucketDate(projectHourlyStats.hourTimestamp, timeZone, isHourly).as(
+				"date",
+			),
 			requestCount:
 				sql<number>`COALESCE(SUM(${projectHourlyStats.requestCount}), 0)`.as(
 					"requestCount",
@@ -684,6 +601,10 @@ activity.openapi(getActivity, async (c) => {
 			audioInputCost:
 				sql<number>`COALESCE(SUM(${projectHourlyStats.audioInputCost}), 0)`.as(
 					"audioInputCost",
+				),
+			audioOutputCost:
+				sql<number>`COALESCE(SUM(${projectHourlyStats.audioOutputCost}), 0)`.as(
+					"audioOutputCost",
 				),
 			imageOutputCost:
 				sql<number>`COALESCE(SUM(${projectHourlyStats.imageOutputCost}), 0)`.as(
@@ -759,7 +680,11 @@ activity.openapi(getActivity, async (c) => {
 	if (!breakdownByApiKey) {
 		const modelBreakdowns = await db
 			.select({
-				date: bucketDate(projectHourlyModelStats.hourTimestamp).as("date"),
+				date: bucketDate(
+					projectHourlyModelStats.hourTimestamp,
+					timeZone,
+					isHourly,
+				).as("date"),
 				usedModel: projectHourlyModelStats.usedModel,
 				usedProvider: projectHourlyModelStats.usedProvider,
 				requestCount:
@@ -819,7 +744,11 @@ activity.openapi(getActivity, async (c) => {
 	if (breakdownByApiKey) {
 		const apiKeyBreakdowns = await db
 			.select({
-				date: bucketDate(apiKeyHourlyStats.hourTimestamp).as("date"),
+				date: bucketDate(
+					apiKeyHourlyStats.hourTimestamp,
+					timeZone,
+					isHourly,
+				).as("date"),
 				apiKeyId: apiKeyHourlyStats.apiKeyId,
 				description: apiKey.description,
 				requestCount:
@@ -887,6 +816,7 @@ activity.openapi(getActivity, async (c) => {
 		const dataStorageCost = Number(day.dataStorageCost);
 		const imageInputCost = Number(day.imageInputCost);
 		const audioInputCost = Number(day.audioInputCost);
+		const audioOutputCost = Number(day.audioOutputCost);
 		const imageOutputCost = Number(day.imageOutputCost);
 		const videoOutputCost = Number(day.videoOutputCost);
 		const cachedInputCost = Number(day.cachedInputCost);
@@ -920,6 +850,7 @@ activity.openapi(getActivity, async (c) => {
 			dataStorageCost,
 			imageInputCost,
 			audioInputCost,
+			audioOutputCost,
 			imageOutputCost,
 			videoOutputCost,
 			cachedInputCost,
@@ -963,14 +894,23 @@ const sourceUsageSchema = z.object({
 });
 
 // Aggregated source usage for a single project, read from the per-project
-// hourly source rollup. Powers the agents dashboard. Limited to 7d/30d ranges.
+// hourly source rollup. Powers the agents dashboard. Supports 1h/4h/24h/7d/30d
+// ranges.
+const sourceActivityRangeHours = {
+	"1h": 1,
+	"4h": 4,
+	"24h": 24,
+	"7d": 7 * 24,
+	"30d": 30 * 24,
+} as const;
+
 const getSourceActivity = createRoute({
 	method: "get",
 	path: "/sources",
 	request: {
 		query: z.object({
 			projectId: z.string(),
-			timeRange: z.enum(["7d", "30d"]).optional(),
+			timeRange: z.enum(["1h", "4h", "24h", "7d", "30d"]).optional(),
 			from: z.string().optional(),
 			to: z.string().optional(),
 		}),
@@ -1008,8 +948,9 @@ activity.openapi(getSourceActivity, async (c) => {
 		endDate = new Date(to + "T23:59:59.999");
 	} else {
 		endDate = new Date();
-		startDate = new Date();
-		startDate.setDate(startDate.getDate() - (timeRange === "30d" ? 30 : 7));
+		const windowMs =
+			sourceActivityRangeHours[timeRange ?? "7d"] * 60 * 60 * 1000;
+		startDate = new Date(endDate.getTime() - windowMs);
 	}
 
 	if (!(await userHasProjectAccess(user.id, projectId))) {

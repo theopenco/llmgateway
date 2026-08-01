@@ -1,19 +1,16 @@
 import { enterpriseFeatures } from "@/lib/enterprise-features";
 import { features } from "@/lib/features";
+import { slugify } from "@/lib/slugify";
 
 import {
+	getProviderCountries,
 	models as modelDefinitions,
 	providers as providerDefinitions,
+	type ModelDefinition,
 } from "@llmgateway/models";
+import { isMappingDeactivated } from "@llmgateway/shared/components";
 
 import type { MetadataRoute } from "next";
-
-function slugify(label: string) {
-	return label
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, "-")
-		.replace(/(^-|-$)/g, "");
-}
 
 // Stable per-deploy timestamp. Using a single build-time date (instead of a
 // fresh `new Date()` per URL/request) keeps `lastModified` from reporting
@@ -117,7 +114,37 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			priority: 0.8,
 		},
 		{
+			url: `${baseUrl}/rankings`,
+			lastModified: buildDate,
+			changeFrequency: "daily",
+			priority: 0.8,
+		},
+		{
 			url: `${baseUrl}/enterprise`,
+			lastModified: buildDate,
+			changeFrequency: "monthly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/products/ai-gateway`,
+			lastModified: buildDate,
+			changeFrequency: "monthly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/products/lounge`,
+			lastModified: buildDate,
+			changeFrequency: "monthly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/products/devpass`,
+			lastModified: buildDate,
+			changeFrequency: "monthly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/products/observability`,
 			lastModified: buildDate,
 			changeFrequency: "monthly",
 			priority: 0.8,
@@ -172,6 +199,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		},
 		{
 			url: `${baseUrl}/token-cost-calculator`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.9,
+		},
+		{
+			url: `${baseUrl}/copilot-cost-calculator`,
 			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.9,
@@ -255,6 +288,60 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			priority: 0.7,
 		},
 		{
+			url: `${baseUrl}/models/roleplay`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/models/coding`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/models/creative-writing`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/models/translation`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/models/math`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/models/long-context`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/models/cheapest`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/models/open-source`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/models/premium`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
 			url: `${baseUrl}/mcp`,
 			lastModified: buildDate,
 			changeFrequency: "monthly",
@@ -277,6 +364,24 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/compare/aws-bedrock`,
+			lastModified: buildDate,
+			changeFrequency: "monthly",
+			priority: 0.7,
+		},
+		{
+			url: `${baseUrl}/compare/azure-ai-foundry`,
+			lastModified: buildDate,
+			changeFrequency: "monthly",
+			priority: 0.7,
+		},
+		{
+			url: `${baseUrl}/compare/github-copilot`,
+			lastModified: buildDate,
+			changeFrequency: "monthly",
+			priority: 0.7,
 		},
 		{
 			url: `${baseUrl}/compare/litellm`,
@@ -312,7 +417,16 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
 	// Model pages
 	const modelPages: MetadataRoute.Sitemap = [];
-	for (const model of modelDefinitions) {
+	for (const model of modelDefinitions as readonly ModelDefinition[]) {
+		// Fully deactivated models are hidden from the public directory, so they
+		// are not advertised for crawling either (the pages still resolve).
+		if (
+			model.providers.length > 0 &&
+			model.providers.every((p) => isMappingDeactivated(p))
+		) {
+			continue;
+		}
+
 		// Main model page
 		modelPages.push({
 			url: `${baseUrl}/models/${encodeURIComponent(model.id)}`,
@@ -321,19 +435,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			priority: 0.8,
 		});
 
-		// Model uptime page
-		modelPages.push({
-			url: `${baseUrl}/models/${encodeURIComponent(model.id)}/uptime`,
-			lastModified: buildDate,
-			changeFrequency: "daily",
-			priority: 0.5,
-		});
-
-		// Model + provider sub-pages (/models/{id}/{provider}) are intentionally
-		// excluded from the sitemap: they canonicalize to the base model page
-		// (/models/{id}), so listing them here only inflates Search Console's
-		// "Alternate page with proper canonical tag" report without adding any
-		// indexable URLs. Google still discovers them via internal links.
+		// Model uptime pages and model+provider sub-pages are intentionally
+		// excluded from the sitemap: uptime pages are thin templates that
+		// inflate crawl budget (~300 URLs), and provider sub-pages canonicalize
+		// to the base model page. Google still discovers both via internal links.
 	}
 
 	// Provider pages
@@ -344,6 +449,15 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			lastModified: buildDate,
 			changeFrequency: "weekly",
 			priority: 0.8,
+		}));
+
+	// Per-country provider pages
+	const providerCountryPages: MetadataRoute.Sitemap =
+		getProviderCountries().map((country) => ({
+			url: `${baseUrl}/providers/country/${country.code.toLowerCase()}`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.7,
 		}));
 
 	// Feature pages
@@ -455,6 +569,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		...timelineYearPages,
 		...modelPages,
 		...providerPages,
+		...providerCountryPages,
 		...featurePages,
 		...enterpriseFeaturePages,
 		...blogPages,

@@ -111,12 +111,16 @@ export function zeroInferenceCosts(costs: MutableInferenceCosts): void {
 
 /**
  * Check if billing for cancelled requests is enabled via environment variable.
- * Defaults to false if not set.
+ * Defaults to true if not set: a cancelled streaming request has already
+ * consumed upstream inference (prompt tokens, plus any completion tokens
+ * emitted before the client disconnected), so it must be billed by default to
+ * prevent a streaming-abort billing bypass (GHSA-724j-f2pf-phf7). Only an
+ * explicit "false" disables it.
  */
 export function shouldBillCancelledRequests(): boolean {
 	const envValue = process.env.BILL_CANCELLED_REQUESTS;
-	// Default to false if not set, only enable if explicitly set to "true"
-	return envValue === "true";
+	// Default to true unless explicitly disabled with "false".
+	return envValue !== "false";
 }
 
 /**
@@ -637,13 +641,22 @@ export async function calculateCosts(
 		.plus(audioInputCost ?? 0);
 
 	// For Google models, completionTokens already includes reasoning tokens
-	// (merged during extraction). For other providers, add reasoning separately.
-	const isGoogleProvider =
+	// (merged during extraction). The same holds for OpenAI-style Responses API
+	// providers (OpenAI, Azure, Sakana, Meta), whose `output_tokens` counts
+	// reasoning — their `reasoning_tokens` detail is informational only. For
+	// remaining providers, add reasoning separately.
+	const completionIncludesReasoning =
 		provider === "google-ai-studio" ||
 		provider === "glacier" ||
+		provider === "iceberg" ||
 		provider === "google-vertex" ||
-		provider === "quartz";
-	const totalOutputTokens = isGoogleProvider
+		provider === "quartz" ||
+		provider === "openai" ||
+		provider === "azure" ||
+		provider === "sakana" ||
+		provider === "meta" ||
+		provider === "aws-mantle";
+	const totalOutputTokens = completionIncludesReasoning
 		? calculatedCompletionTokens
 		: calculatedCompletionTokens + (reasoningTokens ?? 0);
 
@@ -776,6 +789,7 @@ export async function calculateCosts(
 			imageInputTokens &&
 			(provider === "google-ai-studio" ||
 				provider === "glacier" ||
+				provider === "iceberg" ||
 				provider === "google-vertex" ||
 				provider === "quartz")
 				? (calculatedPromptTokens || 0) + imageInputTokens

@@ -5,6 +5,14 @@ import { getConfig } from "./config-server";
 
 import type { paths } from "./api/v1";
 
+// Typed client for public, unauthenticated endpoints. Unlike
+// createServerApiClient below it never reads the request cookies, so pages
+// using it can stay static/ISR instead of being forced into dynamic rendering.
+export function createPublicServerApiClient() {
+	const config = getConfig();
+	return createFetchClient<paths>({ baseUrl: config.apiBackendUrl });
+}
+
 export async function createServerApiClient() {
 	const config = getConfig();
 	const cookieStore = await cookies();

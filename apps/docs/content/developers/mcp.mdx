@@ -1,0 +1,438 @@
+---
+title: Model Context Protocol (MCP)
+description: Use LLM Gateway as an MCP server for Claude Code, Cursor, and other MCP-compatible clients
+icon: Mcp
+---
+
+import { Step, Steps } from "fumadocs-ui/components/steps";
+import { Callout } from "fumadocs-ui/components/callout";
+import { Tabs, Tab } from "fumadocs-ui/components/tabs";
+
+LLM Gateway provides a Model Context Protocol (MCP) server that enables AI assistants like Claude Code to access multiple LLM providers through a unified interface. This allows you to use any model from OpenAI, Anthropic, Google, and more directly from your AI coding assistant.
+
+<Callout type="info">
+	**Using DevPass?** This integration also works with a
+	[DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without
+	a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) —
+	provider-pinned routing is not available on coding plans; the gateway picks
+	the provider for you.
+</Callout>
+
+## What is MCP?
+
+The Model Context Protocol (MCP) is an open standard that allows AI assistants to connect with external tools and data sources. LLM Gateway's MCP server exposes tools for:
+
+- **Chat completions** - Send messages to any supported LLM
+- **Image generation** - Generate images using models like Qwen Image
+- **Nano Banana image generation** - Generate images with Gemini 3 Pro Image Preview and optionally save to disk
+- **Model discovery** - List available models with capabilities and pricing
+
+## Available Tools
+
+### `chat`
+
+Send a message to any LLM and get a response.
+
+**Parameters:**
+
+- `model` (string) - The model to use (e.g., `"gpt-4o"`, `"claude-sonnet-4-20250514"`)
+- `messages` (array) - Array of messages with `role` and `content`
+- `temperature` (number, optional) - Sampling temperature (0-2)
+- `max_tokens` (number, optional) - Maximum tokens to generate
+
+**Example:**
+
+```json
+{
+	"model": "gpt-4o",
+	"messages": [{ "role": "user", "content": "Explain quantum computing" }],
+	"temperature": 0.7
+}
+```
+
+### `generate-image`
+
+Generate images from text prompts using AI image models.
+
+**Parameters:**
+
+- `prompt` (string) - Text description of the image to generate
+- `model` (string, optional) - Image model (default: `"qwen-image-plus"`)
+- `size` (string, optional) - Image size (default: `"1024x1024"`)
+- `n` (number, optional) - Number of images (1-4, default: 1)
+
+**Example:**
+
+```json
+{
+	"prompt": "A serene mountain landscape at sunset",
+	"model": "qwen-image-max",
+	"size": "1024x1024"
+}
+```
+
+### `generate-nano-banana`
+
+Generate an image using Gemini 3 Pro Image Preview ("Nano Banana"). Returns an inline image preview, and optionally saves the image to disk when the server is configured with an upload directory.
+
+**Parameters:**
+
+- `prompt` (string) - Text description of the image to generate
+- `filename` (string, optional) - Filename for the saved image, no path separators allowed (default: `nano-banana-{timestamp}.png`)
+- `aspect_ratio` (string, optional) - Aspect ratio: `"1:1"`, `"16:9"`, `"4:3"`, or `"5:4"`
+
+**Example:**
+
+```json
+{
+	"prompt": "A pixel-art cat sitting on a rainbow",
+	"filename": "hero-image.png",
+	"aspect_ratio": "16:9"
+}
+```
+
+<Callout type="info">
+	**Saving images to disk** requires the `UPLOAD_DIR` environment variable to be
+	set on the MCP server. When set, images are saved to that directory. Without
+	it, images are returned inline only — no files are written to disk. See
+	[Enabling local image saving](#enabling-local-image-saving) for setup
+	instructions.
+</Callout>
+
+### `list-models`
+
+List available LLM models with capabilities and pricing.
+
+**Parameters:**
+
+- `include_deactivated` (boolean, optional) - Include deactivated models
+- `exclude_deprecated` (boolean, optional) - Exclude deprecated models
+- `limit` (number, optional) - Maximum models to return (default: 20)
+- `family` (string, optional) - Filter by family (e.g., `"openai"`, `"anthropic"`)
+
+### `list-image-models`
+
+List all available image generation models.
+
+**Example output:**
+
+```
+# Image Generation Models
+
+## Qwen Image Plus
+- **Model ID:** `qwen-image-plus`
+- **Description:** Text-to-image with excellent text rendering
+- **Price:** $0.03 per request
+
+## Qwen Image Max
+- **Model ID:** `qwen-image-max`
+- **Description:** Highest quality text-to-image
+- **Price:** $0.075 per request
+```
+
+## Setup
+
+<Tabs items={["Claude Code", "Codex", "Cursor", "Other MCP Clients"]}>
+  <Tab value="Claude Code">
+    <Steps>
+    <Step>
+    ### Get Your API Key
+
+    1. Log in to your [LLM Gateway dashboard](https://llmgateway.io/dashboard)
+    2. Navigate to **API Keys** section
+    3. Create a new API key and copy it
+
+    </Step>
+
+    <Step>
+    ### Configure Claude Code
+
+    Run the following command in your terminal:
+
+    ```bash
+    claude mcp add --transport http --scope user llmgateway https://api.llmgateway.io/mcp \
+      --header "Authorization: Bearer your-api-key-here"
+    ```
+
+    <Callout type="info">
+      **Alternative: Manual configuration**
+
+      You can also add the MCP server manually by editing `~/.claude.json` (user scope) or `.mcp.json` in your project root (project scope):
+
+      ```json
+      {
+        "mcpServers": {
+          "llmgateway": {
+            "url": "https://api.llmgateway.io/mcp",
+            "headers": {
+              "Authorization": "Bearer your-api-key-here"
+            }
+          }
+        }
+      }
+      ```
+
+      Restart Claude Code after manual configuration changes.
+    </Callout>
+
+    </Step>
+
+    <Step>
+    ### Test the Integration
+
+    Try using the tools in Claude Code:
+
+    - "Use the chat tool to ask GPT-4o about TypeScript best practices"
+    - "Generate an image of a futuristic city using the generate-image tool"
+    - "Use generate-nano-banana to create a hero image for my landing page"
+    - "List all available models from Anthropic"
+
+    </Step>
+    </Steps>
+
+  </Tab>
+
+  <Tab value="Codex">
+    <Steps>
+    <Step>
+    ### Get Your API Key
+
+    1. Log in to your [LLM Gateway dashboard](https://llmgateway.io/dashboard)
+    2. Navigate to **API Keys** section
+    3. Create a new API key and copy it
+    4. Set it as an environment variable: `export LLM_GATEWAY_API_KEY="your-api-key-here"`
+
+    </Step>
+
+    <Step>
+    ### Configure Codex
+
+    Run the following command in your terminal:
+
+    ```bash
+    codex mcp add llmgateway --url https://api.llmgateway.io/mcp \
+      --bearer-token-env-var LLM_GATEWAY_API_KEY
+    ```
+
+    <Callout type="info">
+      **Alternative: Manual configuration**
+
+      You can also add the MCP server manually by editing `~/.codex/config.toml`:
+
+      ```toml
+      [mcp_servers.llmgateway]
+      url = "https://api.llmgateway.io/mcp"
+      bearer_token_env_var = "LLM_GATEWAY_API_KEY"
+      ```
+    </Callout>
+
+    </Step>
+
+    <Step>
+    ### Test the Integration
+
+    Run `/mcp` in the Codex TUI to confirm the `llmgateway` server is connected. Try:
+
+    - "Use the chat tool to ask GPT-4o about TypeScript best practices"
+    - "Generate an image of a futuristic city using the generate-image tool"
+    - "Use generate-nano-banana to create a hero image for my landing page"
+    - "List all available models from Anthropic"
+
+    </Step>
+    </Steps>
+
+  </Tab>
+
+  <Tab value="Cursor">
+    <Steps>
+    <Step>
+    ### Get Your API Key
+
+    1. Log in to your [LLM Gateway dashboard](https://llmgateway.io/dashboard)
+    2. Navigate to **API Keys** section
+    3. Create a new API key and copy it
+
+    </Step>
+
+    <Step>
+    ### Configure Cursor
+
+    Add the following to your Cursor MCP configuration file (`~/.cursor/mcp.json`):
+
+    ```json
+    {
+      "mcpServers": {
+        "llmgateway": {
+          "url": "https://api.llmgateway.io/mcp",
+          "headers": {
+            "Authorization": "Bearer your-api-key-here"
+          }
+        }
+      }
+    }
+    ```
+
+    Or open the Command Palette (`Cmd/Ctrl + Shift + P`), search for **"Cursor Settings"**, then go to **Tools & Integrations** > **Add Custom MCP** and paste the configuration above.
+
+    <Callout type="info">
+      Cursor v0.48.0+ is required for Streamable HTTP MCP support.
+    </Callout>
+
+    </Step>
+
+    <Step>
+    ### Test the Integration
+
+    Open a chat in **Agent Mode**, click the **Select Tools** icon, and verify the LLM Gateway tools appear. Try:
+
+    - "Use the chat tool to ask GPT-4o about TypeScript best practices"
+    - "Generate an image of a futuristic city using the generate-image tool"
+    - "Use generate-nano-banana to create a hero image for my landing page"
+    - "List all available models from Anthropic"
+
+    </Step>
+    </Steps>
+
+  </Tab>
+
+  <Tab value="Other MCP Clients">
+    LLM Gateway's MCP server supports the standard HTTP Streamable transport. Configure your client with:
+
+    - **Endpoint:** `https://api.llmgateway.io/mcp`
+    - **Authentication:** Bearer token via `Authorization` header or `x-api-key` header
+    - **Protocol Version:** 2024-11-05
+
+    **Direct HTTP Example:**
+
+    ```bash
+    curl -X POST https://api.llmgateway.io/mcp \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer your-api-key" \
+      -d '{
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list"
+      }'
+    ```
+
+    **Server-Sent Events (SSE):**
+
+    For real-time updates, connect with `Accept: text/event-stream`:
+
+    ```bash
+    curl -N https://api.llmgateway.io/mcp \
+      -H "Accept: text/event-stream" \
+      -H "Authorization: Bearer your-api-key"
+    ```
+
+  </Tab>
+</Tabs>
+
+## Use Cases
+
+### Multi-Model Access in Claude Code
+
+Use Claude Code to interact with models it doesn't natively support:
+
+```
+Use the chat tool with model "gpt-4o" to analyze this code for security issues.
+```
+
+### Image Generation
+
+Generate images directly from your AI assistant:
+
+```
+Use generate-image to create a logo for my new startup.
+It should be minimalist, blue and white, representing AI and cloud computing.
+```
+
+### Nano Banana (Gemini Image Generation)
+
+Generate images with Gemini 3 Pro for use in your project:
+
+```
+Use generate-nano-banana to create a hero image for my landing page with a 16:9 aspect ratio.
+```
+
+### Cost-Effective Model Selection
+
+Query available models to find the best option for your task:
+
+```
+List models from OpenAI and Anthropic, then use the cheapest one for this simple task.
+```
+
+## Authentication
+
+The MCP server supports two authentication methods:
+
+1. **Bearer Token** - `Authorization: Bearer your-api-key`
+2. **API Key Header** - `x-api-key: your-api-key`
+
+Your API key is the same one you use for the REST API and works across all LLM Gateway services.
+
+## OAuth Support
+
+For applications that prefer OAuth authentication, LLM Gateway's MCP server implements OAuth 2.0:
+
+- **Authorization Endpoint:** `/oauth/authorize`
+- **Token Endpoint:** `/oauth/token`
+- **Registration Endpoint:** `/oauth/register`
+- **Supported Flows:** Authorization Code, Client Credentials
+
+## Enabling Local Image Saving
+
+By default, `generate-nano-banana` returns images inline without writing to disk. To enable saving generated images to the server filesystem, the `UPLOAD_DIR` environment variable must be set on the **gateway host** at startup. This is a server-side setting — it cannot be configured from the client.
+
+This is only possible for **self-hosted** MCP deployments. Configure `UPLOAD_DIR` using your deployment method:
+
+- **Docker:** Pass `-e UPLOAD_DIR=/data/images` or add it to your `docker-compose.yml` environment section.
+- **systemd:** Add `Environment=UPLOAD_DIR=/data/images` to your service unit file.
+- **.env file:** Add `UPLOAD_DIR=/data/images` to the `.env` file loaded by your gateway process.
+
+<Callout type="warn">
+	The shared hosted endpoint (`api.llmgateway.io`) does not support configuring
+	`UPLOAD_DIR`. On the hosted service, images are always returned inline — no
+	files are written to disk. To enable server-side image saving, you must
+	self-host the MCP server and set `UPLOAD_DIR` at startup.
+</Callout>
+
+## Troubleshooting
+
+### Connection Errors
+
+If you're having trouble connecting:
+
+1. Verify your API key is valid
+2. Check the endpoint URL is correct: `https://api.llmgateway.io/mcp`
+3. Ensure your firewall allows outbound HTTPS connections
+
+### Tool Not Found
+
+If tools aren't appearing:
+
+1. Restart your MCP client
+2. Check the configuration syntax
+3. Verify the MCP server is responding: `GET https://api.llmgateway.io/mcp`
+
+### Rate Limiting
+
+The MCP server respects your account's rate limits. If you're hitting limits:
+
+1. Check your usage in the dashboard
+2. Consider upgrading your plan
+3. Implement request queuing in your application
+
+<Callout type="info">
+	Need help? Join our [Discord community](https://llmgateway.io/discord) for
+	support.
+</Callout>
+
+## Benefits
+
+- **Unified Access** - Use 200+ models from 40+ providers through one interface
+- **Cost Tracking** - Monitor usage and costs in the LLM Gateway dashboard
+- **Caching** - Automatic response caching reduces costs and latency
+- **Fallback** - Automatic provider failover ensures reliability
+- **Image Generation** - Generate images directly from your AI assistant

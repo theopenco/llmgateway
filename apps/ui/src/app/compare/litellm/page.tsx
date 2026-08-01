@@ -3,6 +3,8 @@ import { HeroCompare } from "@/components/compare/hero-compare";
 import { ComparisonLiteLLM } from "@/components/landing/comparison-litellm";
 import Footer from "@/components/landing/footer";
 
+import { MARKETING_STATS } from "@llmgateway/shared";
+
 import type { CompareFaqItem } from "@/components/compare/compare-faq";
 
 const liteLlmFaqs: CompareFaqItem[] = [
@@ -23,13 +25,17 @@ const liteLlmFaqs: CompareFaqItem[] = [
 	},
 	{
 		question: "How does pricing work compared to LiteLLM?",
-		answer:
-			"Managed usage is pay-as-you-go with a flat 5% platform fee on credits, or free when you bring your own provider keys. Self-hosting the AGPLv3 build is free.",
+		answer: `Managed usage is pay-as-you-go with a flat 5% platform fee on credits, or free when you bring your own provider keys; optional full data retention is billed at ${MARKETING_STATS.dataStoragePrice}. Self-hosting the AGPLv3 build is free.`,
 	},
 	{
 		question: "Does it provide analytics and routing out of the box?",
 		answer:
 			"Yes. Real-time cost and latency analytics, automatic provider routing and fallback, budgets and spend controls, and prompt caching are built in — no extra setup required.",
+	},
+	{
+		question: "What are the best LiteLLM alternatives?",
+		answer:
+			"LLM Gateway is the most complete LiteLLM alternative: open source, self-hostable, and available as a managed cloud with zero markup on your own keys. Other options teams evaluate include OpenRouter (managed, no self-hosting), Bifrost (self-hosted Go proxy), and Portkey (enterprise governance).",
 	},
 ];
 
@@ -77,18 +83,20 @@ export async function generateMetadata() {
 	return {
 		title: "LLM Gateway vs LiteLLM — Feature Comparison",
 		description:
-			"Compare LLM Gateway's managed infrastructure, advanced analytics, and enterprise features against LiteLLM's self-hosted proxy solution. See why teams choose our production-ready API gateway.",
+			"Compare managed infrastructure, analytics, and enterprise features vs LiteLLM's self-hosted proxy. See why teams pick a production-ready gateway.",
+		alternates: { canonical: "/compare/litellm" },
 		openGraph: {
-			title: "LLM Gateway vs LiteLLM - Feature Comparison",
+			title: "LLM Gateway vs LiteLLM — Feature Comparison",
 			description:
-				"Compare LLM Gateway's managed infrastructure, advanced analytics, and enterprise features against LiteLLM's self-hosted proxy solution. See why teams choose our production-ready API gateway.",
+				"Compare managed infrastructure, analytics, and enterprise features vs LiteLLM's self-hosted proxy.",
 			type: "website",
+			url: "https://llmgateway.io/compare/litellm",
 		},
 		twitter: {
 			card: "summary_large_image",
-			title: "LLM Gateway vs LiteLLM - Feature Comparison",
+			title: "LLM Gateway vs LiteLLM — Feature Comparison",
 			description:
-				"Compare LLM Gateway's managed infrastructure, advanced analytics, and enterprise features against LiteLLM's self-hosted proxy solution.",
+				"Compare managed infrastructure, analytics, and enterprise features vs LiteLLM's self-hosted proxy.",
 		},
 	};
 }

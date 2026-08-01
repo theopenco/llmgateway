@@ -25,7 +25,11 @@ import {
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 
-import { providers, type ProviderDefinition } from "@llmgateway/models";
+import {
+	providers,
+	isStealthProvider,
+	type ProviderDefinition,
+} from "@llmgateway/models";
 
 import { ProviderSelect } from "./provider-select";
 
@@ -80,8 +84,11 @@ export function CreateProviderKeyDialog({
 	const effectiveRegion =
 		(selectedRegion || selectedProviderDef?.regionConfig?.defaultRegion) ?? "";
 
+	// Exclude the gateway itself and stealth providers (no default base URL):
+	// users can't configure a stealth provider key because the platform behind
+	// it is undisclosed, so hide them from the selector entirely.
 	const availableProviders = providers.filter(
-		(provider) => provider.id !== "llmgateway",
+		(provider) => provider.id !== "llmgateway" && !isStealthProvider(provider),
 	);
 
 	// Update selectedProvider when preselectedProvider changes or dialog opens

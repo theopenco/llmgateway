@@ -49,7 +49,7 @@ Building on the [embeddable wallets SDK](https://llmgateway.io/blog/embeddable-a
 
 ## Model Categories & Fair-Use Caps
 
-Every model is now categorized as **Premium** or **Standard**, powering dashboard filters and analytics. For **DevPass** coding plans, premium models get a rolling weekly fair-use cap (10/50/140 credits for Lite/Pro/Max) so flagship capacity stays available for everyone — the API and pay-as-you-go credits are unaffected.
+Every model is now categorized as **Premium** or **Standard**, powering dashboard filters and analytics. For **DevPass** coding plans, premium models get a rolling weekly fair-use cap (12%/15%/18% of monthly credits for Lite/Pro/Max) so flagship capacity stays available for everyone — the API and pay-as-you-go credits are unaffected.
 
 [How categories and caps work →](https://docs.llmgateway.io/learn/model-categories)
 

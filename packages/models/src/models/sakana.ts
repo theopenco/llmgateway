@@ -12,6 +12,9 @@ export const sakanaModels = [
 			{
 				providerId: "sakana" as const,
 				externalId: "fugu-ultra",
+				// Multi-agent orchestration is far too slow for e2e (reasoning
+				// prompts exceed the test timeout); excluded from the suite
+				test: "skip",
 				inputPrice: "5e-6",
 				outputPrice: "30e-6",
 				cachedInputPrice: "0.5e-6",
@@ -36,6 +39,7 @@ export const sakanaModels = [
 				contextSize: 1000000,
 				streaming: true,
 				reasoning: true,
+				reasoningEfforts: ["high", "xhigh"],
 				// Fugu reasoning summaries are only exposed via the OpenAI Responses
 				// API, so route through it. Summaries are adaptive (omitted for
 				// simpler prompts), hence reasoningOutput is "omit".

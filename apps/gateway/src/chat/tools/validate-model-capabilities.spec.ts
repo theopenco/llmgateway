@@ -61,6 +61,49 @@ const textImageModel = (() => {
 	return m;
 })();
 
+// gemma-4-31b-it has runware (supportsAssistantPrefill: false) alongside
+// providers that accept a trailing assistant message.
+const mixedPrefillModel = getModel("gemma-4-31b-it");
+
+describe("validateModelCapabilities - assistant prefill", () => {
+	it("rejects when the explicit provider rejects a trailing assistant message", () => {
+		expect(() =>
+			validateModelCapabilities(
+				mixedPrefillModel,
+				"gemma-4-31b-it",
+				"runware",
+				{ hasAssistantPrefill: true },
+			),
+		).toThrow(HTTPException);
+	});
+
+	it("allows when a sibling provider accepts a trailing assistant message", () => {
+		expect(() =>
+			validateModelCapabilities(
+				mixedPrefillModel,
+				"gemma-4-31b-it",
+				undefined,
+				{
+					hasAssistantPrefill: true,
+				},
+			),
+		).not.toThrow();
+	});
+
+	it("allows the same provider when the conversation does not end on an assistant turn", () => {
+		expect(() =>
+			validateModelCapabilities(
+				mixedPrefillModel,
+				"gemma-4-31b-it",
+				"runware",
+				{
+					hasAssistantPrefill: false,
+				},
+			),
+		).not.toThrow();
+	});
+});
+
 describe("validateModelCapabilities - vision", () => {
 	it("rejects when explicit provider does not support vision", () => {
 		expect(() =>
@@ -128,6 +171,59 @@ describe("validateModelCapabilities - vision", () => {
 			validateModelCapabilities(noVisionModel, "custom", undefined, {
 				hasImages: true,
 			}),
+		).not.toThrow();
+	});
+});
+
+describe("validateModelCapabilities - verbosity", () => {
+	const verbosityModel = getModel("gpt-5.6-terra");
+
+	it("allows verbosity for models that support it", () => {
+		expect(() =>
+			validateModelCapabilities(verbosityModel, "gpt-5.6-terra", undefined, {
+				verbosity: "low",
+			}),
+		).not.toThrow();
+	});
+
+	it("allows verbosity for older GPT-5 models that support it", () => {
+		const olderModel = getModel("gpt-5.1");
+		expect(() =>
+			validateModelCapabilities(olderModel, "gpt-5.1", undefined, {
+				verbosity: "high",
+			}),
+		).not.toThrow();
+	});
+
+	it("rejects verbosity for models without support", () => {
+		expect(() =>
+			validateModelCapabilities(noVisionModel, "deepseek-v4-flash", undefined, {
+				verbosity: "low",
+			}),
+		).toThrow(HTTPException);
+	});
+
+	it("skips the verbosity check for auto and custom models", () => {
+		expect(() =>
+			validateModelCapabilities(noVisionModel, "auto", undefined, {
+				verbosity: "low",
+			}),
+		).not.toThrow();
+		expect(() =>
+			validateModelCapabilities(noVisionModel, "custom", undefined, {
+				verbosity: "low",
+			}),
+		).not.toThrow();
+	});
+
+	it("does not check verbosity when it is not specified", () => {
+		expect(() =>
+			validateModelCapabilities(
+				noVisionModel,
+				"deepseek-v4-flash",
+				undefined,
+				{},
+			),
 		).not.toThrow();
 	});
 });

@@ -285,8 +285,7 @@ describe("Open Responses compliance: non-streaming response shape", () => {
 		const out = convertChatResponseToResponses(chat, "gpt-4o-mini");
 		expectValid(out, "function_call response");
 		const fc = out.output.find((o) => o.type === "function_call") as
-			| Record<string, unknown>
-			| undefined;
+			Record<string, unknown> | undefined;
 		expect(fc).toBeDefined();
 		expect(fc!.call_id).toBe("call_abc");
 		expect(fc!.name).toBe("get_weather");

@@ -1,6 +1,11 @@
 import { describe, expect, test } from "vitest";
 
-import { prepareRequestBody, RequestError } from "./prepare-request-body.js";
+import {
+	hashPromptCacheKey,
+	hashSessionCacheKey,
+	prepareRequestBody,
+	RequestError,
+} from "./prepare-request-body.js";
 
 import type { AnthropicRequestBody } from "@llmgateway/models";
 
@@ -50,7 +55,11 @@ async function prepareOpenAITextRequest(options: {
 	useResponsesApi?: boolean;
 	promptCacheKey?: string;
 	promptCacheRetention?: "in_memory" | "24h";
+	promptCacheOptions?: { mode?: "implicit" | "explicit"; ttl?: "30m" };
 	serviceTier?: "flex" | "priority";
+	verbosity?: "low" | "medium" | "high";
+	messages?: { role: string; content: unknown }[];
+	providerCacheControlEnabled?: boolean;
 }) {
 	const model = options.model ?? "gpt-5.5";
 	return await prepareRequestBody(
@@ -58,7 +67,7 @@ async function prepareOpenAITextRequest(options: {
 		model,
 		null,
 		model,
-		[{ role: "user", content: "Hello!" }],
+		(options.messages as any) ?? [{ role: "user", content: "Hello!" }],
 		false,
 		undefined,
 		undefined,
@@ -82,13 +91,55 @@ async function prepareOpenAITextRequest(options: {
 		options.useResponsesApi ?? false,
 		options.promptCacheKey,
 		options.promptCacheRetention,
-		true,
+		options.providerCacheControlEnabled ?? true,
 		undefined,
 		options.serviceTier,
+		options.verbosity,
+		options.promptCacheOptions,
 	);
 }
 
 describe("prepareRequestBody - Anthropic", () => {
+	test("should throw a typed RequestError for malformed tool_call arguments", async () => {
+		await expect(
+			prepareRequestBody(
+				"anthropic",
+				"claude-3-5-sonnet-20241022",
+				null,
+				"claude-3-5-sonnet-20241022",
+				[
+					{ role: "user", content: "Hello!" },
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							{
+								id: "call_1",
+								type: "function",
+								function: {
+									name: "get_weather",
+									arguments: '{"city":"Berlin"',
+								},
+							},
+						],
+					},
+				],
+				false,
+				undefined,
+				1024,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				false,
+			),
+		).rejects.toBeInstanceOf(RequestError);
+	});
+
 	test("should extract system messages to system field for caching", async () => {
 		const requestBody = (await prepareRequestBody(
 			"anthropic",
@@ -493,7 +544,7 @@ describe("prepareRequestBody - OpenAI prompt caching", () => {
 			promptCacheRetention: "24h",
 		})) as any;
 
-		expect(requestBody.prompt_cache_key).toBe("tenant-a");
+		expect(requestBody.prompt_cache_key).toBe(hashPromptCacheKey("tenant-a"));
 		expect(requestBody.prompt_cache_retention).toBe("24h");
 	});
 
@@ -504,7 +555,7 @@ describe("prepareRequestBody - OpenAI prompt caching", () => {
 			promptCacheRetention: "in_memory",
 		})) as any;
 
-		expect(requestBody.prompt_cache_key).toBe("tenant-a");
+		expect(requestBody.prompt_cache_key).toBe(hashPromptCacheKey("tenant-a"));
 		expect(requestBody.prompt_cache_retention).toBe("in_memory");
 	});
 
@@ -562,7 +613,7 @@ describe("prepareRequestBody - OpenAI prompt caching", () => {
 			promptCacheRetention: "24h",
 		})) as any;
 
-		expect(requestBody.prompt_cache_key).toBe("tenant-a");
+		expect(requestBody.prompt_cache_key).toBe(hashPromptCacheKey("tenant-a"));
 		expect(requestBody.prompt_cache_retention).toBeUndefined();
 	});
 
@@ -582,6 +633,103 @@ describe("prepareRequestBody - OpenAI prompt caching", () => {
 		})) as any;
 
 		expect(requestBody.prompt_cache_retention).toBe("24h");
+	});
+});
+
+describe("prepareRequestBody - OpenAI explicit prompt caching (GPT-5.6)", () => {
+	const explicitCacheMessages = [
+		{
+			role: "system",
+			content: [
+				{
+					type: "text",
+					text: "stable reusable prefix",
+					prompt_cache_breakpoint: { mode: "explicit" },
+				},
+			],
+		},
+		{ role: "user", content: "dynamic input" },
+	];
+
+	test("forwards prompt_cache_options and breakpoints for gpt-5.6 chat completions", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.6-sol",
+			promptCacheOptions: { mode: "explicit" },
+			messages: explicitCacheMessages,
+		})) as any;
+
+		expect(requestBody.prompt_cache_options).toEqual({ mode: "explicit" });
+		expect(requestBody.messages[0].content[0].prompt_cache_breakpoint).toEqual({
+			mode: "explicit",
+		});
+	});
+
+	test("carries breakpoints through the Responses API content transform", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.6-sol",
+			useResponsesApi: true,
+			promptCacheOptions: { mode: "explicit", ttl: "30m" },
+			messages: explicitCacheMessages,
+		})) as any;
+
+		expect(requestBody.prompt_cache_options).toEqual({
+			mode: "explicit",
+			ttl: "30m",
+		});
+		expect(requestBody.input[0].content[0]).toEqual({
+			type: "input_text",
+			text: "stable reusable prefix",
+			prompt_cache_breakpoint: { mode: "explicit" },
+		});
+	});
+
+	test("strips prompt_cache_options and breakpoints on models without explicit caching", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.5",
+			promptCacheOptions: { mode: "explicit" },
+			messages: explicitCacheMessages,
+		})) as any;
+
+		expect(requestBody.prompt_cache_options).toBeUndefined();
+		expect(
+			requestBody.messages[0].content[0].prompt_cache_breakpoint,
+		).toBeUndefined();
+	});
+
+	test("strips breakpoints when provider cache writes are disabled for the project", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.6-sol",
+			promptCacheOptions: { mode: "explicit" },
+			messages: explicitCacheMessages,
+			providerCacheControlEnabled: false,
+		})) as any;
+
+		expect(
+			requestBody.messages[0].content[0].prompt_cache_breakpoint,
+		).toBeUndefined();
+		expect(requestBody.prompt_cache_options).toEqual({ mode: "explicit" });
+	});
+
+	test("forces explicit mode when provider cache writes are disabled (implicit auto-writes bill at 1.25x)", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.6-sol",
+			messages: explicitCacheMessages,
+			providerCacheControlEnabled: false,
+		})) as any;
+
+		expect(requestBody.prompt_cache_options).toEqual({ mode: "explicit" });
+		expect(
+			requestBody.messages[0].content[0].prompt_cache_breakpoint,
+		).toBeUndefined();
+	});
+
+	test("does not force explicit mode on models without explicit caching support", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.5",
+			providerCacheControlEnabled: false,
+		})) as any;
+
+		expect(requestBody.prompt_cache_options).toBeUndefined();
 	});
 });
 
@@ -619,6 +767,156 @@ describe("prepareRequestBody - OpenAI service tiers", () => {
 		})) as { service_tier?: string };
 
 		expect(requestBody.service_tier).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - Fireworks service tiers", () => {
+	async function prepareFireworksRequest(options: {
+		provider?: "fireworks" | "novita";
+		serviceTier?: "flex" | "priority";
+	}) {
+		return (await prepareRequestBody(
+			options.provider ?? "fireworks",
+			"kimi-k3",
+			null,
+			"accounts/fireworks/models/kimi-k3",
+			[{ role: "user", content: "Hello!" }] as any,
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			undefined,
+			undefined,
+			true,
+			undefined,
+			options.serviceTier,
+		)) as { service_tier?: string };
+	}
+
+	test("forwards priority to Fireworks chat completions", async () => {
+		const requestBody = await prepareFireworksRequest({
+			serviceTier: "priority",
+		});
+
+		expect(requestBody.service_tier).toBe("priority");
+	});
+
+	test("does not forward flex, which Fireworks has no rate card for", async () => {
+		const requestBody = await prepareFireworksRequest({ serviceTier: "flex" });
+
+		expect(requestBody.service_tier).toBeUndefined();
+	});
+
+	test("does not forward a tier to another provider serving the same model", async () => {
+		const requestBody = await prepareFireworksRequest({
+			provider: "novita",
+			serviceTier: "priority",
+		});
+
+		expect(requestBody.service_tier).toBeUndefined();
+	});
+
+	test("omits service_tier for standard requests", async () => {
+		const requestBody = await prepareFireworksRequest({});
+
+		expect(requestBody.service_tier).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - verbosity", () => {
+	test("forwards verbosity to gpt-5.6 chat completions", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.6-terra",
+			verbosity: "low",
+		})) as { verbosity?: string };
+
+		expect(requestBody.verbosity).toBe("low");
+	});
+
+	test("forwards verbosity as text.verbosity to gpt-5.6 Responses API", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.6-sol",
+			useResponsesApi: true,
+			verbosity: "high",
+		})) as { text?: { verbosity?: string } };
+
+		expect(requestBody.text?.verbosity).toBe("high");
+	});
+
+	test("keeps text.format when verbosity is combined with response_format", async () => {
+		const requestBody = (await prepareRequestBody(
+			"openai",
+			"gpt-5.6-luna",
+			null,
+			"gpt-5.6-luna",
+			[{ role: "user", content: "Hello!" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ type: "json_object" },
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			true, // useResponsesApi
+			undefined,
+			undefined,
+			true,
+			undefined,
+			undefined,
+			"medium", // verbosity
+		)) as { text?: { format?: { type: string }; verbosity?: string } };
+
+		expect(requestBody.text?.format?.type).toBe("json_object");
+		expect(requestBody.text?.verbosity).toBe("medium");
+	});
+
+	test("strips verbosity for models without verbosity support", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-4o",
+			verbosity: "low",
+		})) as { verbosity?: string };
+
+		expect(requestBody.verbosity).toBeUndefined();
+	});
+
+	test("strips verbosity from the Responses API body for unsupported models", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.1-codex",
+			useResponsesApi: true,
+			verbosity: "low",
+		})) as { text?: { verbosity?: string } };
+
+		expect(requestBody.text?.verbosity).toBeUndefined();
 	});
 });
 
@@ -694,7 +992,712 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 	});
 });
 
+describe("prepareRequestBody - Moonshot thinking", () => {
+	async function prepare(options: {
+		model: string;
+		reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "max";
+		maxTokens?: number;
+	}) {
+		return (await prepareRequestBody(
+			"moonshot",
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			options.maxTokens, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			options.reasoningEffort, // reasoning_effort
+			true, // supportsReasoning
+		)) as any;
+	}
+
+	test("maps reasoning_effort to thinking enabled and never forwards reasoning_effort", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k2.6",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.thinking).toEqual({ type: "enabled" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("maps none to thinking disabled on models that can turn thinking off", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k2.6",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("maps minimal to thinking disabled on models that can turn thinking off", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k2.5",
+			reasoningEffort: "minimal",
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+	});
+
+	test("keeps the provider default when no reasoning_effort is requested", async () => {
+		const requestBody = await prepare({ model: "kimi-k2.6" });
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("never sends disabled to always-on models (kimi-k2.7-code)", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k2.7-code",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("sends thinking enabled to always-on models when effort is requested", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k2.7-code",
+			reasoningEffort: "medium",
+		});
+		expect(requestBody.thinking).toEqual({ type: "enabled" });
+	});
+
+	test("forwards reasoning_effort natively for kimi-k3 (no thinking toggle)", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k3",
+			reasoningEffort: "max",
+		});
+		expect(requestBody.reasoning_effort).toBe("max");
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test("collapses disable requests onto the provider default for kimi-k3", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k3",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.reasoning_effort).toBeUndefined();
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test("sends max_completion_tokens instead of max_tokens for kimi-k3", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k3",
+			maxTokens: 4096,
+		});
+		expect(requestBody.max_completion_tokens).toBe(4096);
+		expect(requestBody.max_tokens).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - Alibaba thinking", () => {
+	async function prepare(options: {
+		model: string;
+		reasoningEffort?:
+			"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+		reasoningMaxTokens?: number;
+		maxTokens?: number;
+		supportsReasoning?: boolean;
+	}) {
+		return (await prepareRequestBody(
+			"alibaba",
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			options.maxTokens, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			options.reasoningEffort, // reasoning_effort
+			options.supportsReasoning ?? true, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			options.reasoningMaxTokens, // reasoning_max_tokens
+		)) as any;
+	}
+
+	test("maps reasoning_effort to enable_thinking with a native thinking_budget and never forwards reasoning_effort", async () => {
+		const requestBody = await prepare({
+			model: "qwen3.7-max",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.enable_thinking).toBe(true);
+		expect(requestBody.thinking_budget).toBe(24576);
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("maps none to an explicit thinking disable", async () => {
+		const requestBody = await prepare({
+			model: "qwen3.7-max",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.enable_thinking).toBe(false);
+		expect(requestBody.thinking_budget).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("keeps the provider default when no reasoning parameter is requested", async () => {
+		const requestBody = await prepare({ model: "qwen3.7-max" });
+		expect(requestBody.enable_thinking).toBeUndefined();
+		expect(requestBody.thinking_budget).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("forwards reasoning.max_tokens as thinking_budget verbatim", async () => {
+		const requestBody = await prepare({
+			model: "glm-5.2",
+			reasoningMaxTokens: 1234,
+		});
+		expect(requestBody.enable_thinking).toBe(true);
+		expect(requestBody.thinking_budget).toBe(1234);
+	});
+
+	test("keeps thinking_budget below the caller's max_tokens", async () => {
+		const requestBody = await prepare({
+			model: "glm-5.2",
+			reasoningEffort: "medium",
+			maxTokens: 100,
+		});
+		expect(requestBody.enable_thinking).toBe(true);
+		expect(requestBody.thinking_budget).toBe(99);
+		expect(requestBody.max_tokens).toBe(100);
+	});
+
+	test("sends enable_thinking and thinking_budget for kimi-k2.5 (budget-controlled thinking)", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k2.5",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.enable_thinking).toBe(true);
+		expect(requestBody.thinking_budget).toBe(24576);
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("sends nothing for mappings without budget-controlled thinking", async () => {
+		const requestBody = await prepare({
+			model: "glm-5",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.enable_thinking).toBeUndefined();
+		expect(requestBody.thinking_budget).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - MiniMax thinking", () => {
+	async function prepare(options: {
+		model: string;
+		reasoningEffort?:
+			"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+	}) {
+		return (await prepareRequestBody(
+			"minimax",
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			options.reasoningEffort, // reasoning_effort
+			true, // supportsReasoning
+		)) as any;
+	}
+
+	test("maps reasoning_effort to thinking adaptive and never forwards reasoning_effort", async () => {
+		const requestBody = await prepare({
+			model: "minimax-m3",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.thinking).toEqual({ type: "adaptive" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("maps none to thinking disabled on models that can turn thinking off", async () => {
+		const requestBody = await prepare({
+			model: "minimax-m3",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("keeps the provider default when no reasoning_effort is requested", async () => {
+		const requestBody = await prepare({ model: "minimax-m3" });
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("never sends disabled to always-on models (M2.x family)", async () => {
+		const requestBody = await prepare({
+			model: "minimax-m2.7",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("sends thinking adaptive to always-on models when effort is requested", async () => {
+		const requestBody = await prepare({
+			model: "minimax-m2.7",
+			reasoningEffort: "medium",
+		});
+		expect(requestBody.thinking).toEqual({ type: "adaptive" });
+		expect(requestBody.extra_body).toEqual({ reasoning_split: true });
+	});
+});
+
+describe("prepareRequestBody - Xiaomi thinking", () => {
+	async function prepare(options: {
+		model: string;
+		reasoningEffort?:
+			"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+	}) {
+		return (await prepareRequestBody(
+			"xiaomi",
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			options.reasoningEffort, // reasoning_effort
+			true, // supportsReasoning
+		)) as any;
+	}
+
+	test("forwards native effort tiers verbatim without a thinking parameter", async () => {
+		const requestBody = await prepare({
+			model: "mimo-v2.5-pro",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.reasoning_effort).toBe("high");
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test("maps none to thinking disabled and never forwards reasoning_effort", async () => {
+		const requestBody = await prepare({
+			model: "mimo-v2.5-pro",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("keeps the provider default when no reasoning_effort is requested", async () => {
+		const requestBody = await prepare({ model: "mimo-v2.5-pro" });
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("forwards unsupported tiers verbatim so the provider rejects them", async () => {
+		const requestBody = await prepare({
+			model: "mimo-v2.5",
+			reasoningEffort: "xhigh",
+		});
+		expect(requestBody.reasoning_effort).toBe("xhigh");
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test("drops none for mappings that do not declare it", async () => {
+		const requestBody = await prepare({
+			model: "mimo-v2-pro",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - DeepSeek thinking", () => {
+	async function prepare(options: {
+		model: string;
+		reasoningEffort?:
+			"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+		supportsReasoning?: boolean;
+	}) {
+		return (await prepareRequestBody(
+			"deepseek",
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			options.reasoningEffort, // reasoning_effort
+			options.supportsReasoning ?? true, // supportsReasoning
+		)) as unknown as Record<string, unknown>;
+	}
+
+	test("maps none to thinking disabled and never forwards reasoning_effort", async () => {
+		const requestBody = await prepare({
+			model: "deepseek-v4-pro",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("forwards native effort tiers verbatim without a thinking parameter", async () => {
+		const requestBody = await prepare({
+			model: "deepseek-v4-pro",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.reasoning_effort).toBe("high");
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test("forwards max natively", async () => {
+		const requestBody = await prepare({
+			model: "deepseek-v4-pro",
+			reasoningEffort: "max",
+		});
+		expect(requestBody.reasoning_effort).toBe("max");
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test("keeps the provider default when no reasoning_effort is requested", async () => {
+		const requestBody = await prepare({ model: "deepseek-v4-pro" });
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("forwards unsupported tiers verbatim so the provider rejects them", async () => {
+		const requestBody = await prepare({
+			model: "deepseek-v4-pro",
+			reasoningEffort: "xhigh",
+		});
+		expect(requestBody.reasoning_effort).toBe("xhigh");
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test("drops none for models that do not declare it in reasoningEfforts", async () => {
+		// deepseek-v3.2 on the deepseek provider has reasoning: false
+		// and no reasoningEfforts, so supportsReasoning is false
+		const requestBody = await prepare({
+			model: "deepseek-v3.2",
+			reasoningEffort: "none",
+			supportsReasoning: false,
+		});
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - Z.ai thinking", () => {
+	async function prepare(options: {
+		model: string;
+		reasoningEffort?:
+			"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+		responseFormat?: Parameters<typeof prepareRequestBody>[11];
+		tools?: Parameters<typeof prepareRequestBody>[12];
+	}) {
+		return (await prepareRequestBody(
+			"zai",
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			options.responseFormat, // response_format
+			options.tools, // tools
+			undefined, // tool_choice
+			options.reasoningEffort, // reasoning_effort
+			true, // supportsReasoning
+		)) as unknown as Record<string, unknown>;
+	}
+
+	test("maps none to thinking disabled", async () => {
+		const requestBody = await prepare({
+			model: "glm-4.7",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+	});
+
+	test("enables thinking for explicit effort tiers", async () => {
+		const requestBody = await prepare({
+			model: "glm-4.7",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.thinking).toEqual({ type: "enabled" });
+	});
+
+	test("disables thinking by default when no effort is requested", async () => {
+		const requestBody = await prepare({ model: "glm-4.7" });
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+	});
+
+	test("treats minimal as disabled", async () => {
+		const requestBody = await prepare({
+			model: "glm-4.7",
+			reasoningEffort: "minimal",
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+	});
+
+	test("none disables thinking even when tools are present", async () => {
+		const requestBody = await prepare({
+			model: "glm-4.7",
+			reasoningEffort: "none",
+			tools: [
+				{
+					type: "function",
+					function: { name: "get_weather" },
+				},
+			],
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+	});
+
+	test("none disables thinking even with a response_format", async () => {
+		const requestBody = await prepare({
+			model: "glm-4.7",
+			reasoningEffort: "none",
+			responseFormat: { type: "json_object" },
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+	});
+
+	test("leaves thinking on provider default for tool requests without an effort", async () => {
+		const requestBody = await prepare({
+			model: "glm-4.7",
+			tools: [
+				{
+					type: "function",
+					function: { name: "get_weather" },
+				},
+			],
+		});
+		expect(requestBody.thinking).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - reasoning_effort max", () => {
+	async function prepare(options: {
+		provider: Parameters<typeof prepareRequestBody>[0];
+		model: string;
+		useResponsesApi?: boolean;
+	}) {
+		return (await prepareRequestBody(
+			options.provider,
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			"max", // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			options.useResponsesApi ?? false,
+		)) as any;
+	}
+
+	test("forwards max to OpenAI chat completions verbatim", async () => {
+		const requestBody = await prepare({
+			provider: "openai",
+			model: "gpt-5.6-sol",
+		});
+		expect(requestBody.reasoning_effort).toBe("max");
+	});
+
+	test("forwards max to OpenAI Responses API verbatim", async () => {
+		const requestBody = await prepare({
+			provider: "openai",
+			model: "gpt-5.6-terra",
+			useResponsesApi: true,
+		});
+		expect(requestBody.reasoning.effort).toBe("max");
+	});
+
+	test("forwards max unchanged for models without a max tier (provider rejects it)", async () => {
+		const requestBody = await prepare({ provider: "openai", model: "gpt-5.5" });
+		expect(requestBody.reasoning_effort).toBe("max");
+	});
+
+	test("forwards max unchanged on the Responses API for models without a max tier", async () => {
+		const requestBody = await prepare({
+			provider: "openai",
+			model: "gpt-5.5",
+			useResponsesApi: true,
+		});
+		expect(requestBody.reasoning.effort).toBe("max");
+	});
+});
+
+describe("prepareRequestBody - xAI reasoning_effort", () => {
+	async function prepare(effort: "low" | "medium" | "high" | "xhigh") {
+		return (await prepareRequestBody(
+			"xai",
+			"grok-4-5",
+			null,
+			"grok-4.5",
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			effort, // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+			20,
+			null,
+		)) as any;
+	}
+
+	test("forwards low to xAI", async () => {
+		const requestBody = await prepare("low");
+		expect(requestBody.reasoning_effort).toBe("low");
+	});
+
+	test("forwards high to xAI", async () => {
+		const requestBody = await prepare("high");
+		expect(requestBody.reasoning_effort).toBe("high");
+	});
+
+	test("forwards medium to xAI", async () => {
+		const requestBody = await prepare("medium");
+		expect(requestBody.reasoning_effort).toBe("medium");
+	});
+
+	test("forwards effort verbatim and lets xAI reject unsupported tiers", async () => {
+		const requestBody = await prepare("xhigh");
+		expect(requestBody.reasoning_effort).toBe("xhigh");
+	});
+});
+
 describe("prepareRequestBody - Google AI Studio", () => {
+	// web_search is passed separately from `tools`; the gateway extracts it from
+	// the request before calling prepareRequestBody.
+	const googleTools = (tools: any, webSearchTool?: any) =>
+		prepareRequestBody(
+			"google-ai-studio",
+			"gemini-3.5-flash",
+			null,
+			"gemini-3.5-flash",
+			[{ role: "user", content: "hi" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			tools,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			webSearchTool,
+		) as Promise<any>;
+
+	test("opts into server-side tool invocation when web_search joins functions", async () => {
+		// Gemini 3 rejects built-in tools alongside functionDeclarations unless
+		// this is set; agentic clients (Codex CLI) always send both.
+		const requestBody = await googleTools(
+			[
+				{
+					type: "function",
+					function: { name: "calc", parameters: { type: "object" } },
+				},
+			],
+			{ type: "web_search" },
+		);
+
+		expect(requestBody.tools).toEqual([
+			{ functionDeclarations: [expect.objectContaining({ name: "calc" })] },
+			{ google_search: {} },
+		]);
+		expect(requestBody.toolConfig?.includeServerSideToolInvocations).toBe(true);
+	});
+
+	test("leaves toolConfig alone when web_search is the only tool", async () => {
+		const requestBody = await googleTools(undefined, { type: "web_search" });
+
+		expect(requestBody.tools).toEqual([{ google_search: {} }]);
+		expect(requestBody.toolConfig).toBeUndefined();
+	});
+
+	test("leaves toolConfig alone when there is no built-in tool", async () => {
+		const requestBody = await googleTools([
+			{
+				type: "function",
+				function: { name: "calc", parameters: { type: "object" } },
+			},
+		]);
+
+		expect(requestBody.toolConfig).toBeUndefined();
+	});
+
 	test("should map gateway 0.5K image size to Google 512", async () => {
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
@@ -736,6 +1739,54 @@ describe("prepareRequestBody - Google AI Studio", () => {
 			"TEXT",
 			"IMAGE",
 		]);
+	});
+
+	test("converts json_schema with array type (nullable) to Google schema", async () => {
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.5-flash",
+			null,
+			"gemini-2.5-flash",
+			[{ role: "user", content: "Extract the user info" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				type: "json_schema",
+				json_schema: {
+					name: "user_info",
+					schema: {
+						type: "object",
+						properties: {
+							name: { type: "string" },
+							nickname: { type: ["string", "null"] },
+							tags: { type: ["array", "null"], items: { type: "string" } },
+						},
+						required: ["name", "nickname"],
+					},
+				},
+			},
+		)) as any;
+
+		expect(requestBody.generationConfig.responseMimeType).toBe(
+			"application/json",
+		);
+		expect(requestBody.generationConfig.responseSchema).toEqual({
+			type: "OBJECT",
+			properties: {
+				name: { type: "STRING" },
+				nickname: { type: "STRING", nullable: true },
+				tags: {
+					type: "ARRAY",
+					nullable: true,
+					items: { type: "STRING" },
+				},
+			},
+			required: ["name", "nickname"],
+		});
 	});
 
 	test("should map gateway 0.5K image size to Google 512 for Vertex", async () => {
@@ -955,7 +2006,7 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		});
 	});
 
-	test('aliases "max" effort to "high" for providers without a max tier', async () => {
+	test('maps "max" effort to the top Google thinking budget', async () => {
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
 			"gemini-2.5-pro",
@@ -976,10 +2027,10 @@ describe("prepareRequestBody - Google AI Studio", () => {
 			false,
 		)) as any;
 
-		// "max" has no Google tier, so it aliases to "high" (24576) rather than
-		// falling through to the medium default (8192).
+		// Google has no effort enum, so "max" shares xhigh's top thinking
+		// budget rather than falling through to the medium default (8192).
 		expect(requestBody.generationConfig.thinkingConfig.thinkingBudget).toBe(
-			24576,
+			65536,
 		);
 	});
 
@@ -1792,6 +2843,46 @@ describe("prepareRequestBody - function tool parameter normalization", () => {
 });
 
 describe("prepareRequestBody - AWS Bedrock", () => {
+	test("should throw a typed RequestError for malformed tool_call arguments", async () => {
+		await expect(
+			prepareRequestBody(
+				"aws-bedrock",
+				"claude-sonnet-4-5",
+				null,
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
+				[
+					{ role: "user", content: "Hello!" },
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							{
+								id: "call_1",
+								type: "function",
+								function: {
+									name: "get_weather",
+									arguments: '{"city":"Berlin"',
+								},
+							},
+						],
+					},
+				],
+				false,
+				undefined,
+				1024,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				false,
+			),
+		).rejects.toBeInstanceOf(RequestError);
+	});
+
 	test("should keep Grok 4.3 as Bedrock Mantle OpenAI chat completions", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
@@ -2764,6 +3855,45 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			// replaced by the model maxOutput.
 			expect(requestBody.inferenceConfig?.maxTokens).toBe(5000);
 		});
+
+		test("drops messages whose content resolves to empty", async () => {
+			// Bedrock's Converse API 400s on messages with an empty content array
+			// ("The content field in the Message object at messages.N is empty"),
+			// while the Anthropic API accepts empty assistant turns and the
+			// Anthropic transform drops empty messages entirely. The Bedrock
+			// builder must drop them too.
+			const requestBody = (await prepareRequestBody(
+				"aws-bedrock",
+				"claude-sonnet-4-6",
+				null,
+				"anthropic.claude-sonnet-4-6",
+				[
+					{ role: "user", content: "say hi" },
+					{ role: "assistant", content: "" },
+					{ role: "user", content: [{ type: "text", text: "" }] as any },
+					{ role: "assistant", content: [] as any },
+					{ role: "assistant", content: "", tool_calls: [] },
+					{ role: "user", content: "say hi again" },
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.messages).toEqual([
+				{ role: "user", content: [{ text: "say hi" }] },
+				{ role: "user", content: [{ text: "say hi again" }] },
+			]);
+		});
 	});
 
 	describe("openai (Chat Completions)", () => {
@@ -2851,6 +3981,114 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 
 			expect(requestBody.max_completion_tokens).toBe(32000);
 			expect(requestBody.max_tokens).toBeUndefined();
+		});
+
+		test("strips reasoning_details from chat-completions messages", async () => {
+			const requestBody = (await prepareRequestBody(
+				"openai",
+				"gpt-5",
+				null,
+				"gpt-5",
+				[
+					{ role: "user", content: "Hello!" },
+					{
+						role: "assistant",
+						content: "Hi!",
+						reasoning_details: [
+							{
+								type: "reasoning.encrypted",
+								data: "gAAAA-blob",
+								format: "openai-responses-v1",
+							},
+						],
+					},
+					{ role: "user", content: "Again" },
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false, // useResponsesApi
+			)) as any;
+
+			expect(
+				requestBody.messages.every(
+					(m: any) => m.reasoning_details === undefined,
+				),
+			).toBe(true);
+		});
+
+		test("strips reasoning from replayed assistant turns on fireworks", async () => {
+			const requestBody = (await prepareRequestBody(
+				"fireworks",
+				"accounts/fireworks/models/kimi-k3",
+				null,
+				"kimi-k3",
+				[
+					{ role: "user", content: "My name is Ada." },
+					{
+						role: "assistant",
+						content: "Got it, Ada!",
+						reasoning: "The user told me their name.",
+					},
+					{
+						role: "assistant",
+						content: "Anything else?",
+						reasoning: "Dropped — Fireworks rejects this field.",
+						reasoning_content:
+							"Kept — a caller-supplied field we pass through.",
+					},
+					{ role: "user", content: "What is my name?" },
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false, // useResponsesApi
+			)) as any;
+
+			expect(
+				requestBody.messages.every((m: any) => m.reasoning === undefined),
+			).toBe(true);
+			expect(requestBody.messages[1].content).toBe("Got it, Ada!");
+			// Stripping `reasoning` must not disturb a caller-supplied
+			// `reasoning_content` on the same message.
+			expect(requestBody.messages[2].content).toBe("Anything else?");
+			expect(requestBody.messages[2].reasoning_content).toBe(
+				"Kept — a caller-supplied field we pass through.",
+			);
 		});
 	});
 
@@ -3226,6 +4464,90 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				{ role: "system", content: [{ type: "input_text", text: "be terse" }] },
 				{ role: "user", content: [{ type: "input_text", text: "hello" }] },
 			]);
+		});
+
+		test("runs stateless and requests encrypted reasoning payloads", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([{ role: "user", content: "Hello!" }]),
+			)) as any;
+
+			expect(requestBody.store).toBe(false);
+			expect(requestBody.include).toEqual(["reasoning.encrypted_content"]);
+		});
+
+		test("replays encrypted reasoning_details as reasoning input items", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([
+					{ role: "user", content: "weather in Berlin?" },
+					{
+						role: "assistant",
+						content: "",
+						reasoning_details: [
+							{
+								type: "reasoning.encrypted",
+								data: "gAAAA-encrypted-blob",
+								id: "rs_upstream",
+								format: "openai-responses-v1",
+								index: 0,
+							},
+						],
+						tool_calls: [
+							{
+								id: "call_abc",
+								type: "function",
+								function: {
+									name: "get_weather",
+									arguments: JSON.stringify({ city: "Berlin" }),
+								},
+							},
+						],
+					},
+					{
+						role: "tool",
+						tool_call_id: "call_abc",
+						content: JSON.stringify({ temperature: 17 }),
+					},
+				]),
+			)) as any;
+
+			const reasoningIndex = requestBody.input.findIndex(
+				(i: any) => i.type === "reasoning",
+			);
+			const functionCallIndex = requestBody.input.findIndex(
+				(i: any) => i.type === "function_call",
+			);
+			expect(reasoningIndex).toBeGreaterThan(-1);
+			expect(reasoningIndex).toBeLessThan(functionCallIndex);
+			expect(requestBody.input[reasoningIndex]).toEqual({
+				type: "reasoning",
+				id: "rs_upstream",
+				summary: [],
+				encrypted_content: "gAAAA-encrypted-blob",
+			});
+		});
+
+		test("skips foreign-format reasoning_details entries", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([
+					{ role: "user", content: "hello" },
+					{
+						role: "assistant",
+						content: "hi",
+						reasoning_details: [
+							{
+								type: "reasoning.encrypted",
+								data: "anthropic-blob",
+								format: "anthropic-claude-v1",
+							},
+						],
+					},
+					{ role: "user", content: "again" },
+				]),
+			)) as any;
+
+			expect(requestBody.input.some((i: any) => i.type === "reasoning")).toBe(
+				false,
+			);
 		});
 	});
 
@@ -3680,5 +5002,528 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 
 			expect(requestBody.max_tokens).toBeUndefined();
 		});
+	});
+});
+
+describe("prepareRequestBody - upstream prompt_cache_key", () => {
+	async function prepareCacheKeyRequest(
+		provider: Parameters<typeof prepareRequestBody>[0],
+		model: string,
+		messages: Parameters<typeof prepareRequestBody>[4],
+		opts: { promptCacheKey?: string; sessionId?: string } = {},
+	) {
+		return (await prepareRequestBody(
+			provider,
+			model,
+			null,
+			model,
+			messages,
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			undefined, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			undefined, // reasoning_max_tokens
+			undefined, // useResponsesApi
+			opts.promptCacheKey,
+			undefined, // prompt_cache_retention
+			true, // providerCacheControlEnabled
+			undefined, // n
+			undefined, // service_tier
+			undefined, // verbosity
+			undefined, // prompt_cache_options
+			opts.sessionId,
+		)) as { prompt_cache_key?: string };
+	}
+
+	const conversation = [
+		{ role: "system" as const, content: "You are a coding agent." },
+		{ role: "user" as const, content: "Fix the failing test." },
+	];
+
+	test("meta: derives a stable per-conversation key across turns", async () => {
+		const firstTurn = await prepareCacheKeyRequest(
+			"meta",
+			"muse-spark-1.1",
+			conversation,
+		);
+		const secondTurn = await prepareCacheKeyRequest("meta", "muse-spark-1.1", [
+			...conversation,
+			{ role: "assistant", content: "Reading the test file now." },
+			{ role: "user", content: "It's in api.spec.ts." },
+		]);
+
+		expect(firstTurn.prompt_cache_key).toBeDefined();
+		expect(firstTurn.prompt_cache_key).toBe(secondTurn.prompt_cache_key);
+	});
+
+	test("meta: derives different keys for different conversations", async () => {
+		const a = await prepareCacheKeyRequest(
+			"meta",
+			"muse-spark-1.1",
+			conversation,
+		);
+		const b = await prepareCacheKeyRequest("meta", "muse-spark-1.1", [
+			{ role: "system", content: "You are a coding agent." },
+			{ role: "user", content: "Refactor the auth module." },
+		]);
+
+		expect(a.prompt_cache_key).toBeDefined();
+		expect(b.prompt_cache_key).toBeDefined();
+		expect(a.prompt_cache_key).not.toBe(b.prompt_cache_key);
+	});
+
+	test("meta: caller-supplied prompt_cache_key wins over everything", async () => {
+		const requestBody = await prepareCacheKeyRequest(
+			"meta",
+			"muse-spark-1.1",
+			conversation,
+			{ promptCacheKey: "caller-session-key", sessionId: "sess-123" },
+		);
+
+		expect(requestBody.prompt_cache_key).toBe(
+			hashPromptCacheKey("caller-session-key"),
+		);
+	});
+
+	test("meta: session id beats the conversation-derived key and is hashed", async () => {
+		const sessionId = "session-uuid-abc-123";
+		const withSession = await prepareCacheKeyRequest(
+			"meta",
+			"muse-spark-1.1",
+			conversation,
+			{ sessionId },
+		);
+		const withoutSession = await prepareCacheKeyRequest(
+			"meta",
+			"muse-spark-1.1",
+			conversation,
+		);
+
+		expect(withSession.prompt_cache_key).toBe(hashSessionCacheKey(sessionId));
+		expect(withSession.prompt_cache_key).not.toBe(
+			withoutSession.prompt_cache_key,
+		);
+	});
+
+	test("openai responses API: uses hashed session id when no caller key", async () => {
+		const sessionId = "session-uuid-abc-123";
+		const requestBody = await prepareCacheKeyRequest(
+			"openai",
+			"gpt-5-mini",
+			conversation,
+			{ sessionId },
+		);
+
+		expect(requestBody.prompt_cache_key).toBe(hashSessionCacheKey(sessionId));
+	});
+
+	test("openai chat completions: uses hashed session id when no caller key", async () => {
+		const sessionId = "session-uuid-abc-123";
+		const requestBody = await prepareCacheKeyRequest(
+			"openai",
+			"gpt-4o-mini",
+			conversation,
+			{ sessionId },
+		);
+
+		expect(requestBody.prompt_cache_key).toBe(hashSessionCacheKey(sessionId));
+	});
+
+	test("azure responses API: uses hashed session id when no caller key", async () => {
+		const sessionId = "session-uuid-abc-123";
+		const requestBody = await prepareCacheKeyRequest(
+			"azure",
+			"gpt-5-mini",
+			conversation,
+			{ sessionId },
+		);
+
+		expect(requestBody.prompt_cache_key).toBe(hashSessionCacheKey(sessionId));
+	});
+
+	test("openai/azure: no key at all when neither caller key nor session id", async () => {
+		const openai = await prepareCacheKeyRequest(
+			"openai",
+			"gpt-5-mini",
+			conversation,
+		);
+		const azure = await prepareCacheKeyRequest(
+			"azure",
+			"gpt-5-mini",
+			conversation,
+		);
+
+		expect(openai.prompt_cache_key).toBeUndefined();
+		expect(azure.prompt_cache_key).toBeUndefined();
+	});
+
+	test("sakana: never receives a prompt_cache_key", async () => {
+		const requestBody = await prepareCacheKeyRequest(
+			"sakana",
+			"fugu-ultra",
+			conversation,
+			{ sessionId: "sess-123" },
+		);
+
+		expect(requestBody.prompt_cache_key).toBeUndefined();
+	});
+
+	test("raw session id never appears anywhere in the upstream body", async () => {
+		const sessionId = "super-secret-session-uuid";
+		for (const [provider, model] of [
+			["meta", "muse-spark-1.1"],
+			["openai", "gpt-5-mini"],
+			["openai", "gpt-4o-mini"],
+			["azure", "gpt-5-mini"],
+		] as const) {
+			const requestBody = await prepareCacheKeyRequest(
+				provider,
+				model,
+				conversation,
+				{ sessionId },
+			);
+			expect(JSON.stringify(requestBody)).not.toContain(sessionId);
+		}
+	});
+
+	test("hashSessionCacheKey is deterministic and does not contain the input", async () => {
+		const a = hashSessionCacheKey("sess-1");
+		expect(a).toBe(hashSessionCacheKey("sess-1"));
+		expect(a).not.toBe(hashSessionCacheKey("sess-2"));
+		expect(a).toHaveLength(32);
+		expect(a).not.toContain("sess-1");
+	});
+
+	test("hashPromptCacheKey always hashes to a stable 32-char digest", () => {
+		expect(hashPromptCacheKey("tenant-a")).toHaveLength(32);
+		expect(hashPromptCacheKey("tenant-a")).toBe(hashPromptCacheKey("tenant-a"));
+		expect(hashPromptCacheKey("tenant-a")).not.toBe(
+			hashPromptCacheKey("tenant-b"),
+		);
+		expect(hashPromptCacheKey("tenant-a")).not.toContain("tenant-a");
+	});
+
+	test("openai chat completions: hashes the caller key within the 64-char limit", async () => {
+		const requestBody = await prepareCacheKeyRequest(
+			"openai",
+			"gpt-4o-mini",
+			conversation,
+			{ promptCacheKey: "z".repeat(72) },
+		);
+
+		expect(requestBody.prompt_cache_key).toBe(
+			hashPromptCacheKey("z".repeat(72)),
+		);
+		expect(requestBody.prompt_cache_key?.length).toBeLessThanOrEqual(64);
+	});
+
+	test("openai responses API: hashes the caller key within the 64-char limit", async () => {
+		const requestBody = await prepareCacheKeyRequest(
+			"openai",
+			"gpt-5-mini",
+			conversation,
+			{ promptCacheKey: "z".repeat(72) },
+		);
+
+		expect(requestBody.prompt_cache_key).toBe(
+			hashPromptCacheKey("z".repeat(72)),
+		);
+		expect(requestBody.prompt_cache_key?.length).toBeLessThanOrEqual(64);
+	});
+});
+
+describe("prepareRequestBody - Xiaomi", () => {
+	test("flattens tool message with array content (text + image) to plain string", async () => {
+		const requestBody = (await prepareRequestBody(
+			"xiaomi",
+			"mimo-v2.5",
+			null,
+			"mimo-v2.5",
+			[
+				{ role: "user", content: "describe this" },
+				{
+					role: "tool",
+					tool_call_id: "call_1",
+					content: [
+						{ type: "text", text: "screenshot taken" },
+						{
+							type: "image_url",
+							image_url: { url: "data:image/png;base64,abc" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.messages).toHaveLength(2);
+		expect(requestBody.messages[0].content).toBe("describe this");
+		expect(requestBody.messages[1].role).toBe("tool");
+		expect(requestBody.messages[1].content).toBe("screenshot taken");
+	});
+
+	test("leaves tool message with plain string content unchanged", async () => {
+		const requestBody = (await prepareRequestBody(
+			"xiaomi",
+			"mimo-v2.5",
+			null,
+			"mimo-v2.5",
+			[
+				{ role: "user", content: "What is the weather?" },
+				{
+					role: "tool",
+					tool_call_id: "call_1",
+					content: "sunny, 22°C",
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.messages).toHaveLength(2);
+		expect(requestBody.messages[1].content).toBe("sunny, 22°C");
+	});
+
+	test("leaves user message array content unchanged (images still work)", async () => {
+		const requestBody = (await prepareRequestBody(
+			"xiaomi",
+			"mimo-v2.5",
+			null,
+			"mimo-v2.5",
+			[
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "describe this image" },
+						{
+							type: "image_url",
+							image_url: { url: "https://example.com/photo.jpg" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.messages).toHaveLength(1);
+		expect(requestBody.messages[0].role).toBe("user");
+		expect(Array.isArray(requestBody.messages[0].content)).toBe(true);
+		expect(requestBody.messages[0].content).toHaveLength(2);
+		expect(requestBody.messages[0].content[0]).toEqual({
+			type: "text",
+			text: "describe this image",
+		});
+		expect(requestBody.messages[0].content[1]).toEqual({
+			type: "image_url",
+			image_url: { url: "https://example.com/photo.jpg" },
+		});
+	});
+
+	test("handles tool message with multiple text blocks", async () => {
+		const requestBody = (await prepareRequestBody(
+			"xiaomi",
+			"mimo-v2.5",
+			null,
+			"mimo-v2.5",
+			[
+				{
+					role: "tool",
+					tool_call_id: "call_1",
+					content: [
+						{ type: "text", text: "part one " },
+						{ type: "text", text: "part two" },
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.messages[0].content).toBe("part one \npart two");
+	});
+
+	test("handles tool message with only images, no text (empty string)", async () => {
+		const requestBody = (await prepareRequestBody(
+			"xiaomi",
+			"mimo-v2.5",
+			null,
+			"mimo-v2.5",
+			[
+				{
+					role: "tool",
+					tool_call_id: "call_1",
+					content: [
+						{
+							type: "image_url",
+							image_url: { url: "data:image/png;base64,abc" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.messages[0].content).toBe("");
+	});
+
+	test("applies standard default params (stream_options, temperature, etc.)", async () => {
+		const requestBody = (await prepareRequestBody(
+			"xiaomi",
+			"mimo-v2.5",
+			null,
+			"mimo-v2.5",
+			[{ role: "user", content: "Hello" }],
+			true,
+			0.7,
+			1024,
+			0.9,
+			0.5,
+			0.5,
+			{ type: "json_object" },
+			undefined,
+			undefined,
+			"medium",
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.stream_options).toEqual({ include_usage: true });
+		expect(requestBody.response_format).toEqual({ type: "json_object" });
+		expect(requestBody.temperature).toBe(0.7);
+		expect(requestBody.max_tokens).toBe(1024);
+		expect(requestBody.top_p).toBe(0.9);
+		expect(requestBody.frequency_penalty).toBe(0.5);
+		expect(requestBody.presence_penalty).toBe(0.5);
+		expect(requestBody.reasoning_effort).toBe("medium");
+	});
+});
+
+describe("prepareRequestBody - developer role normalization", () => {
+	async function prepare(
+		provider: string,
+		model: string,
+		region: string | null = null,
+	) {
+		return (await prepareRequestBody(
+			provider,
+			model,
+			region,
+			model,
+			[
+				{ role: "developer", content: "You are a helpful assistant." },
+				{ role: "user", content: "Hello" },
+			] as any,
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+	}
+
+	test("rewrites developer to system for a mapping with supportsDeveloperRole: false (granite/glm-5.2)", async () => {
+		const requestBody = await prepare("granite", "glm-5.2");
+		expect(requestBody.messages[0].role).toBe("system");
+		expect(requestBody.messages[0].content).toBe(
+			"You are a helpful assistant.",
+		);
+		expect(requestBody.messages[1].role).toBe("user");
+	});
+
+	test("rewrites developer to system for alibaba/glm-5.2 (supportsDeveloperRole: false)", async () => {
+		const requestBody = await prepare("alibaba", "glm-5.2");
+		expect(requestBody.messages[0].role).toBe("system");
+		expect(requestBody.messages[1].role).toBe("user");
+	});
+
+	test("resolves the flag through region expansion for alibaba/glm-5.2 (singapore)", async () => {
+		const requestBody = await prepare("alibaba", "glm-5.2", "singapore");
+		expect(requestBody.messages[0].role).toBe("system");
+		expect(requestBody.messages[1].role).toBe("user");
+	});
+
+	test("preserves developer role for a mapping that supports it (zai/glm-5.2)", async () => {
+		const requestBody = await prepare("zai", "glm-5.2");
+		expect(requestBody.messages[0].role).toBe("developer");
+	});
+
+	test("preserves developer role for OpenAI", async () => {
+		const requestBody = await prepare("openai", "gpt-4o-mini");
+		expect(requestBody.messages[0].role).toBe("developer");
 	});
 });

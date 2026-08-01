@@ -1,5 +1,10 @@
+import { notFound } from "next/navigation";
+
 import { BlogList } from "@/components/blog/list";
 import { HeroRSC } from "@/components/landing/hero-rsc";
+import { slugify } from "@/lib/slugify";
+
+import { allBlogs } from "content-collections";
 
 import type { Metadata } from "next";
 
@@ -12,22 +17,31 @@ interface BlogItem {
 	categories?: string[];
 }
 
-function slugify(label: string) {
-	return label
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, "-")
-		.replace(/(^-|-$)/g, "");
-}
-
 interface CategoryPageProps {
 	params: Promise<{ category: string }>;
 }
 
+function findCategoryLabel(slug: string) {
+	for (const post of allBlogs) {
+		if (post.draft) {
+			continue;
+		}
+		for (const category of post.categories ?? []) {
+			if (slugify(category) === slug) {
+				return category;
+			}
+		}
+	}
+	return null;
+}
+
 export default async function BlogCategoryPage({ params }: CategoryPageProps) {
 	const { category } = await params;
-	const slug = decodeURIComponent(category);
+	const slug = slugify(decodeURIComponent(category));
 
-	const { allBlogs } = await import("content-collections");
+	if (!findCategoryLabel(slug)) {
+		notFound();
+	}
 
 	const filtered = allBlogs
 		.filter((entry: any) => !entry?.draft)
@@ -52,8 +66,7 @@ export default async function BlogCategoryPage({ params }: CategoryPageProps) {
 	);
 }
 
-export async function generateStaticParams() {
-	const { allBlogs } = await import("content-collections");
+export function generateStaticParams() {
 	const slugs = new Set<string>();
 	for (const post of allBlogs) {
 		(post.categories ?? []).forEach((c: string) => slugs.add(slugify(c)));
@@ -65,9 +78,28 @@ export async function generateMetadata({
 	params,
 }: CategoryPageProps): Promise<Metadata> {
 	const { category } = await params;
-	const decoded = decodeURIComponent(category);
+	const slug = slugify(decodeURIComponent(category));
+	const label = findCategoryLabel(slug);
+
+	if (!label) {
+		notFound();
+	}
+
+	const title = `Blog: ${label}`;
+	const description = `Articles in the ${label} category at LLM Gateway — news, tutorials, and product updates.`;
+
 	return {
-		title: `Blog: ${decoded}`,
-		description: `Articles in the ${decoded} category at LLM Gateway`,
+		title,
+		description,
+		alternates: {
+			canonical: `/blog/category/${slug}`,
+		},
+		openGraph: {
+			title: `${title} | LLM Gateway`,
+			description,
+			url: `https://llmgateway.io/blog/category/${slug}`,
+			type: "website",
+			images: ["/opengraph.png?v=2"],
+		},
 	};
 }

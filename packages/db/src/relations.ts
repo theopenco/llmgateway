@@ -37,6 +37,10 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.user.id,
 			to: r.modelRating.userId,
 		}),
+		modelSurveyResponses: r.many.modelSurveyResponse({
+			from: r.user.id,
+			to: r.modelSurveyResponse.userId,
+		}),
 		skills: r.many.skill({
 			from: r.user.id,
 			to: r.skill.userId,
@@ -48,6 +52,10 @@ export const relations = defineRelations(schema, (r) => ({
 		videoHistory: r.many.playgroundVideoHistory({
 			from: r.user.id,
 			to: r.playgroundVideoHistory.userId,
+		}),
+		loungePointEvents: r.many.loungePointEvent({
+			from: r.user.id,
+			to: r.loungePointEvent.userId,
 		}),
 	},
 	organization: {
@@ -110,6 +118,10 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.organization.id,
 			to: r.endUserSession.organizationId,
 		}),
+		modelSurveyResponses: r.many.modelSurveyResponse({
+			from: r.organization.id,
+			to: r.modelSurveyResponse.organizationId,
+		}),
 	},
 	referral: {
 		referrerOrganization: r.one.organization({
@@ -134,6 +146,16 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.userOrganization.id,
 			to: r.userProject.userOrganizationId,
 		}),
+		iamRules: r.many.userIamRule({
+			from: r.userOrganization.id,
+			to: r.userIamRule.userOrganizationId,
+		}),
+	},
+	userIamRule: {
+		userOrganization: r.one.userOrganization({
+			from: r.userIamRule.userOrganizationId,
+			to: r.userOrganization.id,
+		}),
 	},
 	userProject: {
 		userOrganization: r.one.userOrganization({
@@ -142,6 +164,26 @@ export const relations = defineRelations(schema, (r) => ({
 		}),
 		project: r.one.project({
 			from: r.userProject.projectId,
+			to: r.project.id,
+		}),
+	},
+	organizationInvite: {
+		organization: r.one.organization({
+			from: r.organizationInvite.organizationId,
+			to: r.organization.id,
+		}),
+		inviter: r.one.user({
+			from: r.organizationInvite.invitedBy,
+			to: r.user.id,
+		}),
+	},
+	ssoDefaultProject: {
+		organization: r.one.organization({
+			from: r.ssoDefaultProject.organizationId,
+			to: r.organization.id,
+		}),
+		project: r.one.project({
+			from: r.ssoDefaultProject.projectId,
 			to: r.project.id,
 		}),
 	},
@@ -405,6 +447,54 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.chat.id,
 			to: r.chatShare.chatId,
 		}),
+		project: r.one.chatProject({
+			from: r.chat.projectId,
+			to: r.chatProject.id,
+		}),
+	},
+	chatProject: {
+		user: r.one.user({
+			from: r.chatProject.userId,
+			to: r.user.id,
+		}),
+		files: r.many.chatProjectFile({
+			from: r.chatProject.id,
+			to: r.chatProjectFile.projectId,
+		}),
+		chats: r.many.chat({
+			from: r.chatProject.id,
+			to: r.chat.projectId,
+		}),
+		memories: r.many.chatProjectMemory({
+			from: r.chatProject.id,
+			to: r.chatProjectMemory.projectId,
+		}),
+	},
+	chatProjectMemory: {
+		project: r.one.chatProject({
+			from: r.chatProjectMemory.projectId,
+			to: r.chatProject.id,
+		}),
+	},
+	chatProjectFile: {
+		project: r.one.chatProject({
+			from: r.chatProjectFile.projectId,
+			to: r.chatProject.id,
+		}),
+		chunks: r.many.chatProjectFileChunk({
+			from: r.chatProjectFile.id,
+			to: r.chatProjectFileChunk.fileId,
+		}),
+	},
+	chatProjectFileChunk: {
+		file: r.one.chatProjectFile({
+			from: r.chatProjectFileChunk.fileId,
+			to: r.chatProjectFile.id,
+		}),
+		project: r.one.chatProject({
+			from: r.chatProjectFileChunk.projectId,
+			to: r.chatProject.id,
+		}),
 	},
 	chatShare: {
 		chat: r.one.chat({
@@ -511,6 +601,12 @@ export const relations = defineRelations(schema, (r) => ({
 	playgroundVideoHistory: {
 		user: r.one.user({
 			from: r.playgroundVideoHistory.userId,
+			to: r.user.id,
+		}),
+	},
+	loungePointEvent: {
+		user: r.one.user({
+			from: r.loungePointEvent.userId,
 			to: r.user.id,
 		}),
 	},

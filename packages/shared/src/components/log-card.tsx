@@ -168,6 +168,7 @@ export interface LogCardData {
 	apiKeyId?: string | null;
 	apiKeyName?: string | null;
 	source?: string | null;
+	apiOrigin?: string | null;
 	mode?: string | null;
 	usedMode?: string | null;
 	retried?: boolean | null;
@@ -221,6 +222,24 @@ export interface LogCardProps {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Display labels for the gateway API surface a request came in through. Logs
+ * written before the column existed have a null `apiOrigin`.
+ */
+export const API_ORIGIN_LABELS: Record<string, string> = {
+	"chat-completions": "Chat Completions",
+	messages: "Messages",
+	responses: "Responses",
+	embeddings: "Embeddings",
+	images: "Images",
+	videos: "Videos",
+	moderations: "Moderations",
+	ocr: "OCR",
+	speech: "Speech",
+	transcriptions: "Transcriptions",
+	rerank: "Rerank",
+};
 
 function formatDuration(ms: number) {
 	if (ms < 1000) {
@@ -361,9 +380,7 @@ export function LogCard({
 	const toolResults = log.toolResults as ToolCall[] | undefined;
 	const tools = log.tools as unknown[] | undefined;
 	const toolChoice = log.toolChoice as
-		| Record<string, unknown>
-		| string
-		| undefined;
+		Record<string, unknown> | string | undefined;
 	const messages = log.messages as unknown | undefined;
 	const responseFormat = log.responseFormat as { type?: string } | undefined;
 	const params = log.params as Record<string, any> | undefined;
@@ -371,8 +388,7 @@ export function LogCard({
 
 	// Extract image_config from params and compute remaining params
 	const imageConfig = params?.image_config as
-		| Record<string, string | number>
-		| undefined;
+		Record<string, string | number> | undefined;
 	const remainingParams = params
 		? Object.fromEntries(
 				Object.entries(params).filter(([key]) => key !== "image_config"),
@@ -1181,6 +1197,12 @@ export function LogCard({
 									copyLabel="Copy API key ID"
 									showCopyButton={showCopyButtons}
 								/>
+								<div className="text-muted-foreground">API Origin</div>
+								<div>
+									{log.apiOrigin
+										? (API_ORIGIN_LABELS[log.apiOrigin] ?? log.apiOrigin)
+										: "—"}
+								</div>
 								<div className="text-muted-foreground">Mode</div>
 								<div>{log.mode ?? "?"}</div>
 								<div className="text-muted-foreground">Used Mode</div>

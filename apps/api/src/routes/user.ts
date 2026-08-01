@@ -2,7 +2,12 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { apiAuth as auth, updateResendContact } from "@/auth/config.js";
+import {
+	apiAuth as auth,
+	deleteResendContact,
+	updateResendContact,
+} from "@/auth/config.js";
+import { notifyUserAccountDeleted } from "@/utils/discord.js";
 import { computeProfileData, profileSchema } from "@/utils/profile.js";
 
 import { and, db, eq, tables } from "@llmgateway/db";
@@ -22,6 +27,7 @@ const publicUserSchema = z.object({
 	isAdmin: z.boolean(),
 	username: z.string().nullable(),
 	profilePublic: z.boolean(),
+	profileHidePicture: z.boolean(),
 	bio: z.string().nullable(),
 	githubUsername: z.string().nullable(),
 	xUsername: z.string().nullable(),
@@ -31,6 +37,7 @@ const publicUserSchema = z.object({
 		}),
 	),
 	hasPasskeys: z.boolean(),
+	isSsoUser: z.boolean(),
 });
 
 async function getUserAuthInfo(userId: string) {
@@ -42,16 +49,33 @@ async function getUserAuthInfo(userId: string) {
 			where: { userId },
 		}),
 	]);
+	// A user authenticated via enterprise SSO/SCIM has an `account` whose
+	// providerId matches a registered `ssoProvider` connection slug. Resolving
+	// it here lets the frontend treat these users specially without shipping the
+	// list of connection slugs to the client.
+	const providerIds = accounts.map((a) => a.providerId);
+	const ssoAccount =
+		providerIds.length > 0
+			? await db.query.ssoProvider.findFirst({
+					columns: { id: true },
+					where: { providerId: { in: providerIds } },
+				})
+			: null;
 	return {
 		accounts: accounts.map((a) => ({ providerId: a.providerId })),
 		hasPasskeys: passkeys.length > 0,
 		hasCredentialAccount: accounts.some((a) => a.providerId === "credential"),
+		isSsoUser: !!ssoAccount,
 	};
 }
 
 function toPublicUser(
 	userRecord: typeof tables.user.$inferSelect,
-	authInfo: { accounts: { providerId: string }[]; hasPasskeys: boolean },
+	authInfo: {
+		accounts: { providerId: string }[];
+		hasPasskeys: boolean;
+		isSsoUser: boolean;
+	},
 	isAdmin: boolean,
 ): z.infer<typeof publicUserSchema> {
 	return {
@@ -63,11 +87,13 @@ function toPublicUser(
 		isAdmin,
 		username: userRecord.username,
 		profilePublic: userRecord.profilePublic,
+		profileHidePicture: userRecord.profileHidePicture,
 		bio: userRecord.bio,
 		githubUsername: userRecord.githubUsername,
 		xUsername: userRecord.xUsername,
 		accounts: authInfo.accounts,
 		hasPasskeys: authInfo.hasPasskeys,
+		isSsoUser: authInfo.isSsoUser,
 	};
 }
 
@@ -148,6 +174,7 @@ const updateUserSchema = z.object({
 		.nullable()
 		.optional(),
 	profilePublic: z.boolean().optional(),
+	profileHidePicture: z.boolean().optional(),
 	bio: z.string().max(280).nullable().optional(),
 	githubUsername: z.string().max(100).nullable().optional(),
 	xUsername: z.string().max(100).nullable().optional(),
@@ -475,11 +502,23 @@ user.openapi(deleteUser, async (c) => {
 		});
 	}
 
+	// Sign out before deleting the user: the delete cascades the session rows
+	// away, after which better-auth can no longer resolve the session to revoke
+	// it or emit the cookie-clearing headers.
+	const signOutResult = await auth.api.signOut({
+		headers: c.req.raw.headers,
+		returnHeaders: true,
+	});
+
 	await db.delete(tables.user).where(eq(tables.user.id, authUser.id));
 
-	await auth.api.signOut({
-		headers: c.req.raw.headers,
-	});
+	await notifyUserAccountDeleted(userRecord.email, userRecord.name);
+
+	await deleteResendContact(userRecord.email);
+
+	for (const cookie of signOutResult.headers.getSetCookie()) {
+		c.header("set-cookie", cookie, { append: true });
+	}
 
 	return c.json({
 		message: "Account deleted successfully",

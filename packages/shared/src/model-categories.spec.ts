@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { getModelCategory, isPremiumModel } from "./model-categories.js";
+import {
+	getModelCategory,
+	isPremiumModel,
+	isPremiumUsedModel,
+} from "./model-categories.js";
 
 describe("model-categories", () => {
 	it("classifies a known premium model as premium", () => {
@@ -31,5 +35,25 @@ describe("model-categories", () => {
 	it("classifies a known standard model as standard", () => {
 		expect(isPremiumModel("gpt-4o-mini")).toBe(false);
 		expect(getModelCategory("gpt-4o-mini")).toBe("standard");
+	});
+
+	it("classifies provider-prefixed usedModel values as premium", () => {
+		expect(isPremiumUsedModel("anthropic/claude-fable-5")).toBe(true);
+		expect(isPremiumUsedModel("anthropic/claude-opus-4-8")).toBe(true);
+	});
+
+	it("classifies region-suffixed usedModel values as premium", () => {
+		expect(isPremiumUsedModel("aws-bedrock/claude-fable-5:global")).toBe(true);
+		expect(isPremiumUsedModel("aws-bedrock/claude-fable-5:us")).toBe(true);
+	});
+
+	it("classifies standard usedModel values as standard", () => {
+		expect(isPremiumUsedModel("openai/gpt-4o-mini")).toBe(false);
+		expect(isPremiumUsedModel("custom/some-unknown-model")).toBe(false);
+	});
+
+	it("accepts a bare model id in usedModel form", () => {
+		expect(isPremiumUsedModel("claude-fable-5")).toBe(true);
+		expect(isPremiumUsedModel("gpt-4o-mini")).toBe(false);
 	});
 });

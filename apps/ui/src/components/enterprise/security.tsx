@@ -8,6 +8,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+import { MARKETING_STATS } from "@llmgateway/shared";
+
 const assurances = [
 	{
 		icon: Lock,
@@ -27,7 +29,7 @@ const assurances = [
 	},
 	{
 		icon: ShieldCheck,
-		title: "99.99% uptime SLA",
+		title: `${MARKETING_STATS.uptimeSla} uptime SLA`,
 		description: "Backed by live status at status.llmgateway.io.",
 	},
 ];

@@ -654,8 +654,7 @@ function createMcpServer(apiKey: string): McpServer {
 					: undefined;
 
 				let parsedFilename:
-					| { baseName: string; fileExt: string | undefined }
-					| undefined;
+					{ baseName: string; fileExt: string | undefined } | undefined;
 				if (resolvedUploadDir && input.filename) {
 					const rawName = input.filename;
 					if (
@@ -1110,20 +1109,6 @@ export async function mcpHandler(c: Context): Promise<Response> {
 		},
 	});
 
-	// Handle OPTIONS for CORS
-	if (method === "OPTIONS") {
-		return new Response(null, {
-			status: 204,
-			headers: {
-				"Access-Control-Allow-Origin": "*",
-				"Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-				"Access-Control-Allow-Headers":
-					"Content-Type, Authorization, x-api-key, mcp-session-id",
-				"Access-Control-Expose-Headers": "mcp-session-id",
-			},
-		});
-	}
-
 	// Extract API key for authentication
 	const apiKey = parseApiToken(c);
 	if (!apiKey) {
@@ -1161,9 +1146,10 @@ export async function mcpHandler(c: Context): Promise<Response> {
 	}
 
 	try {
-		assertApiKeyWithinUsageLimits(apiKeyRecord);
-		// Enforce the per-member budget set on the Teams page (fails open on read
-		// errors). Resolve the project so the org is known for the creator lookup.
+		// User-level limits take priority: enforce the per-member budget (set on
+		// the Teams page; fails open on read errors) before the per-key usage
+		// limits, so a member who is over budget is denied even if the key itself
+		// is within limits. Resolve the project so the org is known for the lookup.
 		const mcpProject = await findProjectById(apiKeyRecord.projectId);
 		if (mcpProject) {
 			await assertMemberWithinBudget(
@@ -1171,6 +1157,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 				mcpProject.organizationId,
 			);
 		}
+		assertApiKeyWithinUsageLimits(apiKeyRecord);
 	} catch (error) {
 		// Preserve the thrown status: assertMemberWithinBudget uses 403 for a
 		// budget breach, which must not be flattened into a 401 (invalid key).
@@ -1256,9 +1243,6 @@ export async function mcpHandler(c: Context): Promise<Response> {
 				"Content-Type": "text/event-stream",
 				"Cache-Control": "no-cache",
 				Connection: "keep-alive",
-				"Access-Control-Allow-Origin": "*",
-				"Access-Control-Allow-Headers":
-					"Content-Type, Authorization, x-api-key, mcp-session-id",
 				"mcp-session-id": sessionId,
 			},
 		});

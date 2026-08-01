@@ -43,6 +43,24 @@ const RATE_LIMIT_WINDOW_SECONDS = 60 * 60; // 1 hour
 // the entire quota to be spent instantly).
 const BURST_LIMIT_MAX = 5;
 const BURST_LIMIT_WINDOW_SECONDS = 20;
+// Daily cap on top of the hourly one — 20/hour alone still allows 480 LLM
+// calls per day from a single address grinding the window all day.
+const DAILY_LIMIT_MAX = 60;
+const DAILY_LIMIT_WINDOW_SECONDS = 24 * 60 * 60;
+// Global circuit breakers across all visitors. Per-identifier limits are
+// defeated by rotating IPs (or spoofed forwarding headers on direct API
+// hits), so these bound the total LLM spend no matter how the per-IP and
+// per-client buckets are evaded.
+const GLOBAL_HOURLY_LIMIT_MAX = 300;
+const GLOBAL_DAILY_LIMIT_MAX = 1500;
+// Escalations send an email and a Discord ping each, so they get their own
+// daily per-IP cap plus a global cap to keep a flood from burying the inbox.
+const ESCALATE_DAILY_LIMIT_MAX = 10;
+const ESCALATE_GLOBAL_DAILY_LIMIT_MAX = 50;
+// Shared per-IP budget for the cheap DB-backed endpoints (conversation
+// restore, reactions, ratings) — generous for humans, stops hammering.
+const META_BURST_LIMIT_MAX = 30;
+const META_HOURLY_LIMIT_MAX = 300;
 const CONVERSATION_TTL_SECONDS = 60 * 60; // 1 hour
 const MAX_CONTEXT_MESSAGES = 30;
 
@@ -115,37 +133,108 @@ async function checkRateLimit(
 	}
 }
 
-// Enforces both the short burst window and the hourly cap. The burst check runs
-// first so a request blocked by it doesn't also consume the hourly quota.
+// Enforces the burst, hourly and daily windows per IP and per clientId, then
+// the global circuit breakers. Narrower windows run first so a request they
+// block doesn't consume the wider quotas, and the global buckets run last so
+// per-identifier rejections don't eat into everyone else's budget. The
+// clientId is client-chosen, so it can't be the only key — but it catches
+// bots that rotate IPs while reusing a client identity, and the global caps
+// bound whatever rotates both.
 async function checkMessageRateLimit(
-	identifier: string,
+	ipAddress: string,
+	clientId: string,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
-	const burstOk = await checkRateLimit(
-		identifier,
-		"burst",
-		BURST_LIMIT_MAX,
-		BURST_LIMIT_WINDOW_SECONDS,
+	const identifiers = [`ip:${ipAddress}`, `client:${clientId}`];
+
+	for (const identifier of identifiers) {
+		const burstOk = await checkRateLimit(
+			identifier,
+			"burst",
+			BURST_LIMIT_MAX,
+			BURST_LIMIT_WINDOW_SECONDS,
+		);
+		if (!burstOk) {
+			return {
+				ok: false,
+				message:
+					"You're sending messages too quickly. Please wait a few seconds and try again.",
+			};
+		}
+	}
+	for (const identifier of identifiers) {
+		const hourOk = await checkRateLimit(
+			identifier,
+			"hour",
+			RATE_LIMIT_MAX,
+			RATE_LIMIT_WINDOW_SECONDS,
+		);
+		if (!hourOk) {
+			return {
+				ok: false,
+				message: "Too many messages. Please try again later (max 20 per hour).",
+			};
+		}
+	}
+	for (const identifier of identifiers) {
+		const dayOk = await checkRateLimit(
+			identifier,
+			"day",
+			DAILY_LIMIT_MAX,
+			DAILY_LIMIT_WINDOW_SECONDS,
+		);
+		if (!dayOk) {
+			return {
+				ok: false,
+				message:
+					"Daily message limit reached. Please try again tomorrow or email contact@llmgateway.io.",
+			};
+		}
+	}
+
+	const globalHourOk = await checkRateLimit(
+		"all",
+		"global_hour",
+		GLOBAL_HOURLY_LIMIT_MAX,
+		RATE_LIMIT_WINDOW_SECONDS,
 	);
-	if (!burstOk) {
+	const globalDayOk =
+		globalHourOk &&
+		(await checkRateLimit(
+			"all",
+			"global_day",
+			GLOBAL_DAILY_LIMIT_MAX,
+			DAILY_LIMIT_WINDOW_SECONDS,
+		));
+	if (!globalDayOk) {
+		logger.warn("Chat support global rate limit reached", { ipAddress });
 		return {
 			ok: false,
 			message:
-				"You're sending messages too quickly. Please wait a few seconds and try again.",
+				"Chat support is experiencing unusually high volume. Please try again later or email contact@llmgateway.io.",
 		};
 	}
-	const hourOk = await checkRateLimit(
-		identifier,
-		"hour",
-		RATE_LIMIT_MAX,
+
+	return { ok: true };
+}
+
+// Shared limiter for the cheap DB-backed endpoints. One bucket across all of
+// them: none is expensive on its own, the goal is just to stop hammering.
+async function checkMetaRateLimit(ipAddress: string): Promise<boolean> {
+	const burstOk = await checkRateLimit(
+		`ip:${ipAddress}`,
+		"meta_burst",
+		META_BURST_LIMIT_MAX,
+		BURST_LIMIT_WINDOW_SECONDS,
+	);
+	if (!burstOk) {
+		return false;
+	}
+	return await checkRateLimit(
+		`ip:${ipAddress}`,
+		"meta_hour",
+		META_HOURLY_LIMIT_MAX,
 		RATE_LIMIT_WINDOW_SECONDS,
 	);
-	if (!hourOk) {
-		return {
-			ok: false,
-			message: "Too many messages. Please try again later (max 20 per hour).",
-		};
-	}
-	return { ok: true };
 }
 
 function getTextFromUIMessage(message: UIMessage): string {
@@ -300,37 +389,54 @@ async function persistMessage(
 	}
 }
 
+// The endpoint is public and unauthenticated, so the body is fully untrusted.
+// A UIMessage's `parts` array is required by both getTextFromUIMessage and the
+// AI SDK's convertToModelMessages downstream, so validate the whole shape up
+// front and reject anything malformed instead of crashing deeper in the flow.
+const chatSupportMessageSchema = z.object({
+	id: z.string().optional(),
+	role: z.string(),
+	parts: z.array(z.object({ type: z.string() }).passthrough()),
+	metadata: z.unknown().optional(),
+});
+
+const chatSupportRequestSchema = z.object({
+	// Longer histories are allowed now that conversations persist across
+	// sessions, but only the most recent messages are fed to the model to bound
+	// token usage (see MAX_CONTEXT_MESSAGES below).
+	messages: z
+		.array(chatSupportMessageSchema)
+		.min(1, "Missing messages")
+		.max(100, "Too many messages in conversation"),
+	name: z.string().max(200).optional(),
+	email: z.string().max(320).optional(),
+	clientId: z.string().min(1).max(64),
+});
+
 export const publicChatSupport = new Hono<ServerTypes>();
 
 publicChatSupport.post("/", async (c) => {
 	const ipAddress = extractClientIP(c) ?? "unknown";
-	const rateLimit = await checkMessageRateLimit(ipAddress);
 
+	const parsed = chatSupportRequestSchema.safeParse(
+		await c.req.json().catch(() => null),
+	);
+	if (!parsed.success) {
+		return c.json(
+			{ error: parsed.error.issues[0]?.message ?? "Invalid request body" },
+			400,
+		);
+	}
+	const { name, email, clientId } = parsed.data;
+	const messages = parsed.data.messages as unknown as UIMessage[];
+
+	// Checked only after validation so malformed requests can't consume the
+	// per-identifier buckets — or worse, trip the global breaker for free.
+	const rateLimit = await checkMessageRateLimit(ipAddress, clientId);
 	if (!rateLimit.ok) {
 		return c.json({ error: rateLimit.message }, 429);
 	}
 
-	const body = await c.req.json<{
-		messages: UIMessage[];
-		name?: string;
-		email?: string;
-		clientId?: string;
-	}>();
-	const { messages, name, email, clientId } = body;
-
-	if (!clientId || typeof clientId !== "string" || clientId.length > 64) {
-		return c.json({ error: "Missing or invalid clientId" }, 400);
-	}
-
-	if (!messages || !Array.isArray(messages) || messages.length === 0) {
-		return c.json({ error: "Missing messages" }, 400);
-	}
-
-	// Allow longer histories now that conversations persist across sessions, but
-	// only feed the most recent messages to the model to bound token usage.
-	if (messages.length > 100) {
-		return c.json({ error: "Too many messages in conversation" }, 400);
-	}
 	const contextMessages = messages.slice(-MAX_CONTEXT_MESSAGES);
 
 	const userAgent = c.req.header("User-Agent");
@@ -488,6 +594,10 @@ publicChatSupport.post("/", async (c) => {
 // can restore history across reloads and surface admin replies. Archived
 // conversations resolve to an empty result — they are hidden from the visitor.
 publicChatSupport.get("/conversation", async (c) => {
+	if (!(await checkMetaRateLimit(extractClientIP(c) ?? "unknown"))) {
+		return c.json({ error: "Too many requests. Please try again later." }, 429);
+	}
+
 	const clientId = c.req.query("clientId");
 	if (!clientId || clientId.length > 64) {
 		return c.json({ error: "Missing or invalid clientId" }, 400);
@@ -551,6 +661,10 @@ publicChatSupport.get("/conversation", async (c) => {
 
 // Records a thumbs up/down on a specific assistant message.
 publicChatSupport.post("/reaction", async (c) => {
+	if (!(await checkMetaRateLimit(extractClientIP(c) ?? "unknown"))) {
+		return c.json({ error: "Too many requests. Please try again later." }, 429);
+	}
+
 	const body = await c.req.json<{
 		clientId?: string;
 		sequence?: number;
@@ -595,6 +709,10 @@ publicChatSupport.post("/reaction", async (c) => {
 
 // Lets the visitor resolve their conversation and rate it from 0 to 5 stars.
 publicChatSupport.post("/resolve", async (c) => {
+	if (!(await checkMetaRateLimit(extractClientIP(c) ?? "unknown"))) {
+		return c.json({ error: "Too many requests. Please try again later." }, 429);
+	}
+
 	const body = await c.req.json<{
 		clientId?: string;
 		rating?: number;
@@ -629,16 +747,24 @@ publicChatSupport.post("/resolve", async (c) => {
 
 publicChatSupport.post("/escalate", async (c) => {
 	const ipAddress = extractClientIP(c) ?? "unknown";
-	// Throttle escalation on its own bucket — never the message bucket — so a
+	// Throttle escalation on its own buckets — never the message buckets — so a
 	// visitor who has used up their hourly message quota can still reach a human.
-	const canSubmit = await checkRateLimit(
-		ipAddress,
+	const hourOk = await checkRateLimit(
+		`ip:${ipAddress}`,
 		"escalate",
 		RATE_LIMIT_MAX,
 		RATE_LIMIT_WINDOW_SECONDS,
 	);
+	const dayOk =
+		hourOk &&
+		(await checkRateLimit(
+			`ip:${ipAddress}`,
+			"escalate_day",
+			ESCALATE_DAILY_LIMIT_MAX,
+			DAILY_LIMIT_WINDOW_SECONDS,
+		));
 
-	if (!canSubmit) {
+	if (!dayOk) {
 		return c.json({ error: "Too many requests. Please try again later." }, 429);
 	}
 
@@ -671,6 +797,22 @@ publicChatSupport.post("/escalate", async (c) => {
 
 	if (existing[0]?.escalatedAt) {
 		return c.json({ success: true, message: "Already escalated." });
+	}
+
+	// Checked only once we know a new escalation will actually be sent, so
+	// malformed requests and already-escalated retries don't spend the global
+	// cap. Each escalation past this point costs an email and a Discord ping.
+	const globalOk = await checkRateLimit(
+		"all",
+		"escalate_global_day",
+		ESCALATE_GLOBAL_DAILY_LIMIT_MAX,
+		DAILY_LIMIT_WINDOW_SECONDS,
+	);
+	if (!globalOk) {
+		logger.warn("Chat support global escalation limit reached", {
+			ipAddress,
+		});
+		return c.json({ error: "Too many requests. Please try again later." }, 429);
 	}
 
 	await db

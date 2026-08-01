@@ -2,7 +2,11 @@ import { trace } from "@opentelemetry/api";
 
 import type { GatewayApiKey } from "@/lib/cached-queries.js";
 import type { RoutingMetadata } from "@llmgateway/actions";
-import type { GatewayContentFilterResponse, Project } from "@llmgateway/db";
+import type {
+	ApiOrigin,
+	GatewayContentFilterResponse,
+	Project,
+} from "@llmgateway/db";
 import type { OpenAIToolInput } from "@llmgateway/models";
 
 export interface PluginResults {
@@ -29,19 +33,14 @@ export interface CreateLogEntryOptions {
 	frequency_penalty?: number;
 	presence_penalty?: number;
 	reasoningEffort?:
-		| "none"
-		| "minimal"
-		| "low"
-		| "medium"
-		| "high"
-		| "xhigh"
-		| "max";
+		"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 	reasoningMaxTokens?: number;
 	effort?: "low" | "medium" | "high";
 	responseFormat?: any;
 	tools?: OpenAIToolInput[];
 	toolChoice?: any;
 	source?: string;
+	apiOrigin?: ApiOrigin;
 	customHeaders: Record<string, string>;
 	debugMode: boolean;
 	userAgent?: string;
@@ -98,6 +97,7 @@ function buildLogEntry(options: CreateLogEntryOptions) {
 		tools: options.tools ?? null,
 		toolChoice: options.toolChoice ?? null,
 		mode: options.project.mode,
+		apiOrigin: options.apiOrigin ?? null,
 		source: options.source ?? null,
 		customHeaders:
 			Object.keys(options.customHeaders).length > 0
@@ -206,13 +206,7 @@ export function createLogEntry(
 	frequency_penalty?: number,
 	presence_penalty?: number,
 	reasoningEffort?:
-		| "none"
-		| "minimal"
-		| "low"
-		| "medium"
-		| "high"
-		| "xhigh"
-		| "max",
+		"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max",
 	reasoningMaxTokens?: number,
 	effort?: "low" | "medium" | "high",
 	responseFormat?: any,

@@ -116,7 +116,7 @@ const comparisonData = [
 				litellm: true,
 			},
 			{
-				title: "Interactive playground",
+				title: "Interactive chat app (Lounge)",
 				description: "Test models directly in the browser",
 				llmgateway: true,
 				litellm: false,
@@ -280,6 +280,16 @@ export function ComparisonLiteLLM() {
 					<p className="text-sm text-muted-foreground mt-3">
 						No credit card required • Self-host option available • Enterprise
 						support included
+					</p>
+					<p className="text-sm text-muted-foreground mt-3">
+						Weighing more options? See the{" "}
+						<Link
+							href={"/blog/litellm-alternatives" as any}
+							className="underline underline-offset-4 hover:text-foreground"
+						>
+							8 best LiteLLM alternatives in 2026
+						</Link>
+						.
 					</p>
 				</div>
 			</div>

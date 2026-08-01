@@ -20,7 +20,7 @@ This is an honest comparison. We built LLM Gateway, so we're biased — but we'l
 
 | Feature               | LLM Gateway                                           | OpenRouter                          |
 | --------------------- | ----------------------------------------------------- | ----------------------------------- |
-| Models                | 280+ models, 35+ providers                            | 400+ models, 70+ providers          |
+| Models                | 200+ models, 40+ providers                            | 400+ models, 70+ providers          |
 | API compatibility     | OpenAI-compatible                                     | OpenAI-compatible                   |
 | Self-hosting          | Yes (AGPLv3, Docker)                                  | No                                  |
 | Bring Your Own Keys   | Yes (zero gateway markup)                             | Yes (1M free, then 5%)              |
@@ -173,5 +173,7 @@ Both are good products that solve the same core problem. The difference is depth
 OpenRouter gives you a unified API for multiple models. LLM Gateway gives you that plus the infrastructure — routing optimization, caching, guardrails, audit logs, team management, self-hosting — to run AI in production responsibly.
 
 If you're building something real, you'll eventually need those features. The question is whether you build them yourself or use a platform that includes them.
+
+Weighing more than these two? See the [10 best OpenRouter alternatives in 2026](/blog/openrouter-alternatives) for the full field.
 
 **[Try LLM Gateway free](/signup)** | **[Migration guide](https://docs.llmgateway.io/migrations/openrouter)** | **[Compare all features](/compare/open-router)**

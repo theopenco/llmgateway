@@ -17,6 +17,15 @@ describe("getFinishReasonFromError", () => {
 		expect(getFinishReasonFromError(404)).toBe("upstream_error");
 	});
 
+	it("returns upstream_error for 400 temporary routing errors", () => {
+		expect(
+			getFinishReasonFromError(
+				400,
+				'{"error":{"message":"Temporary routing error (400).","type":"upstream_error","code":400}}',
+			),
+		).toBe("upstream_error");
+	});
+
 	it("returns gateway_error for 402 insufficient balance", () => {
 		expect(getFinishReasonFromError(402)).toBe("gateway_error");
 		expect(
@@ -25,6 +34,28 @@ describe("getFinishReasonFromError", () => {
 				'{"error":{"message":"Insufficient Balance","type":"unknown_error","param":null,"code":"invalid_request_error"}}',
 			),
 		).toBe("gateway_error");
+	});
+
+	it("returns gateway_error for Anthropic low credit balance on 400", () => {
+		expect(
+			getFinishReasonFromError(
+				400,
+				'{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."},"request_id":"req_011CdVCeQNHP8ur9sMhB9gu3"}',
+			),
+		).toBe("gateway_error");
+	});
+
+	it("returns gateway_error for insufficient balance on non-402 status", () => {
+		expect(getFinishReasonFromError(400, "Insufficient Balance")).toBe(
+			"gateway_error",
+		);
+	});
+
+	it("returns gateway_error for 405 method not allowed", () => {
+		expect(getFinishReasonFromError(405)).toBe("gateway_error");
+		expect(getFinishReasonFromError(405, "Method Not Allowed")).toBe(
+			"gateway_error",
+		);
 	});
 
 	it("returns content_filter for Azure ResponsibleAIPolicyViolation", () => {

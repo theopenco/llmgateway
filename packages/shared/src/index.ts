@@ -10,6 +10,18 @@ export {
 } from "./coding-agents.js";
 
 export {
+	AGENT_LOG_CSV_HEADERS,
+	type AgentCsvLog,
+	buildAgentLogsCsv,
+	buildCsv,
+	type CsvFormat,
+	DEFAULT_CSV_FORMAT,
+	detectCsvFormat,
+	escapeCsvValue,
+	formatCsvNumber,
+} from "./csv.js";
+
+export {
 	AUTO_TOP_UP_DEFAULT_AMOUNT,
 	AUTO_TOP_UP_DEFAULT_THRESHOLD,
 	calculateFees,
@@ -22,17 +34,35 @@ export {
 } from "./fees.js";
 
 export {
+	DEV_PLAN_INCLUDED_RESET_PASSES,
 	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
-	DEV_PLAN_PREMIUM_WEEKLY_LIMITS,
+	DEV_PLAN_PREMIUM_WEEKLY_PERCENT,
 	DEV_PLAN_PRICES,
+	DEV_PLAN_RESET_PASS_PRICES,
+	DEV_PLAN_RESET_PASS_PURCHASE_MAX_CYCLE_USAGE,
+	DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE,
 	type DevPlanCycle,
 	type DevPlanTier,
 	getDevPlanCreditsLimit,
+	getDevPlanCycleUsageFraction,
 	getDevPlanPremiumWeeklyLimit,
+	getDevPlanUpgradeCredits,
+	getIncludedResetPassesRemaining,
 	getRemainingPremiumWeeklyAllowance,
-	getProratedCreditDelta,
 	isPremiumWeekExpired,
 } from "./dev-plans.js";
+
+export {
+	REFUND_COMMENTS_MAX_LENGTH,
+	REFUND_REASON_ASSURANCE,
+	REFUND_REASON_HEADING,
+	REFUND_REASON_OPTIONS,
+	REFUND_REASONS,
+	isRefundFeedbackComplete,
+	refundCommentsRequired,
+	type RefundReason,
+	type RefundReasonOption,
+} from "./refunds.js";
 
 export {
 	CHAT_PLAN_PRICES,
@@ -53,6 +83,7 @@ export {
 	HIGH_COST_INPUT_PRICE,
 	HIGH_COST_OUTPUT_PRICE,
 	isPremiumModel,
+	isPremiumUsedModel,
 	type ModelCategory,
 } from "./model-categories.js";
 
@@ -98,7 +129,37 @@ export {
 
 export { selectLoadBalancedItem } from "./load-balance.js";
 
+export {
+	fillRandomFloats,
+	randomFloat,
+	randomFloatBetween,
+	randomInt,
+	randomItem,
+	randomToken,
+	uniqueId,
+} from "./random.js";
+
+export { MARKETING_STATS, RUNWARE_PROMO } from "./marketing.js";
+
 export { isContentFilterErrorText } from "./content-filter.js";
+
+export {
+	MAX_BULK_BLOCK_ORGANIZATIONS,
+	MIN_BULK_BLOCK_SEARCH_LENGTH,
+} from "./bulk-block.js";
+
+export {
+	CUSTOM_PROVIDER_NAME_MESSAGE,
+	CUSTOM_PROVIDER_NAME_REGEX,
+} from "./custom-providers.js";
+
+export {
+	validateApiKeyLimitsWithinMemberBudget,
+	SSO_TEAM_DEFAULT_DEVELOPER_BUDGET,
+	type ApiKeyLimitConstraints,
+	type ApiKeyPeriodDurationUnitValue,
+	type MemberBudgetShape,
+} from "./member-budget-limits.js";
 
 export {
 	estimateChatMessageTokens,

@@ -8,24 +8,10 @@ import { ProviderKeysList } from "@/components/provider-keys/provider-keys-list"
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { Button } from "@/lib/components/button";
 
-import type { ProviderKeyOptions } from "@llmgateway/db";
+import type { paths } from "@/lib/api/v1";
 
 interface ProviderKeysClientProps {
-	initialProviderKeysData?: {
-		providerKeys: {
-			id: string;
-			createdAt: string;
-			updatedAt: string;
-			provider: string;
-			name: string | null;
-			baseUrl: string | null;
-			options: ProviderKeyOptions | null;
-			status: "active" | "inactive" | "deleted" | null;
-			customModelsOnly: boolean;
-			organizationId: string;
-			maskedToken: string;
-		}[];
-	};
+	initialProviderKeysData?: paths["/keys/provider"]["get"]["responses"][200]["content"]["application/json"];
 }
 
 export function ProviderKeysClient({

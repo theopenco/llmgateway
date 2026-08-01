@@ -19,7 +19,10 @@ import { customAlphabet } from "nanoid";
 
 import type { gatewayContentFilterResponseSchema } from "./log-payloads.js";
 import type { errorDetails, tools, toolChoice, toolResults } from "./types.js";
-import type { ProviderCompliancePolicy } from "@llmgateway/models";
+import type {
+	ProviderComplianceAttestation,
+	ProviderCompliancePolicy,
+} from "@llmgateway/models";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type z from "zod";
 
@@ -66,6 +69,7 @@ export const user = pgTable("user", {
 	// (/profiles/:username) and is null until the user claims one.
 	username: text().unique(),
 	profilePublic: boolean().notNull().default(false),
+	profileHidePicture: boolean().notNull().default(false),
 	bio: text(),
 	githubUsername: text(),
 	xUsername: text(),
@@ -199,6 +203,15 @@ export const organization = pgTable(
 			.notNull()
 			.default("free"),
 		planExpiresAt: timestamp(),
+		// Manual seat-limit override set by admins. Null = use the plan default
+		// (free/pro = 5, enterprise = 100). When set, this takes precedence for
+		// both display and enforcement of the team-member cap.
+		seats: integer(),
+		// Manual API-key-limit override set by admins. Null = use the plan default
+		// (free = 5, pro = 20, enterprise = 500). When set, this takes precedence
+		// for both display and enforcement of the org-wide API-key cap (total
+		// active developer keys across all of the org's projects).
+		apiKeyLimit: integer(),
 		subscriptionCancelled: boolean().notNull().default(false),
 		trialStartDate: timestamp(),
 		trialEndDate: timestamp(),
@@ -212,6 +225,11 @@ export const organization = pgTable(
 		// only routes to providers meeting the required certifications/data
 		// policies. Null = no policy configured.
 		providerCompliancePolicy: json().$type<ProviderCompliancePolicy>(),
+		// Enterprise Google SSO auto-join. When set, users signing in via Google
+		// with a verified email at this domain are auto-added to the org as
+		// "developer". Stored lowercase, no leading "@". Unique so a domain can
+		// only be claimed by one organization.
+		ssoAutoJoinDomain: text(),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
@@ -244,24 +262,53 @@ export const organization = pgTable(
 		devPlanCreditsLimit: decimal().notNull().default("0"),
 		devPlanPremiumCreditsUsed: decimal().notNull().default("0"),
 		devPlanPremiumWeekStart: timestamp(),
+		// Purchased Reset Passes still unredeemed, tracked per tier bought.
+		// Redeeming one instantly restores the full weekly premium-model
+		// allowance, but a pass is only redeemable while the org is on the
+		// tier it was purchased for — a $9 Lite pass can't reset the larger
+		// Pro/Max allowance. Purchases survive plan changes and even a plan
+		// ending (they apply again on resubscribing to that tier).
+		devPlanResetPassesLite: integer().notNull().default(0),
+		devPlanResetPassesPro: integer().notNull().default(0),
+		devPlanResetPassesMax: integer().notNull().default(0),
+		// Plan-included Reset Passes consumed in the current billing cycle.
+		// The per-cycle grant comes from DEV_PLAN_INCLUDED_RESET_PASSES; this
+		// counter clears on subscribe/upgrade/renewal (included passes don't
+		// roll over).
+		devPlanIncludedResetPassesUsed: integer().notNull().default(0),
 		// Set when dunning freezes dev-plan spend (limit capped to used). The
 		// pre-freeze limit is preserved so recovery restores the exact value
 		// (which may be a prorated mid-cycle amount), not a full tier cap.
 		devPlanCreditsFrozen: boolean().notNull().default(false),
 		devPlanCreditsLimitBeforeFreeze: decimal(),
 		devPlanBillingCycleStart: timestamp(),
-		// Stripe current_period_start of the cycle in which the last tier change
-		// was claimed. A tier change atomically advances this to the current cycle
-		// start only if it hasn't been claimed yet, enforcing one change per cycle
-		// without a read-then-write race.
-		devPlanLastTierChangeCycleStart: timestamp(),
+		// Lease held while a dev plan upgrade request is in flight, guarding
+		// against a double charge from racing requests (e.g. a double-clicked
+		// confirm). Claimed atomically before any Stripe call and cleared when the
+		// request completes (success or failure). A lease leaked by a request that
+		// died mid-flight expires after a staleness window, so it can never block
+		// upgrades until the next billing cycle.
+		devPlanTierChangeClaimedAt: timestamp(),
 		devPlanStripeSubscriptionId: text().unique(),
 		devPlanCancelled: boolean().notNull().default(false),
 		devPlanExpiresAt: timestamp(),
+		// A scheduled downgrade to a lower tier. Downgrades apply at the next
+		// renewal, so `devPlan` (and the current cycle's credits) stay on the
+		// higher tier until then; this holds the tier the subscription will move
+		// to at renewal. Null means no pending downgrade. The renewal webhook
+		// applies it and clears it. Upgrades take effect immediately and never set
+		// this.
+		devPlanPendingTier: text({ enum: ["lite", "pro", "max"] }),
 		devPlanCycle: text({ enum: ["monthly", "annual"] })
 			.notNull()
 			.default("monthly"),
-		devPlanAllowAllModels: boolean().notNull().default(false),
+		// Default processing tier for dev-plan (DevPass) routing. "flex" opts
+		// requests into cheaper flex processing (where the selected provider
+		// supports it) to save on plan credits; "default" is standard processing.
+		// A service_tier set explicitly on the request always wins.
+		devPlanServiceTier: text({ enum: ["default", "flex"] })
+			.notNull()
+			.default("default"),
 		// When false (default), DevPass invoices use the owner's default-org
 		// billing details. When true, the DevPass org's own billing* fields below
 		// are used as a custom override for DevPass invoices.
@@ -319,6 +366,11 @@ export const organization = pgTable(
 		uniqueIndex("organization_chat_plan_card_fingerprint_uidx").on(
 			table.chatPlanCardFingerprint,
 		),
+		// A given SSO auto-join domain can only be claimed by one organization.
+		// NULLs are distinct in Postgres, so this only constrains configured domains.
+		uniqueIndex("organization_sso_auto_join_domain_uidx").on(
+			table.ssoAutoJoinDomain,
+		),
 	],
 );
 
@@ -373,12 +425,32 @@ export const transaction = pgTable(
 				"dev_plan_upgrade",
 				"dev_plan_downgrade",
 				"dev_plan_cancel",
+				// Written when a cancelled-at-period-end dev plan is resumed, so
+				// cancel/resume flip-flops read as pairs in the subscription history
+				// instead of a run of bare cancels. Bookkeeping only: no amount, no
+				// credits.
+				"dev_plan_resume",
 				"dev_plan_end",
 				"dev_plan_renewal",
+				// One-time purchase of a DevPass Reset Pass (weekly premium
+				// allowance reset). `amount` is the real dollars paid;
+				// `creditAmount` is null (no credits are granted).
+				"dev_plan_reset_pass",
+				// Free Reset Pass granted as the reward for a quarterly model-survey
+				// response. `amount` is "0" (nothing is charged) and `creditAmount`
+				// is null. A separate type so reset-pass revenue analytics, which
+				// count "dev_plan_reset_pass", are unaffected by reward grants.
+				"dev_plan_reset_pass_reward",
+				// DevPass Reset Pass(es) gifted by an administrator. Pure
+				// bookkeeping: `amount` and `creditAmount` are both null — no
+				// dollars change hands and no credits are granted, so the row
+				// never counts toward revenue or the credits economy.
+				"dev_plan_reset_pass_gift",
 				"chat_plan_start",
 				"chat_plan_upgrade",
 				"chat_plan_downgrade",
 				"chat_plan_cancel",
+				"chat_plan_resume",
 				"chat_plan_end",
 				"chat_plan_renewal",
 				// LLM SDK end-user wallet flows.
@@ -386,6 +458,9 @@ export const transaction = pgTable(
 				"end_user_margin_accrual",
 				"end_user_refund",
 				"end_user_margin_payout",
+				// Developer-funded bonus credited to an end-user wallet on top-up,
+				// debited from the developer org's credit balance.
+				"end_user_bonus",
 			],
 		}).notNull(),
 		amount: decimal(),
@@ -496,6 +571,145 @@ export const chatPlanCancellationFeedback = pgTable(
 	],
 );
 
+// Which product a self-service refund was issued against, so feedback can be
+// read per surface without joining back to the transaction type.
+export const REFUND_FEEDBACK_KINDS = ["credits", "devpass", "chat"] as const;
+
+export type RefundFeedbackKind = (typeof REFUND_FEEDBACK_KINDS)[number];
+
+export const REFUND_FEEDBACK_REASONS = [
+	"not_working",
+	"missing_features",
+	"too_expensive",
+	"bought_by_mistake",
+	"switched_alternative",
+	"other",
+] as const;
+
+// "Why are you refunding?" answer collected right before a self-service refund
+// is issued: a required category plus optional freeform details. One row per
+// refunded transaction.
+export const refundFeedback = pgTable(
+	"refund_feedback",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		transactionId: text()
+			.notNull()
+			.references(() => transaction.id, { onDelete: "cascade" }),
+		kind: text({ enum: REFUND_FEEDBACK_KINDS }).notNull(),
+		reason: text({ enum: REFUND_FEEDBACK_REASONS }).notNull(),
+		comments: text(),
+	},
+	(table) => [
+		uniqueIndex("refund_feedback_transaction_id_unique").on(
+			table.transactionId,
+		),
+		index("refund_feedback_organization_id_idx").on(table.organizationId),
+		index("refund_feedback_created_at_idx").on(table.createdAt),
+	],
+);
+
+// Shared literals for the model survey, consumed by the table below and the
+// zod schemas in the API's model-survey routes.
+export const MODEL_SURVEY_USE_CASES = [
+	"agentic_coding",
+	"code_completion",
+	"code_review",
+	"debugging",
+	"writing_tests",
+	"docs_and_explanations",
+	"other",
+] as const;
+
+export const MODEL_SURVEY_TIERS = ["lite", "pro", "max"] as const;
+
+// One DevPass member's yearly-survey verdict on a coding model they have
+// genuinely used through the gateway. Powers the annual public model-value
+// report (/data/<year> on the DevPass site). Responses are usage-verified:
+// the API only accepts one when the member's DevPass org has enough recent
+// requests on the model, and `requestCount` snapshots that usage.
+export const modelSurveyResponse = pgTable(
+	"model_survey_response",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		// Campaign period the response counts toward. The census runs in
+		// quarterly waves; the yearly report aggregates all four quarters.
+		year: integer().notNull(),
+		quarter: integer().notNull(),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		modelId: text().notNull(),
+		// 1-5: was the output worth what the model costs.
+		valueScore: integer().notNull(),
+		// 1-5: quality of the generated code/output.
+		qualityScore: integer().notNull(),
+		// 1-5: satisfaction with generation speed.
+		speedScore: integer().notNull(),
+		wouldRecommend: boolean().notNull(),
+		primaryUseCase: text({ enum: MODEL_SURVEY_USE_CASES }).notNull(),
+		comment: text(),
+		// Requests the org had made on the model within the qualifying window
+		// at submission time.
+		requestCount: integer().notNull(),
+		devPlanTier: text({ enum: MODEL_SURVEY_TIERS }).notNull(),
+		// Tier of the free Reset Pass granted for this response. Null when no
+		// pass was granted (only the org's first response of each quarterly
+		// wave rewards; the pass stacks on any passes already held).
+		rewardTier: text({ enum: MODEL_SURVEY_TIERS }),
+	},
+	(table) => [
+		uniqueIndex("model_survey_response_user_model_period_unique").on(
+			table.userId,
+			table.modelId,
+			table.year,
+			table.quarter,
+		),
+		// DB-level backstop for the one-reward-per-org-per-quarter invariant
+		// the submit route enforces under a row lock.
+		uniqueIndex("model_survey_response_org_period_reward_unique")
+			.on(table.organizationId, table.year, table.quarter)
+			.where(sql`${table.rewardTier} IS NOT NULL`),
+		index("model_survey_response_year_model_idx").on(table.year, table.modelId),
+		index("model_survey_response_organization_id_idx").on(table.organizationId),
+		check(
+			"model_survey_response_quarter_check",
+			sql`${table.quarter} >= 1 AND ${table.quarter} <= 4`,
+		),
+		check(
+			"model_survey_response_value_score_check",
+			sql`${table.valueScore} >= 1 AND ${table.valueScore} <= 5`,
+		),
+		check(
+			"model_survey_response_quality_score_check",
+			sql`${table.qualityScore} >= 1 AND ${table.qualityScore} <= 5`,
+		),
+		check(
+			"model_survey_response_speed_score_check",
+			sql`${table.speedScore} >= 1 AND ${table.speedScore} <= 5`,
+		),
+	],
+);
+
 export const followUpEmail = pgTable(
 	"follow_up_email",
 	{
@@ -588,6 +802,57 @@ export const enterpriseContactSubmission = pgTable(
 	],
 );
 
+export const providerListingRequest = pgTable(
+	"provider_listing_request",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerName: text().notNull(),
+		email: text().notNull(),
+		url: text().notNull(),
+		termsUrl: text(),
+		privacyUrl: text(),
+		statusPageUrl: text(),
+		country: text().notNull(),
+		complianceSoc2Type2: boolean().notNull().default(false),
+		complianceIso27001: boolean().notNull().default(false),
+		complianceGdpr: boolean().notNull().default(false),
+		dataRetentionDays: integer(),
+		trainsOnData: boolean(),
+		paymentStatus: text({
+			enum: ["unpaid", "paid", "refunded"],
+		})
+			.notNull()
+			.default("unpaid"),
+		stripeCheckoutSessionId: text(),
+		paidAt: timestamp(),
+		honeypot: text(),
+		clientTimestampMs: text(),
+		ipAddress: text(),
+		userAgent: text(),
+		spamFilterStatus: text({
+			enum: ["pending", "rejected", "delivered", "delivery_failed"],
+		})
+			.notNull()
+			.default("pending"),
+		rejectionReason: text(),
+		archivedAt: timestamp(),
+	},
+	(table) => [
+		index("provider_listing_request_created_at_idx").on(table.createdAt),
+		index("provider_listing_request_email_idx").on(table.email),
+		index("provider_listing_request_status_idx").on(table.spamFilterStatus),
+		check(
+			"provider_listing_request_payment_status_check",
+			sql`${table.paymentStatus} IN ('unpaid', 'paid', 'refunded')`,
+		),
+	],
+);
+
 export const userOrganization = pgTable(
 	"user_organization",
 	{
@@ -618,10 +883,67 @@ export const userOrganization = pgTable(
 		periodUsageDurationUnit: text({
 			enum: ["hour", "day", "week", "month"],
 		}),
+		// External identifier from the IdP for SCIM-provisioned members (Entra
+		// `externalId` / Okta `id`). Lets SCIM reconcile users that match on
+		// externalId rather than userName. null for non-SCIM memberships.
+		scimExternalId: text(),
 	},
 	(table) => [
 		index("user_organization_user_id_idx").on(table.userId),
 		index("user_organization_organization_id_idx").on(table.organizationId),
+		index("user_organization_scim_external_id_idx").on(
+			table.organizationId,
+			table.scimExternalId,
+		),
+	],
+);
+
+// Email invitations to an organization for people who may not have an account
+// yet. When a user with a matching email later signs up (email/password,
+// social, SSO) or is provisioned via SCIM, pending invites are auto-accepted
+// and turned into userOrganization memberships (see apps/api
+// lib/team-invites.ts). Invites for existing users are never created — those
+// are added as members directly.
+export const organizationInvite = pgTable(
+	"organization_invite",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		// Stored lowercased; matched case-insensitively against the signup email.
+		email: text().notNull(),
+		role: text({
+			enum: ["owner", "admin", "developer"],
+		})
+			.notNull()
+			.default("developer"),
+		// Project grants applied at acceptance for "developer" invites. Projects
+		// deleted before acceptance are skipped.
+		projectIds: jsonb().$type<string[]>(),
+		invitedBy: text().references(() => user.id, { onDelete: "set null" }),
+		status: text({
+			enum: ["pending", "accepted", "revoked"],
+		})
+			.notNull()
+			.default("pending"),
+		expiresAt: timestamp().notNull(),
+		acceptedAt: timestamp(),
+		acceptedByUserId: text().references(() => user.id, {
+			onDelete: "set null",
+		}),
+	},
+	(table) => [
+		index("organization_invite_email_idx").on(table.email, table.status),
+		index("organization_invite_organization_id_idx").on(
+			table.organizationId,
+			table.status,
+		),
 	],
 );
 
@@ -699,6 +1021,12 @@ export const project = pgTable(
 		// Baked into credited spend power at top-up time so the usage/debit path
 		// stays raw-cost. Overridable per-wallet via wallet.markupPercentOverride.
 		endUserMarkupPercent: decimal().notNull().default("0"),
+		// Bonus credit multiplier applied to end-user top-ups (e.g. "50" = +50%, so
+		// a $10 top-up credits $15). The extra credits are funded by debiting the
+		// developer org's `credits` balance at top-up time (capped at the available
+		// balance). Set to "0" to disable. Overridable per-wallet via
+		// wallet.bonusPercentOverride.
+		endUserTopUpBonusPercent: decimal().notNull().default("0"),
 		// Browser origins allowed to call the gateway with this project's
 		// ephemeral end-user session tokens (CORS allowlist).
 		allowedOrigins: json().$type<string[]>(),
@@ -788,6 +1116,9 @@ export const wallet = pgTable(
 		currency: text().notNull().default("USD"),
 		// Optional per-wallet markup override; falls back to project.endUserMarkupPercent.
 		markupPercentOverride: decimal(),
+		// Optional per-wallet top-up bonus override; falls back to
+		// project.endUserTopUpBonusPercent.
+		bonusPercentOverride: decimal(),
 		// Optional safety ceiling on a single session's spend.
 		spendCapPerSession: decimal(),
 		status: text({
@@ -874,7 +1205,14 @@ export const walletLedger = pgTable(
 			.notNull()
 			.references(() => organization.id, { onDelete: "cascade" }),
 		type: text({
-			enum: ["topup", "usage_debit", "refund", "adjustment", "reversal"],
+			enum: [
+				"topup",
+				"bonus",
+				"usage_debit",
+				"refund",
+				"adjustment",
+				"reversal",
+			],
 		}).notNull(),
 		// Signed amount in wallet currency (post-markup): +topup, -usage_debit.
 		amount: decimal().notNull(),
@@ -1090,6 +1428,59 @@ export const apiKeyIamRule = pgTable(
 	],
 );
 
+// Member-level IAM ceiling: rules set by org owners/admins on a member. A
+// member's API-key rules can only further restrict within these, never expand.
+export const userIamRule = pgTable(
+	"user_iam_rule",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		userOrganizationId: text()
+			.notNull()
+			.references(() => userOrganization.id, { onDelete: "cascade" }),
+		ruleType: text({
+			enum: [
+				"allow_models",
+				"deny_models",
+				"allow_pricing",
+				"deny_pricing",
+				"allow_providers",
+				"deny_providers",
+				"allow_ip_cidrs",
+				"deny_ip_cidrs",
+			],
+		}).notNull(),
+		ruleValue: json()
+			.$type<{
+				models?: string[];
+				providers?: string[];
+				pricingType?: "free" | "paid";
+				maxInputPrice?: number;
+				maxOutputPrice?: number;
+				ipCidrs?: string[];
+			}>()
+			.notNull(),
+		status: text({
+			enum: ["active", "inactive"],
+		})
+			.notNull()
+			.default("active"),
+	},
+	(table) => [
+		index("user_iam_rule_user_organization_id_idx").on(
+			table.userOrganizationId,
+		),
+		index("user_iam_rule_user_organization_id_status_idx").on(
+			table.userOrganizationId,
+			table.status,
+		),
+	],
+);
+
 export const masterKey = pgTable(
 	"master_key",
 	{
@@ -1150,6 +1541,19 @@ export interface ProviderKeyOptions {
 	vertex_anthropic_region?: string;
 }
 
+/**
+ * Org-supplied compliance posture for a custom provider key. LLMGateway does
+ * not verify these claims — they are the organization's own attestation about
+ * infrastructure it operates, evaluated against its provider compliance
+ * policy. Null (the default) keeps the fail-closed behaviour (blocked under
+ * any enabled policy). attestedAt / attestedByUserId are written server-side
+ * only.
+ */
+export interface ProviderKeyComplianceAttestation extends ProviderComplianceAttestation {
+	attestedAt?: string;
+	attestedByUserId?: string;
+}
+
 export const providerKey = pgTable(
 	"provider_key",
 	{
@@ -1167,6 +1571,8 @@ export const providerKey = pgTable(
 		// When true (custom providers only), requests through this key are
 		// restricted to models defined in its custom model catalog.
 		customModelsOnly: boolean().notNull().default(false),
+		// Custom providers only. See ProviderKeyComplianceAttestation.
+		complianceAttestation: jsonb().$type<ProviderKeyComplianceAttestation>(),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
@@ -1175,8 +1581,16 @@ export const providerKey = pgTable(
 			.references(() => organization.id, { onDelete: "cascade" }),
 	},
 	(table) => [
-		unique().on(table.organizationId, table.name),
+		// Uniqueness applies only to live rows so a soft-deleted provider's name
+		// can be reused (create and rename both soft-delete via status).
+		uniqueIndex("provider_key_organization_id_name_unique")
+			.on(table.organizationId, table.name)
+			.where(sql`status <> 'deleted'`),
 		index("provider_key_organization_id_idx").on(table.organizationId),
+		check(
+			"provider_key_attestation_custom_only",
+			sql`${table.complianceAttestation} IS NULL OR ${table.provider} = 'custom'`,
+		),
 	],
 );
 
@@ -1242,6 +1656,27 @@ export const customModel = pgTable(
 	],
 );
 
+/**
+ * The gateway API surface a request came in through. `/v1/messages` and
+ * `/v1/responses` re-dispatch internally through `/v1/chat/completions`, so the
+ * origin is carried across that hop rather than inferred from the route.
+ */
+export const API_ORIGINS = [
+	"chat-completions",
+	"messages",
+	"responses",
+	"embeddings",
+	"images",
+	"videos",
+	"moderations",
+	"ocr",
+	"speech",
+	"transcriptions",
+	"rerank",
+] as const;
+
+export type ApiOrigin = (typeof API_ORIGINS)[number];
+
 export const log = pgTable(
 	"log",
 	{
@@ -1286,6 +1721,8 @@ export const log = pgTable(
 		reasoningTokens: decimal(),
 		cachedTokens: decimal(),
 		cacheWriteTokens: decimal(),
+		cacheWrite5mTokens: decimal(),
+		cacheWrite1hTokens: decimal(),
 		messages: json(),
 		temperature: real(),
 		maxTokens: integer(),
@@ -1298,6 +1735,10 @@ export const log = pgTable(
 		responseFormat: json(),
 		hasError: boolean().default(false),
 		errorDetails: json().$type<z.infer<typeof errorDetails>>(),
+		// Raw upstream error for stealth providers, whose public-facing
+		// errorDetails are redacted to hide the underlying platform. Internal
+		// only: must never be exposed through public API routes or the UI.
+		internalErrorDetails: json().$type<z.infer<typeof errorDetails>>(),
 		cost: real(),
 		inputCost: real(),
 		outputCost: real(),
@@ -1334,6 +1775,8 @@ export const log = pgTable(
 		usedMode: text({
 			enum: ["api-keys", "credits"],
 		}).notNull(),
+		// Null on rows written before this column existed.
+		apiOrigin: text({ enum: API_ORIGINS }),
 		source: text(),
 		sessionId: text(),
 		customHeaders: json().$type<{ [key: string]: string }>(),
@@ -1377,6 +1820,11 @@ export const log = pgTable(
 				apiKeyHash?: string;
 				logId?: string;
 			}>;
+			filteredProviders?: Array<{
+				providerId: string;
+				reasons: string[];
+			}>;
+			strippedParameters?: string[];
 		}>(),
 		processedAt: timestamp(),
 		rawRequest: jsonb(),
@@ -1407,6 +1855,25 @@ export const log = pgTable(
 			jsonb().$type<z.infer<typeof gatewayContentFilterResponseSchema>>(),
 		responsesApiId: text(),
 		responsesApiData: jsonb(),
+		// Realtime WebSocket sessions: one log row per billable terminal event
+		// (e.g. one per response.done). realtimeUsageKey is a semantic identity
+		// such as "response:<upstream_response_id>" so redelivered provider
+		// events cannot double-bill (enforced by the partial unique index below).
+		realtimeSessionId: text(),
+		realtimeUsageKey: text(),
+		// Exact billing amount as a decimal string. When set, the worker debits
+		// this instead of the float `cost` column, which stays populated for
+		// dashboards and legacy queries.
+		billingCost: decimal(),
+		audioOutputTokens: decimal(),
+		audioOutputCost: real(),
+		// Sanitized normalized usage plus the exact price snapshot (decimal
+		// strings) used to compute billingCost, for billing auditability.
+		realtimeUsage: jsonb().$type<{
+			usage?: Record<string, number>;
+			pricing?: Record<string, string>;
+			status?: string;
+		}>(),
 	},
 	(table) => [
 		index("log_project_id_created_at_idx").on(table.projectId, table.createdAt),
@@ -1441,6 +1908,80 @@ export const log = pgTable(
 		index("log_processed_at_null_idx")
 			.on(table.createdAt)
 			.where(sql`processed_at IS NULL`),
+		// Idempotent realtime billing: one row per (session, usage key) even if
+		// the upstream provider redelivers a terminal usage event.
+		uniqueIndex("log_realtime_session_usage_key_unique")
+			.on(table.realtimeSessionId, table.realtimeUsageKey)
+			.where(sql`realtime_usage_key IS NOT NULL`),
+		// The realtime spend gate reads an organization's unsettled realtime
+		// spend (organization_id = ? AND realtime_session_id IS NOT NULL AND
+		// processed_at IS NULL). The partial predicate keeps the index to the
+		// unprocessed realtime backlog the worker is still draining rather than
+		// every realtime log row ever written.
+		index("log_realtime_unsettled_organization_id_idx")
+			.on(table.organizationId)
+			.where(sql`realtime_session_id IS NOT NULL AND processed_at IS NULL`),
+	],
+);
+
+export const realtimeSession = pgTable(
+	"realtime_session",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		projectId: text()
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+		apiKeyId: text()
+			.notNull()
+			.references(() => apiKey.id, { onDelete: "cascade" }),
+		requestedModel: text().notNull(),
+		usedModel: text().notNull(),
+		usedModelMapping: text(),
+		usedProvider: text().notNull(),
+		mode: text({
+			enum: ["api-keys", "credits", "hybrid"],
+		}).notNull(),
+		usedMode: text({
+			enum: ["api-keys", "credits"],
+		}).notNull(),
+		// Session id reported by the upstream provider (session.created).
+		upstreamSessionId: text(),
+		status: text({
+			enum: ["open", "closed", "error"],
+		})
+			.notNull()
+			.default("open"),
+		closeReason: text(),
+		responseCount: integer().notNull().default(0),
+		// Running total of exact billed cost across this session's log rows.
+		totalCost: decimal().notNull().default("0"),
+		bytesIn: integer().notNull().default(0),
+		bytesOut: integer().notNull().default(0),
+		connectedAt: timestamp().notNull().defaultNow(),
+		closedAt: timestamp(),
+		lastActivityAt: timestamp(),
+	},
+	(table) => [
+		index("realtime_session_organization_id_created_at_idx").on(
+			table.organizationId,
+			table.createdAt,
+		),
+		index("realtime_session_project_id_created_at_idx").on(
+			table.projectId,
+			table.createdAt,
+		),
+		index("realtime_session_api_key_id_created_at_idx").on(
+			table.apiKeyId,
+			table.createdAt,
+		),
 	],
 );
 
@@ -1655,6 +2196,191 @@ export const passkey = pgTable(
 	(table) => [index("passkey_user_id_idx").on(table.userId)],
 );
 
+// SSO provider connections managed by the Better Auth `sso` plugin. The plugin
+// reads/writes this table via the drizzle adapter (registered as model
+// `ssoProvider`). `organizationId` links a connection to one of our
+// organizations; the app enforces org-scoped access to it.
+export const ssoProvider = pgTable(
+	"sso_provider",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		issuer: text().notNull(),
+		domain: text().notNull(),
+		oidcConfig: text(),
+		samlConfig: text(),
+		userId: text().references(() => user.id, { onDelete: "set null" }),
+		providerId: text().notNull().unique(),
+		// IdP vendor; drives the SAML attribute mapping and the vendor-specific
+		// field-name hints shown next to the SP URLs in the dashboard.
+		providerType: text({ enum: ["okta", "entra", "generic"] })
+			.notNull()
+			.default("generic"),
+		organizationId: text().references(() => organization.id, {
+			onDelete: "cascade",
+		}),
+		// When true, users whose email domain matches this connection may only
+		// sign in via SSO; password/social/passkey sessions are rejected.
+		enforced: boolean().notNull().default(false),
+		// Better Auth's SSO domain-verification flag. The SAML callback only
+		// implicitly links an SSO login to an existing user (e.g. one
+		// pre-provisioned via SCIM) when the provider's domain is verified and
+		// the asserted email is on that domain; otherwise such logins fail with
+		// `account_not_linked`. We stamp it true at registration instead of
+		// running the plugin's DNS-TXT verification flow.
+		domainVerified: boolean().notNull().default(false),
+	},
+	(table) => [
+		index("sso_provider_organization_id_idx").on(table.organizationId),
+		index("sso_provider_domain_idx").on(table.domain),
+	],
+);
+
+// SCIM bearer tokens for directory provisioning. This is our own table (NOT a
+// Better Auth plugin table): the custom SCIM 2.0 router authenticates Okta by
+// hashing the incoming bearer and matching `tokenHash`, which resolves the
+// `organizationId` that scopes every provisioning operation.
+export const scimToken = pgTable(
+	"scim_token",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		tokenHash: text().notNull().unique(),
+		maskedToken: text().notNull(),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		// The linked SSO connection's `providerId`; SCIM-provisioned users get an
+		// `account` row for this provider so they can subsequently sign in via SSO.
+		ssoProviderId: text(),
+		createdBy: text().references(() => user.id, { onDelete: "set null" }),
+		lastUsedAt: timestamp(),
+		status: text({
+			enum: ["active", "deleted"],
+		})
+			.notNull()
+			.default("active"),
+	},
+	(table) => [
+		index("scim_token_organization_id_idx").on(table.organizationId),
+		index("scim_token_token_hash_idx").on(table.tokenHash),
+	],
+);
+
+// SCIM groups pushed by the IdP (Okta). Membership drives role assignment via
+// `ssoRoleMapping`. Scoped to one organization by the SCIM token used.
+export const scimGroup = pgTable(
+	"scim_group",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		externalId: text(),
+		displayName: text().notNull(),
+	},
+	(table) => [
+		index("scim_group_organization_id_idx").on(table.organizationId),
+		uniqueIndex("scim_group_org_display_name_unique").on(
+			table.organizationId,
+			table.displayName,
+		),
+	],
+);
+
+export const scimGroupMember = pgTable(
+	"scim_group_member",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		scimGroupId: text()
+			.notNull()
+			.references(() => scimGroup.id, { onDelete: "cascade" }),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+	},
+	(table) => [
+		uniqueIndex("scim_group_member_group_user_unique").on(
+			table.scimGroupId,
+			table.userId,
+		),
+		index("scim_group_member_user_id_idx").on(table.userId),
+	],
+);
+
+// Admin-defined mapping from a SCIM/IdP group name to an organization role.
+// Users get the highest-precedence mapped role among their groups; owners are
+// never auto-demoted (see routes/scim.ts).
+export const ssoRoleMapping = pgTable(
+	"sso_role_mapping",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		groupName: text().notNull(),
+		role: text({
+			enum: ["owner", "admin", "developer"],
+		}).notNull(),
+	},
+	(table) => [
+		uniqueIndex("sso_role_mapping_org_group_unique").on(
+			table.organizationId,
+			table.groupName,
+		),
+	],
+);
+
+// Default project grants for `developer` members provisioned via SSO/SCIM.
+// Owners/admins already have implicit access to every project, so this only
+// affects developer provisioning: when a new SSO/SCIM member is created they
+// receive a `userProject` grant for each project listed here. When an org has
+// no rows, provisioning falls back to the org's first (default) project so SSO
+// members can see something out of the box.
+export const ssoDefaultProject = pgTable(
+	"sso_default_project",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		projectId: text()
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+	},
+	(table) => [
+		uniqueIndex("sso_default_project_org_project_unique").on(
+			table.organizationId,
+			table.projectId,
+		),
+		index("sso_default_project_organization_id_idx").on(table.organizationId),
+	],
+);
+
 export const paymentMethod = pgTable(
 	"payment_method",
 	{
@@ -1706,6 +2432,112 @@ export const lock = pgTable("lock", {
 	key: text().notNull().unique(),
 });
 
+export const chatProject = pgTable(
+	"chat_project",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		name: text().notNull(),
+		description: text().notNull().default(""),
+		// Custom instructions prepended to the system prompt of chats in this
+		// project, like Claude's project instructions.
+		instructions: text().notNull().default(""),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		// Same semantics as chat.organizationId: null means the default
+		// "Chat plan" context.
+		organizationId: text().references(() => organization.id, {
+			onDelete: "set null",
+		}),
+	},
+	(table) => [index("chat_project_user_id_idx").on(table.userId)],
+);
+
+export const chatProjectFile = pgTable(
+	"chat_project_file",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		projectId: text()
+			.notNull()
+			.references(() => chatProject.id, { onDelete: "cascade" }),
+		name: text().notNull(),
+		mimeType: text().notNull(),
+		size: integer().notNull(),
+		// Full extracted text content of the file, kept for viewing and
+		// re-indexing. Chunked copies live in chat_project_file_chunk.
+		content: text().notNull(),
+		status: text({
+			enum: ["processing", "ready", "error"],
+		})
+			.notNull()
+			.default("processing"),
+		error: text(),
+		chunkCount: integer().notNull().default(0),
+	},
+	(table) => [index("chat_project_file_project_id_idx").on(table.projectId)],
+);
+
+export const chatProjectFileChunk = pgTable(
+	"chat_project_file_chunk",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		fileId: text()
+			.notNull()
+			.references(() => chatProjectFile.id, { onDelete: "cascade" }),
+		// Denormalized so retrieval can load all of a project's chunks without
+		// joining through chat_project_file.
+		projectId: text()
+			.notNull()
+			.references(() => chatProject.id, { onDelete: "cascade" }),
+		chunkIndex: integer().notNull(),
+		content: text().notNull(),
+		embedding: jsonb().$type<number[]>().notNull(),
+	},
+	(table) => [
+		index("chat_project_file_chunk_file_id_idx").on(table.fileId),
+		index("chat_project_file_chunk_project_id_idx").on(table.projectId),
+	],
+);
+
+export const chatProjectMemory = pgTable(
+	"chat_project_memory",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		projectId: text()
+			.notNull()
+			.references(() => chatProject.id, { onDelete: "cascade" }),
+		content: text().notNull(),
+		// "manual" = added by the user on the project page; "auto" = extracted
+		// from a chat exchange by the memory extraction model.
+		source: text({
+			enum: ["manual", "auto"],
+		})
+			.notNull()
+			.default("manual"),
+	},
+	(table) => [index("chat_project_memory_project_id_idx").on(table.projectId)],
+);
+
 export const chat = pgTable(
 	"chat",
 	{
@@ -1736,8 +2568,15 @@ export const chat = pgTable(
 		parentChatId: text().references((): AnyPgColumn => chat.id, {
 			onDelete: "cascade",
 		}),
+		// Chat project (knowledge base) this chat belongs to, if any.
+		projectId: text().references(() => chatProject.id, {
+			onDelete: "set null",
+		}),
 	},
-	(table) => [index("chat_user_id_idx").on(table.userId)],
+	(table) => [
+		index("chat_user_id_idx").on(table.userId),
+		index("chat_project_id_idx").on(table.projectId),
+	],
 );
 
 export const chatShare = pgTable(
@@ -2075,7 +2914,20 @@ export const modelProviderMappingHistory = pgTable(
 		totalDuration: integer().notNull().default(0),
 		totalTimeToFirstToken: integer().notNull().default(0),
 		totalTimeToFirstReasoningToken: integer().notNull().default(0),
+		// Number of logs that actually contributed a time-to-first-token sample.
+		// Only streamed, non-cached, non-errored requests record one, so this is
+		// the correct denominator for the average — dividing the sum by the
+		// request count instead would dilute it with every non-streaming request.
+		timeToFirstTokenCount: integer().notNull().default(0),
+		timeToFirstReasoningTokenCount: integer().notNull().default(0),
 		totalCost: real().notNull().default(0),
+		// Per-token-type slices of totalCost, so the admin dashboard can attribute
+		// spend to input/cached/output tokens instead of only showing one lump sum.
+		// They do not necessarily add up to totalCost, which also covers per-request,
+		// image, audio, video and cache-write charges.
+		totalInputCost: real().notNull().default(0),
+		totalOutputCost: real().notNull().default(0),
+		totalCachedInputCost: real().notNull().default(0),
 	},
 	(table) => [
 		// Unique constraint ensures one record per mapping-minute combination
@@ -2108,14 +2960,19 @@ export const modelProviderMappingHistory = pgTable(
 		// Covering index for the public provider stats aggregation
 		// (filter by minuteTimestamp range, group by providerId, sum metrics).
 		// Including the summed columns as trailing keys enables an index-only
-		// scan so Postgres never has to touch the heap for this query.
-		index("model_provider_mapping_history_provider_stats_idx").on(
+		// scan so Postgres never has to touch the heap for this query. The v2
+		// suffix is a new name rather than a rebuild in place, so production can
+		// build the replacement CONCURRENTLY before this migration runs — a
+		// rebuild under the same name would lock a table the worker writes to
+		// every minute for the duration of the scan.
+		index("model_provider_mapping_history_provider_stats_v2_idx").on(
 			table.minuteTimestamp,
 			table.providerId,
 			table.logsCount,
 			table.errorsCount,
 			table.cachedCount,
 			table.totalTimeToFirstToken,
+			table.timeToFirstTokenCount,
 			table.totalOutputTokens,
 			table.totalDuration,
 		),
@@ -2154,7 +3011,15 @@ export const modelHistory = pgTable(
 		totalDuration: integer().notNull().default(0),
 		totalTimeToFirstToken: integer().notNull().default(0),
 		totalTimeToFirstReasoningToken: integer().notNull().default(0),
+		// See model_provider_mapping_history: the denominator for the TTFT
+		// average, counting only requests that produced a first-token sample.
+		timeToFirstTokenCount: integer().notNull().default(0),
+		timeToFirstReasoningTokenCount: integer().notNull().default(0),
 		totalCost: real().notNull().default(0),
+		// See model_provider_mapping_history: per-token-type slices of totalCost.
+		totalInputCost: real().notNull().default(0),
+		totalOutputCost: real().notNull().default(0),
+		totalCachedInputCost: real().notNull().default(0),
 	},
 	(table) => [
 		// Unique constraint ensures one record per model-minute combination
@@ -2208,7 +3073,15 @@ export const modelProviderMappingHistoryHourly = pgTable(
 		totalDuration: integer().notNull().default(0),
 		totalTimeToFirstToken: integer().notNull().default(0),
 		totalTimeToFirstReasoningToken: integer().notNull().default(0),
+		// See model_provider_mapping_history: the denominator for the TTFT
+		// average, counting only requests that produced a first-token sample.
+		timeToFirstTokenCount: integer().notNull().default(0),
+		timeToFirstReasoningTokenCount: integer().notNull().default(0),
 		totalCost: real().notNull().default(0),
+		// See model_provider_mapping_history: per-token-type slices of totalCost.
+		totalInputCost: real().notNull().default(0),
+		totalOutputCost: real().notNull().default(0),
+		totalCachedInputCost: real().notNull().default(0),
 	},
 	(table) => [
 		// Unique constraint ensures one record per mapping-hour combination
@@ -2232,13 +3105,16 @@ export const modelProviderMappingHistoryHourly = pgTable(
 		),
 		// Covering index for the public provider stats aggregation
 		// (filter by hourTimestamp range, group by providerId, sum metrics).
-		index("mpm_history_hourly_provider_stats_idx").on(
+		// See model_provider_mapping_history_provider_stats_v2_idx for why this is
+		// a new name rather than a rebuild in place.
+		index("mpm_history_hourly_provider_stats_v2_idx").on(
 			table.hourTimestamp,
 			table.providerId,
 			table.logsCount,
 			table.errorsCount,
 			table.cachedCount,
 			table.totalTimeToFirstToken,
+			table.timeToFirstTokenCount,
 			table.totalOutputTokens,
 			table.totalDuration,
 		),
@@ -2281,7 +3157,15 @@ export const modelHistoryHourly = pgTable(
 		totalDuration: integer().notNull().default(0),
 		totalTimeToFirstToken: integer().notNull().default(0),
 		totalTimeToFirstReasoningToken: integer().notNull().default(0),
+		// See model_provider_mapping_history: the denominator for the TTFT
+		// average, counting only requests that produced a first-token sample.
+		timeToFirstTokenCount: integer().notNull().default(0),
+		timeToFirstReasoningTokenCount: integer().notNull().default(0),
 		totalCost: real().notNull().default(0),
+		// See model_provider_mapping_history: per-token-type slices of totalCost.
+		totalInputCost: real().notNull().default(0),
+		totalOutputCost: real().notNull().default(0),
+		totalCachedInputCost: real().notNull().default(0),
 	},
 	(table) => [
 		// Unique constraint ensures one record per model-hour combination
@@ -2303,6 +3187,8 @@ export const auditLogActions = [
 	"organization.update",
 	"organization.delete",
 	"organization.block",
+	"organization.manage",
+	"organization.sso_auto_join.update",
 	// Project
 	"project.create",
 	"project.update",
@@ -2312,6 +3198,13 @@ export const auditLogActions = [
 	"team_member.update",
 	"team_member.budget_update",
 	"team_member.remove",
+	"team_member.invite",
+	"team_member.invite_accept",
+	"team_member.invite_revoke",
+	"team_member.auto_join",
+	"team_member.iam_rule.create",
+	"team_member.iam_rule.update",
+	"team_member.iam_rule.delete",
 	// API Key
 	"api_key.create",
 	"api_key.roll",
@@ -2345,6 +3238,7 @@ export const auditLogActions = [
 	"payment.credit_topup",
 	"payment.auto_topup.update",
 	"payment.auto_topup.disable",
+	"payment.self_refund",
 	// Credits
 	"credits.gift",
 	// Referral
@@ -2354,21 +3248,49 @@ export const auditLogActions = [
 	"dev_plan.cancel",
 	"dev_plan.resume",
 	"dev_plan.change_tier",
+	"dev_plan.cancel_downgrade",
 	"dev_plan.update_settings",
 	"dev_plan.update_billing_details",
 	"dev_plan.rotate_api_key",
 	"dev_plan.update_payment_method",
+	"dev_plan.reset_pass_purchase",
+	"dev_plan.reset_pass_redeem",
+	// Free Reset Pass granted for a quarterly model-survey response.
+	"dev_plan.reset_pass_reward",
+	"dev_plan.reset_pass_gift",
 	// Chat Plan
 	"chat_plan.subscribe",
 	"chat_plan.cancel",
 	"chat_plan.resume",
 	"chat_plan.change_tier",
+	// SSO
+	"sso_provider.create",
+	"sso_provider.update",
+	"sso_provider.delete",
+	"sso_role_mapping.create",
+	"sso_role_mapping.delete",
+	"sso_default_projects.update",
+	"sso.sign_in",
+	// SCIM
+	"scim_token.create",
+	"scim_token.revoke",
+	// SCIM directory sync (IdP-initiated)
+	"scim.user.provision",
+	"scim.user.update",
+	"scim.user.activate",
+	"scim.user.deactivate",
+	"scim.user.deprovision",
+	"scim.user.role_change",
+	"scim.group.create",
+	"scim.group.update",
+	"scim.group.delete",
 ] as const;
 
 export const auditLogResourceTypes = [
 	"organization",
 	"project",
 	"team_member",
+	"team_invite",
 	"api_key",
 	"master_key",
 	"iam_rule",
@@ -2379,6 +3301,13 @@ export const auditLogResourceTypes = [
 	"payment",
 	"dev_plan",
 	"chat_plan",
+	"sso_provider",
+	"sso_role_mapping",
+	"sso_default_project",
+	"sso_session",
+	"scim_token",
+	"scim_user",
+	"scim_group",
 ] as const;
 
 export type AuditLogAction = (typeof auditLogActions)[number];
@@ -2486,9 +3415,7 @@ export interface TopicRestrictionRuleConfig {
 }
 
 export type CustomRuleConfig =
-	| BlockedTermsRuleConfig
-	| CustomRegexRuleConfig
-	| TopicRestrictionRuleConfig;
+	BlockedTermsRuleConfig | CustomRegexRuleConfig | TopicRestrictionRuleConfig;
 
 export const guardrailConfig = pgTable(
 	"guardrail_config",
@@ -2743,6 +3670,36 @@ export const rateLimit = pgTable(
 	],
 );
 
+// Matchers for expected upstream errors. The unstable-mappings admin
+// dashboard treats errors matching any of these as non-errors so known-benign
+// upstream failures don't drown out real instability. A matcher targets a
+// case-insensitive substring of the error details, an upstream status code, or
+// both (both must match).
+export const ignoredErrorMatcher = pgTable(
+	"ignored_error_matcher",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		// Case-insensitive substring matched against the serialized error details.
+		pattern: text(),
+		// Upstream HTTP status code from the error details.
+		statusCode: integer(),
+	},
+	(table) => [
+		// One row per pattern/status combination. Coalesce nulls to sentinels so
+		// Postgres treats them as equal.
+		uniqueIndex("ignored_error_matcher_pattern_status_code_unique").using(
+			"btree",
+			sql`coalesce(${table.pattern}, '')`,
+			sql`coalesce(${table.statusCode}, -1)`,
+		),
+		check(
+			"ignored_error_matcher_target_check",
+			sql`${table.pattern} IS NOT NULL OR ${table.statusCode} IS NOT NULL`,
+		),
+	],
+);
+
 // Project hourly statistics aggregation - used for fast dashboard queries
 export const projectHourlyStats = pgTable(
 	"project_hourly_stats",
@@ -2789,6 +3746,7 @@ export const projectHourlyStats = pgTable(
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
 		audioInputCost: real().notNull().default(0),
+		audioOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -2856,6 +3814,7 @@ export const projectHourlyModelStats = pgTable(
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
 		audioInputCost: real().notNull().default(0),
+		audioOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -2948,6 +3907,7 @@ export const projectHourlySourceStats = pgTable(
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
 		audioInputCost: real().notNull().default(0),
+		audioOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -3026,6 +3986,7 @@ export const apiKeyHourlyStats = pgTable(
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
 		audioInputCost: real().notNull().default(0),
+		audioOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -3104,6 +4065,7 @@ export const apiKeyHourlyModelStats = pgTable(
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
 		audioInputCost: real().notNull().default(0),
+		audioOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -3189,6 +4151,7 @@ export const globalModelStats = pgTable(
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
 		audioInputCost: real().notNull().default(0),
+		audioOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -3263,6 +4226,7 @@ export const globalSourceStats = pgTable(
 		imageInputCost: real().notNull().default(0),
 		imageOutputCost: real().notNull().default(0),
 		audioInputCost: real().notNull().default(0),
+		audioOutputCost: real().notNull().default(0),
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
@@ -3415,4 +4379,87 @@ export const playgroundVideoHistory = pgTable(
 		>(),
 	},
 	(table) => [index("playground_video_history_user_id_idx").on(table.userId)],
+);
+
+// Append-only ledger of Lounge gamification points. Totals, levels, and
+// streaks are derived from this table at read time.
+export const loungePointEvent = pgTable(
+	"lounge_point_event",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		kind: text()
+			.notNull()
+			.$type<
+				| "chat_message"
+				| "chat_created"
+				| "image_generation"
+				| "video_generation"
+				| "audio_generation"
+			>(),
+		points: integer().notNull(),
+	},
+	(table) => [
+		index("lounge_point_event_user_id_idx").on(table.userId),
+		index("lounge_point_event_user_id_created_at_idx").on(
+			table.userId,
+			table.createdAt,
+		),
+	],
+);
+
+// Transcript history for playground realtime voice calls. The gateway
+// deliberately does not persist realtime conversation content (see
+// apps/gateway/src/realtime/billing.ts), so the playground stores the
+// transcript its own client assembled, scoped to the user who spoke it.
+export const playgroundRealtimeHistory = pgTable(
+	"playground_realtime_history",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		// Organization context the call was placed under. Null means the
+		// default "Chat plan" context. Used to separate history per organization.
+		organizationId: text().references(() => organization.id, {
+			onDelete: "set null",
+		}),
+		title: text().notNull(),
+		model: text().notNull(),
+		voice: text(),
+		durationSeconds: integer().notNull().default(0),
+		transcript: jsonb().notNull().$type<
+			{
+				role: "user" | "assistant";
+				text: string;
+				status: "partial" | "final" | "interrupted";
+				timestamp: number;
+				// Assistant speech for the turn, retained so it can be replayed.
+				audio?: { base64: string; mediaType: "audio/wav" };
+			}[]
+		>(),
+		usage: jsonb().$type<{
+			responses: number;
+			inputTokens: number;
+			outputTokens: number;
+			totalTokens: number;
+			audioInputTokens: number;
+			audioOutputTokens: number;
+		}>(),
+	},
+	(table) => [
+		index("playground_realtime_history_user_id_idx").on(table.userId),
+	],
 );

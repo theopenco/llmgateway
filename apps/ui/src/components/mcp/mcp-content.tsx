@@ -37,7 +37,7 @@ const tools: Tool[] = [
 	{
 		name: "chat",
 		description:
-			"Send messages to any LLM and get responses. Supports 280+ models from OpenAI, Anthropic, Google, and more.",
+			"Send messages to any LLM and get responses. Supports 200+ models from OpenAI, Anthropic, Google, and more.",
 		icon: MessageSquare,
 		parameters: ["model", "messages", "temperature", "max_tokens"],
 		example: `{
@@ -265,7 +265,7 @@ codex mcp add llmgateway --url https://api.llmgateway.io/mcp \\
 - \`ping\`: Health check
 
 ## Links
-- Documentation: https://docs.llmgateway.io/guides/mcp
+- Documentation: https://docs.llmgateway.io/developers/mcp
 - Models: https://llmgateway.io/models
 - Dashboard: https://llmgateway.io/dashboard
 - API Keys: https://llmgateway.io/dashboard/keys`;
@@ -300,7 +300,7 @@ export function McpContent() {
 					{[
 						{
 							icon: Server,
-							title: "280+ Models",
+							title: "200+ Models",
 							description:
 								"Access models from OpenAI, Anthropic, Google & more",
 						},
@@ -597,7 +597,7 @@ export function McpContent() {
 							</Link>
 						</Button>
 						<Button asChild variant="outline" size="lg">
-							<Link href="https://docs.llmgateway.io/guides/mcp">
+							<Link href="https://docs.llmgateway.io/developers/mcp">
 								Read Documentation
 								<ArrowUpRight className="ml-2 h-4 w-4" />
 							</Link>

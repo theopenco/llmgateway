@@ -361,6 +361,50 @@ describe("extractTokenUsage", () => {
 		});
 	});
 
+	describe("vertex-anthropic", () => {
+		// Vertex Anthropic streams the same Anthropic Messages wire format, so it
+		// must extract usage identically to the direct anthropic provider rather
+		// than falling through to the OpenAI-shaped default branch.
+		it("extracts cache and reasoning tokens from a streaming message_start", () => {
+			const data = {
+				type: "message_start",
+				message: {
+					usage: {
+						input_tokens: 100,
+						cache_creation_input_tokens: 50,
+						cache_read_input_tokens: 800,
+						output_tokens: 2928,
+						output_tokens_details: { thinking_tokens: 1502 },
+					},
+				},
+			};
+
+			const result = extractTokenUsage(data, "vertex-anthropic");
+
+			expect(result.promptTokens).toBe(950); // 100 + 50 + 800
+			expect(result.cachedTokens).toBe(800);
+			expect(result.cacheCreationTokens).toBe(50);
+			expect(result.completionTokens).toBe(2928);
+			expect(result.reasoningTokens).toBe(1502);
+			expect(result.totalTokens).toBe(3878); // 950 + 2928, reasoning not double-counted
+		});
+
+		it("matches the direct anthropic provider for the same chunk", () => {
+			const data = {
+				usage: {
+					input_tokens: 51,
+					cache_read_input_tokens: 20,
+					output_tokens: 136,
+					reasoning_output_tokens: 31,
+				},
+			};
+
+			expect(extractTokenUsage(data, "vertex-anthropic")).toEqual(
+				extractTokenUsage(data, "anthropic"),
+			);
+		});
+	});
+
 	describe("alibaba", () => {
 		it("extracts prompt_tokens_details.cache_creation_input_tokens into 5m cache write fields", () => {
 			const data = {
@@ -498,6 +542,47 @@ describe("extractTokenUsage", () => {
 
 			expect(result.cachedTokens).toBeNull();
 		});
+
+		it("extracts GPT-5.6 cache_write_tokens from prompt_tokens_details", () => {
+			const data = {
+				usage: {
+					prompt_tokens: 2006,
+					completion_tokens: 300,
+					total_tokens: 2306,
+					prompt_tokens_details: {
+						cached_tokens: 1920,
+						cache_write_tokens: 40,
+					},
+				},
+			};
+
+			const result = extractTokenUsage(data, "openai");
+
+			expect(result.promptTokens).toBe(2006);
+			expect(result.cachedTokens).toBe(1920);
+			expect(result.cacheCreationTokens).toBe(40);
+			// OpenAI has a single 30m TTL — no 5m/1h breakdown exists.
+			expect(result.cacheCreation5mTokens).toBeNull();
+			expect(result.cacheCreation1hTokens).toBeNull();
+		});
+
+		it("leaves cache creation null when cache_write_tokens is 0", () => {
+			const data = {
+				usage: {
+					prompt_tokens: 2006,
+					completion_tokens: 300,
+					total_tokens: 2306,
+					prompt_tokens_details: {
+						cached_tokens: 1920,
+						cache_write_tokens: 0,
+					},
+				},
+			};
+
+			const result = extractTokenUsage(data, "openai");
+
+			expect(result.cacheCreationTokens).toBeNull();
+		});
 	});
 
 	describe("openai responses api format", () => {
@@ -547,6 +632,29 @@ describe("extractTokenUsage", () => {
 			expect(result.totalTokens).toBe(150);
 			expect(result.cachedTokens).toBeNull();
 			expect(result.reasoningTokens).toBeNull();
+		});
+
+		it("extracts GPT-5.6 cache_write_tokens from input_tokens_details", () => {
+			const data = {
+				type: "response.completed",
+				response: {
+					usage: {
+						input_tokens: 2006,
+						output_tokens: 300,
+						total_tokens: 2306,
+						input_tokens_details: {
+							cached_tokens: 1920,
+							cache_write_tokens: 40,
+						},
+					},
+				},
+			};
+
+			const result = extractTokenUsage(data, "openai");
+
+			expect(result.promptTokens).toBe(2006);
+			expect(result.cachedTokens).toBe(1920);
+			expect(result.cacheCreationTokens).toBe(40);
 		});
 
 		it("prefers response.usage over data.usage when both present", () => {

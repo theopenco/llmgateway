@@ -2,7 +2,10 @@ import { Zap, Shield, Globe } from "lucide-react";
 
 import { TweetCard } from "@/lib/components/tweet-card";
 
+import { randomItem } from "@llmgateway/shared/random";
+
 const TWEET_IDS = [
+	"2082200259560702374",
 	"1970126770205757516",
 	"1967955025315106997",
 	"1952967806871605594",
@@ -13,16 +16,12 @@ const TWEET_IDS = [
 	"1958469139632464022",
 ];
 
-function pickRandom<T>(arr: T[]): T {
-	return arr[Math.floor(Math.random() * arr.length)]!;
-}
-
 export async function AuthBrandPanel({
 	variant,
 }: {
 	variant: "login" | "signup";
 }) {
-	const tweetId = pickRandom(TWEET_IDS);
+	const tweetId = randomItem(TWEET_IDS)!;
 
 	return (
 		<div className="relative hidden w-1/2 overflow-hidden bg-gradient-to-br from-zinc-100 via-zinc-50 to-zinc-100 dark:from-zinc-900 dark:via-zinc-800 dark:to-zinc-900 lg:flex lg:flex-col lg:justify-between">
@@ -74,9 +73,9 @@ export async function AuthBrandPanel({
 						<div className="rounded-lg border border-zinc-200 bg-white/50 dark:border-zinc-700/50 dark:bg-zinc-800/50 p-4">
 							<Zap className="mb-2 h-5 w-5 text-primary" />
 							<p className="text-2xl font-bold tabular-nums text-zinc-900 dark:text-white">
-								50M+
+								100B+
 							</p>
-							<p className="text-xs text-zinc-500">API calls routed</p>
+							<p className="text-xs text-zinc-500">Tokens routed</p>
 						</div>
 						<div className="rounded-lg border border-zinc-200 bg-white/50 dark:border-zinc-700/50 dark:bg-zinc-800/50 p-4">
 							<Shield className="mb-2 h-5 w-5 text-primary" />

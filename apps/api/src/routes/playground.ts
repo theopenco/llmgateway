@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { getCookie, setCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
 
+import { awardLoungePoints } from "@/utils/lounge-points.js";
 import { buildOrgHistoryFilter } from "@/utils/org-history-filter.js";
 import { getOrCreateChatOrg } from "@/utils/personal-org.js";
 
@@ -462,6 +463,10 @@ playground.openapi(saveImageHistory, async (c) => {
 			createdAt: tables.playgroundImageHistory.createdAt,
 		});
 
+	if (body.models.some((m) => !m.error)) {
+		await awardLoungePoints(user.id, "image_generation");
+	}
+
 	return c.json(
 		{
 			item: {
@@ -694,6 +699,10 @@ playground.openapi(saveAudioHistory, async (c) => {
 			models: body.models,
 		})
 		.returning();
+
+	if (body.models.some((m) => !m.error)) {
+		await awardLoungePoints(user.id, "audio_generation");
+	}
 
 	return c.json(
 		{
@@ -993,6 +1002,10 @@ playground.openapi(saveVideoHistory, async (c) => {
 			createdAt: tables.playgroundVideoHistory.createdAt,
 		});
 
+	if (body.models.some((m) => !m.error)) {
+		await awardLoungePoints(user.id, "video_generation");
+	}
+
 	return c.json(
 		{
 			item: {
@@ -1120,6 +1133,425 @@ playground.openapi(renameVideoHistory, async (c) => {
 			createdAt: row.createdAt.toISOString(),
 		},
 	});
+});
+
+// ── Realtime (voice call) history ────────────────────────────────────────────
+
+const realtimeTranscriptEntrySchema = z.object({
+	role: z.enum(["user", "assistant"]),
+	text: z.string(),
+	status: z.enum(["partial", "final", "interrupted"]),
+	timestamp: z.number(),
+	// Assistant speech for the turn as a base64 WAV, so a saved call can be
+	// listened to and not just read.
+	audio: z
+		.object({
+			base64: z.string().max(48_000_000),
+			mediaType: z.literal("audio/wav"),
+		})
+		.optional(),
+});
+
+const realtimeUsageSchema = z.object({
+	responses: z.number(),
+	inputTokens: z.number(),
+	outputTokens: z.number(),
+	totalTokens: z.number(),
+	audioInputTokens: z.number(),
+	audioOutputTokens: z.number(),
+});
+
+// Lightweight list representation: the transcript itself is only fetched when
+// a call is opened, so the sidebar never downloads every conversation.
+const realtimeHistoryListItemSchema = z.object({
+	id: z.string(),
+	title: z.string(),
+	createdAt: z.string(),
+	model: z.string(),
+	voice: z.string().nullable(),
+	durationSeconds: z.number(),
+	turnCount: z.number(),
+});
+
+const realtimeHistoryItemSchema = realtimeHistoryListItemSchema.extend({
+	transcript: z.array(realtimeTranscriptEntrySchema),
+	usage: realtimeUsageSchema.nullable(),
+});
+
+// ── GET /realtime-history ────────────────────────────────────────────────────
+
+const listRealtimeHistory = createRoute({
+	method: "get",
+	path: "/realtime-history",
+	request: {
+		query: z.object({
+			organizationId: z.string().trim().min(1).optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						items: z.array(realtimeHistoryListItemSchema),
+					}),
+				},
+			},
+			description:
+				"List of realtime voice call history for the authenticated user, without transcripts",
+		},
+	},
+});
+
+playground.openapi(listRealtimeHistory, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { organizationId } = c.req.valid("query");
+	const orgFilter = await buildOrgHistoryFilter(
+		tables.playgroundRealtimeHistory.organizationId,
+		organizationId,
+	);
+
+	// Count the turns in SQL so the transcripts stay in Postgres.
+	const rows = await db
+		.select({
+			id: tables.playgroundRealtimeHistory.id,
+			title: tables.playgroundRealtimeHistory.title,
+			createdAt: tables.playgroundRealtimeHistory.createdAt,
+			model: tables.playgroundRealtimeHistory.model,
+			voice: tables.playgroundRealtimeHistory.voice,
+			durationSeconds: tables.playgroundRealtimeHistory.durationSeconds,
+			turnCount: sql<number>`coalesce(jsonb_array_length(${tables.playgroundRealtimeHistory.transcript}), 0)`,
+		})
+		.from(tables.playgroundRealtimeHistory)
+		.where(and(eq(tables.playgroundRealtimeHistory.userId, user.id), orgFilter))
+		.orderBy(desc(tables.playgroundRealtimeHistory.createdAt));
+
+	return c.json({
+		items: rows.map((row) => ({
+			id: row.id,
+			title: row.title,
+			createdAt: row.createdAt.toISOString(),
+			model: row.model,
+			voice: row.voice ?? null,
+			durationSeconds: row.durationSeconds,
+			turnCount: Number(row.turnCount),
+		})),
+	});
+});
+
+// ── GET /realtime-history/:id ────────────────────────────────────────────────
+
+const getRealtimeHistoryItem = createRoute({
+	method: "get",
+	path: "/realtime-history/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ item: realtimeHistoryItemSchema }),
+				},
+			},
+			description: "Realtime voice call including its full transcript",
+		},
+	},
+});
+
+playground.openapi(getRealtimeHistoryItem, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.valid("param");
+
+	const [row] = await db
+		.select()
+		.from(tables.playgroundRealtimeHistory)
+		.where(
+			and(
+				eq(tables.playgroundRealtimeHistory.id, id),
+				eq(tables.playgroundRealtimeHistory.userId, user.id),
+			),
+		);
+
+	if (!row) {
+		throw new HTTPException(404, { message: "Not found" });
+	}
+
+	return c.json({
+		item: {
+			id: row.id,
+			title: row.title,
+			createdAt: row.createdAt.toISOString(),
+			model: row.model,
+			voice: row.voice ?? null,
+			durationSeconds: row.durationSeconds,
+			turnCount: row.transcript.length,
+			transcript: row.transcript,
+			usage: row.usage ?? null,
+		},
+	});
+});
+
+// ── POST /realtime-history ───────────────────────────────────────────────────
+
+const saveRealtimeHistory = createRoute({
+	method: "post",
+	path: "/realtime-history",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						title: z.string().trim().min(1).max(200),
+						organizationId: z.string().trim().min(1).optional(),
+						model: z.string().min(1),
+						voice: z.string().optional(),
+						durationSeconds: z.number().int().min(0).optional(),
+						transcript: z.array(realtimeTranscriptEntrySchema).min(1),
+						usage: realtimeUsageSchema.optional(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: z.object({ item: realtimeHistoryListItemSchema }),
+				},
+			},
+			description: "Saved realtime voice call",
+		},
+	},
+});
+
+playground.openapi(saveRealtimeHistory, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const body = c.req.valid("json");
+
+	const [row] = await db
+		.insert(tables.playgroundRealtimeHistory)
+		.values({
+			userId: user.id,
+			organizationId: body.organizationId ?? null,
+			title: body.title,
+			model: body.model,
+			voice: body.voice ?? null,
+			durationSeconds: body.durationSeconds ?? 0,
+			transcript: body.transcript,
+			usage: body.usage ?? null,
+		})
+		.returning({
+			id: tables.playgroundRealtimeHistory.id,
+			title: tables.playgroundRealtimeHistory.title,
+			createdAt: tables.playgroundRealtimeHistory.createdAt,
+			model: tables.playgroundRealtimeHistory.model,
+			voice: tables.playgroundRealtimeHistory.voice,
+			durationSeconds: tables.playgroundRealtimeHistory.durationSeconds,
+		});
+
+	return c.json(
+		{
+			item: {
+				id: row.id,
+				title: row.title,
+				createdAt: row.createdAt.toISOString(),
+				model: row.model,
+				voice: row.voice ?? null,
+				durationSeconds: row.durationSeconds,
+				turnCount: body.transcript.length,
+			},
+		},
+		201,
+	);
+});
+
+// ── PATCH /realtime-history/:id ──────────────────────────────────────────────
+
+// Renames a call, and/or grows it with the turns of a continued session: a
+// resumed call appends to the row it continued rather than starting a new one,
+// so one conversation stays one history entry.
+const updateRealtimeHistory = createRoute({
+	method: "patch",
+	path: "/realtime-history/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z
+						.object({
+							title: z.string().trim().min(1).max(200).optional(),
+							appendTranscript: z
+								.array(realtimeTranscriptEntrySchema)
+								.min(1)
+								.optional(),
+							addDurationSeconds: z.number().int().min(0).optional(),
+							addUsage: realtimeUsageSchema.optional(),
+						})
+						.refine(
+							(body) =>
+								Object.values(body).some((value) => value !== undefined),
+							{ message: "At least one field must be provided" },
+						),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ item: realtimeHistoryListItemSchema }),
+				},
+			},
+			description: "Updated realtime voice call",
+		},
+	},
+});
+
+playground.openapi(updateRealtimeHistory, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.valid("param");
+	const body = c.req.valid("json");
+
+	// Appending needs the current transcript/duration/usage, so this is a
+	// read-modify-write. The row lock serializes two continuations of the same
+	// call finishing at once (e.g. from two tabs), so the later one appends to
+	// the earlier one's result instead of overwriting it from a stale read.
+	const row = await db.transaction(async (tx) => {
+		const [existing] = await tx
+			.select()
+			.from(tables.playgroundRealtimeHistory)
+			.where(
+				and(
+					eq(tables.playgroundRealtimeHistory.id, id),
+					eq(tables.playgroundRealtimeHistory.userId, user.id),
+				),
+			)
+			.for("update");
+
+		if (!existing) {
+			throw new HTTPException(404, { message: "Not found" });
+		}
+
+		const addUsage = body.addUsage;
+		const previousUsage = existing.usage;
+
+		const [updated] = await tx
+			.update(tables.playgroundRealtimeHistory)
+			.set({
+				...(body.title !== undefined ? { title: body.title } : {}),
+				...(body.appendTranscript
+					? { transcript: [...existing.transcript, ...body.appendTranscript] }
+					: {}),
+				...(body.addDurationSeconds !== undefined
+					? {
+							durationSeconds:
+								existing.durationSeconds + body.addDurationSeconds,
+						}
+					: {}),
+				...(addUsage
+					? {
+							usage: {
+								responses: (previousUsage?.responses ?? 0) + addUsage.responses,
+								inputTokens:
+									(previousUsage?.inputTokens ?? 0) + addUsage.inputTokens,
+								outputTokens:
+									(previousUsage?.outputTokens ?? 0) + addUsage.outputTokens,
+								totalTokens:
+									(previousUsage?.totalTokens ?? 0) + addUsage.totalTokens,
+								audioInputTokens:
+									(previousUsage?.audioInputTokens ?? 0) +
+									addUsage.audioInputTokens,
+								audioOutputTokens:
+									(previousUsage?.audioOutputTokens ?? 0) +
+									addUsage.audioOutputTokens,
+							},
+						}
+					: {}),
+			})
+			.where(eq(tables.playgroundRealtimeHistory.id, existing.id))
+			.returning();
+
+		return updated;
+	});
+
+	if (!row) {
+		throw new HTTPException(404, { message: "Not found" });
+	}
+
+	return c.json({
+		item: {
+			id: row.id,
+			title: row.title,
+			createdAt: row.createdAt.toISOString(),
+			model: row.model,
+			voice: row.voice ?? null,
+			durationSeconds: row.durationSeconds,
+			turnCount: row.transcript.length,
+		},
+	});
+});
+
+// ── DELETE /realtime-history/:id ─────────────────────────────────────────────
+
+const deleteRealtimeHistory = createRoute({
+	method: "delete",
+	path: "/realtime-history/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: z.object({ message: z.string() }) },
+			},
+			description: "Deleted",
+		},
+	},
+});
+
+playground.openapi(deleteRealtimeHistory, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.valid("param");
+
+	const [deleted] = await db
+		.delete(tables.playgroundRealtimeHistory)
+		.where(
+			and(
+				eq(tables.playgroundRealtimeHistory.id, id),
+				eq(tables.playgroundRealtimeHistory.userId, user.id),
+			),
+		)
+		.returning({ id: tables.playgroundRealtimeHistory.id });
+
+	if (!deleted) {
+		throw new HTTPException(404, { message: "Not found" });
+	}
+
+	return c.json({ message: "Deleted" });
 });
 
 export default playground;

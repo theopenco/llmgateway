@@ -17,11 +17,13 @@ export interface ValidateModelCapabilitiesOptions {
 	};
 	reasoning_effort?: string;
 	reasoning_max_tokens?: number;
+	verbosity?: string;
 	tools?: unknown[];
 	tool_choice?: unknown;
 	webSearchTool?: WebSearchTool;
 	hasImages?: boolean;
 	hasDocuments?: boolean;
+	hasAssistantPrefill?: boolean;
 }
 
 /**
@@ -42,11 +44,13 @@ export function validateModelCapabilities(
 		response_format,
 		reasoning_effort,
 		reasoning_max_tokens,
+		verbosity,
 		tools,
 		tool_choice,
 		webSearchTool,
 		hasImages,
 		hasDocuments,
+		hasAssistantPrefill,
 	} = options;
 
 	// Custom providers have no catalog entry, so the gateway cannot know which
@@ -106,6 +110,36 @@ export function validateModelCapabilities(
 				message: requestedProvider
 					? `Provider ${requestedProvider} does not support document input for model ${requestedModel}. Remove the file content or use a document-capable model.`
 					: `Model ${requestedModel} does not support document input. Remove the file content or use a document-capable model.`,
+			});
+		}
+	}
+
+	// Validate assistant prefill when the conversation ends on an assistant turn.
+	// Routing already skips mappings that declare `supportsAssistantPrefill: false`,
+	// but that filter is bypassed when the provider is pinned explicitly or the
+	// model has a single mapping, so reject here instead of letting the upstream
+	// return its own 400.
+	if (
+		hasAssistantPrefill &&
+		requestedModel !== "auto" &&
+		requestedModel !== "custom"
+	) {
+		const providersToCheck = requestedProvider
+			? modelInfo.providers.filter(
+					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
+				)
+			: modelInfo.providers;
+
+		const supportsAssistantPrefill = providersToCheck.some(
+			(provider) =>
+				(provider as ProviderModelMapping).supportsAssistantPrefill !== false,
+		);
+
+		if (!supportsAssistantPrefill) {
+			throw new HTTPException(400, {
+				message: requestedProvider
+					? `Provider ${requestedProvider} does not support a conversation ending on an assistant message for model ${requestedModel}. End the conversation with a user or tool message, or use another provider.`
+					: `Model ${requestedModel} does not support a conversation ending on an assistant message. End the conversation with a user or tool message.`,
 			});
 		}
 	}
@@ -185,6 +219,30 @@ export function validateModelCapabilities(
 
 			throw new HTTPException(400, {
 				message: `Model ${requestedModel} does not support reasoning. Remove the reasoning_effort parameter or use a reasoning-capable model.`,
+			});
+		}
+	}
+
+	// Check if verbosity is specified but model doesn't support it
+	// Skip this check for "auto" and "custom" models as they will be resolved dynamically
+	if (
+		verbosity !== undefined &&
+		requestedModel !== "auto" &&
+		requestedModel !== "custom"
+	) {
+		const providersToCheck = requestedProvider
+			? modelInfo.providers.filter(
+					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
+				)
+			: modelInfo.providers;
+
+		const supportsVerbosity = providersToCheck.some(
+			(provider) => (provider as ProviderModelMapping).verbosity === true,
+		);
+
+		if (!supportsVerbosity) {
+			throw new HTTPException(400, {
+				message: `Model ${requestedModel} does not support the verbosity parameter. Remove the verbosity parameter or use a model that supports it (OpenAI GPT-5 and later).`,
 			});
 		}
 	}

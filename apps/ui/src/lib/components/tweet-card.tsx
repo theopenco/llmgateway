@@ -140,29 +140,22 @@ export const TweetHeader = ({ tweet }: { tweet: EnrichedTweet }) => (
 					className="overflow-hidden rounded-full border border-transparent"
 				/>
 			</a>
-			<div>
-				<a
-					href={tweet.user.url}
-					target="_blank"
-					rel="noreferrer"
-					className="flex items-center whitespace-nowrap font-semibold"
-				>
+			<a
+				href={tweet.user.url}
+				target="_blank"
+				rel="noreferrer"
+				className="block"
+			>
+				<span className="flex items-center whitespace-nowrap font-semibold">
 					{truncate(tweet.user.name, 20)}
 					{(tweet.user.verified || tweet.user.is_blue_verified) && (
 						<Verified className="ml-1 inline size-4 text-[#1d9bf0]" />
 					)}
-				</a>
-				<div className="flex items-center space-x-1">
-					<a
-						href={tweet.user.url}
-						target="_blank"
-						rel="noreferrer"
-						className="text-sm text-gray-500 transition-all duration-75"
-					>
-						@{truncate(tweet.user.screen_name, 16)}
-					</a>
-				</div>
-			</div>
+				</span>
+				<span className="block text-sm text-gray-600 dark:text-gray-300 transition-all duration-75">
+					@{truncate(tweet.user.screen_name, 16)}
+				</span>
+			</a>
 		</div>
 		<a href={tweet.url} target="_blank" rel="noreferrer">
 			<span className="sr-only">Link to tweet</span>
@@ -185,7 +178,7 @@ export const TweetBody = ({ tweet }: { tweet: EnrichedTweet }) => (
 							href={entity.href}
 							target="_blank"
 							rel="noopener noreferrer"
-							className="text-sm font-normal text-gray-500"
+							className="text-sm font-normal text-gray-600 underline underline-offset-2 dark:text-gray-300"
 						>
 							<span>{entity.text}</span>
 						</a>

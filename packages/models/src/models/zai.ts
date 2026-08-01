@@ -20,6 +20,7 @@ export const zaiModels = [
 				maxOutput: 128000,
 				streaming: true,
 				reasoning: true,
+				reasoningEfforts: ["none", "high", "max"],
 				vision: false,
 				tools: true,
 				webSearch: true,
@@ -27,8 +28,28 @@ export const zaiModels = [
 				jsonOutput: true,
 			},
 			{
+				providerId: "canopywave",
+				test: "skip", // over-reasons heavily and streams slowly (~1 tok/s), so the 60s streaming timeout is flaky
+				externalId: "zai/glm-5.2",
+				inputPrice: "1.4e-6",
+				cachedInputPrice: "0.26e-6",
+				outputPrice: "4.4e-6",
+				requestPrice: "0",
+				contextSize: 200000,
+				maxOutput: 32768,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
 				providerId: "embercloud",
 				externalId: "glm-5.2",
+				// embercloud rate-limits this model on every request (429 even for
+				// single spaced-out calls, verified 2026-07-14)
+				stability: "unstable",
 				inputPrice: "1.26e-6",
 				outputPrice: "3.96e-6",
 				cachedInputPrice: "0.234e-6",
@@ -62,12 +83,89 @@ export const zaiModels = [
 			{
 				providerId: "granite",
 				externalId: "glm-5.2",
+				deactivatedAt: new Date("2026-07-27"),
 				inputPrice: "1.4e-6",
 				cachedInputPrice: "0.26e-6",
 				outputPrice: "4.4e-6",
 				requestPrice: "0",
 				contextSize: 1000000,
 				maxOutput: 128000,
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+				supportsDeveloperRole: false,
+			},
+			{
+				providerId: "bytedance",
+				externalId: "glm-5-2-260617",
+				inputPrice: "1.4e-6",
+				cachedInputPrice: "0.26e-6",
+				outputPrice: "4.4e-6",
+				requestPrice: "0",
+				contextSize: 1024000,
+				maxOutput: 128000,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+				healStreamingJsonOutput: true,
+			},
+			{
+				providerId: "alibaba",
+				externalId: "glm-5.2",
+				inputPrice: "1.4e-6",
+				cachedInputPrice: "0.28e-6",
+				outputPrice: "4.4e-6",
+				regions: [{ id: "singapore" }],
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				reasoningMaxTokens: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+				supportsDeveloperRole: false,
+			},
+			{
+				providerId: "runware",
+				externalId: "zai-glm-5-2",
+				inputPrice: "0.8e-6",
+				outputPrice: "2.55e-6",
+				cachedInputPrice: "0.16e-6",
+				requestPrice: "0",
+				contextSize: 1024000,
+				maxOutput: 128000,
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
+				providerId: "nebius",
+				externalId: "zai-org/GLM-5.2",
+				inputPrice: "1.4e-6",
+				outputPrice: "4.4e-6",
+				requestPrice: "0",
+				// The model card advertises 1,024K context, and Nebius accepted a
+				// 52K-token prompt live (verified 2026-07-22).
+				contextSize: 1048576,
+				maxOutput: undefined,
+				quantization: "fp4",
 				streaming: true,
 				reasoning: true,
 				vision: false,
@@ -110,11 +208,30 @@ export const zaiModels = [
 				requestPrice: "0",
 				contextSize: 204800,
 				maxOutput: 131100,
+				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
+				// novita's glm-5.1 reasons adaptively and omits reasoning_content
+				// for simple prompts; no parameter forces it on
+				reasoningOutput: "omit",
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				// novita disables thinking when reasoning_effort is forwarded
+				// (empty reasoning_content); omitting it reasons by default, so
+				// exclude reasoning_effort here (verified live 2026-07-14)
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+					"tool_choice",
+				],
 			},
 			{
 				providerId: "together-ai",
@@ -142,6 +259,7 @@ export const zaiModels = [
 				requestPrice: "0",
 				contextSize: 198000,
 				maxOutput: 65536,
+				quantization: "fp4",
 				streaming: true,
 				reasoning: true,
 				vision: false,
@@ -151,6 +269,9 @@ export const zaiModels = [
 			{
 				providerId: "embercloud",
 				externalId: "glm-5.1",
+				// embercloud returns 400 "Temporary routing error" on every request
+				// for this model (verified 2026-07-14)
+				stability: "unstable",
 				inputPrice: "0.931e-6",
 				outputPrice: "2.93e-6",
 				cachedInputPrice: "0.173e-6",
@@ -180,6 +301,21 @@ export const zaiModels = [
 					"reasoning",
 					"reasoning_effort",
 				],
+			},
+			{
+				providerId: "nebius",
+				externalId: "zai-org/GLM-5.1",
+				inputPrice: "1.4e-6",
+				outputPrice: "4.4e-6",
+				requestPrice: "0",
+				contextSize: 202752,
+				maxOutput: undefined,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
 			},
 		],
 	},
@@ -232,6 +368,7 @@ export const zaiModels = [
 				requestPrice: "0",
 				contextSize: 202800,
 				maxOutput: 131100,
+				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
 				vision: false,
@@ -271,6 +408,8 @@ export const zaiModels = [
 			{
 				providerId: "embercloud",
 				externalId: "glm-5",
+				// embercloud reasoning requests time out repeatedly in e2e
+				stability: "unstable",
 				inputPrice: "0.72e-6",
 				outputPrice: "2.3e-6",
 				cachedInputPrice: "0.144e-6",
@@ -319,6 +458,7 @@ export const zaiModels = [
 			{
 				providerId: "vertex-openai",
 				externalId: "zai-org/glm-5-maas",
+				deactivatedAt: new Date("2026-10-21"),
 				inputPrice: "1e-6",
 				cachedInputPrice: "0.1e-6",
 				outputPrice: "3.2e-6",
@@ -343,6 +483,10 @@ export const zaiModels = [
 			{
 				providerId: "zai",
 				externalId: "glm-4.5",
+				// Tool calling is unreliable: zai returns tool calls as inline
+				// <tool_call> XML in message content instead of structured
+				// tool_calls, so the gateway cannot surface them.
+				stability: "unstable",
 				inputPrice: "0.6e-6",
 				cachedInputPrice: "0.11e-6",
 				outputPrice: "2.2e-6",
@@ -354,12 +498,15 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				webSearch: true,
-				webSearchPrice: "0.01", // $0.01 per search
+				webSearchPrice: "0.01",
 				jsonOutput: true,
 			},
 			{
 				providerId: "embercloud",
 				externalId: "glm-4.5",
+				// embercloud rate-limits this model on every request (429 even for
+				// single spaced-out calls, verified 2026-07-14)
+				stability: "unstable",
 				inputPrice: "0.6e-6",
 				outputPrice: "2.2e-6",
 				cachedInputPrice: "0.11e-6",
@@ -423,6 +570,7 @@ export const zaiModels = [
 				requestPrice: "0",
 				contextSize: 65536,
 				maxOutput: 16000,
+				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
 				reasoningOutput: "omit",
@@ -458,6 +606,9 @@ export const zaiModels = [
 			{
 				providerId: "embercloud",
 				externalId: "glm-4.5-air",
+				// embercloud rate-limits this model on every request (429 even for
+				// single spaced-out calls, verified 2026-07-14)
+				stability: "unstable",
 				inputPrice: "0.13e-6",
 				outputPrice: "0.85e-6",
 				cachedInputPrice: "0.025e-6",
@@ -588,7 +739,7 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				webSearch: true,
-				webSearchPrice: "0.01", // $0.01 per search
+				webSearchPrice: "0.01",
 				jsonOutput: true,
 			},
 			{
@@ -601,6 +752,7 @@ export const zaiModels = [
 				requestPrice: "0",
 				contextSize: 204800,
 				maxOutput: 128000,
+				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
 				vision: false,
@@ -608,7 +760,6 @@ export const zaiModels = [
 				jsonOutput: true,
 			},
 			{
-				// Cerebras: FP16/FP8 (weights only)
 				providerId: "cerebras",
 				test: "skip",
 				externalId: "zai-glm-4.7",
@@ -695,6 +846,8 @@ export const zaiModels = [
 			{
 				providerId: "embercloud",
 				externalId: "glm-4.7",
+				// embercloud reasoning requests time out repeatedly in e2e
+				stability: "unstable",
 				inputPrice: "0.38e-6",
 				outputPrice: "1.98e-6",
 				cachedInputPrice: "0.19e-6",
@@ -730,6 +883,7 @@ export const zaiModels = [
 			{
 				providerId: "vertex-openai",
 				externalId: "zai-org/glm-4.7-maas",
+				deactivatedAt: new Date("2026-10-21"),
 				inputPrice: "0.6e-6",
 				outputPrice: "2.2e-6",
 				requestPrice: "0",
@@ -812,6 +966,9 @@ export const zaiModels = [
 			{
 				providerId: "embercloud",
 				externalId: "glm-4.7-flash",
+				// embercloud rate-limits this model on every request (429 even for
+				// single spaced-out calls, verified 2026-07-14)
+				stability: "unstable",
 				inputPrice: "0.06e-6",
 				outputPrice: "0.4e-6",
 				cachedInputPrice: "0.01e-6",
@@ -863,12 +1020,14 @@ export const zaiModels = [
 				reasoning: true,
 				vision: false,
 				tools: true,
+				// zai hangs indefinitely on tool_choice "required" and named
+				// function choices for glm-4.6 (verified live 2026-07-14)
+				supportedToolChoices: ["auto", "none"],
 				webSearch: true,
-				webSearchPrice: "0.01", // $0.01 per search
+				webSearchPrice: "0.01",
 				jsonOutput: true,
 			},
 			{
-				// Cerebras: FP16/FP8 (weights only)
 				providerId: "cerebras",
 				test: "skip",
 				deactivatedAt: new Date("2026-01-20"),
@@ -925,6 +1084,7 @@ export const zaiModels = [
 				requestPrice: "0",
 				contextSize: 204800,
 				maxOutput: undefined,
+				quantization: "bf16",
 				streaming: true,
 				reasoning: true,
 				vision: false,
@@ -989,6 +1149,7 @@ export const zaiModels = [
 				requestPrice: "0",
 				contextSize: 131072,
 				maxOutput: 16000,
+				quantization: "bf16",
 				streaming: true,
 				reasoning: true,
 				vision: true,
@@ -1046,14 +1207,12 @@ export const zaiModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
-				// zai rejects temperature outside [0,1] with a 400 ("The temperature
-				// parameter is illegal"). Exclude it so out-of-range values are stripped
-				// instead of failing the request.
 				supportedParameters: [
 					"messages",
 					"model",
 					"stream",
 					"stream_options",
+					"temperature",
 					"top_p",
 					"max_tokens",
 					"max_completion_tokens",

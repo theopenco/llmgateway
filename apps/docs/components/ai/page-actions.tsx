@@ -141,7 +141,7 @@ export function ViewOptions({
 				),
 			},
 			{
-				title: "Open in LLM Gateway",
+				title: "Ask in the Lounge",
 				href:
 					process.env.NODE_ENV === "development"
 						? `http://localhost:3003?${new URLSearchParams({

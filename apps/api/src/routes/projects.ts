@@ -31,6 +31,7 @@ const projectSchema = z.object({
 	paymentsSdkEnabled: z.boolean(),
 	endUserEnabled: z.boolean(),
 	endUserMarkupPercent: z.string(),
+	endUserTopUpBonusPercent: z.string(),
 	allowedOrigins: z.array(z.string()).nullable(),
 });
 
@@ -54,6 +55,7 @@ const updateProjectSchema = z.object({
 		.optional(),
 	endUserEnabled: z.boolean().optional(),
 	endUserMarkupPercent: z.number().min(0).max(100).optional(),
+	endUserTopUpBonusPercent: z.number().min(0).max(1000).optional(),
 	allowedOrigins: z.array(z.string().trim().min(1)).max(20).optional(),
 });
 
@@ -207,6 +209,7 @@ projects.openapi(updateProject, async (c) => {
 		defaultRoutingStrategy,
 		endUserEnabled,
 		endUserMarkupPercent,
+		endUserTopUpBonusPercent,
 		allowedOrigins,
 	} = c.req.valid("json");
 
@@ -251,6 +254,7 @@ projects.openapi(updateProject, async (c) => {
 	const isUpdatingEndUserSettings =
 		endUserEnabled !== undefined ||
 		endUserMarkupPercent !== undefined ||
+		endUserTopUpBonusPercent !== undefined ||
 		allowedOrigins !== undefined;
 	const projectUserOrg = userOrgs.find(
 		(userOrg) => userOrg.organizationId === project.organizationId,
@@ -347,9 +351,22 @@ projects.openapi(updateProject, async (c) => {
 		updateData.endUserMarkupPercent = String(endUserMarkupPercent);
 	}
 
+	if (endUserTopUpBonusPercent !== undefined) {
+		updateData.endUserTopUpBonusPercent = String(endUserTopUpBonusPercent);
+	}
+
 	if (allowedOrigins !== undefined) {
 		normalizedAllowedOrigins = normalizeAllowedOrigins(allowedOrigins);
 		updateData.allowedOrigins = normalizedAllowedOrigins;
+	}
+
+	// An empty PATCH body is a valid no-op; drizzle throws "No values to set"
+	// on an empty update, so skip the query and return the project unchanged.
+	if (Object.keys(updateData).length === 0) {
+		return c.json({
+			message: "Project settings updated successfully",
+			project,
+		});
 	}
 
 	// Roll through the cached client so its onMutate invalidates the gateway's
@@ -422,6 +439,15 @@ projects.openapi(updateProject, async (c) => {
 		changes.endUserMarkupPercent = {
 			old: project.endUserMarkupPercent,
 			new: String(endUserMarkupPercent),
+		};
+	}
+	if (
+		endUserTopUpBonusPercent !== undefined &&
+		String(endUserTopUpBonusPercent) !== project.endUserTopUpBonusPercent
+	) {
+		changes.endUserTopUpBonusPercent = {
+			old: project.endUserTopUpBonusPercent,
+			new: String(endUserTopUpBonusPercent),
 		};
 	}
 	if (normalizedAllowedOrigins !== undefined) {

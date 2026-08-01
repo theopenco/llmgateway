@@ -10,9 +10,12 @@ import {
 	AutohandIcon,
 	CodexIcon,
 	ContinueIcon,
+	CrushIcon,
 	OpenClawIcon,
 	ClineIcon,
 	CursorIcon,
+	DevPassCodeIcon,
+	GitHubCopilotIcon,
 	HermesIcon,
 	KiloCodeIcon,
 	KimiIcon,
@@ -38,6 +41,14 @@ interface Integration {
 
 const integrations: Integration[] = [
 	{
+		name: "DevPass Code",
+		description:
+			"Our open-source terminal coding agent built for LLM Gateway. One browser login, every model, no per-provider keys.",
+		href: "/guides/devpass-code",
+		icon: DevPassCodeIcon,
+		comingSoon: false,
+	},
+	{
 		name: "Autohand Code",
 		description:
 			"Use LLM Gateway with Autohand Code for autonomous AI-powered coding in your terminal, IDE, and Slack.",
@@ -56,11 +67,11 @@ const integrations: Integration[] = [
 	{
 		name: "Cursor",
 		description:
-			"Use LLM Gateway with Cursor IDE in plan mode only. Cursor's coding agent does not work with external API endpoints.",
+			"Use LLM Gateway with Cursor IDE in plan and agent mode. Tab autocomplete and inline edit stay on Cursor's backend.",
 		href: "https://docs.llmgateway.io/guides/cursor",
 		icon: CursorIcon,
 		comingSoon: false,
-		badge: "Plan mode only",
+		badge: "Plan + Agent mode",
 	},
 	{
 		name: "Codex CLI",
@@ -85,6 +96,23 @@ const integrations: Integration[] = [
 		href: "/guides/continue",
 		icon: ContinueIcon,
 		comingSoon: false,
+	},
+	{
+		name: "Crush",
+		description:
+			"Use LLM Gateway with Charm's Crush coding agent for AI-powered terminal coding.",
+		href: "/guides/crush",
+		icon: CrushIcon,
+		comingSoon: false,
+	},
+	{
+		name: "GitHub Copilot app",
+		description:
+			"Use LLM Gateway as a model provider in GitHub's Copilot desktop app for agent sessions with any model.",
+		href: "/guides/github-copilot",
+		icon: GitHubCopilotIcon,
+		comingSoon: false,
+		badge: "BYOK",
 	},
 	{
 		name: "Hermes Agent",
@@ -192,7 +220,7 @@ function DevPlansCta() {
 					</div>
 					<p className="max-w-lg text-[15px] leading-relaxed text-muted-foreground">
 						Fixed-price monthly plans for Claude Code, Cursor, Cline, and every
-						coding tool. One API key, 280+ models, predictable billing.
+						coding tool. One API key, 200+ models, predictable billing.
 					</p>
 					<div className="flex flex-wrap items-center gap-x-5 gap-y-2 pt-1 text-sm text-muted-foreground">
 						<span className="flex items-center gap-1.5">

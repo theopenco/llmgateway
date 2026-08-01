@@ -120,7 +120,7 @@ export default async function FeaturePage({ params }: PageProps) {
 				}}
 			/>
 			<Navbar />
-			<div className="min-h-screen bg-background">
+			<main className="min-h-screen bg-background">
 				<div className="relative border-b border-zinc-200 dark:border-zinc-800 bg-gradient-to-b from-zinc-50 to-background dark:from-zinc-900/50 dark:to-background">
 					<div className="container mx-auto px-4 py-16 md:py-24 pt-32 md:pt-40">
 						<div className="max-w-4xl mx-auto text-center">
@@ -149,7 +149,7 @@ export default async function FeaturePage({ params }: PageProps) {
 									rel="noopener noreferrer"
 								>
 									<Button variant="outline" size="lg" className="gap-2">
-										Try in Playground
+										Try in Lounge
 										<ExternalLink className="h-4 w-4" />
 									</Button>
 								</a>
@@ -266,7 +266,7 @@ export default async function FeaturePage({ params }: PageProps) {
 						</section>
 					</div>
 				</div>
-			</div>
+			</main>
 			<Footer />
 		</>
 	);
@@ -288,16 +288,20 @@ export async function generateMetadata({
 		return {};
 	}
 
-	const title = `${feature.title} – LLM Gateway`;
+	const title = feature.title;
 	const description = feature.description;
 
 	return {
 		title,
 		description,
+		alternates: {
+			canonical: `/features/${feature.slug}`,
+		},
 		openGraph: {
 			title,
 			description,
 			type: "website",
+			url: `https://llmgateway.io/features/${feature.slug}`,
 		},
 		twitter: {
 			card: "summary_large_image",

@@ -94,7 +94,7 @@ describe("videos", () => {
 			createdBy: "user-id",
 		});
 
-		await harness.setDevPlan({ devPlan: "pro", allowAllModels: true });
+		await harness.setDevPlan({ devPlan: "pro" });
 
 		const res = await app.request("/v1/videos", {
 			method: "POST",
@@ -805,6 +805,126 @@ describe("videos", () => {
 		expect(JSON.stringify(json)).toContain("Seedance 2.0");
 	});
 
+	test("/v1/videos forwards up to nine reference images to Seedance 2.0 Fast", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-bytedance-key",
+			provider: "bytedance",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const referenceImages = Array.from({ length: 9 }, (_, index) => ({
+			image_url: `data:image/png;base64,${Buffer.from(`ref-${index}`).toString("base64")}`,
+		}));
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "seedance-2-0-fast",
+				prompt: "Combine these references into one clip",
+				size: "1280x720",
+				seconds: 5,
+				reference_images: referenceImages,
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(videoJob?.usedProvider).toBe("bytedance");
+
+		const mockVideo = getMockVideo(videoJob!.upstreamId);
+		expect(mockVideo?.referenceImages).toHaveLength(9);
+	});
+
+	test("/v1/videos rejects more than nine reference images on Seedance 2.0 Fast", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const referenceImages = Array.from({ length: 10 }, (_, index) => ({
+			image_url: `data:image/png;base64,${Buffer.from(`ref-${index}`).toString("base64")}`,
+		}));
+
+		const res = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "seedance-2-0-fast",
+				prompt: "Too many references",
+				size: "1280x720",
+				seconds: 5,
+				reference_images: referenceImages,
+			}),
+		});
+
+		expect(res.status).toBe(400);
+	});
+
+	test("/v1/videos rejects more than three reference images on veo", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-google-vertex-key",
+			provider: "google-vertex",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const referenceImages = Array.from({ length: 4 }, (_, index) => ({
+			image_url: `data:image/png;base64,${Buffer.from(`ref-${index}`).toString("base64")}`,
+		}));
+
+		const res = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "google-vertex/veo-3.1-generate-preview",
+				prompt: "Too many references for veo",
+				size: "1280x720",
+				seconds: 8,
+				reference_images: referenceImages,
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain("at most 3 reference images");
+	});
+
 	test("/v1/videos uses routing metrics to pick the best eligible provider", async () => {
 		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 		const originalRuntimeGoogleCloudProject = process.env.GOOGLE_CLOUD_PROJECT;
@@ -1103,6 +1223,77 @@ describe("videos", () => {
 		expect(logs[0].requestCost).toBe(0);
 		expect(logs[0].videoOutputCost).toBe(2.8);
 		expect(logs[0].cost).toBe(2.8);
+	});
+
+	test("/v1/videos does not persist payload when retention is disabled", async () => {
+		await db
+			.update(tables.organization)
+			.set({ retentionLevel: "none" })
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "avalanche",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "avalanche/veo-3.1-fast-generate-preview",
+				prompt: "A storm above a mountain range",
+				size: "3840x2160",
+				seconds: 8,
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(videoJob).toBeTruthy();
+
+		setMockVideoStatus(videoJob!.upstreamId, "completed");
+		await processPendingVideoJobs();
+
+		const logs = await db.query.log.findMany({
+			where: { usedModel: { eq: "avalanche/veo-3.1-fast-generate-preview" } },
+		});
+		expect(logs).toHaveLength(1);
+		expect(logs[0].hasError).toBe(false);
+		// Cost/metering is still recorded...
+		expect(logs[0].videoOutputCost).toBe(2.8);
+		// ...but no request/response payload is persisted for a non-retaining org.
+		expect(logs[0].messages).toBeNull();
+		expect(logs[0].content).toBeNull();
+
+		// Video content is served from the video job, not the (now-stripped) log
+		// content column, so playback still works for a non-retaining org.
+		const contentRes = await app.request(`/v1/videos/${created.id}/content`, {
+			headers: {
+				Authorization: "Bearer real-token",
+			},
+		});
+		expect(contentRes.status).toBe(200);
+		expect(await contentRes.text()).toBe(
+			`mock-video-${videoJob!.upstreamId}-4k`,
+		);
 	});
 
 	test("/v1/videos bills xAI 480p video and image input separately", async () => {

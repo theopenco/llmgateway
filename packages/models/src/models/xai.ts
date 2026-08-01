@@ -245,6 +245,9 @@ export const xaiModels = [
 				maxOutput: 256000,
 				streaming: true,
 				vision: true,
+				// grok-4 always reasons and streams reasoning_content deltas;
+				// without this flag the gateway folds them into content
+				reasoning: true,
 				tools: true,
 				jsonOutput: true,
 				supportedParameters: xaiSupportedParamsNoFreqPresence,
@@ -499,7 +502,6 @@ export const xaiModels = [
 				// xAI multi-agent models do not work with the Chat Completions API.
 				// They require the Responses API (/v1/responses) with orchestrated sub-agents.
 				// Deactivated until the gateway adds xAI Responses API routing support.
-				// Ref: https://docs.x.ai/developers/model-capabilities/text/multi-agent
 				deactivatedAt: new Date("2026-03-27"),
 				inputPrice: "2.0e-6",
 				outputPrice: "6.0e-6",
@@ -705,9 +707,18 @@ export const xaiModels = [
 				streaming: true,
 				vision: true,
 				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high"],
 				tools: true,
 				jsonOutput: true,
-				supportedParameters: xaiSupportedParamsNoFreqPresence,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
 			},
 			{
 				providerId: "aws-bedrock",
@@ -722,6 +733,7 @@ export const xaiModels = [
 				streaming: true,
 				vision: true,
 				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high"],
 				reasoningOutput: "omit",
 				tools: true,
 				jsonOutput: true,
@@ -894,6 +906,43 @@ export const xaiModels = [
 		],
 	},
 	{
+		id: "grok-4-5",
+		name: "Grok 4.5",
+		description:
+			"xAI's flagship reasoning model with a 500K context window, vision, and tool support.",
+		aliases: ["grok-4.5-latest", "grok-build-latest"],
+		family: "xai",
+		releasedAt: new Date("2026-07-08"),
+		providers: [
+			{
+				providerId: "xai",
+				contentFilterPrice: 0.05,
+				externalId: "grok-4.5",
+				inputPrice: "2.0e-6",
+				cachedInputPrice: "0.5e-6",
+				outputPrice: "6.0e-6",
+				requestPrice: "0",
+				contextSize: 500_000,
+				maxOutput: undefined,
+				streaming: true,
+				vision: true,
+				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high"],
+				tools: true,
+				jsonOutput: true,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
+			},
+		],
+	},
+	{
 		id: "grok-build-0-1",
 		name: "Grok Build 0.1",
 		description:
@@ -933,6 +982,31 @@ export const xaiModels = [
 				jsonOutput: true,
 				reasoning: true,
 				supportedParameters: xaiSupportedParamsNoFreqPresence,
+			},
+		],
+	},
+	{
+		id: "grok-stt-1-0",
+		name: "Grok STT 1.0",
+		description:
+			"xAI's speech-to-text model. Transcribes audio files into text with word-level timestamps, speaker diarization, multichannel transcription, and inverse text normalization across 25 languages via the /v1/audio/transcriptions endpoint.",
+		family: "xai",
+		output: ["transcription"],
+		releasedAt: new Date("2026-07-23"),
+		providers: [
+			{
+				providerId: "xai",
+				externalId: "grok-stt-1.0",
+				inputPrice: "0",
+				outputPrice: "0",
+				// Billed on input audio duration at $0.10 per hour, against the
+				// `duration` (seconds) reported by the xAI /v1/stt response.
+				inputAudioHourPrice: "0.10",
+				requestPrice: "0",
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				transcriptions: true,
 			},
 		],
 	},

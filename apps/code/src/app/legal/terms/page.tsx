@@ -5,7 +5,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
 	title: "Terms of Use — DevPass",
 	description:
-		"Supplemental DevPass Terms of Use. These build on the LLM Gateway Terms of Use and cover the DevPass flat-rate subscription: fair-use limits, one account per developer, approved coding tools, and AI provider policies.",
+		"Supplemental DevPass Terms of Use. These build on the LLM Gateway Terms of Use and cover the DevPass flat-rate subscription: fair-use limits, one account per developer, personal (non-team) use, approved coding tools, and AI provider policies.",
 	alternates: { canonical: "/legal/terms" },
 };
 
@@ -16,7 +16,7 @@ export default function TermsPage() {
 			<p>
 				<strong>Effective Date:</strong> April 26, 2026
 				<br />
-				<strong>Last Updated:</strong> June 26, 2026
+				<strong>Last Updated:</strong> July 22, 2026
 			</p>
 			<p>
 				<strong>DevPass</strong> is a service operated by{" "}
@@ -101,7 +101,9 @@ export default function TermsPage() {
 				</li>
 				<li>
 					Allowances reset at the start of each billing cycle and{" "}
-					<strong>do not roll over</strong>
+					<strong>do not roll over</strong> at renewal; the only exception is an
+					immediate mid-cycle upgrade, which rolls your unused allowance into
+					the new cycle (see &ldquo;Plan changes&rdquo; below)
 				</li>
 			</ul>
 			<p>
@@ -113,10 +115,29 @@ export default function TermsPage() {
 				period.
 			</p>
 			<p>
-				DevPass is intended for individual developer use. We may rate-limit,
-				suspend, or downgrade accounts that show signs of automated abuse, key
-				sharing, resale, or sustained traffic patterns inconsistent with
-				interactive coding workflows.
+				<strong>Plan changes.</strong> You may change tiers at any time from
+				your dashboard. <strong>Upgrades</strong> take effect immediately by
+				default: we charge the full price of the new tier at the time of the
+				upgrade, your billing cycle restarts on that day, and you receive the
+				new tier&rsquo;s full monthly allowance. Any unused allowance from the
+				cycle being replaced <strong>rolls over</strong> into the new
+				cycle&rsquo;s allowance; rolled-over allowance expires at your next
+				renewal and is not refunded, credited, or deducted from the upgrade
+				price. You may instead schedule an upgrade for your next renewal: no
+				charge is due when scheduling, you keep your current tier and allowance
+				until the renewal, and the new tier is billed from the renewal onward
+				(no allowance rolls over at renewal). <strong>Downgrades</strong> are
+				scheduled for your next renewal: you keep your current tier and its
+				allowance until the end of the period you have already paid for, the
+				lower tier is billed from the next renewal onward, and no charge or
+				refund is issued when you schedule the downgrade.
+			</p>
+			<p>
+				DevPass is intended for private, personal use by an individual developer
+				— not for teams, companies, or other organizations (see Section&nbsp;3).
+				We may rate-limit, suspend, or downgrade accounts that show signs of
+				automated abuse, key sharing, resale, or sustained traffic patterns
+				inconsistent with interactive coding workflows.
 			</p>
 			<hr />
 			<h2>3. One Account Per Developer</h2>
@@ -179,11 +200,14 @@ export default function TermsPage() {
 				</li>
 			</ul>
 			<p>
-				If you genuinely need DevPass for multiple developers (for example, a
-				team or company), contact{" "}
-				<a href="mailto:contact@llmgateway.io">contact@llmgateway.io</a> before
-				signing up. We offer team plans that let multiple developers share
-				DevPass legitimately.
+				<strong>No team or company use.</strong> DevPass is intended for
+				private, personal, individual use only. It may not be purchased, shared,
+				expensed, or otherwise used by or on behalf of a team, company, or other
+				organization, and we do not offer team or multi-seat DevPass plans. If
+				you need AI model access for multiple developers, use our pay-as-you-go
+				LLM Gateway product under the Base Terms instead — contact{" "}
+				<a href="mailto:contact@llmgateway.io">contact@llmgateway.io</a> for
+				custom solutions and volume discounts for teams.
 			</p>
 			<hr />
 			<h2>4. DevPass Acceptable Use</h2>

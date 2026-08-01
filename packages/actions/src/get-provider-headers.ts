@@ -65,6 +65,7 @@ export function getProviderHeaders(
 		}
 		case "google-ai-studio":
 		case "glacier":
+		case "iceberg":
 		case "quartz":
 			return requestIdHeader;
 		case "google-vertex": {
@@ -114,6 +115,7 @@ export function getProviderHeaders(
 				Authorization: `Bearer ${token}`,
 			};
 		case "aws-bedrock":
+		case "aws-mantle":
 			return {
 				...requestIdHeader,
 				Authorization: `Bearer ${token}`,
@@ -138,13 +140,16 @@ export function getProviderHeaders(
 		case "perplexity":
 		case "novita":
 		case "moonshot":
+		case "meta":
 		case "alibaba":
 		case "nebius":
+		case "fireworks":
 		case "zai":
 		case "canopywave":
 		case "embercloud":
 		case "deepinfra":
 		case "custom":
+		case "runware":
 		default:
 			return {
 				...requestIdHeader,

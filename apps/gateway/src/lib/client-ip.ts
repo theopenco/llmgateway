@@ -5,8 +5,9 @@ import type { Context } from "hono";
 // Extract the originating client IP from request headers. Mirrors the
 // ordering used elsewhere in the codebase (Cloudflare first, then the first
 // hop of X-Forwarded-For as set by the GCP load balancer, then X-Real-IP).
-export function getClientIpFromRequest(c: Context): string | undefined {
-	const xff = c.req.header("x-forwarded-for");
+export function getClientIpFromForwardedFor(
+	xff: string | undefined,
+): string | undefined {
 	if (xff) {
 		const first = xff.split(",")[0]?.trim();
 		if (first) {
@@ -14,6 +15,10 @@ export function getClientIpFromRequest(c: Context): string | undefined {
 		}
 	}
 	return undefined;
+}
+
+export function getClientIpFromRequest(c: Context): string | undefined {
+	return getClientIpFromForwardedFor(c.req.header("x-forwarded-for"));
 }
 
 // Normalize IPv4-mapped IPv6 (::ffff:1.2.3.4) to plain IPv4 so an IPv4 CIDR

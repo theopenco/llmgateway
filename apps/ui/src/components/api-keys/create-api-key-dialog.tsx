@@ -3,6 +3,7 @@ import { Copy } from "lucide-react";
 import { usePostHog } from "posthog-js/react";
 import { useState } from "react";
 
+import { useMyMemberBudget } from "@/hooks/useTeam";
 import { Button } from "@/lib/components/button";
 import {
 	Dialog,
@@ -27,6 +28,7 @@ import {
 	ApiKeyLimitFields,
 	buildApiKeyLimitPayload,
 	createApiKeyLimitFormValue,
+	validateApiKeyLimitPayloadWithinMemberBudget,
 } from "./api-key-limit-fields";
 import {
 	ApiKeyTtlFields,
@@ -62,6 +64,11 @@ export function CreateApiKeyDialog({
 	const [apiKey, setApiKey] = useState("");
 	const api = useApi();
 
+	const { data: memberBudgetData } = useMyMemberBudget(
+		selectedProject.organizationId,
+	);
+	const memberBudget = memberBudgetData?.budget ?? null;
+
 	const createApiKeyMutation = api.useMutation("post", "/keys/api");
 
 	const handleSubmit = async (e: React.FormEvent) => {
@@ -78,6 +85,15 @@ export function CreateApiKeyDialog({
 		const { error, payload } = buildApiKeyLimitPayload(limitValue);
 		if (error) {
 			toast({ title: error, variant: "destructive" });
+			return;
+		}
+
+		const budgetError = validateApiKeyLimitPayloadWithinMemberBudget(
+			payload,
+			memberBudget,
+		);
+		if (budgetError) {
+			toast({ title: budgetError, variant: "destructive" });
 			return;
 		}
 
@@ -211,6 +227,7 @@ export function CreateApiKeyDialog({
 								idPrefix="create-api-key"
 								value={limitValue}
 								onChange={setLimitValue}
+								memberBudget={memberBudget}
 							/>
 							<DialogFooter>
 								<Button

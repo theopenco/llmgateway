@@ -1,3 +1,5 @@
+import { randomInt } from "@llmgateway/shared/random";
+
 export const heroSuggestionGroups = {
 	Create: [
 		"Write a Python script to analyze CSV data and create visualizations",
@@ -268,7 +270,7 @@ export const canvasSuggestions = [
 ] as const;
 
 export const audioStudioSuggestions = [
-	"Welcome to LLM Gateway — one API for every model, with unified billing and analytics.",
+	"Welcome to the Lounge — every frontier model, one membership.",
 	"Thanks for calling. All of our agents are currently busy, but your call is important to us.",
 	"Chapter one. The storm rolled in just after midnight, and the old lighthouse keeper knew the night would be long.",
 	"Breaking news: scientists have discovered a new species of deep-sea creature off the coast of Japan.",
@@ -297,7 +299,7 @@ export function sampleSuggestions(
 	const shuffled = [...items];
 
 	for (let i = shuffled.length - 1; i > 0; i--) {
-		const j = Math.floor(Math.random() * (i + 1));
+		const j = randomInt(0, i + 1);
 		const current = shuffled[i]!;
 		shuffled[i] = shuffled[j]!;
 		shuffled[j] = current;

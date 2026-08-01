@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
 	calculateCosts,
 	isRefusalFinishReason,
+	shouldBillCancelledRequests,
 	zeroInferenceCosts,
 } from "./costs.js";
 
@@ -177,6 +178,102 @@ describe("calculateCosts", () => {
 		expect(withCacheWrite.cacheWriteInputCost).toBe(0);
 		expect(withCacheWrite.totalCost).toBe(withoutCacheWrite.totalCost);
 		expect(withCacheWrite.cacheWriteTokens).toBe(30);
+	});
+
+	it("bills GPT-5.6 cache writes at the 1.25x rate (short context)", async () => {
+		// prompt_tokens (2006) already includes cached (1920) and cache-write (40)
+		// tokens — mirrors OpenAI's documented usage shape for GPT-5.6.
+		const result = await calculateCosts(
+			"gpt-5.6-sol",
+			"openai",
+			null,
+			2006,
+			300,
+			1920,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			{
+				cacheWriteTokens: 40,
+			},
+		);
+
+		expect(result.inputCost).toBeCloseTo(46 * 5e-6, 10); // 2006 - 1920 - 40 uncached
+		expect(result.cachedInputCost).toBeCloseTo(1920 * 0.5e-6, 10);
+		expect(result.cacheWriteInputCost).toBeCloseTo(40 * 6.25e-6, 10);
+		expect(result.outputCost).toBeCloseTo(300 * 30e-6, 10);
+		expect(result.pricingTier).toBe("Up to 272K");
+	});
+
+	it("applies GPT-5.6 long-context pricing above 272K prompt tokens", async () => {
+		const result = await calculateCosts(
+			"gpt-5.6-sol",
+			"openai",
+			null,
+			300000,
+			1000,
+			100000,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			{
+				cacheWriteTokens: 50000,
+			},
+		);
+
+		// The whole request bills at the long-context tier: 2x input, 2x cached,
+		// 2x cache write, 1.5x output.
+		expect(result.inputCost).toBeCloseTo(150000 * 10e-6, 6); // 300000 - 100000 - 50000 uncached
+		expect(result.cachedInputCost).toBeCloseTo(100000 * 1e-6, 6);
+		expect(result.cacheWriteInputCost).toBeCloseTo(50000 * 12.5e-6, 6);
+		expect(result.outputCost).toBeCloseTo(1000 * 45e-6, 6);
+		expect(result.pricingTier).toBe("Over 272K");
+	});
+
+	it("bills exactly 272K prompt tokens at the GPT-5.6 short-context tier", async () => {
+		// OpenAI documents the long tier as >272K input tokens, so 272,000 itself
+		// is still short context.
+		const result = await calculateCosts(
+			"gpt-5.6-sol",
+			"openai",
+			null,
+			272000,
+			1000,
+			null,
+		);
+
+		expect(result.inputCost).toBeCloseTo(272000 * 5e-6, 6);
+		expect(result.outputCost).toBeCloseTo(1000 * 30e-6, 6);
+		expect(result.pricingTier).toBe("Up to 272K");
+	});
+
+	it("bills 272,001 prompt tokens at the GPT-5.6 long-context tier", async () => {
+		const result = await calculateCosts(
+			"gpt-5.6-sol",
+			"openai",
+			null,
+			272001,
+			1000,
+			null,
+		);
+
+		expect(result.inputCost).toBeCloseTo(272001 * 10e-6, 6);
+		expect(result.outputCost).toBeCloseTo(1000 * 45e-6, 6);
+		expect(result.pricingTier).toBe("Over 272K");
 	});
 
 	it("should calculate costs with cached tokens for Anthropic (first request - cache creation)", async () => {
@@ -779,6 +876,33 @@ describe("calculateCosts", () => {
 			);
 			expect(result.outputCost).toBeCloseTo(standardOutputCost * 2, 8);
 			expect(result.totalCost).toBeCloseTo(standardCost * 2, 8);
+		});
+
+		it("applies the Fireworks Priority multiplier (1.25x) to token costs", async () => {
+			const result = await calculateCosts(
+				"kimi-k3",
+				"fireworks",
+				null,
+				1000,
+				700,
+				200,
+				undefined,
+				null,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "priority" },
+			);
+			// Fireworks publishes Kimi K3 Priority at $3.75 / $0.375 / $18.75 per
+			// million, i.e. exactly 1.25x the standard $3.00 / $0.30 / $15.00.
+			expect(result.inputCost).toBeCloseTo(800 * 3.75e-6, 8);
+			expect(result.cachedInputCost).toBeCloseTo(200 * 0.375e-6, 8);
+			expect(result.outputCost).toBeCloseTo(700 * 18.75e-6, 8);
 		});
 
 		it("bills a downgraded request (servedServiceTier null) at standard rates", async () => {
@@ -1686,5 +1810,40 @@ describe("zeroInferenceCosts", () => {
 		expect(costs.totalCost).toBe(0);
 		// Storage retention is billed separately from inference.
 		expect(costs.dataStorageCost).toBe(0.01);
+	});
+});
+
+describe("shouldBillCancelledRequests", () => {
+	const original = process.env.BILL_CANCELLED_REQUESTS;
+
+	afterEach(() => {
+		if (original === undefined) {
+			delete process.env.BILL_CANCELLED_REQUESTS;
+		} else {
+			process.env.BILL_CANCELLED_REQUESTS = original;
+		}
+	});
+
+	// Regression for GHSA-724j-f2pf-phf7: an unset value must bill cancelled
+	// requests so a client cannot abort a stream after receiving content to
+	// dodge usage/cost accounting.
+	it("defaults to true when unset", () => {
+		delete process.env.BILL_CANCELLED_REQUESTS;
+		expect(shouldBillCancelledRequests()).toBe(true);
+	});
+
+	it("defaults to true for an empty string (Helm's empty ConfigMap value)", () => {
+		process.env.BILL_CANCELLED_REQUESTS = "";
+		expect(shouldBillCancelledRequests()).toBe(true);
+	});
+
+	it("stays enabled when explicitly set to true", () => {
+		process.env.BILL_CANCELLED_REQUESTS = "true";
+		expect(shouldBillCancelledRequests()).toBe(true);
+	});
+
+	it("only disables billing when explicitly set to false", () => {
+		process.env.BILL_CANCELLED_REQUESTS = "false";
+		expect(shouldBillCancelledRequests()).toBe(false);
 	});
 });

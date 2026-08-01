@@ -30,6 +30,7 @@ import {
 	AnimatedBadgeCheck,
 	AnimatedBarChart3,
 	AnimatedBotMessageSquare,
+	AnimatedBuilding2,
 	AnimatedChartArea,
 	AnimatedChartColumnBig,
 	AnimatedExternalLink,
@@ -473,13 +474,12 @@ function OrganizationSection({
 						toggleSidebar={toggleSidebar}
 					/>
 					<OrgNavItem
-						href={buildOrgUrl("org/custom-models")}
-						label="Custom Models"
+						href={buildOrgUrl("org/models")}
+						label="Models"
 						icon={AnimatedBotMessageSquare}
-						isActive={isActive("org/custom-models")}
+						isActive={isActive("org/models")}
 						isMobile={isMobile}
 						toggleSidebar={toggleSidebar}
-						showEnterpriseBadge={showEnterpriseBadge}
 					/>
 					<OrgNavItem
 						href={buildOrgUrl("org/analytics")}
@@ -522,6 +522,15 @@ function OrganizationSection({
 						label="Master Keys"
 						icon={AnimatedKeySquare}
 						isActive={isActive("org/master-keys")}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+						showEnterpriseBadge={showEnterpriseBadge}
+					/>
+					<OrgNavItem
+						href={buildOrgUrl("org/sso")}
+						label="SSO"
+						icon={AnimatedBuilding2}
+						isActive={isActive("org/sso")}
 						isMobile={isMobile}
 						toggleSidebar={toggleSidebar}
 						showEnterpriseBadge={showEnterpriseBadge}
@@ -586,6 +595,43 @@ function OrganizationSection({
 							))}
 						</SidebarMenuSub>
 					</SidebarMenuItem>
+				</SidebarMenu>
+			</SidebarGroupContent>
+		</SidebarGroup>
+	);
+}
+
+// Org-level entries visible to project-scoped "developer" members: the custom
+// models catalog is readable by every active member, so developers get a
+// read-only view of the providers and models their org makes available.
+function DeveloperOrgSection({
+	isActive,
+	isMobile,
+	toggleSidebar,
+	isEnterprise,
+}: {
+	isActive: (path: string) => boolean;
+	isMobile: boolean;
+	toggleSidebar: () => void;
+	isEnterprise: boolean;
+}) {
+	const { buildOrgUrl } = useDashboardNavigation();
+
+	return (
+		<SidebarGroup>
+			<SidebarGroupLabel className="text-muted-foreground px-2 text-xs font-medium">
+				Organization
+			</SidebarGroupLabel>
+			<SidebarGroupContent className="mt-2">
+				<SidebarMenu>
+					<OrgNavItem
+						href={buildOrgUrl("org/models")}
+						label="Models"
+						icon={AnimatedBotMessageSquare}
+						isActive={isActive("org/models")}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+					/>
 				</SidebarMenu>
 			</SidebarGroupContent>
 		</SidebarGroup>
@@ -748,6 +794,9 @@ function ThemeSelect() {
 					<div className="flex items-center">
 						<ComputerIcon className="mr-2 h-4 w-4" />
 						System
+						<span className="ml-2 text-xs text-muted-foreground">
+							(Default)
+						</span>
 					</div>
 				</SelectItem>
 			</SelectContent>
@@ -1019,7 +1068,7 @@ export function DashboardSidebar({
 					process.env.NODE_ENV === "development"
 						? "http://localhost:3003"
 						: "https://chat.llmgateway.io",
-				label: "Chat",
+				label: "Lounge",
 				icon: AnimatedBotMessageSquare,
 				internal: false,
 			},
@@ -1087,24 +1136,33 @@ export function DashboardSidebar({
 			<SidebarContent>
 				{selectedOrganization?.role === "developer" ? (
 					// Project-scoped "developer" members get a minimal, personal nav:
-					// their own usage dashboard and their own API keys — nothing else.
-					<SidebarGroup>
-						<SidebarGroupLabel className="text-muted-foreground px-2 text-xs font-medium">
-							User
-						</SidebarGroupLabel>
-						<SidebarGroupContent className="mt-2">
-							<SidebarMenu>
-								{USER_NAVIGATION.map((item) => (
-									<NavigationItem
-										key={item.href}
-										item={item}
-										isActive={isActive}
-										onClick={handleNavClick}
-									/>
-								))}
-							</SidebarMenu>
-						</SidebarGroupContent>
-					</SidebarGroup>
+					// their own usage dashboard, their own API keys, and a read-only
+					// view of the org's models directory.
+					<>
+						<SidebarGroup>
+							<SidebarGroupLabel className="text-muted-foreground px-2 text-xs font-medium">
+								User
+							</SidebarGroupLabel>
+							<SidebarGroupContent className="mt-2">
+								<SidebarMenu>
+									{USER_NAVIGATION.map((item) => (
+										<NavigationItem
+											key={item.href}
+											item={item}
+											isActive={isActive}
+											onClick={handleNavClick}
+										/>
+									))}
+								</SidebarMenu>
+							</SidebarGroupContent>
+						</SidebarGroup>
+						<DeveloperOrgSection
+							isActive={isActive}
+							isMobile={isMobile}
+							toggleSidebar={toggleSidebar}
+							isEnterprise={selectedOrganization?.plan === "enterprise"}
+						/>
+					</>
 				) : (
 					<>
 						<SidebarGroup>

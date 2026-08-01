@@ -1,6 +1,6 @@
 ---
 title: OpenCode Desktop Integration
-description: Connect OpenCode Desktop to 280+ models through LLM Gateway. No config files — just open Settings, connect, and start building.
+description: Connect OpenCode Desktop to 200+ models through LLM Gateway. No config files — just open Settings, connect, and start building.
 icon: OpenCode
 ---
 
@@ -11,6 +11,14 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 <Callout type="info">
 	Looking for the CLI version? See the [OpenCode CLI guide](/guides/opencode).
+</Callout>
+
+<Callout type="info">
+	**Using DevPass?** This integration also works with a
+	[DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without
+	a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) —
+	provider-pinned routing is not available on coding plans; the gateway picks
+	the provider for you.
 </Callout>
 
 ## Prerequisites
@@ -87,7 +95,7 @@ Select a model and start chatting. All requests route through LLM Gateway — yo
 
 ## Why Use LLM Gateway with OpenCode Desktop
 
-- **280+ models** — Claude, GPT, Gemini, Llama, DeepSeek, and more from 35+ providers
+- **200+ models** — Claude, GPT, Gemini, Llama, DeepSeek, and more from 40+ providers
 - **One API key** — Stop managing separate keys for each provider
 - **Cost tracking** — See exactly what each session costs in your dashboard
 - **Response caching** — Repeated requests hit cache automatically
@@ -118,7 +126,7 @@ By default, LLM Gateway automatically fails over to alternative providers if you
 
 <Callout type="warn">
 	Disabling fallback means requests will fail if the chosen provider is down.
-	See the [routing docs](/docs/features/routing) for details.
+	See the [routing docs](/features/routing) for details.
 </Callout>
 
 ## Troubleshooting

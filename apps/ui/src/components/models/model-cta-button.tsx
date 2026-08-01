@@ -2,9 +2,10 @@
 
 import { ArrowRight, Play } from "lucide-react";
 
-import { useUser } from "@/hooks/useUser";
+import { useSessionStatus, useUser } from "@/hooks/useUser";
 import { Button } from "@/lib/components/button";
 import { useAppConfig } from "@/lib/config";
+import { getLoungeStudioPath } from "@/lib/model-utils";
 
 export function ModelCtaButton({
 	modelId,
@@ -22,15 +23,14 @@ export function ModelCtaButton({
 	onClick?: (e: React.MouseEvent) => void;
 }) {
 	const config = useAppConfig();
-	const { user, isLoading } = useUser();
+	const { isAuthenticated } = useSessionStatus();
+	const { user, isLoading } = useUser({ enabled: isAuthenticated });
 	const isLoggedIn = !!user && !isLoading;
 
-	if (isLoggedIn) {
-		const studioPath = output?.includes("video")
-			? "/video"
-			: output?.includes("image")
-				? "/image"
-				: "";
+	// Rerank models have no playground studio — logged-in users see the
+	// "Get Started" CTA too (no chat playground to link to).
+	if (isLoggedIn && !output?.includes("rerank")) {
+		const studioPath = getLoungeStudioPath(output);
 		return (
 			<Button
 				variant="default"
@@ -45,7 +45,7 @@ export function ModelCtaButton({
 					rel="noopener noreferrer"
 				>
 					<Play className={iconClassName} />
-					Try in Playground
+					Try in Lounge
 				</a>
 			</Button>
 		);

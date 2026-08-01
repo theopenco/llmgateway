@@ -5,7 +5,7 @@ import {
 	scrypt,
 } from "crypto";
 
-import { redisClient } from "@llmgateway/cache";
+import { redisClient, storageRedisClient } from "@llmgateway/cache";
 import {
 	models as allModels,
 	providers as allProviders,
@@ -1021,6 +1021,7 @@ const AGENT_SOURCES: Array<{ source: string; weight: number }> = [
 	{ source: "cline", weight: 0.15 },
 	{ source: "codex", weight: 0.1 },
 	{ source: "opencode", weight: 0.1 },
+	{ source: "empryo", weight: 0.08 },
 	{ source: "autohand", weight: 0.06 },
 	{ source: "n8n", weight: 0.04 },
 ];
@@ -1087,6 +1088,7 @@ function generateProjectHourlySourceStats(projects: ProjectDef[]) {
 					imageInputCost: 0,
 					imageOutputCost: 0,
 					audioInputCost: 0,
+					audioOutputCost: 0,
 					videoOutputCost: 0,
 					cachedInputCost: 0,
 					cacheWriteInputCost: 0,
@@ -1233,11 +1235,12 @@ function generateSeedModelProviderMappings() {
 	return mappings;
 }
 
-function generateSeedModelProviderMappingHistory(
+// Pick one mapping per provider (up to `limit`) so every provider has
+// history data without seeding every mapping.
+function selectTopMappingsPerProvider(
 	mappings: Array<Record<string, any>>,
+	limit: number,
 ) {
-	const history: Array<Record<string, any>> = [];
-	// Pick one mapping per provider to ensure all providers have history data
 	const seenProviders = new Set<string>();
 	const topMappings: Array<Record<string, any>> = [];
 	for (const m of mappings) {
@@ -1245,10 +1248,18 @@ function generateSeedModelProviderMappingHistory(
 			seenProviders.add(m.providerId);
 			topMappings.push(m);
 		}
-		if (topMappings.length >= 50) {
+		if (topMappings.length >= limit) {
 			break;
 		}
 	}
+	return topMappings;
+}
+
+function generateSeedModelProviderMappingHistory(
+	mappings: Array<Record<string, any>>,
+) {
+	const history: Array<Record<string, any>> = [];
+	const topMappings = selectTopMappingsPerProvider(mappings, 50);
 	for (const mapping of topMappings) {
 		for (let i = 0; i < 144; i++) {
 			const ts = minutesAgo(i * 10);
@@ -1275,6 +1286,8 @@ function generateSeedModelProviderMappingHistory(
 				totalDuration: logs * randomInt(200, 5000),
 				totalTimeToFirstToken: logs * randomInt(50, 500),
 				totalTimeToFirstReasoningToken: 0,
+				timeToFirstTokenCount: logs,
+				timeToFirstReasoningTokenCount: 0,
 			});
 		}
 	}
@@ -1308,6 +1321,111 @@ function generateSeedModelHistory() {
 				totalDuration: logCount * randomInt(200, 5000),
 				totalTimeToFirstToken: logCount * randomInt(50, 500),
 				totalTimeToFirstReasoningToken: 0,
+				timeToFirstTokenCount: logCount,
+				timeToFirstReasoningTokenCount: 0,
+			});
+		}
+	}
+	return history;
+}
+
+// 60 days of hourly per-model rollups so long-window surfaces (the public
+// rankings page, 7d/30d stats windows and their previous-window trend
+// comparison) have data locally. 60 days covers the 30d window plus the
+// equal-length previous window its trend compares against. Each model gets a
+// rank-weighted volume with a per-model daily growth factor so trends differ
+// realistically.
+const HISTORY_HOURLY_DAYS = 60;
+
+function hourlyModelVolume(rankIndex: number, hoursBack: number) {
+	/* eslint-disable no-mixed-operators */
+	const baseTokensPerHour = Math.round(2_000_000 / (rankIndex + 1) ** 0.85);
+	// Daily growth between roughly -4.5% and +4.5% depending on the model, so
+	// some models trend up and others down over the window.
+	const dailyGrowth = 1 + ((rankIndex % 7) - 3) * 0.015;
+	const daysBack = hoursBack / 24;
+	const trend = dailyGrowth ** -daysBack;
+	const noise = 0.7 + secureRandom() * 0.6;
+	return Math.max(1, Math.round(baseTokensPerHour * trend * noise));
+	/* eslint-enable no-mixed-operators */
+}
+
+function generateSeedModelHistoryHourly() {
+	const history: Array<Record<string, any>> = [];
+	const topModels = (allModels as readonly ModelDefinition[]).slice(0, 50);
+	for (const [mi, m] of topModels.entries()) {
+		for (let h = 0; h < HISTORY_HOURLY_DAYS * 24; h++) {
+			const ts = hoursAgo(h);
+			ts.setMinutes(0, 0, 0);
+			const totalTokens = hourlyModelVolume(mi, h);
+			const inputTokens = Math.round(totalTokens * 0.7);
+			const outputTokens = Math.round(totalTokens * 0.25);
+			const logs = Math.max(1, Math.round(totalTokens / 1200));
+			const errors = randomInt(0, Math.max(1, Math.floor(logs * 0.02)));
+			history.push({
+				id: `mhh-${m.id}-${h}`,
+				modelId: m.id,
+				hourTimestamp: ts,
+				logsCount: logs,
+				errorsCount: errors,
+				clientErrorsCount: Math.floor(errors * 0.3),
+				gatewayErrorsCount: Math.floor(errors * 0.1),
+				upstreamErrorsCount: Math.floor(errors * 0.6),
+				cachedCount: randomInt(0, Math.floor(logs * 0.15)),
+				totalInputTokens: inputTokens,
+				totalOutputTokens: outputTokens,
+				totalTokens,
+				totalReasoningTokens: totalTokens - inputTokens - outputTokens,
+				totalCachedTokens: randomInt(0, Math.floor(inputTokens * 0.3)),
+				totalDuration: logs * randomInt(500, 5000),
+				totalTimeToFirstToken: logs * randomInt(100, 800),
+				totalTimeToFirstReasoningToken: 0,
+				timeToFirstTokenCount: logs,
+				timeToFirstReasoningTokenCount: 0,
+			});
+		}
+	}
+	return history;
+}
+
+function generateSeedModelProviderMappingHistoryHourly(
+	mappings: Array<Record<string, any>>,
+) {
+	const history: Array<Record<string, any>> = [];
+	// Same one-mapping-per-provider selection as the minute-level seed so every
+	// provider has long-window data too.
+	const topMappings = selectTopMappingsPerProvider(mappings, 50);
+	for (const [mi, mapping] of topMappings.entries()) {
+		for (let h = 0; h < HISTORY_HOURLY_DAYS * 24; h++) {
+			const ts = hoursAgo(h);
+			ts.setMinutes(0, 0, 0);
+			const totalTokens = hourlyModelVolume(mi, h);
+			const inputTokens = Math.round(totalTokens * 0.7);
+			const outputTokens = Math.round(totalTokens * 0.25);
+			const logs = Math.max(1, Math.round(totalTokens / 1200));
+			const errors = randomInt(0, Math.max(1, Math.floor(logs * 0.02)));
+			history.push({
+				id: `mpmhh-${mapping.id}-${h}`,
+				modelId: mapping.modelId,
+				providerId: mapping.providerId,
+				modelProviderMappingId: mapping.id,
+				hourTimestamp: ts,
+				logsCount: logs,
+				errorsCount: errors,
+				clientErrorsCount: Math.floor(errors * 0.3),
+				gatewayErrorsCount: Math.floor(errors * 0.1),
+				upstreamErrorsCount: Math.floor(errors * 0.6),
+				cachedCount: randomInt(0, Math.floor(logs * 0.15)),
+				totalInputTokens: inputTokens,
+				totalOutputTokens: outputTokens,
+				totalTokens,
+				totalReasoningTokens: totalTokens - inputTokens - outputTokens,
+				totalCachedTokens: randomInt(0, Math.floor(inputTokens * 0.3)),
+				totalDuration: logs * randomInt(500, 5000),
+				totalTimeToFirstToken: logs * randomInt(100, 800),
+				totalTimeToFirstReasoningToken: 0,
+				timeToFirstTokenCount: logs,
+				timeToFirstReasoningTokenCount: 0,
 			});
 		}
 	}
@@ -1367,13 +1485,88 @@ async function seed() {
 		createdBy: "test-user-id",
 	});
 
+	// Sibling org for the test admin with data retention disabled, so
+	// retention-off behavior (e.g. the Responses API without stored log
+	// payloads) can be exercised locally while the default Test Organization
+	// stays on "retain" for easier debugging.
+	await upsert(tables.organization, {
+		id: "test-no-retention-org-id",
+		name: "Test No Retention Organization",
+		billingEmail: "admin@example.com",
+		credits: 5,
+		retentionLevel: "none",
+	});
+
+	await upsert(tables.userOrganization, {
+		id: "test-no-retention-user-org-id",
+		userId: "test-user-id",
+		organizationId: "test-no-retention-org-id",
+		role: "owner",
+	});
+
+	await upsert(tables.project, {
+		id: "test-no-retention-project-id",
+		name: "Test No Retention Project",
+		organizationId: "test-no-retention-org-id",
+		mode: "hybrid",
+	});
+
+	await upsert(tables.apiKey, {
+		id: "test-no-retention-api-key-id",
+		token: "test-token-no-retention",
+		projectId: "test-no-retention-project-id",
+		description: "Test API Key (no data retention)",
+		createdBy: "test-user-id",
+	});
+
+	// Embeddable Payments SDK POC: a project with the SDK enabled and a 50%
+	// end-user top-up bonus, plus a live platform secret key, so the end-user
+	// wallet + bonus flow can be exercised end-to-end locally (mint a session with
+	// the platform secret, top up as an end-user, get +50% credit). The bonus is
+	// funded from this org's credit balance, so it is seeded with credits.
+	await upsert(tables.organization, {
+		id: "sdk-poc-org-id",
+		name: "Payments SDK POC",
+		billingEmail: "admin@example.com",
+		credits: 100,
+		retentionLevel: "retain",
+	});
+
+	await upsert(tables.userOrganization, {
+		id: "sdk-poc-user-org-id",
+		userId: "test-user-id",
+		organizationId: "sdk-poc-org-id",
+		role: "owner",
+	});
+
+	await upsert(tables.project, {
+		id: "sdk-poc-project-id",
+		name: "Payments SDK POC",
+		organizationId: "sdk-poc-org-id",
+		mode: "credits",
+		paymentsSdkEnabled: true,
+		endUserEnabled: true,
+		endUserTopUpBonusPercent: "50",
+	});
+
+	// Live-mode platform secret (token does not start with `sk_test_`), so minted
+	// sessions/wallets are live and eligible for the developer-funded bonus.
+	await upsert(tables.apiKey, {
+		id: "sdk-poc-platform-secret-id",
+		token: "sk_pocbonus_live_secret",
+		projectId: "sdk-poc-project-id",
+		description: "Payments SDK POC platform secret",
+		keyType: "platform_secret",
+		createdBy: "test-user-id",
+	});
+
 	// Personal org for the test admin so DevPass Pro is available locally
 	await upsert(tables.organization, {
 		id: "test-personal-org-id",
 		name: "Test User's Workspace",
 		billingEmail: "admin@example.com",
 		credits: 0,
-		retentionLevel: "retain",
+		retentionLevel: "none",
 		plan: "free",
 		kind: "devpass",
 		devPlan: "pro",
@@ -1552,6 +1745,19 @@ async function seed() {
 			models: [
 				{ model: "deepseek-chat", provider: "deepseek", weight: 0.55 },
 				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.3 },
+				{ model: "gpt-4o-mini", provider: "openai", weight: 0.15 },
+			],
+		},
+		{
+			source: "empryo",
+			weight: 0.02,
+			models: [
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.55 },
+				{
+					model: "gemini-2.0-flash",
+					provider: "google-ai-studio",
+					weight: 0.3,
+				},
 				{ model: "gpt-4o-mini", provider: "openai", weight: 0.15 },
 			],
 		},
@@ -1788,6 +1994,7 @@ async function seed() {
 				imageInputCost: 0,
 				imageOutputCost: 0,
 				audioInputCost: 0,
+				audioOutputCost: 0,
 				videoOutputCost: 0,
 				cachedInputCost: 0,
 				cacheWriteInputCost: 0,
@@ -1853,6 +2060,7 @@ async function seed() {
 				imageInputCost: 0,
 				imageOutputCost: 0,
 				audioInputCost: 0,
+				audioOutputCost: 0,
 				videoOutputCost: 0,
 				cachedInputCost: 0,
 				cacheWriteInputCost: 0,
@@ -1878,7 +2086,7 @@ async function seed() {
 		name: "Test User's Workspace",
 		billingEmail: "admin@example.com",
 		credits: 0,
-		retentionLevel: "retain",
+		retentionLevel: "none",
 		plan: "free",
 		kind: "devpass",
 		devPlan: "pro",
@@ -2078,12 +2286,16 @@ async function seed() {
 			billingEmail: org.billingEmail,
 			plan: org.plan,
 			credits: org.credits,
+			// DevPass and Chat orgs are always metadata-only; retention is not
+			// offered on those products.
 			retentionLevel:
-				org.plan === "enterprise"
-					? "retain"
-					: secureRandom() < 0.5
+				org.kind !== "default"
+					? "none"
+					: org.plan === "enterprise"
 						? "retain"
-						: "none",
+						: secureRandom() < 0.5
+							? "retain"
+							: "none",
 			status: org.status,
 			kind: org.kind,
 			devPlan: org.devPlan,
@@ -2111,6 +2323,228 @@ async function seed() {
 			role: mapping.role,
 		});
 	}
+
+	// Yearly model-survey (census) responses so the public /data/<year>
+	// registry has content locally. Three models cross the 5-response
+	// anonymity threshold; gpt-4o-mini stays below it to exercise the
+	// hidden-model state.
+	const censusYear = new Date().getUTCFullYear();
+	const censusRespondents = [
+		{ userId: "user-alice", organizationId: "org-personal-alice" },
+		{ userId: "user-bob", organizationId: "org-personal-alice" },
+		{ userId: "user-carol", organizationId: "org-personal-dave" },
+		{ userId: "user-dave", organizationId: "org-personal-dave" },
+		{ userId: "user-elena", organizationId: "org-personal-maya" },
+		{ userId: "user-frank", organizationId: "org-personal-maya" },
+		{ userId: "user-grace", organizationId: "org-personal-alice" },
+	];
+	const censusModels: Array<{
+		modelId: string;
+		responses: Array<{
+			valueScore: number;
+			qualityScore: number;
+			speedScore: number;
+			wouldRecommend: boolean;
+			primaryUseCase: string;
+		}>;
+	}> = [
+		{
+			modelId: "claude-3.5-sonnet",
+			responses: [
+				{
+					valueScore: 5,
+					qualityScore: 5,
+					speedScore: 4,
+					wouldRecommend: true,
+					primaryUseCase: "agentic_coding",
+				},
+				{
+					valueScore: 4,
+					qualityScore: 5,
+					speedScore: 4,
+					wouldRecommend: true,
+					primaryUseCase: "agentic_coding",
+				},
+				{
+					valueScore: 5,
+					qualityScore: 4,
+					speedScore: 3,
+					wouldRecommend: true,
+					primaryUseCase: "code_review",
+				},
+				{
+					valueScore: 4,
+					qualityScore: 5,
+					speedScore: 4,
+					wouldRecommend: true,
+					primaryUseCase: "agentic_coding",
+				},
+				{
+					valueScore: 5,
+					qualityScore: 4,
+					speedScore: 4,
+					wouldRecommend: true,
+					primaryUseCase: "debugging",
+				},
+				{
+					valueScore: 4,
+					qualityScore: 5,
+					speedScore: 3,
+					wouldRecommend: true,
+					primaryUseCase: "agentic_coding",
+				},
+				{
+					valueScore: 5,
+					qualityScore: 5,
+					speedScore: 4,
+					wouldRecommend: true,
+					primaryUseCase: "writing_tests",
+				},
+			],
+		},
+		{
+			modelId: "gpt-4o",
+			responses: [
+				{
+					valueScore: 4,
+					qualityScore: 4,
+					speedScore: 4,
+					wouldRecommend: true,
+					primaryUseCase: "agentic_coding",
+				},
+				{
+					valueScore: 4,
+					qualityScore: 4,
+					speedScore: 5,
+					wouldRecommend: true,
+					primaryUseCase: "debugging",
+				},
+				{
+					valueScore: 3,
+					qualityScore: 4,
+					speedScore: 4,
+					wouldRecommend: false,
+					primaryUseCase: "code_completion",
+				},
+				{
+					valueScore: 4,
+					qualityScore: 5,
+					speedScore: 4,
+					wouldRecommend: true,
+					primaryUseCase: "agentic_coding",
+				},
+				{
+					valueScore: 4,
+					qualityScore: 4,
+					speedScore: 5,
+					wouldRecommend: true,
+					primaryUseCase: "docs_and_explanations",
+				},
+				{
+					valueScore: 3,
+					qualityScore: 4,
+					speedScore: 4,
+					wouldRecommend: true,
+					primaryUseCase: "code_review",
+				},
+			],
+		},
+		{
+			modelId: "claude-3-haiku",
+			responses: [
+				{
+					valueScore: 5,
+					qualityScore: 3,
+					speedScore: 5,
+					wouldRecommend: true,
+					primaryUseCase: "code_completion",
+				},
+				{
+					valueScore: 4,
+					qualityScore: 3,
+					speedScore: 5,
+					wouldRecommend: true,
+					primaryUseCase: "code_completion",
+				},
+				{
+					valueScore: 4,
+					qualityScore: 4,
+					speedScore: 5,
+					wouldRecommend: true,
+					primaryUseCase: "docs_and_explanations",
+				},
+				{
+					valueScore: 5,
+					qualityScore: 3,
+					speedScore: 5,
+					wouldRecommend: false,
+					primaryUseCase: "debugging",
+				},
+				{
+					valueScore: 4,
+					qualityScore: 3,
+					speedScore: 5,
+					wouldRecommend: true,
+					primaryUseCase: "code_completion",
+				},
+			],
+		},
+		{
+			modelId: "gpt-4o-mini",
+			responses: [
+				{
+					valueScore: 4,
+					qualityScore: 3,
+					speedScore: 5,
+					wouldRecommend: true,
+					primaryUseCase: "code_completion",
+				},
+				{
+					valueScore: 3,
+					qualityScore: 3,
+					speedScore: 5,
+					wouldRecommend: false,
+					primaryUseCase: "other",
+				},
+				{
+					valueScore: 4,
+					qualityScore: 3,
+					speedScore: 4,
+					wouldRecommend: true,
+					primaryUseCase: "docs_and_explanations",
+				},
+				{
+					valueScore: 4,
+					qualityScore: 2,
+					speedScore: 5,
+					wouldRecommend: true,
+					primaryUseCase: "code_completion",
+				},
+			],
+		},
+	];
+	const censusResponses: Array<Record<string, any>> = [];
+	for (const model of censusModels) {
+		model.responses.forEach((response, i) => {
+			const respondent = censusRespondents[i % censusRespondents.length];
+			const createdAt = daysAgo(randomInt(1, 20));
+			censusResponses.push({
+				id: `census-${model.modelId}-${i}`,
+				year: censusYear,
+				quarter: Math.floor(createdAt.getUTCMonth() / 3) + 1,
+				userId: respondent.userId,
+				organizationId: respondent.organizationId,
+				modelId: model.modelId,
+				...response,
+				comment: null,
+				requestCount: randomInt(60, 900),
+				devPlanTier: "pro",
+				rewardTier: null,
+				createdAt,
+			});
+		});
+	}
+	await bulkInsert(tables.modelSurveyResponse, censusResponses);
 
 	const projects = generateProjects();
 	for (const proj of projects) {
@@ -2206,6 +2640,7 @@ async function seed() {
 				imageInputCost: 0,
 				imageOutputCost: 0,
 				audioInputCost: 0,
+				audioOutputCost: 0,
 				videoOutputCost: 0,
 				cachedInputCost: 0,
 				cacheWriteInputCost: 0,
@@ -2238,6 +2673,16 @@ async function seed() {
 	const seedModelHistory = generateSeedModelHistory();
 	await bulkInsert(tables.modelHistory, seedModelHistory);
 
+	const seedMappingHistoryHourly =
+		generateSeedModelProviderMappingHistoryHourly(seedMappings);
+	await bulkInsert(
+		tables.modelProviderMappingHistoryHourly,
+		seedMappingHistoryHourly,
+	);
+
+	const seedModelHistoryHourly = generateSeedModelHistoryHourly();
+	await bulkInsert(tables.modelHistoryHourly, seedModelHistoryHourly);
+
 	await upsert(tables.enterpriseContactSubmission, {
 		id: "ecs_seed_1",
 		name: "Sarah Chen",
@@ -2253,7 +2698,7 @@ async function seed() {
 	});
 
 	await closeDatabase();
-	await redisClient.quit();
+	await Promise.all([redisClient.quit(), storageRedisClient.quit()]);
 }
 
 void seed();

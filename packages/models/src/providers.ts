@@ -72,7 +72,11 @@ export interface ProviderDataPolicy {
 	consumerTraining: boolean | null;
 	promptLogging: boolean | null;
 	retentionPeriod?: string | null;
-	soc2?: boolean | null;
+	/**
+	 * SOC 2 report type the provider holds: `1` for Type 1, `2` for Type 2.
+	 * `null`/omitted means the provider is not SOC 2 certified.
+	 */
+	soc2?: 1 | 2 | null;
 	iso27001?: boolean | null;
 	gdpr?: boolean | null;
 }
@@ -90,14 +94,61 @@ export interface ProviderAdditionalLink {
  */
 export interface ProviderCompliancePolicy {
 	enabled: boolean;
+	/** Require a SOC 2 report of any type (Type 1 or Type 2). */
 	requireSoc2?: boolean;
+	/** Require specifically a SOC 2 Type 2 report (the stricter attestation). */
+	requireSoc2Type2?: boolean;
 	requireIso27001?: boolean;
+	/** Require either a SOC 2 Type 2 report or ISO 27001 certification. */
 	requireSoc2OrIso27001?: boolean;
 	requireGdpr?: boolean;
 	/** Require the provider to NOT train on API prompts (apiTraining === false). */
 	blockApiTraining?: boolean;
 	/** Require the provider to NOT log prompts (promptLogging === false). */
 	blockPromptLogging?: boolean;
+	/**
+	 * Block stealth providers (see {@link isStealthProvider}) — undisclosed
+	 * platforms whose data policy and headquarters are unknown. They already
+	 * fail every certification/data-policy requirement (fail-closed on a null
+	 * `dataPolicy`), so this exists to exclude them even when no other
+	 * requirement is active.
+	 */
+	blockStealthProviders?: boolean;
+	/**
+	 * Restrict routing to providers headquartered in one of these ISO 3166-1
+	 * alpha-2 country codes. Empty/omitted means no country restriction. Only
+	 * codes present in the catalogue (see {@link getProviderCountries}) are
+	 * meaningful; a provider with an unknown or `null` headquarters is blocked
+	 * whenever this list is non-empty (fail-closed).
+	 */
+	allowedCountries?: string[];
+	/**
+	 * Deny list of individual providers. Entries are catalogue provider ids
+	 * (e.g. "openai") or `custom:<name>` refs (see {@link customProviderRef})
+	 * for the org's own custom providers. A listed provider is always blocked,
+	 * even when it satisfies every other requirement, and regardless of any
+	 * user-, member-, or API-key-level rule that would allow it.
+	 */
+	blockedProviders?: string[];
+	/**
+	 * Fine-grained provider allow list. When non-empty, only listed providers
+	 * (same ref format as {@link ProviderCompliancePolicy.blockedProviders})
+	 * may be routed to — and they must still satisfy every other requirement.
+	 * Empty/omitted applies no allow-list restriction.
+	 */
+	allowedProviders?: string[];
+	/**
+	 * Deny list of individual models. Entries are catalogue model ids (e.g.
+	 * "gpt-5.2") or `<customProvider>/<model>` refs for models served through
+	 * an org custom provider. A listed model is always blocked.
+	 */
+	blockedModels?: string[];
+	/**
+	 * Fine-grained model allow list. When non-empty, only listed models (same
+	 * ref format as {@link ProviderCompliancePolicy.blockedModels}) may be
+	 * requested. Empty/omitted applies no allow-list restriction.
+	 */
+	allowedModels?: string[];
 }
 
 export interface ProviderDefinition {
@@ -118,6 +169,8 @@ export interface ProviderDefinition {
 	statusPageUrl?: string | null;
 	// Announcement text
 	announcement?: string | null;
+	// Short marketing badge shown on this provider's model cards (e.g. "Up to 4x faster")
+	modelCardBadge?: string | null;
 	// Instructions for creating an API key
 	apiKeyInstructions?: string;
 	// Learn more URL for API key creation
@@ -128,6 +181,12 @@ export interface ProviderDefinition {
 	// Whether requests that match the gateway content filter should avoid this provider
 	// when an alternative provider is available.
 	contentFilter?: boolean;
+	/**
+	 * Highest `temperature` this provider accepts. The OpenAI schema allows up
+	 * to 2, but some providers reject anything above their own ceiling with a
+	 * 400, so the gateway clamps the requested value instead of failing.
+	 */
+	maxTemperature?: number;
 	/** Region routing config - when set, provider supports multiple geographic endpoints */
 	regionConfig?: ProviderRegionConfig;
 	/**
@@ -171,7 +230,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: false,
+			soc2: null,
 			iso27001: false,
 			gdpr: false,
 		},
@@ -184,6 +243,9 @@ export const providers: ProviderDefinition[] = [
 		env: {
 			required: {
 				apiKey: "LLM_OPENAI_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_OPENAI_BASE_URL",
 			},
 		},
 		streaming: true,
@@ -200,7 +262,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: true,
 			promptLogging: true,
 			retentionPeriod: null,
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -233,6 +295,8 @@ export const providers: ProviderDefinition[] = [
 		},
 		streaming: true,
 		cancellation: true,
+		// the Messages API rejects temperature above 1 ("temperature: range: 0..1")
+		maxTemperature: 1,
 		color: "#8b5cf6",
 		website: "https://anthropic.com",
 		statusPageUrl: "https://status.claude.com",
@@ -245,7 +309,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: true,
 			promptLogging: true,
 			retentionPeriod: "30 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -294,7 +358,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: true,
 			promptLogging: true,
 			retentionPeriod: "55 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -308,6 +372,29 @@ export const providers: ProviderDefinition[] = [
 			required: {
 				apiKey: "LLM_GLACIER_API_KEY",
 				baseUrl: "LLM_GLACIER_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#4285f4",
+		website: null,
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: null,
+		privacyPolicyUrl: null,
+		headquarters: null,
+		dataPolicy: null,
+		priority: 1.2,
+	},
+	{
+		id: "iceberg",
+		name: "Iceberg",
+		description:
+			"Iceberg is a stealth provider with Google AI Studio-compatible Gemini endpoints.",
+		env: {
+			required: {
+				apiKey: "LLM_ICEBERG_API_KEY",
+				baseUrl: "LLM_ICEBERG_BASE_URL",
 			},
 		},
 		streaming: true,
@@ -391,7 +478,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -434,7 +521,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -455,6 +542,8 @@ export const providers: ProviderDefinition[] = [
 		},
 		streaming: true,
 		cancellation: true,
+		// same Messages API ceiling as anthropic
+		maxTemperature: 1,
 		color: "#4285f4",
 		website: "https://cloud.google.com/vertex-ai",
 		statusPageUrl: "https://status.cloud.google.com",
@@ -468,7 +557,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -547,7 +636,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			gdpr: true,
 		},
 	},
@@ -575,7 +664,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			gdpr: true,
 		},
 	},
@@ -602,7 +691,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: true,
 			retentionPeriod: "30 days",
-			soc2: true,
+			soc2: 2,
 			gdpr: true,
 		},
 	},
@@ -633,7 +722,7 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: true,
 			retentionPeriod: null,
 		},
-		priority: 2,
+		priority: 1.2,
 	},
 	{
 		id: "alibaba",
@@ -733,7 +822,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: null,
 			promptLogging: null,
 			retentionPeriod: "varies by service; Enterprise ZDR available",
-			soc2: true,
+			soc2: 2,
 			gdpr: true,
 		},
 		additionalLinks: [
@@ -847,7 +936,43 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
+			iso27001: true,
+			gdpr: true,
+		},
+	},
+	{
+		id: "aws-mantle",
+		name: "AWS Mantle",
+		description:
+			"Amazon Bedrock Mantle - OpenAI frontier models served on AWS via the Responses API",
+		env: {
+			required: {
+				apiKey: "LLM_AWS_MANTLE_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_AWS_MANTLE_BASE_URL",
+				region: "LLM_AWS_MANTLE_REGION",
+			},
+		},
+		priority: 2,
+		streaming: true,
+		cancellation: true,
+		color: "#FF9900",
+		website: "https://aws.amazon.com/bedrock",
+		statusPageUrl: "https://health.aws.amazon.com/health/status",
+		announcement: null,
+		apiKeyInstructions:
+			"Use AWS Bedrock Long-Term API Keys (not IAM service account or private keys)",
+		termsUrl: "https://aws.amazon.com/service-terms",
+		privacyPolicyUrl: "https://aws.amazon.com/privacy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -886,7 +1011,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -923,7 +1048,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -939,6 +1064,9 @@ export const providers: ProviderDefinition[] = [
 		},
 		streaming: true,
 		cancellation: true,
+		// every GLM model rejects temperature above 1 with a 400
+		// ("The temperature parameter is illegal", range [0,1])
+		maxTemperature: 1,
 		color: "#22c55e",
 		website: "https://z.ai",
 		statusPageUrl: null,
@@ -948,7 +1076,7 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "CN",
 		dataPolicy: {
 			apiTraining: false,
-			consumerTraining: null,
+			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
@@ -1005,7 +1133,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			gdpr: true,
 		},
 	},
@@ -1033,7 +1161,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 		},
 	},
@@ -1060,7 +1188,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: true,
 			retentionPeriod: "30 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -1078,11 +1206,21 @@ export const providers: ProviderDefinition[] = [
 		streaming: true,
 		cancellation: true,
 		color: "#10b981",
-		website: "https://canopywave.io",
+		website: "https://canopywave.com",
 		statusPageUrl: null,
 		announcement: null,
-		termsUrl: "https://canopywave.io/terms",
-		privacyPolicyUrl: "https://canopywave.io/privacy",
+		termsUrl: "https://canopywave.com/terms",
+		privacyPolicyUrl: "https://canopywave.com/privacy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: 2,
+			iso27001: false,
+			gdpr: false,
+		},
 	},
 	{
 		id: "inference.net",
@@ -1108,7 +1246,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: null,
 			promptLogging: null,
 			retentionPeriod: null,
-			soc2: true,
+			soc2: 2,
 		},
 	},
 	{
@@ -1135,7 +1273,34 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
+		},
+	},
+	{
+		id: "scx-ai",
+		name: "SCX.ai",
+		description:
+			"SCX.ai is an Australian sovereign AI platform providing OpenAI-compatible Turbo inference endpoints — up to 4x faster than comparable providers — for a range of open models and SCX's own models, hosted on renewable-powered infrastructure.",
+		env: {
+			required: {
+				apiKey: "LLM_SCX_AI_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#1a1a2e",
+		modelCardBadge: "Up to 4x faster",
+		website: "https://scx.ai",
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: "https://scx.ai/terms",
+		privacyPolicyUrl: "https://scx.ai/privacy",
+		headquarters: "AU",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
 		},
 	},
 	{
@@ -1206,7 +1371,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: null,
 			promptLogging: false,
 			retentionPeriod: "24 hours",
-			soc2: true,
+			soc2: 2,
 		},
 		additionalLinks: [
 			{
@@ -1240,7 +1405,7 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: true,
 			retentionPeriod: null,
 		},
-		priority: 2,
+		priority: 1.2,
 	},
 	{
 		id: "embercloud",
@@ -1267,6 +1432,50 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: true,
 			retentionPeriod: null,
 		},
+	},
+	{
+		id: "meta",
+		name: "Meta",
+		description:
+			"Meta's Model API serving the Muse Spark multimodal reasoning models via an OpenAI-compatible API",
+		env: {
+			required: {
+				apiKey: "LLM_META_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#0668E1",
+		website: "https://dev.meta.ai",
+		statusPageUrl: null,
+		announcement: null,
+		apiKeyInstructions:
+			"Create an API key in the API keys tab of the Meta Model API dashboard.",
+		learnMore: "https://dev.meta.ai/docs/getting-started/authentication",
+		termsUrl: "https://dev.meta.ai/legal/terms-of-service",
+		privacyPolicyUrl: "https://www.facebook.com/privacy/policy/",
+		headquarters: "US",
+		dataPolicy: {
+			// Paid (pay-as-you-go) services are never trained on; only the free
+			// unpaid tier may be used for training per the Data Commitments page.
+			apiTraining: false,
+			consumerTraining: true,
+			promptLogging: true,
+			retentionPeriod: null,
+			soc2: null,
+			iso27001: null,
+			gdpr: true,
+		},
+		additionalLinks: [
+			{
+				desc: "Data Commitments",
+				link: "https://dev.meta.ai/legal/commitments",
+			},
+			{
+				desc: "Acceptable Use Policy",
+				link: "https://dev.meta.ai/legal/acceptable-use-policy",
+			},
+		],
 	},
 	{
 		id: "sakana",
@@ -1368,7 +1577,7 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
-			soc2: true,
+			soc2: 2,
 			iso27001: true,
 			gdpr: true,
 		},
@@ -1423,8 +1632,99 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: true,
 			retentionPeriod: null,
-			soc2: true,
+			soc2: 2,
 			iso27001: false,
+			gdpr: true,
+		},
+	},
+	{
+		id: "runware",
+		name: "Runware",
+		description:
+			"Runware provides fast, cost-efficient inference for open and frontier LLMs through an OpenAI-compatible API.",
+		env: {
+			required: {
+				apiKey: "LLM_RUNWARE_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_RUNWARE_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: false,
+		color: "#a8f399",
+		website: "https://runware.ai",
+		statusPageUrl: "https://status.runware.ai/",
+		announcement: "Launch offer: 30% off all Runware models until August 26",
+		termsUrl: "https://runware.ai/terms",
+		privacyPolicyUrl: "https://runware.ai/privacy",
+		headquarters: "GB",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: true,
+			retentionPeriod: "30 days",
+		},
+	},
+	{
+		id: "gonka24",
+		name: "Gonka24",
+		description:
+			"Gonka24 serves open-weight large language models via an OpenAI-compatible inference gateway.",
+		env: {
+			required: {
+				apiKey: "LLM_GONKA_24_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#000000",
+		website: "https://gonka24.com",
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: null,
+		privacyPolicyUrl: null,
+		headquarters: null,
+		dataPolicy: null,
+	},
+	{
+		id: "fireworks",
+		name: "Fireworks AI",
+		description:
+			"Fireworks AI serves open-weight models on a fast, OpenAI-compatible inference platform.",
+		env: {
+			required: {
+				apiKey: "LLM_FIREWORKS_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_FIREWORKS_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#6720FF",
+		website: "https://fireworks.ai",
+		statusPageUrl: "https://status.fireworks.ai",
+		announcement: null,
+		serviceTiers: [
+			{
+				id: "priority",
+				name: "Priority",
+				multiplier: 1.25,
+				description:
+					"Queue precedence over standard traffic and protection from load shedding during congestion, at a 25% premium.",
+			},
+		],
+		termsUrl: "https://fireworks.ai/terms-of-service",
+		privacyPolicyUrl: "https://fireworks.ai/privacy-policy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: 2,
+			iso27001: true,
 			gdpr: true,
 		},
 	},
@@ -1450,42 +1750,359 @@ export function getServiceTier(
 	);
 }
 
+/** Self-attested compliance posture for a deployment outside the catalogue. */
+export interface ProviderComplianceAttestation {
+	soc2?: 1 | 2 | null;
+	iso27001?: boolean | null;
+	gdpr?: boolean | null;
+	apiTraining?: boolean | null;
+	consumerTraining?: boolean | null;
+	promptLogging?: boolean | null;
+	retentionPeriod?: string | null;
+	/** ISO 3166-1 alpha-2 country the deployment is operated from. */
+	headquarters?: string | null;
+}
+
 /**
- * Whether a provider satisfies an organization's compliance policy. Fail-closed:
- * any active requirement that the provider's {@link ProviderDataPolicy} does not
- * explicitly satisfy (including a missing `dataPolicy`) makes the provider
- * non-compliant. A disabled policy treats every provider as compliant.
+ * Whether a provider is a "stealth" provider — one that has no default base URL
+ * and instead requires the base URL to be supplied via a `baseUrl` env var
+ * (`env.required.baseUrl`). Because the platform behind such a provider is
+ * undisclosed, users cannot self-configure a provider key for it (they can't
+ * know the endpoint), so these are hidden from the UI provider selector.
  */
-export function isProviderCompliant(
-	provider: ProviderDefinition,
+export function isStealthProvider(
+	provider: ProviderId | ProviderDefinition,
+): boolean {
+	const def =
+		typeof provider === "string"
+			? providers.find((p) => p.id === provider)
+			: provider;
+	return Boolean(def?.env.required.baseUrl);
+}
+
+/**
+ * Machine-readable reason a provider (or attestation) fails a compliance
+ * policy. Requirement keys mirror {@link ProviderCompliancePolicy}; the list
+ * keys report a hit on the fine-grained provider lists, and `noAttestation`
+ * marks a custom provider with no self-attested posture on file.
+ */
+export type ComplianceFailureReason =
+	| "requireSoc2"
+	| "requireSoc2Type2"
+	| "requireIso27001"
+	| "requireSoc2OrIso27001"
+	| "requireGdpr"
+	| "blockApiTraining"
+	| "blockPromptLogging"
+	| "blockStealthProviders"
+	| "allowedCountries"
+	| "blockedProviders"
+	| "allowedProviders"
+	| "noAttestation";
+
+/**
+ * Every active requirement of the policy that the data policy does not
+ * explicitly satisfy (fail-closed, so a missing data policy fails all active
+ * requirements). Empty when compliant; always empty for a disabled policy.
+ */
+export function getDataPolicyComplianceFailures(
+	dataPolicy: ProviderDataPolicy | null | undefined,
+	headquarters: string | null | undefined,
+	policy: ProviderCompliancePolicy,
+): ComplianceFailureReason[] {
+	if (!policy.enabled) {
+		return [];
+	}
+	const failures: ComplianceFailureReason[] = [];
+	if (policy.requireSoc2 && !dataPolicy?.soc2) {
+		failures.push("requireSoc2");
+	}
+	if (policy.requireSoc2Type2 && dataPolicy?.soc2 !== 2) {
+		failures.push("requireSoc2Type2");
+	}
+	if (policy.requireIso27001 && dataPolicy?.iso27001 !== true) {
+		failures.push("requireIso27001");
+	}
+	if (
+		policy.requireSoc2OrIso27001 &&
+		!(dataPolicy?.soc2 === 2 || dataPolicy?.iso27001 === true)
+	) {
+		failures.push("requireSoc2OrIso27001");
+	}
+	if (policy.requireGdpr && dataPolicy?.gdpr !== true) {
+		failures.push("requireGdpr");
+	}
+	if (policy.blockApiTraining && dataPolicy?.apiTraining !== false) {
+		failures.push("blockApiTraining");
+	}
+	if (policy.blockPromptLogging && dataPolicy?.promptLogging !== false) {
+		failures.push("blockPromptLogging");
+	}
+	if (
+		policy.allowedCountries &&
+		policy.allowedCountries.length > 0 &&
+		(!headquarters || !policy.allowedCountries.includes(headquarters))
+	) {
+		failures.push("allowedCountries");
+	}
+	return failures;
+}
+
+/**
+ * Core fail-closed compliance predicate shared by catalogue providers and
+ * self-attested custom deployments: any active requirement that the data
+ * policy does not explicitly satisfy (including a missing policy) fails.
+ * A disabled policy treats everything as compliant.
+ */
+export function isDataPolicyCompliant(
+	dataPolicy: ProviderDataPolicy | null | undefined,
+	headquarters: string | null | undefined,
+	policy: ProviderCompliancePolicy,
+): boolean {
+	return (
+		getDataPolicyComplianceFailures(dataPolicy, headquarters, policy).length ===
+		0
+	);
+}
+
+/**
+ * Policy-list ref for one of the org's own custom providers. Custom providers
+ * share the single catalogue id "custom", so restriction lists address them as
+ * `custom:<name>` (the provider key's routing-prefix name) to stay
+ * unambiguous next to catalogue provider ids.
+ */
+export function customProviderRef(customProviderName: string): string {
+	return `custom:${customProviderName}`;
+}
+
+/**
+ * Policy-list ref for a model served by one of the org's custom providers,
+ * addressed as `<name>/<model>` (the custom provider's routing-prefix name
+ * plus the custom-catalog model name).
+ */
+export function customModelRef(
+	customProviderName: string,
+	modelName: string,
+): string {
+	return `${customProviderName}/${modelName}`;
+}
+
+/**
+ * Whether a provider ref passes the policy's fine-grained provider lists.
+ * The deny list always wins; a non-empty allow list blocks every provider
+ * not on it. This is only the list check — certification/data-policy
+ * requirements are evaluated separately.
+ */
+export function isProviderRefAllowedByPolicy(
+	providerRef: string,
+	policy: ProviderCompliancePolicy,
+): boolean {
+	return getProviderRefPolicyListFailures(providerRef, policy).length === 0;
+}
+
+/**
+ * The fine-grained provider-list checks a provider ref fails: an entry on the
+ * deny list, or absence from a non-empty allow list. Empty when the ref passes
+ * both lists; always empty for a disabled policy.
+ */
+export function getProviderRefPolicyListFailures(
+	providerRef: string,
+	policy: ProviderCompliancePolicy,
+): ComplianceFailureReason[] {
+	if (!policy.enabled) {
+		return [];
+	}
+	const failures: ComplianceFailureReason[] = [];
+	if (policy.blockedProviders?.includes(providerRef)) {
+		failures.push("blockedProviders");
+	}
+	if (
+		policy.allowedProviders &&
+		policy.allowedProviders.length > 0 &&
+		!policy.allowedProviders.includes(providerRef)
+	) {
+		failures.push("allowedProviders");
+	}
+	return failures;
+}
+
+/**
+ * Whether a model passes the policy's fine-grained model lists. `modelRefs`
+ * holds every ref the requested model answers to (the catalogue model id, and
+ * for custom providers additionally `<customProvider>/<model>`): the model is
+ * blocked when any ref is on the deny list, and a non-empty allow list must
+ * contain at least one of the refs.
+ */
+export function isModelAllowedByPolicy(
+	modelRefs: readonly string[],
 	policy: ProviderCompliancePolicy,
 ): boolean {
 	if (!policy.enabled) {
 		return true;
 	}
-	const dataPolicy = provider.dataPolicy;
-	if (policy.requireSoc2 && dataPolicy?.soc2 !== true) {
-		return false;
-	}
-	if (policy.requireIso27001 && dataPolicy?.iso27001 !== true) {
+	if (policy.blockedModels?.some((ref) => modelRefs.includes(ref))) {
 		return false;
 	}
 	if (
-		policy.requireSoc2OrIso27001 &&
-		!(dataPolicy?.soc2 === true || dataPolicy?.iso27001 === true)
+		policy.allowedModels &&
+		policy.allowedModels.length > 0 &&
+		!policy.allowedModels.some((ref) => modelRefs.includes(ref))
 	) {
 		return false;
 	}
-	if (policy.requireGdpr && dataPolicy?.gdpr !== true) {
-		return false;
-	}
-	if (policy.blockApiTraining && dataPolicy?.apiTraining !== false) {
-		return false;
-	}
-	if (policy.blockPromptLogging && dataPolicy?.promptLogging !== false) {
-		return false;
-	}
 	return true;
+}
+
+/**
+ * Whether a provider satisfies an organization's compliance policy. Fail-closed:
+ * any active requirement that the provider's {@link ProviderDataPolicy} does not
+ * explicitly satisfy (including a missing `dataPolicy`) makes the provider
+ * non-compliant, as does an entry on the policy's fine-grained provider lists.
+ * A disabled policy treats every provider as compliant.
+ */
+export function isProviderCompliant(
+	provider: ProviderDefinition,
+	policy: ProviderCompliancePolicy,
+): boolean {
+	return getProviderComplianceFailures(provider, policy).length === 0;
+}
+
+/**
+ * Every requirement a catalogue provider fails: the certification/data-policy
+ * checks plus the provider-level stealth check. Deliberately excludes the
+ * fine-grained provider lists, so callers editing those lists (the dashboard
+ * pickers) can show whether a provider would otherwise satisfy the policy.
+ */
+export function getProviderRequirementFailures(
+	provider: ProviderDefinition,
+	policy: ProviderCompliancePolicy,
+): ComplianceFailureReason[] {
+	const failures = getDataPolicyComplianceFailures(
+		provider.dataPolicy,
+		provider.headquarters,
+		policy,
+	);
+	if (
+		policy.enabled &&
+		policy.blockStealthProviders &&
+		isStealthProvider(provider)
+	) {
+		failures.push("blockStealthProviders");
+	}
+	return failures;
+}
+
+/**
+ * Every reason a catalogue provider fails an organization's compliance policy:
+ * fine-grained provider-list hits plus unmet certification/data-policy
+ * requirements. Empty when the provider is compliant.
+ */
+export function getProviderComplianceFailures(
+	provider: ProviderDefinition,
+	policy: ProviderCompliancePolicy,
+): ComplianceFailureReason[] {
+	return [
+		...getProviderRefPolicyListFailures(provider.id, policy),
+		...getProviderRequirementFailures(provider, policy),
+	];
+}
+
+/**
+ * Whether a self-attested compliance posture satisfies an organization's
+ * compliance policy. Fail-closed: a missing attestation never satisfies an
+ * enabled policy.
+ */
+export function isAttestationCompliant(
+	attestation: ProviderComplianceAttestation | null | undefined,
+	policy: ProviderCompliancePolicy,
+): boolean {
+	return getAttestationComplianceFailures(attestation, policy).length === 0;
+}
+
+/**
+ * Every reason a self-attested compliance posture fails an organization's
+ * compliance policy. A missing attestation fails closed as `noAttestation`
+ * (even when no individual requirement is active). Empty when compliant.
+ */
+export function getAttestationComplianceFailures(
+	attestation: ProviderComplianceAttestation | null | undefined,
+	policy: ProviderCompliancePolicy,
+): ComplianceFailureReason[] {
+	if (!policy.enabled) {
+		return [];
+	}
+	if (!attestation) {
+		return ["noAttestation"];
+	}
+	return getDataPolicyComplianceFailures(
+		{
+			apiTraining: attestation.apiTraining ?? null,
+			consumerTraining: attestation.consumerTraining ?? null,
+			promptLogging: attestation.promptLogging ?? null,
+			retentionPeriod: attestation.retentionPeriod ?? null,
+			soc2: attestation.soc2 ?? null,
+			iso27001: attestation.iso27001 ?? null,
+			gdpr: attestation.gdpr ?? null,
+		},
+		attestation.headquarters ?? null,
+		policy,
+	);
+}
+
+export interface ProviderCountry {
+	/** ISO 3166-1 alpha-2 country code */
+	code: string;
+	/** Human-readable country name */
+	name: string;
+	/** Unicode flag emoji derived from the country code */
+	flag: string;
+}
+
+/**
+ * English display names for the country codes that appear as provider
+ * headquarters in the catalogue. Kept intentionally small: the site only ever
+ * surfaces countries that are actually referenced by a provider definition.
+ * Every distinct `headquarters` value in {@link providers} MUST have an entry
+ * here — enforced by a unit test so new country additions can't ship without
+ * a display name.
+ */
+export const PROVIDER_COUNTRY_NAMES: Record<string, string> = {
+	US: "United States",
+	CN: "China",
+	NL: "Netherlands",
+	FR: "France",
+	JP: "Japan",
+	AU: "Australia",
+	GB: "United Kingdom",
+};
+
+/** Convert an ISO 3166-1 alpha-2 country code to its Unicode flag emoji. */
+export function countryCodeToFlag(code: string): string {
+	return code
+		.toUpperCase()
+		.replace(/[^A-Z]/g, "")
+		.replace(/./g, (char) => String.fromCodePoint(127397 + char.charCodeAt(0)));
+}
+
+/**
+ * Distinct provider-headquarters countries defined in the catalogue, sorted by
+ * name. This is the authoritative, closed set of countries the compliance
+ * country selector may offer.
+ */
+export function getProviderCountries(): ProviderCountry[] {
+	const codes = new Set<string>();
+	for (const provider of providers) {
+		if (provider.headquarters) {
+			codes.add(provider.headquarters);
+		}
+	}
+	return Array.from(codes)
+		.map((code) => ({
+			code,
+			name: PROVIDER_COUNTRY_NAMES[code] ?? code,
+			flag: countryCodeToFlag(code),
+		}))
+		.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /**

@@ -2,11 +2,24 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import {
+	assertEnterpriseForIpCidrRule,
+	createIamRuleSchema,
+	iamRuleStatusEnum,
+	iamRuleTypeEnum,
+	iamRuleValueSchema,
+	validateIamRuleInput,
+} from "@/lib/iam-rules.js";
+import { revokeMemberApiKeys } from "@/lib/revoke-member-api-keys.js";
+import { resolveSeatLimit } from "@/lib/seat-limit.js";
+import { sendTransactionalEmail } from "@/utils/email.js";
+
 import { logAuditEvent } from "@llmgateway/audit";
 import {
 	addApiKeyPeriodDuration,
 	and,
 	apiKeyPeriodDurationUnits,
+	cdb,
 	db,
 	eq,
 	gte,
@@ -23,6 +36,9 @@ import type { ServerTypes } from "@/vars.js";
 export const team = new OpenAPIHono<ServerTypes>();
 
 const roleSchema = z.enum(["owner", "admin", "developer"]);
+
+const INVITE_EXPIRY_DAYS = 30;
+const INVITE_EXPIRY_MS = INVITE_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
 
 const periodDurationUnitSchema = z.enum(apiKeyPeriodDurationUnits);
 
@@ -74,6 +90,85 @@ const addMemberSchema = z.object({
 	// granted access to. Ignored for owner/admin (they get the whole org).
 	projectIds: z.array(z.string()).optional(),
 });
+
+const teamInviteSchema = z.object({
+	id: z.string(),
+	email: z.string(),
+	role: roleSchema,
+	createdAt: z.date(),
+	expiresAt: z.date(),
+	// Projects a "developer" invite will be granted at acceptance; null for
+	// owner/admin invites (whole-org access).
+	projects: z.array(memberProjectSchema).nullable(),
+});
+
+interface PendingInviteRow {
+	id: string;
+	email: string;
+	role: z.infer<typeof roleSchema>;
+	createdAt: Date;
+	expiresAt: Date;
+	projectIds: string[] | null;
+}
+
+// Pending invites that have not expired yet. Expired invites stay in the table
+// for history but no longer count toward seats, block re-invites, or accept.
+async function listActivePendingInvites(
+	organizationId: string,
+): Promise<PendingInviteRow[]> {
+	const invites = await db.query.organizationInvite.findMany({
+		where: {
+			organizationId: { eq: organizationId },
+			status: { eq: "pending" },
+		},
+		columns: {
+			id: true,
+			email: true,
+			role: true,
+			createdAt: true,
+			expiresAt: true,
+			projectIds: true,
+		},
+	});
+	const now = new Date();
+	return invites.filter((invite) => invite.expiresAt > now);
+}
+
+// Resolve invite projectIds to {id,name} for display, dropping projects that
+// were deleted since the invite was created.
+async function invitesWithProjects(
+	organizationId: string,
+	invites: PendingInviteRow[],
+): Promise<z.infer<typeof teamInviteSchema>[]> {
+	const allProjectIds = Array.from(
+		new Set(invites.flatMap((invite) => invite.projectIds ?? [])),
+	);
+	const projects = allProjectIds.length
+		? await db.query.project.findMany({
+				where: {
+					organizationId: { eq: organizationId },
+					id: { in: allProjectIds },
+					status: { ne: "deleted" },
+				},
+				columns: { id: true, name: true },
+			})
+		: [];
+	const projectById = new Map(projects.map((p) => [p.id, p]));
+
+	return invites.map((invite) => ({
+		id: invite.id,
+		email: invite.email,
+		role: invite.role,
+		createdAt: invite.createdAt,
+		expiresAt: invite.expiresAt,
+		projects:
+			invite.role === "developer"
+				? (invite.projectIds ?? [])
+						.map((id) => projectById.get(id))
+						.filter((p): p is { id: string; name: string } => !!p)
+				: null,
+	}));
+}
 
 interface MemberBudgetRow {
 	maxApiKeys: number | null;
@@ -315,8 +410,13 @@ const getMembers = createRoute({
 				"application/json": {
 					schema: z.object({
 						members: z.array(teamMemberSchema).openapi({}),
+						// Pending invitations to people without an account yet; they join
+						// automatically when they sign up (or are SCIM-provisioned).
+						invites: z.array(teamInviteSchema),
 						// The org-wide default developer budget (owner/admin only).
 						defaultDeveloperBudget: memberBudgetSchema.nullable(),
+						// Effective team-member seat cap (plan default or admin override).
+						seatLimit: z.number().int(),
 					}),
 				},
 			},
@@ -385,19 +485,23 @@ team.openapi(getMembers, async (c) => {
 		? await computeMemberSpend(organizationId, members)
 		: new Map<string, z.infer<typeof memberSpendSchema>>();
 
-	const org = isPrivileged
-		? await db.query.organization.findFirst({
-				where: { id: { eq: organizationId } },
-				columns: {
-					defaultDeveloperMaxApiKeys: true,
-					defaultDeveloperUsageLimit: true,
-					defaultDeveloperPeriodUsageLimit: true,
-					defaultDeveloperPeriodUsageDurationValue: true,
-					defaultDeveloperPeriodUsageDurationUnit: true,
-				},
-			})
-		: null;
-	const orgDefaults = orgDefaultsFrom(org);
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: organizationId } },
+		columns: {
+			plan: true,
+			seats: true,
+			defaultDeveloperMaxApiKeys: true,
+			defaultDeveloperUsageLimit: true,
+			defaultDeveloperPeriodUsageLimit: true,
+			defaultDeveloperPeriodUsageDurationValue: true,
+			defaultDeveloperPeriodUsageDurationUnit: true,
+		},
+	});
+	const orgDefaults = orgDefaultsFrom(isPrivileged ? org : null);
+	const seatLimit = resolveSeatLimit(org?.plan, org?.seats);
+
+	const pendingInvites = await listActivePendingInvites(organizationId);
+	const invites = await invitesWithProjects(organizationId, pendingInvites);
 
 	return c.json({
 		members: members.map((m) => ({
@@ -420,9 +524,11 @@ team.openapi(getMembers, async (c) => {
 							.map((up) => ({ id: up.project!.id, name: up.project!.name }))
 					: null,
 		})),
+		invites,
 		defaultDeveloperBudget: isPrivileged
 			? defaultBudgetFrom(orgDefaults)
 			: null,
+		seatLimit,
 	});
 });
 
@@ -527,11 +633,15 @@ const addMember = createRoute({
 				"application/json": {
 					schema: z.object({
 						message: z.string(),
-						member: teamMemberSchema.openapi({}),
+						// Set when the email already had an account and was added directly.
+						member: teamMemberSchema.nullable(),
+						// Set when the email has no account yet: a pending invitation that
+						// is auto-accepted when they sign up (email, SSO, or SCIM).
+						invite: teamInviteSchema.nullable(),
 					}),
 				},
 			},
-			description: "Member added successfully",
+			description: "Member added or invitation sent",
 		},
 	},
 });
@@ -603,10 +713,15 @@ team.openapi(addMember, async (c) => {
 		},
 	});
 
-	const memberLimit =
-		userOrganization.organization?.plan === "enterprise" ? 100 : 5;
+	// Pending invites reserve a seat so accepted invites can't blow the cap.
+	const pendingInvites = await listActivePendingInvites(organizationId);
 
-	if (currentMembers.length >= memberLimit) {
+	const memberLimit = resolveSeatLimit(
+		userOrganization.organization?.plan,
+		userOrganization.organization?.seats,
+	);
+
+	if (currentMembers.length + pendingInvites.length >= memberLimit) {
 		throw new HTTPException(403, {
 			message: `Your organization has reached the maximum of ${memberLimit} team members. Contact us at contact@llmgateway.io to unlock more seats.`,
 		});
@@ -624,17 +739,88 @@ team.openapi(addMember, async (c) => {
 		});
 	}
 
+	const normalizedEmail = email.trim().toLowerCase();
+
 	const targetUser = await db.query.user.findFirst({
 		where: {
 			email: {
-				eq: email,
+				eq: normalizedEmail,
 			},
 		},
 	});
 
+	// No account with this email yet: create a pending invitation that is
+	// auto-accepted when they sign up (email/social/SSO) or are provisioned via
+	// SCIM, and email them a signup link.
 	if (!targetUser) {
-		throw new HTTPException(404, {
-			message: "User not found. Please ask them to create an account first.",
+		if (pendingInvites.some((invite) => invite.email === normalizedEmail)) {
+			throw new HTTPException(400, {
+				message: "An invitation for this email is already pending",
+			});
+		}
+
+		const [invite] = await db
+			.insert(tables.organizationInvite)
+			.values({
+				organizationId,
+				email: normalizedEmail,
+				role,
+				projectIds:
+					role === "developer" ? grantedProjects.map((p) => p.id) : null,
+				invitedBy: authUser.id,
+				expiresAt: new Date(Date.now() + INVITE_EXPIRY_MS),
+			})
+			.returning();
+
+		const orgName = userOrganization.organization?.name ?? "an organization";
+		const inviterName = authUser.name?.trim() || authUser.email;
+		const uiUrl = process.env.UI_URL ?? "http://localhost:3002";
+
+		const text = `Hey!
+
+${inviterName} invited you to join the "${orgName}" organization on LLM Gateway as ${role === "admin" ? "an" : "a"} ${role}.
+
+Create an account using this email address (${normalizedEmail}) and you'll be added to the organization automatically:
+
+${uiUrl}/signup
+
+If your organization uses SSO, signing in with SSO using this email works too.
+
+This invitation expires in ${INVITE_EXPIRY_DAYS} days. If you weren't expecting it, you can safely ignore this email.
+
+— The LLM Gateway Team`.trim();
+
+		await sendTransactionalEmail({
+			to: normalizedEmail,
+			subject: `You've been invited to ${orgName} on LLM Gateway`,
+			text,
+			organizationId,
+		});
+
+		await logAuditEvent({
+			organizationId,
+			userId: authUser.id,
+			action: "team_member.invite",
+			resourceType: "team_invite",
+			resourceId: invite.id,
+			metadata: {
+				targetUserEmail: normalizedEmail,
+				role,
+				projectIds: grantedProjects.map((p) => p.id),
+			},
+		});
+
+		return c.json({
+			message: "Invitation sent",
+			member: null,
+			invite: {
+				id: invite.id,
+				email: invite.email,
+				role: invite.role,
+				createdAt: invite.createdAt,
+				expiresAt: invite.expiresAt,
+				projects: role === "developer" ? grantedProjects : null,
+			},
 		});
 	}
 
@@ -702,6 +888,109 @@ team.openapi(addMember, async (c) => {
 			spend: EMPTY_SPEND,
 			projects: role === "developer" ? grantedProjects : null,
 		},
+		invite: null,
+	});
+});
+
+const revokeInvite = createRoute({
+	method: "delete",
+	path: "/{organizationId}/invites/{inviteId}",
+	request: {
+		params: z.object({
+			organizationId: z.string(),
+			inviteId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Invitation revoked successfully",
+		},
+	},
+});
+
+team.openapi(revokeInvite, async (c) => {
+	const authUser = c.get("user");
+	if (!authUser) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { organizationId, inviteId } = c.req.param();
+
+	const userOrganization = await db.query.userOrganization.findFirst({
+		where: {
+			userId: {
+				eq: authUser.id,
+			},
+			organizationId: {
+				eq: organizationId,
+			},
+		},
+	});
+
+	if (!userOrganization) {
+		throw new HTTPException(403, {
+			message: "You do not have access to this organization",
+		});
+	}
+
+	if (userOrganization.role !== "owner" && userOrganization.role !== "admin") {
+		throw new HTTPException(403, {
+			message: "Only owners and admins can revoke invitations",
+		});
+	}
+
+	const invite = await db.query.organizationInvite.findFirst({
+		where: {
+			id: {
+				eq: inviteId,
+			},
+			organizationId: {
+				eq: organizationId,
+			},
+		},
+	});
+
+	if (!invite || invite.status !== "pending") {
+		throw new HTTPException(404, {
+			message: "Invitation not found",
+		});
+	}
+
+	// Mirror member management: only owners may manage owner-level invites.
+	if (userOrganization.role === "admin" && invite.role === "owner") {
+		throw new HTTPException(403, {
+			message: "Only owners can revoke owner invitations",
+		});
+	}
+
+	await db
+		.update(tables.organizationInvite)
+		.set({ status: "revoked" })
+		.where(eq(tables.organizationInvite.id, inviteId));
+
+	await logAuditEvent({
+		organizationId,
+		userId: authUser.id,
+		action: "team_member.invite_revoke",
+		resourceType: "team_invite",
+		resourceId: inviteId,
+		metadata: {
+			targetUserEmail: invite.email,
+			role: invite.role,
+		},
+	});
+
+	return c.json({
+		message: "Invitation revoked successfully",
 	});
 });
 
@@ -1417,6 +1706,10 @@ team.openapi(removeMember, async (c) => {
 		.delete(tables.userOrganization)
 		.where(eq(tables.userOrganization.id, memberId));
 
+	// Revoke the removed member's API keys so their access actually stops; the
+	// gateway does not re-check org membership on each request.
+	await revokeMemberApiKeys(targetMember.userId, organizationId);
+
 	await logAuditEvent({
 		organizationId,
 		userId: authUser.id,
@@ -1431,6 +1724,503 @@ team.openapi(removeMember, async (c) => {
 
 	return c.json({
 		message: "Member removed successfully",
+	});
+});
+
+export const memberIamRuleSchema = z.object({
+	id: z.string(),
+	createdAt: z.date(),
+	updatedAt: z.date(),
+	userOrganizationId: z.string(),
+	ruleType: iamRuleTypeEnum,
+	ruleValue: iamRuleValueSchema,
+	status: iamRuleStatusEnum,
+});
+
+// Shared guard for member-level IAM rule management: caller must be an
+// owner/admin of a non-personal org, and admins may not touch owners' rules
+// (mirrors the budget/role/remove endpoints).
+async function requireMemberIamAccess(
+	authUserId: string,
+	organizationId: string,
+	memberId: string,
+) {
+	const userOrganization = await db.query.userOrganization.findFirst({
+		where: {
+			userId: {
+				eq: authUserId,
+			},
+			organizationId: {
+				eq: organizationId,
+			},
+		},
+		with: {
+			organization: true,
+		},
+	});
+
+	if (!userOrganization) {
+		throw new HTTPException(403, {
+			message: "You do not have access to this organization",
+		});
+	}
+
+	if (
+		userOrganization.organization?.kind === "devpass" ||
+		userOrganization.organization?.kind === "chat"
+	) {
+		throw new HTTPException(403, {
+			message:
+				"Team management is not available for personal organizations. Please create a regular organization to invite team members.",
+		});
+	}
+
+	if (userOrganization.role !== "owner" && userOrganization.role !== "admin") {
+		throw new HTTPException(403, {
+			message: "Only owners and admins can manage member IAM rules",
+		});
+	}
+
+	const targetMember = await db.query.userOrganization.findFirst({
+		where: {
+			id: {
+				eq: memberId,
+			},
+			organizationId: {
+				eq: organizationId,
+			},
+		},
+		with: {
+			user: {
+				columns: {
+					id: true,
+					email: true,
+				},
+			},
+		},
+	});
+
+	if (!targetMember) {
+		throw new HTTPException(404, {
+			message: "Member not found",
+		});
+	}
+
+	if (userOrganization.role === "admin" && targetMember.role === "owner") {
+		throw new HTTPException(403, {
+			message: "Admins cannot modify owner IAM rules",
+		});
+	}
+
+	return { userOrganization, targetMember };
+}
+
+const getMyIamRules = createRoute({
+	method: "get",
+	path: "/{organizationId}/members/me/iam",
+	request: {
+		params: z.object({
+			organizationId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						rules: z.array(memberIamRuleSchema),
+					}),
+				},
+			},
+			description:
+				"The authenticated member's own member-level IAM rules (the ceiling their API-key rules can only narrow)",
+		},
+	},
+});
+
+// Self-service: any member can read their OWN member-level rules (no admin
+// gate), so they can understand why the gateway denies their requests.
+team.openapi(getMyIamRules, async (c) => {
+	const authUser = c.get("user");
+	if (!authUser) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { organizationId } = c.req.param();
+
+	const membership = await db.query.userOrganization.findFirst({
+		where: {
+			userId: {
+				eq: authUser.id,
+			},
+			organizationId: {
+				eq: organizationId,
+			},
+		},
+	});
+
+	if (!membership) {
+		throw new HTTPException(403, {
+			message: "You do not have access to this organization",
+		});
+	}
+
+	const rules = await db.query.userIamRule.findMany({
+		where: {
+			userOrganizationId: {
+				eq: membership.id,
+			},
+		},
+		orderBy: {
+			createdAt: "asc",
+		},
+	});
+
+	return c.json({ rules });
+});
+
+const createMemberIamRule = createRoute({
+	method: "post",
+	path: "/{organizationId}/members/{memberId}/iam",
+	request: {
+		params: z.object({
+			organizationId: z.string(),
+			memberId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: createIamRuleSchema,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						rule: memberIamRuleSchema,
+					}),
+				},
+			},
+			description: "Member IAM rule created successfully",
+		},
+	},
+});
+
+team.openapi(createMemberIamRule, async (c) => {
+	const authUser = c.get("user");
+	if (!authUser) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { organizationId, memberId } = c.req.param();
+	const ruleData = c.req.valid("json");
+
+	// Authorization first: unauthorized callers must not receive
+	// input-validation feedback from a management endpoint.
+	const { userOrganization, targetMember } = await requireMemberIamAccess(
+		authUser.id,
+		organizationId,
+		memberId,
+	);
+
+	validateIamRuleInput(ruleData);
+	assertEnterpriseForIpCidrRule(
+		ruleData.ruleType,
+		userOrganization.organization?.plan,
+	);
+
+	const [rule] = await cdb
+		.insert(tables.userIamRule)
+		.values({
+			userOrganizationId: memberId,
+			...ruleData,
+		})
+		.returning();
+
+	await logAuditEvent({
+		organizationId,
+		userId: authUser.id,
+		action: "team_member.iam_rule.create",
+		resourceType: "iam_rule",
+		resourceId: rule.id,
+		metadata: {
+			memberId,
+			targetUserId: targetMember.userId,
+			targetUserEmail: targetMember.user?.email,
+			ruleType: ruleData.ruleType,
+			ruleValue: ruleData.ruleValue,
+		},
+	});
+
+	return c.json({
+		message: "Member IAM rule created successfully",
+		rule,
+	});
+});
+
+const listMemberIamRules = createRoute({
+	method: "get",
+	path: "/{organizationId}/members/{memberId}/iam",
+	request: {
+		params: z.object({
+			organizationId: z.string(),
+			memberId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						rules: z.array(memberIamRuleSchema),
+					}),
+				},
+			},
+			description: "List a member's member-level IAM rules",
+		},
+	},
+});
+
+team.openapi(listMemberIamRules, async (c) => {
+	const authUser = c.get("user");
+	if (!authUser) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { organizationId, memberId } = c.req.param();
+
+	await requireMemberIamAccess(authUser.id, organizationId, memberId);
+
+	const rules = await db.query.userIamRule.findMany({
+		where: {
+			userOrganizationId: {
+				eq: memberId,
+			},
+		},
+		orderBy: {
+			createdAt: "asc",
+		},
+	});
+
+	return c.json({ rules });
+});
+
+const updateMemberIamRule = createRoute({
+	method: "patch",
+	path: "/{organizationId}/members/{memberId}/iam/{ruleId}",
+	request: {
+		params: z.object({
+			organizationId: z.string(),
+			memberId: z.string(),
+			ruleId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: createIamRuleSchema.partial(),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						rule: memberIamRuleSchema,
+					}),
+				},
+			},
+			description: "Member IAM rule updated successfully",
+		},
+	},
+});
+
+team.openapi(updateMemberIamRule, async (c) => {
+	const authUser = c.get("user");
+	if (!authUser) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { organizationId, memberId, ruleId } = c.req.param();
+	const updateData = c.req.valid("json");
+
+	const { userOrganization, targetMember } = await requireMemberIamAccess(
+		authUser.id,
+		organizationId,
+		memberId,
+	);
+
+	const existingRule = await db.query.userIamRule.findFirst({
+		where: {
+			id: {
+				eq: ruleId,
+			},
+			userOrganizationId: {
+				eq: memberId,
+			},
+		},
+	});
+
+	if (!existingRule) {
+		throw new HTTPException(404, {
+			message: "IAM rule not found",
+		});
+	}
+
+	// Re-validate using the effective ruleType + ruleValue after merging with
+	// the existing rule, so partial updates can't bypass CIDR checks.
+	if (updateData.ruleType || updateData.ruleValue) {
+		validateIamRuleInput({
+			ruleType: updateData.ruleType ?? existingRule.ruleType,
+			ruleValue: updateData.ruleValue ?? existingRule.ruleValue,
+		});
+	}
+
+	assertEnterpriseForIpCidrRule(
+		updateData.ruleType ?? existingRule.ruleType,
+		userOrganization.organization?.plan,
+	);
+
+	// An empty PATCH body is a valid no-op; drizzle throws "No values to set"
+	// on an empty update, so skip the query and return the rule unchanged.
+	let updatedRule = existingRule;
+	if (Object.keys(updateData).length > 0) {
+		[updatedRule] = await cdb
+			.update(tables.userIamRule)
+			.set(updateData)
+			.where(eq(tables.userIamRule.id, ruleId))
+			.returning();
+	}
+
+	await logAuditEvent({
+		organizationId,
+		userId: authUser.id,
+		action: "team_member.iam_rule.update",
+		resourceType: "iam_rule",
+		resourceId: ruleId,
+		metadata: {
+			memberId,
+			targetUserId: targetMember.userId,
+			targetUserEmail: targetMember.user?.email,
+			changes: {
+				...(updateData.ruleType !== undefined &&
+				existingRule.ruleType !== updateData.ruleType
+					? {
+							ruleType: {
+								old: existingRule.ruleType,
+								new: updateData.ruleType,
+							},
+						}
+					: {}),
+				...(updateData.ruleValue !== undefined
+					? {
+							ruleValue: {
+								old: existingRule.ruleValue,
+								new: updateData.ruleValue,
+							},
+						}
+					: {}),
+				...(updateData.status !== undefined &&
+				existingRule.status !== updateData.status
+					? { status: { old: existingRule.status, new: updateData.status } }
+					: {}),
+			},
+		},
+	});
+
+	return c.json({
+		message: "Member IAM rule updated successfully",
+		rule: updatedRule,
+	});
+});
+
+const deleteMemberIamRule = createRoute({
+	method: "delete",
+	path: "/{organizationId}/members/{memberId}/iam/{ruleId}",
+	request: {
+		params: z.object({
+			organizationId: z.string(),
+			memberId: z.string(),
+			ruleId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Member IAM rule deleted successfully",
+		},
+	},
+});
+
+team.openapi(deleteMemberIamRule, async (c) => {
+	const authUser = c.get("user");
+	if (!authUser) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { organizationId, memberId, ruleId } = c.req.param();
+
+	const { targetMember } = await requireMemberIamAccess(
+		authUser.id,
+		organizationId,
+		memberId,
+	);
+
+	const [deletedRule] = await cdb
+		.delete(tables.userIamRule)
+		.where(
+			and(
+				eq(tables.userIamRule.id, ruleId),
+				eq(tables.userIamRule.userOrganizationId, memberId),
+			),
+		)
+		.returning();
+
+	if (!deletedRule) {
+		throw new HTTPException(404, {
+			message: "IAM rule not found",
+		});
+	}
+
+	await logAuditEvent({
+		organizationId,
+		userId: authUser.id,
+		action: "team_member.iam_rule.delete",
+		resourceType: "iam_rule",
+		resourceId: ruleId,
+		metadata: {
+			memberId,
+			targetUserId: targetMember.userId,
+			targetUserEmail: targetMember.user?.email,
+			ruleType: deletedRule.ruleType,
+			ruleValue: deletedRule.ruleValue,
+		},
+	});
+
+	return c.json({
+		message: "Member IAM rule deleted successfully",
 	});
 });
 

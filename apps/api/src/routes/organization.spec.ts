@@ -4,6 +4,7 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, tables } from "@llmgateway/db";
+import { randomInt } from "@llmgateway/shared/random";
 
 describe("organization route", () => {
 	let token: string;
@@ -81,7 +82,7 @@ describe("organization route", () => {
 			headers: {
 				"Content-Type": "application/json",
 				Origin: codeUrl,
-				"CF-Connecting-IP": `192.168.32.${Math.floor(Math.random() * 255)}`,
+				"CF-Connecting-IP": `192.168.32.${randomInt(0, 255)}`,
 			},
 			body: JSON.stringify({ email, password, name: "Dev User" }),
 		});
@@ -134,6 +135,25 @@ describe("organization route", () => {
 				(uo) => uo.organization?.name === "Default Organization",
 			),
 		).toBe(true);
+	});
+
+	test("PATCH /orgs/{id} with an empty body is a no-op", async () => {
+		const response = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({}),
+		});
+
+		expect(response.status).toBe(200);
+
+		const body = (await response.json()) as {
+			organization: { id: string; name: string };
+		};
+		expect(body.organization.id).toBe("test-org-id");
+		expect(body.organization.name).toBe("Test Organization");
 	});
 
 	test("PATCH /orgs/{id} logs top-up setting changes separately from organization updates", async () => {

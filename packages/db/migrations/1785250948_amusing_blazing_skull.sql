@@ -1,0 +1,2 @@
+ALTER TABLE "provider_key" ADD COLUMN "compliance_attestation" jsonb;--> statement-breakpoint
+ALTER TABLE "provider_key" ADD CONSTRAINT "provider_key_attestation_custom_only" CHECK ("compliance_attestation" IS NULL OR "provider" = 'custom');

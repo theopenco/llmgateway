@@ -23,9 +23,9 @@ const features = [
 	},
 	{
 		icon: Wallet,
-		title: "Lowest Fees on Credits",
+		title: "Volume-Discounted Fees",
 		description:
-			"Only 1% platform fee on credit purchases. Keep more of your budget for actual usage.",
+			"Custom volume pricing cuts the standard 5% platform fee on credits as your usage scales.",
 	},
 	{
 		icon: BarChart3,
@@ -61,7 +61,7 @@ const features = [
 		icon: MessageSquare,
 		title: "Chat App & Whitelabel",
 		description:
-			"Full-featured chat playground included. Customize with your branding for internal or customer use.",
+			"Full-featured chat app included. Customize with your branding for internal or customer use.",
 	},
 	{
 		icon: Shield,

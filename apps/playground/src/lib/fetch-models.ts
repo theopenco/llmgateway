@@ -13,6 +13,9 @@ export interface ApiProvider {
 	status: "active" | "inactive";
 }
 
+export type ReasoningEffortOption =
+	"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
 export interface ApiModelProviderMapping {
 	id: string;
 	createdAt: string;
@@ -29,6 +32,11 @@ export interface ApiModelProviderMapping {
 	imageOutputPrice: string | null;
 	imageInputTokensByResolution: Record<string, number> | null;
 	imageOutputTokensByResolution: Record<string, number> | null;
+	// Audio token prices. These, not the text prices, are what a voice session
+	// actually spends most of its tokens on.
+	inputAudioPrice: string | null;
+	cachedInputAudioPrice: string | null;
+	outputAudioPrice: string | null;
 	requestPrice: string | null;
 	contextSize: number | null;
 	maxOutput: number | null;
@@ -37,11 +45,14 @@ export interface ApiModelProviderMapping {
 	audio: boolean | null;
 	document: boolean | null;
 	reasoning: boolean | null;
+	reasoningEfforts: ReasoningEffortOption[] | null;
 	reasoningOutput: string | null;
 	tools: boolean | null;
 	jsonOutput: boolean | null;
 	jsonOutputSchema: boolean | null;
 	webSearch: boolean | null;
+	realtime: boolean | null;
+	supportedVoices: string[] | null;
 	discount: string | null;
 	stability: "stable" | "beta" | "unstable" | "experimental" | null;
 	supportedParameters: string[] | null;

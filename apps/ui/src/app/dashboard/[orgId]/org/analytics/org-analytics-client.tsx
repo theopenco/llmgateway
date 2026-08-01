@@ -31,6 +31,7 @@ import {
 	SelectValue,
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
+import { getBrowserTimeZone } from "@/lib/timezone";
 
 import type { DimensionRow } from "@/components/analytics/chart-helpers";
 import type { Route } from "next";
@@ -197,6 +198,7 @@ export function OrgAnalyticsClient() {
 					from: fromStr,
 					to: toStr,
 					groupBy,
+					timezone: getBrowserTimeZone(),
 				},
 			},
 		},
