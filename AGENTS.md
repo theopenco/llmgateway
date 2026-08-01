@@ -142,6 +142,7 @@ NOTE: these commands can only be run in the root directory of the repository, no
 - **API** (`apps/api`) - Backend API for user management, billing, analytics (Hono + Zod + OpenAPI)
 
 Production domain mapping (counterintuitive — do not mix these up): `api.llmgateway.io` serves `apps/gateway` (the LLM gateway, :4001 in dev), and `internal.llmgateway.io` serves `apps/api` (the backend API, :4002 in dev).
+
 - **UI** (`apps/ui`) - Frontend dashboard (Next.js App Router)
 - **Playground** (`apps/playground`) - Interactive LLM testing environment (Next.js App Router)
 - **Code** (`apps/code`) - Dev plans + coding tools landing & dashboard (Next.js App Router)
@@ -222,6 +223,19 @@ When creating a new package in `packages/`, include these config files. Copy the
 - When writing pull request titles, use the conventional commit message format and limit to max 50 characters
 - Always open pull requests as normal ready-for-review PRs, not draft PRs, unless the user explicitly asks for a draft PR
 - When creating a pull request, always write/update both the PR title and description; if the PR's scope changes in later commits, update the title and description to reflect the final scope before handing it off
+- To embed a screenshot in a PR description, do NOT commit the image into the PR branch (it pollutes the diff) and do NOT expect GitHub's drag-and-drop uploader to work — `user-images.githubusercontent.com` is browser-session-only and unreachable with an API token. Instead push the image as a throwaway orphan commit, reference it **by commit SHA**, then delete the branch:
+
+  ```bash
+  BLOB=$(git hash-object -w shot.png)
+  TREE=$(printf '100644 blob %s\tshot.png\n' "$BLOB" | git mktree)
+  COMMIT=$(git commit-tree "$TREE" -m "chore: screenshot asset for PR #<n>")
+  git push origin "$COMMIT:refs/heads/assets/pr-<n>"          # literal SHA, not a shell var holding it
+  # embed https://raw.githubusercontent.com/theopenco/llmgateway/<COMMIT>/shot.png in the PR body
+  git push origin --delete "assets/pr-<n>"
+  ```
+
+  The plumbing (`hash-object`/`mktree`/`commit-tree`) never touches the working tree or the current branch. Pin the URL to the **commit SHA**, never the branch name: after the branch is deleted the blob stays retrievable by SHA (verified via the non-CDN API: `gh api repos/theopenco/llmgateway/git/blobs/<blob-sha>`), whereas a branch-name URL only appears to keep working because `raw.githubusercontent.com` is CDN-cached and will 404 once that expires. Caveat: the commit is unreachable after the delete, so GitHub _may_ eventually garbage-collect it — if the image must survive indefinitely, keep the `assets/*` branch instead of deleting it.
+
 - Always use pnpm for package management
 - Use cookies for user-settings which are not saved in the database to ensure SSR works
 - Apply DRY principles for code reuse
