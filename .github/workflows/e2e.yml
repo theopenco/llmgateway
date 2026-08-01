@@ -22,7 +22,9 @@ jobs:
     permissions:
       contents: read
       issues: write
-      pull-requests: read
+      # write, not read: reacting to a comment on a pull request maps to the
+      # pull-requests permission even though it goes through the issues API.
+      pull-requests: write
     outputs:
       ref: ${{ steps.target.outputs.ref }}
     steps:
@@ -56,7 +58,10 @@ jobs:
           REPO: ${{ github.repository }}
           COMMENT_ID: ${{ github.event.comment.id }}
         run: |
-          gh api --method POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" -f content=rocket
+          # The reaction is cosmetic feedback; a failure to post it (e.g. a
+          # token-permission change) must never block the e2e run itself.
+          gh api --method POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" -f content=rocket ||
+            echo "::warning::could not react to the trigger comment"
 
   e2e-shards:
     runs-on: ubuntu-latest
