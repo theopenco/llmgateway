@@ -7,6 +7,9 @@ import { db, tables } from "@llmgateway/db";
 
 const originalAdminEmails = process.env.ADMIN_EMAILS;
 
+// Mirrors MAX_BULK_BLOCK_ORGANIZATIONS in apps/api/src/routes/admin.ts.
+const MAX_BULK_BLOCK_ORGANIZATIONS = 500;
+
 interface PreviewResponse {
 	search: string;
 	matched: number;
@@ -239,7 +242,7 @@ describe("admin bulk block organizations", () => {
 
 	it("refuses filters that match more than the bulk cap", async () => {
 		await db.insert(tables.organization).values(
-			Array.from({ length: 101 }, (_, index) => ({
+			Array.from({ length: MAX_BULK_BLOCK_ORGANIZATIONS + 1 }, (_, index) => ({
 				id: `bulkcap-${index}`,
 				name: `Bulkcap Org ${index}`,
 				billingEmail: `bulkcap-${index}@fraudring.test`,
@@ -250,7 +253,7 @@ describe("admin bulk block organizations", () => {
 		expect(previewRes.status).toBe(400);
 
 		const blockRes = await bulkBlock(
-			{ search: "bulkcap", expectedCount: 100 },
+			{ search: "bulkcap", expectedCount: MAX_BULK_BLOCK_ORGANIZATIONS },
 			cookie,
 		);
 		expect(blockRes.status).toBe(400);
