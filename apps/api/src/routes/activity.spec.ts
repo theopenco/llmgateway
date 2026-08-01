@@ -7,7 +7,7 @@ import {
 	aggregateLogsForTesting,
 } from "@/testing.js";
 
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 
 describe("activity endpoint", () => {
 	let token: string;
@@ -1744,6 +1744,305 @@ describe("activity endpoint", () => {
 		expect(twoDaysAgoData.cacheRate).toBeCloseTo(0, 2);
 		expect(twoDaysAgoData.totalTokens).toBe(50);
 		expect(twoDaysAgoData.cost).toBeCloseTo(0.1, 2);
+	});
+
+	describe("GET /activity?groupBy=user", () => {
+		const MEMBER_ID = "member-2-id";
+
+		beforeEach(async () => {
+			// The per-member breakdown is gated on enterprise + owner/admin. The base
+			// fixture user is already an owner (schema default), so only the plan
+			// needs raising.
+			await db
+				.update(tables.organization)
+				.set({ plan: "enterprise" })
+				.where(eq(tables.organization.id, "test-org-id"));
+
+			// A second member with no display name, to exercise the email fallback.
+			await db.insert(tables.user).values({
+				id: MEMBER_ID,
+				email: "member2@example.com",
+				emailVerified: true,
+			});
+
+			await db.insert(tables.userOrganization).values({
+				id: "test-user-org-id-2",
+				userId: MEMBER_ID,
+				organizationId: "test-org-id",
+				role: "developer",
+			});
+
+			// Two more keys in the same project: a second key for the owner (so the
+			// per-member totals must sum across keys) and one for the member.
+			await db.insert(tables.apiKey).values([
+				{
+					id: "owner-key-2",
+					token: "owner-token-2",
+					projectId: "test-project-id",
+					description: "Owner Key 2",
+					createdBy: "test-user-id",
+				},
+				{
+					id: "member-key",
+					token: "member-token",
+					projectId: "test-project-id",
+					description: "Member Key",
+					createdBy: MEMBER_ID,
+				},
+			]);
+
+			const today = new Date();
+			await db.insert(tables.log).values([
+				{
+					id: "owner-key-2-log",
+					requestId: "owner-key-2-log",
+					createdAt: today,
+					updatedAt: today,
+					organizationId: "test-org-id",
+					projectId: "test-project-id",
+					apiKeyId: "owner-key-2",
+					duration: 100,
+					requestedModel: "gpt-4",
+					requestedProvider: "openai",
+					usedModel: "gpt-4",
+					usedProvider: "openai",
+					responseSize: 1000,
+					promptTokens: "100",
+					completionTokens: "100",
+					totalTokens: "200",
+					cost: 0.25,
+					messages: JSON.stringify([{ role: "user", content: "Hello" }]),
+					mode: "api-keys",
+					usedMode: "api-keys",
+				},
+				{
+					id: "member-key-log",
+					requestId: "member-key-log",
+					createdAt: today,
+					updatedAt: today,
+					organizationId: "test-org-id",
+					projectId: "test-project-id",
+					apiKeyId: "member-key",
+					duration: 100,
+					requestedModel: "gpt-4",
+					requestedProvider: "openai",
+					usedModel: "gpt-4",
+					usedProvider: "openai",
+					responseSize: 1000,
+					promptTokens: "300",
+					completionTokens: "200",
+					totalTokens: "500",
+					cost: 0.75,
+					messages: JSON.stringify([{ role: "user", content: "Hello" }]),
+					mode: "api-keys",
+					usedMode: "api-keys",
+				},
+			]);
+
+			await aggregateLogsForTesting();
+		});
+
+		async function fetchUserBreakdown(query: string) {
+			const res = await app.request(query, { headers: { Cookie: token } });
+			expect(res.status).toBe(200);
+			const data = await res.json();
+			const totals = new Map<
+				string,
+				{ id: string; name: string; cost: number; totalTokens: number }
+			>();
+			for (const row of data.activity as {
+				userBreakdown: {
+					id: string;
+					name: string;
+					cost: number;
+					totalTokens: number;
+				}[];
+			}[]) {
+				for (const entry of row.userBreakdown) {
+					const existing = totals.get(entry.id);
+					if (existing) {
+						existing.cost += entry.cost;
+						existing.totalTokens += entry.totalTokens;
+					} else {
+						totals.set(entry.id, { ...entry });
+					}
+				}
+			}
+			return { data, totals };
+		}
+
+		test("attributes usage to the member who created the api key", async () => {
+			const { totals } = await fetchUserBreakdown(
+				"/activity?days=7&projectId=test-project-id&groupBy=user",
+			);
+
+			expect(totals.size).toBe(2);
+
+			// Owner spend sums across both of their keys: the base fixture logs on
+			// test-api-key-id (no cost) plus owner-key-2.
+			const owner = totals.get("test-user-id")!;
+			expect(owner.name).toBe("Test User");
+			expect(owner.cost).toBeCloseTo(0.25, 4);
+			expect(owner.totalTokens).toBe(30 + 20 + 40 + 26 + 200);
+
+			const member = totals.get(MEMBER_ID)!;
+			expect(member.cost).toBeCloseTo(0.75, 4);
+			expect(member.totalTokens).toBe(500);
+		});
+
+		test("falls back to the email when the member has no name", async () => {
+			const { totals } = await fetchUserBreakdown(
+				"/activity?days=7&projectId=test-project-id&groupBy=user",
+			);
+
+			expect(totals.get(MEMBER_ID)!.name).toBe("member2@example.com");
+		});
+
+		test("does not count usage from other projects in the org", async () => {
+			const { totals } = await fetchUserBreakdown(
+				"/activity?days=7&projectId=test-project-id&groupBy=user",
+			);
+
+			// test-project-id-2 holds a further 10-token log on a key the owner also
+			// created, which must not leak into this project's totals.
+			expect(totals.get("test-user-id")!.totalTokens).toBe(316);
+		});
+
+		test("includes end-user customer keys", async () => {
+			const today = new Date();
+
+			await db.insert(tables.endCustomer).values({
+				id: "user-breakdown-customer-id",
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				externalId: "customer-b",
+			});
+
+			await db.insert(tables.wallet).values({
+				id: "user-breakdown-wallet-id",
+				endCustomerId: "user-breakdown-customer-id",
+				projectId: "test-project-id",
+				organizationId: "test-org-id",
+			});
+
+			await db.insert(tables.apiKey).values({
+				id: "user-breakdown-euc-key",
+				token: "euck_user-breakdown-token",
+				projectId: "test-project-id",
+				description: "Embedded end-user: customer-b",
+				keyType: "end_user_customer",
+				endCustomerWalletId: "user-breakdown-wallet-id",
+				createdBy: MEMBER_ID,
+			});
+
+			await db.insert(tables.log).values({
+				id: "user-breakdown-euc-log",
+				requestId: "user-breakdown-euc-log",
+				createdAt: today,
+				updatedAt: today,
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "user-breakdown-euc-key",
+				endCustomerWalletId: "user-breakdown-wallet-id",
+				endCustomerId: "user-breakdown-customer-id",
+				duration: 100,
+				requestedModel: "gpt-4",
+				requestedProvider: "openai",
+				usedModel: "gpt-4",
+				usedProvider: "openai",
+				responseSize: 1000,
+				promptTokens: "10",
+				completionTokens: "10",
+				totalTokens: "20",
+				cost: 0.05,
+				messages: JSON.stringify([{ role: "user", content: "Hello" }]),
+				mode: "credits",
+				usedMode: "credits",
+			});
+
+			await aggregateLogsForTesting();
+
+			const { totals } = await fetchUserBreakdown(
+				"/activity?days=7&projectId=test-project-id&groupBy=user",
+			);
+
+			// Rolled into the member who provisioned the platform key.
+			expect(totals.get(MEMBER_ID)!.cost).toBeCloseTo(0.8, 4);
+			expect(totals.get(MEMBER_ID)!.totalTokens).toBe(520);
+		});
+
+		test("leaves the other breakdowns empty", async () => {
+			const { data } = await fetchUserBreakdown(
+				"/activity?days=7&projectId=test-project-id&groupBy=user",
+			);
+
+			for (const row of data.activity) {
+				expect(row.modelBreakdown).toEqual([]);
+				expect(row.apiKeyBreakdown).toEqual([]);
+			}
+		});
+
+		test("leaves userBreakdown empty for the other dimensions", async () => {
+			for (const groupBy of ["model", "apiKey"]) {
+				const res = await app.request(
+					`/activity?days=7&projectId=test-project-id&groupBy=${groupBy}`,
+					{ headers: { Cookie: token } },
+				);
+				expect(res.status).toBe(200);
+				const data = await res.json();
+				for (const row of data.activity) {
+					expect(row.userBreakdown).toEqual([]);
+				}
+			}
+		});
+
+		test("requires a projectId", async () => {
+			const res = await app.request("/activity?days=7&groupBy=user", {
+				headers: { Cookie: token },
+			});
+			expect(res.status).toBe(400);
+		});
+
+		test("rejects developer-role members", async () => {
+			await db
+				.update(tables.userOrganization)
+				.set({ role: "developer" })
+				.where(eq(tables.userOrganization.id, "test-user-org-id"));
+
+			// Grant the project explicitly so the request clears the RBAC project
+			// check and actually reaches the enterprise-admin gate.
+			await db.insert(tables.userProject).values({
+				id: "test-user-project-id",
+				userOrganizationId: "test-user-org-id",
+				projectId: "test-project-id",
+			});
+
+			const res = await app.request(
+				"/activity?days=7&projectId=test-project-id&groupBy=user",
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(403);
+		});
+
+		test("rejects organizations that are not on the enterprise plan", async () => {
+			await db
+				.update(tables.organization)
+				.set({ plan: "pro" })
+				.where(eq(tables.organization.id, "test-org-id"));
+
+			const res = await app.request(
+				"/activity?days=7&projectId=test-project-id&groupBy=user",
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(403);
+		});
+
+		test("requires authentication", async () => {
+			const res = await app.request(
+				"/activity?days=7&projectId=test-project-id&groupBy=user",
+			);
+			expect(res.status).toBe(401);
+		});
 	});
 
 	describe("GET /activity/sources", () => {

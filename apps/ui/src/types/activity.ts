@@ -20,6 +20,16 @@ export interface ActivityApiKeyUsage {
 	cost: number;
 }
 
+export interface ActivityUserUsage {
+	id: string;
+	name: string;
+	requestCount: number;
+	inputTokens: number;
+	outputTokens: number;
+	totalTokens: number;
+	cost: number;
+}
+
 export interface DailyActivity {
 	date: string;
 	requestCount: number;
@@ -53,50 +63,14 @@ export interface DailyActivity {
 	apiKeysDataStorageCost: number;
 	modelBreakdown: ActivityModelUsage[];
 	apiKeyBreakdown: ActivityApiKeyUsage[];
+	userBreakdown: ActivityUserUsage[];
 }
 
 export interface ActivityResponse {
 	activity: DailyActivity[];
 }
 
-export type ActivitT =
-	| {
-			activity: {
-				date: string;
-				requestCount: number;
-				inputTokens: number;
-				outputTokens: number;
-				cachedTokens: number;
-				cacheWriteTokens: number;
-				totalTokens: number;
-				cost: number;
-				inputCost: number;
-				outputCost: number;
-				requestCost: number;
-				dataStorageCost: number;
-				imageInputCost: number;
-				audioInputCost: number;
-				audioOutputCost: number;
-				imageOutputCost: number;
-				videoOutputCost: number;
-				cachedInputCost: number;
-				cacheWriteInputCost: number;
-				errorCount: number;
-				errorRate: number;
-				cacheCount: number;
-				cacheRate: number;
-				discountSavings: number;
-				creditsRequestCount: number;
-				apiKeysRequestCount: number;
-				creditsCost: number;
-				apiKeysCost: number;
-				creditsDataStorageCost: number;
-				apiKeysDataStorageCost: number;
-				modelBreakdown: ActivityModelUsage[];
-				apiKeyBreakdown: ActivityApiKeyUsage[];
-			}[];
-	  }
-	| undefined;
+export type ActivitT = ActivityResponse | undefined;
 
 export interface LogsData {
 	message?: string;

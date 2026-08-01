@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { requireEnterpriseAdmin } from "@/lib/require-enterprise-admin.js";
 import {
 	getUserProjectIds,
 	userHasProjectAccess,
@@ -28,6 +29,7 @@ import {
 	projectHourlySourceStats,
 	apiKeyHourlyStats,
 	apiKeyHourlyModelStats,
+	tables,
 } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
@@ -49,6 +51,19 @@ const modelUsageSchema = z.object({
 const apiKeyUsageSchema = z.object({
 	id: z.string(),
 	description: z.string(),
+	requestCount: z.number(),
+	inputTokens: z.number(),
+	outputTokens: z.number(),
+	totalTokens: z.number(),
+	cost: z.number(),
+});
+
+// Define the response schema for per-member usage. Requests are attributed to
+// the member who created the api key that made them (api_key.created_by),
+// matching the organization-wide member analytics.
+const userUsageSchema = z.object({
+	id: z.string(),
+	name: z.string(),
 	requestCount: z.number(),
 	inputTokens: z.number(),
 	outputTokens: z.number(),
@@ -90,6 +105,7 @@ const dailyActivitySchema = z.object({
 	apiKeysDataStorageCost: z.number(),
 	modelBreakdown: z.array(modelUsageSchema),
 	apiKeyBreakdown: z.array(apiKeyUsageSchema),
+	userBreakdown: z.array(userUsageSchema),
 });
 
 type ActivityRow = z.infer<typeof dailyActivitySchema>;
@@ -128,6 +144,7 @@ function buildEmptyActivityRow(date: string): ActivityRow {
 		apiKeysDataStorageCost: 0,
 		modelBreakdown: [],
 		apiKeyBreakdown: [],
+		userBreakdown: [],
 	};
 }
 
@@ -159,7 +176,7 @@ const getActivity = createRoute({
 			projectId: z.string().optional(),
 			apiKeyId: z.string().optional(),
 			timeRange: z.enum(["1h", "4h", "24h", "7d", "30d", "365d"]).optional(),
-			groupBy: z.enum(["model", "apiKey"]).optional(),
+			groupBy: z.enum(["model", "apiKey", "user"]).optional(),
 			timezone: z
 				.string()
 				.max(64)
@@ -194,7 +211,7 @@ activity.openapi(getActivity, async (c) => {
 	// Get the query parameters
 	const { days, from, to, projectId, apiKeyId, timeRange, groupBy, timezone } =
 		c.req.valid("query");
-	const breakdownByApiKey = groupBy === "apiKey";
+	const breakdownDimension = groupBy ?? "model";
 	const timeZone = timezone ?? "UTC";
 
 	// Calculate the date range and granularity
@@ -244,6 +261,16 @@ activity.openapi(getActivity, async (c) => {
 	// SQL expressions that change based on granularity
 	const isHourly = granularity === "hourly";
 
+	// The per-member breakdown exposes every member's spend, so it needs the same
+	// enterprise + owner/admin gate as the organization-wide member analytics.
+	// Without a project the request can span several organizations, which leaves
+	// nothing unambiguous to gate on, so require one.
+	if (breakdownDimension === "user" && !projectId) {
+		throw new HTTPException(400, {
+			message: "projectId is required when grouping by user",
+		});
+	}
+
 	// Projects the user can access (RBAC-aware: developers are limited to their
 	// granted projects).
 	const accessibleProjectIds = await getUserProjectIds(user.id);
@@ -258,6 +285,18 @@ activity.openapi(getActivity, async (c) => {
 		throw new HTTPException(403, {
 			message: "You don't have access to this project",
 		});
+	}
+
+	if (breakdownDimension === "user" && projectId) {
+		const targetProject = await db.query.project.findFirst({
+			where: { id: { eq: projectId } },
+		});
+
+		if (!targetProject) {
+			throw new HTTPException(404, { message: "Project not found" });
+		}
+
+		await requireEnterpriseAdmin(user.id, targetProject.organizationId);
 	}
 
 	const projectIds = projectId ? [projectId] : accessibleProjectIds;
@@ -530,6 +569,7 @@ activity.openapi(getActivity, async (c) => {
 				apiKeysDataStorageCost,
 				modelBreakdown: modelBreakdownByDate.get(day.date) ?? [],
 				apiKeyBreakdown: [],
+				userBreakdown: [],
 			};
 		});
 
@@ -671,13 +711,13 @@ activity.openapi(getActivity, async (c) => {
 		.orderBy(sql`1 ASC`);
 
 	// Create a map to organize model breakdowns by date.
-	// Only query when not breaking down by api key — saves an aggregate scan
-	// for callers that opt into the api-key breakdown.
+	// Only query for the requested dimension — saves an aggregate scan for
+	// callers that opt into one of the other breakdowns.
 	const modelBreakdownByDate = new Map<
 		string,
 		z.infer<typeof modelUsageSchema>[]
 	>();
-	if (!breakdownByApiKey) {
+	if (breakdownDimension === "model") {
 		const modelBreakdowns = await db
 			.select({
 				date: bucketDate(
@@ -741,7 +781,7 @@ activity.openapi(getActivity, async (c) => {
 		string,
 		z.infer<typeof apiKeyUsageSchema>[]
 	>();
-	if (breakdownByApiKey) {
+	if (breakdownDimension === "apiKey") {
 		const apiKeyBreakdowns = await db
 			.select({
 				date: bucketDate(
@@ -791,6 +831,87 @@ activity.openapi(getActivity, async (c) => {
 			apiKeyBreakdownByDate.get(breakdown.date)!.push({
 				id: breakdown.apiKeyId,
 				description: breakdown.description ?? "Deleted key",
+				requestCount: Number(breakdown.requestCount),
+				inputTokens: Number(breakdown.inputTokens),
+				outputTokens: Number(breakdown.outputTokens),
+				totalTokens: Number(breakdown.totalTokens),
+				cost: Number(breakdown.cost),
+			});
+		}
+	}
+
+	// Query the per-member breakdown only when the caller asks for it. Usage is
+	// attributed to the member who created the api key (api_key.created_by),
+	// matching the organization-wide member analytics.
+	const userBreakdownByDate = new Map<
+		string,
+		z.infer<typeof userUsageSchema>[]
+	>();
+	if (breakdownDimension === "user") {
+		const userBreakdowns = await db
+			.select({
+				date: bucketDate(
+					apiKeyHourlyStats.hourTimestamp,
+					timeZone,
+					isHourly,
+				).as("date"),
+				userId: apiKey.createdBy,
+				requestCount:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCount}), 0)`.as(
+						"requestCount",
+					),
+				inputTokens:
+					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.inputTokens} AS NUMERIC)), 0)`.as(
+						"inputTokens",
+					),
+				outputTokens:
+					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.outputTokens} AS NUMERIC)), 0)`.as(
+						"outputTokens",
+					),
+				totalTokens:
+					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
+						"totalTokens",
+					),
+				cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as(
+					"cost",
+				),
+			})
+			.from(apiKeyHourlyStats)
+			.innerJoin(apiKey, eq(apiKey.id, apiKeyHourlyStats.apiKeyId))
+			.where(
+				and(
+					inArray(apiKeyHourlyStats.projectId, projectIds),
+					inArray(apiKey.keyType, ["user", "end_user_customer"]),
+					gte(apiKeyHourlyStats.hourTimestamp, startDate),
+					lte(apiKeyHourlyStats.hourTimestamp, endDate),
+				),
+			)
+			.groupBy(sql`1, ${apiKey.createdBy}`)
+			.orderBy(sql`1 ASC, ${apiKey.createdBy} ASC`);
+
+		const creatorIds = Array.from(new Set(userBreakdowns.map((r) => r.userId)));
+		const userNames = new Map(
+			creatorIds.length
+				? (
+						await db
+							.select({
+								id: tables.user.id,
+								name: tables.user.name,
+								email: tables.user.email,
+							})
+							.from(tables.user)
+							.where(inArray(tables.user.id, creatorIds))
+					).map((u) => [u.id, u.name ?? u.email] as const)
+				: [],
+		);
+
+		for (const breakdown of userBreakdowns) {
+			if (!userBreakdownByDate.has(breakdown.date)) {
+				userBreakdownByDate.set(breakdown.date, []);
+			}
+			userBreakdownByDate.get(breakdown.date)!.push({
+				id: breakdown.userId,
+				name: userNames.get(breakdown.userId) ?? "Unknown user",
 				requestCount: Number(breakdown.requestCount),
 				inputTokens: Number(breakdown.inputTokens),
 				outputTokens: Number(breakdown.outputTokens),
@@ -868,6 +989,7 @@ activity.openapi(getActivity, async (c) => {
 			apiKeysDataStorageCost,
 			modelBreakdown: modelBreakdownByDate.get(day.date) ?? [],
 			apiKeyBreakdown: apiKeyBreakdownByDate.get(day.date) ?? [],
+			userBreakdown: userBreakdownByDate.get(day.date) ?? [],
 		};
 	});
 

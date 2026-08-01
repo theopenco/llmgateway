@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { requireEnterpriseAdmin } from "@/lib/require-enterprise-admin.js";
 import { userHasProjectAccess } from "@/utils/authorization.js";
 import {
 	bucketDate,
@@ -77,51 +78,6 @@ function resolveDateRange(
 		fromStr: formatInTimeZone(startDate, timeZone, false),
 		toStr: formatInTimeZone(endDate, timeZone, false),
 	};
-}
-
-/**
- * Ensures the authenticated user is an owner/admin of an enterprise
- * organization. Member-level usage analytics expose every member's spend, so
- * they are restricted to organization administrators on the enterprise plan.
- */
-async function requireEnterpriseAdmin(
-	userId: string,
-	organizationId: string,
-): Promise<{ role: z.infer<typeof roleSchema> }> {
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: { eq: userId },
-			organizationId: { eq: organizationId },
-		},
-	});
-
-	if (!userOrganization) {
-		throw new HTTPException(403, {
-			message: "You do not have access to this organization",
-		});
-	}
-
-	if (userOrganization.role === "developer") {
-		throw new HTTPException(403, {
-			message: "Only organization owners and admins can view member usage",
-		});
-	}
-
-	const organization = await db.query.organization.findFirst({
-		where: { id: { eq: organizationId } },
-	});
-
-	if (!organization || organization.status === "deleted") {
-		throw new HTTPException(404, { message: "Organization not found" });
-	}
-
-	if (organization.plan !== "enterprise") {
-		throw new HTTPException(403, {
-			message: "Member analytics require an enterprise plan",
-		});
-	}
-
-	return { role: userOrganization.role };
 }
 
 async function getOrgProjectIds(organizationId: string): Promise<string[]> {
