@@ -218,7 +218,8 @@ When creating a new package in `packages/`, include these config files. Copy the
 - Use conventional commit message format and limit the commit message title to max 50 characters
 - Do not --amend commits after pushing to remote
 - Never force push on main/default branch; force pushing is only acceptable on feature branches
-- When checking out an existing PR or remote branch, always set its upstream (`git checkout -B <branch> FETCH_HEAD && git branch --set-upstream-to=origin/<branch>`, or `gh pr checkout <n>`) so plain `git pull --rebase` and `git push` work afterwards
+- When checking out an existing PR or remote branch, always set its upstream (`git checkout -B <branch> FETCH_HEAD && git branch --set-upstream-to=origin/<branch>`, or `gh pr checkout <n>`) so plain `git pull` and `git push` work afterwards
+- When syncing a feature branch with main, default to a merge commit; only rebase when it is required or clearly the better choice, and say why
 - When resolving conflicts involving `pnpm-lock.yaml`, just run `pnpm install` to automatically resolve them
 - Use the local `pull-request` skill for opening pull requests, writing/updating PR titles and descriptions, embedding screenshots in a PR body, and triggering e2e CI on a PR.
 - When writing pull request titles, use the conventional commit message format and limit to max 50 characters

@@ -45,9 +45,25 @@ EOF
   ```
 
 - `gh pr create` needs the branch on the remote first, or an explicit `--head <branch>`.
-- When checking out someone else's PR or a remote branch, set upstream so plain `git pull --rebase`/`git push` work: `gh pr checkout <n>`, or `git checkout -B <branch> FETCH_HEAD && git branch --set-upstream-to=origin/<branch>`.
+- When checking out someone else's PR or a remote branch, set upstream so plain `git pull`/`git push` work: `gh pr checkout <n>`, or `git checkout -B <branch> FETCH_HEAD && git branch --set-upstream-to=origin/<branch>`.
 - Force-push only on feature branches, never on `main`. Do not `--amend` a commit that is already pushed.
-- After rebasing a feature branch onto `main`, force-push it without asking.
+
+## Syncing a feature branch with main
+
+**Default to a merge commit.** `git fetch origin && git merge origin/main` — it preserves the branch's existing commits and their pushed hashes, so review comments stay anchored, CI results stay valid, and nobody working from the branch has to recover from rewritten history.
+
+Reach for `git rebase origin/main` only when it is required or clearly better, and say why. Legitimate reasons:
+
+- The branch is unpushed and unshared, so nothing can break.
+- A maintainer asked for linear history, or the PR is being prepared for a fast-forward merge.
+- The branch has accumulated noisy merge commits from repeated syncs and needs tidying before review.
+- A merge would produce a tangled conflict that a rebase resolves cleanly commit-by-commit.
+
+Not reasons to rebase: "linear history is nicer", or habit.
+
+After a rebase, force-push with `--force-with-lease` (never plain `--force`) to update the PR — do this automatically, without pausing to confirm. If the local branch name differs from the remote PR branch, push with an explicit `local:remote` refspec.
+
+Migration conflicts are the one case with a fixed recipe, and it is merge-shaped — see the `migrations` skill: reset `packages/db/migrations/` to `origin/main` **before** merging, then regenerate with `pnpm migrations` after.
 
 ## Embedding a screenshot in the PR body
 
