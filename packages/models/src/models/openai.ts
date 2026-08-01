@@ -1944,14 +1944,19 @@ export const openaiModels = [
 			{
 				providerId: "aws-mantle",
 				externalId: "openai.gpt-5.6-sol",
-				inputPrice: "5.0e-6",
-				outputPrice: "30.0e-6",
-				cachedInputPrice: "0.5e-6",
-				cacheWriteInputPrice: "6.25e-6",
+				// Bedrock in-region inference is priced at OpenAI's data-residency
+				// tier, a flat 10% premium over OpenAI's standard first-party rates.
+				// AWS displays the cache-write rate rounded to $6.88/M.
+				inputPrice: "5.5e-6",
+				outputPrice: "33.0e-6",
+				cachedInputPrice: "0.55e-6",
+				cacheWriteInputPrice: "6.875e-6",
 				requestPrice: "0",
 				// AWS caps the Mantle deployment at a 272K context (vs 1.05M
 				// first-party), so OpenAI's over-272K pricing tier never applies.
-				contextSize: 272000,
+				// AWS's "272K" is 272 * 1024: upstream rejects prompts of 278528
+				// tokens or more.
+				contextSize: 278528,
 				maxOutput: 128000,
 				streaming: true,
 				// Bedrock Mantle only accepts data:/s3:// image URLs; the gateway
@@ -2089,14 +2094,18 @@ export const openaiModels = [
 			{
 				providerId: "aws-mantle",
 				externalId: "openai.gpt-5.6-terra",
-				inputPrice: "2.0e-6",
-				outputPrice: "12.0e-6",
-				cachedInputPrice: "0.2e-6",
-				cacheWriteInputPrice: "2.5e-6",
+				// Bedrock in-region inference is priced at OpenAI's data-residency
+				// tier, a flat 10% premium over OpenAI's standard first-party rates.
+				inputPrice: "2.2e-6",
+				outputPrice: "13.2e-6",
+				cachedInputPrice: "0.22e-6",
+				cacheWriteInputPrice: "2.75e-6",
 				requestPrice: "0",
 				// AWS caps the Mantle deployment at a 272K context (vs 1.05M
 				// first-party), so OpenAI's over-272K pricing tier never applies.
-				contextSize: 272000,
+				// AWS's "272K" is 272 * 1024: upstream rejects prompts of 278528
+				// tokens or more.
+				contextSize: 278528,
 				maxOutput: 128000,
 				streaming: true,
 				// Bedrock Mantle only accepts data:/s3:// image URLs; the gateway
@@ -2234,14 +2243,18 @@ export const openaiModels = [
 			{
 				providerId: "aws-mantle",
 				externalId: "openai.gpt-5.6-luna",
-				inputPrice: "0.2e-6",
-				outputPrice: "1.2e-6",
-				cachedInputPrice: "0.02e-6",
-				cacheWriteInputPrice: "0.25e-6",
+				// Bedrock in-region inference is priced at OpenAI's data-residency
+				// tier, a flat 10% premium over OpenAI's standard first-party rates.
+				inputPrice: "0.22e-6",
+				outputPrice: "1.32e-6",
+				cachedInputPrice: "0.022e-6",
+				cacheWriteInputPrice: "0.275e-6",
 				requestPrice: "0",
 				// AWS caps the Mantle deployment at a 272K context (vs 1.05M
 				// first-party), so OpenAI's over-272K pricing tier never applies.
-				contextSize: 272000,
+				// AWS's "272K" is 272 * 1024: upstream rejects prompts of 278528
+				// tokens or more.
+				contextSize: 278528,
 				maxOutput: 128000,
 				streaming: true,
 				// Bedrock Mantle only accepts data:/s3:// image URLs; the gateway
