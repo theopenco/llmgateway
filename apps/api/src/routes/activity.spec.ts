@@ -1746,6 +1746,158 @@ describe("activity endpoint", () => {
 		expect(twoDaysAgoData.cost).toBeCloseTo(0.1, 2);
 	});
 
+	// A developer may only ever see traffic from the api keys they created, even
+	// inside a project they were granted. Project access is not key access.
+	describe("developer key scoping", () => {
+		const OTHER_KEY = "teammate-key";
+
+		beforeEach(async () => {
+			await db
+				.update(tables.userOrganization)
+				.set({ role: "developer" })
+				.where(eq(tables.userOrganization.id, "test-user-org-id"));
+
+			await db.insert(tables.userProject).values({
+				id: "test-user-project-id",
+				userOrganizationId: "test-user-org-id",
+				projectId: "test-project-id",
+			});
+
+			// A teammate's key in the same project, with traffic of its own. The
+			// base fixture's test-api-key-id belongs to the caller.
+			await db.insert(tables.user).values({
+				id: "teammate-id",
+				name: "Teammate",
+				email: "teammate@example.com",
+				emailVerified: true,
+			});
+
+			await db.insert(tables.apiKey).values({
+				id: OTHER_KEY,
+				token: "teammate-token",
+				projectId: "test-project-id",
+				description: "Teammate Key",
+				createdBy: "teammate-id",
+			});
+
+			const today = new Date();
+			await db.insert(tables.log).values({
+				id: "teammate-log",
+				requestId: "teammate-log",
+				createdAt: today,
+				updatedAt: today,
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: OTHER_KEY,
+				duration: 100,
+				requestedModel: "gpt-4",
+				requestedProvider: "openai",
+				usedModel: "secret-teammate-model",
+				usedProvider: "openai",
+				responseSize: 1000,
+				promptTokens: "1000",
+				completionTokens: "1000",
+				totalTokens: "2000",
+				cost: 9.99,
+				messages: JSON.stringify([{ role: "user", content: "confidential" }]),
+				mode: "api-keys",
+				usedMode: "api-keys",
+			});
+
+			await aggregateLogsForTesting();
+		});
+
+		async function activity(qs: string) {
+			const res = await app.request(`/activity?${qs}`, {
+				headers: { Cookie: token },
+			});
+			return { status: res.status, body: await res.json() };
+		}
+
+		test("totals exclude a teammate's traffic", async () => {
+			const { status, body } = await activity(
+				"days=7&projectId=test-project-id",
+			);
+			expect(status).toBe(200);
+
+			const cost = body.activity.reduce(
+				(sum: number, row: { cost: number }) => sum + row.cost,
+				0,
+			);
+			const tokens = body.activity.reduce(
+				(sum: number, row: { totalTokens: number }) => sum + row.totalTokens,
+				0,
+			);
+			// The teammate's log is 9.99 and 2000 tokens; only the caller's own
+			// fixture logs (116 tokens, no cost) should be counted.
+			expect(cost).toBeCloseTo(0, 4);
+			expect(tokens).toBe(116);
+		});
+
+		test("model breakdown excludes a teammate's models", async () => {
+			const { body } = await activity(
+				"days=7&projectId=test-project-id&groupBy=model",
+			);
+			const models = body.activity.flatMap(
+				(row: { modelBreakdown: { id: string }[] }) =>
+					row.modelBreakdown.map((entry) => entry.id),
+			);
+			expect(models).not.toContain("secret-teammate-model");
+			expect(models).toContain("gpt-4");
+		});
+
+		test("api key breakdown lists only the caller's own keys", async () => {
+			const { body } = await activity(
+				"days=7&projectId=test-project-id&groupBy=apiKey",
+			);
+			const ids = body.activity.flatMap(
+				(row: { apiKeyBreakdown: { id: string }[] }) =>
+					row.apiKeyBreakdown.map((entry) => entry.id),
+			);
+			expect(ids).not.toContain(OTHER_KEY);
+			expect(ids).toContain("test-api-key-id");
+		});
+
+		test("rejects filtering by a teammate's api key", async () => {
+			const { status } = await activity(
+				`days=7&projectId=test-project-id&apiKeyId=${OTHER_KEY}`,
+			);
+			expect(status).toBe(403);
+		});
+
+		test("still allows filtering by the caller's own api key", async () => {
+			const { status } = await activity(
+				"days=7&projectId=test-project-id&apiKeyId=test-api-key-id",
+			);
+			expect(status).toBe(200);
+		});
+
+		test("rejects the project sources breakdown", async () => {
+			const res = await app.request(
+				"/activity/sources?projectId=test-project-id",
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(403);
+		});
+
+		test("owners still see the whole project", async () => {
+			await db
+				.update(tables.userOrganization)
+				.set({ role: "owner" })
+				.where(eq(tables.userOrganization.id, "test-user-org-id"));
+
+			const { body } = await activity(
+				"days=7&projectId=test-project-id&groupBy=apiKey",
+			);
+			const ids = body.activity.flatMap(
+				(row: { apiKeyBreakdown: { id: string }[] }) =>
+					row.apiKeyBreakdown.map((entry) => entry.id),
+			);
+			expect(ids).toContain(OTHER_KEY);
+			expect(ids).toContain("test-api-key-id");
+		});
+	});
+
 	describe("GET /activity?groupBy=user", () => {
 		const MEMBER_ID = "member-2-id";
 
