@@ -35,6 +35,15 @@ Never resolve merge conflicts in migration SQL, snapshot JSON, or journal files 
 
 When merging with `main` and migration conflicts appear:
 
+0. The reset in step 1 is destructive — it overwrites everything under `packages/db/migrations/` from `origin/main`. Before running it, check whether your branch hand-adapted any generated `.sql` (a `USING` clause, a data backfill, a rename that preserves data). Regeneration produces vanilla SQL from the schema diff and will **not** reproduce those edits.
+
+```bash
+git status --porcelain packages/db/migrations/   # commit or deal with anything listed here first
+git diff origin/main -- packages/db/migrations/ > /tmp/migration-adaptations.patch
+```
+
+Keep that patch as your reference and re-apply the adaptations by hand after step 2. Do not use `git stash` for this — lint-staged inserts its own backup stashes at position 0 in this repo, so a bare `git stash pop` can restore the wrong entry.
+
 1. Reset migrations to `origin/main`:
 
 ```bash
@@ -47,7 +56,7 @@ git restore --source=origin/main packages/db/migrations/
 pnpm migrations
 ```
 
-3. Review the regenerated SQL. If needed, adapt only the generated `.sql` file.
+3. Review the regenerated SQL, then re-apply any adaptations you captured in step 0. Adapt only the generated `.sql` file.
 
 ## Validation
 
