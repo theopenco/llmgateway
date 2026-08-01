@@ -1,9 +1,11 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { maskToken } from "@/lib/maskToken.js";
 import { adminMiddleware } from "@/middleware/admin.js";
+import { createNullableLimitSchema } from "@/routes/keys-api.js";
 
 import {
 	encryptProviderKey,
@@ -66,6 +68,10 @@ const credentialSchema = z.object({
 	region: z.string().nullable(),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	config: z.record(z.string(), z.string()),
+	/** USD spend cap; the credential auto-deactivates when usage reaches it. */
+	usageLimit: z.string().nullable(),
+	/** Cumulative upstream spend (USD) attributed by the billing worker. */
+	usage: z.string(),
 	maskedToken: z.string(),
 	/**
 	 * HMAC fingerprint of the token, identical to `log.usedApiKeyHash` on the
@@ -228,6 +234,8 @@ function toCredential(row: CredentialRow) {
 		region: row.region,
 		status: row.status,
 		config: row.config ?? {},
+		usageLimit: row.usageLimit,
+		usage: row.usage,
 		maskedToken: row.tokenMasked ?? maskToken(row.token ?? ""),
 		tokenHash: row.tokenHash,
 	};
@@ -490,6 +498,7 @@ const createCredential = createRoute({
 						variant: variantSchema.optional(),
 						region: z.string().max(64).optional(),
 						config: z.record(z.string(), z.string()).optional(),
+						usageLimit: createNullableLimitSchema("Usage limit").optional(),
 						skipValidation: z.boolean().optional(),
 					}),
 				},
@@ -547,6 +556,7 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 			variant: body.variant ?? "default",
 			region: body.region?.trim() || null,
 			config,
+			usageLimit: body.usageLimit ?? null,
 		})
 		.returning();
 
@@ -576,6 +586,7 @@ const updateCredential = createRoute({
 						region: z.string().max(64).nullable().optional(),
 						status: statusSchema.optional(),
 						config: z.record(z.string(), z.string()).optional(),
+						usageLimit: createNullableLimitSchema("Usage limit").optional(),
 						skipValidation: z.boolean().optional(),
 					}),
 				},
@@ -664,6 +675,27 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 	}
 	if (body.status !== undefined) {
 		updates.status = body.status;
+	}
+	if (body.usageLimit !== undefined) {
+		updates.usageLimit = body.usageLimit;
+	}
+
+	// Reactivating an over-limit credential without raising or clearing the
+	// limit would just get it re-deactivated by the worker on its next
+	// attributed batch — reject it so the operator sees why instead of watching
+	// the status silently flip back.
+	if (body.status === "active") {
+		const effectiveLimit =
+			body.usageLimit !== undefined ? body.usageLimit : existing.usageLimit;
+		if (
+			effectiveLimit !== null &&
+			new Decimal(existing.usage).greaterThanOrEqualTo(effectiveLimit)
+		) {
+			throw new HTTPException(400, {
+				message:
+					"This credential has reached its spend limit. Raise or clear the limit to reactivate it.",
+			});
+		}
 	}
 
 	if (Object.keys(updates).length === 0) {

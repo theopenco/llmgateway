@@ -340,6 +340,85 @@ describe("provider keys route", () => {
 		expect(providerKey?.status).toBe("inactive");
 	});
 
+	describe("spend limits", () => {
+		async function patchKey(body: Record<string, unknown>) {
+			return await app.request("/keys/provider/test-provider-key-id", {
+				method: "PATCH",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+				},
+				body: JSON.stringify(body),
+			});
+		}
+
+		test("POST /keys/provider stores an optional spend limit", async () => {
+			const res = await app.request("/keys/provider", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+				},
+				body: JSON.stringify({
+					provider: "inference.net",
+					token: "inference-test-token",
+					organizationId: "test-org-id",
+					usageLimit: "25.50",
+				}),
+			});
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.providerKey.usageLimit).toBe("25.50");
+			expect(Number(json.providerKey.usage)).toBe(0);
+		});
+
+		test("POST /keys/provider rejects a malformed spend limit", async () => {
+			const res = await app.request("/keys/provider", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+				},
+				body: JSON.stringify({
+					provider: "inference.net",
+					token: "inference-test-token",
+					organizationId: "test-org-id",
+					usageLimit: "not-a-number",
+				}),
+			});
+			expect(res.status).toBe(400);
+		});
+
+		test("PATCH sets and clears the spend limit", async () => {
+			const set = await patchKey({ usageLimit: "10" });
+			expect(set.status).toBe(200);
+			expect((await set.json()).providerKey.usageLimit).toBe("10");
+
+			const clear = await patchKey({ usageLimit: null });
+			expect(clear.status).toBe(200);
+			expect((await clear.json()).providerKey.usageLimit).toBeNull();
+		});
+
+		test("refuses to re-enable a key still at its spend limit", async () => {
+			// Simulate the worker's auto-deactivation at the cap.
+			await db
+				.update(tables.providerKey)
+				.set({ usageLimit: "5", usage: "5.10", status: "inactive" })
+				.where(eq(tables.providerKey.id, "test-provider-key-id"));
+
+			const rejected = await patchKey({ status: "active" });
+			expect(rejected.status).toBe(400);
+			expect(await rejected.text()).toContain("spend limit");
+
+			// Raising the limit in the same request is the intended path back.
+			const raised = await patchKey({ status: "active", usageLimit: "50" });
+			expect(raised.status).toBe(200);
+			const json = await raised.json();
+			expect(json.providerKey.status).toBe("active");
+			expect(json.providerKey.usageLimit).toBe("50");
+		});
+	});
+
 	test("DELETE /keys/provider/{id}", async () => {
 		const res = await app.request("/keys/provider/test-provider-key-id", {
 			method: "DELETE",

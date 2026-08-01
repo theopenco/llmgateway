@@ -433,10 +433,19 @@ describe("managed provider credentials", () => {
 	 * this ever logs `api-keys`, LLM Gateway pays the provider and bills nobody.
 	 */
 	describe("usedMode billing attribution", () => {
-		async function expectCreditsLog() {
+		/**
+		 * Also pins the attribution invariant: log.providerKeyId carries the
+		 * managed credential id (for per-key spend limits) while usedMode stays
+		 * "credits" — the managed id must never leak into the billing
+		 * discriminator.
+		 */
+		async function expectCreditsLog(expectedProviderKeyId?: string) {
 			const logs = await waitForLogs(1);
 			expect(logs).toHaveLength(1);
 			expect(logs[0].usedMode).toBe("credits");
+			if (expectedProviderKeyId) {
+				expect(logs[0].providerKeyId).toBe(expectedProviderKeyId);
+			}
 		}
 
 		test("chat completions served by a managed credential bill as credits", async () => {
@@ -460,7 +469,7 @@ describe("managed provider credentials", () => {
 				}
 			}
 
-			await expectCreditsLog();
+			await expectCreditsLog("managed-openai-billing");
 		});
 
 		test("embeddings served by a managed credential bill as credits", async () => {
@@ -499,7 +508,7 @@ describe("managed provider credentials", () => {
 				}
 			}
 
-			await expectCreditsLog();
+			await expectCreditsLog("managed-openai-embed");
 		});
 
 		test("moderations served by a managed credential bill as credits", async () => {
@@ -534,7 +543,7 @@ describe("managed provider credentials", () => {
 				}
 			}
 
-			await expectCreditsLog();
+			await expectCreditsLog("managed-openai-moderation");
 		});
 
 		test("rerank served by a managed credential bills as credits", async () => {
@@ -574,7 +583,31 @@ describe("managed provider credentials", () => {
 
 			expect(captured).toHaveLength(1);
 			expect(captured[0].authorization).toBe("Bearer sk-managed-rerank");
-			await expectCreditsLog();
+			await expectCreditsLog("managed-deepinfra-rerank");
+		});
+
+		test("BYOK requests attribute the org key while billing as api-keys", async () => {
+			await seedApiKey();
+			await harness.setProjectMode("api-keys");
+			await cdb.insert(tables.providerKey).values({
+				id: "byok-openai-attribution",
+				provider: "openai",
+				token: "sk-byok-attribution",
+				organizationId: "org-id",
+			});
+
+			const captured = captureUpstream(chatCompletion);
+
+			const res = await completions("openai/gpt-4o-mini");
+			expect(res.status).toBe(200);
+
+			expect(captured).toHaveLength(1);
+			expect(captured[0].authorization).toBe("Bearer sk-byok-attribution");
+
+			const logs = await waitForLogs(1);
+			expect(logs).toHaveLength(1);
+			expect(logs[0].usedMode).toBe("api-keys");
+			expect(logs[0].providerKeyId).toBe("byok-openai-attribution");
 		});
 	});
 });

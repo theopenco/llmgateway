@@ -32,6 +32,14 @@ export interface CreateLogEntryOptions {
 	 * environment variables.
 	 */
 	organizationProviderKeyId?: string;
+	/**
+	 * The provider_key row — BYOK *or* platform-managed — whose token was
+	 * actually sent upstream, for per-key spend attribution only. The billing
+	 * worker accumulates log.cost against this key and auto-deactivates it at
+	 * its spend limit. Never feed this into `usedMode`: billing mode is decided
+	 * solely by `organizationProviderKeyId` above.
+	 */
+	usedProviderKeyId?: string;
 	usedModel: string;
 	usedModelMapping?: string;
 	usedProvider: string;
@@ -93,6 +101,7 @@ function buildLogEntry(options: CreateLogEntryOptions) {
 		// directly. Platform credentials — env vars and managed provider-key rows
 		// alike — are billed as credits.
 		usedMode: options.organizationProviderKeyId ? "api-keys" : "credits",
+		providerKeyId: options.usedProviderKeyId ?? null,
 		usedModel: options.usedModel,
 		usedModelMapping: options.usedModelMapping,
 		usedProvider: options.usedProvider,

@@ -20,6 +20,8 @@ interface Credential {
 	region: string | null;
 	status: string | null;
 	config: Record<string, string>;
+	usageLimit: string | null;
+	usage: string;
 	maskedToken: string;
 	tokenHash: string | null;
 }
@@ -224,6 +226,91 @@ describe("admin provider credentials", () => {
 			decryptProviderKey(row!.tokenCiphertext!, row!.id, "llmgateway:managed"),
 		).toBe("sk-new-rotated");
 		expect(row?.comment).toBe("keep me");
+	});
+
+	test("stores a spend limit on create and reports usage", async () => {
+		const res = await create({
+			provider: "openai",
+			token: "sk-limited",
+			usageLimit: "25.50",
+		});
+		expect(res.status).toBe(201);
+
+		const [credential] = await list();
+		expect(credential.usageLimit).toBe("25.50");
+		expect(Number(credential.usage)).toBe(0);
+	});
+
+	test("rejects a malformed spend limit", async () => {
+		const res = await create({
+			provider: "openai",
+			token: "sk-limited",
+			usageLimit: "-5",
+		});
+		expect(res.status).toBe(400);
+	});
+
+	test("sets and clears the spend limit on update", async () => {
+		await create({ provider: "openai", token: "sk-limited" });
+		const [credential] = await list();
+
+		const set = await app.request(
+			`/admin/provider-credentials/${credential.id}`,
+			{
+				method: "PATCH",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({ usageLimit: "10" }),
+			},
+		);
+		expect(set.status).toBe(200);
+		expect((await list())[0].usageLimit).toBe("10");
+
+		const clear = await app.request(
+			`/admin/provider-credentials/${credential.id}`,
+			{
+				method: "PATCH",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({ usageLimit: null }),
+			},
+		);
+		expect(clear.status).toBe(200);
+		expect((await list())[0].usageLimit).toBeNull();
+	});
+
+	test("refuses to reactivate a credential still at its spend limit", async () => {
+		await create({ provider: "openai", token: "sk-limited" });
+		const [credential] = await list();
+
+		// Simulate the worker's auto-deactivation at the cap.
+		await db
+			.update(tables.providerKey)
+			.set({ usageLimit: "5", usage: "5.10", status: "inactive" })
+			.where(eq(tables.providerKey.id, credential.id));
+
+		const rejected = await app.request(
+			`/admin/provider-credentials/${credential.id}`,
+			{
+				method: "PATCH",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({ status: "active" }),
+			},
+		);
+		expect(rejected.status).toBe(400);
+		expect(await rejected.text()).toContain("spend limit");
+
+		// Raising the limit in the same request is the intended path back.
+		const raised = await app.request(
+			`/admin/provider-credentials/${credential.id}`,
+			{
+				method: "PATCH",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({ status: "active", usageLimit: "50" }),
+			},
+		);
+		expect(raised.status).toBe(200);
+		const [updated] = await list();
+		expect(updated.status).toBe("active");
+		expect(updated.usageLimit).toBe("50");
 	});
 
 	test("rejects an update that would leave a required setting unset", async () => {

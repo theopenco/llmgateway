@@ -779,6 +779,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 				project,
 				apiKey,
 				organizationProviderKeyId: attempt.providerKey?.id,
+				usedProviderKeyId: attempt.providerKey?.id ?? attempt.managedKey?.id,
 				usedModel: `${providerId}/${modelDefId}`,
 				usedModelMapping: upstreamModel,
 				usedProvider: providerId,

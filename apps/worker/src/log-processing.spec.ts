@@ -620,4 +620,181 @@ describe("Log Processing", () => {
 			expect(Number(updatedOrg!.credits)).toBe(initialCredits);
 		});
 	});
+
+	describe("provider key spend limits", () => {
+		const insertProviderLog = (values: {
+			providerKeyId: string | null;
+			cost: number;
+			cached?: boolean;
+			usedMode?: "api-keys" | "credits";
+		}) =>
+			db.insert(log).values({
+				requestId: `test-request-pk-${randomUUID()}`,
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				providerKeyId: values.providerKeyId,
+				cost: values.cost,
+				cached: values.cached ?? false,
+				usedMode: values.usedMode ?? "credits",
+				duration: 1000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 100,
+				mode: "credits",
+			});
+
+		const insertByokKey = async (overrides?: {
+			usageLimit?: string | null;
+			usage?: string;
+			status?: "active" | "inactive";
+		}) => {
+			const [key] = await db
+				.insert(tables.providerKey)
+				.values({
+					id: `pk-spend-${randomUUID()}`,
+					token: `sk-test-${randomUUID()}`,
+					provider: "openai",
+					organizationId: testOrg.id,
+					usageLimit: overrides?.usageLimit ?? null,
+					usage: overrides?.usage ?? "0",
+					status: overrides?.status ?? "active",
+				})
+				.returning();
+			return key;
+		};
+
+		test("accumulates usage per provider key from log cost", async () => {
+			const key = await insertByokKey();
+
+			await insertProviderLog({ providerKeyId: key.id, cost: 0.01 });
+			// BYOK traffic (api-keys mode) still spends the credential upstream.
+			await insertProviderLog({
+				providerKeyId: key.id,
+				cost: 0.02,
+				usedMode: "api-keys",
+			});
+
+			await batchProcessLogs();
+
+			const updated = await db.query.providerKey.findFirst({
+				where: { id: { eq: key.id } },
+			});
+			expect(Number(updated!.usage)).toBeCloseTo(0.03, 8);
+			expect(updated!.status).toBe("active");
+		});
+
+		test("does not accumulate for cached responses or unattributed logs", async () => {
+			const key = await insertByokKey();
+
+			await insertProviderLog({
+				providerKeyId: key.id,
+				cost: 0.01,
+				cached: true,
+			});
+			await insertProviderLog({ providerKeyId: null, cost: 0.02 });
+
+			await batchProcessLogs();
+
+			const updated = await db.query.providerKey.findFirst({
+				where: { id: { eq: key.id } },
+			});
+			expect(Number(updated!.usage)).toBe(0);
+		});
+
+		test("auto-deactivates a key when usage crosses its spend limit", async () => {
+			const key = await insertByokKey({ usageLimit: "0.05", usage: "0.04" });
+
+			await insertProviderLog({ providerKeyId: key.id, cost: 0.02 });
+
+			await batchProcessLogs();
+
+			const updated = await db.query.providerKey.findFirst({
+				where: { id: { eq: key.id } },
+			});
+			expect(Number(updated!.usage)).toBeCloseTo(0.06, 8);
+			expect(updated!.status).toBe("inactive");
+		});
+
+		test("leaves a key active while under its spend limit", async () => {
+			const key = await insertByokKey({ usageLimit: "1.00" });
+
+			await insertProviderLog({ providerKeyId: key.id, cost: 0.02 });
+
+			await batchProcessLogs();
+
+			const updated = await db.query.providerKey.findFirst({
+				where: { id: { eq: key.id } },
+			});
+			expect(Number(updated!.usage)).toBeCloseTo(0.02, 8);
+			expect(updated!.status).toBe("active");
+		});
+
+		test("never deactivates a key without a spend limit", async () => {
+			const key = await insertByokKey({ usageLimit: null });
+
+			await insertProviderLog({ providerKeyId: key.id, cost: 5 });
+
+			await batchProcessLogs();
+
+			const updated = await db.query.providerKey.findFirst({
+				where: { id: { eq: key.id } },
+			});
+			expect(Number(updated!.usage)).toBe(5);
+			expect(updated!.status).toBe("active");
+		});
+
+		test("accumulates and deactivates managed credentials (no organization)", async () => {
+			const [managedKey] = await db
+				.insert(tables.providerKey)
+				.values({
+					id: `pk-spend-managed-${randomUUID()}`,
+					token: `sk-managed-${randomUUID()}`,
+					provider: "openai",
+					managed: true,
+					organizationId: null,
+					usageLimit: "0.01",
+					usage: "0",
+				})
+				.returning();
+
+			try {
+				await insertProviderLog({ providerKeyId: managedKey.id, cost: 0.02 });
+
+				await batchProcessLogs();
+
+				const updated = await db.query.providerKey.findFirst({
+					where: { id: { eq: managedKey.id } },
+				});
+				expect(Number(updated!.usage)).toBeCloseTo(0.02, 8);
+				expect(updated!.status).toBe("inactive");
+			} finally {
+				// Managed rows have no organization, so the org-cascade cleanup in
+				// beforeEach never removes them.
+				await db
+					.delete(tables.providerKey)
+					.where(eq(tables.providerKey.id, managedKey.id));
+			}
+		});
+
+		test("keeps accumulating on an already-inactive key without error", async () => {
+			const key = await insertByokKey({
+				usageLimit: "0.01",
+				usage: "0.05",
+				status: "inactive",
+			});
+
+			await insertProviderLog({ providerKeyId: key.id, cost: 0.01 });
+
+			await batchProcessLogs();
+
+			const updated = await db.query.providerKey.findFirst({
+				where: { id: { eq: key.id } },
+			});
+			expect(Number(updated!.usage)).toBeCloseTo(0.06, 8);
+			expect(updated!.status).toBe("inactive");
+		});
+	});
 });

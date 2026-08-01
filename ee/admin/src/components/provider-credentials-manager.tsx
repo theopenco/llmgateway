@@ -106,6 +106,7 @@ interface ProviderCredentialsManagerProps {
 		variant?: Variant;
 		region?: string;
 		config?: Record<string, string>;
+		usageLimit?: string | null;
 		skipValidation?: boolean;
 	}) => Promise<MutationResult>;
 	onUpdate: (
@@ -117,6 +118,7 @@ interface ProviderCredentialsManagerProps {
 			region?: string | null;
 			status?: "active" | "inactive";
 			config?: Record<string, string>;
+			usageLimit?: string | null;
 			skipValidation?: boolean;
 		},
 	) => Promise<MutationResult>;
@@ -195,6 +197,14 @@ function EnvCredentialRow({
 			<TableCell className="text-sm">{entry.region || "Any"}</TableCell>
 			<TableCell>
 				<span className="text-sm text-muted-foreground">—</span>
+			</TableCell>
+			<TableCell>
+				<span
+					className="text-sm text-muted-foreground"
+					title="Spend tracking and limits apply to managed credentials only; env keys are not attributed individually."
+				>
+					—
+				</span>
 			</TableCell>
 			<TableCell>
 				{superseded ? (
@@ -493,6 +503,7 @@ export function ProviderCredentialsManager({
 							<TableHead>Applies to</TableHead>
 							<TableHead>Region</TableHead>
 							<TableHead>Settings</TableHead>
+							<TableHead>Spend</TableHead>
 							<TableHead>Status</TableHead>
 							<TableHead className="text-right">Actions</TableHead>
 						</TableRow>
@@ -501,7 +512,7 @@ export function ProviderCredentialsManager({
 						<TableBody>
 							<TableRow>
 								<TableCell
-									colSpan={9}
+									colSpan={10}
 									className="py-10 text-center text-muted-foreground"
 								>
 									No managed credentials yet. Providers fall back to their{" "}
@@ -515,7 +526,7 @@ export function ProviderCredentialsManager({
 						<TableBody>
 							<TableRow>
 								<TableCell
-									colSpan={9}
+									colSpan={10}
 									className="py-10 text-center text-muted-foreground"
 								>
 									No credentials for this provider.{" "}
@@ -613,16 +624,38 @@ export function ProviderCredentialsManager({
 																</div>
 															)}
 														</TableCell>
+														<TableCell className="text-sm tabular-nums">
+															<div>{formatUsd(credential.usage)}</div>
+															{credential.usageLimit !== null ? (
+																<div
+																	className="text-[11px] text-muted-foreground"
+																	title="The credential is automatically deactivated once its attributed spend reaches this cap."
+																>
+																	of {formatUsd(credential.usageLimit)}
+																</div>
+															) : null}
+														</TableCell>
 														<TableCell>
-															<Badge
-																variant={
-																	credential.status === "active"
-																		? "default"
-																		: "secondary"
-																}
-															>
-																{credential.status}
-															</Badge>
+															{hasReachedSpendLimit(credential) ? (
+																<Badge
+																	variant="destructive"
+																	title={`Automatically deactivated: spend reached the ${formatUsd(
+																		credential.usageLimit ?? "0",
+																	)} cap. Raise or clear the limit to reactivate.`}
+																>
+																	limit reached
+																</Badge>
+															) : (
+																<Badge
+																	variant={
+																		credential.status === "active"
+																			? "default"
+																			: "secondary"
+																	}
+																>
+																	{credential.status}
+																</Badge>
+															)}
 														</TableCell>
 														<TableCell className="text-right">
 															<div className="flex justify-end gap-1">
@@ -693,6 +726,7 @@ export function ProviderCredentialsManager({
 							variant: values.variant,
 							region: values.region || undefined,
 							config: values.config,
+							usageLimit: values.usageLimit || undefined,
 							skipValidation: values.skipValidation,
 						});
 						if (result.success) {
@@ -720,6 +754,7 @@ export function ProviderCredentialsManager({
 							region: values.region || null,
 							status: values.status,
 							config: values.config,
+							usageLimit: values.usageLimit || null,
 							skipValidation: values.skipValidation,
 						});
 						if (result.success) {
@@ -780,7 +815,30 @@ interface CredentialFormValues {
 	region: string;
 	status: "active" | "inactive";
 	config: Record<string, string>;
+	/** USD spend cap as entered; empty string means no limit. */
+	usageLimit: string;
 	skipValidation: boolean;
+}
+
+const nonNegativeDecimalPattern = /^\d+(?:\.\d+)?$/;
+
+function formatUsd(value: string): string {
+	const amount = Number(value);
+	return Number.isFinite(amount) ? `$${amount.toFixed(2)}` : `$${value}`;
+}
+
+/**
+ * A credential the worker auto-deactivated because its attributed spend
+ * reached the configured cap. Derived, not stored: an inactive credential
+ * whose usage sits at or above its limit can only have gotten there via the
+ * worker (reactivating it without raising the limit is rejected by the API).
+ */
+function hasReachedSpendLimit(credential: ProviderCredential): boolean {
+	return (
+		credential.status === "inactive" &&
+		credential.usageLimit !== null &&
+		Number(credential.usage) >= Number(credential.usageLimit)
+	);
 }
 
 function CredentialDialog({
@@ -818,6 +876,7 @@ function CredentialDialog({
 	const [config, setConfig] = useState<Record<string, string>>(
 		credential?.config ?? {},
 	);
+	const [usageLimit, setUsageLimit] = useState(credential?.usageLimit ?? "");
 	const [skipValidation, setSkipValidation] = useState(false);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -865,6 +924,11 @@ function CredentialDialog({
 	}, [regionsInUse, provider]);
 
 	async function handleSubmit() {
+		const trimmedLimit = usageLimit.trim();
+		if (trimmedLimit && !nonNegativeDecimalPattern.test(trimmedLimit)) {
+			setError("Max spend must be a non-negative number.");
+			return;
+		}
 		setLoading(true);
 		setError(null);
 		const result = await onSubmit({
@@ -875,6 +939,7 @@ function CredentialDialog({
 			region,
 			status,
 			config,
+			usageLimit: trimmedLimit,
 			skipValidation,
 		});
 		setLoading(false);
@@ -1109,6 +1174,33 @@ function CredentialDialog({
 										: "Serves every region the provider covers."}
 							</p>
 						</div>
+					</div>
+
+					<div className="flex flex-col gap-2">
+						<Label htmlFor="usage-limit">Max spend (USD)</Label>
+						<div className="relative">
+							<span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+								$
+							</span>
+							<Input
+								id="usage-limit"
+								className="pl-6"
+								value={usageLimit}
+								onChange={(event) => setUsageLimit(event.target.value)}
+								type="number"
+								min={0}
+								step="0.01"
+								placeholder="No limit"
+							/>
+						</div>
+						<p className="text-xs text-muted-foreground">
+							Security fuse: once the spend attributed to this credential
+							reaches this amount, it is automatically deactivated (with a few
+							seconds of lag). Leave empty for no limit.
+							{isEdit && credential
+								? ` Spent so far: ${formatUsd(credential.usage)}.`
+								: ""}
+						</p>
 					</div>
 
 					{isEdit ? (

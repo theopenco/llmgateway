@@ -630,6 +630,12 @@ interface ProviderContext {
 	 * so polling and content retrieval re-use the exact same credential.
 	 */
 	managedProviderKeyId?: string;
+	/**
+	 * BYOK provider key that created the job, for spend attribution on the
+	 * final log row only. Does not pin polling — BYOK polls re-resolve the
+	 * org's active key as they always did.
+	 */
+	providerKeyId?: string;
 	vertexProjectId?: string;
 	vertexRegion?: string;
 	vertexTokenType?: VertexTokenType;
@@ -1569,6 +1575,7 @@ async function resolveProviderContext(
 			requestId,
 			usedMode: "api-keys",
 			configIndex: null,
+			providerKeyId: providerKey.id,
 			vertexProjectId: sharedVertexProjectId,
 			vertexRegion: sharedVertexRegion,
 			vertexTokenType: resolveVideoVertexTokenType(
@@ -1626,6 +1633,7 @@ async function resolveProviderContext(
 			requestId,
 			usedMode: "api-keys",
 			configIndex: null,
+			providerKeyId: providerKey.id,
 			vertexProjectId: sharedVertexProjectId,
 			vertexRegion: sharedVertexRegion,
 			vertexTokenType: resolveVideoVertexTokenType(
@@ -4889,6 +4897,7 @@ videos.openapi(createVideo, async (c) => {
 			providerConfigIndex: selectedProviderContext.configIndex,
 			managedProviderKeyId:
 				selectedProviderContext.managedProviderKeyId ?? null,
+			providerKeyId: selectedProviderContext.providerKeyId ?? null,
 			upstreamId,
 			prompt: request.prompt,
 			status: initialStatus,

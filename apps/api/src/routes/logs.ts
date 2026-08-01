@@ -114,6 +114,7 @@ const logSchema = z.object({
 	projectName: z.string().nullable().optional(),
 	apiKeyId: z.string(),
 	apiKeyName: z.string().nullable().optional(),
+	providerKeyId: z.string().nullable().optional(),
 	duration: z.number(),
 	requestedModel: z.string(),
 	requestedProvider: z.string().nullable(),
@@ -591,7 +592,7 @@ logs.openapi(get, async (c) => {
 
 	// Add providerKeyId filter
 	if (providerKeyId) {
-		// whereConditions.push(eq(tables.log.providerKeyId, providerKeyId));
+		whereConditions.push(eq(tables.log.providerKeyId, providerKeyId));
 	}
 
 	// Add custom header filter

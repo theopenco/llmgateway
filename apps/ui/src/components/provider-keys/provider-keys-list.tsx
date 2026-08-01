@@ -40,6 +40,7 @@ import {
 } from "@llmgateway/shared/components";
 
 import { CreateProviderKeyDialog } from "./create-provider-key-dialog";
+import { ProviderKeyLimitDialog } from "./provider-key-limit-dialog";
 import { RenameProviderKeyDialog } from "./rename-provider-key-dialog";
 import { reorderProviderKeys } from "./reorder-provider-keys";
 
@@ -53,6 +54,24 @@ type ProviderKey = ProviderKeysResponse["providerKeys"][number];
 interface ProviderKeysListProps {
 	selectedOrganization: Organization | null;
 	initialData?: ProviderKeysResponse;
+}
+
+function formatUsd(value: string): string {
+	const amount = Number(value);
+	return Number.isFinite(amount) ? `$${amount.toFixed(2)}` : `$${value}`;
+}
+
+/**
+ * A key the billing worker auto-disabled because its attributed spend reached
+ * the configured cap. Derived, not stored: re-enabling without raising the
+ * limit is rejected by the API, so this state is unambiguous.
+ */
+function hasReachedSpendLimit(providerKey: ProviderKey): boolean {
+	return (
+		providerKey.status === "inactive" &&
+		providerKey.usageLimit !== null &&
+		Number(providerKey.usage) >= Number(providerKey.usageLimit)
+	);
 }
 
 function formatOptionLabel(key: string, value: string): string {
@@ -235,10 +254,14 @@ export function ProviderKeysList({
 					});
 					void queryClient.invalidateQueries({ queryKey });
 				},
-				onError: () =>
+				onError: (error: unknown) =>
 					toast({
 						title: "Error",
-						description: "Failed to update status",
+						// Surface the server's message: re-enabling a key that sits at
+						// its spend limit is rejected with an actionable explanation.
+						description:
+							(error as { message?: string } | undefined)?.message ??
+							"Failed to update status",
 						variant: "destructive",
 					}),
 			},
@@ -364,10 +387,20 @@ export function ProviderKeysList({
 															<>
 																{handle}
 																<div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-																	<StatusBadge
-																		status={providerKey.status}
-																		variant="simple"
-																	/>
+																	{hasReachedSpendLimit(providerKey) ? (
+																		<Badge
+																			variant="destructive"
+																			className="text-[11px]"
+																			title="Automatically disabled: spend reached the configured limit. Raise or clear the limit to re-enable."
+																		>
+																			Limit reached
+																		</Badge>
+																	) : (
+																		<StatusBadge
+																			status={providerKey.status}
+																			variant="simple"
+																		/>
+																	)}
 																	{keyIndex === 0 &&
 																		providerKeys.length > 1 && (
 																			<Badge
@@ -405,6 +438,16 @@ export function ProviderKeysList({
 																	<span className="max-w-[200px] truncate font-mono text-xs text-muted-foreground">
 																		{providerKey.maskedToken}
 																	</span>
+																	{providerKey.usageLimit !== null && (
+																		<Badge
+																			variant="outline"
+																			className="text-xs tabular-nums"
+																			title="Spend attributed to this key against its max-spend limit. The key is automatically disabled at the limit."
+																		>
+																			{formatUsd(providerKey.usage)} /{" "}
+																			{formatUsd(providerKey.usageLimit)}
+																		</Badge>
+																	)}
 																	{providerKey.baseUrl && (
 																		<Badge
 																			variant="outline"
@@ -469,6 +512,19 @@ export function ProviderKeysList({
 																				</DropdownMenuItem>
 																			</>
 																		)}
+																		<ProviderKeyLimitDialog
+																			providerKeyId={providerKey.id}
+																			currentLimit={providerKey.usageLimit}
+																			currentUsage={providerKey.usage}
+																		>
+																			<DropdownMenuItem
+																				onSelect={(e) => e.preventDefault()}
+																			>
+																				{providerKey.usageLimit !== null
+																					? "Edit spend limit"
+																					: "Set spend limit"}
+																			</DropdownMenuItem>
+																		</ProviderKeyLimitDialog>
 																		<DropdownMenuItem
 																			onClick={() =>
 																				toggleStatus(

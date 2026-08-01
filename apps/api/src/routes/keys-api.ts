@@ -100,7 +100,7 @@ function normalizeNullableString(value: unknown): unknown {
 	return trimmedValue === "" ? null : trimmedValue;
 }
 
-function createNullableLimitSchema(fieldLabel: string) {
+export function createNullableLimitSchema(fieldLabel: string) {
 	return z.preprocess(
 		normalizeNullableString,
 		z

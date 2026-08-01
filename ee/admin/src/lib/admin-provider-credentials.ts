@@ -17,6 +17,7 @@ export interface CredentialInput {
 	variant?: "default" | "enterprise" | "plans";
 	region?: string;
 	config?: Record<string, string>;
+	usageLimit?: string | null;
 	skipValidation?: boolean;
 }
 
@@ -66,6 +67,7 @@ export async function updateProviderCredential(
 		region?: string | null;
 		status?: "active" | "inactive";
 		config?: Record<string, string>;
+		usageLimit?: string | null;
 		skipValidation?: boolean;
 	},
 ): Promise<MutationResult> {

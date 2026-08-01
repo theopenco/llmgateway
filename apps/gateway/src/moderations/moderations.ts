@@ -549,6 +549,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		project,
 		apiKey,
 		organizationProviderKeyId: providerKey?.id,
+		usedProviderKeyId: providerKey?.id ?? managedKey?.id,
 		usedModel: "openai-moderation",
 		usedModelMapping: upstreamModel,
 		usedProvider: "openai",

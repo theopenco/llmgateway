@@ -1632,6 +1632,14 @@ export const providerKey = pgTable(
 		// `{ENV_VAR}__{REGION}` overrides. NULL means it serves every region the
 		// provider's credential covers.
 		region: text(),
+		// Optional USD spend cap. When cumulative attributed upstream spend
+		// (`usage`) reaches this, the billing worker flips status to "inactive"
+		// so the key drops out of rotation — a security fuse against a leaked or
+		// runaway key. Enforcement is lagged by one worker batch by design.
+		usageLimit: decimal(),
+		// Cumulative upstream provider cost (log.cost) attributed to this key by
+		// the billing worker. Lifetime counter; never reset automatically.
+		usage: decimal().notNull().default("0"),
 		// Explicit position among a provider's keys, lowest first. The gateway
 		// treats the first key as primary and only falls back when one is
 		// unhealthy, so this is how an operator promotes a key.
@@ -1776,6 +1784,12 @@ export const log = pgTable(
 		organizationId: text().notNull(),
 		projectId: text().notNull(),
 		apiKeyId: text().notNull(),
+		// The provider_key row (BYOK or managed) whose token actually served the
+		// request; the billing worker accumulates per-key spend off this. NULL
+		// when an env-var credential served it, and on error paths that never
+		// resolved a credential. Attribution only — billing mode is carried by
+		// usedMode, never derived from this.
+		providerKeyId: text(),
 		// Set when the request was authenticated with an end-user session. apiKeyId
 		// points to the stable end-customer aggregate key; this points to the
 		// actual short-lived browser session.
@@ -1987,6 +2001,9 @@ export const log = pgTable(
 		index("log_end_customer_wallet_id_created_at_idx")
 			.on(table.endCustomerWalletId, table.createdAt)
 			.where(sql`end_customer_wallet_id IS NOT NULL`),
+		index("log_provider_key_id_created_at_idx")
+			.on(table.providerKeyId, table.createdAt)
+			.where(sql`provider_key_id IS NOT NULL`),
 		index("log_end_user_session_id_created_at_idx")
 			.on(table.endUserSessionId, table.createdAt)
 			.where(sql`end_user_session_id IS NOT NULL`),
@@ -2124,6 +2141,14 @@ export const videoJob = pgTable(
 		// organization's BYOK key or from the provider's LLM_* env vars, both of
 		// which are re-resolved the way they always were.
 		managedProviderKeyId: text().references(() => providerKey.id, {
+			onDelete: "set null",
+		}),
+		// BYOK provider key that created the job, for spend attribution on the
+		// final log row. Unlike managedProviderKeyId this does not pin polling:
+		// BYOK polls re-resolve the org's active key as they always did, so a
+		// job's spend may attribute to the creating key even if the org rotated
+		// keys mid-job — acceptable for the approximate spend-limit feature.
+		providerKeyId: text().references(() => providerKey.id, {
 			onDelete: "set null",
 		}),
 		upstreamId: text().notNull(),

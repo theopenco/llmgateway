@@ -982,6 +982,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				// BYOK only: a managed credential is the platform's own key and its
 				// traffic must still bill as credits.
 				organizationProviderKeyId: attempt.providerKey?.id,
+				usedProviderKeyId: attempt.providerKey?.id ?? attempt.managedKey?.id,
 				usedModel: `${providerId}/${modelDefId}`,
 				usedModelMapping: upstreamModel,
 				usedProvider: providerId,

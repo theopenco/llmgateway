@@ -1883,6 +1883,10 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				organizationId: jobToLog.organizationId,
 				projectId: jobToLog.projectId,
 				apiKeyId: jobToLog.apiKeyId,
+				// Spend attribution: the BYOK key or managed credential that created
+				// the job. BYOK polls may re-select a different key mid-job;
+				// attributing to the creator is acceptable for approximate limits.
+				providerKeyId: jobToLog.providerKeyId ?? jobToLog.managedProviderKeyId,
 				endUserSessionId: jobToLog.endUserSessionId,
 				endCustomerWalletId: jobToLog.endCustomerWalletId,
 				duration: Math.max(0, Date.now() - jobToLog.createdAt.getTime()),

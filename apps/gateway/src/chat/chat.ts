@@ -5701,6 +5701,7 @@ chat.openapi(completions, async (c) => {
 
 				await insertLogEntry({
 					...baseLogEntry,
+					providerKeyId: trackedKeyHealthId ?? null,
 					id: finalLogId,
 					duration: 0, // No processing time for cached response
 					timeToFirstToken: null, // Not applicable for cached response
@@ -6007,6 +6008,7 @@ chat.openapi(completions, async (c) => {
 
 				await insertLogEntry({
 					...baseLogEntry,
+					providerKeyId: trackedKeyHealthId ?? null,
 					id: finalLogId,
 					duration,
 					timeToFirstToken: null, // Not applicable for cached response
@@ -6993,6 +6995,7 @@ chat.openapi(completions, async (c) => {
 
 					await insertLogEntry({
 						...baseLogEntry,
+						providerKeyId: trackedKeyHealthId ?? null,
 						duration: Date.now() - perAttemptStartTime,
 						timeToFirstToken: null, // Not applicable for canceled request
 						timeToFirstReasoningToken: null, // Not applicable for canceled request
@@ -7344,6 +7347,7 @@ chat.openapi(completions, async (c) => {
 
 							await insertLogEntry({
 								...baseLogEntry,
+								providerKeyId: trackedKeyHealthId ?? null,
 								id: attemptLogId,
 								duration: Date.now() - perAttemptStartTime,
 								timeToFirstToken: null,
@@ -7582,6 +7586,7 @@ chat.openapi(completions, async (c) => {
 
 							await insertLogEntry({
 								...baseLogEntry,
+								providerKeyId: trackedKeyHealthId ?? null,
 								id: attemptLogId,
 								duration: Date.now() - perAttemptStartTime,
 								timeToFirstToken: null, // Not applicable for error case
@@ -7931,6 +7936,7 @@ chat.openapi(completions, async (c) => {
 
 						await insertLogEntry({
 							...baseLogEntry,
+							providerKeyId: trackedKeyHealthId ?? null,
 							id: attemptLogId,
 							duration: Date.now() - perAttemptStartTime,
 							timeToFirstToken: null,
@@ -8271,6 +8277,7 @@ chat.openapi(completions, async (c) => {
 
 						await insertLogEntry({
 							...baseLogEntry,
+							providerKeyId: trackedKeyHealthId ?? null,
 							id: attemptLogId,
 							duration: Date.now() - perAttemptStartTime,
 							timeToFirstToken: null,
@@ -10959,6 +10966,7 @@ chat.openapi(completions, async (c) => {
 
 					await insertLogEntry({
 						...baseLogEntry,
+						providerKeyId: trackedKeyHealthId ?? null,
 						id: finalLogId,
 						duration,
 						timeToFirstToken,
@@ -11241,6 +11249,7 @@ chat.openapi(completions, async (c) => {
 
 		await insertLogEntry({
 			...baseLogEntry,
+			providerKeyId: trackedKeyHealthId ?? null,
 			duration: Date.now() - startTime,
 			timeToFirstToken: null, // Not applicable for canceled request
 			timeToFirstReasoningToken: null, // Not applicable for canceled request
@@ -11626,6 +11635,7 @@ chat.openapi(completions, async (c) => {
 
 			await insertLogEntry({
 				...baseLogEntry,
+				providerKeyId: trackedKeyHealthId ?? null,
 				id: attemptLogId,
 				duration: perAttemptDuration,
 				timeToFirstToken: null, // Not applicable for error case
@@ -11869,6 +11879,7 @@ chat.openapi(completions, async (c) => {
 
 					await insertLogEntry({
 						...baseLogEntry,
+						providerKeyId: trackedKeyHealthId ?? null,
 						duration: Date.now() - perAttemptStartTime,
 						timeToFirstToken: null,
 						timeToFirstReasoningToken: null,
@@ -12101,6 +12112,7 @@ chat.openapi(completions, async (c) => {
 
 			await insertLogEntry({
 				...baseLogEntry,
+				providerKeyId: trackedKeyHealthId ?? null,
 				id: attemptLogId,
 				duration: perAttemptDuration,
 				timeToFirstToken: null, // Not applicable for error case
@@ -12564,6 +12576,7 @@ chat.openapi(completions, async (c) => {
 
 				await insertLogEntry({
 					...sseLogEntry,
+					providerKeyId: trackedKeyHealthId ?? null,
 					duration: Date.now() - startTime,
 					timeToFirstToken: null,
 					timeToFirstReasoningToken: null,
@@ -12817,6 +12830,7 @@ chat.openapi(completions, async (c) => {
 
 			await insertLogEntry({
 				...baseLogEntry,
+				providerKeyId: trackedKeyHealthId ?? null,
 				duration: Date.now() - startTime,
 				timeToFirstToken: null,
 				timeToFirstReasoningToken: null,
@@ -13334,6 +13348,7 @@ chat.openapi(completions, async (c) => {
 
 	await insertLogEntry({
 		...baseLogEntry,
+		providerKeyId: trackedKeyHealthId ?? null,
 		id: finalLogId,
 		duration,
 		timeToFirstToken: null, // Not applicable for non-streaming requests

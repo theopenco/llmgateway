@@ -1,9 +1,11 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { maskToken } from "@/lib/maskToken.js";
 import { assertOrganizationProviderKey } from "@/lib/organization-provider-key.js";
+import { createNullableLimitSchema } from "@/routes/keys-api.js";
 import {
 	getActiveUserOrganizationIds,
 	getAdminOrganizationIds,
@@ -133,6 +135,10 @@ export const providerKeyPublicSchema = z.object({
 	customModelsOnly: providerKeySchema.shape.customModelsOnly,
 	complianceAttestation: providerKeySchema.shape.complianceAttestation,
 	organizationId: z.string(),
+	/** USD spend cap; the key auto-deactivates when usage reaches it. */
+	usageLimit: z.string().nullable(),
+	/** Cumulative upstream spend (USD) attributed by the billing worker. */
+	usage: z.string(),
 	maskedToken: z.string(),
 });
 
@@ -157,6 +163,8 @@ export function toPublicProviderKey(row: ProviderKeyRow) {
 		// shown back in the dashboard. Not secret-bearing.
 		complianceAttestation: row.complianceAttestation,
 		organizationId: row.organizationId,
+		usageLimit: row.usageLimit,
+		usage: row.usage,
 		maskedToken: row.tokenMasked ?? maskToken(row.token ?? ""),
 	};
 }
@@ -295,6 +303,9 @@ const createProviderKeySchema = z.object({
 		})
 		.optional(),
 	organizationId: z.string().min(1, "Organization ID is required"),
+	// Optional USD spend cap; the key auto-deactivates when its cumulative
+	// attributed spend reaches it.
+	usageLimit: createNullableLimitSchema("Usage limit").optional(),
 });
 
 // Schema for updating a provider key status / settings
@@ -309,13 +320,16 @@ const updateProviderKeyStatusSchema = z
 		// Custom providers only: self-attested compliance posture. `null` clears
 		// the attestation (restoring the fail-closed blocked state).
 		complianceAttestation: complianceAttestationSchema.nullable().optional(),
+		// USD spend cap; `null` clears it.
+		usageLimit: createNullableLimitSchema("Usage limit").optional(),
 	})
 	.refine(
 		(v) =>
 			v.status !== undefined ||
 			v.name !== undefined ||
 			v.customModelsOnly !== undefined ||
-			v.complianceAttestation !== undefined,
+			v.complianceAttestation !== undefined ||
+			v.usageLimit !== undefined,
 		{
 			message: "No updatable fields provided",
 		},
@@ -363,6 +377,7 @@ keysProvider.openapi(create, async (c) => {
 		baseUrl,
 		options,
 		organizationId,
+		usageLimit,
 	} = c.req.valid("json");
 
 	// Verify the user has access to this organization
@@ -513,6 +528,7 @@ keysProvider.openapi(create, async (c) => {
 			name,
 			baseUrl,
 			options,
+			usageLimit: usageLimit ?? null,
 		})
 		.returning();
 
@@ -809,7 +825,7 @@ keysProvider.openapi(updateStatus, async (c) => {
 	}
 
 	const { id } = c.req.param();
-	const { status, name, customModelsOnly, complianceAttestation } =
+	const { status, name, customModelsOnly, complianceAttestation, usageLimit } =
 		c.req.valid("json");
 
 	// Get all active organization IDs the user has access to
@@ -878,14 +894,35 @@ keysProvider.openapi(updateStatus, async (c) => {
 		}
 	}
 
+	// Re-enabling an over-limit key without raising or clearing the limit would
+	// just get it re-deactivated by the worker on its next attributed batch —
+	// reject it so the user sees why instead of watching it flip back.
+	if (status === "active") {
+		const effectiveLimit =
+			usageLimit !== undefined ? usageLimit : providerKey.usageLimit;
+		if (
+			effectiveLimit !== null &&
+			new Decimal(providerKey.usage).greaterThanOrEqualTo(effectiveLimit)
+		) {
+			throw new HTTPException(400, {
+				message:
+					"This provider key has reached its spend limit. Raise or clear the limit to re-enable it.",
+			});
+		}
+	}
+
 	const updates: {
 		status?: "active" | "inactive";
 		name?: string;
 		customModelsOnly?: boolean;
 		complianceAttestation?: ProviderKeyComplianceAttestation | null;
+		usageLimit?: string | null;
 	} = {};
 	if (status !== undefined) {
 		updates.status = status;
+	}
+	if (usageLimit !== undefined) {
+		updates.usageLimit = usageLimit;
 	}
 	if (name !== undefined) {
 		updates.name = name;
@@ -928,6 +965,9 @@ keysProvider.openapi(updateStatus, async (c) => {
 			old: providerKey.complianceAttestation ?? null,
 			new: updates.complianceAttestation ?? null,
 		};
+	}
+	if (usageLimit !== undefined && providerKey.usageLimit !== usageLimit) {
+		changes.usageLimit = { old: providerKey.usageLimit, new: usageLimit };
 	}
 
 	if (Object.keys(changes).length > 0) {
