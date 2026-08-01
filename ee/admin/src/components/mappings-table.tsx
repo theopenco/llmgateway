@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useState } from "react";
 
 import { HistoryChart } from "@/components/history-chart";
+import { TokenBreakdownCell } from "@/components/token-breakdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -209,6 +210,9 @@ function MappingRow({
 				<TableCell className="tabular-nums">
 					{formatCost(mapping.cost)}
 				</TableCell>
+				<TableCell>
+					<TokenBreakdownCell breakdown={mapping} />
+				</TableCell>
 				<TableCell className="tabular-nums">
 					{formatNumber(mapping.errorsCount)}
 				</TableCell>
@@ -257,7 +261,7 @@ function MappingRow({
 			{expanded && (
 				<TableRow>
 					<TableCell
-						colSpan={16}
+						colSpan={17}
 						className="p-4"
 						id={`mapping-history-${mapping.providerId}-${mapping.modelId}`}
 					>
@@ -312,6 +316,7 @@ export function MappingsTable({
 					<TableHead>Status</TableHead>
 					{sh("Requests", "logsCount")}
 					{sh("Cost", "cost")}
+					<TableHead>Tokens</TableHead>
 					{sh("Errors", "errorsCount")}
 					{sh("Client", "clientErrorsCount")}
 					{sh("Gateway", "gatewayErrorsCount")}
@@ -328,7 +333,7 @@ export function MappingsTable({
 				{mappings.length === 0 ? (
 					<TableRow>
 						<TableCell
-							colSpan={16}
+							colSpan={17}
 							className="h-24 text-center text-muted-foreground"
 						>
 							No mappings found

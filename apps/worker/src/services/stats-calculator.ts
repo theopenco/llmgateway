@@ -80,6 +80,9 @@ interface MappingMinuteStats {
 	timeToFirstTokenCount: number;
 	timeToFirstReasoningTokenCount: number;
 	totalCost: number;
+	totalInputCost: number;
+	totalOutputCost: number;
+	totalCachedInputCost: number;
 }
 
 function createEmptyMappingMinuteStats(
@@ -113,6 +116,9 @@ function createEmptyMappingMinuteStats(
 		timeToFirstTokenCount: 0,
 		timeToFirstReasoningTokenCount: 0,
 		totalCost: 0,
+		totalInputCost: 0,
+		totalOutputCost: 0,
+		totalCachedInputCost: 0,
 	};
 }
 
@@ -145,6 +151,9 @@ function mergeMappingMinuteStats(
 	target.timeToFirstReasoningTokenCount +=
 		source.timeToFirstReasoningTokenCount;
 	target.totalCost += source.totalCost;
+	target.totalInputCost += source.totalInputCost;
+	target.totalOutputCost += source.totalOutputCost;
+	target.totalCachedInputCost += source.totalCachedInputCost;
 	return target;
 }
 
@@ -176,6 +185,9 @@ const HISTORY_METRIC_COLUMNS = [
 	"timeToFirstTokenCount",
 	"timeToFirstReasoningTokenCount",
 	"totalCost",
+	"totalInputCost",
+	"totalOutputCost",
+	"totalCachedInputCost",
 ] as const;
 
 // Chunk size for bulk upserts. Postgres caps a statement at 65535 bind
@@ -363,6 +375,16 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 					"timeToFirstReasoningTokenCount",
 				),
 			totalCost: sql<number>`coalesce(sum(${log.cost}), 0)`.as("totalCost"),
+			totalInputCost: sql<number>`coalesce(sum(${log.inputCost}), 0)`.as(
+				"totalInputCost",
+			),
+			totalOutputCost: sql<number>`coalesce(sum(${log.outputCost}), 0)`.as(
+				"totalOutputCost",
+			),
+			totalCachedInputCost:
+				sql<number>`coalesce(sum(${log.cachedInputCost}), 0)`.as(
+					"totalCachedInputCost",
+				),
 		})
 		.from(log)
 		.where(
@@ -428,6 +450,9 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 		const timeToFirstReasoningTokenCount =
 			stat?.timeToFirstReasoningTokenCount ?? 0;
 		const totalCost = stat?.totalCost ?? 0;
+		const totalInputCost = stat?.totalInputCost ?? 0;
+		const totalOutputCost = stat?.totalOutputCost ?? 0;
+		const totalCachedInputCost = stat?.totalCachedInputCost ?? 0;
 
 		// Collect the history record for this minute; written in one bulk upsert
 		// below instead of a per-model round-trip.
@@ -457,6 +482,9 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 			timeToFirstTokenCount,
 			timeToFirstReasoningTokenCount,
 			totalCost,
+			totalInputCost,
+			totalOutputCost,
+			totalCachedInputCost,
 		});
 	}
 
@@ -589,6 +617,16 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 					"timeToFirstReasoningTokenCount",
 				),
 			totalCost: sql<number>`coalesce(sum(${log.cost}), 0)`.as("totalCost"),
+			totalInputCost: sql<number>`coalesce(sum(${log.inputCost}), 0)`.as(
+				"totalInputCost",
+			),
+			totalOutputCost: sql<number>`coalesce(sum(${log.outputCost}), 0)`.as(
+				"totalOutputCost",
+			),
+			totalCachedInputCost:
+				sql<number>`coalesce(sum(${log.cachedInputCost}), 0)`.as(
+					"totalCachedInputCost",
+				),
 		})
 		.from(log)
 		.where(
@@ -715,6 +753,9 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 		const timeToFirstReasoningTokenCount =
 			stat?.timeToFirstReasoningTokenCount ?? 0;
 		const totalCost = stat?.totalCost ?? 0;
+		const totalInputCost = stat?.totalInputCost ?? 0;
+		const totalOutputCost = stat?.totalOutputCost ?? 0;
+		const totalCachedInputCost = stat?.totalCachedInputCost ?? 0;
 
 		if (logsCount > 0) {
 			activeMappingsCount++;
@@ -750,6 +791,9 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 			timeToFirstTokenCount,
 			timeToFirstReasoningTokenCount,
 			totalCost,
+			totalInputCost,
+			totalOutputCost,
+			totalCachedInputCost,
 		});
 	}
 
@@ -1003,6 +1047,9 @@ async function calculateModelHistoryForHour(targetHour: Date) {
 			timeToFirstTokenCount: sql<number>`coalesce(sum(${modelHistory.timeToFirstTokenCount}), 0)::int`,
 			timeToFirstReasoningTokenCount: sql<number>`coalesce(sum(${modelHistory.timeToFirstReasoningTokenCount}), 0)::int`,
 			totalCost: sql<number>`coalesce(sum(${modelHistory.totalCost}), 0)`,
+			totalInputCost: sql<number>`coalesce(sum(${modelHistory.totalInputCost}), 0)`,
+			totalOutputCost: sql<number>`coalesce(sum(${modelHistory.totalOutputCost}), 0)`,
+			totalCachedInputCost: sql<number>`coalesce(sum(${modelHistory.totalCachedInputCost}), 0)`,
 		})
 		.from(modelHistory)
 		.where(
@@ -1066,6 +1113,9 @@ async function calculateMappingHistoryForHour(targetHour: Date) {
 			timeToFirstTokenCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.timeToFirstTokenCount}), 0)::int`,
 			timeToFirstReasoningTokenCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.timeToFirstReasoningTokenCount}), 0)::int`,
 			totalCost: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalCost}), 0)`,
+			totalInputCost: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalInputCost}), 0)`,
+			totalOutputCost: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalOutputCost}), 0)`,
+			totalCachedInputCost: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalCachedInputCost}), 0)`,
 		})
 		.from(modelProviderMappingHistory)
 		.where(
