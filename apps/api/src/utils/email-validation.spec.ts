@@ -49,10 +49,22 @@ describe("validateEmail", () => {
 			expect(result.reason).toBe("blacklisted_domain");
 		});
 
-		it("should reject emails from 1nawaks.web.id", () => {
-			const result = validateEmail("user@1nawaks.web.id");
+		it("should reject emails from web.id", () => {
+			const result = validateEmail("user@web.id");
 			expect(result.valid).toBe(false);
 			expect(result.reason).toBe("blacklisted_domain");
+		});
+
+		it("should reject emails from any web.id subdomain", () => {
+			for (const email of [
+				"user@1nawaks.web.id",
+				"user@2nawaks.web.id",
+				"user@a.b.web.id",
+			]) {
+				const result = validateEmail(email);
+				expect(result.valid).toBe(false);
+				expect(result.reason).toBe("blacklisted_domain");
+			}
 		});
 
 		it("should reject emails from web-library.net", () => {
