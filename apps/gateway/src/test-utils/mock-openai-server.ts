@@ -605,6 +605,17 @@ function delay(ms: number): Promise<void> {
 	});
 }
 
+// Azure AI Foundry serves the OpenAI-compatible endpoints under an /openai
+// prefix. Rewrite those paths to the plain handlers below so azure provider
+// keys pointing at the mock server can complete requests.
+function stripAzureOpenaiPrefix(c: Context): Response | Promise<Response> {
+	const url = new URL(c.req.url);
+	url.pathname = url.pathname.replace(/^\/openai/, "");
+	return mockOpenAIServer.fetch(new Request(url, c.req.raw));
+}
+mockOpenAIServer.post("/openai/v1/responses", stripAzureOpenaiPrefix);
+mockOpenAIServer.post("/openai/v1/chat/completions", stripAzureOpenaiPrefix);
+
 // Handle OpenAI Responses API endpoint (for gpt-5 and other models with supportsResponsesApi)
 mockOpenAIServer.post("/v1/responses", async (c) => {
 	const body = await c.req.json();
