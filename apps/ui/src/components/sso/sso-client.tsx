@@ -211,6 +211,10 @@ export function SsoClient() {
 	const [role, setRole] = useState<"owner" | "admin" | "developer">(
 		"developer",
 	);
+	// Add/replace buffer for a group→project mapping. Submitting an existing
+	// group name replaces that group's mapped set.
+	const [projectMappingGroup, setProjectMappingGroup] = useState("");
+	const [projectMappingIds, setProjectMappingIds] = useState<string[]>([]);
 	// Local edit buffer for the default-projects checklist. `null` = untouched, so
 	// the displayed selection derives from the server value (or the fallback
 	// project). Reset to `null` after a successful save to re-sync with the server.
@@ -263,6 +267,13 @@ export function SsoClient() {
 		{ enabled: !!organizationId && isEnterprise },
 	);
 
+	const projectMappingsQuery = api.useQuery(
+		"get",
+		"/sso/project-mappings",
+		{ params: { query: { organizationId } } },
+		{ enabled: !!organizationId && isEnterprise },
+	);
+
 	const defaultProjectsQuery = api.useQuery(
 		"get",
 		"/sso/default-projects",
@@ -283,6 +294,11 @@ export function SsoClient() {
 	const revokeScim = api.useMutation("delete", "/sso/scim");
 	const createMapping = api.useMutation("post", "/sso/role-mappings");
 	const deleteMapping = api.useMutation("delete", "/sso/role-mappings/{id}");
+	const saveProjectMapping = api.useMutation("post", "/sso/project-mappings");
+	const deleteProjectMapping = api.useMutation(
+		"delete",
+		"/sso/project-mappings",
+	);
 	const saveDefaultProjects = api.useMutation("put", "/sso/default-projects");
 	const updateOrganization = api.useMutation("patch", "/orgs/{id}", {
 		onSuccess: () => {
@@ -313,6 +329,14 @@ export function SsoClient() {
 	function invalidateMappings() {
 		void queryClient.invalidateQueries({
 			queryKey: api.queryOptions("get", "/sso/role-mappings", {
+				params: { query: { organizationId } },
+			}).queryKey,
+		});
+	}
+
+	function invalidateProjectMappings() {
+		void queryClient.invalidateQueries({
+			queryKey: api.queryOptions("get", "/sso/project-mappings", {
 				params: { query: { organizationId } },
 			}).queryKey,
 		});
@@ -429,6 +453,53 @@ export function SsoClient() {
 			invalidateMappings();
 		} catch {
 			toast({ title: "Failed to delete mapping", variant: "destructive" });
+		}
+	}
+
+	async function handleSaveProjectMapping(e: React.FormEvent) {
+		e.preventDefault();
+		if (projectMappingIds.length === 0) {
+			toast({
+				title: "Select at least one project",
+				variant: "destructive",
+			});
+			return;
+		}
+		try {
+			await saveProjectMapping.mutateAsync({
+				body: {
+					organizationId,
+					groupName: projectMappingGroup.trim(),
+					projectIds: projectMappingIds,
+				},
+			});
+			toast({ title: "Project mapping saved" });
+			setProjectMappingGroup("");
+			setProjectMappingIds([]);
+			invalidateProjectMappings();
+		} catch (error) {
+			toast({
+				title:
+					error instanceof Error
+						? error.message
+						: "Failed to save project mapping",
+				variant: "destructive",
+			});
+		}
+	}
+
+	async function handleDeleteProjectMapping(groupName: string) {
+		try {
+			await deleteProjectMapping.mutateAsync({
+				params: { query: { organizationId, groupName } },
+			});
+			toast({ title: "Project mapping deleted" });
+			invalidateProjectMappings();
+		} catch {
+			toast({
+				title: "Failed to delete project mapping",
+				variant: "destructive",
+			});
 		}
 	}
 
@@ -572,6 +643,11 @@ export function SsoClient() {
 	const providers = providersQuery.data?.providers ?? [];
 	const scim = scimQuery.data;
 	const mappings = mappingsQuery.data?.mappings ?? [];
+	const projectMappings = projectMappingsQuery.data?.mappings ?? [];
+	const projectMappingProjects = projectMappingsQuery.data?.projects ?? [];
+	const projectNameById = new Map(
+		projectMappingProjects.map((p) => [p.id, p.name]),
+	);
 
 	// Google Workspace auto-join is stored on the organization, not as a SAML
 	// connection. It rides on the "Sign in with Google" button, so a SAML
@@ -1121,6 +1197,86 @@ export function SsoClient() {
 								Add mapping
 							</Button>
 						</form>
+					</CardContent>
+				)}
+			</Card>
+
+			<Card className={googleOnly ? "opacity-60" : undefined}>
+				<CardHeader>
+					<CardTitle>Group project access</CardTitle>
+					<CardDescription>
+						{googleOnly
+							? "Not available for the Google Workspace connection — project mappings rely on groups pushed via SCIM. Auto-joined members get the default project access below; grant projects on the Team page."
+							: "Map an IdP group (pushed via SCIM) to project access for developer members. Members of a mapped group get access to the mapped projects instead of the default project access below; project access granted manually on the Team page is kept. Grants are re-synced on every directory sync, so removing a member from a group revokes its projects."}
+					</CardDescription>
+				</CardHeader>
+				{!googleOnly && (
+					<CardContent className="space-y-6">
+						{projectMappings.length > 0 && (
+							<div className="divide-y rounded-lg border">
+								{projectMappings.map((mapping) => (
+									<div
+										key={mapping.groupName}
+										className="flex items-center justify-between gap-4 p-3"
+									>
+										<div className="flex flex-wrap items-center gap-2 text-sm">
+											<span className="font-medium">{mapping.groupName}</span>
+											<span className="text-muted-foreground">→</span>
+											{mapping.projectIds.map((projectId) => (
+												<Badge key={projectId} variant="secondary">
+													{projectNameById.get(projectId) ?? projectId}
+												</Badge>
+											))}
+										</div>
+										<Button
+											variant="outline"
+											size="icon"
+											onClick={() =>
+												handleDeleteProjectMapping(mapping.groupName)
+											}
+											disabled={deleteProjectMapping.isPending}
+										>
+											<Trash2 className="h-4 w-4" />
+											<span className="sr-only">Delete project mapping</span>
+										</Button>
+									</div>
+								))}
+							</div>
+						)}
+
+						{projectMappingProjects.length === 0 ? (
+							<p className="text-sm text-muted-foreground">
+								This organization has no projects yet. Create a project first,
+								then map IdP groups to it.
+							</p>
+						) : (
+							<form
+								onSubmit={handleSaveProjectMapping}
+								className="flex flex-col gap-4 border-t pt-6 sm:flex-row sm:items-end"
+							>
+								<div className="flex-1 space-y-2">
+									<Label htmlFor="project-mapping-group">IdP group name</Label>
+									<Input
+										id="project-mapping-group"
+										placeholder="Data Science"
+										value={projectMappingGroup}
+										onChange={(e) => setProjectMappingGroup(e.target.value)}
+										required
+									/>
+								</div>
+								<div className="flex-1 space-y-2">
+									<Label>Projects</Label>
+									<ProjectMultiSelect
+										orgProjects={projectMappingProjects}
+										selected={projectMappingIds}
+										onChange={setProjectMappingIds}
+									/>
+								</div>
+								<Button type="submit" disabled={saveProjectMapping.isPending}>
+									{saveProjectMapping.isPending ? "Saving..." : "Save mapping"}
+								</Button>
+							</form>
+						)}
 					</CardContent>
 				)}
 			</Card>

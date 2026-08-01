@@ -1,4 +1,4 @@
-import { resolveDefaultProjectIds } from "@/lib/sso-default-projects.js";
+import { recomputeUserProjects } from "@/lib/sso-projects.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, tables } from "@llmgateway/db";
@@ -101,30 +101,16 @@ export async function autoJoinByEmailDomain({
 		return null;
 	}
 
-	const [membership] = await db
-		.insert(tables.userOrganization)
-		.values({
-			userId,
-			organizationId: organization.id,
-			role: "developer",
-		})
-		.returning();
+	await db.insert(tables.userOrganization).values({
+		userId,
+		organizationId: organization.id,
+		role: "developer",
+	});
 
-	// Same default project grants as SSO/SCIM provisioning: the org's configured
-	// selection, or the oldest project when unconfigured. Only on membership
-	// creation, so later manual grant edits are never overwritten.
-	const projectIds = await resolveDefaultProjectIds(organization.id);
-	if (projectIds.length > 0) {
-		await db
-			.insert(tables.userProject)
-			.values(
-				projectIds.map((projectId) => ({
-					userOrganizationId: membership.id,
-					projectId,
-				})),
-			)
-			.onConflictDoNothing();
-	}
+	// Same project grants as SSO/SCIM provisioning: a Google auto-join user has
+	// no SCIM groups, so this resolves to the org's configured default selection
+	// (or the oldest project when unconfigured), tagged `source: "sso"`.
+	await recomputeUserProjects(userId, organization.id);
 
 	await logAuditEvent({
 		organizationId: organization.id,

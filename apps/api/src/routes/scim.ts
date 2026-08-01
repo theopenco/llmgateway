@@ -2,7 +2,7 @@ import { Hono } from "hono";
 
 import { getApiBaseUrl } from "@/lib/api-url.js";
 import { revokeMemberApiKeys } from "@/lib/revoke-member-api-keys.js";
-import { resolveDefaultProjectIds } from "@/lib/sso-default-projects.js";
+import { recomputeUserProjects } from "@/lib/sso-projects.js";
 import { recomputeUserRole as applyUserRole } from "@/lib/sso-roles.js";
 import { acceptPendingInvitesForUser } from "@/lib/team-invites.js";
 
@@ -486,17 +486,12 @@ scim.post("/Users", async (c) => {
 	const active =
 		payload.active === undefined ? true : parseScimBoolean(payload.active);
 	if (active) {
-		const [membership] = await db
-			.insert(tables.userOrganization)
-			.values({
-				userId: user.id,
-				organizationId: orgId,
-				role: "developer",
-				scimExternalId: payload.externalId ?? null,
-			})
-			.returning({ id: tables.userOrganization.id });
-
-		await grantDefaultProjects(membership.id, orgId);
+		await db.insert(tables.userOrganization).values({
+			userId: user.id,
+			organizationId: orgId,
+			role: "developer",
+			scimExternalId: payload.externalId ?? null,
+		});
 
 		await logScimAudit(c, {
 			action: "scim.user.provision",
@@ -506,8 +501,9 @@ scim.post("/Users", async (c) => {
 			metadata: { resourceName: user.email },
 		});
 
-		// Apply any role mapping in case the user is already referenced by a group.
-		await recomputeUserRole(c, user.id, orgId);
+		// Apply any role/project mappings in case the user is already referenced
+		// by a group; also grants the default projects for unmapped users.
+		await recomputeUserAccess(c, user.id, orgId);
 	}
 
 	// A SCIM-created user may never go through a signup flow, so honor any
@@ -520,24 +516,6 @@ scim.post("/Users", async (c) => {
 
 	return scimJson(toScimUser(user, active, payload.externalId), 201);
 });
-
-// Grant a freshly-created membership the org's default project access. Owners/
-// admins have implicit all-project access, so these rows only take effect for
-// `developer` members (and are harmless otherwise). Called only on membership
-// creation so later manual grant edits are never overwritten.
-async function grantDefaultProjects(
-	userOrganizationId: string,
-	organizationId: string,
-) {
-	const projectIds = await resolveDefaultProjectIds(organizationId);
-	if (projectIds.length === 0) {
-		return;
-	}
-	await db
-		.insert(tables.userProject)
-		.values(projectIds.map((projectId) => ({ userOrganizationId, projectId })))
-		.onConflictDoNothing();
-}
 
 // Returns true when the membership was removed, false when it was skipped
 // (last owner) so callers don't record a deactivation that didn't happen.
@@ -595,16 +573,12 @@ async function ensureMembership(
 ): Promise<boolean> {
 	const existing = await getMembership(userId, organizationId);
 	if (!existing) {
-		const [membership] = await db
-			.insert(tables.userOrganization)
-			.values({
-				userId,
-				organizationId,
-				role: "developer",
-				scimExternalId: externalId ?? null,
-			})
-			.returning({ id: tables.userOrganization.id });
-		await grantDefaultProjects(membership.id, organizationId);
+		await db.insert(tables.userOrganization).values({
+			userId,
+			organizationId,
+			role: "developer",
+			scimExternalId: externalId ?? null,
+		});
 		return true;
 	}
 	if (externalId !== undefined && existing.scimExternalId !== externalId) {
@@ -616,16 +590,20 @@ async function ensureMembership(
 	return false;
 }
 
-// Recompute an org member's role from their SCIM group→role mappings (shared
-// with the SSO management routes) and, when it actually changes the role, log
-// the transition against the SCIM request context.
-async function recomputeUserRole(
+// Recompute an org member's role and project grants from their SCIM group
+// memberships (mapping logic shared with the SSO management routes) and, when
+// something actually changes, log the transition against the SCIM request
+// context. Project recomputation also grants the org's default projects to
+// members whose groups map to no projects (including freshly created
+// memberships), replacing the old provision-time default grant.
+async function recomputeUserAccess(
 	c: Context<ScimVars>,
 	userId: string,
 	organizationId: string,
 ) {
-	const change = await applyUserRole(userId, organizationId);
-	if (!change) {
+	const roleChange = await applyUserRole(userId, organizationId);
+	const projectChange = await recomputeUserProjects(userId, organizationId);
+	if (!roleChange && !projectChange) {
 		return;
 	}
 
@@ -633,15 +611,29 @@ async function recomputeUserRole(
 		where: { id: { eq: userId } },
 		columns: { id: true, email: true },
 	});
-	await logScimAudit(c, {
-		action: "scim.user.role_change",
-		resourceType: "scim_user",
-		resourceId: userId,
-		targetUser: target ?? { id: userId },
-		metadata: {
-			changes: { role: { old: change.old, new: change.new } },
-		},
-	});
+	if (roleChange) {
+		await logScimAudit(c, {
+			action: "scim.user.role_change",
+			resourceType: "scim_user",
+			resourceId: userId,
+			targetUser: target ?? { id: userId },
+			metadata: {
+				changes: { role: { old: roleChange.old, new: roleChange.new } },
+			},
+		});
+	}
+	if (projectChange) {
+		await logScimAudit(c, {
+			action: "scim.user.project_change",
+			resourceType: "scim_user",
+			resourceId: userId,
+			targetUser: target ?? { id: userId },
+			metadata: {
+				projectsAdded: projectChange.added,
+				projectsRemoved: projectChange.removed,
+			},
+		});
+	}
 }
 
 scim.put("/Users/:id", async (c) => {
@@ -715,7 +707,7 @@ scim.put("/Users/:id", async (c) => {
 
 	// Reactivation via ensureMembership creates a fresh `developer` membership;
 	// re-apply group mappings so a user in an admin/owner group isn't downgraded.
-	await recomputeUserRole(c, user.id, orgId);
+	await recomputeUserAccess(c, user.id, orgId);
 
 	const membership = await getMembership(user.id, orgId);
 	return scimJson(toScimUser(user, true, membership?.scimExternalId));
@@ -790,7 +782,7 @@ scim.patch("/Users/:id", async (c) => {
 			});
 		}
 		// New/reactivated membership defaults to `developer`; re-apply mappings.
-		await recomputeUserRole(c, user.id, orgId);
+		await recomputeUserAccess(c, user.id, orgId);
 	} else if (wasMember) {
 		if (await removeMembership(user.id, orgId)) {
 			await logScimAudit(c, {
@@ -900,7 +892,7 @@ async function addGroupMembers(
 				.insert(tables.scimGroupMember)
 				.values({ scimGroupId: groupId, userId });
 		}
-		await recomputeUserRole(c, userId, orgId);
+		await recomputeUserAccess(c, userId, orgId);
 	}
 }
 
@@ -912,7 +904,7 @@ async function recomputeGroupMembers(
 	orgId: string,
 ) {
 	for (const userId of await groupMemberUserIds(groupId)) {
-		await recomputeUserRole(c, userId, orgId);
+		await recomputeUserAccess(c, userId, orgId);
 	}
 }
 
@@ -949,7 +941,7 @@ async function removeGroupMembers(
 					eq(tables.scimGroupMember.userId, userId),
 				),
 			);
-		await recomputeUserRole(c, userId, orgId);
+		await recomputeUserAccess(c, userId, orgId);
 	}
 }
 
@@ -1267,7 +1259,7 @@ scim.delete("/Groups/:id", async (c) => {
 
 	// Cascade removed the membership rows; recompute the former members' roles.
 	for (const userId of formerMembers) {
-		await recomputeUserRole(c, userId, orgId);
+		await recomputeUserAccess(c, userId, orgId);
 	}
 
 	return new Response(null, { status: 204 });

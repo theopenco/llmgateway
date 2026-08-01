@@ -7,10 +7,11 @@ import { apiAuth } from "@/auth/config.js";
 import { getApiBaseUrl } from "@/lib/api-url.js";
 import { getOrgProjectsOldestFirst } from "@/lib/sso-default-projects.js";
 import { normalizeSsoDomains } from "@/lib/sso-domains.js";
+import { recomputeProjectsForGroupName } from "@/lib/sso-projects.js";
 import { recomputeRoleForGroupName } from "@/lib/sso-roles.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
-import { and, db, eq, isNull, shortid, tables } from "@llmgateway/db";
+import { and, db, eq, inArray, isNull, shortid, tables } from "@llmgateway/db";
 import { SSO_TEAM_DEFAULT_DEVELOPER_BUDGET } from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 import { maskToken } from "@llmgateway/shared/mask-token";
@@ -984,6 +985,229 @@ sso.openapi(setDefaultProjects, async (c) => {
 		selectedProjectIds: requested,
 		fallbackProjectId: liveProjects[0]?.id ?? null,
 	});
+});
+
+const projectMappingSchema = z.object({
+	groupName: z.string(),
+	projectIds: z.array(z.string()),
+});
+
+const listProjectMappings = createRoute({
+	method: "get",
+	path: "/project-mappings",
+	request: { query: listQuerySchema },
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						mappings: z.array(projectMappingSchema),
+						projects: z.array(orgProjectSchema),
+					}),
+				},
+			},
+			description:
+				"Group-to-project mappings for the organization, plus the org's projects to choose from.",
+		},
+	},
+});
+
+sso.openapi(listProjectMappings, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { organizationId } = c.req.valid("query");
+
+	await assertEnterpriseOrgAccess(user.id, organizationId);
+
+	const liveProjects = await getOrgProjectsOldestFirst(organizationId);
+	const liveIds = new Set(liveProjects.map((p) => p.id));
+	const rows = await db.query.ssoProjectMapping.findMany({
+		where: { organizationId: { eq: organizationId } },
+		columns: { groupName: true, projectId: true },
+		orderBy: { groupName: "asc" },
+	});
+
+	const byGroup = new Map<string, string[]>();
+	for (const row of rows) {
+		if (!liveIds.has(row.projectId)) {
+			continue;
+		}
+		const list = byGroup.get(row.groupName) ?? [];
+		list.push(row.projectId);
+		byGroup.set(row.groupName, list);
+	}
+
+	return c.json({
+		mappings: [...byGroup.entries()].map(([groupName, projectIds]) => ({
+			groupName,
+			projectIds,
+		})),
+		projects: liveProjects.map((p) => ({ id: p.id, name: p.name })),
+	});
+});
+
+const setProjectMapping = createRoute({
+	method: "post",
+	path: "/project-mappings",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						organizationId: z.string().trim().min(1),
+						groupName: z.string().trim().min(1).max(255),
+						projectIds: z.array(z.string()).min(1),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: z.object({ mapping: projectMappingSchema }),
+				},
+			},
+			description: "Group-to-project mapping created or replaced.",
+		},
+	},
+});
+
+sso.openapi(setProjectMapping, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { organizationId, groupName, projectIds } = c.req.valid("json");
+
+	await assertEnterpriseOrgAccess(user.id, organizationId);
+
+	const liveProjects = await getOrgProjectsOldestFirst(organizationId);
+	const liveIds = new Set(liveProjects.map((p) => p.id));
+	const requested = Array.from(new Set(projectIds));
+	const invalid = requested.filter((id) => !liveIds.has(id));
+	if (invalid.length > 0) {
+		throw new HTTPException(400, {
+			message: "One or more projects do not belong to this organization",
+		});
+	}
+
+	// Replace the group's mapped set with exactly the requested projects.
+	const existing = await db.query.ssoProjectMapping.findMany({
+		where: {
+			organizationId: { eq: organizationId },
+			groupName: { eq: groupName },
+		},
+		columns: { id: true, projectId: true },
+	});
+	const requestedSet = new Set(requested);
+	const staleIds = existing
+		.filter((row) => !requestedSet.has(row.projectId))
+		.map((row) => row.id);
+	if (staleIds.length > 0) {
+		await db
+			.delete(tables.ssoProjectMapping)
+			.where(inArray(tables.ssoProjectMapping.id, staleIds));
+	}
+	const existingProjectIds = new Set(existing.map((row) => row.projectId));
+	const missing = requested.filter((id) => !existingProjectIds.has(id));
+	if (missing.length > 0) {
+		await db
+			.insert(tables.ssoProjectMapping)
+			.values(
+				missing.map((projectId) => ({ organizationId, groupName, projectId })),
+			)
+			.onConflictDoNothing();
+	}
+
+	// If the IdP already pushed this group and its members (the usual onboarding
+	// order), apply the new mapping to them now instead of waiting for a later
+	// SCIM membership event.
+	await recomputeProjectsForGroupName(organizationId, groupName);
+
+	await logAuditEvent({
+		organizationId,
+		userId: user.id,
+		action: "sso_project_mapping.update",
+		resourceType: "sso_project_mapping",
+		resourceId: organizationId,
+		metadata: {
+			resourceName: `${groupName} -> ${requested.length} project(s)`,
+		},
+	});
+
+	return c.json({ mapping: { groupName, projectIds: requested } }, 201);
+});
+
+// Deletes by group name via query (not a path id) because a grouped mapping
+// spans multiple rows and group names may contain characters that are awkward
+// in path segments.
+const removeProjectMapping = createRoute({
+	method: "delete",
+	path: "/project-mappings",
+	request: {
+		query: listQuerySchema.extend({
+			groupName: z.string().trim().min(1),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: z.object({ message: z.string() }) },
+			},
+			description: "Group-to-project mapping deleted.",
+		},
+	},
+});
+
+sso.openapi(removeProjectMapping, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { organizationId, groupName } = c.req.valid("query");
+
+	await assertEnterpriseOrgAccess(user.id, organizationId);
+
+	const existing = await db.query.ssoProjectMapping.findMany({
+		where: {
+			organizationId: { eq: organizationId },
+			groupName: { eq: groupName },
+		},
+		columns: { id: true },
+	});
+	if (!existing.length) {
+		throw new HTTPException(404, { message: "Project mapping not found" });
+	}
+
+	await db.delete(tables.ssoProjectMapping).where(
+		inArray(
+			tables.ssoProjectMapping.id,
+			existing.map((row) => row.id),
+		),
+	);
+
+	// Members granted projects by this mapping keep them until a later SCIM
+	// event otherwise; recompute them now so removing the mapping revokes the
+	// access (falling back to the org's default projects).
+	await recomputeProjectsForGroupName(organizationId, groupName);
+
+	await logAuditEvent({
+		organizationId,
+		userId: user.id,
+		action: "sso_project_mapping.delete",
+		resourceType: "sso_project_mapping",
+		resourceId: organizationId,
+		metadata: { resourceName: groupName },
+	});
+
+	return c.json({ message: "Project mapping deleted successfully" });
 });
 
 const scimStatusSchema = z.object({

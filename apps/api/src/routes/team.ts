@@ -375,20 +375,36 @@ async function resolveDeveloperProjects(
 }
 
 /**
- * Replace a membership's project grants with exactly `projectIds` (developers),
- * or clear them entirely (owner/admin have implicit access to every project).
+ * Sync a membership's project grants to exactly `projectIds` (developers), or
+ * clear them entirely (owner/admin have implicit access to every project).
+ * Diffs instead of delete-all-and-reinsert so surviving rows keep their
+ * `source` — rewriting SSO-derived grants as "manual" would silently exempt
+ * them from group-based revocation on the next directory sync.
  */
 async function syncMemberProjects(
 	userOrganizationId: string,
 	projectIds: string[],
 ): Promise<void> {
-	await db
-		.delete(tables.userProject)
-		.where(eq(tables.userProject.userOrganizationId, userOrganizationId));
+	const existing = await db.query.userProject.findMany({
+		where: { userOrganizationId: { eq: userOrganizationId } },
+		columns: { id: true, projectId: true },
+	});
+	const requested = new Set(projectIds);
 
-	if (projectIds.length) {
+	const staleIds = existing
+		.filter((row) => !requested.has(row.projectId))
+		.map((row) => row.id);
+	if (staleIds.length) {
+		await db
+			.delete(tables.userProject)
+			.where(inArray(tables.userProject.id, staleIds));
+	}
+
+	const existingProjectIds = new Set(existing.map((row) => row.projectId));
+	const missing = projectIds.filter((id) => !existingProjectIds.has(id));
+	if (missing.length) {
 		await db.insert(tables.userProject).values(
-			projectIds.map((projectId) => ({
+			missing.map((projectId) => ({
 				userOrganizationId,
 				projectId,
 			})),

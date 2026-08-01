@@ -982,6 +982,15 @@ export const userProject = pgTable(
 		projectId: text()
 			.notNull()
 			.references(() => project.id, { onDelete: "cascade" }),
+		// Provenance of the grant: "manual" rows are managed by org admins in the
+		// team UI and are never auto-revoked; "sso" rows are derived from SCIM
+		// group->project mappings (or SSO default projects) and are re-synced on
+		// every directory sync event.
+		source: text({
+			enum: ["manual", "sso"],
+		})
+			.notNull()
+			.default("manual"),
 	},
 	(table) => [
 		uniqueIndex("user_project_membership_project_unique").on(
@@ -2545,6 +2554,38 @@ export const ssoDefaultProject = pgTable(
 	],
 );
 
+// Admin-defined mapping from a SCIM/IdP group name to project access grants.
+// Members of a mapped group receive `userProject` grants (source "sso") for the
+// mapped projects; these replace the `ssoDefaultProject` set, which only acts
+// as a fallback for members whose groups map to no projects. Like role
+// mappings, keys on the group's `displayName`. One row per (group, project).
+export const ssoProjectMapping = pgTable(
+	"sso_project_mapping",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		groupName: text().notNull(),
+		projectId: text()
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+	},
+	(table) => [
+		uniqueIndex("sso_project_mapping_org_group_project_unique").on(
+			table.organizationId,
+			table.groupName,
+			table.projectId,
+		),
+		index("sso_project_mapping_organization_id_idx").on(table.organizationId),
+	],
+);
+
 export const paymentMethod = pgTable(
 	"payment_method",
 	{
@@ -3577,6 +3618,8 @@ export const auditLogActions = [
 	"sso_provider.delete",
 	"sso_role_mapping.create",
 	"sso_role_mapping.delete",
+	"sso_project_mapping.update",
+	"sso_project_mapping.delete",
 	"sso_default_projects.update",
 	"sso.sign_in",
 	// SCIM
@@ -3589,6 +3632,7 @@ export const auditLogActions = [
 	"scim.user.deactivate",
 	"scim.user.deprovision",
 	"scim.user.role_change",
+	"scim.user.project_change",
 	"scim.group.create",
 	"scim.group.update",
 	"scim.group.delete",
@@ -3611,6 +3655,7 @@ export const auditLogResourceTypes = [
 	"chat_plan",
 	"sso_provider",
 	"sso_role_mapping",
+	"sso_project_mapping",
 	"sso_default_project",
 	"sso_session",
 	"scim_token",
