@@ -561,6 +561,7 @@ export const deepseekModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				jsonOutputSchema: true,
 			},
 		],
 	},
