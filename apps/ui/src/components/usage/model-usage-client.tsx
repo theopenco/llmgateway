@@ -20,21 +20,22 @@ import {
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
 
+import {
+	parseGroupBy,
+	resolveGroupBy,
+	shouldStripApiKeyId,
+	type GroupBy,
+} from "./group-by";
+
 interface ModelUsageClientProps {
 	projectId: string;
 }
-
-type GroupBy = "model" | "apiKey" | "user";
 
 const GROUP_BY_LABELS: Record<GroupBy, { option: string; heading: string }> = {
 	model: { option: "Breakdown by model", heading: "Usage by model" },
 	apiKey: { option: "Breakdown by API key", heading: "Usage by API key" },
 	user: { option: "Breakdown by user", heading: "Usage by user" },
 };
-
-function parseGroupBy(value: string | null): GroupBy {
-	return value === "apiKey" || value === "user" ? value : "model";
-}
 
 export function ModelUsageClient({ projectId }: ModelUsageClientProps) {
 	const router = useRouter();
@@ -75,14 +76,12 @@ export function ModelUsageClient({ projectId }: ModelUsageClientProps) {
 	const canGroupByUser =
 		isEnterprise &&
 		(currentUserRole === "owner" || currentUserRole === "admin");
-	// Distinguish "membership still loading" from "not an admin" so a deep link to
-	// ?groupBy=user isn't stripped before team membership resolves.
-	const membershipLoading = isEnterprise && (!teamData || !user);
 
-	// Get groupBy, apiKeyId and timeRange from URL
-	const requestedGroupBy = parseGroupBy(searchParams.get("groupBy"));
-	const groupBy: GroupBy =
-		requestedGroupBy === "user" && !canGroupByUser ? "model" : requestedGroupBy;
+	// Get groupBy, apiKeyId and timeRange from URL.
+	const groupBy = resolveGroupBy(
+		parseGroupBy(searchParams.get("groupBy")),
+		canGroupByUser,
+	);
 	const apiKeyId = searchParams.get("apiKeyId") ?? undefined;
 	const timeRange = (searchParams.get("timeRange") as TimeRangeValue) ?? "24h";
 
@@ -123,32 +122,15 @@ export function ModelUsageClient({ projectId }: ModelUsageClientProps) {
 	const apiKeyFilterDisabled = groupBy !== "model";
 	const effectiveApiKeyId = apiKeyFilterDisabled ? undefined : apiKeyId;
 
-	// Normalize stale URLs: a non-model groupBy should never coexist with
-	// apiKeyId, and groupBy=user should not linger for a viewer without access.
+	// Normalize stale URLs: a non-model groupBy should never coexist with apiKeyId.
 	useEffect(() => {
-		const dropApiKeyId =
-			requestedGroupBy !== "model" && searchParams.has("apiKeyId");
-		const dropGroupBy =
-			requestedGroupBy === "user" && !canGroupByUser && !membershipLoading;
-		if (!dropApiKeyId && !dropGroupBy) {
+		if (!shouldStripApiKeyId(groupBy, searchParams.has("apiKeyId"))) {
 			return;
 		}
 		const params = new URLSearchParams(searchParams);
-		if (dropApiKeyId) {
-			params.delete("apiKeyId");
-		}
-		if (dropGroupBy) {
-			params.delete("groupBy");
-		}
+		params.delete("apiKeyId");
 		router.replace(`${buildUrl("model-usage")}?${params.toString()}`);
-	}, [
-		requestedGroupBy,
-		canGroupByUser,
-		membershipLoading,
-		searchParams,
-		router,
-		buildUrl,
-	]);
+	}, [groupBy, searchParams, router, buildUrl]);
 
 	return (
 		<div className="flex flex-col">
