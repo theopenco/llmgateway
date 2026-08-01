@@ -19,6 +19,12 @@ interface BlockOrgButtonProps {
 	orgId: string;
 	orgName: string;
 	disabled?: boolean;
+	/**
+	 * Why the button is disabled, surfaced as its tooltip. Set when an
+	 * organization still has credits so the admin sees that blocking is refused
+	 * on purpose rather than broken.
+	 */
+	disabledReason?: string;
 	variant?: "icon" | "full";
 	onBlock: (orgId: string) => Promise<{
 		success: boolean;
@@ -31,6 +37,7 @@ export function BlockOrgButton({
 	orgId,
 	orgName,
 	disabled,
+	disabledReason,
 	variant = "icon",
 	onBlock,
 }: BlockOrgButtonProps) {
@@ -74,7 +81,12 @@ export function BlockOrgButton({
 		>
 			<DialogTrigger asChild>
 				{variant === "full" ? (
-					<Button variant="destructive" size="sm" disabled={disabled}>
+					<Button
+						variant="destructive"
+						size="sm"
+						disabled={disabled}
+						title={disabled ? disabledReason : "Block account"}
+					>
 						<ShieldBan className="mr-1.5 h-4 w-4" />
 						Block account
 					</Button>
@@ -84,7 +96,7 @@ export function BlockOrgButton({
 						size="icon-sm"
 						className="text-destructive hover:text-destructive"
 						disabled={disabled}
-						title="Block account"
+						title={disabled ? disabledReason : "Block account"}
 					>
 						<ShieldBan className="h-4 w-4" />
 					</Button>
