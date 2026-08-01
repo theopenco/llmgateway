@@ -32,6 +32,8 @@ import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
 
+import { MIN_BULK_BLOCK_SEARCH_LENGTH } from "@llmgateway/shared";
+
 type SortBy =
 	| "name"
 	| "billingEmail"
@@ -43,11 +45,6 @@ type SortBy =
 	| "totalCreditsAllTime"
 	| "totalSpent";
 type SortOrder = "asc" | "desc";
-
-// Mirrors MIN_BULK_BLOCK_SEARCH_LENGTH in apps/api/src/routes/admin.ts. The
-// server rejects anything shorter; this only hides the entry point so the
-// action never looks available for an empty or near-empty filter.
-const BULK_BLOCK_MIN_SEARCH_LENGTH = 3;
 
 function SortableHeader({
 	label,
@@ -252,7 +249,7 @@ export default async function OrganizationsPage({
 				</form>
 			</header>
 
-			{search.trim().length >= BULK_BLOCK_MIN_SEARCH_LENGTH && (
+			{search.trim().length >= MIN_BULK_BLOCK_SEARCH_LENGTH && (
 				<div className="flex flex-col items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
 					<p className="text-sm text-muted-foreground">
 						Bulk actions apply to every organization matching the current
@@ -260,7 +257,7 @@ export default async function OrganizationsPage({
 					</p>
 					<BulkBlockOrgsButton
 						search={search}
-						minSearchLength={BULK_BLOCK_MIN_SEARCH_LENGTH}
+						minSearchLength={MIN_BULK_BLOCK_SEARCH_LENGTH}
 						onPreview={handlePreviewBulkBlock}
 						onBulkBlock={handleBulkBlock}
 					/>

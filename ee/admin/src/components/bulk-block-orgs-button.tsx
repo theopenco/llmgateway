@@ -53,7 +53,10 @@ export function BulkBlockOrgsButton({
 	const [preview, setPreview] = useState<BulkBlockPreview | null>(null);
 	const [confirmation, setConfirmation] = useState("");
 	const [blocking, setBlocking] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+	// Preview and block failures are tracked separately: a failed block re-resolves
+	// the preview, and that reload must not clear the block error it accompanies.
+	const [previewError, setPreviewError] = useState<string | null>(null);
+	const [blockError, setBlockError] = useState<string | null>(null);
 	const [result, setResult] = useState<BulkBlockResult | null>(null);
 
 	const trimmedSearch = search.trim();
@@ -62,22 +65,37 @@ export function BulkBlockOrgsButton({
 	const resetState = () => {
 		setPreview(null);
 		setConfirmation("");
-		setError(null);
+		setPreviewError(null);
+		setBlockError(null);
 		setResult(null);
 		setPreviewLoading(false);
+	};
+
+	const loadPreview = async () => {
+		setPreview(null);
+		setConfirmation("");
+		setPreviewError(null);
+		setPreviewLoading(true);
+		try {
+			const response = await onPreview(trimmedSearch);
+			if (response.success && response.preview) {
+				setPreview(response.preview);
+			} else {
+				setPreviewError(response.error ?? "Failed to preview bulk block");
+			}
+		} catch (err) {
+			setPreviewError(
+				err instanceof Error ? err.message : "Failed to preview bulk block",
+			);
+		} finally {
+			setPreviewLoading(false);
+		}
 	};
 
 	const handleOpen = async () => {
 		resetState();
 		setOpen(true);
-		setPreviewLoading(true);
-		const response = await onPreview(trimmedSearch);
-		setPreviewLoading(false);
-		if (response.success && response.preview) {
-			setPreview(response.preview);
-		} else {
-			setError(response.error ?? "Failed to preview bulk block");
-		}
+		await loadPreview();
 	};
 
 	const handleConfirm = async () => {
@@ -85,17 +103,17 @@ export function BulkBlockOrgsButton({
 			return;
 		}
 		setBlocking(true);
-		setError(null);
+		setBlockError(null);
 		try {
 			const response = await onBulkBlock(preview.search, preview.blockable);
-			setResult(response);
 			if (response.success) {
+				setResult(response);
 				router.refresh();
-			} else {
-				setError(response.error ?? "Failed to bulk block organizations");
+				return;
 			}
+			setBlockError(response.error ?? "Failed to bulk block organizations");
 		} catch (err) {
-			setError(
+			setBlockError(
 				err instanceof Error
 					? err.message
 					: "Failed to bulk block organizations",
@@ -103,6 +121,12 @@ export function BulkBlockOrgsButton({
 		} finally {
 			setBlocking(false);
 		}
+		// Only reached when the block failed — the success path returns above. The
+		// dialog stays on the confirmation step instead of showing a summary, and
+		// re-resolving the set makes the admin confirm against current numbers
+		// rather than resubmitting a stale one. This also covers a thrown request:
+		// it may still have been applied server-side before the connection failed.
+		await loadPreview();
 	};
 
 	// The admin has to retype the exact number of organizations the server
@@ -251,10 +275,15 @@ export function BulkBlockOrgsButton({
 						</div>
 					)}
 
-					{error && (
-						<p className="text-sm text-destructive" role="alert">
-							{error}
-						</p>
+					{(blockError || previewError) && (
+						<div className="space-y-1" role="alert">
+							{blockError && (
+								<p className="text-sm text-destructive">{blockError}</p>
+							)}
+							{previewError && (
+								<p className="text-sm text-destructive">{previewError}</p>
+							)}
+						</div>
 					)}
 
 					<DialogFooter>

@@ -68,6 +68,8 @@ import {
 	type DevPlanTier,
 	getDevPlanPremiumWeeklyLimit,
 	getIncludedResetPassesRemaining,
+	MAX_BULK_BLOCK_ORGANIZATIONS,
+	MIN_BULK_BLOCK_SEARCH_LENGTH,
 } from "@llmgateway/shared";
 import {
 	getResendClient,
@@ -6450,14 +6452,6 @@ admin.openapi(blockOrganizationRoute, async (c) => {
 });
 
 // --- Bulk block organizations (filtered list) ---
-
-// Hard ceiling on a single bulk block. A filter matching more than this is
-// treated as too broad to be an intentional selection and is rejected outright
-// rather than partially applied.
-const MAX_BULK_BLOCK_ORGANIZATIONS = 500;
-// A one or two character filter matches far too much to be a deliberate
-// selection, so require something specific enough to identify a set of orgs.
-const MIN_BULK_BLOCK_SEARCH_LENGTH = 3;
 
 const bulkBlockOrganizationSchema = z.object({
 	id: z.string(),
