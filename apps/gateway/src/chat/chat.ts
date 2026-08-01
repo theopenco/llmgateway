@@ -4089,6 +4089,17 @@ chat.openapi(completions, async (c) => {
 			usedInternalModel = modelInfo.id;
 			usedExternalId = iamFilteredModelProviders[0].externalId;
 			usedRegion = iamFilteredModelProviders[0].region;
+			// This shortcut bypasses provider selection (and with it the sticky
+			// pinning inside getCheapestFromAvailableProviders), but the session is
+			// now genuinely served by this provider — e.g. a service_tier request
+			// narrowed the candidates to the one tier-capable provider. Persist the
+			// pin so later requests in the same session with a wider candidate list
+			// (e.g. after the tier is dropped again) stay on this provider and keep
+			// its prompt cache warm instead of re-scoring to a different provider.
+			const singleProviderSessionStore = createSessionStore(modelInfo.id);
+			if (singleProviderSessionStore) {
+				await singleProviderSessionStore.set(usedProvider, usedRegion);
+			}
 		} else {
 			const providerIds = iamFilteredModelProviders.map((p) => p.providerId);
 			const providerKeys = await findProviderKeysByProviders(
