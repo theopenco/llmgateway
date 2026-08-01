@@ -14,6 +14,7 @@ import {
 import { getDateRangeFromParams } from "@/components/date-range-picker";
 import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
+import { getBrowserTimeZone } from "@/lib/timezone";
 
 import type { ActivitT } from "@/types/activity";
 import type { TooltipProps } from "recharts";
@@ -68,6 +69,7 @@ export function UsageChart({
 				query: {
 					from: fromStr,
 					to: toStr,
+					timezone: getBrowserTimeZone(),
 					...(projectId ? { projectId: projectId } : {}),
 					...(apiKeyId ? { apiKeyId } : {}),
 				},

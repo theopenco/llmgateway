@@ -87,7 +87,7 @@ const imageTestCases = filteredModels
 			}
 
 			cases.push({
-				model: `${provider.providerId}/${provider.region ? provider.modelName : model.id}`,
+				model: `${provider.providerId}/${model.id}${provider.region ? `:${provider.region}` : ""}`,
 				provider,
 				originalModel: model.id,
 				usesImageGenerationsFlag: providerHasImageGen,
@@ -116,9 +116,7 @@ if (rawQualityOverride && !qualityOverride) {
 // Always send an explicit size so the test exercises a known shape rather
 // than relying on each provider's "auto" default. Override with TEST_IMAGE_SIZE.
 const IMAGE_SIZE = (process.env.TEST_IMAGE_SIZE?.trim() || "1024x1024") as
-	| "1024x1024"
-	| "1024x1536"
-	| "1536x1024";
+	"1024x1024" | "1024x1536" | "1536x1024";
 
 if (testImageMode) {
 	console.log(

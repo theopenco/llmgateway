@@ -7,27 +7,36 @@ import {
 	Clock,
 	Coins,
 	Cpu,
+	Download,
 	Terminal,
 	Zap,
 } from "lucide-react";
-import { useSearchParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { LogCard } from "@/components/dashboard/log-card";
 import {
-	DateRangePicker,
-	getDateRangeFromParams,
-} from "@/components/date-range-picker";
+	TimeRangePicker,
+	type TimeRangeValue,
+} from "@/components/time-range-picker";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
-import { Button } from "@/lib/components/button";
-import { useApi } from "@/lib/fetch-client";
+import {
+	AGENT_TIME_RANGE_HOURS,
+	AGENT_TIME_RANGES,
+	parseAgentTimeRange,
+} from "@/lib/agent-time-ranges";
+import { useToast } from "@/lib/components/use-toast";
+import { useApi, useFetchClient } from "@/lib/fetch-client";
 
+import { buildAgentLogsCsv, CODING_AGENTS } from "@llmgateway/shared";
 import {
 	AnthropicIcon,
 	AutohandIcon,
 	ClineIcon,
 	CodexIcon,
 	CursorIcon,
+	DevPassCodeIcon,
+	EmpryoIcon,
 	N8nIcon,
 	OpenClawIcon,
 	OpenCodeIcon,
@@ -35,7 +44,7 @@ import {
 } from "@llmgateway/shared/components";
 
 import type { paths } from "@/lib/api/v1";
-import type { LogsData } from "@/types/activity";
+import type { SourceActivityData, SourceUsage } from "@/types/activity";
 import type { Log } from "@llmgateway/db";
 import type { ComponentType, SVGProps } from "react";
 
@@ -51,64 +60,27 @@ interface AgentDefinition {
 	sources: string[];
 }
 
-const AGENTS: AgentDefinition[] = [
-	{
-		id: "claude-code",
-		label: "Claude Code",
-		icon: AnthropicIcon,
-		sources: ["claude.com/claude-code"],
-	},
-	{
-		id: "opencode",
-		label: "OpenCode",
-		icon: OpenCodeIcon,
-		sources: ["opencode", "open-code"],
-	},
-	{
-		id: "cursor",
-		label: "Cursor",
-		icon: CursorIcon,
-		sources: ["cursor"],
-	},
-	{
-		id: "autohand",
-		label: "Autohand Code",
-		icon: AutohandIcon,
-		sources: ["autohand"],
-	},
-	{
-		id: "soulforge",
-		label: "SoulForge",
-		icon: SoulForgeIcon,
-		sources: ["soulforge"],
-	},
-	{
-		id: "cline",
-		label: "Cline",
-		icon: ClineIcon,
-		sources: ["cline"],
-	},
-	{
-		id: "codex",
-		label: "Codex CLI",
-		icon: CodexIcon,
-		sources: ["codex"],
-	},
-	{
-		id: "n8n",
-		label: "n8n",
-		icon: N8nIcon,
-		sources: ["n8n"],
-	},
-	{
-		id: "openclaw",
-		label: "OpenClaw",
-		icon: OpenClawIcon,
-		sources: ["openclaw"],
-	},
-];
+const AGENT_ICONS: Record<string, IconComponent> = {
+	"devpass-code": DevPassCodeIcon,
+	"claude.com/claude-code": AnthropicIcon,
+	opencode: OpenCodeIcon,
+	cursor: CursorIcon,
+	autohand: AutohandIcon,
+	empryo: EmpryoIcon,
+	soulforge: SoulForgeIcon,
+	cline: ClineIcon,
+	"roo-code": ClineIcon,
+	codex: CodexIcon,
+	n8n: N8nIcon,
+	openclaw: OpenClawIcon,
+};
 
-const ALL_SOURCES = AGENTS.flatMap((a) => a.sources);
+const AGENTS: AgentDefinition[] = CODING_AGENTS.map((agent) => ({
+	id: agent.id,
+	label: agent.label,
+	icon: AGENT_ICONS[agent.id] ?? Terminal,
+	sources: agent.xSourceValues,
+}));
 
 interface AgentStats {
 	agent: AgentDefinition;
@@ -117,8 +89,7 @@ interface AgentStats {
 	totalTokens: number;
 	totalPromptTokens: number;
 	totalCompletionTokens: number;
-	lastActive: Date;
-	logs: ApiLog[];
+	lastActive: Date | null;
 }
 
 interface Session {
@@ -132,6 +103,16 @@ interface Session {
 }
 
 const SESSION_GAP_MS = 30 * 60 * 1000;
+
+function getTimeRangeWindow(timeRange: TimeRangeValue): {
+	from: Date;
+	to: Date;
+} {
+	const to = new Date();
+	const windowMs = AGENT_TIME_RANGE_HOURS[timeRange] * 60 * 60 * 1000;
+	const from = new Date(to.getTime() - windowMs);
+	return { from, to };
+}
 
 function toUiLog(log: ApiLog): Partial<Log> {
 	return {
@@ -220,18 +201,18 @@ function formatTokens(count: number): string {
 	return count.toLocaleString();
 }
 
-function formatLastActive(date: Date): string {
+function formatLastActive(date: Date | null): string {
+	if (!date) {
+		return "—";
+	}
 	const now = new Date();
 	const diff = now.getTime() - date.getTime();
 	const minutes = Math.floor(diff / (1000 * 60));
 	const hours = Math.floor(diff / (1000 * 60 * 60));
 	const days = Math.floor(diff / (1000 * 60 * 60 * 24));
 
-	if (minutes < 1) {
-		return "Just now";
-	}
 	if (minutes < 60) {
-		return `${minutes}m ago`;
+		return "Recently";
 	}
 	if (hours < 24) {
 		return `${hours}h ago`;
@@ -242,40 +223,35 @@ function formatLastActive(date: Date): string {
 	return date.toLocaleDateString();
 }
 
-function computeAgentStats(logs: ApiLog[]): AgentStats[] {
+function computeAgentStats(sources: SourceUsage[]): AgentStats[] {
 	const stats: AgentStats[] = [];
 
 	for (const agent of AGENTS) {
-		const agentLogs = logs.filter(
-			(log) => log.source && agent.sources.includes(log.source),
-		);
-		if (agentLogs.length === 0) {
+		const rows = sources.filter((row) => agent.sources.includes(row.source));
+		const requestCount = rows.reduce((sum, row) => sum + row.requestCount, 0);
+		if (requestCount === 0) {
 			continue;
 		}
 
-		const sorted = [...agentLogs].sort(
-			(a, b) =>
-				new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-		);
+		const lastActiveMs = rows.reduce((max, row) => {
+			if (!row.lastUsedAt) {
+				return max;
+			}
+			const t = new Date(row.lastUsedAt).getTime();
+			return t > max ? t : max;
+		}, 0);
 
 		stats.push({
 			agent,
-			requestCount: agentLogs.length,
-			totalCost: agentLogs.reduce((sum, log) => sum + (log.cost ?? 0), 0),
-			totalTokens: agentLogs.reduce(
-				(sum, log) => sum + Number(log.totalTokens ?? 0),
+			requestCount,
+			totalCost: rows.reduce((sum, row) => sum + row.cost, 0),
+			totalTokens: rows.reduce((sum, row) => sum + row.totalTokens, 0),
+			totalPromptTokens: rows.reduce((sum, row) => sum + row.inputTokens, 0),
+			totalCompletionTokens: rows.reduce(
+				(sum, row) => sum + row.outputTokens,
 				0,
 			),
-			totalPromptTokens: agentLogs.reduce(
-				(sum, log) => sum + Number(log.promptTokens ?? 0),
-				0,
-			),
-			totalCompletionTokens: agentLogs.reduce(
-				(sum, log) => sum + Number(log.completionTokens ?? 0),
-				0,
-			),
-			lastActive: new Date(sorted[0].createdAt),
-			logs: agentLogs,
+			lastActive: lastActiveMs > 0 ? new Date(lastActiveMs) : null,
 		});
 	}
 
@@ -413,20 +389,146 @@ function AgentDetail({
 	stats,
 	orgId,
 	projectId,
+	timeRange,
 	onBack,
-	isFetchingNextPage,
 }: {
 	stats: AgentStats;
 	orgId: string;
 	projectId: string;
+	timeRange: TimeRangeValue;
 	onBack: () => void;
-	isFetchingNextPage: boolean;
 }) {
 	const Icon = stats.agent.icon;
-	const sessions = useMemo(
-		() => groupLogsIntoSessions(stats.logs),
-		[stats.logs],
+	const api = useApi();
+
+	const range = useMemo(() => {
+		const { from, to } = getTimeRangeWindow(timeRange);
+		return { from: from.toISOString(), to: to.toISOString() };
+	}, [timeRange]);
+
+	const logsQuery = useMemo(
+		() => ({
+			orderBy: "createdAt_desc" as const,
+			projectId,
+			limit: "100",
+			source: stats.agent.sources.join(","),
+			startDate: range.from,
+			endDate: range.to,
+		}),
+		[projectId, stats.agent.sources, range.from, range.to],
 	);
+
+	const {
+		data,
+		isLoading,
+		error,
+		fetchNextPage,
+		hasNextPage,
+		isFetchingNextPage,
+	} = api.useInfiniteQuery(
+		"get",
+		"/logs",
+		{
+			params: {
+				query: logsQuery,
+			},
+		},
+		{
+			refetchOnWindowFocus: false,
+			staleTime: 5 * 60 * 1000,
+			initialPageParam: undefined,
+			getNextPageParam: (lastPage) => {
+				return lastPage?.pagination?.hasMore
+					? lastPage.pagination.nextCursor
+					: undefined;
+			},
+		},
+	);
+
+	const logs = useMemo(
+		() =>
+			(data?.pages.flatMap((page) => page?.logs ?? []) ?? []).filter(
+				(log) => !log.retriedByLogId,
+			),
+		[data],
+	);
+
+	const sessions = useMemo(() => groupLogsIntoSessions(logs), [logs]);
+
+	const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+	// Auto-load next page when the sentinel scrolls into view.
+	useEffect(() => {
+		const node = sentinelRef.current;
+		if (!node || !hasNextPage || isFetchingNextPage) {
+			return;
+		}
+		const observer = new IntersectionObserver(
+			(entries) => {
+				if (entries[0]?.isIntersecting) {
+					void fetchNextPage();
+				}
+			},
+			{ rootMargin: "400px" },
+		);
+		observer.observe(node);
+		return () => observer.disconnect();
+	}, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+	const fetchClient = useFetchClient();
+	const { toast } = useToast();
+	const [isExporting, setIsExporting] = useState(false);
+
+	const handleExportCsv = useCallback(async () => {
+		setIsExporting(true);
+		try {
+			// Pages already loaded via the infinite query are reused to avoid
+			// re-fetching them; remaining pages are fetched directly. Any failed
+			// page fetch aborts the export so a partial CSV is never downloaded.
+			const pages = data?.pages ?? [];
+			const collected: ApiLog[] = pages.flatMap((page) => page?.logs ?? []);
+			const lastPage = pages[pages.length - 1];
+			let cursor = lastPage?.pagination?.hasMore
+				? (lastPage.pagination.nextCursor ?? undefined)
+				: undefined;
+			while (cursor) {
+				const res = await fetchClient.GET("/logs", {
+					params: {
+						query: { ...logsQuery, cursor },
+					},
+				});
+				const body = res.data;
+				if (!body) {
+					throw new Error("Failed to fetch logs for export");
+				}
+				collected.push(...body.logs);
+				cursor = body.pagination.hasMore
+					? (body.pagination.nextCursor ?? undefined)
+					: undefined;
+			}
+			const csv = buildAgentLogsCsv(
+				collected.filter((log) => !log.retriedByLogId),
+			);
+			const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement("a");
+			a.href = url;
+			a.download = `${stats.agent.id}-requests-${timeRange}.csv`;
+			document.body.appendChild(a);
+			a.click();
+			document.body.removeChild(a);
+			URL.revokeObjectURL(url);
+		} catch {
+			toast({
+				title: "Export failed",
+				description:
+					"Could not fetch all requests for this period. Please try again.",
+				variant: "destructive",
+			});
+		} finally {
+			setIsExporting(false);
+		}
+	}, [data, fetchClient, logsQuery, stats.agent.id, timeRange, toast]);
 
 	return (
 		<div className="space-y-4">
@@ -439,29 +541,51 @@ function AgentDetail({
 				Back to agents
 			</button>
 
-			<div className="flex items-center gap-4 pb-2">
-				<div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-muted">
-					<Icon className="h-6 w-6" />
-				</div>
-				<div>
-					<h3 className="text-lg font-semibold tracking-tight">
-						{stats.agent.label}
-					</h3>
-					<div className="flex items-center gap-3 text-sm text-muted-foreground">
-						<span>
-							{stats.requestCount.toLocaleString()} request
-							{stats.requestCount !== 1 ? "s" : ""}
-						</span>
-						<span className="text-border">&middot;</span>
-						<span>${stats.totalCost.toFixed(2)}</span>
-						<span className="text-border">&middot;</span>
-						<span>{formatTokens(stats.totalTokens)} tokens</span>
+			<div className="flex items-center justify-between gap-4 pb-2">
+				<div className="flex items-center gap-4">
+					<div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-muted">
+						<Icon className="h-6 w-6" />
+					</div>
+					<div>
+						<h3 className="text-lg font-semibold tracking-tight">
+							{stats.agent.label}
+						</h3>
+						<div className="flex items-center gap-3 text-sm text-muted-foreground">
+							<span>
+								{logs.length.toLocaleString()} of{" "}
+								{stats.requestCount.toLocaleString()} request
+								{stats.requestCount !== 1 ? "s" : ""}
+							</span>
+							<span className="text-border">&middot;</span>
+							<span>${stats.totalCost.toFixed(2)}</span>
+							<span className="text-border">&middot;</span>
+							<span>{formatTokens(stats.totalTokens)} tokens</span>
+						</div>
 					</div>
 				</div>
+				<button
+					type="button"
+					onClick={handleExportCsv}
+					disabled={isExporting || logs.length === 0}
+					className="inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/50 disabled:opacity-50"
+					title="Export all requests in this period to CSV"
+				>
+					<Download className="h-4 w-4" />
+					{isExporting ? "Exporting..." : "Export CSV"}
+				</button>
 			</div>
 
 			<div className="space-y-3">
-				{sessions.length === 0 ? (
+				{isLoading ? (
+					<div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+						<div className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/20 border-t-muted-foreground/70" />
+						<span>Loading sessions...</span>
+					</div>
+				) : error ? (
+					<div className="py-8 text-center text-sm text-destructive">
+						Failed to load sessions. Please try again.
+					</div>
+				) : sessions.length === 0 ? (
 					<div className="py-8 text-center text-sm text-muted-foreground">
 						No sessions found for this agent.
 					</div>
@@ -476,10 +600,18 @@ function AgentDetail({
 					))
 				)}
 
-				{isFetchingNextPage && (
-					<div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
-						<div className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/20 border-t-muted-foreground/70" />
-						<span>Loading more sessions...</span>
+				{/* Auto-load sentinel: fetches the next page when scrolled into view. */}
+				<div ref={sentinelRef} className="h-1" />
+				{hasNextPage && (
+					<div className="flex justify-center pt-2">
+						<button
+							type="button"
+							onClick={() => fetchNextPage()}
+							disabled={isFetchingNextPage}
+							className="rounded-md border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/50 disabled:opacity-50"
+						>
+							{isFetchingNextPage ? "Loading more..." : "Load more sessions"}
+						</button>
 					</div>
 				)}
 			</div>
@@ -500,7 +632,7 @@ function EmptyState() {
 				No agent activity yet
 			</h3>
 			<p className="text-sm text-muted-foreground max-w-sm text-center mb-6">
-				Activity appears when coding agents like Claude Code, Autohand Code,
+				Activity appears when coding agents like DevPass Code, Claude Code,
 				OpenCode, Cursor, or Cline make API requests through the gateway.
 			</p>
 			<div className="flex flex-wrap items-center justify-center gap-4">
@@ -527,67 +659,45 @@ export function AgentsView({
 }: {
 	projectId: string;
 	orgId: string;
-	initialData?: LogsData;
+	initialData?: SourceActivityData;
 }) {
 	const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+	const router = useRouter();
 	const searchParams = useSearchParams();
 	const { buildUrl } = useDashboardNavigation();
 	const api = useApi();
 
-	const { from, to } = getDateRangeFromParams(searchParams);
+	const timeRange = parseAgentTimeRange(searchParams.get("timeRange"));
 
-	const queryParams: Record<string, string> = {
-		orderBy: "createdAt_desc",
-		projectId,
-		limit: "100",
-		source: ALL_SOURCES.join(","),
-		startDate: from.toISOString(),
-		endDate: to.toISOString(),
+	const updateTimeRange = (newTimeRange: TimeRangeValue) => {
+		const params = new URLSearchParams(searchParams);
+		params.set("timeRange", newTimeRange);
+		router.push(`${buildUrl("agents")}?${params.toString()}`);
 	};
 
-	const {
-		data,
-		isLoading,
-		error,
-		fetchNextPage,
-		hasNextPage,
-		isFetchingNextPage,
-	} = api.useInfiniteQuery(
+	const { data, isLoading, error } = api.useQuery(
 		"get",
-		"/logs",
+		"/activity/sources",
 		{
 			params: {
-				query: queryParams,
+				query: {
+					projectId,
+					timeRange,
+				},
 			},
 		},
 		{
 			enabled: !!projectId,
 			refetchOnWindowFocus: false,
 			staleTime: 5 * 60 * 1000,
-			initialData: initialData
-				? {
-						pages: [initialData],
-						pageParams: [undefined],
-					}
-				: undefined,
-			initialPageParam: undefined,
-			getNextPageParam: (lastPage) => {
-				return lastPage?.pagination?.hasMore
-					? lastPage.pagination.nextCursor
-					: undefined;
-			},
+			initialData,
 		},
 	);
 
-	const allLogs = useMemo(
-		() =>
-			(data?.pages.flatMap((page) => page?.logs ?? []) ?? []).filter(
-				(log) => !log.retriedByLogId,
-			),
+	const agentStats = useMemo(
+		() => computeAgentStats(data?.sources ?? []),
 		[data],
 	);
-
-	const agentStats = useMemo(() => computeAgentStats(allLogs), [allLogs]);
 
 	const selectedStats = selectedAgentId
 		? agentStats.find((s) => s.agent.id === selectedAgentId)
@@ -599,7 +709,11 @@ export function AgentsView({
 	return (
 		<div className="space-y-6">
 			<div className="flex flex-wrap items-center justify-between gap-4">
-				<DateRangePicker buildUrl={buildUrl} path="agents" />
+				<TimeRangePicker
+					value={timeRange}
+					onChange={updateTimeRange}
+					allowedValues={AGENT_TIME_RANGES}
+				/>
 				{!selectedStats && agentStats.length > 0 && (
 					<div className="flex items-center gap-3 text-sm text-muted-foreground">
 						<span>
@@ -632,35 +746,21 @@ export function AgentsView({
 					stats={selectedStats}
 					orgId={orgId}
 					projectId={projectId}
+					timeRange={timeRange}
 					onBack={() => setSelectedAgentId(null)}
-					isFetchingNextPage={isFetchingNextPage}
 				/>
 			) : agentStats.length === 0 ? (
 				<EmptyState />
 			) : (
-				<>
-					<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-						{agentStats.map((stats) => (
-							<AgentCard
-								key={stats.agent.id}
-								stats={stats}
-								onClick={() => setSelectedAgentId(stats.agent.id)}
-							/>
-						))}
-					</div>
-
-					{hasNextPage && (
-						<div className="flex justify-center pt-4">
-							<Button
-								onClick={() => fetchNextPage()}
-								disabled={isFetchingNextPage}
-								variant="outline"
-							>
-								{isFetchingNextPage ? "Loading more..." : "Load More"}
-							</Button>
-						</div>
-					)}
-				</>
+				<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+					{agentStats.map((stats) => (
+						<AgentCard
+							key={stats.agent.id}
+							stats={stats}
+							onClick={() => setSelectedAgentId(stats.agent.id)}
+						/>
+					))}
+				</div>
 			)}
 		</div>
 	);

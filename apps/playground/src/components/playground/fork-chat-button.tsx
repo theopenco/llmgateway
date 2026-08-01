@@ -2,7 +2,7 @@
 
 import { Loader2, GitFork } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -12,9 +12,13 @@ import { getErrorMessage } from "@/lib/utils";
 
 interface ForkChatButtonProps {
 	shareId: string;
+	contained?: boolean;
 }
 
-export function ForkChatButton({ shareId }: ForkChatButtonProps) {
+export function ForkChatButton({
+	shareId,
+	contained = false,
+}: ForkChatButtonProps) {
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
@@ -23,7 +27,7 @@ export function ForkChatButton({ shareId }: ForkChatButtonProps) {
 	const didAutoForkRef = useRef(false);
 	const [isNavigating, setIsNavigating] = useState(false);
 
-	const fork = async () => {
+	const fork = useCallback(async () => {
 		if (!user) {
 			setIsNavigating(true);
 			const returnUrl = `/share/${shareId}?fork=1`;
@@ -42,7 +46,7 @@ export function ForkChatButton({ shareId }: ForkChatButtonProps) {
 			setIsNavigating(false);
 			toast.error(getErrorMessage(error));
 		}
-	};
+	}, [user, shareId, router, forkChat]);
 
 	useEffect(() => {
 		if (
@@ -62,7 +66,7 @@ export function ForkChatButton({ shareId }: ForkChatButtonProps) {
 			scroll: false,
 		});
 		void fork();
-	}, [isLoading, pathname, router, searchParams, user]);
+	}, [fork, isLoading, pathname, router, searchParams, user]);
 
 	const isBusy = isLoading || forkChat.isPending || isNavigating;
 	const buttonLabel = isLoading
@@ -74,7 +78,13 @@ export function ForkChatButton({ shareId }: ForkChatButtonProps) {
 				: "Fork chat";
 
 	return (
-		<div className="pointer-events-none fixed inset-x-0 bottom-6 z-20 flex justify-center px-4">
+		<div
+			className={
+				contained
+					? "pointer-events-none sticky bottom-6 z-20 flex justify-center px-4 pb-6"
+					: "pointer-events-none fixed inset-x-0 bottom-6 z-20 flex justify-center px-4"
+			}
+		>
 			<Button
 				type="button"
 				size="lg"

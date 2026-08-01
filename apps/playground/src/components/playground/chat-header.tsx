@@ -11,6 +11,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 import type { McpServer } from "@/hooks/useMcpServers";
 import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
+import type { Organization } from "@/lib/types";
 
 interface ChatHeaderProps {
 	models: ApiModel[];
@@ -19,6 +20,7 @@ interface ChatHeaderProps {
 	setSelectedModel: (model: string) => void;
 	comparisonEnabled: boolean;
 	onComparisonEnabledChange: (enabled: boolean) => void;
+	hideCompare?: boolean;
 	showGlobalModelSelector: boolean;
 	// MCP servers props
 	mcpServers: McpServer[];
@@ -31,10 +33,14 @@ interface ChatHeaderProps {
 	onToggleMcpServer: (id: string) => void;
 	isTemporaryChat: boolean;
 	onToggleTemporaryChat: () => void;
+	showTemporaryChatSwitcher: boolean;
 	isTemporaryChatToggleDisabled: boolean;
 	hasTemporaryMessages: boolean;
 	currentChatId: string | null;
+	isShareChatDisabled?: boolean;
 	shareId: string | null;
+	orgShares: Array<{ id: string; organizationId: string }>;
+	organizations: Organization[];
 	chatTitle?: string | null;
 	previewPrompt?: string | null;
 }
@@ -46,6 +52,7 @@ export const ChatHeader = ({
 	setSelectedModel,
 	comparisonEnabled,
 	onComparisonEnabledChange,
+	hideCompare = false,
 	showGlobalModelSelector,
 	mcpServers,
 	onAddMcpServer,
@@ -54,10 +61,14 @@ export const ChatHeader = ({
 	onToggleMcpServer,
 	isTemporaryChat,
 	onToggleTemporaryChat,
+	showTemporaryChatSwitcher,
 	isTemporaryChatToggleDisabled,
 	hasTemporaryMessages,
 	currentChatId,
+	isShareChatDisabled = true,
 	shareId,
+	orgShares,
+	organizations,
 	chatTitle,
 	previewPrompt,
 }: ChatHeaderProps) => {
@@ -66,7 +77,7 @@ export const ChatHeader = ({
 			<div className="flex min-w-0 flex-1 items-center gap-3">
 				{isTemporaryChat ? null : <SidebarTrigger />}
 				{showGlobalModelSelector ? (
-					<div className="flex w-full min-w-0 max-w-[360px] items-center gap-2 sm:max-w-[420px]">
+					<div className="w-full min-w-0 max-w-[360px] sm:max-w-[420px]">
 						<ModelSelector
 							models={models}
 							providers={providers}
@@ -78,16 +89,21 @@ export const ChatHeader = ({
 				) : null}
 			</div>
 			<div className="ml-3 flex items-center gap-3">
-				<TempChatSwitcher
-					isTemporaryChat={isTemporaryChat}
-					onToggleTemporaryChat={onToggleTemporaryChat}
-					isTemporaryChatToggleDisabled={isTemporaryChatToggleDisabled}
-					hasTemporaryMessages={hasTemporaryMessages}
-				/>
-				{isTemporaryChat || !currentChatId ? null : (
+				{showTemporaryChatSwitcher ? (
+					<TempChatSwitcher
+						isTemporaryChat={isTemporaryChat}
+						onToggleTemporaryChat={onToggleTemporaryChat}
+						isTemporaryChatToggleDisabled={isTemporaryChatToggleDisabled}
+						hasTemporaryMessages={hasTemporaryMessages}
+					/>
+				) : null}
+				{isTemporaryChat || !currentChatId || comparisonEnabled ? null : (
 					<ShareChatDialog
 						currentChatId={currentChatId}
+						disabled={isShareChatDisabled}
 						shareId={shareId}
+						orgShares={orgShares}
+						organizations={organizations}
 						chatTitle={chatTitle}
 						previewPrompt={previewPrompt}
 					/>
@@ -101,21 +117,29 @@ export const ChatHeader = ({
 						onToggleServer={onToggleMcpServer}
 					/>
 				</TooltipProvider>
-				{isTemporaryChat ? null : (
+				{isTemporaryChat ? null : !hideCompare || comparisonEnabled ? (
 					<div className="hidden items-center gap-2 md:flex">
-						<Label
-							htmlFor="comparison-mode"
-							className="text-muted-foreground text-xs"
-						>
-							Comparison mode
-						</Label>
-						<Switch
-							id="comparison-mode"
-							checked={comparisonEnabled}
-							onCheckedChange={onComparisonEnabledChange}
-						/>
+						{hideCompare ? (
+							<span className="text-muted-foreground text-xs">
+								Comparison mode
+							</span>
+						) : (
+							<>
+								<Label
+									htmlFor="comparison-mode"
+									className="text-muted-foreground text-xs"
+								>
+									Comparison mode
+								</Label>
+								<Switch
+									id="comparison-mode"
+									checked={comparisonEnabled}
+									onCheckedChange={onComparisonEnabledChange}
+								/>
+							</>
+						)}
 					</div>
-				)}
+				) : null}
 			</div>
 		</header>
 	);

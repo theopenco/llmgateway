@@ -1,6 +1,10 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
+import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
+
+import { db } from "@llmgateway/db";
+
 import type { ServerTypes } from "@/vars.js";
 
 const cookieDomain = process.env.COOKIE_DOMAIN ?? "localhost";
@@ -63,4 +67,64 @@ referral.openapi(referralRoute, async (c) => {
 	return c.json({
 		success: true,
 	});
+});
+
+const referralInfoRoute = createRoute({
+	method: "get",
+	path: "/referral/{orgId}",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						id: z.string(),
+						name: z.string(),
+						referralBonusEnabled: z.boolean(),
+						referralBonusPercent: z.number(),
+					}),
+				},
+			},
+			description: "Public referral info for an organization",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Organization not found",
+		},
+	},
+});
+
+referral.openapi(referralInfoRoute, async (c) => {
+	const { orgId } = c.req.valid("param");
+
+	const org = await db.query.organization.findFirst({
+		where: {
+			id: { eq: orgId },
+			status: { eq: "active" },
+		},
+	});
+
+	if (!org) {
+		return c.json({ message: "Organization not found" }, 404);
+	}
+
+	return c.json(
+		{
+			id: org.id,
+			name: org.name,
+			referralBonusEnabled: org.referralBonusEnabled,
+			referralBonusPercent: parseReferralBonusPercent(org.referralBonusPercent),
+		},
+		200,
+	);
 });

@@ -39,7 +39,9 @@ import {
 } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useFavoriteModels } from "@/hooks/useFavoriteModels";
+import { useApi } from "@/lib/fetch-client";
 import {
 	formatPrice,
 	formatContextSize,
@@ -66,9 +68,17 @@ interface ModelSelectorProps {
 	value?: string;
 	onValueChange?: (value: string) => void;
 	placeholder?: string;
-	mode?: "chat" | "video" | "image";
+	// "realtime" only affects presentation; capability filtering is the
+	// caller's responsibility (pass a pre-restricted models array).
+	mode?: "chat" | "video" | "image" | "audio" | "realtime";
 	isOptionDisabled?: (value: string) => boolean;
 	getOptionDisabledReason?: (value: string) => string | undefined;
+	/**
+	 * When true, regional provider mappings are listed as separate selectable
+	 * entries (each labeled with its region) instead of being collapsed into a
+	 * single base entry with a region dropdown. Used by group chat.
+	 */
+	showRegionalVariants?: boolean;
 }
 
 interface FilterState {
@@ -78,6 +88,7 @@ interface FilterState {
 	hideUnstable: boolean;
 	showOnlyRoot: boolean;
 	showFavoritesOnly: boolean;
+	showOnlyWithKeys: boolean;
 }
 
 // helper to extract simple capability labels from a mapping
@@ -154,7 +165,9 @@ type PriceField =
 	| "cachedInput"
 	| "request"
 	| "imageInput"
-	| "imageOutput";
+	| "imageOutput"
+	| "inputAudio"
+	| "outputAudio";
 
 interface MappingPriceInfo {
 	label: string;
@@ -182,6 +195,10 @@ function getMappingPriceInfo(
 		basePriceStr = mapping.requestPrice;
 	} else if (field === "imageInput") {
 		basePriceStr = mapping.imageInputPrice;
+	} else if (field === "inputAudio") {
+		basePriceStr = mapping.inputAudioPrice;
+	} else if (field === "outputAudio") {
+		basePriceStr = mapping.outputAudioPrice;
 	}
 
 	if (basePriceStr === null || basePriceStr === undefined) {
@@ -221,6 +238,39 @@ function getMappingPriceInfo(
 	}
 
 	return { label: original, original };
+}
+
+function MappingPriceCell({
+	label,
+	mapping,
+	field,
+}: {
+	label: string;
+	mapping: ApiModelProviderMapping | undefined;
+	field: PriceField;
+}) {
+	const price = getMappingPriceInfo(mapping, field);
+	const discounted =
+		price.original && price.discounted && price.original !== price.discounted;
+	return (
+		<div className="space-y-1">
+			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+				{label}
+			</span>
+			<p className="text-xs font-mono">
+				{discounted ? (
+					<>
+						<span className="line-through text-muted-foreground">
+							{price.original}
+						</span>{" "}
+						<span className="text-green-500">{price.discounted}</span>
+					</>
+				) : (
+					price.label
+				)}
+			</p>
+		</div>
+	);
 }
 
 interface RootAggregateInfo {
@@ -620,18 +670,18 @@ function ModelEntryRowComponent({
 							entryKey === selectedEntryKey ? "opacity-100" : "opacity-0",
 						)}
 					/>
-					<div className="flex items-center justify-between w-[250px] md:w-full gap-2">
+					<div className="flex items-center justify-between flex-1 min-w-0 gap-2">
 						<div className="flex items-center gap-2 min-w-0 flex-1">
 							<Sparkles className="h-6 w-6 shrink-0 text-primary" />
 							<div className="flex flex-col min-w-0 flex-1">
-								<div className="flex items-center gap-1">
+								<div className="flex items-center gap-1 min-w-0">
 									<span className="font-medium truncate">{model.name}</span>
 									{isFreeRoot && (
 										<Gift className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
 									)}
 								</div>
 								<span className="text-xs text-muted-foreground truncate">
-									{disabledReason ?? "Auto-select provider"}
+									Auto-select provider
 								</span>
 							</div>
 						</div>
@@ -679,8 +729,8 @@ function ModelEntryRowComponent({
 	}
 
 	const ProviderIcon = provider ? getProviderIcon(provider.id) : null;
-	const entryKey = `${mapping!.providerId}-${model.id}-${mapping!.modelName}`;
-	const providerModelValue = `${mapping!.providerId}/${mapping!.region ? mapping!.modelName : model.id}`;
+	const entryKey = `${mapping!.providerId}-${model.id}-${mapping!.region ?? ""}`;
+	const providerModelValue = `${mapping!.providerId}/${model.id}${mapping!.region ? `:${mapping!.region}` : ""}`;
 	const disabled = isOptionDisabled?.(providerModelValue) ?? false;
 	const disabledReason = getOptionDisabledReason?.(providerModelValue);
 	const isUnstable = isModelUnstable(mapping!, model);
@@ -722,13 +772,13 @@ function ModelEntryRowComponent({
 						entryKey === selectedEntryKey ? "opacity-100" : "opacity-0",
 					)}
 				/>
-				<div className="flex items-center justify-between w-[250px] md:w-full gap-2">
+				<div className="flex items-center justify-between flex-1 min-w-0 gap-2">
 					<div className="flex items-center gap-2 min-w-0 flex-1">
 						{ProviderIcon ? (
 							<ProviderIcon className="h-6 w-6 shrink-0 dark:text-white" />
 						) : null}
 						<div className="flex flex-col min-w-0 flex-1">
-							<div className="flex items-center gap-1">
+							<div className="flex items-center gap-1 min-w-0">
 								<span className="font-medium truncate">{model.name}</span>
 								{isFreeMapping && (
 									<Gift className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
@@ -797,8 +847,23 @@ export function ModelSelector({
 	mode = "chat",
 	isOptionDisabled,
 	getOptionDisabledReason,
+	showRegionalVariants = false,
 }: ModelSelectorProps) {
 	const { isFavorite, toggleFavorite } = useFavoriteModels();
+	const isMobile = useIsMobile();
+	const api = useApi();
+	const { data: providerKeysData } = api.useQuery(
+		"get",
+		"/keys/provider/active",
+	);
+	const providersWithKeys = React.useMemo(() => {
+		const keys = providerKeysData?.providerKeys ?? [];
+		return new Set(
+			keys
+				.filter((k) => k.status === "active")
+				.map((k) => k.provider as string),
+		);
+	}, [providerKeysData]);
 	const [open, setOpen] = React.useState(false);
 	const [filterOpen, setFilterOpen] = React.useState(false);
 	const [searchQuery, setSearchQuery] = React.useState("");
@@ -823,6 +888,7 @@ export function ModelSelector({
 		hideUnstable: true,
 		showOnlyRoot: false,
 		showFavoritesOnly: false,
+		showOnlyWithKeys: false,
 	});
 	const [previewExpandTokens, setPreviewExpandTokens] = React.useState(false);
 	const [selectedExpandTokens, setSelectedExpandTokens] = React.useState(false);
@@ -841,29 +907,39 @@ export function ModelSelector({
 	}, [selectedDetails?.model]);
 
 	// Parse value as provider/model-id (preferred). Fallback to model id only.
-	// Supports region suffix: "alibaba/deepseek-v3.2:cn-beijing"
+	// Supports region suffix: "alibaba/deepseek-v3.2:cn-beijing" or
+	// "aws-bedrock/claude-haiku-4-5:global". The region is the substring after
+	// the last ":" (model.id never contains ":"; upstream modelNames may).
 	const raw = value ?? "";
 	const [selectedProviderId, selectedModelIdRaw] = raw.includes("/")
 		? (raw.split("/") as [string, string])
 		: ["", raw];
-	// Strip :region suffix for root model lookup, keep raw for mapping match
-	const selectedModelId = selectedModelIdRaw.includes(":")
-		? selectedModelIdRaw.split(":")[0]
-		: selectedModelIdRaw;
+	// model.id never contains ":", so split on ":" is safe for the URL form
+	// (provider/model.id[:region]). Look up by canonical (root) id only.
+	const lastColonIdx = selectedModelIdRaw.lastIndexOf(":");
+	const selectedRegion =
+		lastColonIdx > -1 ? selectedModelIdRaw.slice(lastColonIdx + 1) : undefined;
+	const selectedModelId =
+		lastColonIdx > -1
+			? selectedModelIdRaw.slice(0, lastColonIdx)
+			: selectedModelIdRaw;
 	const selectedModel = models.find((m) => m.id === selectedModelId);
 	const selectedProviderDef = providers.find(
 		(p) => p.id === selectedProviderId,
 	);
-	const selectedMapping =
-		selectedModel?.mappings.find(
-			(p) =>
-				p.providerId === selectedProviderId &&
-				p.modelName === selectedModelIdRaw,
-		) ??
-		selectedModel?.mappings.find((p) => p.providerId === selectedProviderId);
+	// Strict (providerId, region) match — no loose fallbacks that would pick
+	// the first regional variant when no region was requested.
+	const selectedMapping = selectedRegion
+		? selectedModel?.mappings.find(
+				(p) =>
+					p.providerId === selectedProviderId && p.region === selectedRegion,
+			)
+		: selectedModel?.mappings.find(
+				(p) => p.providerId === selectedProviderId && !p.region,
+			);
 	const selectedEntryKey =
 		selectedModel && selectedProviderId && selectedMapping
-			? `${selectedProviderId}-${selectedModel.id}-${selectedMapping.modelName}`
+			? `${selectedProviderId}-${selectedModel.id}-${selectedMapping.region ?? ""}`
 			: selectedModel
 				? selectedModel.id
 				: "";
@@ -898,13 +974,39 @@ export function ModelSelector({
 			return dateB - dateA;
 		});
 
+		// Always place the "auto" model at the very top
+		const autoModel = sortedModels.find((m) => m.id === "auto");
+		if (autoModel) {
+			out.push({
+				model: autoModel,
+				isRoot: true,
+				searchText: normalize(
+					[
+						autoModel.name ?? "",
+						autoModel.family ?? "",
+						autoModel.id,
+						autoModel.aliases?.join(" ") ?? "",
+					].join(" "),
+				),
+			});
+		}
+
 		for (const m of sortedModels) {
-			if (m.id === "custom") {
+			if (m.id === "custom" || m.id === "auto") {
+				continue;
+			}
+
+			// Hide fully deactivated models: if every provider mapping is
+			// deactivated there's nothing left to route to, so skip the model
+			// (including its root "auto-select" entry) entirely.
+			const hasActiveMapping = m.mappings.some(
+				(mp) => !(mp.deactivatedAt && new Date(mp.deactivatedAt) <= now),
+			);
+			if (!hasActiveMapping) {
 				continue;
 			}
 
 			// Add root model entry (auto-routing)
-			// Only include "auto" in search text for the actual auto model
 			const aliasText = m.aliases?.join(" ") ?? "";
 			const rootSearchText = normalize(
 				[m.name ?? "", m.family ?? "", m.id, aliasText].join(" "),
@@ -915,12 +1017,10 @@ export function ModelSelector({
 				searchText: rootSearchText,
 			});
 
-			// Skip provider entries for auto model - it should only appear as root
-			if (m.id === "auto") {
-				continue;
-			}
-
 			for (const mp of m.mappings) {
+				if (mp.region && !showRegionalVariants) {
+					continue;
+				}
 				const isDeactivated =
 					mp.deactivatedAt && new Date(mp.deactivatedAt) <= now;
 				if (!isDeactivated) {
@@ -945,7 +1045,7 @@ export function ModelSelector({
 			}
 		}
 		return out;
-	}, [models, providers]);
+	}, [models, providers, showRegionalVariants]);
 
 	// Defer search input value to keep typing responsive with large lists
 	const deferredSearch = React.useDeferredValue(searchQuery);
@@ -991,8 +1091,15 @@ export function ModelSelector({
 			});
 		}
 		if (deferredSearch) {
-			const q = normalize(deferredSearch);
-			list = list.filter((entry) => entry.searchText.includes(q));
+			const tokens = deferredSearch
+				.toLowerCase()
+				.split(/[-_\s]+/)
+				.filter(Boolean);
+			if (tokens.length > 0) {
+				list = list.filter((entry) =>
+					tokens.every((t) => entry.searchText.includes(t)),
+				);
+			}
 		}
 		if (filters.providers.length > 0) {
 			list = list.filter(
@@ -1040,13 +1147,40 @@ export function ModelSelector({
 					return isFavorite(e.model.id);
 				}
 				const mappingId = e.mapping
-					? `${e.mapping.providerId}/${e.mapping.region ? e.mapping.modelName : e.model.id}`
+					? `${e.mapping.providerId}/${e.model.id}${e.mapping.region ? `:${e.mapping.region}` : ""}`
 					: null;
 				return mappingId !== null && isFavorite(mappingId);
 			});
 		}
+		if (filters.showOnlyWithKeys) {
+			const now = new Date();
+			list = list.filter((e) => {
+				if (e.isRoot) {
+					return e.model.mappings?.some(
+						(m) =>
+							providersWithKeys.has(m.providerId) &&
+							!(m.deactivatedAt && new Date(m.deactivatedAt) <= now),
+					);
+				}
+				return e.mapping ? providersWithKeys.has(e.mapping.providerId) : false;
+			});
+		}
+		if (deferredSearch) {
+			const tokens = deferredSearch
+				.toLowerCase()
+				.split(/[-_\s]+/)
+				.filter(Boolean);
+			if (tokens.length > 0) {
+				list = [...list].sort((a, b) => {
+					if (a.isRoot === b.isRoot) {
+						return 0;
+					}
+					return a.isRoot ? -1 : 1;
+				});
+			}
+		}
 		return list;
-	}, [allEntries, deferredSearch, filters, isFavorite]);
+	}, [allEntries, deferredSearch, filters, isFavorite, providersWithKeys]);
 
 	const updateFilter = (key: keyof FilterState, value: any) => {
 		setFilters((prev) => ({ ...prev, [key]: value }));
@@ -1080,6 +1214,7 @@ export function ModelSelector({
 			hideUnstable: true,
 			showOnlyRoot: false,
 			showFavoritesOnly: false,
+			showOnlyWithKeys: false,
 		});
 	};
 
@@ -1089,7 +1224,8 @@ export function ModelSelector({
 		filters.priceRange !== "all" ||
 		!filters.hideUnstable ||
 		filters.showOnlyRoot ||
-		filters.showFavoritesOnly;
+		filters.showFavoritesOnly ||
+		filters.showOnlyWithKeys;
 
 	const getProviderLogo = (providerId: ProviderId) => {
 		const LogoComponent = providerLogoUrls[providerId];
@@ -1116,8 +1252,8 @@ export function ModelSelector({
 			return;
 		}
 
-		// Prefer provider-specific entry when a provider is selected
-		// Match on modelName to distinguish regional variants
+		// Prefer provider-specific entry when a provider is selected.
+		// Match on region to distinguish regional variants.
 		let entry =
 			selectedProviderId &&
 			allEntries.find(
@@ -1125,8 +1261,7 @@ export function ModelSelector({
 					!e.isRoot &&
 					e.model.id === selectedModel.id &&
 					e.mapping?.providerId === selectedProviderId &&
-					(!selectedMapping ||
-						e.mapping?.modelName === selectedMapping.modelName),
+					(!selectedMapping || e.mapping?.region === selectedMapping.region),
 			);
 
 		// Fallback to root entry for the selected model
@@ -1190,7 +1325,7 @@ export function ModelSelector({
 				const { model, mapping, isRoot } = entry;
 				const value = isRoot
 					? model.id
-					: `${mapping!.providerId}/${mapping!.region ? mapping!.modelName : model.id}`;
+					: `${mapping!.providerId}/${model.id}${mapping!.region ? `:${mapping!.region}` : ""}`;
 				const disabled = isRoot
 					? (isOptionDisabled?.(model.id) ?? false)
 					: (isOptionDisabled?.(value) ?? false);
@@ -1310,13 +1445,13 @@ export function ModelSelector({
 						{/* Main content - model list & filters */}
 						<div className="flex-1 w-[300px] md:w-[340px]">
 							<Command shouldFilter={false}>
-								<div className="flex items-center border-b px-3 w-[300px] md:w-full">
+								<div className="flex items-center border-b px-3 w-[300px] md:w-full [&_[cmdk-input-wrapper]]:border-0">
 									<CommandInput
 										placeholder="Search models..."
 										value={searchQuery}
 										onValueChange={setSearchQuery}
 										onKeyDown={handleInputKeyDown}
-										className="h-12 border-0"
+										className="h-12"
 									/>
 									<Popover open={filterOpen} onOpenChange={setFilterOpen}>
 										<PopoverTrigger asChild>
@@ -1334,10 +1469,10 @@ export function ModelSelector({
 										<PopoverContent
 											className="w-[calc(100vw-2rem)] sm:w-80 h-[400px] overflow-y-scroll md:h-full"
 											style={{ zIndex: 100000 }}
-											side="bottom"
-											align="end"
+											side={isMobile ? "bottom" : "right"}
+											align={isMobile ? "end" : "start"}
 										>
-											<div className="space-y-4">
+											<div className="space-y-3">
 												<div className="flex items-center justify-between">
 													<h4 className="font-medium">Filters</h4>
 													{hasActiveFilters && (
@@ -1351,48 +1486,65 @@ export function ModelSelector({
 													)}
 												</div>
 
-												{/* Root model filter */}
-												<div className="flex items-center justify-between">
-													<Label
-														htmlFor="show-root"
-														className="text-sm cursor-pointer font-medium"
-													>
-														Show only root models
-													</Label>
-													<Switch
-														id="show-root"
-														checked={filters.showOnlyRoot}
-														onCheckedChange={(checked) =>
-															updateFilter("showOnlyRoot", checked)
-														}
-													/>
-												</div>
-
-												{/* Favorites filter */}
-												<div className="flex items-center justify-between">
-													<Label
-														htmlFor="show-favorites"
-														className="text-sm cursor-pointer font-medium"
-													>
-														Show favorites only
-													</Label>
-													<Switch
-														id="show-favorites"
-														checked={filters.showFavoritesOnly}
-														onCheckedChange={(checked) =>
-															updateFilter("showFavoritesOnly", checked)
-														}
-													/>
+												{/* Toggle filters group */}
+												<div className="space-y-2">
+													<div className="flex items-center justify-between">
+														<Label
+															htmlFor="show-root"
+															className="text-sm cursor-pointer font-medium"
+														>
+															Show only root models
+														</Label>
+														<Switch
+															id="show-root"
+															checked={filters.showOnlyRoot}
+															onCheckedChange={(checked) =>
+																updateFilter("showOnlyRoot", checked)
+															}
+														/>
+													</div>
+													<div className="flex items-center justify-between">
+														<Label
+															htmlFor="show-favorites"
+															className="text-sm cursor-pointer font-medium"
+														>
+															Show favorites only
+														</Label>
+														<Switch
+															id="show-favorites"
+															checked={filters.showFavoritesOnly}
+															onCheckedChange={(checked) =>
+																updateFilter("showFavoritesOnly", checked)
+															}
+														/>
+													</div>
+													{providersWithKeys.size > 0 && (
+														<div className="flex items-center justify-between">
+															<Label
+																htmlFor="show-with-keys"
+																className="text-sm cursor-pointer font-medium"
+															>
+																Show only providers with keys
+															</Label>
+															<Switch
+																id="show-with-keys"
+																checked={filters.showOnlyWithKeys}
+																onCheckedChange={(checked) =>
+																	updateFilter("showOnlyWithKeys", checked)
+																}
+															/>
+														</div>
+													)}
 												</div>
 
 												<Separator />
 
 												{/* Provider filter */}
-												<div className="space-y-2">
+												<div className="space-y-1.5">
 													<Label className="text-sm font-medium">
 														Providers
 													</Label>
-													<div className="space-y-2 max-h-32 overflow-y-auto">
+													<div className="space-y-1.5 max-h-28 overflow-y-auto">
 														{availableProviders.map((provider) => {
 															const ProviderIcon = getProviderIcon(provider.id);
 															return (
@@ -1432,11 +1584,11 @@ export function ModelSelector({
 												<Separator />
 
 												{/* Capabilities filter */}
-												<div className="space-y-2">
+												<div className="space-y-1.5">
 													<Label className="text-sm font-medium">
 														Capabilities
 													</Label>
-													<div className="space-y-2 max-h-32 overflow-y-auto">
+													<div className="space-y-1.5 max-h-28 overflow-y-auto">
 														{availableCapabilities.map((capability) => (
 															<div
 																key={capability}
@@ -1465,11 +1617,11 @@ export function ModelSelector({
 												<Separator />
 
 												{/* Price range filter */}
-												<div className="space-y-2">
+												<div className="space-y-1.5">
 													<Label className="text-sm font-medium">
 														Price Range
 													</Label>
-													<div className="space-y-2">
+													<div className="space-y-1.5">
 														{[
 															{ value: "all", label: "All models" },
 															{ value: "free", label: "Free models" },
@@ -1606,7 +1758,9 @@ export function ModelSelector({
 													)}
 												</div>
 												<div className="text-[11px] text-muted-foreground capitalize truncate">
-													{previewEntry.model.family} family
+													{previewEntry.model.id !== "auto"
+														? `${previewEntry.model.family} family`
+														: "-"}
 												</div>
 											</div>
 										</div>
@@ -1626,7 +1780,9 @@ export function ModelSelector({
 														previewEntry.model,
 													);
 
-													const isVideo = mode === "video";
+													const isVideo =
+														mode === "video" ||
+														!!previewEntry.model.output?.includes("video");
 													const minPerSec = isVideo
 														? getMinPerSecondPrice(previewEntry.model.mappings)
 														: null;
@@ -1699,6 +1855,15 @@ export function ModelSelector({
 																				</p>
 																			</div>
 																		</div>
+																		{mode === "chat" && (
+																			<div className="flex items-start gap-1.5 rounded-md bg-muted/50 px-2.5 py-2 text-xs text-muted-foreground">
+																				<Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+																				<span>
+																					Selecting this model will open Video
+																					Studio.
+																				</span>
+																			</div>
+																		)}
 																	</div>
 																) : (
 																	<div className="space-y-2">
@@ -1825,31 +1990,32 @@ export function ModelSelector({
 																</div>
 															)}
 
-															{hasCapabilities && (
-																<div className="space-y-1">
-																	<h5 className="font-medium text-xs">
-																		Capabilities
-																	</h5>
-																	<div className="flex flex-wrap gap-1">
-																		{aggregate.capabilities.map(
-																			(capability) => {
-																				const { Icon } =
-																					getCapabilityIconConfig(capability);
-																				return (
-																					<Badge
-																						key={capability}
-																						variant="secondary"
-																						className="text-[10px] px-1.5 py-0.5 flex items-center gap-1"
-																					>
-																						{Icon && <Icon size={12} />}
-																						{capability}
-																					</Badge>
-																				);
-																			},
-																		)}
+															{hasCapabilities &&
+																previewEntry.model.id !== "auto" && (
+																	<div className="space-y-1">
+																		<h5 className="font-medium text-xs">
+																			Capabilities
+																		</h5>
+																		<div className="flex flex-wrap gap-1">
+																			{aggregate.capabilities.map(
+																				(capability) => {
+																					const { Icon } =
+																						getCapabilityIconConfig(capability);
+																					return (
+																						<Badge
+																							key={capability}
+																							variant="secondary"
+																							className="text-[10px] px-1.5 py-0.5 flex items-center gap-1"
+																						>
+																							{Icon && <Icon size={12} />}
+																							{capability}
+																						</Badge>
+																					);
+																				},
+																			)}
+																		</div>
 																	</div>
-																</div>
-															)}
+																)}
 														</div>
 													);
 												})()}
@@ -1864,25 +2030,37 @@ export function ModelSelector({
 
 												<div className="space-y-2">
 													<h5 className="font-medium text-xs">
-														{mode === "video"
+														{mode === "video" ||
+														previewEntry.model.output?.includes("video")
 															? "Video Pricing"
 															: "Pricing & Limits"}
 													</h5>
-													{mode === "video" ? (
-														<div className="grid grid-cols-1 gap-3">
-															<div className="space-y-1">
-																<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																	Per Second
-																</span>
-																<p className="text-xs font-mono">
-																	{previewEntry.mapping?.perSecondPrice
-																		? formatPerSecondPrice(
-																				previewEntry.mapping.perSecondPrice,
-																			)
-																		: "Unknown"}
-																</p>
+													{mode === "video" ||
+													previewEntry.model.output?.includes("video") ? (
+														<>
+															<div className="grid grid-cols-1 gap-3">
+																<div className="space-y-1">
+																	<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																		Per Second
+																	</span>
+																	<p className="text-xs font-mono">
+																		{previewEntry.mapping?.perSecondPrice
+																			? formatPerSecondPrice(
+																					previewEntry.mapping.perSecondPrice,
+																				)
+																			: "Unknown"}
+																	</p>
+																</div>
 															</div>
-														</div>
+															{mode === "chat" && (
+																<div className="flex items-start gap-1.5 rounded-md bg-muted/50 px-2.5 py-2 text-xs text-muted-foreground">
+																	<Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+																	<span>
+																		Selecting this model will open Video Studio.
+																	</span>
+																</div>
+															)}
+														</>
 													) : (
 														<>
 															<div className="grid grid-cols-2 gap-3">
@@ -1891,7 +2069,9 @@ export function ModelSelector({
 																	<>
 																		<div className="space-y-1">
 																			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																				Input
+																				{mode === "realtime"
+																					? "Text In"
+																					: "Input"}
 																			</span>
 																			<p className="text-xs font-mono">
 																				{(() => {
@@ -1949,6 +2129,20 @@ export function ModelSelector({
 																				})()}
 																			</p>
 																		</div>
+																	</>
+																)}
+																{mode === "realtime" && (
+																	<>
+																		<MappingPriceCell
+																			label="Audio In"
+																			mapping={previewEntry.mapping}
+																			field="inputAudio"
+																		/>
+																		<MappingPriceCell
+																			label="Audio Out"
+																			mapping={previewEntry.mapping}
+																			field="outputAudio"
+																		/>
 																	</>
 																)}
 																<div className="space-y-1">
@@ -2147,6 +2341,36 @@ export function ModelSelector({
 																		</Badge>
 																	);
 																})}
+															</div>
+														</div>
+													) : null;
+												})()}
+												{(() => {
+													if (!previewEntry.mapping) {
+														return null;
+													}
+													const regions = previewEntry.model.mappings
+														.filter(
+															(m) =>
+																m.providerId ===
+																	previewEntry.mapping!.providerId && m.region,
+														)
+														.map((m) => m.region as string);
+													return regions.length > 0 ? (
+														<div className="space-y-1">
+															<h5 className="font-medium text-xs">
+																Available Regions
+															</h5>
+															<div className="flex flex-wrap gap-1">
+																{regions.map((r) => (
+																	<Badge
+																		key={r}
+																		variant="secondary"
+																		className="text-[10px] px-1.5 py-0.5"
+																	>
+																		{r}
+																	</Badge>
+																))}
 															</div>
 														</div>
 													) : null;
@@ -2668,6 +2892,36 @@ export function ModelSelector({
 																</Badge>
 															);
 														})}
+													</div>
+												</div>
+											) : null;
+										})()}
+										{(() => {
+											if (!selectedDetails.mapping) {
+												return null;
+											}
+											const regions = selectedDetails.model.mappings
+												.filter(
+													(m) =>
+														m.providerId ===
+															selectedDetails.mapping!.providerId && m.region,
+												)
+												.map((m) => m.region as string);
+											return regions.length > 0 ? (
+												<div className="space-y-2">
+													<h5 className="font-medium text-sm">
+														Available Regions
+													</h5>
+													<div className="flex flex-wrap gap-1.5">
+														{regions.map((r) => (
+															<Badge
+																key={r}
+																variant="secondary"
+																className="text-xs px-2 py-1"
+															>
+																{r}
+															</Badge>
+														))}
 													</div>
 												</div>
 											) : null;

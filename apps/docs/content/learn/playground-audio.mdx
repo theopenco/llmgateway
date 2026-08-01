@@ -1,0 +1,35 @@
+---
+title: Audio Studio
+description: Generate speech from text using AI voices
+icon: AudioLines
+---
+
+import { ThemedImage } from "@/components/themed-image";
+
+The Audio Studio turns text into speech using text-to-speech models from ElevenLabs, OpenAI, Gemini, and Qwen. Pick a model and a voice, type your text, and play or download the result.
+
+<ThemedImage alt="Audio Studio" basePath="/learn/playground-audio" />
+
+## Model Selection
+
+Choose from the supported text-to-speech models in the dropdown. Each model has its own voice roster, output formats, and pricing — the newest models appear first.
+
+## Generating Audio
+
+1. Select a text-to-speech model
+2. Pick a voice for the selected model
+3. Type the text you want spoken — or click one of the sample prompts on the empty state
+4. Click **Generate**
+5. Generated clips appear in the gallery, where you can play or download them
+
+## Voices
+
+Each provider ships its own voice catalog — for example OpenAI's `alloy`, `nova`, and `onyx`, Gemini's `Kore`, `Puck`, and `Zephyr`, or ElevenLabs voices like `Sarah`, `George`, and `Charlotte`. The voice picker only shows voices valid for the selected model.
+
+## Comparison Mode
+
+Enable comparison mode to send the same text to multiple models at once and hear the results side by side — useful for choosing a voice and provider before wiring up the [Speech Generation API](/features/speech-generation).
+
+## History
+
+Generated clips are saved to your audio history so you can revisit, replay, or delete them later.

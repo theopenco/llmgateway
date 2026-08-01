@@ -22,6 +22,83 @@ export function getProviderEnvVar(
 	return providerEnvVarMap[provider as Provider];
 }
 
+export type EnvVarVariant = "enterprise" | "plans";
+
+export const ENV_VAR_VARIANT_SUFFIXES: Record<EnvVarVariant, string> = {
+	enterprise: "__ENTERPRISE",
+	plans: "__PLANS",
+};
+
+/**
+ * Resolve which env-var variant applies to an organization's request:
+ * enterprise-plan orgs use the `__ENTERPRISE` overrides; plan-based
+ * (non-PAYG) orgs — DevPass coding plans and Chat plans — use the
+ * `__PLANS` overrides; everyone else (regular PAYG credits/BYOK orgs)
+ * uses the base vars. Enterprise wins should an org ever match both.
+ */
+export function getOrganizationEnvVariant(
+	organization:
+		| {
+				plan: string;
+				kind?: string | null;
+				devPlan?: string | null;
+				chatPlan?: string | null;
+		  }
+		| null
+		| undefined,
+): EnvVarVariant | undefined {
+	if (!organization) {
+		return undefined;
+	}
+	if (organization.plan === "enterprise") {
+		return "enterprise";
+	}
+	if (
+		(organization.kind === "devpass" &&
+			organization.devPlan &&
+			organization.devPlan !== "none") ||
+		(organization.kind === "chat" &&
+			organization.chatPlan &&
+			organization.chatPlan !== "none")
+	) {
+		return "plans";
+	}
+	return undefined;
+}
+
+/**
+ * Name of the variant override env var (`{baseEnvVarName}__ENTERPRISE` /
+ * `{baseEnvVarName}__PLANS`), returned only when it is actually set.
+ * Applies to any provider env var: API keys, base URLs, regions, projects,
+ * and other provider-specific settings.
+ */
+export function getVariantEnvVarNameFor(
+	baseEnvVarName: string,
+	variant: EnvVarVariant | undefined,
+): string | undefined {
+	if (!variant) {
+		return undefined;
+	}
+	const variantName = `${baseEnvVarName}${ENV_VAR_VARIANT_SUFFIXES[variant]}`;
+	return process.env[variantName] ? variantName : undefined;
+}
+
+/**
+ * Variant override env var for the provider's API key credential, returned
+ * only when it is actually set. Matching orgs use it instead of the base env
+ * var; all other organizations never read it.
+ */
+export function getVariantEnvVarName(
+	provider: Provider | string,
+	variant: EnvVarVariant | undefined,
+): string | undefined {
+	const baseEnvVar = getProviderEnvVar(provider);
+	if (!baseEnvVar) {
+		return undefined;
+	}
+	return getVariantEnvVarNameFor(baseEnvVar, variant);
+}
+
 export function getProviderEnvConfig(
 	provider: Provider | string,
 ): ProviderEnvConfig | undefined {
@@ -41,6 +118,7 @@ export function getProviderEnvValue(
 	key: string,
 	configIndex?: number,
 	defaultValue?: string,
+	variant?: EnvVarVariant,
 ): string | undefined {
 	const config = getProviderEnvConfig(provider);
 	if (!config) {
@@ -60,7 +138,11 @@ export function getProviderEnvValue(
 		return defaultValue;
 	}
 
-	const envValue = process.env[envVarName];
+	// A set variant override var replaces the base var wholesale (including
+	// its comma-separated list); an unset one falls back to the base var.
+	const effectiveEnvVarName =
+		getVariantEnvVarNameFor(envVarName, variant) ?? envVarName;
+	const envValue = process.env[effectiveEnvVarName];
 
 	if (!envValue) {
 		return defaultValue;
@@ -84,6 +166,42 @@ export function getProviderEnvValue(
 	}
 
 	return values[configIndex];
+}
+
+export type VertexTokenType = "api-key" | "oauth";
+
+interface VertexTokenTypeOptions {
+	google_vertex_token_type?: VertexTokenType;
+}
+
+/**
+ * Google Vertex AI accepts either an API key (sent as `?key=`) or an OAuth2
+ * Bearer token. Resolution order: provider-key option → env var → "api-key".
+ */
+export function resolveVertexTokenType(
+	provider: "google-vertex",
+	providerKeyOptions?: VertexTokenTypeOptions,
+	configIndex?: number,
+	skipEnvVars?: boolean,
+	variant?: EnvVarVariant,
+): VertexTokenType {
+	const optionValue = providerKeyOptions?.google_vertex_token_type;
+	if (optionValue === "api-key" || optionValue === "oauth") {
+		return optionValue;
+	}
+	if (!skipEnvVars) {
+		const envValue = getProviderEnvValue(
+			provider,
+			"tokenType",
+			configIndex,
+			undefined,
+			variant,
+		);
+		if (envValue === "api-key" || envValue === "oauth") {
+			return envValue;
+		}
+	}
+	return "api-key";
 }
 
 export function validateProviderEnv(provider: Provider): string[] {
@@ -131,16 +249,27 @@ export function getRegionSpecificEnvValue(
  * Returns `{BASE_ENV_VAR}__{REGION}` when the regional override exists, else
  * undefined. Use this when you need to attribute health to the regional
  * credential rather than the base env var.
+ *
+ * With a variant (enterprise-plan or DevPass orgs), the variant-regional
+ * name `{BASE_ENV_VAR}__ENTERPRISE__{REGION}` / `{BASE_ENV_VAR}__PLANS__{REGION}`
+ * is checked first and wins over the shared regional var when set.
  */
 export function getRegionSpecificEnvVarName(
 	provider: Provider,
 	region: string,
+	variant?: EnvVarVariant,
 ): string | undefined {
 	const baseEnvVar = getProviderEnvVar(provider);
 	if (!baseEnvVar) {
 		return undefined;
 	}
 	const regionSuffix = region.toUpperCase().replace(/-/g, "_");
+	if (variant) {
+		const variantRegionalName = `${baseEnvVar}${ENV_VAR_VARIANT_SUFFIXES[variant]}__${regionSuffix}`;
+		if (process.env[variantRegionalName]) {
+			return variantRegionalName;
+		}
+	}
 	const regionalName = `${baseEnvVar}__${regionSuffix}`;
 	return process.env[regionalName] ? regionalName : undefined;
 }
@@ -162,10 +291,17 @@ export function hasRegionSpecificEnvKey(
 	if (process.env[`${baseEnvVar}__${regionSuffix}`]) {
 		return true;
 	}
-	// The base key covers the provider's default region
 	const def = getProviderDefinition(provider);
-	if (def?.regionConfig?.defaultRegion === region && process.env[baseEnvVar]) {
-		return true;
+	if (process.env[baseEnvVar]) {
+		// The base key covers the provider's default region, and — for providers
+		// whose credential is shared across regions (e.g. AWS Bedrock) — every
+		// region, so non-default regions don't need a per-region env key.
+		if (
+			def?.regionConfig?.defaultRegion === region ||
+			def?.regionConfig?.sharedCredentialAcrossRegions
+		) {
+			return true;
+		}
 	}
 	return false;
 }

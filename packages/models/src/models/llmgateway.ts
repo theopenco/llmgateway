@@ -2,7 +2,7 @@ import type { ModelDefinition } from "@/models.js";
 
 export const llmgatewayModels = [
 	{
-		id: "custom", // custom provider which expects base URL to be set
+		id: "custom",
 		name: "Custom Model",
 		description: "Custom model endpoint with user-provided base URL.",
 		family: "llmgateway",
@@ -10,7 +10,7 @@ export const llmgatewayModels = [
 		providers: [
 			{
 				providerId: "llmgateway",
-				modelName: "custom",
+				externalId: "custom",
 				inputPrice: undefined,
 				outputPrice: undefined,
 				requestPrice: undefined,
@@ -30,7 +30,7 @@ export const llmgatewayModels = [
 		],
 	},
 	{
-		id: "auto", // native automatic routing
+		id: "auto",
 		name: "Auto Route",
 		description: "Automatic model routing based on request characteristics.",
 		family: "llmgateway",
@@ -38,7 +38,7 @@ export const llmgatewayModels = [
 		providers: [
 			{
 				providerId: "llmgateway",
-				modelName: "auto",
+				externalId: "auto",
 				inputPrice: undefined,
 				outputPrice: undefined,
 				requestPrice: undefined,

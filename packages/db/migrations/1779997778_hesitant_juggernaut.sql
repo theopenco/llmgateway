@@ -1,0 +1,1 @@
+ALTER TABLE "model_provider_mapping" DROP COLUMN "model_name";

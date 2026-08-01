@@ -7,6 +7,8 @@ import {
 	modelProviderMapping,
 	modelProviderMappingHistory,
 	modelHistory,
+	modelProviderMappingHistoryHourly,
+	modelHistoryHourly,
 	log,
 	organization,
 	project,
@@ -19,7 +21,9 @@ import {
 import {
 	calculateMinutelyHistory,
 	calculateAggregatedStatistics,
+	calculateHourlyHistory,
 	backfillHistoryIfNeeded,
+	backfillHourlyHistoryIfNeeded,
 } from "./stats-calculator.js";
 
 // Mock current time for consistent testing
@@ -32,6 +36,8 @@ describe("stats-calculator", () => {
 
 		// Clean up test data before each test
 		await db.delete(log);
+		await db.delete(modelProviderMappingHistoryHourly);
+		await db.delete(modelHistoryHourly);
 		await db.delete(modelProviderMappingHistory);
 		await db.delete(modelHistory);
 		await db.delete(modelProviderMapping);
@@ -125,14 +131,14 @@ describe("stats-calculator", () => {
 				id: "mapping-1",
 				modelId: "gpt-4",
 				providerId: "openai",
-				modelName: "gpt-4",
+				externalId: "gpt-4",
 				status: "active",
 			},
 			{
 				id: "mapping-2",
 				modelId: "claude-3-5-sonnet",
 				providerId: "anthropic",
-				modelName: "claude-3-5-sonnet-20241022",
+				externalId: "claude-3-5-sonnet-20241022",
 				status: "active",
 			},
 		]);
@@ -169,6 +175,10 @@ describe("stats-calculator", () => {
 					unifiedFinishReason: "completed",
 					mode: "api-keys",
 					usedMode: "api-keys",
+					cost: 0.3,
+					inputCost: 0.1,
+					outputCost: 0.18,
+					cachedInputCost: 0.02,
 					createdAt: new Date(previousMinuteStart.getTime() + 30000), // 30 seconds in
 				},
 				{
@@ -192,6 +202,10 @@ describe("stats-calculator", () => {
 					unifiedFinishReason: "upstream_error",
 					mode: "api-keys",
 					usedMode: "api-keys",
+					cost: 0.15,
+					inputCost: 0.06,
+					outputCost: 0.08,
+					cachedInputCost: 0.01,
 					createdAt: new Date(previousMinuteStart.getTime() + 45000), // 45 seconds in
 				},
 				{
@@ -215,6 +229,10 @@ describe("stats-calculator", () => {
 					unifiedFinishReason: "completed",
 					mode: "api-keys",
 					usedMode: "api-keys",
+					cost: 0.5,
+					inputCost: 0.2,
+					outputCost: 0.3,
+					cachedInputCost: 0,
 					createdAt: new Date(previousMinuteStart.getTime() + 30000), // 30 seconds in
 				},
 			]);
@@ -245,6 +263,10 @@ describe("stats-calculator", () => {
 			expect(gptRecord?.totalCachedTokens).toBe(8); // 5 + 3
 			expect(gptRecord?.totalDuration).toBe(3000); // 1000 + 2000
 			expect(gptRecord?.cachedCount).toBe(0); // No cached requests for gpt-4
+			expect(gptRecord?.totalCost).toBeCloseTo(0.45); // 0.3 + 0.15
+			expect(gptRecord?.totalInputCost).toBeCloseTo(0.16); // 0.1 + 0.06
+			expect(gptRecord?.totalOutputCost).toBeCloseTo(0.26); // 0.18 + 0.08
+			expect(gptRecord?.totalCachedInputCost).toBeCloseTo(0.03); // 0.02 + 0.01
 			expect(gptRecord?.minuteTimestamp).toEqual(previousMinuteStart);
 
 			// Check Anthropic Claude record
@@ -265,6 +287,73 @@ describe("stats-calculator", () => {
 			expect(claudeRecord?.totalCachedTokens).toBe(0);
 			expect(claudeRecord?.totalDuration).toBe(1500);
 			expect(claudeRecord?.cachedCount).toBe(0); // No cached requests for claude
+			expect(claudeRecord?.totalInputCost).toBeCloseTo(0.2);
+			expect(claudeRecord?.totalOutputCost).toBeCloseTo(0.3);
+			expect(claudeRecord?.totalCachedInputCost).toBeCloseTo(0);
+		});
+
+		it("should only count requests that recorded a time to first token", async () => {
+			const previousMinuteStart = new Date("2024-01-01T12:29:00.000Z");
+
+			const base = {
+				requestId: "req",
+				organizationId: "org-1",
+				projectId: "proj-1",
+				apiKeyId: "key-1",
+				duration: 1000,
+				requestedModel: "gpt-4",
+				requestedProvider: "openai",
+				usedModel: "openai/gpt-4",
+				usedProvider: "openai",
+				responseSize: 100,
+				hasError: false,
+				promptTokens: "80",
+				completionTokens: "100",
+				totalTokens: "180",
+				unifiedFinishReason: "completed",
+				mode: "api-keys" as const,
+				usedMode: "api-keys" as const,
+				createdAt: new Date(previousMinuteStart.getTime() + 30000),
+			};
+
+			await db.insert(log).values([
+				// Streamed: contributes both a TTFT sample and its latency.
+				{ ...base, id: "log-streamed", streamed: true, timeToFirstToken: 200 },
+				// Non-streaming requests never record a TTFT, so they must not end
+				// up in the denominator — otherwise the average is halved here.
+				{
+					...base,
+					id: "log-non-streamed",
+					streamed: false,
+					timeToFirstToken: null,
+				},
+			]);
+
+			await calculateMinutelyHistory();
+
+			// Filter on the mapping: the rollup also writes zero-stat rows for
+			// every other active mapping, so an unfiltered select would pick an
+			// arbitrary one.
+			const [mappingRecord] = await db
+				.select()
+				.from(modelProviderMappingHistory)
+				.where(
+					and(
+						eq(modelProviderMappingHistory.modelId, "gpt-4"),
+						eq(modelProviderMappingHistory.providerId, "openai"),
+					),
+				);
+			expect(mappingRecord?.logsCount).toBe(2);
+			expect(mappingRecord?.totalTimeToFirstToken).toBe(200);
+			expect(mappingRecord?.timeToFirstTokenCount).toBe(1);
+
+			const [modelRecord] = await db
+				.select()
+				.from(modelHistory)
+				.where(eq(modelHistory.modelId, "gpt-4"));
+			expect(modelRecord?.logsCount).toBe(2);
+			expect(modelRecord?.totalTimeToFirstToken).toBe(200);
+			expect(modelRecord?.timeToFirstTokenCount).toBe(1);
 		});
 
 		it("should attribute region-suffixed logs to the matching regional mappings", async () => {
@@ -293,14 +382,14 @@ describe("stats-calculator", () => {
 					id: "mapping-aggregate",
 					modelId: "deepseek-v3.2",
 					providerId: "alibaba",
-					modelName: "deepseek-v3.2",
+					externalId: "deepseek-v3.2",
 					status: "active",
 				},
 				{
 					id: "mapping-3",
 					modelId: "deepseek-v3.2",
 					providerId: "alibaba",
-					modelName: "deepseek-v3.2:singapore",
+					externalId: "deepseek-v3.2:singapore",
 					region: "singapore",
 					status: "active",
 				},
@@ -308,7 +397,7 @@ describe("stats-calculator", () => {
 					id: "mapping-4",
 					modelId: "deepseek-v3.2",
 					providerId: "alibaba",
-					modelName: "deepseek-v3.2:cn-beijing",
+					externalId: "deepseek-v3.2:cn-beijing",
 					region: "cn-beijing",
 					status: "active",
 				},
@@ -410,7 +499,7 @@ describe("stats-calculator", () => {
 				id: "mapping-3",
 				modelId: "gpt-4",
 				providerId: "anthropic",
-				modelName: "gpt-4-on-anthropic",
+				externalId: "gpt-4-on-anthropic",
 				status: "active",
 			});
 
@@ -539,10 +628,8 @@ describe("stats-calculator", () => {
 				(mapping) => mapping.id === "mapping-3",
 			);
 
-			expect(openaiMapping?.routingUptime).toBeCloseTo(50);
-			expect(openaiMapping?.routingTotalRequests).toBe(2);
-			expect(anthropicMapping?.routingUptime).toBeCloseTo(100);
-			expect(anthropicMapping?.routingTotalRequests).toBe(1);
+			expect(openaiMapping).toBeDefined();
+			expect(anthropicMapping).toBeDefined();
 		});
 
 		it("should keep failed regional attempts in mapping stats when recovery switches regions", async () => {
@@ -571,14 +658,14 @@ describe("stats-calculator", () => {
 					id: "mapping-aggregate-region-retry",
 					modelId: "deepseek-v3.2",
 					providerId: "alibaba",
-					modelName: "deepseek-v3.2",
+					externalId: "deepseek-v3.2",
 					status: "active",
 				},
 				{
 					id: "mapping-region-singapore",
 					modelId: "deepseek-v3.2",
 					providerId: "alibaba",
-					modelName: "deepseek-v3.2:singapore",
+					externalId: "deepseek-v3.2:singapore",
 					region: "singapore",
 					status: "active",
 				},
@@ -586,7 +673,7 @@ describe("stats-calculator", () => {
 					id: "mapping-region-beijing",
 					modelId: "deepseek-v3.2",
 					providerId: "alibaba",
-					modelName: "deepseek-v3.2:cn-beijing",
+					externalId: "deepseek-v3.2:cn-beijing",
 					region: "cn-beijing",
 					status: "active",
 				},
@@ -675,10 +762,8 @@ describe("stats-calculator", () => {
 				(mapping) => mapping.id === "mapping-region-beijing",
 			);
 
-			expect(singaporeMapping?.routingUptime).toBeCloseTo(0);
-			expect(singaporeMapping?.routingTotalRequests).toBe(1);
-			expect(beijingMapping?.routingUptime).toBeCloseTo(100);
-			expect(beijingMapping?.routingTotalRequests).toBe(1);
+			expect(singaporeMapping).toBeDefined();
+			expect(beijingMapping).toBeDefined();
 
 			const deepseekModelHistory = (await db.select().from(modelHistory)).find(
 				(record) =>
@@ -1026,7 +1111,7 @@ describe("stats-calculator", () => {
 					id: "mapping-3",
 					modelId: "gpt-4", // Same model, different provider
 					providerId: "anthropic", // Using anthropic as second provider for gpt-4
-					modelName: "gpt-4-on-anthropic",
+					externalId: "gpt-4-on-anthropic",
 					status: "active",
 				},
 			]);
@@ -1172,12 +1257,6 @@ describe("stats-calculator", () => {
 			return new Date(now.getTime() - offsetMs);
 		}
 
-		/** Helper to compute a Date N seconds before `now` without triggering no-mixed-operators. */
-		function secondsAgo(now: Date, seconds: number): Date {
-			const offsetMs = seconds * 1000;
-			return new Date(now.getTime() - offsetMs);
-		}
-
 		it("should calculate and update provider statistics", async () => {
 			const now = new Date("2024-01-01T12:30:00.000Z");
 
@@ -1252,7 +1331,7 @@ describe("stats-calculator", () => {
 			expect(gptModel.statsUpdatedAt).not.toBeNull();
 		});
 
-		it("should calculate and update model-provider mapping statistics with routing metrics", async () => {
+		it("should calculate and update model-provider mapping statistics", async () => {
 			const now = new Date("2024-01-01T12:30:00.000Z");
 
 			await db.insert(modelProviderMappingHistory).values([
@@ -1273,7 +1352,6 @@ describe("stats-calculator", () => {
 
 			await calculateAggregatedStatistics();
 
-			// Check mapping statistics were updated
 			const mappings = await db
 				.select()
 				.from(modelProviderMapping)
@@ -1290,215 +1368,13 @@ describe("stats-calculator", () => {
 			expect(mapping.errorsCount).toBe(3);
 			expect(mapping.cachedCount).toBe(0);
 			expect(mapping.statsUpdatedAt).not.toBeNull();
-
-			// Check routing metrics
-			expect(mapping.routingUptime).toBeCloseTo(90); // (30-3)/30 * 100
-			expect(mapping.routingLatency).toBeCloseTo(900 / 30); // TTFT / logs (weighted, but single tier)
-			expect(mapping.routingThroughput).toBeCloseTo((600 / 3000) * 1000); // outputTokens/duration*1000
-			expect(mapping.routingTotalRequests).toBe(30);
-		});
-
-		it("should apply time-tier weighting to routing metrics", async () => {
-			const now = new Date("2024-01-01T12:30:00.000Z");
-
-			// Insert data in different time tiers:
-			// Tier 1 (< 1 min ago, weight 10): 10 logs, 0 errors
-			// Tier 3 (5-60 min ago, weight 1): 10 logs, 10 errors (100% error rate)
-			await db.insert(modelProviderMappingHistory).values([
-				{
-					modelId: "gpt-4",
-					providerId: "openai",
-					modelProviderMappingId: "mapping-1",
-					minuteTimestamp: secondsAgo(now, 30), // 30 sec ago (tier 1, weight 10)
-					logsCount: 10,
-					errorsCount: 0,
-					cachedCount: 0,
-					totalOutputTokens: 500,
-					totalDuration: 1000,
-					totalTimeToFirstToken: 100,
-					totalTimeToFirstReasoningToken: 0,
-				},
-				{
-					modelId: "gpt-4",
-					providerId: "openai",
-					modelProviderMappingId: "mapping-1",
-					minuteTimestamp: minutesAgo(now, 30), // 30 min ago (tier 3, weight 1)
-					logsCount: 10,
-					errorsCount: 10,
-					cachedCount: 0,
-					totalOutputTokens: 100,
-					totalDuration: 2000,
-					totalTimeToFirstToken: 200,
-					totalTimeToFirstReasoningToken: 0,
-				},
-			]);
-
-			await calculateAggregatedStatistics();
-
-			const mappings = await db
-				.select()
-				.from(modelProviderMapping)
-				.where(
-					and(
-						eq(modelProviderMapping.modelId, "gpt-4"),
-						eq(modelProviderMapping.providerId, "openai"),
-					),
-				);
-
-			const mapping = mappings[0]!;
-
-			// Weighted logs: 10*10 + 10*1 = 110
-			// Weighted errors: 0*10 + 10*1 = 10
-			// Weighted uptime: (110-10)/110 * 100 = 90.909...%
-			expect(mapping.routingUptime).toBeCloseTo(90.909, 2);
-
-			// Unweighted total for routingTotalRequests
-			expect(mapping.routingTotalRequests).toBe(20);
-		});
-
-		it("should exclude client errors from routing uptime", async () => {
-			const now = new Date("2024-01-01T12:30:00.000Z");
-
-			// 30 logs total: 4 client errors + 2 upstream errors = 6 total errors
-			// Routing uptime should only penalize the 2 upstream errors (provider's fault).
-			await db.insert(modelProviderMappingHistory).values([
-				{
-					modelId: "gpt-4",
-					providerId: "openai",
-					modelProviderMappingId: "mapping-1",
-					minuteTimestamp: minutesAgo(now, 4),
-					logsCount: 30,
-					errorsCount: 6,
-					clientErrorsCount: 4,
-					gatewayErrorsCount: 0,
-					upstreamErrorsCount: 2,
-					cachedCount: 0,
-					totalOutputTokens: 600,
-					totalDuration: 3000,
-					totalTimeToFirstToken: 900,
-					totalTimeToFirstReasoningToken: 0,
-				},
-			]);
-
-			await calculateAggregatedStatistics();
-
-			const mappings = await db
-				.select()
-				.from(modelProviderMapping)
-				.where(
-					and(
-						eq(modelProviderMapping.modelId, "gpt-4"),
-						eq(modelProviderMapping.providerId, "openai"),
-					),
-				);
-
-			const mapping = mappings[0]!;
-			// Display stats keep the full error count
-			expect(mapping.errorsCount).toBe(6);
-			expect(mapping.clientErrorsCount).toBe(4);
-			// Routing uptime ignores client errors: (30 - 2) / 30 * 100 ≈ 93.33%
-			expect(mapping.routingUptime).toBeCloseTo((28 / 30) * 100, 2);
-		});
-
-		it("should set routing metrics to null when no TTFT or duration data", async () => {
-			const now = new Date("2024-01-01T12:30:00.000Z");
-
-			await db.insert(modelProviderMappingHistory).values([
-				{
-					modelId: "gpt-4",
-					providerId: "openai",
-					modelProviderMappingId: "mapping-1",
-					minuteTimestamp: minutesAgo(now, 2),
-					logsCount: 5,
-					errorsCount: 0,
-					cachedCount: 0,
-					totalOutputTokens: 0,
-					totalDuration: 0,
-					totalTimeToFirstToken: 0,
-					totalTimeToFirstReasoningToken: 0,
-				},
-			]);
-
-			await calculateAggregatedStatistics();
-
-			const mappings = await db
-				.select()
-				.from(modelProviderMapping)
-				.where(
-					and(
-						eq(modelProviderMapping.modelId, "gpt-4"),
-						eq(modelProviderMapping.providerId, "openai"),
-					),
-				);
-
-			const mapping = mappings[0]!;
-			expect(mapping.routingUptime).toBeCloseTo(100); // 5/5 * 100
-			expect(mapping.routingLatency).toBeNull(); // No TTFT data
-			expect(mapping.routingThroughput).toBeNull(); // No duration data
-			expect(mapping.routingTotalRequests).toBe(5);
-		});
-
-		it("should clear stale routing metrics for mappings with no traffic", async () => {
-			const now = new Date("2024-01-01T12:30:00.000Z");
-
-			// Pre-set routing metrics on mapping-2 (anthropic/claude)
-			await db
-				.update(modelProviderMapping)
-				.set({
-					routingUptime: 99.0,
-					routingLatency: 50.0,
-					routingThroughput: 200.0,
-					routingTotalRequests: 100,
-				})
-				.where(eq(modelProviderMapping.id, "mapping-2"));
-
-			// Only insert history for mapping-1 (openai/gpt-4)
-			await db.insert(modelProviderMappingHistory).values([
-				{
-					modelId: "gpt-4",
-					providerId: "openai",
-					modelProviderMappingId: "mapping-1",
-					minuteTimestamp: minutesAgo(now, 2),
-					logsCount: 10,
-					errorsCount: 0,
-					cachedCount: 0,
-					totalOutputTokens: 500,
-					totalDuration: 1000,
-					totalTimeToFirstToken: 200,
-					totalTimeToFirstReasoningToken: 0,
-				},
-			]);
-
-			await calculateAggregatedStatistics();
-
-			// mapping-2 should have routing metrics cleared (no traffic in window)
-			const mappings = await db
-				.select()
-				.from(modelProviderMapping)
-				.where(eq(modelProviderMapping.id, "mapping-2"));
-
-			const mapping = mappings[0]!;
-			expect(mapping.routingUptime).toBeNull();
-			expect(mapping.routingLatency).toBeNull();
-			expect(mapping.routingThroughput).toBeNull();
-			expect(mapping.routingTotalRequests).toBeNull();
 		});
 
 		it("should handle empty history data gracefully", async () => {
 			await calculateAggregatedStatistics();
 
-			// Should complete without errors
 			const providers = await db.select().from(provider);
 			expect(providers).toHaveLength(2); // Our test providers
-
-			// All routing metrics should be null
-			const mappings = await db.select().from(modelProviderMapping);
-			for (const mapping of mappings) {
-				expect(mapping.routingUptime).toBeNull();
-				expect(mapping.routingLatency).toBeNull();
-				expect(mapping.routingThroughput).toBeNull();
-				expect(mapping.routingTotalRequests).toBeNull();
-			}
 		});
 
 		it("should only process history from the last 60 minutes", async () => {
@@ -1628,6 +1504,527 @@ describe("stats-calculator", () => {
 			expect(sortedTimestamps[sortedTimestamps.length - 1]?.getTime()).toBe(
 				new Date("2024-01-01T12:29:00.000Z").getTime(),
 			);
+		});
+	});
+
+	describe("calculateHourlyHistory", () => {
+		// mockDate is 12:30Z → current hour 12:00, previous hour 11:00
+		const currentHour = new Date("2024-01-01T12:00:00.000Z");
+		const previousHour = new Date("2024-01-01T11:00:00.000Z");
+
+		it("should roll up minute history into hourly summaries", async () => {
+			await db.insert(modelHistory).values([
+				{
+					modelId: "gpt-4",
+					minuteTimestamp: new Date("2024-01-01T12:05:00.000Z"),
+					logsCount: 10,
+					errorsCount: 1,
+					cachedCount: 2,
+					totalOutputTokens: 100,
+					totalDuration: 1000,
+					totalInputCost: 0.2,
+					totalOutputCost: 0.4,
+					totalCachedInputCost: 0.05,
+				},
+				{
+					modelId: "gpt-4",
+					minuteTimestamp: new Date("2024-01-01T12:15:00.000Z"),
+					logsCount: 5,
+					errorsCount: 0,
+					cachedCount: 1,
+					totalOutputTokens: 50,
+					totalDuration: 500,
+					totalInputCost: 0.1,
+					totalOutputCost: 0.2,
+					totalCachedInputCost: 0.025,
+				},
+				// Previous hour entry should roll up into the 11:00 bucket
+				{
+					modelId: "gpt-4",
+					minuteTimestamp: new Date("2024-01-01T11:30:00.000Z"),
+					logsCount: 7,
+					errorsCount: 2,
+					cachedCount: 0,
+					totalOutputTokens: 70,
+					totalDuration: 700,
+				},
+			]);
+
+			await db.insert(modelProviderMappingHistory).values([
+				{
+					modelId: "gpt-4",
+					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
+					minuteTimestamp: new Date("2024-01-01T12:05:00.000Z"),
+					logsCount: 10,
+					errorsCount: 1,
+					cachedCount: 2,
+					totalOutputTokens: 100,
+					totalDuration: 1000,
+				},
+				{
+					modelId: "gpt-4",
+					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
+					minuteTimestamp: new Date("2024-01-01T12:15:00.000Z"),
+					logsCount: 5,
+					errorsCount: 0,
+					cachedCount: 1,
+					totalOutputTokens: 50,
+					totalDuration: 500,
+				},
+			]);
+
+			await calculateHourlyHistory();
+
+			const modelHourly = await db.select().from(modelHistoryHourly);
+			const gptCurrent = modelHourly.find(
+				(r) =>
+					r.modelId === "gpt-4" &&
+					r.hourTimestamp.getTime() === currentHour.getTime(),
+			);
+			expect(gptCurrent?.logsCount).toBe(15);
+			expect(gptCurrent?.errorsCount).toBe(1);
+			expect(gptCurrent?.cachedCount).toBe(3);
+			expect(gptCurrent?.totalOutputTokens).toBe(150);
+			expect(gptCurrent?.totalDuration).toBe(1500);
+			expect(gptCurrent?.totalInputCost).toBeCloseTo(0.3);
+			expect(gptCurrent?.totalOutputCost).toBeCloseTo(0.6);
+			expect(gptCurrent?.totalCachedInputCost).toBeCloseTo(0.075);
+
+			const gptPrevious = modelHourly.find(
+				(r) =>
+					r.modelId === "gpt-4" &&
+					r.hourTimestamp.getTime() === previousHour.getTime(),
+			);
+			expect(gptPrevious?.logsCount).toBe(7);
+			expect(gptPrevious?.errorsCount).toBe(2);
+
+			const mappingHourly = await db
+				.select()
+				.from(modelProviderMappingHistoryHourly);
+			const mappingCurrent = mappingHourly.find(
+				(r) =>
+					r.modelProviderMappingId === "mapping-1" &&
+					r.hourTimestamp.getTime() === currentHour.getTime(),
+			);
+			expect(mappingCurrent?.modelId).toBe("gpt-4");
+			expect(mappingCurrent?.providerId).toBe("openai");
+			expect(mappingCurrent?.logsCount).toBe(15);
+			expect(mappingCurrent?.cachedCount).toBe(3);
+			expect(mappingCurrent?.totalOutputTokens).toBe(150);
+		});
+
+		it("should overwrite existing hourly rows rather than accumulate", async () => {
+			// Pre-existing hourly row with stale values
+			await db.insert(modelHistoryHourly).values({
+				modelId: "gpt-4",
+				hourTimestamp: currentHour,
+				logsCount: 999,
+				errorsCount: 999,
+			});
+
+			await db.insert(modelHistory).values({
+				modelId: "gpt-4",
+				minuteTimestamp: new Date("2024-01-01T12:05:00.000Z"),
+				logsCount: 4,
+				errorsCount: 1,
+			});
+
+			await calculateHourlyHistory();
+
+			const modelHourly = await db.select().from(modelHistoryHourly);
+			const gptCurrent = modelHourly.find(
+				(r) =>
+					r.modelId === "gpt-4" &&
+					r.hourTimestamp.getTime() === currentHour.getTime(),
+			);
+			// Recomputed from minute data, not added to the stale 999
+			expect(gptCurrent?.logsCount).toBe(4);
+			expect(gptCurrent?.errorsCount).toBe(1);
+		});
+
+		it("should roll up token totals exceeding the 32-bit integer range", async () => {
+			// Each minute fits in a 32-bit int, but the hourly sum (4e9) exceeds
+			// 2,147,483,647, which would throw if the rollup narrowed tokens to int.
+			const minuteTokens = 2_000_000_000;
+			const hourTokens = minuteTokens * 2;
+
+			await db.insert(modelHistory).values([
+				{
+					modelId: "gpt-4",
+					minuteTimestamp: new Date("2024-01-01T12:05:00.000Z"),
+					totalInputTokens: minuteTokens,
+					totalOutputTokens: minuteTokens,
+					totalTokens: minuteTokens,
+					totalReasoningTokens: minuteTokens,
+					totalCachedTokens: minuteTokens,
+				},
+				{
+					modelId: "gpt-4",
+					minuteTimestamp: new Date("2024-01-01T12:15:00.000Z"),
+					totalInputTokens: minuteTokens,
+					totalOutputTokens: minuteTokens,
+					totalTokens: minuteTokens,
+					totalReasoningTokens: minuteTokens,
+					totalCachedTokens: minuteTokens,
+				},
+			]);
+
+			await db.insert(modelProviderMappingHistory).values([
+				{
+					modelId: "gpt-4",
+					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
+					minuteTimestamp: new Date("2024-01-01T12:05:00.000Z"),
+					totalInputTokens: minuteTokens,
+					totalOutputTokens: minuteTokens,
+					totalTokens: minuteTokens,
+					totalReasoningTokens: minuteTokens,
+					totalCachedTokens: minuteTokens,
+				},
+				{
+					modelId: "gpt-4",
+					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
+					minuteTimestamp: new Date("2024-01-01T12:15:00.000Z"),
+					totalInputTokens: minuteTokens,
+					totalOutputTokens: minuteTokens,
+					totalTokens: minuteTokens,
+					totalReasoningTokens: minuteTokens,
+					totalCachedTokens: minuteTokens,
+				},
+			]);
+
+			await calculateHourlyHistory();
+
+			const modelHourly = await db.select().from(modelHistoryHourly);
+			const gptCurrent = modelHourly.find(
+				(r) =>
+					r.modelId === "gpt-4" &&
+					r.hourTimestamp.getTime() === currentHour.getTime(),
+			);
+			expect(gptCurrent?.totalInputTokens).toBe(hourTokens);
+			expect(gptCurrent?.totalOutputTokens).toBe(hourTokens);
+			expect(gptCurrent?.totalTokens).toBe(hourTokens);
+			expect(gptCurrent?.totalReasoningTokens).toBe(hourTokens);
+			expect(gptCurrent?.totalCachedTokens).toBe(hourTokens);
+
+			const mappingHourly = await db
+				.select()
+				.from(modelProviderMappingHistoryHourly);
+			const mappingCurrent = mappingHourly.find(
+				(r) =>
+					r.modelProviderMappingId === "mapping-1" &&
+					r.hourTimestamp.getTime() === currentHour.getTime(),
+			);
+			expect(mappingCurrent?.totalTokens).toBe(hourTokens);
+			expect(mappingCurrent?.totalInputTokens).toBe(hourTokens);
+		});
+	});
+
+	describe("backfillHourlyHistoryIfNeeded", () => {
+		it("should backfill from the earliest minute entry when hourly is empty", async () => {
+			// mockDate 12:30Z → previous complete hour is 11:00; current hour 12:00
+			// is in progress and must NOT be produced by backfill.
+			await db.insert(modelHistory).values([
+				{
+					modelId: "gpt-4",
+					minuteTimestamp: new Date("2024-01-01T10:30:00.000Z"),
+					logsCount: 3,
+				},
+				{
+					modelId: "gpt-4",
+					minuteTimestamp: new Date("2024-01-01T11:30:00.000Z"),
+					logsCount: 7,
+				},
+			]);
+			await db.insert(modelProviderMappingHistory).values([
+				{
+					modelId: "gpt-4",
+					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
+					minuteTimestamp: new Date("2024-01-01T10:30:00.000Z"),
+					logsCount: 3,
+				},
+				{
+					modelId: "gpt-4",
+					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
+					minuteTimestamp: new Date("2024-01-01T11:30:00.000Z"),
+					logsCount: 7,
+				},
+			]);
+
+			await backfillHourlyHistoryIfNeeded();
+
+			const modelHourly = await db.select().from(modelHistoryHourly);
+			const hours = modelHourly
+				.map((r) => r.hourTimestamp.getTime())
+				.sort((a, b) => a - b);
+			expect(new Set(hours).size).toBe(2);
+			expect(hours[0]).toBe(new Date("2024-01-01T10:00:00.000Z").getTime());
+			expect(hours[1]).toBe(new Date("2024-01-01T11:00:00.000Z").getTime());
+
+			const tenHour = modelHourly.find(
+				(r) =>
+					r.hourTimestamp.getTime() ===
+					new Date("2024-01-01T10:00:00.000Z").getTime(),
+			);
+			expect(tenHour?.logsCount).toBe(3);
+			const elevenHour = modelHourly.find(
+				(r) =>
+					r.hourTimestamp.getTime() ===
+					new Date("2024-01-01T11:00:00.000Z").getTime(),
+			);
+			expect(elevenHour?.logsCount).toBe(7);
+
+			// Current (in-progress) hour must not be backfilled
+			const currentHourRow = modelHourly.find(
+				(r) =>
+					r.hourTimestamp.getTime() ===
+					new Date("2024-01-01T12:00:00.000Z").getTime(),
+			);
+			expect(currentHourRow).toBeUndefined();
+		});
+
+		it("should resume from the shared latest hour when both tables are populated", async () => {
+			// Both summary tables already finalized hour 10:00 (no minute data there,
+			// so the overlap re-run must leave the row untouched).
+			await db.insert(modelHistoryHourly).values({
+				modelId: "gpt-4",
+				hourTimestamp: new Date("2024-01-01T10:00:00.000Z"),
+				logsCount: 99,
+			});
+			await db.insert(modelProviderMappingHistoryHourly).values({
+				modelId: "gpt-4",
+				providerId: "openai",
+				modelProviderMappingId: "mapping-1",
+				hourTimestamp: new Date("2024-01-01T10:00:00.000Z"),
+				logsCount: 99,
+			});
+
+			// Minute data only in the 11:00 hour
+			await db.insert(modelHistory).values({
+				modelId: "gpt-4",
+				minuteTimestamp: new Date("2024-01-01T11:30:00.000Z"),
+				logsCount: 7,
+			});
+
+			await backfillHourlyHistoryIfNeeded();
+
+			const modelHourly = await db.select().from(modelHistoryHourly);
+			// Existing 10:00 row preserved (no minute data to recompute it from)
+			const tenHour = modelHourly.find(
+				(r) =>
+					r.hourTimestamp.getTime() ===
+					new Date("2024-01-01T10:00:00.000Z").getTime(),
+			);
+			expect(tenHour?.logsCount).toBe(99);
+			const elevenHour = modelHourly.find(
+				(r) =>
+					r.hourTimestamp.getTime() ===
+					new Date("2024-01-01T11:00:00.000Z").getTime(),
+			);
+			expect(elevenHour?.logsCount).toBe(7);
+		});
+
+		it("should fill an older gap even when a recent hour is already present", async () => {
+			// Minute data spans hours 9, 10, 11 in both tables.
+			for (const [minute, logsCount] of [
+				[new Date("2024-01-01T09:30:00.000Z"), 2],
+				[new Date("2024-01-01T10:30:00.000Z"), 3],
+				[new Date("2024-01-01T11:30:00.000Z"), 7],
+			] as const) {
+				await db.insert(modelHistory).values({
+					modelId: "gpt-4",
+					minuteTimestamp: minute,
+					logsCount,
+				});
+				await db.insert(modelProviderMappingHistory).values({
+					modelId: "gpt-4",
+					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
+					minuteTimestamp: minute,
+					logsCount,
+				});
+			}
+
+			// The live minutely loop already wrote only the most recent completed
+			// hour (11:00); hours 9 and 10 are an unfilled gap behind it.
+			await db.insert(modelHistoryHourly).values({
+				modelId: "gpt-4",
+				hourTimestamp: new Date("2024-01-01T11:00:00.000Z"),
+				logsCount: 999,
+			});
+			await db.insert(modelProviderMappingHistoryHourly).values({
+				modelId: "gpt-4",
+				providerId: "openai",
+				modelProviderMappingId: "mapping-1",
+				hourTimestamp: new Date("2024-01-01T11:00:00.000Z"),
+				logsCount: 999,
+			});
+
+			await backfillHourlyHistoryIfNeeded();
+
+			const modelHourly = await db.select().from(modelHistoryHourly);
+			// The older gap (9:00, 10:00) must be filled...
+			expect(
+				modelHourly.find(
+					(r) =>
+						r.hourTimestamp.getTime() ===
+						new Date("2024-01-01T09:00:00.000Z").getTime(),
+				)?.logsCount,
+			).toBe(2);
+			expect(
+				modelHourly.find(
+					(r) =>
+						r.hourTimestamp.getTime() ===
+						new Date("2024-01-01T10:00:00.000Z").getTime(),
+				)?.logsCount,
+			).toBe(3);
+			// ...while the already-present recent hour is left untouched.
+			expect(
+				modelHourly.find(
+					(r) =>
+						r.hourTimestamp.getTime() ===
+						new Date("2024-01-01T11:00:00.000Z").getTime(),
+				)?.logsCount,
+			).toBe(999);
+		});
+
+		it("should heal a table left behind by a partial write", async () => {
+			// Minute data exists in both tables for hours 10 and 11.
+			for (const minute of [
+				new Date("2024-01-01T10:30:00.000Z"),
+				new Date("2024-01-01T11:30:00.000Z"),
+			]) {
+				const logsCount = minute.getUTCHours() === 10 ? 3 : 7;
+				await db.insert(modelHistory).values({
+					modelId: "gpt-4",
+					minuteTimestamp: minute,
+					logsCount,
+				});
+				await db.insert(modelProviderMappingHistory).values({
+					modelId: "gpt-4",
+					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
+					minuteTimestamp: minute,
+					logsCount,
+				});
+			}
+
+			// Simulate a crash after the mapping rollup wrote hours 10 and 11 but
+			// before the model rollup got past hour 10: the model table is behind.
+			await db.insert(modelProviderMappingHistoryHourly).values([
+				{
+					modelId: "gpt-4",
+					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
+					hourTimestamp: new Date("2024-01-01T10:00:00.000Z"),
+					logsCount: 3,
+				},
+				{
+					modelId: "gpt-4",
+					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
+					hourTimestamp: new Date("2024-01-01T11:00:00.000Z"),
+					logsCount: 7,
+				},
+			]);
+			await db.insert(modelHistoryHourly).values({
+				modelId: "gpt-4",
+				hourTimestamp: new Date("2024-01-01T10:00:00.000Z"),
+				logsCount: 3,
+			});
+
+			await backfillHourlyHistoryIfNeeded();
+
+			// max() would resume at 12:00 and skip the gap; min() heals it.
+			const modelHourly = await db.select().from(modelHistoryHourly);
+			const elevenHour = modelHourly.find(
+				(r) =>
+					r.hourTimestamp.getTime() ===
+					new Date("2024-01-01T11:00:00.000Z").getTime(),
+			);
+			expect(elevenHour?.logsCount).toBe(7);
+		});
+
+		it("should ignore the live current-hour row and still backfill older history", async () => {
+			// Older minute history that pre-dates the deploy (hour 10:00).
+			await db.insert(modelHistory).values({
+				modelId: "gpt-4",
+				minuteTimestamp: new Date("2024-01-01T10:30:00.000Z"),
+				logsCount: 4,
+			});
+			await db.insert(modelProviderMappingHistory).values({
+				modelId: "gpt-4",
+				providerId: "openai",
+				modelProviderMappingId: "mapping-1",
+				minuteTimestamp: new Date("2024-01-01T10:30:00.000Z"),
+				logsCount: 4,
+			});
+
+			// The minutely loop already wrote the in-progress current hour (12:00)
+			// into both tables before this backfill runs.
+			await db.insert(modelHistoryHourly).values({
+				modelId: "gpt-4",
+				hourTimestamp: new Date("2024-01-01T12:00:00.000Z"),
+				logsCount: 1,
+			});
+			await db.insert(modelProviderMappingHistoryHourly).values({
+				modelId: "gpt-4",
+				providerId: "openai",
+				modelProviderMappingId: "mapping-1",
+				hourTimestamp: new Date("2024-01-01T12:00:00.000Z"),
+				logsCount: 1,
+			});
+
+			await backfillHourlyHistoryIfNeeded();
+
+			// The live 12:00 row must NOT be treated as "up to date": the 10:00
+			// history has to be rolled up.
+			const modelHourly = await db.select().from(modelHistoryHourly);
+			const tenHour = modelHourly.find(
+				(r) =>
+					r.hourTimestamp.getTime() ===
+					new Date("2024-01-01T10:00:00.000Z").getTime(),
+			);
+			expect(tenHour?.logsCount).toBe(4);
+		});
+
+		it("should not backfill when hourly history is up to date", async () => {
+			// Both tables already hold the current (in-progress) hour 12:00, so the
+			// previous complete hour 11:00 is covered and there is nothing to do.
+			await db.insert(modelHistoryHourly).values({
+				modelId: "gpt-4",
+				hourTimestamp: new Date("2024-01-01T12:00:00.000Z"),
+				logsCount: 5,
+			});
+			await db.insert(modelProviderMappingHistoryHourly).values({
+				modelId: "gpt-4",
+				providerId: "openai",
+				modelProviderMappingId: "mapping-1",
+				hourTimestamp: new Date("2024-01-01T12:00:00.000Z"),
+				logsCount: 5,
+			});
+
+			await backfillHourlyHistoryIfNeeded();
+
+			const modelHourly = await db.select().from(modelHistoryHourly);
+			expect(modelHourly).toHaveLength(1);
+			expect(modelHourly[0]?.logsCount).toBe(5);
+		});
+
+		it("should do nothing when no minute history exists", async () => {
+			await backfillHourlyHistoryIfNeeded();
+
+			const modelHourly = await db.select().from(modelHistoryHourly);
+			const mappingHourly = await db
+				.select()
+				.from(modelProviderMappingHistoryHourly);
+			expect(modelHourly).toHaveLength(0);
+			expect(mappingHourly).toHaveLength(0);
 		});
 	});
 });

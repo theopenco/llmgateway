@@ -11,34 +11,21 @@ export const xiaomiModels = [
 		providers: [
 			{
 				providerId: "xiaomi" as const,
-				modelName: "mimo-v2.5-pro",
-				inputPrice: "1e-6",
-				outputPrice: "3e-6",
-				cachedInputPrice: "0.2e-6",
+				externalId: "mimo-v2.5-pro",
+				inputPrice: "0.435e-6",
+				outputPrice: "0.87e-6",
+				cachedInputPrice: "0.0036e-6",
 				requestPrice: "0",
 				contextSize: 1000000,
 				maxOutput: 131072,
 				streaming: true,
 				reasoning: true,
+				// Xiaomi accepts low/medium/high natively and rejects the other
+				// tiers with a 400; `none` maps to the binary thinking disable.
+				reasoningEfforts: ["none", "low", "medium", "high"],
 				vision: false,
 				tools: true,
 				jsonOutput: true,
-				pricingTiers: [
-					{
-						name: "256K",
-						upToTokens: 256000,
-						inputPrice: "1e-6",
-						outputPrice: "3e-6",
-						cachedInputPrice: "0.2e-6",
-					},
-					{
-						name: "1M",
-						upToTokens: 1000000,
-						inputPrice: "2e-6",
-						outputPrice: "6e-6",
-						cachedInputPrice: "0.4e-6",
-					},
-				],
 			},
 		],
 	},
@@ -51,8 +38,9 @@ export const xiaomiModels = [
 		releasedAt: new Date("2026-03-18"),
 		providers: [
 			{
+				deactivatedAt: new Date("2026-06-30"),
 				providerId: "xiaomi" as const,
-				modelName: "mimo-v2-pro",
+				externalId: "mimo-v2-pro",
 				inputPrice: "1e-6",
 				outputPrice: "3e-6",
 				cachedInputPrice: "0.2e-6",
@@ -64,22 +52,6 @@ export const xiaomiModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
-				pricingTiers: [
-					{
-						name: "256K",
-						upToTokens: 256000,
-						inputPrice: "1e-6",
-						outputPrice: "3e-6",
-						cachedInputPrice: "0.2e-6",
-					},
-					{
-						name: "1M",
-						upToTokens: 1000000,
-						inputPrice: "2e-6",
-						outputPrice: "6e-6",
-						cachedInputPrice: "0.4e-6",
-					},
-				],
 			},
 		],
 	},
@@ -93,34 +65,21 @@ export const xiaomiModels = [
 		providers: [
 			{
 				providerId: "xiaomi" as const,
-				modelName: "mimo-v2.5",
-				inputPrice: "0.4e-6",
-				outputPrice: "2e-6",
-				cachedInputPrice: "0.08e-6",
+				externalId: "mimo-v2.5",
+				inputPrice: "0.14e-6",
+				outputPrice: "0.28e-6",
+				cachedInputPrice: "0.0028e-6",
 				requestPrice: "0",
 				contextSize: 1000000,
 				maxOutput: 131072,
 				streaming: true,
 				reasoning: true,
+				// Xiaomi accepts low/medium/high natively and rejects the other
+				// tiers with a 400; `none` maps to the binary thinking disable.
+				reasoningEfforts: ["none", "low", "medium", "high"],
 				vision: true,
 				tools: true,
 				jsonOutput: true,
-				pricingTiers: [
-					{
-						name: "256K",
-						upToTokens: 256000,
-						inputPrice: "0.4e-6",
-						outputPrice: "2e-6",
-						cachedInputPrice: "0.08e-6",
-					},
-					{
-						name: "1M",
-						upToTokens: 1000000,
-						inputPrice: "0.8e-6",
-						outputPrice: "4e-6",
-						cachedInputPrice: "0.16e-6",
-					},
-				],
 			},
 		],
 	},
@@ -133,8 +92,9 @@ export const xiaomiModels = [
 		releasedAt: new Date("2026-03-18"),
 		providers: [
 			{
+				deactivatedAt: new Date("2026-06-30"),
 				providerId: "xiaomi" as const,
-				modelName: "mimo-v2-omni",
+				externalId: "mimo-v2-omni",
 				inputPrice: "0.4e-6",
 				outputPrice: "2e-6",
 				cachedInputPrice: "0.08e-6",
@@ -159,11 +119,10 @@ export const xiaomiModels = [
 		providers: [
 			{
 				providerId: "xiaomi" as const,
-				modelName: "mimo-v2-flash",
+				externalId: "mimo-v2-flash",
 				inputPrice: "0.1e-6",
 				outputPrice: "0.3e-6",
-				// Flash model uses a 10% cache discount (not 20% like other MiMo models)
-				cachedInputPrice: "0.01e-6",
+				cachedInputPrice: "0.02e-6",
 				requestPrice: "0",
 				contextSize: 256000,
 				maxOutput: undefined,
@@ -173,6 +132,11 @@ export const xiaomiModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				// Xiaomi retires mimo-v2-flash and auto-forwards requests to
+				// mimo-v2.5 (billed as the new model) at Beijing 2026-06-18 00:00.
+				// Deactivate at the switch so requests error instead of silently
+				// routing to a different model.
+				deactivatedAt: new Date("2026-06-17T16:00:00Z"),
 			},
 		],
 	},

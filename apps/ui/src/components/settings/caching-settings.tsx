@@ -31,6 +31,7 @@ const cachingFormSchema = z.object({
 			31536000,
 			"Cache duration must not exceed 31,536,000 seconds (1 year)",
 		),
+	providerCacheControlEnabled: z.boolean(),
 });
 
 type CachingFormData = z.infer<typeof cachingFormSchema>;
@@ -58,6 +59,8 @@ export function CachingSettings({
 				initialData.preferences.preferences.cachingEnabled ?? false,
 			cacheDurationSeconds:
 				initialData.preferences.preferences.cacheDurationSeconds ?? 60,
+			providerCacheControlEnabled:
+				initialData.preferences.preferences.providerCacheControlEnabled ?? true,
 		},
 	});
 
@@ -81,6 +84,7 @@ export function CachingSettings({
 				body: {
 					cachingEnabled: data.cachingEnabled,
 					cacheDurationSeconds: data.cacheDurationSeconds,
+					providerCacheControlEnabled: data.providerCacheControlEnabled,
 				},
 			});
 
@@ -155,6 +159,45 @@ export function CachingSettings({
 									effect.
 								</FormDescription>
 								<FormMessage />
+							</FormItem>
+						)}
+					/>
+
+					<Separator />
+
+					<div>
+						<h4 className="text-base font-medium">Provider Cache Writes</h4>
+						<p className="text-muted-foreground text-sm">
+							Anthropic and AWS Bedrock (Claude) only
+						</p>
+					</div>
+
+					<FormField
+						control={form.control}
+						name="providerCacheControlEnabled"
+						render={({ field }) => (
+							<FormItem className="flex flex-row items-start space-x-3 space-y-0">
+								<FormControl>
+									<Switch
+										checked={field.value}
+										onCheckedChange={field.onChange}
+									/>
+								</FormControl>
+								<div className="space-y-1 leading-none">
+									<FormLabel>Allow provider cache writes</FormLabel>
+									<FormDescription>
+										When disabled, the gateway strips all{" "}
+										<code>cache_control</code> markers from outgoing requests —
+										both the ones it adds automatically for long prompts and any
+										markers your client sends (e.g. Claude Code, Cursor, Cline).
+										Cache writes are billed at 1.25× (5m) or 2× (1h) the input
+										price; reads are 0.1×. Disable this if you send long prompts
+										sporadically with gaps longer than the 5-minute cache TTL —
+										otherwise you pay the write premium without ever benefiting
+										from a cache read. Note: changing this setting may take up
+										to 5 minutes to take effect.
+									</FormDescription>
+								</div>
 							</FormItem>
 						)}
 					/>

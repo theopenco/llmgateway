@@ -57,6 +57,7 @@ COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --parents packages/**/package.json .
 COPY --parents apps/**/package.json .
 COPY --parents ee/**/package.json .
+COPY patches/ ./patches/
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=api... install --frozen-lockfile
 COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=api
@@ -67,6 +68,7 @@ COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --parents packages/**/package.json .
 COPY --parents apps/**/package.json .
 COPY --parents ee/**/package.json .
+COPY patches/ ./patches/
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=gateway... install --frozen-lockfile
 COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=gateway
@@ -77,6 +79,7 @@ COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --parents packages/**/package.json .
 COPY --parents apps/**/package.json .
 COPY --parents ee/**/package.json .
+COPY patches/ ./patches/
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=ui... install --frozen-lockfile
 COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=ui
@@ -87,6 +90,7 @@ COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --parents packages/**/package.json .
 COPY --parents apps/**/package.json .
 COPY --parents ee/**/package.json .
+COPY patches/ ./patches/
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=playground... install --frozen-lockfile
 COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=playground
@@ -97,6 +101,7 @@ COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --parents packages/**/package.json .
 COPY --parents apps/**/package.json .
 COPY --parents ee/**/package.json .
+COPY patches/ ./patches/
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=worker... install --frozen-lockfile
 COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=worker
@@ -107,6 +112,7 @@ COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --parents packages/**/package.json .
 COPY --parents apps/**/package.json .
 COPY --parents ee/**/package.json .
+COPY patches/ ./patches/
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=docs... install --frozen-lockfile
 COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=docs
@@ -117,6 +123,7 @@ COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --parents packages/**/package.json .
 COPY --parents apps/**/package.json .
 COPY --parents ee/**/package.json .
+COPY patches/ ./patches/
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=admin... install --frozen-lockfile
 COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=admin
@@ -127,6 +134,7 @@ COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --parents packages/**/package.json .
 COPY --parents apps/**/package.json .
 COPY --parents ee/**/package.json .
+COPY patches/ ./patches/
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store pnpm --filter=code... install --frozen-lockfile
 COPY . .
 RUN --mount=type=cache,target=/app/.turbo pnpm run build --filter=code
@@ -202,7 +210,7 @@ ENV HOSTNAME="0.0.0.0"
 
 # Set working directory to where server.js is located in Docker build
 WORKDIR /app/apps/ui
-CMD ["node", "server.js"]
+CMD ["node", "--enable-source-maps", "server.js"]
 
 # Playground runtime stage
 FROM runtime AS playground
@@ -219,7 +227,7 @@ ENV HOSTNAME="0.0.0.0"
 
 # Set working directory to where server.js is located in Docker build
 WORKDIR /app/apps/playground
-CMD ["node", "server.js"]
+CMD ["node", "--enable-source-maps", "server.js"]
 
 # Worker preparation stage
 FROM worker-builder AS worker-prep
@@ -249,7 +257,7 @@ ENV HOSTNAME="0.0.0.0"
 
 # Set working directory to where server.js is located in Docker build
 WORKDIR /app/apps/docs
-CMD ["node", "server.js"]
+CMD ["node", "--enable-source-maps", "server.js"]
 
 # Admin runtime stage
 FROM runtime AS admin
@@ -266,7 +274,7 @@ ENV HOSTNAME="0.0.0.0"
 
 # Set working directory to where server.js is located in Docker build
 WORKDIR /app/ee/admin
-CMD ["node", "server.js"]
+CMD ["node", "--enable-source-maps", "server.js"]
 
 # Code runtime stage
 FROM runtime AS code
@@ -283,4 +291,4 @@ ENV HOSTNAME="0.0.0.0"
 
 # Set working directory to where server.js is located in Docker build
 WORKDIR /app/apps/code
-CMD ["node", "server.js"]
+CMD ["node", "--enable-source-maps", "server.js"]

@@ -1,12 +1,15 @@
 import {
 	type BaseMessage,
+	isFileContent,
 	isImageUrlContent,
 	isInputAudioContent,
 	isTextContent,
 	type ProviderId,
 } from "@llmgateway/models";
 
+import { parseDataUrl } from "./parse-data-url.js";
 import { processImageUrl } from "./process-image-url.js";
+import { RequestError } from "./request-error.js";
 
 type GoogleAudioFormat =
 	| "wav"
@@ -26,6 +29,7 @@ const VERTEX_FAMILY: ReadonlySet<string> = new Set(["google-vertex", "quartz"]);
 const AI_STUDIO_FAMILY: ReadonlySet<string> = new Set([
 	"google-ai-studio",
 	"glacier",
+	"iceberg",
 ]);
 
 const AI_STUDIO_AUDIO_MIME: Partial<Record<GoogleAudioFormat, string>> = {
@@ -79,14 +83,116 @@ export function googleProviderSupportsAudioFormat(
  * format/provider mismatch instead of a generic 500.
  */
 export class UnsupportedAudioFormatError extends Error {
-	readonly format: string;
-	readonly providerTarget: string;
-	constructor(format: string, providerTarget: string) {
+	public readonly format: string;
+	public readonly providerTarget: string;
+	public constructor(format: string, providerTarget: string) {
 		super(`Audio format "${format}" is not supported by ${providerTarget}.`);
 		this.name = "UnsupportedAudioFormatError";
 		this.format = format;
 		this.providerTarget = providerTarget;
 	}
+}
+
+/**
+ * Thrown when a `file` content block is structurally invalid for Google
+ * providers (e.g. missing `file_data`, or `file_data` that isn't a base64
+ * data URL). The gateway maps this to HTTP 400 so the client gets an
+ * actionable validation error instead of a generic 500.
+ */
+export class InvalidFileContentError extends Error {
+	public constructor(message: string) {
+		super(message);
+		this.name = "InvalidFileContentError";
+	}
+}
+
+/**
+ * Thrown when an upstream Google provider rejects the request because the
+ * document MIME we passed isn't supported by that specific model. We don't
+ * pre-validate the MIME on our side — Gemini's per-model support varies and
+ * Google's API is authoritative. Instead we parse Google's own error response
+ * after the fact (see `parseGoogleUpstreamDocumentError`) and re-emit as this
+ * typed error so the client sees a clean 400 with a consistent shape.
+ */
+export class UnsupportedDocumentFormatError extends Error {
+	public readonly mimeType: string;
+	public readonly providerTarget: string;
+	public constructor(mimeType: string, providerTarget: string) {
+		super(
+			`Document MIME type "${mimeType}" is not supported by ${providerTarget}.`,
+		);
+		this.name = "UnsupportedDocumentFormatError";
+		this.mimeType = mimeType;
+		this.providerTarget = providerTarget;
+	}
+}
+
+/**
+ * Parses an upstream error response body from a Google provider. If the body
+ * matches Google's "Unsupported MIME type: <mime>" pattern (HTTP 400 with
+ * status `INVALID_ARGUMENT`), returns a typed `UnsupportedDocumentFormatError`
+ * the gateway can throw to surface a clean 400 to the client. Returns null
+ * for any other error shape — the caller falls back to its normal error path.
+ *
+ * Empirically verified against Google AI Studio generateContent — the error
+ * shape is:
+ *   { "error": { "code": 400, "status": "INVALID_ARGUMENT",
+ *                "message": "Unsupported MIME type: application/msword" } }
+ */
+export function parseGoogleUpstreamDocumentError(
+	errorBody: string,
+	providerId: ProviderId | string | undefined,
+): UnsupportedDocumentFormatError | null {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(errorBody);
+	} catch {
+		return null;
+	}
+	if (!parsed || typeof parsed !== "object") {
+		return null;
+	}
+	const err = (parsed as { error?: unknown }).error;
+	if (!err || typeof err !== "object") {
+		return null;
+	}
+	const message = (err as { message?: unknown }).message;
+	if (typeof message !== "string") {
+		return null;
+	}
+	const match = message.match(/^Unsupported MIME type:\s*(.+?)\.?\s*$/i);
+	if (!match) {
+		return null;
+	}
+	return new UnsupportedDocumentFormatError(
+		match[1].trim(),
+		resolveGoogleProviderTarget(providerId),
+	);
+}
+
+/**
+ * Parses a `data:<mime>[;param=value]*;base64,<data>` URL into its parts.
+ * Returns null when the value isn't a base64 data URL. Optional RFC 2397
+ * MIME parameters (e.g. `;charset=utf-8`) are accepted but stripped, since
+ * Google's `inline_data.mime_type` expects a bare type/subtype.
+ *
+ * Delegates to `parseDataUrl` so the (potentially multi-megabyte) base64 body
+ * is never scanned or copied by a regex — only the short header is parsed.
+ */
+function parseFileDataUrl(
+	fileData: string,
+): { mimeType: string; data: string } | null {
+	const parsed = parseDataUrl(fileData);
+	if (!parsed || !parsed.isBase64 || !parsed.mediaType) {
+		return null;
+	}
+	return { mimeType: parsed.mediaType, data: parsed.data };
+}
+
+function resolveGoogleProviderTarget(
+	providerId: ProviderId | string | undefined,
+): string {
+	return VERTEX_FAMILY.has(providerId ?? "") ? "Vertex AI" : "Google AI Studio";
 }
 
 function resolveGoogleAudioMime(
@@ -274,6 +380,15 @@ export async function transformGoogleMessages(
 						// Don't expose the URL in the error message for security
 						const errorMsg =
 							error instanceof Error ? error.message : "Unknown error";
+						// Preserve the RequestError type (and its status code) so the
+						// gateway returns a 4xx and logs a client_error row instead of
+						// treating a client-caused image failure as an unhandled 500.
+						if (error instanceof RequestError) {
+							throw new RequestError(
+								`Failed to process image: ${errorMsg}`,
+								error.statusCode,
+							);
+						}
 						throw new Error(`Failed to process image: ${errorMsg}`);
 					}
 				} else if (isInputAudioContent(content)) {
@@ -285,6 +400,29 @@ export async function transformGoogleMessages(
 						inline_data: {
 							mime_type: mimeType,
 							data: content.input_audio.data,
+						},
+					});
+				} else if (isFileContent(content)) {
+					if (!content.file.file_data) {
+						throw new InvalidFileContentError(
+							"Google providers require base64 file_data on `file` content blocks; file_id references are not supported.",
+						);
+					}
+					const parsed = parseFileDataUrl(content.file.file_data);
+					if (!parsed) {
+						throw new InvalidFileContentError(
+							"Invalid file_data: expected a base64-encoded data URL (e.g. 'data:application/pdf;base64,...').",
+						);
+					}
+					// MIME support varies across Gemini models, so we don't pre-validate;
+					// Google's API is authoritative. If it rejects with "Unsupported MIME
+					// type: X", `parseGoogleUpstreamDocumentError` (called by the gateway
+					// after the upstream call) re-emits it as a typed
+					// UnsupportedDocumentFormatError -> clean HTTP 400 for the client.
+					parts.push({
+						inline_data: {
+							mime_type: parsed.mimeType,
+							data: parsed.data,
 						},
 					});
 				} else {

@@ -3,9 +3,9 @@ import Link from "next/link";
 
 import { CodingModelsShowcase } from "@/components/CodingModelsShowcase";
 import { Footer } from "@/components/Footer";
+import { GetDevPassButton } from "@/components/GetDevPassButton";
 import { Header } from "@/components/Header";
 import { Button } from "@/components/ui/button";
-import { getConfig } from "@/lib/config-server";
 
 import type { Metadata } from "next";
 
@@ -17,8 +17,6 @@ export const metadata: Metadata = {
 };
 
 export default function CodingModelsPage() {
-	const config = getConfig();
-
 	return (
 		<div className="min-h-screen bg-background">
 			<Header />
@@ -90,10 +88,14 @@ export default function CodingModelsPage() {
 
 				<section className="py-16 px-4">
 					<div className="container mx-auto max-w-6xl">
-						<h2 className="text-2xl font-bold text-center mb-8">
-							Featured Coding Models
+						<h2 className="text-2xl font-bold text-center mb-2">
+							Coding Models
 						</h2>
-						<CodingModelsShowcase uiUrl={config.uiUrl} showCTA />
+						<p className="text-center text-muted-foreground mb-8 max-w-2xl mx-auto">
+							We recommend the latest models from open-weight-first labs — the
+							full standard and premium catalogue is one tab away.
+						</p>
+						<CodingModelsShowcase showCTA showTabs />
 					</div>
 				</section>
 
@@ -107,9 +109,10 @@ export default function CodingModelsPage() {
 							key.
 						</p>
 						<div className="flex gap-4 justify-center">
-							<Button size="lg" asChild>
-								<Link href="/signup">Get your DevPass</Link>
-							</Button>
+							<GetDevPassButton
+								cta="get_started"
+								location="coding_models_cta"
+							/>
 						</div>
 					</div>
 				</section>

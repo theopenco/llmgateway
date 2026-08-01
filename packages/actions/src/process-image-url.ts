@@ -1,4 +1,8 @@
 import { logger } from "@llmgateway/logger";
+import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
+
+import { parseDataUrl } from "./parse-data-url.js";
+import { RequestError } from "./request-error.js";
 
 /**
  * Generates a user-friendly error message for image size limits
@@ -25,23 +29,31 @@ function getImageSizeErrorMessage(
 }
 
 /**
- * Processes an image URL or data URL and converts it to base64
+ * Processes an image URL or data URL and converts it to base64.
+ *
+ * `validateSsrf` (default true) applies the user-content SSRF guard to remote
+ * URLs before fetching and refuses redirects, so a tenant-supplied image URL in
+ * a chat/image/video request cannot make the gateway fetch an internal host.
+ * Pass `validateSsrf: false` only for URLs that originate from a trusted upstream
+ * provider response (which may legitimately redirect to a signed CDN URL), not
+ * from the request body.
  */
 export async function processImageUrl(
 	url: string,
 	isProd = false,
 	maxSizeMB = 20,
 	userPlan: "free" | "pro" | "enterprise" | null = null,
+	{ validateSsrf = true }: { validateSsrf?: boolean } = {},
 ): Promise<{ data: string; mimeType: string }> {
 	// Handle data URLs directly without network fetch
 	if (url.startsWith("data:")) {
-		const dataUrlMatch = url.match(/^data:([^;,]+)(?:;base64)?,(.*)$/);
-		if (!dataUrlMatch) {
+		const parsed = parseDataUrl(url);
+		if (!parsed) {
 			logger.warn("Invalid data URL format provided");
 			throw new Error("Invalid image data URL format");
 		}
 
-		const [, mimeType, data] = dataUrlMatch;
+		const { mediaType: mimeType, data, isBase64 } = parsed;
 
 		// Validate it's an image MIME type
 		if (!mimeType.startsWith("image/")) {
@@ -50,7 +62,6 @@ export async function processImageUrl(
 		}
 
 		// Check if data is base64 encoded or needs encoding
-		const isBase64 = url.includes(";base64,");
 		const base64Data = isBase64 ? data : btoa(data);
 
 		// Validate size (estimate: base64 adds ~33% overhead)
@@ -79,11 +90,22 @@ export async function processImageUrl(
 		logger.warn("Non-HTTPS URL provided for image fetch in production", {
 			url: url.substring(0, 20) + "...",
 		});
-		throw new Error("Image URLs must use HTTPS protocol in production");
+		throw new RequestError("Image URLs must use HTTPS protocol in production");
+	}
+
+	// SSRF: a tenant-supplied content URL must not resolve to an internal host.
+	// No-op when the guard is disabled (self-hosted / local test).
+	if (validateSsrf) {
+		await assertSafeUserContentUrl(url);
 	}
 
 	try {
-		const response = await fetch(url);
+		const response = await fetch(url, {
+			// SSRF: refuse redirects so a validated public host cannot 3xx the
+			// gateway onward to an internal one. Trusted provider-response URLs opt
+			// out (validateSsrf: false) since CDNs legitimately redirect.
+			redirect: validateSsrf ? "error" : "follow",
+		});
 
 		if (!response.ok) {
 			logger.warn(`Failed to fetch image from URL (${response.status})`, {

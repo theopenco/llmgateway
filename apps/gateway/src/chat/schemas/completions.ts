@@ -25,6 +25,15 @@ export const completionsRequestSchema = z.object({
 										ttl: z.enum(["5m", "1h"]).optional(),
 									})
 									.optional(),
+								prompt_cache_breakpoint: z
+									.object({
+										mode: z.enum(["explicit"]).optional(),
+									})
+									.optional()
+									.openapi({
+										description:
+											"OpenAI explicit prompt cache breakpoint marker (GPT-5.6 and later). Ends a cacheable prefix when the request sets prompt_cache_options.mode to 'explicit'. Stripped for providers/models without explicit prompt caching support.",
+									}),
 							}),
 							z.object({
 								type: z.literal("image_url"),
@@ -32,6 +41,11 @@ export const completionsRequestSchema = z.object({
 									url: z.string(),
 									detail: z.enum(["low", "high", "auto"]).optional(),
 								}),
+								prompt_cache_breakpoint: z
+									.object({
+										mode: z.enum(["explicit"]).optional(),
+									})
+									.optional(),
 							}),
 							z.object({
 								type: z.literal("input_audio"),
@@ -52,6 +66,35 @@ export const completionsRequestSchema = z.object({
 										"webm",
 									]),
 								}),
+								prompt_cache_breakpoint: z
+									.object({
+										mode: z.enum(["explicit"]).optional(),
+									})
+									.optional(),
+							}),
+							z.object({
+								type: z.literal("file"),
+								file: z
+									.object({
+										filename: z.string().optional(),
+										file_data: z.string().optional().openapi({
+											description:
+												"Base64-encoded data URL with MIME prefix, e.g. 'data:application/pdf;base64,<data>'.",
+										}),
+										file_id: z.string().optional().openapi({
+											description:
+												"Reference to a file uploaded via the provider's Files API.",
+										}),
+									})
+									.refine((file) => Boolean(file.file_data || file.file_id), {
+										message:
+											"file.file_data or file.file_id is required for file content",
+									}),
+								prompt_cache_breakpoint: z
+									.object({
+										mode: z.enum(["explicit"]).optional(),
+									})
+									.optional(),
 							}),
 						]),
 					),
@@ -98,6 +141,27 @@ export const completionsRequestSchema = z.object({
 						.passthrough(),
 				)
 				.optional(),
+			phase: z.enum(["commentary", "final_answer"]).optional().openapi({
+				description:
+					"OpenAI Responses assistant-message phase. Replayed upstream for OpenAI Responses API models; stripped for other providers.",
+			}),
+			content_before_tool_calls: z.boolean().optional().openapi({
+				description:
+					"Marks assistant content that preceded the message's tool calls (pre-tool commentary on OpenAI Responses API models), so replay preserves the original item order. Stripped for other providers.",
+			}),
+			message_items: z
+				.array(
+					z.object({
+						text: z.string(),
+						phase: z.enum(["commentary", "final_answer"]).optional(),
+						preceding_tool_calls: z.number().int().nonnegative().optional(),
+					}),
+				)
+				.optional()
+				.openapi({
+					description:
+						"Separate phased assistant message items (e.g. commentary and final_answer) emitted by OpenAI Responses API models in a single turn. preceding_tool_calls records how many of the message's tool calls came before each item. Replayed upstream as individual message items in their original order; stripped for other providers.",
+				}),
 		}),
 	),
 	temperature: z
@@ -159,6 +223,19 @@ export const completionsRequestSchema = z.object({
 		])
 		.optional(),
 	stream: z.boolean().optional().default(false),
+	n: z
+		.number()
+		.int()
+		.min(1)
+		.max(128)
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val))
+		.openapi({
+			description:
+				"How many chat completion choices to generate for each input message. Only accepted when the resolved model supports it upstream (currently OpenAI Chat Completions models and Google Gemini 2.5 models via `candidateCount`); requests for unsupported models are rejected with 400. Streaming is supported for OpenAI models: choice deltas are demultiplexed by `choices[].index` on a single SSE stream. Exceptions rejected with 400: `n > 1` with `stream: true` **and** function `tools` (the streaming tool-call aggregator can't disambiguate concurrent calls across choices; native `web_search` tools and the `web_search: true` flag are exempt), `n > 1` with `stream: true` on Google models (Gemini rejects candidateCount on streamGenerateContent), and `n > 8` on Google models (Gemini caps candidateCount at 8).",
+			example: 1,
+		}),
 	prompt_cache_key: z
 		.string()
 		.nullable()
@@ -178,6 +255,29 @@ export const completionsRequestSchema = z.object({
 			description:
 				"OpenAI prompt cache retention policy. OpenAI supports in_memory and 24h for eligible models.",
 			example: "24h",
+		}),
+	prompt_cache_options: z
+		.object({
+			mode: z.enum(["implicit", "explicit"]).optional(),
+			ttl: z.enum(["30m"]).optional(),
+		})
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val))
+		.openapi({
+			description:
+				"OpenAI explicit prompt caching options (GPT-5.6 and later). mode 'implicit' (default) places an automatic cache breakpoint at the latest message; 'explicit' caches only content parts marked with prompt_cache_breakpoint. Only forwarded for OpenAI models that support explicit prompt caching.",
+			example: { mode: "explicit" },
+		}),
+	user: z
+		.string()
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val))
+		.openapi({
+			description:
+				"OpenAI end-user identifier. Used as a fallback sticky-routing session key when no x-session-id header or prompt_cache_key is provided.",
+			example: "user-123",
 		}),
 	tools: z
 		.array(
@@ -202,6 +302,8 @@ export const completionsRequestSchema = z.object({
 						.optional(),
 					search_context_size: z.enum(["low", "medium", "high"]).optional(),
 					max_uses: z.number().optional(),
+					allowed_domains: z.array(z.string()).optional(),
+					blocked_domains: z.array(z.string()).optional(),
 				}),
 			]),
 		)
@@ -220,22 +322,23 @@ export const completionsRequestSchema = z.object({
 		])
 		.optional(),
 	reasoning_effort: z
-		.enum(["minimal", "low", "medium", "high", "xhigh"])
+		.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"])
 		.nullable()
 		.optional()
 		.transform((val) => (val === null ? undefined : val))
 		.openapi({
-			description: "Controls the reasoning effort for reasoning-capable models",
+			description:
+				"Controls the reasoning effort for reasoning-capable models. `none` is only supported by OpenAI's newer reasoning models (e.g. gpt-5.4 and later); for other providers it disables reasoning. `max` is the highest tier (above `xhigh`), supported by Anthropic models and OpenAI GPT-5.6 models. The gateway never downgrades effort tiers: providers that accept an effort parameter receive the value unchanged (an unsupported value results in a provider error), while providers that take a thinking budget instead (e.g. Anthropic, Google) translate each tier to a native budget. The exact values each provider mapping accepts are exposed as `reasoning_efforts` on `/v1/models`.",
 			example: "medium",
 		}),
 	reasoning: z
 		.object({
 			effort: z
-				.enum(["none", "minimal", "low", "medium", "high", "xhigh"])
+				.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"])
 				.optional()
 				.openapi({
 					description:
-						"Controls the reasoning effort. Alternative to top-level reasoning_effort. Cannot be used together with reasoning_effort.",
+						"Controls the reasoning effort. Alternative to top-level reasoning_effort. Cannot be used together with reasoning_effort. `max` is the highest tier (above `xhigh`), supported by Anthropic models and OpenAI GPT-5.6 models. Tiers are never downgraded by the gateway: enum-based providers receive the value unchanged (unsupported values result in a provider error), while budget-based providers (e.g. Anthropic, Google) translate the tier to a native thinking budget. See `reasoning_efforts` on `/v1/models` for the values each mapping accepts.",
 					example: "medium",
 				}),
 			max_tokens: z.number().int().positive().optional().openapi({
@@ -243,6 +346,14 @@ export const completionsRequestSchema = z.object({
 					"Exact number of tokens to allocate for reasoning. When specified, overrides effort. Supported by Anthropic and Google thinking models.",
 				example: 4000,
 			}),
+			context: z
+				.enum(["auto", "current_turn", "all_turns"])
+				.optional()
+				.openapi({
+					description:
+						"How much replayed reasoning the model considers (OpenAI Responses API models only). Omitting the field is equivalent to 'auto'. Forwarded upstream as reasoning.context; ignored by other providers.",
+					example: "current_turn",
+				}),
 		})
 		.optional()
 		.openapi({
@@ -258,6 +369,32 @@ export const completionsRequestSchema = z.object({
 			description:
 				"Controls the computational effort for supported models (currently only claude-opus-4-5-20251101)",
 			example: "medium",
+		}),
+	verbosity: z
+		.enum(["low", "medium", "high"])
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val))
+		.openapi({
+			description:
+				"Controls how detailed the model's responses are. Only supported by OpenAI GPT-5 and later models; requests to models without verbosity support return a 400 error.",
+			example: "low",
+		}),
+	service_tier: z
+		.enum(["auto", "default", "flex", "priority"])
+		.optional()
+		.openapi({
+			description:
+				"Processing tier for the request. `flex` and `priority` are forwarded only for provider/model mappings that explicitly support the requested tier, such as supported OpenAI and Google mappings. `auto`/`default` use the standard on-demand tier. Unsupported tier requests return a 400 `unsupported_service_tier` error.",
+			example: "flex",
+		}),
+	routing: z
+		.enum(["auto", "price", "throughput", "latency"])
+		.optional()
+		.openapi({
+			description:
+				"Provider selection strategy for model-id routing, named after the factor it optimizes. `auto` (default) uses the full weighted smart-routing score. `price`, `throughput`, and `latency` each give a 90% relative weight to that factor while keeping a small uptime weight so requests still fall back to other providers when the top pick has extremely bad uptime. `latency` only biases streaming requests. Combining `routing` with a specific provider prefix (e.g. `openai/gpt-4o`) returns a 400. On coding (dev) plans only `auto` and `price` are allowed.",
+			example: "price",
 		}),
 	free_models_only: z.boolean().optional().default(false).openapi({
 		description:

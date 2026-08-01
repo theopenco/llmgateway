@@ -52,6 +52,10 @@ interface BenchmarkData {
 	arena: ArenaBenchmark;
 }
 
+// Below this many requests in the window, throughput/uptime/error rates are too
+// noisy to be statistically meaningful, so we hide them rather than mislead.
+const MIN_SIGNIFICANT_REQUESTS = 1000;
+
 export function ModelBenchmarks({ modelId }: { modelId: string }) {
 	const config = useAppConfig();
 
@@ -110,10 +114,10 @@ export function ModelBenchmarks({ modelId }: { modelId: string }) {
 		});
 
 	// Pick the most stable provider: highest uptime among those with meaningful
-	// traffic. Require at least 20 requests to avoid awarding a provider that
-	// only handled a handful of calls.
+	// traffic. Require a statistically significant request count to avoid
+	// awarding a provider that only handled a handful of calls.
 	const stabilityCandidates = sorted.filter(
-		(p) => p.uptime !== null && p.logsCount >= 20,
+		(p) => p.uptime !== null && p.logsCount >= MIN_SIGNIFICANT_REQUESTS,
 	);
 	const mostStableProviderId =
 		stabilityCandidates.length > 1 ? stabilityCandidates[0].providerId : null;
@@ -225,13 +229,18 @@ export function ModelBenchmarks({ modelId }: { modelId: string }) {
 					<p className="text-sm text-muted-foreground mb-4">
 						Real performance data from LLM Gateway over the last{" "}
 						{sorted[0]?.windowHours ?? 24} hours. Higher uptime and throughput
-						are better.
+						are better. Stats are hidden for providers with under{" "}
+						{MIN_SIGNIFICANT_REQUESTS.toLocaleString()} requests, where the
+						sample is too small to be reliable.
 					</p>
 
 					<div className="grid gap-3">
 						{sorted.map((provider) => {
 							const ProviderIcon = getProviderIcon(provider.providerId);
 							const isMostStable = provider.providerId === mostStableProviderId;
+							const isSignificant =
+								provider.logsCount >= MIN_SIGNIFICANT_REQUESTS;
+							const insufficientDataTitle = `Not enough traffic for reliable stats (under ${MIN_SIGNIFICANT_REQUESTS.toLocaleString()} requests)`;
 
 							return (
 								<div
@@ -280,13 +289,17 @@ export function ModelBenchmarks({ modelId }: { modelId: string }) {
 												<span
 													className={cn(
 														"font-mono font-medium",
-														provider.tokensPerSecond === null
+														!isSignificant || provider.tokensPerSecond === null
 															? "text-muted-foreground"
 															: "",
 													)}
-													title="Output tokens per second across all requests in the window"
+													title={
+														isSignificant
+															? "Output tokens per second across all requests in the window"
+															: insufficientDataTitle
+													}
 												>
-													{provider.tokensPerSecond !== null
+													{isSignificant && provider.tokensPerSecond !== null
 														? `${provider.tokensPerSecond.toLocaleString()} tok/s`
 														: "\u2014"}
 												</span>
@@ -300,7 +313,7 @@ export function ModelBenchmarks({ modelId }: { modelId: string }) {
 												<span
 													className={cn(
 														"font-mono font-medium",
-														provider.uptime === null
+														!isSignificant || provider.uptime === null
 															? "text-muted-foreground"
 															: provider.uptime >= 99
 																? "text-green-600"
@@ -308,9 +321,13 @@ export function ModelBenchmarks({ modelId }: { modelId: string }) {
 																	? "text-amber-500"
 																	: "text-red-500",
 													)}
-													title={`Uptime over last ${provider.windowHours}h`}
+													title={
+														isSignificant
+															? `Uptime over last ${provider.windowHours}h`
+															: insufficientDataTitle
+													}
 												>
-													{provider.uptime !== null
+													{isSignificant && provider.uptime !== null
 														? `${provider.uptime.toFixed(2)}%`
 														: "\u2014"}
 												</span>
@@ -324,14 +341,19 @@ export function ModelBenchmarks({ modelId }: { modelId: string }) {
 												<span
 													className={cn(
 														"font-mono font-medium",
-														provider.errorRate > 5
-															? "text-red-500"
-															: provider.errorRate > 1
-																? "text-amber-500"
-																: "text-green-600",
+														!isSignificant
+															? "text-muted-foreground"
+															: provider.errorRate > 5
+																? "text-red-500"
+																: provider.errorRate > 1
+																	? "text-amber-500"
+																	: "text-green-600",
 													)}
+													title={
+														isSignificant ? undefined : insufficientDataTitle
+													}
 												>
-													{provider.errorRate}%
+													{isSignificant ? `${provider.errorRate}%` : "—"}
 												</span>
 											</div>
 										</div>

@@ -1,27 +1,29 @@
 import { Percent } from "lucide-react";
 
 import { Countdown } from "@/components/countdown";
+import { discountFraction } from "@/lib/discount";
 
-export interface DiscountData {
-	id: string;
-	provider: string | null;
-	model: string | null;
-	discountPercent: string;
-	reason: string | null;
-	expiresAt: string | null;
-	createdAt: string;
-}
+import type { DiscountData } from "@/lib/discount";
+
+export type { DiscountData };
 
 interface GlobalDiscountBannerProps {
 	discount: DiscountData | null;
+	/** Display name of the provider the discount applies through, if scoped. */
+	providerName?: string | null;
 }
 
-export function GlobalDiscountBanner({ discount }: GlobalDiscountBannerProps) {
+export function GlobalDiscountBanner({
+	discount,
+	providerName,
+}: GlobalDiscountBannerProps) {
 	if (!discount) {
 		return null;
 	}
 
-	const percent = (parseFloat(discount.discountPercent) * 100).toFixed(0);
+	const provider = providerName ?? discount.provider;
+
+	const percent = (discountFraction(discount.discountPercent) * 100).toFixed(0);
 
 	return (
 		<div className="rounded-lg bg-linear-to-r from-green-500/10 via-emerald-500/10 to-teal-500/10 border border-green-500/20 p-4 flex items-center gap-3 flex-wrap">
@@ -33,8 +35,8 @@ export function GlobalDiscountBanner({ discount }: GlobalDiscountBannerProps) {
 					{percent}% off
 				</span>
 				<span className="text-sm text-muted-foreground">
-					{discount.model ? "this model" : "all models"}
-					{discount.provider ? ` via ${discount.provider}` : ""}
+					this model
+					{provider ? ` via ${provider}` : ""}
 				</span>
 				{discount.expiresAt && (
 					<>

@@ -1,0 +1,55 @@
+---
+title: Org Models Directory
+description: One directory of every model your organization can use — catalog and custom — with per-model compliance eligibility.
+icon: BotMessageSquare
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Org Models Directory
+
+The **Models** page in the dashboard (`Organization → Models`) lists every model your organization can route to in a single directory: the full LLM Gateway catalogue plus the models defined for your own [custom providers](/features/custom-providers). It answers two questions for your whole team:
+
+- **What can we call?** — every catalogue and custom model, searchable and filterable by capability, provider, price, and context size, exactly like the public [models page](https://llmgateway.io/models).
+- **What are we allowed to call?** — when a [provider compliance policy](/features/compliance) is active, each provider mapping is marked eligible or blocked using the same fail-closed evaluation the gateway applies at request time.
+
+## Who can see it
+
+Every active organization member can browse the directory read-only — including project-scoped **developer** members, who see it as their only organization page. This is the recommended way for developers to discover available providers and models without being granted additional permissions. Management actions (custom-model catalog, attestations) remain restricted to organization owners and admins.
+
+## Custom models in the directory
+
+Custom models appear alongside catalogue models, addressed as `{customProvider}/{modelName}` — the exact model string to send to the gateway:
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "internal-vllm/llama-4-maverick",
+    "messages": [{ "role": "user", "content": "Hello!" }]
+  }'
+```
+
+Their pricing, context and output limits, and capability flags come from the [custom model catalog](/features/custom-providers#custom-model-catalog). A **Source** filter switches between catalogue models, custom models, or both.
+
+## Compliance eligibility
+
+With an enabled compliance policy (Enterprise), the directory evaluates every provider mapping against the policy — certifications, data-policy requirements, country restrictions, and provider/model allow and deny lists:
+
+- Blocked mappings render greyed out with a ban icon; its tooltip lists the exact failing requirements (for example "No SOC 2 Type 2 report" or "Not on the allowed-providers list").
+- Custom providers are evaluated against their [compliance attestation](/features/compliance#custom-providers); without one on file they are blocked while a policy is active.
+- An **Eligible only** filter narrows the directory to models the gateway will actually route to.
+
+<Callout type="info">
+	The directory mirrors gateway enforcement — the same predicates decide both
+	the markers on this page and the 403 responses at request time. If a model is
+	marked blocked here, requests for it will be rejected while the policy is
+	active.
+</Callout>
+
+## Related
+
+- [Knowledge base → Models](/learn/models) — a walkthrough of the page itself.
+- [Custom Providers](/features/custom-providers) — bring your own OpenAI-compatible endpoints and define their model catalog.
+- [Compliance](/features/compliance) — configure the provider compliance policy.

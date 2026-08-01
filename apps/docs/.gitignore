@@ -6,6 +6,10 @@
 .content-collections
 .source
 
+# generated api reference docs (pnpm gen-docs)
+/content/(api)/*.mdx
+!/content/(api)/index.mdx
+
 # test & build
 /coverage
 /.next/

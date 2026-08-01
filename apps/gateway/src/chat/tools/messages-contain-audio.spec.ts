@@ -115,6 +115,7 @@ describe("Gemini audio capability flag", () => {
 		"gemini-2.5-flash-lite",
 		"gemini-3-flash-preview",
 		"gemini-3.1-flash-lite",
+		"gemini-3.5-flash",
 	];
 
 	for (const id of expectedAudioFlashModelIds) {
@@ -162,6 +163,7 @@ describe("Gemini audio capability flag", () => {
 			"gemini-2.5-flash-image-preview",
 			"gemini-3-pro-image-preview",
 			"gemini-3.1-flash-image-preview",
+			"gemini-3.1-flash-lite-image",
 		];
 		for (const id of imageOnlyIds) {
 			const model = models.find((m) => m.id === id);

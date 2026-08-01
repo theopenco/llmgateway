@@ -5,6 +5,7 @@ import {
 	ChevronRight,
 	FolderOpen,
 	Key,
+	KeyRound,
 	Receipt,
 	Users,
 } from "lucide-react";
@@ -26,13 +27,20 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
 	blockOrganization,
 	giftCreditsToOrganization,
+	manageOrganization,
+	updateReferralBonus,
 } from "@/lib/admin-organizations";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 
+import { ApiKeysTable } from "./api-keys-table";
 import { GiftCreditsDialog } from "./gift-credits-dialog";
+import { ManageOrgDialog } from "./manage-org-dialog";
 import { OrgCostByModel } from "./org-cost-by-model";
+import { OrgCostByModelTimeseries } from "./org-cost-by-model-timeseries";
 import { OrgMetricsSection } from "./org-metrics";
+import { ProviderKeysTable } from "./provider-keys-table";
+import { ReferralBonusDialog } from "./referral-bonus-dialog";
 import { SendEmailDialog } from "./send-email-dialog";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -144,30 +152,39 @@ export default async function OrganizationPage({
 	const akOffset = (akPage - 1) * akLimit;
 
 	const $api = await createServerApiClient();
-	const [transactionsRes, projectsRes, apiKeysRes, membersRes] =
-		await Promise.all([
-			$api.GET("/admin/organizations/{orgId}/transactions", {
-				params: {
-					path: { orgId },
-					query: { limit: txLimit, offset: txOffset },
-				},
-			}),
-			$api.GET("/admin/organizations/{orgId}/projects", {
-				params: { path: { orgId } },
-			}),
-			$api.GET("/admin/organizations/{orgId}/api-keys", {
-				params: {
-					path: { orgId },
-					query: { limit: akLimit, offset: akOffset },
-				},
-			}),
-			$api.GET("/admin/organizations/{orgId}/members", {
-				params: { path: { orgId } },
-			}),
-		]);
+	const [
+		transactionsRes,
+		projectsRes,
+		apiKeysRes,
+		providerKeysRes,
+		membersRes,
+	] = await Promise.all([
+		$api.GET("/admin/organizations/{orgId}/transactions", {
+			params: {
+				path: { orgId },
+				query: { limit: txLimit, offset: txOffset },
+			},
+		}),
+		$api.GET("/admin/organizations/{orgId}/projects", {
+			params: { path: { orgId } },
+		}),
+		$api.GET("/admin/organizations/{orgId}/api-keys", {
+			params: {
+				path: { orgId },
+				query: { limit: akLimit, offset: akOffset },
+			},
+		}),
+		$api.GET("/admin/organizations/{orgId}/provider-keys", {
+			params: { path: { orgId } },
+		}),
+		$api.GET("/admin/organizations/{orgId}/members", {
+			params: { path: { orgId } },
+		}),
+	]);
 	const transactionsData = transactionsRes.data;
 	const projectsData = projectsRes.data;
 	const apiKeysData = apiKeysRes.data;
+	const providerKeysData = providerKeysRes.data;
 	const membersData = membersRes.data;
 
 	if (transactionsData === null) {
@@ -187,6 +204,8 @@ export default async function OrganizationPage({
 	const apiKeys = apiKeysData?.apiKeys ?? [];
 	const akTotal = apiKeysData?.total ?? 0;
 	const akTotalPages = Math.ceil(akTotal / akLimit);
+	const providerKeys = providerKeysData?.providerKeys ?? [];
+	const providerKeysTotal = providerKeysData?.total ?? 0;
 	const members = membersData?.members ?? [];
 	const membersTotal = membersData?.total ?? 0;
 
@@ -229,18 +248,43 @@ export default async function OrganizationPage({
 						<Badge variant={org.status === "active" ? "secondary" : "outline"}>
 							{org.status ?? "active"}
 						</Badge>
+						{org.seats !== null && org.seats !== undefined && (
+							<Badge variant="outline">Seats: {org.seats}</Badge>
+						)}
+						{org.apiKeyLimit !== null && org.apiKeyLimit !== undefined && (
+							<Badge variant="outline">API keys: {org.apiKeyLimit}</Badge>
+						)}
 						<span className="text-sm font-medium">
 							Credits: {creditsFormatter.format(parseFloat(org.credits))}
 						</span>
 					</div>
 				</div>
 				<div className="flex flex-wrap items-center gap-2">
+					<ManageOrgDialog
+						orgName={org.name}
+						plan={org.plan}
+						seats={org.seats ?? null}
+						apiKeyLimit={org.apiKeyLimit ?? null}
+						onSave={async (data) => {
+							"use server";
+							return await manageOrganization(orgId, data);
+						}}
+					/>
 					<GiftCreditsDialog
 						orgId={orgId}
 						orgName={org.name}
 						onGift={async (data) => {
 							"use server";
 							return await giftCreditsToOrganization(orgId, data);
+						}}
+					/>
+					<ReferralBonusDialog
+						orgName={org.name}
+						enabled={org.referralBonusEnabled ?? false}
+						percent={org.referralBonusPercent ?? 50}
+						onSave={async (data) => {
+							"use server";
+							return await updateReferralBonus(orgId, data);
 						}}
 					/>
 					<Button variant="outline" size="sm" asChild>
@@ -269,6 +313,8 @@ export default async function OrganizationPage({
 			<OrgMetricsSection orgId={orgId} />
 
 			<OrgCostByModel orgId={orgId} />
+
+			<OrgCostByModelTimeseries orgId={orgId} />
 
 			{projects.length > 0 && (
 				<section className="space-y-4">
@@ -323,6 +369,10 @@ export default async function OrganizationPage({
 					<TabsTrigger value="api-keys">
 						<Key className="mr-1.5 h-4 w-4" />
 						API Keys ({akTotal})
+					</TabsTrigger>
+					<TabsTrigger value="provider-keys">
+						<KeyRound className="mr-1.5 h-4 w-4" />
+						Provider Keys ({providerKeysTotal})
 					</TabsTrigger>
 					<TabsTrigger value="members">
 						<Users className="mr-1.5 h-4 w-4" />
@@ -457,125 +507,20 @@ export default async function OrganizationPage({
 				</TabsContent>
 
 				<TabsContent value="api-keys">
-					<div className="space-y-4">
-						<div className="overflow-x-auto rounded-lg border border-border/60 bg-card">
-							<Table>
-								<TableHeader>
-									<TableRow>
-										<TableHead>Token</TableHead>
-										<TableHead>Description</TableHead>
-										<TableHead>Project</TableHead>
-										<TableHead>Usage</TableHead>
-										<TableHead>Status</TableHead>
-										<TableHead>Created</TableHead>
-									</TableRow>
-								</TableHeader>
-								<TableBody>
-									{apiKeys.length === 0 ? (
-										<TableRow>
-											<TableCell
-												colSpan={6}
-												className="h-24 text-center text-muted-foreground"
-											>
-												No API keys found
-											</TableCell>
-										</TableRow>
-									) : (
-										apiKeys.map((apiKey) => (
-											<TableRow key={apiKey.id}>
-												<TableCell className="font-mono text-xs">
-													{apiKey.token.slice(0, 12)}...
-												</TableCell>
-												<TableCell className="max-w-[200px] truncate">
-													{apiKey.description ?? "—"}
-												</TableCell>
-												<TableCell>
-													<span className="text-sm">{apiKey.projectName}</span>
-													<p className="text-xs text-muted-foreground">
-														{apiKey.projectId}
-													</p>
-												</TableCell>
-												<TableCell className="tabular-nums text-sm">
-													{creditsFormatter.format(parseFloat(apiKey.usage))}
-													{apiKey.usageLimit && (
-														<span className="text-muted-foreground">
-															{" "}
-															/{" "}
-															{creditsFormatter.format(
-																parseFloat(apiKey.usageLimit),
-															)}
-														</span>
-													)}
-												</TableCell>
-												<TableCell>
-													<Badge
-														variant={
-															apiKey.status === "active"
-																? "secondary"
-																: "outline"
-														}
-													>
-														{apiKey.status ?? "active"}
-													</Badge>
-												</TableCell>
-												<TableCell className="text-muted-foreground">
-													{formatDate(apiKey.createdAt)}
-												</TableCell>
-											</TableRow>
-										))
-									)}
-								</TableBody>
-							</Table>
-						</div>
+					<ApiKeysTable
+						apiKeys={apiKeys}
+						orgId={orgId}
+						txPage={txPage}
+						akPage={akPage}
+						akOffset={akOffset}
+						akLimit={akLimit}
+						akTotal={akTotal}
+						akTotalPages={akTotalPages}
+					/>
+				</TabsContent>
 
-						{akTotalPages > 1 && (
-							<div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
-								<p className="text-sm text-muted-foreground">
-									Showing {akOffset + 1} to{" "}
-									{Math.min(akOffset + akLimit, akTotal)} of {akTotal}
-								</p>
-								<div className="flex items-center gap-2">
-									<Button
-										variant="outline"
-										size="sm"
-										asChild
-										disabled={akPage <= 1}
-									>
-										<Link
-											href={`/organizations/${orgId}?tab=api-keys&txPage=${txPage}&akPage=${akPage - 1}`}
-											className={
-												akPage <= 1 ? "pointer-events-none opacity-50" : ""
-											}
-										>
-											<ChevronLeft className="h-4 w-4" />
-											Previous
-										</Link>
-									</Button>
-									<span className="text-sm text-muted-foreground">
-										Page {akPage} of {akTotalPages}
-									</span>
-									<Button
-										variant="outline"
-										size="sm"
-										asChild
-										disabled={akPage >= akTotalPages}
-									>
-										<Link
-											href={`/organizations/${orgId}?tab=api-keys&txPage=${txPage}&akPage=${akPage + 1}`}
-											className={
-												akPage >= akTotalPages
-													? "pointer-events-none opacity-50"
-													: ""
-											}
-										>
-											Next
-											<ChevronRight className="h-4 w-4" />
-										</Link>
-									</Button>
-								</div>
-							</div>
-						)}
-					</div>
+				<TabsContent value="provider-keys">
+					<ProviderKeysTable providerKeys={providerKeys} />
 				</TabsContent>
 
 				<TabsContent value="members">

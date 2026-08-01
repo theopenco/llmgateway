@@ -1,0 +1,225 @@
+---
+title: Okta
+description: Set up SAML single sign-on and SCIM provisioning for your organization with Okta.
+icon: Okta
+---
+
+import { Step, Steps } from "fumadocs-ui/components/steps";
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Okta
+
+This guide walks an organization admin through connecting **Okta** to LLM Gateway for SAML single sign-on and SCIM provisioning.
+
+<Callout type="info">
+	SSO & SCIM require the **Enterprise** plan and an organization **owner** or
+	**admin**. See the [SSO overview](/features/sso) for prerequisites and how the
+	URLs are derived.
+</Callout>
+
+## Create the SAML app integration
+
+You'll create a custom SAML 2.0 app integration in the Okta Admin Console to represent LLM Gateway. There is no OIN (Okta Integration Network) catalog listing — the custom app is the supported path, and the steps below cover everything.
+
+<Steps>
+<Step>
+### Choose a connection slug in LLM Gateway
+
+In LLM Gateway (**Organization → SSO → Add a connection**), set **Identity provider** to **Okta**, then pick a **connection slug** (lowercase letters, numbers, hyphens; `^[a-z0-9-]+$`, up to 64 chars). We recommend the format `<your-org-slug>-<provider>`, e.g. `acme-okta` — the form pre-fills this from your organization name and the selected provider. It must be unique across all LLM Gateway organizations, and each organization has exactly one SSO connection. Keep it stable: your SP URLs are built from it.
+
+As soon as the slug is set, the form shows your two SP URLs (with the hosted default `https://internal.llmgateway.io`) — copy them from there:
+
+- **Audience URI (SP Entity ID):** `https://internal.llmgateway.io/auth/sso/saml2/sp/metadata?providerId=acme-okta`
+- **Single sign-on URL (ACS):** `https://internal.llmgateway.io/auth/sso/saml2/sp/acs/acme-okta`
+
+You'll paste these into Okta next — no need to create the connection yet.
+
+</Step>
+
+<Step>
+### Open the Okta Admin Console
+
+Go to your Okta admin console (`https://<your-org>-admin.okta.com`) with an account that has the **Application Administrator** role (or Super Admin). In the left navigation, open **Applications → Applications**.
+
+</Step>
+
+<Step>
+### Create the app integration
+
+Click **Create App Integration**, choose **SAML 2.0** as the sign-in method, and click **Next**. On **General Settings**, set the **App name** (e.g. `LLM Gateway`) and click **Next**.
+
+<Callout type="warn">
+	Pick **SAML 2.0**, not **OIDC**: LLM Gateway's per-organization SSO speaks
+	SAML. Don't use **Browse App Catalog** either — there is no gallery listing,
+	so always go through **Create App Integration**.
+</Callout>
+
+</Step>
+
+<Step>
+### Configure SAML settings
+
+On the **Configure SAML** step, fill in **Section A – SAML Settings → General**:
+
+- **Single sign-on URL:** your ACS URL from step 1. Keep **"Use this for Recipient URL and Destination URL"** checked.
+- **Audience URI (SP Entity ID):** your metadata URL from step 1.
+- **Default RelayState:** leave blank.
+- **Name ID format:** **EmailAddress** — required, see below.
+- **Application username:** **Email**.
+- **Update application username on:** Create and update (the default).
+
+The **Show Advanced Settings** defaults are correct (Response **Signed**, Assertion Signature **Signed**, RSA-SHA256) — LLM Gateway requires signed assertions, which Okta does by default.
+
+Click **Next**, and on the **Feedback** step select **"This is an internal app that we have created"**, then **Finish**.
+
+<Callout type="warn">
+	**Name ID format = EmailAddress** and **Application username = Email** are
+	what make sign-in work: in **Okta** mode, LLM Gateway reads the user's email
+	from the SAML **NameID**. You don't need any attribute statements (recent
+	versions of the wizard don't even show that section — that's fine); if you do
+	add them, `displayName`, `givenName` and `surname` are picked up for the
+	user's profile name.
+</Callout>
+
+</Step>
+
+<Step>
+### Grab the Sign-on URL and certificate
+
+After the wizard finishes you land on the app's **Sign On** tab. Under **Settings → Sign on methods → SAML 2.0 → Metadata details**, click **More details** to reveal:
+
+- **Sign on URL** — looks like `https://<your-org>.okta.com/app/<app-label>/<appId>/sso/saml`, where `<appId>` starts with `exk`. Copy it.
+- **Signing Certificate** — click **Copy** (or **Download**; the file contents are a PEM block `-----BEGIN CERTIFICATE----- … -----END CERTIFICATE-----`).
+
+<Callout type="warn">
+	Use this exact app-specific **Sign on URL** — LLM Gateway derives the SAML
+	issuer it expects (`http://www.okta.com/<appId>`) from the `exk…` segment of
+	the URL. Pasting some other Okta URL (your org homepage, the metadata URL,
+	an Identity-Provider route) makes every SAML response fail issuer
+	validation.
+</Callout>
+
+</Step>
+
+<Step>
+### Create the connection in LLM Gateway
+
+Back on the **SSO → Add a connection** form:
+
+- **Identity provider:** **Okta** — this selects the email-NameID mapping and issuer derivation described above
+- **Connection slug:** `acme-okta` (must match the slug whose URLs you pasted into Okta)
+- **Email domains:** your corporate domain(s), e.g. `acme.com` (comma-separate for several)
+- **Identity Provider Single Sign-On URL:** the Okta **Sign on URL**
+- **X.509 signing certificate:** paste the PEM block
+
+Save. The connection card then shows the exact SP metadata + ACS URLs — confirm they match what you entered in Okta. You can edit the email domain list on the connection card later without re-creating the connection.
+
+<Callout type="warn">
+	The domain list must include **every domain Okta may send as a user's email**.
+	With **Application username = Email**, that's the domain of each user's Okta
+	email address. If some users sign in with a different domain (e.g. a
+	subsidiary), list all of them — otherwise those users bounce back to the login
+	page with an `account_not_linked` error even though Okta authenticated them.
+</Callout>
+
+</Step>
+</Steps>
+
+## Assign users to the app
+
+Configuring SAML isn't enough on its own — Okta only lets **assigned** users sign in to the app. On the app's **Assignments** tab, click **Assign → Assign to People** (or **Assign to Groups**), add the people who should be able to sign in, and confirm. The **Applications** page's **Assign Users to App** bulk flow works too.
+
+<Callout type="warn">
+	If you skip this, sign-in fails at Okta with _"Sorry, you can't access LLM
+	Gateway because you are not assigned this application in Okta."_ — even though
+	the SAML config is correct. Assign at least your own account before testing.
+</Callout>
+
+If you also set up SCIM below, assignment doubles as the provisioning trigger: assigned users are pushed to LLM Gateway.
+
+## Configure SCIM provisioning
+
+SSO only signs people in. SCIM is what actually adds members to the organization. Set it up on the **same** app integration.
+
+<Steps>
+<Step>
+### Generate a SCIM token
+
+In LLM Gateway, on **Organization → SSO → Directory sync (SCIM)**, click **Generate SCIM token** and copy it (shown once). The SCIM base URL is shown in the same card — it's `https://internal.llmgateway.io/scim/v2` on the hosted default.
+
+</Step>
+
+<Step>
+### Enable SCIM on the app
+
+On the app's **General** tab → **App Settings** → **Edit**, set **Provisioning** to **SCIM** and **Save**. A new **Provisioning** tab appears on the app.
+
+</Step>
+
+<Step>
+### Configure the SCIM connection
+
+On **Provisioning → Integration** → **Edit**:
+
+- **SCIM connector base URL:** the SCIM base URL, e.g. `https://internal.llmgateway.io/scim/v2`
+- **Unique identifier field for users:** `userName`
+- **Supported provisioning actions:** check **Push New Users**, **Push Profile Updates**, and **Push Groups** (leave the two _Import_ options unchecked — LLM Gateway doesn't support importing users into Okta)
+- **Authentication Mode:** **HTTP Header** — Okta then shows an **Authorization: Bearer** field; paste the SCIM token there. **Do not** pick Basic Auth or OAuth 2: LLM Gateway's SCIM endpoint authenticates a plain static bearer token.
+
+Click **Test Connector Configuration** — a green **"Connector configured successfully"** panel should list **Create Users**, **Update User Attributes** and **Push Groups** as detected (the _Import_ rows show a red ✗, which is expected). Then **Save**.
+
+</Step>
+
+<Step>
+### Enable provisioning to the app
+
+On **Provisioning → To App** → **Edit**, enable **Create Users**, **Update User Attributes**, and **Deactivate Users**, then **Save**. Leave **Sync Password** off.
+
+From now on, assigning a user (or an assigned group's member) pushes them to LLM Gateway; unassigning or deactivating them removes their membership.
+
+<Callout type="warn">
+	Users who were **assigned before provisioning was enabled** are not pushed
+	automatically — they show a red warning icon on the **Assignments** tab. Click
+	the **Provision User** button there and confirm with **OK**; Okta runs a job
+	that provisions all such users.
+</Callout>
+
+</Step>
+</Steps>
+
+Provisioned users are created in LLM Gateway and added to the organization (default role **developer**). Deactivating or unassigning a user in Okta removes their membership.
+
+## Group → role mapping (optional)
+
+On the app's **Push Groups** tab, push the Okta groups whose membership should matter. Then on the LLM Gateway **SSO** page, add mappings such as `Acme Admins → admin`. When Okta pushes group membership, each member gets the **highest** mapped role among their groups (default `developer`). Owners are never auto-demoted, so you can't accidentally lock yourself out of the owner role.
+
+## Default project access (optional)
+
+Provisioned members join as **developers**, who only see the projects they're granted (owners/admins always see every project). Use the **Default project access** card on the **SSO** page to choose which projects newly provisioned SSO/SCIM developers get by default. If you leave it unconfigured, new members get your organization's first (default) project so they can see something out of the box; select an empty set to instead grant nothing and manage project access manually per member.
+
+<Callout type="info">
+	Default project access applies only to members provisioned **after** you set
+	it — it doesn't retroactively change existing members' project grants. Adjust
+	an existing member's projects from the **Team** page.
+</Callout>
+
+## Test the login
+
+Log out → login page → **Sign in with SSO** → enter a work email (`someone@acme.com`). LLM Gateway resolves the connection by email domain and redirects to Okta; if the user is already signed in to Okta the round-trip is instant. On return they're signed in as the (SCIM-provisioned) user — if the dashboard opens in the user's own personal organization, the enterprise organization is one click away in the organization switcher.
+
+## Enforce SSO (optional, do this last)
+
+Flip **Require SSO** on the connection to require SSO for that email domain — password, social, and passkey sign-in are then rejected for it.
+
+<Callout type="warn">
+	Only enable **Require SSO** after the test above passes, and remember it also
+	applies to the admin setting it up if their email is on that domain — verify
+	your own SSO login works first.
+</Callout>
+
+## Troubleshooting
+
+- **Okta says "you are not assigned this application"** — the SAML config is fine; the user just isn't on the app's **Assignments** tab. Assign them (or their group).
+- **Okta sign-in succeeds but the user lands back on the LLM Gateway login page** — the SAML response was received but refused, almost always an `account_not_linked` domain mismatch: the asserted email's domain isn't in the connection's **Email domains** list. Edit the list on the connection card to cover every domain Okta may assert.
+- **Every SSO attempt fails after the Okta redirect** — check that the connection's **Identity Provider Single Sign-On URL** is the app-specific **Sign on URL** containing the `exk…` app id (Sign On tab → Metadata details → More details). Other URLs break issuer validation. Also confirm the connection was created with **Identity provider = Okta** and that the certificate is the app's current **SHA-2 Active** signing certificate.
+- **Assigned users never appear in the organization** — provisioning was probably enabled after they were assigned. Use **Provision User** on the **Assignments** tab, and confirm **Provisioning → To App → Create Users** is enabled and the connector test passes.

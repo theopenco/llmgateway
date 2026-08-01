@@ -1,3 +1,5 @@
+import { isPremiumModel } from "@llmgateway/shared";
+
 import type {
 	ApiModel,
 	ApiModelProviderMapping,
@@ -10,6 +12,7 @@ import type {
 } from "@llmgateway/models";
 
 interface ProviderWithInfo extends ProviderModelMapping {
+	discount?: string | null;
 	providerInfo?: ProviderDefinition;
 }
 
@@ -30,13 +33,24 @@ export function adaptProviderMapping(
 	p: ProviderWithInfo,
 	modelId: string,
 ): { provider: ApiModelProviderMapping; providerInfo: ApiProvider } {
+	const supportedServiceTierIds = new Set(p.serviceTiers ?? []);
+	const serviceTiers =
+		p.providerInfo?.serviceTiers
+			?.filter((tier) => supportedServiceTierIds.has(tier.id))
+			.map((tier) => ({
+				id: tier.id,
+				name: tier.name,
+				multiplier: p.serviceTierMultipliers?.[tier.id] ?? tier.multiplier,
+				description: tier.description,
+			})) ?? null;
+
 	return {
 		provider: {
-			id: `${p.providerId}-${p.modelName}-${p.region ?? ""}`,
+			id: `${p.providerId}-${modelId}-${p.region ?? ""}`,
 			createdAt: "",
 			modelId,
 			providerId: p.providerId,
-			modelName: p.modelName,
+			externalId: p.externalId,
 			region: p.region ?? null,
 			inputPrice: toStr(p.inputPrice),
 			outputPrice: toStr(p.outputPrice),
@@ -45,14 +59,20 @@ export function adaptProviderMapping(
 			cacheWriteInputPrice1h: toStr(p.cacheWriteInputPrice1h),
 			imageInputPrice: toStr(p.imageInputPrice),
 			imageOutputPrice: toStr(p.imageOutputPrice),
+			inputCharacterPrice: toStr(p.inputCharacterPrice),
+			outputAudioPrice: toStr(p.outputAudioPrice),
 			imageInputTokensByResolution: p.imageInputTokensByResolution ?? null,
 			imageOutputTokensByResolution: p.imageOutputTokensByResolution ?? null,
 			requestPrice: toStr(p.requestPrice),
+			ocrPagePrice: toStr(p.ocrPagePrice),
+			inputAudioHourPrice: toStr(p.inputAudioHourPrice),
 			contextSize: p.contextSize ?? null,
 			maxOutput: p.maxOutput ?? null,
+			quantization: p.quantization ?? null,
 			streaming: p.streaming === "only" ? true : p.streaming,
 			vision: p.vision ?? null,
 			reasoning: p.reasoning ?? null,
+			reasoningEfforts: p.reasoningEfforts ?? null,
 			reasoningOutput: p.reasoningOutput ?? null,
 			reasoningMaxTokens: p.reasoningMaxTokens ?? null,
 			tools: p.tools ?? null,
@@ -65,6 +85,31 @@ export function adaptProviderMapping(
 			supportsVideoAudio: p.supportsVideoAudio ?? null,
 			supportsVideoWithoutAudio: p.supportsVideoWithoutAudio ?? null,
 			perSecondPrice: toStrRecord(p.perSecondPrice),
+			pricingTiers: p.pricingTiers
+				? p.pricingTiers.map((t) => ({
+						name: t.name,
+						upToTokens: isFinite(t.upToTokens) ? t.upToTokens : null,
+						inputPrice: String(t.inputPrice),
+						outputPrice: String(t.outputPrice),
+						cachedInputPrice:
+							t.cachedInputPrice !== undefined
+								? String(t.cachedInputPrice)
+								: null,
+						cacheReadInputPrice:
+							t.cacheReadInputPrice !== undefined
+								? String(t.cacheReadInputPrice)
+								: null,
+						cacheWriteInputPrice:
+							t.cacheWriteInputPrice !== undefined
+								? String(t.cacheWriteInputPrice)
+								: null,
+						cacheWriteInputPrice1h:
+							t.cacheWriteInputPrice1h !== undefined
+								? String(t.cacheWriteInputPrice1h)
+								: null,
+					}))
+				: null,
+			serviceTiers: p.serviceTiers ?? null,
 			discount: p.discount ?? null,
 			stability: p.stability ?? null,
 			supportedParameters: p.supportedParameters ?? null,
@@ -82,6 +127,8 @@ export function adaptProviderMapping(
 			color: p.providerInfo?.color ?? null,
 			website: p.providerInfo?.website ?? null,
 			announcement: null,
+			modelCardBadge: p.providerInfo?.modelCardBadge ?? null,
+			serviceTiers,
 			status: "active" as const,
 		},
 	};
@@ -93,6 +140,7 @@ export function adaptModel(
 ): AdaptedModel {
 	return {
 		id: modelDef.id,
+		premium: isPremiumModel(modelDef.id),
 		createdAt: "",
 		releasedAt: modelDef.releasedAt?.toISOString() ?? null,
 		name: modelDef.name ?? null,

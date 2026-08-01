@@ -1,0 +1,184 @@
+---
+title: Provider Cache Control
+description: Use provider-side prompt caching to reduce the cost of long, reused prompts in chat and coding tools.
+icon: Database
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Provider Cache Control
+
+Most modern LLM providers offer **prompt caching**: when a request reuses a long prefix from a previous request (for example, a multi-thousand-token system prompt or a growing conversation history), the provider stores that prefix and serves it back at a steep discount on subsequent calls. Only the cached portion is discounted — new input tokens and all output tokens are still billed at the normal rate.
+
+This is the behavior you see surfaced as `cached_tokens` in your usage payloads, and it is what makes chat apps, assistants, and coding tools (Cursor, Cline, Claude Code, etc.) economically viable on long contexts.
+
+<Callout type="info">
+	Looking for $0 on repeated calls instead of a discount on the cached portion?
+	That is [Gateway Caching](/features/caching/gateway-caching), which serves
+	byte-identical requests entirely from LLM Gateway without hitting the
+	provider. It is a better fit for deterministic API workloads than for chat.
+	See the [Caching Overview](/features/caching) for a side-by-side comparison.
+</Callout>
+
+## Automatic caching
+
+For most users, prompt caching just works — you do not need to change your request payloads.
+
+Providers including OpenAI, Anthropic (when prompts cross the provider's minimum size), Google, DeepSeek, xAI, and Alibaba inspect incoming requests for shared prefixes and cache them automatically. LLM Gateway forwards the provider's cache metadata back to you in the response, and bills the cached portion at the model's `cached_input` rate.
+
+For **Anthropic** and **AWS Bedrock Claude**, prompt caching is strictly opt-in via `cache_control` / `cachePoint` markers on the request body. To get automatic cache benefits without rewriting your requests, LLM Gateway injects those markers for you on long system and user messages by default. If you send long prompts sporadically — with gaps wider than the 5-minute TTL — you may want to disable this entirely, since you would otherwise pay the cache-write premium (1.25× input for 5m, 2× for 1h) without ever benefiting from a cache read.
+
+To disable, open **Project Settings → Caching → Provider Cache Writes** and turn off "Allow provider cache writes". When disabled, the gateway strips **all** `cache_control` markers from outgoing requests for the project — both the ones it adds automatically and any markers your client sends. This covers callers that always emit markers regardless of the user's request cadence (e.g. Claude Code, Cursor, Cline). The change takes up to 5 minutes to take effect due to the project-settings cache.
+
+To take advantage of automatic caching:
+
+- Put stable content (system prompt, instructions, tool definitions, long documents) at the **start** of your messages
+- Keep the variable portion (the latest user turn) at the **end**
+- Reuse the same prefix across requests — even minor changes invalidate the cache
+
+You can confirm the cache is working by inspecting `usage.prompt_tokens_details.cached_tokens` on the response. See [Cost Breakdown](/features/cost-breakdown) for the full list of usage fields.
+
+```json
+{
+	"usage": {
+		"prompt_tokens": 8200,
+		"completion_tokens": 150,
+		"prompt_tokens_details": {
+			"cached_tokens": 8000
+		},
+		"cost_details": {
+			"input_cost": 0.0006,
+			"cached_input_cost": 0.0008
+		}
+	}
+}
+```
+
+In this example, 8,000 of the 8,200 prompt tokens were served from the provider's cache and billed at the cached rate.
+
+### Pricing and routing
+
+Cached input tokens are billed at the model's published `cached_input` price (typically 10–25% of the regular input price, depending on the provider and model). Output tokens and any non-cached input tokens are billed at the normal rate.
+
+When the [Smart Routing](/features/routing) algorithm selects a provider for a large prompt (≥ 5,000 estimated tokens), it gives extra weight to providers that advertise cache support, since caching can substantially reduce the cost of repeated large prompts.
+
+## Explicit caching with `cache_control`
+
+Some providers — most notably **Anthropic** — also support _explicit_ cache control, where you mark specific content blocks as cacheable using a `cache_control` field. This gives you precise control over what gets cached and lets you opt into longer cache lifetimes than the default.
+
+Explicit caching is provider-specific. Supported providers and TTLs at the time of writing:
+
+| Provider             | Models                         | Supported TTLs       |
+| -------------------- | ------------------------------ | -------------------- |
+| Anthropic (Claude)   | All Claude models              | `5m` (default), `1h` |
+| AWS Bedrock (Claude) | All Claude models              | `5m` (default), `1h` |
+| Alibaba (Qwen)       | Qwen models with cache support | Provider-defined     |
+
+To mark content as cacheable, send the message content as an array of blocks and add a `cache_control` field to the block you want to cache:
+
+```json
+{
+	"model": "claude-haiku-4-5",
+	"messages": [
+		{
+			"role": "system",
+			"content": [
+				{
+					"type": "text",
+					"text": "You are a helpful assistant. <long instructions...>",
+					"cache_control": { "type": "ephemeral", "ttl": "1h" }
+				}
+			]
+		},
+		{
+			"role": "user",
+			"content": "What is the capital of France?"
+		}
+	]
+}
+```
+
+Use `ttl: "5m"` (the default if omitted) for short-lived caches that match a single user's session, and `ttl: "1h"` when the same prefix will be reused over a longer window (for example, a coding agent that keeps the same project context warm across many requests).
+
+The same `cache_control` markers work on the native [`/v1/messages` endpoint](/features/anthropic-endpoint) (Anthropic request format), where cache usage comes back in Anthropic's own fields: `usage.cache_creation_input_tokens` (written this request) and `usage.cache_read_input_tokens` (served from cache).
+
+### Minimum cacheable prompt length
+
+Every Claude model has a **minimum prompt length below which nothing is cached**. A `cache_control` marker on a shorter prompt is accepted without error, but the provider silently skips the cache write — the response reports `cache_creation_input_tokens: 0` and `cache_read_input_tokens: 0` on every call, no matter how often you repeat the request. This is Anthropic's documented behavior, not a dropped breakpoint; you would see exactly the same result calling Anthropic directly.
+
+The threshold counts **all tokens up to and including the marked block** (tools, system, and preceding messages), and it varies by model generation:
+
+| Models                                                | Minimum cacheable tokens |
+| ----------------------------------------------------- | ------------------------ |
+| Opus 4.5+, Sonnet 5, Haiku 4.5                        | 4,096                    |
+| Sonnet 4.6, Haiku 3.5                                 | 2,048                    |
+| Sonnet 4.5 and earlier, Opus 4.1 and earlier, Haiku 3 | 1,024                    |
+
+The models endpoint (`GET https://api.llmgateway.io/v1/models`) exposes the exact threshold as `min_cacheable_tokens` on each provider entry, so clients can check it programmatically. LLM Gateway's automatic marker injection uses the same threshold, which is why short system prompts never trigger automatic cache writes either.
+
+### Verifying cache writes and the write premium
+
+The first request that creates a cache entry is billed at the provider's cache-write rate (1.25× input for `5m`, 2× for `1h`). On the OpenAI-compatible `/v1/chat/completions` endpoint, LLM Gateway surfaces the write side in extended usage fields — OpenAI's standard format only has `cached_tokens` for reads, so these are gateway extensions:
+
+```json
+{
+	"usage": {
+		"prompt_tokens": 5232,
+		"prompt_tokens_details": {
+			"cached_tokens": 0,
+			"cache_write_tokens": 5222,
+			"cache_creation_tokens": 5222,
+			"cache_creation": {
+				"ephemeral_5m_input_tokens": 5222,
+				"ephemeral_1h_input_tokens": 0
+			}
+		},
+		"cost_details": {
+			"input_cost": 0.00003,
+			"cache_write_input_cost": 0.0065275,
+			"cached_input_cost": 0
+		}
+	}
+}
+```
+
+`cache_write_tokens` (and its alias `cache_creation_tokens`) counts the prompt tokens written into the provider cache this request, `cache_creation` breaks the write down by TTL when both rates are in play, and `cost_details.cache_write_input_cost` is the exact USD amount billed at the write premium. A successful cache write on call 1 shows up as `cache_write_tokens > 0`; the matching read on call 2 shows up as `cached_tokens > 0` with `cached_input_cost` at the discounted rate.
+
+### Mixing explicit markers with automatic injection
+
+Anthropic requires cache breakpoints with longer TTLs to appear before shorter ones (blocks are processed in the order `tools`, `system`, `messages`). The markers LLM Gateway injects automatically use the default 5-minute TTL, so they could never legally precede an explicit `ttl: "1h"` marker in your messages. To keep both features compatible:
+
+- When your request contains an explicit `ttl: "1h"` marker in the **messages**, LLM Gateway skips its automatic marker injection for that request entirely and forwards only your markers — the same behavior you would get calling the provider directly.
+- A `ttl: "1h"` marker only on the **system** prompt does not disable automatic injection, since 5-minute breakpoints after it still satisfy the ordering rule.
+- Explicit markers that use the default 5-minute TTL coexist with automatic injection (capped at 4 breakpoints total per Anthropic's limit).
+
+<Callout type="warning">
+	Cache writes are billed at a premium (typically 1.25x for 5m and 2x for 1h on
+	Anthropic) the first time a cached block is created. After that, cache reads
+	cost roughly 10% of the regular input price. The break-even point is usually
+	one or two reuses — explicit caching is worth it whenever a marked block will
+	be sent more than once within its TTL.
+</Callout>
+
+Anthropic returns a per-TTL breakdown of cache writes when you mix `5m` and `1h` blocks:
+
+```json
+{
+	"usage": {
+		"cache_creation": {
+			"ephemeral_5m_input_tokens": 0,
+			"ephemeral_1h_input_tokens": 8000
+		},
+		"cache_read_input_tokens": 0
+	}
+}
+```
+
+For providers that publish a separate explicit-cache read rate (for example, Alibaba Qwen charges 10% for explicit cache reads vs. 20% for automatic cache reads), LLM Gateway detects the `cache_control` markers on your request and applies the explicit rate automatically.
+
+## Related
+
+- [Gateway Caching](/features/caching/gateway-caching) — serve byte-identical requests entirely from LLM Gateway at $0 cost
+- [Caching Overview](/features/caching) — side-by-side comparison of provider caching vs. gateway caching
+- [Cost Breakdown](/features/cost-breakdown) — full reference for the usage and cost fields on every response
+- [Smart Routing](/features/routing) — how cache support influences provider selection for large prompts

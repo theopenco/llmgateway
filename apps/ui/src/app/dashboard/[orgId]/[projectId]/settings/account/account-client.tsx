@@ -1,9 +1,23 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
 
 import { useDeleteAccount, useUpdateUser } from "@/hooks/useUser";
 import { useUser } from "@/hooks/useUser";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+	AlertDialogTrigger,
+} from "@/lib/components/alert-dialog";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import {
@@ -33,6 +47,9 @@ function formatProviderName(providerId: string): string {
 
 export function AccountClient() {
 	const { user } = useUser();
+	const router = useRouter();
+	const queryClient = useQueryClient();
+	const posthog = usePostHog();
 
 	const [name, setName] = useState(user?.name ?? "");
 	const [email, setEmail] = useState(user?.email ?? "");
@@ -79,21 +96,21 @@ export function AccountClient() {
 	};
 
 	const handleDeleteAccount = async () => {
-		const confirmed = window.confirm(
-			"Are you sure you want to delete your account? This action cannot be undone.",
-		);
-
-		if (!confirmed) {
-			return;
-		}
-
 		try {
 			await deleteAccountMutation.mutateAsync({});
+
+			posthog.reset();
 
 			toast({
 				title: "Account Deleted",
 				description: "Your account has been successfully deleted.",
 			});
+
+			// Drop all cached queries (session, user, orgs) so stale authenticated
+			// state can't redirect the now-anonymous user back into the dashboard
+			// or onboarding.
+			queryClient.clear();
+			router.push("/login");
 		} catch (error) {
 			toast({
 				title: "Error",
@@ -167,26 +184,66 @@ export function AccountClient() {
 						<CardHeader>
 							<CardTitle>Delete Account</CardTitle>
 							<CardDescription>
-								Permanently delete your account and all associated data
+								Permanently delete your account and personal data
 							</CardDescription>
 						</CardHeader>
-						<CardContent>
+						<CardContent className="space-y-2">
 							<p className="text-muted-foreground text-sm">
-								This action is irreversible. All your data, including API keys,
-								usage history, and provider connections will be permanently
-								deleted.
+								This action is irreversible. Your account and personal data,
+								including login credentials and personal API keys, will be
+								permanently deleted.
+							</p>
+							<p className="text-muted-foreground text-sm">
+								Billing records of credits you purchased and spent are retained
+								for 10 years as required by tax and accounting law. See our{" "}
+								<a
+									href="/legal/privacy"
+									className="underline underline-offset-4 hover:text-foreground"
+								>
+									Privacy Policy
+								</a>{" "}
+								for details.
 							</p>
 						</CardContent>
 						<CardFooter>
-							<Button
-								variant="destructive"
-								onClick={handleDeleteAccount}
-								disabled={deleteAccountMutation.isPending}
-							>
-								{deleteAccountMutation.isPending
-									? "Deleting..."
-									: "Delete Account"}
-							</Button>
+							<AlertDialog>
+								<AlertDialogTrigger asChild>
+									<Button
+										variant="destructive"
+										disabled={deleteAccountMutation.isPending}
+									>
+										{deleteAccountMutation.isPending
+											? "Deleting..."
+											: "Delete Account"}
+									</Button>
+								</AlertDialogTrigger>
+								<AlertDialogContent>
+									<AlertDialogHeader>
+										<AlertDialogTitle>
+											Are you absolutely sure?
+										</AlertDialogTitle>
+										<AlertDialogDescription>
+											This permanently deletes your account and personal data,
+											including login credentials and personal API keys. This
+											action cannot be undone. Billing records of credits you
+											purchased and spent are retained for 10 years as required
+											by tax and accounting law.
+										</AlertDialogDescription>
+									</AlertDialogHeader>
+									<AlertDialogFooter>
+										<AlertDialogCancel>Cancel</AlertDialogCancel>
+										<AlertDialogAction
+											onClick={handleDeleteAccount}
+											disabled={deleteAccountMutation.isPending}
+											className="bg-destructive text-white hover:bg-destructive/90"
+										>
+											{deleteAccountMutation.isPending
+												? "Deleting..."
+												: "Delete Account"}
+										</AlertDialogAction>
+									</AlertDialogFooter>
+								</AlertDialogContent>
+							</AlertDialog>
 						</CardFooter>
 					</Card>
 				</div>

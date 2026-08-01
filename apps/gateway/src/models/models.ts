@@ -16,13 +16,30 @@ export const modelsApi = new OpenAPIHono<ServerTypes>();
 const modelSchema = z.object({
 	id: z.string(),
 	name: z.string(),
+	display_name: z.string().openapi({
+		description:
+			"Human-readable model label, mirroring `name`. Anthropic-format clients such as Claude Code read this field when populating their model picker from gateway model discovery.",
+	}),
 	aliases: z.array(z.string()).optional(),
-	created: z.number(),
+	created: z.number().optional(),
 	description: z.string().optional(),
 	family: z.string(),
 	architecture: z.object({
-		input_modalities: z.array(z.enum(["text", "image", "video", "embedding"])),
-		output_modalities: z.array(z.enum(["text", "image", "video", "embedding"])),
+		input_modalities: z.array(
+			z.enum(["text", "image", "video", "embedding", "audio"]),
+		),
+		output_modalities: z.array(
+			z.enum([
+				"text",
+				"image",
+				"video",
+				"embedding",
+				"audio",
+				"ocr",
+				"transcription",
+				"rerank",
+			]),
+		),
 		tokenizer: z.string().optional(),
 	}),
 	top_provider: z.object({
@@ -31,7 +48,7 @@ const modelSchema = z.object({
 	providers: z.array(
 		z.object({
 			providerId: z.string(),
-			modelName: z.string(),
+			externalId: z.string(),
 			supportedVideoSizes: z.array(z.string()).optional(),
 			supportsVideoAudio: z.boolean().optional(),
 			supportsVideoWithoutAudio: z.boolean().optional(),
@@ -40,15 +57,41 @@ const modelSchema = z.object({
 					prompt: z.string(),
 					completion: z.string(),
 					image: z.string().optional(),
+					input_audio: z.string().optional(),
+					input_audio_cache_read: z.string().optional(),
+					output_audio: z.string().optional(),
 					per_second: z.record(z.string()).optional(),
+					request: z.string().optional(),
+					input_cache_read: z.string().optional(),
+					input_cache_write: z.string().optional(),
+					input_cache_write_1h: z.string().optional(),
+					ocr_page: z.string().optional(),
+					input_audio_hour: z.string().optional(),
 				})
 				.optional(),
 			streaming: z.union([z.boolean(), z.literal("only")]),
 			vision: z.boolean(),
+			realtime: z.boolean().optional().openapi({
+				description:
+					"Whether this mapping is served via the /v1/realtime WebSocket endpoint instead of /v1/chat/completions.",
+			}),
 			cancellation: z.boolean(),
 			tools: z.boolean(),
 			parallelToolCalls: z.boolean(),
 			reasoning: z.boolean(),
+			reasoning_efforts: z
+				.array(
+					z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"]),
+				)
+				.optional()
+				.openapi({
+					description:
+						"Exact reasoning_effort values this provider mapping accepts, in ascending order of effort. Omitted when the supported values are not declared for the mapping.",
+				}),
+			min_cacheable_tokens: z.number().optional().openapi({
+				description:
+					"Minimum prompt length (in tokens) the provider requires before a prompt-cache write can occur. cache_control markers on shorter prompts are accepted but silently not cached by the provider.",
+			}),
 			stability: z
 				.enum(["stable", "beta", "unstable", "experimental"])
 				.optional(),
@@ -58,6 +101,9 @@ const modelSchema = z.object({
 		prompt: z.string(),
 		completion: z.string(),
 		image: z.string().optional(),
+		input_audio: z.string().optional(),
+		input_audio_cache_read: z.string().optional(),
+		output_audio: z.string().optional(),
 		per_second: z.record(z.string()).optional(),
 		request: z.string().optional(),
 		input_cache_read: z.string().optional(),
@@ -65,6 +111,8 @@ const modelSchema = z.object({
 		input_cache_write_1h: z.string().optional(),
 		web_search: z.string().optional(),
 		internal_reasoning: z.string().optional(),
+		ocr_page: z.string().optional(),
+		input_audio_hour: z.string().optional(),
 	}),
 	context_length: z.number().optional(),
 	per_request_limits: z.record(z.string()).optional(),
@@ -101,6 +149,14 @@ const listModels = createRoute({
 				.transform((val) => val === "true")
 				.describe("Exclude deprecated models from the response")
 				.openapi({ example: "false" }),
+			no_training: z
+				.string()
+				.optional()
+				.transform((val) => val === "true")
+				.describe(
+					"Only return models and provider mappings whose provider does not train on API data",
+				)
+				.openapi({ example: "false" }),
 		}),
 	},
 	responses: {
@@ -120,72 +176,103 @@ modelsApi.openapi(listModels, async (c) => {
 		const query = c.req.valid("query");
 		const includeDeactivated = query.include_deactivated || false;
 		const excludeDeprecated = query.exclude_deprecated || false;
+		const noTraining = query.no_training || false;
 		const currentDate = new Date();
 
+		// Set of provider ids that do not train on API data
+		const noTrainingProviderIds = new Set(
+			providers
+				.filter((p) => p.dataPolicy?.apiTraining === false)
+				.map((p) => p.id),
+		);
+
 		// Filter models based on deactivation and deprecation status of their provider mappings
-		const filteredModels = modelsList.filter((model: ModelDefinition) => {
-			// Check if all provider mappings are deactivated
-			const allDeactivated = model.providers.every(
-				(provider) =>
-					(provider as ProviderModelMapping).deactivatedAt &&
-					currentDate > (provider as ProviderModelMapping).deactivatedAt!,
-			);
+		const deactivationFilteredModels = modelsList.filter(
+			(model: ModelDefinition) => {
+				// Check if all provider mappings are deactivated
+				const allDeactivated = model.providers.every(
+					(provider) =>
+						(provider as ProviderModelMapping).deactivatedAt &&
+						currentDate > (provider as ProviderModelMapping).deactivatedAt!,
+				);
 
-			// Filter out models where all providers are deactivated (unless explicitly included)
-			if (!includeDeactivated && allDeactivated) {
-				return false;
-			}
+				// Filter out models where all providers are deactivated (unless explicitly included)
+				if (!includeDeactivated && allDeactivated) {
+					return false;
+				}
 
-			// Check if all provider mappings are deprecated
-			const allDeprecated = model.providers.every(
-				(provider) =>
-					(provider as ProviderModelMapping).deprecatedAt &&
-					currentDate > (provider as ProviderModelMapping).deprecatedAt!,
-			);
+				// Check if all provider mappings are deprecated
+				const allDeprecated = model.providers.every(
+					(provider) =>
+						(provider as ProviderModelMapping).deprecatedAt &&
+						currentDate > (provider as ProviderModelMapping).deprecatedAt!,
+				);
 
-			// Filter out models where all providers are deprecated if requested
-			if (excludeDeprecated && allDeprecated) {
-				return false;
-			}
+				// Filter out models where all providers are deprecated if requested
+				if (excludeDeprecated && allDeprecated) {
+					return false;
+				}
 
-			return true;
-		});
+				return true;
+			},
+		);
+
+		// When requested, keep only provider mappings whose provider does not
+		// train on API data, and drop models left with no eligible mappings.
+		const filteredModels = noTraining
+			? deactivationFilteredModels
+					.map((model: ModelDefinition) => ({
+						...model,
+						providers: model.providers.filter((provider) =>
+							noTrainingProviderIds.has(provider.providerId),
+						),
+					}))
+					.filter((model) => model.providers.length > 0)
+			: deactivationFilteredModels;
 
 		const modelData = filteredModels.map((model: ModelDefinition) => {
 			// Determine input modalities (if model supports images)
-			const inputModalities: ("text" | "image" | "video" | "embedding")[] = [
-				"text",
-			];
+			const inputModalities: (
+				"text" | "image" | "video" | "embedding" | "audio"
+			)[] = ["text"];
 
 			// Check if any provider has vision support
 			if (model.providers.some((p) => p.vision)) {
 				inputModalities.push("image");
 			}
 
-			// Determine output modalities from model definition or default to text only
-			const outputModalities: ("text" | "image" | "video" | "embedding")[] =
-				model.output ?? ["text"];
+			// Models that accept input_audio content (including realtime models)
+			if (model.providers.some((p) => p.audio)) {
+				inputModalities.push("audio");
+			}
 
-			const firstProviderWithPricing = model.providers.find(
-				(p: ProviderModelMapping) =>
-					p.inputPrice !== undefined ||
-					p.outputPrice !== undefined ||
-					p.imageInputPrice !== undefined ||
-					p.perSecondPrice !== undefined,
-			);
+			// Determine output modalities from the model definition or default to
+			// text only. These mirror the model catalog 1:1 (including "ocr") so
+			// third-party clients can reference the same modality taxonomy.
+			const outputModalities: (
+				| "text"
+				| "image"
+				| "video"
+				| "embedding"
+				| "audio"
+				| "ocr"
+				| "transcription"
+				| "rerank"
+			)[] = model.output ?? ["text"];
 
-			const inputPrice =
-				firstProviderWithPricing?.inputPrice?.toString() ?? "0";
-			const outputPrice =
-				firstProviderWithPricing?.outputPrice?.toString() ?? "0";
-			const imagePrice =
-				firstProviderWithPricing?.imageInputPrice?.toString() ?? "0";
+			// Source the model-level pricing from the cheapest provider mapping
+			// that is actually serving the model (not deactivated/deprecated), so
+			// the root pricing reflects the best price a caller can get.
+			const pricingProvider = pickPricingProvider(model.providers, currentDate);
 
 			return {
 				id: model.id,
 				name: model.name ?? model.id,
+				display_name: model.name ?? model.id,
 				aliases: model.aliases,
-				created: Math.floor(Date.now() / 1000), // Current timestamp in seconds
+				created: model.releasedAt
+					? Math.floor(model.releasedAt.getTime() / 1000)
+					: undefined,
 				description: `${model.id} provided by ${model.providers.map((p) => p.providerId).join(", ")}`,
 				family: model.family,
 				architecture: {
@@ -204,58 +291,27 @@ modelsApi.openapi(listModels, async (c) => {
 
 					return {
 						providerId: provider.providerId,
-						modelName: provider.modelName,
+						externalId: provider.externalId,
 						supportedVideoSizes: provider.supportedVideoSizes,
 						supportsVideoAudio: provider.supportsVideoAudio,
 						supportsVideoWithoutAudio: provider.supportsVideoWithoutAudio,
-						pricing:
-							provider.inputPrice !== undefined ||
-							provider.outputPrice !== undefined ||
-							provider.imageInputPrice !== undefined ||
-							provider.perSecondPrice !== undefined
-								? {
-										prompt: provider.inputPrice?.toString() ?? "0",
-										completion: provider.outputPrice?.toString() ?? "0",
-										image: provider.imageInputPrice?.toString() ?? "0",
-										per_second: provider.perSecondPrice
-											? Object.fromEntries(
-													Object.entries(provider.perSecondPrice).map(
-														([resolution, price]) => [
-															resolution,
-															price.toString(),
-														],
-													),
-												)
-											: undefined,
-									}
-								: undefined,
+						pricing: hasPricing(provider)
+							? buildPricingFields(provider)
+							: undefined,
 						streaming: provider.streaming,
 						vision: provider.vision ?? false,
+						realtime: provider.realtime === true ? true : undefined,
 						cancellation: providerDef?.cancellation ?? false,
 						tools: provider.tools ?? false,
 						parallelToolCalls: provider.parallelToolCalls ?? false,
 						reasoning: provider.reasoning ?? false,
+						reasoning_efforts: provider.reasoningEfforts,
+						min_cacheable_tokens: provider.minCacheableTokens,
 						stability: provider.stability ?? model.stability,
 					};
 				}),
 				pricing: {
-					prompt: inputPrice,
-					completion: outputPrice,
-					image: imagePrice,
-					per_second: firstProviderWithPricing?.perSecondPrice
-						? Object.fromEntries(
-								Object.entries(firstProviderWithPricing.perSecondPrice).map(
-									([resolution, price]) => [resolution, price.toString()],
-								),
-							)
-						: undefined,
-					request: firstProviderWithPricing?.requestPrice?.toString() ?? "0",
-					input_cache_read:
-						firstProviderWithPricing?.cachedInputPrice?.toString() ?? "0",
-					input_cache_write:
-						firstProviderWithPricing?.cacheWriteInputPrice?.toString() ?? "0",
-					input_cache_write_1h:
-						firstProviderWithPricing?.cacheWriteInputPrice1h?.toString() ?? "0",
+					...buildPricingFields(pricingProvider),
 					web_search: "0", // Not defined in model definitions yet
 					internal_reasoning: "0", // Not defined in model definitions yet
 				},
@@ -276,18 +332,17 @@ modelsApi.openapi(listModels, async (c) => {
 						(p) => (p as ProviderModelMapping).jsonOutputSchema === true,
 					) || false,
 				free: model.free ?? false,
-				// Calculate earliest deprecatedAt from all provider mappings
-				deprecated_at: model.providers
-					.map((p) => (p as ProviderModelMapping).deprecatedAt)
-					.filter((d): d is Date => d !== undefined)
-					.sort((a, b) => a.getTime() - b.getTime())[0]
-					?.toISOString(),
-				// Calculate earliest deactivatedAt from all provider mappings
-				deactivated_at: model.providers
-					.map((p) => (p as ProviderModelMapping).deactivatedAt)
-					.filter((d): d is Date => d !== undefined)
-					.sort((a, b) => a.getTime() - b.getTime())[0]
-					?.toISOString(),
+				// A model is only deprecated/deactivated once EVERY provider mapping
+				// is — the same `.every()` semantics used for filtering above. Report
+				// the date the model fully deprecates/deactivates (when its last
+				// remaining mapping does), and only when every mapping carries a date;
+				// if any mapping has none, the model never fully deprecates/deactivates.
+				deprecated_at: getModelLevelDate(
+					model.providers.map((p) => (p as ProviderModelMapping).deprecatedAt),
+				),
+				deactivated_at: getModelLevelDate(
+					model.providers.map((p) => (p as ProviderModelMapping).deactivatedAt),
+				),
 				stability: model.stability,
 			};
 		});
@@ -298,6 +353,120 @@ modelsApi.openapi(listModels, async (c) => {
 		throw new HTTPException(500, { message: "Internal server error" });
 	}
 });
+
+// Collapse the per-provider-mapping deprecation/deactivation dates into a single
+// model-level date. A model is only considered deprecated/deactivated once every
+// mapping is, so return the latest date (when the last mapping flips) and only
+// when every mapping has one. If any mapping has no date, the model never fully
+// flips, so return undefined.
+function getModelLevelDate(dates: (Date | undefined)[]): string | undefined {
+	if (dates.length === 0 || dates.some((d) => d === undefined)) {
+		return undefined;
+	}
+
+	return (dates as Date[])
+		.reduce((latest, d) => (d.getTime() > latest.getTime() ? d : latest))
+		.toISOString();
+}
+
+// Whether a provider mapping carries any pricing information at all.
+function hasPricing(p: ProviderModelMapping): boolean {
+	return (
+		p.inputPrice !== undefined ||
+		p.outputPrice !== undefined ||
+		p.imageInputPrice !== undefined ||
+		p.perSecondPrice !== undefined ||
+		p.ocrPagePrice !== undefined ||
+		p.inputAudioHourPrice !== undefined
+	);
+}
+
+// Build the public pricing object for a provider mapping. Used both for the
+// per-provider pricing and (with a representative mapping) the model-level
+// pricing, so the two expose the same level of detail. A missing mapping or
+// missing field defaults to "0".
+function buildPricingFields(p: ProviderModelMapping | undefined) {
+	return {
+		prompt: p?.inputPrice?.toString() ?? "0",
+		completion: p?.outputPrice?.toString() ?? "0",
+		image: p?.imageInputPrice?.toString() ?? "0",
+		input_audio: p?.inputAudioPrice?.toString(),
+		input_audio_cache_read: p?.cachedInputAudioPrice?.toString(),
+		output_audio: p?.outputAudioPrice?.toString(),
+		per_second: p?.perSecondPrice
+			? Object.fromEntries(
+					Object.entries(p.perSecondPrice).map(([resolution, price]) => [
+						resolution,
+						price.toString(),
+					]),
+				)
+			: undefined,
+		request: p?.requestPrice?.toString() ?? "0",
+		input_cache_read: p?.cachedInputPrice?.toString() ?? "0",
+		input_cache_write: p?.cacheWriteInputPrice?.toString() ?? "0",
+		input_cache_write_1h: p?.cacheWriteInputPrice1h?.toString() ?? "0",
+		ocr_page: p?.ocrPagePrice?.toString(),
+		input_audio_hour: p?.inputAudioHourPrice?.toString(),
+	};
+}
+
+// A single comparable cost for a provider mapping, used to pick the cheapest
+// one. Token-priced models compare on input + output price; models priced by
+// other units (OCR per page, video per second, per request, image) fall back to
+// those. Lower is cheaper; a mapping with no comparable price sorts last.
+function pricingScore(p: ProviderModelMapping): number {
+	const input = p.inputPrice !== undefined ? Number(p.inputPrice) : undefined;
+	const output =
+		p.outputPrice !== undefined ? Number(p.outputPrice) : undefined;
+	if (input !== undefined || output !== undefined) {
+		return (input ?? 0) + (output ?? 0);
+	}
+	if (p.ocrPagePrice !== undefined) {
+		return Number(p.ocrPagePrice);
+	}
+	if (p.inputAudioHourPrice !== undefined) {
+		return Number(p.inputAudioHourPrice);
+	}
+	if (p.perSecondPrice) {
+		const values = Object.values(p.perSecondPrice).map(Number);
+		return values.length > 0 ? Math.min(...values) : Infinity;
+	}
+	if (p.requestPrice !== undefined) {
+		return Number(p.requestPrice);
+	}
+	if (p.imageInputPrice !== undefined) {
+		return Number(p.imageInputPrice);
+	}
+	return Infinity;
+}
+
+// Pick the provider mapping that represents the model-level pricing: the
+// cheapest mapping that is neither deactivated nor deprecated as of
+// `currentDate`, so the reported pricing reflects the best price a caller can
+// actually get. Only fall back to deactivated/deprecated mappings when no
+// active mapping has pricing. Ties keep the earlier mapping in definition order.
+function pickPricingProvider(
+	providerMappings: ProviderModelMapping[],
+	currentDate: Date,
+): ProviderModelMapping | undefined {
+	const isActive = (p: ProviderModelMapping) =>
+		!(p.deactivatedAt && currentDate > p.deactivatedAt) &&
+		!(p.deprecatedAt && currentDate > p.deprecatedAt);
+
+	const cheapest = (candidates: ProviderModelMapping[]) =>
+		candidates.reduce<ProviderModelMapping | undefined>(
+			(best, p) =>
+				best === undefined || pricingScore(p) < pricingScore(best) ? p : best,
+			undefined,
+		);
+
+	const active = providerMappings.filter((p) => isActive(p) && hasPricing(p));
+	if (active.length > 0) {
+		return cheapest(active);
+	}
+
+	return cheapest(providerMappings.filter((p) => hasPricing(p)));
+}
 
 function getPerRequestLimits(
 	model: ModelDefinition,

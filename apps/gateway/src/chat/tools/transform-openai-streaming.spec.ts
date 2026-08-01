@@ -235,6 +235,42 @@ describe("transformOpenaiStreaming", () => {
 		expect(result.usage).toBeNull();
 	});
 
+	test("drops partial usage chunk missing core token counts (deepseek-v3.2-maas)", () => {
+		// SGLang-served deepseek-v3.2-maas on Vertex AI emits an intermediate
+		// chunk whose `usage` only carries prompt_tokens_details. Forwarding it
+		// verbatim produced `usage.prompt_tokens: undefined`, which failed the
+		// AI SDK's strict streaming schema. The usage object must be dropped.
+		const input = {
+			id: "DuhDavqEI4em1dkP7s3T0As",
+			object: "chat.completion.chunk",
+			created: 1782835214,
+			model: "deepseek-ai/deepseek-v3.2-maas",
+			choices: [
+				{
+					delta: {
+						content: "",
+						reasoning_content: null,
+						role: "assistant",
+						tool_calls: null,
+					},
+					finish_reason: null,
+					index: 0,
+					logprobs: null,
+					matched_stop: null,
+				},
+			],
+			usage: {
+				prompt_tokens_details: {
+					cached_tokens: 0,
+				},
+			},
+		};
+
+		const result = transformOpenaiStreaming(input, "deepseek-v3.2");
+
+		expect(result.usage).toBeNull();
+	});
+
 	test("should normalize MiniMax reasoning_details to reasoning", () => {
 		const input = {
 			id: "test-id",
@@ -260,5 +296,97 @@ describe("transformOpenaiStreaming", () => {
 			"step 1 step 2",
 		);
 		expect(result.choices[0].delta).not.toHaveProperty("reasoning_details");
+	});
+
+	test("preserves opaque (encrypted) reasoning_details entries while normalizing text ones", () => {
+		const input = {
+			id: "test-id",
+			object: "chat.completion.chunk",
+			created: 1234567890,
+			model: "gpt-5.5",
+			choices: [
+				{
+					index: 0,
+					delta: {
+						role: "assistant",
+						reasoning_details: [
+							{ text: "step 1" },
+							{
+								type: "reasoning.encrypted",
+								data: "gAAAA-encrypted-blob",
+								id: "rs_upstream",
+								format: "openai-responses-v1",
+							},
+						],
+					},
+				},
+			],
+			usage: null,
+		};
+
+		const result = transformOpenaiStreaming(input, "gpt-5.5");
+
+		expect(result.choices[0].delta).toHaveProperty("reasoning", "step 1");
+		expect(result.choices[0].delta.reasoning_details).toEqual([
+			{
+				type: "reasoning.encrypted",
+				data: "gAAAA-encrypted-blob",
+				id: "rs_upstream",
+				format: "openai-responses-v1",
+			},
+		]);
+	});
+
+	test("renames Alibaba nested cache_creation_input_tokens to cache_write_tokens / cache_creation_tokens", () => {
+		const input = {
+			id: "test-id",
+			object: "chat.completion.chunk",
+			created: 1234567890,
+			model: "qwen-plus",
+			choices: [{ index: 0, delta: {} }],
+			usage: {
+				prompt_tokens: 1500,
+				completion_tokens: 200,
+				total_tokens: 1700,
+				prompt_tokens_details: {
+					cache_creation_input_tokens: 1000,
+					cached_tokens: 0,
+				},
+			},
+		};
+
+		const result = transformOpenaiStreaming(input, "qwen-plus");
+
+		expect(result.usage.prompt_tokens_details).toMatchObject({
+			cache_creation_input_tokens: 1000,
+			cached_tokens: 0,
+			cache_write_tokens: 1000,
+			cache_creation_tokens: 1000,
+		});
+	});
+
+	test("does not synthesize cache_write fields when nested cache_creation_input_tokens is absent", () => {
+		const input = {
+			id: "test-id",
+			object: "chat.completion.chunk",
+			created: 1234567890,
+			model: "qwen-plus",
+			choices: [{ index: 0, delta: {} }],
+			usage: {
+				prompt_tokens: 100,
+				completion_tokens: 50,
+				total_tokens: 150,
+				prompt_tokens_details: { cached_tokens: 50 },
+			},
+		};
+
+		const result = transformOpenaiStreaming(input, "qwen-plus");
+
+		expect(result.usage.prompt_tokens_details).not.toHaveProperty(
+			"cache_write_tokens",
+		);
+		expect(result.usage.prompt_tokens_details).not.toHaveProperty(
+			"cache_creation_tokens",
+		);
 	});
 });

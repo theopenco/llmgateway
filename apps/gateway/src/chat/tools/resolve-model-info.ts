@@ -38,24 +38,34 @@ export function resolveModelInfo(
 			providers: [
 				{
 					providerId: "custom" as const,
-					modelName: requestedModel,
+					externalId: requestedModel,
 					inputPrice: "0",
 					outputPrice: "0",
-					contextSize: 8192,
-					maxOutput: 4096,
+					// Custom providers have no catalog entry, so the gateway cannot
+					// know their limits (contextSize, maxOutput) or capabilities
+					// (vision, jsonOutput, ...). Leave them unset rather than
+					// guessing — capability validation is skipped for custom
+					// providers and the upstream provider enforces its own limits.
+					// `streaming` is required by the type but is never read for
+					// custom providers (streaming support comes from the catalog).
 					streaming: true,
-					vision: false,
-					jsonOutput: true,
 				},
 			],
 		};
 	} else {
-		// Strip :region suffix for model lookup (e.g., "deepseek-v3.2:cn-beijing" → "deepseek-v3.2")
-		const baseRequestedModel = requestedModel.includes(":")
-			? requestedModel.split(":")[0]
-			: requestedModel;
+		// Strip only the trailing :region suffix for model lookup
+		// (e.g., "deepseek-v3.2:cn-beijing" → "deepseek-v3.2"). Use lastIndexOf
+		// because some upstream model names already contain a colon
+		// (e.g., "anthropic.claude-haiku-4-5-20251001-v1:0").
+		const lastColonIdx = requestedModel.lastIndexOf(":");
+		const baseRequestedModel =
+			lastColonIdx > -1
+				? requestedModel.slice(0, lastColonIdx)
+				: requestedModel;
 
-		// First try to find by model ID
+		// Resolve strictly by catalog id. externalId is the upstream provider's
+		// model name and must never be used to identify a catalog entry — two
+		// entries (e.g. a free and a paid sibling) can share the same externalId.
 		// When a specific provider is requested, prefer the definition that includes that provider
 		let foundModel = requestedProvider
 			? models.find(
@@ -65,29 +75,6 @@ export function resolveModelInfo(
 				)
 			: undefined;
 		foundModel ??= models.find((m) => m.id === baseRequestedModel);
-
-		// If not found, search by provider model name
-		// If a specific provider is requested, match both modelName and providerId
-		if (!foundModel) {
-			if (requestedProvider) {
-				foundModel = models.find((m) =>
-					m.providers.find(
-						(p) =>
-							(p.modelName === requestedModel ||
-								p.modelName === baseRequestedModel) &&
-							p.providerId === requestedProvider,
-					),
-				);
-			} else {
-				foundModel = models.find((m) =>
-					m.providers.find(
-						(p) =>
-							p.modelName === requestedModel ||
-							p.modelName === baseRequestedModel,
-					),
-				);
-			}
-		}
 
 		if (!foundModel) {
 			throw new HTTPException(400, {

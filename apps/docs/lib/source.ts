@@ -1,12 +1,12 @@
 import { loader } from "fumadocs-core/source";
 import { lucideIconsPlugin } from "fumadocs-core/source/lucide-icons";
-import { createMDXSource } from "fumadocs-mdx/runtime/next";
+import { toFumadocsSource } from "fumadocs-mdx/runtime/server";
 import { createOpenAPI, openapiPlugin } from "fumadocs-openapi/server";
 import { icons } from "lucide-react";
 import { createElement } from "react";
 
 import { customIcons } from "./custom-icons";
-import { docs, meta } from "../.source";
+import { docs, meta } from "../.source/server";
 
 import type { InferPageType } from "fumadocs-core/source";
 
@@ -27,7 +27,7 @@ export const source = loader({
 		return undefined;
 	},
 	baseUrl: "/",
-	source: createMDXSource(docs, meta),
+	source: toFumadocsSource(docs, meta),
 	plugins: [lucideIconsPlugin(), openapiPlugin()],
 });
 

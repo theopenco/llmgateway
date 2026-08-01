@@ -36,6 +36,7 @@ export async function loadProjectLogsAction(
 		model?: string;
 		source?: string;
 		unifiedFinishReason?: string;
+		hasError?: string;
 	},
 ) {
 	const $api = await createServerApiClient();
@@ -66,6 +67,57 @@ export async function giftCreditsToOrganization(
 
 	if (error || !data) {
 		return { success: false, error: "Failed to gift credits" };
+	}
+
+	return { success: true };
+}
+
+export async function updateReferralBonus(
+	orgId: string,
+	body: { enabled: boolean; percent: number },
+): Promise<{ success: boolean; error?: string }> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.PATCH(
+		"/admin/organizations/{orgId}/referral-bonus",
+		{
+			params: { path: { orgId } },
+			body,
+		},
+	);
+
+	if (error || !data) {
+		const message =
+			(error as { message?: string } | undefined)?.message ??
+			"Failed to update referral bonus";
+		return { success: false, error: message };
+	}
+
+	return { success: true };
+}
+
+export async function manageOrganization(
+	orgId: string,
+	body: {
+		name: string;
+		plan: "free" | "pro" | "enterprise";
+		seats: number | null;
+		apiKeyLimit: number | null;
+	},
+): Promise<{ success: boolean; error?: string }> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.PATCH(
+		"/admin/organizations/{orgId}/manage",
+		{
+			params: { path: { orgId } },
+			body,
+		},
+	);
+
+	if (error || !data) {
+		const message =
+			(error as { message?: string } | undefined)?.message ??
+			"Failed to update organization";
+		return { success: false, error: message };
 	}
 
 	return { success: true };
@@ -117,6 +169,75 @@ export async function blockOrganization(orgId: string): Promise<{
 	return {
 		success: true,
 		cancelledSubscriptionIds: data.cancelledSubscriptionIds,
+	};
+}
+
+export interface BulkBlockPreview {
+	search: string;
+	matched: number;
+	blockable: number;
+	skipped: number;
+	maxBulkSize: number;
+	organizations: {
+		id: string;
+		name: string;
+		billingEmail: string;
+		plan: string;
+		status: string | null;
+		createdAt: string;
+	}[];
+}
+
+export async function previewBulkBlockOrganizations(search: string): Promise<{
+	success: boolean;
+	error?: string;
+	preview?: BulkBlockPreview;
+}> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.GET(
+		"/admin/organizations/bulk-block/preview",
+		{
+			params: { query: { search } },
+		},
+	);
+
+	if (error || !data) {
+		const message =
+			(error as { message?: string } | undefined)?.message ??
+			"Failed to preview bulk block";
+		return { success: false, error: message };
+	}
+
+	return { success: true, preview: data };
+}
+
+export async function bulkBlockOrganizations(
+	search: string,
+	expectedCount: number,
+): Promise<{
+	success: boolean;
+	error?: string;
+	blockedCount?: number;
+	failedCount?: number;
+	failed?: { id: string; name: string; error: string }[];
+}> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.POST("/admin/organizations/bulk-block", {
+		body: { search, expectedCount },
+	});
+
+	if (error || !data) {
+		const message =
+			(error as { message?: string } | undefined)?.message ??
+			"Failed to bulk block organizations";
+		return { success: false, error: message };
+	}
+
+	return {
+		success: true,
+		blockedCount: data.blockedCount,
+		failedCount: data.failedCount,
+		failed: data.failed,
 	};
 }
 

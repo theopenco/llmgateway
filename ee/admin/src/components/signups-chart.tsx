@@ -1,8 +1,8 @@
 "use client";
 
 import { format, parseISO } from "date-fns";
-import { useState } from "react";
-import { CartesianGrid, Line, LineChart, XAxis } from "recharts";
+import { useMemo, useState } from "react";
+import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis } from "recharts";
 
 import {
 	Card,
@@ -48,12 +48,26 @@ export function SignupsChart({
 }) {
 	const [activeChart, setActiveChart] = useState<ActiveChart>("signups");
 
+	const dailyData = useMemo(
+		() =>
+			data.map((point) => ({
+				date: point.date,
+				daily:
+					activeChart === "signups"
+						? point.dailySignups
+						: point.dailyPaidCustomers,
+			})),
+		[data, activeChart],
+	);
+
 	return (
 		<Card>
 			<CardHeader className="flex flex-col items-stretch space-y-0 border-b p-0 sm:flex-row">
-				<div className="flex flex-1 flex-col justify-center gap-1 px-6 py-5 sm:py-6">
-					<CardTitle>Signups & Paid Customers</CardTitle>
-					<CardDescription>
+				<div className="flex flex-1 flex-col justify-center gap-1.5 px-6 py-5 sm:py-6">
+					<CardTitle className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+						Signups & Paid Customers
+					</CardTitle>
+					<CardDescription className="text-xs">
 						Cumulative signups and paid customers over time
 					</CardDescription>
 				</div>
@@ -62,13 +76,13 @@ export function SignupsChart({
 						<button
 							key={key}
 							data-active={activeChart === key}
-							className="relative z-30 flex flex-1 flex-col justify-center gap-1 border-t px-6 py-4 text-left even:border-l data-[active=true]:bg-muted/50 sm:border-l sm:border-t-0 sm:px-8 sm:py-6"
+							className="relative z-30 flex flex-1 flex-col justify-center gap-1.5 border-t px-6 py-4 text-left even:border-l data-[active=true]:bg-muted/50 sm:border-l sm:border-t-0 sm:px-8 sm:py-6"
 							onClick={() => setActiveChart(key)}
 						>
-							<span className="text-xs text-muted-foreground">
+							<span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
 								{chartConfig[key].label}
 							</span>
-							<span className="text-lg font-bold leading-none sm:text-3xl">
+							<span className="font-mono text-lg font-medium leading-none tabular-nums tracking-tight sm:text-3xl">
 								{numberFormatter.format(totals[key])}
 							</span>
 						</button>
@@ -114,6 +128,46 @@ export function SignupsChart({
 						/>
 					</LineChart>
 				</ChartContainer>
+				<div className="mt-2 px-2 sm:px-0">
+					<p className="mb-1 px-2 text-xs text-muted-foreground sm:px-3">
+						New {chartConfig[activeChart].label.toLowerCase()} per day
+					</p>
+					<ChartContainer
+						config={chartConfig}
+						className="aspect-auto h-[60px] w-full"
+					>
+						<BarChart data={dailyData} margin={{ left: 12, right: 12 }}>
+							<XAxis dataKey="date" hide />
+							<ChartTooltip
+								cursor={false}
+								content={
+									<ChartTooltipContent
+										className="w-[160px]"
+										labelFormatter={(value: string) => {
+											const date = parseISO(value);
+											return format(date, "MMM d, yyyy");
+										}}
+										formatter={(value) => (
+											<>
+												<span className="text-muted-foreground">
+													New {chartConfig[activeChart].label.toLowerCase()}
+												</span>
+												<span className="ml-auto font-mono font-medium tabular-nums">
+													{numberFormatter.format(Number(value))}
+												</span>
+											</>
+										)}
+									/>
+								}
+							/>
+							<Bar
+								dataKey="daily"
+								fill={`var(--color-${activeChart})`}
+								radius={1}
+							/>
+						</BarChart>
+					</ChartContainer>
+				</div>
 			</CardContent>
 		</Card>
 	);

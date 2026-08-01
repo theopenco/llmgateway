@@ -6,3 +6,9 @@
 :root {
 	--fd-layout-width: 1600px;
 }
+
+pre,
+code {
+	-moz-tab-size: 2;
+	tab-size: 2;
+}

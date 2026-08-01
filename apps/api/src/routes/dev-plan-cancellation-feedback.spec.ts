@@ -13,7 +13,7 @@ async function seedCancelledDevPlan(opts?: { devPlanCancelled?: boolean }) {
 		id: PERSONAL_ORG_ID,
 		name: "Test User's Workspace",
 		billingEmail: "admin@example.com",
-		isPersonal: true,
+		kind: "devpass",
 		devPlan: "pro",
 		devPlanStripeSubscriptionId: SUB_ID,
 		devPlanCancelled: opts?.devPlanCancelled ?? true,

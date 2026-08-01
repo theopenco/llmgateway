@@ -2,15 +2,85 @@ import type { ModelDefinition } from "@/models.js";
 
 export const minimaxModels = [
 	{
+		id: "minimax-m3",
+		name: "MiniMax M3",
+		description:
+			"MiniMax M3 is a multimodal foundation model with 512K token context, native multimodal understanding, and MiniMax Sparse Attention (MSA) for efficient long-context inference.",
+		family: "minimax",
+		releasedAt: new Date("2026-06-01"),
+		providers: [
+			{
+				providerId: "minimax",
+				externalId: "MiniMax-M3",
+				inputPrice: "0.6e-6",
+				cachedInputPrice: "0.12e-6",
+				outputPrice: "2.4e-6",
+				requestPrice: "0",
+				contextSize: 512000,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				// MiniMax thinking is a binary toggle (`thinking.type`), not a
+				// graduated effort: none/minimal disable it, low..max enable it.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				splitTaggedReasoning: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
+				providerId: "together-ai",
+				externalId: "MiniMaxAI/MiniMax-M3",
+				inputPrice: "0.3e-6",
+				cachedInputPrice: "0.06e-6",
+				outputPrice: "1.2e-6",
+				requestPrice: "0",
+				contextSize: 524288,
+				maxOutput: 131072,
+				quantization: "fp4",
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: false,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+			{
+				providerId: "nebius",
+				externalId: "MiniMaxAI/MiniMax-M3",
+				inputPrice: "0.3e-6",
+				outputPrice: "1.2e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: undefined,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: true,
+				jsonOutput: false,
+			},
+		],
+	},
+	{
 		id: "minimax-m2.7",
 		name: "MiniMax M2.7",
 		description:
 			"MiniMax M2.7 with stronger reasoning and coding performance for complex tasks.",
 		family: "minimax",
+		releasedAt: new Date("2026-03-18"),
 		providers: [
 			{
 				providerId: "minimax",
-				modelName: "MiniMax-M2.7",
+				externalId: "MiniMax-M2.7",
 				inputPrice: "0.3e-6",
 				cachedInputPrice: "0.06e-6",
 				outputPrice: "1.2e-6",
@@ -19,6 +89,10 @@ export const minimaxModels = [
 				maxOutput: 131100,
 				streaming: true,
 				reasoning: true,
+				// Thinking cannot be disabled for the M2.x family (`thinking.type:
+				// "disabled"` is silently ignored upstream), so `none`/`minimal` are
+				// not offered and thinking stays on at every tier.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				splitTaggedReasoning: true,
 				vision: false,
 				tools: true,
@@ -26,10 +100,26 @@ export const minimaxModels = [
 			},
 			{
 				providerId: "novita",
-				modelName: "minimax/minimax-m2.7",
+				externalId: "minimax/minimax-m2.7",
 				inputPrice: "0.3e-6",
 				cachedInputPrice: "0.06e-6",
 				outputPrice: "1.2e-6",
+				requestPrice: "0",
+				contextSize: 204800,
+				maxOutput: 131100,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
+				providerId: "gonka24",
+				externalId: "minimax-m2.7",
+				inputPrice: "0.08e-6",
+				cachedInputPrice: "0.017e-6",
+				outputPrice: "0.32e-6",
 				requestPrice: "0",
 				contextSize: 204800,
 				maxOutput: 131100,
@@ -40,8 +130,11 @@ export const minimaxModels = [
 				jsonOutput: true,
 			},
 			{
+				// Together AI deprecates this serverless model on 2026-07-27,
+				// recommending MiniMaxAI/MiniMax-M3 as the replacement.
+				deactivatedAt: new Date("2026-07-27"),
 				providerId: "together-ai",
-				modelName: "MiniMaxAI/MiniMax-M2.7",
+				externalId: "MiniMaxAI/MiniMax-M2.7",
 				inputPrice: "0.3e-6",
 				cachedInputPrice: "0.06e-6",
 				outputPrice: "1.2e-6",
@@ -55,6 +148,21 @@ export const minimaxModels = [
 				jsonOutput: true,
 				jsonOutputSchema: true,
 			},
+			{
+				providerId: "scx-ai",
+				externalId: "MiniMax-M2.7",
+				inputPrice: "0.48e-6",
+				cachedInputPrice: "0.05e-6",
+				outputPrice: "1.79e-6",
+				requestPrice: "0",
+				contextSize: 196608,
+				maxOutput: 196608,
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
 		],
 	},
 	{
@@ -63,10 +171,11 @@ export const minimaxModels = [
 		description:
 			"Highspeed MiniMax M2.7 variant with the same model quality and lower latency.",
 		family: "minimax",
+		releasedAt: new Date("2026-03-18"),
 		providers: [
 			{
 				providerId: "minimax",
-				modelName: "MiniMax-M2.7-highspeed",
+				externalId: "MiniMax-M2.7-highspeed",
 				inputPrice: "0.6e-6",
 				cachedInputPrice: "0.06e-6",
 				outputPrice: "2.4e-6",
@@ -75,6 +184,10 @@ export const minimaxModels = [
 				maxOutput: 131100,
 				streaming: true,
 				reasoning: true,
+				// Thinking cannot be disabled for the M2.x family (`thinking.type:
+				// "disabled"` is silently ignored upstream), so `none`/`minimal` are
+				// not offered and thinking stays on at every tier.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				splitTaggedReasoning: true,
 				vision: false,
 				tools: true,
@@ -91,7 +204,7 @@ export const minimaxModels = [
 		providers: [
 			{
 				providerId: "minimax",
-				modelName: "MiniMax-M2.5",
+				externalId: "MiniMax-M2.5",
 				inputPrice: "0.3e-6",
 				cachedInputPrice: "0.03e-6",
 				outputPrice: "1.2e-6",
@@ -100,20 +213,25 @@ export const minimaxModels = [
 				maxOutput: 131100,
 				streaming: true,
 				reasoning: true,
+				// Thinking cannot be disabled for the M2.x family (`thinking.type:
+				// "disabled"` is silently ignored upstream), so `none`/`minimal` are
+				// not offered and thinking stays on at every tier.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				splitTaggedReasoning: true,
 				vision: false,
-				tools: false,
+				tools: true,
 				jsonOutput: false,
 			},
 			{
 				providerId: "novita",
-				modelName: "minimax/minimax-m2.5",
+				externalId: "minimax/minimax-m2.5",
 				inputPrice: "0.3e-6",
 				cachedInputPrice: "0.03e-6",
 				outputPrice: "1.2e-6",
 				requestPrice: "0",
 				contextSize: 204800,
 				maxOutput: 131100,
+				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
 				vision: false,
@@ -123,7 +241,7 @@ export const minimaxModels = [
 			{
 				deactivatedAt: new Date("2026-04-27"),
 				providerId: "together-ai",
-				modelName: "MiniMaxAI/MiniMax-M2.5",
+				externalId: "MiniMaxAI/MiniMax-M2.5",
 				inputPrice: "0.3e-6",
 				outputPrice: "1.2e-6",
 				requestPrice: "0",
@@ -137,8 +255,12 @@ export const minimaxModels = [
 				jsonOutputSchema: true,
 			},
 			{
+				// Embercloud's upstream routing for this model is broken: streaming
+				// returns finish_reason "error" with null content, and non-streaming
+				// returns "Temporary routing error (400)". Deactivated until fixed.
+				deactivatedAt: new Date("2026-06-03"),
 				providerId: "embercloud",
-				modelName: "minimax-m2.5",
+				externalId: "minimax-m2.5",
 				inputPrice: "0.2e-6",
 				outputPrice: "1.2e-6",
 				cachedInputPrice: "0.04e-6",
@@ -173,12 +295,13 @@ export const minimaxModels = [
 				providerId: "nebius",
 				// Streaming tool calls and response_format: json_object are unreliable on Nebius
 				stability: "unstable",
-				modelName: "MiniMaxAI/MiniMax-M2.5",
+				externalId: "MiniMaxAI/MiniMax-M2.5",
 				inputPrice: "0.3e-6",
 				outputPrice: "1.2e-6",
 				requestPrice: "0",
-				contextSize: 204800,
+				contextSize: 196608,
 				maxOutput: 131100,
+				quantization: "fp4",
 				streaming: true,
 				reasoning: true,
 				vision: false,
@@ -193,10 +316,11 @@ export const minimaxModels = [
 		description:
 			"Highspeed MiniMax M2.5 variant with the same model quality and lower latency.",
 		family: "minimax",
+		releasedAt: new Date("2026-02-15"),
 		providers: [
 			{
 				providerId: "minimax",
-				modelName: "MiniMax-M2.5-highspeed",
+				externalId: "MiniMax-M2.5-highspeed",
 				inputPrice: "0.6e-6",
 				cachedInputPrice: "0.03e-6",
 				outputPrice: "2.4e-6",
@@ -205,9 +329,13 @@ export const minimaxModels = [
 				maxOutput: 131100,
 				streaming: true,
 				reasoning: true,
+				// Thinking cannot be disabled for the M2.x family (`thinking.type:
+				// "disabled"` is silently ignored upstream), so `none`/`minimal` are
+				// not offered and thinking stays on at every tier.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				splitTaggedReasoning: true,
 				vision: false,
-				tools: false,
+				tools: true,
 				jsonOutput: false,
 			},
 		],
@@ -221,7 +349,7 @@ export const minimaxModels = [
 		providers: [
 			{
 				providerId: "minimax",
-				modelName: "MiniMax-M2",
+				externalId: "MiniMax-M2",
 				inputPrice: "0.2e-6",
 				cachedInputPrice: "0.03e-6",
 				outputPrice: "1.0e-6",
@@ -230,9 +358,13 @@ export const minimaxModels = [
 				maxOutput: 131072,
 				streaming: true,
 				reasoning: true,
+				// Thinking cannot be disabled for the M2.x family (`thinking.type:
+				// "disabled"` is silently ignored upstream), so `none`/`minimal` are
+				// not offered and thinking stays on at every tier.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				splitTaggedReasoning: true,
 				vision: false,
-				tools: false,
+				tools: true,
 				jsonOutput: false,
 			},
 		],
@@ -247,7 +379,7 @@ export const minimaxModels = [
 		providers: [
 			{
 				providerId: "minimax",
-				modelName: "MiniMax-M2.1",
+				externalId: "MiniMax-M2.1",
 				inputPrice: "0.27e-6",
 				outputPrice: "1.1e-6",
 				requestPrice: "0",
@@ -255,21 +387,26 @@ export const minimaxModels = [
 				maxOutput: 131072,
 				streaming: true,
 				reasoning: true,
+				// Thinking cannot be disabled for the M2.x family (`thinking.type:
+				// "disabled"` is silently ignored upstream), so `none`/`minimal` are
+				// not offered and thinking stays on at every tier.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				splitTaggedReasoning: true,
 				vision: false,
-				tools: false,
+				tools: true,
 				jsonOutput: false,
 			},
 			{
 				providerId: "novita",
 				test: "skip",
-				modelName: "minimax/minimax-m2.1",
+				externalId: "minimax/minimax-m2.1",
 				inputPrice: "0.3e-6",
 				cachedInputPrice: "0.03e-6",
 				outputPrice: "1.2e-6",
 				requestPrice: "0",
 				contextSize: 204800,
 				maxOutput: 131072,
+				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
 				vision: false,
@@ -289,7 +426,7 @@ export const minimaxModels = [
 		providers: [
 			{
 				providerId: "minimax",
-				modelName: "MiniMax-M2.1-lightning",
+				externalId: "MiniMax-M2.1-lightning",
 				inputPrice: "0.12e-6",
 				outputPrice: "0.48e-6",
 				requestPrice: "0",
@@ -297,9 +434,13 @@ export const minimaxModels = [
 				maxOutput: 131072,
 				streaming: true,
 				reasoning: true,
+				// Thinking cannot be disabled for the M2.x family (`thinking.type:
+				// "disabled"` is silently ignored upstream), so `none`/`minimal` are
+				// not offered and thinking stays on at every tier.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				splitTaggedReasoning: true,
 				vision: false,
-				tools: false,
+				tools: true,
 				jsonOutput: false,
 			},
 		],
@@ -314,7 +455,7 @@ export const minimaxModels = [
 		providers: [
 			{
 				providerId: "minimax",
-				modelName: "MiniMax-Text-01",
+				externalId: "MiniMax-Text-01",
 				inputPrice: "0.2e-6",
 				outputPrice: "1.1e-6",
 				requestPrice: "0",
@@ -325,8 +466,44 @@ export const minimaxModels = [
 				splitTaggedReasoning: true,
 				reasoningOutput: "omit",
 				vision: false,
+				tools: true,
+				jsonOutput: false,
+			},
+		],
+	},
+	{
+		id: "minimax-hailuo-2-3",
+		name: "MiniMax Hailuo 2.3",
+		description:
+			"MiniMax's video generation model supporting text-to-video and image-to-video up to 10 seconds at 768p or 1080p resolution.",
+		family: "minimax",
+		output: ["video"],
+		releasedAt: new Date("2025-11-07"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "minimax",
+				externalId: "MiniMax-Hailuo-2.3",
+				inputPrice: "0",
+				outputPrice: "0",
+				requestPrice: "0",
+				perSecondPrice: {
+					"720p": "0.0467",
+					"768p": "0.0467",
+					"1080p": "0.0817",
+				},
+				contextSize: 2000,
+				maxOutput: 1,
+				streaming: false,
+				vision: true,
 				tools: false,
 				jsonOutput: false,
+				videoGenerations: true,
+				supportedVideoSizes: ["1280x720", "1366x768", "1920x1080"],
+				supportedVideoDurationsSeconds: [6, 10],
+				supportedVideoDurationsSecondsImageToVideo: [6, 10],
+				supportsVideoAudio: false,
+				supportsVideoWithoutAudio: true,
 			},
 		],
 	},

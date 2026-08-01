@@ -3,7 +3,6 @@ import { Loader2 } from "lucide-react";
 import Link from "next/link";
 
 import { CreditsDisplay } from "@/components/credits/credits-display";
-import { Logo } from "@/components/ui/logo";
 import {
 	Sidebar,
 	SidebarContent,
@@ -13,6 +12,9 @@ import {
 	SidebarMenuButton,
 	SidebarMenuItem,
 } from "@/components/ui/sidebar";
+import { Wordmark } from "@/components/ui/wordmark";
+
+import { StudioNav } from "./studio-nav";
 
 import type { Organization } from "@/lib/types";
 
@@ -34,14 +36,9 @@ export const ChatSidebarSkeleton = ({
 			<SidebarHeader>
 				<SidebarMenu>
 					<SidebarMenuItem>
-						<SidebarMenuButton size="lg" asChild tooltip="LLM Gateway">
+						<SidebarMenuButton size="lg" asChild tooltip="Lounge">
 							<Link href="/" prefetch={true}>
-								<div className="flex aspect-square size-8 items-center justify-center">
-									<Logo className="size-6" />
-								</div>
-								<span className="text-lg font-bold tracking-tight">
-									LLM Gateway
-								</span>
+								<Wordmark size="sm" iconBox />
 							</Link>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
@@ -57,6 +54,7 @@ export const ChatSidebarSkeleton = ({
 						</SidebarMenuButton>
 					</SidebarMenuItem>
 				</SidebarMenu>
+				<StudioNav />
 			</SidebarHeader>
 
 			<SidebarContent className="px-2 py-4">

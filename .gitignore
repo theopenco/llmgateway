@@ -4,11 +4,13 @@ dist/
 .env
 packages/**/*.js
 apps/**/*.js
+!apps/playground/public/worklets/*.js
 *spec.yaml
 .turbo/
 .pnpm-store/
 .idea/
 openapi.json
+**/src/lib/api/v1.d.ts
 .DS_Store
 .envrc
 llmgateway_data
@@ -16,8 +18,14 @@ llmgateway_data
 .claude/scheduled_tasks.lock
 *.http
 *.txt
+!apps/ui/public/llms.txt
+!apps/code/public/llms.txt
+!apps/playground/public/llms.txt
+!apps/docs/app/llms.txt
+!apps/docs/app/llms-full.txt
 docker-compose-override-*.yml
 benchmark_results.json
+benchmark-*.json
 *.pdf
 *.b64
 /output.png
@@ -34,3 +42,4 @@ generate-image-*.png
 scripts/*.jpg
 scripts/*.png
 .soulforge
+.empryo

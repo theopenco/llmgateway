@@ -1,5 +1,6 @@
-import { Inter, Geist_Mono } from "next/font/google";
+import { Bricolage_Grotesque, Inter, Geist_Mono } from "next/font/google";
 
+import { GoogleTag } from "@/components/google-tag";
 import { Providers } from "@/components/providers";
 import { getConfig } from "@/lib/config-server";
 
@@ -16,6 +17,12 @@ const inter = Inter({
 
 const geistMono = Geist_Mono({
 	variable: "--font-mono",
+	subsets: ["latin"],
+	display: "swap",
+});
+
+const bricolage = Bricolage_Grotesque({
+	variable: "--font-bricolage",
 	subsets: ["latin"],
 	display: "swap",
 });
@@ -48,7 +55,7 @@ export const metadata: Metadata = {
 		title: "DevPass by LLM Gateway - All-Access Dev Plans for AI Coding",
 		description:
 			"One subscription, every coding model. Fixed-price dev plans for Claude Code, Cursor, Cline, and any OpenAI-compatible tool.",
-		images: ["/opengraph.png?v=1"],
+		images: ["/opengraph.png?v=2"],
 		type: "website",
 		url: "https://devpass.llmgateway.io",
 		siteName: "DevPass by LLM Gateway",
@@ -59,7 +66,7 @@ export const metadata: Metadata = {
 		title: "DevPass by LLM Gateway - All-Access Dev Plans for AI Coding",
 		description:
 			"One subscription, every coding model. Fixed-price dev plans for Claude Code, Cursor, and 200+ models.",
-		images: ["/opengraph.png?v=1"],
+		images: ["/opengraph.png?v=2"],
 		creator: "@llmgateway",
 	},
 };
@@ -82,7 +89,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 	const config = getConfig();
 
 	return (
-		<html lang="en" suppressHydrationWarning>
+		<html
+			lang="en"
+			className={`${inter.variable} ${geistMono.variable} ${bricolage.variable}`}
+			suppressHydrationWarning
+		>
 			<head>
 				<script
 					type="application/ld+json"
@@ -92,7 +103,12 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 					}}
 				/>
 			</head>
-			<body className={`${inter.variable} ${geistMono.variable} antialiased`}>
+			<body className="antialiased">
+				<GoogleTag
+					googleTagId={config.googleTagId}
+					googleAdsSignupConversion={config.googleAdsSignupConversion}
+					googleAdsPurchaseConversion={config.googleAdsPurchaseConversion}
+				/>
 				<Providers config={config}>{children}</Providers>
 			</body>
 		</html>

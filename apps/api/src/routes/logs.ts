@@ -2,10 +2,15 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { getActiveUserOrganizationIds } from "@/utils/authorization.js";
+import {
+	getActiveUserOrganizationIds,
+	getUserProjectIds,
+	userHasProjectAccess,
+} from "@/utils/authorization.js";
 
 import {
 	and,
+	API_ORIGINS,
 	asc,
 	db,
 	desc,
@@ -32,10 +37,20 @@ import type { ServerTypes } from "@/vars.js";
 
 export const logs = new OpenAPIHono<ServerTypes>();
 
-type LogRecord = InferSelectModel<typeof tables.log>;
+// internalErrorDetails is omitted: public log queries never select it.
+type LogRecord = Omit<
+	InferSelectModel<typeof tables.log>,
+	"internalErrorDetails"
+>;
+
+// internalErrorDetails holds the raw upstream error for stealth providers and
+// must never leave the internal admin surface, so strip it from the columns
+// served by the public logs endpoints.
+const { internalErrorDetails: _internalErrorDetails, ...publicLogColumns } =
+	getTableColumns(tables.log);
 
 const logSelection = {
-	...getTableColumns(tables.log),
+	...publicLogColumns,
 	organizationName: tables.organization.name,
 	projectName: tables.project.name,
 	apiKeyName: tables.apiKey.description,
@@ -113,7 +128,10 @@ const logSchema = z.object({
 	completionTokens: z.string().nullable(),
 	totalTokens: z.string().nullable(),
 	reasoningTokens: z.string().nullable(),
+	cachedTokens: z.string().nullable().optional(),
 	cacheWriteTokens: z.string().nullable().optional(),
+	cacheWrite5mTokens: z.string().nullable().optional(),
+	cacheWrite1hTokens: z.string().nullable().optional(),
 	messages: z.any(),
 	temperature: z.number().nullable(),
 	maxTokens: z.number().nullable(),
@@ -138,9 +156,11 @@ const logSchema = z.object({
 	contentFilterCost: z.number().nullable().optional(),
 	imageInputTokens: z.string().nullable(),
 	audioInputTokens: z.string().nullable(),
+	audioOutputTokens: z.string().nullable(),
 	imageOutputTokens: z.string().nullable(),
 	imageInputCost: z.number().nullable(),
 	audioInputCost: z.number().nullable(),
+	audioOutputCost: z.number().nullable(),
 	imageOutputCost: z.number().nullable(),
 	videoOutputCost: z.number().nullable(),
 	videoDownloadCount: z.number().nullable(),
@@ -152,7 +172,9 @@ const logSchema = z.object({
 	customHeaders: z.any().nullable(),
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
 	usedMode: z.enum(["api-keys", "credits"]),
+	apiOrigin: z.enum(API_ORIGINS).nullable(),
 	source: z.string().nullable(),
+	sessionId: z.string().nullable().optional(),
 	routingMetadata: z
 		.object({
 			availableProviders: z.array(z.string()).optional(),
@@ -200,6 +222,9 @@ const logSchema = z.object({
 		})
 		.nullable()
 		.optional(),
+	discount: z.number().nullable().optional(),
+	requestedServiceTier: z.string().nullable().optional(),
+	usedServiceTier: z.string().nullable().optional(),
 	retried: z.boolean().nullable().optional(),
 	retriedByLogId: z.string().nullable().optional(),
 	gatewayContentFilterResponse: gatewayContentFilterResponseSchema
@@ -290,6 +315,13 @@ const querySchema = z.object({
 		description: "Filter logs by custom header value",
 		example: "12345",
 	}),
+	requestId: z.string().optional().openapi({
+		description: "Filter logs by request ID",
+	}),
+	sessionId: z.string().optional().openapi({
+		description: "Filter logs by session ID",
+		example: "conversation-9f8e7d6c",
+	}),
 });
 
 const get = createRoute({
@@ -365,6 +397,8 @@ logs.openapi(get, async (c) => {
 		limit: queryLimit,
 		customHeaderKey,
 		customHeaderValue,
+		requestId,
+		sessionId,
 	} = {
 		...query,
 		apiKeyId: sanitize(query.apiKeyId),
@@ -380,6 +414,8 @@ logs.openapi(get, async (c) => {
 		source: sanitize(query.source),
 		customHeaderKey: sanitize(query.customHeaderKey),
 		customHeaderValue: sanitize(query.customHeaderValue),
+		requestId: sanitize(query.requestId),
+		sessionId: sanitize(query.sessionId),
 	};
 
 	// Set default limit if not provided or enforce max limit
@@ -438,9 +474,14 @@ logs.openapi(get, async (c) => {
 		});
 	}
 
-	const projectIds = projects.map((project) => project.id);
+	// Intersect with RBAC-aware access so project-scoped "developer" members only
+	// see logs for the projects granted to them.
+	const accessibleProjectIds = new Set(await getUserProjectIds(user.id));
+	const projectIds = projects
+		.map((project) => project.id)
+		.filter((id) => accessibleProjectIds.has(id));
 
-	// If projectId is provided but not found in user's projects, deny access
+	// If projectId is provided but not found in user's accessible projects, deny
 	if (projectId && !projectIds.includes(projectId)) {
 		throw new HTTPException(403, {
 			message: "You don't have access to this project",
@@ -509,13 +550,14 @@ logs.openapi(get, async (c) => {
 		whereConditions.push(lte(tables.log.createdAt, new Date(endDate)));
 	}
 
-	// Add model filter - match the model name part after the slash,
+	// Add model filter - match the model id part after the slash and before any
+	// `:region` suffix (usedModel is stored as `provider/modelId[:region]`),
 	// or the full value if there's no slash (seed data / legacy format)
 	if (model) {
 		whereConditions.push(
 			sql`CASE WHEN ${tables.log.usedModel} LIKE '%/%'
-				THEN SPLIT_PART(${tables.log.usedModel}, '/', 2)
-				ELSE ${tables.log.usedModel}
+				THEN SPLIT_PART(SPLIT_PART(${tables.log.usedModel}, '/', 2), ':', 1)
+				ELSE SPLIT_PART(${tables.log.usedModel}, ':', 1)
 			END = ${model}`,
 		);
 	}
@@ -566,6 +608,16 @@ logs.openapi(get, async (c) => {
 		} else {
 			whereConditions.push(inArray(tables.log.source, sources));
 		}
+	}
+
+	// Add requestId filter
+	if (requestId) {
+		whereConditions.push(eq(tables.log.requestId, requestId));
+	}
+
+	// Add sessionId filter
+	if (sessionId) {
+		whereConditions.push(eq(tables.log.sessionId, sessionId));
 	}
 
 	// Add cursor-based pagination conditions
@@ -764,9 +816,14 @@ logs.openapi(uniqueModelsGet, async (c) => {
 		});
 	}
 
-	const projectIds = projects.map((project) => project.id);
+	// Intersect with RBAC-aware access so project-scoped "developer" members only
+	// see logs for the projects granted to them.
+	const accessibleProjectIds = new Set(await getUserProjectIds(user.id));
+	const projectIds = projects
+		.map((project) => project.id)
+		.filter((id) => accessibleProjectIds.has(id));
 
-	// If projectId is provided but not found in user's projects, deny access
+	// If projectId is provided but not found in user's accessible projects, deny
 	if (projectId && !projectIds.includes(projectId)) {
 		throw new HTTPException(403, {
 			message: "You don't have access to this project",
@@ -834,26 +891,30 @@ logs.openapi(getById, async (c) => {
 
 	const { id } = c.req.valid("param");
 
-	const [log] = await db
-		.select(logSelection)
-		.from(tables.log)
-		.leftJoin(
-			tables.organization,
-			eq(tables.log.organizationId, tables.organization.id),
-		)
-		.leftJoin(tables.project, eq(tables.log.projectId, tables.project.id))
-		.leftJoin(tables.apiKey, eq(tables.log.apiKeyId, tables.apiKey.id))
-		.where(eq(tables.log.id, id))
-		.limit(1);
+	const baseQuery = () =>
+		db
+			.select(logSelection)
+			.from(tables.log)
+			.leftJoin(
+				tables.organization,
+				eq(tables.log.organizationId, tables.organization.id),
+			)
+			.leftJoin(tables.project, eq(tables.log.projectId, tables.project.id))
+			.leftJoin(tables.apiKey, eq(tables.log.apiKeyId, tables.apiKey.id));
+
+	let [log] = await baseQuery().where(eq(tables.log.id, id)).limit(1);
+
+	if (!log) {
+		[log] = await baseQuery().where(eq(tables.log.requestId, id)).limit(1);
+	}
 
 	if (!log) {
 		throw new HTTPException(404, { message: "Log not found" });
 	}
 
-	// Verify user has access to this log's organization
-	const organizationIds = await getActiveUserOrganizationIds(user.id);
-
-	if (!organizationIds.includes(log.organizationId)) {
+	// Verify the user can access this log's project (RBAC-aware: developers are
+	// limited to their granted projects).
+	if (!(await userHasProjectAccess(user.id, log.projectId))) {
 		throw new HTTPException(403, {
 			message: "You don't have access to this log",
 		});

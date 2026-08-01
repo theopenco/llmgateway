@@ -9,6 +9,7 @@ import {
 	fullMode,
 	generateTestRequestId,
 	getConcurrentTestOptions,
+	getSupportedReasoningEffort,
 	getTestOptions,
 	logMode,
 	testModels,
@@ -255,7 +256,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 							},
 						],
 						tool_choice: "auto",
-						reasoning_effort: "medium",
+						reasoning_effort: getSupportedReasoningEffort(providers),
 					}),
 				});
 

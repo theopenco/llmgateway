@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 
 import { ReadOnlyChatMessages } from "@/components/playground/chat-ui";
 import { ForkChatButton } from "@/components/playground/fork-chat-button";
-import { Logo } from "@/components/ui/logo";
+import { Wordmark } from "@/components/ui/wordmark";
 import { getConfig } from "@/lib/config-server";
 import { parsePlaygroundMessageMetadata } from "@/lib/message-metadata";
 
@@ -16,6 +16,7 @@ interface SharedMessage {
 	content: string | null;
 	images: string | null;
 	audios: string | null;
+	documents: string | null;
 	reasoning: string | null;
 	tools: string | null;
 	metadata?: unknown;
@@ -24,6 +25,13 @@ interface SharedMessage {
 }
 
 interface StoredAudioPart {
+	type?: string;
+	url?: string;
+	mediaType?: string;
+	name?: string;
+}
+
+interface StoredDocumentPart {
 	type?: string;
 	url?: string;
 	mediaType?: string;
@@ -46,6 +54,71 @@ interface StoredImagePart {
 	};
 }
 
+const MIN_USER_PROMPT_CHARS = 30;
+const MIN_ASSISTANT_RESPONSE_CHARS = 80;
+const FALLBACK_SHARE_DESCRIPTION =
+	"A shared snapshot of a Lounge chat — open it to see the full conversation.";
+
+function deriveShareDescription(messages: SharedMessage[]): {
+	description: string;
+	source: "user" | "assistant" | "fallback";
+} {
+	const userMessage = messages.find((m) => m.role === "user");
+	const assistantMessage = messages.find((m) => m.role === "assistant");
+	const userText = userMessage?.content?.replace(/\s+/g, " ").trim() ?? "";
+	const assistantText =
+		assistantMessage?.content?.replace(/\s+/g, " ").trim() ?? "";
+
+	if (userText.length >= MIN_USER_PROMPT_CHARS) {
+		return {
+			description:
+				userText.length > 160 ? `${userText.slice(0, 160)}…` : userText,
+			source: "user",
+		};
+	}
+	if (assistantText.length >= MIN_ASSISTANT_RESPONSE_CHARS) {
+		const prefix = userText ? `“${userText}” — ` : "";
+		const remaining = Math.max(40, 160 - prefix.length - 1);
+		const trimmedAssistant =
+			assistantText.length > remaining
+				? `${assistantText.slice(0, remaining)}…`
+				: assistantText;
+		return {
+			description: `${prefix}${trimmedAssistant}`,
+			source: "assistant",
+		};
+	}
+	return {
+		description: FALLBACK_SHARE_DESCRIPTION,
+		source: "fallback",
+	};
+}
+
+function meetsIndexThreshold(messages: SharedMessage[]): boolean {
+	let hasValidUserTurn = false;
+	let hasValidAssistantTurn = false;
+	for (const message of messages) {
+		const text = message.content?.replace(/\s+/g, " ").trim() ?? "";
+		if (
+			!hasValidUserTurn &&
+			message.role === "user" &&
+			text.length >= MIN_USER_PROMPT_CHARS
+		) {
+			hasValidUserTurn = true;
+		} else if (
+			!hasValidAssistantTurn &&
+			message.role === "assistant" &&
+			text.length >= MIN_ASSISTANT_RESPONSE_CHARS
+		) {
+			hasValidAssistantTurn = true;
+		}
+		if (hasValidUserTurn && hasValidAssistantTurn) {
+			return true;
+		}
+	}
+	return hasValidUserTurn && hasValidAssistantTurn;
+}
+
 export async function generateMetadata({
 	params,
 }: {
@@ -55,8 +128,8 @@ export async function generateMetadata({
 	const config = getConfig();
 
 	let title = "Shared Chat";
-	let description =
-		"A shared snapshot of an LLM Gateway chat — open it to see the full conversation.";
+	let description = FALLBACK_SHARE_DESCRIPTION;
+	let indexable = true;
 
 	try {
 		const response = await fetch(
@@ -70,12 +143,9 @@ export async function generateMetadata({
 				title =
 					flatTitle.length > 80 ? `${flatTitle.slice(0, 80)}…` : flatTitle;
 			}
-			const userMessage = data.share.messages.find((m) => m.role === "user");
-			const userText = userMessage?.content?.replace(/\s+/g, " ").trim();
-			if (userText) {
-				description =
-					userText.length > 160 ? `${userText.slice(0, 160)}…` : userText;
-			}
+			const derived = deriveShareDescription(data.share.messages);
+			description = derived.description;
+			indexable = meetsIndexThreshold(data.share.messages);
 		}
 	} catch {
 		// Fall back to defaults if the API call fails.
@@ -84,17 +154,23 @@ export async function generateMetadata({
 	const url = `/share/${shareId}`;
 
 	return {
-		title: `${title} · LLM Gateway`,
+		title: `${title} | Lounge by LLM Gateway`,
 		description,
 		alternates: {
 			canonical: url,
 		},
+		robots: indexable
+			? undefined
+			: {
+					index: false,
+					follow: true,
+				},
 		openGraph: {
 			title,
 			description,
 			url,
 			type: "article",
-			siteName: "LLM Gateway",
+			siteName: "Lounge by LLM Gateway",
 		},
 		twitter: {
 			card: "summary_large_image",
@@ -125,13 +201,62 @@ export default async function SharedChatPage({
 	const data = (await response.json()) as SharedChatResponse;
 	const messages = data.share.messages.map(toUiMessage);
 
+	const shareUrl = `https://chat.llmgateway.io/share/${data.share.id}`;
+	const { description: articleDescription } = deriveShareDescription(
+		data.share.messages,
+	);
+
+	const articleSchema = {
+		"@context": "https://schema.org",
+		"@type": "Article",
+		headline: data.share.title,
+		description: articleDescription,
+		datePublished: data.share.createdAt,
+		dateModified: data.share.createdAt,
+		mainEntityOfPage: shareUrl,
+		url: shareUrl,
+		publisher: {
+			"@type": "Organization",
+			name: "LLM Gateway",
+			url: "https://llmgateway.io",
+		},
+	};
+
+	const breadcrumbSchema = {
+		"@context": "https://schema.org",
+		"@type": "BreadcrumbList",
+		itemListElement: [
+			{
+				"@type": "ListItem",
+				position: 1,
+				name: "Home",
+				item: "https://chat.llmgateway.io",
+			},
+			{
+				"@type": "ListItem",
+				position: 2,
+				name: data.share.title,
+				item: shareUrl,
+			},
+		],
+	};
+
 	return (
 		<main className="bg-background min-h-screen">
+			<script
+				type="application/ld+json"
+				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
+				dangerouslySetInnerHTML={{ __html: serializeJsonLd(articleSchema) }}
+			/>
+			<script
+				type="application/ld+json"
+				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
+				dangerouslySetInnerHTML={{ __html: serializeJsonLd(breadcrumbSchema) }}
+			/>
 			<div className="mx-auto flex min-h-screen w-full max-w-5xl flex-col px-4 py-8">
 				<header className="mx-auto w-full max-w-4xl pb-4">
 					<Link href="/" className="flex w-fit items-center gap-2">
-						<Logo className="size-6" />
-						<span className="text-lg font-semibold">LLM Gateway</span>
+						<Wordmark />
 					</Link>
 					<h1 className="mt-8 text-3xl font-semibold tracking-normal">
 						{data.share.title}
@@ -215,6 +340,27 @@ function toUiMessage(message: SharedMessage): UIMessage {
 		}
 	}
 
+	if (message.documents) {
+		try {
+			const parsedDocuments = JSON.parse(message.documents) as unknown;
+			if (Array.isArray(parsedDocuments)) {
+				for (const document of parsedDocuments.filter(isStoredDocumentPart)) {
+					if (!document.url) {
+						continue;
+					}
+					parts.push({
+						type: "file",
+						mediaType: document.mediaType ?? "application/octet-stream",
+						url: document.url,
+						...(document.name ? { name: document.name } : {}),
+					});
+				}
+			}
+		} catch {
+			// Ignore malformed legacy document payloads in public snapshots.
+		}
+	}
+
 	if (message.tools) {
 		try {
 			const parsedTools = JSON.parse(message.tools) as unknown;
@@ -234,6 +380,13 @@ function toUiMessage(message: SharedMessage): UIMessage {
 	} satisfies UIMessage;
 }
 
+function serializeJsonLd(value: unknown): string {
+	return JSON.stringify(value)
+		.replace(/</g, "\\u003c")
+		.replace(/>/g, "\\u003e")
+		.replace(/&/g, "\\u0026");
+}
+
 function isStoredImagePart(value: unknown): value is StoredImagePart {
 	return (
 		typeof value === "object" &&
@@ -249,6 +402,15 @@ function isStoredImagePart(value: unknown): value is StoredImagePart {
 }
 
 function isStoredAudioPart(value: unknown): value is StoredAudioPart {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"url" in value &&
+		typeof (value as { url?: unknown }).url === "string"
+	);
+}
+
+function isStoredDocumentPart(value: unknown): value is StoredDocumentPart {
 	return (
 		typeof value === "object" &&
 		value !== null &&

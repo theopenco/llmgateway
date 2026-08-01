@@ -4,6 +4,7 @@ import { format } from "date-fns";
 import { useCallback, useEffect, useState } from "react";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
+import { TokenBreakdown } from "@/components/token-breakdown";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -32,7 +33,10 @@ export type HistoryWindow =
 	| "12h"
 	| "24h"
 	| "2d"
-	| "7d";
+	| "3d"
+	| "7d"
+	| "30d"
+	| "90d";
 
 export interface HistoryDataPoint {
 	timestamp: string;
@@ -46,7 +50,21 @@ export interface HistoryDataPoint {
 	avgDuration: number | null;
 	totalTokens: number;
 	totalCost: number;
+	inputTokens: number;
+	cachedTokens: number;
+	outputTokens: number;
+	inputCost: number;
+	cachedInputCost: number;
+	outputCost: number;
 }
+
+// Which cost field explains each token series, so the Tokens tooltip can put a
+// dollar figure next to the count it is showing.
+const TOKEN_COST_KEY: Record<string, keyof HistoryDataPoint> = {
+	inputTokens: "inputCost",
+	cachedTokens: "cachedInputCost",
+	outputTokens: "outputCost",
+};
 
 type ActiveMetric = "requests" | "errors" | "latency" | "tokens" | "cost";
 
@@ -65,7 +83,9 @@ const chartConfigs: Record<ActiveMetric, ChartConfig> = {
 		avgDuration: { label: "Avg Duration (ms)", color: "hsl(221 83% 53%)" },
 	},
 	tokens: {
-		totalTokens: { label: "Tokens", color: "hsl(32 95% 44%)" },
+		inputTokens: { label: "Input", color: "hsl(221 83% 53%)" },
+		cachedTokens: { label: "Cached", color: "hsl(142 71% 45%)" },
+		outputTokens: { label: "Output", color: "hsl(32 95% 44%)" },
 	},
 	cost: {
 		totalCost: { label: "Cost ($)", color: "hsl(142 71% 45%)" },
@@ -83,7 +103,10 @@ export const windowOptions: { value: HistoryWindow; label: string }[] = [
 	{ value: "12h", label: "12h" },
 	{ value: "24h", label: "24h" },
 	{ value: "2d", label: "2d" },
+	{ value: "3d", label: "3d" },
 	{ value: "7d", label: "7d" },
+	{ value: "30d", label: "30d" },
+	{ value: "90d", label: "90d" },
 ];
 
 const metricTabs: { key: ActiveMetric; label: string }[] = [
@@ -94,9 +117,25 @@ const metricTabs: { key: ActiveMetric; label: string }[] = [
 	{ key: "cost", label: "Cost" },
 ];
 
+// Windows longer than 24h are served from the hourly rollup tables; 24h and
+// below come from the per-minute history tables. Mirrors the API's
+// isHourlyWindow threshold.
+const HOURLY_WINDOWS = new Set<HistoryWindow>(["2d", "3d", "7d", "30d", "90d"]);
+
+export function historyBucketSource(
+	window: HistoryWindow,
+): "hourly" | "minute" {
+	return HOURLY_WINDOWS.has(window) ? "hourly" : "minute";
+}
+
 function formatTimestamp(ts: string, window: HistoryWindow): string {
 	const date = new Date(ts);
-	const dayWindows = new Set(["2d", "7d"]);
+	// Long ranges are day-bucketed visually — drop the time-of-day noise.
+	const longWindows = new Set(["30d", "90d"]);
+	if (longWindows.has(window)) {
+		return format(date, "MMM d");
+	}
+	const dayWindows = new Set(["2d", "3d", "7d"]);
 	if (dayWindows.has(window)) {
 		return format(date, "MMM d HH:mm");
 	}
@@ -116,6 +155,7 @@ export function HistoryChart({
 }) {
 	const [data, setData] = useState<HistoryDataPoint[]>([]);
 	const [loading, setLoading] = useState(true);
+	const [error, setError] = useState<string | null>(null);
 	const [internalWindow, setInternalWindow] = useState<HistoryWindow>("4h");
 	const window = externalWindow ?? internalWindow;
 	const [activeMetric, setActiveMetric] = useState<ActiveMetric>("requests");
@@ -123,12 +163,16 @@ export function HistoryChart({
 	const loadData = useCallback(
 		async (w: HistoryWindow) => {
 			setLoading(true);
+			setError(null);
 			try {
 				const result = await fetchData(w);
 				setData(result ?? []);
-			} catch (error) {
-				console.error("Failed to load history:", error);
+			} catch (err) {
+				console.error("Failed to load history:", err);
 				setData([]);
+				setError(
+					err instanceof Error ? err.message : "Failed to load history data",
+				);
 			} finally {
 				setLoading(false);
 			}
@@ -177,6 +221,17 @@ export function HistoryChart({
 		),
 		totalTokens: data.reduce((sum, d) => sum + d.totalTokens, 0),
 		totalCost: data.reduce((sum, d) => sum + d.totalCost, 0),
+		breakdown: {
+			inputTokens: data.reduce((sum, d) => sum + (d.inputTokens ?? 0), 0),
+			cachedTokens: data.reduce((sum, d) => sum + (d.cachedTokens ?? 0), 0),
+			outputTokens: data.reduce((sum, d) => sum + (d.outputTokens ?? 0), 0),
+			inputCost: data.reduce((sum, d) => sum + (d.inputCost ?? 0), 0),
+			cachedInputCost: data.reduce(
+				(sum, d) => sum + (d.cachedInputCost ?? 0),
+				0,
+			),
+			outputCost: data.reduce((sum, d) => sum + (d.outputCost ?? 0), 0),
+		},
 		avgTtft:
 			ttftPoints.length > 0
 				? Math.round(
@@ -223,7 +278,19 @@ export function HistoryChart({
 			<CardHeader className="space-y-4 pb-2">
 				<div className="flex items-start justify-between gap-4">
 					<div>
-						<CardTitle className="text-base">{title}</CardTitle>
+						<div className="flex items-center gap-2">
+							<CardTitle className="text-base">{title}</CardTitle>
+							<span
+								className="rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+								title={
+									historyBucketSource(window) === "hourly"
+										? "Aggregated from the hourly rollup tables (windows > 24h)"
+										: "Aggregated from the per-minute history tables (windows ≤ 24h)"
+								}
+							>
+								{historyBucketSource(window)} buckets
+							</span>
+						</div>
 						{description && <CardDescription>{description}</CardDescription>}
 					</div>
 					{!externalWindow && (
@@ -267,11 +334,12 @@ export function HistoryChart({
 							{summaryStats.totalUpstreamErrors.toLocaleString()}
 						</strong>
 					</span>
-					<span>
+					<span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
 						Tokens:{" "}
 						<strong className="text-foreground">
 							{formatCompact(summaryStats.totalTokens)}
 						</strong>
+						<TokenBreakdown breakdown={summaryStats.breakdown} short />
 					</span>
 					<span>
 						Cost:{" "}
@@ -326,6 +394,21 @@ export function HistoryChart({
 					<div className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">
 						Loading...
 					</div>
+				) : error ? (
+					<div className="flex h-[200px] flex-col items-center justify-center gap-2 text-sm text-destructive">
+						<span>Failed to load history</span>
+						<span className="max-w-md text-center text-xs text-muted-foreground">
+							{error}
+						</span>
+						<Button
+							variant="outline"
+							size="sm"
+							className="h-7 px-2 text-xs"
+							onClick={() => void loadData(window)}
+						>
+							Retry
+						</Button>
+					</div>
 				) : data.length === 0 ? (
 					<div className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">
 						No data for this time window
@@ -370,7 +453,7 @@ export function HistoryChart({
 										labelFormatter={(value: string) =>
 											format(new Date(value), "MMM d, HH:mm")
 										}
-										formatter={(value, name) => {
+										formatter={(value, name, item) => {
 											const label = config[name as string]?.label ?? name;
 											let formatted: string;
 											if (activeMetric === "latency") {
@@ -380,9 +463,24 @@ export function HistoryChart({
 											} else {
 												formatted = Number(value).toLocaleString();
 											}
+											// Token series carry the spend they account for, so the
+											// tooltip answers "what did these tokens cost?" directly.
+											const costKey = TOKEN_COST_KEY[name as string];
+											const point = item?.payload as
+												HistoryDataPoint | undefined;
+											const cost =
+												activeMetric === "tokens" && costKey
+													? Number(point?.[costKey] ?? 0)
+													: null;
 											return (
 												<span>
 													{label}: <strong>{formatted}</strong>
+													{cost !== null && (
+														<span className="text-muted-foreground">
+															{" "}
+															(${cost.toFixed(4)})
+														</span>
+													)}
 												</span>
 											);
 										}}
@@ -394,9 +492,14 @@ export function HistoryChart({
 									key={key}
 									dataKey={key}
 									type="monotone"
+									// The three token series are disjoint slices of the total, so
+									// stacking them keeps the silhouette equal to total tokens.
+									stackId={activeMetric === "tokens" ? "tokens" : undefined}
 									stroke={`var(--color-${key})`}
 									fill={`var(--color-${key})`}
-									fillOpacity={i === 0 ? 0.1 : 0.05}
+									fillOpacity={
+										activeMetric === "tokens" ? 0.3 : i === 0 ? 0.1 : 0.05
+									}
 									strokeWidth={2}
 								/>
 							))}

@@ -1,8 +1,9 @@
 import { trace } from "@opentelemetry/api";
 
+import type { GatewayApiKey } from "@/lib/cached-queries.js";
 import type { RoutingMetadata } from "@llmgateway/actions";
 import type {
-	ApiKey,
+	ApiOrigin,
 	GatewayContentFilterResponse,
 	Project,
 } from "@llmgateway/db";
@@ -18,7 +19,7 @@ export interface PluginResults {
 export interface CreateLogEntryOptions {
 	requestId: string;
 	project: Project;
-	apiKey: ApiKey;
+	apiKey: GatewayApiKey;
 	providerKeyId?: string;
 	usedModel: string;
 	usedModelMapping?: string;
@@ -31,13 +32,15 @@ export interface CreateLogEntryOptions {
 	top_p?: number;
 	frequency_penalty?: number;
 	presence_penalty?: number;
-	reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+	reasoningEffort?:
+		"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 	reasoningMaxTokens?: number;
 	effort?: "low" | "medium" | "high";
 	responseFormat?: any;
 	tools?: OpenAIToolInput[];
 	toolChoice?: any;
 	source?: string;
+	apiOrigin?: ApiOrigin;
 	customHeaders: Record<string, string>;
 	debugMode: boolean;
 	userAgent?: string;
@@ -70,6 +73,11 @@ function buildLogEntry(options: CreateLogEntryOptions) {
 		organizationId: options.project.organizationId,
 		projectId: options.apiKey.projectId,
 		apiKeyId: options.apiKey.id,
+		// LLM SDK: session tokens log against the project's stable
+		// aggregate API key while retaining the concrete browser session and
+		// wallet billing pointer.
+		endUserSessionId: options.apiKey.endUserSession?.id ?? null,
+		endCustomerWalletId: options.apiKey.endCustomerWalletId ?? null,
 		usedMode: options.providerKeyId ? "api-keys" : "credits",
 		usedModel: options.usedModel,
 		usedModelMapping: options.usedModelMapping,
@@ -89,6 +97,7 @@ function buildLogEntry(options: CreateLogEntryOptions) {
 		tools: options.tools ?? null,
 		toolChoice: options.toolChoice ?? null,
 		mode: options.project.mode,
+		apiOrigin: options.apiOrigin ?? null,
 		source: options.source ?? null,
 		customHeaders:
 			Object.keys(options.customHeaders).length > 0
@@ -133,7 +142,7 @@ export function createLogEntry(
 export function createLogEntry(
 	requestId: string,
 	project: Project,
-	apiKey: ApiKey,
+	apiKey: GatewayApiKey,
 	providerKeyId: string | undefined,
 	usedModel: string,
 	usedModelMapping: string | undefined,
@@ -146,7 +155,15 @@ export function createLogEntry(
 	top_p: number | undefined,
 	frequency_penalty: number | undefined,
 	presence_penalty: number | undefined,
-	reasoningEffort: "minimal" | "low" | "medium" | "high" | "xhigh" | undefined,
+	reasoningEffort:
+		| "none"
+		| "minimal"
+		| "low"
+		| "medium"
+		| "high"
+		| "xhigh"
+		| "max"
+		| undefined,
 	reasoningMaxTokens: number | undefined,
 	effort: "low" | "medium" | "high" | undefined,
 	responseFormat: any | undefined,
@@ -175,7 +192,7 @@ export function createLogEntry(
 export function createLogEntry(
 	requestIdOrOptions: string | CreateLogEntryOptions,
 	project?: Project,
-	apiKey?: ApiKey,
+	apiKey?: GatewayApiKey,
 	providerKeyId?: string,
 	usedModel?: string,
 	usedModelMapping?: string,
@@ -188,7 +205,8 @@ export function createLogEntry(
 	top_p?: number,
 	frequency_penalty?: number,
 	presence_penalty?: number,
-	reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh",
+	reasoningEffort?:
+		"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max",
 	reasoningMaxTokens?: number,
 	effort?: "low" | "medium" | "high",
 	responseFormat?: any,

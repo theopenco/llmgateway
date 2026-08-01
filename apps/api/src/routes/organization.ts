@@ -2,7 +2,24 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { userHasOrganizationAccess } from "@/utils/authorization.js";
+import {
+	computeSelfRefundEligibility,
+	executeSelfRefund,
+	isSelfRefundCandidateType,
+	refundFeedbackBodySchema,
+} from "@/lib/self-refund.js";
+import {
+	getUserProjectIds,
+	userHasOrganizationAccess,
+} from "@/utils/authorization.js";
+import { getOrCreateDefaultOrganization } from "@/utils/default-org.js";
+import {
+	buildInvoiceDataForTransaction,
+	generateInvoicePDF,
+	isInvoiceableTransaction,
+	isRefundTransaction,
+} from "@/utils/invoice.js";
+import { isConfigurableDomain, normalizeDomain } from "@/utils/sso-domain.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -17,13 +34,79 @@ import {
 	tables,
 	projectHourlyStats,
 } from "@llmgateway/db";
-import { CREDIT_TOP_UP_MAX_AMOUNT } from "@llmgateway/shared";
+import { getProviderCountries, models, providers } from "@llmgateway/models";
+import {
+	CREDIT_TOP_UP_MAX_AMOUNT,
+	CUSTOM_PROVIDER_NAME_REGEX,
+} from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
 
 export const organization = new OpenAPIHono<ServerTypes>();
 
+// Closed set of provider-headquarters country codes defined in the catalogue.
+// The compliance country filter may only reference these.
+const providerCountryCodes = new Set(
+	getProviderCountries().map((country) => country.code),
+);
+
+// Closed sets for the compliance policy's fine-grained restriction lists.
+// Custom providers are addressed as `custom:<name>` and their models as
+// `<name>/<model>`; the names are only format-validated because provider keys
+// can be created/renamed independently of the stored policy.
+const catalogueProviderIds = new Set<string>(
+	providers.map((provider) => provider.id),
+);
+const catalogueModelIds = new Set<string>(models.map((model) => model.id));
+const customProviderRefRegex = new RegExp(
+	`^custom:${CUSTOM_PROVIDER_NAME_REGEX.source.slice(1, -1)}$`,
+);
+const customModelRefRegex = new RegExp(
+	`^${CUSTOM_PROVIDER_NAME_REGEX.source.slice(1, -1)}/.+$`,
+);
+
+const complianceProviderRefSchema = z
+	.string()
+	.max(256)
+	.refine(
+		(ref) => catalogueProviderIds.has(ref) || customProviderRefRegex.test(ref),
+		{ message: "Unknown provider" },
+	);
+
+const complianceModelRefSchema = z
+	.string()
+	.max(256)
+	.refine(
+		(ref) => catalogueModelIds.has(ref) || customModelRefRegex.test(ref),
+		{
+			message: "Unknown model",
+		},
+	);
+
 // Define schemas directly with Zod instead of using createSelectSchema
+const providerCompliancePolicySchema = z.object({
+	enabled: z.boolean(),
+	requireSoc2: z.boolean().optional(),
+	requireSoc2Type2: z.boolean().optional(),
+	requireIso27001: z.boolean().optional(),
+	requireSoc2OrIso27001: z.boolean().optional(),
+	requireGdpr: z.boolean().optional(),
+	blockApiTraining: z.boolean().optional(),
+	blockPromptLogging: z.boolean().optional(),
+	blockStealthProviders: z.boolean().optional(),
+	allowedCountries: z
+		.array(
+			z.string().refine((code) => providerCountryCodes.has(code), {
+				message: "Unsupported provider headquarters country",
+			}),
+		)
+		.optional(),
+	blockedProviders: z.array(complianceProviderRefSchema).max(500).optional(),
+	allowedProviders: z.array(complianceProviderRefSchema).max(500).optional(),
+	blockedModels: z.array(complianceModelRefSchema).max(500).optional(),
+	allowedModels: z.array(complianceModelRefSchema).max(500).optional(),
+});
+
 const organizationSchema = z.object({
 	id: z.string(),
 	createdAt: z.date(),
@@ -37,21 +120,56 @@ const organizationSchema = z.object({
 	credits: z.string(),
 	plan: z.enum(["free", "pro", "enterprise"]),
 	planExpiresAt: z.date().nullable(),
+	// Manual seat-limit override; null = use the plan default.
+	seats: z.number().nullable(),
+	// Manual API-key-limit override; null = use the plan default.
+	apiKeyLimit: z.number().nullable(),
 	retentionLevel: z.enum(["retain", "none"]),
+	providerCompliancePolicy: providerCompliancePolicySchema.nullable(),
+	ssoAutoJoinDomain: z.string().nullable(),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
 	autoTopUpEnabled: z.boolean(),
 	autoTopUpThreshold: z.string().nullable(),
 	autoTopUpAmount: z.string().nullable(),
 	referralEarnings: z.string(),
-	// Dev Plans fields
-	isPersonal: z.boolean(),
+	referralBonusEnabled: z.boolean(),
+	referralBonusPercent: z.string(),
+	// Organization kind: "default" (regular dashboard org), "devpass" (per-user
+	// Dev Plans org), or "chat" (per-user chat.llmgateway.io org).
+	kind: z.enum(["default", "chat", "devpass"]),
 	devPlan: z.enum(["none", "lite", "pro", "max"]),
 	devPlanCycle: z.enum(["monthly", "annual"]),
 	devPlanCreditsUsed: z.string(),
 	devPlanCreditsLimit: z.string(),
+	devPlanPremiumCreditsUsed: z.string(),
+	devPlanPremiumWeekStart: z.date().nullable(),
+	devPlanResetPassesLite: z.number(),
+	devPlanResetPassesPro: z.number(),
+	devPlanResetPassesMax: z.number(),
+	devPlanIncludedResetPassesUsed: z.number(),
 	devPlanBillingCycleStart: z.date().nullable(),
 	devPlanExpiresAt: z.date().nullable(),
-	devPlanAllowAllModels: z.boolean(),
+	devPlanServiceTier: z.enum(["default", "flex"]),
+	devPlanBillingOverride: z.boolean(),
+	// Chat Plans fields
+	chatPlan: z.enum(["none", "starter", "plus", "pro"]),
+	chatPlanCycle: z.enum(["monthly"]),
+	chatPlanCreditsUsed: z.string(),
+	chatPlanCreditsLimit: z.string(),
+	chatPlanBillingCycleStart: z.date().nullable(),
+	chatPlanExpiresAt: z.date().nullable(),
+	// Org-wide default developer budget (managed on the Teams page).
+	defaultDeveloperMaxApiKeys: z.number().nullable(),
+	defaultDeveloperUsageLimit: z.string().nullable(),
+	defaultDeveloperPeriodUsageLimit: z.string().nullable(),
+	defaultDeveloperPeriodUsageDurationValue: z.number().nullable(),
+	defaultDeveloperPeriodUsageDurationUnit: z
+		.enum(["hour", "day", "week", "month"])
+		.nullable(),
+	// The authenticated user's role in this org. Populated by GET /orgs so the
+	// dashboard can gate org-level UI (e.g. hide org nav from project-scoped
+	// "developer" members). Omitted by single-org endpoints.
+	role: z.enum(["owner", "admin", "developer"]).optional(),
 });
 
 const projectSchema = z.object({
@@ -62,8 +180,15 @@ const projectSchema = z.object({
 	organizationId: z.string(),
 	cachingEnabled: z.boolean(),
 	cacheDurationSeconds: z.number(),
+	providerCacheControlEnabled: z.boolean(),
 	mode: z.enum(["api-keys", "credits", "hybrid"]),
+	defaultRoutingStrategy: z.enum(["auto", "price", "throughput", "latency"]),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
+	paymentsSdkEnabled: z.boolean(),
+	endUserEnabled: z.boolean(),
+	endUserMarkupPercent: z.string(),
+	endUserTopUpBonusPercent: z.string(),
+	allowedOrigins: z.array(z.string()).nullable(),
 });
 
 const createOrganizationSchema = z.object({
@@ -78,6 +203,10 @@ const updateOrganizationSchema = z.object({
 	billingTaxId: z.string().optional(),
 	billingNotes: z.string().optional(),
 	retentionLevel: z.enum(["retain", "none"]).optional(),
+	providerCompliancePolicy: providerCompliancePolicySchema
+		.nullable()
+		.optional(),
+	ssoAutoJoinDomain: z.string().max(253).nullable().optional(),
 	autoTopUpEnabled: z.boolean().optional(),
 	autoTopUpThreshold: z.number().min(5).optional(),
 	autoTopUpAmount: z
@@ -93,6 +222,24 @@ const AUTO_TOP_UP_AUDIT_FIELDS = [
 	"autoTopUpThreshold",
 	"autoTopUpAmount",
 ] as const;
+
+const refundEligibilitySchema = z.object({
+	eligible: z.boolean(),
+	reason: z
+		.enum([
+			"unsupported_type",
+			"not_completed",
+			"already_refunded",
+			"window_expired",
+			"not_owner",
+			"not_latest_purchase",
+			"plan_inactive",
+			"credits_frozen",
+			"usage_exceeded",
+			"pass_already_used",
+		])
+		.optional(),
+});
 
 const transactionSchema = z.object({
 	id: z.string(),
@@ -110,8 +257,24 @@ const transactionSchema = z.object({
 		"dev_plan_upgrade",
 		"dev_plan_downgrade",
 		"dev_plan_cancel",
+		"dev_plan_resume",
 		"dev_plan_end",
 		"dev_plan_renewal",
+		"dev_plan_reset_pass",
+		"dev_plan_reset_pass_reward",
+		"dev_plan_reset_pass_gift",
+		"chat_plan_start",
+		"chat_plan_upgrade",
+		"chat_plan_downgrade",
+		"chat_plan_cancel",
+		"chat_plan_resume",
+		"chat_plan_end",
+		"chat_plan_renewal",
+		"end_user_topup",
+		"end_user_margin_accrual",
+		"end_user_refund",
+		"end_user_margin_payout",
+		"end_user_bonus",
 	]),
 	amount: z.string().nullable(),
 	creditAmount: z.string().nullable(),
@@ -122,12 +285,25 @@ const transactionSchema = z.object({
 	description: z.string().nullable(),
 	relatedTransactionId: z.string().nullable(),
 	refundReason: z.string().nullable(),
+	// Self-refund eligibility, present only on refund-candidate purchase types.
+	refund: refundEligibilitySchema.optional(),
 });
 
 const getOrganizations = createRoute({
 	method: "get",
 	path: "/",
-	request: {},
+	request: {
+		query: z.object({
+			includePersonal: z.enum(["true", "false"]).optional().openapi({
+				description:
+					"Include personal organizations. Used by the chat/devpass surfaces where plans live on the personal org. Defaults to hiding them from the regular dashboard.",
+			}),
+			includeChat: z.enum(["true", "false"]).optional().openapi({
+				description:
+					"Include the dedicated Chat organization. Used by the playground where the chat plan + credits live. Defaults to hiding it from the regular dashboard.",
+			}),
+		}),
+	},
 	responses: {
 		200: {
 			content: {
@@ -159,11 +335,30 @@ organization.openapi(getOrganizations, async (c) => {
 		},
 	});
 
-	const organizations = userOrganizations
-		.map((uo) => uo.organization!)
+	const { includePersonal, includeChat } = c.req.valid("query");
+
+	let organizations = userOrganizations
+		.map((uo) => ({ ...uo.organization!, role: uo.role }))
 		.filter((org) => org.status !== "deleted")
-		// Hide personal orgs from regular UI - they are only visible on devpass.llmgateway.io
-		.filter((org) => !org.isPersonal);
+		// Personal and chat orgs are hidden from the regular dashboard. The
+		// devpass/playground surfaces opt in via ?includePersonal=true /
+		// ?includeChat=true since their plans + credits live on those orgs.
+		.filter((org) => includePersonal === "true" || org.kind !== "devpass")
+		.filter((org) => includeChat === "true" || org.kind !== "chat");
+
+	if (organizations.length === 0) {
+		const defaultOrganization = await getOrCreateDefaultOrganization({
+			id: user.id,
+			email: user.email,
+		});
+
+		if (
+			defaultOrganization.status !== "deleted" &&
+			defaultOrganization.kind !== "devpass"
+		) {
+			organizations = [{ ...defaultOrganization, role: "owner" as const }];
+		}
+	}
 
 	return c.json({
 		organizations,
@@ -209,6 +404,10 @@ organization.openapi(getProjects, async (c) => {
 		});
 	}
 
+	// RBAC: project-scoped "developer" members only see the projects granted to
+	// them; owners/admins see every project in the org.
+	const accessibleProjectIds = new Set(await getUserProjectIds(user.id));
+
 	const projects = await db.query.project.findMany({
 		where: {
 			organizationId: {
@@ -221,7 +420,9 @@ organization.openapi(getProjects, async (c) => {
 	});
 
 	return c.json({
-		projects,
+		projects: projects.filter((project) =>
+			accessibleProjectIds.has(project.id),
+		),
 	});
 });
 
@@ -386,6 +587,8 @@ organization.openapi(updateOrganization, async (c) => {
 		billingTaxId,
 		billingNotes,
 		retentionLevel,
+		providerCompliancePolicy,
+		ssoAutoJoinDomain,
 		autoTopUpEnabled,
 		autoTopUpThreshold,
 		autoTopUpAmount,
@@ -433,6 +636,66 @@ organization.openapi(updateOrganization, async (c) => {
 		});
 	}
 
+	// DevPass and Chat organizations never retain request/response payloads, and
+	// the products expose no setting for it. Reject attempts to turn it on.
+	if (
+		retentionLevel !== undefined &&
+		userOrganization.organization?.kind !== "default"
+	) {
+		throw new HTTPException(400, {
+			message: "Data retention is not available for this organization",
+		});
+	}
+
+	// Provider compliance policies are an enterprise feature managed by owners
+	// and admins (matching the Guardrails settings page).
+	if (providerCompliancePolicy !== undefined) {
+		if (userOrganization.organization?.plan !== "enterprise") {
+			throw new HTTPException(403, {
+				message: "Provider compliance policies require an enterprise plan",
+			});
+		}
+		if (
+			userOrganization.role !== "owner" &&
+			userOrganization.role !== "admin"
+		) {
+			throw new HTTPException(403, {
+				message: "Only owners and admins can manage compliance policies",
+			});
+		}
+	}
+
+	// Google SSO domain auto-join is an enterprise feature managed by owners and
+	// admins. The value is normalized and validated before storage.
+	let normalizedSsoDomain: string | null | undefined;
+	if (ssoAutoJoinDomain !== undefined) {
+		if (userOrganization.organization?.plan !== "enterprise") {
+			throw new HTTPException(403, {
+				message: "SSO auto-join requires an enterprise plan",
+			});
+		}
+		if (
+			userOrganization.role !== "owner" &&
+			userOrganization.role !== "admin"
+		) {
+			throw new HTTPException(403, {
+				message: "Only owners and admins can configure SSO auto-join",
+			});
+		}
+		if (ssoAutoJoinDomain === null || ssoAutoJoinDomain.trim() === "") {
+			normalizedSsoDomain = null;
+		} else {
+			const normalized = normalizeDomain(ssoAutoJoinDomain);
+			if (!isConfigurableDomain(normalized)) {
+				throw new HTTPException(400, {
+					message:
+						"Invalid or disallowed domain. Use a corporate domain like acme.com (consumer email domains are not allowed).",
+				});
+			}
+			normalizedSsoDomain = normalized;
+		}
+	}
+
 	const updateData: any = {};
 	if (name !== undefined) {
 		updateData.name = name;
@@ -455,6 +718,12 @@ organization.openapi(updateOrganization, async (c) => {
 	if (retentionLevel !== undefined) {
 		updateData.retentionLevel = retentionLevel;
 	}
+	if (providerCompliancePolicy !== undefined) {
+		updateData.providerCompliancePolicy = providerCompliancePolicy;
+	}
+	if (normalizedSsoDomain !== undefined) {
+		updateData.ssoAutoJoinDomain = normalizedSsoDomain;
+	}
 	if (autoTopUpEnabled !== undefined) {
 		updateData.autoTopUpEnabled = autoTopUpEnabled;
 		if (autoTopUpEnabled && !userOrganization.organization?.autoTopUpEnabled) {
@@ -470,11 +739,30 @@ organization.openapi(updateOrganization, async (c) => {
 		updateData.autoTopUpAmount = autoTopUpAmount.toString();
 	}
 
-	const [updatedOrganization] = await db
-		.update(tables.organization)
-		.set(updateData)
-		.where(eq(tables.organization.id, id))
-		.returning();
+	// An empty PATCH body is a valid no-op; drizzle throws "No values to set"
+	// on an empty update, so skip the query and return the org unchanged.
+	let updatedOrganization;
+	if (Object.keys(updateData).length === 0) {
+		updatedOrganization = userOrganization.organization!;
+	} else {
+		try {
+			[updatedOrganization] = await db
+				.update(tables.organization)
+				.set(updateData)
+				.where(eq(tables.organization.id, id))
+				.returning();
+		} catch (err) {
+			const code =
+				(err as { code?: string; cause?: { code?: string } })?.code ??
+				(err as { cause?: { code?: string } })?.cause?.code;
+			if (code === "23505" && normalizedSsoDomain) {
+				throw new HTTPException(409, {
+					message: "This domain is already configured by another organization.",
+				});
+			}
+			throw err;
+		}
+	}
 
 	// Build changes metadata for audit log
 	const changes: Record<string, { old: unknown; new: unknown }> = {};
@@ -517,6 +805,16 @@ organization.openapi(updateOrganization, async (c) => {
 		changes.retentionLevel = {
 			old: oldOrg.retentionLevel,
 			new: retentionLevel,
+		};
+	}
+	if (
+		providerCompliancePolicy !== undefined &&
+		JSON.stringify(oldOrg.providerCompliancePolicy ?? null) !==
+			JSON.stringify(providerCompliancePolicy ?? null)
+	) {
+		changes.providerCompliancePolicy = {
+			old: oldOrg.providerCompliancePolicy,
+			new: providerCompliancePolicy,
 		};
 	}
 	if (
@@ -575,6 +873,27 @@ organization.openapi(updateOrganization, async (c) => {
 			resourceType: "organization",
 			resourceId: id,
 			metadata: { changes: autoTopUpChanges },
+		});
+	}
+
+	if (
+		normalizedSsoDomain !== undefined &&
+		normalizedSsoDomain !== oldOrg.ssoAutoJoinDomain
+	) {
+		await logAuditEvent({
+			organizationId: id,
+			userId: user.id,
+			action: "organization.sso_auto_join.update",
+			resourceType: "organization",
+			resourceId: id,
+			metadata: {
+				changes: {
+					ssoAutoJoinDomain: {
+						old: oldOrg.ssoAutoJoinDomain,
+						new: normalizedSsoDomain,
+					},
+				},
+			},
 		});
 	}
 
@@ -660,10 +979,18 @@ organization.openapi(deleteOrganization, async (c) => {
 	}
 
 	// Block deletion of personal orgs - they are managed via dev plans
-	if (userOrganization.organization?.isPersonal) {
+	if (userOrganization.organization?.kind === "devpass") {
 		throw new HTTPException(403, {
 			message:
 				"Personal organizations cannot be deleted. Please cancel your dev plan at devpass.llmgateway.io instead.",
+		});
+	}
+
+	// Block deletion of the dedicated Chat org - it is managed via chat plans
+	if (userOrganization.organization?.kind === "chat") {
+		throw new HTTPException(403, {
+			message:
+				"The Chat organization cannot be deleted. Please cancel your chat plan from the chat.llmgateway.io pricing page instead.",
 		});
 	}
 
@@ -720,8 +1047,16 @@ organization.openapi(getTransactions, async (c) => {
 
 	const { id } = c.req.param();
 
-	const hasAccess = await userHasOrganizationAccess(user.id, id);
-	if (!hasAccess) {
+	const userOrganization = await db.query.userOrganization.findFirst({
+		where: {
+			userId: { eq: user.id },
+			organizationId: { eq: id },
+		},
+		with: {
+			organization: true,
+		},
+	});
+	if (!userOrganization?.organization) {
 		throw new HTTPException(403, {
 			message: "You do not have access to this organization",
 		});
@@ -738,9 +1073,214 @@ organization.openapi(getTransactions, async (c) => {
 		},
 	});
 
+	const org = userOrganization.organization;
 	return c.json({
-		transactions,
+		transactions: transactions.map((t) =>
+			isSelfRefundCandidateType(t.type)
+				? {
+						...t,
+						refund: computeSelfRefundEligibility({
+							organization: org,
+							role: userOrganization.role,
+							transactions,
+							transaction: t,
+						}),
+					}
+				: t,
+		),
 	});
+});
+
+const selfRefundTransaction = createRoute({
+	method: "post",
+	path: "/{id}/transactions/{transactionId}/refund",
+	request: {
+		params: z.object({
+			id: z.string(),
+			transactionId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: refundFeedbackBodySchema,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						status: z.literal("refund_processing"),
+						stripeRefundId: z.string(),
+					}),
+				},
+			},
+			description:
+				"Refund created; the transaction and credit adjustments are applied when Stripe confirms via webhook",
+		},
+	},
+});
+
+organization.openapi(selfRefundTransaction, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { id, transactionId } = c.req.param();
+	const { reason, comments } = c.req.valid("json");
+
+	const userOrganization = await db.query.userOrganization.findFirst({
+		where: {
+			userId: { eq: user.id },
+			organizationId: { eq: id },
+		},
+		with: {
+			organization: true,
+		},
+	});
+	if (!userOrganization?.organization) {
+		throw new HTTPException(403, {
+			message: "You do not have access to this organization",
+		});
+	}
+
+	const transactions = await db.query.transaction.findMany({
+		where: {
+			organizationId: { eq: id },
+		},
+	});
+	const transaction = transactions.find((t) => t.id === transactionId);
+	if (!transaction) {
+		throw new HTTPException(404, {
+			message: "Transaction not found",
+		});
+	}
+
+	const eligibility = computeSelfRefundEligibility({
+		organization: userOrganization.organization,
+		role: userOrganization.role,
+		transactions,
+		transaction,
+	});
+	if (!eligibility.eligible) {
+		if (eligibility.reason === "not_owner") {
+			throw new HTTPException(403, {
+				message: "Only the organization owner can request a refund",
+			});
+		}
+		throw new HTTPException(400, {
+			message: `This transaction is not eligible for a self-service refund: ${eligibility.reason}`,
+		});
+	}
+
+	const { stripeRefundId } = await executeSelfRefund({
+		organization: userOrganization.organization,
+		transaction,
+		userId: user.id,
+		reason,
+		comments,
+	});
+
+	return c.json({
+		status: "refund_processing" as const,
+		stripeRefundId,
+	});
+});
+
+const downloadTransactionInvoice = createRoute({
+	method: "get",
+	path: "/{id}/transactions/{transactionId}/invoice",
+	request: {
+		params: z.object({
+			id: z.string(),
+			transactionId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/pdf": {
+					schema: z.any().openapi({ type: "string", format: "binary" }),
+				},
+			},
+			description: "PDF invoice for the specified transaction",
+		},
+	},
+});
+
+organization.openapi(downloadTransactionInvoice, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { id, transactionId } = c.req.param();
+
+	const hasAccess = await userHasOrganizationAccess(user.id, id);
+	if (!hasAccess) {
+		throw new HTTPException(403, {
+			message: "You do not have access to this organization",
+		});
+	}
+
+	const transaction = await db.query.transaction.findFirst({
+		where: {
+			id: { eq: transactionId },
+			organizationId: { eq: id },
+		},
+	});
+	if (!transaction) {
+		throw new HTTPException(404, {
+			message: "Transaction not found",
+		});
+	}
+	if (!isInvoiceableTransaction(transaction)) {
+		throw new HTTPException(400, {
+			message: "No invoice is available for this transaction",
+		});
+	}
+
+	const org = await db.query.organization.findFirst({
+		where: {
+			id: { eq: id },
+		},
+	});
+	if (!org) {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	const originalTransaction =
+		isRefundTransaction(transaction.type) && transaction.relatedTransactionId
+			? await db.query.transaction.findFirst({
+					where: {
+						id: { eq: transaction.relatedTransactionId },
+						organizationId: { eq: id },
+					},
+				})
+			: null;
+
+	const pdf = generateInvoicePDF(
+		buildInvoiceDataForTransaction(transaction, org, originalTransaction),
+	);
+
+	const prefix = isRefundTransaction(transaction.type)
+		? "credit-note"
+		: "invoice";
+	c.header("Content-Type", "application/pdf");
+	c.header(
+		"Content-Disposition",
+		`attachment; filename="${prefix}-${transaction.id}.pdf"`,
+	);
+	return c.body(new Uint8Array(pdf));
 });
 
 const getReferralStats = createRoute({

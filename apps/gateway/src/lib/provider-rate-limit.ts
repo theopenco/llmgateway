@@ -1,8 +1,11 @@
 import { randomUUID } from "node:crypto";
 
 import { redisClient } from "@llmgateway/cache";
-import { getEffectiveRateLimit, type RateLimitSource } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+
+import { findEffectiveRateLimit } from "./cached-queries.js";
+
+import type { RateLimitSource } from "@llmgateway/db";
 
 export const providerRateLimitWindows = {
 	rpm: {
@@ -38,6 +41,12 @@ export interface ProviderRateLimitResult {
 	limits: Record<ProviderRateLimitWindow, ProviderRateLimitWindowState>;
 }
 
+// Sentinels for shared limits whose matched row left a dimension as a wildcard,
+// so every matching request collapses onto one shared counter for that row.
+const SHARED_ORG = "__global__";
+const ALL_PROVIDERS = "__all_providers__";
+const ALL_MODELS = "__all_models__";
+
 function getProviderRateLimitKey(
 	organizationId: string,
 	provider: string,
@@ -45,6 +54,32 @@ function getProviderRateLimitKey(
 	window: ProviderRateLimitWindow,
 ): string {
 	return `rate_limit:provider_cap:${providerRateLimitWindows[window].redisSuffix}:${organizationId}:${provider}:${model}`;
+}
+
+/**
+ * Build the Redis key for a window. Shared limits key by the matched row's
+ * target (collapsing wildcard dimensions onto a sentinel) so a single counter
+ * spans all orgs and all requests the row covers; per-org limits key by the
+ * org and the concrete request provider/model.
+ */
+function buildProviderRateLimitKey(
+	window: ProviderRateLimitWindow,
+	organizationId: string,
+	provider: string,
+	model: string,
+	shared: boolean | undefined,
+	matchedProvider: string | null | undefined,
+	matchedModel: string | null | undefined,
+): string {
+	if (!shared) {
+		return getProviderRateLimitKey(organizationId, provider, model, window);
+	}
+	return getProviderRateLimitKey(
+		SHARED_ORG,
+		matchedProvider ?? ALL_PROVIDERS,
+		matchedModel ?? ALL_MODELS,
+		window,
+	);
 }
 
 async function readWindowState(
@@ -159,22 +194,36 @@ async function getProviderRateLimitStates(
 	organizationId: string,
 	provider: string,
 	model: string,
-	providerModelName?: string,
 ): Promise<{
 	keys: Record<ProviderRateLimitWindow, string>;
 	limits: Record<ProviderRateLimitWindow, ProviderRateLimitWindowState>;
 }> {
-	const effectiveRateLimit = await getEffectiveRateLimit(
+	const effectiveRateLimit = await findEffectiveRateLimit(
 		organizationId,
 		provider,
 		model,
-		providerModelName,
 	);
 	const now = Date.now();
 
 	const keys = {
-		rpm: getProviderRateLimitKey(organizationId, provider, model, "rpm"),
-		rpd: getProviderRateLimitKey(organizationId, provider, model, "rpd"),
+		rpm: buildProviderRateLimitKey(
+			"rpm",
+			organizationId,
+			provider,
+			model,
+			effectiveRateLimit.rpmShared,
+			effectiveRateLimit.rpmProvider,
+			effectiveRateLimit.rpmModel,
+		),
+		rpd: buildProviderRateLimitKey(
+			"rpd",
+			organizationId,
+			provider,
+			model,
+			effectiveRateLimit.rpdShared,
+			effectiveRateLimit.rpdProvider,
+			effectiveRateLimit.rpdModel,
+		),
 	};
 	const limits = {
 		rpm: await readWindowState(
@@ -212,14 +261,12 @@ export async function peekProviderRateLimit(
 	organizationId: string,
 	provider: string,
 	model: string,
-	providerModelName?: string,
 ): Promise<ProviderRateLimitResult> {
 	try {
 		const { limits } = await getProviderRateLimitStates(
 			organizationId,
 			provider,
 			model,
-			providerModelName,
 		);
 		const blockedBy = (
 			Object.entries(limits) as Array<
@@ -251,7 +298,6 @@ export async function filterRateLimitedProviders(
 	candidates: Array<{
 		providerId: string;
 		model: string;
-		providerModelName?: string;
 	}>,
 ): Promise<Set<string>> {
 	const results = await Promise.all(
@@ -261,7 +307,6 @@ export async function filterRateLimitedProviders(
 				organizationId,
 				candidate.providerId,
 				candidate.model,
-				candidate.providerModelName,
 			)),
 		})),
 	);
@@ -275,12 +320,13 @@ export async function filterRateLimitedProviders(
 
 /**
  * Pick fallback candidates that are not at their RPM/RPD cap.
- * Dedupes peeks by providerId+modelName since region-expanded variants share
- * the same rate-limit window. Falls open to the original candidates if every
- * one is capped, so callers always get a non-empty list when input was non-empty.
+ * Dedupes peeks by providerId since rate limits are keyed by org+provider+root
+ * model id, so region-expanded variants share the same window. Falls open to
+ * the original candidates if every one is capped, so callers always get a
+ * non-empty list when input was non-empty.
  */
 export async function pickNonRateLimitedCandidates<
-	T extends { providerId: string; modelName: string },
+	T extends { providerId: string },
 >(organizationId: string, baseModelId: string, candidates: T[]): Promise<T[]> {
 	if (candidates.length === 0) {
 		return candidates;
@@ -289,11 +335,10 @@ export async function pickNonRateLimitedCandidates<
 	const uniquePeekCandidates = Array.from(
 		new Map(
 			candidates.map((p) => [
-				`${p.providerId}:${p.modelName}`,
+				p.providerId,
 				{
 					providerId: p.providerId,
 					model: baseModelId,
-					providerModelName: p.modelName,
 				},
 			]),
 		).values(),
@@ -319,14 +364,12 @@ export async function checkProviderRateLimit(
 	organizationId: string,
 	provider: string,
 	model: string,
-	providerModelName?: string,
 ): Promise<ProviderRateLimitResult> {
 	try {
 		const { keys, limits } = await getProviderRateLimitStates(
 			organizationId,
 			provider,
 			model,
-			providerModelName,
 		);
 		const blockedBy = (
 			Object.entries(limits) as Array<
@@ -343,7 +386,6 @@ export async function checkProviderRateLimit(
 				organizationId,
 				provider,
 				model,
-				providerModelName,
 				blockedBy,
 				limits,
 				retryAfter,
@@ -391,7 +433,6 @@ export async function checkProviderRateLimit(
 			organizationId,
 			provider,
 			model,
-			providerModelName,
 			limits: updatedLimits,
 		});
 

@@ -16,7 +16,16 @@ import {
 	type ChatSidebarHandle,
 } from "@/components/playground/chat-sidebar";
 import { ChatUI } from "@/components/playground/chat-ui";
+import { ProjectContextBanner } from "@/components/playground/project-context-banner";
 import { Button } from "@/components/ui/button";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
 import { SidebarProvider } from "@/components/ui/sidebar";
 // No local api key. We'll call backend to ensure key cookie exists after login.
 import {
@@ -25,14 +34,22 @@ import {
 	useDataChat,
 	useDeleteChat,
 	useForkChat,
+	useUpdateChat,
 	useUpdateMessage,
 } from "@/hooks/useChats";
 import { useMcpServers } from "@/hooks/useMcpServers";
+import { useOrganization } from "@/hooks/useOrganization";
+import { useSkills, type Skill } from "@/hooks/useSkills";
 import { useUser } from "@/hooks/useUser";
+import { useApi } from "@/lib/fetch-client";
 import { getModelImageConfig } from "@/lib/image-gen";
 import { parseImageFile } from "@/lib/image-utils";
 import { mapModels } from "@/lib/mapmodels";
 import { parsePlaygroundMessageMetadata } from "@/lib/message-metadata";
+import {
+	getFallbackReasoningEffortOptions,
+	getReasoningEffortOptions,
+} from "@/lib/model-utils";
 import { shouldDisableFallback } from "@/lib/no-fallback";
 import { getErrorMessage } from "@/lib/utils";
 
@@ -40,6 +57,7 @@ import type {
 	ApiModel,
 	ApiModelProviderMapping,
 	ApiProvider,
+	ReasoningEffortOption,
 } from "@/lib/fetch-models";
 import type { ComboboxModel, Organization, Project } from "@/lib/types";
 import type { UIMessage } from "ai";
@@ -63,6 +81,19 @@ function isToolPart(obj: unknown): obj is ToolPart {
 		typeof (obj as ToolPart).type === "string" &&
 		(obj as ToolPart).type.startsWith("tool-")
 	);
+}
+
+// Serialize web search source-url parts for persistence alongside the message.
+function extractSourcePartsJson(parts: UIMessage["parts"]): string | undefined {
+	const sourceParts = (parts as { type: string; [key: string]: unknown }[])
+		.filter((p) => p.type === "source-url" && typeof p.url === "string")
+		.map((p) => ({
+			type: "source-url" as const,
+			sourceId: p.sourceId,
+			url: p.url,
+			...(p.title ? { title: p.title } : {}),
+		}));
+	return sourceParts.length > 0 ? JSON.stringify(sourceParts) : undefined;
 }
 
 function getFirstUserMessageText(
@@ -90,6 +121,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function readString(value: unknown): string | undefined {
 	return typeof value === "string" ? value : undefined;
+}
+
+// Mistral OCR embeds detected figures as markdown image references
+// (e.g. `![img-0.jpeg](img-0.jpeg)`). The chat's markdown renderer can only
+// load real http(s) images — it blocks relative refs and strips inline data
+// URLs during sanitization — so OCR figures would only ever show as an
+// "[Image blocked]" placeholder. Drop those references and leave the
+// extracted text clean (any genuine http(s) image is kept).
+function stripOcrImages(markdown: string): string {
+	return markdown.replace(/!\[[^\]]*\]\((?!https?:\/\/)[^)]*\)/g, "");
 }
 
 function getImagePartsForMessage(message: UIMessage): unknown[] {
@@ -222,7 +263,7 @@ interface ChatPageClientProps {
 function parseModelSelectorValue(value: string): {
 	providerId: string;
 	modelId: string;
-	providerModelName: string;
+	region: string | undefined;
 } {
 	const [providerId, rawModelId] = value.includes("/")
 		? (value.split("/") as [string, string])
@@ -232,20 +273,20 @@ function parseModelSelectorValue(value: string): {
 	return {
 		providerId,
 		modelId: colonIndex === -1 ? rawModelId : rawModelId.slice(0, colonIndex),
-		providerModelName: rawModelId,
+		region: colonIndex === -1 ? undefined : rawModelId.slice(colonIndex + 1),
 	};
 }
 
 function getSelectedMapping(
 	model: ApiModel,
 	providerId: string,
-	providerModelName: string,
+	region: string | undefined,
 ): ApiModelProviderMapping | undefined {
 	return (
 		model.mappings.find(
 			(mapping) =>
 				mapping.providerId === providerId &&
-				mapping.modelName === providerModelName,
+				(mapping.region ?? undefined) === region,
 		) ?? model.mappings.find((mapping) => mapping.providerId === providerId)
 	);
 }
@@ -261,29 +302,33 @@ export default function ChatPageClient({
 	enableWebSearch = false,
 }: ChatPageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
+	// In the personal context selectedOrganization is null; billing + top-ups run
+	// under the dedicated Chat org resolved here.
+	const { organization: chatOrg } = useOrganization();
 	const posthog = usePostHog();
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
-
+	const skillIdFromUrl = searchParams.get("skillId");
 	const mapped = useMemo(
 		() => mapModels(models, providers),
 		[models, providers],
 	);
 	const [availableModels] = useState<ComboboxModel[]>(mapped);
 
+	// Chat always starts on Auto Route unless the URL pins a model; the last
+	// selection is deliberately not persisted across visits.
 	const getInitialModel = () => {
 		const modelFromUrl = searchParams.get("model");
 		if (modelFromUrl) {
-			return modelFromUrl;
+			return modelFromUrl.split(",")[0] ?? "auto";
 		}
-		// Default to "auto" model which auto-selects the best provider
 		return "auto";
 	};
 
-	const [selectedModel, setSelectedModel] = useState(getInitialModel());
+	const [selectedModel, setSelectedModel] = useState(() => getInitialModel());
 	const [reasoningEffort, setReasoningEffort] = useState<
-		"" | "minimal" | "low" | "medium" | "high"
+		"" | ReasoningEffortOption
 	>("");
 	const [imageAspectRatio, setImageAspectRatio] = useState<
 		| "auto"
@@ -313,11 +358,19 @@ export default function ChatPageClient({
 	});
 	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
 	const [webSearchEnabled, setWebSearchEnabled] = useState(enableWebSearch);
+	const [activeSkills, setActiveSkills] = useState<Skill[]>([]);
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [finishReason, setFinishReason] = useState<string | null>(null);
+	const [ocrPending, setOcrPending] = useState(false);
 	const [showTopUp, setShowTopUp] = useState(false);
 	const [isTemporaryChat, setIsTemporaryChat] = useState(false);
+	const [pendingVideoModel, setPendingVideoModel] = useState<string | null>(
+		null,
+	);
+	const [pendingAudioModel, setPendingAudioModel] = useState<string | null>(
+		null,
+	);
 
 	// MCP servers management
 	const {
@@ -329,8 +382,31 @@ export default function ChatPageClient({
 		getEnabledServers: getEnabledMcpServers,
 	} = useMcpServers();
 
+	// Skills
+	const { data: skillsData } = useSkills();
+	const skillInitializedRef = useRef(false);
+	useEffect(() => {
+		if (!skillIdFromUrl || !skillsData?.skills || skillInitializedRef.current) {
+			return;
+		}
+		const found = (skillsData.skills as Skill[]).find(
+			(s) => s.id === skillIdFromUrl,
+		);
+		if (found) {
+			skillInitializedRef.current = true;
+			setActiveSkills([found]);
+		}
+	}, [skillIdFromUrl, skillsData]);
+
 	// Get chat ID from URL search params
-	const chatIdFromUrl = searchParams.get("chat");
+	const chatIdFromUrl = searchParams.get("id");
+	// Chat project (knowledge base) context: seeded from the ?project= param
+	// when starting a chat from a project page, then kept in sync with the
+	// loaded chat's own projectId.
+	const projectIdFromUrl = searchParams.get("project");
+	const [activeProjectId, setActiveProjectId] = useState<string | null>(
+		projectIdFromUrl,
+	);
 	const [currentChatId, setCurrentChatId] = useState<string | null>(
 		chatIdFromUrl,
 	);
@@ -339,6 +415,10 @@ export default function ChatPageClient({
 	// originating chat even if the user navigates to another chat mid-stream.
 	const streamingChatIdRef = useRef<string | null>(null);
 	const isNewChatRef = useRef(false);
+	// Set to true only when code explicitly clears away from a chat (New Chat,
+	// delete, 404 recovery). Lets the model-sync effect distinguish "we just
+	// cleared a chat" from "we are navigating to a chat from blank state".
+	const clearingChatRef = useRef(false);
 	const errorOccurredRef = useRef(false);
 	const isSendingRef = useRef(false);
 	const panelIdCounterRef = useRef(1);
@@ -370,6 +450,7 @@ export default function ChatPageClient({
 						});
 						// Reset state
 						setCurrentChatId(null);
+						clearingChatRef.current = true;
 						chatIdRef.current = null;
 						setMessages([]);
 						isNewChatRef.current = false;
@@ -484,6 +565,7 @@ export default function ChatPageClient({
 					images: images.length > 0 ? JSON.stringify(images) : undefined,
 					reasoning: reasoningContent || undefined,
 					tools: toolParts.length > 0 ? JSON.stringify(toolParts) : undefined,
+					sources: extractSourcePartsJson(message.parts),
 					...(metadata ? { metadata } : {}),
 				};
 
@@ -498,6 +580,7 @@ export default function ChatPageClient({
 						error?.status === 404 &&
 						error?.message?.includes("Chat not found")
 					) {
+						clearingChatRef.current = true;
 						chatIdRef.current = null;
 						setCurrentChatId(null);
 						setMessages([]);
@@ -550,7 +633,7 @@ export default function ChatPageClient({
 		if (!selectedModel) {
 			return false;
 		}
-		const { providerId, modelId, providerModelName } =
+		const { providerId, modelId, region } =
 			parseModelSelectorValue(selectedModel);
 		const def = models.find((m) => m.id === modelId);
 		if (!def) {
@@ -559,7 +642,7 @@ export default function ChatPageClient({
 		if (!providerId) {
 			return def.mappings.some((p: ApiModelProviderMapping) => p.vision);
 		}
-		const mapping = getSelectedMapping(def, providerId, providerModelName);
+		const mapping = getSelectedMapping(def, providerId, region);
 		return !!mapping?.vision;
 	}, [models, selectedModel]);
 
@@ -570,6 +653,35 @@ export default function ChatPageClient({
 		}
 		return !!model?.audio;
 	}, [availableModels, selectedModel]);
+
+	const isOcrModel = useMemo(() => {
+		if (!selectedModel) {
+			return false;
+		}
+		const { modelId } = parseModelSelectorValue(selectedModel);
+		const def = models.find((m) => m.id === modelId);
+		return !!def?.output?.includes("ocr");
+	}, [models, selectedModel]);
+
+	const supportsDocuments = useMemo(() => {
+		if (!selectedModel) {
+			return false;
+		}
+		if (isOcrModel) {
+			return true;
+		}
+		const { providerId, modelId, region } =
+			parseModelSelectorValue(selectedModel);
+		const def = models.find((m) => m.id === modelId);
+		if (!def) {
+			return false;
+		}
+		if (!providerId) {
+			return def.mappings.some((p: ApiModelProviderMapping) => p.document);
+		}
+		const mapping = getSelectedMapping(def, providerId, region);
+		return !!mapping?.document;
+	}, [models, selectedModel, isOcrModel]);
 
 	const supportsImageGen = useMemo(() => {
 		if (!selectedModel) {
@@ -584,7 +696,7 @@ export default function ChatPageClient({
 		if (!selectedModel) {
 			return false;
 		}
-		const { providerId, modelId, providerModelName } =
+		const { providerId, modelId, region } =
 			parseModelSelectorValue(selectedModel);
 		const def = models.find((m) => m.id === modelId);
 		if (!def) {
@@ -593,15 +705,34 @@ export default function ChatPageClient({
 		if (!providerId) {
 			return def.mappings.some((p: ApiModelProviderMapping) => p.reasoning);
 		}
-		const mapping = getSelectedMapping(def, providerId, providerModelName);
+		const mapping = getSelectedMapping(def, providerId, region);
 		return !!mapping?.reasoning;
+	}, [models, selectedModel]);
+
+	const reasoningEfforts = useMemo(() => {
+		if (!selectedModel) {
+			return null;
+		}
+		const { providerId, modelId, region } =
+			parseModelSelectorValue(selectedModel);
+		const def = models.find((m) => m.id === modelId);
+		if (!def) {
+			return null;
+		}
+		if (!providerId) {
+			return getReasoningEffortOptions(
+				def.mappings.filter((p: ApiModelProviderMapping) => p.reasoning),
+			);
+		}
+		const mapping = getSelectedMapping(def, providerId, region);
+		return getReasoningEffortOptions(mapping ? [mapping] : []);
 	}, [models, selectedModel]);
 
 	const supportsWebSearch = useMemo(() => {
 		if (!selectedModel) {
 			return false;
 		}
-		const { providerId, modelId, providerModelName } =
+		const { providerId, modelId, region } =
 			parseModelSelectorValue(selectedModel);
 		const def = models.find((m) => m.id === modelId);
 		if (!def) {
@@ -610,7 +741,7 @@ export default function ChatPageClient({
 		if (!providerId) {
 			return def.mappings.some((p: ApiModelProviderMapping) => p.webSearch);
 		}
-		const mapping = getSelectedMapping(def, providerId, providerModelName);
+		const mapping = getSelectedMapping(def, providerId, region);
 		return !!mapping?.webSearch;
 	}, [models, selectedModel]);
 
@@ -683,6 +814,17 @@ export default function ChatPageClient({
 						? { mcp_servers: enabledMcpServers }
 						: {}),
 					...(isTemporaryChat ? { temporary_chat: true } : {}),
+					...(activeProjectId && !isTemporaryChat
+						? { project_id: activeProjectId }
+						: {}),
+					...(activeSkills.length > 0
+						? {
+								skill_instructions: activeSkills
+									.filter((s) => s.enabled)
+									.map((s) => s.instructions)
+									.join("\n\n"),
+							}
+						: {}),
 				},
 			};
 		},
@@ -700,6 +842,8 @@ export default function ChatPageClient({
 			supportsWebSearch,
 			getEnabledMcpServers,
 			isTemporaryChat,
+			activeProjectId,
+			activeSkills,
 		],
 	);
 
@@ -733,8 +877,25 @@ export default function ChatPageClient({
 	);
 
 	// Additional comparison chat windows (primary + up to two comparison panels)
-	const [comparisonEnabled, setComparisonEnabled] = useState(false);
-	const [extraPanelIds, setExtraPanelIds] = useState<number[]>([]);
+	const [comparisonEnabled, setComparisonEnabled] = useState(
+		() => searchParams.get("compare") === "1",
+	);
+	const [extraPanelModels, setExtraPanelModels] = useState<string[]>(() => {
+		const modelParam = searchParams.get("model");
+		if (modelParam && searchParams.get("compare") === "1") {
+			return modelParam.split(",").slice(1).filter(Boolean);
+		}
+		return [];
+	});
+	const [extraPanelIds, setExtraPanelIds] = useState<number[]>(() => {
+		const modelParam = searchParams.get("model");
+		if (modelParam && searchParams.get("compare") === "1") {
+			const extras = modelParam.split(",").slice(1).filter(Boolean);
+			return extras.map((_, i) => i + 1);
+		}
+		return [];
+	});
+	const [comparisonChatIds, setComparisonChatIds] = useState<string[]>([]);
 	const [syncInput, setSyncInput] = useState(true);
 	const [syncedText, setSyncedText] = useState(initialPrompt ?? "");
 	const extraSubmitRefs = useRef<
@@ -747,12 +908,42 @@ export default function ChatPageClient({
 	// Chat API hooks
 	const createChat = useCreateChat();
 	const addMessage = useAddMessage();
+	const api = useApi();
+	const { data: chatPlanStatus } = api.useQuery(
+		"get",
+		"/chat-plans/status",
+		undefined,
+		{ enabled: !!user, staleTime: 30_000 },
+	);
+	const isChatPlanStatusLoaded = chatPlanStatus !== undefined;
+	const hasChatPlanCredits =
+		isChatPlanStatusLoaded &&
+		Number(chatPlanStatus.chatPlanCreditsRemaining) > 0;
 	const updateMessage = useUpdateMessage();
+	const updateChat = useUpdateChat({ silent: true });
 	const deleteChat = useDeleteChat();
+	const deleteComparisonChat = useDeleteChat({ silent: true });
 	const forkChat = useForkChat();
 	const { data: currentChatData, isLoading: isChatLoading } = useDataChat(
 		currentChatId ?? "",
 	);
+
+	// Keep the project context in sync: an existing chat's own projectId wins;
+	// without a chat, fall back to the ?project= param (new chat from a project).
+	useEffect(() => {
+		if (currentChatId) {
+			if (currentChatData?.chat?.id === currentChatId) {
+				setActiveProjectId(currentChatData.chat.projectId ?? null);
+			} else if (!pendingNewChatRef.current) {
+				// Navigating to a different chat whose data hasn't loaded yet —
+				// don't keep showing the previous chat's project context. A chat
+				// just created here (pendingNewChatRef) keeps the ?project= value.
+				setActiveProjectId(null);
+			}
+		} else {
+			setActiveProjectId(projectIdFromUrl);
+		}
+	}, [currentChatId, currentChatData?.chat, projectIdFromUrl]);
 
 	useEffect(() => {
 		// Use `status` from useChat (reactive) instead of the isSendingRef ref so
@@ -795,6 +986,22 @@ export default function ChatPageClient({
 
 		if (currentChatData.chat?.webSearch !== undefined) {
 			setWebSearchEnabled(currentChatData.chat.webSearch);
+		}
+
+		if (currentChatData.chat?.comparisonEnabled !== undefined) {
+			setComparisonEnabled(currentChatData.chat.comparisonEnabled);
+		}
+
+		const childIds = (currentChatData as any).comparisonChatIds as
+			string[] | undefined;
+		if (childIds && childIds.length > 0) {
+			setComparisonChatIds(childIds);
+			setExtraPanelIds(childIds.map((_, i) => i + 1));
+			setExtraPanelModels([]);
+		} else {
+			setComparisonChatIds([]);
+			setExtraPanelIds([]);
+			setExtraPanelModels([]);
 		}
 
 		const filteredMessages = currentChatData.messages.filter(
@@ -861,6 +1068,27 @@ export default function ChatPageClient({
 					}
 				}
 
+				if ((msg as any).documents) {
+					try {
+						const parsedDocuments = JSON.parse((msg as any).documents);
+						if (Array.isArray(parsedDocuments)) {
+							for (const d of parsedDocuments) {
+								if (!d?.url) {
+									continue;
+								}
+								parts.push({
+									type: "file",
+									mediaType: d.mediaType ?? "application/octet-stream",
+									url: d.url,
+									...(d.name ? { name: d.name } : {}),
+								});
+							}
+						}
+					} catch (error) {
+						toast.error("Failed to parse documents: " + getErrorMessage(error));
+					}
+				}
+
 				if ((msg as any).tools) {
 					try {
 						const parsedTools = JSON.parse((msg as any).tools);
@@ -872,11 +1100,23 @@ export default function ChatPageClient({
 					}
 				}
 
+				if ((msg as any).sources) {
+					try {
+						const parsedSources = JSON.parse((msg as any).sources);
+						if (Array.isArray(parsedSources)) {
+							parts.push(...parsedSources.map((s: any) => ({ ...s })));
+						}
+					} catch (error) {
+						toast.error("Failed to parse sources: " + getErrorMessage(error));
+					}
+				}
+
 				return {
 					id: msg.id,
 					role: msg.role,
 					content: msg.content ?? "",
 					metadata: parsePlaygroundMessageMetadata(msg.metadata),
+					createdAt: new Date(msg.createdAt),
 					parts,
 				};
 			}),
@@ -911,20 +1151,20 @@ export default function ChatPageClient({
 		}
 
 		const ensureKey = async () => {
-			if (!selectedOrganization) {
-				return;
-			}
+			const projectId = selectedProject.id;
 			// Skip if we've already ensured the key for this project
-			if (ensuredProjectRef.current === selectedProject.id) {
+			if (ensuredProjectRef.current === projectId) {
 				return;
 			}
 			try {
-				await fetch("/api/ensure-playground-key", {
+				const response = await fetch("/api/ensure-playground-key", {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ projectId: selectedProject.id }),
+					body: JSON.stringify({ projectId }),
 				});
-				ensuredProjectRef.current = selectedProject.id;
+				if (response.ok && selectedProject.id === projectId) {
+					ensuredProjectRef.current = projectId;
+				}
 			} catch {
 				// ignore for now
 			}
@@ -947,6 +1187,9 @@ export default function ChatPageClient({
 					title,
 					model: selectedModel,
 					webSearch: webSearchEnabled,
+					comparisonEnabled,
+					organizationId: selectedOrganization?.id ?? chatOrg?.id,
+					...(activeProjectId ? { projectId: activeProjectId } : {}),
 				},
 			});
 			const newChatId = chatData.chat.id;
@@ -962,7 +1205,7 @@ export default function ChatPageClient({
 
 			// Update URL with new chat ID (without triggering navigation)
 			const params = new URLSearchParams(searchParams.toString());
-			params.set("chat", newChatId);
+			params.set("id", newChatId);
 			router.replace(`${pathname}?${params.toString()}`);
 
 			return newChatId;
@@ -970,6 +1213,34 @@ export default function ChatPageClient({
 			setError("Failed to create a new chat. Please try again.");
 			throw error;
 		}
+	};
+
+	// Billing runs under the selected dashboard org, or the dedicated Chat org
+	// in the Chat plan context (matching ensureCurrentChat's
+	// selectedOrganization?.id ?? chatOrg?.id). Without resolving the Chat org
+	// here, the Chat plan context skipped credit gating entirely and
+	// unsubscribed users without credits could keep generating.
+	const ensureBillableContext = () => {
+		if (selectedOrganization) {
+			// Chat plan credits live on the Chat org and never fund dashboard-org
+			// requests, so only the org's own credits count here.
+			if (Number(selectedOrganization.credits) <= 0) {
+				setShowTopUp(true);
+				return false;
+			}
+			return true;
+		}
+		if (
+			chatOrg &&
+			Number(chatOrg.credits) <= 0 &&
+			isChatPlanStatusLoaded &&
+			!hasChatPlanCredits
+		) {
+			// Chat plan context has no top-ups — promote the subscription plans.
+			router.push("/pricing");
+			return false;
+		}
+		return true;
 	};
 
 	const handleUserMessage = async (
@@ -984,9 +1255,14 @@ export default function ChatPageClient({
 			mediaType: string;
 			name?: string;
 		}>,
+		documents?: Array<{
+			type: "file";
+			url: string;
+			mediaType: string;
+			name?: string;
+		}>,
 	) => {
-		if (selectedOrganization && Number(selectedOrganization.credits) <= 0) {
-			setShowTopUp(true);
+		if (!ensureBillableContext()) {
 			return undefined;
 		}
 
@@ -998,6 +1274,7 @@ export default function ChatPageClient({
 			model: selectedModel,
 			has_images: !!images?.length,
 			has_audio: !!audio?.length,
+			has_documents: !!documents?.length,
 			web_search: webSearchEnabled,
 		});
 		errorOccurredRef.current = false;
@@ -1038,12 +1315,16 @@ export default function ChatPageClient({
 					...(content.trim() ? { content } : {}),
 					...(images?.length ? { images: JSON.stringify(images) } : {}),
 					...(audio?.length ? { audios: JSON.stringify(audio) } : {}),
+					...(documents?.length
+						? { documents: JSON.stringify(documents) }
+						: {}),
 				},
 			});
 			savedUserMessage = savedMessage.message;
 		} catch (error: any) {
 			// If chat not found, it means the chat was deleted or is stale
 			if (error?.status === 404 && error?.message?.includes("Chat not found")) {
+				clearingChatRef.current = true;
 				chatIdRef.current = null;
 				setCurrentChatId(null);
 				setMessages([]);
@@ -1058,6 +1339,9 @@ export default function ChatPageClient({
 							...(content.trim() ? { content } : {}),
 							...(images?.length ? { images: JSON.stringify(images) } : {}),
 							...(audio?.length ? { audios: JSON.stringify(audio) } : {}),
+							...(documents?.length
+								? { documents: JSON.stringify(documents) }
+								: {}),
 						},
 					});
 					setIsLoading(false);
@@ -1093,6 +1377,7 @@ export default function ChatPageClient({
 						params: { path: { id: chatIdRef.current } },
 					});
 					setCurrentChatId(null);
+					clearingChatRef.current = true;
 					chatIdRef.current = null;
 					setMessages([]);
 					isNewChatRef.current = false;
@@ -1108,22 +1393,172 @@ export default function ChatPageClient({
 
 		// When sync is enabled and comparison windows are open, mirror the
 		// submitted prompt into each extra window as a separate user message.
+		// Fire without awaiting so the primary panel can start streaming in
+		// parallel rather than waiting for all extra panels to finish first.
 		if (syncInput) {
 			const submitFns = Object.values(extraSubmitRefs.current);
-			const results = await Promise.allSettled(
-				submitFns.map((submit) => submit(content)),
+			void Promise.allSettled(submitFns.map((submit) => submit(content))).then(
+				(results) => {
+					for (const result of results) {
+						if (result.status === "rejected") {
+							// Don't surface comparison errors as hard failures;
+							// capture as telemetry instead of logging to console.
+							posthog.capture("playground_mirror_prompt_failure", {
+								reason: String(result.reason),
+							});
+						}
+					}
+				},
 			);
-			for (const result of results) {
-				if (result.status === "rejected") {
-					// Don't surface comparison errors as hard failures;
-					// capture as telemetry instead of logging to console.
-					posthog.capture("playground_mirror_prompt_failure", {
-						reason: String(result.reason),
-					});
-				}
-			}
 		}
 		return savedUserMessage;
+	};
+
+	const handleOcrMessage = async (
+		document:
+			| { type: "document_url"; document_url: string; document_name?: string }
+			| { type: "image_url"; image_url: string },
+		userMessage: { id: string; parts: UIMessage["parts"] },
+	) => {
+		const chatId = chatIdRef.current;
+		// Capture before appending: an empty list means this is the chat's first
+		// exchange, so the auto-title should be derived only now (not on later
+		// sends, which would otherwise keep overwriting the title).
+		const isFirstMessage = messages.length === 0;
+		setError(null);
+		setFinishReason(null);
+		setOcrPending(true);
+
+		// Mirror the user's upload into the live message list so it renders
+		// immediately; persistence already happened via handleUserMessage.
+		setMessages((prev) => [
+			...prev,
+			{ id: userMessage.id, role: "user", parts: userMessage.parts },
+		]);
+
+		const { providerId, modelId } = parseModelSelectorValue(selectedModel);
+		const ocrModel = providerId ? `${providerId}/${modelId}` : modelId;
+		const noFallback = shouldDisableFallback(selectedModel);
+
+		// The OCR result must only land in the chat it was sent from — the user
+		// may switch chats while the request is in flight.
+		const stillOnChat = () => chatIdRef.current === chatId;
+
+		posthog.capture("playground_chat_sent", {
+			model: selectedModel,
+			ocr: true,
+		});
+
+		try {
+			const response = await fetch("/api/ocr", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					...(noFallback ? { "x-no-fallback": "true" } : {}),
+				},
+				body: JSON.stringify({ model: ocrModel, document }),
+			});
+			const data = await response.json();
+
+			if (!response.ok) {
+				const message =
+					(data?.error?.message as string | undefined) ??
+					(typeof data?.error === "string" ? data.error : undefined) ??
+					"OCR request failed";
+				if (stillOnChat()) {
+					setError(message);
+				}
+				toast.error(message);
+				return;
+			}
+
+			const pages: Array<{ markdown?: string }> = Array.isArray(data?.pages)
+				? data.pages
+				: [];
+			const markdown = pages
+				.map((page) => stripOcrImages(page?.markdown ?? ""))
+				.filter((text) => text.trim().length > 0)
+				.join("\n\n---\n\n");
+			const content = markdown || "_No text was extracted from the document._";
+
+			// Only mirror into the live view if the user hasn't navigated away;
+			// persistence below still saves to the original chat regardless.
+			if (stillOnChat()) {
+				setMessages((prev) => [
+					...prev,
+					{
+						id: crypto.randomUUID(),
+						role: "assistant",
+						parts: [{ type: "text", text: content }],
+					},
+				]);
+			}
+
+			if (chatId) {
+				try {
+					await addMessage.mutateAsync({
+						params: { path: { id: chatId } },
+						body: { role: "assistant", content },
+					});
+				} catch (error) {
+					toast.error(`Failed to save OCR response: ${getErrorMessage(error)}`);
+				}
+
+				// OCR sends carry no user text, so the chat would otherwise stay
+				// "New Chat". Derive a title from the first OCR result only (the
+				// chat's first message), leaving later sends and manual renames
+				// untouched.
+				const currentTitle = currentChatData?.chat?.title;
+				if (
+					markdown &&
+					isFirstMessage &&
+					(!currentTitle || currentTitle === "New Chat")
+				) {
+					const firstLine =
+						content
+							.split("\n")
+							.map((line) =>
+								line
+									.replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+									.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+									.replace(/[*_~`]/g, "")
+									.replace(/^#+\s*/, "")
+									.trim(),
+							)
+							.find((line) => line.length > 0) ?? "";
+					if (firstLine) {
+						const title =
+							firstLine.length > 50
+								? `${firstLine.slice(0, 50)}...`
+								: firstLine;
+						updateChat.mutate({
+							params: { path: { id: chatId } },
+							body: { title },
+						});
+					}
+				}
+			}
+		} catch (error) {
+			const message = getErrorMessage(error);
+			if (stillOnChat()) {
+				setError(message);
+			}
+			toast.error(message);
+		} finally {
+			setOcrPending(false);
+		}
+	};
+
+	const handleSyncedSubmitFromExtraPanel = async (content: string) => {
+		const savedMessage = await handleUserMessage(content);
+		if (!savedMessage) {
+			return;
+		}
+		const parts: any[] = [{ type: "text", text: content }];
+		void sendMessageWithHeaders(
+			{ id: savedMessage.id, role: "user", parts },
+			{ body: { model: selectedModel } },
+		);
 	};
 
 	const handleEditUserMessage = async (message: UIMessage, content: string) => {
@@ -1133,8 +1568,7 @@ export default function ChatPageClient({
 			return;
 		}
 
-		if (selectedOrganization && Number(selectedOrganization.credits) <= 0) {
-			setShowTopUp(true);
+		if (!ensureBillableContext()) {
 			return;
 		}
 
@@ -1189,14 +1623,19 @@ export default function ChatPageClient({
 		setFinishReason(null);
 		shouldClearMessagesRef.current = true;
 		setCurrentChatId(null);
+		clearingChatRef.current = true;
 		chatIdRef.current = null;
 		setMessages([]);
-		// Remove chat param from URL
+		// Remove id param from URL
 		const params = new URLSearchParams(searchParams.toString());
-		params.delete("chat");
+		params.delete("id");
+		params.delete("view");
+		params.delete("shareOrgId");
+		params.delete("shareId");
+		const targetPathname = pathname;
 		const newUrl = params.toString()
-			? `${pathname}?${params.toString()}`
-			: pathname;
+			? `${targetPathname}?${params.toString()}`
+			: targetPathname;
 		router.push(newUrl);
 	};
 
@@ -1210,6 +1649,7 @@ export default function ChatPageClient({
 		}
 		setComparisonEnabled(false);
 		setExtraPanelIds([]);
+		setExtraPanelModels([]);
 		setComparisonResetToken((token) => token + 1);
 		extraSubmitRefs.current = {};
 		clearMessages();
@@ -1223,17 +1663,32 @@ export default function ChatPageClient({
 		setFinishReason(null);
 		try {
 			shouldClearMessagesRef.current = true;
+			clearingChatRef.current = true;
+			chatIdRef.current = null;
 			setMessages([]);
-			// Remove chat param from URL
+			// Remove id and comparison params from URL
 			const params = new URLSearchParams(searchParams.toString());
-			params.delete("chat");
+			params.delete("id");
+			params.delete("view");
+			params.delete("shareOrgId");
+			params.delete("shareId");
+			params.delete("compare");
+			// Reset model param to primary model only
+			if (selectedModel) {
+				params.set("model", selectedModel);
+			}
+			const targetPathname = pathname;
 			const newUrl = params.toString()
-				? `${pathname}?${params.toString()}`
-				: pathname;
+				? `${targetPathname}?${params.toString()}`
+				: targetPathname;
 			router.push(newUrl);
 			// Clear comparison windows as well
+			setComparisonEnabled(false);
+			setExtraPanelIds([]);
+			setExtraPanelModels([]);
 			setComparisonResetToken((token) => token + 1);
 			extraSubmitRefs.current = {};
+			setComparisonChatIds([]);
 		} catch {
 			setError("Failed to create new chat. Please try again.");
 		} finally {
@@ -1248,8 +1703,16 @@ export default function ChatPageClient({
 		shouldClearMessagesRef.current = true; // Request message clear on URL change
 		// Update URL with chat ID - this will trigger the useEffect to update state
 		const params = new URLSearchParams(searchParams.toString());
-		params.set("chat", chatId);
-		router.push(`${pathname}?${params.toString()}`);
+		params.set("id", chatId);
+		params.delete("view");
+		params.delete("shareOrgId");
+		params.delete("shareId");
+		const targetPathname = pathname;
+		router.push(
+			params.toString()
+				? `${targetPathname}?${params.toString()}`
+				: targetPathname,
+		);
 	};
 
 	const handleForkChat = useCallback(async () => {
@@ -1283,8 +1746,16 @@ export default function ChatPageClient({
 			chatIdRef.current = newChatId;
 
 			const params = new URLSearchParams(searchParams.toString());
-			params.set("chat", newChatId);
-			router.push(`${pathname}?${params.toString()}`);
+			params.set("id", newChatId);
+			params.delete("view");
+			params.delete("shareOrgId");
+			params.delete("shareId");
+			const targetPathname = pathname;
+			router.push(
+				params.toString()
+					? `${targetPathname}?${params.toString()}`
+					: targetPathname,
+			);
 			sidebarRef.current?.scrollToTop();
 			toast.success("Chat forked");
 		} catch {}
@@ -1299,18 +1770,104 @@ export default function ChatPageClient({
 		status,
 	]);
 
-	// keep URL in sync with selected model
+	const handleSelectModel = useCallback(
+		(model: string) => {
+			const { modelId } = parseModelSelectorValue(model);
+			const def = models.find((m) => m.id === modelId);
+			if (def?.output?.includes("video")) {
+				setPendingVideoModel(modelId);
+				return;
+			}
+			if (def?.output?.includes("audio")) {
+				setPendingAudioModel(modelId);
+				return;
+			}
+			setSelectedModel(model);
+			const currentParams = new URLSearchParams(window.location.search);
+			const allModels =
+				comparisonEnabled && extraPanelModels.length > 0
+					? [model, ...extraPanelModels]
+					: [model];
+			if (model) {
+				currentParams.set("model", allModels.join(","));
+			} else {
+				currentParams.delete("model");
+			}
+			const qs = currentParams.toString();
+			router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
+		},
+		[pathname, router, comparisonEnabled, extraPanelModels, models],
+	);
+
+	const {
+		providerId: selectedProviderId,
+		modelId: selectedModelId,
+		region: selectedRegion,
+	} = parseModelSelectorValue(selectedModel);
+
+	const availableRegions = selectedProviderId
+		? (models
+				.find((m) => m.id === selectedModelId)
+				?.mappings.filter(
+					(m) => m.providerId === selectedProviderId && m.region,
+				)
+				.map((m) => m.region as string) ?? [])
+		: [];
+
+	const handleRegionChange = (region: string) => {
+		const newValue = region
+			? `${selectedProviderId}/${selectedModelId}:${region}`
+			: `${selectedProviderId}/${selectedModelId}`;
+		handleSelectModel(newValue);
+	};
+
+	const handleExtraPanelModelChange = useCallback(
+		(index: number, model: string) => {
+			setExtraPanelModels((prev) => {
+				const next = [...prev];
+				next[index] = model;
+				return next;
+			});
+		},
+		[],
+	);
+
+	// Keep URL model param in sync with all comparison models
 	useEffect(() => {
-		// Read current URL params directly to avoid stale searchParams closure
 		const currentParams = new URLSearchParams(window.location.search);
-		if (selectedModel) {
-			currentParams.set("model", selectedModel);
+		// clearingChatRef is set alongside chatIdRef.current = null only when code
+		// explicitly clears away from a chat. Guard here so we don't strip a newly
+		// selected chat's id when navigating from blank state (chatIdRef also null).
+		if (!chatIdRef.current && clearingChatRef.current) {
+			currentParams.delete("id");
+			clearingChatRef.current = false;
+		}
+		if (comparisonEnabled && extraPanelIds.length > 0) {
+			const allModels = [selectedModel, ...extraPanelModels];
+			currentParams.set("model", allModels.join(","));
+			currentParams.set("compare", "1");
 		} else {
-			currentParams.delete("model");
+			if (selectedModel) {
+				currentParams.set("model", selectedModel);
+			} else {
+				currentParams.delete("model");
+			}
+			currentParams.delete("compare");
 		}
 		const qs = currentParams.toString();
-		router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
-	}, [selectedModel, pathname, router]);
+		const nextUrl = `${pathname}${qs ? `?${qs}` : ""}`;
+		const currentUrl = `${window.location.pathname}${window.location.search}`;
+		if (nextUrl !== currentUrl) {
+			router.replace(nextUrl, { scroll: false });
+		}
+	}, [
+		comparisonEnabled,
+		extraPanelIds.length,
+		selectedModel,
+		extraPanelModels,
+		pathname,
+		router,
+	]);
 
 	const [text, setText] = useState(initialPrompt ?? "");
 	const primaryText = syncInput ? syncedText : text;
@@ -1321,12 +1878,19 @@ export default function ChatPageClient({
 		setText(value);
 	};
 
-	// Reset reasoning effort when switching to a non-reasoning model
+	// Reset reasoning effort when switching to a model that doesn't support
+	// it. The effective options mirror what the selector renders: the model's
+	// declared efforts, or the generic fallback set when undeclared.
 	useEffect(() => {
-		if (!supportsReasoning && reasoningEffort) {
+		if (!reasoningEffort) {
+			return;
+		}
+		const effortOptions =
+			reasoningEfforts ?? getFallbackReasoningEffortOptions(selectedModel);
+		if (!supportsReasoning || !effortOptions.includes(reasoningEffort)) {
 			setReasoningEffort("");
 		}
-	}, [supportsReasoning, reasoningEffort]);
+	}, [supportsReasoning, reasoningEffort, reasoningEfforts, selectedModel]);
 
 	// Reset image size/quality only when the selected model changes and the
 	// current value is not valid for the new model. Including alibabaImageSize
@@ -1350,29 +1914,19 @@ export default function ChatPageClient({
 	}, [selectedModel]);
 
 	const handleSelectOrganization = (org: Organization | null) => {
-		const params = new URLSearchParams(Array.from(searchParams.entries()));
+		// Switching org changes the billing context: chats run under the selected
+		// org's project key. Route to the full chat experience (not the read-only
+		// shared-chats view) so New Chat works and credits resolve to that org.
+		const params = new URLSearchParams();
+		params.set("model", selectedModel);
 		if (org?.id) {
 			params.set("orgId", org.id);
-		} else {
-			params.delete("orgId");
 		}
-		// Clear projectId to avoid 404 when switching orgs (server will pick first/last-used)
-		params.delete("projectId");
-		// Always keep model param
-		if (!params.get("model")) {
-			params.set("model", selectedModel);
-		}
-		router.push(params.toString() ? `/?${params.toString()}` : "/");
+		router.push(`/?${params.toString()}`);
 	};
 
 	const handleOrganizationCreated = (org: Organization) => {
-		const params = new URLSearchParams(Array.from(searchParams.entries()));
-		params.set("orgId", org.id);
-		params.delete("projectId");
-		if (!params.get("model")) {
-			params.set("model", selectedModel);
-		}
-		router.push(params.toString() ? `/?${params.toString()}` : "/");
+		router.push(`/org/${org.id}`);
 	};
 
 	const handleSelectProject = (project: Project | null) => {
@@ -1400,9 +1954,9 @@ export default function ChatPageClient({
 
 	return (
 		<SidebarProvider>
-			<h1 className="sr-only">
-				LLM Gateway Playground - Chat with 210+ AI Models
-			</h1>
+			<h2 className="sr-only">
+				Lounge by LLM Gateway — chat with 200+ AI models
+			</h2>
 			<div className="flex h-svh bg-background w-full overflow-hidden">
 				{isTemporaryChat ? null : (
 					<ChatSidebar
@@ -1410,7 +1964,6 @@ export default function ChatPageClient({
 						onNewChat={handleNewChat}
 						onChatSelect={handleChatSelect}
 						currentChatId={currentChatId ?? undefined}
-						clearMessages={clearMessages}
 						isLoading={isLoading}
 						organizations={organizations}
 						selectedOrganization={selectedOrganization}
@@ -1428,12 +1981,14 @@ export default function ChatPageClient({
 							models={models}
 							providers={providers}
 							selectedModel={selectedModel}
-							setSelectedModel={setSelectedModel}
+							setSelectedModel={handleSelectModel}
 							comparisonEnabled={comparisonEnabled}
+							hideCompare={messages.length > 0}
 							onComparisonEnabledChange={(enabled) => {
 								setComparisonEnabled(enabled);
 								if (!enabled) {
 									setExtraPanelIds([]);
+									setExtraPanelModels([]);
 									setComparisonResetToken((token) => token + 1);
 									extraSubmitRefs.current = {};
 								}
@@ -1448,16 +2003,27 @@ export default function ChatPageClient({
 							onToggleMcpServer={toggleMcpServer}
 							isTemporaryChat={isTemporaryChat}
 							onToggleTemporaryChat={handleToggleTemporaryChat}
+							showTemporaryChatSwitcher={!currentChatId}
 							isTemporaryChatToggleDisabled={
 								isLoading || status === "submitted" || status === "streaming"
 							}
 							hasTemporaryMessages={hasTemporaryMessages}
 							currentChatId={currentChatId}
+							isShareChatDisabled={
+								isChatLoading ||
+								status === "submitted" ||
+								status === "streaming"
+							}
 							shareId={currentChatData?.chat?.shareId ?? null}
+							orgShares={currentChatData?.chat?.orgShares ?? []}
+							organizations={organizations}
 							chatTitle={currentChatData?.chat?.title ?? null}
 							previewPrompt={getFirstUserMessageText(messages)}
 						/>
 					</header>
+					{activeProjectId && !isTemporaryChat ? (
+						<ProjectContextBanner projectId={activeProjectId} />
+					) : null}
 					{comparisonEnabled && !isTemporaryChat ? (
 						<div className="hidden md:flex shrink-0 border-b bg-muted/40 px-4 py-2 items-center justify-between gap-3">
 							<div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -1487,7 +2053,9 @@ export default function ChatPageClient({
 									<Button
 										size="sm"
 										variant="ghost"
-										onClick={() =>
+										onClick={() => {
+											const removedChatId =
+												comparisonChatIds[comparisonChatIds.length - 1];
 											setExtraPanelIds((prev) => {
 												if (prev.length === 0) {
 													return prev;
@@ -1498,8 +2066,15 @@ export default function ChatPageClient({
 													extraSubmitRefs.current;
 												extraSubmitRefs.current = rest;
 												return next;
-											})
-										}
+											});
+											setComparisonChatIds((prev) => prev.slice(0, -1));
+											setExtraPanelModels((prev) => prev.slice(0, -1));
+											if (removedChatId) {
+												deleteComparisonChat.mutate({
+													params: { path: { id: removedChatId } },
+												});
+											}
+										}}
 									>
 										Remove window
 									</Button>
@@ -1539,7 +2114,7 @@ export default function ChatPageClient({
 												models={models}
 												providers={providers}
 												value={selectedModel}
-												onValueChange={setSelectedModel}
+												onValueChange={handleSelectModel}
 												placeholder="Select a model..."
 											/>
 										</div>
@@ -1549,6 +2124,7 @@ export default function ChatPageClient({
 											messages={messages}
 											supportsImages={supportsImages}
 											supportsAudio={supportsAudio}
+											supportsDocuments={supportsDocuments}
 											supportsImageGen={supportsImageGen}
 											sendMessage={sendMessageWithHeaders}
 											selectedModel={selectedModel}
@@ -1560,6 +2136,7 @@ export default function ChatPageClient({
 											reasoningEffort={reasoningEffort}
 											setReasoningEffort={setReasoningEffort}
 											supportsReasoning={supportsReasoning}
+											reasoningEfforts={reasoningEfforts}
 											imageAspectRatio={imageAspectRatio}
 											setImageAspectRatio={setImageAspectRatio}
 											imageSize={imageSize}
@@ -1570,8 +2147,13 @@ export default function ChatPageClient({
 											setImageQuality={setImageQuality}
 											imageCount={imageCount}
 											setImageCount={setImageCount}
+											availableRegions={availableRegions}
+											selectedRegion={selectedRegion}
+											onRegionChange={handleRegionChange}
 											onUserMessage={handleUserMessage}
-											onEditUserMessage={handleEditUserMessage}
+											isOcr={isOcrModel}
+											onOcrMessage={handleOcrMessage}
+											ocrPending={ocrPending}
 											isLoading={isLoading || isChatLoading}
 											error={error}
 											finishReason={finishReason}
@@ -1581,6 +2163,19 @@ export default function ChatPageClient({
 											setWebSearchEnabled={setWebSearchEnabled}
 											supportsWebSearch={supportsWebSearch}
 											webSearchEnabled={webSearchEnabled}
+											activeSkills={activeSkills}
+											onSelectSkill={(skill) =>
+												setActiveSkills((prev) =>
+													prev.some((s) => s.id === skill.id)
+														? prev
+														: [...prev, skill],
+												)
+											}
+											onRemoveSkill={(id) =>
+												setActiveSkills((prev) =>
+													prev.filter((s) => s.id !== id),
+												)
+											}
 										/>
 									</div>
 								</div>
@@ -1590,6 +2185,7 @@ export default function ChatPageClient({
 										messages={messages}
 										supportsImages={supportsImages}
 										supportsAudio={supportsAudio}
+										supportsDocuments={supportsDocuments}
 										supportsImageGen={supportsImageGen}
 										sendMessage={sendMessageWithHeaders}
 										selectedModel={selectedModel}
@@ -1601,6 +2197,7 @@ export default function ChatPageClient({
 										reasoningEffort={reasoningEffort}
 										setReasoningEffort={setReasoningEffort}
 										supportsReasoning={supportsReasoning}
+										reasoningEfforts={reasoningEfforts}
 										imageAspectRatio={imageAspectRatio}
 										setImageAspectRatio={setImageAspectRatio}
 										imageSize={imageSize}
@@ -1614,8 +2211,14 @@ export default function ChatPageClient({
 										supportsWebSearch={supportsWebSearch}
 										webSearchEnabled={webSearchEnabled}
 										setWebSearchEnabled={setWebSearchEnabled}
+										availableRegions={availableRegions}
+										selectedRegion={selectedRegion}
+										onRegionChange={handleRegionChange}
 										onUserMessage={handleUserMessage}
 										onEditUserMessage={handleEditUserMessage}
+										isOcr={isOcrModel}
+										onOcrMessage={handleOcrMessage}
+										ocrPending={ocrPending}
 										isLoading={isLoading || isChatLoading}
 										error={error}
 										finishReason={finishReason}
@@ -1623,13 +2226,24 @@ export default function ChatPageClient({
 										isTemporaryChat={isTemporaryChat}
 										forkChat={!isTemporaryChat ? handleForkChat : undefined}
 										isForkingChat={forkChat.isPending}
+										activeSkills={activeSkills}
+										onSelectSkill={(skill) =>
+											setActiveSkills((prev) =>
+												prev.some((s) => s.id === skill.id)
+													? prev
+													: [...prev, skill],
+											)
+										}
+										onRemoveSkill={(id) =>
+											setActiveSkills((prev) => prev.filter((s) => s.id !== id))
+										}
 									/>
 								</div>
 							)}
 							{comparisonEnabled
 								? extraPanelIds.map((panelId, index) => (
 										<div
-											key={panelId}
+											key={comparisonChatIds[index] ?? panelId}
 											className="hidden md:flex flex-col h-full min-h-0"
 										>
 											<ExtraChatPanel
@@ -1637,14 +2251,32 @@ export default function ChatPageClient({
 												models={models}
 												providers={providers}
 												availableModels={availableModels}
-												initialModel={selectedModel}
+												initialModel={extraPanelModels[index] ?? selectedModel}
 												syncInput={syncInput}
 												syncedText={syncedText}
 												setSyncedText={setSyncedText}
 												onRegisterExternalSubmit={(fn) => {
 													extraSubmitRefs.current[panelId] = fn;
 												}}
+												onSyncedSubmitFromPanel={
+													handleSyncedSubmitFromExtraPanel
+												}
+												syncedActiveSkills={
+													syncInput ? activeSkills : undefined
+												}
+												setSyncedActiveSkills={
+													syncInput ? setActiveSkills : undefined
+												}
+												onModelChange={(model) =>
+													handleExtraPanelModelChange(index, model)
+												}
+												onVideoModelSelected={setPendingVideoModel}
+												onAudioModelSelected={setPendingAudioModel}
 												resetToken={comparisonResetToken}
+												primaryChatId={currentChatId}
+												primaryChatIdRef={chatIdRef}
+												initialChatId={comparisonChatIds[index] ?? null}
+												isParentLoading={isChatLoading}
 											/>
 										</div>
 									))
@@ -1653,12 +2285,95 @@ export default function ChatPageClient({
 					</section>
 				</main>
 			</div>
-			<TopUpCreditsDialog open={showTopUp} onOpenChange={setShowTopUp} />
+			<TopUpCreditsDialog
+				open={showTopUp}
+				onOpenChange={setShowTopUp}
+				organizationId={selectedOrganization?.id ?? chatOrg?.id}
+			/>
 			<AuthDialog open={showAuthDialog} returnUrl={returnUrl} />
+			<Dialog
+				open={pendingVideoModel !== null}
+				onOpenChange={(open) => {
+					if (!open) {
+						setPendingVideoModel(null);
+					}
+				}}
+			>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Switch to Video Studio?</DialogTitle>
+						<DialogDescription>
+							{pendingVideoModel
+								? (models.find((m) => m.id === pendingVideoModel)?.name ??
+									pendingVideoModel)
+								: ""}{" "}
+							is a video generation model. Would you like to open it in Video
+							Studio?
+						</DialogDescription>
+					</DialogHeader>
+					<DialogFooter>
+						<Button
+							variant="outline"
+							onClick={() => setPendingVideoModel(null)}
+						>
+							Cancel
+						</Button>
+						<Button
+							onClick={() => {
+								if (pendingVideoModel) {
+									router.push(`/video?model=${pendingVideoModel}`);
+								}
+								setPendingVideoModel(null);
+							}}
+						>
+							Open Video Studio
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+			<Dialog
+				open={pendingAudioModel !== null}
+				onOpenChange={(open) => {
+					if (!open) {
+						setPendingAudioModel(null);
+					}
+				}}
+			>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Switch to Audio Studio?</DialogTitle>
+						<DialogDescription>
+							{pendingAudioModel
+								? (models.find((m) => m.id === pendingAudioModel)?.name ??
+									pendingAudioModel)
+								: ""}{" "}
+							is a speech generation model. Would you like to open it in Audio
+							Studio?
+						</DialogDescription>
+					</DialogHeader>
+					<DialogFooter>
+						<Button
+							variant="outline"
+							onClick={() => setPendingAudioModel(null)}
+						>
+							Cancel
+						</Button>
+						<Button
+							onClick={() => {
+								if (pendingAudioModel) {
+									router.push(`/audio?model=${pendingAudioModel}`);
+								}
+								setPendingAudioModel(null);
+							}}
+						>
+							Open Audio Studio
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</SidebarProvider>
 	);
 }
-
 interface ExtraChatPanelProps {
 	panelIndex: number;
 	models: ApiModel[];
@@ -1671,7 +2386,17 @@ interface ExtraChatPanelProps {
 	onRegisterExternalSubmit: (
 		submit: (content: string) => Promise<void> | void,
 	) => void;
+	onModelChange?: (model: string) => void;
+	onVideoModelSelected?: (modelId: string) => void;
+	onAudioModelSelected?: (modelId: string) => void;
 	resetToken: number;
+	primaryChatId: string | null;
+	primaryChatIdRef: React.RefObject<string | null>;
+	initialChatId?: string | null;
+	isParentLoading?: boolean;
+	onSyncedSubmitFromPanel?: (content: string) => Promise<void>;
+	syncedActiveSkills?: Skill[];
+	setSyncedActiveSkills?: (skills: Skill[]) => void;
 }
 
 function ExtraChatPanel({
@@ -1684,11 +2409,45 @@ function ExtraChatPanel({
 	syncedText,
 	setSyncedText,
 	onRegisterExternalSubmit,
+	onModelChange,
+	onVideoModelSelected,
+	onAudioModelSelected,
 	resetToken,
+	primaryChatId,
+	primaryChatIdRef,
+	initialChatId = null,
+	isParentLoading = false,
+	onSyncedSubmitFromPanel,
+	syncedActiveSkills,
+	setSyncedActiveSkills,
 }: ExtraChatPanelProps) {
 	const [selectedModel, setSelectedModel] = useState(initialModel);
+	const handleModelChange = useCallback(
+		(model: string) => {
+			const modelId = (
+				model.includes("/") ? (model.split("/")[1] ?? model) : model
+			).split(":")[0];
+			const def = models.find((m) => m.id === modelId);
+			if (def?.output?.includes("video")) {
+				onVideoModelSelected?.(modelId);
+				return;
+			}
+			if (def?.output?.includes("audio")) {
+				onAudioModelSelected?.(modelId);
+				return;
+			}
+			setSelectedModel(model);
+			onModelChange?.(model);
+		},
+		[onModelChange, onVideoModelSelected, onAudioModelSelected, models],
+	);
+	const [comparisonChatId, setComparisonChatId] = useState<string | null>(
+		initialChatId,
+	);
+	const comparisonChatIdRef = useRef<string | null>(initialChatId);
+	const loadedComparisonChatIdRef = useRef<string | null>(null);
 	const [reasoningEffort, setReasoningEffort] = useState<
-		"" | "minimal" | "low" | "medium" | "high"
+		"" | ReasoningEffortOption
 	>("");
 	const [imageAspectRatio, setImageAspectRatio] = useState<
 		| "auto"
@@ -1718,20 +2477,126 @@ function ExtraChatPanel({
 	});
 	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
 	const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+	const [activeSkills, setActiveSkills] = useState<Skill[]>([]);
 	const [text, setText] = useState("");
 
-	const { messages, sendMessage, status, stop, regenerate } = useChat({
-		onError: async (e) => {
-			const msg = getErrorMessage(e);
-			toast.error(msg);
+	const router = useRouter();
+	const pathname = usePathname();
+	const searchParams = useSearchParams();
+	const createChat = useCreateChat({ silent: true });
+	const addMessage = useAddMessage();
+	const forkChatMutation = useForkChat();
+	const { data: comparisonChatData } = useDataChat(comparisonChatId ?? "");
+
+	const ensureComparisonChat = useCallback(
+		async (content: string): Promise<string> => {
+			if (comparisonChatIdRef.current) {
+				return comparisonChatIdRef.current;
+			}
+			const parentId = primaryChatIdRef.current ?? primaryChatId;
+			if (!parentId) {
+				throw new Error(
+					"Cannot create comparison chat before the primary chat exists",
+				);
+			}
+			const title = content.slice(0, 50) + (content.length > 50 ? "..." : "");
+			const data = await createChat.mutateAsync({
+				body: {
+					title,
+					model: selectedModel,
+					// Child comparison chats are never listed in history, so they
+					// don't need an organization context.
+					parentChatId: parentId,
+				},
+			});
+			const id = data.chat.id;
+			setComparisonChatId(id);
+			comparisonChatIdRef.current = id;
+			return id;
 		},
-	});
+		[createChat, selectedModel, primaryChatId, primaryChatIdRef],
+	);
+
+	const { messages, setMessages, sendMessage, status, stop, regenerate } =
+		useChat({
+			onError: async (e) => {
+				const msg = getErrorMessage(e);
+				toast.error(msg);
+			},
+			onFinish: async ({ message }) => {
+				const chatId = comparisonChatIdRef.current;
+				if (!chatId) {
+					return;
+				}
+
+				const textContent = message.parts
+					.filter((p) => p.type === "text")
+					.map((p) => p.text)
+					.join("");
+
+				const reasoningContent = message.parts
+					.filter((p) => p.type === "reasoning")
+					.map((p) => p.text)
+					.join("");
+
+				const toolParts = message.parts.filter(isToolPart);
+				const metadata = parsePlaygroundMessageMetadata(message.metadata);
+
+				const bodyToSave = {
+					role: "assistant" as const,
+					content: textContent || undefined,
+					reasoning: reasoningContent || undefined,
+					tools: toolParts.length > 0 ? JSON.stringify(toolParts) : undefined,
+					sources: extractSourcePartsJson(message.parts),
+					...(metadata ? { metadata } : {}),
+				};
+
+				try {
+					await addMessage.mutateAsync({
+						params: { path: { id: chatId } },
+						body: bodyToSave,
+					});
+				} catch (error) {
+					toast.error(
+						`Failed to save comparison response: ${getErrorMessage(error)}`,
+					);
+				}
+			},
+		});
+
+	const handleForkComparisonChat = useCallback(async () => {
+		if (
+			forkChatMutation.isPending ||
+			!comparisonChatId ||
+			status === "submitted" ||
+			status === "streaming"
+		) {
+			return;
+		}
+		try {
+			const data = await forkChatMutation.mutateAsync({
+				params: { path: { id: comparisonChatId } },
+			});
+			const params = new URLSearchParams(searchParams.toString());
+			params.set("id", data.chat.id);
+			params.delete("compare");
+			router.push(`${pathname}?${params.toString()}`);
+			toast.success("Chat forked");
+		} catch {}
+	}, [
+		forkChatMutation,
+		comparisonChatId,
+		status,
+		router,
+		pathname,
+		searchParams,
+	]);
 
 	const supportsImages = useMemo(() => {
 		if (!selectedModel) {
 			return false;
 		}
-		const { providerId, modelId, providerModelName } =
+		const { providerId, modelId, region } =
 			parseModelSelectorValue(selectedModel);
 		const def = models.find((m) => m.id === modelId);
 		if (!def) {
@@ -1740,7 +2605,7 @@ function ExtraChatPanel({
 		if (!providerId) {
 			return def.mappings.some((p: ApiModelProviderMapping) => p.vision);
 		}
-		const mapping = getSelectedMapping(def, providerId, providerModelName);
+		const mapping = getSelectedMapping(def, providerId, region);
 		return !!mapping?.vision;
 	}, [models, selectedModel]);
 
@@ -1761,11 +2626,28 @@ function ExtraChatPanel({
 		return !!model?.audio;
 	}, [availableModels, selectedModel]);
 
+	const supportsDocuments = useMemo(() => {
+		if (!selectedModel) {
+			return false;
+		}
+		const { providerId, modelId, region } =
+			parseModelSelectorValue(selectedModel);
+		const def = models.find((m) => m.id === modelId);
+		if (!def) {
+			return false;
+		}
+		if (!providerId) {
+			return def.mappings.some((p: ApiModelProviderMapping) => p.document);
+		}
+		const mapping = getSelectedMapping(def, providerId, region);
+		return !!mapping?.document;
+	}, [models, selectedModel]);
+
 	const supportsReasoning = useMemo(() => {
 		if (!selectedModel) {
 			return false;
 		}
-		const { providerId, modelId, providerModelName } =
+		const { providerId, modelId, region } =
 			parseModelSelectorValue(selectedModel);
 		const def = models.find((m) => m.id === modelId);
 		if (!def) {
@@ -1774,15 +2656,48 @@ function ExtraChatPanel({
 		if (!providerId) {
 			return def.mappings.some((p: ApiModelProviderMapping) => p.reasoning);
 		}
-		const mapping = getSelectedMapping(def, providerId, providerModelName);
+		const mapping = getSelectedMapping(def, providerId, region);
 		return !!mapping?.reasoning;
 	}, [models, selectedModel]);
+
+	const reasoningEfforts = useMemo(() => {
+		if (!selectedModel) {
+			return null;
+		}
+		const { providerId, modelId, region } =
+			parseModelSelectorValue(selectedModel);
+		const def = models.find((m) => m.id === modelId);
+		if (!def) {
+			return null;
+		}
+		if (!providerId) {
+			return getReasoningEffortOptions(
+				def.mappings.filter((p: ApiModelProviderMapping) => p.reasoning),
+			);
+		}
+		const mapping = getSelectedMapping(def, providerId, region);
+		return getReasoningEffortOptions(mapping ? [mapping] : []);
+	}, [models, selectedModel]);
+
+	// Reset reasoning effort when switching to a model that doesn't support
+	// it. The effective options mirror what the selector renders: the model's
+	// declared efforts, or the generic fallback set when undeclared.
+	useEffect(() => {
+		if (!reasoningEffort) {
+			return;
+		}
+		const effortOptions =
+			reasoningEfforts ?? getFallbackReasoningEffortOptions(selectedModel);
+		if (!supportsReasoning || !effortOptions.includes(reasoningEffort)) {
+			setReasoningEffort("");
+		}
+	}, [supportsReasoning, reasoningEffort, reasoningEfforts, selectedModel]);
 
 	const supportsWebSearch = useMemo(() => {
 		if (!selectedModel) {
 			return false;
 		}
-		const { providerId, modelId, providerModelName } =
+		const { providerId, modelId, region } =
 			parseModelSelectorValue(selectedModel);
 		const def = models.find((m) => m.id === modelId);
 		if (!def) {
@@ -1791,9 +2706,29 @@ function ExtraChatPanel({
 		if (!providerId) {
 			return def.mappings.some((p: ApiModelProviderMapping) => p.webSearch);
 		}
-		const mapping = getSelectedMapping(def, providerId, providerModelName);
+		const mapping = getSelectedMapping(def, providerId, region);
 		return !!mapping?.webSearch;
 	}, [models, selectedModel]);
+
+	const {
+		providerId: panelProviderId,
+		modelId: panelModelId,
+		region: panelSelectedRegion,
+	} = parseModelSelectorValue(selectedModel);
+
+	const panelAvailableRegions = panelProviderId
+		? (models
+				.find((m) => m.id === panelModelId)
+				?.mappings.filter((m) => m.providerId === panelProviderId && m.region)
+				.map((m) => m.region as string) ?? [])
+		: [];
+
+	const handlePanelRegionChange = (region: string) => {
+		const newValue = region
+			? `${panelProviderId}/${panelModelId}:${region}`
+			: `${panelProviderId}/${panelModelId}`;
+		handleModelChange(newValue);
+	};
 
 	useEffect(() => {
 		const config = getModelImageConfig(selectedModel);
@@ -1812,6 +2747,9 @@ function ExtraChatPanel({
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [selectedModel]);
+
+	const effectiveSkills =
+		syncInput && syncedActiveSkills ? syncedActiveSkills : activeSkills;
 
 	const buildRequestOptions = useCallback(
 		(hasImageAttachments: boolean, options?: any) => {
@@ -1875,6 +2813,14 @@ function ExtraChatPanel({
 					...(webSearchEnabled && supportsWebSearch
 						? { web_search: true }
 						: {}),
+					...(effectiveSkills.length > 0
+						? {
+								skill_instructions: effectiveSkills
+									.filter((s) => s.enabled)
+									.map((s) => s.instructions)
+									.join("\n\n"),
+							}
+						: {}),
 				},
 			};
 		},
@@ -1890,6 +2836,7 @@ function ExtraChatPanel({
 			selectedModel,
 			webSearchEnabled,
 			supportsWebSearch,
+			effectiveSkills,
 		],
 	);
 
@@ -1929,15 +2876,114 @@ function ExtraChatPanel({
 		setText(value);
 	};
 
-	// When the primary chat is reset (New Chat), clear this panel's messages
-	// and local input as well.
+	const handlePanelUserMessage = useCallback(
+		async (content: string): Promise<{ id: string } | undefined> => {
+			if (syncInput && onSyncedSubmitFromPanel) {
+				await onSyncedSubmitFromPanel(content);
+				return undefined;
+			}
+			const trimmed = content.trim();
+			if (!trimmed) {
+				return undefined;
+			}
+			try {
+				const chatId = await ensureComparisonChat(trimmed);
+				const savedMessage = await addMessage.mutateAsync({
+					params: { path: { id: chatId } },
+					body: { role: "user", content: trimmed },
+				});
+				return savedMessage.message;
+			} catch {
+				return undefined;
+			}
+		},
+		[syncInput, onSyncedSubmitFromPanel, ensureComparisonChat, addMessage],
+	);
+
+	// When the primary chat is reset (New Chat), clear this panel's messages,
+	// input, and chatId so it starts fresh.
 	useEffect(() => {
 		if (!resetToken) {
 			return;
 		}
 		setText("");
 		setSyncedText("");
-	}, [resetToken, setSyncedText]);
+		setMessages([]);
+		setComparisonChatId(null);
+		comparisonChatIdRef.current = null;
+		loadedComparisonChatIdRef.current = null;
+	}, [resetToken, setSyncedText, setMessages]);
+
+	// Load historical messages when restoring a comparison panel from history.
+	// Skip for fresh chats (no initialChatId) — those get messages from streaming
+	// and calling setMessages here would overwrite streamed messages that carry metadata.
+	useEffect(() => {
+		if (
+			!initialChatId ||
+			!comparisonChatData?.messages ||
+			!comparisonChatId ||
+			loadedComparisonChatIdRef.current === comparisonChatId
+		) {
+			return;
+		}
+		loadedComparisonChatIdRef.current = comparisonChatId;
+
+		if (comparisonChatData.chat.model) {
+			setSelectedModel(comparisonChatData.chat.model);
+			onModelChange?.(comparisonChatData.chat.model);
+		}
+
+		const filteredMessages = comparisonChatData.messages.filter(
+			(msg, index, arr) =>
+				msg.role !== "assistant" || arr[index + 1]?.role !== "assistant",
+		);
+		setMessages(
+			filteredMessages.map((msg) => {
+				const parts: any[] = [];
+				if (msg.content) {
+					parts.push({ type: "text", text: msg.content });
+				}
+				if ((msg as any).reasoning) {
+					parts.push({ type: "reasoning", text: (msg as any).reasoning });
+				}
+				if ((msg as any).tools) {
+					try {
+						const parsedTools = JSON.parse((msg as any).tools);
+						if (Array.isArray(parsedTools)) {
+							parts.push(...parsedTools.map((t: any) => ({ ...t })));
+						}
+					} catch {
+						// ignore malformed tools
+					}
+				}
+				if ((msg as any).sources) {
+					try {
+						const parsedSources = JSON.parse((msg as any).sources);
+						if (Array.isArray(parsedSources)) {
+							parts.push(...parsedSources.map((s: any) => ({ ...s })));
+						}
+					} catch {
+						// ignore malformed sources
+					}
+				}
+				const metadata = parsePlaygroundMessageMetadata((msg as any).metadata);
+				return {
+					id: msg.id,
+					role: msg.role,
+					content: msg.content ?? "",
+					parts,
+					...(metadata ? { metadata } : {}),
+				};
+			}),
+		);
+	}, [
+		initialChatId,
+		comparisonChatId,
+		comparisonChatData,
+		setMessages,
+		setSelectedModel,
+		onModelChange,
+	]);
 
 	// Allow the parent to trigger a user message in this panel when
 	// syncInput is enabled and the primary window is submitted.
@@ -1952,11 +2998,18 @@ function ExtraChatPanel({
 				return;
 			}
 
+			const chatId = await ensureComparisonChat(trimmed);
+
+			const savedMessage = await addMessage.mutateAsync({
+				params: { path: { id: chatId } },
+				body: { role: "user", content: trimmed },
+			});
+
 			const parts: any[] = [{ type: "text", text: trimmed }];
 
 			await sendMessageWithHeaders(
 				{
-					id: crypto.randomUUID(),
+					id: savedMessage.message.id,
 					role: "user",
 					parts,
 				},
@@ -1969,7 +3022,13 @@ function ExtraChatPanel({
 		};
 
 		onRegisterExternalSubmit(submitFromPrimary);
-	}, [onRegisterExternalSubmit, sendMessageWithHeaders, selectedModel]);
+	}, [
+		onRegisterExternalSubmit,
+		sendMessageWithHeaders,
+		selectedModel,
+		ensureComparisonChat,
+		addMessage,
+	]);
 
 	return (
 		<div className="flex flex-col h-full min-h-0 rounded-lg border bg-background">
@@ -1977,12 +3036,12 @@ function ExtraChatPanel({
 				<span className="text-xs font-medium text-muted-foreground">
 					Model {panelIndex}
 				</span>
-				<div className="w-full max-w-xs">
+				<div className="w-full min-w-0 max-w-xs">
 					<ModelSelector
 						models={models}
 						providers={providers}
 						value={selectedModel}
-						onValueChange={setSelectedModel}
+						onValueChange={handleModelChange}
 						placeholder="Select a model..."
 					/>
 				</div>
@@ -1992,6 +3051,7 @@ function ExtraChatPanel({
 					messages={messages}
 					supportsImages={supportsImages}
 					supportsAudio={supportsAudio}
+					supportsDocuments={supportsDocuments}
 					supportsImageGen={supportsImageGen}
 					sendMessage={sendMessageWithHeaders}
 					selectedModel={selectedModel}
@@ -2003,6 +3063,7 @@ function ExtraChatPanel({
 					reasoningEffort={reasoningEffort}
 					setReasoningEffort={setReasoningEffort}
 					supportsReasoning={supportsReasoning}
+					reasoningEfforts={reasoningEfforts}
 					imageAspectRatio={imageAspectRatio}
 					setImageAspectRatio={setImageAspectRatio}
 					imageSize={imageSize}
@@ -2016,8 +3077,41 @@ function ExtraChatPanel({
 					supportsWebSearch={supportsWebSearch}
 					webSearchEnabled={webSearchEnabled}
 					setWebSearchEnabled={setWebSearchEnabled}
-					isLoading={false}
+					availableRegions={panelAvailableRegions}
+					selectedRegion={panelSelectedRegion}
+					onRegionChange={handlePanelRegionChange}
+					onUserMessage={handlePanelUserMessage}
+					forkChat={
+						comparisonChatId && status === "ready"
+							? handleForkComparisonChat
+							: undefined
+					}
+					isForkingChat={forkChatMutation.isPending}
+					isLoading={isParentLoading && messages.length === 0}
 					error={null}
+					activeSkills={
+						syncInput && syncedActiveSkills ? syncedActiveSkills : activeSkills
+					}
+					onSelectSkill={(skill) => {
+						if (syncInput && setSyncedActiveSkills && syncedActiveSkills) {
+							if (!syncedActiveSkills.some((s) => s.id === skill.id)) {
+								setSyncedActiveSkills([...syncedActiveSkills, skill]);
+							}
+						} else {
+							setActiveSkills((prev) =>
+								prev.some((s) => s.id === skill.id) ? prev : [...prev, skill],
+							);
+						}
+					}}
+					onRemoveSkill={(id) => {
+						if (syncInput && setSyncedActiveSkills && syncedActiveSkills) {
+							setSyncedActiveSkills(
+								syncedActiveSkills.filter((s) => s.id !== id),
+							);
+						} else {
+							setActiveSkills((prev) => prev.filter((s) => s.id !== id));
+						}
+					}}
 				/>
 			</div>
 		</div>

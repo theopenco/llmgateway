@@ -2,13 +2,20 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 import { selectNextProvider } from "@/chat/tools/retry-with-fallback.js";
 
-import { validateModelAccess, throwIamException, type IamRule } from "./iam.js";
+import {
+	validateModelAccess,
+	validateRequestModelAccess,
+	throwIamException,
+	type IamRule,
+} from "./iam.js";
 
+import type { GatewayApiKey } from "@/lib/cached-queries.js";
 import type { ModelDefinition } from "@llmgateway/models";
 
 // Mock the cached-queries module so we can control IAM rules per test
 vi.mock("@/lib/cached-queries.js", () => ({
 	findActiveIamRules: vi.fn(),
+	findActiveUserIamRules: vi.fn(),
 }));
 
 const mockCachedQueries = await import("@/lib/cached-queries.js");
@@ -40,21 +47,21 @@ const threeProviderModel: ModelDefinition = {
 	providers: [
 		{
 			providerId: "google-vertex",
-			modelName: "test-model-vertex",
+			externalId: "test-model-vertex",
 			streaming: true,
 			inputPrice: "0.5",
 			outputPrice: "1.0",
 		},
 		{
 			providerId: "google-ai-studio",
-			modelName: "test-model-studio",
+			externalId: "test-model-studio",
 			streaming: true,
 			inputPrice: "0.5",
 			outputPrice: "1.0",
 		},
 		{
 			providerId: "openai",
-			modelName: "test-model-openai",
+			externalId: "test-model-openai",
 			streaming: true,
 			inputPrice: "0.3",
 			outputPrice: "0.6",
@@ -73,7 +80,7 @@ const singleActiveProviderModel: ModelDefinition = {
 	providers: [
 		{
 			providerId: "google-vertex",
-			modelName: "test-model-vertex",
+			externalId: "test-model-vertex",
 			streaming: true,
 			inputPrice: "0.5",
 			outputPrice: "1.0",
@@ -88,7 +95,7 @@ const freeModel: ModelDefinition = {
 	providers: [
 		{
 			providerId: "openai",
-			modelName: "free-model-openai",
+			externalId: "free-model-openai",
 			streaming: true,
 		},
 	],
@@ -100,14 +107,14 @@ const paidModel: ModelDefinition = {
 	providers: [
 		{
 			providerId: "openai",
-			modelName: "paid-model-openai",
+			externalId: "paid-model-openai",
 			streaming: true,
 			inputPrice: "5.0",
 			outputPrice: "15.0",
 		},
 		{
 			providerId: "anthropic",
-			modelName: "paid-model-anthropic",
+			externalId: "paid-model-anthropic",
 			streaming: true,
 			inputPrice: "3.0",
 			outputPrice: "10.0",
@@ -443,6 +450,166 @@ describe("validateModelAccess — allow_models", () => {
 
 		expect(result.allowed).toBe(false);
 		expect(result.reason).toContain("not in the allowed models list");
+	});
+
+	it("unions multiple allow_models rules — model in the second rule's list", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				id: "rule-allow-1",
+				ruleType: "allow_models",
+				ruleValue: { models: ["other-model"] },
+			}),
+			makeRule({
+				id: "rule-allow-2",
+				ruleType: "allow_models",
+				ruleValue: { models: ["test-model-3p"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			threeProviderModel.id,
+			undefined,
+			threeProviderModel,
+		);
+
+		expect(result.allowed).toBe(true);
+	});
+
+	it("denies with all group rule IDs when model is in none of the allow_models rules", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				id: "rule-allow-1",
+				ruleType: "allow_models",
+				ruleValue: { models: ["other-model"] },
+			}),
+			makeRule({
+				id: "rule-allow-2",
+				ruleType: "allow_models",
+				ruleValue: { models: ["another-model"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			threeProviderModel.id,
+			undefined,
+			threeProviderModel,
+		);
+
+		expect(result.allowed).toBe(false);
+		expect(result.reason).toContain("not in the allowed models list");
+		expect(result.reason).toContain("Rule IDs: rule-allow-1, rule-allow-2");
+	});
+
+	it("a no-op allow_models rule does not open up a group with a restrictive sibling", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				id: "rule-noop",
+				ruleType: "allow_models",
+				ruleValue: {},
+			}),
+			makeRule({
+				id: "rule-allow",
+				ruleType: "allow_models",
+				ruleValue: { models: ["other-model"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			threeProviderModel.id,
+			undefined,
+			threeProviderModel,
+		);
+
+		expect(result.allowed).toBe(false);
+		expect(result.reason).toContain("not in the allowed models list");
+	});
+
+	it("allow_providers + multiple allow_models rules: model allowed by either rule passes", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				id: "rule-providers",
+				ruleType: "allow_providers",
+				ruleValue: { providers: ["openai"] },
+			}),
+			makeRule({
+				id: "rule-models-1",
+				ruleType: "allow_models",
+				ruleValue: { models: ["other-model"] },
+			}),
+			makeRule({
+				id: "rule-models-2",
+				ruleType: "allow_models",
+				ruleValue: { models: ["test-model-3p"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			threeProviderModel.id,
+			undefined,
+			threeProviderModel,
+		);
+
+		expect(result.allowed).toBe(true);
+		expect(result.allowedProviders).toEqual(["openai"]);
+	});
+});
+
+describe("validateModelAccess — multiple allow_providers rules", () => {
+	it("unions the provider lists of allow_providers rules", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				id: "rule-providers-1",
+				ruleType: "allow_providers",
+				ruleValue: { providers: ["openai"] },
+			}),
+			makeRule({
+				id: "rule-providers-2",
+				ruleType: "allow_providers",
+				ruleValue: { providers: ["google-vertex"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			threeProviderModel.id,
+			undefined,
+			threeProviderModel,
+		);
+
+		expect(result.allowed).toBe(true);
+		expect(result.allowedProviders?.sort()).toEqual([
+			"google-vertex",
+			"openai",
+		]);
+	});
+
+	it("denies a requested provider that is in none of the allow_providers rules", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				id: "rule-providers-1",
+				ruleType: "allow_providers",
+				ruleValue: { providers: ["openai"] },
+			}),
+			makeRule({
+				id: "rule-providers-2",
+				ruleType: "allow_providers",
+				ruleValue: { providers: ["google-vertex"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			threeProviderModel.id,
+			"google-ai-studio",
+			threeProviderModel,
+		);
+
+		expect(result.allowed).toBe(false);
+		expect(result.reason).toContain("not in the allowed providers list");
 	});
 });
 
@@ -933,6 +1100,447 @@ describe("validateModelAccess — error messages", () => {
 });
 
 // ===========================
+// Member-level + key-level rule composition
+// ===========================
+
+function makeApiKey(overrides: Partial<GatewayApiKey> = {}): GatewayApiKey {
+	return {
+		id: "key-1",
+		createdAt: new Date("2026-01-01"),
+		updatedAt: new Date("2026-01-01"),
+		token: "test-token",
+		description: "test key",
+		status: "active",
+		keyType: "user",
+		endCustomerWalletId: null,
+		expiresAt: null,
+		usageLimit: null,
+		usage: "0",
+		periodUsageLimit: null,
+		periodUsageDurationValue: null,
+		periodUsageDurationUnit: null,
+		currentPeriodUsage: "0",
+		currentPeriodStartedAt: null,
+		projectId: "project-1",
+		createdBy: "user-1",
+		...overrides,
+	};
+}
+
+function makeMemberRule(
+	overrides: Partial<IamRule> & Pick<IamRule, "ruleType" | "ruleValue">,
+) {
+	return {
+		id: overrides.id ?? "member-rule-1",
+		createdAt: new Date("2026-01-01"),
+		updatedAt: new Date("2026-01-01"),
+		userOrganizationId: "uo-1",
+		status: "active" as const,
+		...overrides,
+	};
+}
+
+describe("validateRequestModelAccess — member + key composition", () => {
+	it("member ceiling wins: key allowing a different provider yields no providers", async () => {
+		vi.mocked(mockCachedQueries.findActiveUserIamRules).mockResolvedValue([
+			makeMemberRule({
+				ruleType: "allow_providers",
+				ruleValue: { providers: ["openai"] },
+			}),
+		]);
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "allow_providers",
+				ruleValue: { providers: ["google-vertex"] },
+			}),
+		]);
+
+		const result = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			requestedModel: threeProviderModel.id,
+			activeModelInfo: threeProviderModel,
+		});
+
+		expect(result.allowed).toBe(false);
+	});
+
+	it("key rules fine-grain within the member ceiling", async () => {
+		vi.mocked(mockCachedQueries.findActiveUserIamRules).mockResolvedValue([
+			makeMemberRule({
+				ruleType: "allow_providers",
+				ruleValue: { providers: ["openai"] },
+			}),
+		]);
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "allow_models",
+				ruleValue: { models: ["test-model-3p"] },
+			}),
+		]);
+
+		const result = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			requestedModel: threeProviderModel.id,
+			activeModelInfo: threeProviderModel,
+		});
+
+		expect(result.allowed).toBe(true);
+		expect(result.allowedProviders).toEqual(["openai"]);
+	});
+
+	it("member deny beats a key allow for the same model", async () => {
+		vi.mocked(mockCachedQueries.findActiveUserIamRules).mockResolvedValue([
+			makeMemberRule({
+				ruleType: "deny_models",
+				ruleValue: { models: ["test-model-3p"] },
+			}),
+		]);
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "allow_models",
+				ruleValue: { models: ["test-model-3p"] },
+			}),
+		]);
+
+		const result = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			requestedModel: threeProviderModel.id,
+			activeModelInfo: threeProviderModel,
+		});
+
+		expect(result.allowed).toBe(false);
+		expect(result.reason).toContain("denied models list");
+		expect(result.reason).toContain(
+			"organization member IAM rule set by your org admin",
+		);
+	});
+
+	it("a key with zero rules is still constrained by the member ceiling", async () => {
+		vi.mocked(mockCachedQueries.findActiveUserIamRules).mockResolvedValue([
+			makeMemberRule({
+				ruleType: "allow_providers",
+				ruleValue: { providers: ["openai"] },
+			}),
+		]);
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([]);
+
+		const result = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			requestedModel: threeProviderModel.id,
+			activeModelInfo: threeProviderModel,
+		});
+
+		expect(result.allowed).toBe(true);
+		expect(result.allowedProviders).toEqual(["openai"]);
+	});
+
+	it("member allow rules union within the member scope", async () => {
+		vi.mocked(mockCachedQueries.findActiveUserIamRules).mockResolvedValue([
+			makeMemberRule({
+				id: "member-rule-1",
+				ruleType: "allow_providers",
+				ruleValue: { providers: ["openai"] },
+			}),
+			makeMemberRule({
+				id: "member-rule-2",
+				ruleType: "allow_providers",
+				ruleValue: { providers: ["google-vertex"] },
+			}),
+		]);
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([]);
+
+		const result = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			requestedModel: threeProviderModel.id,
+			activeModelInfo: threeProviderModel,
+		});
+
+		expect(result.allowed).toBe(true);
+		expect(result.allowedProviders?.sort()).toEqual([
+			"google-vertex",
+			"openai",
+		]);
+	});
+
+	it("no member rules behaves identically to key-only validation", async () => {
+		vi.mocked(mockCachedQueries.findActiveUserIamRules).mockResolvedValue([]);
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "allow_providers",
+				ruleValue: { providers: ["openai"] },
+			}),
+		]);
+
+		const result = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			requestedModel: threeProviderModel.id,
+			activeModelInfo: threeProviderModel,
+		});
+
+		expect(result.allowed).toBe(true);
+		expect(result.allowedProviders).toEqual(["openai"]);
+	});
+
+	it("member rules are skipped for non-user key types", async () => {
+		vi.mocked(mockCachedQueries.findActiveUserIamRules).mockResolvedValue([
+			makeMemberRule({
+				ruleType: "deny_models",
+				ruleValue: { models: ["test-model-3p"] },
+			}),
+		]);
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([]);
+
+		const result = await validateRequestModelAccess({
+			apiKey: makeApiKey({ keyType: "platform_publishable" }),
+			organizationId: "org-1",
+			requestedModel: threeProviderModel.id,
+			activeModelInfo: threeProviderModel,
+		});
+
+		expect(result.allowed).toBe(true);
+		expect(mockCachedQueries.findActiveUserIamRules).not.toHaveBeenCalled();
+	});
+
+	it("key-scope denials keep the existing API key guidance text", async () => {
+		vi.mocked(mockCachedQueries.findActiveUserIamRules).mockResolvedValue([]);
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "deny_models",
+				ruleValue: { models: ["test-model-3p"] },
+			}),
+		]);
+
+		const result = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			requestedModel: threeProviderModel.id,
+			activeModelInfo: threeProviderModel,
+		});
+
+		expect(result.allowed).toBe(false);
+		expect(result.reason).toContain(
+			"Adapt your LLMGateway API key IAM permissions",
+		);
+	});
+
+	it("member provider ceiling is intersected with key deny_providers", async () => {
+		vi.mocked(mockCachedQueries.findActiveUserIamRules).mockResolvedValue([
+			makeMemberRule({
+				ruleType: "allow_providers",
+				ruleValue: { providers: ["openai", "google-vertex"] },
+			}),
+		]);
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "deny_providers",
+				ruleValue: { providers: ["google-vertex"] },
+			}),
+		]);
+
+		const result = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			requestedModel: threeProviderModel.id,
+			activeModelInfo: threeProviderModel,
+		});
+
+		expect(result.allowed).toBe(true);
+		expect(result.allowedProviders).toEqual(["openai"]);
+	});
+});
+
+// ===========================
+// Custom provider matching (custom:<name> refs, <name>/<model> refs)
+// ===========================
+
+/** The synthetic model definition chat.ts builds for custom-provider requests. */
+const customProviderModel: ModelDefinition = {
+	id: "my-model",
+	family: "custom",
+	providers: [
+		{
+			providerId: "custom",
+			externalId: "my-model",
+			streaming: true,
+			inputPrice: "0",
+			outputPrice: "0",
+		},
+	],
+};
+
+describe("validateRequestModelAccess — custom provider refs", () => {
+	beforeEach(() => {
+		vi.mocked(mockCachedQueries.findActiveUserIamRules).mockResolvedValue([]);
+	});
+
+	it("deny_providers with custom:<name> blocks only that custom provider", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "deny_providers",
+				ruleValue: { providers: ["custom:acme"] },
+			}),
+		]);
+
+		const denied = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			requestedModel: customProviderModel.id,
+			requestedProvider: "custom",
+			customProviderName: "acme",
+			activeModelInfo: customProviderModel,
+		});
+		expect(denied.allowed).toBe(false);
+		expect(denied.reason).toContain("denied providers list");
+
+		const allowed = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			requestedModel: customProviderModel.id,
+			requestedProvider: "custom",
+			customProviderName: "other",
+			activeModelInfo: customProviderModel,
+		});
+		expect(allowed.allowed).toBe(true);
+	});
+
+	it("allow_providers with custom:<name> admits only that custom provider", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "allow_providers",
+				ruleValue: { providers: ["custom:acme"] },
+			}),
+		]);
+
+		const allowed = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			requestedModel: customProviderModel.id,
+			requestedProvider: "custom",
+			customProviderName: "acme",
+			activeModelInfo: customProviderModel,
+		});
+		expect(allowed.allowed).toBe(true);
+		expect(allowed.allowedProviders).toEqual(["custom"]);
+
+		const denied = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			requestedModel: customProviderModel.id,
+			requestedProvider: "custom",
+			customProviderName: "other",
+			activeModelInfo: customProviderModel,
+		});
+		expect(denied.allowed).toBe(false);
+	});
+
+	it("the plain custom entry still matches every custom provider", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "allow_providers",
+				ruleValue: { providers: ["custom"] },
+			}),
+		]);
+
+		const result = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			requestedModel: customProviderModel.id,
+			requestedProvider: "custom",
+			customProviderName: "acme",
+			activeModelInfo: customProviderModel,
+		});
+		expect(result.allowed).toBe(true);
+	});
+
+	it("model rules match the <name>/<model> ref for custom providers", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "deny_models",
+				ruleValue: { models: ["acme/my-model"] },
+			}),
+		]);
+
+		const denied = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			requestedModel: customProviderModel.id,
+			requestedProvider: "custom",
+			customProviderName: "acme",
+			activeModelInfo: customProviderModel,
+		});
+		expect(denied.allowed).toBe(false);
+
+		const allowed = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			requestedModel: customProviderModel.id,
+			requestedProvider: "custom",
+			customProviderName: "other",
+			activeModelInfo: customProviderModel,
+		});
+		expect(allowed.allowed).toBe(true);
+	});
+
+	it("allow_models with a <name>/<model> ref admits that custom model", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "allow_models",
+				ruleValue: { models: ["acme/my-model"] },
+			}),
+		]);
+
+		const allowed = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			requestedModel: customProviderModel.id,
+			requestedProvider: "custom",
+			customProviderName: "acme",
+			activeModelInfo: customProviderModel,
+		});
+		expect(allowed.allowed).toBe(true);
+
+		const denied = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			requestedModel: customProviderModel.id,
+			requestedProvider: "custom",
+			customProviderName: "other",
+			activeModelInfo: customProviderModel,
+		});
+		expect(denied.allowed).toBe(false);
+	});
+
+	it("member-level custom:<name> ceilings bind API keys", async () => {
+		vi.mocked(mockCachedQueries.findActiveUserIamRules).mockResolvedValue([
+			makeMemberRule({
+				ruleType: "deny_providers",
+				ruleValue: { providers: ["custom:acme"] },
+			}),
+		]);
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([]);
+
+		const result = await validateRequestModelAccess({
+			apiKey: makeApiKey(),
+			organizationId: "org-1",
+			requestedModel: customProviderModel.id,
+			requestedProvider: "custom",
+			customProviderName: "acme",
+			activeModelInfo: customProviderModel,
+		});
+		expect(result.allowed).toBe(false);
+		expect(result.reason).toContain(
+			"organization member IAM rule set by your org admin",
+		);
+	});
+});
+
+// ===========================
 // throwIamException
 // ===========================
 
@@ -960,7 +1568,7 @@ describe("selectNextProvider — IAM-filtered providers", () => {
 	it("never selects a provider not in the IAM-filtered list", () => {
 		// Simulate IAM filtering: only openai is allowed
 		const iamFilteredProviders = [
-			{ providerId: "openai", modelName: "test-model-openai" },
+			{ providerId: "openai", externalId: "test-model-openai" },
 		];
 
 		const providerScores = [
@@ -977,14 +1585,14 @@ describe("selectNextProvider — IAM-filtered providers", () => {
 
 		expect(result).toEqual({
 			providerId: "openai",
-			modelName: "test-model-openai",
+			externalId: "test-model-openai",
 		});
 	});
 
 	it("returns null when the only scored providers are IAM-denied", () => {
 		// IAM allows only openai, but only google providers are scored
 		const iamFilteredProviders = [
-			{ providerId: "openai", modelName: "test-model-openai" },
+			{ providerId: "openai", externalId: "test-model-openai" },
 		];
 
 		const providerScores = [
@@ -1004,8 +1612,8 @@ describe("selectNextProvider — IAM-filtered providers", () => {
 	it("skips IAM-denied providers even when they have the best score", () => {
 		// IAM denies google-vertex
 		const iamFilteredProviders = [
-			{ providerId: "google-ai-studio", modelName: "test-model-studio" },
-			{ providerId: "openai", modelName: "test-model-openai" },
+			{ providerId: "google-ai-studio", externalId: "test-model-studio" },
+			{ providerId: "openai", externalId: "test-model-openai" },
 		];
 
 		const providerScores = [
@@ -1022,15 +1630,15 @@ describe("selectNextProvider — IAM-filtered providers", () => {
 
 		expect(result).toEqual({
 			providerId: "google-ai-studio",
-			modelName: "test-model-studio",
+			externalId: "test-model-studio",
 		});
 	});
 
 	it("handles both IAM filtering and failed providers together", () => {
 		// IAM denies google-vertex; google-ai-studio has failed
 		const iamFilteredProviders = [
-			{ providerId: "google-ai-studio", modelName: "test-model-studio" },
-			{ providerId: "openai", modelName: "test-model-openai" },
+			{ providerId: "google-ai-studio", externalId: "test-model-studio" },
+			{ providerId: "openai", externalId: "test-model-openai" },
 		];
 		const failedProviders = new Set(["google-ai-studio"]);
 
@@ -1048,15 +1656,15 @@ describe("selectNextProvider — IAM-filtered providers", () => {
 
 		expect(result).toEqual({
 			providerId: "openai",
-			modelName: "test-model-openai",
+			externalId: "test-model-openai",
 		});
 	});
 
 	it("returns null when all providers are either IAM-denied or failed", () => {
 		// IAM denies google-vertex; openai and google-ai-studio have failed
 		const iamFilteredProviders = [
-			{ providerId: "google-ai-studio", modelName: "test-model-studio" },
-			{ providerId: "openai", modelName: "test-model-openai" },
+			{ providerId: "google-ai-studio", externalId: "test-model-studio" },
+			{ providerId: "openai", externalId: "test-model-openai" },
 		];
 		const failedProviders = new Set(["google-ai-studio", "openai"]);
 
@@ -1078,7 +1686,7 @@ describe("selectNextProvider — IAM-filtered providers", () => {
 	it("with empty IAM-filtered list returns null (all providers denied)", () => {
 		const iamFilteredProviders: Array<{
 			providerId: string;
-			modelName: string;
+			externalId: string;
 		}> = [];
 
 		const providerScores = [
@@ -1189,6 +1797,166 @@ describe("validateModelAccess — edge cases", () => {
 			paidModel.id,
 			undefined,
 			paidModel,
+		);
+
+		expect(result.allowed).toBe(true);
+	});
+});
+
+// ===========================
+// allow_ip_cidrs / deny_ip_cidrs
+// ===========================
+
+describe("validateModelAccess — IP CIDR rules", () => {
+	it("allow_ip_cidrs permits requests from IPv4 within the range", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "allow_ip_cidrs",
+				ruleValue: { ipCidrs: ["192.0.2.0/24"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			paidModel.id,
+			undefined,
+			paidModel,
+			"192.0.2.42",
+		);
+
+		expect(result.allowed).toBe(true);
+	});
+
+	it("allow_ip_cidrs denies requests from IPv4 outside the range", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "allow_ip_cidrs",
+				ruleValue: { ipCidrs: ["192.0.2.0/24"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			paidModel.id,
+			undefined,
+			paidModel,
+			"198.51.100.1",
+		);
+
+		expect(result.allowed).toBe(false);
+		expect(result.reason).toContain("198.51.100.1");
+	});
+
+	it("allow_ip_cidrs permits IPv6 within the range", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "allow_ip_cidrs",
+				ruleValue: { ipCidrs: ["2001:db8::/32"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			paidModel.id,
+			undefined,
+			paidModel,
+			"2001:db8::1",
+		);
+
+		expect(result.allowed).toBe(true);
+	});
+
+	it("allow_ip_cidrs supports IPv4-mapped IPv6 client addresses", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "allow_ip_cidrs",
+				ruleValue: { ipCidrs: ["192.0.2.0/24"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			paidModel.id,
+			undefined,
+			paidModel,
+			"::ffff:192.0.2.42",
+		);
+
+		expect(result.allowed).toBe(true);
+	});
+
+	it("allow_ip_cidrs denies when client IP is not available", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "allow_ip_cidrs",
+				ruleValue: { ipCidrs: ["192.0.2.0/24"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			paidModel.id,
+			undefined,
+			paidModel,
+			undefined,
+		);
+
+		expect(result.allowed).toBe(false);
+	});
+
+	it("deny_ip_cidrs blocks requests from listed range", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "deny_ip_cidrs",
+				ruleValue: { ipCidrs: ["10.0.0.0/8", "2001:db8:bad::/48"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			paidModel.id,
+			undefined,
+			paidModel,
+			"10.1.2.3",
+		);
+
+		expect(result.allowed).toBe(false);
+		expect(result.reason).toContain("10.1.2.3");
+	});
+
+	it("deny_ip_cidrs allows requests from outside the listed ranges", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "deny_ip_cidrs",
+				ruleValue: { ipCidrs: ["10.0.0.0/8"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			paidModel.id,
+			undefined,
+			paidModel,
+			"192.0.2.1",
+		);
+
+		expect(result.allowed).toBe(true);
+	});
+
+	it("ignores malformed CIDR entries without throwing", async () => {
+		vi.mocked(mockCachedQueries.findActiveIamRules).mockResolvedValue([
+			makeRule({
+				ruleType: "allow_ip_cidrs",
+				ruleValue: { ipCidrs: ["not-a-cidr", "192.0.2.0/24"] },
+			}),
+		]);
+
+		const result = await validateModelAccess(
+			"key-1",
+			paidModel.id,
+			undefined,
+			paidModel,
+			"192.0.2.5",
 		);
 
 		expect(result.allowed).toBe(true);

@@ -120,17 +120,24 @@ export function OnboardingWizard() {
 		const timeout = setTimeout(() => controller.abort(), 30_000);
 
 		try {
-			const res = await fetch(`${config.gatewayUrl}/v1/chat/completions`, {
+			// The gateway does not allow cross-origin browser requests, so the
+			// test request goes through the API's server-side proxy.
+			const res = await fetch(`${config.apiUrl}/chat/completion`, {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: `Bearer ${apiKey}`,
 				},
 				body: JSON.stringify({
 					model: "auto",
-					messages: [{ role: "user", content: prompt.trim() }],
-					max_tokens: 200,
+					messages: [
+						{
+							role: "system",
+							content: "Keep your answer short and under 2 sentences.",
+						},
+						{ role: "user", content: prompt.trim() },
+					],
 					stream: true,
+					apiKey,
 					free_models_only: true,
 					onboarding: true,
 				}),
@@ -139,7 +146,9 @@ export function OnboardingWizard() {
 
 			if (!res.ok) {
 				const data = await res.json();
-				const errorMsg = data.error?.message ?? "Request failed";
+				const errorMsg =
+					(typeof data.error === "string" ? data.error : data.error?.message) ??
+					"Request failed";
 				setTryError(errorMsg);
 				posthog.capture("onboarding_try_error", { error: errorMsg });
 				return;

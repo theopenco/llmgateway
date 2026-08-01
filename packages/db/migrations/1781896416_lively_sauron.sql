@@ -1,0 +1,1 @@
+CREATE INDEX IF NOT EXISTS "log_api_key_id_created_at_idx" ON "log" ("api_key_id","created_at");

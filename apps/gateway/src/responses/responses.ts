@@ -2,9 +2,15 @@ import { promisify } from "node:util";
 import { zstdDecompress } from "node:zlib";
 
 import { Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
 
 import { app } from "@/app.js";
+import {
+	assertApiKeyWithinUsageLimits,
+	assertMemberWithinBudget,
+} from "@/lib/api-key-usage-limits.js";
+import { internalApiOriginHeaders } from "@/lib/api-origin.js";
 import {
 	findApiKeyByToken,
 	findProjectById,
@@ -22,6 +28,7 @@ import { compactRequestSchema, responsesRequestSchema } from "./schemas.js";
 import { convertChatResponseToCompaction } from "./tools/convert-chat-to-compaction.js";
 import {
 	convertChatResponseToResponses,
+	stripEncryptedReasoningContent,
 	type ResponsesApiOutput,
 	type ResponsesApiResponse,
 } from "./tools/convert-chat-to-responses.js";
@@ -32,8 +39,13 @@ import {
 	processStreamChunk,
 	createCompletionEvents,
 	createFailedEvent,
+	buildFinalOutputItems,
 } from "./tools/convert-streaming-to-responses.js";
-import { storeResponse, getStoredResponse } from "./tools/response-state.js";
+import {
+	storeResponse,
+	getStoredResponse,
+	resolveItemReferences,
+} from "./tools/response-state.js";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -46,9 +58,14 @@ export const responses = new Hono<ServerTypes>();
  * Extract and validate the API token from request headers.
  * Returns the token, apiKey, project, and organization.
  */
-async function authenticateRequest(c: {
-	req: { header: (name: string) => string | undefined };
-}) {
+async function authenticateRequest(
+	c: {
+		req: { header: (name: string) => string | undefined };
+	},
+	// Only the billable POST handlers enforce spend limits; the GET retrieval
+	// reads a stored response and must stay accessible even when over budget.
+	enforceSpendLimits = false,
+) {
 	const auth = c.req.header("Authorization");
 	const xApiKey = c.req.header("x-api-key");
 
@@ -70,8 +87,12 @@ async function authenticateRequest(c: {
 	}
 
 	const apiKey = await findApiKeyByToken(token);
-	if (!apiKey || apiKey.status !== "active") {
-		return { error: "Invalid API key", status: 401 as const };
+	if (!apiKey) {
+		return { error: "API key not found", status: 401 as const };
+	}
+
+	if (apiKey.status !== "active") {
+		return { error: "API key is not active", status: 401 as const };
 	}
 
 	const project = await findProjectById(apiKey.projectId);
@@ -89,6 +110,23 @@ async function authenticateRequest(c: {
 			error: "Organization has been disabled and is no longer accessible",
 			status: 410 as const,
 		};
+	}
+
+	// Enforce limits at this layer too — not only via the inner
+	// /v1/chat/completions call — so every gateway path is covered like the
+	// others. User-level member budget takes priority over the per-key limits.
+	// Both use the SWR-cached queries and fail fast before the retention/context
+	// work below.
+	if (enforceSpendLimits) {
+		try {
+			await assertMemberWithinBudget(apiKey.createdBy, project.organizationId);
+			assertApiKeyWithinUsageLimits(apiKey);
+		} catch (e) {
+			if (e instanceof HTTPException) {
+				return { error: e.message, status: e.status };
+			}
+			throw e;
+		}
 	}
 
 	return { apiKey, project, organization };
@@ -142,7 +180,7 @@ responses.post("/", async (c) => {
 	const req = validation.data;
 
 	// Authenticate and check data retention
-	const authResult = await authenticateRequest(c);
+	const authResult = await authenticateRequest(c, true);
 	if ("error" in authResult) {
 		return c.json(
 			{
@@ -156,24 +194,11 @@ responses.post("/", async (c) => {
 		);
 	}
 
-	const { project, organization } = authResult;
+	const { project } = authResult;
 
 	const shouldStore = req.store !== false;
-
-	// Require retention to use the Responses API
-	if (organization.retentionLevel !== "retain") {
-		return c.json(
-			{
-				error: {
-					message:
-						"The Responses API requires data retention to be enabled. Enable 'Retain All Data' in your organization's policies, or use /v1/chat/completions instead.",
-					type: "invalid_request_error",
-					code: "data_retention_required",
-				},
-			},
-			400,
-		);
-	}
+	const includeEncryptedReasoning =
+		req.include?.includes("reasoning.encrypted_content") ?? false;
 
 	const projectId = project.id;
 
@@ -213,6 +238,11 @@ responses.post("/", async (c) => {
 		}
 	}
 
+	// Resolve any item_reference items (e.g. a function_call the gateway emitted
+	// in a prior response that a stateful client references instead of resending)
+	// back to their concrete stored items before conversion.
+	inputItems = await resolveItemReferences(inputItems, projectId);
+
 	// Convert Responses API input to chat completions messages
 	const messages = convertResponsesInputToMessages(
 		inputItems as typeof req.input,
@@ -221,8 +251,9 @@ responses.post("/", async (c) => {
 
 	// Convert tools format: Responses API has name/description/parameters at top level,
 	// chat completions nests under function.
-	// Only forward user-defined function tools to chat completions.
-	// Built-in tool types (web_search, computer_use, code_interpreter, shell, etc.)
+	// web_search passes through unchanged — the chat completions layer resolves
+	// it to the provider's native web search / grounding.
+	// Other built-in tool types (computer_use, code_interpreter, shell, etc.)
 	// are OpenAI-native capabilities that cannot be proxied through the gateway's
 	// provider routing, so they are dropped here.
 	const tools = req.tools
@@ -236,6 +267,9 @@ responses.post("/", async (c) => {
 						parameters: tool.parameters,
 					},
 				};
+			}
+			if (tool.type === "web_search") {
+				return tool;
 			}
 			return null;
 		})
@@ -284,11 +318,26 @@ responses.post("/", async (c) => {
 	if (req.reasoning?.effort) {
 		chatRequest.reasoning_effort = req.reasoning.effort;
 	}
+	if (req.reasoning?.context) {
+		chatRequest.reasoning = { context: req.reasoning.context };
+	}
+	if (req.text?.verbosity !== undefined) {
+		chatRequest.verbosity = req.text.verbosity;
+	}
 	if (req.prompt_cache_key !== undefined) {
 		chatRequest.prompt_cache_key = req.prompt_cache_key;
 	}
 	if (req.prompt_cache_retention !== undefined) {
 		chatRequest.prompt_cache_retention = req.prompt_cache_retention;
+	}
+	if (req.prompt_cache_options !== undefined) {
+		chatRequest.prompt_cache_options = req.prompt_cache_options;
+	}
+	if (req.routing !== undefined) {
+		chatRequest.routing = req.routing;
+	}
+	if (req.service_tier !== undefined) {
+		chatRequest.service_tier = req.service_tier;
 	}
 	if (response_format) {
 		chatRequest.response_format = response_format;
@@ -304,15 +353,6 @@ responses.post("/", async (c) => {
 	const logId = `resp_${shortid(24)}`;
 	const state = createStreamingState(req.model, logId, req);
 
-	// Build Responses API data for storage in the log entry.
-	// Output starts empty and is updated after completion via storeResponse().
-	const responsesApiData = {
-		input: inputItems,
-		output: [] as unknown[],
-		instructions: req.instructions,
-		model: req.model,
-	};
-
 	// Make internal request to the existing chat completions endpoint
 	const internalHeaders: Record<string, string> = {
 		"Content-Type": "application/json",
@@ -323,19 +363,16 @@ responses.post("/", async (c) => {
 		"x-source": c.req.header("x-source") ?? "",
 		"x-debug": c.req.header("x-debug") ?? "",
 		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
+		...internalApiOriginHeaders("responses"),
 	};
 
-	// Pass Responses API context via in-memory Map (not headers) to avoid
-	// exposing internal control fields to external callers and header size limits.
+	// Pass Responses API context via in-memory Map (not headers) so the chat
+	// handler logs this request under the resp_ id the client sees. Response
+	// state itself is persisted to the dedicated responses storage via
+	// storeResponse(), not the log entry.
 	const contextKey = logId;
-	if (shouldStore) {
-		setResponsesContext(contextKey, {
-			logId,
-			syncInsert: true,
-			responsesApiData,
-		});
-		internalHeaders["x-responses-context-key"] = contextKey;
-	}
+	setResponsesContext(contextKey, { logId });
+	internalHeaders["x-responses-context-key"] = contextKey;
 
 	let response: Response;
 	try {
@@ -393,6 +430,21 @@ responses.post("/", async (c) => {
 			const decoder = new TextDecoder();
 			let buffer = "";
 
+			// SSE keepalive to prevent proxy/load balancer and client idle
+			// timeouts from closing the connection during quiet gaps (slow
+			// time-to-first-token, long reasoning before output, slow tool-arg
+			// generation). Without this, coding clients see "The socket
+			// connection was closed unexpectedly". The inner /v1/chat/completions
+			// keepalive is consumed by this translator and never reaches the
+			// client, so we emit our own here. A `: ping` comment is part of the
+			// SSE spec and ignored by the OpenAI SDK.
+			const KEEPALIVE_INTERVAL_MS = 15000;
+			const keepaliveInterval = setInterval(() => {
+				stream.write(": ping\n").catch(() => {
+					// Stream likely closed; cleanup happens in finally.
+				});
+			}, KEEPALIVE_INTERVAL_MS);
+
 			// Send response.created
 			const createdEvent = createResponseCreatedEvent(state);
 			await stream.writeSSE({
@@ -408,7 +460,10 @@ responses.post("/", async (c) => {
 
 				if (data === "[DONE]") {
 					// Send completion events
-					const completionEvents = createCompletionEvents(state);
+					const completionEvents = createCompletionEvents(
+						state,
+						includeEncryptedReasoning,
+					);
 					for (const event of completionEvents) {
 						await stream.writeSSE({
 							event: event.event,
@@ -416,22 +471,31 @@ responses.post("/", async (c) => {
 						});
 					}
 
-					// Store for previous_response_id
+					// Store for previous_response_id. Storage always keeps encrypted
+					// reasoning payloads (even when the wire response strips them) so
+					// chaining preserves reasoning like OpenAI's stored responses do.
 					if (shouldStore) {
 						const completedData = JSON.parse(
 							completionEvents[completionEvents.length - 1]!.data,
 						);
 						const completedResponse = completedData.response;
-						await storeResponse(logId, {
-							id: logId,
-							input: inputItems,
-							output: completedResponse?.output ?? [],
-							instructions: req.instructions,
-							model: req.model,
-							status: completedResponse?.status ?? "completed",
-							usage: completedResponse?.usage,
-							created_at: completedResponse?.created_at,
-						});
+						await storeResponse(
+							logId,
+							{
+								id: logId,
+								input: inputItems,
+								output: buildFinalOutputItems(state),
+								instructions: req.instructions,
+								model: req.model,
+								status: completedResponse?.status ?? "completed",
+								incomplete_details:
+									completedResponse?.incomplete_details ?? null,
+								reasoning: completedResponse?.reasoning ?? null,
+								usage: completedResponse?.usage,
+								created_at: completedResponse?.created_at,
+							},
+							projectId,
+						);
 					}
 					return true;
 				}
@@ -481,15 +545,33 @@ responses.post("/", async (c) => {
 					await processLine(buffer);
 				}
 			} catch (error) {
-				logger.error("Error processing streaming response", {
-					error,
-				});
-				const failedEvent = createFailedEvent(state);
-				await stream.writeSSE({
-					event: failedEvent.event,
-					data: failedEvent.data,
-				});
+				// A client-side abort needs no terminal event — the socket is
+				// already gone, and writing would throw. For genuine errors, emit a
+				// well-formed response.failed event so the client ends the stream
+				// cleanly instead of seeing the socket close unexpectedly.
+				if (error instanceof Error && error.name === "AbortError") {
+					logger.info("Responses streaming request aborted by client", {
+						message: error.message,
+						path: c.req.path,
+					});
+				} else {
+					logger.error("Error processing streaming response", {
+						error,
+					});
+					try {
+						const failedEvent = createFailedEvent(state);
+						await stream.writeSSE({
+							event: failedEvent.event,
+							data: failedEvent.data,
+						});
+					} catch (sseError) {
+						logger.error("Failed to send response.failed event", {
+							error: sseError,
+						});
+					}
+				}
 			} finally {
+				clearInterval(keepaliveInterval);
 				reader.releaseLock();
 			}
 		});
@@ -504,20 +586,34 @@ responses.post("/", async (c) => {
 		req,
 	);
 
-	// Store for previous_response_id (unless store: false)
+	// Store for previous_response_id (unless store: false). Storage always
+	// keeps encrypted reasoning payloads (even when the wire response strips
+	// them) so chaining preserves reasoning like OpenAI's stored responses do.
 	if (shouldStore) {
-		await storeResponse(logId, {
-			id: logId,
-			input: inputItems,
-			output: responsesResponse.output,
-			instructions: req.instructions,
-			model: req.model,
-			status: responsesResponse.status as "completed" | "incomplete" | "failed",
-			usage: (responsesResponse.usage ?? undefined) as
-				| Record<string, unknown>
-				| undefined,
-			created_at: responsesResponse.created_at,
-		});
+		await storeResponse(
+			logId,
+			{
+				id: logId,
+				input: inputItems,
+				output: responsesResponse.output,
+				instructions: req.instructions,
+				model: req.model,
+				status: responsesResponse.status as
+					"completed" | "incomplete" | "failed",
+				incomplete_details: responsesResponse.incomplete_details,
+				reasoning: responsesResponse.reasoning,
+				usage: (responsesResponse.usage ?? undefined) as
+					Record<string, unknown> | undefined,
+				created_at: responsesResponse.created_at,
+			},
+			projectId,
+		);
+	}
+
+	if (!includeEncryptedReasoning) {
+		responsesResponse.output = stripEncryptedReasoningContent(
+			responsesResponse.output,
+		);
 	}
 
 	return c.json(responsesResponse);
@@ -570,7 +666,7 @@ responses.post("/compact", async (c) => {
 
 	const req = validation.data;
 
-	const authResult = await authenticateRequest(c);
+	const authResult = await authenticateRequest(c, true);
 	if ("error" in authResult) {
 		return c.json(
 			{
@@ -584,21 +680,7 @@ responses.post("/compact", async (c) => {
 		);
 	}
 
-	const { project, organization } = authResult;
-
-	if (organization.retentionLevel !== "retain") {
-		return c.json(
-			{
-				error: {
-					message:
-						"The Responses API requires data retention to be enabled. Enable 'Retain All Data' in your organization's policies, or use /v1/chat/completions instead.",
-					type: "invalid_request_error",
-					code: "data_retention_required",
-				},
-			},
-			400,
-		);
-	}
+	const { project } = authResult;
 
 	let inputItems: unknown[] = [];
 	if (typeof req.input === "string") {
@@ -633,6 +715,8 @@ responses.post("/compact", async (c) => {
 			req.instructions = stored.instructions;
 		}
 	}
+
+	inputItems = await resolveItemReferences(inputItems, project.id);
 
 	if (inputItems.length === 0) {
 		return c.json(
@@ -687,19 +771,11 @@ responses.post("/compact", async (c) => {
 		"x-source": c.req.header("x-source") ?? "",
 		"x-debug": c.req.header("x-debug") ?? "",
 		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
+		...internalApiOriginHeaders("responses"),
 	};
 
 	const contextKey = compactionId;
-	setResponsesContext(contextKey, {
-		logId: compactionId,
-		syncInsert: true,
-		responsesApiData: {
-			input: inputItems,
-			output: [] as unknown[],
-			instructions: req.instructions,
-			model: req.model,
-		},
-	});
+	setResponsesContext(contextKey, { logId: compactionId });
 	internalHeaders["x-responses-context-key"] = contextKey;
 
 	let response: Response;
@@ -745,16 +821,20 @@ responses.post("/compact", async (c) => {
 		createdAt,
 	);
 
-	await storeResponse(compactionId, {
-		id: compactionId,
-		input: inputItems,
-		output: compactionResponse.output,
-		instructions: req.instructions,
-		model: req.model,
-		status: "completed",
-		usage: compactionResponse.usage as unknown as Record<string, unknown>,
-		created_at: createdAt,
-	});
+	await storeResponse(
+		compactionId,
+		{
+			id: compactionId,
+			input: inputItems,
+			output: compactionResponse.output,
+			instructions: req.instructions,
+			model: req.model,
+			status: "completed",
+			usage: compactionResponse.usage as unknown as Record<string, unknown>,
+			created_at: createdAt,
+		},
+		project.id,
+	);
 
 	return c.json(compactionResponse);
 });
@@ -822,11 +902,17 @@ responses.get("/:response_id", async (c) => {
 		completed_at: status === "completed" ? createdAt : null,
 		status,
 		incomplete_details:
-			status === "incomplete" ? { reason: "max_output_tokens" } : null,
+			status === "incomplete"
+				? (stored.incomplete_details ?? { reason: "max_output_tokens" })
+				: null,
 		model: stored.model,
 		previous_response_id: null,
 		instructions: stored.instructions ?? null,
-		output: stored.output as ResponsesApiOutput[],
+		// Stored output keeps encrypted reasoning payloads for chaining; the
+		// retrieval endpoint (like OpenAI's without include) never returns them.
+		output: stripEncryptedReasoningContent(
+			stored.output as ResponsesApiOutput[],
+		),
 		error: null,
 		tools: [],
 		tool_choice: "auto",
@@ -838,7 +924,7 @@ responses.get("/:response_id", async (c) => {
 		frequency_penalty: 0,
 		top_logprobs: 0,
 		temperature: 1,
-		reasoning: { effort: null, summary: null },
+		reasoning: stored.reasoning ?? { effort: null, summary: null },
 		usage,
 		max_output_tokens: null,
 		max_tool_calls: null,

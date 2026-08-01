@@ -12,7 +12,6 @@ export function providerSupportsCachedInput(
  * - Not free
  * - Not unstable/experimental stability
  * - At least one stable provider with:
- *   - JSON output support (jsonOutput OR jsonOutputSchema)
  *   - Tool calling support
  *   - Streaming support
  *   - Cached input pricing
@@ -35,9 +34,6 @@ export function isCodingModel(model: ModelDefinition): boolean {
 			return false;
 		}
 
-		// Must have JSON output support
-		const hasJsonOutput = p.jsonOutput === true || p.jsonOutputSchema === true;
-
 		// Must have tool calling
 		const hasTools = p.tools === true;
 
@@ -47,6 +43,6 @@ export function isCodingModel(model: ModelDefinition): boolean {
 		// Must have cached input pricing
 		const hasCachedInputPrice = providerSupportsCachedInput(p);
 
-		return hasJsonOutput && hasTools && hasStreaming && hasCachedInputPrice;
+		return hasTools && hasStreaming && hasCachedInputPrice;
 	});
 }

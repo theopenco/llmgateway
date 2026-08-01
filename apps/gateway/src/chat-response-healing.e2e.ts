@@ -12,14 +12,21 @@ import {
 } from "vitest";
 
 import { app } from "@/app.js";
-import { clearCache, readAll } from "@/test-utils/test-helpers.js";
+import {
+	cleanupTestOrganization,
+	clearCache,
+	readAll,
+} from "@/test-utils/test-helpers.js";
 
 import { db, tables } from "@llmgateway/db";
 
 // Create a mock server that returns configurable JSON responses
 const mockServer = new Hono();
 let server: ReturnType<typeof serve> | null = null;
+// Test files run in parallel, so every suite needs its own mock upstream port
+// and its own fixture organization.
 const MOCK_PORT = 3098;
+const TEST_TOKEN = "response-healing-token";
 
 // Configure different response types for testing
 let mockResponseContent = '{"message": "Hello World"}';
@@ -182,69 +189,51 @@ describe("Response Healing E2E", () => {
 	beforeEach(async () => {
 		await clearCache();
 
-		// Clean up database
-		await Promise.all([
-			db.delete(tables.log),
-			db.delete(tables.apiKey),
-			db.delete(tables.providerKey),
-		]);
-
-		await Promise.all([
-			db.delete(tables.userOrganization),
-			db.delete(tables.project),
-		]);
-
-		await Promise.all([
-			db.delete(tables.organization),
-			db.delete(tables.user),
-			db.delete(tables.account),
-			db.delete(tables.session),
-			db.delete(tables.verification),
-		]);
+		await cleanupTestOrganization("healing-org", ["healing-user"]);
 
 		// Setup test data
 		await db.insert(tables.user).values({
-			id: "user-id",
+			id: "healing-user",
 			name: "user",
-			email: "user@test.com",
+			email: "response-healing@test.com",
 		});
 
 		await db.insert(tables.organization).values({
-			id: "org-id",
+			id: "healing-org",
 			name: "Test Organization",
-			billingEmail: "user@test.com",
+			billingEmail: "response-healing@test.com",
 			plan: "pro",
 			retentionLevel: "retain",
 			credits: "100.00",
 		});
 
 		await db.insert(tables.userOrganization).values({
-			id: "user-org-id",
-			userId: "user-id",
-			organizationId: "org-id",
+			id: "healing-user-org",
+			userId: "healing-user",
+			organizationId: "healing-org",
 		});
 
 		await db.insert(tables.project).values({
-			id: "project-id",
+			id: "healing-project",
 			name: "Test Project",
-			organizationId: "org-id",
+			organizationId: "healing-org",
 			mode: "api-keys",
 		});
 
 		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			token: "real-token",
-			projectId: "project-id",
+			id: "healing-token-id",
+			token: TEST_TOKEN,
+			projectId: "healing-project",
 			description: "Test API Key",
-			createdBy: "user-id",
+			createdBy: "healing-user",
 		});
 
 		// Create provider key with mock server URL as baseUrl
 		await db.insert(tables.providerKey).values({
-			id: "provider-key-id",
+			id: "healing-provider-key",
 			token: "sk-test-key",
 			provider: "llmgateway",
-			organizationId: "org-id",
+			organizationId: "healing-org",
 			baseUrl: `http://localhost:${MOCK_PORT}`,
 		});
 
@@ -258,7 +247,7 @@ describe("Response Healing E2E", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
+					Authorization: `Bearer ${TEST_TOKEN}`,
 				},
 				body: JSON.stringify({
 					model: "llmgateway/custom",
@@ -277,7 +266,7 @@ describe("Response Healing E2E", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
+					Authorization: `Bearer ${TEST_TOKEN}`,
 				},
 				body: JSON.stringify({
 					model: "llmgateway/custom",
@@ -299,7 +288,7 @@ describe("Response Healing E2E", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
+					Authorization: `Bearer ${TEST_TOKEN}`,
 				},
 				body: JSON.stringify({
 					model: "llmgateway/custom",
@@ -325,7 +314,7 @@ describe("Response Healing E2E", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
+					Authorization: `Bearer ${TEST_TOKEN}`,
 				},
 				body: JSON.stringify({
 					model: "llmgateway/custom",
@@ -351,7 +340,7 @@ describe("Response Healing E2E", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
+					Authorization: `Bearer ${TEST_TOKEN}`,
 				},
 				body: JSON.stringify({
 					model: "llmgateway/custom",
@@ -377,7 +366,7 @@ describe("Response Healing E2E", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
+					Authorization: `Bearer ${TEST_TOKEN}`,
 				},
 				body: JSON.stringify({
 					model: "llmgateway/custom",
@@ -405,7 +394,7 @@ describe("Response Healing E2E", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
+					Authorization: `Bearer ${TEST_TOKEN}`,
 				},
 				body: JSON.stringify({
 					model: "llmgateway/custom",
@@ -432,7 +421,7 @@ describe("Response Healing E2E", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
+					Authorization: `Bearer ${TEST_TOKEN}`,
 				},
 				body: JSON.stringify({
 					model: "llmgateway/custom",
@@ -459,7 +448,7 @@ describe("Response Healing E2E", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
+					Authorization: `Bearer ${TEST_TOKEN}`,
 				},
 				body: JSON.stringify({
 					model: "llmgateway/custom",
@@ -487,7 +476,7 @@ describe("Response Healing E2E", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
+					Authorization: `Bearer ${TEST_TOKEN}`,
 				},
 				body: JSON.stringify({
 					model: "llmgateway/custom",
@@ -533,7 +522,7 @@ describe("Response Healing E2E", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
+					Authorization: `Bearer ${TEST_TOKEN}`,
 				},
 				body: JSON.stringify({
 					model: "llmgateway/custom",
@@ -559,7 +548,7 @@ describe("Response Healing E2E", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
+					Authorization: `Bearer ${TEST_TOKEN}`,
 				},
 				body: JSON.stringify({
 					model: "llmgateway/custom",
@@ -587,7 +576,7 @@ describe("Response Healing E2E", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
+					Authorization: `Bearer ${TEST_TOKEN}`,
 				},
 				body: JSON.stringify({
 					model: "llmgateway/custom",
@@ -619,7 +608,7 @@ describe("Response Healing E2E", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
+					Authorization: `Bearer ${TEST_TOKEN}`,
 				},
 				body: JSON.stringify({
 					model: "llmgateway/custom",
@@ -649,7 +638,7 @@ describe("Response Healing E2E", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
+					Authorization: `Bearer ${TEST_TOKEN}`,
 				},
 				body: JSON.stringify({
 					model: "llmgateway/custom",
@@ -678,7 +667,7 @@ describe("Response Healing E2E", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
+					Authorization: `Bearer ${TEST_TOKEN}`,
 				},
 				body: JSON.stringify({
 					model: "llmgateway/custom",
@@ -705,7 +694,7 @@ describe("Response Healing E2E", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
+					Authorization: `Bearer ${TEST_TOKEN}`,
 				},
 				body: JSON.stringify({
 					model: "llmgateway/custom",
@@ -732,7 +721,7 @@ describe("Response Healing E2E", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
+					Authorization: `Bearer ${TEST_TOKEN}`,
 				},
 				body: JSON.stringify({
 					model: "llmgateway/custom",
@@ -759,7 +748,7 @@ describe("Response Healing E2E", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
+					Authorization: `Bearer ${TEST_TOKEN}`,
 				},
 				body: JSON.stringify({
 					model: "llmgateway/custom",
@@ -786,7 +775,7 @@ describe("Response Healing E2E", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
+					Authorization: `Bearer ${TEST_TOKEN}`,
 				},
 				body: JSON.stringify({
 					model: "llmgateway/custom",
@@ -825,7 +814,7 @@ describe("Response Healing E2E", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
+					Authorization: `Bearer ${TEST_TOKEN}`,
 				},
 				body: JSON.stringify({
 					model: "llmgateway/custom",
@@ -853,7 +842,7 @@ describe("Response Healing E2E", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
+					Authorization: `Bearer ${TEST_TOKEN}`,
 				},
 				body: JSON.stringify({
 					model: "llmgateway/custom",

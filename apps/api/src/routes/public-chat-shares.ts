@@ -12,8 +12,10 @@ const sharedMessageSchema = z.object({
 	content: z.string().nullable(),
 	images: z.string().nullable(),
 	audios: z.string().nullable().optional(),
+	documents: z.string().nullable().optional(),
 	reasoning: z.string().nullable(),
 	tools: z.string().nullable(),
+	sources: z.string().nullable().optional(),
 	metadata: z.record(z.unknown()).nullable().optional(),
 	sequence: z.number(),
 	createdAt: z.string().datetime(),
@@ -96,7 +98,11 @@ publicChatShares.openapi(listSharedChats, async (c) => {
 		.from(tables.chatShare)
 		.innerJoin(tables.chat, eq(tables.chatShare.chatId, tables.chat.id))
 		.where(
-			and(isNull(tables.chatShare.deletedAt), eq(tables.chat.status, "active")),
+			and(
+				isNull(tables.chatShare.deletedAt),
+				isNull(tables.chatShare.organizationId),
+				eq(tables.chat.status, "active"),
+			),
 		)
 		.orderBy(desc(tables.chatShare.updatedAt))
 		.limit(limit ?? 5000);
@@ -128,6 +134,7 @@ publicChatShares.openapi(getSharedChat, async (c) => {
 			and(
 				eq(tables.chatShare.id, shareId),
 				isNull(tables.chatShare.deletedAt),
+				isNull(tables.chatShare.organizationId),
 				eq(tables.chat.status, "active"),
 			),
 		)
@@ -137,7 +144,10 @@ publicChatShares.openapi(getSharedChat, async (c) => {
 		return c.json({ message: "Shared chat not found" }, 404);
 	}
 
-	const messages = sharedMessageSchema.array().parse(share.messages);
+	const messages = sharedMessageSchema
+		.array()
+		.parse(share.messages)
+		.map((message) => ({ ...message, sources: message.sources ?? null }));
 
 	return c.json(
 		{

@@ -40,10 +40,12 @@ function parseHistoryWindow(value: string | null): HistoryWindow {
 export function MappingDetailClient({
 	providerId,
 	modelId,
+	region,
 	mapping: initialMapping,
 }: {
 	providerId: string;
 	modelId: string;
+	region?: string;
 	mapping: MappingDetail;
 }) {
 	const searchParams = useSearchParams();
@@ -58,7 +60,7 @@ export function MappingDetailClient({
 		async (w: HistoryWindow) => {
 			setLoading(true);
 			try {
-				const data = await getMappingDetail(providerId, modelId, w);
+				const data = await getMappingDetail(providerId, modelId, w, region);
 				if (data) {
 					setMapping(data.mapping);
 				}
@@ -66,7 +68,7 @@ export function MappingDetailClient({
 				setLoading(false);
 			}
 		},
-		[providerId, modelId],
+		[providerId, modelId, region],
 	);
 
 	useEffect(() => {
@@ -78,14 +80,16 @@ export function MappingDetailClient({
 
 	const fetchHistory = useCallback(
 		async (w: HistoryWindow) => {
-			return await getMappingHistory(providerId, modelId, w);
+			return await getMappingHistory(providerId, modelId, w, undefined, region);
 		},
-		[providerId, modelId],
+		[providerId, modelId, region],
 	);
 
 	const ProviderIcon = getProviderIcon(providerId);
 	const displayName =
-		mapping.modelName !== mapping.modelId ? mapping.modelName : mapping.modelId;
+		mapping.externalId !== mapping.modelId
+			? mapping.externalId
+			: mapping.modelId;
 
 	return (
 		<>
@@ -135,6 +139,11 @@ export function MappingDetailClient({
 			<DetailStatCards stats={mapping} loading={loading} />
 
 			<section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+				<StatCard
+					label="Cost"
+					value={`$${mapping.totalCost.toFixed(4)}`}
+					loading={loading}
+				/>
 				<StatCard label="Input Price" value={formatPrice(mapping.inputPrice)} />
 				<StatCard
 					label="Output Price"

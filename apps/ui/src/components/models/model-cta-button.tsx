@@ -2,28 +2,35 @@
 
 import { ArrowRight, Play } from "lucide-react";
 
-import { useUser } from "@/hooks/useUser";
+import { useSessionStatus, useUser } from "@/hooks/useUser";
 import { Button } from "@/lib/components/button";
 import { useAppConfig } from "@/lib/config";
+import { getLoungeStudioPath } from "@/lib/model-utils";
 
 export function ModelCtaButton({
 	modelId,
+	output,
 	size = "default",
 	className = "w-full gap-2 font-semibold group/cta",
 	iconClassName = "h-4 w-4 transition-transform group-hover/cta:translate-x-0.5",
 	onClick,
 }: {
 	modelId: string;
+	output?: readonly string[] | null;
 	size?: "default" | "sm";
 	className?: string;
 	iconClassName?: string;
 	onClick?: (e: React.MouseEvent) => void;
 }) {
 	const config = useAppConfig();
-	const { user, isLoading } = useUser();
+	const { isAuthenticated } = useSessionStatus();
+	const { user, isLoading } = useUser({ enabled: isAuthenticated });
 	const isLoggedIn = !!user && !isLoading;
 
-	if (isLoggedIn) {
+	// Rerank models have no playground studio — logged-in users see the
+	// "Get Started" CTA too (no chat playground to link to).
+	if (isLoggedIn && !output?.includes("rerank")) {
+		const studioPath = getLoungeStudioPath(output);
 		return (
 			<Button
 				variant="default"
@@ -33,12 +40,12 @@ export function ModelCtaButton({
 				asChild
 			>
 				<a
-					href={`${config.playgroundUrl}?model=${encodeURIComponent(modelId)}`}
+					href={`${config.playgroundUrl}${studioPath}?model=${encodeURIComponent(modelId)}`}
 					target="_blank"
 					rel="noopener noreferrer"
 				>
 					<Play className={iconClassName} />
-					Try in Playground
+					Try in Lounge
 				</a>
 			</Button>
 		);

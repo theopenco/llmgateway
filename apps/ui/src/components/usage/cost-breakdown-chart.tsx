@@ -18,6 +18,7 @@ import {
 	PopoverTrigger,
 } from "@/lib/components/popover";
 import { useApi } from "@/lib/fetch-client";
+import { getBrowserTimeZone } from "@/lib/timezone";
 
 import { providers } from "@llmgateway/models";
 
@@ -105,6 +106,7 @@ export function CostBreakdownChart({
 				query: {
 					from: fromStr,
 					to: toStr,
+					timezone: getBrowserTimeZone(),
 					...(effectiveProjectId ? { projectId: effectiveProjectId } : {}),
 					...(apiKeyId ? { apiKeyId } : {}),
 				},
@@ -337,7 +339,7 @@ export function CostBreakdownChart({
 					</Pie>
 				</PieChart>
 			</ChartContainer>
-			<div className="flex flex-1 flex-col justify-center gap-3 text-sm">
+			<div className="flex min-w-0 flex-1 flex-col justify-center gap-3 text-sm">
 				{selectedProject && (
 					<p className="text-muted-foreground">
 						Project:{" "}

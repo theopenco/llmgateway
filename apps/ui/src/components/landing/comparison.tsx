@@ -37,7 +37,7 @@ const comparisonData = [
 				title: "Real-time cost analytics",
 				description: "Detailed cost tracking for every request",
 				llmgateway: true,
-				openrouter: "Basic",
+				openrouter: true,
 			},
 			{
 				title: "Latency analytics",
@@ -49,7 +49,7 @@ const comparisonData = [
 				title: "Request-level insights",
 				description: "Granular analytics for each API call",
 				llmgateway: true,
-				openrouter: false,
+				openrouter: true,
 			},
 			{
 				title: "Usage dashboard",
@@ -84,7 +84,7 @@ const comparisonData = [
 				title: "Priority support",
 				description: "Dedicated support for paid plans",
 				llmgateway: "Enterprise",
-				openrouter: false,
+				openrouter: "Enterprise only",
 			},
 		],
 	},
@@ -226,6 +226,16 @@ export function Comparison() {
 					<p className="text-sm text-muted-foreground mt-3">
 						No credit card required • Self-host option available • Enterprise
 						support included
+					</p>
+					<p className="text-sm text-muted-foreground mt-3">
+						Weighing more options? See the{" "}
+						<Link
+							href={"/blog/openrouter-alternatives" as any}
+							className="underline underline-offset-4 hover:text-foreground"
+						>
+							10 best OpenRouter alternatives in 2026
+						</Link>
+						.
 					</p>
 				</div>
 			</div>

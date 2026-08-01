@@ -9,10 +9,11 @@ import {
 	vi,
 } from "vitest";
 
-import { and, db, eq, tables, type Log } from "@llmgateway/db";
+import { db, eq, tables, type Log } from "@llmgateway/db";
 import { getProviderDefinition } from "@llmgateway/models";
 
 import { app } from "./app.js";
+import { SAME_KEY_RETRY_DELAY_MS } from "./chat/tools/retry-with-fallback.js";
 import { getApiKeyFingerprint } from "./lib/api-key-fingerprint.js";
 import {
 	isTrackedKeyHealthy,
@@ -96,36 +97,25 @@ describe("fallback and error status code handling", () => {
 		resetFailOnceCounter();
 		resetKeyHealth();
 		await clearCache();
-		await db.update(tables.modelProviderMapping).set({
-			routingUptime: null,
-			routingLatency: null,
-			routingThroughput: null,
-			routingTotalRequests: null,
-		});
+		await db.delete(tables.modelProviderMappingHistory);
 
-		await Promise.all([
-			db.delete(tables.log),
-			db.delete(tables.apiKeyIamRule),
-			db.delete(tables.apiKey),
-			db.delete(tables.providerKey),
-		]);
-
-		await Promise.all([
-			db.delete(tables.userOrganization),
-			db.delete(tables.project),
-		]);
-
-		await Promise.all([
-			db.delete(tables.organization),
-			db.delete(tables.user),
-			db.delete(tables.account),
-			db.delete(tables.session),
-			db.delete(tables.verification),
-		]);
+		// Sequential, children before parents: concurrent deletes on
+		// cascade-linked tables (e.g. user -> account) deadlock in postgres.
+		await db.delete(tables.log);
+		await db.delete(tables.apiKeyIamRule);
+		await db.delete(tables.apiKey);
+		await db.delete(tables.providerKey);
+		await db.delete(tables.userOrganization);
+		await db.delete(tables.project);
+		await db.delete(tables.session);
+		await db.delete(tables.account);
+		await db.delete(tables.verification);
+		await db.delete(tables.organization);
+		await db.delete(tables.user);
 	}
 
-	beforeAll(() => {
-		mockServerUrl = startMockServer(3001);
+	beforeAll(async () => {
+		mockServerUrl = await startMockServer();
 	});
 
 	afterAll(() => {
@@ -290,24 +280,64 @@ describe("fallback and error status code handling", () => {
 			routingTotalRequests?: number;
 		},
 	) {
-		const conditions = [
-			eq(tables.modelProviderMapping.modelId, modelId),
-			eq(tables.modelProviderMapping.providerId, providerId),
-		];
-
-		if (options?.region) {
-			conditions.push(eq(tables.modelProviderMapping.region, options.region));
-		}
+		// Seed a recent model_provider_mapping_history row whose unweighted
+		// aggregates reproduce the requested uptime/latency/throughput.
+		// Routing reads from this table on-demand
+		// (see packages/db/src/provider-metrics-history.ts).
+		const totalRequests = options?.routingTotalRequests ?? 100;
+		const latency = options?.routingLatency ?? 100;
+		const throughput = options?.routingThroughput ?? 100;
+		const uptimeFraction = routingUptime / 100;
+		const errorRate = 1 - uptimeFraction;
+		const errorsCount = Math.round(totalRequests * errorRate);
+		const totalDurationMs = 1000;
+		const totalOutputTokens = Math.round((throughput * totalDurationMs) / 1000);
+		const totalTimeToFirstToken = latency * totalRequests;
+		const minuteTimestamp = new Date(Math.floor(Date.now() / 60000) * 60000);
+		const mappingId = options?.region
+			? `${modelId}::${providerId}::${options.region}`
+			: `${modelId}::${providerId}`;
 
 		await db
-			.update(tables.modelProviderMapping)
-			.set({
-				routingUptime,
-				routingLatency: options?.routingLatency ?? 100,
-				routingThroughput: options?.routingThroughput ?? 100,
-				routingTotalRequests: options?.routingTotalRequests ?? 100,
+			.insert(tables.modelProviderMappingHistory)
+			.values({
+				modelId,
+				providerId,
+				modelProviderMappingId: mappingId,
+				minuteTimestamp,
+				logsCount: totalRequests,
+				errorsCount,
+				clientErrorsCount: 0,
+				gatewayErrorsCount: 0,
+				upstreamErrorsCount: errorsCount,
+				cachedCount: 0,
+				totalOutputTokens,
+				totalDuration: totalDurationMs,
+				totalTimeToFirstToken,
+				totalTimeToFirstReasoningToken: 0,
+				timeToFirstTokenCount: totalRequests,
+				timeToFirstReasoningTokenCount: 0,
 			})
-			.where(and(...conditions));
+			.onConflictDoUpdate({
+				target: [
+					tables.modelProviderMappingHistory.modelProviderMappingId,
+					tables.modelProviderMappingHistory.minuteTimestamp,
+				],
+				set: {
+					logsCount: totalRequests,
+					errorsCount,
+					clientErrorsCount: 0,
+					gatewayErrorsCount: 0,
+					upstreamErrorsCount: errorsCount,
+					cachedCount: 0,
+					totalOutputTokens,
+					totalDuration: totalDurationMs,
+					totalTimeToFirstToken,
+					totalTimeToFirstReasoningToken: 0,
+					timeToFirstTokenCount: totalRequests,
+					timeToFirstReasoningTokenCount: 0,
+				},
+			});
 	}
 
 	/** Ensure a regional modelProviderMapping row exists for routing tests. */
@@ -334,7 +364,7 @@ describe("fallback and error status code handling", () => {
 				id,
 				modelId,
 				providerId,
-				modelName: `${modelId}:${region}`,
+				externalId: modelId,
 				region,
 				status: "active",
 			})
@@ -390,6 +420,76 @@ describe("fallback and error status code handling", () => {
 			expect(log.errorDetails?.statusCode).toBe(500);
 			expect(log.usedProvider).toBe("llmgateway");
 			expect(log.requestedModel).toBe("llmgateway/custom");
+		});
+
+		test("upstream socket close while reading the response body is classified as upstream_error (502), not an unhandled 500", async () => {
+			await setupCustomKeys();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					messages: [{ role: "user", content: "TRIGGER_BODY_ABORT" }],
+				}),
+			});
+
+			expect(res.status).toBe(502);
+			const json = await res.json();
+			expect(json).toHaveProperty("error");
+			expect(json.error.type).toBe("upstream_error");
+			expect(json.error.code).toBe("fetch_failed");
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+
+			const log = logs[0];
+			expect(log.finishReason).toBe("upstream_error");
+			expect(log.hasError).toBe(true);
+			expect(log.errorDetails).toBeTruthy();
+			expect(log.usedProvider).toBe("llmgateway");
+			expect(log.requestedModel).toBe("llmgateway/custom");
+		});
+
+		test("mid-body failure marks the routed provider attempt as failed, not a succeeded routing attempt", async () => {
+			await setupMultiProviderKeys();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					// Auto-routed (no provider prefix) so routingMetadata is populated.
+					model: "glm-4.7",
+					messages: [{ role: "user", content: "TRIGGER_BODY_ABORT" }],
+				}),
+			});
+
+			expect(res.status).toBe(502);
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			const log = logs[0];
+			expect(log.hasError).toBe(true);
+			expect(log.finishReason).toBe("upstream_error");
+
+			// The headers arrived (2xx) but the body read failed, so the provider
+			// must not be recorded as a succeeded (green) routing attempt.
+			const routing = log.routingMetadata?.routing ?? [];
+			expect(routing.length).toBeGreaterThanOrEqual(1);
+			expect(routing.every((a) => a.succeeded === false)).toBe(true);
+			expect(routing.some((a) => a.error_type === "upstream_error")).toBe(true);
+
+			// The used provider's score is flagged as failed.
+			const usedScore = log.routingMetadata?.providerScores?.find(
+				(s) => s.providerId === log.usedProvider,
+			);
+			expect(usedScore?.failed).toBe(true);
 		});
 
 		test("429 rate limit is classified as upstream_error with correct error details in DB log", async () => {
@@ -739,6 +839,43 @@ describe("fallback and error status code handling", () => {
 			);
 		});
 
+		test("/v1/messages budget thinking on adaptive model logs a client_error", async () => {
+			await setupKeys("anthropic");
+
+			const res = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "claude-opus-4-8",
+					max_tokens: 1024,
+					thinking: { type: "enabled", budget_tokens: 8000 },
+					messages: [{ role: "user", content: "What is 2+2?" }],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const body = (await res.json()) as {
+				type: string;
+				error: { type: string; message: string };
+			};
+			expect(body.type).toBe("error");
+			expect(body.error.message).toContain("thinking.type.adaptive");
+
+			// The rejection must be visible in the activity feed as a client_error,
+			// not silently dropped by the global error handler.
+			const logs = await waitForLogs(1);
+			const log = logs[0];
+			expect(log.finishReason).toBe("client_error");
+			expect(log.hasError).toBe(true);
+			expect(log.errorDetails?.statusCode).toBe(400);
+			expect(log.errorDetails?.responseText).toContain(
+				"thinking.type.adaptive",
+			);
+		});
+
 		test("streaming aws-bedrock success closes cleanly", async () => {
 			await setupKeys("aws-bedrock");
 
@@ -1009,9 +1146,9 @@ describe("fallback and error status code handling", () => {
 			await db
 				.insert(tables.model)
 				.values({
-					id: "glm-4.6",
-					name: "GLM-4.6",
-					family: "glm",
+					id: "glm-5",
+					name: "GLM-5",
+					family: "zai",
 					releasedAt: new Date("2025-09-30"),
 				})
 				.onConflictDoNothing();
@@ -1020,51 +1157,51 @@ describe("fallback and error status code handling", () => {
 				.insert(tables.modelProviderMapping)
 				.values([
 					{
-						id: "glm-4-6-zai-root",
-						modelId: "glm-4.6",
+						id: "glm-5-zai-root",
+						modelId: "glm-5",
 						providerId: "zai",
-						modelName: "glm-4.6",
+						externalId: "glm-5",
 						streaming: true,
 					},
 					{
-						id: "glm-4-6-alibaba-root",
-						modelId: "glm-4.6",
+						id: "glm-5-alibaba-root",
+						modelId: "glm-5",
 						providerId: "alibaba",
-						modelName: "glm-4.6",
+						externalId: "glm-5",
 						streaming: true,
 					},
 					{
-						id: "glm-4-6-alibaba-cn-beijing",
-						modelId: "glm-4.6",
+						id: "glm-5-alibaba-cn-beijing",
+						modelId: "glm-5",
 						providerId: "alibaba",
-						modelName: "glm-4.6:cn-beijing",
+						externalId: "glm-5",
 						region: "cn-beijing",
 						streaming: true,
 					},
 					{
-						id: "glm-4-6-novita-root",
-						modelId: "glm-4.6",
+						id: "glm-5-novita-root",
+						modelId: "glm-5",
 						providerId: "novita",
-						modelName: "zai-org/glm-4.6",
+						externalId: "zai-org/glm-5",
 						streaming: true,
 					},
 				])
 				.onConflictDoNothing();
 
-			await setRoutingMetrics("glm-4.6", "zai", 55, {
+			await setRoutingMetrics("glm-5", "zai", 55, {
 				routingLatency: 238,
 				routingThroughput: 65,
 			});
-			await setRoutingMetrics("glm-4.6", "alibaba", 100, {
+			await setRoutingMetrics("glm-5", "alibaba", 100, {
 				routingLatency: 10,
 				routingThroughput: 1000,
 			});
-			await setRoutingMetrics("glm-4.6", "alibaba", 100, {
+			await setRoutingMetrics("glm-5", "alibaba", 100, {
 				region: "cn-beijing",
 				routingLatency: 400,
 				routingThroughput: 80,
 			});
-			await setRoutingMetrics("glm-4.6", "novita", 100, {
+			await setRoutingMetrics("glm-5", "novita", 100, {
 				routingLatency: 1200,
 				routingThroughput: 30,
 			});
@@ -1076,7 +1213,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "zai/glm-4.6",
+					model: "zai/glm-5",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
@@ -1086,7 +1223,7 @@ describe("fallback and error status code handling", () => {
 			const logs = await waitForLogs(1);
 			expect(logs).toHaveLength(1);
 			expect(logs[0].usedProvider).toBe("alibaba");
-			expect(logs[0].usedModel).toBe("alibaba/glm-4.6:cn-beijing");
+			expect(logs[0].usedModel).toBe("alibaba/glm-5:cn-beijing");
 			expect(logs[0].routingMetadata?.selectedProvider).toBe("alibaba");
 			expect(logs[0].routingMetadata?.selectionReason).toBe(
 				"low-uptime-fallback",
@@ -1106,6 +1243,20 @@ describe("fallback and error status code handling", () => {
 
 		test("auto routing ignores synthetic root region mappings", async () => {
 			await ensureProviders(["zai", "alibaba", "novita"]);
+
+			// zai carries a default provider-priority bonus that would otherwise win
+			// auto-routing outright. Neutralize provider priorities via an enterprise
+			// routing config so this test exercises pure metric-based selection of
+			// the regional mapping.
+			await db
+				.update(tables.organization)
+				.set({ plan: "enterprise" })
+				.where(eq(tables.organization.id, "org-id"));
+			await db.insert(tables.routingConfig).values({
+				projectId: "project-id",
+				enabled: true,
+				providerPriorities: { zai: 1, alibaba: 1, novita: 1 },
+			});
 
 			await db.insert(tables.providerKey).values([
 				{
@@ -1134,9 +1285,9 @@ describe("fallback and error status code handling", () => {
 			await db
 				.insert(tables.model)
 				.values({
-					id: "glm-4.6",
-					name: "GLM-4.6",
-					family: "glm",
+					id: "glm-5",
+					name: "GLM-5",
+					family: "zai",
 					releasedAt: new Date("2025-09-30"),
 				})
 				.onConflictDoNothing();
@@ -1145,51 +1296,51 @@ describe("fallback and error status code handling", () => {
 				.insert(tables.modelProviderMapping)
 				.values([
 					{
-						id: "glm-4-6-zai-auto-root",
-						modelId: "glm-4.6",
+						id: "glm-5-zai-auto-root",
+						modelId: "glm-5",
 						providerId: "zai",
-						modelName: "glm-4.6",
+						externalId: "glm-5",
 						streaming: true,
 					},
 					{
-						id: "glm-4-6-alibaba-auto-root",
-						modelId: "glm-4.6",
+						id: "glm-5-alibaba-auto-root",
+						modelId: "glm-5",
 						providerId: "alibaba",
-						modelName: "glm-4.6",
+						externalId: "glm-5",
 						streaming: true,
 					},
 					{
-						id: "glm-4-6-alibaba-auto-cn-beijing",
-						modelId: "glm-4.6",
+						id: "glm-5-alibaba-auto-cn-beijing",
+						modelId: "glm-5",
 						providerId: "alibaba",
-						modelName: "glm-4.6:cn-beijing",
+						externalId: "glm-5",
 						region: "cn-beijing",
 						streaming: true,
 					},
 					{
-						id: "glm-4-6-novita-auto-root",
-						modelId: "glm-4.6",
+						id: "glm-5-novita-auto-root",
+						modelId: "glm-5",
 						providerId: "novita",
-						modelName: "zai-org/glm-4.6",
+						externalId: "zai-org/glm-5",
 						streaming: true,
 					},
 				])
 				.onConflictDoNothing();
 
-			await setRoutingMetrics("glm-4.6", "zai", 100, {
+			await setRoutingMetrics("glm-5", "zai", 100, {
 				routingLatency: 250,
 				routingThroughput: 90,
 			});
-			await setRoutingMetrics("glm-4.6", "alibaba", 100, {
+			await setRoutingMetrics("glm-5", "alibaba", 100, {
 				routingLatency: 1,
 				routingThroughput: 1000,
 			});
-			await setRoutingMetrics("glm-4.6", "alibaba", 100, {
+			await setRoutingMetrics("glm-5", "alibaba", 100, {
 				region: "cn-beijing",
 				routingLatency: 20,
 				routingThroughput: 400,
 			});
-			await setRoutingMetrics("glm-4.6", "novita", 100, {
+			await setRoutingMetrics("glm-5", "novita", 100, {
 				routingLatency: 1200,
 				routingThroughput: 30,
 			});
@@ -1201,7 +1352,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "glm-4.6",
+					model: "glm-5",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
@@ -1210,10 +1361,10 @@ describe("fallback and error status code handling", () => {
 
 			const logs = await waitForLogs(1);
 			const log =
-				logs.find((entry) => entry.requestedModel === "glm-4.6") ?? logs.at(-1);
+				logs.find((entry) => entry.requestedModel === "glm-5") ?? logs.at(-1);
 			expect(log).toBeTruthy();
 			expect(log?.usedProvider).toBe("alibaba");
-			expect(log?.usedModel).toBe("alibaba/glm-4.6:cn-beijing");
+			expect(log?.usedModel).toBe("alibaba/glm-5:cn-beijing");
 			expect(
 				log?.routingMetadata?.providerScores?.some(
 					(score) => score.providerId === "alibaba" && !score.region,
@@ -1259,7 +1410,7 @@ describe("fallback and error status code handling", () => {
 				.values({
 					id: "glm-4.6",
 					name: "GLM-4.6",
-					family: "glm",
+					family: "zai",
 					releasedAt: new Date("2025-09-30"),
 				})
 				.onConflictDoNothing();
@@ -1271,7 +1422,7 @@ describe("fallback and error status code handling", () => {
 						id: "glm-4-6-zai-root-max-tokens",
 						modelId: "glm-4.6",
 						providerId: "zai",
-						modelName: "glm-4.6",
+						externalId: "glm-4.6",
 						maxOutput: 32768,
 						streaming: true,
 					},
@@ -1279,7 +1430,7 @@ describe("fallback and error status code handling", () => {
 						id: "glm-4-6-alibaba-cn-beijing-max-tokens",
 						modelId: "glm-4.6",
 						providerId: "alibaba",
-						modelName: "glm-4.6:cn-beijing",
+						externalId: "glm-4.6",
 						region: "cn-beijing",
 						maxOutput: 16384,
 						streaming: true,
@@ -1288,7 +1439,7 @@ describe("fallback and error status code handling", () => {
 						id: "glm-4-6-novita-root-max-tokens",
 						modelId: "glm-4.6",
 						providerId: "novita",
-						modelName: "zai-org/glm-4.6",
+						externalId: "zai-org/glm-4.6",
 						maxOutput: 32768,
 						streaming: true,
 					},
@@ -1343,15 +1494,15 @@ describe("fallback and error status code handling", () => {
 		test("direct provider selection picks the best available region", async () => {
 			await setupKeys("alibaba");
 
-			await ensureRegionalMapping("deepseek-v3.2", "alibaba", "singapore");
-			await ensureRegionalMapping("deepseek-v3.2", "alibaba", "cn-beijing");
+			await ensureRegionalMapping("deepseek-v4-flash", "alibaba", "singapore");
+			await ensureRegionalMapping("deepseek-v4-flash", "alibaba", "cn-beijing");
 
-			await setRoutingMetrics("deepseek-v3.2", "alibaba", 100, {
+			await setRoutingMetrics("deepseek-v4-flash", "alibaba", 100, {
 				region: "singapore",
 				routingLatency: 1200,
 				routingThroughput: 10,
 			});
-			await setRoutingMetrics("deepseek-v3.2", "alibaba", 100, {
+			await setRoutingMetrics("deepseek-v4-flash", "alibaba", 100, {
 				region: "cn-beijing",
 				routingLatency: 900,
 				routingThroughput: 20,
@@ -1364,7 +1515,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "alibaba/deepseek-v3.2",
+					model: "alibaba/deepseek-v4-flash",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
@@ -1381,7 +1532,7 @@ describe("fallback and error status code handling", () => {
 					score.providerId === "alibaba" && score.region === "cn-beijing",
 			);
 
-			expect(logs[0].usedModel).toBe("alibaba/deepseek-v3.2:cn-beijing");
+			expect(logs[0].usedModel).toBe("alibaba/deepseek-v4-flash:cn-beijing");
 			expect(logs[0].routingMetadata?.selectionReason).toBe(
 				"direct-provider-specified",
 			);
@@ -1392,7 +1543,7 @@ describe("fallback and error status code handling", () => {
 			expect(logs[0].routingMetadata?.routing).toEqual([
 				expect.objectContaining({
 					provider: "alibaba",
-					model: "deepseek-v3.2",
+					model: "deepseek-v4-flash",
 					region: "cn-beijing",
 					status_code: 200,
 					succeeded: true,
@@ -1411,12 +1562,12 @@ describe("fallback and error status code handling", () => {
 				})
 				.where(eq(tables.providerKey.id, "provider-key-id"));
 
-			await setRoutingMetrics("deepseek-v3.2", "alibaba", 100, {
+			await setRoutingMetrics("deepseek-v4-flash", "alibaba", 100, {
 				region: "singapore",
 				routingLatency: 866,
 				routingThroughput: 1,
 			});
-			await setRoutingMetrics("deepseek-v3.2", "alibaba", 100, {
+			await setRoutingMetrics("deepseek-v4-flash", "alibaba", 100, {
 				region: "cn-beijing",
 				routingLatency: 1767,
 				routingThroughput: 0.5,
@@ -1429,7 +1580,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "alibaba/deepseek-v3.2",
+					model: "alibaba/deepseek-v4-flash",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
@@ -1458,7 +1609,7 @@ describe("fallback and error status code handling", () => {
 			expect(logs[0].routingMetadata?.routing).toEqual([
 				expect.objectContaining({
 					provider: "alibaba",
-					model: "deepseek-v3.2",
+					model: "deepseek-v4-flash",
 					region: "singapore",
 					status_code: 200,
 					succeeded: true,
@@ -1475,26 +1626,26 @@ describe("fallback and error status code handling", () => {
 
 		test("direct provider selection follows the scoped key region after failover", async () => {
 			await setupSingleProviderWithRegionalKeys("alibaba");
-			await ensureRegionalMapping("deepseek-v3.2", "alibaba", "singapore");
-			await ensureRegionalMapping("deepseek-v3.2", "alibaba", "cn-beijing");
+			await ensureRegionalMapping("deepseek-v4-flash", "alibaba", "singapore");
+			await ensureRegionalMapping("deepseek-v4-flash", "alibaba", "cn-beijing");
 
 			reportTrackedKeyError(
 				"alibaba-key-singapore",
 				500,
 				undefined,
-				"deepseek-v3.2",
+				"deepseek-v4-flash",
 			);
 			reportTrackedKeyError(
 				"alibaba-key-singapore",
 				500,
 				undefined,
-				"deepseek-v3.2",
+				"deepseek-v4-flash",
 			);
 			reportTrackedKeyError(
 				"alibaba-key-singapore",
 				500,
 				undefined,
-				"deepseek-v3.2",
+				"deepseek-v4-flash",
 			);
 
 			const res = await app.request("/v1/chat/completions", {
@@ -1504,7 +1655,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "alibaba/deepseek-v3.2",
+					model: "alibaba/deepseek-v4-flash",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
@@ -1512,11 +1663,11 @@ describe("fallback and error status code handling", () => {
 			expect(res.status).toBe(200);
 
 			const logs = await waitForLogs(1);
-			expect(logs[0].usedModel).toBe("alibaba/deepseek-v3.2:cn-beijing");
+			expect(logs[0].usedModel).toBe("alibaba/deepseek-v4-flash:cn-beijing");
 			expect(logs[0].routingMetadata?.routing).toEqual([
 				expect.objectContaining({
 					provider: "alibaba",
-					model: "deepseek-v3.2",
+					model: "deepseek-v4-flash",
 					region: "cn-beijing",
 					status_code: 200,
 					succeeded: true,
@@ -1527,16 +1678,16 @@ describe("fallback and error status code handling", () => {
 		test("provider-agnostic routing keeps regional mappings aggregated", async () => {
 			await setupKeys("alibaba");
 
-			await setRoutingMetrics("deepseek-v3.2", "alibaba", 99, {
+			await setRoutingMetrics("deepseek-v4-flash", "alibaba", 99, {
 				routingLatency: 950,
 				routingThroughput: 15,
 			});
-			await setRoutingMetrics("deepseek-v3.2", "alibaba", 100, {
+			await setRoutingMetrics("deepseek-v4-flash", "alibaba", 100, {
 				region: "singapore",
 				routingLatency: 1200,
 				routingThroughput: 10,
 			});
-			await setRoutingMetrics("deepseek-v3.2", "alibaba", 100, {
+			await setRoutingMetrics("deepseek-v4-flash", "alibaba", 100, {
 				region: "cn-beijing",
 				routingLatency: 900,
 				routingThroughput: 20,
@@ -1549,7 +1700,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "deepseek-v3.2",
+					model: "deepseek-v4-flash",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
@@ -2117,13 +2268,15 @@ describe("fallback and error status code handling", () => {
 		test("non-streaming: retries after random exploration selects a bad provider", async () => {
 			await setupMultiProviderKeys();
 
-			const randomSpy = vi
-				.spyOn(Math, "random")
-				.mockReturnValueOnce(0)
-				.mockReturnValue(0);
+			// An exploration rate of 1 always trips the epsilon-greedy branch, so the
+			// test does not depend on the value the secure RNG happens to produce.
+			// The mock fails the first upstream call regardless of which provider
+			// exploration lands on, so the retry assertions stay deterministic.
+			const originalExplorationRate = process.env.EXPLORATION_RATE;
 			const originalArgv = process.argv;
 			const originalNodeEnv = process.env.NODE_ENV;
 			const originalVitest = process.env.VITEST;
+			process.env.EXPLORATION_RATE = "1";
 			delete process.env.NODE_ENV;
 			delete process.env.VITEST;
 			process.argv = ["node", "/tmp/not-a-test-run.mjs"];
@@ -2179,7 +2332,11 @@ describe("fallback and error status code handling", () => {
 				);
 				expect(failedLog?.retried).toBe(true);
 			} finally {
-				randomSpy.mockRestore();
+				if (originalExplorationRate !== undefined) {
+					process.env.EXPLORATION_RATE = originalExplorationRate;
+				} else {
+					delete process.env.EXPLORATION_RATE;
+				}
 				process.argv = originalArgv;
 				if (originalNodeEnv !== undefined) {
 					process.env.NODE_ENV = originalNodeEnv;
@@ -2405,6 +2562,149 @@ describe("fallback and error status code handling", () => {
 			expect(isTrackedKeyHealthy("together-ai-key-secondary", "glm-4.7")).toBe(
 				true,
 			);
+		});
+
+		test("non-streaming: retries the same env key when a single-key provider fails transiently", async () => {
+			const originalApiKey = process.env.LLM_GOOGLE_AI_STUDIO_API_KEY;
+			const originalBaseUrl = process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
+			// Single value → no alternate key to rotate to; the only recovery
+			// path is retrying the same key.
+			process.env.LLM_GOOGLE_AI_STUDIO_API_KEY = "google-env-single-key";
+			process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL = mockServerUrl;
+			try {
+				await ensureBaseFixtures();
+				await ensureProviders(["google-ai-studio"]);
+				await db
+					.update(tables.project)
+					.set({ mode: "credits" })
+					.where(eq(tables.project.id, "project-id"));
+				await db.insert(tables.apiKey).values({
+					id: "token-id",
+					token: "real-token",
+					projectId: "project-id",
+					description: "Test API Key",
+					createdBy: "user-id",
+				});
+
+				const startedAt = Date.now();
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify({
+						model: "google-ai-studio/gemini-2.5-flash",
+						messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE hello" }],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				// One same-key retry → one fixed delay before the second attempt.
+				expect(Date.now() - startedAt).toBeGreaterThanOrEqual(
+					SAME_KEY_RETRY_DELAY_MS,
+				);
+				const json = await res.json();
+				expect(json.metadata.used_provider).toBe("google-ai-studio");
+				expect(json.metadata.routing).toHaveLength(2);
+
+				// Both attempts used the same provider AND the same key.
+				const envKeyHash = getApiKeyFingerprint("google-env-single-key");
+				expect(json.metadata.routing[0]).toMatchObject({
+					provider: "google-ai-studio",
+					status_code: 500,
+					succeeded: false,
+					apiKeyHash: envKeyHash,
+				});
+				expect(json.metadata.routing[1]).toMatchObject({
+					provider: "google-ai-studio",
+					succeeded: true,
+					apiKeyHash: envKeyHash,
+				});
+
+				const logs = await waitForLogs(2);
+				const failedLog = logs.find((log: Log) => log.hasError);
+				const successLog = logs.find((log: Log) => !log.hasError);
+				expect(failedLog?.retried).toBe(true);
+				expect(failedLog?.retriedByLogId).toBeTruthy();
+				expect(successLog?.routingMetadata?.routing).toHaveLength(2);
+			} finally {
+				if (originalApiKey !== undefined) {
+					process.env.LLM_GOOGLE_AI_STUDIO_API_KEY = originalApiKey;
+				} else {
+					delete process.env.LLM_GOOGLE_AI_STUDIO_API_KEY;
+				}
+				if (originalBaseUrl !== undefined) {
+					process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL = originalBaseUrl;
+				} else {
+					delete process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
+				}
+			}
+		});
+
+		test("non-streaming: same-key retries stop after the retry budget is exhausted", async () => {
+			const originalApiKey = process.env.LLM_GOOGLE_AI_STUDIO_API_KEY;
+			const originalBaseUrl = process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
+			process.env.LLM_GOOGLE_AI_STUDIO_API_KEY = "google-env-single-key";
+			process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL = mockServerUrl;
+			try {
+				await ensureBaseFixtures();
+				await ensureProviders(["google-ai-studio"]);
+				await db
+					.update(tables.project)
+					.set({ mode: "credits" })
+					.where(eq(tables.project.id, "project-id"));
+				await db.insert(tables.apiKey).values({
+					id: "token-id",
+					token: "real-token",
+					projectId: "project-id",
+					description: "Test API Key",
+					createdBy: "user-id",
+				});
+
+				// TRIGGER_ERROR fails on every call: initial attempt + 2 same-key
+				// retries (default retry.maxRetries = 2), then the error is
+				// returned to the client.
+				const startedAt = Date.now();
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify({
+						model: "google-ai-studio/gemini-2.5-flash",
+						messages: [{ role: "user", content: "TRIGGER_ERROR" }],
+					}),
+				});
+
+				expect(res.status).toBe(500);
+				// Two same-key retries → two fixed delays before giving up.
+				expect(Date.now() - startedAt).toBeGreaterThanOrEqual(
+					2 * SAME_KEY_RETRY_DELAY_MS,
+				);
+				const json = await res.json();
+				expect(json).toHaveProperty("error");
+
+				const logs = await waitForLogs(3);
+				const errorLogs = logs.filter((log: Log) => log.hasError);
+				expect(errorLogs).toHaveLength(3);
+				// The first two attempts are marked as retried; the final one is
+				// returned to the client unretried.
+				expect(errorLogs.filter((log: Log) => log.retried)).toHaveLength(2);
+				expect(errorLogs.filter((log: Log) => !log.retried)).toHaveLength(1);
+			} finally {
+				if (originalApiKey !== undefined) {
+					process.env.LLM_GOOGLE_AI_STUDIO_API_KEY = originalApiKey;
+				} else {
+					delete process.env.LLM_GOOGLE_AI_STUDIO_API_KEY;
+				}
+				if (originalBaseUrl !== undefined) {
+					process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL = originalBaseUrl;
+				} else {
+					delete process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
+				}
+			}
 		});
 
 		test("streaming: retries on 500 and delivers response on fallback provider", async () => {

@@ -93,7 +93,7 @@ curl -X POST https://api.llmgateway.io/v1/chat/completions \
 ## Folder Structure
 
 - `apps/ui`: Next.js dashboard frontend
-- `apps/playground`: Next.js LLM playground
+- `apps/playground`: Lounge — consumer AI chat app (Next.js)
 - `apps/code`: Next.js Dev Plans + coding tools landing & dashboard
 - `apps/api`: Hono backend
 - `apps/gateway`: API gateway for routing LLM requests

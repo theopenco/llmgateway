@@ -1,11 +1,14 @@
 import { hasInvalidProviderCredentialError } from "@/lib/provider-auth-errors.js";
 
+import { isContentFilterErrorText } from "@llmgateway/shared";
+
 /**
  * Determines the appropriate finish reason based on HTTP status code and error message
  * 5xx status codes indicate upstream provider errors
  * 429 status codes indicate upstream rate limiting (treated as upstream error)
  * 404 status codes indicate model/endpoint not found at provider (treated as upstream error)
  * 401/403 status codes indicate authentication/authorization issues (gateway configuration errors)
+ * 405 status codes indicate the upstream rejected the request method (gateway endpoint mapping error)
  * Other 4xx status codes indicate client errors
  * Special client errors (like JSON format validation) are classified as client_error
  *
@@ -31,21 +34,26 @@ export function getFinishReasonFromError(
 		return "upstream_error";
 	}
 
-	// Azure OpenAI content filter (ResponsibleAIPolicyViolation)
-	if (errorText?.includes("ResponsibleAIPolicyViolation")) {
-		return "content_filter";
+	// 402 Payment Required indicates the gateway's provider account is out of
+	// funds (e.g. DeepSeek "Insufficient Balance"). This is a gateway-side
+	// account problem, not a client error, so classify as gateway_error to allow
+	// fallback to another provider.
+	if (statusCode === 402) {
+		return "gateway_error";
 	}
 
-	// ByteDance / DeepSeek provider moderation block
-	if (errorText?.includes("SensitiveContentDetected")) {
-		return "content_filter";
+	// 405 Method Not Allowed means the upstream rejected the HTTP method the
+	// gateway used — a gateway-side endpoint/method mapping problem for the
+	// selected provider or key, never a client fault, so classify as
+	// gateway_error so the request can be retried with another key or provider.
+	if (statusCode === 405) {
+		return "gateway_error";
 	}
 
-	// Alibaba / DashScope moderation block
-	if (
-		errorText?.includes("data_inspection_failed") ||
-		errorText?.includes("Input data may contain inappropriate content")
-	) {
+	// Provider content-moderation / safety blocks (Azure ResponsibleAIPolicyViolation,
+	// ByteDance/DeepSeek SensitiveContentDetected, Alibaba data_inspection_failed,
+	// Azure content management policy, OpenAI safety system rejection, etc.)
+	if (isContentFilterErrorText(errorText)) {
 		return "content_filter";
 	}
 
@@ -54,17 +62,6 @@ export function getFinishReasonFromError(
 		statusCode === 403 &&
 		errorText?.includes("Content violates usage guidelines")
 	) {
-		return "content_filter";
-	}
-
-	// Azure OpenAI prompt-side content filter (distinct from ResponsibleAIPolicyViolation,
-	// which fires on the response side and includes inner_error details)
-	if (errorText?.includes("Microsoft's content management policy")) {
-		return "content_filter";
-	}
-
-	// OpenAI safety system rejection (e.g. gpt-image-2 image generation)
-	if (errorText?.includes("Your request was rejected by the safety system")) {
 		return "content_filter";
 	}
 
@@ -77,13 +74,52 @@ export function getFinishReasonFromError(
 		return "gateway_error";
 	}
 
-	// zai content filter
+	// Some providers report an exhausted gateway-side provider account with a 4xx
+	// other than 402 (e.g. Anthropic returns a 400 `invalid_request_error` with
+	// "Your credit balance is too low to access the Anthropic API."). Like the 402
+	// case above this is a funding problem on our provider account, not a client
+	// fault, so classify as gateway_error to allow fallback to another key or
+	// provider.
 	if (
-		errorText?.includes(
-			"System detected potentially unsafe or sensitive content in input or generation",
-		)
+		errorText &&
+		/credit balance is too low|insufficient balance/i.test(errorText)
 	) {
-		return "client_error";
+		return "gateway_error";
+	}
+
+	// Upstream reports the model id as unknown (e.g. Mistral / Together / Fireworks
+	// returning `Unknown model: <name>` on a 400). This is a gateway-side mapping
+	// gap rather than a client problem, so classify as gateway_error so the
+	// request can be retried with another provider.
+	if (errorText && /unknown model/i.test(errorText)) {
+		return "gateway_error";
+	}
+
+	// Aggregator providers (e.g. embercloud) report transient failures of THEIR
+	// upstreams as a 400 "Temporary routing error (400)." — a provider-side
+	// failure, not a client error, so classify as upstream_error so the request
+	// can be retried with another provider instead of passing the 400 through.
+	if (errorText && /temporary routing error/i.test(errorText)) {
+		return "upstream_error";
+	}
+
+	// Some providers return a bare "Not Found" body on non-404 status codes when
+	// the model/endpoint mapping is wrong on our side. Treat as gateway_error so
+	// the request can be retried with another provider.
+	if (errorText?.trim() === "Not Found") {
+		return "gateway_error";
+	}
+
+	// Azure returns a 400 when the resolved deployment does not exist for the
+	// account behind the selected key (e.g. "Could not find an existing
+	// deployment to match the model in the request."). This is a per-key/account
+	// configuration gap rather than a client problem, so classify as
+	// gateway_error so the request can be retried with another key or provider.
+	if (
+		errorText &&
+		/could not find an existing deployment to match the model/i.test(errorText)
+	) {
+		return "gateway_error";
 	}
 
 	// Check for specific client validation errors from providers

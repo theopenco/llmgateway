@@ -2,13 +2,15 @@
 id: hermes-agent
 slug: hermes-agent
 title: Hermes Agent Integration
-description: Use any model with Hermes Agent through LLM Gateway. One config change, full cost tracking, 210+ models.
+description: Use any model with Hermes Agent through LLM Gateway. One config change, full cost tracking, 200+ models.
 date: 2026-05-11
 ---
 
-[Hermes Agent](https://github.com/nousresearch/hermes-agent) is an open-source AI coding agent for your terminal built by Nous Research. It supports tool use, browser automation, multi-provider routing, skills, and MCP servers. By pointing it at LLM Gateway you get access to 210+ models from 60+ providers, all tracked in one dashboard.
+[Hermes Agent](https://github.com/nousresearch/hermes-agent) is an open-source AI coding agent for your terminal built by Nous Research. It supports tool use, browser automation, multi-provider routing, skills, and MCP servers. By pointing it at LLM Gateway you get access to 200+ models from 40+ providers, all tracked in one dashboard.
 
 One config change. No code changes. Full cost tracking.
+
+> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
 
 ## Prerequisites
 
@@ -126,7 +128,7 @@ hermes chat --model claude-opus-4-6
 
 ## Why Use LLM Gateway with Hermes Agent
 
-- **210+ models** — Claude, GPT, Gemini, Llama, DeepSeek, and more
+- **200+ models** — Claude, GPT, Gemini, Llama, DeepSeek, and more
 - **One API key** — Stop managing separate keys for each provider
 - **Cost tracking** — See exactly what each session costs in your dashboard
 - **Response caching** — Repeated requests hit cache automatically

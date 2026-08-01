@@ -1,7 +1,9 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@plugin "@tailwindcss/typography";
 
 @source "../node_modules/streamdown/dist/*.js";
+@source "../../../../packages/shared/src/**/*.{ts,tsx}";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -9,7 +11,9 @@
 	--color-background: var(--background);
 	--color-foreground: var(--foreground);
 	--font-sans: var(--font-inter);
+	--font-display: var(--font-fraunces);
 	--font-mono: var(--font-mono);
+	--color-lounge-gold: var(--lounge-gold);
 	--color-sidebar-ring: var(--sidebar-ring);
 	--color-sidebar-border: var(--sidebar-border);
 	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -78,6 +82,7 @@
 	--sidebar-accent-foreground: oklch(0.21 0.006 285.885);
 	--sidebar-border: oklch(0.92 0.004 286.32);
 	--sidebar-ring: oklch(0.705 0.015 286.067);
+	--lounge-gold: oklch(0.6 0.105 75);
 }
 
 .dark {
@@ -112,6 +117,7 @@
 	--sidebar-accent-foreground: oklch(0.985 0 0);
 	--sidebar-border: oklch(1 0 0 / 10%);
 	--sidebar-ring: oklch(0.552 0.016 285.938);
+	--lounge-gold: oklch(0.82 0.108 84);
 }
 
 @layer base {
@@ -140,8 +146,15 @@
 /* rendering-content-visibility: Defer off-screen rendering for long message lists
  * This significantly improves initial render performance for conversations with many messages
  * Browser skips layout/paint for off-screen items (10x faster initial render for 1000+ messages)
+ *
+ * DISABLED: Incompatible with TanStack Virtual. content-visibility: auto causes off-screen
+ * elements to report contain-intrinsic-size (120px) as their height. When TanStack Virtual
+ * scrolls them into view the browser renders them, their real height is reported via
+ * ResizeObserver, and the virtualizer's scroll-position adjustment logic fires - producing
+ * erratic up/down scroll. TanStack Virtual already virtualizes rendering itself, so this
+ * optimization is redundant and harmful here.
  */
-.message-item {
-	content-visibility: auto;
-	contain-intrinsic-size: 0 120px;
-}
+/* .message-item {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 120px;
+} */

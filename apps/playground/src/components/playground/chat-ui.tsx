@@ -1,32 +1,33 @@
 "use client";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
 	RefreshCcw,
 	Copy,
 	Brain,
 	GlobeIcon,
 	AlertTriangle,
+	FileText,
 	Info,
 	GitFork,
 	Loader2,
+	ExternalLinkIcon,
+	MapPin,
+	PlusIcon,
+	ScrollTextIcon,
+	TrendingDown,
 	Undo2,
+	XIcon,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
+import { useRouter } from "next/navigation";
 import { useRef, useState, useEffect, useCallback, memo, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import { Actions, Action } from "@/components/ai-elements/actions";
-// import {
-// 	Confirmation,
-// 	ConfirmationAccepted,
-// 	ConfirmationAction,
-// 	ConfirmationActions,
-// 	ConfirmationRejected,
-// 	ConfirmationRequest,
-// 	ConfirmationTitle,
-// } from "@/components/ai-elements/confirmation";
 import {
-	Conversation,
-	ConversationContent,
+	ConversationScrollButton,
+	VirtualScrollContext,
 } from "@/components/ai-elements/conversation";
 import { Image } from "@/components/ai-elements/image";
 import { Loader } from "@/components/ai-elements/loader";
@@ -67,6 +68,7 @@ import {
 	ToolOutput,
 } from "@/components/ai-elements/tool";
 import { AspectRatioIcon } from "@/components/playground/aspect-ratio-icon";
+import { CreateSkillDialog } from "@/components/playground/create-skill-dialog";
 import { Button } from "@/components/ui/button";
 import { ImageZoom } from "@/components/ui/image-zoom";
 import {
@@ -87,20 +89,88 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useSkills, type Skill } from "@/hooks/useSkills";
+import {
+	heroSuggestionGroups,
+	sampleSuggestions,
+	type HeroSuggestionGroup,
+} from "@/lib/hero-suggestions";
 import { GPT_IMAGE_SIZES } from "@/lib/image-gen";
 import { parseImagePartToDataUrl } from "@/lib/image-utils";
 import {
 	parsePlaygroundMessageMetadata,
 	type PlaygroundMessageMetadata,
 } from "@/lib/message-metadata";
+import { getFallbackReasoningEffortOptions } from "@/lib/model-utils";
 import { cn } from "@/lib/utils";
 
+import type { ReasoningEffortOption } from "@/lib/fetch-models";
 import type { UIMessage, ChatRequestOptions, ChatStatus } from "ai";
+
+const REASONING_EFFORT_LABELS: Record<ReasoningEffortOption, string> = {
+	none: "None",
+	minimal: "Minimal",
+	low: "Low",
+	medium: "Medium",
+	high: "High",
+	xhigh: "X-High",
+	max: "Max",
+};
+
+function getCaretCoordinates(
+	textarea: HTMLTextAreaElement,
+	position: number,
+): { top: number; left: number; height: number } {
+	const div = document.createElement("div");
+	const style = window.getComputedStyle(textarea);
+	for (const prop of [
+		"font-family",
+		"font-size",
+		"font-weight",
+		"font-style",
+		"letter-spacing",
+		"line-height",
+		"padding-top",
+		"padding-right",
+		"padding-bottom",
+		"padding-left",
+		"border-top-width",
+		"border-right-width",
+		"border-bottom-width",
+		"border-left-width",
+		"box-sizing",
+		"word-spacing",
+	]) {
+		div.style.setProperty(prop, style.getPropertyValue(prop));
+	}
+	div.style.position = "absolute";
+	div.style.top = "0";
+	div.style.left = "0";
+	div.style.visibility = "hidden";
+	div.style.whiteSpace = "pre-wrap";
+	div.style.wordBreak = "break-word";
+	div.style.width = `${textarea.offsetWidth}px`;
+	div.style.height = "auto";
+	div.appendChild(document.createTextNode(textarea.value.slice(0, position)));
+	const span = document.createElement("span");
+	span.textContent = "​";
+	div.appendChild(span);
+	div.appendChild(document.createTextNode(textarea.value.slice(position)));
+	document.body.appendChild(div);
+	const result = {
+		top: span.offsetTop,
+		left: span.offsetLeft,
+		height: span.offsetHeight,
+	};
+	document.body.removeChild(div);
+	return result;
+}
 
 interface ChatUIProps {
 	messages: UIMessage[];
 	supportsImages: boolean;
 	supportsAudio: boolean;
+	supportsDocuments: boolean;
 	supportsImageGen: boolean;
 	sendMessage: (
 		message: UIMessage,
@@ -112,11 +182,15 @@ interface ChatUIProps {
 	status: ChatStatus;
 	stop: () => void;
 	regenerate: () => void;
-	reasoningEffort: "" | "minimal" | "low" | "medium" | "high";
-	setReasoningEffort: (
-		value: "" | "minimal" | "low" | "medium" | "high",
-	) => void;
+	reasoningEffort: "" | ReasoningEffortOption;
+	setReasoningEffort: (value: "" | ReasoningEffortOption) => void;
 	supportsReasoning: boolean;
+	/**
+	 * Exact reasoning_effort values the selected model supports (from the model
+	 * catalog). Null/undefined when the model doesn't declare them, in which
+	 * case a generic default set is shown.
+	 */
+	reasoningEfforts?: ReasoningEffortOption[] | null;
 	imageAspectRatio:
 		| "auto"
 		| "1:1"
@@ -162,6 +236,9 @@ interface ChatUIProps {
 	supportsWebSearch: boolean;
 	webSearchEnabled: boolean;
 	setWebSearchEnabled: (value: boolean) => void;
+	availableRegions?: string[];
+	selectedRegion?: string;
+	onRegionChange?: (region: string) => void;
 	onUserMessage?: (
 		content: string,
 		images?: Array<{
@@ -176,8 +253,22 @@ interface ChatUIProps {
 			mediaType: string;
 			name?: string;
 		}>,
+		documents?: Array<{
+			type: "file";
+			url: string;
+			mediaType: string;
+			name?: string;
+		}>,
 	) => Promise<{ id: string } | undefined>;
 	onEditUserMessage?: (message: UIMessage, content: string) => Promise<void>;
+	isOcr?: boolean;
+	onOcrMessage?: (
+		document:
+			| { type: "document_url"; document_url: string; document_name?: string }
+			| { type: "image_url"; image_url: string },
+		userMessage: { id: string; parts: UIMessage["parts"] },
+	) => Promise<void>;
+	ocrPending?: boolean;
 	isLoading?: boolean;
 	error?: string | null;
 	finishReason?: string | null;
@@ -185,58 +276,59 @@ interface ChatUIProps {
 	isTemporaryChat?: boolean;
 	forkChat?: () => void | Promise<void>;
 	isForkingChat?: boolean;
+	activeSkills?: Skill[];
+	onSelectSkill?: (skill: Skill) => void;
+	onRemoveSkill?: (skillId: string) => void;
 }
 
-const suggestions = [
-	"Write a Python script to analyze CSV data and create visualizations",
-	"Create a compelling elevator pitch for a sustainable fashion startup",
-	"Explain quantum computing like I'm 12 years old",
-	"Design a 7-day workout plan for busy professionals",
-	"Write a short mystery story in exactly 100 words",
-	"Debug this React component and suggest performance improvements",
-	"Plan the perfect weekend in Tokyo for first-time visitors",
-	"Generate creative Instagram captions for a coffee shop",
-	"Analyze the pros and cons of different programming languages",
-	"Create a meal prep plan for someone with a nut allergy",
-];
-
-const heroSuggestionGroups = {
-	Create: suggestions,
-	Explore: [
-		"What are trending AI research topics right now?",
-		"Summarize the latest news about TypeScript",
-		"Find interesting datasets for a side project",
-		"Suggest tech blogs to follow for frontend performance",
-	],
-	Code: [
-		"Refactor this React component for readability",
-		"Write unit tests for a Node.js service",
-		"Explain how to debounce an input in React",
-		"Show an example of a Zod schema with refinement",
-	],
-	"Image gen": [
-		"Generate an image of a cyberpunk city at night",
-		"Create a serene mountain landscape at sunrise",
-		"Design a futuristic robot assistant",
-	],
-};
-
-type HeroSuggestionGroup = keyof typeof heroSuggestionGroups;
+function getRandomHeroSuggestionGroups(): Record<
+	HeroSuggestionGroup,
+	readonly string[]
+> {
+	return {
+		Create: sampleSuggestions(heroSuggestionGroups.Create, 5),
+		Explore: sampleSuggestions(heroSuggestionGroups.Explore, 5),
+		Code: sampleSuggestions(heroSuggestionGroups.Code, 5),
+		"Image gen": sampleSuggestions(heroSuggestionGroups["Image gen"], 5),
+	};
+}
 
 // js-combine-iterations: Extract message parts in a single pass instead of multiple filter() calls
 interface ExtractedParts {
 	textParts: string[];
 	imageParts: any[];
 	audioParts: any[];
+	documentParts: any[];
 	toolParts: any[];
 	reasoningContent: string;
 	sourceParts: any[];
+}
+
+function isDocumentMediaType(mediaType: string | null | undefined): boolean {
+	// A "document" is anything that isn't an image or audio. We forward the
+	// MIME to the gateway verbatim and let the provider reject it if it's not
+	// supported — `UnsupportedDocumentFormatError` surfaces those rejections
+	// as a clean 400 with the actual MIME the provider refused.
+	if (!mediaType) {
+		return true;
+	}
+	if (mediaType.startsWith("image/") || mediaType.startsWith("audio/")) {
+		return false;
+	}
+	return true;
+}
+
+function getDocumentMediaType(mediaType: string | null | undefined): string {
+	return mediaType && isDocumentMediaType(mediaType)
+		? mediaType
+		: "application/octet-stream";
 }
 
 function extractMessageParts(parts: any[]): ExtractedParts {
 	const textParts: string[] = [];
 	const imageParts: any[] = [];
 	const audioParts: any[] = [];
+	const documentParts: any[] = [];
 	const toolParts: any[] = [];
 	const reasoningParts: string[] = [];
 	const sourceParts: any[] = [];
@@ -258,6 +350,8 @@ function extractMessageParts(parts: any[]): ExtractedParts {
 			imageParts.push(p);
 		} else if (p.type === "file" && p.mediaType?.startsWith("audio/")) {
 			audioParts.push(p);
+		} else if (p.type === "file" && isDocumentMediaType(p.mediaType)) {
+			documentParts.push(p);
 		}
 	}
 
@@ -265,6 +359,7 @@ function extractMessageParts(parts: any[]): ExtractedParts {
 		textParts,
 		imageParts,
 		audioParts,
+		documentParts,
 		toolParts,
 		reasoningContent: reasoningParts.join(""),
 		sourceParts,
@@ -342,6 +437,11 @@ function MessageMetadataPopover({
 }: {
 	metadata: PlaygroundMessageMetadata;
 }) {
+	const [open, setOpen] = useState(false);
+	const discount = metadata.discount;
+	const logId = metadata.logId;
+	const organizationId = metadata.organizationId;
+	const projectId = metadata.projectId;
 	const usage = metadata.usage;
 	const rows = [
 		["Total cost", formatCost(usage?.totalCost)],
@@ -352,7 +452,7 @@ function MessageMetadataPopover({
 	] as const;
 
 	return (
-		<Popover>
+		<Popover open={open} onOpenChange={setOpen}>
 			<Tooltip>
 				<TooltipTrigger asChild>
 					<PopoverTrigger asChild>
@@ -386,6 +486,30 @@ function MessageMetadataPopover({
 								</span>
 							</div>
 						))}
+						{discount !== null && discount !== undefined && discount > 0 && (
+							<div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-3">
+								<span className="text-muted-foreground">Discount</span>
+								<span className="flex items-center justify-end gap-1 font-mono text-emerald-500">
+									<TrendingDown className="h-3 w-3" />
+									{(discount * 100).toFixed(0)}% off
+								</span>
+							</div>
+						)}
+						{logId && organizationId && projectId && (
+							<div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-3">
+								<span className="text-muted-foreground">Activity log</span>
+								<span className="flex items-center justify-end">
+									<a
+										href={`${process.env.NODE_ENV === "development" ? "http://localhost:3002" : "https://llmgateway.io"}/dashboard/${organizationId}/${projectId}/activity/${logId}`}
+										target="_blank"
+										rel="noopener noreferrer"
+										className="text-muted-foreground hover:text-foreground"
+									>
+										<ExternalLinkIcon className="h-3 w-3" />
+									</a>
+								</span>
+							</div>
+						)}
 					</div>
 				</div>
 			</PopoverContent>
@@ -400,6 +524,7 @@ const AssistantMessage = memo(
 		isLastMessage,
 		status,
 		regenerate,
+		isOcr,
 		finishReason,
 		forkChat,
 		isForkingChat,
@@ -408,6 +533,7 @@ const AssistantMessage = memo(
 		isLastMessage: boolean;
 		status: string;
 		regenerate: () => void;
+		isOcr?: boolean;
 		finishReason?: string | null;
 		forkChat?: () => void | Promise<void>;
 		isForkingChat?: boolean;
@@ -428,7 +554,12 @@ const AssistantMessage = memo(
 				{reasoningContent ? (
 					<Reasoning
 						className="w-full"
-						isStreaming={status === "streaming" && isLastMessage}
+						defaultOpen={
+							status === "streaming" && isLastMessage && textContent === ""
+						}
+						isStreaming={
+							status === "streaming" && isLastMessage && textContent === ""
+						}
 					>
 						<ReasoningTrigger />
 						<ReasoningContent>{reasoningContent}</ReasoningContent>
@@ -486,11 +617,15 @@ const AssistantMessage = memo(
 				{sourceParts.length > 0 ? (
 					<Sources>
 						<SourcesTrigger count={sourceParts.length} />
-						{sourceParts.map((part, i) => (
-							<SourcesContent key={`${message.id}-${i}`}>
-								<Source href={part.url} title={part.url} />
-							</SourcesContent>
-						))}
+						<SourcesContent>
+							{sourceParts.map((part, i) => (
+								<Source
+									key={`${message.id}-source-${i}`}
+									href={part.url}
+									title={part.title ?? part.url}
+								/>
+							))}
+						</SourcesContent>
 					</Sources>
 				) : null}
 
@@ -501,18 +636,20 @@ const AssistantMessage = memo(
 					</div>
 				)}
 
-				{(metadata || isLastMessage) && (
+				{(metadata || (isLastMessage && status !== "streaming")) && (
 					<Actions className="mt-2">
 						{metadata ? <MessageMetadataPopover metadata={metadata} /> : null}
-						{isLastMessage ? (
+						{isLastMessage && status !== "streaming" ? (
 							<>
-								<Action
-									onClick={() => regenerate()}
-									label="Retry"
-									tooltip="Regenerate response"
-								>
-									<RefreshCcw className="size-3" />
-								</Action>
+								{!isOcr ? (
+									<Action
+										onClick={() => regenerate()}
+										label="Retry"
+										tooltip="Regenerate response"
+									>
+										<RefreshCcw className="size-3" />
+									</Action>
+								) : null}
 								{forkChat ? (
 									<Action
 										disabled={isForkingChat}
@@ -556,13 +693,14 @@ const AssistantMessage = memo(
 const UserMessage = memo(
 	({
 		message,
-		isLastMessage,
-		status,
+		isLastMessage: _isLastMessage,
+		status: _status,
 		canEdit,
 		isEditing,
 		onEditStart,
 		onEditCancel,
 		onEditConfirm,
+		isOcr,
 	}: {
 		message: UIMessage;
 		isLastMessage: boolean;
@@ -572,8 +710,9 @@ const UserMessage = memo(
 		onEditStart?: () => void;
 		onEditCancel?: () => void;
 		onEditConfirm?: (content: string) => Promise<void>;
+		isOcr?: boolean;
 	}) => {
-		const { textParts, imageParts, audioParts } = useMemo(
+		const { textParts, imageParts, audioParts, documentParts } = useMemo(
 			() => extractMessageParts(message.parts),
 			[message.parts],
 		);
@@ -696,55 +835,181 @@ const UserMessage = memo(
 								))}
 							</div>
 						)}
+						{documentParts.length > 0 && (
+							<div className="mt-3 flex flex-wrap gap-2">
+								{documentParts.map((part: any, idx: number) => {
+									const name = part.name ?? part.filename ?? "Document";
+									const mediaType: string = part.mediaType ?? "";
+									return (
+										<a
+											key={idx}
+											href={part.url}
+											download={name}
+											target="_blank"
+											rel="noopener noreferrer"
+											className="inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm hover:bg-muted transition-colors max-w-xs"
+											title={`${name} (${mediaType || "document"})`}
+										>
+											<FileText className="size-4 shrink-0 opacity-70" />
+											<span className="truncate">{name}</span>
+										</a>
+									);
+								})}
+							</div>
+						)}
 					</MessageContent>
-					{canEdit && !isEditing ? (
+					{!isEditing && !isOcr ? (
 						<Actions className="mt-2 opacity-0 transition-opacity group-hover/user-message:opacity-100 focus-within:opacity-100">
+							{canEdit ? (
+								<Action
+									onClick={onEditStart}
+									label="Edit and retry"
+									tooltip="Edit and retry from here"
+								>
+									<Undo2 className="size-3" />
+								</Action>
+							) : null}
 							<Action
-								onClick={onEditStart}
-								label="Edit and retry"
-								tooltip="Edit and retry from here"
+								onClick={async () => {
+									try {
+										await navigator.clipboard.writeText(initialText);
+										toast.success("Copied to clipboard");
+									} catch {
+										toast.error("Failed to copy to clipboard");
+									}
+								}}
+								label="Copy"
+								tooltip="Copy to clipboard"
 							>
-								<Undo2 className="size-3" />
+								<Copy className="size-3" />
 							</Action>
 						</Actions>
 					) : null}
 				</div>
-				{isLastMessage &&
-					(status === "submitted" || status === "streaming") && <Loader />}
 			</Message>
 		);
 	},
 );
 
-export function ReadOnlyChatMessages({ messages }: { messages: UIMessage[] }) {
-	return (
-		<Conversation>
-			<ConversationContent className="mx-auto max-w-4xl px-4 py-8">
-				{messages.map((message) => {
-					if (message.role === "assistant") {
-						return (
-							<AssistantMessage
-								key={message.id}
-								message={message}
-								isLastMessage={false}
-								status="ready"
-								regenerate={() => {}}
-								finishReason={null}
-							/>
-						);
-					}
+const VirtualUserMessageItem = memo(
+	({
+		message,
+		isLastMessage,
+		status,
+		canEdit,
+		editingMessageId,
+		setEditingMessageId,
+		onEditUserMessage,
+		isOcr,
+	}: {
+		message: UIMessage;
+		isLastMessage: boolean;
+		status: string;
+		canEdit: boolean;
+		editingMessageId: string | null;
+		setEditingMessageId: (id: string | null) => void;
+		onEditUserMessage?: (message: UIMessage, content: string) => Promise<void>;
+		isOcr?: boolean;
+	}) => {
+		const handleEditStart = useCallback(
+			() => setEditingMessageId(message.id),
+			[setEditingMessageId, message.id],
+		);
+		const handleEditCancel = useCallback(
+			() => setEditingMessageId(null),
+			[setEditingMessageId],
+		);
+		const handleEditConfirm = useCallback(
+			async (content: string) => {
+				if (!onEditUserMessage) {
+					return;
+				}
+				try {
+					await onEditUserMessage(message, content);
+					setEditingMessageId(null);
+				} catch {
+					// keep editor open so the user's draft is not lost
+				}
+			},
+			[onEditUserMessage, setEditingMessageId, message],
+		);
 
+		return (
+			<UserMessage
+				message={message}
+				isLastMessage={isLastMessage}
+				status={status}
+				canEdit={canEdit}
+				isEditing={editingMessageId === message.id}
+				onEditStart={handleEditStart}
+				onEditCancel={handleEditCancel}
+				onEditConfirm={handleEditConfirm}
+				isOcr={isOcr}
+			/>
+		);
+	},
+);
+VirtualUserMessageItem.displayName = "VirtualUserMessageItem";
+
+const MESSAGE_ESTIMATE_SIZE = 74;
+const LOADER_HEIGHT = 52;
+const ERROR_BANNER_HEIGHT = 44;
+
+export function ReadOnlyChatMessages({ messages }: { messages: UIMessage[] }) {
+	const parentRef = useRef<HTMLDivElement>(null);
+	const virtualizer = useVirtualizer({
+		count: messages.length,
+		getScrollElement: () => parentRef.current,
+		estimateSize: () => MESSAGE_ESTIMATE_SIZE,
+		getItemKey: (index) => messages[index]!.id,
+		anchorTo: "end",
+		followOnAppend: false,
+		scrollEndThreshold: 80,
+		overscan: 6,
+	});
+
+	return (
+		<div ref={parentRef} className="flex-1 overflow-y-auto" role="log">
+			<div
+				className="mx-auto max-w-4xl relative"
+				style={{ height: virtualizer.getTotalSize() }}
+			>
+				{virtualizer.getVirtualItems().map((item) => {
+					const message = messages[item.index]!;
 					return (
-						<UserMessage
-							key={message.id}
-							message={message}
-							isLastMessage={false}
-							status="ready"
-						/>
+						<div
+							key={item.key}
+							data-index={item.index}
+							ref={virtualizer.measureElement}
+							className="px-4 py-2"
+							style={{
+								position: "absolute",
+								top: 0,
+								left: 0,
+								transform: `translateY(${item.start}px)`,
+								width: "100%",
+							}}
+						>
+							{message.role === "assistant" ? (
+								<AssistantMessage
+									message={message}
+									isLastMessage={false}
+									status="ready"
+									regenerate={() => {}}
+									finishReason={null}
+								/>
+							) : (
+								<UserMessage
+									message={message}
+									isLastMessage={false}
+									status="ready"
+								/>
+							)}
+						</div>
 					);
 				})}
-			</ConversationContent>
-		</Conversation>
+			</div>
+		</div>
 	);
 }
 
@@ -752,6 +1017,7 @@ export const ChatUI = ({
 	messages,
 	supportsImages,
 	supportsAudio,
+	supportsDocuments,
 	supportsImageGen,
 	sendMessage,
 	selectedModel,
@@ -763,6 +1029,7 @@ export const ChatUI = ({
 	reasoningEffort,
 	setReasoningEffort,
 	supportsReasoning,
+	reasoningEfforts,
 	imageAspectRatio,
 	setImageAspectRatio,
 	imageSize,
@@ -776,8 +1043,14 @@ export const ChatUI = ({
 	supportsWebSearch,
 	webSearchEnabled,
 	setWebSearchEnabled,
+	availableRegions = [],
+	selectedRegion,
+	onRegionChange,
 	onUserMessage,
 	onEditUserMessage,
+	isOcr = false,
+	onOcrMessage,
+	ocrPending = false,
 	isLoading = false,
 	error = null,
 	finishReason = null,
@@ -785,6 +1058,9 @@ export const ChatUI = ({
 	isTemporaryChat = false,
 	forkChat,
 	isForkingChat = false,
+	activeSkills = [],
+	onSelectSkill,
+	onRemoveSkill,
 }: ChatUIProps) => {
 	// OpenAI gpt-image-2 uses pixel dimensions and supports a quality dropdown
 	const isGptImage =
@@ -809,15 +1085,27 @@ export const ChatUI = ({
 		.toLowerCase()
 		.includes("gemini-3.1-flash-image");
 
+	const isGemini31FlashLiteImage = selectedModel
+		.toLowerCase()
+		.includes("gemini-3.1-flash-lite-image");
+
 	const availableSizes = isSeedream
 		? (["2K", "4K"] as const)
-		: isGemini31FlashImage
-			? (["0.5K", "1K", "2K", "4K"] as const)
-			: (["1K", "2K", "4K"] as const);
+		: isGemini31FlashLiteImage
+			? (["1K"] as const)
+			: isGemini31FlashImage
+				? (["0.5K", "1K", "2K", "4K"] as const)
+				: (["1K", "2K", "4K"] as const);
 
 	const qualityOptions = ["auto", "low", "medium", "high"] as const;
 
 	const [activeGroup, setActiveGroup] = useState<HeroSuggestionGroup>("Create");
+	const [randomizedHeroSuggestionGroups, setRandomizedHeroSuggestionGroups] =
+		useState<Record<HeroSuggestionGroup, readonly string[]> | null>(null);
+	useEffect(
+		() => setRandomizedHeroSuggestionGroups(getRandomHeroSuggestionGroups()),
+		[],
+	);
 	const visibleHeroSuggestionGroups: HeroSuggestionGroup[] = supportsImageGen
 		? ["Image gen"]
 		: ["Create", "Explore", "Code"];
@@ -828,8 +1116,60 @@ export const ChatUI = ({
 			: "Create";
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 	const inputRef = useRef<HTMLDivElement | null>(null);
+	const scrollRef = useRef<HTMLDivElement | null>(null);
 	const [inputHeight, setInputHeight] = useState(0);
 	const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+	const [isAtEnd, setIsAtEnd] = useState(true);
+
+	const virtualizer = useVirtualizer({
+		count: messages.length,
+		getScrollElement: () => scrollRef.current,
+		estimateSize: () => MESSAGE_ESTIMATE_SIZE,
+		getItemKey: (index) => messages[index]!.id,
+		anchorTo: "end",
+		followOnAppend: true,
+		scrollEndThreshold: 80,
+		overscan: 6,
+	});
+
+	const virtualizerRef = useRef(virtualizer);
+	virtualizerRef.current = virtualizer;
+
+	const wasAtEndRef = useRef(true);
+
+	const handleScroll = useCallback(() => {
+		const el = scrollRef.current;
+		const virtNext = virtualizerRef.current.isAtEnd(80);
+		const domNext = el
+			? el.scrollHeight - el.scrollTop - el.clientHeight < 80
+			: virtNext;
+		wasAtEndRef.current = domNext;
+		setIsAtEnd((prev) => (prev === domNext ? prev : domNext));
+	}, []);
+
+	const scrollToEnd = useCallback(() => {
+		virtualizerRef.current.scrollToEnd();
+	}, []);
+
+	const [skillTriggerOpen, setSkillTriggerOpen] = useState(false);
+	const [skillTriggerPos, setSkillTriggerPos] = useState({ top: 0, left: 0 });
+	const [skillTriggerFilter, setSkillTriggerFilter] = useState("");
+	const skillTriggerIndexRef = useRef(-1);
+
+	const handleSkillTriggerSelect = useCallback(
+		(skill: Skill) => {
+			const before = text.slice(0, skillTriggerIndexRef.current);
+			const after = text.slice(
+				skillTriggerIndexRef.current + 1 + skillTriggerFilter.length,
+			);
+			setText(before + after);
+			onSelectSkill?.(skill);
+			setSkillTriggerOpen(false);
+			skillTriggerIndexRef.current = -1;
+			setTimeout(() => textareaRef.current?.focus(), 0);
+		},
+		[text, skillTriggerFilter, setText, onSelectSkill],
+	);
 
 	const updateInputHeight = useCallback(() => {
 		if (inputRef.current) {
@@ -845,10 +1185,46 @@ export const ChatUI = ({
 		}
 		return () => observer.disconnect();
 	}, [updateInputHeight]);
+
+	useEffect(() => {
+		if (!floatingInput) {
+			return;
+		}
+		const handleSelectionChange = () => {
+			const input = inputRef.current;
+			if (!input) {
+				return;
+			}
+			const selection = window.getSelection();
+			if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+				return;
+			}
+			const range = selection.getRangeAt(0);
+			if (!range.intersectsNode(input)) {
+				return;
+			}
+			if (input.contains(range.startContainer)) {
+				return;
+			}
+			try {
+				const trimmed = range.cloneRange();
+				trimmed.setEndBefore(input);
+				selection.removeAllRanges();
+				if (!trimmed.collapsed) {
+					selection.addRange(trimmed);
+				}
+			} catch {
+				selection.removeAllRanges();
+			}
+		};
+		document.addEventListener("selectionchange", handleSelectionChange);
+		return () =>
+			document.removeEventListener("selectionchange", handleSelectionChange);
+	}, [floatingInput]);
 	// Centralized busy/active gates: isBusy blocks new submissions; isActive
 	// governs the Stop button which should only show while a request is in flight.
 	const isActive = status === "streaming" || status === "submitted";
-	const isBusy = isLoading || isActive;
+	const isBusy = isLoading || isActive || ocrPending;
 	const canEditUserMessages =
 		!isBusy && !isTemporaryChat && !!onEditUserMessage;
 
@@ -860,6 +1236,11 @@ export const ChatUI = ({
 			filename?: string | null;
 		}>,
 	) => {
+		if (isActive) {
+			stop();
+			return;
+		}
+
 		if (isBusy) {
 			return;
 		}
@@ -891,6 +1272,18 @@ export const ChatUI = ({
 								type: "audio" as const,
 								url: f.url!,
 								mediaType: f.mediaType!,
+								...(f.filename ? { name: f.filename } : {}),
+							}))
+					: undefined;
+
+			const documentsToSave =
+				supportsDocuments && files?.length
+					? files
+							.filter((f) => f.url && isDocumentMediaType(f.mediaType))
+							.map((f) => ({
+								type: "file" as const,
+								url: f.url!,
+								mediaType: getDocumentMediaType(f.mediaType),
 								...(f.filename ? { name: f.filename } : {}),
 							}))
 					: undefined;
@@ -927,6 +1320,67 @@ export const ChatUI = ({
 				}
 			}
 
+			if (supportsDocuments && files?.length) {
+				for (const file of files) {
+					if (file.url && isDocumentMediaType(file.mediaType)) {
+						parts.push({
+							type: "file",
+							url: file.url,
+							mediaType: getDocumentMediaType(file.mediaType),
+							name: file.filename,
+						});
+					}
+				}
+			}
+
+			// OCR models do not use the chat-completions stream. Require an attached
+			// PDF/image, persist the user message, then run OCR via the dedicated
+			// /v1/ocr endpoint with the same message parts so the upload renders
+			// immediately instead of only after a reload.
+			if (isOcr && onOcrMessage) {
+				// Only a PDF/document or image can be OCR'd — reject audio/other.
+				const ocrFile = files?.find(
+					(f) =>
+						f.url &&
+						(isDocumentMediaType(f.mediaType) ||
+							f.mediaType?.startsWith("image/")),
+				);
+				if (!ocrFile?.url) {
+					toast.error("Attach a PDF or image to run OCR.");
+					return;
+				}
+
+				const document = isDocumentMediaType(ocrFile.mediaType)
+					? {
+							type: "document_url" as const,
+							document_url: ocrFile.url,
+							...(ocrFile.filename ? { document_name: ocrFile.filename } : {}),
+						}
+					: { type: "image_url" as const, image_url: ocrFile.url };
+
+				const savedMessage = onUserMessage
+					? await onUserMessage(
+							content,
+							imagesToSave,
+							audioToSave,
+							documentsToSave,
+						)
+					: undefined;
+
+				// Mirror the normal send path's stop gate: if persistence was
+				// expected (persistent chat) but returned nothing, a limit/credit
+				// stop was hit — don't run OCR.
+				if (onUserMessage && !savedMessage && !isTemporaryChat) {
+					return;
+				}
+
+				await onOcrMessage(document, {
+					id: savedMessage?.id ?? crypto.randomUUID(),
+					parts,
+				});
+				return;
+			}
+
 			if (parts.length === 0) {
 				return;
 			}
@@ -938,11 +1392,18 @@ export const ChatUI = ({
 			// Otherwise `onFinish` may run before `chatIdRef` is set, and we can't save the AI response.
 			if (
 				onUserMessage &&
-				(content.trim() || imagesToSave?.length || audioToSave?.length)
+				(content.trim() ||
+					imagesToSave?.length ||
+					audioToSave?.length ||
+					documentsToSave?.length)
 			) {
 				savedMessage =
-					(await onUserMessage(content, imagesToSave, audioToSave)) ??
-					undefined;
+					(await onUserMessage(
+						content,
+						imagesToSave,
+						audioToSave,
+						documentsToSave,
+					)) ?? undefined;
 			}
 
 			// If a persistent chat was expected (onUserMessage provided) but persistence
@@ -971,6 +1432,35 @@ export const ChatUI = ({
 			);
 		}
 	};
+	const virtualItems = virtualizer.getVirtualItems();
+	const totalSize = virtualizer.getTotalSize();
+
+	const showSubmittedLoader = status === "submitted" || ocrPending;
+	const showErrorBanner =
+		messages.length > 0 &&
+		messages[messages.length - 1]!.role === "user" &&
+		!!error;
+	const extraScrollHeight = showSubmittedLoader
+		? LOADER_HEIGHT
+		: showErrorBanner
+			? ERROR_BANNER_HEIGHT
+			: 0;
+
+	useEffect(() => {
+		if (messages.length > 0 && wasAtEndRef.current) {
+			requestAnimationFrame(() => virtualizerRef.current.scrollToEnd());
+		}
+	}, [totalSize, messages.length, inputHeight]);
+
+	useEffect(() => {
+		if (status === "submitted") {
+			requestAnimationFrame(() => virtualizerRef.current.scrollToEnd());
+		}
+		if (status === "ready" && virtualizerRef.current.isAtEnd(80)) {
+			virtualizerRef.current.scrollToEnd();
+		}
+	}, [status]);
+
 	const messagesContent =
 		isLoading && messages.length === 0 ? (
 			<div className="flex items-center justify-center h-full">
@@ -999,7 +1489,11 @@ export const ChatUI = ({
 						transition={{ duration: 0.14, ease: "easeOut" }}
 					>
 						<h2 className="text-3xl font-semibold tracking-tight">
-							{isTemporaryChat ? "Temporary Chat" : "How can I help you?"}
+							{isTemporaryChat
+								? "Temporary Chat"
+								: isOcr
+									? "Extract text from documents"
+									: "How can I help you?"}
 						</h2>
 						<AnimatePresence initial={false}>
 							{isTemporaryChat ? (
@@ -1016,11 +1510,26 @@ export const ChatUI = ({
 								>
 									Temporary chats will not appear in your chat history.
 								</motion.p>
+							) : isOcr ? (
+								<motion.p
+									key="ocr-subtitle"
+									initial={{ opacity: 0, scale: 0.97 }}
+									animate={{ opacity: 1, scale: 1 }}
+									exit={{ opacity: 0, scale: 0.97 }}
+									transition={{
+										opacity: { duration: 0.06, ease: "easeOut" },
+										scale: { duration: 0.12, ease: "easeOut" },
+									}}
+									className="mt-2 text-sm text-muted-foreground"
+								>
+									Upload a PDF or image and the text will be extracted as
+									markdown.
+								</motion.p>
 							) : null}
 						</AnimatePresence>
 					</motion.div>
 					<AnimatePresence initial={false}>
-						{isTemporaryChat ? null : (
+						{isTemporaryChat || isOcr ? null : (
 							<motion.div
 								key="regular-chat-suggestions"
 								initial={{ opacity: 0, height: 0, scale: 0.97 }}
@@ -1052,22 +1561,40 @@ export const ChatUI = ({
 										))}
 									</div>
 								) : null}
-								<div className="space-y-2">
-									{heroSuggestionGroups[activeSuggestionGroup]
-										.slice(0, 5)
-										.map((s) => (
-											<button
-												key={s}
-												type="button"
-												onClick={() => {
-													void handlePromptSubmit(s);
-												}}
-												className="w-full rounded-md border px-4 py-3 text-left text-sm hover:bg-muted/60"
-											>
-												{s}
-											</button>
-										))}
-								</div>
+								<AnimatePresence mode="wait">
+									{randomizedHeroSuggestionGroups ? (
+										<motion.div
+											key={activeSuggestionGroup}
+											initial={{ opacity: 0 }}
+											animate={{ opacity: 1 }}
+											exit={{ opacity: 0 }}
+											transition={{ duration: 0.07, ease: "easeOut" }}
+											className="space-y-2"
+										>
+											{randomizedHeroSuggestionGroups[
+												activeSuggestionGroup
+											].map((s, index) => (
+												<motion.button
+													key={s}
+													type="button"
+													initial={{ opacity: 0, y: -6 }}
+													animate={{ opacity: 1, y: 0 }}
+													transition={{
+														duration: 0.12,
+														delay: index * 0.025,
+														ease: "easeOut",
+													}}
+													onClick={() => {
+														void handlePromptSubmit(s);
+													}}
+													className="w-full rounded-md border px-4 py-3 text-left text-sm hover:bg-muted/60"
+												>
+													{s}
+												</motion.button>
+											))}
+										</motion.div>
+									) : null}
+								</AnimatePresence>
 							</motion.div>
 						)}
 					</AnimatePresence>
@@ -1075,50 +1602,81 @@ export const ChatUI = ({
 			</AnimatePresence>
 		) : (
 			<>
-				{messages.map((m, messageIndex) => {
-					const isLastMessage = messageIndex === messages.length - 1;
+				{virtualItems.map((item) => {
+					const m = messages[item.index]!;
+					const isLastMessage = item.index === messages.length - 1;
 
-					if (m.role === "assistant") {
-						return (
-							<AssistantMessage
-								key={m.id}
-								message={m}
-								isLastMessage={isLastMessage}
-								status={status}
-								regenerate={regenerate}
-								finishReason={isLastMessage ? finishReason : null}
-								forkChat={
-									isLastMessage && status === "ready" ? forkChat : undefined
-								}
-								isForkingChat={isForkingChat}
-							/>
-						);
-					} else {
-						return (
-							<UserMessage
-								key={m.id}
-								message={m}
-								isLastMessage={isLastMessage}
-								status={status}
-								canEdit={canEditUserMessages}
-								isEditing={editingMessageId === m.id}
-								onEditStart={() => setEditingMessageId(m.id)}
-								onEditCancel={() => setEditingMessageId(null)}
-								onEditConfirm={async (content) => {
-									if (!onEditUserMessage) {
-										return;
+					return (
+						<div
+							key={item.key}
+							data-index={item.index}
+							ref={virtualizer.measureElement}
+							className="px-4"
+							style={{
+								position: "absolute",
+								top: 0,
+								left: 0,
+								transform: `translateY(${item.start}px)`,
+								width: "100%",
+							}}
+						>
+							{m.role === "assistant" ? (
+								<AssistantMessage
+									message={m}
+									isLastMessage={isLastMessage}
+									status={isLastMessage ? status : "ready"}
+									regenerate={regenerate}
+									isOcr={isOcr}
+									finishReason={isLastMessage ? finishReason : null}
+									forkChat={
+										isLastMessage && status === "ready" && !isOcr
+											? forkChat
+											: undefined
 									}
-									setEditingMessageId(null);
-									await onEditUserMessage(m, content);
-								}}
-							/>
-						);
-					}
+									isForkingChat={isForkingChat}
+								/>
+							) : (
+								<VirtualUserMessageItem
+									message={m}
+									isLastMessage={isLastMessage}
+									status={status}
+									canEdit={canEditUserMessages}
+									editingMessageId={editingMessageId}
+									setEditingMessageId={setEditingMessageId}
+									onEditUserMessage={onEditUserMessage}
+									isOcr={isOcr}
+								/>
+							)}
+						</div>
+					);
 				})}
+				{(status === "submitted" || ocrPending) && (
+					<div
+						style={{
+							position: "absolute",
+							top: 0,
+							left: 0,
+							transform: `translateY(${virtualizer.getTotalSize()}px)`,
+							width: "100%",
+						}}
+						className="px-4 mt-3"
+					>
+						<Loader />
+					</div>
+				)}
 				{messages.length > 0 &&
 					messages[messages.length - 1].role === "user" &&
 					error && (
-						<div className="message-item mt-2 flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+						<div
+							style={{
+								position: "absolute",
+								top: 0,
+								left: 0,
+								transform: `translateY(${virtualizer.getTotalSize()}px)`,
+								width: "100%",
+							}}
+							className="px-4 mt-2 flex items-center gap-2 rounded-md border border-red-200 bg-red-50 py-2 text-xs text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200"
+						>
 							<AlertTriangle className="size-3.5 shrink-0" />
 							<span>{error}</span>
 						</div>
@@ -1131,75 +1689,138 @@ export const ChatUI = ({
 			ref={floatingInput ? inputRef : undefined}
 			className={
 				floatingInput
-					? "absolute bottom-0 left-0 right-0 z-10 px-0 pb-0 sm:px-4"
-					: "shrink-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-background border-t"
+					? "absolute bottom-0 left-0 right-0 z-10 px-0 pb-0 sm:px-4 pointer-events-none select-none"
+					: "shrink-0 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-2 bg-background border-t select-none"
 			}
 		>
 			<motion.div
 				layout
 				className={
 					floatingInput
-						? "mx-auto w-full max-w-4xl px-0 pb-0 pt-2 bg-background sm:px-4"
+						? "mx-auto w-full max-w-4xl px-0 pb-0 pt-2 bg-background sm:px-4 pointer-events-auto"
 						: undefined
 				}
 				transition={{ duration: 0.18, ease: "easeOut" }}
 			>
 				<PromptInput
-					key={`prompt-input-${supportsImages ? "img" : ""}${supportsAudio ? "aud" : ""}`}
+					key={`prompt-input-${supportsImages ? "img" : ""}${supportsAudio ? "aud" : ""}${supportsDocuments ? "doc" : ""}`}
 					className={
 						floatingInput
-							? "[&_[data-slot=input-group]]:rounded-none sm:[&_[data-slot=input-group]]:rounded-md"
+							? "[&_[data-slot=input-group]]:rounded-none [&_[data-slot=input-group]]:border-x-0 [&_[data-slot=input-group]]:border-b-0 sm:[&_[data-slot=input-group]]:rounded-md sm:[&_[data-slot=input-group]]:border"
 							: undefined
 					}
 					accept={
-						supportsImages && supportsAudio
-							? "image/*,audio/*"
-							: supportsImages
-								? "image/*"
-								: supportsAudio
-									? "audio/*"
-									: undefined
+						supportsDocuments
+							? undefined
+							: [
+									supportsImages ? "image/*" : null,
+									supportsAudio ? "audio/*" : null,
+								]
+									.filter(Boolean)
+									.join(",") || undefined
 					}
 					multiple
-					globalDrop={supportsImages || supportsAudio}
+					globalDrop={supportsImages || supportsAudio || supportsDocuments}
 					aria-disabled={isBusy}
 					onSubmit={(message) => {
 						void handlePromptSubmit(message.text ?? "", message.files);
 					}}
 				>
 					<PromptInputBody>
+						{activeSkills.length > 0 && (
+							<div className="w-full flex flex-wrap gap-1.5 px-2 pt-2">
+								{activeSkills.map((skill) => (
+									<SkillChip
+										key={skill.id}
+										skill={skill}
+										onRemove={() => onRemoveSkill?.(skill.id)}
+									/>
+								))}
+							</div>
+						)}
 						<PromptInputAttachments>
 							{(attachment) => <PromptInputAttachment data={attachment} />}
 						</PromptInputAttachments>
-						<PromptInputTextarea
-							ref={textareaRef}
-							value={text}
-							onChange={(e) => setText(e.currentTarget.value)}
-							placeholder="Message"
-						/>
+						{isOcr ? (
+							<p className="w-full px-3 py-3 text-left text-sm text-muted-foreground">
+								Upload a PDF or image to extract its text.
+							</p>
+						) : (
+							<PromptInputTextarea
+								ref={textareaRef}
+								value={text}
+								onChange={(e) => {
+									const value = e.currentTarget.value;
+									const cursor = e.currentTarget.selectionStart ?? value.length;
+									setText(value);
+									const textUpToCursor = value.slice(0, cursor);
+									const match = textUpToCursor.match(
+										/(?:^|(?<=\s))@([a-zA-Z_-]*)$/,
+									);
+									if (match) {
+										const idx = cursor - match[0].length;
+										skillTriggerIndexRef.current = idx;
+										setSkillTriggerFilter(match[1].toLowerCase());
+										setSkillTriggerOpen(true);
+										if (textareaRef.current) {
+											const coords = getCaretCoordinates(
+												textareaRef.current,
+												idx,
+											);
+											const rect = textareaRef.current.getBoundingClientRect();
+											setSkillTriggerPos({
+												top:
+													rect.top + coords.top - textareaRef.current.scrollTop,
+												left: rect.left + coords.left,
+											});
+										}
+									} else {
+										setSkillTriggerOpen(false);
+										skillTriggerIndexRef.current = -1;
+									}
+								}}
+								placeholder="Message"
+								disabled={isLoading}
+							/>
+						)}
 					</PromptInputBody>
 					<PromptInputToolbar>
 						<PromptInputTools>
-							{(supportsImages || supportsAudio) && (
+							{(supportsImages || supportsAudio || supportsDocuments) && (
 								<PromptInputActionMenu>
 									<PromptInputActionMenuTrigger />
 									<PromptInputActionMenuContent>
 										<PromptInputActionAddAttachments
-											label={
-												supportsImages && supportsAudio
-													? "Add photos, audio or files"
-													: supportsAudio
-														? "Add audio"
-														: undefined
-											}
+											label={(() => {
+												const parts: string[] = [];
+												if (supportsImages) {
+													parts.push("photos");
+												}
+												if (supportsAudio) {
+													parts.push("audio");
+												}
+												if (supportsDocuments) {
+													parts.push("documents");
+												}
+												if (parts.length === 0) {
+													return undefined;
+												}
+												if (parts.length === 1) {
+													return `Add ${parts[0]}`;
+												}
+												const last = parts.pop();
+												return `Add ${parts.join(", ")} or ${last}`;
+											})()}
 										/>
 									</PromptInputActionMenuContent>
 								</PromptInputActionMenu>
 							)}
-							<PromptInputSpeechButton
-								onTranscriptionChange={setText}
-								textareaRef={textareaRef}
-							/>
+							{!isOcr && (
+								<PromptInputSpeechButton
+									onTranscriptionChange={setText}
+									textareaRef={textareaRef}
+								/>
+							)}
 							{supportsWebSearch && (
 								<PromptInputButton
 									variant={webSearchEnabled ? "default" : "ghost"}
@@ -1208,8 +1829,41 @@ export const ChatUI = ({
 									<GlobeIcon size={16} />
 								</PromptInputButton>
 							)}
+							{!isOcr && (
+								<SkillPickerButton
+									onSelectSkill={onSelectSkill}
+									activeSkills={activeSkills}
+								/>
+							)}
 						</PromptInputTools>
 						<div className="flex items-center gap-2">
+							{availableRegions.length > 0 && (
+								<Select
+									value={selectedRegion ?? "__default__"}
+									onValueChange={(val) =>
+										onRegionChange?.(val === "__default__" ? "" : val)
+									}
+								>
+									<SelectTrigger
+										size="sm"
+										className="min-w-0 sm:min-w-[120px]"
+										aria-label="Region"
+									>
+										<MapPin size={16} className="shrink-0" />
+										<span className="hidden sm:contents">
+											<SelectValue placeholder="Default" />
+										</span>
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="__default__">Default</SelectItem>
+										{availableRegions.map((r) => (
+											<SelectItem key={r} value={r}>
+												{r}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							)}
 							{supportsReasoning && (
 								<Select
 									value={reasoningEffort ? reasoningEffort : "off"}
@@ -1217,23 +1871,30 @@ export const ChatUI = ({
 										setReasoningEffort(
 											val === "off"
 												? ""
-												: ((val as "minimal" | "low" | "medium" | "high") ??
-														""),
+												: ((val as ReasoningEffortOption) ?? ""),
 										)
 									}
 								>
-									<SelectTrigger size="sm" className="min-w-[120px]">
-										<Brain size={16} />
-										<SelectValue placeholder="Reasoning" />
+									<SelectTrigger
+										size="sm"
+										className="min-w-0 sm:min-w-[120px]"
+										aria-label="Reasoning effort"
+									>
+										<Brain size={16} className="shrink-0" />
+										<span className="hidden sm:contents">
+											<SelectValue placeholder="Reasoning" />
+										</span>
 									</SelectTrigger>
 									<SelectContent>
 										<SelectItem value="off">Auto</SelectItem>
-										{selectedModel.includes("gpt-5") && (
-											<SelectItem value="minimal">Minimal</SelectItem>
-										)}
-										<SelectItem value="low">Low</SelectItem>
-										<SelectItem value="medium">Medium</SelectItem>
-										<SelectItem value="high">High</SelectItem>
+										{(
+											reasoningEfforts ??
+											getFallbackReasoningEffortOptions(selectedModel)
+										).map((effort) => (
+											<SelectItem key={effort} value={effort}>
+												{REASONING_EFFORT_LABELS[effort]}
+											</SelectItem>
+										))}
 									</SelectContent>
 								</Select>
 							)}
@@ -1374,24 +2035,26 @@ export const ChatUI = ({
 									</SelectContent>
 								</Select>
 							)}
-							{isActive ? (
-								<PromptInputButton onClick={() => stop()} variant="ghost">
-									Stop
-								</PromptInputButton>
-							) : null}
 							<PromptInputSubmit
 								status={
 									status === "streaming"
 										? "streaming"
-										: status === "submitted"
+										: status === "submitted" || ocrPending
 											? "submitted"
 											: "ready"
 								}
-								disabled={isBusy}
+								disabled={isLoading}
 							/>
 						</div>
 					</PromptInputToolbar>
 				</PromptInput>
+				<SkillTriggerMenu
+					open={skillTriggerOpen}
+					position={skillTriggerPos}
+					filter={skillTriggerFilter}
+					onSelect={handleSkillTriggerSelect}
+					onClose={() => setSkillTriggerOpen(false)}
+				/>
 				<AnimatePresence initial={false}>
 					{isTemporaryChat ? (
 						<motion.p
@@ -1420,42 +2083,286 @@ export const ChatUI = ({
 		</div>
 	);
 
+	const virtualScrollContextValue = useMemo(
+		() => ({ isAtEnd, scrollToEnd }),
+		[isAtEnd, scrollToEnd],
+	);
+
 	if (floatingInput) {
 		return (
-			<div className="relative flex flex-col h-full min-h-0">
-				<Conversation>
-					<ConversationContent
-						className={`mx-auto max-w-4xl px-4 ${
-							isTemporaryChat && messages.length === 0
-								? "flex min-h-full w-full items-center justify-center"
-								: ""
-						}`}
-						style={{ paddingBottom: `${inputHeight + 16}px` }}
+			<VirtualScrollContext value={virtualScrollContextValue}>
+				<div className="relative flex flex-col h-full min-h-0">
+					<div
+						ref={scrollRef}
+						className="flex-1 overflow-y-auto"
+						onScroll={handleScroll}
+						role="log"
+						style={
+							messages.length > 0
+								? { paddingBottom: `${inputHeight + 16}px` }
+								: undefined
+						}
 					>
-						{messagesContent}
-					</ConversationContent>
-				</Conversation>
-				{inputArea}
-			</div>
+						<div
+							className={`mx-auto max-w-4xl relative ${
+								messages.length === 0
+									? "flex min-h-full w-full items-center justify-center px-4"
+									: ""
+							}`}
+							style={
+								messages.length > 0
+									? { height: virtualizer.getTotalSize() + extraScrollHeight }
+									: { minHeight: "100%" }
+							}
+						>
+							{messagesContent}
+						</div>
+					</div>
+					<ConversationScrollButton />
+					{inputArea}
+				</div>
+			</VirtualScrollContext>
 		);
 	}
 
 	return (
-		<div className="flex flex-col h-full min-h-0">
-			<div className="flex flex-col flex-1 min-h-0">
-				<Conversation>
-					<ConversationContent
-						className={`px-4 pb-4 ${
-							isTemporaryChat && messages.length === 0
-								? "flex min-h-full items-center justify-center"
+		<VirtualScrollContext value={virtualScrollContextValue}>
+			<div className="relative flex flex-col h-full min-h-0">
+				<div
+					ref={scrollRef}
+					className="flex-1 overflow-y-auto min-h-0"
+					onScroll={handleScroll}
+					role="log"
+				>
+					<div
+						className={`mx-auto max-w-4xl relative ${
+							messages.length === 0
+								? "flex min-h-full items-center justify-center px-4"
 								: ""
 						}`}
+						style={
+							messages.length > 0
+								? { height: virtualizer.getTotalSize() + extraScrollHeight }
+								: { minHeight: "100%" }
+						}
 					>
 						{messagesContent}
-					</ConversationContent>
-				</Conversation>
+					</div>
+				</div>
+				<ConversationScrollButton />
+				{inputArea}
 			</div>
-			{inputArea}
-		</div>
+		</VirtualScrollContext>
 	);
 };
+
+function SkillChip({
+	skill,
+	onRemove,
+}: {
+	skill: Skill;
+	onRemove?: () => void;
+}) {
+	return (
+		<div className="inline-flex items-center gap-1.5 rounded-md border bg-muted px-2 py-1 text-xs font-medium">
+			<ScrollTextIcon className="h-3 w-3 text-muted-foreground" />
+			<span>{skill.name}</span>
+			{onRemove && (
+				<button
+					type="button"
+					onClick={onRemove}
+					className="text-muted-foreground hover:text-foreground ml-0.5 rounded"
+					aria-label="Remove skill"
+				>
+					<XIcon className="h-3 w-3" />
+				</button>
+			)}
+		</div>
+	);
+}
+
+function SkillPickerButton({
+	onSelectSkill,
+	activeSkills = [],
+}: {
+	onSelectSkill?: (skill: Skill) => void;
+	activeSkills?: Skill[];
+}) {
+	const [createOpen, setCreateOpen] = useState(false);
+	const router = useRouter();
+	const { data } = useSkills();
+	const skills = (data?.skills as Skill[] | undefined) ?? [];
+	const enabledSkills = skills.filter((s) => s.enabled);
+	const activeIds = new Set(activeSkills.map((s) => s.id));
+
+	return (
+		<>
+			<Popover>
+				<PopoverTrigger asChild>
+					<PromptInputButton
+						variant={activeSkills.length > 0 ? "default" : "ghost"}
+						aria-label="Select a skill"
+					>
+						<ScrollTextIcon size={16} />
+					</PromptInputButton>
+				</PopoverTrigger>
+				<PopoverContent align="start" className="w-64 p-1">
+					<div className="mb-1 flex items-center justify-between px-2 py-1">
+						<span className="text-xs font-medium text-muted-foreground">
+							Select a skill
+						</span>
+						<div className="flex items-center gap-0.5">
+							<button
+								type="button"
+								className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+								aria-label="View all skills"
+								onClick={() => router.push("/skills")}
+							>
+								<ExternalLinkIcon className="h-3.5 w-3.5" />
+							</button>
+							<button
+								type="button"
+								className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+								aria-label="Create skill"
+								onClick={() => setCreateOpen(true)}
+							>
+								<PlusIcon className="h-3.5 w-3.5" />
+							</button>
+						</div>
+					</div>
+					{enabledSkills.length === 0 ? (
+						<p className="px-2 py-3 text-center text-xs text-muted-foreground">
+							No skills yet. Click + to create one.
+						</p>
+					) : (
+						enabledSkills.map((skill) => {
+							const isActive = activeIds.has(skill.id);
+							return (
+								<button
+									key={skill.id}
+									type="button"
+									className="flex w-full items-start gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-muted"
+									onClick={() => !isActive && onSelectSkill?.(skill)}
+								>
+									<ScrollTextIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+									<div className="min-w-0 flex-1">
+										<div className="truncate font-medium">{skill.name}</div>
+										{skill.description && (
+											<div className="truncate text-xs text-muted-foreground">
+												{skill.description}
+											</div>
+										)}
+									</div>
+									{isActive && (
+										<span className="ml-auto text-xs text-muted-foreground">
+											✓
+										</span>
+									)}
+								</button>
+							);
+						})
+					)}
+				</PopoverContent>
+			</Popover>
+			<CreateSkillDialog open={createOpen} onOpenChange={setCreateOpen} />
+		</>
+	);
+}
+
+function SkillTriggerMenu({
+	open,
+	position,
+	filter,
+	onSelect,
+	onClose,
+}: {
+	open: boolean;
+	position: { top: number; left: number };
+	filter: string;
+	onSelect: (skill: Skill) => void;
+	onClose: () => void;
+}) {
+	const { data } = useSkills();
+	const [highlight, setHighlight] = useState(0);
+	const skills = (data?.skills as Skill[] | undefined) ?? [];
+	const filtered = skills
+		.filter((s) => s.enabled)
+		.filter((s) => !filter || s.name.toLowerCase().includes(filter));
+
+	useEffect(() => {
+		setHighlight(0);
+	}, [filter]);
+
+	useEffect(() => {
+		if (!open) {
+			return;
+		}
+		const handler = (e: KeyboardEvent) => {
+			if (e.key === "ArrowDown") {
+				e.preventDefault();
+				setHighlight((h) => (h + 1) % Math.max(filtered.length, 1));
+			} else if (e.key === "ArrowUp") {
+				e.preventDefault();
+				setHighlight(
+					(h) =>
+						(h - 1 + Math.max(filtered.length, 1)) %
+						Math.max(filtered.length, 1),
+				);
+			} else if (e.key === "Enter") {
+				e.preventDefault();
+				if (filtered[highlight]) {
+					onSelect(filtered[highlight]);
+				}
+			} else if (e.key === "Escape") {
+				onClose();
+			}
+		};
+		window.addEventListener("keydown", handler, true);
+		return () => window.removeEventListener("keydown", handler, true);
+	}, [open, filtered, highlight, onSelect, onClose]);
+
+	if (!open || filtered.length === 0) {
+		return null;
+	}
+
+	const ITEM_HEIGHT = 52;
+	const itemsHeight = filtered.length * ITEM_HEIGHT;
+	const menuHeight = Math.min(itemsHeight + 8, 240);
+
+	return createPortal(
+		<div
+			style={{
+				position: "fixed",
+				top: position.top - menuHeight - 6,
+				left: position.left,
+				zIndex: 9999,
+				width: 240,
+			}}
+			className="rounded-md border bg-popover p-1 shadow-md"
+		>
+			{filtered.map((skill, i) => (
+				<button
+					key={skill.id}
+					type="button"
+					className={cn(
+						"flex w-full items-start gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors",
+						i === highlight ? "bg-muted" : "hover:bg-muted",
+					)}
+					onMouseEnter={() => setHighlight(i)}
+					onClick={() => onSelect(skill)}
+				>
+					<ScrollTextIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+					<div className="min-w-0">
+						<div className="truncate font-medium">{skill.name}</div>
+						{skill.description && (
+							<div className="truncate text-xs text-muted-foreground">
+								{skill.description}
+							</div>
+						)}
+					</div>
+				</button>
+			))}
+		</div>,
+		document.body,
+	);
+}

@@ -3,6 +3,7 @@ import { Copy } from "lucide-react";
 import { usePostHog } from "posthog-js/react";
 import { useState } from "react";
 
+import { useMyMemberBudget } from "@/hooks/useTeam";
 import { Button } from "@/lib/components/button";
 import {
 	Dialog,
@@ -27,7 +28,13 @@ import {
 	ApiKeyLimitFields,
 	buildApiKeyLimitPayload,
 	createApiKeyLimitFormValue,
+	validateApiKeyLimitPayloadWithinMemberBudget,
 } from "./api-key-limit-fields";
+import {
+	ApiKeyTtlFields,
+	buildApiKeyTtlExpiresAt,
+	createApiKeyTtlFormValue,
+} from "./api-key-ttl-fields";
 
 import type { Project } from "@/lib/types";
 import type React from "react";
@@ -53,8 +60,14 @@ export function CreateApiKeyDialog({
 	const [limitValue, setLimitValue] = useState(() =>
 		createApiKeyLimitFormValue(),
 	);
+	const [ttlValue, setTtlValue] = useState(() => createApiKeyTtlFormValue());
 	const [apiKey, setApiKey] = useState("");
 	const api = useApi();
+
+	const { data: memberBudgetData } = useMyMemberBudget(
+		selectedProject.organizationId,
+	);
+	const memberBudget = memberBudgetData?.budget ?? null;
 
 	const createApiKeyMutation = api.useMutation("post", "/keys/api");
 
@@ -75,11 +88,27 @@ export function CreateApiKeyDialog({
 			return;
 		}
 
+		const budgetError = validateApiKeyLimitPayloadWithinMemberBudget(
+			payload,
+			memberBudget,
+		);
+		if (budgetError) {
+			toast({ title: budgetError, variant: "destructive" });
+			return;
+		}
+
+		const { error: ttlError, expiresAt } = buildApiKeyTtlExpiresAt(ttlValue);
+		if (ttlError) {
+			toast({ title: ttlError, variant: "destructive" });
+			return;
+		}
+
 		try {
 			const data = await createApiKeyMutation.mutateAsync({
 				body: {
 					description: name.trim(),
 					projectId: selectedProject.id,
+					expiresAt,
 					...payload,
 				},
 			});
@@ -122,6 +151,7 @@ export function CreateApiKeyDialog({
 			setName("");
 			setApiKey("");
 			setLimitValue(createApiKeyLimitFormValue());
+			setTtlValue(createApiKeyTtlFormValue());
 		}, 300);
 	};
 
@@ -188,10 +218,16 @@ export function CreateApiKeyDialog({
 									required
 								/>
 							</div>
+							<ApiKeyTtlFields
+								idPrefix="create-api-key"
+								value={ttlValue}
+								onChange={setTtlValue}
+							/>
 							<ApiKeyLimitFields
 								idPrefix="create-api-key"
 								value={limitValue}
 								onChange={setLimitValue}
+								memberBudget={memberBudget}
 							/>
 							<DialogFooter>
 								<Button

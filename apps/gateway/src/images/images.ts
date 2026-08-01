@@ -2,12 +2,26 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { app } from "@/app.js";
+import { createLogEntry } from "@/chat/tools/create-log-entry.js";
+import { extractCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
+import { internalApiOriginHeaders } from "@/lib/api-origin.js";
+import {
+	findApiKeyByToken,
+	findOrganizationById,
+	findProjectById,
+} from "@/lib/cached-queries.js";
+import { parseApiToken } from "@/lib/extract-api-token.js";
+import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import { validateModelOutput } from "@/lib/validate-model-output.js";
 
-import { processImageUrl } from "@llmgateway/actions";
+import { parseDataUrl, processImageUrl } from "@llmgateway/actions";
+import { shortid } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
+import { models } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
 import type { Context } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 
 const imageGenerationsRequestSchema = z.object({
 	prompt: z.string().min(1).openapi({
@@ -17,7 +31,7 @@ const imageGenerationsRequestSchema = z.object({
 	model: z.string().optional().default("auto").openapi({
 		description:
 			"The model to use for image generation. Defaults to auto which selects an appropriate image generation model.",
-		example: "gemini-2.5-flash-image",
+		example: "gemini-3.1-flash-image-preview",
 	}),
 	n: z.number().int().min(1).max(10).optional().default(1).openapi({
 		description: "The number of images to generate. Must be between 1 and 10.",
@@ -57,6 +71,23 @@ const imageGenerationsRequestSchema = z.object({
 });
 
 type ImageGenerationsRequest = z.infer<typeof imageGenerationsRequestSchema>;
+
+interface ImageClientErrorLogRequest {
+	endpoint: "images.generations" | "images.edits";
+	model?: string;
+	prompt?: string;
+	n?: number;
+	size?: string;
+	quality?: string;
+	aspect_ratio?: string;
+}
+
+interface ImageClientErrorLogContext {
+	apiKey: NonNullable<Awaited<ReturnType<typeof findApiKeyByToken>>>;
+	project: NonNullable<Awaited<ReturnType<typeof findProjectById>>>;
+	requestId: string;
+	retentionLevel: "retain" | "none";
+}
 
 const imageGenerationsResponseSchema = z.object({
 	created: z.number(),
@@ -207,10 +238,10 @@ async function extractImagesFromChatResponse(
 			const imageUrl = img.image_url?.url;
 			if (imageUrl && typeof imageUrl === "string") {
 				// Handle data URIs (e.g. Google/Gemini returns data:image/png;base64,...)
-				const base64Match = imageUrl.match(/^data:[^;]+;base64,(.+)$/);
-				if (base64Match && base64Match[1]) {
+				const parsedDataUrl = parseDataUrl(imageUrl);
+				if (parsedDataUrl && parsedDataUrl.isBase64 && parsedDataUrl.data) {
 					imageObjects.push({
-						b64_json: base64Match[1],
+						b64_json: parsedDataUrl.data,
 						revised_prompt: prompt,
 					});
 				} else if (
@@ -219,7 +250,11 @@ async function extractImagesFromChatResponse(
 				) {
 					// Handle URL-based images (e.g. Z.AI, Alibaba, ByteDance)
 					try {
-						const result = await processImageUrl(imageUrl);
+						// Trusted upstream provider response, not request input: skip the
+						// user-content SSRF guard (CDNs may redirect to signed URLs).
+						const result = await processImageUrl(imageUrl, false, 20, null, {
+							validateSsrf: false,
+						});
 						imageObjects.push({
 							b64_json: result.data,
 							revised_prompt: prompt,
@@ -278,10 +313,12 @@ async function extractImagesFromChatResponse(
 	}
 
 	if (imageObjects.length === 0) {
+		// A content-filtered generation is an expected, user-caused outcome, not an
+		// operational problem: the internal chat completions request already logged
+		// the request with a content_filter finish reason (the provider's raw reason
+		// is mapped to the OpenAI-canonical "content_filter" before it reaches here),
+		// so there is nothing to warn about.
 		if (chatResponse.choices?.[0]?.finish_reason === "content_filter") {
-			logger.warn("Images API - content filtered response", {
-				model,
-			});
 			return [];
 		}
 
@@ -296,7 +333,7 @@ async function extractImagesFromChatResponse(
 		});
 		throw new HTTPException(500, {
 			message:
-				"The model did not generate any images. Try a different model with image generation capabilities (e.g., gemini-2.5-flash-image, gemini-3-pro-image-preview).",
+				"The model did not generate any images. Try a different model with image generation capabilities (e.g., gemini-3.1-flash-image-preview, gemini-3-pro-image-preview).",
 		});
 	}
 
@@ -318,7 +355,238 @@ function forwardHeaders(c: Context): Record<string, string> {
 		"x-debug": c.req.header("x-debug") ?? "",
 		...(noFallbackHeader !== null ? { "x-no-fallback": noFallbackHeader } : {}),
 		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
+		...internalApiOriginHeaders("images"),
 	};
+}
+
+function resolveImageRequestModel(model: string | undefined): string {
+	return !model || model === "auto" ? "gemini-3-pro-image-preview" : model;
+}
+
+function getStringProperty(
+	value: Record<string, unknown>,
+	key: string,
+): string | undefined {
+	const property = value[key];
+	return typeof property === "string" ? property : undefined;
+}
+
+function getNumberProperty(
+	value: Record<string, unknown>,
+	key: string,
+): number | undefined {
+	const property = value[key];
+	return typeof property === "number" ? property : undefined;
+}
+
+function buildImageClientErrorLogRequest(
+	endpoint: ImageClientErrorLogRequest["endpoint"],
+	rawBody: unknown,
+): ImageClientErrorLogRequest {
+	if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody)) {
+		return { endpoint };
+	}
+
+	const body = rawBody as Record<string, unknown>;
+	return {
+		endpoint,
+		model: getStringProperty(body, "model"),
+		prompt: getStringProperty(body, "prompt"),
+		n: getNumberProperty(body, "n"),
+		size: getStringProperty(body, "size"),
+		quality: getStringProperty(body, "quality"),
+		aspect_ratio: getStringProperty(body, "aspect_ratio"),
+	};
+}
+
+function getStatusText(status: number): string {
+	switch (status) {
+		case 400:
+			return "Bad Request";
+		case 401:
+			return "Unauthorized";
+		case 403:
+			return "Forbidden";
+		case 404:
+			return "Not Found";
+		case 413:
+			return "Payload Too Large";
+		case 415:
+			return "Unsupported Media Type";
+		case 422:
+			return "Unprocessable Entity";
+		case 429:
+			return "Too Many Requests";
+		default:
+			return "Client Error";
+	}
+}
+
+function createImageClientErrorLogContextResolver(
+	c: Context,
+): () => Promise<ImageClientErrorLogContext | null> {
+	let logContextPromise: Promise<ImageClientErrorLogContext | null> | null =
+		null;
+
+	return async () => {
+		logContextPromise ??= resolveImageClientErrorLogContext(c);
+		return await logContextPromise;
+	};
+}
+
+async function resolveImageClientErrorLogContext(
+	c: Context,
+): Promise<ImageClientErrorLogContext | null> {
+	const token = parseApiToken(c);
+	if (!token) {
+		return null;
+	}
+
+	const apiKey = await findApiKeyByToken(token);
+	if (!apiKey || apiKey.status !== "active") {
+		return null;
+	}
+
+	const project = await findProjectById(apiKey.projectId);
+	if (!project || project.status === "deleted") {
+		return null;
+	}
+
+	const organization = await findOrganizationById(project.organizationId);
+
+	const requestId = c.req.header("x-request-id")?.trim() || shortid(40);
+	c.header("x-request-id", requestId);
+
+	return {
+		apiKey,
+		project,
+		requestId,
+		retentionLevel: organization?.retentionLevel ?? "none",
+	};
+}
+
+async function logImageClientError(
+	c: Context,
+	getLogContext: () => Promise<ImageClientErrorLogContext | null>,
+	request: ImageClientErrorLogRequest,
+	status: number,
+	message: string,
+	startedAt: number,
+): Promise<void> {
+	if (status < 400 || status >= 500) {
+		return;
+	}
+
+	try {
+		const logContext = await getLogContext();
+		if (!logContext) {
+			return;
+		}
+
+		const requestedModel = request.model ?? "auto";
+		const usedModel = resolveImageRequestModel(request.model);
+		const responseText = message;
+		const imageConfig =
+			request.aspect_ratio || request.size || request.quality
+				? {
+						...(request.aspect_ratio && { aspect_ratio: request.aspect_ratio }),
+						...(request.size && { image_size: request.size }),
+						...(request.quality && { image_quality: request.quality }),
+					}
+				: undefined;
+
+		await insertLog(
+			{
+				...createLogEntry({
+					requestId: logContext.requestId,
+					project: logContext.project,
+					apiKey: logContext.apiKey,
+					usedModel,
+					usedProvider: "llmgateway",
+					requestedModel,
+					messages: [
+						{
+							role: "user",
+							content: request.prompt ?? "",
+						},
+					],
+					source: c.req.header("x-source") ?? undefined,
+					apiOrigin: "images",
+					customHeaders: extractCustomHeaders(c),
+					debugMode: false,
+					userAgent: c.req.header("user-agent"),
+					imageConfig,
+				}),
+				duration: Date.now() - startedAt,
+				timeToFirstToken: null,
+				timeToFirstReasoningToken: null,
+				responseSize: responseText.length,
+				content: null,
+				reasoningContent: null,
+				finishReason: "client_error",
+				promptTokens: null,
+				completionTokens: null,
+				totalTokens: null,
+				reasoningTokens: null,
+				cachedTokens: null,
+				cacheWriteTokens: null,
+				hasError: true,
+				streamed: false,
+				canceled: false,
+				errorDetails: {
+					statusCode: status,
+					statusText: getStatusText(status),
+					responseText,
+				},
+				inputCost: 0,
+				outputCost: 0,
+				cachedInputCost: 0,
+				cacheWriteInputCost: 0,
+				requestCost: 0,
+				webSearchCost: 0,
+				contentFilterCost: null,
+				imageInputTokens: null,
+				imageOutputTokens: null,
+				imageInputCost: null,
+				imageOutputCost: null,
+				audioInputTokens: null,
+				audioInputCost: null,
+				cost: 0,
+				estimatedCost: false,
+				discount: null,
+				pricingTier: null,
+				requestedServiceTier: null,
+				usedServiceTier: null,
+				dataStorageCost: calculateDataStorageCost(null, null, null, null),
+				cached: false,
+				tools: null,
+				toolResults: null,
+				toolChoice: null,
+			},
+			{ retentionLevel: logContext.retentionLevel },
+		);
+	} catch (error) {
+		logger.warn("Images API - failed to log client error", {
+			err: toError(error),
+		});
+	}
+}
+
+// Reject non-image models up front. Image generation forwards to
+// /v1/chat/completions (which accepts text and image models), so without this
+// guard a text-only model would be forwarded and produce a chat completion the
+// images endpoint can't turn into an image. Unknown models are left to the chat
+// handler to reject as "model not found".
+function assertImageModel(model: string): void {
+	const slashIdx = model.indexOf("/");
+	const modelKey = slashIdx > 0 ? model.slice(slashIdx + 1) : model;
+	if (modelKey === "auto" || modelKey === "custom") {
+		return;
+	}
+	const modelInfo = models.find((m) => m.id === model || m.id === modelKey);
+	if (modelInfo) {
+		validateModelOutput(modelInfo, modelKey, ["image"]);
+	}
 }
 
 async function forwardToChatCompletions(
@@ -332,20 +600,55 @@ async function forwardToChatCompletions(
 	});
 
 	if (!response.ok) {
-		logger.warn("Images API - chat completions request failed", {
-			status: response.status,
-			statusText: response.statusText,
-		});
 		const errorData = await response.text();
 		let errorMessage = `Image generation failed with status ${response.status}`;
+		let errorType: string | undefined;
 		try {
 			const parsed = JSON.parse(errorData);
 			errorMessage = parsed?.error?.message ?? parsed?.message ?? errorMessage;
+			errorType =
+				(typeof parsed?.error?.type === "string"
+					? parsed.error.type
+					: undefined) ??
+				(typeof parsed?.error?.code === "string"
+					? parsed.error.code
+					: undefined);
 		} catch {
 			// use default message
 		}
 
-		throw new HTTPException(response.status as any, {
+		// The internal chat completions handler retries and tracks unrecovered
+		// provider failures (rate limits, upstream 5xx, connection resets) itself,
+		// then returns them as an HTTP 500 with an upstream/gateway finish reason
+		// (e.g. "Error from provider zai: 429 ..."). Re-throwing that verbatim as a
+		// 500 makes app.onError log it as a backend "HTTP 500 exception" alert, even
+		// though it is a provider-side gateway error, not an application bug. Re-map
+		// those to 502 so onError labels them as an upstream gateway error and logs
+		// at warn. Genuine backend 500s carry no provider signal and stay 500.
+		const isProviderError =
+			errorType === "upstream_error" ||
+			errorType === "gateway_error" ||
+			errorType === "error" ||
+			errorMessage.startsWith("Error from provider");
+		const status =
+			response.status === 500 && isProviderError ? 502 : response.status;
+
+		if (status === 502 || status === 503 || status === 504) {
+			logger.warn("Images API - upstream provider error", {
+				status,
+				originalStatus: response.status,
+				errorType,
+				message: errorMessage,
+			});
+		} else {
+			logger.warn("Images API - chat completions request failed", {
+				status,
+				statusText: response.statusText,
+				errorType,
+			});
+		}
+
+		throw new HTTPException(status as ContentfulStatusCode, {
 			message: errorMessage,
 		});
 	}
@@ -366,11 +669,22 @@ async function forwardToChatCompletions(
 export const images = new OpenAPIHono<ServerTypes>();
 
 images.openapi(generations, async (c) => {
+	const startedAt = Date.now();
+	const getLogContext = createImageClientErrorLogContextResolver(c);
+
 	// Manual request parsing with better error handling
 	let rawBody: unknown;
 	try {
 		rawBody = await c.req.json();
 	} catch {
+		await logImageClientError(
+			c,
+			getLogContext,
+			{ endpoint: "images.generations" },
+			400,
+			"Invalid JSON in request body",
+			startedAt,
+		);
 		throw new HTTPException(400, {
 			message: "Invalid JSON in request body",
 		});
@@ -379,8 +693,17 @@ images.openapi(generations, async (c) => {
 	// Validate against schema
 	const validationResult = imageGenerationsRequestSchema.safeParse(rawBody);
 	if (!validationResult.success) {
+		const message = `Invalid request parameters: ${validationResult.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join(", ")}`;
+		await logImageClientError(
+			c,
+			getLogContext,
+			buildImageClientErrorLogRequest("images.generations", rawBody),
+			400,
+			message,
+			startedAt,
+		);
 		throw new HTTPException(400, {
-			message: `Invalid request parameters: ${validationResult.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join(", ")}`,
+			message,
 		});
 	}
 
@@ -389,6 +712,8 @@ images.openapi(generations, async (c) => {
 	// Resolve "auto" model to a default image generation model
 	const model =
 		request.model === "auto" ? "gemini-3-pro-image-preview" : request.model;
+
+	assertImageModel(model);
 
 	// Build the chat completions request
 	const chatPrompt = buildImagePrompt(request);
@@ -713,34 +1038,68 @@ async function parseMultipartEditsRequest(
 /**
  * Shared processing logic for image edits (used by both JSON and multipart handlers).
  */
-async function processImageEdit(c: Context, request: ImageEditsRequest) {
-	const imageUrls: string[] = [];
-	for (const [index, image] of request.images.entries()) {
-		if (!isSupportedInputImageUrl(image.image_url)) {
-			throw new HTTPException(400, {
-				message: `images[${index}].image_url must be an https URL or a base64 data URL`,
-			});
-		}
-		imageUrls.push(image.image_url);
-	}
-
-	const isProd = process.env.NODE_ENV === "production";
-
-	const imageResults = await Promise.all(
-		imageUrls.map(async (url, index) => {
-			try {
-				return await processImageUrl(url, isProd);
-			} catch (error) {
-				const errorMessage =
-					error instanceof Error
-						? error.message
-						: "Failed to process image input";
-				throw new HTTPException(400, {
-					message: `images[${index}].image_url is invalid: ${errorMessage}`,
-				});
+async function processImageEdit(
+	c: Context,
+	getLogContext: () => Promise<ImageClientErrorLogContext | null>,
+	request: ImageEditsRequest,
+	startedAt = Date.now(),
+) {
+	const logRequest: ImageClientErrorLogRequest = {
+		endpoint: "images.edits",
+		model: request.model,
+		prompt: request.prompt,
+		n: request.n,
+		size: request.size,
+		quality: request.quality,
+		aspect_ratio: request.aspect_ratio,
+	};
+	const { imageResults, imageCount } = await (async () => {
+		try {
+			const imageUrls: string[] = [];
+			for (const [index, image] of request.images.entries()) {
+				if (!isSupportedInputImageUrl(image.image_url)) {
+					throw new HTTPException(400, {
+						message: `images[${index}].image_url must be an https URL or a base64 data URL`,
+					});
+				}
+				imageUrls.push(image.image_url);
 			}
-		}),
-	);
+
+			const isProd = process.env.NODE_ENV === "production";
+			const imageResults = await Promise.all(
+				imageUrls.map(async (url, index) => {
+					try {
+						return await processImageUrl(url, isProd);
+					} catch (error) {
+						const errorMessage =
+							error instanceof Error
+								? error.message
+								: "Failed to process image input";
+						throw new HTTPException(400, {
+							message: `images[${index}].image_url is invalid: ${errorMessage}`,
+						});
+					}
+				}),
+			);
+			return { imageResults, imageCount: imageUrls.length };
+		} catch (error) {
+			if (
+				error instanceof HTTPException &&
+				error.status >= 400 &&
+				error.status < 500
+			) {
+				await logImageClientError(
+					c,
+					getLogContext,
+					logRequest,
+					error.status,
+					error.message,
+					startedAt,
+				);
+			}
+			throw error;
+		}
+	})();
 
 	const contentParts: Array<Record<string, unknown>> = [];
 
@@ -768,6 +1127,8 @@ async function processImageEdit(c: Context, request: ImageEditsRequest) {
 		request.model === "auto" || !request.model
 			? "gemini-3-pro-image-preview"
 			: request.model;
+
+	assertImageModel(model);
 
 	const chatRequest: Record<string, unknown> = {
 		model,
@@ -804,7 +1165,7 @@ async function processImageEdit(c: Context, request: ImageEditsRequest) {
 	logger.debug("Images Edit API - forwarding to chat completions", {
 		model,
 		prompt: request.prompt.slice(0, 200),
-		imageCount: imageUrls.length,
+		imageCount,
 		n: request.n,
 		size: request.size,
 		aspectRatio: request.aspect_ratio,
@@ -848,20 +1209,48 @@ async function processImageEdit(c: Context, request: ImageEditsRequest) {
 
 // Multipart/form-data handler for OpenAI-compatible clients (must be before openapi route)
 images.post("/edits", async (c, next) => {
+	const startedAt = Date.now();
 	const contentType = c.req.header("Content-Type") ?? "";
 	if (!contentType.includes("multipart/form-data")) {
 		return await next();
 	}
 
-	const request = await parseMultipartEditsRequest(c);
-	return await processImageEdit(c, request);
+	const getLogContext = createImageClientErrorLogContextResolver(c);
+	let request: ImageEditsRequest;
+	try {
+		request = await parseMultipartEditsRequest(c);
+	} catch (error) {
+		if (error instanceof HTTPException && error.status >= 400) {
+			await logImageClientError(
+				c,
+				getLogContext,
+				{ endpoint: "images.edits" },
+				error.status,
+				error.message,
+				startedAt,
+			);
+		}
+		throw error;
+	}
+
+	return await processImageEdit(c, getLogContext, request, startedAt);
 });
 
 images.openapi(edits, async (c) => {
+	const startedAt = Date.now();
+	const getLogContext = createImageClientErrorLogContextResolver(c);
 	let rawBody: unknown;
 	try {
 		rawBody = await c.req.json();
 	} catch {
+		await logImageClientError(
+			c,
+			getLogContext,
+			{ endpoint: "images.edits" },
+			400,
+			"Invalid JSON in request body",
+			startedAt,
+		);
 		throw new HTTPException(400, {
 			message: "Invalid JSON in request body",
 		});
@@ -869,10 +1258,24 @@ images.openapi(edits, async (c) => {
 
 	const validationResult = imageEditsRequestSchema.safeParse(rawBody);
 	if (!validationResult.success) {
+		const message = `Invalid request parameters: ${validationResult.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join(", ")}`;
+		await logImageClientError(
+			c,
+			getLogContext,
+			buildImageClientErrorLogRequest("images.edits", rawBody),
+			400,
+			message,
+			startedAt,
+		);
 		throw new HTTPException(400, {
-			message: `Invalid request parameters: ${validationResult.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join(", ")}`,
+			message,
 		});
 	}
 
-	return await processImageEdit(c, validationResult.data);
+	return await processImageEdit(
+		c,
+		getLogContext,
+		validationResult.data,
+		startedAt,
+	);
 });

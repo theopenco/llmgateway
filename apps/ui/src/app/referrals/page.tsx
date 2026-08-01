@@ -51,9 +51,9 @@ export const metadata: Metadata = {
 const sellingPoints = [
 	{
 		icon: Network,
-		title: "210+ Models, One API",
+		title: "200+ Models, One API",
 		description:
-			"Access OpenAI, Anthropic, Google, Meta, Mistral, and 25+ providers through a single OpenAI-compatible endpoint. Zero code changes to switch providers.",
+			"Access OpenAI, Anthropic, Google, Meta, Mistral, and 40+ providers through a single OpenAI-compatible endpoint. Zero code changes to switch providers.",
 		href: "/features/unified-api-interface",
 		accent: "text-violet-500 dark:text-violet-400",
 		accentBg: "bg-violet-500/10",
@@ -556,12 +556,12 @@ export default function ReferralsPublicPage() {
 											{
 												feature: "Auto Failover",
 												us: "Built-in",
-												them: "Limited",
+												them: "Yes",
 											},
 											{
 												feature: "Analytics",
 												us: "Request-level insights",
-												them: "Basic",
+												them: "Logs + export",
 											},
 											{
 												feature: "Self-Hosting",
@@ -571,7 +571,7 @@ export default function ReferralsPublicPage() {
 											{
 												feature: "Guardrails",
 												us: "PII, injection, secrets",
-												them: "Not available",
+												them: "Enterprise",
 											},
 											{
 												feature: "Dev Plans (Coding)",

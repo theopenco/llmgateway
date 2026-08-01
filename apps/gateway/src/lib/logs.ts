@@ -1,14 +1,18 @@
 import { publishToQueue, LOG_QUEUE } from "@llmgateway/cache";
 import {
-	db,
-	log,
+	stripRetentionSensitiveLogFields,
 	UnifiedFinishReason,
 	type LogInsertData,
 } from "@llmgateway/db";
 import { recordChatCompletionMetrics } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 
-import type { InferInsertModel } from "@llmgateway/db";
+import {
+	redactErrorDetails,
+	shouldRedactProviderError,
+} from "./stealth-provider-errors.js";
+
+import type { InferInsertModel, log } from "@llmgateway/db";
 
 /**
  * Check if a finish reason is expected to map to UNKNOWN
@@ -21,13 +25,15 @@ export function isExpectedUnknownFinishReason(
 	if (!finishReason) {
 		return false;
 	}
-	// Google's "OTHER" finish reason is expected and maps to UNKNOWN
+	// Google's "OTHER" and "MALFORMED_RESPONSE" finish reasons are expected and
+	// map to UNKNOWN
 	if (
 		(provider === "google-ai-studio" ||
 			provider === "glacier" ||
+			provider === "iceberg" ||
 			provider === "google-vertex" ||
 			provider === "quartz") &&
-		finishReason === "OTHER"
+		(finishReason === "OTHER" || finishReason === "MALFORMED_RESPONSE")
 	) {
 		return true;
 	}
@@ -48,6 +54,14 @@ export function getUnifiedFinishReason(
 	if (finishReason === "canceled") {
 		return UnifiedFinishReason.CANCELED;
 	}
+	// Some OpenAI-compatible providers (e.g. MiniMax) emit "abort" when they
+	// interrupt generation on their side. CANCELED is reserved for requests
+	// canceled by the gateway's own client, so an upstream-initiated abort is
+	// an upstream error. The streaming log path records the provider's raw
+	// finish reason, so classify the raw value here as well.
+	if (finishReason === "abort") {
+		return UnifiedFinishReason.UPSTREAM_ERROR;
+	}
 	if (finishReason === "gateway_error") {
 		return UnifiedFinishReason.GATEWAY_ERROR;
 	}
@@ -63,9 +77,24 @@ export function getUnifiedFinishReason(
 	if (finishReason === "llmgateway_content_filter") {
 		return UnifiedFinishReason.CONTENT_FILTER;
 	}
+	// Anthropic-family safety-classifier refusals surface as `stop_reason:
+	// "refusal"` across the direct API, Vertex, and Bedrock. Map it uniformly
+	// here so providers handled by the default branch below (e.g. aws-bedrock)
+	// classify refusals as content filtering rather than UNKNOWN.
+	if (finishReason === "refusal") {
+		return UnifiedFinishReason.CONTENT_FILTER;
+	}
+	// Anthropic models stop with `model_context_window_exceeded` when generation
+	// hits the model's context window before `max_tokens`. Like `refusal`, it
+	// surfaces across the direct API, Vertex, and Bedrock, so map it uniformly
+	// here as a length limit.
+	if (finishReason === "model_context_window_exceeded") {
+		return UnifiedFinishReason.LENGTH_LIMIT;
+	}
 
 	switch (provider) {
 		case "anthropic":
+		case "vertex-anthropic":
 			if (finishReason === "stop_sequence") {
 				return UnifiedFinishReason.COMPLETED;
 			}
@@ -84,6 +113,7 @@ export function getUnifiedFinishReason(
 			break;
 		case "google-ai-studio":
 		case "glacier":
+		case "iceberg":
 		case "google-vertex":
 		case "quartz":
 			// Google finish reasons (original format, not mapped to OpenAI)
@@ -116,7 +146,7 @@ export function getUnifiedFinishReason(
 			) {
 				return UnifiedFinishReason.CONTENT_FILTER;
 			}
-			if (finishReason === "OTHER") {
+			if (finishReason === "OTHER" || finishReason === "MALFORMED_RESPONSE") {
 				return UnifiedFinishReason.UNKNOWN;
 			}
 			break;
@@ -142,6 +172,7 @@ export function getUnifiedFinishReason(
 			}
 			break;
 		case "zai":
+		case "novita":
 			if (finishReason === "stop") {
 				return UnifiedFinishReason.COMPLETED;
 			}
@@ -181,6 +212,23 @@ export function isContentFilterFinishReason(
 	return (
 		getUnifiedFinishReason(finishReason, provider) ===
 		UnifiedFinishReason.CONTENT_FILTER
+	);
+}
+
+/**
+ * Whether the finish reason indicates the model stopped because it reached the
+ * token limit (e.g. a small `max_tokens`). With a tiny limit (such as
+ * `max_tokens: 1`) providers like Google can legitimately return no content at
+ * all, so an empty response with this finish reason is expected behavior, not an
+ * upstream error.
+ */
+export function isLengthLimitFinishReason(
+	finishReason: string | null | undefined,
+	provider: string | null | undefined,
+): boolean {
+	return (
+		getUnifiedFinishReason(finishReason, provider) ===
+		UnifiedFinishReason.LENGTH_LIMIT
 	);
 }
 
@@ -245,8 +293,27 @@ export type LogData = InferInsertModel<typeof log>;
 
 export async function insertLog(
 	logData: LogInsertData,
-	options?: { syncInsert?: boolean },
+	options?: { retentionLevel?: "retain" | "none" | null },
 ): Promise<unknown> {
+	// Fail closed on retention: unless the organization is explicitly known to
+	// retain data, strip the request/response payload fields here — before the
+	// row is ever published to the log queue — so large prompts, completions, and
+	// tool payloads never travel through Redis. Any omitted, null, or unresolved
+	// retention level is treated as non-retaining, since the worker no longer
+	// performs a fallback strip and this is the last chance to withhold payloads.
+	if (options?.retentionLevel !== "retain") {
+		logData = stripRetentionSensitiveLogFields(logData);
+	}
+
+	// Stealth providers: the raw upstream error may reveal the underlying
+	// platform, so it survives only in internalErrorDetails — a column excluded
+	// from public API routes and the UI — while the public errorDetails keeps
+	// just the upstream status code.
+	if (logData.errorDetails && shouldRedactProviderError(logData.usedProvider)) {
+		logData.internalErrorDetails = logData.errorDetails;
+		logData.errorDetails = redactErrorDetails(logData.errorDetails);
+	}
+
 	if (logData.unifiedFinishReason === undefined) {
 		if (logData.canceled) {
 			logData.unifiedFinishReason = UnifiedFinishReason.CANCELED;
@@ -285,7 +352,12 @@ export async function insertLog(
 		finishReason: logData.finishReason ?? null,
 		streaming: logData.streamed ?? false,
 		durationMs: logData.duration || 0,
-		ttftMs: logData.timeToFirstToken ?? undefined,
+		// Reasoning models stream thinking before any content, so the first
+		// reasoning token is the real first-token latency when present.
+		ttftMs:
+			logData.timeToFirstReasoningToken ??
+			logData.timeToFirstToken ??
+			undefined,
 		inputTokens: logData.promptTokens
 			? Number(logData.promptTokens)
 			: undefined,
@@ -300,11 +372,6 @@ export async function insertLog(
 			: undefined,
 		errorType,
 	});
-
-	if (options?.syncInsert) {
-		await db.insert(log).values(logData as LogData);
-		return 1;
-	}
 
 	await publishToQueue(LOG_QUEUE, logData);
 	return 1; // Return 1 to match test expectations

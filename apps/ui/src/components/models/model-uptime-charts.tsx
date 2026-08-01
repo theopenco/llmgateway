@@ -28,6 +28,12 @@ import {
 	type ChartConfig,
 } from "@/lib/components/chart";
 import { useApi } from "@/lib/fetch-client";
+import {
+	formatCompact,
+	hasEnoughRequestsForStats,
+	hasEnoughTtftSamplesForStats,
+	MIN_REQUESTS_FOR_STATS,
+} from "@/lib/provider-stats";
 import { cn } from "@/lib/utils";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
@@ -66,24 +72,17 @@ const metricTabs: { key: ActiveMetric; label: string }[] = [
 	{ key: "tokens", label: "Tokens" },
 ];
 
-function formatCompact(n: number): string {
-	if (n >= 1_000_000_000) {
-		return `${(n / 1_000_000_000).toFixed(1)}B`;
-	}
-	if (n >= 1_000_000) {
-		return `${(n / 1_000_000).toFixed(1)}M`;
-	}
-	if (n >= 1_000) {
-		return `${(n / 1_000).toFixed(1)}k`;
-	}
-	return n.toLocaleString();
-}
-
 function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 	const [activeMetric, setActiveMetric] = useState<ActiveMetric>("requests");
 	const ProviderIcon = getProviderIcon(provider.providerId);
 	const config = chartConfigs[activeMetric];
 	const dataKeys = Object.keys(config);
+
+	const hasEnoughData = hasEnoughRequestsForStats(provider.logsCount);
+	// TTFT only has samples from streamed requests, so on top of the request
+	// threshold it also gates on its own streamed-sample count.
+	const hasEnoughTtftData =
+		hasEnoughData && hasEnoughTtftSamplesForStats(provider.ttftCount);
 
 	const errorRate =
 		provider.logsCount > 0
@@ -91,7 +90,7 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 			: 0;
 
 	const uptimeColor =
-		provider.uptime === null
+		!hasEnoughData || provider.uptime === null
 			? "text-muted-foreground"
 			: provider.uptime >= 99.5
 				? "text-green-600 dark:text-green-500"
@@ -120,6 +119,8 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 							</CardTitle>
 							<CardDescription className="text-xs">
 								Last 4 hours · {provider.points.length} data points
+								{!hasEnoughData &&
+									` · stats hidden until ${formatCompact(MIN_REQUESTS_FOR_STATS)} requests`}
 							</CardDescription>
 						</div>
 					</div>
@@ -128,7 +129,7 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 							<span
 								className={cn("text-2xl font-bold tabular-nums", uptimeColor)}
 							>
-								{provider.uptime.toFixed(1)}%
+								{hasEnoughData ? `${provider.uptime.toFixed(1)}%` : "—"}
 							</span>
 							<span className="text-[10px] uppercase tracking-wide text-muted-foreground">
 								Uptime
@@ -142,14 +143,22 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 						icon={Activity}
 						label="Requests"
 						value={formatCompact(provider.logsCount)}
-						sub={`${formatCompact(provider.errorsCount)} errors (${errorRate}%)`}
+						sub={
+							hasEnoughData
+								? `${formatCompact(provider.errorsCount)} errors (${errorRate}%)`
+								: `${formatCompact(provider.errorsCount)} errors`
+						}
 					/>
 					<Stat
 						icon={Clock}
 						label="Avg TTFT"
-						value={provider.avgTtft !== null ? `${provider.avgTtft}ms` : "—"}
+						value={
+							hasEnoughTtftData && provider.avgTtft !== null
+								? `${provider.avgTtft}ms`
+								: "—"
+						}
 						sub={
-							provider.avgDuration !== null
+							hasEnoughData && provider.avgDuration !== null
 								? `${provider.avgDuration}ms duration`
 								: undefined
 						}
@@ -158,7 +167,7 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 						icon={Gauge}
 						label="Throughput"
 						value={
-							provider.tokensPerSecond !== null
+							hasEnoughData && provider.tokensPerSecond !== null
 								? `${provider.tokensPerSecond.toLocaleString()} t/s`
 								: "—"
 						}
@@ -168,7 +177,7 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 						label="Upstream errors"
 						value={formatCompact(provider.upstreamErrorsCount)}
 						sub={
-							provider.logsCount > 0
+							hasEnoughData && provider.logsCount > 0
 								? `${(
 										Math.round(
 											(provider.upstreamErrorsCount / provider.logsCount) *
