@@ -67,17 +67,30 @@ export function BulkBlockOrgsButton({
 		setPreviewLoading(false);
 	};
 
+	const loadPreview = async () => {
+		setPreview(null);
+		setConfirmation("");
+		setPreviewLoading(true);
+		try {
+			const response = await onPreview(trimmedSearch);
+			if (response.success && response.preview) {
+				setPreview(response.preview);
+			} else {
+				setError(response.error ?? "Failed to preview bulk block");
+			}
+		} catch (err) {
+			setError(
+				err instanceof Error ? err.message : "Failed to preview bulk block",
+			);
+		} finally {
+			setPreviewLoading(false);
+		}
+	};
+
 	const handleOpen = async () => {
 		resetState();
 		setOpen(true);
-		setPreviewLoading(true);
-		const response = await onPreview(trimmedSearch);
-		setPreviewLoading(false);
-		if (response.success && response.preview) {
-			setPreview(response.preview);
-		} else {
-			setError(response.error ?? "Failed to preview bulk block");
-		}
+		await loadPreview();
 	};
 
 	const handleConfirm = async () => {
@@ -88,12 +101,17 @@ export function BulkBlockOrgsButton({
 		setError(null);
 		try {
 			const response = await onBulkBlock(preview.search, preview.blockable);
-			setResult(response);
 			if (response.success) {
+				setResult(response);
 				router.refresh();
-			} else {
-				setError(response.error ?? "Failed to bulk block organizations");
+				return;
 			}
+			// A failure keeps the dialog on the confirmation step instead of showing
+			// a summary. The most likely cause is the server rejecting a count that
+			// no longer matches, so re-resolve the set: the admin then confirms
+			// against current numbers rather than resubmitting the stale one.
+			setError(response.error ?? "Failed to bulk block organizations");
+			await loadPreview();
 		} catch (err) {
 			setError(
 				err instanceof Error
