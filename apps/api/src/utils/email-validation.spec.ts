@@ -48,6 +48,12 @@ describe("validateEmail", () => {
 			expect(result.valid).toBe(false);
 			expect(result.reason).toBe("blacklisted_domain");
 		});
+
+		it("should reject emails from 1nawaks.web.id", () => {
+			const result = validateEmail("user@1nawaks.web.id");
+			expect(result.valid).toBe(false);
+			expect(result.reason).toBe("blacklisted_domain");
+		});
 	});
 
 	describe("disposable email validation", () => {
