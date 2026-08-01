@@ -19,6 +19,12 @@ Currently available models:
 
 You can find the current list of video-capable models on our [models page with the video filter enabled](https://llmgateway.io/models?filters=1&videoGeneration=true) or programmatically through the [/v1/models endpoint](/v1_models).
 
+<Callout type="info">
+	Video generation is not available on DevPass coding plans — coding plans only
+	include text-based inference, so requests from a coding-plan organization
+	return a `403`.
+</Callout>
+
 ## What Works Today
 
 - `POST /v1/videos`
@@ -41,7 +47,7 @@ LLMGateway currently supports a focused subset of the OpenAI video API.
 | `audio`            | boolean | no       | Whether to include audio in the output (default `true`). Only honored when the model supports both audio and silent output |
 | `image`            | object  | no       | Optional first frame for image-to-video generation (see first/last frame inputs below)                                     |
 | `last_frame`       | object  | no       | Optional ending frame when `image` is provided (see first/last frame inputs below)                                         |
-| `reference_images` | array   | no       | One to three provider-specific image inputs                                                                                |
+| `reference_images` | array   | no       | Provider-specific image inputs — up to 9 on Seedance 2.0, up to 3 elsewhere                                                |
 | `input_reference`  | object  | no       | Alias for one or more `reference_images`                                                                                   |
 | `reference_videos` | array   | no       | One to three reference video HTTPS URLs (Seedance 2.0 only, see below)                                                     |
 | `reference_audios` | array   | no       | One to three reference audio HTTPS URLs (Seedance 2.0 only, see below)                                                     |
@@ -116,11 +122,11 @@ curl -X POST "https://api.llmgateway.io/v1/videos" \
 
 Seedance 2.0 (`seedance-2-0`, `seedance-2-0-fast`, `seedance-2-0-mini`) can generate a video that is guided by reference **images**, **videos**, and **audio** — sometimes called omni-reference. You attach references as top-level fields in the same `POST /v1/videos` payload; the gateway forwards each one to the provider tagged with the correct role, so you don't set roles yourself.
 
-| Reference type | Payload field                                | Count | Accepted input                   | Available on                                         |
-| -------------- | -------------------------------------------- | ----- | -------------------------------- | ---------------------------------------------------- |
-| Image          | `reference_images` (`input_reference` alias) | 1–3   | HTTPS URL **or** base64 data URL | Seedance 2.0, Veo 3.1 (`google-vertex`, `avalanche`) |
-| Video          | `reference_videos`                           | 1–3   | HTTPS URL only                   | Seedance 2.0                                         |
-| Audio          | `reference_audios`                           | 1–3   | HTTPS URL only                   | Seedance 2.0                                         |
+| Reference type | Payload field                                | Count                            | Accepted input                   | Available on                                         |
+| -------------- | -------------------------------------------- | -------------------------------- | -------------------------------- | ---------------------------------------------------- |
+| Image          | `reference_images` (`input_reference` alias) | 1–9 (Seedance 2.0), 1–3 (others) | HTTPS URL **or** base64 data URL | Seedance 2.0, Veo 3.1 (`google-vertex`, `avalanche`) |
+| Video          | `reference_videos`                           | 1–3                              | HTTPS URL only                   | Seedance 2.0                                         |
+| Audio          | `reference_audios`                           | 1–3                              | HTTPS URL only                   | Seedance 2.0                                         |
 
 Each list item accepts either a bare URL string or an object form:
 

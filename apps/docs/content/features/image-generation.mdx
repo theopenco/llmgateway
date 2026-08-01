@@ -35,6 +35,7 @@ The `/v1/images/generations` endpoint provides a drop-in replacement for OpenAI'
 | `quality`         | string  | —            | Image quality. Supported values depend on the model/provider — see [Image Configuration](#image-configuration)   |
 | `response_format` | string  | `"b64_json"` | Only `b64_json` is supported                                                                                     |
 | `style`           | string  | —            | Image style: `vivid` or `natural`                                                                                |
+| `aspect_ratio`    | string  | —            | Aspect ratio (e.g. `1:1`, `16:9`, `4:3`, `5:4`). Takes precedence over `size` if both are provided               |
 
 ### curl
 
@@ -134,8 +135,15 @@ The `/v1/images/edits` endpoint is OpenAI-compatible and supports a focused subs
 | `size`               | string                   | no       | Output size. Examples: `1024x1024`, `1536x1024`, `1K`, `2K`, `4K`  |
 | `aspect_ratio`       | string                   | no       | Aspect ratio override. Examples: `1:1`, `16:9`, `4:3`, `5:4`       |
 
+### Multipart requests (OpenAI SDK compatibility)
+
+Besides the JSON body above, `/v1/images/edits` also accepts `multipart/form-data` — the format the OpenAI SDK's `images.edit()` sends. Multipart requests support the `prompt`, `image` (also accepted as `image[]` or `file`), `mask`, `model`, `n`, `size`, and `quality` fields; uploaded files are converted to data URLs internally.
+
 <Callout type="warning">
-	`mask` is not supported yet on `/v1/images/edits`.
+	A `mask` file is accepted on multipart requests, but it is forwarded to the
+	model as an **additional input image** rather than applied as a strict alpha
+	mask — how the model uses it depends on the model. JSON requests have no
+	`mask` field; include the mask as another entry in `images` instead.
 </Callout>
 
 ### curl (HTTPS image URL)

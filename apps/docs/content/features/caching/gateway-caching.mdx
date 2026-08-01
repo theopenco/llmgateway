@@ -61,24 +61,38 @@ To use caching:
 2. Configure the cache duration (TTL) as needed
 3. Make requests as normal—caching is automatic
 
+<Callout type="info">
+	Gateway caching is only available on regular (pay-as-you-go and Enterprise)
+	organizations. Organizations on a DevPass coding plan never get gateway-level
+	response caching, regardless of the project setting.
+</Callout>
+
 ## Cache Key Generation
 
 The cache key is generated from these request parameters:
 
-- Model identifier
-- Messages array (roles and content)
+- The resolved provider and model
+- Messages array (roles and content, including the system prompt)
 - Temperature
 - Max tokens
 - Top P
-- Tools/functions
-- Tool choice
+- Frequency penalty and presence penalty
 - Response format
-- System prompt
-- Other model-specific parameters
+- Reasoning parameters (`reasoning_effort`, `reasoning_max_tokens`)
+- Prompt-caching parameters (`prompt_cache_key`, `prompt_cache_retention`, `prompt_cache_options`)
+- `n` (number of choices)
+- Service tier
 
 <Callout type="info">
-	Requests with different parameter values, even slight variations, will not
-	share cache entries.
+	Requests with different values for any of these parameters, even slight
+	variations, will not share cache entries.
+</Callout>
+
+<Callout type="warn">
+	Tool definitions (`tools`, `tool_choice`) are **not** part of the cache key.
+	Two requests with identical messages but different tools can share a cache
+	entry, so avoid enabling gateway caching for workloads where the same messages
+	are sent with varying tool definitions.
 </Callout>
 
 ## Cache Behavior
@@ -228,8 +242,8 @@ Caching may not be suitable for:
 ## Pricing
 
 Caching is **completely free**. Cached responses are held in a short-lived
-in-memory cache (bounded by your configured TTL) and do not incur storage
-charges. Storage costs only apply if you separately enable [Data
+TTL-bound cache (bounded by your configured cache duration) and do not incur
+storage charges. Storage costs only apply if you separately enable [Data
 Retention](/features/data-retention) for full request/response payloads.
 
 <Callout type="success">

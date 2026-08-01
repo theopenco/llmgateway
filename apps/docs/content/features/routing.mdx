@@ -151,7 +151,7 @@ This transparency allows you to understand and debug routing decisions.
 
 ### Routing Strategy
 
-By default, model-ID routing uses the full weighted score described above (`routing: "auto"`). When you care about a single dimension, set the `routing` field — named after the factor it optimizes — to bias provider selection toward it:
+By default, model-ID routing uses the full weighted score described above (`routing: "auto"`). When you care about a single dimension, set the `routing` field — named after the factor it optimizes — to bias provider selection toward it. A **default routing strategy** can also be configured per project in the project settings; an explicit `routing` field on the request always takes precedence over the project default:
 
 | Strategy           | Behavior                                                                             |
 | ------------------ | ------------------------------------------------------------------------------------ |
@@ -208,8 +208,10 @@ Sticky session routing solves this: attach a session identifier and LLMGateway p
 For chat completions, the session key is resolved in priority order:
 
 1. The `x-session-id` header
-2. The `prompt_cache_key` body field (OpenAI-compatible)
-3. The `user` body field (OpenAI-compatible)
+2. The `x-session-affinity` header (sent by coding agents such as opencode)
+3. The `session_id` or `session-id` header
+4. The `prompt_cache_key` body field (OpenAI-compatible)
+5. The `user` body field (OpenAI-compatible)
 
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
@@ -234,11 +236,12 @@ Because the pinned provider is replayed directly, sticky requests **skip the eps
 
 An established pin yields only when its provider can no longer serve the session well. A session is re-scored and re-pinned to the current weighted-best provider when its provider:
 
-- Drops below the session uptime threshold (default 85%),
-- Is filtered out by health checks (e.g. excluded for low uptime), or
-- Fails the request and is dropped by the [automatic retry & fallback](#automatic-retry--fallback) loop.
+- Drops below the session uptime threshold (default 85%), or
+- Leaves the set of available providers for the request (e.g. filtered out by health checks).
 
 Re-pinning runs the same weighted algorithm again, so the replacement is the best currently available provider — not an arbitrary one.
+
+Session-sticky requests do **not** use cross-provider fallback: switching providers mid-session would break the pin and lose the warm prompt cache. When a sticky request fails with a retryable error, it is retried against the **pinned provider** instead — first on an alternate key for that provider when one is configured, otherwise on the same key with a short exponential backoff. Repeated failures lower the provider's uptime score until the session uptime threshold triggers a re-pin.
 
 The selection reason in routing metadata shows `session-sticky` when a request was pinned via a session id.
 
@@ -367,7 +370,7 @@ When using model ID routing (without a provider prefix), LLMGateway automaticall
 ### How Retry Works
 
 1. Your request is routed to the best available provider using the smart routing algorithm
-2. If that provider returns a server error (5xx), times out, or has a connection failure, the gateway marks the provider as failed
+2. If that provider fails with a retryable error (see below), the gateway marks the provider as failed
 3. The next best available provider is selected and the request is retried
 4. Up to **2 retries** are attempted before returning an error to the client
 
@@ -379,15 +382,19 @@ Both streaming and non-streaming requests support automatic retry.
 
 ### What Triggers a Retry
 
-Retries are triggered by **server-side failures** only:
+Retries are triggered by failures on the **provider or gateway side** — errors where the same request can legitimately succeed on another provider or key:
 
 - **5xx errors** (500 Internal Server Error, 502 Bad Gateway, 503 Service Unavailable, etc.)
+- **429 rate limits** from the upstream provider
+- **404 errors** from the upstream provider (model or endpoint not found on that deployment)
+- **401/403 authentication errors** from the provider (a bad provider-side credential — the gateway also rotates to another configured key for the same provider)
+- **402 / provider-account funding errors** (the provider account behind the key is out of funds)
 - **Timeouts** (upstream provider took too long to respond)
 - **Connection failures** (network errors, DNS failures, etc.)
 
 Retries are **not** triggered by:
 
-- **4xx client errors** (400 Bad Request, 401 Unauthorized, 403 Forbidden, 422 Unprocessable Entity)
+- **Other 4xx client errors** — a request that is actually invalid (e.g. 400 validation errors, 422 Unprocessable Entity) fails the same way everywhere and is returned to you directly
 - **Content filter responses** (Azure ResponsibleAI, etc.)
 
 ### When Retry Is Disabled
@@ -396,6 +403,7 @@ Automatic retry to a different provider is disabled when:
 
 - The `X-No-Fallback: true` header is set
 - A specific provider is requested (e.g., `openai/gpt-4o`)
+- The request carries a session id ([sticky session routing](#sticky-session-routing)) — failures are retried against the pinned provider instead
 - No alternative providers are available for the requested model
 - The maximum retry count (2) has been exhausted
 
@@ -414,7 +422,7 @@ Every provider attempt — both failed and successful — is recorded in the `ro
 				"provider": "openai",
 				"model": "gpt-4o",
 				"status_code": 500,
-				"error_type": "server_error",
+				"error_type": "upstream_error",
 				"succeeded": false
 			},
 			{
@@ -461,15 +469,15 @@ Overrides are merged on top of the defaults, so you only set the values you want
 
 The following groups can be customized per project:
 
-| Group                   | What it controls                                                                                                                                                                     | Defaults                                                                                                                                 |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| **Weights**             | Relative importance of each scoring factor                                                                                                                                           | `price 0.6`, `imagePrice 1.0`, `uptime 0.5`, `throughput 0.05`, `latency 0.025`, `cache 0.2`                                             |
-| **Thresholds**          | Cache prompt-size threshold, uptime-penalty threshold, exploration rate, and the assumed defaults used when no metrics exist                                                         | `cachePromptTokens 5000`, `uptimePenalty 95`, `defaultUptime 100`, `defaultLatency 1000`, `defaultThroughput 50`, `explorationRate 0.01` |
-| **Retry**               | Max cross-provider fallback attempts and the low-uptime reroute threshold                                                                                                            | `maxRetries 2`, `lowUptimeFallbackThreshold 90`                                                                                          |
-| **Timeouts**            | Per-request time limits (end-to-end, streaming, non-streaming) — see [Request Timeouts](/features/timeouts). Capped at the infrastructure defaults — an override can only lower them | `gatewayMs 1,500,000`, `streamingMs 1,200,000`, `plainMs 600,000`                                                                        |
-| **History**             | The metrics window and the time-decay tier boundaries and weights                                                                                                                    | `windowMinutes 60` (max 120), `tier1Minutes 1`, `tier2Minutes 5`, `tier1Weight 10`, `tier2Weight 3`, `tier3Weight 1`                     |
-| **Sticky**              | Stable-provider preference: on/off, TTL, hard-switch uptime floor, soft-switch score margin                                                                                          | `enabled true`, `ttlSeconds 3600`, `uptimeThreshold 85`, `scoreMargin 0.15`                                                              |
-| **Provider priorities** | Per-provider priority multipliers; set a provider to `0` to disable it for that project                                                                                              | `1` for every provider                                                                                                                   |
+| Group                   | What it controls                                                                                                                                                         | Defaults                                                                                                                                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| **Weights**             | Relative importance of each scoring factor                                                                                                                               | `price 0.6`, `imagePrice 1.0`, `uptime 0.5`, `throughput 0.05`, `latency 0.025`, `cache 0.2`                                             |
+| **Thresholds**          | Cache prompt-size threshold, uptime-penalty threshold, exploration rate, and the assumed defaults used when no metrics exist                                             | `cachePromptTokens 5000`, `uptimePenalty 95`, `defaultUptime 100`, `defaultLatency 1000`, `defaultThroughput 50`, `explorationRate 0.01` |
+| **Retry**               | Max cross-provider fallback attempts and the low-uptime reroute threshold                                                                                                | `maxRetries 2`, `lowUptimeFallbackThreshold 90`                                                                                          |
+| **Timeouts**            | Per-request time limits (streaming, non-streaming) — see [Request Timeouts](/features/timeouts). Capped at the infrastructure defaults — an override can only lower them | `gatewayMs 1,500,000`, `streamingMs 1,200,000`, `plainMs 600,000`                                                                        |
+| **History**             | The metrics window and the time-decay tier boundaries and weights                                                                                                        | `windowMinutes 60` (max 120), `tier1Minutes 1`, `tier2Minutes 5`, `tier1Weight 10`, `tier2Weight 3`, `tier3Weight 1`                     |
+| **Sticky**              | Stable-provider preference: on/off, TTL, hard-switch uptime floor, soft-switch score margin                                                                              | `enabled true`, `ttlSeconds 3600`, `uptimeThreshold 85`, `scoreMargin 0.15`                                                              |
+| **Provider priorities** | Per-provider priority multipliers; set a provider to `0` to disable it for that project                                                                                  | `1` for every provider                                                                                                                   |
 
 <Callout type="info">
 	Per-project routing configuration requires the Enterprise plan. If you'd like

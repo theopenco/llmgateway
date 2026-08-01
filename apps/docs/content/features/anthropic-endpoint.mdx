@@ -62,7 +62,7 @@ export ANTHROPIC_MODEL=gpt-5-mini
 export ANTHROPIC_MODEL=gemini-3.1-pro-preview
 
 # Use Anthropic's actual Claude models
-export ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
+export ANTHROPIC_MODEL=claude-sonnet-4-6
 ```
 
 ## Environment Variables
@@ -162,6 +162,23 @@ Cache usage comes back in Anthropic's native fields: `usage.cache_creation_input
 	Control](/features/caching/provider-cache-control) for the per-model
 	thresholds and details.
 </Callout>
+
+### Extended Thinking / Reasoning
+
+Anthropic's reasoning controls are supported and mapped onto the gateway's unified reasoning parameters, so the requested effort reaches whichever provider serves the request:
+
+- `thinking: { "type": "enabled", "budget_tokens": <n> }` forwards the exact token budget (`reasoning.max_tokens` internally). Without a `budget_tokens`, reasoning runs at `high` effort — Anthropic's default depth.
+- `thinking: { "type": "disabled" }` turns reasoning off.
+- `output_config.effort` (adaptive thinking on newer Claude models) accepts the full effort range `none | minimal | low | medium | high | xhigh | max` — the same enum as the chat completions `reasoning_effort` parameter.
+
+```json
+{
+	"model": "claude-sonnet-4-6",
+	"max_tokens": 1024,
+	"thinking": { "type": "enabled", "budget_tokens": 4096 },
+	"messages": [{ "role": "user", "content": "Solve this step by step..." }]
+}
+```
 
 ### Web Search
 

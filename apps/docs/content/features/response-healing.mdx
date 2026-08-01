@@ -42,6 +42,14 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 	or `json_schema`. For regular text responses, the plugin has no effect.
 </Callout>
 
+<Callout type="info">
+	The gateway also applies JSON healing **automatically** — without the plugin —
+	to JSON-mode responses on a few providers and models whose deployments are
+	known to emit malformed JSON-mode output (for example a stray closing brace or
+	JSON wrapped in explanatory text). The plugin makes healing explicit and
+	applies it regardless of provider.
+</Callout>
+
 ## How It Works
 
 When Response Healing is enabled, LLM Gateway applies a series of repair strategies to malformed JSON responses:
@@ -189,8 +197,11 @@ When a response is healed, the healing method is logged for debugging. The follo
 ## Limitations
 
 <Callout type="warning">
-	Response Healing is only available for non-streaming requests. Streaming
-	responses are returned as-is without healing.
+	On streaming requests, healing buffers the streamed content and replays the
+	healed result as a single chunk at the end of the stream — you lose
+	incremental token delivery for that response. Streaming healing is skipped
+	when `n` is greater than 1 (multiple choices), since each choice streams its
+	own content.
 </Callout>
 
 Response Healing works best for:

@@ -13,11 +13,10 @@ platform from stuck upstream connections, but they matter to you directly if
 you run long generations or agentic pipelines: a single completion that runs
 longer than the limit is terminated.
 
-| Limit             | Default    | Applies to                                               |
-| ----------------- | ---------- | -------------------------------------------------------- |
-| **Streaming**     | 20 minutes | Streaming completions (`stream: true`)                   |
-| **Non-streaming** | 10 minutes | Non-streaming completions                                |
-| **End-to-end**    | 25 minutes | Overall ceiling for the whole request, including retries |
+| Limit             | Default    | Applies to                             |
+| ----------------- | ---------- | -------------------------------------- |
+| **Streaming**     | 20 minutes | Streaming completions (`stream: true`) |
+| **Non-streaming** | 10 minutes | Non-streaming completions              |
 
 ## How the limits behave
 
@@ -25,6 +24,9 @@ longer than the limit is terminated.
   the gateway opens the upstream provider request and keeps running for the
   entire response — a stream is cut at the limit even while it is actively
   producing tokens.
+- **They apply per provider attempt.** When the gateway [retries a failed
+  request](/features/routing#automatic-retry--fallback) on another provider or
+  key, the retried attempt gets a fresh window.
 - **They apply per request, not per session or conversation.** Every
   completion call gets a fresh window. A long-running agent that makes many
   calls over hours is unaffected; only a _single_ call exceeding the limit
@@ -64,11 +66,11 @@ project.
 **Self-hosted deployments** control the limits with environment variables on
 the gateway service:
 
-| Variable                  | Default   | Controls                  |
-| ------------------------- | --------- | ------------------------- |
-| `AI_STREAMING_TIMEOUT_MS` | `1200000` | Streaming completions     |
-| `AI_TIMEOUT_MS`           | `600000`  | Non-streaming completions |
-| `GATEWAY_TIMEOUT_MS`      | `1500000` | End-to-end ceiling        |
+| Variable                  | Default   | Controls                                                                                                               |
+| ------------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `AI_STREAMING_TIMEOUT_MS` | `1200000` | Streaming completions                                                                                                  |
+| `AI_TIMEOUT_MS`           | `600000`  | Non-streaming completions                                                                                              |
+| `GATEWAY_TIMEOUT_MS`      | `1500000` | Caps the default streaming timeout (when `AI_STREAMING_TIMEOUT_MS` is unset, streaming uses at most 80% of this value) |
 
 <Callout type="warn">
 	When raising the limits on a self-hosted deployment, raise the surrounding

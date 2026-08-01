@@ -30,58 +30,25 @@ Every significant action is logged with detailed metadata:
 
 ## Tracked Actions
 
-### Organization Management
+Actions are logged as `resource.action` pairs (e.g. `api_key.create`, `project.update`). Coverage spans every management surface of the platform, including:
 
-- `organization.update` — Organization settings changed
-- `organization.delete` — Organization deleted
+- **Organization & projects** — settings changes, creation, deletion
+- **Team** — members, roles, invitations, per-member budgets, and member-level IAM rules
+- **API keys** — creation, rotation, status/limit/description changes, deletion, and per-key IAM rules
+- **Master keys** — creation, status changes, deletion
+- **Provider keys and custom models** — creation, updates, deletion
+- **Billing** — subscriptions, credit top-ups, payment methods, auto top-up settings, refunds
+- **Plans** — DevPass and chat plan lifecycle events
+- **SSO & SCIM** — identity provider configuration, sign-ins, and directory sync events
 
-### Project Management
-
-- `project.create` — New project created
-- `project.update` — Project settings changed
-- `project.delete` — Project deleted
-
-### Team Management
-
-- `team_member.add` — New member invited
-- `team_member.update` — Member role changed
-- `team_member.remove` — Member removed
-
-### API Key Management
-
-- `api_key.create` — New API key created
-- `api_key.update_status` — API key enabled/disabled
-- `api_key.update_limit` — Usage limit changed
-- `api_key.delete` — API key deleted
-- `api_key.iam_rule.create` — IAM rule added
-- `api_key.iam_rule.update` — IAM rule modified
-- `api_key.iam_rule.delete` — IAM rule removed
-
-### Provider Key Management
-
-- `provider_key.create` — Provider key added
-- `provider_key.update` — Provider key status changed
-- `provider_key.delete` — Provider key removed
-
-### Billing Events
-
-- `subscription.create` — Subscription started
-- `subscription.cancel` — Subscription cancelled
-- `subscription.resume` — Subscription resumed
-- `payment.credit_topup` — Credits purchased
+The **Action** filter on the audit logs page always lists the complete, current set of tracked actions.
 
 ## Filtering and Search
 
-Filter logs by:
+Filter logs in the dashboard by:
 
 - **Action** — Specific action type
 - **Resource Type** — Category of resource
-- **User** — Who performed the action
-- **Date Range** — Time period
-
-## Data Retention
-
-Audit logs are retained for **90 days** on the Enterprise plan.
 
 ## Access Control
 

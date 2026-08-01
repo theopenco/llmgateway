@@ -34,6 +34,10 @@ Errors on the OpenAI-compatible endpoints (`/v1/chat/completions`, `/v1/embeddin
 
 The HTTP status code on the response always matches the error and is the authoritative signal — read it from the response status line rather than the body.
 
+## Request IDs
+
+Every chat completion response — success or error — carries an `x-request-id` response header identifying the request. You can also supply your own id by sending an `x-request-id` request header, and the gateway will echo it back. Include this id when reporting issues so the request can be correlated with gateway logs.
+
 ## Status Codes
 
 The gateway maps HTTP status codes to OpenAI error types and codes as follows:

@@ -121,7 +121,7 @@ curl -X POST https://api.llmgateway.io/v1/chat/completions \
   -H "Authorization: Bearer YOUR_LLMGATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "azure/gpt-4o-mini",
+    "model": "azure/gpt-4o",
     "messages": [
       {
         "role": "user",
@@ -138,11 +138,7 @@ Replace `YOUR_LLMGATEWAY_API_KEY` with your LLM Gateway API key.
 
 ## Available Models
 
-Once configured, you can access your Azure deployments through LLM Gateway:
-
-- **GPT-4o**: `azure/gpt-4o`
-- **GPT-4o Mini**: `azure/gpt-4o-mini`
-- **GPT-3.5 Turbo**: `azure/gpt-3.5-turbo` (note: use gpt-3.5-turbo as llmgateway model name instead of gpt-35-turbo)
+Once configured, you can access your Azure deployments through LLM Gateway by prefixing the model id with `azure/` (for example `azure/gpt-4o` or `azure/gpt-5.1`). Where Azure's deployment name differs from the catalogue id, use the LLM Gateway id — e.g. `azure/gpt-3.5-turbo` maps to Azure's `gpt-35-turbo` deployment automatically.
 
 **Note**: Only models you have deployed in Azure Studio will be available. Ensure your deployment names match the expected model identifiers.
 

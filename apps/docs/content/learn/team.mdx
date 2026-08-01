@@ -16,18 +16,23 @@ Click **Add Member** to invite someone by email. You'll need to:
 
 1. Enter their email address
 2. Select a role (Developer, Admin, or Owner)
+3. For the **Developer** role, select the project(s) the developer may access — developer access is project-scoped and requires at least one project
 
-Your plan includes up to **5 team seats**. The current count is displayed, and the Add button is disabled when all seats are used. Contact sales for additional seats.
+Plans include up to **5 team seats** by default (**100** on Enterprise; higher limits can be arranged). The current count — which includes pending invitations — is displayed, and the Add button is disabled when all seats are used. Contact sales for additional seats.
+
+Invitations that have not been accepted yet appear in a **Pending Invitations** table below the member list, where they can be revoked.
 
 ## Team Members List
 
 Each member shows:
 
-| Field     | Description                                      |
-| --------- | ------------------------------------------------ |
-| **Name**  | The member's display name                        |
-| **Email** | Their email address                              |
-| **Role**  | Their current role (can be changed via dropdown) |
+| Field        | Description                                                                           |
+| ------------ | ------------------------------------------------------------------------------------- |
+| **Name**     | The member's display name                                                             |
+| **Email**    | Their email address                                                                   |
+| **Role**     | Their current role                                                                    |
+| **Projects** | The projects a developer has access to (all projects for other roles)                 |
+| **Limits**   | The member's spending limits, alongside their cost, token, request, and API-key usage |
 
 ## Actions
 
@@ -51,10 +56,12 @@ For the full rule semantics, see [Member-Level IAM Rules](/features/api-keys#mem
 
 ## Role Permissions
 
-| Role          | Permissions                                                                                           |
-| ------------- | ----------------------------------------------------------------------------------------------------- |
-| **Owner**     | Full access to all settings, billing, team management, and all projects                               |
-| **Admin**     | Can manage team members, projects, and API keys, but cannot access billing or delete the organization |
-| **Developer** | View and use resources only. Cannot modify settings or manage team                                    |
+| Role          | Permissions                                                                                                                               |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| **Owner**     | Full access to all settings, billing, team management, and all projects                                                                   |
+| **Admin**     | Can manage team members, projects, and API keys. Cannot manage subscriptions or change billing and policy settings — those are owner-only |
+| **Developer** | Access restricted to their granted project(s). Cannot modify settings or manage the team                                                  |
 
-Developers can also be given **restricted access** at the API key level, limiting which keys they can view and use.
+The **Developer** role is project-scoped and requires the **Enterprise plan** — assigning it on other plans returns an error. A developer must always be granted at least one project.
+
+Owners and admins can also set organization-wide **default developer limits** from the Team page — spending and API-key caps applied to every developer in the organization, which a developer's own limits (set via "Manage budget") override.

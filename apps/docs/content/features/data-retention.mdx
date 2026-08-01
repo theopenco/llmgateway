@@ -26,10 +26,9 @@ LLM Gateway supports two retention levels that can be configured per organizatio
 
 ## Storage Pricing
 
-When full data retention is enabled, storage is billed at **$0.01 per 1 million tokens**. This rate applies to:
+When full data retention is enabled, storage is billed at **$0.01 per 1 million tokens**. This rate applies to the sum of:
 
 - Input tokens (prompt)
-- Cached input tokens
 - Output tokens (completion)
 - Reasoning tokens
 
@@ -60,7 +59,7 @@ Data retention is configured at the organization level in your dashboard setting
 
 ## Retention Periods
 
-Data is retained for 30 days for all users. Enterprise plans can have custom retention periods. After the retention period expires, data is automatically deleted.
+Stored payloads are retained for **30 days** for all organizations. After the retention period expires, the payload data (messages, responses, tool calls, raw request/response bodies) is automatically removed from each request record — the request's metadata (timestamps, model, tokens, costs) is kept for analytics.
 
 <Callout type="info">
 	The Responses API does not require data retention. Stored responses (used for
@@ -120,6 +119,8 @@ In **credits mode**:
 
 - Both inference and storage costs are deducted from credits
 
+In **hybrid mode** (the default for new projects), each request follows the rules of the mode that served it: requests served by your own provider keys only incur storage costs, while requests served by credits incur both.
+
 ### Monitoring Storage Costs
 
 Storage costs appear in:
@@ -136,7 +137,7 @@ Storage costs appear in:
 
 Self-hosted deployments have full control over data retention:
 
-- Configure retention periods in environment variables
+- The retention cleanup job is opt-in — enable it with `ENABLE_DATA_RETENTION_CLEANUP=true` on the worker service (with it disabled, payloads are kept indefinitely)
 - Data is stored in your own PostgreSQL database
 - No additional storage costs (you manage your own infrastructure)
 
@@ -144,5 +145,5 @@ Self-hosted deployments have full control over data retention:
 
 - All stored data is encrypted at rest
 - Access is restricted to organization members with appropriate permissions
-- Data is automatically deleted after the retention period
+- Stored payloads are automatically removed after the retention period
 - You can request immediate deletion of specific records through support

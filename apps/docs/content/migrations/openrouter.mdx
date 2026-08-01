@@ -101,7 +101,7 @@ const client = new OpenAI({
 
 // Usage remains the same
 const completion = await client.chat.completions.create({
-	model: "anthropic/claude-3-5-sonnet-20241022",
+	model: "anthropic/claude-sonnet-4-6",
 	messages: [{ role: "user", content: "Hello!" }],
 });
 ```
@@ -167,7 +167,7 @@ LLM Gateway supports streaming responses identically to OpenRouter:
 
 ```typescript
 const stream = await client.chat.completions.create({
-	model: "anthropic/claude-3-5-sonnet-20241022",
+	model: "anthropic/claude-sonnet-4-6",
 	messages: [{ role: "user", content: "Write a story" }],
 	stream: true,
 });

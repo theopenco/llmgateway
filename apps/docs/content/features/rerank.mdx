@@ -24,6 +24,12 @@ Browse available rerank models on the
 For the full request and response schema, see the
 [API reference](/v1_rerank).
 
+<Callout type="info">
+	Rerank is not available on DevPass coding plans — coding plans only include
+	text-based inference, so requests from a coding-plan organization return a
+	`403`.
+</Callout>
+
 ## Endpoint
 
 `POST https://api.llmgateway.io/v1/rerank`

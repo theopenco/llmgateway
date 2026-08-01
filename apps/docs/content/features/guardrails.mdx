@@ -17,11 +17,13 @@ Guardrails protect your organization by automatically detecting and blocking har
 
 ## Overview
 
-Guardrails run on every API request, scanning message content for:
+Guardrails run on chat completion requests, scanning message content for:
 
 - Security threats (prompt injection, jailbreak attempts)
 - Sensitive data (PII, secrets, credentials)
 - Policy violations (blocked terms, restricted topics)
+
+Guardrails cover `/v1/chat/completions` and the endpoints that route through it internally — the [Anthropic-compatible `/v1/messages` endpoint](/features/anthropic-endpoint), the Responses API, and image generation via chat models. Non-chat endpoints (embeddings, moderations, OCR, rerank, audio, video) are not scanned.
 
 When a violation is detected, you control what happens: block the request, redact the content, or log a warning.
 

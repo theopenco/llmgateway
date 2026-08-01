@@ -1,0 +1,69 @@
+---
+title: Responses API
+description: Use the OpenAI-compatible Responses API with stored responses, stateless reasoning replay, and conversation compaction.
+icon: Layers
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Responses API
+
+LLMGateway exposes an OpenAI-compatible **Responses API** at `/v1/responses`. Requests are converted internally to chat completions and proxied through the same pipeline as `/v1/chat/completions`, so smart routing, caching, guardrails, and cost tracking all apply — with any model in the catalogue, not just OpenAI's.
+
+Authenticate with `Authorization: Bearer <key>` or the `x-api-key` header.
+
+## Creating a response
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/responses" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-5",
+    "input": "Tell me a three sentence bedtime story about a unicorn."
+  }'
+```
+
+### Request parameters
+
+| Parameter                                                            | Type               | Description                                                                                                                      |
+| -------------------------------------------------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| `model`                                                              | string             | Any catalogue model, with the same [routing syntax](/features/routing) as chat completions                                       |
+| `input`                                                              | string or array    | A plain string, or an array of items: `message`, `reasoning`, `function_call`, `function_call_output`, and `item_reference`      |
+| `instructions`                                                       | string             | System-level instructions                                                                                                        |
+| `previous_response_id`                                               | string             | Chain onto a stored response — its conversation is loaded and prepended                                                          |
+| `stream`                                                             | boolean            | Stream the response as server-sent events                                                                                        |
+| `tools`                                                              | array              | `function` and `web_search` tools; unknown tool types are accepted and passed through                                            |
+| `tool_choice`                                                        | string or object   | `auto`, `none`, `required`, or a specific function                                                                               |
+| `reasoning`                                                          | object             | `effort` (`none` … `max`), `summary`, and `context`                                                                              |
+| `temperature`, `top_p`, `max_output_tokens`                          | number             | Standard sampling and length controls                                                                                            |
+| `text`                                                               | object             | Output format configuration (e.g. `json_schema`)                                                                                 |
+| `service_tier`                                                       | enum               | `auto`, `default`, `flex`, or `priority` — see [Service Tiers](/features/service-tiers)                                          |
+| `routing`                                                            | enum               | Per-request [routing strategy](/features/routing#routing-strategy) (`auto`, `price`, `throughput`, `latency`)                    |
+| `store`                                                              | boolean            | Whether to store the response for retrieval and chaining. Defaults to `true`                                                     |
+| `include`                                                            | array              | `"reasoning.encrypted_content"` returns encrypted reasoning payloads for stateless replay; other values are accepted and ignored |
+| `prompt_cache_key`, `prompt_cache_retention`, `prompt_cache_options` | string/enum/object | Provider prompt-cache controls, same as on chat completions                                                                      |
+| `metadata`                                                           | object             | String key/value metadata                                                                                                        |
+| `truncation`                                                         | enum               | `auto` or `disabled` (default)                                                                                                   |
+
+<Callout type="info">
+	Request bodies may be sent zstd-compressed (`Content-Encoding: zstd`).
+</Callout>
+
+## Stored responses and chaining
+
+Unless you set `store: false`, each response is stored and can be:
+
+- **Retrieved** with `GET /v1/responses/{response_id}`
+- **Continued** by passing its id as `previous_response_id` on the next request
+- **Referenced item-by-item**: stateful clients can send `{ "type": "item_reference", "id": "..." }` input items pointing at stored output items instead of re-sending them
+
+Stored responses are kept for **30 days** — matching OpenAI's own Responses API retention — independent of your organization's [data retention](/features/data-retention) policy, and are not billed as data storage.
+
+## Conversation compaction
+
+`POST /v1/responses/compact` is an LLMGateway extension that summarizes a conversation: it runs a single non-streaming pass with a summarization prompt and returns the summary as a `compaction` output item appended to the echoed input. It accepts `model`, `input`, `previous_response_id`, `instructions`, and `prompt_cache_key`. Use it to shrink a long conversation into a compact context you can continue from.
+
+## Errors
+
+Errors use the standard OpenAI error envelope — see [Error Handling](/resources/error-handling).

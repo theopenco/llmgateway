@@ -43,6 +43,11 @@ The parameter works the same on the OpenAI-compatible **Responses API**
 (`/v1/responses`): the tier is forwarded to the provider and the response's
 `service_tier` field echoes the tier that was actually served.
 
+DevPass organizations can additionally configure a **default service tier** of
+`flex` in their DevPass settings: requests that omit `service_tier` are then
+automatically sent at Flex whenever the resolved model/provider supports it
+(and served at standard otherwise).
+
 ## Supported providers
 
 Service tiers are explicit per provider/model mapping. Check the model page for

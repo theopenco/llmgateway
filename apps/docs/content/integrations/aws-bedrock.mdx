@@ -82,7 +82,7 @@ curl -X POST https://api.llmgateway.io/v1/chat/completions \
   -H "Authorization: Bearer YOUR_LLMGATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "aws-bedrock/claude-3-5-sonnet",
+    "model": "aws-bedrock/claude-sonnet-4-6",
     "messages": [
       {
         "role": "user",
@@ -99,14 +99,9 @@ Replace `YOUR_LLMGATEWAY_API_KEY` with your LLM Gateway API key.
 
 ## Available Models
 
-Once configured, you can access all AWS Bedrock models through LLM Gateway:
+Once configured, you can access the Bedrock-backed models in the catalogue through LLM Gateway by prefixing the model id with `aws-bedrock/` (for example `aws-bedrock/claude-sonnet-4-6`).
 
-- **Anthropic Claude**: `aws-bedrock/claude-3-5-sonnet`, `aws-bedrock/claude-3-5-haiku`
-- **Meta Llama**: `aws-bedrock/llama-3-2-90b`, `aws-bedrock/llama-3-2-11b`
-- **Amazon Titan**: `aws-bedrock/amazon.titan-text-express-v1`
-- **And more...**
-
-Browse all available models at [llmgateway.io/models](https://llmgateway.io/models?provider=aws-bedrock)
+Browse the current list of Bedrock-backed models at [llmgateway.io/models](https://llmgateway.io/models?provider=aws-bedrock)
 
 ## Troubleshooting
 

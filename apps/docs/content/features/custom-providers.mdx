@@ -61,9 +61,12 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 
 ### Base URL
 
-- Must be a valid URL pointing to your provider's base endpoint
-- Use an `https://` URL for hosted providers; an `http://` URL is allowed when
-  self-hosting (for example a service on your own network)
+- Must be a valid `https://` URL pointing to your provider's base endpoint
+- On the hosted platform, `http://` URLs and private, internal, or reserved
+  addresses are rejected with a `400` at registration time. Self-hosted
+  deployments can opt out of this guard with
+  `ALLOW_INSECURE_PROVIDER_URLS=true` to point at an internal or http-only
+  model server (for example a local Ollama)
 - LLMGateway will append `/v1/chat/completions` automatically
 - **Example**: `https://api.example.com` → `https://api.example.com/v1/chat/completions`
 

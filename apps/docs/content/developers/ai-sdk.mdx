@@ -40,7 +40,7 @@ Switching models is a one-line change — the same provider serves every model:
 
 ```typescript
 const { text } = await generateText({
-	model: llmgateway("anthropic/claude-3-5-sonnet-20241022"),
+	model: llmgateway("anthropic/claude-sonnet-4-6"),
 	prompt: "Hello!",
 });
 ```
@@ -65,7 +65,7 @@ const llmgateway = createLLMGateway({
 });
 
 const { textStream } = await streamText({
-	model: llmgateway("anthropic/claude-3-5-sonnet-20241022"),
+	model: llmgateway("anthropic/claude-sonnet-4-6"),
 	prompt: "Write a poem about coding",
 });
 

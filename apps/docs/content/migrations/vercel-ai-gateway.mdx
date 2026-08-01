@@ -76,7 +76,7 @@ const { text: openaiText } = await generateText({
 });
 
 const { text: claudeText } = await generateText({
-	model: anthropic("claude-3-5-sonnet-20241022"),
+	model: anthropic("claude-sonnet-4-6"),
 	prompt: "Hello!",
 });
 
@@ -94,7 +94,7 @@ const { text: openaiText } = await generateText({
 });
 
 const { text: claudeText } = await generateText({
-	model: llmgateway("anthropic/claude-3-5-sonnet-20241022"),
+	model: llmgateway("anthropic/claude-sonnet-4-6"),
 	prompt: "Hello!",
 });
 ```
@@ -110,7 +110,7 @@ const llmgateway = createLLMGateway({
 });
 
 const { textStream } = await streamText({
-	model: llmgateway("anthropic/claude-3-5-sonnet-20241022"),
+	model: llmgateway("anthropic/claude-sonnet-4-6"),
 	prompt: "Write a poem about coding",
 });
 
@@ -190,27 +190,27 @@ LLM Gateway supports two model ID formats:
 
 ```
 gpt-4o
-claude-3-5-sonnet-20241022
-gemini-1.5-pro
+claude-sonnet-4-6
+gemini-3.5-flash
 ```
 
 **Provider-Prefixed Model IDs** - Routes to a specific provider with automatic failover if uptime drops below 90%:
 
 ```
 openai/gpt-4o
-anthropic/claude-3-5-sonnet-20241022
-google-ai-studio/gemini-1.5-pro
+anthropic/claude-sonnet-4-6
+google-ai-studio/gemini-3.5-flash
 ```
 
 For more details on routing behavior, see the [routing documentation](/features/routing).
 
 ### Model Mapping Examples
 
-| Vercel AI SDK                             | LLM Gateway                                                                                        |
-| ----------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `openai("gpt-4o")`                        | `llmgateway("gpt-4o")` or `llmgateway("openai/gpt-4o")`                                            |
-| `anthropic("claude-3-5-sonnet-20241022")` | `llmgateway("claude-3-5-sonnet-20241022")` or `llmgateway("anthropic/claude-3-5-sonnet-20241022")` |
-| `google("gemini-1.5-pro")`                | `llmgateway("gemini-1.5-pro")` or `llmgateway("google-ai-studio/gemini-1.5-pro")`                  |
+| Vercel AI SDK                    | LLM Gateway                                                                           |
+| -------------------------------- | ------------------------------------------------------------------------------------- |
+| `openai("gpt-4o")`               | `llmgateway("gpt-4o")` or `llmgateway("openai/gpt-4o")`                               |
+| `anthropic("claude-sonnet-4-6")` | `llmgateway("claude-sonnet-4-6")` or `llmgateway("anthropic/claude-sonnet-4-6")`      |
+| `google("gemini-3.5-flash")`     | `llmgateway("gemini-3.5-flash")` or `llmgateway("google-ai-studio/gemini-3.5-flash")` |
 
 Check the [models page](https://llmgateway.io/models) for the full list of available models.
 

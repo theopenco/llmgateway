@@ -38,21 +38,28 @@ For organizations that have **purchased at least some credits**:
 
 ## Paid Models
 
-**Paid AI models are not currently rate limited.** You can make as many requests as needed to paid models, subject only to your account's credit balance and any provider-specific limits.
+**Paid AI models have no fixed platform-wide rate limits.** You can make as many requests as needed to paid models, subject to your account's credit balance.
+
+However, individual provider/model combinations can carry configurable **requests-per-minute (RPM)** and **requests-per-day (RPD)** caps, applied per organization or shared platform-wide. When such a cap is reached, smart routing automatically avoids the capped provider and serves your request from another one. Only when you pin the capped provider explicitly with the `X-No-Fallback: true` header does the request fail with a `429 Too Many Requests` response.
 
 ## Rate Limit Headers
 
-All API responses include rate limit information in the headers:
+Requests to **free models** include rate limit information in the response headers:
 
 ```http
 X-RateLimit-Limit: 20
 X-RateLimit-Remaining: 19
-X-RateLimit-Reset: 1640995200
 ```
 
 - `X-RateLimit-Limit`: Maximum number of requests allowed in the current window
 - `X-RateLimit-Remaining`: Number of requests remaining in the current window
+
+When a request is rejected with `429`, the response additionally includes:
+
+- `Retry-After`: Seconds to wait before retrying
 - `X-RateLimit-Reset`: Unix timestamp when the rate limit window resets
+
+Requests served by a provider/model combination with a configured RPM or RPD cap include the cap state in separate headers: `X-RateLimit-Limit-Provider` / `X-RateLimit-Remaining-Provider` for the primary window, plus per-window variants suffixed with `-RPM` and `-RPD` (e.g. `X-RateLimit-Remaining-Provider-RPM`).
 
 ## Rate Limit Exceeded
 

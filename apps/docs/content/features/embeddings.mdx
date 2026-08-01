@@ -12,13 +12,33 @@ LLMGateway exposes an OpenAI-compatible `/v1/embeddings` endpoint for generating
 
 Browse available embedding models on the [models page](https://llmgateway.io/models?filters=1&embedding=true).
 
-## Supported providers
+<Callout type="info">
+	Embeddings are not available on DevPass coding plans — coding plans only
+	include text-based inference, so requests from a coding-plan organization
+	return a `403`.
+</Callout>
 
-- **OpenAI** — `text-embedding-3-small`, `text-embedding-3-large`, `text-embedding-ada-002`
-- **Google AI Studio** — `gemini-embedding-2` (recommended), `gemini-embedding-001` (legacy)
-- **Google Vertex AI** — `gemini-embedding-001`, `text-embedding-005`
+## Supported models
+
+Any model marked as an embedding model in the catalogue works on this endpoint — see the full list on the [models page](https://llmgateway.io/models?filters=1&embedding=true).
 
 The gateway translates between provider-native request/response shapes (e.g. Google's `:embedContent` / `:batchEmbedContents`) and the OpenAI-compatible payload, so you can swap models without changing your client code.
+
+## Request parameters
+
+| Parameter         | Type              | Required | Description                                                                                                                           |
+| ----------------- | ----------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `model`           | string            | yes      | ID of the embedding model to use                                                                                                      |
+| `input`           | string or array   | yes      | Text to embed: a single string, an array of strings, an array of token IDs, or an array of token-ID arrays                            |
+| `encoding_format` | `float`, `base64` | no       | Format of the returned embeddings. `float` returns plain arrays, `base64` returns a packed base64 string                              |
+| `dimensions`      | integer           | no       | Number of output dimensions — only supported by models that allow shortening output (e.g. `text-embedding-3-*`, `gemini-embedding-*`) |
+| `user`            | string            | no       | Stable end-user identifier forwarded to OpenAI for abuse monitoring                                                                   |
+
+<Callout type="info">
+	Token-ID inputs are not supported on Google providers — requests with token-ID
+	input to a Google-served model are rejected with a `400`
+	(`unsupported_input`). Pass a string or array of strings instead.
+</Callout>
 
 ## cURL
 
