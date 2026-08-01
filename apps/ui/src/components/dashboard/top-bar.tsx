@@ -53,7 +53,7 @@ export function TopBar({
 					<ModelSearch />
 				</div>
 				<ChangelogNotifications entries={announcementEntries} />
-				<ThemeToggle size="compact" />
+				<ThemeToggle size="compact" className="hidden md:inline-flex" />
 			</div>
 		</header>
 	);

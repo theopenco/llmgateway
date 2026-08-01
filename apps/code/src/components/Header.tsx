@@ -4,8 +4,8 @@ import { Menu, X } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
+import { ThemeToggle } from "@/components/landing/theme-toggle";
 import { RunwarePromoBanner } from "@/components/RunwarePromoBanner";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/ui/logo";
 import { useUser } from "@/hooks/useUser";

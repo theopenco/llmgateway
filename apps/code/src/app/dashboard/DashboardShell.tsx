@@ -22,7 +22,7 @@ import { toast } from "sonner";
 
 import SurveyReminderDialog from "@/app/dashboard/components/SurveyReminderDialog";
 import { EmailVerificationBanner } from "@/components/EmailVerificationBanner";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { ThemeToggle } from "@/components/landing/theme-toggle";
 import {
 	AlertDialog,
 	AlertDialogAction,

@@ -270,7 +270,7 @@ export function AdminShell({ children }: AdminShellProps) {
 						</SidebarMenu>
 					</SidebarGroup>
 				</SidebarContent>
-				<SidebarFooter className="border-t border-sidebar-border/60 space-y-2 p-2">
+				<SidebarFooter className="border-t border-sidebar-border/60">
 					<div className="flex justify-center">
 						<ThemeToggle size="compact" />
 					</div>
