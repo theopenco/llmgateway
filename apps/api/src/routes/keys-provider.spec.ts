@@ -143,7 +143,7 @@ describe("provider keys route", () => {
 		// this test, so it is one of the few places allowed to read it directly.
 		// eslint-disable-next-line no-restricted-syntax
 		expect(providerKey?.token).toBeNull();
-		expect(providerKey?.tokenCiphertext).toMatch(/^llmgw:v1:/);
+		expect(providerKey?.tokenCiphertext).toMatch(/^llmgw:v2:/);
 		expect(providerKey?.tokenMasked).toBeTruthy();
 		expect(providerKey?.tokenMasked).not.toBe("inference-test-token");
 	});
@@ -166,7 +166,7 @@ describe("provider keys route", () => {
 		const row = await db.query.providerKey.findFirst({
 			where: { provider: { eq: "inference.net" } },
 		});
-		expect(row?.tokenCiphertext).toMatch(/^llmgw:v1:/);
+		expect(row?.tokenCiphertext).toMatch(/^llmgw:v2:/);
 
 		// Correct row id + org → decrypts.
 		expect(

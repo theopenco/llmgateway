@@ -1,6 +1,8 @@
-import { randomBytes } from "node:crypto";
+import { createCipheriv, hkdfSync, randomBytes } from "node:crypto";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import { getSecretKeyId } from "@llmgateway/shared/api-key-hash";
 
 import {
 	decryptProviderKey,
@@ -23,6 +25,39 @@ const ORIGINAL_KEY = process.env[ENV_VAR];
 const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
 const VALID_KEY_A = randomBytes(32).toString("base64");
 const VALID_KEY_B = randomBytes(32).toString("base64");
+
+/**
+ * Reimplements the retired llmgw:v1 write path (same HKDF/AES-GCM/AAD
+ * primitives, no key id) so tests can cover rows written before v2 shipped.
+ */
+function encryptV1(
+	secret: string,
+	plaintext: string,
+	rowId: string,
+	organizationId: string,
+): string {
+	const dataKey = Buffer.from(
+		hkdfSync(
+			"sha256",
+			Buffer.from(secret, "utf8"),
+			Buffer.alloc(0),
+			Buffer.from("provider-key-token:v1", "utf8"),
+			32,
+		),
+	);
+	const iv = randomBytes(12);
+	const cipher = createCipheriv("aes-256-gcm", dataKey, iv);
+	cipher.setAAD(Buffer.from(`provider_key|${rowId}|${organizationId}`, "utf8"));
+	const ct = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+	const tag = cipher.getAuthTag();
+	const b64 = (buf: Buffer) =>
+		buf
+			.toString("base64")
+			.replace(/\+/g, "-")
+			.replace(/\//g, "_")
+			.replace(/=+$/, "");
+	return ["llmgw:v1", b64(iv), b64(ct), b64(tag)].join(":");
+}
 
 afterEach(() => {
 	setMasterKey(ORIGINAL_KEY);
@@ -58,10 +93,12 @@ describe("master secret resolution", () => {
 });
 
 describe("encryptProviderKey / decryptProviderKey", () => {
-	it("round-trips a plaintext token", () => {
+	it("round-trips a plaintext token as llmgw:v2 stamped with the current key id", () => {
 		const plaintext = "sk-test-abc123def456";
 		const ct = encryptProviderKey(plaintext, "row-id-1", "org-1");
-		expect(ct.startsWith("llmgw:v1:")).toBe(true);
+		expect(ct.startsWith(`llmgw:v2:${getSecretKeyId(VALID_KEY_A)}:`)).toBe(
+			true,
+		);
 		expect(decryptProviderKey(ct, "row-id-1", "org-1")).toBe(plaintext);
 	});
 
@@ -87,9 +124,9 @@ describe("encryptProviderKey / decryptProviderKey", () => {
 	it("rejects a tampered ciphertext byte (GCM tag check)", () => {
 		const ct = encryptProviderKey("sk-test-tamper", "row-id-1", "org-1");
 		const parts = ct.split(":");
-		const flipped = Array.from(parts[3]);
+		const flipped = Array.from(parts[4]);
 		flipped[0] = flipped[0] === "A" ? "B" : "A";
-		parts[3] = flipped.join("");
+		parts[4] = flipped.join("");
 		const tampered = parts.join(":");
 		expect(() => decryptProviderKey(tampered, "row-id-1", "org-1")).toThrow();
 	});
@@ -97,29 +134,37 @@ describe("encryptProviderKey / decryptProviderKey", () => {
 	it("rejects a tampered auth tag", () => {
 		const ct = encryptProviderKey("sk-test-tag", "row-id-1", "org-1");
 		const parts = ct.split(":");
-		const flipped = Array.from(parts[4]);
+		const flipped = Array.from(parts[5]);
 		flipped[0] = flipped[0] === "A" ? "B" : "A";
-		parts[4] = flipped.join("");
+		parts[5] = flipped.join("");
 		expect(() =>
 			decryptProviderKey(parts.join(":"), "row-id-1", "org-1"),
 		).toThrow();
 	});
 
-	it("rejects ciphertext encrypted with a different master key", () => {
+	it("rejects ciphertext whose key id was dropped from the keyring", () => {
 		const ct = encryptProviderKey("sk-test-key-rotate", "row-id-1", "org-1");
 		setMasterKey(VALID_KEY_B);
-		expect(() => decryptProviderKey(ct, "row-id-1", "org-1")).toThrow();
+		expect(() => decryptProviderKey(ct, "row-id-1", "org-1")).toThrow(
+			/not in the GATEWAY_API_KEY_HASH_SECRET keyring/,
+		);
 	});
 
 	it("rejects an unknown version prefix", () => {
 		expect(() =>
-			decryptProviderKey("llmgw:v2:aaa:bbb:ccc", "row-id-1", "org-1"),
+			decryptProviderKey("llmgw:v3:aaa:bbb:ccc", "row-id-1", "org-1"),
 		).toThrow(/unknown ciphertext version/);
 	});
 
-	it("rejects malformed shape (wrong segment count)", () => {
+	it("rejects malformed v1 shape (wrong segment count)", () => {
 		expect(() =>
 			decryptProviderKey("llmgw:v1:onlytwo:parts", "row-id-1", "org-1"),
+		).toThrow(/malformed ciphertext/);
+	});
+
+	it("rejects malformed v2 shape (wrong segment count)", () => {
+		expect(() =>
+			decryptProviderKey("llmgw:v2:kid:iv:ct", "row-id-1", "org-1"),
 		).toThrow(/malformed ciphertext/);
 	});
 
@@ -133,10 +178,55 @@ describe("encryptProviderKey / decryptProviderKey", () => {
 		const ct = encryptProviderKey("sk-test", "row-id-1", "org-1");
 		const parts = ct.split(":");
 		// Substitute a too-short iv
-		parts[2] = Buffer.from("short").toString("base64url");
+		parts[3] = Buffer.from("short").toString("base64url");
 		expect(() =>
 			decryptProviderKey(parts.join(":"), "row-id-1", "org-1"),
 		).toThrow(/invalid iv length/);
+	});
+});
+
+describe("secret keyring rotation", () => {
+	it("decrypts a v2 ciphertext written under the previous secret after rotation", () => {
+		const ct = encryptProviderKey("sk-rotate-v2", "row-id-1", "org-1");
+		setMasterKey(`${VALID_KEY_B},${VALID_KEY_A}`);
+		expect(decryptProviderKey(ct, "row-id-1", "org-1")).toBe("sk-rotate-v2");
+	});
+
+	it("stamps new ciphertexts with the current (first) secret after rotation", () => {
+		setMasterKey(`${VALID_KEY_B},${VALID_KEY_A}`);
+		const ct = encryptProviderKey("sk-rotate-new", "row-id-1", "org-1");
+		expect(ct.startsWith(`llmgw:v2:${getSecretKeyId(VALID_KEY_B)}:`)).toBe(
+			true,
+		);
+		setMasterKey(VALID_KEY_B);
+		expect(decryptProviderKey(ct, "row-id-1", "org-1")).toBe("sk-rotate-new");
+	});
+
+	it("still enforces AAD scope for previous-secret ciphertexts", () => {
+		const ct = encryptProviderKey("sk-rotate-aad", "row-id-1", "org-1");
+		setMasterKey(`${VALID_KEY_B},${VALID_KEY_A}`);
+		expect(() => decryptProviderKey(ct, "row-id-1", "org-2")).toThrow(
+			/decryption failed for key id/,
+		);
+	});
+
+	it("decrypts a legacy v1 ciphertext with the current secret", () => {
+		const ct = encryptV1(VALID_KEY_A, "sk-legacy-v1", "row-id-1", "org-1");
+		expect(decryptProviderKey(ct, "row-id-1", "org-1")).toBe("sk-legacy-v1");
+	});
+
+	it("decrypts a legacy v1 ciphertext via a previous keyring secret", () => {
+		const ct = encryptV1(VALID_KEY_A, "sk-legacy-v1", "row-id-1", "org-1");
+		setMasterKey(`${VALID_KEY_B},${VALID_KEY_A}`);
+		expect(decryptProviderKey(ct, "row-id-1", "org-1")).toBe("sk-legacy-v1");
+	});
+
+	it("rejects a legacy v1 ciphertext once its secret leaves the keyring", () => {
+		const ct = encryptV1(VALID_KEY_A, "sk-legacy-v1", "row-id-1", "org-1");
+		setMasterKey(VALID_KEY_B);
+		expect(() => decryptProviderKey(ct, "row-id-1", "org-1")).toThrow(
+			/decryption failed with all 1 keyring secret/,
+		);
 	});
 });
 
@@ -146,10 +236,14 @@ describe("isProviderKeyCiphertext", () => {
 		expect(isProviderKeyCiphertext(ct)).toBe(true);
 	});
 
-	it("returns false for plain strings", () => {
+	it("returns true for legacy v1 ciphertexts", () => {
+		expect(isProviderKeyCiphertext("llmgw:v1:aaa:bbb:ccc")).toBe(true);
+	});
+
+	it("returns false for plain strings and unknown versions", () => {
 		expect(isProviderKeyCiphertext("sk-abc123")).toBe(false);
 		expect(isProviderKeyCiphertext("")).toBe(false);
-		expect(isProviderKeyCiphertext("llmgw:v2:something")).toBe(false);
+		expect(isProviderKeyCiphertext("llmgw:v3:something")).toBe(false);
 	});
 });
 

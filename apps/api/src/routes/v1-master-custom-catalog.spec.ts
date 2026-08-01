@@ -104,7 +104,7 @@ describe("v1/master custom providers and models", () => {
 		// Stored encrypted at rest: the legacy plaintext column stays NULL and
 		// the ciphertext decrypts back to the submitted token.
 		expect(stored?.token).toBeNull();
-		expect(stored?.tokenCiphertext).toMatch(/^llmgw:v1:/);
+		expect(stored?.tokenCiphertext).toMatch(/^llmgw:v2:/);
 		expect(readProviderKey(stored!)).toBe("sk-acme-secret");
 	});
 

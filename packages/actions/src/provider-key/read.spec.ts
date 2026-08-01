@@ -73,7 +73,7 @@ describe("readProviderKey", () => {
 			id: ROW_ID,
 			organizationId: ORG_ID,
 			token: "fallback-not-allowed",
-			tokenCiphertext: "llmgw:v2:aaa:bbb:ccc",
+			tokenCiphertext: "llmgw:v3:aaa:bbb:ccc",
 		};
 		expect(() => readProviderKey(row)).toThrow(/unknown ciphertext version/);
 	});

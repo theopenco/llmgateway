@@ -208,7 +208,7 @@ describe(
 				// and the ciphertext decrypts back to the submitted key.
 				// eslint-disable-next-line no-restricted-syntax
 				expect(providerKey?.token).toBeNull();
-				expect(providerKey?.tokenCiphertext).toMatch(/^llmgw:v1:/);
+				expect(providerKey?.tokenCiphertext).toMatch(/^llmgw:v2:/);
 				expect(readProviderKey(providerKey!)).toBe(envVarValue);
 			},
 		);

@@ -99,7 +99,7 @@ describe("admin provider credentials", () => {
 		const [row] = await db.query.providerKey.findMany({
 			where: { managed: { eq: true } },
 		});
-		expect(row.tokenCiphertext).toMatch(/^llmgw:v1:/);
+		expect(row.tokenCiphertext).toMatch(/^llmgw:v2:/);
 		expect(
 			decryptProviderKey(row.tokenCiphertext!, row.id, "llmgateway:managed"),
 		).toBe("sk-encrypt-me");
