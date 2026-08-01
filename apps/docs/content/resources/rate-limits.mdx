@@ -40,7 +40,7 @@ For organizations that have **purchased at least some credits**:
 
 **Paid AI models are not rate limited by default.** You can make as many requests as needed to paid models, subject only to your account's credit balance and any provider-specific limits.
 
-Enterprise organizations can configure their own requests-per-minute and requests-per-day caps per provider or model (or shared across the organization). When such a limit is configured, requests against it are enforced regardless of whether the model is free or paid.
+LLM Gateway may apply its own requests-per-minute and requests-per-day caps per provider or model (globally, or for a specific organization) to protect shared infrastructure. When such a limit is in place, requests against it are enforced regardless of whether the model is free or paid.
 
 ## Rate Limit Headers
 
@@ -56,7 +56,7 @@ X-RateLimit-Reset: 1640995200
 - `X-RateLimit-Remaining`: Number of requests remaining in the current window
 - `X-RateLimit-Reset`: Unix timestamp when the rate limit window resets
 
-If an org-level provider/model rate limit (see above) applies to the request, additional headers report that separately, per window (`RPM`/`RPD`):
+If a provider/model rate limit (see above) applies to the request, additional headers report that separately, per window (`RPM`/`RPD`):
 
 ```http
 X-RateLimit-Limit-Provider: 1000
@@ -65,7 +65,7 @@ X-RateLimit-Limit-Provider-RPM: 60
 X-RateLimit-Remaining-Provider-RPM: 59
 ```
 
-A `429` from an org-level provider/model limit also includes `Retry-After` and `X-RateLimit-Reset` headers for the blocking window.
+A `429` from a provider/model rate limit also includes `Retry-After` and `X-RateLimit-Reset` headers for the blocking window.
 
 ## Rate Limit Exceeded
 
