@@ -1,6 +1,6 @@
 import { serve } from "@hono/node-server";
 
-import { redisClient } from "@llmgateway/cache";
+import { redisClient, storageRedisClient } from "@llmgateway/cache";
 import { closeDatabase, setQueryTags } from "@llmgateway/db";
 import {
 	initializeInstrumentation,
@@ -193,9 +193,9 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 		await closeDatabase();
 		logger.info("Database connection closed");
 
-		logger.info("Closing Redis connection");
-		await redisClient.quit();
-		logger.info("Redis connection closed");
+		logger.info("Closing Redis connections");
+		await Promise.all([redisClient.quit(), storageRedisClient.quit()]);
+		logger.info("Redis connections closed");
 
 		// Shutdown instrumentation last to ensure all spans are flushed
 		if (sdk) {

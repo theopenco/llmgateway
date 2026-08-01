@@ -40,8 +40,10 @@ import {
 	complianceBlockMessage,
 	filterCompliantProviders,
 	getActiveCompliancePolicy,
+	isModelIdCompliant,
 	isProviderIdCompliant,
 	logComplianceBlock,
+	type ComplianceCheckContext,
 } from "@/lib/compliance.js";
 import {
 	calculateCosts,
@@ -102,6 +104,7 @@ import { validateModelOutput } from "@/lib/validate-model-output.js";
 
 import {
 	applyGoogleServiceTier,
+	assumeServedServiceTier,
 	getCheapestFromAvailableProviders,
 	getDiscountedProviderSelectionPrice,
 	getGcpServiceAccountAccessToken,
@@ -229,6 +232,7 @@ import {
 } from "./tools/messages-contain-audio.js";
 import { messagesContainDocuments } from "./tools/messages-contain-documents.js";
 import { messagesContainImages } from "./tools/messages-contain-images.js";
+import { messagesEndWithAssistant } from "./tools/messages-end-with-assistant.js";
 import { mightBeCompleteJson } from "./tools/might-be-complete-json.js";
 import { normalizeClientErrorBody } from "./tools/normalize-client-error.js";
 import {
@@ -549,6 +553,7 @@ function filterEligibleModelProviders(
 		hasAudio: boolean;
 		audioFormats?: string[];
 		hasDocuments: boolean;
+		hasAssistantPrefill?: boolean;
 		maxTokens?: number;
 		reasoningEffort?: string;
 		n?: number;
@@ -759,7 +764,8 @@ function isVertexCompatibleProvider(provider: string): boolean {
  * Dev-only verification log confirming a requested processing tier reached the
  * provider. AI Studio reports the served tier in the `x-gemini-service-tier`
  * response header; Vertex reports it in `usageMetadata.trafficType` (logged
- * separately once the response body is parsed).
+ * separately once the response body is parsed); Fireworks reports nothing, so
+ * an accepted request is attributed to the tier it was sent at.
  */
 function logServiceTierRequest(
 	provider: string,
@@ -769,7 +775,7 @@ function logServiceTierRequest(
 	if (
 		process.env.NODE_ENV === "production" ||
 		(serviceTier !== "flex" && serviceTier !== "priority") ||
-		!isGoogleCompatibleProvider(provider)
+		!(isGoogleCompatibleProvider(provider) || provider === "fireworks")
 	) {
 		return;
 	}
@@ -779,7 +785,13 @@ function logServiceTierRequest(
 		transport: isVertexCompatibleProvider(provider)
 			? "X-Vertex-AI-LLM-Shared-Request-Type header"
 			: "service_tier body field",
-		servedServiceTier: res?.headers.get("x-gemini-service-tier") ?? null,
+		servedServiceTier:
+			res?.headers.get("x-gemini-service-tier") ??
+			assumeServedServiceTier(
+				provider as Provider,
+				serviceTier,
+				res?.ok ?? false,
+			),
 		status: res?.status,
 	});
 }
@@ -1546,6 +1558,9 @@ chat.openapi(completions, async (c) => {
 		? getAudioFormatsFromMessages(messages as BaseMessage[])
 		: [];
 	const hasDocuments = messagesContainDocuments(messages as BaseMessage[]);
+	const hasAssistantPrefill = messagesEndWithAssistant(
+		messages as BaseMessage[],
+	);
 
 	// Extract web_search tool from tools array if present
 	// The web_search tool is a special tool that enables native web search for providers that support it
@@ -1661,29 +1676,24 @@ chat.openapi(completions, async (c) => {
 	const responsesContext = responsesContextKey
 		? getResponsesContext(responsesContextKey)
 		: undefined;
-	const syncLogInsert = responsesContext?.syncInsert ?? false;
 	const logIdOverride = responsesContext?.logId;
 	const finalLogId = logIdOverride ?? shortid();
-	const responsesApiData: unknown = responsesContext?.responsesApiData ?? null;
 
-	// Wrapper that injects Responses API fields into every log entry.
-	// Only override the id for the final log entry (retried !== true) to avoid
-	// PK conflicts when the request retries across multiple providers.
+	// Wrapper that logs Responses API proxy requests under the resp_ id the
+	// client sees. Only override the id for the final log entry (retried !==
+	// true) to avoid PK conflicts when the request retries across multiple
+	// providers.
 	const insertLogEntry = (logData: LogInsertData) =>
-		insertLog(
-			{
-				// Service tiers default from the request-level requested tier and the
-				// served tier resolved so far, so every log path (guardrail/validation
-				// rejections, cache hits, streaming/upstream errors, fetch errors)
-				// records them. Explicit values in logData still win.
-				requestedServiceTier,
-				usedServiceTier: servedServiceTier,
-				...logData,
-				...(logIdOverride && !logData.retried ? { id: logIdOverride } : {}),
-				responsesApiData,
-			},
-			{ syncInsert: syncLogInsert },
-		);
+		insertLog({
+			// Service tiers default from the request-level requested tier and the
+			// served tier resolved so far, so every log path (guardrail/validation
+			// rejections, cache hits, streaming/upstream errors, fetch errors)
+			// records them. Explicit values in logData still win.
+			requestedServiceTier,
+			usedServiceTier: servedServiceTier,
+			...logData,
+			...(logIdOverride && !logData.retried ? { id: logIdOverride } : {}),
+		});
 
 	// Check for X-No-Fallback header to disable provider fallback on low uptime
 	const xNoFallbackHeaderSet =
@@ -2137,7 +2147,6 @@ chat.openapi(completions, async (c) => {
 							image_config,
 						),
 						...(logIdOverride ? { id: logIdOverride } : {}),
-						responsesApiData,
 						apiOrigin,
 						content: null,
 						responseSize: 0,
@@ -2179,7 +2188,7 @@ chat.openapi(completions, async (c) => {
 						usedServiceTier: null,
 						dataStorageCost: "0",
 					},
-					{ syncInsert: syncLogInsert, retentionLevel },
+					{ retentionLevel },
 				);
 			} catch (error) {
 				logger.error("Failed to log unsupported service tier rejection", {
@@ -2550,6 +2559,7 @@ chat.openapi(completions, async (c) => {
 			webSearchTool,
 			hasImages,
 			hasDocuments,
+			hasAssistantPrefill,
 		});
 	} catch (capabilityError) {
 		// The /v1/messages layer flags requests that used Anthropic's explicit-budget
@@ -2617,7 +2627,6 @@ chat.openapi(completions, async (c) => {
 							image_config,
 						),
 						...(logIdOverride ? { id: logIdOverride } : {}),
-						responsesApiData,
 						apiOrigin,
 						content: null,
 						responseSize: 0,
@@ -2655,7 +2664,7 @@ chat.openapi(completions, async (c) => {
 						usedServiceTier: null,
 						dataStorageCost: "0",
 					},
-					{ syncInsert: syncLogInsert, retentionLevel },
+					{ retentionLevel },
 				);
 			} catch (error) {
 				logger.error("Failed to log budget-thinking rejection", {
@@ -2699,6 +2708,7 @@ chat.openapi(completions, async (c) => {
 		organizationId: project.organizationId,
 		requestedModel: modelInfo.id,
 		requestedProvider,
+		customProviderName,
 		activeModelInfo: modelInfo,
 		clientIp,
 	});
@@ -2721,6 +2731,30 @@ chat.openapi(completions, async (c) => {
 			)
 		: routingExpandedModelProviders;
 
+	// Resolved before the compliance gate: a custom provider key's self-attested
+	// posture is what the policy is evaluated against, and the auto-routing
+	// filter below is synchronous, so the attestation must already be in hand.
+	// Do not move the compliance gate above this block. Relies on
+	// unique(organizationId, name) on provider_key: this row is the same one the
+	// request-execution path resolves later.
+	const customProviderKey =
+		requestedProvider === "custom" && customProviderName
+			? await findCustomProviderKey(project.organizationId, customProviderName)
+			: undefined;
+	if (
+		requestedProvider === "custom" &&
+		customProviderName &&
+		!customProviderKey
+	) {
+		throw new HTTPException(400, {
+			message: `Provider '${customProviderName}' not found.`,
+		});
+	}
+	const complianceContext: ComplianceCheckContext = {
+		customAttestation: customProviderKey?.complianceAttestation ?? null,
+		customProviderName,
+	};
+
 	// Enterprise provider compliance guardrails: drop providers that do not meet
 	// the org's required certifications/data policies, and block the request when
 	// none remain. Applied after every (re)computation of the IAM-filtered arrays.
@@ -2729,7 +2763,9 @@ chat.openapi(completions, async (c) => {
 	const applyCompliancePolicy = <T extends { providerId: string }>(
 		list: T[],
 	): T[] =>
-		compliancePolicy ? filterCompliantProviders(list, compliancePolicy) : list;
+		compliancePolicy
+			? filterCompliantProviders(list, compliancePolicy, complianceContext)
+			: list;
 
 	const enforceCompliancePolicy = async () => {
 		if (!compliancePolicy) {
@@ -2748,8 +2784,20 @@ chat.openapi(completions, async (c) => {
 			usedProvider !== undefined &&
 			usedProvider !== "llmgateway" &&
 			usedProvider !== "custom" &&
-			!isProviderIdCompliant(usedProvider, compliancePolicy);
-		if (iamFilteredModelProviders.length === 0 || pinnedBlocked) {
+			!isProviderIdCompliant(usedProvider, compliancePolicy, complianceContext);
+		// The policy's model lists block the model outright, regardless of which
+		// provider would serve it (custom-provider requests also answer to their
+		// `<customProvider>/<model>` ref).
+		const modelBlocked = !isModelIdCompliant(
+			modelInfo.id,
+			compliancePolicy,
+			complianceContext,
+		);
+		if (
+			iamFilteredModelProviders.length === 0 ||
+			pinnedBlocked ||
+			modelBlocked
+		) {
 			await logComplianceBlock(project.organizationId, {
 				apiKeyId: apiKey.id,
 				model: requestedModel,
@@ -2846,17 +2894,7 @@ chat.openapi(completions, async (c) => {
 	let customPricingMapping: ProviderModelMapping | undefined;
 
 	// Validate the custom provider against the database if one was requested
-	if (requestedProvider === "custom" && customProviderName) {
-		const customProviderKey = await findCustomProviderKey(
-			project.organizationId,
-			customProviderName,
-		);
-		if (!customProviderKey) {
-			throw new HTTPException(400, {
-				message: `Provider '${customProviderName}' not found.`,
-			});
-		}
-
+	if (customProviderKey) {
 		// Resolve the per-key custom model catalog entry. When the key is
 		// restricted to its catalog, requests for undefined models are rejected so
 		// cost attribution and limits are always known.
@@ -3042,6 +3080,7 @@ chat.openapi(completions, async (c) => {
 			hasAudio,
 			audioFormats,
 			hasDocuments,
+			hasAssistantPrefill,
 			// web_search is extracted from tools above and can leave an empty
 			// array; an empty tools list must not require function-tool support.
 			hasTools:
@@ -3150,10 +3189,12 @@ chat.openapi(completions, async (c) => {
 				: availableModelProviders;
 
 			// Drop providers that don't meet the org's compliance policy so auto
-			// routing picks a compliant provider instead of being blocked later.
-			const complianceFilteredProviders = applyCompliancePolicy(
-				cachedFilteredProviders,
-			);
+			// routing picks a compliant provider instead of being blocked later. A
+			// model excluded by the policy's model lists loses all its providers.
+			const complianceFilteredProviders =
+				compliancePolicy && !isModelIdCompliant(modelDef.id, compliancePolicy)
+					? []
+					: applyCompliancePolicy(cachedFilteredProviders);
 			if (cachedFilteredProviders.length > 0) {
 				anyPreComplianceCandidate = true;
 				if (complianceFilteredProviders.length > 0) {
@@ -3480,6 +3521,7 @@ chat.openapi(completions, async (c) => {
 					hasAudio,
 					audioFormats,
 					hasDocuments,
+					hasAssistantPrefill,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 					n,
@@ -3868,6 +3910,7 @@ chat.openapi(completions, async (c) => {
 						hasAudio,
 						audioFormats,
 						hasDocuments,
+						hasAssistantPrefill,
 						maxTokens: max_tokens,
 						reasoningEffort: reasoning_effort,
 						n,
@@ -4046,6 +4089,17 @@ chat.openapi(completions, async (c) => {
 			usedInternalModel = modelInfo.id;
 			usedExternalId = iamFilteredModelProviders[0].externalId;
 			usedRegion = iamFilteredModelProviders[0].region;
+			// This shortcut bypasses provider selection (and with it the sticky
+			// pinning inside getCheapestFromAvailableProviders), but the session is
+			// now genuinely served by this provider — e.g. a service_tier request
+			// narrowed the candidates to the one tier-capable provider. Persist the
+			// pin so later requests in the same session with a wider candidate list
+			// (e.g. after the tier is dropped again) stay on this provider and keep
+			// its prompt cache warm instead of re-scoring to a different provider.
+			const singleProviderSessionStore = createSessionStore(modelInfo.id);
+			if (singleProviderSessionStore) {
+				await singleProviderSessionStore.set(usedProvider, usedRegion);
+			}
 		} else {
 			const providerIds = iamFilteredModelProviders.map((p) => p.providerId);
 			const providerKeys = await findProviderKeysByProviders(
@@ -4081,6 +4135,7 @@ chat.openapi(completions, async (c) => {
 				hasAudio,
 				audioFormats,
 				hasDocuments,
+				hasAssistantPrefill,
 				maxTokens: max_tokens,
 				reasoningEffort: reasoning_effort,
 			};
@@ -4133,14 +4188,29 @@ chat.openapi(completions, async (c) => {
 						});
 					}
 				}
+				// A trailing assistant message is ordinary traffic, so its mere
+				// presence says nothing about why routing came up empty. Only blame
+				// assistant prefill when dropping that constraint would have left a
+				// candidate — otherwise the failure is about keys, regions or another
+				// capability and must keep its own message.
+				const excludedOnlyByAssistantPrefill =
+					hasAssistantPrefill &&
+					filterEligibleModelProviders(preparedModelProviders, {
+						...eligibilityOptions,
+						n,
+						stream,
+						hasAssistantPrefill: false,
+					}).length > 0;
 				throw new HTTPException(400, {
 					message: hasAudio
 						? `No provider with audio support is available for model ${usedInternalModel}. The request contains audio but none of the ${audience} providers support audio input.`
 						: hasImages
 							? `No provider with vision support is available for model ${usedInternalModel}. The request contains images but none of the ${audience} providers support vision.`
-							: project.mode === "api-keys"
-								? `No provider key set for any of the providers that support model ${usedInternalModel}. Please add the provider key in the settings or switch the project mode to credits or hybrid.`
-								: `No available provider could be found for model ${usedInternalModel}`,
+							: excludedOnlyByAssistantPrefill
+								? `No provider that accepts a trailing assistant message is available for model ${usedInternalModel}. The conversation ends on an assistant turn but none of the ${audience} providers support assistant prefill.`
+								: project.mode === "api-keys"
+									? `No provider key set for any of the providers that support model ${usedInternalModel}. Please add the provider key in the settings or switch the project mode to credits or hybrid.`
+									: `No available provider could be found for model ${usedInternalModel}`,
 				});
 			}
 
@@ -4421,6 +4491,7 @@ chat.openapi(completions, async (c) => {
 					hasAudio,
 					audioFormats,
 					hasDocuments,
+					hasAssistantPrefill,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
 					n,
@@ -7093,9 +7164,17 @@ chat.openapi(completions, async (c) => {
 						logServiceTierRequest(usedProvider, forwardedServiceTier, res);
 						// AI Studio reports the served tier in a response header; Vertex
 						// reports it later in usageMetadata.trafficType (set below).
-						servedServiceTier = resolveServedServiceTier({
-							serviceTierHeader: res?.headers.get("x-gemini-service-tier"),
-						});
+						// Providers that report no tier at all (Fireworks) fall back to
+						// the tier the accepted request was sent at.
+						servedServiceTier =
+							resolveServedServiceTier({
+								serviceTierHeader: res?.headers.get("x-gemini-service-tier"),
+							}) ??
+							assumeServedServiceTier(
+								usedProvider,
+								forwardedServiceTier,
+								res?.ok ?? false,
+							);
 					} catch (error) {
 						// Clean up the event listeners
 						c.req.raw.signal.removeEventListener("abort", onAbort);
@@ -11346,10 +11425,18 @@ chat.openapi(completions, async (c) => {
 
 			logServiceTierRequest(usedProvider, forwardedServiceTier, res);
 			// AI Studio reports the served tier in a response header; Vertex reports
-			// it later in usageMetadata.trafficType (set below).
-			servedServiceTier = resolveServedServiceTier({
-				serviceTierHeader: res?.headers.get("x-gemini-service-tier"),
-			});
+			// it later in usageMetadata.trafficType (set below). Providers that
+			// report no tier at all (Fireworks) fall back to the tier the accepted
+			// request was sent at.
+			servedServiceTier =
+				resolveServedServiceTier({
+					serviceTierHeader: res?.headers.get("x-gemini-service-tier"),
+				}) ??
+				assumeServedServiceTier(
+					usedProvider,
+					forwardedServiceTier,
+					res?.ok ?? false,
+				);
 		} catch (error) {
 			// Check for timeout error first (AbortSignal.timeout throws TimeoutError)
 			if (isTimeoutError(error)) {
@@ -12980,6 +13067,15 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// OpenAI echoes the served tier in its response payload; providers that
+	// report no tier of their own (Fireworks) echo the tier the gateway
+	// resolved so clients still see what the request actually ran at.
+	const echoedServiceTier =
+		usedProvider === "openai"
+			? readServiceTierValue(json)
+			: (assumeServedServiceTier(usedProvider, servedServiceTier, true) ??
+				undefined);
+
 	// Transform response to OpenAI format for non-OpenAI providers
 	// Include costs in response for all users
 	const shouldIncludeCosts = true;
@@ -13029,7 +13125,7 @@ chat.openapi(completions, async (c) => {
 		cacheCreation5mTokens,
 		cacheCreation1hTokens,
 		audioInputTokens,
-		usedProvider === "openai" ? readServiceTierValue(json) : undefined,
+		echoedServiceTier,
 	);
 	// Attach opaque reasoning payloads (e.g. OpenAI encrypted reasoning) to the
 	// assistant message so clients can replay them on later turns to preserve

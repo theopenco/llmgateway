@@ -9,6 +9,7 @@ import {
 	isSelfRefundCandidateType,
 	refundFeedbackBodySchema,
 } from "@/lib/self-refund.js";
+import { getStripeCardErrorMessage } from "@/lib/stripe-card-error.js";
 import { posthog } from "@/posthog.js";
 import {
 	ensureStripeCustomer,
@@ -1507,6 +1508,18 @@ devPlans.openapi(changeTier, async (c) => {
 		// user-facing outcome, not a server fault, so log it at warn — never
 		// error — to avoid noisy alerts for declined cards.
 		const errCode = getStripeErrorCode(error);
+		const cardErrorMessage = getStripeCardErrorMessage(error);
+		if (cardErrorMessage) {
+			// Any card error (incorrect CVC, expired card, insufficient funds, plain
+			// decline, ...) carries Stripe's user-facing explanation — pass it
+			// through so the user learns what to fix instead of a generic failure.
+			logger.warn("Dev plan tier change payment declined", {
+				code: errCode,
+			});
+			throw new HTTPException(402, {
+				message: `${cardErrorMessage} Update your payment method and try again.`,
+			});
+		}
 		if (errCode === "card_declined" || errCode === "invoice_payment_required") {
 			logger.warn("Dev plan tier change payment declined", {
 				code: errCode,
@@ -1721,7 +1734,6 @@ const getStatus = createRoute({
 						projectId: z.string().nullable(),
 						apiKey: z.string().nullable(),
 						devPlanServiceTier: z.enum(["default", "flex"]),
-						retentionLevel: z.enum(["retain", "none"]),
 						defaultRoutingStrategy: z.enum([
 							"auto",
 							"price",
@@ -1782,7 +1794,6 @@ devPlans.openapi(getStatus, async (c) => {
 			projectId: null,
 			apiKey: null,
 			devPlanServiceTier: "default" as const,
-			retentionLevel: "none" as const,
 			defaultRoutingStrategy: "auto" as const,
 		});
 	}
@@ -1882,7 +1893,6 @@ devPlans.openapi(getStatus, async (c) => {
 		projectId,
 		apiKey,
 		devPlanServiceTier: personalOrg.devPlanServiceTier,
-		retentionLevel: personalOrg.retentionLevel,
 		defaultRoutingStrategy,
 	});
 });
@@ -1900,7 +1910,6 @@ const updateSettings = createRoute({
 						// plan credits by using cheaper flex processing where the
 						// selected provider supports it.
 						devPlanServiceTier: z.enum(["default", "flex"]).optional(),
-						retentionLevel: z.enum(["retain", "none"]).optional(),
 						// Coding plans optimize for prompt caching, so only the
 						// default weighted routing or the price strategy are allowed.
 						defaultRoutingStrategy: z.enum(["auto", "price"]).optional(),
@@ -1916,7 +1925,6 @@ const updateSettings = createRoute({
 					schema: z.object({
 						success: z.boolean(),
 						devPlanServiceTier: z.enum(["default", "flex"]),
-						retentionLevel: z.enum(["retain", "none"]),
 						defaultRoutingStrategy: z.enum([
 							"auto",
 							"price",
@@ -1933,8 +1941,7 @@ const updateSettings = createRoute({
 
 devPlans.openapi(updateSettings, async (c) => {
 	const user = c.get("user");
-	const { devPlanServiceTier, retentionLevel, defaultRoutingStrategy } =
-		c.req.valid("json");
+	const { devPlanServiceTier, defaultRoutingStrategy } = c.req.valid("json");
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -1970,14 +1977,10 @@ devPlans.openapi(updateSettings, async (c) => {
 
 	const updateData: {
 		devPlanServiceTier?: "default" | "flex";
-		retentionLevel?: "retain" | "none";
 	} = {};
 
 	if (devPlanServiceTier !== undefined) {
 		updateData.devPlanServiceTier = devPlanServiceTier;
-	}
-	if (retentionLevel !== undefined) {
-		updateData.retentionLevel = retentionLevel;
 	}
 
 	const changes: Record<string, { old: unknown; new: unknown }> = {};
@@ -1995,15 +1998,6 @@ devPlans.openapi(updateSettings, async (c) => {
 			changes.devPlanServiceTier = {
 				old: personalOrg.devPlanServiceTier,
 				new: devPlanServiceTier,
-			};
-		}
-		if (
-			retentionLevel !== undefined &&
-			retentionLevel !== personalOrg.retentionLevel
-		) {
-			changes.retentionLevel = {
-				old: personalOrg.retentionLevel,
-				new: retentionLevel,
 			};
 		}
 	}
@@ -2055,7 +2049,6 @@ devPlans.openapi(updateSettings, async (c) => {
 	return c.json({
 		success: true,
 		devPlanServiceTier: devPlanServiceTier ?? personalOrg.devPlanServiceTier,
-		retentionLevel: retentionLevel ?? personalOrg.retentionLevel,
 		defaultRoutingStrategy: effectiveRoutingStrategy,
 	});
 });
@@ -3086,14 +3079,11 @@ devPlans.openapi(purchaseResetPass, async (c) => {
 		// tier-change handler. Anything else (configuration, outage,
 		// programming errors) is rethrown to the global error handler.
 		const stripeErr = err as { type?: string; code?: string };
-		if (
-			stripeErr?.type === "StripeCardError" ||
-			stripeErr?.code === "card_declined"
-		) {
+		const cardErrorMessage = getStripeCardErrorMessage(err);
+		if (cardErrorMessage || stripeErr?.code === "card_declined") {
 			logger.warn("Reset Pass charge declined", { code: stripeErr.code });
 			throw new HTTPException(402, {
-				message:
-					"Your card was declined. Update your payment method on the billing page and try again.",
+				message: `${cardErrorMessage ?? "Your card was declined."} Update your payment method on the billing page and try again.`,
 			});
 		}
 		throw err;

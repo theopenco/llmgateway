@@ -139,6 +139,11 @@ export function MappingDetailClient({
 			<DetailStatCards stats={mapping} loading={loading} />
 
 			<section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+				<StatCard
+					label="Cost"
+					value={`$${mapping.totalCost.toFixed(4)}`}
+					loading={loading}
+				/>
 				<StatCard label="Input Price" value={formatPrice(mapping.inputPrice)} />
 				<StatCard
 					label="Output Price"

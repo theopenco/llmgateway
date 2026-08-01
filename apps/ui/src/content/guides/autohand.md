@@ -8,6 +8,8 @@ date: 2026-03-19
 
 Autohand Code is an autonomous AI coding agent that works in your terminal, IDE, and Slack. With LLM Gateway, you can route all Autohand Code requests through a single gateway—use any of 200+ models from 40+ providers, with full cost tracking and smart routing.
 
+> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
+
 ## Quick Start
 
 Configure Autohand Code to use LLM Gateway by setting the base URL and API key:
@@ -54,16 +56,16 @@ You can also configure LLM Gateway in Autohand Code's config file. Add or update
 
 You can use any model from the [models page](https://llmgateway.io/models). Popular options for Autohand Code:
 
-| Model               | Best For                                    |
-| ------------------- | ------------------------------------------- |
-| `gpt-5`             | Latest OpenAI flagship, highest quality     |
-| `claude-opus-4-6`   | Anthropic's most capable model              |
-| `claude-sonnet-4-6` | Fast reasoning with extended thinking       |
-| `gemini-2.5-pro`    | Google's latest flagship, 1M context window |
-| `o3`                | Advanced reasoning tasks                    |
-| `gpt-5-mini`        | Cost-effective, quick responses             |
-| `gemini-2.5-flash`  | Fast responses, good for high-volume        |
-| `deepseek-v3.1`     | Open-source with tool support               |
+| Model                    | Best For                                    |
+| ------------------------ | ------------------------------------------- |
+| `gpt-5`                  | Latest OpenAI flagship, highest quality     |
+| `claude-opus-4-6`        | Anthropic's most capable model              |
+| `claude-sonnet-4-6`      | Fast reasoning with extended thinking       |
+| `gemini-3.1-pro-preview` | Google's latest flagship, 1M context window |
+| `o3`                     | Advanced reasoning tasks                    |
+| `gpt-5-mini`             | Cost-effective, quick responses             |
+| `gemini-3.6-flash`       | Fast responses, good for high-volume        |
+| `deepseek-v3.1`          | Open-source with tool support               |
 
 ## Autohand Code Features with LLM Gateway
 

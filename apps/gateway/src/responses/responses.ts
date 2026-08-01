@@ -194,33 +194,11 @@ responses.post("/", async (c) => {
 		);
 	}
 
-	const { project, organization } = authResult;
+	const { project } = authResult;
 
 	const shouldStore = req.store !== false;
 	const includeEncryptedReasoning =
 		req.include?.includes("reasoning.encrypted_content") ?? false;
-
-	// Require retention to use the stateful Responses API features. Stateless
-	// requests (store:false without previous_response_id) persist nothing, so
-	// they work without retention — pair them with
-	// include:["reasoning.encrypted_content"] to preserve reasoning across
-	// calls without stored responses.
-	if (
-		organization.retentionLevel !== "retain" &&
-		(shouldStore || req.previous_response_id)
-	) {
-		return c.json(
-			{
-				error: {
-					message:
-						"The Responses API requires data retention to be enabled for stored responses. Enable 'Retain All Data' in your organization's policies, send store:false (optionally with include:[\"reasoning.encrypted_content\"]) for stateless use, or use /v1/chat/completions instead.",
-					type: "invalid_request_error",
-					code: "data_retention_required",
-				},
-			},
-			400,
-		);
-	}
 
 	const projectId = project.id;
 
@@ -375,15 +353,6 @@ responses.post("/", async (c) => {
 	const logId = `resp_${shortid(24)}`;
 	const state = createStreamingState(req.model, logId, req);
 
-	// Build Responses API data for storage in the log entry.
-	// Output starts empty and is updated after completion via storeResponse().
-	const responsesApiData = {
-		input: inputItems,
-		output: [] as unknown[],
-		instructions: req.instructions,
-		model: req.model,
-	};
-
 	// Make internal request to the existing chat completions endpoint
 	const internalHeaders: Record<string, string> = {
 		"Content-Type": "application/json",
@@ -397,17 +366,13 @@ responses.post("/", async (c) => {
 		...internalApiOriginHeaders("responses"),
 	};
 
-	// Pass Responses API context via in-memory Map (not headers) to avoid
-	// exposing internal control fields to external callers and header size limits.
+	// Pass Responses API context via in-memory Map (not headers) so the chat
+	// handler logs this request under the resp_ id the client sees. Response
+	// state itself is persisted to the dedicated responses storage via
+	// storeResponse(), not the log entry.
 	const contextKey = logId;
-	if (shouldStore) {
-		setResponsesContext(contextKey, {
-			logId,
-			syncInsert: true,
-			responsesApiData,
-		});
-		internalHeaders["x-responses-context-key"] = contextKey;
-	}
+	setResponsesContext(contextKey, { logId });
+	internalHeaders["x-responses-context-key"] = contextKey;
 
 	let response: Response;
 	try {
@@ -715,21 +680,7 @@ responses.post("/compact", async (c) => {
 		);
 	}
 
-	const { project, organization } = authResult;
-
-	if (organization.retentionLevel !== "retain") {
-		return c.json(
-			{
-				error: {
-					message:
-						"The Responses API requires data retention to be enabled. Enable 'Retain All Data' in your organization's policies, or use /v1/chat/completions instead.",
-					type: "invalid_request_error",
-					code: "data_retention_required",
-				},
-			},
-			400,
-		);
-	}
+	const { project } = authResult;
 
 	let inputItems: unknown[] = [];
 	if (typeof req.input === "string") {
@@ -824,16 +775,7 @@ responses.post("/compact", async (c) => {
 	};
 
 	const contextKey = compactionId;
-	setResponsesContext(contextKey, {
-		logId: compactionId,
-		syncInsert: true,
-		responsesApiData: {
-			input: inputItems,
-			output: [] as unknown[],
-			instructions: req.instructions,
-			model: req.model,
-		},
-	});
+	setResponsesContext(contextKey, { logId: compactionId });
 	internalHeaders["x-responses-context-key"] = contextKey;
 
 	let response: Response;

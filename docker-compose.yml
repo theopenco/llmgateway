@@ -25,3 +25,29 @@ services:
       - "6379:6379"
     environment:
       CI: ${CI}
+
+  # Storage Redis: Responses API state (30d retention) + gateway response
+  # cache. AOF persistence because it holds a source of truth, not just cache.
+  redis-storage:
+    container_name: redis-storage
+    image: redis:8
+    command:
+      [
+        "redis-server",
+        "--protected-mode",
+        "no",
+        "--bind",
+        "0.0.0.0",
+        "--appendonly",
+        "yes",
+      ]
+    restart: always
+    ports:
+      - "6479:6379"
+    environment:
+      CI: ${CI}
+    volumes:
+      - redis_storage_data:/data
+
+volumes:
+  redis_storage_data:

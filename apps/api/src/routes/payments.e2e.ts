@@ -7,6 +7,7 @@ import { deleteAll } from "@/testing.js";
 
 import { db, tables } from "@llmgateway/db";
 import { CREDIT_TOP_UP_MIN_AMOUNT } from "@llmgateway/shared";
+import { uniqueId } from "@llmgateway/shared/random";
 
 // Reproduces the production credits top-up flow against real Stripe test
 // mode, server-side: create-setup-intent -> confirm the SetupIntent with a
@@ -26,7 +27,7 @@ const stripeTestingEnabled =
 	Boolean(stripeKey?.startsWith("sk_test_"));
 
 function generateTestId(): string {
-	return `test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+	return uniqueId("test");
 }
 
 describe.skipIf(!stripeTestingEnabled)(

@@ -4,6 +4,7 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, tables } from "@llmgateway/db";
+import { randomInt } from "@llmgateway/shared/random";
 
 describe("organization route", () => {
 	let token: string;
@@ -81,7 +82,7 @@ describe("organization route", () => {
 			headers: {
 				"Content-Type": "application/json",
 				Origin: codeUrl,
-				"CF-Connecting-IP": `192.168.32.${Math.floor(Math.random() * 255)}`,
+				"CF-Connecting-IP": `192.168.32.${randomInt(0, 255)}`,
 			},
 			body: JSON.stringify({ email, password, name: "Dev User" }),
 		});

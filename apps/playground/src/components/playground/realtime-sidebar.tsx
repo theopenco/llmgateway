@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronUp, ExternalLink, LogOut } from "lucide-react";
+import { ChevronUp, CreditCard, ExternalLink, LogOut } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
@@ -251,6 +251,13 @@ export function RealtimeSidebar({
 								align="end"
 								sideOffset={4}
 							>
+								<DropdownMenuItem asChild>
+									<Link href="/pricing" prefetch={true}>
+										<CreditCard className="mr-2 h-4 w-4" />
+										Membership &amp; Billing
+									</Link>
+								</DropdownMenuItem>
+								<DropdownMenuSeparator />
 								<DropdownMenuItem asChild>
 									<a
 										href={

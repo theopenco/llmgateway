@@ -3,6 +3,7 @@
 import {
 	AudioLines,
 	ChevronUp,
+	CreditCard,
 	Edit2,
 	ExternalLink,
 	LogOut,
@@ -671,6 +672,13 @@ export function AudioSidebar({
 								align="end"
 								sideOffset={4}
 							>
+								<DropdownMenuItem asChild>
+									<Link href="/pricing" prefetch={true}>
+										<CreditCard className="mr-2 h-4 w-4" />
+										Membership &amp; Billing
+									</Link>
+								</DropdownMenuItem>
+								<DropdownMenuSeparator />
 								<DropdownMenuItem asChild>
 									<a
 										href={

@@ -172,6 +172,75 @@ export async function blockOrganization(orgId: string): Promise<{
 	};
 }
 
+export interface BulkBlockPreview {
+	search: string;
+	matched: number;
+	blockable: number;
+	skipped: number;
+	maxBulkSize: number;
+	organizations: {
+		id: string;
+		name: string;
+		billingEmail: string;
+		plan: string;
+		status: string | null;
+		createdAt: string;
+	}[];
+}
+
+export async function previewBulkBlockOrganizations(search: string): Promise<{
+	success: boolean;
+	error?: string;
+	preview?: BulkBlockPreview;
+}> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.GET(
+		"/admin/organizations/bulk-block/preview",
+		{
+			params: { query: { search } },
+		},
+	);
+
+	if (error || !data) {
+		const message =
+			(error as { message?: string } | undefined)?.message ??
+			"Failed to preview bulk block";
+		return { success: false, error: message };
+	}
+
+	return { success: true, preview: data };
+}
+
+export async function bulkBlockOrganizations(
+	search: string,
+	expectedCount: number,
+): Promise<{
+	success: boolean;
+	error?: string;
+	blockedCount?: number;
+	failedCount?: number;
+	failed?: { id: string; name: string; error: string }[];
+}> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.POST("/admin/organizations/bulk-block", {
+		body: { search, expectedCount },
+	});
+
+	if (error || !data) {
+		const message =
+			(error as { message?: string } | undefined)?.message ??
+			"Failed to bulk block organizations";
+		return { success: false, error: message };
+	}
+
+	return {
+		success: true,
+		blockedCount: data.blockedCount,
+		failedCount: data.failedCount,
+		failed: data.failed,
+	};
+}
+
 export async function getLogContent(logId: string): Promise<string | null> {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/logs/{id}", {

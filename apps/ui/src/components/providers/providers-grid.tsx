@@ -32,7 +32,10 @@ import {
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
 import {
+	formatCompact,
 	gateProviderStats,
+	hasEnoughRequestsForStats,
+	MIN_REQUESTS_FOR_STATS,
 	type ProviderWindowStats,
 } from "@/lib/provider-stats";
 
@@ -473,6 +476,14 @@ export function ProvidersGrid({
 											{provider.description}
 										</CardDescription>
 									</div>
+
+									{provider.stats &&
+										!hasEnoughRequestsForStats(provider.stats.logsCount) && (
+											<div className="rounded-xl border border-dashed border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground">
+												Stats hidden until{" "}
+												{formatCompact(MIN_REQUESTS_FOR_STATS)} requests
+											</div>
+										)}
 
 									{provider.stats &&
 										(provider.stats.avgTimeToFirstToken !== null ||

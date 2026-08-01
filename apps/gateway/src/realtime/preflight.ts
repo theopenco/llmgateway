@@ -67,6 +67,25 @@ export interface RealtimePreflightResult {
 	safetyIdentifier: string;
 }
 
+/**
+ * Derive the opaque `OpenAI-Safety-Identifier` for a session. It is keyed on the
+ * tenant (organization + project) rather than on the API key: keys are rotatable
+ * credentials, so deriving from one would reset the upstream abuse-tracking
+ * identity on every rotation, and no part of a credential should ever be fed
+ * into a fast digest. Both ids are 20-character CSPRNG nanoids (~119 bits each),
+ * so a plain digest needs no salt or pepper: there is no small input space to
+ * enumerate, and the hash exists only to keep internal ids off the wire.
+ */
+function deriveSafetyIdentifier(
+	organizationId: string,
+	projectId: string,
+): string {
+	return createHash("sha256")
+		.update(`realtime-safety-identifier:${organizationId}:${projectId}`)
+		.digest("hex")
+		.slice(0, 32);
+}
+
 export function getAvailableCredits(organization: Organization): number {
 	const regularCredits = parseFloat(organization.credits ?? "0");
 	const devPlanCreditsRemaining =
@@ -136,6 +155,19 @@ async function runRealtimePreflightInner(
 			400,
 			"model_not_found",
 			`Realtime model not found: ${input.requestedModel}`,
+		);
+	}
+	// Provider-scoped kill switch. Enforced here so it covers both client-secret
+	// minting and the WebSocket upgrade with the same normal 503, instead of a
+	// mint succeeding and the upgrade failing opaquely.
+	if (
+		match.mapping.providerId === "google-ai-studio" &&
+		process.env.REALTIME_GEMINI_DISABLED === "true"
+	) {
+		throw new RealtimeConnectError(
+			503,
+			"realtime_gemini_disabled",
+			"Gemini realtime sessions are temporarily unavailable.",
 		);
 	}
 
@@ -350,9 +382,6 @@ async function runRealtimePreflightInner(
 		usedMode: providerKey ? "api-keys" : "credits",
 		allowedTranscriptionModelIds,
 		clientIp: input.clientIp,
-		safetyIdentifier: createHash("sha256")
-			.update(`${organization.id}:${apiKey.id}`)
-			.digest("hex")
-			.slice(0, 32),
+		safetyIdentifier: deriveSafetyIdentifier(organization.id, project.id),
 	};
 }

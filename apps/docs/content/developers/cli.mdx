@@ -10,6 +10,14 @@ import { Tabs, Tab } from "fumadocs-ui/components/tabs";
 
 The **LLM Gateway CLI** (`@llmgateway/cli`) is a command-line utility for launching coding agents pre-configured with LLM Gateway, scaffolding projects, discovering models, and managing your LLM Gateway account — API keys, spending budgets, and usage analytics — straight from the terminal.
 
+<Callout type="info">
+	**Using DevPass?** This integration also works with a
+	[DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without
+	a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) —
+	provider-pinned routing is not available on coding plans; the gateway picks
+	the provider for you.
+</Callout>
+
 ## Installation
 
 <Tabs items={["npx (Recommended)", "Global Install"]}>
@@ -124,7 +132,7 @@ npx @llmgateway/cli launch --list
 npx @llmgateway/cli launch --dry-run codex
 ```
 
-Every supported agent also works as a direct shortcut, e.g. `npx @llmgateway/cli claude` or `npx @llmgateway/cli devpass-code`. The launcher configures each agent automatically — environment variables, config files, or the agent's own key-registration command, whichever that agent needs — without overwriting your existing setup.
+Every supported agent also works as a direct shortcut, e.g. `npx @llmgateway/cli claude` or `npx @llmgateway/cli devpass-code`. The launcher configures each agent automatically — environment variables, config files, or the agent's own key-registration command, whichever that agent needs — without overwriting your existing setup. For OpenCode and Claude Code, launching also applies the same model-catalog setup as [`configure`](#configure) on every launch, so their model pickers stay fresh as new models ship.
 
 The API key is resolved from `--key`, the `LLMGATEWAY_API_KEY` environment variable, or the key stored by `llmgateway auth login --key` — in that order. Before launching, the key is verified against the gateway; a stale key (e.g. one you rolled or deleted) is reported with its exact source and the launcher falls back to the next valid one, prompting you for a fresh key if none works. If an agent isn't installed, the launcher prints its official install command and exits.
 
@@ -133,6 +141,29 @@ The API key is resolved from `--key`, the `LLMGATEWAY_API_KEY` environment varia
 	details, and run `npx @llmgateway/cli launch --list` for the up-to-date list
 	of supported agents.
 </Callout>
+
+### `configure`
+
+Put LLM Gateway's coding-model catalog directly into an agent's own config, so its model picker lists gateway models without launching through the CLI:
+
+```bash
+# opencode: adds every coding model, pinned per upstream provider, to the picker
+npx @llmgateway/cli configure opencode
+
+# Claude Code: routes it through LLM Gateway and fills /model from the gateway catalog
+npx @llmgateway/cli configure claude
+
+# ...for the current repo only (.claude/settings.local.json)
+npx @llmgateway/cli configure claude --project
+
+# Preview without writing
+npx @llmgateway/cli configure opencode --dry-run
+```
+
+- **OpenCode** — merges `provider/model` entries (e.g. `anthropic/claude-sonnet-5`, `aws-bedrock/claude-sonnet-5`) into `provider.llmgateway.models` in `~/.config/opencode/opencode.json`, with display names, context limits, and per-provider pricing. They show up in the picker as `llmgateway/<provider>/<model>` and pin that upstream provider via the gateway's [provider-routing syntax](/features/routing#provider-specific-routing). Root model IDs (auto-routed) are already built into OpenCode. Existing custom entries and the rest of the file are preserved, and a hand-written `opencode.jsonc` keeps working alongside it.
+- **Claude Code** — sets `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1` in `~/.claude/settings.json` (requires Claude Code v2.1.129+). Claude Code then loads the gateway's `/v1/models` catalog into its `/model` picker (shown as "From gateway"). Claude Code only lists IDs starting with `claude`/`anthropic`; any other gateway model still works via `claude --model <id>`.
+
+`llmgateway launch opencode` and `llmgateway launch claude` apply the same setup automatically on every launch, keeping the catalog fresh as new models ship.
 
 ## Project Commands
 

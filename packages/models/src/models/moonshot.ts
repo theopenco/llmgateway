@@ -12,7 +12,6 @@ export const moonshotModels = [
 				providerId: "groq",
 				externalId: "moonshotai/kimi-k2-instruct",
 				// Frequently over capacity on Groq (503)
-				// Ref: https://groqstatus.com
 				stability: "unstable",
 				inputPrice: "1.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -264,8 +263,6 @@ export const moonshotModels = [
 				providerId: "together-ai",
 				externalId: "moonshotai/Kimi-K2.5",
 				// Together.ai intermittently returns 500 for this model (~98.7% uptime)
-				// Ref: https://status.together.ai
-				// Model page: https://www.together.ai/models/kimi-k2-5
 				stability: "unstable",
 				inputPrice: "0.5e-6",
 				outputPrice: "2.8e-6",
@@ -732,6 +729,88 @@ export const moonshotModels = [
 				// the per-test timeout budget.
 				stability: "unstable",
 				test: "skip",
+			},
+			{
+				providerId: "fireworks",
+				externalId: "accounts/fireworks/models/kimi-k3",
+				inputPrice: "3.0e-6",
+				cachedInputPrice: "0.3e-6",
+				outputPrice: "15.0e-6",
+				requestPrice: "0",
+				// Fireworks publishes a Priority rate card for Kimi K3 at exactly
+				// 1.25x the standard rates ($3.75 / $0.375 / $18.75 per million),
+				// which is the provider-level multiplier — no override needed.
+				serviceTiers: ["priority"],
+				contextSize: 1040384,
+				maxOutput: 1040384,
+				streaming: true,
+				reasoning: true,
+				// Unlike the native Moonshot deployment (which only takes "max"),
+				// Fireworks accepts the full effort enum and rejects "minimal".
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
+				providerId: "canopywave",
+				externalId: "moonshotai/kimi-k3",
+				// A named function choice is rejected with a 400 ("tool_choice
+				// 'specified' is incompatible with thinking enabled"); "required"
+				// works and reliably returns a tool call.
+				supportedToolChoices: ["auto", "none", "required"],
+				inputPrice: "3.0e-6",
+				cachedInputPrice: "0.3e-6",
+				outputPrice: "15.0e-6",
+				requestPrice: "0",
+				// A 300K-token prompt was served correctly; prompts beyond ~1M are
+				// rejected with a 429 because the upstream TPM quota is 1M.
+				contextSize: 1048576,
+				maxOutput: 1048576,
+				streaming: true,
+				reasoning: true,
+				// This deployment accepts every effort tier, including "none"
+				// (which returns zero reasoning tokens) and "minimal".
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
+		],
+	},
+	{
+		id: "kimi-k3-fast",
+		name: "Kimi K3 Fast",
+		description:
+			"Kimi K3 served on Fireworks' low-latency Fast router, trading a higher token price for faster generation.",
+		family: "moonshot",
+		releasedAt: new Date("2026-07-16"),
+		providers: [
+			{
+				providerId: "fireworks",
+				externalId: "accounts/fireworks/routers/kimi-k3-fast",
+				inputPrice: "4.5e-6",
+				cachedInputPrice: "0.45e-6",
+				outputPrice: "22.5e-6",
+				requestPrice: "0",
+				contextSize: 1040384,
+				maxOutput: 1040384,
+				streaming: true,
+				reasoning: true,
+				// Like the standard Fireworks deployment, the full effort enum is
+				// accepted and "minimal" is rejected with a 400.
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
 			},
 		],
 	},

@@ -1,5 +1,7 @@
 import { subDays, format } from "date-fns";
 
+import { randomFloatBetween, randomInt } from "@llmgateway/shared/random";
+
 export const generateMockActivityData = () => {
 	const today = new Date();
 	const days = 7;
@@ -11,38 +13,33 @@ export const generateMockActivityData = () => {
 
 		activity.push({
 			date: dateStr,
-			requestCount: Math.floor(Math.random() * 500) + 100,
-			inputTokens: Math.floor(Math.random() * 50000) + 10000,
-			outputTokens: Math.floor(Math.random() * 30000) + 5000,
-			totalTokens: Math.floor(Math.random() * 80000) + 15000,
-			// eslint-disable-next-line no-mixed-operators
-			cost: Math.random() * 5 + 0.5,
-			errorCount: Math.floor(Math.random() * 10),
-			cacheCount: Math.floor(Math.random() * 50) + 10,
-			errorRate: Math.random() * 2,
-			// eslint-disable-next-line no-mixed-operators
-			cacheRate: Math.random() * 20 + 5,
+			requestCount: randomInt(100, 600),
+			inputTokens: randomInt(10000, 60000),
+			outputTokens: randomInt(5000, 35000),
+			totalTokens: randomInt(15000, 95000),
+			cost: randomFloatBetween(0.5, 5.5),
+			errorCount: randomInt(0, 10),
+			cacheCount: randomInt(10, 60),
+			errorRate: randomFloatBetween(0, 2),
+			cacheRate: randomFloatBetween(5, 25),
 			modelBreakdown: [
 				{
 					id: "anthropic/claude-3-5-sonnet-20241022",
-					requestCount: Math.floor(Math.random() * 200) + 50,
-					// eslint-disable-next-line no-mixed-operators
-					cost: Math.random() * 2 + 0.2,
-					totalTokens: Math.floor(Math.random() * 40000) + 8000,
+					requestCount: randomInt(50, 250),
+					cost: randomFloatBetween(0.2, 2.2),
+					totalTokens: randomInt(8000, 48000),
 				},
 				{
 					id: "openai/gpt-4o",
-					requestCount: Math.floor(Math.random() * 150) + 30,
-					// eslint-disable-next-line no-mixed-operators
-					cost: Math.random() * 1.5 + 0.1,
-					totalTokens: Math.floor(Math.random() * 30000) + 5000,
+					requestCount: randomInt(30, 180),
+					cost: randomFloatBetween(0.1, 1.6),
+					totalTokens: randomInt(5000, 35000),
 				},
 				{
 					id: "google-ai-studio/gemini-1.5-pro",
-					requestCount: Math.floor(Math.random() * 100) + 20,
-					// eslint-disable-next-line no-mixed-operators
-					cost: Number(Math.random()) * 1 + 0.05,
-					totalTokens: Math.floor(Math.random() * 20000) + 3000,
+					requestCount: randomInt(20, 120),
+					cost: randomFloatBetween(0.05, 1.05),
+					totalTokens: randomInt(3000, 23000),
 				},
 			],
 		});
@@ -79,6 +76,7 @@ export const mockLogs = [
 		cost: 0.00234,
 		hasError: false,
 		source: "docs",
+		apiOrigin: "messages" as const,
 		projectId: "proj_demo",
 		apiKeyId: "key_demo",
 		organizationId: "org_demo",
@@ -103,6 +101,7 @@ export const mockLogs = [
 		cost: 0,
 		hasError: false,
 		source: "playground",
+		apiOrigin: "chat-completions" as const,
 		projectId: "proj_demo",
 		apiKeyId: "key_demo",
 		organizationId: "org_demo",
@@ -125,6 +124,7 @@ export const mockLogs = [
 		cost: 0,
 		hasError: true,
 		source: "api",
+		apiOrigin: "chat-completions" as const,
 		projectId: "proj_demo",
 		apiKeyId: "key_demo",
 		organizationId: "org_demo",

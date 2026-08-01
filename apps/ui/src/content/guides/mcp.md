@@ -8,6 +8,8 @@ date: 2026-07-03
 
 LLM Gateway ships a hosted [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server at `https://api.llmgateway.io/mcp`. Connect it to Claude Code, Codex, Cursor, or any MCP-compatible client and your AI assistant gets tools to call **any model in our catalog** — ask GPT-5 for a second opinion from inside Claude Code, generate images mid-session, or look up model pricing without leaving your editor.
 
+> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use root model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
+
 ## What you get
 
 The MCP server exposes four tools:
@@ -94,6 +96,6 @@ Every tool call is a normal LLM Gateway request — it shows up in your [dashboa
 - **Image generation anywhere** — any MCP client becomes an image studio
 - **One key, one bill** — MCP traffic and API traffic share credits, caching, and analytics
 
-For the full tool parameter reference, see the [MCP docs](https://docs.llmgateway.io/guides/mcp).
+For the full tool parameter reference, see the [MCP docs](https://docs.llmgateway.io/developers/mcp).
 
 [Get started for free](/signup) — no credit card required.
