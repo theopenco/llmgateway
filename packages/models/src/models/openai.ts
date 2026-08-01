@@ -1944,8 +1944,12 @@ export const openaiModels = [
 			{
 				providerId: "aws-mantle",
 				externalId: "openai.gpt-5.6-sol",
-				// Bedrock in-region inference is priced at OpenAI's data-residency
-				// tier, a flat 10% premium over OpenAI's standard first-party rates.
+				// Mantle is in-region-only (the model cards list Geo and Global
+				// cross-region as unsupported, and AWS lists global cross-region
+				// pricing as "coming soon"), and AWS prices in-region inference at
+				// OpenAI's data-residency tier — a flat 10% premium over the
+				// standard first-party rates. Unlike the usual Bedrock geo/global
+				// split there is no cheaper global rate to route to yet.
 				// AWS displays the cache-write rate rounded to $6.88/M.
 				inputPrice: "5.5e-6",
 				outputPrice: "33.0e-6",
@@ -2094,8 +2098,12 @@ export const openaiModels = [
 			{
 				providerId: "aws-mantle",
 				externalId: "openai.gpt-5.6-terra",
-				// Bedrock in-region inference is priced at OpenAI's data-residency
-				// tier, a flat 10% premium over OpenAI's standard first-party rates.
+				// Mantle is in-region-only (the model cards list Geo and Global
+				// cross-region as unsupported, and AWS lists global cross-region
+				// pricing as "coming soon"), and AWS prices in-region inference at
+				// OpenAI's data-residency tier — a flat 10% premium over the
+				// standard first-party rates. Unlike the usual Bedrock geo/global
+				// split there is no cheaper global rate to route to yet.
 				inputPrice: "2.2e-6",
 				outputPrice: "13.2e-6",
 				cachedInputPrice: "0.22e-6",
@@ -2243,8 +2251,12 @@ export const openaiModels = [
 			{
 				providerId: "aws-mantle",
 				externalId: "openai.gpt-5.6-luna",
-				// Bedrock in-region inference is priced at OpenAI's data-residency
-				// tier, a flat 10% premium over OpenAI's standard first-party rates.
+				// Mantle is in-region-only (the model cards list Geo and Global
+				// cross-region as unsupported, and AWS lists global cross-region
+				// pricing as "coming soon"), and AWS prices in-region inference at
+				// OpenAI's data-residency tier — a flat 10% premium over the
+				// standard first-party rates. Unlike the usual Bedrock geo/global
+				// split there is no cheaper global rate to route to yet.
 				inputPrice: "0.22e-6",
 				outputPrice: "1.32e-6",
 				cachedInputPrice: "0.022e-6",
