@@ -193,14 +193,35 @@ Provisioned users are created in LLM Gateway and added to the organization (defa
 
 On the app's **Push Groups** tab, push the Okta groups whose membership should matter. Then on the LLM Gateway **SSO** page, add mappings such as `Acme Admins → admin`. When Okta pushes group membership, each member gets the **highest** mapped role among their groups (default `developer`). Owners are never auto-demoted, so you can't accidentally lock yourself out of the owner role.
 
+## Group → project access mapping (optional)
+
+Provisioned members join as **developers**, who only see the projects they're granted (owners/admins always see every project). The **Group project access** card on the **SSO** page maps an Okta group to one or more projects, so project access follows group membership in your directory automatically.
+
+On the app's **Push Groups** tab, push the Okta groups whose membership should drive project access (the same mechanism role mappings use), then add mappings such as `Data Science → Analytics, ETL` on the **SSO** page. The sync behaves as follows:
+
+- **Mapped projects replace the default set.** A member of at least one mapped group gets exactly the union of their groups' mapped projects; members in no mapped group fall back to the [Default project access](#default-project-access-optional) selection below.
+- **Grants are re-synced on every directory sync event** — provisioning, reactivation, group membership pushes, group renames/deletions, and immediately when you create or delete a mapping for an already-pushed group. Removing a user from a mapped group revokes the mapped projects on the next push.
+- **Manually granted access always survives.** Project access granted on the **Team** page is never removed by the sync; conversely, manually removing a synced grant only lasts until the next directory sync re-applies the mapping.
+- Mappings match on the pushed group's **name** exactly. Saving a mapping for a group that already has one **replaces** that group's project set.
+
+<Callout type="warn">
+	If the mapped group is also the user's **only** assignment to the Okta app,
+	removing them from it unassigns them entirely — Okta deprovisions the user and
+	their LLM Gateway membership and API keys are revoked, not just the mapped
+	project. Assign users via a broader group or directly if group-leave should
+	only adjust project access.
+</Callout>
+
 ## Default project access (optional)
 
-Provisioned members join as **developers**, who only see the projects they're granted (owners/admins always see every project). Use the **Default project access** card on the **SSO** page to choose which projects newly provisioned SSO/SCIM developers get by default. If you leave it unconfigured, new members get your organization's first (default) project so they can see something out of the box; select an empty set to instead grant nothing and manage project access manually per member.
+Use the **Default project access** card on the **SSO** page to choose which projects SSO/SCIM developers get when **none of their groups map to projects**. If you leave it unconfigured, members get your organization's first (default) project so they can see something out of the box.
 
 <Callout type="info">
-	Default project access applies only to members provisioned **after** you set
-	it — it doesn't retroactively change existing members' project grants. Adjust
-	an existing member's projects from the **Team** page.
+	Like group-mapped grants, default grants are applied when a member is
+	provisioned and re-synced on that member's later directory sync events — e.g.
+	a member who leaves their last mapped group falls back to the current default
+	selection. Project access granted manually on the **Team** page is never
+	changed by the sync.
 </Callout>
 
 ## Test the login

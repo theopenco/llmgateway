@@ -226,14 +226,56 @@ Assigned users are created in LLM Gateway and added to the organization (default
 
 On the **SSO** page, add mappings such as `Acme Admins → admin`. When Entra pushes group membership over SCIM, each member gets the **highest** mapped role among their groups (default `developer`). Owners are never auto-demoted, so you can't accidentally lock yourself out of the owner role.
 
-## Default project access (optional)
+## Group → project access mapping (optional)
 
-Provisioned members join as **developers**, who only see the projects they're granted (owners/admins always see every project). Use the **Default project access** card on the **SSO** page to choose which projects newly provisioned SSO/SCIM developers get by default. If you leave it unconfigured, new members get your organization's first (default) project so they can see something out of the box; select an empty set to instead grant nothing and manage project access manually per member.
+Provisioned members join as **developers**, who only see the projects they're granted (owners/admins always see every project). The **Group project access** card on the **SSO** page maps an Entra group to one or more projects, so project access follows group membership in your directory automatically.
+
+### How the sync works
+
+- **Mapped projects replace the default set.** If a member belongs to at least one mapped group, they get exactly the union of their groups' mapped projects. Members in no mapped group fall back to the [Default project access](#default-project-access-optional) selection below.
+- **Grants are re-synced on every directory sync event** — user provisioning and reactivation, group membership adds/removes, group renames and deletions, and immediately when you create or delete a mapping for a group Entra has already pushed. Removing a user from a mapped group revokes the mapped projects on the next sync; deleting the group or the mapping reverts its members to the default set.
+- **Manually granted access always survives.** Project access an admin grants on the **Team** page is never removed by the sync — only grants the sync itself created are added and revoked. (The converse also holds: if you manually remove a synced grant on the Team page, the next directory sync re-applies the mapping.)
+- Mappings match on the group's **display name** exactly as Entra pushes it. Saving a mapping for a group name that already has one **replaces** that group's project set.
+
+### Configure Entra so project sync works
+
+Group-based project sync rides entirely on the SCIM setup above — there is no extra Entra credential to configure — but three Entra-side details determine whether the group data actually reaches LLM Gateway:
+
+1. **Group provisioning must be on** (it is by default). On the Enterprise App → **Provisioning → Attribute mapping**, the **Provision Microsoft Entra ID Groups** mapping must be enabled. Entra then pushes each in-scope group's display name and member list over SCIM.
+2. **The group must be in the provisioning scope.** With the recommended **"Sync only assigned users and groups"** scope, assign the group itself under **Users and groups** on the Enterprise App. Assigning a group both provisions its members as users and pushes the group object used for the mapping.
+3. **The mapping's group name must match the Entra display name** exactly (e.g. `Data Science`, not a case-variant). If you rename the group in Entra, the rename is pushed on the next sync and members are re-evaluated against the mappings — update the mapping to the new name if you want it to keep applying.
 
 <Callout type="info">
-	Default project access applies only to members provisioned **after** you set
-	it — it doesn't retroactively change existing members' project grants. Adjust
-	an existing member's projects from the **Team** page.
+	**Testing without waiting for the sync cycle:** group changes propagate on
+	Entra's regular provisioning cycle (every 20–40 minutes). **Provision on
+	demand** for a _user_ pushes only that user, not their groups — to test group
+	→ project sync instantly, provision the **group** on demand instead and select
+	the affected member(s) (up to 5 at a time). For a member you just removed,
+	switch the selector from **View members only** to the all-users view so the
+	removed member can be selected and their removal pushed.
+</Callout>
+
+<Callout type="warn">
+	**Leaving a mapped group can mean full deprovisioning, not just losing the
+	project.** Entra deprovisions a user who falls out of the app's scope
+	entirely. If the mapped group is the user's **only** assignment to the
+	Enterprise App, removing them from it deactivates them in LLM Gateway —
+	membership and API keys are revoked, not just the mapped project. If you want
+	group-leave to only adjust project access, assign users to the app through a
+	broader group (e.g. an "All Employees" group) or directly, and use the mapped
+	group purely for project access.
+</Callout>
+
+## Default project access (optional)
+
+Use the **Default project access** card on the **SSO** page to choose which projects SSO/SCIM developers get when **none of their groups map to projects**. If you leave it unconfigured, members get your organization's first (default) project so they can see something out of the box.
+
+<Callout type="info">
+	Like group-mapped grants, default grants are applied when a member is
+	provisioned and re-synced on that member's later directory sync events — e.g.
+	a member who leaves their last mapped group falls back to the current default
+	selection. Project access granted manually on the **Team** page is never
+	changed by the sync.
 </Callout>
 
 ## Test the login
