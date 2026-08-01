@@ -40,6 +40,18 @@ spec:
                 echo "Waiting for Redis..."
                 sleep 2
               done
+        {{- if or .Values.storageRedis.enabled .Values.externalStorageRedis.host }}
+        - name: wait-for-storage-redis
+          image: busybox:1.37
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z {{ include "llmgateway.storageRedis.host" . }} {{ include "llmgateway.storageRedis.port" . }}; do
+                echo "Waiting for Storage Redis..."
+                sleep 2
+              done
+        {{- end }}
       containers:
         - name: api
           image: {{ include "llmgateway.image" (dict "context" . "image" .Values.api.image) }}

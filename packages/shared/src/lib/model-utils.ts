@@ -1,20 +1,25 @@
 import type { ModelDefinition, ProviderDefinition } from "@llmgateway/models";
 
-export function formatPrice(price: number | undefined): string {
+export function formatPrice(price: number | string | undefined): string {
 	// Unknown / missing pricing
 	if (price === undefined) {
 		return "Unknown";
 	}
 
+	const n = typeof price === "string" ? Number(price) : price;
+	if (!Number.isFinite(n)) {
+		return "Unknown";
+	}
+
 	// Explicitly free
-	if (price === 0) {
+	if (n === 0) {
 		return "Free";
 	}
 
 	// All model prices in the catalog are stored as "per token" with values like 2 / 1e6.
 	// For the playground we always want to show an explicit per‑million price (to match the /models UI),
 	// otherwise small numbers like 2e‑6 end up rounded to $0.00/1K.
-	const perMillion = price * 1_000_000;
+	const perMillion = n * 1_000_000;
 	return `$${perMillion.toFixed(2)}/1M tokens`;
 }
 

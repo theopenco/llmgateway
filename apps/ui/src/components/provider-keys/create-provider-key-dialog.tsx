@@ -25,7 +25,11 @@ import {
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 
-import { providers, type ProviderDefinition } from "@llmgateway/models";
+import {
+	providers,
+	isStealthProvider,
+	type ProviderDefinition,
+} from "@llmgateway/models";
 
 import { ProviderSelect } from "./provider-select";
 
@@ -50,9 +54,6 @@ export function CreateProviderKeyDialog({
 	const [baseUrl, setBaseUrl] = useState("");
 	const [customName, setCustomName] = useState("");
 	const [token, setToken] = useState("");
-	const [awsBedrockRegionPrefix, setAwsBedrockRegionPrefix] = useState<
-		"us." | "global." | "eu."
-	>("global.");
 	const [azureResource, setAzureResource] = useState("");
 	const [azureApiVersion, setAzureApiVersion] = useState("2024-10-21");
 	const [azureDeploymentType, setAzureDeploymentType] = useState<
@@ -60,8 +61,14 @@ export function CreateProviderKeyDialog({
 	>("ai-foundry");
 	const [azureValidationModel, setAzureValidationModel] =
 		useState("gpt-4o-mini");
+	const [azureAiFoundryResource, setAzureAiFoundryResource] = useState("");
+	const [azureAiFoundryApiVersion, setAzureAiFoundryApiVersion] =
+		useState("2024-05-01-preview");
 	const [selectedRegion, setSelectedRegion] = useState("");
 	const [googleVertexProjectId, setGoogleVertexProjectId] = useState("");
+	const [vertexTokenType, setVertexTokenType] = useState<"api-key" | "oauth">(
+		"api-key",
+	);
 	const [isValidating, setIsValidating] = useState(false);
 
 	const api = useApi();
@@ -77,8 +84,11 @@ export function CreateProviderKeyDialog({
 	const effectiveRegion =
 		(selectedRegion || selectedProviderDef?.regionConfig?.defaultRegion) ?? "";
 
+	// Exclude the gateway itself and stealth providers (no default base URL):
+	// users can't configure a stealth provider key because the platform behind
+	// it is undisclosed, so hide them from the selector entirely.
 	const availableProviders = providers.filter(
-		(provider) => provider.id !== "llmgateway",
+		(provider) => provider.id !== "llmgateway" && !isStealthProvider(provider),
 	);
 
 	// Update selectedProvider when preselectedProvider changes or dialog opens
@@ -91,7 +101,11 @@ export function CreateProviderKeyDialog({
 	const handleSubmit = (e: React.FormEvent) => {
 		e.preventDefault();
 
-		if (!selectedProvider || !token) {
+		// Strip whitespace and zero-width characters that get pasted in when a key
+		// is copied from wrapped text (newlines, non-breaking / zero-width spaces).
+		const trimmedToken = token.replace(/[\s\u200B-\u200D\u2060\uFEFF]/g, "");
+
+		if (!selectedProvider || !trimmedToken) {
 			toast({
 				title: "Error",
 				description: !selectedProvider
@@ -121,10 +135,14 @@ export function CreateProviderKeyDialog({
 			return;
 		}
 
-		if (selectedProvider === "custom" && !/^[a-z]+$/.test(customName)) {
+		if (
+			selectedProvider === "custom" &&
+			!/^[a-z]+(-[a-z]+)*$/.test(customName)
+		) {
 			toast({
 				title: "Error",
-				description: "Custom name must contain only lowercase letters a-z",
+				description:
+					"Custom name must contain only lowercase letters a-z and single hyphens between them",
 				variant: "destructive",
 			});
 			return;
@@ -139,7 +157,7 @@ export function CreateProviderKeyDialog({
 			organizationId: string;
 		} = {
 			provider: selectedProvider,
-			token,
+			token: trimmedToken,
 			organizationId: selectedOrganization.id,
 		};
 		if (baseUrl) {
@@ -147,11 +165,6 @@ export function CreateProviderKeyDialog({
 		}
 		if (selectedProvider === "custom" && customName) {
 			payload.name = customName;
-		}
-		if (selectedProvider === "aws-bedrock") {
-			payload.options = {
-				aws_bedrock_region_prefix: awsBedrockRegionPrefix,
-			};
 		}
 		// Include region in options for providers that support it
 		if (selectedProviderDef?.regionConfig && effectiveRegion) {
@@ -178,10 +191,40 @@ export function CreateProviderKeyDialog({
 			};
 		}
 
-		if (selectedProvider === "google-vertex" && googleVertexProjectId) {
+		if (selectedProvider === "azure-ai-foundry") {
+			if (!azureAiFoundryResource) {
+				toast({
+					title: "Error",
+					description: "Azure AI Foundry resource name is required",
+					variant: "destructive",
+				});
+				return;
+			}
+			if (!/^[a-zA-Z0-9-]{1,64}$/.test(azureAiFoundryResource)) {
+				toast({
+					title: "Error",
+					description:
+						"Resource name must be 1-64 characters and contain only letters, numbers, and hyphens",
+					variant: "destructive",
+				});
+				return;
+			}
 			payload.options = {
 				...payload.options,
-				google_vertex_project_id: googleVertexProjectId,
+				azure_ai_foundry_resource: azureAiFoundryResource,
+				...(azureAiFoundryApiVersion
+					? { azure_ai_foundry_api_version: azureAiFoundryApiVersion }
+					: {}),
+			};
+		}
+
+		if (selectedProvider === "google-vertex") {
+			payload.options = {
+				...payload.options,
+				...(googleVertexProjectId
+					? { google_vertex_project_id: googleVertexProjectId }
+					: {}),
+				google_vertex_token_type: vertexTokenType,
 			};
 		}
 
@@ -204,12 +247,33 @@ export function CreateProviderKeyDialog({
 					void queryClient.invalidateQueries({ queryKey });
 					setOpen(false);
 				},
-				onError: () => {
+				onError: (error: unknown) => {
 					setIsValidating(false);
+					let description =
+						"Failed to validate the API key. Please check your key and region.";
+					if (typeof error === "object" && error !== null) {
+						const err = error as Record<string, unknown>;
+						const nested =
+							err.error && typeof err.error === "object"
+								? (err.error as Record<string, unknown>)
+								: err;
+						const issues = Array.isArray(nested.issues)
+							? (nested.issues as { message?: unknown }[])
+							: undefined;
+						if (typeof nested.message === "string") {
+							description = nested.message;
+						} else if (
+							issues?.length &&
+							typeof issues[0]?.message === "string"
+						) {
+							description = issues[0].message;
+						}
+					} else if (error instanceof Error) {
+						description = error.message;
+					}
 					toast({
 						title: "Validation Failed",
-						description:
-							"Failed to validate the API key. Please check your key and region.",
+						description,
 						variant: "destructive",
 					});
 				},
@@ -224,13 +288,15 @@ export function CreateProviderKeyDialog({
 			setBaseUrl("");
 			setCustomName("");
 			setToken("");
-			setAwsBedrockRegionPrefix("global.");
 			setAzureResource("");
 			setAzureApiVersion("2024-10-21");
 			setAzureDeploymentType("ai-foundry");
 			setAzureValidationModel("gpt-4o-mini");
+			setAzureAiFoundryResource("");
+			setAzureAiFoundryApiVersion("2024-05-01-preview");
 			setSelectedRegion("");
 			setGoogleVertexProjectId("");
+			setVertexTokenType("api-key");
 		}, 300);
 	};
 
@@ -323,32 +389,6 @@ export function CreateProviderKeyDialog({
 						</div>
 					)}
 
-					{selectedProvider === "aws-bedrock" && (
-						<div className="space-y-2">
-							<Label htmlFor="region-prefix">Region Prefix</Label>
-							<Select
-								value={awsBedrockRegionPrefix}
-								onValueChange={(value) =>
-									setAwsBedrockRegionPrefix(value as "us." | "global." | "eu.")
-								}
-							>
-								<SelectTrigger id="region-prefix">
-									<SelectValue placeholder="Select region prefix" />
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="us.">us. (US regions)</SelectItem>
-									<SelectItem value="global.">
-										global. (Global regions)
-									</SelectItem>
-									<SelectItem value="eu.">eu. (EU regions)</SelectItem>
-								</SelectContent>
-							</Select>
-							<p className="text-sm text-muted-foreground">
-								Region prefix for AWS Bedrock model endpoints
-							</p>
-						</div>
-					)}
-
 					{selectedProvider === "azure" && (
 						<>
 							<div className="space-y-2">
@@ -419,6 +459,41 @@ export function CreateProviderKeyDialog({
 						</>
 					)}
 
+					{selectedProvider === "azure-ai-foundry" && (
+						<>
+							<div className="space-y-2">
+								<Label htmlFor="azure-ai-foundry-resource">Resource Name</Label>
+								<Input
+									id="azure-ai-foundry-resource"
+									type="text"
+									placeholder="my-resource"
+									value={azureAiFoundryResource}
+									onChange={(e) => setAzureAiFoundryResource(e.target.value)}
+									required
+								/>
+								<p className="text-sm text-muted-foreground">
+									Your Azure AI Foundry resource name from the base URL:
+									https://&lt;resource-name&gt;.services.ai.azure.com
+								</p>
+							</div>
+							<div className="space-y-2">
+								<Label htmlFor="azure-ai-foundry-api-version">
+									API Version
+								</Label>
+								<Input
+									id="azure-ai-foundry-api-version"
+									type="text"
+									placeholder="2024-05-01-preview"
+									value={azureAiFoundryApiVersion}
+									onChange={(e) => setAzureAiFoundryApiVersion(e.target.value)}
+								/>
+								<p className="text-sm text-muted-foreground">
+									Azure AI Foundry API version (default: 2024-05-01-preview)
+								</p>
+							</div>
+						</>
+					)}
+
 					{selectedProvider === "google-vertex" && (
 						<div className="space-y-2">
 							<Label htmlFor="google-vertex-project-id">
@@ -434,6 +509,32 @@ export function CreateProviderKeyDialog({
 							<p className="text-sm text-muted-foreground">
 								Your Google Cloud project ID, found in the Google Cloud Console.
 								Required for non-lite Vertex AI models.
+							</p>
+						</div>
+					)}
+
+					{selectedProvider === "google-vertex" && (
+						<div className="space-y-2">
+							<Label htmlFor="vertex-token-type">Token Type</Label>
+							<Select
+								value={vertexTokenType}
+								onValueChange={(value) =>
+									setVertexTokenType(value as "api-key" | "oauth")
+								}
+							>
+								<SelectTrigger id="vertex-token-type">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="api-key">API Key</SelectItem>
+									<SelectItem value="oauth">OAuth2 Bearer</SelectItem>
+								</SelectContent>
+							</Select>
+							<p className="text-sm text-muted-foreground">
+								Use <strong>API Key</strong> for Google API keys (sent as{" "}
+								<code>?key=</code>). Use <strong>OAuth2 Bearer</strong> for
+								service account access tokens (sent as{" "}
+								<code>Authorization: Bearer</code>).
 							</p>
 						</div>
 					)}
@@ -470,7 +571,7 @@ export function CreateProviderKeyDialog({
 									placeholder="myprovider"
 									value={customName}
 									onChange={(e) => setCustomName(e.target.value.toLowerCase())}
-									pattern="[a-z]+"
+									pattern="[a-z]+(-[a-z]+)*"
 									required
 								/>
 								<p className="text-sm text-muted-foreground">

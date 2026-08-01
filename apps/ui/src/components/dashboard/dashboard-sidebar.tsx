@@ -2,6 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import {
+	Building2,
 	ChevronUp,
 	ComputerIcon,
 	CreditCard,
@@ -26,18 +27,24 @@ import { useMemo, useState, useEffect } from "react";
 import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
 import {
 	AnimatedActivity,
+	AnimatedBadgeCheck,
 	AnimatedBarChart3,
 	AnimatedBotMessageSquare,
+	AnimatedBuilding2,
+	AnimatedChartArea,
 	AnimatedChartColumnBig,
 	AnimatedExternalLink,
 	AnimatedKey,
 	AnimatedKeyRound,
+	AnimatedKeySquare,
 	AnimatedLayoutDashboard,
 	AnimatedMessageSquare,
 	AnimatedSettings,
 	AnimatedPercent,
 	AnimatedShield,
 	AnimatedShieldAlert,
+	AnimatedTerminal,
+	AnimatedUsers,
 } from "@/components/dashboard/animated-nav-icons";
 import { ReferralDialog } from "@/components/dashboard/referral-dialog";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
@@ -76,6 +83,11 @@ import {
 	SidebarRail,
 	useSidebar,
 } from "@/lib/components/sidebar";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/lib/components/tooltip";
 import Logo from "@/lib/icons/Logo";
 import { buildUrlWithParams } from "@/lib/navigation-utils";
 
@@ -114,6 +126,11 @@ const PROJECT_NAVIGATION: readonly {
 		icon: AnimatedChartColumnBig,
 	},
 	{
+		href: "analytics",
+		label: "Analytics",
+		icon: AnimatedChartArea,
+	},
+	{
 		href: "usage",
 		label: "Usage & Metrics",
 		icon: AnimatedBarChart3,
@@ -125,10 +142,37 @@ const PROJECT_NAVIGATION: readonly {
 	},
 ];
 
+// Navigation shown to project-scoped "developer" members instead of the full
+// Project section: they can only see their own usage and manage their own keys.
+const USER_NAVIGATION: readonly {
+	href: string;
+	label: string;
+	icon: AnimatedIconComponent;
+}[] = [
+	{
+		href: "me",
+		label: "Dashboard",
+		icon: AnimatedLayoutDashboard,
+	},
+	{
+		href: "me/api-keys",
+		label: "API Keys",
+		icon: AnimatedKey,
+	},
+];
+
 const PROJECT_SETTINGS = [
 	{
 		href: "settings/preferences",
 		label: "Preferences",
+	},
+	{
+		href: "settings/sdk",
+		label: "Payments SDK",
+	},
+	{
+		href: "settings/routing",
+		label: "Routing",
 	},
 ] as const;
 
@@ -155,12 +199,9 @@ const ORGANIZATION_SETTINGS = [
 		label: "Preferences",
 	},
 	{
-		href: "org/team",
-		label: "Team",
-	},
-	{
 		href: "org/audit-logs",
 		label: "Audit Logs",
+		enterpriseOnly: true,
 	},
 ] as const;
 
@@ -324,6 +365,22 @@ function ProjectSettingsSection({
 	);
 }
 
+function EnterpriseIndicator() {
+	return (
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<span
+					aria-label="Enterprise feature"
+					className="ml-auto flex items-center text-blue-500/70 group-data-[collapsible=icon]:hidden dark:text-blue-400/70"
+				>
+					<Building2 className="h-3.5 w-3.5" />
+				</span>
+			</TooltipTrigger>
+			<TooltipContent side="right">Enterprise feature</TooltipContent>
+		</Tooltip>
+	);
+}
+
 function OrgNavItem({
 	href,
 	label,
@@ -331,6 +388,7 @@ function OrgNavItem({
 	isActive,
 	isMobile,
 	toggleSidebar,
+	showEnterpriseBadge = false,
 }: {
 	href: string;
 	label: string;
@@ -338,6 +396,7 @@ function OrgNavItem({
 	isActive: boolean;
 	isMobile: boolean;
 	toggleSidebar: () => void;
+	showEnterpriseBadge?: boolean;
 }) {
 	const [isHovered, setIsHovered] = useState(false);
 
@@ -358,6 +417,7 @@ function OrgNavItem({
 				>
 					<Icon isHovered={isHovered} />
 					<span>{label}</span>
+					{showEnterpriseBadge && <EnterpriseIndicator />}
 				</Link>
 			</SidebarMenuButton>
 		</SidebarMenuItem>
@@ -369,14 +429,18 @@ function OrganizationSection({
 	isMobile,
 	toggleSidebar,
 	searchParams,
+	isEnterprise,
 }: {
 	isActive: (path: string) => boolean;
 	isMobile: boolean;
 	toggleSidebar: () => void;
 	searchParams: ReadonlyURLSearchParams;
+	isEnterprise: boolean;
 }) {
 	const { buildOrgUrl } = useDashboardNavigation();
 	const [settingsHovered, setSettingsHovered] = useState(false);
+
+	const showEnterpriseBadge = !isEnterprise;
 
 	return (
 		<SidebarGroup>
@@ -386,26 +450,18 @@ function OrganizationSection({
 			<SidebarGroupContent className="mt-2">
 				<SidebarMenu>
 					<OrgNavItem
+						href={buildOrgUrl("org/team")}
+						label="Team"
+						icon={AnimatedUsers}
+						isActive={isActive("org/team")}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+					/>
+					<OrgNavItem
 						href={buildOrgUrl("org/provider-keys")}
 						label="Provider Keys"
 						icon={AnimatedKeyRound}
 						isActive={isActive("org/provider-keys")}
-						isMobile={isMobile}
-						toggleSidebar={toggleSidebar}
-					/>
-					<OrgNavItem
-						href={buildOrgUrl("org/guardrails")}
-						label="Guardrails"
-						icon={AnimatedShield}
-						isActive={isActive("org/guardrails")}
-						isMobile={isMobile}
-						toggleSidebar={toggleSidebar}
-					/>
-					<OrgNavItem
-						href={buildOrgUrl("org/security-events")}
-						label="Security Events"
-						icon={AnimatedShieldAlert}
-						isActive={isActive("org/security-events")}
 						isMobile={isMobile}
 						toggleSidebar={toggleSidebar}
 					/>
@@ -416,6 +472,68 @@ function OrganizationSection({
 						isActive={isActive("org/discounts")}
 						isMobile={isMobile}
 						toggleSidebar={toggleSidebar}
+					/>
+					<OrgNavItem
+						href={buildOrgUrl("org/models")}
+						label="Models"
+						icon={AnimatedBotMessageSquare}
+						isActive={isActive("org/models")}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+					/>
+					<OrgNavItem
+						href={buildOrgUrl("org/analytics")}
+						label="Analytics"
+						icon={AnimatedChartArea}
+						isActive={isActive("org/analytics")}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+						showEnterpriseBadge={showEnterpriseBadge}
+					/>
+					<OrgNavItem
+						href={buildOrgUrl("org/guardrails")}
+						label="Guardrails"
+						icon={AnimatedShield}
+						isActive={isActive("org/guardrails")}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+						showEnterpriseBadge={showEnterpriseBadge}
+					/>
+					<OrgNavItem
+						href={buildOrgUrl("org/compliance")}
+						label="Compliance"
+						icon={AnimatedBadgeCheck}
+						isActive={isActive("org/compliance")}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+						showEnterpriseBadge={showEnterpriseBadge}
+					/>
+					<OrgNavItem
+						href={buildOrgUrl("org/security-events")}
+						label="Security Events"
+						icon={AnimatedShieldAlert}
+						isActive={isActive("org/security-events")}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+						showEnterpriseBadge={showEnterpriseBadge}
+					/>
+					<OrgNavItem
+						href={buildOrgUrl("org/master-keys")}
+						label="Master Keys"
+						icon={AnimatedKeySquare}
+						isActive={isActive("org/master-keys")}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+						showEnterpriseBadge={showEnterpriseBadge}
+					/>
+					<OrgNavItem
+						href={buildOrgUrl("org/sso")}
+						label="SSO"
+						icon={AnimatedBuilding2}
+						isActive={isActive("org/sso")}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+						showEnterpriseBadge={showEnterpriseBadge}
 					/>
 					<SidebarMenuItem
 						onMouseEnter={() => setSettingsHovered(true)}
@@ -429,7 +547,6 @@ function OrganizationSection({
 								isActive("org/referrals") ||
 								isActive("org/policies") ||
 								isActive("org/preferences") ||
-								isActive("org/team") ||
 								isActive("org/audit-logs")
 							}
 							tooltip="Settings"
@@ -469,12 +586,52 @@ function OrganizationSection({
 											prefetch={true}
 										>
 											<span>{item.label}</span>
+											{"enterpriseOnly" in item &&
+												item.enterpriseOnly &&
+												showEnterpriseBadge && <EnterpriseIndicator />}
 										</Link>
 									</SidebarMenuSubButton>
 								</SidebarMenuSubItem>
 							))}
 						</SidebarMenuSub>
 					</SidebarMenuItem>
+				</SidebarMenu>
+			</SidebarGroupContent>
+		</SidebarGroup>
+	);
+}
+
+// Org-level entries visible to project-scoped "developer" members: the custom
+// models catalog is readable by every active member, so developers get a
+// read-only view of the providers and models their org makes available.
+function DeveloperOrgSection({
+	isActive,
+	isMobile,
+	toggleSidebar,
+	isEnterprise,
+}: {
+	isActive: (path: string) => boolean;
+	isMobile: boolean;
+	toggleSidebar: () => void;
+	isEnterprise: boolean;
+}) {
+	const { buildOrgUrl } = useDashboardNavigation();
+
+	return (
+		<SidebarGroup>
+			<SidebarGroupLabel className="text-muted-foreground px-2 text-xs font-medium">
+				Organization
+			</SidebarGroupLabel>
+			<SidebarGroupContent className="mt-2">
+				<SidebarMenu>
+					<OrgNavItem
+						href={buildOrgUrl("org/models")}
+						label="Models"
+						icon={AnimatedBotMessageSquare}
+						isActive={isActive("org/models")}
+						isMobile={isMobile}
+						toggleSidebar={toggleSidebar}
+					/>
 				</SidebarMenu>
 			</SidebarGroupContent>
 		</SidebarGroup>
@@ -637,6 +794,9 @@ function ThemeSelect() {
 					<div className="flex items-center">
 						<ComputerIcon className="mr-2 h-4 w-4" />
 						System
+						<span className="ml-2 text-xs text-muted-foreground">
+							(Default)
+						</span>
 					</div>
 				</SelectItem>
 			</SelectContent>
@@ -875,12 +1035,28 @@ export function DashboardSidebar({
 			// For dashboard home, check if we're at the base dashboard route
 			return pathname.match(/^\/dashboard\/[^/]+\/[^/]+$/) !== null;
 		}
-		// For other paths, check if pathname ends with the path
+		// Org-scoped routes live under /dashboard/{orgId}/org/... and project
+		// routes under /dashboard/{orgId}/{projectId}/... . Both can end in the
+		// same segment (e.g. /analytics), so gate on which section we're in —
+		// otherwise the project "Analytics" item also lights up on org/analytics.
+		const isOrgRoute = /^\/dashboard\/[^/]+\/org\//.test(pathname);
+		if (path.startsWith("org/") !== isOrgRoute) {
+			return false;
+		}
 		return pathname.endsWith(`/${path}`);
 	};
 
 	const toolsResources = useMemo(
 		() => [
+			{
+				href:
+					process.env.NODE_ENV === "development"
+						? "http://localhost:3004"
+						: "https://devpass.llmgateway.io",
+				label: "DevPass",
+				icon: AnimatedTerminal,
+				internal: false,
+			},
 			{
 				href: "/models",
 				label: "Supported Models",
@@ -892,7 +1068,7 @@ export function DashboardSidebar({
 					process.env.NODE_ENV === "development"
 						? "http://localhost:3003"
 						: "https://chat.llmgateway.io",
-				label: "Chat",
+				label: "Lounge",
 				icon: AnimatedBotMessageSquare,
 				internal: false,
 			},
@@ -958,51 +1134,91 @@ export function DashboardSidebar({
 				onOrganizationCreated={onOrganizationCreated}
 			/>
 			<SidebarContent>
-				<SidebarGroup>
-					<SidebarGroupLabel className="text-muted-foreground px-2 text-xs font-medium">
-						Project
-					</SidebarGroupLabel>
-					<SidebarGroupContent className="mt-2">
-						<SidebarMenu>
-							{PROJECT_NAVIGATION.map((item) => (
-								<NavigationItem
-									key={item.href}
-									item={item}
-									isActive={isActive}
-									onClick={handleNavClick}
-								/>
-							))}
-							<ProjectSettingsSection
-								isActive={isActive}
-								isMobile={isMobile}
-								toggleSidebar={toggleSidebar}
-							/>
-						</SidebarMenu>
-					</SidebarGroupContent>
-				</SidebarGroup>
+				{selectedOrganization?.role === "developer" ? (
+					// Project-scoped "developer" members get a minimal, personal nav:
+					// their own usage dashboard, their own API keys, and a read-only
+					// view of the org's models directory.
+					<>
+						<SidebarGroup>
+							<SidebarGroupLabel className="text-muted-foreground px-2 text-xs font-medium">
+								User
+							</SidebarGroupLabel>
+							<SidebarGroupContent className="mt-2">
+								<SidebarMenu>
+									{USER_NAVIGATION.map((item) => (
+										<NavigationItem
+											key={item.href}
+											item={item}
+											isActive={isActive}
+											onClick={handleNavClick}
+										/>
+									))}
+								</SidebarMenu>
+							</SidebarGroupContent>
+						</SidebarGroup>
+						<DeveloperOrgSection
+							isActive={isActive}
+							isMobile={isMobile}
+							toggleSidebar={toggleSidebar}
+							isEnterprise={selectedOrganization?.plan === "enterprise"}
+						/>
+					</>
+				) : (
+					<>
+						<SidebarGroup>
+							<SidebarGroupLabel className="text-muted-foreground px-2 text-xs font-medium">
+								Project
+							</SidebarGroupLabel>
+							<SidebarGroupContent className="mt-2">
+								<SidebarMenu>
+									{PROJECT_NAVIGATION.map((item) => (
+										<NavigationItem
+											key={item.href}
+											item={item}
+											isActive={isActive}
+											onClick={handleNavClick}
+										/>
+									))}
+									<ProjectSettingsSection
+										isActive={isActive}
+										isMobile={isMobile}
+										toggleSidebar={toggleSidebar}
+									/>
+								</SidebarMenu>
+							</SidebarGroupContent>
+						</SidebarGroup>
 
-				<OrganizationSection
-					isActive={isActive}
-					isMobile={isMobile}
-					toggleSidebar={toggleSidebar}
-					searchParams={searchParams}
-				/>
+						<OrganizationSection
+							isActive={isActive}
+							isMobile={isMobile}
+							toggleSidebar={toggleSidebar}
+							searchParams={searchParams}
+							isEnterprise={selectedOrganization?.plan === "enterprise"}
+						/>
 
-				<ToolsResourcesSection
-					toolsResources={toolsResources}
-					isActive={isActive}
-					isMobile={isMobile}
-					toggleSidebar={toggleSidebar}
-				/>
+						<ToolsResourcesSection
+							toolsResources={toolsResources}
+							isActive={isActive}
+							isMobile={isMobile}
+							toggleSidebar={toggleSidebar}
+						/>
+					</>
+				)}
 			</SidebarContent>
 
 			<SidebarFooter>
-				<CreditsDisplay selectedOrganization={selectedOrganization} />
-				<UpgradeCTA
-					show={showUpgradeCTA && ctaLoaded}
-					onHide={hideCreditCTA}
-					selectedOrganization={selectedOrganization}
-				/>
+				{/* Org credits + upgrade prompts are org-level; hide them from
+				    project-scoped developers. */}
+				{selectedOrganization?.role !== "developer" && (
+					<>
+						<CreditsDisplay selectedOrganization={selectedOrganization} />
+						<UpgradeCTA
+							show={showUpgradeCTA && ctaLoaded}
+							onHide={hideCreditCTA}
+							selectedOrganization={selectedOrganization}
+						/>
+					</>
+				)}
 				<SidebarMenu>
 					<SidebarMenuItem>
 						<UserDropdownMenu

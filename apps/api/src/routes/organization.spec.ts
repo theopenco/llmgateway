@@ -4,6 +4,7 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, tables } from "@llmgateway/db";
+import { randomInt } from "@llmgateway/shared/random";
 
 describe("organization route", () => {
 	let token: string;
@@ -67,6 +68,92 @@ describe("organization route", () => {
 				},
 			},
 		});
+	});
+
+	test("GET /orgs creates a dashboard org for DevPass-only users", async () => {
+		await deleteAll();
+
+		const codeUrl = process.env.CODE_URL ?? "http://localhost:3004";
+		const email = `test-devpass-orgs-${Date.now()}@example.com`;
+		const password = "Password123!";
+
+		const signUpResponse = await app.request("/auth/sign-up/email", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Origin: codeUrl,
+				"CF-Connecting-IP": `192.168.32.${randomInt(0, 255)}`,
+			},
+			body: JSON.stringify({ email, password, name: "Dev User" }),
+		});
+
+		expect(signUpResponse.status).toBe(200);
+
+		const cookie = signUpResponse.headers.get("set-cookie");
+		expect(cookie).not.toBeNull();
+
+		const beforeOrganizations = await db.query.userOrganization.findMany({
+			with: {
+				organization: true,
+			},
+		});
+
+		expect(beforeOrganizations).toHaveLength(1);
+		expect(beforeOrganizations[0]?.organization?.kind).toBe("devpass");
+
+		const response = await app.request("/orgs", {
+			headers: {
+				Cookie: cookie!,
+			},
+		});
+
+		expect(response.status).toBe(200);
+
+		const body = (await response.json()) as {
+			organizations: Array<{
+				name: string;
+				kind: "default" | "chat" | "devpass";
+			}>;
+		};
+
+		expect(body.organizations).toHaveLength(1);
+		expect(body.organizations[0]?.name).toBe("Default Organization");
+		expect(body.organizations[0]?.kind).toBe("default");
+
+		const afterOrganizations = await db.query.userOrganization.findMany({
+			with: {
+				organization: true,
+			},
+		});
+
+		expect(afterOrganizations).toHaveLength(2);
+		expect(
+			afterOrganizations.some((uo) => uo.organization?.kind === "devpass"),
+		).toBe(true);
+		expect(
+			afterOrganizations.some(
+				(uo) => uo.organization?.name === "Default Organization",
+			),
+		).toBe(true);
+	});
+
+	test("PATCH /orgs/{id} with an empty body is a no-op", async () => {
+		const response = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({}),
+		});
+
+		expect(response.status).toBe(200);
+
+		const body = (await response.json()) as {
+			organization: { id: string; name: string };
+		};
+		expect(body.organization.id).toBe("test-org-id");
+		expect(body.organization.name).toBe("Test Organization");
 	});
 
 	test("PATCH /orgs/{id} logs top-up setting changes separately from organization updates", async () => {

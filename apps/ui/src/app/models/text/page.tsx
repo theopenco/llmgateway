@@ -5,11 +5,11 @@ import { AllModels } from "@/components/models/all-models";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 
 export const metadata = {
-	title: "Text Generation Models - Compare LLM Models | LLM Gateway",
+	title: "Text Generation Models — Chat, Code & Content LLMs",
 	description:
 		"Browse and compare text generation AI models from OpenAI, Anthropic, Google, and more. Find the best LLM for chat, code, and content generation.",
 	openGraph: {
-		title: "Text Generation Models - Compare LLM Models",
+		title: "Text Generation Models — Chat, Code & Content LLMs",
 		description:
 			"Browse and compare text generation AI models from leading providers. Filter by pricing, context size, and capabilities.",
 		type: "website",

@@ -9,7 +9,9 @@ import {
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { DeleteUserButton } from "@/components/delete-user-button";
+import { BlockOrgButton } from "@/components/block-org-button";
+import { BulkBlockOrgsButton } from "@/components/bulk-block-orgs-button";
+import { OrgStatusToggleButton } from "@/components/org-status-toggle-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,10 +22,17 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { deleteUser } from "@/lib/admin-organizations";
+import {
+	blockOrganization,
+	bulkBlockOrganizations,
+	previewBulkBlockOrganizations,
+	setOrganizationStatus,
+} from "@/lib/admin-organizations";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
+
+import { MIN_BULK_BLOCK_SEARCH_LENGTH } from "@llmgateway/shared";
 
 type SortBy =
 	| "name"
@@ -179,13 +188,31 @@ export default async function OrganizationsPage({
 		redirect(`/organizations?page=1${searchParam}${sortParam}`);
 	}
 
-	async function handleDeleteUser(
-		userId: string,
-	): Promise<{ success: boolean }> {
+	async function handleToggleOrgStatus(
+		orgId: string,
+		status: "active" | "deleted",
+	): Promise<{ success: boolean; error?: string }> {
 		"use server";
 
-		const success = await deleteUser(userId);
-		return { success };
+		return await setOrganizationStatus(orgId, status);
+	}
+
+	async function handleBlockOrganization(orgId: string) {
+		"use server";
+
+		return await blockOrganization(orgId);
+	}
+
+	async function handlePreviewBulkBlock(searchValue: string) {
+		"use server";
+
+		return await previewBulkBlockOrganizations(searchValue);
+	}
+
+	async function handleBulkBlock(searchValue: string, expectedCount: number) {
+		"use server";
+
+		return await bulkBlockOrganizations(searchValue, expectedCount);
 	}
 
 	return (
@@ -211,7 +238,7 @@ export default async function OrganizationsPage({
 						<input
 							type="text"
 							name="search"
-							placeholder="Search by name, email, or ID..."
+							placeholder="Search by name, email, member email, or ID..."
 							defaultValue={search}
 							className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-64"
 						/>
@@ -221,6 +248,21 @@ export default async function OrganizationsPage({
 					</Button>
 				</form>
 			</header>
+
+			{search.trim().length >= MIN_BULK_BLOCK_SEARCH_LENGTH && (
+				<div className="flex flex-col items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+					<p className="text-sm text-muted-foreground">
+						Bulk actions apply to every organization matching the current
+						filter, not just this page.
+					</p>
+					<BulkBlockOrgsButton
+						search={search}
+						minSearchLength={MIN_BULK_BLOCK_SEARCH_LENGTH}
+						onPreview={handlePreviewBulkBlock}
+						onBulkBlock={handleBulkBlock}
+					/>
+				</div>
+			)}
 
 			<div className="overflow-x-auto rounded-lg border border-border/60 bg-card">
 				<Table>
@@ -244,6 +286,7 @@ export default async function OrganizationsPage({
 									search={search}
 								/>
 							</TableHead>
+							<TableHead>Kind</TableHead>
 							<TableHead>
 								<SortableHeader
 									label="Plan"
@@ -314,7 +357,7 @@ export default async function OrganizationsPage({
 						{data.organizations.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={10}
+									colSpan={11}
 									className="h-24 text-center text-muted-foreground"
 								>
 									No organizations found
@@ -334,6 +377,13 @@ export default async function OrganizationsPage({
 									</TableCell>
 									<TableCell className="text-muted-foreground">
 										{org.billingEmail}
+									</TableCell>
+									<TableCell>
+										<Badge
+											variant={org.kind === "default" ? "outline" : "secondary"}
+										>
+											{org.kind}
+										</Badge>
 									</TableCell>
 									<TableCell>
 										<Badge variant={getPlanBadgeVariant(org.plan)}>
@@ -375,13 +425,20 @@ export default async function OrganizationsPage({
 										</Badge>
 									</TableCell>
 									<TableCell>
-										{org.ownerUserId && (
-											<DeleteUserButton
-												userId={org.ownerUserId}
-												userEmail={org.ownerEmail ?? org.billingEmail}
-												onDelete={handleDeleteUser}
+										<div className="flex items-center gap-1">
+											<OrgStatusToggleButton
+												orgId={org.id}
+												orgName={org.name}
+												currentStatus={org.status}
+												onToggle={handleToggleOrgStatus}
 											/>
-										)}
+											<BlockOrgButton
+												orgId={org.id}
+												orgName={org.name}
+												disabled={org.status === "deleted"}
+												onBlock={handleBlockOrganization}
+											/>
+										</div>
 									</TableCell>
 								</TableRow>
 							))

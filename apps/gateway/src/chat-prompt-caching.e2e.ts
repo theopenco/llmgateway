@@ -71,7 +71,7 @@ const promptCachingModels = filteredModels
 			}
 
 			testCases.push({
-				model: `${provider.providerId}/${provider.region ? provider.modelName : model.id}`,
+				model: `${provider.providerId}/${model.id}${provider.region ? `:${provider.region}` : ""}`,
 				provider,
 				originalModel: model.id,
 				minCacheableTokens: provider.minCacheableTokens ?? 1024,
@@ -270,8 +270,8 @@ describe("e2e prompt caching", getConcurrentTestOptions(), () => {
 
 				if (providerMapping?.cachedInputPrice && providerMapping?.inputPrice) {
 					// Verify the pricing ratio is correct (cached should be cheaper)
-					expect(providerMapping.cachedInputPrice).toBeLessThan(
-						providerMapping.inputPrice,
+					expect(Number(providerMapping.cachedInputPrice)).toBeLessThan(
+						Number(providerMapping.inputPrice),
 					);
 				}
 			},

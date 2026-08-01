@@ -1,16 +1,23 @@
 import type { ModelDefinition, ProviderDefinition } from "@llmgateway/models";
 
-export function formatPrice(price: number | undefined): string {
-	if (!price) {
+export function formatPrice(price: number | string | undefined): string {
+	if (price === undefined || price === null) {
 		return "Free";
 	}
-	if (price < 0.000001) {
-		return `$${(price * 1000000).toFixed(2)}/1M tokens`;
+	const n = typeof price === "string" ? Number(price) : price;
+	if (!Number.isFinite(n)) {
+		return "Unknown";
 	}
-	if (price < 0.001) {
-		return `$${(price * 1000).toFixed(2)}/1K tokens`;
+	if (n === 0) {
+		return "Free";
 	}
-	return `$${price.toFixed(4)}/token`;
+	if (n < 0.000001) {
+		return `$${(n * 1000000).toFixed(2)}/1M tokens`;
+	}
+	if (n < 0.001) {
+		return `$${(n * 1000).toFixed(2)}/1K tokens`;
+	}
+	return `$${n.toFixed(4)}/token`;
 }
 
 export function formatContextSize(size: number | undefined): string {
@@ -32,6 +39,21 @@ export function getProviderForModel(
 ): ProviderDefinition | undefined {
 	const primaryProvider = model.providers[0];
 	return providers.find((p) => p.id === primaryProvider?.providerId);
+}
+
+export function getLoungeStudioPath(
+	output: readonly string[] | null | undefined,
+): string {
+	if (output?.includes("video")) {
+		return "/video";
+	}
+	if (output?.includes("image")) {
+		return "/image";
+	}
+	if (output?.includes("audio")) {
+		return "/audio";
+	}
+	return "";
 }
 
 export function getModelCapabilities(model: ModelDefinition): string[] {
@@ -60,7 +82,7 @@ export function getModelCapabilities(model: ModelDefinition): string[] {
 
 	// Only show "Free" if model has free flag AND no per-request pricing
 	const hasRequestPrice = model.providers.some(
-		(p) => p.requestPrice && p.requestPrice > 0,
+		(p) => p.requestPrice && Number(p.requestPrice) > 0,
 	);
 	if (model.free && !hasRequestPrice) {
 		capabilities.push("Free");

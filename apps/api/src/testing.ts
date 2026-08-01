@@ -4,8 +4,11 @@ import {
 	sql,
 	projectHourlyStats,
 	projectHourlyModelStats,
+	projectHourlySourceStats,
 	apiKeyHourlyStats,
 	apiKeyHourlyModelStats,
+	eq,
+	inArray,
 } from "@llmgateway/db";
 
 import { app } from "./index.js";
@@ -17,32 +20,49 @@ const credentials = {
 	password: "admin@example.com1A",
 };
 
+function isDeadlockError(error: unknown): boolean {
+	for (let current = error; current instanceof Error; current = current.cause) {
+		if ((current as Error & { code?: unknown }).code === "40P01") {
+			return true;
+		}
+	}
+	return false;
+}
+
 export async function deleteAll() {
 	// await redisClient.flushdb();
 
-	await Promise.all([
-		db.delete(tables.log),
-		db.delete(tables.auditLog),
-		db.delete(tables.apiKey),
-		db.delete(tables.providerKey),
-		db.delete(projectHourlyStats),
-		db.delete(projectHourlyModelStats),
-		db.delete(apiKeyHourlyStats),
-		db.delete(apiKeyHourlyModelStats),
-	]);
-
-	await Promise.all([
-		db.delete(tables.userOrganization),
-		db.delete(tables.project),
-	]);
-
-	await Promise.all([
-		db.delete(tables.organization),
-		db.delete(tables.user),
-		db.delete(tables.account),
-		db.delete(tables.session),
-		db.delete(tables.verification),
-	]);
+	// Delete sequentially, children before parents, so ON DELETE CASCADE from
+	// parent tables never races a concurrent delete on the same child rows.
+	// Concurrent deletes on cascade-linked tables (e.g. user -> account) lock
+	// the same rows in different orders and deadlock (postgres error 40P01).
+	// Test files share one database, so retry when two cleanups still collide.
+	for (let attempt = 1; ; attempt++) {
+		try {
+			await db.delete(tables.log);
+			await db.delete(tables.auditLog);
+			await db.delete(projectHourlyStats);
+			await db.delete(projectHourlyModelStats);
+			await db.delete(projectHourlySourceStats);
+			await db.delete(apiKeyHourlyStats);
+			await db.delete(apiKeyHourlyModelStats);
+			await db.delete(tables.apiKey);
+			await db.delete(tables.providerKey);
+			await db.delete(tables.organizationInvite);
+			await db.delete(tables.userOrganization);
+			await db.delete(tables.project);
+			await db.delete(tables.session);
+			await db.delete(tables.account);
+			await db.delete(tables.verification);
+			await db.delete(tables.organization);
+			await db.delete(tables.user);
+			return;
+		} catch (error) {
+			if (attempt >= 3 || !isDeadlockError(error)) {
+				throw error;
+			}
+		}
+	}
 }
 
 /**
@@ -123,6 +143,10 @@ function getCommonAggregationFields() {
 			sql<string>`coalesce(sum(cast(${tables.log.cachedTokens} as numeric)), 0)`.as(
 				"cachedTokens",
 			),
+		cacheWriteTokens:
+			sql<string>`coalesce(sum(cast(${tables.log.cacheWriteTokens} as numeric)), 0)`.as(
+				"cacheWriteTokens",
+			),
 		cost: sql<number>`coalesce(sum(${tables.log.cost}), 0)`.as("cost"),
 		inputCost: sql<number>`coalesce(sum(${tables.log.inputCost}), 0)`.as(
 			"inputCost",
@@ -155,6 +179,14 @@ function getCommonAggregationFields() {
 			sql<number>`coalesce(sum(${tables.log.imageOutputCost}), 0)`.as(
 				"imageOutputCost",
 			),
+		audioInputCost:
+			sql<number>`coalesce(sum(${tables.log.audioInputCost}), 0)`.as(
+				"audioInputCost",
+			),
+		audioOutputCost:
+			sql<number>`coalesce(sum(${tables.log.audioOutputCost}), 0)`.as(
+				"audioOutputCost",
+			),
 		videoOutputCost:
 			sql<number>`coalesce(sum(${tables.log.videoOutputCost}), 0)`.as(
 				"videoOutputCost",
@@ -162,6 +194,10 @@ function getCommonAggregationFields() {
 		cachedInputCost:
 			sql<number>`coalesce(sum(${tables.log.cachedInputCost}), 0)`.as(
 				"cachedInputCost",
+			),
+		cacheWriteInputCost:
+			sql<number>`coalesce(sum(${tables.log.cacheWriteInputCost}), 0)`.as(
+				"cacheWriteInputCost",
 			),
 		// Per-mode breakdowns
 		creditsRequestCount:
@@ -305,6 +341,8 @@ export async function aggregateLogsForTesting() {
 			...getCommonAggregationFields(),
 		})
 		.from(tables.log)
+		.innerJoin(tables.apiKey, eq(tables.apiKey.id, tables.log.apiKeyId))
+		.where(inArray(tables.apiKey.keyType, ["user", "end_user_customer"]))
 		.groupBy(tables.log.apiKeyId, tables.log.projectId, hourTrunc);
 
 	for (const stat of apiKeyStats) {
@@ -340,6 +378,8 @@ export async function aggregateLogsForTesting() {
 			...getCommonAggregationFields(),
 		})
 		.from(tables.log)
+		.innerJoin(tables.apiKey, eq(tables.apiKey.id, tables.log.apiKeyId))
+		.where(inArray(tables.apiKey.keyType, ["user", "end_user_customer"]))
 		.groupBy(
 			tables.log.apiKeyId,
 			tables.log.projectId,

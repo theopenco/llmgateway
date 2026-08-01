@@ -11,6 +11,7 @@ export function extractToolCalls(
 ): any[] | null {
 	switch (provider) {
 		case "anthropic":
+		case "vertex-anthropic":
 			// Anthropic streaming tool calls come as content_block_start with tool_use type
 			if (
 				data.type === "content_block_start" &&
@@ -45,9 +46,9 @@ export function extractToolCalls(
 			return null;
 		case "google-ai-studio":
 		case "glacier":
+		case "iceberg":
 		case "google-vertex":
-		case "quartz":
-		case "obsidian": {
+		case "quartz": {
 			// Google AI Studio tool calls in streaming
 			// Include thoughtSignature if present (required for Gemini 3 multi-turn conversations)
 			// Note: Redis caching of thought_signature happens in transform-streaming-to-openai.ts

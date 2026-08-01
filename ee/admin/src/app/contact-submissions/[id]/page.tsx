@@ -41,6 +41,19 @@ function getStatusLabel(status: string) {
 	}
 }
 
+const deploymentLabels: Record<string, string> = {
+	self_host: "Self-hosted",
+	cloud: "Cloud (managed)",
+	not_sure: "Not sure yet",
+};
+
+function deploymentLabel(value: string | null | undefined) {
+	if (!value) {
+		return null;
+	}
+	return deploymentLabels[value] ?? value;
+}
+
 function BackToSubmissions() {
 	return (
 		<Link
@@ -119,6 +132,14 @@ export default async function ContactSubmissionDetailPage({
 							</dt>
 							<dd className="mt-1">{data.size}</dd>
 						</div>
+						{deploymentLabel(data.deployment) && (
+							<div>
+								<dt className="text-sm font-medium text-muted-foreground">
+									Deployment
+								</dt>
+								<dd className="mt-1">{deploymentLabel(data.deployment)}</dd>
+							</div>
+						)}
 						<div>
 							<dt className="text-sm font-medium text-muted-foreground">
 								Message

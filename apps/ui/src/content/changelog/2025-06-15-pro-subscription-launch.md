@@ -11,7 +11,7 @@ image:
   height: 677
 ---
 
-> **Update (January 2026):** All Pro features are now available on the Free plan. See our [announcement](/changelog/pro-features-now-free) for details.
+> **Update (January 2026):** All paid subscription features are now available for free. See our [announcement](/changelog/pro-features-now-free) for details.
 
 ## Bring Your Own Provider Keys
 
@@ -57,7 +57,7 @@ Choose the billing approach that works best for your team:
 
 Use our credit system with transparent pricing
 
-**Free plan**: 5% service fee | **Pro plan**: 2.5% gateway fees (50% discount)
+**Free plan**: 5% service fee | **Subscription**: 2.5% gateway fees (50% discount)
 
 **API Keys Mode** (Pro only)
 

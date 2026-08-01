@@ -9,24 +9,48 @@ import {
 	providers,
 } from "@llmgateway/models";
 
+import { getGcpServiceAccountAccessToken } from "./gcp-access-token.js";
 import { getProviderEndpoint } from "./get-provider-endpoint.js";
 import { getProviderHeaders } from "./get-provider-headers.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
 
-function getValidationModel(
+/**
+ * Pick the cheapest candidate among the newer half of the provider's releases,
+ * so key validation uses a cheap but current model instead of an outdated one
+ * that happens to be the cheapest. The cutoff is the median release date of
+ * the dated candidates, i.e. relative to the provider's own catalog rather
+ * than any absolute age threshold. Candidates without a release date are
+ * treated as old; they only win when fewer than two candidates are dated.
+ */
+export function pickCheapestRecentModel<
+	T extends { price: number; releasedAt?: Date },
+>(candidates: T[]): T | undefined {
+	const byPrice = [...candidates].sort((a, b) => a.price - b.price);
+	const dated = byPrice.filter((c) => c.releasedAt !== undefined);
+	if (dated.length < 2) {
+		return byPrice[0];
+	}
+	const releaseTimes = dated
+		.map((c) => c.releasedAt!.getTime())
+		.sort((a, b) => a - b);
+	const medianReleaseTime = releaseTimes[Math.floor(releaseTimes.length / 2)];
+	return dated.find((c) => c.releasedAt!.getTime() >= medianReleaseTime);
+}
+
+export function getValidationModel(
 	provider: ProviderId,
 	providerKeyOptions?: ProviderKeyOptions,
-): string | null {
+): { modelId: string; externalId: string } | null {
 	if (provider === "azure" && providerKeyOptions?.azure_validation_model) {
-		return providerKeyOptions.azure_validation_model;
+		const azureModel = providerKeyOptions.azure_validation_model;
+		return { modelId: azureModel, externalId: azureModel };
 	}
 
 	// Resolve the selected region from provider key options
 	const providerDef = providers.find((p) => p.id === provider) as
-		| ProviderDefinition
-		| undefined;
+		ProviderDefinition | undefined;
 	const regionKey = providerDef?.regionConfig?.optionsKey;
 	const selectedRegion = regionKey
 		? ((providerKeyOptions as Record<string, string | undefined> | undefined)?.[
@@ -35,8 +59,8 @@ function getValidationModel(
 		: undefined;
 
 	const currentDate = new Date();
-	const providerModels = models
-		.flatMap((model) => {
+	const collectModels = (restrictToRegion: boolean) =>
+		models.flatMap((model) => {
 			const providerMapping = model.providers.find(
 				(p) => p.providerId === provider,
 			) as ProviderModelMapping | undefined;
@@ -45,7 +69,7 @@ function getValidationModel(
 			}
 
 			// If a region is selected, only consider models available in that region
-			if (selectedRegion && providerMapping.regions) {
+			if (restrictToRegion && selectedRegion && providerMapping.regions) {
 				if (!providerMapping.regions.some((r) => r.id === selectedRegion)) {
 					return [];
 				}
@@ -76,7 +100,11 @@ function getValidationModel(
 				isDeprecated ||
 				isDeactivated ||
 				providerMapping.imageGenerations ||
-				providerMapping.videoGenerations
+				providerMapping.videoGenerations ||
+				providerMapping.embeddings ||
+				providerMapping.speechGenerations ||
+				providerMapping.transcriptions ||
+				providerMapping.ocr
 			) {
 				return [];
 			}
@@ -84,23 +112,35 @@ function getValidationModel(
 			const hasPricing =
 				providerMapping.inputPrice !== undefined &&
 				providerMapping.outputPrice !== undefined;
-			const inputPrice = providerMapping.inputPrice ?? 0;
-			const outputPrice = providerMapping.outputPrice ?? 0;
-			const discount = providerMapping.discount ?? 0;
-			const discountedAveragePrice = hasPricing
-				? ((inputPrice + outputPrice) / 2) * (1 - discount)
+			const inputPrice = Number(providerMapping.inputPrice ?? "0");
+			const outputPrice = Number(providerMapping.outputPrice ?? "0");
+			const averagePrice = hasPricing
+				? (inputPrice + outputPrice) / 2
 				: Number.MAX_VALUE;
 
 			return [
 				{
-					modelName: providerMapping.modelName,
-					price: discountedAveragePrice,
+					modelId: model.id,
+					externalId: providerMapping.externalId,
+					price: averagePrice,
+					releasedAt:
+						"releasedAt" in model
+							? (model.releasedAt as Date | undefined)
+							: undefined,
 				},
 			];
-		})
-		.sort((a, b) => a.price - b.price);
+		});
 
-	return providerModels[0]?.modelName ?? null;
+	// Prefer a model available in the selected region. If none is declared for
+	// that region (e.g. a data-residency AWS region that no model lists), fall
+	// back to any model for the provider so validation can still proceed.
+	const regionModels = selectedRegion ? collectModels(true) : [];
+	const providerModels = regionModels.length
+		? regionModels
+		: collectModels(false);
+
+	const best = pickCheapestRecentModel(providerModels);
+	return best ? { modelId: best.modelId, externalId: best.externalId } : null;
 }
 
 /**
@@ -123,7 +163,7 @@ export async function validateProviderKey(
 		return { valid: true };
 	}
 
-	let validationModel: string | undefined;
+	let validationModel: { modelId: string; externalId: string } | undefined;
 
 	try {
 		validationModel =
@@ -150,28 +190,32 @@ export async function validateProviderKey(
 		};
 		const messages: BaseMessage[] = [systemMessage, minimalMessage];
 
-		const headers = getProviderHeaders(provider, token);
+		// Vertex provider keys are service-account JSON blobs; the upstream API
+		// expects an OAuth access token, so exchange the key before building
+		// headers.
+		let requestToken = token;
+		if (provider === "vertex-anthropic" || provider === "vertex-openai") {
+			requestToken = await getGcpServiceAccountAccessToken(token);
+		}
+
+		const headers = getProviderHeaders(provider, requestToken, {
+			providerKeyOptions,
+			skipEnvVars: true, // provider key validation is always BYOK context
+		});
 		headers["Content-Type"] = "application/json";
 
-		// Find the model definition to get the model ID
-		// For Azure with custom validation model, we might not find it in our models list
-		const modelDef = models.find((m) =>
-			m.providers.some(
-				(p) => p.providerId === provider && p.modelName === validationModel,
-			),
-		);
-		const modelId = modelDef?.id;
+		// Look up the model definition by canonical id.
+		const modelDef = models.find((m) => m.id === validationModel!.modelId);
 
 		// For Azure, if we have a custom validation model, use it directly as modelId
 		const effectiveModelId =
 			provider === "azure" && providerKeyOptions?.azure_validation_model
 				? providerKeyOptions.azure_validation_model
-				: modelId;
+				: validationModel.modelId;
 
 		// Resolve region from provider key options for region-aware providers
 		const providerDef = providers.find((p) => p.id === provider) as
-			| ProviderDefinition
-			| undefined;
+			ProviderDefinition | undefined;
 		const regionOptionsKey = providerDef?.regionConfig?.optionsKey;
 		const validationRegion = regionOptionsKey
 			? ((
@@ -185,8 +229,10 @@ export async function validateProviderKey(
 			effectiveModelId, // Pass model ID for providers that need it in the URL (e.g., aws-bedrock, azure)
 			provider === "google-ai-studio" ||
 				provider === "glacier" ||
+				provider === "iceberg" ||
 				provider === "google-vertex" ||
-				provider === "quartz"
+				provider === "quartz" ||
+				provider === "vertex-anthropic"
 				? token
 				: undefined,
 			false, // validation doesn't need streaming
@@ -199,10 +245,15 @@ export async function validateProviderKey(
 			true, // skipEnvVars - provider key validation is always BYOK context
 		);
 
-		// Check if max_tokens is supported
-		const providerMapping = modelDef?.providers.find(
-			(p) => p.providerId === provider && p.modelName === validationModel,
-		);
+		// Check if max_tokens is supported. The mapping is identified by
+		// (providerId, region) — externalId is reserved for the upstream call.
+		const providerMapping =
+			modelDef?.providers.find(
+				(p) =>
+					p.providerId === provider &&
+					((p as ProviderModelMapping).region ?? null) ===
+						(validationRegion ?? null),
+			) ?? modelDef?.providers.find((p) => p.providerId === provider);
 		const supportedParameters = (
 			providerMapping as ProviderModelMapping | undefined
 		)?.supportedParameters;
@@ -214,7 +265,9 @@ export async function validateProviderKey(
 
 		const payload = await prepareRequestBody(
 			provider,
-			validationModel,
+			validationModel.modelId,
+			validationRegion ?? null,
+			validationModel.externalId,
 			messages,
 			false, // stream
 			undefined, // temperature
@@ -241,12 +294,15 @@ export async function validateProviderKey(
 
 		logger.debug("Sending provider key validation request", {
 			provider,
-			model: validationModel,
+			model: validationModel?.modelId,
 			endpoint,
 		});
 
 		const response = await fetch(endpoint, {
 			method: "POST",
+			// SSRF: never follow redirects when validating a tenant-supplied baseUrl,
+			// which could 3xx to an internal host (and would leak the upstream token).
+			redirect: "error",
 			headers,
 			body: JSON.stringify(payload),
 		});
@@ -266,7 +322,7 @@ export async function validateProviderKey(
 
 			logger.warn("Provider key validation returned error response", {
 				provider,
-				model: validationModel,
+				model: validationModel?.modelId,
 				statusCode: response.status,
 				error: errorMessage,
 			});
@@ -275,7 +331,7 @@ export async function validateProviderKey(
 				return {
 					valid: false,
 					statusCode: response.status,
-					model: validationModel,
+					model: validationModel?.modelId,
 				};
 			}
 
@@ -283,28 +339,28 @@ export async function validateProviderKey(
 				valid: false,
 				error: errorMessage,
 				statusCode: response.status,
-				model: validationModel,
+				model: validationModel?.modelId,
 			};
 		}
 
 		logger.debug("Provider key validation succeeded", {
 			provider,
-			model: validationModel,
+			model: validationModel?.modelId,
 		});
-		return { valid: true, model: validationModel };
+		return { valid: true, model: validationModel.modelId };
 	} catch (error) {
 		const errorMessage =
 			error instanceof Error ? error.message : "Unknown error occurred";
 		logger.error("Provider key validation failed with exception", {
 			provider,
-			model: validationModel,
+			model: validationModel?.modelId,
 			error: errorMessage,
 			stack: error instanceof Error ? error.stack : undefined,
 		});
 		return {
 			valid: false,
 			error: errorMessage,
-			model: validationModel,
+			model: validationModel?.modelId,
 		};
 	}
 }

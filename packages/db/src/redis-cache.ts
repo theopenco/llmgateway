@@ -1,5 +1,6 @@
 import { Cache, type MutationOption } from "drizzle-orm/cache/core";
 
+import { invalidateSwrByTables } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
 
 import type { Redis } from "ioredis";
@@ -147,6 +148,11 @@ export class RedisCache extends Cache {
 			// Invalidate all cache entries related to these tables
 			if (tables.length > 0) {
 				await this.invalidateByTables(tables);
+			}
+
+			// Invalidate SWR fallback mirrors for these tables
+			if (tables.length > 0) {
+				await invalidateSwrByTables(tables);
 			}
 
 			logger.trace("Cache invalidated on mutation", { tables, tags });

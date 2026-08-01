@@ -1,13 +1,150 @@
 import { describe, expect, test } from "vitest";
 
-import { prepareRequestBody } from "./prepare-request-body.js";
+import {
+	hashPromptCacheKey,
+	hashSessionCacheKey,
+	prepareRequestBody,
+	RequestError,
+} from "./prepare-request-body.js";
 
 import type { AnthropicRequestBody } from "@llmgateway/models";
 
+function getCacheControl(block: unknown): unknown {
+	if (block && typeof block === "object" && "cache_control" in block) {
+		return (block as { cache_control: unknown }).cache_control;
+	}
+	return undefined;
+}
+
+async function prepareOpenAIImageRequest(imageConfig: {
+	aspect_ratio?: string;
+	image_size?: string;
+	image_quality?: string;
+	n?: number;
+}) {
+	return await prepareRequestBody(
+		"openai",
+		"gpt-image-2",
+		null,
+		"gpt-image-2",
+		[{ role: "user", content: "Generate a cinematic landscape" }],
+		false,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		false,
+		false,
+		20,
+		null,
+		undefined,
+		imageConfig,
+		undefined,
+		true,
+	);
+}
+
+async function prepareOpenAITextRequest(options: {
+	provider?: "openai" | "azure";
+	model?: string;
+	useResponsesApi?: boolean;
+	promptCacheKey?: string;
+	promptCacheRetention?: "in_memory" | "24h";
+	promptCacheOptions?: { mode?: "implicit" | "explicit"; ttl?: "30m" };
+	serviceTier?: "flex" | "priority";
+	verbosity?: "low" | "medium" | "high";
+	messages?: { role: string; content: unknown }[];
+	providerCacheControlEnabled?: boolean;
+}) {
+	const model = options.model ?? "gpt-5.5";
+	return await prepareRequestBody(
+		options.provider ?? "openai",
+		model,
+		null,
+		model,
+		(options.messages as any) ?? [{ role: "user", content: "Hello!" }],
+		false,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		false,
+		false,
+		20,
+		null,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		options.useResponsesApi ?? false,
+		options.promptCacheKey,
+		options.promptCacheRetention,
+		options.providerCacheControlEnabled ?? true,
+		undefined,
+		options.serviceTier,
+		options.verbosity,
+		options.promptCacheOptions,
+	);
+}
+
 describe("prepareRequestBody - Anthropic", () => {
+	test("should throw a typed RequestError for malformed tool_call arguments", async () => {
+		await expect(
+			prepareRequestBody(
+				"anthropic",
+				"claude-3-5-sonnet-20241022",
+				null,
+				"claude-3-5-sonnet-20241022",
+				[
+					{ role: "user", content: "Hello!" },
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							{
+								id: "call_1",
+								type: "function",
+								function: {
+									name: "get_weather",
+									arguments: '{"city":"Berlin"',
+								},
+							},
+						],
+					},
+				],
+				false,
+				undefined,
+				1024,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				false,
+			),
+		).rejects.toBeInstanceOf(RequestError);
+	});
+
 	test("should extract system messages to system field for caching", async () => {
 		const requestBody = (await prepareRequestBody(
 			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			null,
 			"claude-3-5-sonnet-20241022",
 			[
 				{ role: "system", content: "You are a helpful assistant." },
@@ -49,6 +186,8 @@ describe("prepareRequestBody - Anthropic", () => {
 		const requestBody = (await prepareRequestBody(
 			"anthropic",
 			"claude-3-5-sonnet-20241022",
+			null,
+			"claude-3-5-sonnet-20241022",
 			[
 				{ role: "system", content: longSystemPrompt },
 				{ role: "user", content: "Hello!" },
@@ -77,6 +216,8 @@ describe("prepareRequestBody - Anthropic", () => {
 	test("should handle array content in system messages", async () => {
 		const requestBody = (await prepareRequestBody(
 			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			null,
 			"claude-3-5-sonnet-20241022",
 			[
 				{
@@ -112,6 +253,8 @@ describe("prepareRequestBody - Anthropic", () => {
 		const longContent = "A".repeat(5000);
 		const requestBody = (await prepareRequestBody(
 			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			null,
 			"claude-3-5-sonnet-20241022",
 			[
 				{ role: "system", content: longContent }, // Would be cache block 1
@@ -160,12 +303,1406 @@ describe("prepareRequestBody - Anthropic", () => {
 		// Should be exactly 4 (the limit)
 		expect(totalCacheControlBlocks).toBe(4);
 	});
+
+	test("strips caller-supplied cache_control when providerCacheControlEnabled is false", async () => {
+		const longContent = "A".repeat(5000);
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			null,
+			"claude-3-5-sonnet-20241022",
+			[
+				{
+					role: "system",
+					content: [
+						{
+							type: "text",
+							text: longContent,
+							cache_control: { type: "ephemeral", ttl: "1h" },
+						},
+					],
+				},
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: longContent,
+							cache_control: { type: "ephemeral" },
+						},
+					],
+				},
+			],
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			undefined, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			undefined, // reasoning_max_tokens
+			undefined, // useResponsesApi
+			undefined, // prompt_cache_key
+			undefined, // prompt_cache_retention
+			false, // providerCacheControlEnabled
+		)) as AnthropicRequestBody;
+
+		// System: no caller marker preserved, no heuristic-added marker.
+		if (requestBody.system && Array.isArray(requestBody.system)) {
+			for (const block of requestBody.system) {
+				expect(getCacheControl(block)).toBeUndefined();
+			}
+		}
+
+		// User content: no caller marker preserved, no heuristic-added marker.
+		for (const msg of requestBody.messages) {
+			if (Array.isArray(msg.content)) {
+				for (const block of msg.content) {
+					expect(getCacheControl(block)).toBeUndefined();
+				}
+			}
+		}
+	});
+
+	test("defers auto-injection when caller supplies a 1h ttl marker in messages", async () => {
+		const longContent = "A".repeat(5000);
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			null,
+			"claude-3-5-sonnet-20241022",
+			[
+				{ role: "system", content: longContent },
+				{ role: "user", content: longContent },
+				{ role: "assistant", content: "Hi!" },
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "What should I do next?",
+							cache_control: { type: "ephemeral", ttl: "1h" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			1024,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+		)) as AnthropicRequestBody;
+
+		// Long system prompt must NOT get a heuristic (5m) marker — it would
+		// precede the caller's 1h marker and Anthropic rejects that ordering.
+		expect(Array.isArray(requestBody.system)).toBe(true);
+		for (const block of requestBody.system as unknown[]) {
+			expect(getCacheControl(block)).toBeUndefined();
+		}
+
+		// No auto-injected markers in messages either (long-block heuristic and
+		// turn-boundary placement are both suppressed); only the caller's own
+		// 1h marker survives, with its ttl intact.
+		const markers: unknown[] = [];
+		for (const msg of requestBody.messages) {
+			if (Array.isArray(msg.content)) {
+				for (const block of msg.content) {
+					const cacheControl = getCacheControl(block);
+					if (cacheControl) {
+						markers.push(cacheControl);
+					}
+				}
+			}
+		}
+		expect(markers).toEqual([{ type: "ephemeral", ttl: "1h" }]);
+	});
+
+	test("keeps auto-injection when caller markers do not use a 1h ttl", async () => {
+		const longContent = "A".repeat(5000);
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-3-5-sonnet-20241022",
+			null,
+			"claude-3-5-sonnet-20241022",
+			[
+				{ role: "system", content: longContent },
+				{ role: "user", content: "Hello!" },
+				{ role: "assistant", content: "Hi!" },
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "What should I do next?",
+							cache_control: { type: "ephemeral" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			1024,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+		)) as AnthropicRequestBody;
+
+		// ttl-less caller markers are all 5m, same as the heuristics — no
+		// ordering conflict is possible, so the existing behavior is preserved:
+		// long system prompt and turn boundary still get auto markers.
+		expect(getCacheControl((requestBody.system as unknown[])[0])).toEqual({
+			type: "ephemeral",
+		});
+
+		const boundaryMsg = requestBody.messages[1];
+		expect(boundaryMsg.role).toBe("assistant");
+		expect(getCacheControl((boundaryMsg.content as unknown[])[0])).toEqual({
+			type: "ephemeral",
+		});
+
+		const explicitMsg = requestBody.messages[2];
+		expect(getCacheControl((explicitMsg.content as unknown[])[0])).toEqual({
+			type: "ephemeral",
+		});
+	});
+});
+
+describe("prepareRequestBody - OpenAI image generation", () => {
+	test.each([
+		"1024x1024",
+		"1536x1024",
+		"1024x1536",
+		"2048x2048",
+		"3072x2160",
+		"3840x2160",
+		"2160x3840",
+		"auto",
+	])("should pass image_size %s straight through", async (size) => {
+		const requestBody = (await prepareOpenAIImageRequest({
+			image_size: size,
+			image_quality: "high",
+			n: 1,
+		})) as any;
+
+		expect(requestBody).toMatchObject({
+			model: "gpt-image-2",
+			prompt: "Generate a cinematic landscape",
+			size,
+			quality: "high",
+			n: 1,
+		});
+	});
+
+	test("should not derive size from aspect_ratio", async () => {
+		const requestBody = (await prepareOpenAIImageRequest({
+			aspect_ratio: "16:9",
+		})) as any;
+
+		expect(requestBody.size).toBeUndefined();
+	});
+
+	test("should drop unsupported quality values", async () => {
+		const requestBody = (await prepareOpenAIImageRequest({
+			image_size: "1024x1024",
+			image_quality: "standard",
+		})) as any;
+
+		expect(requestBody.size).toBe("1024x1024");
+		expect(requestBody.quality).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - OpenAI prompt caching", () => {
+	test("should forward prompt cache controls to OpenAI chat completions", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			promptCacheKey: "tenant-a",
+			promptCacheRetention: "24h",
+		})) as any;
+
+		expect(requestBody.prompt_cache_key).toBe(hashPromptCacheKey("tenant-a"));
+		expect(requestBody.prompt_cache_retention).toBe("24h");
+	});
+
+	test("should forward prompt cache controls to OpenAI Responses API", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			useResponsesApi: true,
+			promptCacheKey: "tenant-a",
+			promptCacheRetention: "in_memory",
+		})) as any;
+
+		expect(requestBody.prompt_cache_key).toBe(hashPromptCacheKey("tenant-a"));
+		expect(requestBody.prompt_cache_retention).toBe("in_memory");
+	});
+
+	test("should throw a typed RequestError for tool messages without tool_call_id", async () => {
+		await expect(
+			prepareRequestBody(
+				"openai",
+				"gpt-5.5",
+				null,
+				"gpt-5.5",
+				[
+					{ role: "user", content: "Hello!" },
+					{ role: "tool", content: "result" } as any,
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				true,
+			),
+		).rejects.toBeInstanceOf(RequestError);
+	});
+
+	test("should not forward OpenAI prompt cache controls to Azure", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			provider: "azure",
+			promptCacheKey: "tenant-a",
+			promptCacheRetention: "24h",
+		})) as any;
+
+		expect(requestBody.prompt_cache_key).toBeUndefined();
+		expect(requestBody.prompt_cache_retention).toBeUndefined();
+	});
+
+	test("should strip prompt_cache_retention=24h on models that don't support extended retention", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-4o",
+			promptCacheKey: "tenant-a",
+			promptCacheRetention: "24h",
+		})) as any;
+
+		expect(requestBody.prompt_cache_key).toBe(hashPromptCacheKey("tenant-a"));
+		expect(requestBody.prompt_cache_retention).toBeUndefined();
+	});
+
+	test("should still forward prompt_cache_retention=in_memory on models without 24h support", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-4o",
+			promptCacheRetention: "in_memory",
+		})) as any;
+
+		expect(requestBody.prompt_cache_retention).toBe("in_memory");
+	});
+
+	test("should forward prompt_cache_retention=24h on models that do support extended retention", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-4.1",
+			promptCacheRetention: "24h",
+		})) as any;
+
+		expect(requestBody.prompt_cache_retention).toBe("24h");
+	});
+});
+
+describe("prepareRequestBody - OpenAI explicit prompt caching (GPT-5.6)", () => {
+	const explicitCacheMessages = [
+		{
+			role: "system",
+			content: [
+				{
+					type: "text",
+					text: "stable reusable prefix",
+					prompt_cache_breakpoint: { mode: "explicit" },
+				},
+			],
+		},
+		{ role: "user", content: "dynamic input" },
+	];
+
+	test("forwards prompt_cache_options and breakpoints for gpt-5.6 chat completions", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.6-sol",
+			promptCacheOptions: { mode: "explicit" },
+			messages: explicitCacheMessages,
+		})) as any;
+
+		expect(requestBody.prompt_cache_options).toEqual({ mode: "explicit" });
+		expect(requestBody.messages[0].content[0].prompt_cache_breakpoint).toEqual({
+			mode: "explicit",
+		});
+	});
+
+	test("carries breakpoints through the Responses API content transform", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.6-sol",
+			useResponsesApi: true,
+			promptCacheOptions: { mode: "explicit", ttl: "30m" },
+			messages: explicitCacheMessages,
+		})) as any;
+
+		expect(requestBody.prompt_cache_options).toEqual({
+			mode: "explicit",
+			ttl: "30m",
+		});
+		expect(requestBody.input[0].content[0]).toEqual({
+			type: "input_text",
+			text: "stable reusable prefix",
+			prompt_cache_breakpoint: { mode: "explicit" },
+		});
+	});
+
+	test("strips prompt_cache_options and breakpoints on models without explicit caching", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.5",
+			promptCacheOptions: { mode: "explicit" },
+			messages: explicitCacheMessages,
+		})) as any;
+
+		expect(requestBody.prompt_cache_options).toBeUndefined();
+		expect(
+			requestBody.messages[0].content[0].prompt_cache_breakpoint,
+		).toBeUndefined();
+	});
+
+	test("strips breakpoints when provider cache writes are disabled for the project", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.6-sol",
+			promptCacheOptions: { mode: "explicit" },
+			messages: explicitCacheMessages,
+			providerCacheControlEnabled: false,
+		})) as any;
+
+		expect(
+			requestBody.messages[0].content[0].prompt_cache_breakpoint,
+		).toBeUndefined();
+		expect(requestBody.prompt_cache_options).toEqual({ mode: "explicit" });
+	});
+
+	test("forces explicit mode when provider cache writes are disabled (implicit auto-writes bill at 1.25x)", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.6-sol",
+			messages: explicitCacheMessages,
+			providerCacheControlEnabled: false,
+		})) as any;
+
+		expect(requestBody.prompt_cache_options).toEqual({ mode: "explicit" });
+		expect(
+			requestBody.messages[0].content[0].prompt_cache_breakpoint,
+		).toBeUndefined();
+	});
+
+	test("does not force explicit mode on models without explicit caching support", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.5",
+			providerCacheControlEnabled: false,
+		})) as any;
+
+		expect(requestBody.prompt_cache_options).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - OpenAI service tiers", () => {
+	test("should forward service_tier to OpenAI chat completions", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			serviceTier: "flex",
+		})) as { service_tier?: string };
+
+		expect(requestBody.service_tier).toBe("flex");
+	});
+
+	test("should forward service_tier to OpenAI Responses API", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			useResponsesApi: true,
+			serviceTier: "priority",
+		})) as { service_tier?: string };
+
+		expect(requestBody.service_tier).toBe("priority");
+	});
+
+	test("should not forward service_tier to unsupported OpenAI models", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-4o",
+			serviceTier: "priority",
+		})) as { service_tier?: string };
+
+		expect(requestBody.service_tier).toBeUndefined();
+	});
+
+	test("should not forward service_tier to Azure", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			provider: "azure",
+			serviceTier: "flex",
+		})) as { service_tier?: string };
+
+		expect(requestBody.service_tier).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - Fireworks service tiers", () => {
+	async function prepareFireworksRequest(options: {
+		provider?: "fireworks" | "novita";
+		serviceTier?: "flex" | "priority";
+	}) {
+		return (await prepareRequestBody(
+			options.provider ?? "fireworks",
+			"kimi-k3",
+			null,
+			"accounts/fireworks/models/kimi-k3",
+			[{ role: "user", content: "Hello!" }] as any,
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			undefined,
+			undefined,
+			true,
+			undefined,
+			options.serviceTier,
+		)) as { service_tier?: string };
+	}
+
+	test("forwards priority to Fireworks chat completions", async () => {
+		const requestBody = await prepareFireworksRequest({
+			serviceTier: "priority",
+		});
+
+		expect(requestBody.service_tier).toBe("priority");
+	});
+
+	test("does not forward flex, which Fireworks has no rate card for", async () => {
+		const requestBody = await prepareFireworksRequest({ serviceTier: "flex" });
+
+		expect(requestBody.service_tier).toBeUndefined();
+	});
+
+	test("does not forward a tier to another provider serving the same model", async () => {
+		const requestBody = await prepareFireworksRequest({
+			provider: "novita",
+			serviceTier: "priority",
+		});
+
+		expect(requestBody.service_tier).toBeUndefined();
+	});
+
+	test("omits service_tier for standard requests", async () => {
+		const requestBody = await prepareFireworksRequest({});
+
+		expect(requestBody.service_tier).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - verbosity", () => {
+	test("forwards verbosity to gpt-5.6 chat completions", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.6-terra",
+			verbosity: "low",
+		})) as { verbosity?: string };
+
+		expect(requestBody.verbosity).toBe("low");
+	});
+
+	test("forwards verbosity as text.verbosity to gpt-5.6 Responses API", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.6-sol",
+			useResponsesApi: true,
+			verbosity: "high",
+		})) as { text?: { verbosity?: string } };
+
+		expect(requestBody.text?.verbosity).toBe("high");
+	});
+
+	test("keeps text.format when verbosity is combined with response_format", async () => {
+		const requestBody = (await prepareRequestBody(
+			"openai",
+			"gpt-5.6-luna",
+			null,
+			"gpt-5.6-luna",
+			[{ role: "user", content: "Hello!" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ type: "json_object" },
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			true, // useResponsesApi
+			undefined,
+			undefined,
+			true,
+			undefined,
+			undefined,
+			"medium", // verbosity
+		)) as { text?: { format?: { type: string }; verbosity?: string } };
+
+		expect(requestBody.text?.format?.type).toBe("json_object");
+		expect(requestBody.text?.verbosity).toBe("medium");
+	});
+
+	test("strips verbosity for models without verbosity support", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-4o",
+			verbosity: "low",
+		})) as { verbosity?: string };
+
+		expect(requestBody.verbosity).toBeUndefined();
+	});
+
+	test("strips verbosity from the Responses API body for unsupported models", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			model: "gpt-5.1-codex",
+			useResponsesApi: true,
+			verbosity: "low",
+		})) as { text?: { verbosity?: string } };
+
+		expect(requestBody.text?.verbosity).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - reasoning_effort none", () => {
+	async function prepare(options: {
+		provider: Parameters<typeof prepareRequestBody>[0];
+		model: string;
+		useResponsesApi?: boolean;
+	}) {
+		return (await prepareRequestBody(
+			options.provider,
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			"none", // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			options.useResponsesApi ?? false,
+		)) as any;
+	}
+
+	test("forwards none to OpenAI chat completions", async () => {
+		const requestBody = await prepare({ provider: "openai", model: "gpt-5.5" });
+		expect(requestBody.reasoning_effort).toBe("none");
+	});
+
+	test("forwards none to OpenAI Responses API", async () => {
+		const requestBody = await prepare({
+			provider: "openai",
+			model: "gpt-5.5",
+			useResponsesApi: true,
+		});
+		expect(requestBody.reasoning.effort).toBe("none");
+	});
+
+	test("disables thinking for Google on none", async () => {
+		const requestBody = await prepare({
+			provider: "google-ai-studio",
+			model: "gemini-2.5-pro",
+		});
+		expect(requestBody.generationConfig.thinkingConfig.includeThoughts).toBe(
+			false,
+		);
+		expect(
+			requestBody.generationConfig.thinkingConfig.thinkingBudget,
+		).toBeUndefined();
+	});
+
+	test("normalizes none to off for Anthropic (thinking not enabled)", async () => {
+		const requestBody = (await prepare({
+			provider: "anthropic",
+			model: "claude-sonnet-4-20250514",
+		})) as AnthropicRequestBody;
+		expect(requestBody.thinking).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - Moonshot thinking", () => {
+	async function prepare(options: {
+		model: string;
+		reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "max";
+		maxTokens?: number;
+	}) {
+		return (await prepareRequestBody(
+			"moonshot",
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			options.maxTokens, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			options.reasoningEffort, // reasoning_effort
+			true, // supportsReasoning
+		)) as any;
+	}
+
+	test("maps reasoning_effort to thinking enabled and never forwards reasoning_effort", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k2.6",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.thinking).toEqual({ type: "enabled" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("maps none to thinking disabled on models that can turn thinking off", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k2.6",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("maps minimal to thinking disabled on models that can turn thinking off", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k2.5",
+			reasoningEffort: "minimal",
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+	});
+
+	test("keeps the provider default when no reasoning_effort is requested", async () => {
+		const requestBody = await prepare({ model: "kimi-k2.6" });
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("never sends disabled to always-on models (kimi-k2.7-code)", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k2.7-code",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("sends thinking enabled to always-on models when effort is requested", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k2.7-code",
+			reasoningEffort: "medium",
+		});
+		expect(requestBody.thinking).toEqual({ type: "enabled" });
+	});
+
+	test("forwards reasoning_effort natively for kimi-k3 (no thinking toggle)", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k3",
+			reasoningEffort: "max",
+		});
+		expect(requestBody.reasoning_effort).toBe("max");
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test("collapses disable requests onto the provider default for kimi-k3", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k3",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.reasoning_effort).toBeUndefined();
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test("sends max_completion_tokens instead of max_tokens for kimi-k3", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k3",
+			maxTokens: 4096,
+		});
+		expect(requestBody.max_completion_tokens).toBe(4096);
+		expect(requestBody.max_tokens).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - Alibaba thinking", () => {
+	async function prepare(options: {
+		model: string;
+		reasoningEffort?:
+			"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+		reasoningMaxTokens?: number;
+		maxTokens?: number;
+		supportsReasoning?: boolean;
+	}) {
+		return (await prepareRequestBody(
+			"alibaba",
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			options.maxTokens, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			options.reasoningEffort, // reasoning_effort
+			options.supportsReasoning ?? true, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			options.reasoningMaxTokens, // reasoning_max_tokens
+		)) as any;
+	}
+
+	test("maps reasoning_effort to enable_thinking with a native thinking_budget and never forwards reasoning_effort", async () => {
+		const requestBody = await prepare({
+			model: "qwen3.7-max",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.enable_thinking).toBe(true);
+		expect(requestBody.thinking_budget).toBe(24576);
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("maps none to an explicit thinking disable", async () => {
+		const requestBody = await prepare({
+			model: "qwen3.7-max",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.enable_thinking).toBe(false);
+		expect(requestBody.thinking_budget).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("keeps the provider default when no reasoning parameter is requested", async () => {
+		const requestBody = await prepare({ model: "qwen3.7-max" });
+		expect(requestBody.enable_thinking).toBeUndefined();
+		expect(requestBody.thinking_budget).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("forwards reasoning.max_tokens as thinking_budget verbatim", async () => {
+		const requestBody = await prepare({
+			model: "glm-5.2",
+			reasoningMaxTokens: 1234,
+		});
+		expect(requestBody.enable_thinking).toBe(true);
+		expect(requestBody.thinking_budget).toBe(1234);
+	});
+
+	test("keeps thinking_budget below the caller's max_tokens", async () => {
+		const requestBody = await prepare({
+			model: "glm-5.2",
+			reasoningEffort: "medium",
+			maxTokens: 100,
+		});
+		expect(requestBody.enable_thinking).toBe(true);
+		expect(requestBody.thinking_budget).toBe(99);
+		expect(requestBody.max_tokens).toBe(100);
+	});
+
+	test("sends enable_thinking and thinking_budget for kimi-k2.5 (budget-controlled thinking)", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k2.5",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.enable_thinking).toBe(true);
+		expect(requestBody.thinking_budget).toBe(24576);
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("sends nothing for mappings without budget-controlled thinking", async () => {
+		const requestBody = await prepare({
+			model: "glm-5",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.enable_thinking).toBeUndefined();
+		expect(requestBody.thinking_budget).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - MiniMax thinking", () => {
+	async function prepare(options: {
+		model: string;
+		reasoningEffort?:
+			"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+	}) {
+		return (await prepareRequestBody(
+			"minimax",
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			options.reasoningEffort, // reasoning_effort
+			true, // supportsReasoning
+		)) as any;
+	}
+
+	test("maps reasoning_effort to thinking adaptive and never forwards reasoning_effort", async () => {
+		const requestBody = await prepare({
+			model: "minimax-m3",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.thinking).toEqual({ type: "adaptive" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("maps none to thinking disabled on models that can turn thinking off", async () => {
+		const requestBody = await prepare({
+			model: "minimax-m3",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("keeps the provider default when no reasoning_effort is requested", async () => {
+		const requestBody = await prepare({ model: "minimax-m3" });
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("never sends disabled to always-on models (M2.x family)", async () => {
+		const requestBody = await prepare({
+			model: "minimax-m2.7",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("sends thinking adaptive to always-on models when effort is requested", async () => {
+		const requestBody = await prepare({
+			model: "minimax-m2.7",
+			reasoningEffort: "medium",
+		});
+		expect(requestBody.thinking).toEqual({ type: "adaptive" });
+		expect(requestBody.extra_body).toEqual({ reasoning_split: true });
+	});
+});
+
+describe("prepareRequestBody - Xiaomi thinking", () => {
+	async function prepare(options: {
+		model: string;
+		reasoningEffort?:
+			"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+	}) {
+		return (await prepareRequestBody(
+			"xiaomi",
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			options.reasoningEffort, // reasoning_effort
+			true, // supportsReasoning
+		)) as any;
+	}
+
+	test("forwards native effort tiers verbatim without a thinking parameter", async () => {
+		const requestBody = await prepare({
+			model: "mimo-v2.5-pro",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.reasoning_effort).toBe("high");
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test("maps none to thinking disabled and never forwards reasoning_effort", async () => {
+		const requestBody = await prepare({
+			model: "mimo-v2.5-pro",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("keeps the provider default when no reasoning_effort is requested", async () => {
+		const requestBody = await prepare({ model: "mimo-v2.5-pro" });
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("forwards unsupported tiers verbatim so the provider rejects them", async () => {
+		const requestBody = await prepare({
+			model: "mimo-v2.5",
+			reasoningEffort: "xhigh",
+		});
+		expect(requestBody.reasoning_effort).toBe("xhigh");
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test("drops none for mappings that do not declare it", async () => {
+		const requestBody = await prepare({
+			model: "mimo-v2-pro",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - DeepSeek thinking", () => {
+	async function prepare(options: {
+		model: string;
+		reasoningEffort?:
+			"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+		supportsReasoning?: boolean;
+	}) {
+		return (await prepareRequestBody(
+			"deepseek",
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			options.reasoningEffort, // reasoning_effort
+			options.supportsReasoning ?? true, // supportsReasoning
+		)) as unknown as Record<string, unknown>;
+	}
+
+	test("maps none to thinking disabled and never forwards reasoning_effort", async () => {
+		const requestBody = await prepare({
+			model: "deepseek-v4-pro",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("forwards native effort tiers verbatim without a thinking parameter", async () => {
+		const requestBody = await prepare({
+			model: "deepseek-v4-pro",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.reasoning_effort).toBe("high");
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test("forwards max natively", async () => {
+		const requestBody = await prepare({
+			model: "deepseek-v4-pro",
+			reasoningEffort: "max",
+		});
+		expect(requestBody.reasoning_effort).toBe("max");
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test("keeps the provider default when no reasoning_effort is requested", async () => {
+		const requestBody = await prepare({ model: "deepseek-v4-pro" });
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("forwards unsupported tiers verbatim so the provider rejects them", async () => {
+		const requestBody = await prepare({
+			model: "deepseek-v4-pro",
+			reasoningEffort: "xhigh",
+		});
+		expect(requestBody.reasoning_effort).toBe("xhigh");
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
+	test("drops none for models that do not declare it in reasoningEfforts", async () => {
+		// deepseek-v3.2 on the deepseek provider has reasoning: false
+		// and no reasoningEfforts, so supportsReasoning is false
+		const requestBody = await prepare({
+			model: "deepseek-v3.2",
+			reasoningEffort: "none",
+			supportsReasoning: false,
+		});
+		expect(requestBody.thinking).toBeUndefined();
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - Z.ai thinking", () => {
+	async function prepare(options: {
+		model: string;
+		reasoningEffort?:
+			"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+		responseFormat?: Parameters<typeof prepareRequestBody>[11];
+		tools?: Parameters<typeof prepareRequestBody>[12];
+	}) {
+		return (await prepareRequestBody(
+			"zai",
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			options.responseFormat, // response_format
+			options.tools, // tools
+			undefined, // tool_choice
+			options.reasoningEffort, // reasoning_effort
+			true, // supportsReasoning
+		)) as unknown as Record<string, unknown>;
+	}
+
+	test("maps none to thinking disabled", async () => {
+		const requestBody = await prepare({
+			model: "glm-4.7",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+	});
+
+	test("enables thinking for explicit effort tiers", async () => {
+		const requestBody = await prepare({
+			model: "glm-4.7",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.thinking).toEqual({ type: "enabled" });
+	});
+
+	test("disables thinking by default when no effort is requested", async () => {
+		const requestBody = await prepare({ model: "glm-4.7" });
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+	});
+
+	test("treats minimal as disabled", async () => {
+		const requestBody = await prepare({
+			model: "glm-4.7",
+			reasoningEffort: "minimal",
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+	});
+
+	test("none disables thinking even when tools are present", async () => {
+		const requestBody = await prepare({
+			model: "glm-4.7",
+			reasoningEffort: "none",
+			tools: [
+				{
+					type: "function",
+					function: { name: "get_weather" },
+				},
+			],
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+	});
+
+	test("none disables thinking even with a response_format", async () => {
+		const requestBody = await prepare({
+			model: "glm-4.7",
+			reasoningEffort: "none",
+			responseFormat: { type: "json_object" },
+		});
+		expect(requestBody.thinking).toEqual({ type: "disabled" });
+	});
+
+	test("leaves thinking on provider default for tool requests without an effort", async () => {
+		const requestBody = await prepare({
+			model: "glm-4.7",
+			tools: [
+				{
+					type: "function",
+					function: { name: "get_weather" },
+				},
+			],
+		});
+		expect(requestBody.thinking).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - reasoning_effort max", () => {
+	async function prepare(options: {
+		provider: Parameters<typeof prepareRequestBody>[0];
+		model: string;
+		useResponsesApi?: boolean;
+	}) {
+		return (await prepareRequestBody(
+			options.provider,
+			options.model,
+			null,
+			options.model,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			"max", // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			options.useResponsesApi ?? false,
+		)) as any;
+	}
+
+	test("forwards max to OpenAI chat completions verbatim", async () => {
+		const requestBody = await prepare({
+			provider: "openai",
+			model: "gpt-5.6-sol",
+		});
+		expect(requestBody.reasoning_effort).toBe("max");
+	});
+
+	test("forwards max to OpenAI Responses API verbatim", async () => {
+		const requestBody = await prepare({
+			provider: "openai",
+			model: "gpt-5.6-terra",
+			useResponsesApi: true,
+		});
+		expect(requestBody.reasoning.effort).toBe("max");
+	});
+
+	test("forwards max unchanged for models without a max tier (provider rejects it)", async () => {
+		const requestBody = await prepare({ provider: "openai", model: "gpt-5.5" });
+		expect(requestBody.reasoning_effort).toBe("max");
+	});
+
+	test("forwards max unchanged on the Responses API for models without a max tier", async () => {
+		const requestBody = await prepare({
+			provider: "openai",
+			model: "gpt-5.5",
+			useResponsesApi: true,
+		});
+		expect(requestBody.reasoning.effort).toBe("max");
+	});
+});
+
+describe("prepareRequestBody - xAI reasoning_effort", () => {
+	async function prepare(effort: "low" | "medium" | "high" | "xhigh") {
+		return (await prepareRequestBody(
+			"xai",
+			"grok-4-5",
+			null,
+			"grok-4.5",
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			effort, // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+			20,
+			null,
+		)) as any;
+	}
+
+	test("forwards low to xAI", async () => {
+		const requestBody = await prepare("low");
+		expect(requestBody.reasoning_effort).toBe("low");
+	});
+
+	test("forwards high to xAI", async () => {
+		const requestBody = await prepare("high");
+		expect(requestBody.reasoning_effort).toBe("high");
+	});
+
+	test("forwards medium to xAI", async () => {
+		const requestBody = await prepare("medium");
+		expect(requestBody.reasoning_effort).toBe("medium");
+	});
+
+	test("forwards effort verbatim and lets xAI reject unsupported tiers", async () => {
+		const requestBody = await prepare("xhigh");
+		expect(requestBody.reasoning_effort).toBe("xhigh");
+	});
 });
 
 describe("prepareRequestBody - Google AI Studio", () => {
+	// web_search is passed separately from `tools`; the gateway extracts it from
+	// the request before calling prepareRequestBody.
+	const googleTools = (tools: any, webSearchTool?: any) =>
+		prepareRequestBody(
+			"google-ai-studio",
+			"gemini-3.5-flash",
+			null,
+			"gemini-3.5-flash",
+			[{ role: "user", content: "hi" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			tools,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			webSearchTool,
+		) as Promise<any>;
+
+	test("opts into server-side tool invocation when web_search joins functions", async () => {
+		// Gemini 3 rejects built-in tools alongside functionDeclarations unless
+		// this is set; agentic clients (Codex CLI) always send both.
+		const requestBody = await googleTools(
+			[
+				{
+					type: "function",
+					function: { name: "calc", parameters: { type: "object" } },
+				},
+			],
+			{ type: "web_search" },
+		);
+
+		expect(requestBody.tools).toEqual([
+			{ functionDeclarations: [expect.objectContaining({ name: "calc" })] },
+			{ google_search: {} },
+		]);
+		expect(requestBody.toolConfig?.includeServerSideToolInvocations).toBe(true);
+	});
+
+	test("leaves toolConfig alone when web_search is the only tool", async () => {
+		const requestBody = await googleTools(undefined, { type: "web_search" });
+
+		expect(requestBody.tools).toEqual([{ google_search: {} }]);
+		expect(requestBody.toolConfig).toBeUndefined();
+	});
+
+	test("leaves toolConfig alone when there is no built-in tool", async () => {
+		const requestBody = await googleTools([
+			{
+				type: "function",
+				function: { name: "calc", parameters: { type: "object" } },
+			},
+		]);
+
+		expect(requestBody.toolConfig).toBeUndefined();
+	});
+
 	test("should map gateway 0.5K image size to Google 512", async () => {
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
+			"gemini-3.1-flash-image-preview",
+			null,
 			"gemini-3.1-flash-image-preview",
 			[
 				{
@@ -204,9 +1741,59 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		]);
 	});
 
+	test("converts json_schema with array type (nullable) to Google schema", async () => {
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.5-flash",
+			null,
+			"gemini-2.5-flash",
+			[{ role: "user", content: "Extract the user info" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				type: "json_schema",
+				json_schema: {
+					name: "user_info",
+					schema: {
+						type: "object",
+						properties: {
+							name: { type: "string" },
+							nickname: { type: ["string", "null"] },
+							tags: { type: ["array", "null"], items: { type: "string" } },
+						},
+						required: ["name", "nickname"],
+					},
+				},
+			},
+		)) as any;
+
+		expect(requestBody.generationConfig.responseMimeType).toBe(
+			"application/json",
+		);
+		expect(requestBody.generationConfig.responseSchema).toEqual({
+			type: "OBJECT",
+			properties: {
+				name: { type: "STRING" },
+				nickname: { type: "STRING", nullable: true },
+				tags: {
+					type: "ARRAY",
+					nullable: true,
+					items: { type: "STRING" },
+				},
+			},
+			required: ["name", "nickname"],
+		});
+	});
+
 	test("should map gateway 0.5K image size to Google 512 for Vertex", async () => {
 		const requestBody = (await prepareRequestBody(
 			"google-vertex",
+			"gemini-3.1-flash-image-preview",
+			null,
 			"gemini-3.1-flash-image-preview",
 			[
 				{
@@ -245,6 +1832,8 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
 			"gemini-2.5-pro",
+			null,
+			"gemini-2.5-pro",
 			[{ role: "user", content: "What is 2+2?" }],
 			false, // stream
 			undefined, // temperature
@@ -282,6 +1871,8 @@ describe("prepareRequestBody - Google AI Studio", () => {
 			const requestBody = (await prepareRequestBody(
 				"google-ai-studio",
 				"gemini-2.5-pro",
+				null,
+				"gemini-2.5-pro",
 				[{ role: "user", content: "test" }],
 				false,
 				undefined,
@@ -303,9 +1894,151 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		}
 	});
 
+	test('preserves "max" effort natively for adaptive Anthropic models', async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-opus-4-7",
+			null,
+			"claude-opus-4-7",
+			[{ role: "user", content: "test" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			"max", // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+		)) as any;
+
+		expect(requestBody.thinking).toEqual({
+			type: "adaptive",
+			display: "summarized",
+		});
+		expect(requestBody.output_config.effort).toBe("max");
+	});
+
+	test('preserves "max" effort natively for adaptive Anthropic models on Bedrock', async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-opus-4-7",
+			null,
+			"claude-opus-4-7",
+			[{ role: "user", content: "test" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			"max", // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+		)) as any;
+
+		expect(requestBody.additionalModelRequestFields.thinking).toEqual({
+			type: "adaptive",
+			display: "summarized",
+		});
+		expect(requestBody.additionalModelRequestFields.output_config.effort).toBe(
+			"max",
+		);
+	});
+
+	test('sets display "summarized" for adaptive thinking on Bedrock', async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-opus-4-7",
+			null,
+			"claude-opus-4-7",
+			[{ role: "user", content: "test" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			"high", // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+		)) as any;
+
+		expect(requestBody.additionalModelRequestFields.thinking).toEqual({
+			type: "adaptive",
+			display: "summarized",
+		});
+	});
+
+	test('sets display "summarized" for adaptive thinking on Anthropic', async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-opus-4-7",
+			null,
+			"claude-opus-4-7",
+			[{ role: "user", content: "test" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			"high", // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+		)) as any;
+
+		expect(requestBody.thinking).toEqual({
+			type: "adaptive",
+			display: "summarized",
+		});
+	});
+
+	test('maps "max" effort to the top Google thinking budget', async () => {
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.5-pro",
+			null,
+			"gemini-2.5-pro",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			"max", // reasoning_effort
+			true,
+			false,
+		)) as any;
+
+		// Google has no effort enum, so "max" shares xhigh's top thinking
+		// budget rather than falling through to the medium default (8192).
+		expect(requestBody.generationConfig.thinkingConfig.thinkingBudget).toBe(
+			65536,
+		);
+	});
+
 	test("should not set thinkingBudget when reasoning_effort is not provided", async () => {
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
+			"gemini-2.5-pro",
+			null,
 			"gemini-2.5-pro",
 			[{ role: "user", content: "test" }],
 			false,
@@ -333,6 +2066,8 @@ describe("prepareRequestBody - Google AI Studio", () => {
 	test("should not set thinkingConfig when supportsReasoning is false", async () => {
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
+			"gemini-1.5-pro",
+			null,
 			"gemini-1.5-pro",
 			[{ role: "user", content: "test" }],
 			false,
@@ -387,6 +2122,8 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
 			"gemini-2.0-flash",
+			null,
+			"gemini-2.0-flash",
 			[{ role: "user", content: "test" }],
 			false,
 			undefined,
@@ -421,6 +2158,128 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		});
 	});
 
+	test("should not overflow the stack on self-referential $ref schemas", async () => {
+		const recursiveTools = [
+			{
+				type: "function" as const,
+				function: {
+					name: "build_tree",
+					description: "Build a recursive tree",
+					parameters: {
+						type: "object",
+						properties: {
+							root: { $ref: "#/$defs/TreeNode" },
+						},
+						$defs: {
+							TreeNode: {
+								type: "object",
+								properties: {
+									value: { type: "string" },
+									children: {
+										type: "array",
+										items: { $ref: "#/$defs/TreeNode" },
+									},
+								},
+								required: ["value"],
+							},
+						},
+						required: ["root"],
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.0-flash",
+			null,
+			"gemini-2.0-flash",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			recursiveTools,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const params = requestBody.tools[0].functionDeclarations[0].parameters;
+		expect(params.$defs).toBeUndefined();
+		// The recursive node is expanded one level then collapsed to a generic
+		// object where it would otherwise recurse forever.
+		expect(params.properties.root.properties.value).toEqual({
+			type: "string",
+		});
+		expect(params.properties.root.properties.children.items).toEqual({
+			type: "object",
+		});
+	});
+
+	test("should not overflow the stack on self-referential $ref schemas for bedrock", async () => {
+		const recursiveTools = [
+			{
+				type: "function" as const,
+				function: {
+					name: "build_tree",
+					description: "Build a recursive tree",
+					parameters: {
+						type: "object",
+						properties: {
+							root: { $ref: "#/$defs/TreeNode" },
+						},
+						$defs: {
+							TreeNode: {
+								type: "object",
+								properties: {
+									value: { type: "string" },
+									children: {
+										type: "array",
+										items: { $ref: "#/$defs/TreeNode" },
+									},
+								},
+								required: ["value"],
+							},
+						},
+						required: ["root"],
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-sonnet-4-6",
+			null,
+			"claude-sonnet-4-6",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			recursiveTools,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const toolSpec = requestBody.toolConfig.tools[0].toolSpec;
+		const schema = toolSpec.inputSchema.json;
+		expect(schema.properties.root.properties.children.items).toEqual({
+			type: "object",
+			properties: {},
+		});
+	});
+
 	test("should strip additionalProperties from tool parameters", async () => {
 		const toolsWithAdditionalProps = [
 			{
@@ -441,6 +2300,8 @@ describe("prepareRequestBody - Google AI Studio", () => {
 
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
+			"gemini-2.0-flash",
+			null,
 			"gemini-2.0-flash",
 			[{ role: "user", content: "test" }],
 			false,
@@ -510,6 +2371,8 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		const requestBody = (await prepareRequestBody(
 			"google-ai-studio",
 			"gemini-2.0-flash",
+			null,
+			"gemini-2.0-flash",
 			[{ role: "user", content: "test" }],
 			false,
 			undefined,
@@ -553,6 +2416,155 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		expect(params.properties.items.items.type).toBe("string");
 	});
 
+	test("should strip $id, examples, enumTitles, prefill from Google tool parameters", async () => {
+		const toolsWithMetaSchema = [
+			{
+				type: "function" as const,
+				function: {
+					name: "test_tool",
+					description: "Test tool",
+					parameters: {
+						$id: "https://example.com/schema.json",
+						$comment: "internal note",
+						type: "object",
+						properties: {
+							field_a: {
+								type: "string",
+								prefill: "hello",
+								examples: ["a", "b"],
+							},
+							field_b: {
+								type: "string",
+								examples: ["x"],
+							},
+							field_c: {
+								type: "array",
+								items: {
+									type: "string",
+									enum: ["one", "two"],
+									enumTitles: ["One", "Two"],
+								},
+								examples: [["one"]],
+							},
+						},
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.0-flash",
+			null,
+			"gemini-2.0-flash",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			toolsWithMetaSchema,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const params = requestBody.tools[0].functionDeclarations[0].parameters;
+
+		expect(params.$id).toBeUndefined();
+		expect(params.$comment).toBeUndefined();
+		expect(params.properties.field_a.prefill).toBeUndefined();
+		expect(params.properties.field_a.examples).toBeUndefined();
+		expect(params.properties.field_b.examples).toBeUndefined();
+		expect(params.properties.field_c.examples).toBeUndefined();
+		expect(params.properties.field_c.items.enumTitles).toBeUndefined();
+		expect(params.properties.field_a.type).toBe("string");
+		expect(params.properties.field_c.items.enum).toEqual(["one", "two"]);
+	});
+
+	test("should preserve user-named fields that collide with stripped schema keywords", async () => {
+		const toolsWithCollidingNames = [
+			{
+				type: "function" as const,
+				function: {
+					name: "test_tool",
+					description: "Test tool",
+					parameters: {
+						type: "object",
+						properties: {
+							examples: {
+								type: "array",
+								items: { type: "string" },
+								description: "User-provided examples list",
+							},
+							prefill: {
+								type: "string",
+								description: "User-provided prefill text",
+							},
+							const: {
+								type: "string",
+								description: "A field literally named const",
+							},
+							nested: {
+								type: "object",
+								properties: {
+									examples: { type: "string" },
+								},
+								required: ["examples"],
+							},
+						},
+						required: ["examples", "prefill"],
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.0-flash",
+			null,
+			"gemini-2.0-flash",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			toolsWithCollidingNames,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const params = requestBody.tools[0].functionDeclarations[0].parameters;
+
+		// User-named fields must survive, even though they collide with stripped keywords
+		expect(params.properties.examples).toBeDefined();
+		expect(params.properties.examples.type).toBe("array");
+		expect(params.properties.examples.description).toBe(
+			"User-provided examples list",
+		);
+		expect(params.properties.prefill).toBeDefined();
+		expect(params.properties.prefill.type).toBe("string");
+		expect(params.properties.const).toBeDefined();
+		expect(params.properties.const.type).toBe("string");
+
+		// Nested properties map should also preserve user field names
+		expect(params.properties.nested.properties.examples).toBeDefined();
+		expect(params.properties.nested.properties.examples.type).toBe("string");
+		expect(params.properties.nested.required).toContain("examples");
+
+		// And `required` should still mention these user fields
+		expect(params.required).toContain("examples");
+		expect(params.required).toContain("prefill");
+	});
+
 	test("should add additionalProperties: false to Cerebras tool parameters", async () => {
 		const toolsWithoutAdditionalProps = [
 			{
@@ -578,6 +2590,8 @@ describe("prepareRequestBody - Google AI Studio", () => {
 
 		const requestBody = (await prepareRequestBody(
 			"cerebras",
+			"llama-4-scout-17b-16e-instruct",
+			null,
 			"llama-4-scout-17b-16e-instruct",
 			[{ role: "user", content: "test" }],
 			false,
@@ -628,6 +2642,8 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		const requestBody = (await prepareRequestBody(
 			"cerebras",
 			"llama-4-scout-17b-16e-instruct",
+			null,
+			"llama-4-scout-17b-16e-instruct",
 			[{ role: "user", content: "test" }],
 			false,
 			undefined,
@@ -667,6 +2683,8 @@ describe("prepareRequestBody - MiniMax", () => {
 		const requestBody = (await prepareRequestBody(
 			"minimax",
 			"MiniMax-M2",
+			null,
+			"MiniMax-M2",
 			[{ role: "user", content: "What is 2+2?" }],
 			true,
 			undefined,
@@ -691,6 +2709,8 @@ describe("prepareRequestBody - MiniMax", () => {
 		const requestBody = (await prepareRequestBody(
 			"minimax",
 			"MiniMax-M2",
+			null,
+			"MiniMax-M2",
 			[{ role: "user", content: "What is 2+2?" }],
 			true,
 			undefined,
@@ -710,10 +2730,454 @@ describe("prepareRequestBody - MiniMax", () => {
 	});
 });
 
+describe("prepareRequestBody - function tool parameter normalization", () => {
+	test("should default missing parameters to a JSON Schema object for DeepSeek", async () => {
+		const requestBody = (await prepareRequestBody(
+			"deepseek",
+			"deepseek-chat",
+			null,
+			"deepseek-chat",
+			[{ role: "user", content: "hi" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			[
+				{
+					type: "function" as const,
+					function: {
+						name: "web_search",
+						description: "Search the web",
+					},
+				},
+			],
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as { tools?: any[] };
+
+		expect(requestBody.tools).toBeDefined();
+		expect(requestBody.tools?.[0].function.parameters).toEqual({
+			type: "object",
+			properties: {},
+		});
+	});
+
+	test("should rewrite parameters with type: null to type: object", async () => {
+		const requestBody = (await prepareRequestBody(
+			"deepseek",
+			"deepseek-chat",
+			null,
+			"deepseek-chat",
+			[{ role: "user", content: "hi" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			[
+				{
+					type: "function" as const,
+					function: {
+						name: "web_search",
+						description: "Search the web",
+						parameters: { type: null as unknown as string },
+					},
+				},
+			],
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as { tools?: any[] };
+
+		expect(requestBody.tools?.[0].function.parameters).toEqual({
+			type: "object",
+			properties: {},
+		});
+	});
+
+	test("should preserve valid object parameters as-is", async () => {
+		const params = {
+			type: "object",
+			properties: { query: { type: "string" } },
+			required: ["query"],
+		};
+		const requestBody = (await prepareRequestBody(
+			"deepseek",
+			"deepseek-chat",
+			null,
+			"deepseek-chat",
+			[{ role: "user", content: "hi" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			[
+				{
+					type: "function" as const,
+					function: {
+						name: "web_search",
+						description: "Search the web",
+						parameters: params,
+					},
+				},
+			],
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as { tools?: any[] };
+
+		expect(requestBody.tools?.[0].function.parameters).toEqual(params);
+	});
+});
+
 describe("prepareRequestBody - AWS Bedrock", () => {
+	test("should throw a typed RequestError for malformed tool_call arguments", async () => {
+		await expect(
+			prepareRequestBody(
+				"aws-bedrock",
+				"claude-sonnet-4-5",
+				null,
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
+				[
+					{ role: "user", content: "Hello!" },
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							{
+								id: "call_1",
+								type: "function",
+								function: {
+									name: "get_weather",
+									arguments: '{"city":"Berlin"',
+								},
+							},
+						],
+					},
+				],
+				false,
+				undefined,
+				1024,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				false,
+			),
+		).rejects.toBeInstanceOf(RequestError);
+	});
+
+	test("should keep Grok 4.3 as Bedrock Mantle OpenAI chat completions", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"grok-4-3",
+			"us-west-2",
+			"xai.grok-4.3",
+			[{ role: "user", content: "Hello!" }],
+			true,
+			0.2,
+			128,
+			0.9,
+			undefined,
+			undefined,
+			{ type: "json_object" },
+			undefined,
+			undefined,
+			"high",
+			true,
+			false,
+		)) as any;
+
+		expect(requestBody).toMatchObject({
+			model: "xai.grok-4.3",
+			messages: [{ role: "user", content: "Hello!" }],
+			stream: true,
+			stream_options: { include_usage: true },
+			temperature: 0.2,
+			max_completion_tokens: 128,
+			top_p: 0.9,
+			response_format: { type: "json_object" },
+			reasoning: { effort: "high" },
+		});
+		expect(requestBody.inferenceConfig).toBeUndefined();
+		expect(requestBody.system).toBeUndefined();
+	});
+
+	test("should preserve explicit cache_control ttl as Bedrock cachePoint ttl", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-sonnet-4-5",
+			null,
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
+			[
+				{
+					role: "system",
+					content: [
+						{
+							type: "text",
+							text: "Cache this system prompt.",
+							cache_control: { type: "ephemeral", ttl: "1h" },
+						},
+					],
+				},
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "What should I do next?",
+							cache_control: { type: "ephemeral", ttl: "5m" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.system).toEqual([
+			{ text: "Cache this system prompt." },
+			{ cachePoint: { type: "default", ttl: "1h" } },
+		]);
+		expect(requestBody.messages[0].content).toEqual([
+			{ text: "What should I do next?" },
+			{ cachePoint: { type: "default", ttl: "5m" } },
+		]);
+	});
+
+	test("forwards base64 image blocks as Bedrock image content", async () => {
+		const pngBase64 =
+			"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-sonnet-4-5",
+			null,
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
+			[
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "What is in this image?" },
+						{
+							type: "image_url",
+							image_url: {
+								url: `data:image/png;base64,${pngBase64}`,
+							},
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+		)) as any;
+
+		expect(requestBody.messages[0].content).toEqual([
+			{ text: "What is in this image?" },
+			{
+				image: {
+					format: "png",
+					source: { bytes: pngBase64 },
+				},
+			},
+		]);
+	});
+
+	test("suppresses heuristic cachePoints when caller supplies a 1h ttl marker in messages", async () => {
+		const longContent = "A".repeat(5000);
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-sonnet-4-5",
+			null,
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
+			[
+				{ role: "system", content: longContent },
+				{ role: "user", content: "Hello!" },
+				{ role: "assistant", content: "Hi!" },
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "What should I do next?",
+							cache_control: { type: "ephemeral", ttl: "1h" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+		)) as any;
+
+		// No heuristic cachePoint on the long system prompt and no turn-boundary
+		// cachePoint — a default-ttl (5m) point would precede the caller's 1h
+		// point, which Bedrock rejects.
+		expect(requestBody.system).toEqual([{ text: longContent }]);
+		expect(requestBody.messages[1]).toEqual({
+			role: "assistant",
+			content: [{ text: "Hi!" }],
+		});
+		expect(requestBody.messages[2].content).toEqual([
+			{ text: "What should I do next?" },
+			{ cachePoint: { type: "default", ttl: "1h" } },
+		]);
+	});
+
+	test("keeps heuristic cachePoints when a caller 1h ttl is downgraded to 5m", async () => {
+		const longContent = "A".repeat(5000);
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-3-7-sonnet",
+			null,
+			"anthropic.claude-3-7-sonnet-20250219-v1:0",
+			[
+				{ role: "system", content: longContent },
+				{ role: "user", content: "Hello!" },
+				{ role: "assistant", content: "Hi!" },
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "What should I do next?",
+							cache_control: { type: "ephemeral", ttl: "1h" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+		)) as any;
+
+		// claude-3-7-sonnet has no 1h TTL on Bedrock, so the caller's marker is
+		// downgraded to a default (5m) cachePoint. With every point at 5m there
+		// is no ordering conflict, so the heuristics stay active.
+		expect(requestBody.system).toEqual([
+			{ text: longContent },
+			{ cachePoint: { type: "default" } },
+		]);
+		expect(requestBody.messages[1]).toEqual({
+			role: "assistant",
+			content: [{ text: "Hi!" }, { cachePoint: { type: "default" } }],
+		});
+		expect(requestBody.messages[2].content).toEqual([
+			{ text: "What should I do next?" },
+			{ cachePoint: { type: "default" } },
+		]);
+	});
+
+	test("should drop ttl:1h on bedrock models that do not support 1h TTL", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-3-7-sonnet",
+			null,
+			"anthropic.claude-3-7-sonnet-20250219-v1:0",
+			[
+				{
+					role: "system",
+					content: [
+						{
+							type: "text",
+							text: "Cache this system prompt.",
+							cache_control: { type: "ephemeral", ttl: "1h" },
+						},
+					],
+				},
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "What should I do next?",
+							cache_control: { type: "ephemeral", ttl: "1h" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.system).toEqual([
+			{ text: "Cache this system prompt." },
+			{ cachePoint: { type: "default" } },
+		]);
+		expect(requestBody.messages[0].content).toEqual([
+			{ text: "What should I do next?" },
+			{ cachePoint: { type: "default" } },
+		]);
+	});
+
 	test("should sanitize complex tool schemas for Bedrock Converse", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
+			"claude-sonnet-4-6",
+			null,
 			"anthropic.claude-sonnet-4-6",
 			[{ role: "user", content: "Run a tool" }],
 			false,
@@ -800,6 +3264,8 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 	test("should group consecutive tool results into a single user message", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
+			"claude-sonnet-4-6",
+			null,
 			"anthropic.claude-sonnet-4-6",
 			[
 				{ role: "user", content: "What is the weather and time in Berlin?" },
@@ -894,5 +3360,2170 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 				},
 			],
 		});
+	});
+	test("synthesizes toolConfig when history has tool blocks but request omits tools", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-opus-4-8",
+			null,
+			"anthropic.claude-opus-4-8",
+			[
+				{ role: "user", content: "What is the weather in Berlin?" },
+				{
+					role: "assistant",
+					content: "",
+					tool_calls: [
+						{
+							id: "tool_1",
+							type: "function",
+							function: {
+								name: "get_weather",
+								arguments: JSON.stringify({ city: "Berlin" }),
+							},
+						},
+					],
+				},
+				{
+					role: "tool",
+					tool_call_id: "tool_1",
+					content: JSON.stringify({ temperature: 17, unit: "celsius" }),
+				},
+				{ role: "user", content: "Thanks, what should I wear?" },
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined, // tools omitted on the follow-up turn
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		// Bedrock requires toolConfig whenever toolUse/toolResult blocks are
+		// present in the history, so it must be synthesized from the tool
+		// names seen in the assistant toolUse blocks.
+		expect(requestBody.toolConfig).toEqual({
+			tools: [
+				{
+					toolSpec: {
+						name: "get_weather",
+						inputSchema: {
+							json: {
+								type: "object",
+								properties: {},
+							},
+						},
+					},
+				},
+			],
+		});
+	});
+
+	test("does not synthesize toolConfig when history has no tool blocks", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-opus-4-8",
+			null,
+			"anthropic.claude-opus-4-8",
+			[{ role: "user", content: "Hello there" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.toolConfig).toBeUndefined();
+	});
+});
+
+describe("prepareRequestBody - reasoning.max_tokens forwarding", () => {
+	const budget = 1024;
+
+	test("anthropic forwards budget into thinking.budget_tokens", async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-sonnet-4-6",
+			null,
+			"claude-sonnet-4-6",
+			[{ role: "user", content: "What is 2/3 + 1/4 + 5/6?" }],
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens (must exceed thinking budget)
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			budget, // reasoning_max_tokens
+		)) as any;
+
+		expect(requestBody.thinking).toEqual({
+			type: "enabled",
+			budget_tokens: budget,
+		});
+	});
+
+	test("aws-bedrock forwards budget into additionalModelRequestFields.thinking.budget_tokens", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-sonnet-4-6",
+			null,
+			"anthropic.claude-sonnet-4-6",
+			[{ role: "user", content: "What is 2/3 + 1/4 + 5/6?" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			true,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			budget,
+		)) as any;
+
+		expect(requestBody.additionalModelRequestFields?.thinking).toEqual({
+			type: "enabled",
+			budget_tokens: budget,
+		});
+	});
+
+	test("google-ai-studio forwards budget into generationConfig.thinkingConfig.thinkingBudget", async () => {
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.5-pro",
+			null,
+			"gemini-2.5-pro",
+			[{ role: "user", content: "What is 2/3 + 1/4 + 5/6?" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			true,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			budget,
+		)) as any;
+
+		expect(requestBody.generationConfig?.thinkingConfig?.thinkingBudget).toBe(
+			budget,
+		);
+	});
+
+	test("google-vertex forwards budget into generationConfig.thinkingConfig.thinkingBudget", async () => {
+		const requestBody = (await prepareRequestBody(
+			"google-vertex",
+			"gemini-2.5-pro",
+			null,
+			"gemini-2.5-pro",
+			[{ role: "user", content: "What is 2/3 + 1/4 + 5/6?" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			true,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			budget,
+		)) as any;
+
+		expect(requestBody.generationConfig?.thinkingConfig?.thinkingBudget).toBe(
+			budget,
+		);
+	});
+});
+
+describe("prepareRequestBody - Alibaba cache_control", () => {
+	test("forwards cache_control: {type: 'ephemeral'} unchanged", async () => {
+		const requestBody = (await prepareRequestBody(
+			"alibaba",
+			"qwen-plus",
+			null,
+			"qwen-plus",
+			[
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "Cache this content.",
+							cache_control: { type: "ephemeral" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.messages[0].content[0].cache_control).toEqual({
+			type: "ephemeral",
+		});
+	});
+
+	test("strips ttl from cache_control because Alibaba only supports 5m", async () => {
+		const requestBody = (await prepareRequestBody(
+			"alibaba",
+			"qwen-plus",
+			null,
+			"qwen-plus",
+			[
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "Cache this content.",
+							cache_control: { type: "ephemeral", ttl: "1h" },
+						},
+					],
+				},
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "And this.",
+							cache_control: { type: "ephemeral", ttl: "5m" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.messages[0].content[0].cache_control).toEqual({
+			type: "ephemeral",
+		});
+		expect(requestBody.messages[1].content[0].cache_control).toEqual({
+			type: "ephemeral",
+		});
+	});
+
+	test("drops cache_control entirely when stripping ttl leaves an empty marker", async () => {
+		const requestBody = (await prepareRequestBody(
+			"alibaba",
+			"qwen-plus",
+			null,
+			"qwen-plus",
+			[
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "Caller forgot the type field.",
+							cache_control: { ttl: "1h" } as any,
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect("cache_control" in requestBody.messages[0].content[0]).toBe(false);
+	});
+});
+
+// Sibling to the Anthropic max_tokens regression tests above. Every provider
+// gets the same three checks (caller-supplied, caller-omitted, reasoning) so
+// we never silently regress to a stale fallback the way the Anthropic 1024
+// default did (see PR #2289). For providers where max_tokens is OPTIONAL
+// upstream (everything except Anthropic), the omit path must leave the field
+// undefined so the provider's own default wins.
+describe("prepareRequestBody - max_tokens forwarding", () => {
+	describe("aws-bedrock (Anthropic via Converse)", () => {
+		test("forwards caller-supplied max_tokens verbatim", async () => {
+			const requestBody = (await prepareRequestBody(
+				"aws-bedrock",
+				"claude-sonnet-4-6",
+				null,
+				"anthropic.claude-sonnet-4-6",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				32000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.inferenceConfig?.maxTokens).toBe(32000);
+		});
+
+		test("leaves maxTokens unset when caller omits (no reasoning)", async () => {
+			// Bedrock's Converse API tolerates omitting max_tokens; the historical
+			// 1024 default was Anthropic-specific. When reasoning is off, just let
+			// upstream pick.
+			const requestBody = (await prepareRequestBody(
+				"aws-bedrock",
+				"claude-sonnet-4-6",
+				null,
+				"anthropic.claude-sonnet-4-6",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.inferenceConfig?.maxTokens).toBeUndefined();
+		});
+
+		test("falls back to model maxOutput when caller omits with reasoning enabled", async () => {
+			const requestBody = (await prepareRequestBody(
+				"aws-bedrock",
+				"claude-sonnet-4-6",
+				null,
+				"anthropic.claude-sonnet-4-6",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"high",
+				true,
+				false,
+			)) as any;
+
+			// claude-sonnet-4-6's aws-bedrock provider mapping declares maxOutput:
+			// 64000. Falling back to a flat 1024 (the old historical Anthropic
+			// default) silently truncates large reasoning + tool responses.
+			expect(requestBody.inferenceConfig?.maxTokens).toBe(64000);
+		});
+
+		test("preserves caller max_tokens even when reasoning is enabled", async () => {
+			const requestBody = (await prepareRequestBody(
+				"aws-bedrock",
+				"claude-sonnet-4-6",
+				null,
+				"anthropic.claude-sonnet-4-6",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				32000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"high",
+				true,
+				false,
+			)) as any;
+
+			expect(requestBody.inferenceConfig?.maxTokens).toBe(32000);
+		});
+
+		test("preserves max_tokens=0 instead of overwriting it", async () => {
+			// Regression: the original `if (!inferenceConfig.maxTokens)` guard
+			// silently rewrote a caller-supplied 0 to the fallback. The fix uses
+			// `=== undefined`, so 0 survives the undefined branch and then gets
+			// floored by the reasoning check on the way out.
+			const requestBody = (await prepareRequestBody(
+				"aws-bedrock",
+				"claude-sonnet-4-6",
+				null,
+				"anthropic.claude-sonnet-4-6",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				0,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"high",
+				true,
+				false,
+			)) as any;
+
+			// thinking budget for "high" is 4000, floor is 5000. 0 is below the
+			// floor, so it gets bumped to the reasoning floor — NOT silently
+			// replaced by the model maxOutput.
+			expect(requestBody.inferenceConfig?.maxTokens).toBe(5000);
+		});
+
+		test("drops messages whose content resolves to empty", async () => {
+			// Bedrock's Converse API 400s on messages with an empty content array
+			// ("The content field in the Message object at messages.N is empty"),
+			// while the Anthropic API accepts empty assistant turns and the
+			// Anthropic transform drops empty messages entirely. The Bedrock
+			// builder must drop them too.
+			const requestBody = (await prepareRequestBody(
+				"aws-bedrock",
+				"claude-sonnet-4-6",
+				null,
+				"anthropic.claude-sonnet-4-6",
+				[
+					{ role: "user", content: "say hi" },
+					{ role: "assistant", content: "" },
+					{ role: "user", content: [{ type: "text", text: "" }] as any },
+					{ role: "assistant", content: [] as any },
+					{ role: "assistant", content: "", tool_calls: [] },
+					{ role: "user", content: "say hi again" },
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.messages).toEqual([
+				{ role: "user", content: [{ text: "say hi" }] },
+				{ role: "user", content: [{ text: "say hi again" }] },
+			]);
+		});
+	});
+
+	describe("openai (Chat Completions)", () => {
+		test("forwards caller-supplied max_tokens verbatim", async () => {
+			const requestBody = (await prepareRequestBody(
+				"openai",
+				"gpt-4o-mini",
+				null,
+				"gpt-4o-mini",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				32000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBe(32000);
+		});
+
+		test("leaves max_tokens unset when caller omits", async () => {
+			const requestBody = (await prepareRequestBody(
+				"openai",
+				"gpt-4o-mini",
+				null,
+				"gpt-4o-mini",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBeUndefined();
+			expect(requestBody.max_completion_tokens).toBeUndefined();
+		});
+
+		test("uses max_completion_tokens for gpt-5 family", async () => {
+			// gpt-5 defaults to the Responses API, but the Chat Completions
+			// branch still needs to translate max_tokens to max_completion_tokens
+			// for callers who explicitly bypass the Responses API.
+			const requestBody = (await prepareRequestBody(
+				"openai",
+				"gpt-5",
+				null,
+				"gpt-5",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				32000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false, // useResponsesApi
+			)) as any;
+
+			expect(requestBody.max_completion_tokens).toBe(32000);
+			expect(requestBody.max_tokens).toBeUndefined();
+		});
+
+		test("strips reasoning_details from chat-completions messages", async () => {
+			const requestBody = (await prepareRequestBody(
+				"openai",
+				"gpt-5",
+				null,
+				"gpt-5",
+				[
+					{ role: "user", content: "Hello!" },
+					{
+						role: "assistant",
+						content: "Hi!",
+						reasoning_details: [
+							{
+								type: "reasoning.encrypted",
+								data: "gAAAA-blob",
+								format: "openai-responses-v1",
+							},
+						],
+					},
+					{ role: "user", content: "Again" },
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false, // useResponsesApi
+			)) as any;
+
+			expect(
+				requestBody.messages.every(
+					(m: any) => m.reasoning_details === undefined,
+				),
+			).toBe(true);
+		});
+
+		test("strips reasoning from replayed assistant turns on fireworks", async () => {
+			const requestBody = (await prepareRequestBody(
+				"fireworks",
+				"accounts/fireworks/models/kimi-k3",
+				null,
+				"kimi-k3",
+				[
+					{ role: "user", content: "My name is Ada." },
+					{
+						role: "assistant",
+						content: "Got it, Ada!",
+						reasoning: "The user told me their name.",
+					},
+					{
+						role: "assistant",
+						content: "Anything else?",
+						reasoning: "Dropped — Fireworks rejects this field.",
+						reasoning_content:
+							"Kept — a caller-supplied field we pass through.",
+					},
+					{ role: "user", content: "What is my name?" },
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false, // useResponsesApi
+			)) as any;
+
+			expect(
+				requestBody.messages.every((m: any) => m.reasoning === undefined),
+			).toBe(true);
+			expect(requestBody.messages[1].content).toBe("Got it, Ada!");
+			// Stripping `reasoning` must not disturb a caller-supplied
+			// `reasoning_content` on the same message.
+			expect(requestBody.messages[2].content).toBe("Anything else?");
+			expect(requestBody.messages[2].reasoning_content).toBe(
+				"Kept — a caller-supplied field we pass through.",
+			);
+		});
+	});
+
+	describe("azure-ai-foundry", () => {
+		test("keeps Grok 4.3 as Azure Foundry chat completions", async () => {
+			const requestBody = (await prepareRequestBody(
+				"azure-ai-foundry",
+				"grok-4-3",
+				null,
+				"grok-4.3",
+				[{ role: "user", content: "Hello!" }],
+				true,
+				0.2,
+				8192,
+				0.9,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"medium",
+				true,
+			)) as unknown as Record<string, unknown>;
+
+			expect(requestBody.model).toBe("grok-4.3");
+			expect(requestBody.messages).toEqual([
+				{ role: "user", content: "Hello!" },
+			]);
+			expect(requestBody.stream).toBe(true);
+			expect(requestBody.stream_options).toEqual({ include_usage: true });
+			expect(requestBody.temperature).toBe(0.2);
+			expect(requestBody.max_tokens).toBe(8192);
+			expect(requestBody.max_completion_tokens).toBeUndefined();
+			expect(requestBody.top_p).toBe(0.9);
+			expect(requestBody.reasoning_effort).toBeUndefined();
+			expect(requestBody.inferenceConfig).toBeUndefined();
+		});
+	});
+
+	describe("openai (Responses API)", () => {
+		test("forwards caller-supplied max_tokens to max_output_tokens", async () => {
+			const requestBody = (await prepareRequestBody(
+				"openai",
+				"gpt-5",
+				null,
+				"gpt-5",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				32000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				true, // useResponsesApi
+			)) as any;
+
+			expect(requestBody.max_output_tokens).toBe(32000);
+		});
+
+		test("leaves max_output_tokens unset when caller omits", async () => {
+			const requestBody = (await prepareRequestBody(
+				"openai",
+				"gpt-5",
+				null,
+				"gpt-5",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				true, // useResponsesApi
+			)) as any;
+
+			expect(requestBody.max_output_tokens).toBeUndefined();
+		});
+
+		test("passes image_url data URLs through to input_image unchanged", async () => {
+			const dataUrl = "data:image/png;base64,iVBORw0KGgo=";
+			const requestBody = (await prepareRequestBody(
+				"openai",
+				"gpt-5",
+				null,
+				"gpt-5",
+				[
+					{
+						role: "user",
+						content: [
+							{ type: "text", text: "describe this" },
+							{ type: "image_url", image_url: { url: dataUrl } },
+						],
+					},
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				true, // useResponsesApi
+			)) as any;
+
+			const userItem = requestBody.input.find((i: any) => i.role === "user");
+			expect(userItem.content).toContainEqual({
+				type: "input_text",
+				text: "describe this",
+			});
+			expect(userItem.content).toContainEqual({
+				type: "input_image",
+				image_url: dataUrl,
+			});
+		});
+
+		const responsesArgs = (messages: any[]) =>
+			[
+				"openai",
+				"gpt-5",
+				null,
+				"gpt-5",
+				messages,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				true, // useResponsesApi
+			] as const;
+
+		test("pairs tool result with preceding tool_call via explicit tool_call_id", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([
+					{ role: "user", content: "weather in Berlin?" },
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							{
+								id: "call_abc",
+								type: "function",
+								function: {
+									name: "get_weather",
+									arguments: JSON.stringify({ city: "Berlin" }),
+								},
+							},
+						],
+					},
+					{
+						role: "tool",
+						tool_call_id: "call_abc",
+						content: JSON.stringify({ temperature: 17 }),
+					},
+				]),
+			)) as any;
+
+			const output = requestBody.input.find(
+				(i: any) => i.type === "function_call_output",
+			);
+			expect(output).toEqual({
+				type: "function_call_output",
+				call_id: "call_abc",
+				output: JSON.stringify({ temperature: 17 }),
+			});
+		});
+
+		test("recovers call_id when a lone tool result omits tool_call_id", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([
+					{ role: "user", content: "weather in Berlin?" },
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							{
+								id: "call_abc",
+								type: "function",
+								function: {
+									name: "get_weather",
+									arguments: JSON.stringify({ city: "Berlin" }),
+								},
+							},
+						],
+					},
+					{
+						role: "tool",
+						content: JSON.stringify({ temperature: 17 }),
+					},
+				]),
+			)) as any;
+
+			const output = requestBody.input.find(
+				(i: any) => i.type === "function_call_output",
+			);
+			expect(output.call_id).toBe("call_abc");
+		});
+
+		test("matches legacy function-role results by unique name", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([
+					{ role: "user", content: "weather and time in Berlin?" },
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [
+							{
+								id: "call_weather",
+								type: "function",
+								function: { name: "get_weather", arguments: "{}" },
+							},
+							{
+								id: "call_time",
+								type: "function",
+								function: { name: "get_time", arguments: "{}" },
+							},
+						],
+					},
+					// Legacy `function` role: no tool_call_id, only name. Matched by
+					// unique name, so out-of-order results still resolve correctly.
+					{
+						role: "function",
+						name: "get_time",
+						content: JSON.stringify({ time: "20:52" }),
+					},
+					{
+						role: "function",
+						name: "get_weather",
+						content: JSON.stringify({ temperature: 17 }),
+					},
+				]),
+			)) as any;
+
+			const outputs = requestBody.input.filter(
+				(i: any) => i.type === "function_call_output",
+			);
+			expect(outputs).toEqual([
+				{
+					type: "function_call_output",
+					call_id: "call_time",
+					output: JSON.stringify({ time: "20:52" }),
+				},
+				{
+					type: "function_call_output",
+					call_id: "call_weather",
+					output: JSON.stringify({ temperature: 17 }),
+				},
+			]);
+		});
+
+		test("throws when explicit tool_call_id matches no preceding call", async () => {
+			await expect(
+				prepareRequestBody(
+					...responsesArgs([
+						{ role: "user", content: "weather in Berlin?" },
+						{
+							role: "assistant",
+							content: "",
+							tool_calls: [
+								{
+									id: "call_abc",
+									type: "function",
+									function: { name: "get_weather", arguments: "{}" },
+								},
+							],
+						},
+						{
+							role: "tool",
+							tool_call_id: "call_does_not_exist",
+							content: JSON.stringify({ temperature: 17 }),
+						},
+					]),
+				),
+			).rejects.toBeInstanceOf(RequestError);
+		});
+
+		test("throws for ambiguous parallel results missing tool_call_id", async () => {
+			await expect(
+				prepareRequestBody(
+					...responsesArgs([
+						{ role: "user", content: "weather and time?" },
+						{
+							role: "assistant",
+							content: "",
+							tool_calls: [
+								{
+									id: "call_1",
+									type: "function",
+									function: { name: "get_weather", arguments: "{}" },
+								},
+								{
+									id: "call_2",
+									type: "function",
+									function: { name: "get_time", arguments: "{}" },
+								},
+							],
+						},
+						// Two unmatched calls, no id, no name → ambiguous, must throw
+						// rather than guess which call this output belongs to.
+						{ role: "tool", content: JSON.stringify({ temperature: 17 }) },
+					]),
+				),
+			).rejects.toBeInstanceOf(RequestError);
+		});
+
+		test("drops message `name` (Responses API rejects input[N].name)", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([
+					{ role: "system", content: "be terse", name: "system_helper" },
+					{ role: "user", content: "hello", name: "alice" },
+				]),
+			)) as any;
+
+			expect(requestBody.input.every((i: any) => i.name === undefined)).toBe(
+				true,
+			);
+			expect(requestBody.input).toEqual([
+				{ role: "system", content: [{ type: "input_text", text: "be terse" }] },
+				{ role: "user", content: [{ type: "input_text", text: "hello" }] },
+			]);
+		});
+
+		test("runs stateless and requests encrypted reasoning payloads", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([{ role: "user", content: "Hello!" }]),
+			)) as any;
+
+			expect(requestBody.store).toBe(false);
+			expect(requestBody.include).toEqual(["reasoning.encrypted_content"]);
+		});
+
+		test("replays encrypted reasoning_details as reasoning input items", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([
+					{ role: "user", content: "weather in Berlin?" },
+					{
+						role: "assistant",
+						content: "",
+						reasoning_details: [
+							{
+								type: "reasoning.encrypted",
+								data: "gAAAA-encrypted-blob",
+								id: "rs_upstream",
+								format: "openai-responses-v1",
+								index: 0,
+							},
+						],
+						tool_calls: [
+							{
+								id: "call_abc",
+								type: "function",
+								function: {
+									name: "get_weather",
+									arguments: JSON.stringify({ city: "Berlin" }),
+								},
+							},
+						],
+					},
+					{
+						role: "tool",
+						tool_call_id: "call_abc",
+						content: JSON.stringify({ temperature: 17 }),
+					},
+				]),
+			)) as any;
+
+			const reasoningIndex = requestBody.input.findIndex(
+				(i: any) => i.type === "reasoning",
+			);
+			const functionCallIndex = requestBody.input.findIndex(
+				(i: any) => i.type === "function_call",
+			);
+			expect(reasoningIndex).toBeGreaterThan(-1);
+			expect(reasoningIndex).toBeLessThan(functionCallIndex);
+			expect(requestBody.input[reasoningIndex]).toEqual({
+				type: "reasoning",
+				id: "rs_upstream",
+				summary: [],
+				encrypted_content: "gAAAA-encrypted-blob",
+			});
+		});
+
+		test("skips foreign-format reasoning_details entries", async () => {
+			const requestBody = (await prepareRequestBody(
+				...responsesArgs([
+					{ role: "user", content: "hello" },
+					{
+						role: "assistant",
+						content: "hi",
+						reasoning_details: [
+							{
+								type: "reasoning.encrypted",
+								data: "anthropic-blob",
+								format: "anthropic-claude-v1",
+							},
+						],
+					},
+					{ role: "user", content: "again" },
+				]),
+			)) as any;
+
+			expect(requestBody.input.some((i: any) => i.type === "reasoning")).toBe(
+				false,
+			);
+		});
+	});
+
+	describe("google-ai-studio", () => {
+		test("forwards caller-supplied max_tokens to maxOutputTokens (Gemini 2.x)", async () => {
+			const requestBody = (await prepareRequestBody(
+				"google-ai-studio",
+				"gemini-2.5-pro",
+				null,
+				"gemini-2.5-pro",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				8192,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.generationConfig?.maxOutputTokens).toBe(8192);
+		});
+
+		test("leaves maxOutputTokens unset when caller omits (Gemini 2.x)", async () => {
+			// Gemini 2.5+ has thinking enabled by default and counts thinking
+			// tokens against maxOutputTokens. Setting a low default starves the
+			// response. Leave it unset so the provider's own default wins.
+			const requestBody = (await prepareRequestBody(
+				"google-ai-studio",
+				"gemini-2.5-pro",
+				null,
+				"gemini-2.5-pro",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.generationConfig?.maxOutputTokens).toBeUndefined();
+		});
+
+		test("preserves caller max_tokens when reasoning is enabled (Gemini 2.x)", async () => {
+			const requestBody = (await prepareRequestBody(
+				"google-ai-studio",
+				"gemini-2.5-pro",
+				null,
+				"gemini-2.5-pro",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				16000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"high",
+				true,
+				false,
+			)) as any;
+
+			expect(requestBody.generationConfig?.maxOutputTokens).toBe(16000);
+		});
+	});
+
+	describe("google-vertex", () => {
+		test("leaves maxOutputTokens unset on Gemini 2.x when caller omits", async () => {
+			const requestBody = (await prepareRequestBody(
+				"google-vertex",
+				"gemini-2.5-pro",
+				null,
+				"gemini-2.5-pro",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.generationConfig?.maxOutputTokens).toBeUndefined();
+		});
+	});
+
+	describe("groq", () => {
+		test("forwards caller-supplied max_tokens verbatim", async () => {
+			const requestBody = (await prepareRequestBody(
+				"groq",
+				"moonshotai/kimi-k2-instruct",
+				null,
+				"moonshotai/kimi-k2-instruct",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				32000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBe(32000);
+		});
+
+		test("leaves max_tokens unset when caller omits", async () => {
+			const requestBody = (await prepareRequestBody(
+				"groq",
+				"moonshotai/kimi-k2-instruct",
+				null,
+				"moonshotai/kimi-k2-instruct",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBeUndefined();
+		});
+	});
+
+	describe("mistral", () => {
+		test("forwards caller-supplied max_tokens verbatim", async () => {
+			const requestBody = (await prepareRequestBody(
+				"mistral",
+				"mistral-large-latest",
+				null,
+				"mistral-large-latest",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				32000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBe(32000);
+		});
+
+		test("leaves max_tokens unset when caller omits", async () => {
+			const requestBody = (await prepareRequestBody(
+				"mistral",
+				"mistral-large-latest",
+				null,
+				"mistral-large-latest",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBeUndefined();
+		});
+	});
+
+	describe("together-ai", () => {
+		test("forwards caller-supplied max_tokens verbatim", async () => {
+			const requestBody = (await prepareRequestBody(
+				"together-ai",
+				"meta-llama/llama-3.3-70b-instruct",
+				null,
+				"meta-llama/llama-3.3-70b-instruct",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				32000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBe(32000);
+		});
+
+		test("leaves max_tokens unset when caller omits", async () => {
+			const requestBody = (await prepareRequestBody(
+				"together-ai",
+				"meta-llama/llama-3.3-70b-instruct",
+				null,
+				"meta-llama/llama-3.3-70b-instruct",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBeUndefined();
+		});
+	});
+
+	describe("inference.net", () => {
+		test("forwards caller-supplied max_tokens verbatim", async () => {
+			const requestBody = (await prepareRequestBody(
+				"inference.net",
+				"meta-llama/llama-3.1-8b-instruct/fp-8",
+				null,
+				"meta-llama/llama-3.1-8b-instruct/fp-8",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				32000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBe(32000);
+		});
+
+		test("leaves max_tokens unset when caller omits", async () => {
+			const requestBody = (await prepareRequestBody(
+				"inference.net",
+				"meta-llama/llama-3.1-8b-instruct/fp-8",
+				null,
+				"meta-llama/llama-3.1-8b-instruct/fp-8",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBeUndefined();
+		});
+	});
+
+	describe("cerebras", () => {
+		test("forwards caller-supplied max_tokens verbatim", async () => {
+			const requestBody = (await prepareRequestBody(
+				"cerebras",
+				"llama-3.3-70b",
+				null,
+				"llama-3.3-70b",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				32000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBe(32000);
+		});
+
+		test("leaves max_tokens unset when caller omits", async () => {
+			const requestBody = (await prepareRequestBody(
+				"cerebras",
+				"llama-3.3-70b",
+				null,
+				"llama-3.3-70b",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBeUndefined();
+		});
+	});
+
+	describe("perplexity", () => {
+		test("forwards caller-supplied max_tokens verbatim", async () => {
+			const requestBody = (await prepareRequestBody(
+				"perplexity",
+				"sonar",
+				null,
+				"sonar",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				32000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBe(32000);
+		});
+
+		test("leaves max_tokens unset when caller omits", async () => {
+			const requestBody = (await prepareRequestBody(
+				"perplexity",
+				"sonar",
+				null,
+				"sonar",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBeUndefined();
+		});
+	});
+
+	describe("zai", () => {
+		test("forwards caller-supplied max_tokens verbatim", async () => {
+			const requestBody = (await prepareRequestBody(
+				"zai",
+				"glm-4.6",
+				null,
+				"glm-4.6",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				32000,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBe(32000);
+		});
+
+		test("leaves max_tokens unset when caller omits", async () => {
+			const requestBody = (await prepareRequestBody(
+				"zai",
+				"glm-4.6",
+				null,
+				"glm-4.6",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.max_tokens).toBeUndefined();
+		});
+	});
+});
+
+describe("prepareRequestBody - upstream prompt_cache_key", () => {
+	async function prepareCacheKeyRequest(
+		provider: Parameters<typeof prepareRequestBody>[0],
+		model: string,
+		messages: Parameters<typeof prepareRequestBody>[4],
+		opts: { promptCacheKey?: string; sessionId?: string } = {},
+	) {
+		return (await prepareRequestBody(
+			provider,
+			model,
+			null,
+			model,
+			messages,
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			undefined, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			undefined, // reasoning_max_tokens
+			undefined, // useResponsesApi
+			opts.promptCacheKey,
+			undefined, // prompt_cache_retention
+			true, // providerCacheControlEnabled
+			undefined, // n
+			undefined, // service_tier
+			undefined, // verbosity
+			undefined, // prompt_cache_options
+			opts.sessionId,
+		)) as { prompt_cache_key?: string };
+	}
+
+	const conversation = [
+		{ role: "system" as const, content: "You are a coding agent." },
+		{ role: "user" as const, content: "Fix the failing test." },
+	];
+
+	test("meta: derives a stable per-conversation key across turns", async () => {
+		const firstTurn = await prepareCacheKeyRequest(
+			"meta",
+			"muse-spark-1.1",
+			conversation,
+		);
+		const secondTurn = await prepareCacheKeyRequest("meta", "muse-spark-1.1", [
+			...conversation,
+			{ role: "assistant", content: "Reading the test file now." },
+			{ role: "user", content: "It's in api.spec.ts." },
+		]);
+
+		expect(firstTurn.prompt_cache_key).toBeDefined();
+		expect(firstTurn.prompt_cache_key).toBe(secondTurn.prompt_cache_key);
+	});
+
+	test("meta: derives different keys for different conversations", async () => {
+		const a = await prepareCacheKeyRequest(
+			"meta",
+			"muse-spark-1.1",
+			conversation,
+		);
+		const b = await prepareCacheKeyRequest("meta", "muse-spark-1.1", [
+			{ role: "system", content: "You are a coding agent." },
+			{ role: "user", content: "Refactor the auth module." },
+		]);
+
+		expect(a.prompt_cache_key).toBeDefined();
+		expect(b.prompt_cache_key).toBeDefined();
+		expect(a.prompt_cache_key).not.toBe(b.prompt_cache_key);
+	});
+
+	test("meta: caller-supplied prompt_cache_key wins over everything", async () => {
+		const requestBody = await prepareCacheKeyRequest(
+			"meta",
+			"muse-spark-1.1",
+			conversation,
+			{ promptCacheKey: "caller-session-key", sessionId: "sess-123" },
+		);
+
+		expect(requestBody.prompt_cache_key).toBe(
+			hashPromptCacheKey("caller-session-key"),
+		);
+	});
+
+	test("meta: session id beats the conversation-derived key and is hashed", async () => {
+		const sessionId = "session-uuid-abc-123";
+		const withSession = await prepareCacheKeyRequest(
+			"meta",
+			"muse-spark-1.1",
+			conversation,
+			{ sessionId },
+		);
+		const withoutSession = await prepareCacheKeyRequest(
+			"meta",
+			"muse-spark-1.1",
+			conversation,
+		);
+
+		expect(withSession.prompt_cache_key).toBe(hashSessionCacheKey(sessionId));
+		expect(withSession.prompt_cache_key).not.toBe(
+			withoutSession.prompt_cache_key,
+		);
+	});
+
+	test("openai responses API: uses hashed session id when no caller key", async () => {
+		const sessionId = "session-uuid-abc-123";
+		const requestBody = await prepareCacheKeyRequest(
+			"openai",
+			"gpt-5-mini",
+			conversation,
+			{ sessionId },
+		);
+
+		expect(requestBody.prompt_cache_key).toBe(hashSessionCacheKey(sessionId));
+	});
+
+	test("openai chat completions: uses hashed session id when no caller key", async () => {
+		const sessionId = "session-uuid-abc-123";
+		const requestBody = await prepareCacheKeyRequest(
+			"openai",
+			"gpt-4o-mini",
+			conversation,
+			{ sessionId },
+		);
+
+		expect(requestBody.prompt_cache_key).toBe(hashSessionCacheKey(sessionId));
+	});
+
+	test("azure responses API: uses hashed session id when no caller key", async () => {
+		const sessionId = "session-uuid-abc-123";
+		const requestBody = await prepareCacheKeyRequest(
+			"azure",
+			"gpt-5-mini",
+			conversation,
+			{ sessionId },
+		);
+
+		expect(requestBody.prompt_cache_key).toBe(hashSessionCacheKey(sessionId));
+	});
+
+	test("openai/azure: no key at all when neither caller key nor session id", async () => {
+		const openai = await prepareCacheKeyRequest(
+			"openai",
+			"gpt-5-mini",
+			conversation,
+		);
+		const azure = await prepareCacheKeyRequest(
+			"azure",
+			"gpt-5-mini",
+			conversation,
+		);
+
+		expect(openai.prompt_cache_key).toBeUndefined();
+		expect(azure.prompt_cache_key).toBeUndefined();
+	});
+
+	test("sakana: never receives a prompt_cache_key", async () => {
+		const requestBody = await prepareCacheKeyRequest(
+			"sakana",
+			"fugu-ultra",
+			conversation,
+			{ sessionId: "sess-123" },
+		);
+
+		expect(requestBody.prompt_cache_key).toBeUndefined();
+	});
+
+	test("raw session id never appears anywhere in the upstream body", async () => {
+		const sessionId = "super-secret-session-uuid";
+		for (const [provider, model] of [
+			["meta", "muse-spark-1.1"],
+			["openai", "gpt-5-mini"],
+			["openai", "gpt-4o-mini"],
+			["azure", "gpt-5-mini"],
+		] as const) {
+			const requestBody = await prepareCacheKeyRequest(
+				provider,
+				model,
+				conversation,
+				{ sessionId },
+			);
+			expect(JSON.stringify(requestBody)).not.toContain(sessionId);
+		}
+	});
+
+	test("hashSessionCacheKey is deterministic and does not contain the input", async () => {
+		const a = hashSessionCacheKey("sess-1");
+		expect(a).toBe(hashSessionCacheKey("sess-1"));
+		expect(a).not.toBe(hashSessionCacheKey("sess-2"));
+		expect(a).toHaveLength(32);
+		expect(a).not.toContain("sess-1");
+	});
+
+	test("hashPromptCacheKey always hashes to a stable 32-char digest", () => {
+		expect(hashPromptCacheKey("tenant-a")).toHaveLength(32);
+		expect(hashPromptCacheKey("tenant-a")).toBe(hashPromptCacheKey("tenant-a"));
+		expect(hashPromptCacheKey("tenant-a")).not.toBe(
+			hashPromptCacheKey("tenant-b"),
+		);
+		expect(hashPromptCacheKey("tenant-a")).not.toContain("tenant-a");
+	});
+
+	test("openai chat completions: hashes the caller key within the 64-char limit", async () => {
+		const requestBody = await prepareCacheKeyRequest(
+			"openai",
+			"gpt-4o-mini",
+			conversation,
+			{ promptCacheKey: "z".repeat(72) },
+		);
+
+		expect(requestBody.prompt_cache_key).toBe(
+			hashPromptCacheKey("z".repeat(72)),
+		);
+		expect(requestBody.prompt_cache_key?.length).toBeLessThanOrEqual(64);
+	});
+
+	test("openai responses API: hashes the caller key within the 64-char limit", async () => {
+		const requestBody = await prepareCacheKeyRequest(
+			"openai",
+			"gpt-5-mini",
+			conversation,
+			{ promptCacheKey: "z".repeat(72) },
+		);
+
+		expect(requestBody.prompt_cache_key).toBe(
+			hashPromptCacheKey("z".repeat(72)),
+		);
+		expect(requestBody.prompt_cache_key?.length).toBeLessThanOrEqual(64);
+	});
+});
+
+describe("prepareRequestBody - Xiaomi", () => {
+	test("flattens tool message with array content (text + image) to plain string", async () => {
+		const requestBody = (await prepareRequestBody(
+			"xiaomi",
+			"mimo-v2.5",
+			null,
+			"mimo-v2.5",
+			[
+				{ role: "user", content: "describe this" },
+				{
+					role: "tool",
+					tool_call_id: "call_1",
+					content: [
+						{ type: "text", text: "screenshot taken" },
+						{
+							type: "image_url",
+							image_url: { url: "data:image/png;base64,abc" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.messages).toHaveLength(2);
+		expect(requestBody.messages[0].content).toBe("describe this");
+		expect(requestBody.messages[1].role).toBe("tool");
+		expect(requestBody.messages[1].content).toBe("screenshot taken");
+	});
+
+	test("leaves tool message with plain string content unchanged", async () => {
+		const requestBody = (await prepareRequestBody(
+			"xiaomi",
+			"mimo-v2.5",
+			null,
+			"mimo-v2.5",
+			[
+				{ role: "user", content: "What is the weather?" },
+				{
+					role: "tool",
+					tool_call_id: "call_1",
+					content: "sunny, 22°C",
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.messages).toHaveLength(2);
+		expect(requestBody.messages[1].content).toBe("sunny, 22°C");
+	});
+
+	test("leaves user message array content unchanged (images still work)", async () => {
+		const requestBody = (await prepareRequestBody(
+			"xiaomi",
+			"mimo-v2.5",
+			null,
+			"mimo-v2.5",
+			[
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "describe this image" },
+						{
+							type: "image_url",
+							image_url: { url: "https://example.com/photo.jpg" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.messages).toHaveLength(1);
+		expect(requestBody.messages[0].role).toBe("user");
+		expect(Array.isArray(requestBody.messages[0].content)).toBe(true);
+		expect(requestBody.messages[0].content).toHaveLength(2);
+		expect(requestBody.messages[0].content[0]).toEqual({
+			type: "text",
+			text: "describe this image",
+		});
+		expect(requestBody.messages[0].content[1]).toEqual({
+			type: "image_url",
+			image_url: { url: "https://example.com/photo.jpg" },
+		});
+	});
+
+	test("handles tool message with multiple text blocks", async () => {
+		const requestBody = (await prepareRequestBody(
+			"xiaomi",
+			"mimo-v2.5",
+			null,
+			"mimo-v2.5",
+			[
+				{
+					role: "tool",
+					tool_call_id: "call_1",
+					content: [
+						{ type: "text", text: "part one " },
+						{ type: "text", text: "part two" },
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.messages[0].content).toBe("part one \npart two");
+	});
+
+	test("handles tool message with only images, no text (empty string)", async () => {
+		const requestBody = (await prepareRequestBody(
+			"xiaomi",
+			"mimo-v2.5",
+			null,
+			"mimo-v2.5",
+			[
+				{
+					role: "tool",
+					tool_call_id: "call_1",
+					content: [
+						{
+							type: "image_url",
+							image_url: { url: "data:image/png;base64,abc" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.messages[0].content).toBe("");
+	});
+
+	test("applies standard default params (stream_options, temperature, etc.)", async () => {
+		const requestBody = (await prepareRequestBody(
+			"xiaomi",
+			"mimo-v2.5",
+			null,
+			"mimo-v2.5",
+			[{ role: "user", content: "Hello" }],
+			true,
+			0.7,
+			1024,
+			0.9,
+			0.5,
+			0.5,
+			{ type: "json_object" },
+			undefined,
+			undefined,
+			"medium",
+			false,
+			false,
+		)) as any;
+
+		expect(requestBody.stream_options).toEqual({ include_usage: true });
+		expect(requestBody.response_format).toEqual({ type: "json_object" });
+		expect(requestBody.temperature).toBe(0.7);
+		expect(requestBody.max_tokens).toBe(1024);
+		expect(requestBody.top_p).toBe(0.9);
+		expect(requestBody.frequency_penalty).toBe(0.5);
+		expect(requestBody.presence_penalty).toBe(0.5);
+		expect(requestBody.reasoning_effort).toBe("medium");
+	});
+});
+
+describe("prepareRequestBody - developer role normalization", () => {
+	async function prepare(
+		provider: string,
+		model: string,
+		region: string | null = null,
+	) {
+		return (await prepareRequestBody(
+			provider,
+			model,
+			region,
+			model,
+			[
+				{ role: "developer", content: "You are a helpful assistant." },
+				{ role: "user", content: "Hello" },
+			] as any,
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+	}
+
+	test("rewrites developer to system for a mapping with supportsDeveloperRole: false (granite/glm-5.2)", async () => {
+		const requestBody = await prepare("granite", "glm-5.2");
+		expect(requestBody.messages[0].role).toBe("system");
+		expect(requestBody.messages[0].content).toBe(
+			"You are a helpful assistant.",
+		);
+		expect(requestBody.messages[1].role).toBe("user");
+	});
+
+	test("rewrites developer to system for alibaba/glm-5.2 (supportsDeveloperRole: false)", async () => {
+		const requestBody = await prepare("alibaba", "glm-5.2");
+		expect(requestBody.messages[0].role).toBe("system");
+		expect(requestBody.messages[1].role).toBe("user");
+	});
+
+	test("resolves the flag through region expansion for alibaba/glm-5.2 (singapore)", async () => {
+		const requestBody = await prepare("alibaba", "glm-5.2", "singapore");
+		expect(requestBody.messages[0].role).toBe("system");
+		expect(requestBody.messages[1].role).toBe("user");
+	});
+
+	test("preserves developer role for a mapping that supports it (zai/glm-5.2)", async () => {
+		const requestBody = await prepare("zai", "glm-5.2");
+		expect(requestBody.messages[0].role).toBe("developer");
+	});
+
+	test("preserves developer role for OpenAI", async () => {
+		const requestBody = await prepare("openai", "gpt-4o-mini");
+		expect(requestBody.messages[0].role).toBe("developer");
 	});
 });

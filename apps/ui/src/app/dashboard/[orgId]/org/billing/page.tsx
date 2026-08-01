@@ -2,6 +2,7 @@ import { AutoTopUpSettings } from "@/components/billing/auto-topup-settings";
 import { PlanManagement } from "@/components/billing/plan-management";
 import { PaymentMethodsManagement } from "@/components/credits/payment-methods-management";
 import { TopUpCreditsButton } from "@/components/credits/top-up-credits-dialog";
+import { OrganizationBillingEmailSettings } from "@/components/settings/organization-billing-email-settings";
 import {
 	Card,
 	CardContent,
@@ -32,7 +33,7 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
 		<div className="flex flex-col">
 			<PaymentStatusHandler paymentStatus={paymentStatus} />
 			<div className="flex-1 space-y-4 p-4 pt-6 md:p-8">
-				<div className="max-w-3xl mx-auto space-y-6">
+				<div className="space-y-6">
 					<div className="flex items-center justify-between">
 						<h2 className="text-3xl font-bold tracking-tight">Billing</h2>
 					</div>
@@ -50,6 +51,8 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
 							<CreditsBalance />
 						</CardContent>
 					</Card>
+
+					<AutoTopUpSettings />
 
 					<Card>
 						<CardHeader>
@@ -75,7 +78,17 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
 						</CardContent>
 					</Card>
 
-					<AutoTopUpSettings />
+					<Card>
+						<CardHeader>
+							<CardTitle>Billing Email</CardTitle>
+							<CardDescription>
+								Manage your organization's billing email address.
+							</CardDescription>
+						</CardHeader>
+						<CardContent className="space-y-6">
+							<OrganizationBillingEmailSettings />
+						</CardContent>
+					</Card>
 				</div>
 			</div>
 		</div>

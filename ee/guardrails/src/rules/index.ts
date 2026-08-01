@@ -10,7 +10,7 @@ import type { SystemRule } from "@/types.js";
 export { injectionRule } from "./system/injection.js";
 export { jailbreakRule } from "./system/jailbreak.js";
 export { piiRule, redactPii } from "./system/pii.js";
-export { secretsRule } from "./system/secrets.js";
+export { secretsRule, redactSecrets } from "./system/secrets.js";
 export { fileTypesRule, checkFileType, checkFileSize } from "./system/files.js";
 export { documentLeakageRule } from "./system/document-leakage.js";
 

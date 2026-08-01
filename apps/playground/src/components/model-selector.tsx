@@ -14,22 +14,17 @@ import {
 	Info,
 	MessageSquare,
 	Sparkles,
+	Star,
 	Wrench,
 	Zap,
 } from "lucide-react";
 import * as React from "react";
+import { List, type RowComponentProps } from "react-window";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-	Command,
-	CommandEmpty,
-	CommandGroup,
-	CommandInput,
-	CommandItem,
-	CommandList,
-} from "@/components/ui/command";
+import { Command, CommandInput } from "@/components/ui/command";
 import {
 	Dialog,
 	DialogContent,
@@ -44,6 +39,9 @@ import {
 } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { useFavoriteModels } from "@/hooks/useFavoriteModels";
+import { useApi } from "@/lib/fetch-client";
 import {
 	formatPrice,
 	formatContextSize,
@@ -70,9 +68,17 @@ interface ModelSelectorProps {
 	value?: string;
 	onValueChange?: (value: string) => void;
 	placeholder?: string;
-	mode?: "chat" | "video" | "image";
+	// "realtime" only affects presentation; capability filtering is the
+	// caller's responsibility (pass a pre-restricted models array).
+	mode?: "chat" | "video" | "image" | "audio" | "realtime";
 	isOptionDisabled?: (value: string) => boolean;
 	getOptionDisabledReason?: (value: string) => string | undefined;
+	/**
+	 * When true, regional provider mappings are listed as separate selectable
+	 * entries (each labeled with its region) instead of being collapsed into a
+	 * single base entry with a region dropdown. Used by group chat.
+	 */
+	showRegionalVariants?: boolean;
 }
 
 interface FilterState {
@@ -81,6 +87,8 @@ interface FilterState {
 	priceRange: "free" | "low" | "medium" | "high" | "all";
 	hideUnstable: boolean;
 	showOnlyRoot: boolean;
+	showFavoritesOnly: boolean;
+	showOnlyWithKeys: boolean;
 }
 
 // helper to extract simple capability labels from a mapping
@@ -157,7 +165,9 @@ type PriceField =
 	| "cachedInput"
 	| "request"
 	| "imageInput"
-	| "imageOutput";
+	| "imageOutput"
+	| "inputAudio"
+	| "outputAudio";
 
 interface MappingPriceInfo {
 	label: string;
@@ -185,6 +195,10 @@ function getMappingPriceInfo(
 		basePriceStr = mapping.requestPrice;
 	} else if (field === "imageInput") {
 		basePriceStr = mapping.imageInputPrice;
+	} else if (field === "inputAudio") {
+		basePriceStr = mapping.inputAudioPrice;
+	} else if (field === "outputAudio") {
+		basePriceStr = mapping.outputAudioPrice;
 	}
 
 	if (basePriceStr === null || basePriceStr === undefined) {
@@ -224,6 +238,39 @@ function getMappingPriceInfo(
 	}
 
 	return { label: original, original };
+}
+
+function MappingPriceCell({
+	label,
+	mapping,
+	field,
+}: {
+	label: string;
+	mapping: ApiModelProviderMapping | undefined;
+	field: PriceField;
+}) {
+	const price = getMappingPriceInfo(mapping, field);
+	const discounted =
+		price.original && price.discounted && price.original !== price.discounted;
+	return (
+		<div className="space-y-1">
+			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+				{label}
+			</span>
+			<p className="text-xs font-mono">
+				{discounted ? (
+					<>
+						<span className="line-through text-muted-foreground">
+							{price.original}
+						</span>{" "}
+						<span className="text-green-500">{price.discounted}</span>
+					</>
+				) : (
+					price.label
+				)}
+			</p>
+		</div>
+	);
 }
 
 interface RootAggregateInfo {
@@ -396,6 +443,7 @@ function estimateImageCost(
 		return null;
 	}
 	const request = mapping.requestPrice ? parseFloat(mapping.requestPrice) : 0;
+	const discount = mapping.discount ? parseFloat(mapping.discount) : 0;
 	const imageOut = mapping.imageOutputPrice
 		? parseFloat(mapping.imageOutputPrice)
 		: 0;
@@ -410,7 +458,6 @@ function estimateImageCost(
 	if (!Number.isFinite(base) || base <= 0) {
 		return null;
 	}
-	const discount = mapping.discount ? parseFloat(mapping.discount) : 0;
 	const discounted = discount > 0 ? base * (1 - discount) : base;
 	return { base, discounted };
 }
@@ -517,6 +564,280 @@ function getMaxPerSecondPrice(
 	return max !== null ? `$${max}/sec` : null;
 }
 
+interface ModelEntry {
+	model: ApiModel;
+	mapping?: ApiModelProviderMapping;
+	provider?: ApiProvider;
+	isRoot?: boolean;
+	searchText: string;
+}
+
+const ROW_HEIGHT = 56;
+
+interface ModelEntryRowProps {
+	entries: ModelEntry[];
+	focusedIndex: number;
+	setFocusedIndex: (index: number) => void;
+	selectedEntryKey: string;
+	isFavorite: (id: string) => boolean;
+	toggleFavorite: (id: string) => void;
+	onSelect: (value: string) => void;
+	setPreviewEntry: (
+		entry: {
+			model: ApiModel;
+			mapping?: ApiModelProviderMapping;
+			provider?: ApiProvider;
+			isRoot?: boolean;
+		} | null,
+	) => void;
+	setSelectedDetails: (
+		details: {
+			model: ApiModel;
+			mapping?: ApiModelProviderMapping;
+			provider?: ApiProvider;
+		} | null,
+	) => void;
+	setDetailsOpen: (open: boolean) => void;
+	isOptionDisabled?: (value: string) => boolean;
+	getOptionDisabledReason?: (value: string) => string | undefined;
+}
+
+function ModelEntryRowComponent({
+	ariaAttributes,
+	index,
+	style,
+	entries,
+	focusedIndex,
+	setFocusedIndex,
+	selectedEntryKey,
+	isFavorite,
+	toggleFavorite,
+	onSelect,
+	setPreviewEntry,
+	setSelectedDetails,
+	setDetailsOpen,
+	isOptionDisabled,
+	getOptionDisabledReason,
+}: RowComponentProps<ModelEntryRowProps>) {
+	const entry = entries[index];
+	if (!entry) {
+		return null;
+	}
+
+	const { model, mapping, provider, isRoot } = entry;
+	const isFocused = index === focusedIndex;
+
+	if (isRoot) {
+		const entryKey = model.id;
+		const disabled = isOptionDisabled?.(entryKey) ?? false;
+		const disabledReason = getOptionDisabledReason?.(entryKey);
+		const hasRequestPrice = model.mappings.some(
+			(p) => p.requestPrice && parseFloat(p.requestPrice) > 0,
+		);
+		const isFreeRoot =
+			model.free === true &&
+			!hasRequestPrice &&
+			model.mappings.every(
+				(p) =>
+					(!p.inputPrice || parseFloat(p.inputPrice) === 0) &&
+					(!p.outputPrice || parseFloat(p.outputPrice) === 0),
+			);
+		return (
+			<div {...ariaAttributes} style={style} className="px-1 py-0.5">
+				<div
+					title={disabledReason}
+					onMouseEnter={() => {
+						setFocusedIndex(index);
+						setPreviewEntry({ model, mapping, provider, isRoot });
+					}}
+					onClick={() => {
+						if (disabled) {
+							return;
+						}
+						onSelect(model.id);
+					}}
+					className={cn(
+						"relative flex h-full select-none items-center gap-2 rounded-sm px-2 text-sm outline-none",
+						isFocused
+							? "bg-accent text-accent-foreground"
+							: "hover:bg-accent hover:text-accent-foreground",
+						disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
+					)}
+				>
+					<Check
+						className={cn(
+							"h-4 w-4 shrink-0",
+							entryKey === selectedEntryKey ? "opacity-100" : "opacity-0",
+						)}
+					/>
+					<div className="flex items-center justify-between flex-1 min-w-0 gap-2">
+						<div className="flex items-center gap-2 min-w-0 flex-1">
+							<Sparkles className="h-6 w-6 shrink-0 text-primary" />
+							<div className="flex flex-col min-w-0 flex-1">
+								<div className="flex items-center gap-1 min-w-0">
+									<span className="font-medium truncate">{model.name}</span>
+									{isFreeRoot && (
+										<Gift className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+									)}
+								</div>
+								<span className="text-xs text-muted-foreground truncate">
+									Auto-select provider
+								</span>
+							</div>
+						</div>
+						<Button
+							variant="ghost"
+							size="sm"
+							aria-label={
+								isFavorite(model.id)
+									? "Remove from favorites"
+									: "Add to favorites"
+							}
+							aria-pressed={isFavorite(model.id)}
+							className="h-8 w-8 p-0 hover:bg-muted/50 shrink-0"
+							onClick={(e) => {
+								e.stopPropagation();
+								toggleFavorite(model.id);
+							}}
+						>
+							<Star
+								className={cn(
+									"h-4 w-4",
+									isFavorite(model.id)
+										? "fill-yellow-400 text-yellow-400"
+										: "text-muted-foreground",
+								)}
+							/>
+						</Button>
+						<Button
+							variant="ghost"
+							size="sm"
+							aria-label="Model details"
+							className="h-8 w-8 p-0 hover:bg-muted/50 shrink-0 md:hidden"
+							onClick={(e) => {
+								e.stopPropagation();
+								setSelectedDetails({ model });
+								setDetailsOpen(true);
+							}}
+						>
+							<Info className="h-4 w-4" />
+						</Button>
+					</div>
+				</div>
+			</div>
+		);
+	}
+
+	const ProviderIcon = provider ? getProviderIcon(provider.id) : null;
+	const entryKey = `${mapping!.providerId}-${model.id}-${mapping!.region ?? ""}`;
+	const providerModelValue = `${mapping!.providerId}/${model.id}${mapping!.region ? `:${mapping!.region}` : ""}`;
+	const disabled = isOptionDisabled?.(providerModelValue) ?? false;
+	const disabledReason = getOptionDisabledReason?.(providerModelValue);
+	const isUnstable = isModelUnstable(mapping!, model);
+	const isDeprecated =
+		mapping!.deprecatedAt && new Date(mapping!.deprecatedAt) <= new Date();
+	const hasRequestPrice =
+		mapping!.requestPrice && parseFloat(mapping!.requestPrice) > 0;
+	const isFreeMapping =
+		model.free === true &&
+		!hasRequestPrice &&
+		(!mapping!.inputPrice || parseFloat(mapping!.inputPrice) === 0) &&
+		(!mapping!.outputPrice || parseFloat(mapping!.outputPrice) === 0);
+
+	return (
+		<div {...ariaAttributes} style={style} className="px-1 py-0.5">
+			<div
+				title={disabledReason}
+				onMouseEnter={() => {
+					setFocusedIndex(index);
+					setPreviewEntry({ model, mapping, provider, isRoot });
+				}}
+				onClick={() => {
+					if (disabled) {
+						return;
+					}
+					onSelect(providerModelValue);
+				}}
+				className={cn(
+					"relative flex h-full select-none items-center gap-2 rounded-sm px-2 text-sm outline-none",
+					isFocused
+						? "bg-accent text-accent-foreground"
+						: "hover:bg-accent hover:text-accent-foreground",
+					disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
+				)}
+			>
+				<Check
+					className={cn(
+						"h-4 w-4 shrink-0",
+						entryKey === selectedEntryKey ? "opacity-100" : "opacity-0",
+					)}
+				/>
+				<div className="flex items-center justify-between flex-1 min-w-0 gap-2">
+					<div className="flex items-center gap-2 min-w-0 flex-1">
+						{ProviderIcon ? (
+							<ProviderIcon className="h-6 w-6 shrink-0 dark:text-white" />
+						) : null}
+						<div className="flex flex-col min-w-0 flex-1">
+							<div className="flex items-center gap-1 min-w-0">
+								<span className="font-medium truncate">{model.name}</span>
+								{isFreeMapping && (
+									<Gift className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+								)}
+								{(isUnstable || isDeprecated) && (
+									<AlertTriangle className="h-3.5 w-3.5 shrink-0 text-yellow-600 dark:text-yellow-500" />
+								)}
+							</div>
+							<span className="text-xs text-muted-foreground truncate">
+								{disabledReason ?? provider?.name}
+								{!disabledReason && mapping?.region && (
+									<span className="ml-1">({mapping.region})</span>
+								)}
+							</span>
+						</div>
+					</div>
+					<Button
+						variant="ghost"
+						size="sm"
+						aria-label={
+							isFavorite(providerModelValue)
+								? "Remove from favorites"
+								: "Add to favorites"
+						}
+						aria-pressed={isFavorite(providerModelValue)}
+						className="h-8 w-8 p-0 hover:bg-muted/50 shrink-0"
+						onClick={(e) => {
+							e.stopPropagation();
+							toggleFavorite(providerModelValue);
+						}}
+					>
+						<Star
+							className={cn(
+								"h-4 w-4",
+								isFavorite(providerModelValue)
+									? "fill-yellow-400 text-yellow-400"
+									: "text-muted-foreground",
+							)}
+						/>
+					</Button>
+					<Button
+						variant="ghost"
+						size="sm"
+						aria-label="Model details"
+						className="h-8 w-8 p-0 hover:bg-muted/50 shrink-0 md:hidden"
+						onClick={(e) => {
+							e.stopPropagation();
+							setSelectedDetails({ model, mapping, provider });
+							setDetailsOpen(true);
+						}}
+					>
+						<Info className="h-4 w-4" />
+					</Button>
+				</div>
+			</div>
+		</div>
+	);
+}
+
 export function ModelSelector({
 	models,
 	providers,
@@ -526,10 +847,28 @@ export function ModelSelector({
 	mode = "chat",
 	isOptionDisabled,
 	getOptionDisabledReason,
+	showRegionalVariants = false,
 }: ModelSelectorProps) {
+	const { isFavorite, toggleFavorite } = useFavoriteModels();
+	const isMobile = useIsMobile();
+	const api = useApi();
+	const { data: providerKeysData } = api.useQuery(
+		"get",
+		"/keys/provider/active",
+	);
+	const providersWithKeys = React.useMemo(() => {
+		const keys = providerKeysData?.providerKeys ?? [];
+		return new Set(
+			keys
+				.filter((k) => k.status === "active")
+				.map((k) => k.provider as string),
+		);
+	}, [providerKeysData]);
 	const [open, setOpen] = React.useState(false);
 	const [filterOpen, setFilterOpen] = React.useState(false);
 	const [searchQuery, setSearchQuery] = React.useState("");
+	const [focusedIndex, setFocusedIndex] = React.useState(-1);
+	const listContainerRef = React.useRef<HTMLDivElement>(null);
 	const [detailsOpen, setDetailsOpen] = React.useState(false);
 	const [selectedDetails, setSelectedDetails] = React.useState<{
 		model: ApiModel;
@@ -548,32 +887,59 @@ export function ModelSelector({
 		priceRange: "all",
 		hideUnstable: true,
 		showOnlyRoot: false,
+		showFavoritesOnly: false,
+		showOnlyWithKeys: false,
 	});
+	const [previewExpandTokens, setPreviewExpandTokens] = React.useState(false);
+	const [selectedExpandTokens, setSelectedExpandTokens] = React.useState(false);
+
+	const isImageGenModel = (model?: ApiModel | null) =>
+		!!model?.output && model.output.includes("image");
+	const previewIsImageGen = isImageGenModel(previewEntry?.model);
+	const selectedIsImageGen = isImageGenModel(selectedDetails?.model);
+
+	React.useEffect(() => {
+		setPreviewExpandTokens(false);
+	}, [previewEntry?.model]);
+
+	React.useEffect(() => {
+		setSelectedExpandTokens(false);
+	}, [selectedDetails?.model]);
 
 	// Parse value as provider/model-id (preferred). Fallback to model id only.
-	// Supports region suffix: "alibaba/deepseek-v3.2:cn-beijing"
+	// Supports region suffix: "alibaba/deepseek-v3.2:cn-beijing" or
+	// "aws-bedrock/claude-haiku-4-5:global". The region is the substring after
+	// the last ":" (model.id never contains ":"; upstream modelNames may).
 	const raw = value ?? "";
 	const [selectedProviderId, selectedModelIdRaw] = raw.includes("/")
 		? (raw.split("/") as [string, string])
 		: ["", raw];
-	// Strip :region suffix for root model lookup, keep raw for mapping match
-	const selectedModelId = selectedModelIdRaw.includes(":")
-		? selectedModelIdRaw.split(":")[0]
-		: selectedModelIdRaw;
+	// model.id never contains ":", so split on ":" is safe for the URL form
+	// (provider/model.id[:region]). Look up by canonical (root) id only.
+	const lastColonIdx = selectedModelIdRaw.lastIndexOf(":");
+	const selectedRegion =
+		lastColonIdx > -1 ? selectedModelIdRaw.slice(lastColonIdx + 1) : undefined;
+	const selectedModelId =
+		lastColonIdx > -1
+			? selectedModelIdRaw.slice(0, lastColonIdx)
+			: selectedModelIdRaw;
 	const selectedModel = models.find((m) => m.id === selectedModelId);
 	const selectedProviderDef = providers.find(
 		(p) => p.id === selectedProviderId,
 	);
-	const selectedMapping =
-		selectedModel?.mappings.find(
-			(p) =>
-				p.providerId === selectedProviderId &&
-				p.modelName === selectedModelIdRaw,
-		) ??
-		selectedModel?.mappings.find((p) => p.providerId === selectedProviderId);
+	// Strict (providerId, region) match — no loose fallbacks that would pick
+	// the first regional variant when no region was requested.
+	const selectedMapping = selectedRegion
+		? selectedModel?.mappings.find(
+				(p) =>
+					p.providerId === selectedProviderId && p.region === selectedRegion,
+			)
+		: selectedModel?.mappings.find(
+				(p) => p.providerId === selectedProviderId && !p.region,
+			);
 	const selectedEntryKey =
 		selectedModel && selectedProviderId && selectedMapping
-			? `${selectedProviderId}-${selectedModel.id}-${selectedMapping.modelName}`
+			? `${selectedProviderId}-${selectedModel.id}-${selectedMapping.region ?? ""}`
 			: selectedModel
 				? selectedModel.id
 				: "";
@@ -592,32 +958,55 @@ export function ModelSelector({
 		}[] = [];
 		const now = new Date();
 
-		// Sort models by createdAt (when added to LLM Gateway), newest first
-		// Falls back to releasedAt if createdAt is not available
-		// Note: createdAt comes from API response, releasedAt is in the models package
+		// Sort by public release date first so newly released models surface
+		// before older models that were added to LLM Gateway more recently.
 		const sortedModels = [...models].sort((a, b) => {
-			const dateA =
-				"createdAt" in a && a.createdAt
-					? new Date(a.createdAt as string | Date).getTime()
-					: a.releasedAt
-						? new Date(a.releasedAt).getTime()
-						: 0;
-			const dateB =
-				"createdAt" in b && b.createdAt
-					? new Date(b.createdAt as string | Date).getTime()
-					: b.releasedAt
-						? new Date(b.releasedAt).getTime()
-						: 0;
+			const dateA = a.releasedAt
+				? new Date(a.releasedAt).getTime()
+				: a.createdAt
+					? new Date(a.createdAt).getTime()
+					: 0;
+			const dateB = b.releasedAt
+				? new Date(b.releasedAt).getTime()
+				: b.createdAt
+					? new Date(b.createdAt).getTime()
+					: 0;
 			return dateB - dateA;
 		});
 
+		// Always place the "auto" model at the very top
+		const autoModel = sortedModels.find((m) => m.id === "auto");
+		if (autoModel) {
+			out.push({
+				model: autoModel,
+				isRoot: true,
+				searchText: normalize(
+					[
+						autoModel.name ?? "",
+						autoModel.family ?? "",
+						autoModel.id,
+						autoModel.aliases?.join(" ") ?? "",
+					].join(" "),
+				),
+			});
+		}
+
 		for (const m of sortedModels) {
-			if (m.id === "custom") {
+			if (m.id === "custom" || m.id === "auto") {
+				continue;
+			}
+
+			// Hide fully deactivated models: if every provider mapping is
+			// deactivated there's nothing left to route to, so skip the model
+			// (including its root "auto-select" entry) entirely.
+			const hasActiveMapping = m.mappings.some(
+				(mp) => !(mp.deactivatedAt && new Date(mp.deactivatedAt) <= now),
+			);
+			if (!hasActiveMapping) {
 				continue;
 			}
 
 			// Add root model entry (auto-routing)
-			// Only include "auto" in search text for the actual auto model
 			const aliasText = m.aliases?.join(" ") ?? "";
 			const rootSearchText = normalize(
 				[m.name ?? "", m.family ?? "", m.id, aliasText].join(" "),
@@ -628,12 +1017,10 @@ export function ModelSelector({
 				searchText: rootSearchText,
 			});
 
-			// Skip provider entries for auto model - it should only appear as root
-			if (m.id === "auto") {
-				continue;
-			}
-
 			for (const mp of m.mappings) {
+				if (mp.region && !showRegionalVariants) {
+					continue;
+				}
 				const isDeactivated =
 					mp.deactivatedAt && new Date(mp.deactivatedAt) <= now;
 				if (!isDeactivated) {
@@ -658,7 +1045,7 @@ export function ModelSelector({
 			}
 		}
 		return out;
-	}, [models, providers]);
+	}, [models, providers, showRegionalVariants]);
 
 	// Defer search input value to keep typing responsive with large lists
 	const deferredSearch = React.useDeferredValue(searchQuery);
@@ -704,8 +1091,15 @@ export function ModelSelector({
 			});
 		}
 		if (deferredSearch) {
-			const q = normalize(deferredSearch);
-			list = list.filter((entry) => entry.searchText.includes(q));
+			const tokens = deferredSearch
+				.toLowerCase()
+				.split(/[-_\s]+/)
+				.filter(Boolean);
+			if (tokens.length > 0) {
+				list = list.filter((entry) =>
+					tokens.every((t) => entry.searchText.includes(t)),
+				);
+			}
 		}
 		if (filters.providers.length > 0) {
 			list = list.filter(
@@ -747,8 +1141,46 @@ export function ModelSelector({
 				}
 			});
 		}
+		if (filters.showFavoritesOnly) {
+			list = list.filter((e) => {
+				if (e.isRoot) {
+					return isFavorite(e.model.id);
+				}
+				const mappingId = e.mapping
+					? `${e.mapping.providerId}/${e.model.id}${e.mapping.region ? `:${e.mapping.region}` : ""}`
+					: null;
+				return mappingId !== null && isFavorite(mappingId);
+			});
+		}
+		if (filters.showOnlyWithKeys) {
+			const now = new Date();
+			list = list.filter((e) => {
+				if (e.isRoot) {
+					return e.model.mappings?.some(
+						(m) =>
+							providersWithKeys.has(m.providerId) &&
+							!(m.deactivatedAt && new Date(m.deactivatedAt) <= now),
+					);
+				}
+				return e.mapping ? providersWithKeys.has(e.mapping.providerId) : false;
+			});
+		}
+		if (deferredSearch) {
+			const tokens = deferredSearch
+				.toLowerCase()
+				.split(/[-_\s]+/)
+				.filter(Boolean);
+			if (tokens.length > 0) {
+				list = [...list].sort((a, b) => {
+					if (a.isRoot === b.isRoot) {
+						return 0;
+					}
+					return a.isRoot ? -1 : 1;
+				});
+			}
+		}
 		return list;
-	}, [allEntries, deferredSearch, filters]);
+	}, [allEntries, deferredSearch, filters, isFavorite, providersWithKeys]);
 
 	const updateFilter = (key: keyof FilterState, value: any) => {
 		setFilters((prev) => ({ ...prev, [key]: value }));
@@ -781,6 +1213,8 @@ export function ModelSelector({
 			priceRange: "all",
 			hideUnstable: true,
 			showOnlyRoot: false,
+			showFavoritesOnly: false,
+			showOnlyWithKeys: false,
 		});
 	};
 
@@ -789,7 +1223,9 @@ export function ModelSelector({
 		filters.capabilities.length > 0 ||
 		filters.priceRange !== "all" ||
 		!filters.hideUnstable ||
-		filters.showOnlyRoot;
+		filters.showOnlyRoot ||
+		filters.showFavoritesOnly ||
+		filters.showOnlyWithKeys;
 
 	const getProviderLogo = (providerId: ProviderId) => {
 		const LogoComponent = providerLogoUrls[providerId];
@@ -816,8 +1252,8 @@ export function ModelSelector({
 			return;
 		}
 
-		// Prefer provider-specific entry when a provider is selected
-		// Match on modelName to distinguish regional variants
+		// Prefer provider-specific entry when a provider is selected.
+		// Match on region to distinguish regional variants.
 		let entry =
 			selectedProviderId &&
 			allEntries.find(
@@ -825,8 +1261,7 @@ export function ModelSelector({
 					!e.isRoot &&
 					e.model.id === selectedModel.id &&
 					e.mapping?.providerId === selectedProviderId &&
-					(!selectedMapping ||
-						e.mapping?.modelName === selectedMapping.modelName),
+					(!selectedMapping || e.mapping?.region === selectedMapping.region),
 			);
 
 		// Fallback to root entry for the selected model
@@ -857,6 +1292,83 @@ export function ModelSelector({
 		allEntries,
 		filteredEntries,
 	]);
+
+	React.useEffect(() => {
+		setFocusedIndex(-1);
+	}, [open, searchQuery]);
+
+	const handleInputKeyDown = React.useCallback(
+		(e: React.KeyboardEvent<HTMLInputElement>) => {
+			if (e.key === "ArrowDown") {
+				e.preventDefault();
+				e.stopPropagation();
+				const next = Math.min(focusedIndex + 1, filteredEntries.length - 1);
+				setFocusedIndex(next);
+				const scrollEl = listContainerRef.current
+					?.firstElementChild as HTMLElement | null;
+				scrollEl?.scrollTo({ top: next * ROW_HEIGHT });
+			} else if (e.key === "ArrowUp") {
+				e.preventDefault();
+				e.stopPropagation();
+				const prev = Math.max(focusedIndex - 1, 0);
+				setFocusedIndex(prev);
+				const scrollEl = listContainerRef.current
+					?.firstElementChild as HTMLElement | null;
+				scrollEl?.scrollTo({ top: prev * ROW_HEIGHT });
+			} else if (e.key === "Enter") {
+				e.preventDefault();
+				e.stopPropagation();
+				const entry = filteredEntries[focusedIndex];
+				if (!entry) {
+					return;
+				}
+				const { model, mapping, isRoot } = entry;
+				const value = isRoot
+					? model.id
+					: `${mapping!.providerId}/${model.id}${mapping!.region ? `:${mapping!.region}` : ""}`;
+				const disabled = isRoot
+					? (isOptionDisabled?.(model.id) ?? false)
+					: (isOptionDisabled?.(value) ?? false);
+				if (disabled) {
+					return;
+				}
+				onValueChange?.(value);
+				setOpen(false);
+			}
+		},
+		[focusedIndex, filteredEntries, isOptionDisabled, onValueChange],
+	);
+
+	const rowProps = React.useMemo(
+		() => ({
+			entries: filteredEntries,
+			focusedIndex,
+			setFocusedIndex,
+			selectedEntryKey,
+			isFavorite,
+			toggleFavorite,
+			onSelect: (value: string) => {
+				onValueChange?.(value);
+				setOpen(false);
+			},
+			setPreviewEntry,
+			setSelectedDetails,
+			setDetailsOpen,
+			isOptionDisabled,
+			getOptionDisabledReason,
+		}),
+
+		[
+			filteredEntries,
+			focusedIndex,
+			selectedEntryKey,
+			isFavorite,
+			toggleFavorite,
+			onValueChange,
+			isOptionDisabled,
+			getOptionDisabledReason,
+		],
+	);
 
 	return (
 		<>
@@ -933,12 +1445,13 @@ export function ModelSelector({
 						{/* Main content - model list & filters */}
 						<div className="flex-1 w-[300px] md:w-[340px]">
 							<Command shouldFilter={false}>
-								<div className="flex items-center border-b px-3 w-[300px] md:w-full">
+								<div className="flex items-center border-b px-3 w-[300px] md:w-full [&_[cmdk-input-wrapper]]:border-0">
 									<CommandInput
 										placeholder="Search models..."
 										value={searchQuery}
 										onValueChange={setSearchQuery}
-										className="h-12 border-0"
+										onKeyDown={handleInputKeyDown}
+										className="h-12"
 									/>
 									<Popover open={filterOpen} onOpenChange={setFilterOpen}>
 										<PopoverTrigger asChild>
@@ -956,10 +1469,10 @@ export function ModelSelector({
 										<PopoverContent
 											className="w-[calc(100vw-2rem)] sm:w-80 h-[400px] overflow-y-scroll md:h-full"
 											style={{ zIndex: 100000 }}
-											side="bottom"
-											align="end"
+											side={isMobile ? "bottom" : "right"}
+											align={isMobile ? "end" : "start"}
 										>
-											<div className="space-y-4">
+											<div className="space-y-3">
 												<div className="flex items-center justify-between">
 													<h4 className="font-medium">Filters</h4>
 													{hasActiveFilters && (
@@ -973,31 +1486,65 @@ export function ModelSelector({
 													)}
 												</div>
 
-												{/* Root model filter */}
-												<div className="flex items-center justify-between">
-													<Label
-														htmlFor="show-root"
-														className="text-sm cursor-pointer font-medium"
-													>
-														Show only root models
-													</Label>
-													<Switch
-														id="show-root"
-														checked={filters.showOnlyRoot}
-														onCheckedChange={(checked) =>
-															updateFilter("showOnlyRoot", checked)
-														}
-													/>
+												{/* Toggle filters group */}
+												<div className="space-y-2">
+													<div className="flex items-center justify-between">
+														<Label
+															htmlFor="show-root"
+															className="text-sm cursor-pointer font-medium"
+														>
+															Show only root models
+														</Label>
+														<Switch
+															id="show-root"
+															checked={filters.showOnlyRoot}
+															onCheckedChange={(checked) =>
+																updateFilter("showOnlyRoot", checked)
+															}
+														/>
+													</div>
+													<div className="flex items-center justify-between">
+														<Label
+															htmlFor="show-favorites"
+															className="text-sm cursor-pointer font-medium"
+														>
+															Show favorites only
+														</Label>
+														<Switch
+															id="show-favorites"
+															checked={filters.showFavoritesOnly}
+															onCheckedChange={(checked) =>
+																updateFilter("showFavoritesOnly", checked)
+															}
+														/>
+													</div>
+													{providersWithKeys.size > 0 && (
+														<div className="flex items-center justify-between">
+															<Label
+																htmlFor="show-with-keys"
+																className="text-sm cursor-pointer font-medium"
+															>
+																Show only providers with keys
+															</Label>
+															<Switch
+																id="show-with-keys"
+																checked={filters.showOnlyWithKeys}
+																onCheckedChange={(checked) =>
+																	updateFilter("showOnlyWithKeys", checked)
+																}
+															/>
+														</div>
+													)}
 												</div>
 
 												<Separator />
 
 												{/* Provider filter */}
-												<div className="space-y-2">
+												<div className="space-y-1.5">
 													<Label className="text-sm font-medium">
 														Providers
 													</Label>
-													<div className="space-y-2 max-h-32 overflow-y-auto">
+													<div className="space-y-1.5 max-h-28 overflow-y-auto">
 														{availableProviders.map((provider) => {
 															const ProviderIcon = getProviderIcon(provider.id);
 															return (
@@ -1037,11 +1584,11 @@ export function ModelSelector({
 												<Separator />
 
 												{/* Capabilities filter */}
-												<div className="space-y-2">
+												<div className="space-y-1.5">
 													<Label className="text-sm font-medium">
 														Capabilities
 													</Label>
-													<div className="space-y-2 max-h-32 overflow-y-auto">
+													<div className="space-y-1.5 max-h-28 overflow-y-auto">
 														{availableCapabilities.map((capability) => (
 															<div
 																key={capability}
@@ -1070,11 +1617,11 @@ export function ModelSelector({
 												<Separator />
 
 												{/* Price range filter */}
-												<div className="space-y-2">
+												<div className="space-y-1.5">
 													<Label className="text-sm font-medium">
 														Price Range
 													</Label>
-													<div className="space-y-2">
+													<div className="space-y-1.5">
 														{[
 															{ value: "all", label: "All models" },
 															{ value: "free", label: "Free models" },
@@ -1132,229 +1679,41 @@ export function ModelSelector({
 										</PopoverContent>
 									</Popover>
 								</div>
-								<CommandList className="max-h-[300px] sm:max-h-[400px]">
-									<CommandEmpty>
-										No models found.
-										{hasActiveFilters && (
-											<Button
-												variant="link"
-												size="sm"
-												onClick={clearFilters}
-												className="mt-2"
-											>
-												Clear filters to see all models
-											</Button>
-										)}
-									</CommandEmpty>
-									<CommandGroup>
-										<div className="px-2 py-1 text-xs text-muted-foreground">
-											{filteredEntries.length} model
-											{filteredEntries.length !== 1 ? "s" : ""} found
+								<div>
+									<div className="px-3 py-1 text-xs text-muted-foreground">
+										{filteredEntries.length} model
+										{filteredEntries.length !== 1 ? "s" : ""} found
+									</div>
+									{filteredEntries.length === 0 ? (
+										<div className="py-6 text-center text-sm">
+											No models found.
+											{hasActiveFilters && (
+												<Button
+													variant="link"
+													size="sm"
+													onClick={clearFilters}
+													className="mt-2 block mx-auto"
+												>
+													Clear filters to see all models
+												</Button>
+											)}
 										</div>
-										{filteredEntries.map(
-											({ model, mapping, provider, isRoot }, index) => {
-												if (isRoot) {
-													const entryKey = model.id;
-													const disabled =
-														isOptionDisabled?.(entryKey) ?? false;
-													const disabledReason =
-														getOptionDisabledReason?.(entryKey);
-													const _aggregate = getRootAggregateInfo(model);
-													const hasRequestPrice = model.mappings.some(
-														(p) =>
-															p.requestPrice && parseFloat(p.requestPrice) > 0,
-													);
-													const isFreeRoot =
-														model.free === true &&
-														!hasRequestPrice &&
-														model.mappings.every(
-															(p) =>
-																(!p.inputPrice ||
-																	parseFloat(p.inputPrice) === 0) &&
-																(!p.outputPrice ||
-																	parseFloat(p.outputPrice) === 0),
-														);
-													return (
-														<CommandItem
-															key={`${entryKey}-${index}`}
-															value={entryKey}
-															disabled={disabled}
-															title={disabledReason}
-															onMouseEnter={() =>
-																setPreviewEntry({
-																	model,
-																	mapping,
-																	provider,
-																	isRoot,
-																})
-															}
-															onSelect={() => {
-																if (disabled) {
-																	return;
-																}
-																onValueChange?.(model.id);
-																setOpen(false);
-															}}
-															className={cn(
-																"p-2 sm:p-3",
-																disabled
-																	? "cursor-not-allowed opacity-50"
-																	: "cursor-pointer",
-															)}
-														>
-															<Check
-																className={cn(
-																	"h-4 w-4",
-																	entryKey === selectedEntryKey
-																		? "opacity-100"
-																		: "opacity-0",
-																)}
-															/>
-															<div className="flex items-center justify-between w-[250px] md:w-full gap-2">
-																<div className="flex items-center gap-2 min-w-0 flex-1">
-																	<Sparkles className="h-6 w-6 shrink-0 text-primary" />
-																	<div className="flex flex-col min-w-0 flex-1">
-																		<div className="flex items-center gap-1">
-																			<span className="font-medium truncate">
-																				{model.name}
-																			</span>
-																			{isFreeRoot && (
-																				<Gift className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
-																			)}
-																		</div>
-																		<span className="text-xs text-muted-foreground truncate">
-																			{disabledReason ?? "Auto-select provider"}
-																		</span>
-																	</div>
-																</div>
-																<Button
-																	variant="ghost"
-																	size="sm"
-																	className="h-8 w-8 p-0 hover:bg-muted/50 shrink-0 md:hidden"
-																	onClick={(e) => {
-																		e.stopPropagation();
-																		setSelectedDetails({
-																			model,
-																		});
-																		setDetailsOpen(true);
-																	}}
-																>
-																	<Info className="h-4 w-4" />
-																</Button>
-															</div>
-														</CommandItem>
-													);
-												}
-
-												const ProviderIcon = provider
-													? getProviderIcon(provider.id)
-													: null;
-												const entryKey = `${mapping!.providerId}-${model.id}-${mapping!.modelName}`;
-												const providerModelValue = `${mapping!.providerId}/${mapping!.region ? mapping!.modelName : model.id}`;
-												const disabled =
-													isOptionDisabled?.(providerModelValue) ?? false;
-												const disabledReason =
-													getOptionDisabledReason?.(providerModelValue);
-												const isUnstable = isModelUnstable(mapping!, model);
-												const isDeprecated =
-													mapping!.deprecatedAt &&
-													new Date(mapping!.deprecatedAt) <= new Date();
-												const hasRequestPrice =
-													mapping!.requestPrice &&
-													parseFloat(mapping!.requestPrice) > 0;
-												const isFreeMapping =
-													model.free === true &&
-													!hasRequestPrice &&
-													(!mapping!.inputPrice ||
-														parseFloat(mapping!.inputPrice) === 0) &&
-													(!mapping!.outputPrice ||
-														parseFloat(mapping!.outputPrice) === 0);
-												return (
-													<CommandItem
-														key={entryKey}
-														value={entryKey}
-														disabled={disabled}
-														title={disabledReason}
-														onMouseEnter={() =>
-															setPreviewEntry({
-																model,
-																mapping,
-																provider,
-																isRoot,
-															})
-														}
-														onSelect={() => {
-															if (disabled) {
-																return;
-															}
-															onValueChange?.(providerModelValue);
-															setOpen(false);
-														}}
-														className={cn(
-															"p-2 sm:p-3",
-															disabled
-																? "cursor-not-allowed opacity-50"
-																: "cursor-pointer",
-														)}
-													>
-														<Check
-															className={cn(
-																"h-4 w-4",
-																entryKey === selectedEntryKey
-																	? "opacity-100"
-																	: "opacity-0",
-															)}
-														/>
-														<div className="flex items-center justify-between w-[250px] md:w-full gap-2">
-															<div className="flex items-center gap-2 min-w-0 flex-1">
-																{ProviderIcon ? (
-																	<ProviderIcon className="h-6 w-6 shrink-0 dark:text-white" />
-																) : null}
-																<div className="flex flex-col min-w-0 flex-1">
-																	<div className="flex items-center gap-1">
-																		<span className="font-medium truncate">
-																			{model.name}
-																		</span>
-																		{isFreeMapping && (
-																			<Gift className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
-																		)}
-																		{(isUnstable || isDeprecated) && (
-																			<AlertTriangle className="h-3.5 w-3.5 shrink-0 text-yellow-600 dark:text-yellow-500" />
-																		)}
-																	</div>
-																	<span className="text-xs text-muted-foreground truncate">
-																		{disabledReason ?? provider?.name}
-																		{!disabledReason && mapping?.region && (
-																			<span className="ml-1">
-																				({mapping.region})
-																			</span>
-																		)}
-																	</span>
-																</div>
-															</div>
-															<Button
-																variant="ghost"
-																size="sm"
-																className="h-8 w-8 p-0 hover:bg-muted/50 shrink-0 md:hidden"
-																onClick={(e) => {
-																	e.stopPropagation();
-																	setSelectedDetails({
-																		model,
-																		mapping,
-																		provider,
-																	});
-																	setDetailsOpen(true);
-																}}
-															>
-																<Info className="h-4 w-4" />
-															</Button>
-														</div>
-													</CommandItem>
-												);
-											},
-										)}
-									</CommandGroup>
-								</CommandList>
+									) : (
+										<div
+											ref={listContainerRef}
+											className="h-[300px] sm:h-[400px]"
+										>
+											<List
+												style={{ height: "100%", width: "100%" }}
+												rowComponent={ModelEntryRowComponent}
+												rowCount={filteredEntries.length}
+												rowHeight={ROW_HEIGHT}
+												rowProps={rowProps}
+												overscanCount={8}
+											/>
+										</div>
+									)}
+								</div>
 							</Command>
 						</div>
 						{/* Desktop preview panel */}
@@ -1399,7 +1758,9 @@ export function ModelSelector({
 													)}
 												</div>
 												<div className="text-[11px] text-muted-foreground capitalize truncate">
-													{previewEntry.model.family} family
+													{previewEntry.model.id !== "auto"
+														? `${previewEntry.model.family} family`
+														: "-"}
 												</div>
 											</div>
 										</div>
@@ -1419,7 +1780,9 @@ export function ModelSelector({
 														previewEntry.model,
 													);
 
-													const isVideo = mode === "video";
+													const isVideo =
+														mode === "video" ||
+														!!previewEntry.model.output?.includes("video");
 													const minPerSec = isVideo
 														? getMinPerSecondPrice(previewEntry.model.mappings)
 														: null;
@@ -1492,6 +1855,15 @@ export function ModelSelector({
 																				</p>
 																			</div>
 																		</div>
+																		{mode === "chat" && (
+																			<div className="flex items-start gap-1.5 rounded-md bg-muted/50 px-2.5 py-2 text-xs text-muted-foreground">
+																				<Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+																				<span>
+																					Selecting this model will open Video
+																					Studio.
+																				</span>
+																			</div>
+																		)}
 																	</div>
 																) : (
 																	<div className="space-y-2">
@@ -1502,31 +1874,37 @@ export function ModelSelector({
 																			</span>
 																		</h5>
 																		<div className="grid grid-cols-2 gap-3">
-																			<div className="space-y-1">
-																				<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																					Input
-																				</span>
-																				<p className="text-xs font-mono">
-																					{aggregate.minInputPrice !== undefined
-																						? formatPrice(
-																								aggregate.minInputPrice,
-																							)
-																						: "Unknown"}
-																				</p>
-																			</div>
-																			<div className="space-y-1">
-																				<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																					Output
-																				</span>
-																				<p className="text-xs font-mono">
-																					{aggregate.minOutputPrice !==
-																					undefined
-																						? formatPrice(
-																								aggregate.minOutputPrice,
-																							)
-																						: "Unknown"}
-																				</p>
-																			</div>
+																			{(!previewIsImageGen ||
+																				previewExpandTokens) && (
+																				<>
+																					<div className="space-y-1">
+																						<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																							Input
+																						</span>
+																						<p className="text-xs font-mono">
+																							{aggregate.minInputPrice !==
+																							undefined
+																								? formatPrice(
+																										aggregate.minInputPrice,
+																									)
+																								: "Unknown"}
+																						</p>
+																					</div>
+																					<div className="space-y-1">
+																						<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																							Output
+																						</span>
+																						<p className="text-xs font-mono">
+																							{aggregate.minOutputPrice !==
+																							undefined
+																								? formatPrice(
+																										aggregate.minOutputPrice,
+																									)
+																								: "Unknown"}
+																						</p>
+																					</div>
+																				</>
+																			)}
 																			<div className="space-y-1">
 																				<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
 																					Context
@@ -1548,6 +1926,19 @@ export function ModelSelector({
 																				</p>
 																			</div>
 																		</div>
+																		{previewIsImageGen && (
+																			<button
+																				type="button"
+																				className="text-[11px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+																				onClick={() =>
+																					setPreviewExpandTokens((v) => !v)
+																				}
+																			>
+																				{previewExpandTokens
+																					? "Hide token pricing"
+																					: "Expand details"}
+																			</button>
+																		)}
 																	</div>
 																))}
 
@@ -1599,31 +1990,32 @@ export function ModelSelector({
 																</div>
 															)}
 
-															{hasCapabilities && (
-																<div className="space-y-1">
-																	<h5 className="font-medium text-xs">
-																		Capabilities
-																	</h5>
-																	<div className="flex flex-wrap gap-1">
-																		{aggregate.capabilities.map(
-																			(capability) => {
-																				const { Icon } =
-																					getCapabilityIconConfig(capability);
-																				return (
-																					<Badge
-																						key={capability}
-																						variant="secondary"
-																						className="text-[10px] px-1.5 py-0.5 flex items-center gap-1"
-																					>
-																						{Icon && <Icon size={12} />}
-																						{capability}
-																					</Badge>
-																				);
-																			},
-																		)}
+															{hasCapabilities &&
+																previewEntry.model.id !== "auto" && (
+																	<div className="space-y-1">
+																		<h5 className="font-medium text-xs">
+																			Capabilities
+																		</h5>
+																		<div className="flex flex-wrap gap-1">
+																			{aggregate.capabilities.map(
+																				(capability) => {
+																					const { Icon } =
+																						getCapabilityIconConfig(capability);
+																					return (
+																						<Badge
+																							key={capability}
+																							variant="secondary"
+																							className="text-[10px] px-1.5 py-0.5 flex items-center gap-1"
+																						>
+																							{Icon && <Icon size={12} />}
+																							{capability}
+																						</Badge>
+																					);
+																				},
+																			)}
+																		</div>
 																	</div>
-																</div>
-															)}
+																)}
 														</div>
 													);
 												})()}
@@ -1638,143 +2030,192 @@ export function ModelSelector({
 
 												<div className="space-y-2">
 													<h5 className="font-medium text-xs">
-														{mode === "video"
+														{mode === "video" ||
+														previewEntry.model.output?.includes("video")
 															? "Video Pricing"
 															: "Pricing & Limits"}
 													</h5>
-													{mode === "video" ? (
-														<div className="grid grid-cols-1 gap-3">
-															<div className="space-y-1">
-																<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																	Per Second
-																</span>
-																<p className="text-xs font-mono">
-																	{previewEntry.mapping?.perSecondPrice
-																		? formatPerSecondPrice(
-																				previewEntry.mapping.perSecondPrice,
-																			)
-																		: "Unknown"}
-																</p>
+													{mode === "video" ||
+													previewEntry.model.output?.includes("video") ? (
+														<>
+															<div className="grid grid-cols-1 gap-3">
+																<div className="space-y-1">
+																	<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																		Per Second
+																	</span>
+																	<p className="text-xs font-mono">
+																		{previewEntry.mapping?.perSecondPrice
+																			? formatPerSecondPrice(
+																					previewEntry.mapping.perSecondPrice,
+																				)
+																			: "Unknown"}
+																	</p>
+																</div>
 															</div>
-														</div>
+															{mode === "chat" && (
+																<div className="flex items-start gap-1.5 rounded-md bg-muted/50 px-2.5 py-2 text-xs text-muted-foreground">
+																	<Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+																	<span>
+																		Selecting this model will open Video Studio.
+																	</span>
+																</div>
+															)}
+														</>
 													) : (
-														<div className="grid grid-cols-2 gap-3">
-															<div className="space-y-1">
-																<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																	Input
-																</span>
-																<p className="text-xs font-mono">
-																	{(() => {
-																		const price = getMappingPriceInfo(
-																			previewEntry.mapping,
-																			"input",
-																		);
-																		if (
-																			price.original &&
-																			price.discounted &&
-																			price.original !== price.discounted
-																		) {
-																			return (
-																				<>
-																					<span className="line-through text-muted-foreground">
-																						{price.original}
-																					</span>{" "}
-																					<span className="text-green-500">
-																						{price.discounted}
-																					</span>
-																				</>
-																			);
-																		}
-																		return price.label;
-																	})()}
-																</p>
+														<>
+															<div className="grid grid-cols-2 gap-3">
+																{(!previewIsImageGen ||
+																	previewExpandTokens) && (
+																	<>
+																		<div className="space-y-1">
+																			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																				{mode === "realtime"
+																					? "Text In"
+																					: "Input"}
+																			</span>
+																			<p className="text-xs font-mono">
+																				{(() => {
+																					const price = getMappingPriceInfo(
+																						previewEntry.mapping,
+																						"input",
+																					);
+																					if (
+																						price.original &&
+																						price.discounted &&
+																						price.original !== price.discounted
+																					) {
+																						return (
+																							<>
+																								<span className="line-through text-muted-foreground">
+																									{price.original}
+																								</span>{" "}
+																								<span className="text-green-500">
+																									{price.discounted}
+																								</span>
+																							</>
+																						);
+																					}
+																					return price.label;
+																				})()}
+																			</p>
+																		</div>
+																		<div className="space-y-1">
+																			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																				Output
+																			</span>
+																			<p className="text-xs font-mono">
+																				{(() => {
+																					const price = getMappingPriceInfo(
+																						previewEntry.mapping,
+																						"output",
+																					);
+																					if (
+																						price.original &&
+																						price.discounted &&
+																						price.original !== price.discounted
+																					) {
+																						return (
+																							<>
+																								<span className="line-through text-muted-foreground">
+																									{price.original}
+																								</span>{" "}
+																								<span className="text-green-500">
+																									{price.discounted}
+																								</span>
+																							</>
+																						);
+																					}
+																					return price.label;
+																				})()}
+																			</p>
+																		</div>
+																	</>
+																)}
+																{mode === "realtime" && (
+																	<>
+																		<MappingPriceCell
+																			label="Audio In"
+																			mapping={previewEntry.mapping}
+																			field="inputAudio"
+																		/>
+																		<MappingPriceCell
+																			label="Audio Out"
+																			mapping={previewEntry.mapping}
+																			field="outputAudio"
+																		/>
+																	</>
+																)}
+																<div className="space-y-1">
+																	<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																		Context
+																	</span>
+																	<p className="text-xs font-mono">
+																		{formatContextSize(
+																			previewEntry.mapping?.contextSize,
+																		)}
+																	</p>
+																</div>
+																<div className="space-y-1">
+																	<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																		Max Output
+																	</span>
+																	<p className="text-xs font-mono">
+																		{formatContextSize(
+																			previewEntry.mapping?.maxOutput,
+																		)}
+																	</p>
+																</div>
 															</div>
-															<div className="space-y-1">
-																<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																	Output
-																</span>
-																<p className="text-xs font-mono">
-																	{(() => {
-																		const price = getMappingPriceInfo(
-																			previewEntry.mapping,
-																			"output",
-																		);
-																		if (
-																			price.original &&
-																			price.discounted &&
-																			price.original !== price.discounted
-																		) {
-																			return (
-																				<>
-																					<span className="line-through text-muted-foreground">
-																						{price.original}
-																					</span>{" "}
-																					<span className="text-green-500">
-																						{price.discounted}
-																					</span>
-																				</>
-																			);
-																		}
-																		return price.label;
-																	})()}
-																</p>
-															</div>
-															<div className="space-y-1">
-																<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																	Context
-																</span>
-																<p className="text-xs font-mono">
-																	{formatContextSize(
-																		previewEntry.mapping?.contextSize,
-																	)}
-																</p>
-															</div>
-															<div className="space-y-1">
-																<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																	Max Output
-																</span>
-																<p className="text-xs font-mono">
-																	{formatContextSize(
-																		previewEntry.mapping?.maxOutput,
-																	)}
-																</p>
-															</div>
-														</div>
+															{previewIsImageGen && (
+																<button
+																	type="button"
+																	className="text-[11px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+																	onClick={() =>
+																		setPreviewExpandTokens((v) => !v)
+																	}
+																>
+																	{previewExpandTokens
+																		? "Hide token pricing"
+																		: "Expand details"}
+																</button>
+															)}
+														</>
 													)}
-													{previewEntry.mapping?.cachedInputPrice && (
-														<div className="pt-2 border-t border-dashed">
-															<div className="space-y-1">
-																<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																	Cached Input
-																</span>
-																<p className="text-xs font-mono text-green-600 dark:text-green-400">
-																	{(() => {
-																		const price = getMappingPriceInfo(
-																			previewEntry.mapping,
-																			"cachedInput",
-																		);
-																		if (
-																			price.original &&
-																			price.discounted &&
-																			price.original !== price.discounted
-																		) {
-																			return (
-																				<>
-																					<span className="line-through text-muted-foreground">
-																						{price.original}
-																					</span>{" "}
-																					<span className="text-green-500">
-																						{price.discounted}
-																					</span>
-																				</>
+													{previewEntry.mapping?.cachedInputPrice &&
+														(!previewIsImageGen || previewExpandTokens) && (
+															<div className="pt-2 border-t border-dashed">
+																<div className="space-y-1">
+																	<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																		Cached Input
+																	</span>
+																	<p className="text-xs font-mono text-green-600 dark:text-green-400">
+																		{(() => {
+																			const price = getMappingPriceInfo(
+																				previewEntry.mapping,
+																				"cachedInput",
 																			);
-																		}
-																		return price.label;
-																	})()}
-																</p>
+																			if (
+																				price.original &&
+																				price.discounted &&
+																				price.original !== price.discounted
+																			) {
+																				return (
+																					<>
+																						<span className="line-through text-muted-foreground">
+																							{price.original}
+																						</span>{" "}
+																						<span className="text-green-500">
+																							{price.discounted}
+																						</span>
+																					</>
+																				);
+																			}
+																			return price.label;
+																		})()}
+																	</p>
+																</div>
 															</div>
-														</div>
-													)}
+														)}
 													{mode === "image" &&
 														(() => {
 															const est = estimateImageCost(
@@ -1900,6 +2341,36 @@ export function ModelSelector({
 																		</Badge>
 																	);
 																})}
+															</div>
+														</div>
+													) : null;
+												})()}
+												{(() => {
+													if (!previewEntry.mapping) {
+														return null;
+													}
+													const regions = previewEntry.model.mappings
+														.filter(
+															(m) =>
+																m.providerId ===
+																	previewEntry.mapping!.providerId && m.region,
+														)
+														.map((m) => m.region as string);
+													return regions.length > 0 ? (
+														<div className="space-y-1">
+															<h5 className="font-medium text-xs">
+																Available Regions
+															</h5>
+															<div className="flex flex-wrap gap-1">
+																{regions.map((r) => (
+																	<Badge
+																		key={r}
+																		variant="secondary"
+																		className="text-[10px] px-1.5 py-0.5"
+																	>
+																		{r}
+																	</Badge>
+																))}
 															</div>
 														</div>
 													) : null;
@@ -2034,26 +2505,33 @@ export function ModelSelector({
 																</span>
 															</h5>
 															<div className="grid grid-cols-2 gap-3">
-																<div className="space-y-1">
-																	<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-																		Input
-																	</span>
-																	<p className="text-sm font-mono">
-																		{aggregate.minInputPrice !== undefined
-																			? formatPrice(aggregate.minInputPrice)
-																			: "Unknown"}
-																	</p>
-																</div>
-																<div className="space-y-1">
-																	<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-																		Output
-																	</span>
-																	<p className="text-sm font-mono">
-																		{aggregate.minOutputPrice !== undefined
-																			? formatPrice(aggregate.minOutputPrice)
-																			: "Unknown"}
-																	</p>
-																</div>
+																{(!selectedIsImageGen ||
+																	selectedExpandTokens) && (
+																	<>
+																		<div className="space-y-1">
+																			<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+																				Input
+																			</span>
+																			<p className="text-sm font-mono">
+																				{aggregate.minInputPrice !== undefined
+																					? formatPrice(aggregate.minInputPrice)
+																					: "Unknown"}
+																			</p>
+																		</div>
+																		<div className="space-y-1">
+																			<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+																				Output
+																			</span>
+																			<p className="text-sm font-mono">
+																				{aggregate.minOutputPrice !== undefined
+																					? formatPrice(
+																							aggregate.minOutputPrice,
+																						)
+																					: "Unknown"}
+																			</p>
+																		</div>
+																	</>
+																)}
 																<div className="space-y-1">
 																	<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
 																		Context
@@ -2073,6 +2551,19 @@ export function ModelSelector({
 																	</p>
 																</div>
 															</div>
+															{selectedIsImageGen && (
+																<button
+																	type="button"
+																	className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+																	onClick={() =>
+																		setSelectedExpandTokens((v) => !v)
+																	}
+																>
+																	{selectedExpandTokens
+																		? "Hide token pricing"
+																		: "Expand details"}
+																</button>
+															)}
 														</div>
 													)}
 
@@ -2165,66 +2656,70 @@ export function ModelSelector({
 										<div className="space-y-3">
 											<h5 className="font-medium text-sm">Pricing & Limits</h5>
 											<div className="grid grid-cols-2 gap-3">
-												<div className="space-y-1">
-													<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-														Input
-													</span>
-													<p className="text-sm font-mono">
-														{(() => {
-															const price = getMappingPriceInfo(
-																selectedDetails.mapping,
-																"input",
-															);
-															if (
-																price.original &&
-																price.discounted &&
-																price.original !== price.discounted
-															) {
-																return (
-																	<>
-																		<span className="line-through text-muted-foreground">
-																			{price.original}
-																		</span>{" "}
-																		<span className="text-green-500">
-																			{price.discounted}
-																		</span>
-																	</>
-																);
-															}
-															return price.label;
-														})()}
-													</p>
-												</div>
-												<div className="space-y-1">
-													<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-														Output
-													</span>
-													<p className="text-sm font-mono">
-														{(() => {
-															const price = getMappingPriceInfo(
-																selectedDetails.mapping,
-																"output",
-															);
-															if (
-																price.original &&
-																price.discounted &&
-																price.original !== price.discounted
-															) {
-																return (
-																	<>
-																		<span className="line-through text-muted-foreground">
-																			{price.original}
-																		</span>{" "}
-																		<span className="text-green-500">
-																			{price.discounted}
-																		</span>
-																	</>
-																);
-															}
-															return price.label;
-														})()}
-													</p>
-												</div>
+												{(!selectedIsImageGen || selectedExpandTokens) && (
+													<>
+														<div className="space-y-1">
+															<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+																Input
+															</span>
+															<p className="text-sm font-mono">
+																{(() => {
+																	const price = getMappingPriceInfo(
+																		selectedDetails.mapping,
+																		"input",
+																	);
+																	if (
+																		price.original &&
+																		price.discounted &&
+																		price.original !== price.discounted
+																	) {
+																		return (
+																			<>
+																				<span className="line-through text-muted-foreground">
+																					{price.original}
+																				</span>{" "}
+																				<span className="text-green-500">
+																					{price.discounted}
+																				</span>
+																			</>
+																		);
+																	}
+																	return price.label;
+																})()}
+															</p>
+														</div>
+														<div className="space-y-1">
+															<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+																Output
+															</span>
+															<p className="text-sm font-mono">
+																{(() => {
+																	const price = getMappingPriceInfo(
+																		selectedDetails.mapping,
+																		"output",
+																	);
+																	if (
+																		price.original &&
+																		price.discounted &&
+																		price.original !== price.discounted
+																	) {
+																		return (
+																			<>
+																				<span className="line-through text-muted-foreground">
+																					{price.original}
+																				</span>{" "}
+																				<span className="text-green-500">
+																					{price.discounted}
+																				</span>
+																			</>
+																		);
+																	}
+																	return price.label;
+																})()}
+															</p>
+														</div>
+													</>
+												)}
 												<div className="space-y-1">
 													<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
 														Context
@@ -2246,40 +2741,52 @@ export function ModelSelector({
 													</p>
 												</div>
 											</div>
-											{selectedDetails.mapping?.cachedInputPrice && (
-												<div className="pt-2 border-t border-dashed">
-													<div className="space-y-1">
-														<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-															Cached Input
-														</span>
-														<p className="text-sm font-mono text-green-600 dark:text-green-400">
-															{(() => {
-																const price = getMappingPriceInfo(
-																	selectedDetails.mapping,
-																	"cachedInput",
-																);
-																if (
-																	price.original &&
-																	price.discounted &&
-																	price.original !== price.discounted
-																) {
-																	return (
-																		<>
-																			<span className="line-through text-muted-foreground">
-																				{price.original}
-																			</span>{" "}
-																			<span className="text-green-500">
-																				{price.discounted}
-																			</span>
-																		</>
-																	);
-																}
-																return price.label;
-															})()}
-														</p>
-													</div>
-												</div>
+											{selectedIsImageGen && (
+												<button
+													type="button"
+													className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+													onClick={() => setSelectedExpandTokens((v) => !v)}
+												>
+													{selectedExpandTokens
+														? "Hide token pricing"
+														: "Expand details"}
+												</button>
 											)}
+											{selectedDetails.mapping?.cachedInputPrice &&
+												(!selectedIsImageGen || selectedExpandTokens) && (
+													<div className="pt-2 border-t border-dashed">
+														<div className="space-y-1">
+															<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+																Cached Input
+															</span>
+															<p className="text-sm font-mono text-green-600 dark:text-green-400">
+																{(() => {
+																	const price = getMappingPriceInfo(
+																		selectedDetails.mapping,
+																		"cachedInput",
+																	);
+																	if (
+																		price.original &&
+																		price.discounted &&
+																		price.original !== price.discounted
+																	) {
+																		return (
+																			<>
+																				<span className="line-through text-muted-foreground">
+																					{price.original}
+																				</span>{" "}
+																				<span className="text-green-500">
+																					{price.discounted}
+																				</span>
+																			</>
+																		);
+																	}
+																	return price.label;
+																})()}
+															</p>
+														</div>
+													</div>
+												)}
 											{/* Image Generation Pricing */}
 											{(selectedDetails.mapping?.requestPrice ??
 												selectedDetails.mapping?.imageInputPrice) && (
@@ -2385,6 +2892,36 @@ export function ModelSelector({
 																</Badge>
 															);
 														})}
+													</div>
+												</div>
+											) : null;
+										})()}
+										{(() => {
+											if (!selectedDetails.mapping) {
+												return null;
+											}
+											const regions = selectedDetails.model.mappings
+												.filter(
+													(m) =>
+														m.providerId ===
+															selectedDetails.mapping!.providerId && m.region,
+												)
+												.map((m) => m.region as string);
+											return regions.length > 0 ? (
+												<div className="space-y-2">
+													<h5 className="font-medium text-sm">
+														Available Regions
+													</h5>
+													<div className="flex flex-wrap gap-1.5">
+														{regions.map((r) => (
+															<Badge
+																key={r}
+																variant="secondary"
+																className="text-xs px-2 py-1"
+															>
+																{r}
+															</Badge>
+														))}
 													</div>
 												</div>
 											) : null;

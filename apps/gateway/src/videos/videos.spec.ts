@@ -1,28 +1,32 @@
-import { beforeAll, describe, expect, test } from "vitest";
-import {
-	processPendingVideoJobs,
-	processPendingWebhookDeliveries,
-} from "worker";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { processPendingVideoJobs } from "worker";
 
 import { app } from "@/app.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 import {
 	getMockVideo,
-	getMockWebhookDeliveries,
 	setMockVideoStatus,
-	setMockWebhookStatus,
 } from "@/test-utils/mock-openai-server.js";
 
 import { db, eq, tables } from "@llmgateway/db";
 
 describe("videos", () => {
-	const harness = createGatewayApiTestHarness({
-		mockServerPort: 3002,
-	});
+	const harness = createGatewayApiTestHarness();
 	let mockServerUrl: string;
+	let originalGoogleVertexBaseUrl: string | undefined;
 
 	beforeAll(() => {
 		mockServerUrl = harness.mockServerUrl;
+		originalGoogleVertexBaseUrl = process.env.LLM_GOOGLE_VERTEX_BASE_URL;
+		process.env.LLM_GOOGLE_VERTEX_BASE_URL = mockServerUrl;
+	});
+
+	afterAll(() => {
+		if (originalGoogleVertexBaseUrl !== undefined) {
+			process.env.LLM_GOOGLE_VERTEX_BASE_URL = originalGoogleVertexBaseUrl;
+		} else {
+			delete process.env.LLM_GOOGLE_VERTEX_BASE_URL;
+		}
 	});
 
 	async function setRoutingMetrics(
@@ -41,134 +45,6 @@ describe("videos", () => {
 	function expectSignedVideoLogContentUrl(url: string, logId: string) {
 		return harness.expectSignedVideoLogContentUrl(url, logId);
 	}
-
-	test("/v1/videos creates an async video job", async () => {
-		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			token: "real-token",
-			projectId: "project-id",
-			description: "Test API Key",
-			createdBy: "user-id",
-		});
-
-		await db.insert(tables.providerKey).values({
-			id: "provider-key-id",
-			token: "sk-test-key",
-			provider: "obsidian",
-			organizationId: "org-id",
-			baseUrl: mockServerUrl,
-		});
-
-		const res = await app.request("/v1/videos", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer real-token",
-			},
-			body: JSON.stringify({
-				model: "veo-3.1-generate-preview",
-				prompt: "A robot dancing in the rain",
-				seconds: 8,
-			}),
-		});
-
-		expect(res.status).toBe(200);
-
-		const json = await res.json();
-		expect(json.object).toBe("video");
-		expect(json.model).toBe("veo-3.1-generate-preview");
-		expect(json.status).toBe("queued");
-
-		const videoJob = await db.query.videoJob.findFirst({
-			where: { id: { eq: json.id } },
-		});
-		expect(videoJob).toBeTruthy();
-		expect(videoJob?.upstreamId).toBe("video_1");
-		expect(videoJob?.usedModel).toBe("veo-3.1-landscape");
-		expect(
-			(videoJob?.upstreamCreateResponse as { size?: string } | null)?.size,
-		).toBe("1280x720");
-	});
-
-	test("/v1/videos records X-No-Fallback routing metadata", async () => {
-		await db.insert(tables.apiKey).values({
-			id: "token-id-video-no-fallback",
-			token: "real-token-video-no-fallback",
-			projectId: "project-id",
-			description: "Test API Key",
-			createdBy: "user-id",
-		});
-
-		await db.insert(tables.providerKey).values({
-			id: "provider-key-id-video-no-fallback",
-			token: "sk-test-key-video-no-fallback",
-			provider: "obsidian",
-			organizationId: "org-id",
-			baseUrl: mockServerUrl,
-		});
-
-		const res = await app.request("/v1/videos", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer real-token-video-no-fallback",
-				"x-no-fallback": "true",
-			},
-			body: JSON.stringify({
-				model: "veo-3.1-generate-preview",
-				prompt: "A robot dancing in the rain",
-				seconds: 8,
-			}),
-		});
-
-		expect(res.status).toBe(200);
-
-		const json = await res.json();
-		const videoJob = await db.query.videoJob.findFirst({
-			where: { id: { eq: json.id } },
-		});
-		expect(videoJob?.routingMetadata).toMatchObject({
-			noFallback: true,
-			xNoFallbackHeaderSet: true,
-		});
-	});
-
-	test("/v1/videos rejects sizes that obsidian does not support", async () => {
-		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			token: "real-token",
-			projectId: "project-id",
-			description: "Test API Key",
-			createdBy: "user-id",
-		});
-
-		await db.insert(tables.providerKey).values({
-			id: "provider-key-id",
-			token: "sk-test-key",
-			provider: "obsidian",
-			organizationId: "org-id",
-			baseUrl: mockServerUrl,
-		});
-
-		const res = await app.request("/v1/videos", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer real-token",
-			},
-			body: JSON.stringify({
-				model: "veo-3.1-fast-generate-preview",
-				prompt: "A race car on a mountain road",
-				size: "1920x1080",
-				seconds: 8,
-			}),
-		});
-
-		expect(res.status).toBe(400);
-		const json = await res.json();
-		expect(JSON.stringify(json)).toContain("1920x1080");
-		expect(JSON.stringify(json)).toContain("obsidian");
-	});
 
 	test("/v1/videos explains avalanche constraint failures clearly", async () => {
 		await db.insert(tables.apiKey).values({
@@ -207,6 +83,49 @@ describe("videos", () => {
 		expect(JSON.stringify(json)).toContain("duration 6s");
 		expect(JSON.stringify(json)).toContain("aspect_ratio");
 		expect(JSON.stringify(json)).toContain("fixed 8s clips");
+	});
+
+	test("/v1/videos rejects dev-plan personal orgs with 403", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await harness.setDevPlan({ devPlan: "pro" });
+
+		const res = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "veo-3.1-generate-preview",
+				prompt: "A neon city at night",
+				size: "1920x1080",
+				seconds: 8,
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Video generation is not available for coding plans",
+		);
+
+		// Existing video status/content endpoints must still be reachable.
+		// We don't have a job, but the endpoint should reach the project lookup
+		// (which is independent of devPlan) and return 404 rather than 403.
+		const statusRes = await app.request("/v1/videos/nonexistent", {
+			method: "GET",
+			headers: {
+				Authorization: "Bearer real-token",
+			},
+		});
+		expect(statusRes.status).toBe(404);
 	});
 
 	test("/v1/videos explains avalanche reference-image constraints clearly", async () => {
@@ -252,7 +171,66 @@ describe("videos", () => {
 		);
 	});
 
-	test("/v1/videos keeps portrait sizes on the default obsidian model", async () => {
+	test("/v1/videos rejects non-https reference videos", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "seedance-2-0",
+				prompt: "Reproduce the camera move from the reference clip",
+				size: "1280x720",
+				seconds: 5,
+				reference_videos: ["http://example.com/reference-motion.mp4"],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain("reference_videos");
+	});
+
+	test("/v1/videos rejects combining frames with reference videos", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "seedance-2-0",
+				prompt: "Blend these inputs",
+				size: "1280x720",
+				seconds: 5,
+				image: { image_url: "data:image/png;base64,aGVsbG8=" },
+				reference_videos: ["https://example.com/reference-motion.mp4"],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain("Frame inputs");
+	});
+
+	test("/v1/videos rejects reference videos on non-bytedance models", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			token: "real-token",
@@ -264,7 +242,7 @@ describe("videos", () => {
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
 			token: "sk-test-key",
-			provider: "obsidian",
+			provider: "avalanche",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
 		});
@@ -276,26 +254,80 @@ describe("videos", () => {
 				Authorization: "Bearer real-token",
 			},
 			body: JSON.stringify({
-				model: "veo-3.1-generate-preview",
-				prompt: "A skateboarder landing a trick",
-				size: "720x1280",
+				model: "avalanche/veo-3.1-fast-generate-preview",
+				prompt: "Reproduce this motion",
+				size: "1920x1080",
 				seconds: 8,
+				reference_videos: ["https://example.com/reference-motion.mp4"],
 			}),
 		});
 
-		expect(res.status).toBe(200);
-
+		expect(res.status).toBe(400);
 		const json = await res.json();
-		const videoJob = await db.query.videoJob.findFirst({
-			where: { id: { eq: json.id } },
-		});
-		expect(videoJob?.usedModel).toBe("veo-3.1");
-		expect(
-			(videoJob?.upstreamCreateResponse as { size?: string } | null)?.size,
-		).toBe("720x1280");
+		expect(JSON.stringify(json)).toContain(
+			"reference videos are currently only supported on bytedance",
+		);
 	});
 
-	test("/v1/videos routes 1080p sizes to avalanche", async () => {
+	test("/v1/videos logs oversized reference image client errors", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-video-oversized-image",
+			token: "real-token-video-oversized-image",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-video-oversized-image",
+			token: "sk-bytedance-key",
+			provider: "bytedance",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const requestId = "video-oversized-reference-image-request";
+		const oversizedImageDataUrl = `data:image/png;base64,${"A".repeat(28 * 1024 * 1024)}`;
+
+		const res = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-video-oversized-image",
+				"x-request-id": requestId,
+			},
+			body: JSON.stringify({
+				model: "seedance-2-0",
+				prompt: "Animate this product reference image",
+				size: "1280x720",
+				seconds: 5,
+				reference_images: [
+					{
+						image_url: oversizedImageDataUrl,
+					},
+				],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.error.message).toContain("Invalid image input");
+		expect(json.error.message).toContain("Image size");
+		expect(json.error.message).toContain("exceeds your current limit");
+
+		const logs = await db.query.log.findMany({
+			where: { requestId: { eq: requestId } },
+		});
+		expect(logs).toHaveLength(1);
+		expect(logs[0].finishReason).toBe("client_error");
+		expect(logs[0].unifiedFinishReason).toBe("client_error");
+		expect(logs[0].hasError).toBe(true);
+		expect(logs[0].errorDetails?.statusCode).toBe(400);
+		expect(logs[0].errorDetails?.responseText).toContain("Image size");
+		expect(logs[0].usedProvider).toBe("bytedance");
+	});
+
+	test("/v1/videos rejects non-https reference audios", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			token: "real-token",
@@ -304,22 +336,42 @@ describe("videos", () => {
 			createdBy: "user-id",
 		});
 
-		await db.insert(tables.providerKey).values([
-			{
-				id: "provider-key-obsidian",
-				token: "sk-obsidian-key",
-				provider: "obsidian",
-				organizationId: "org-id",
-				baseUrl: mockServerUrl,
+		const res = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
 			},
-			{
-				id: "provider-key-avalanche",
-				token: "sk-avalanche-key",
-				provider: "avalanche",
-				organizationId: "org-id",
-				baseUrl: mockServerUrl,
-			},
-		]);
+			body: JSON.stringify({
+				model: "seedance-2-0",
+				prompt: "Align the motion to the reference track",
+				size: "1280x720",
+				seconds: 5,
+				reference_audios: ["http://example.com/reference-track.mp3"],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain("reference_audios");
+	});
+
+	test("/v1/videos rejects reference audio on non-bytedance models", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "avalanche",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
 
 		const res = await app.request("/v1/videos", {
 			method: "POST",
@@ -328,25 +380,549 @@ describe("videos", () => {
 				Authorization: "Bearer real-token",
 			},
 			body: JSON.stringify({
-				model: "veo-3.1-generate-preview",
-				prompt: "A motorcycle driving through Tokyo at night",
+				model: "avalanche/veo-3.1-fast-generate-preview",
+				prompt: "Align this motion",
 				size: "1920x1080",
 				seconds: 8,
+				reference_audios: ["https://example.com/reference-track.mp3"],
 			}),
 		});
 
-		expect(res.status).toBe(200);
-
+		expect(res.status).toBe(400);
 		const json = await res.json();
-		const videoJob = await db.query.videoJob.findFirst({
-			where: { id: { eq: json.id } },
+		expect(JSON.stringify(json)).toContain(
+			"reference audio is currently only supported on bytedance",
+		);
+	});
+
+	test("/v1/videos forwards AtlasCloud text-to-video requests", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
 		});
-		expect(videoJob?.usedProvider).toBe("avalanche");
-		expect(videoJob?.usedModel).toBe("veo3");
-		expect(videoJob?.upstreamId).toBe("avalanche_task_1");
-		expect(
-			(videoJob?.upstreamCreateResponse as { size?: string } | null)?.size,
-		).toBe("1920x1080");
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-atlascloud",
+			token: "atlascloud-test-token",
+			provider: "atlascloud",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "atlascloud/kling-v3-0",
+				prompt: "A city street reflected in rain at night",
+				size: "1280x720",
+				seconds: 5,
+				audio: false,
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(videoJob?.usedProvider).toBe("atlascloud");
+		expect(videoJob?.usedModel).toBe("kwaivgi/kling-v3.0-std/text-to-video");
+
+		const mockVideo = getMockVideo(videoJob!.upstreamId);
+		expect(mockVideo?.requestBody).toMatchObject({
+			model: "kwaivgi/kling-v3.0-std/text-to-video",
+			prompt: "A city street reflected in rain at night",
+			duration: 5,
+			aspect_ratio: "16:9",
+			sound: false,
+		});
+	});
+
+	test("/v1/videos uploads AtlasCloud image-to-video frame inputs", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-atlascloud",
+			token: "atlascloud-test-token",
+			provider: "atlascloud",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "atlascloud/kling-v3-0-turbo",
+				prompt: "Animate this product shot with a slow camera push",
+				size: "720x1280",
+				seconds: 10,
+				image: { image_url: "data:image/png;base64,aGVsbG8=" },
+				last_frame: { image_url: "data:image/png;base64,d29ybGQ=" },
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		const mockVideo = getMockVideo(videoJob!.upstreamId);
+		expect(mockVideo?.imageUrls).toHaveLength(2);
+		expect(mockVideo?.imageUrls?.[0]).toContain("/uploads/atlascloud-media-");
+		expect(mockVideo?.requestBody).toMatchObject({
+			model: "kwaivgi/kling-v3.0-turbo/image-to-video",
+			aspect_ratio: "9:16",
+		});
+		expect(mockVideo?.requestBody).toHaveProperty("image");
+		expect(mockVideo?.requestBody).toHaveProperty("end_image");
+		expect(mockVideo?.requestBody).not.toHaveProperty("sound");
+		expect(mockVideo?.requestBody).not.toHaveProperty("image_url");
+		expect(mockVideo?.requestBody).not.toHaveProperty("end_image_url");
+	});
+
+	test("/v1/videos routes AtlasCloud 4K requests to the 4K upstream model", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-atlascloud",
+			token: "atlascloud-test-token",
+			provider: "atlascloud",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "atlascloud/kling-v3-0",
+				prompt: "A cinematic wide shot in 4K",
+				size: "3840x2160",
+				seconds: 5,
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		const mockVideo = getMockVideo(videoJob!.upstreamId);
+		expect(mockVideo?.requestBody).toMatchObject({
+			model: "kwaivgi/kling-v3.0-4k/text-to-video",
+			aspect_ratio: "16:9",
+		});
+	});
+
+	test("/v1/videos rejects AtlasCloud Turbo 4K requests", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-atlascloud",
+			token: "atlascloud-test-token",
+			provider: "atlascloud",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "atlascloud/kling-v3-0-turbo",
+				prompt: "A cinematic wide shot in 4K",
+				size: "3840x2160",
+				seconds: 5,
+			}),
+		});
+
+		expect(createRes.status).toBe(400);
+		await expect(createRes.json()).resolves.toMatchObject({
+			error: {
+				message: expect.stringContaining("size 3840x2160 is unsupported"),
+			},
+		});
+	});
+
+	test("/v1/videos rejects AtlasCloud Turbo silent requests", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-atlascloud",
+			token: "atlascloud-test-token",
+			provider: "atlascloud",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "atlascloud/kling-v3-0-turbo",
+				prompt: "A silent product turntable",
+				size: "1280x720",
+				seconds: 5,
+				audio: false,
+			}),
+		});
+
+		expect(createRes.status).toBe(400);
+		await expect(createRes.json()).resolves.toMatchObject({
+			error: {
+				message: expect.stringContaining("audio=false is unsupported"),
+			},
+		});
+	});
+
+	test("/v1/videos rejects AtlasCloud reference inputs", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-atlascloud",
+			token: "atlascloud-test-token",
+			provider: "atlascloud",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "atlascloud/kling-v3-0",
+				prompt: "Use these references for character and motion",
+				size: "1280x720",
+				seconds: 5,
+				reference_images: [
+					{ image_url: "https://example.com/character.png" },
+					{ image_url: "data:image/png;base64,aGVsbG8=" },
+				],
+				reference_videos: ["https://example.com/motion.mp4"],
+			}),
+		});
+
+		expect(createRes.status).toBe(400);
+		await expect(createRes.json()).resolves.toMatchObject({
+			error: {
+				message: expect.stringContaining(
+					"reference inputs are unsupported on AtlasCloud KLING v3.0 models",
+				),
+			},
+		});
+	});
+
+	test("/v1/videos rejects AtlasCloud reference audio", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-atlascloud",
+			token: "atlascloud-test-token",
+			provider: "atlascloud",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "atlascloud/kling-v3-0-turbo",
+				prompt: "Use the reference track",
+				size: "1280x720",
+				seconds: 5,
+				reference_audios: ["https://example.com/reference.mp3"],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		await expect(res.json()).resolves.toMatchObject({
+			error: {
+				message: expect.stringContaining(
+					"reference inputs are unsupported on AtlasCloud KLING v3.0 models",
+				),
+			},
+		});
+	});
+
+	test("/v1/videos bills AtlasCloud 4K audio and silent output at the same rate", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-atlascloud",
+			token: "atlascloud-test-token",
+			provider: "atlascloud",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const seconds = 5;
+		const fourKPerSecondPrice = 0.42;
+		const expectedCost = fourKPerSecondPrice * seconds;
+
+		for (const [requestId, audio] of [
+			["atlascloud-audio-request", true],
+			["atlascloud-silent-request", false],
+		] as const) {
+			const createRes = await app.request("/v1/videos", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+					"x-request-id": requestId,
+				},
+				body: JSON.stringify({
+					model: "atlascloud/kling-v3-0",
+					prompt: `A precise product turntable, audio=${audio}`,
+					size: "3840x2160",
+					seconds,
+					audio,
+				}),
+			});
+			expect(createRes.status).toBe(200);
+			const created = await createRes.json();
+			const videoJob = await db.query.videoJob.findFirst({
+				where: { id: { eq: created.id } },
+			});
+			const mockVideo = getMockVideo(videoJob!.upstreamId);
+			expect(mockVideo?.requestBody).toMatchObject({
+				model: "kwaivgi/kling-v3.0-4k/text-to-video",
+				sound: audio,
+			});
+			setMockVideoStatus(videoJob!.upstreamId, "completed");
+		}
+
+		await processPendingVideoJobs();
+
+		const logs = await db.query.log.findMany({
+			where: {
+				usedModel: { eq: "atlascloud/kling-v3-0" },
+			},
+		});
+		expect(logs).toHaveLength(2);
+		const videoOutputCosts = logs.map((log) => log.videoOutputCost ?? 0).sort();
+		const totalCosts = logs.map((log) => log.cost ?? 0).sort();
+		expect(videoOutputCosts[0]).toBeCloseTo(expectedCost, 6);
+		expect(videoOutputCosts[1]).toBeCloseTo(expectedCost, 6);
+		expect(totalCosts[0]).toBeCloseTo(expectedCost, 6);
+		expect(totalCosts[1]).toBeCloseTo(expectedCost, 6);
+	});
+
+	test("/v1/videos restricts reference inputs to Seedance 2.0 models", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "bytedance/seedance-1-5-pro",
+				prompt: "Reproduce this motion",
+				size: "1280x720",
+				seconds: 5,
+				reference_videos: ["https://example.com/reference-motion.mp4"],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain("Seedance 2.0");
+	});
+
+	test("/v1/videos forwards up to nine reference images to Seedance 2.0 Fast", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-bytedance-key",
+			provider: "bytedance",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const referenceImages = Array.from({ length: 9 }, (_, index) => ({
+			image_url: `data:image/png;base64,${Buffer.from(`ref-${index}`).toString("base64")}`,
+		}));
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "seedance-2-0-fast",
+				prompt: "Combine these references into one clip",
+				size: "1280x720",
+				seconds: 5,
+				reference_images: referenceImages,
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(videoJob?.usedProvider).toBe("bytedance");
+
+		const mockVideo = getMockVideo(videoJob!.upstreamId);
+		expect(mockVideo?.referenceImages).toHaveLength(9);
+	});
+
+	test("/v1/videos rejects more than nine reference images on Seedance 2.0 Fast", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const referenceImages = Array.from({ length: 10 }, (_, index) => ({
+			image_url: `data:image/png;base64,${Buffer.from(`ref-${index}`).toString("base64")}`,
+		}));
+
+		const res = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "seedance-2-0-fast",
+				prompt: "Too many references",
+				size: "1280x720",
+				seconds: 5,
+				reference_images: referenceImages,
+			}),
+		});
+
+		expect(res.status).toBe(400);
+	});
+
+	test("/v1/videos rejects more than three reference images on veo", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-google-vertex-key",
+			provider: "google-vertex",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const referenceImages = Array.from({ length: 4 }, (_, index) => ({
+			image_url: `data:image/png;base64,${Buffer.from(`ref-${index}`).toString("base64")}`,
+		}));
+
+		const res = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "google-vertex/veo-3.1-generate-preview",
+				prompt: "Too many references for veo",
+				size: "1280x720",
+				seconds: 8,
+				reference_images: referenceImages,
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain("at most 3 reference images");
 	});
 
 	test("/v1/videos uses routing metrics to pick the best eligible provider", async () => {
@@ -572,116 +1148,6 @@ describe("videos", () => {
 		}
 	});
 
-	test("/v1/videos supports retrieve and content for completed jobs", async () => {
-		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			token: "real-token",
-			projectId: "project-id",
-			description: "Test API Key",
-			createdBy: "user-id",
-		});
-
-		await db.insert(tables.providerKey).values({
-			id: "provider-key-id",
-			token: "sk-test-key",
-			provider: "obsidian",
-			organizationId: "org-id",
-			baseUrl: mockServerUrl,
-		});
-
-		const createRes = await app.request("/v1/videos", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer real-token",
-			},
-			body: JSON.stringify({
-				model: "obsidian/veo-3.1-generate-preview",
-				prompt: "A cinematic sunset over mountains",
-				seconds: 8,
-			}),
-		});
-
-		expect(createRes.status).toBe(200);
-		const created = await createRes.json();
-
-		const videoJob = await db.query.videoJob.findFirst({
-			where: { id: { eq: created.id } },
-		});
-		expect(videoJob).toBeTruthy();
-
-		setMockVideoStatus(videoJob!.upstreamId, "completed");
-		await processPendingVideoJobs();
-
-		const logs = await db.query.log.findMany({
-			where: { usedModel: { eq: "obsidian/veo-3.1-generate-preview" } },
-		});
-		expect(logs).toHaveLength(1);
-
-		const getRes = await app.request(`/v1/videos/${created.id}`, {
-			headers: {
-				Authorization: "Bearer real-token",
-			},
-		});
-		expect(getRes.status).toBe(200);
-		const jobJson = await getRes.json();
-		expect(jobJson.status).toBe("completed");
-		expect(jobJson.content[0].type).toBe("video");
-		const signedContentUrl = expectSignedVideoLogContentUrl(
-			jobJson.content[0].url,
-			logs[0].id,
-		);
-
-		const contentRes = await app.request(`/v1/videos/${created.id}/content`, {
-			headers: {
-				Authorization: "Bearer real-token",
-			},
-		});
-		expect(contentRes.status).toBe(200);
-		expect(contentRes.headers.get("content-type")).toContain("video/mp4");
-		expect(await contentRes.text()).toBe(`mock-video-${videoJob!.upstreamId}`);
-
-		const unsignedProxyRes = await app.request(
-			`/v1/videos/logs/${logs[0].id}/content`,
-		);
-		expect(unsignedProxyRes.status).toBe(401);
-
-		const proxyRes = await app.request(
-			`${signedContentUrl.pathname}${signedContentUrl.search}`,
-		);
-		expect(proxyRes.status).toBe(200);
-		expect(await proxyRes.text()).toBe(`mock-video-${videoJob!.upstreamId}`);
-
-		expect(logs[0].usedModelMapping).toBe("veo-3.1-landscape");
-		expect(logs[0].content).toBe(
-			`http://localhost:4001/v1/videos/logs/${logs[0].id}/content`,
-		);
-		expect(logs[0].requestCost).toBe(0);
-		expect(logs[0].videoOutputCost).toBe(3.2);
-		expect(logs[0].cost).toBe(3.2);
-		expect(logs[0].messages).toEqual([
-			{
-				role: "user",
-				content: "A cinematic sunset over mountains",
-			},
-		]);
-		expect(logs[0].rawRequest).toEqual({
-			model: "obsidian/veo-3.1-generate-preview",
-			prompt: "A cinematic sunset over mountains",
-			seconds: 8,
-		});
-		expect(logs[0].upstreamRequest).toEqual({
-			model: "veo-3.1-landscape",
-			prompt: "A cinematic sunset over mountains",
-			size: "1280x720",
-		});
-		const downloadedLog = await db.query.log.findFirst({
-			where: { id: { eq: logs[0].id } },
-		});
-		expect(downloadedLog?.videoDownloadCount).toBe(2);
-		expect(downloadedLog?.lastVideoDownloadedAt).toBeTruthy();
-	});
-
 	test("/v1/videos supports completed 4k avalanche jobs", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
@@ -759,6 +1225,179 @@ describe("videos", () => {
 		expect(logs[0].cost).toBe(2.8);
 	});
 
+	test("/v1/videos does not persist payload when retention is disabled", async () => {
+		await db
+			.update(tables.organization)
+			.set({ retentionLevel: "none" })
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "avalanche",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "avalanche/veo-3.1-fast-generate-preview",
+				prompt: "A storm above a mountain range",
+				size: "3840x2160",
+				seconds: 8,
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(videoJob).toBeTruthy();
+
+		setMockVideoStatus(videoJob!.upstreamId, "completed");
+		await processPendingVideoJobs();
+
+		const logs = await db.query.log.findMany({
+			where: { usedModel: { eq: "avalanche/veo-3.1-fast-generate-preview" } },
+		});
+		expect(logs).toHaveLength(1);
+		expect(logs[0].hasError).toBe(false);
+		// Cost/metering is still recorded...
+		expect(logs[0].videoOutputCost).toBe(2.8);
+		// ...but no request/response payload is persisted for a non-retaining org.
+		expect(logs[0].messages).toBeNull();
+		expect(logs[0].content).toBeNull();
+
+		// Video content is served from the video job, not the (now-stripped) log
+		// content column, so playback still works for a non-retaining org.
+		const contentRes = await app.request(`/v1/videos/${created.id}/content`, {
+			headers: {
+				Authorization: "Bearer real-token",
+			},
+		});
+		expect(contentRes.status).toBe(200);
+		expect(await contentRes.text()).toBe(
+			`mock-video-${videoJob!.upstreamId}-4k`,
+		);
+	});
+
+	test("/v1/videos bills xAI 480p video and image input separately", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "xai-test-token",
+			provider: "xai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "xai/grok-imagine-video-1-5-preview",
+				prompt: "A cat walking through a neon alley",
+				size: "848x480",
+				seconds: 6,
+				image: { image_url: "data:image/png;base64,aGVsbG8=" },
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(videoJob).toBeTruthy();
+
+		setMockVideoStatus(videoJob!.upstreamId, "completed");
+		await processPendingVideoJobs();
+
+		const logs = await db.query.log.findMany({
+			where: { usedModel: { eq: "xai/grok-imagine-video-1-5-preview" } },
+		});
+		expect(logs).toHaveLength(1);
+		expect(logs[0].imageInputCost).toBe(0.01);
+		expect(logs[0].videoOutputCost).toBe(0.48);
+		expect(logs[0].cost).toBe(0.49);
+	});
+
+	test("/v1/videos bills xAI 720p at the 720p rate", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "xai-test-token",
+			provider: "xai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "xai/grok-imagine-video-1-5-preview",
+				prompt: "A cat walking across a rooftop at sunset",
+				size: "1280x720",
+				seconds: 6,
+				image: { image_url: "data:image/png;base64,aGVsbG8=" },
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(videoJob).toBeTruthy();
+
+		setMockVideoStatus(videoJob!.upstreamId, "completed");
+		await processPendingVideoJobs();
+
+		const logs = await db.query.log.findMany({
+			where: { usedModel: { eq: "xai/grok-imagine-video-1-5-preview" } },
+		});
+		expect(logs).toHaveLength(1);
+		expect(logs[0].imageInputCost).toBe(0.01);
+		expect(logs[0].videoOutputCost).toBe(0.84);
+		expect(logs[0].cost).toBe(0.85);
+	});
+
 	test("/v1/videos supports completed google-vertex jobs", async () => {
 		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 		const originalRuntimeGoogleCloudProject = process.env.GOOGLE_CLOUD_PROJECT;
@@ -813,7 +1452,7 @@ describe("videos", () => {
 			});
 			expect(videoJob).toBeTruthy();
 			expect(videoJob?.usedProvider).toBe("google-vertex");
-			expect(videoJob?.usedModel).toBe("veo-3.1-generate-preview");
+			expect(videoJob?.usedModel).toBe("veo-3.1-generate-001");
 			expect(videoJob?.upstreamId).toContain("projects/runtime-project/");
 			expect(
 				(
@@ -853,7 +1492,7 @@ describe("videos", () => {
 				`mock-video-${videoJob!.upstreamId}`,
 			);
 
-			expect(logs[0].usedModelMapping).toBe("veo-3.1-generate-preview");
+			expect(logs[0].usedModelMapping).toBe("veo-3.1-generate-001");
 			expect(logs[0].content).toBe(
 				`http://localhost:4001/v1/videos/logs/${logs[0].id}/content`,
 			);
@@ -1108,7 +1747,7 @@ describe("videos", () => {
 		}
 	});
 
-	test("/v1/videos forwards frame inputs to obsidian using -fl models", async () => {
+	test("/v1/videos forwards frame inputs to bytedance Seedance 2.0", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			token: "real-token",
@@ -1119,8 +1758,8 @@ describe("videos", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-obsidian-key",
-			provider: "obsidian",
+			token: "sk-bytedance-key",
+			provider: "bytedance",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
 		});
@@ -1132,10 +1771,10 @@ describe("videos", () => {
 				Authorization: "Bearer real-token",
 			},
 			body: JSON.stringify({
-				model: "obsidian/veo-3.1-fast-generate-preview",
-				prompt: "Animate this poster frame into a quick reveal",
+				model: "seedance-2-0",
+				prompt: "Morph from the first frame into the last frame",
 				size: "1280x720",
-				seconds: 8,
+				seconds: 5,
 				image: {
 					image_url: "data:image/png;base64,aGVsbG8=",
 				},
@@ -1151,11 +1790,9 @@ describe("videos", () => {
 		const videoJob = await db.query.videoJob.findFirst({
 			where: { id: { eq: created.id } },
 		});
-		expect(videoJob?.usedProvider).toBe("obsidian");
-		expect(videoJob?.usedModel).toBe("veo-3.1-landscape-fast-fl");
+		expect(videoJob?.usedProvider).toBe("bytedance");
 
 		const mockVideo = getMockVideo(videoJob!.upstreamId);
-		expect(mockVideo?.model).toBe("veo-3.1-landscape-fast-fl");
 		expect(mockVideo?.firstFrame).toEqual({
 			bytesBase64Encoded: "aGVsbG8=",
 			mimeType: "image/png",
@@ -1164,6 +1801,93 @@ describe("videos", () => {
 			bytesBase64Encoded: "d29ybGQ=",
 			mimeType: "image/png",
 		});
+		expect(mockVideo?.ratio).toBe("16:9");
+	});
+
+	test("/v1/videos forwards portrait size as ratio 9:16 to bytedance", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-bytedance-key",
+			provider: "bytedance",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "seedance-2-0",
+				prompt: "A vertical clip of a waterfall",
+				size: "1080x1920",
+				seconds: 15,
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(videoJob?.usedProvider).toBe("bytedance");
+
+		const mockVideo = getMockVideo(videoJob!.upstreamId);
+		expect(mockVideo?.ratio).toBe("9:16");
+		expect(mockVideo?.resolution).toBe("1080p");
+		expect(mockVideo?.duration).toBe(15);
+	});
+
+	test("/v1/videos rejects frame inputs on non-Seedance-2.0 bytedance models", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-bytedance-key",
+			provider: "bytedance",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "bytedance/seedance-1-5-pro",
+				prompt: "Morph from the first frame into the last frame",
+				size: "1280x720",
+				seconds: 5,
+				image: {
+					image_url: "data:image/png;base64,aGVsbG8=",
+				},
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"frame inputs are currently only supported on bytedance Seedance 2.0",
+		);
 	});
 
 	test("/v1/videos forwards reference images to google-vertex preview", async () => {
@@ -1218,7 +1942,7 @@ describe("videos", () => {
 				where: { id: { eq: created.id } },
 			});
 			expect(videoJob?.usedProvider).toBe("google-vertex");
-			expect(videoJob?.usedModel).toBe("veo-3.1-generate-preview");
+			expect(videoJob?.usedModel).toBe("veo-3.1-generate-001");
 
 			const mockVideo = getMockVideo(videoJob!.upstreamId);
 			expect(mockVideo?.referenceImages).toEqual([
@@ -1316,190 +2040,6 @@ describe("videos", () => {
 				delete process.env.LLM_AVALANCHE_FILE_UPLOAD_BASE_URL;
 			}
 		}
-	});
-
-	test("/v1/videos maps a single obsidian fast reference image to image", async () => {
-		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			token: "real-token",
-			projectId: "project-id",
-			description: "Test API Key",
-			createdBy: "user-id",
-		});
-
-		await db.insert(tables.providerKey).values({
-			id: "provider-key-id",
-			token: "sk-obsidian-key",
-			provider: "obsidian",
-			organizationId: "org-id",
-			baseUrl: mockServerUrl,
-		});
-
-		const createRes = await app.request("/v1/videos", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer real-token",
-			},
-			body: JSON.stringify({
-				model: "obsidian/veo-3.1-fast-generate-preview",
-				prompt: "Animate this still into a short video",
-				size: "1280x720",
-				seconds: 8,
-				reference_images: [
-					{
-						image_url: "data:image/png;base64,aGVsbG8=",
-					},
-				],
-			}),
-		});
-
-		expect(createRes.status).toBe(200);
-		const created = await createRes.json();
-
-		const videoJob = await db.query.videoJob.findFirst({
-			where: { id: { eq: created.id } },
-		});
-		expect(videoJob?.usedProvider).toBe("obsidian");
-		expect(videoJob?.usedModel).toBe("veo-3.1-landscape-fast-fl");
-
-		setMockVideoStatus(videoJob!.upstreamId, "completed");
-		await processPendingVideoJobs();
-
-		const logs = await db.query.log.findMany({
-			where: { requestId: { eq: videoJob!.requestId } },
-		});
-		expect(logs).toHaveLength(1);
-		expect(logs[0].upstreamRequest).toEqual({
-			model: "veo-3.1-landscape-fast-fl",
-			prompt: "Animate this still into a short video",
-			size: "1280x720",
-			input_reference: [
-				{
-					filename: "input_reference_1.png",
-					mimeType: "image/png",
-				},
-			],
-		});
-
-		const mockVideo = getMockVideo(videoJob!.upstreamId);
-		expect(mockVideo?.model).toBe("veo-3.1-landscape-fast-fl");
-		expect(mockVideo?.firstFrame).toEqual({
-			bytesBase64Encoded: "aGVsbG8=",
-			mimeType: "image/png",
-		});
-		expect(mockVideo?.lastFrame).toBeUndefined();
-	});
-
-	test("/v1/videos routes root fast single-reference requests to obsidian", async () => {
-		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			token: "real-token",
-			projectId: "project-id",
-			description: "Test API Key",
-			createdBy: "user-id",
-		});
-
-		await db.insert(tables.providerKey).values({
-			id: "provider-key-id",
-			token: "sk-obsidian-key",
-			provider: "obsidian",
-			organizationId: "org-id",
-			baseUrl: mockServerUrl,
-		});
-
-		const createRes = await app.request("/v1/videos", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer real-token",
-			},
-			body: JSON.stringify({
-				model: "veo-3.1-fast-generate-preview",
-				prompt: "Animate this still into a short video",
-				size: "1280x720",
-				seconds: 8,
-				reference_images: [
-					{
-						image_url: "data:image/png;base64,aGVsbG8=",
-					},
-				],
-			}),
-		});
-
-		expect(createRes.status).toBe(200);
-		const created = await createRes.json();
-
-		const videoJob = await db.query.videoJob.findFirst({
-			where: { id: { eq: created.id } },
-		});
-		expect(videoJob?.usedProvider).toBe("obsidian");
-		expect(videoJob?.usedModel).toBe("veo-3.1-landscape-fast-fl");
-
-		setMockVideoStatus(videoJob!.upstreamId, "completed");
-		await processPendingVideoJobs();
-
-		const logs = await db.query.log.findMany({
-			where: { requestId: { eq: videoJob!.requestId } },
-		});
-		expect(logs).toHaveLength(1);
-		expect(logs[0].upstreamRequest).toEqual({
-			model: "veo-3.1-landscape-fast-fl",
-			prompt: "Animate this still into a short video",
-			size: "1280x720",
-			input_reference: [
-				{
-					filename: "input_reference_1.png",
-					mimeType: "image/png",
-				},
-			],
-		});
-	});
-
-	test("/v1/videos rejects multiple obsidian reference images", async () => {
-		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			token: "real-token",
-			projectId: "project-id",
-			description: "Test API Key",
-			createdBy: "user-id",
-		});
-
-		await db.insert(tables.providerKey).values({
-			id: "provider-key-id",
-			token: "sk-obsidian-key",
-			provider: "obsidian",
-			organizationId: "org-id",
-			baseUrl: mockServerUrl,
-		});
-
-		const res = await app.request("/v1/videos", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer real-token",
-			},
-			body: JSON.stringify({
-				model: "obsidian/veo-3.1-fast-generate-preview",
-				prompt: "Turn these stills into motion",
-				size: "1280x720",
-				seconds: 8,
-				reference_images: [
-					{
-						image_url: "data:image/png;base64,aGVsbG8=",
-					},
-					{
-						image_url: "data:image/png;base64,d29ybGQ=",
-					},
-				],
-			}),
-		});
-
-		expect(res.status).toBe(400);
-		const json = await res.json();
-		expect(JSON.stringify(json)).toContain(
-			"obsidian reference-image video generation supports exactly 1 input image",
-		);
 	});
 
 	test("/v1/videos bills google-vertex fast using audio pricing", async () => {
@@ -1677,9 +2217,11 @@ describe("videos", () => {
 
 		expect(res.status).toBe(400);
 		await expect(res.json()).resolves.toMatchObject({
-			message: expect.stringContaining(
-				"audio=false is unsupported because this provider mapping only supports audio-enabled output",
-			),
+			error: {
+				message: expect.stringContaining(
+					"audio=false is unsupported because this provider mapping only supports audio-enabled output",
+				),
+			},
 		});
 	});
 
@@ -1945,300 +2487,6 @@ describe("videos", () => {
 		}
 	});
 
-	test("/v1/videos delivers signed callbacks after completion", async () => {
-		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			token: "real-token",
-			projectId: "project-id",
-			description: "Test API Key",
-			createdBy: "user-id",
-		});
-
-		await db.insert(tables.providerKey).values({
-			id: "provider-key-id",
-			token: "sk-test-key",
-			provider: "obsidian",
-			organizationId: "org-id",
-			baseUrl: mockServerUrl,
-		});
-
-		const createRes = await app.request("/v1/videos", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer real-token",
-			},
-			body: JSON.stringify({
-				model: "veo-3.1-fast-generate-preview",
-				prompt: "A whale swimming through clouds",
-				callback_url: `${mockServerUrl}/mock-callback/video-job`,
-				callback_secret: "whsec_test",
-				seconds: 8,
-			}),
-		});
-
-		expect(createRes.status).toBe(200);
-		const created = await createRes.json();
-
-		const videoJob = await db.query.videoJob.findFirst({
-			where: { id: { eq: created.id } },
-		});
-		expect(videoJob).toBeTruthy();
-
-		setMockVideoStatus(videoJob!.upstreamId, "completed");
-		await processPendingVideoJobs();
-		await processPendingWebhookDeliveries();
-
-		const logs = await db.query.log.findMany({
-			where: { usedModel: { eq: "obsidian/veo-3.1-fast-generate-preview" } },
-		});
-		expect(logs).toHaveLength(1);
-		expect(logs[0].usedModelMapping).toBe("veo-3.1-landscape-fast");
-		expect(logs[0].requestCost).toBe(0);
-		expect(logs[0].videoOutputCost).toBe(1.2);
-
-		const deliveries = getMockWebhookDeliveries("video-job");
-		expect(deliveries).toHaveLength(1);
-		expect(deliveries[0].headers["webhook-id"]).toBe(`evt_${created.id}`);
-		expect(deliveries[0].headers["webhook-timestamp"]).toBeTruthy();
-		expect(deliveries[0].headers["webhook-signature"]).toMatch(/^v1,/);
-		expect((deliveries[0].body as { type: string }).type).toBe(
-			"video.completed",
-		);
-
-		const callbackLogs = await db.query.webhookDeliveryLog.findMany({});
-		expect(callbackLogs).toHaveLength(1);
-		expect(callbackLogs[0].status).toBe("delivered");
-	});
-
-	test("/v1/videos persists callback retries with exponential backoff", async () => {
-		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			token: "real-token",
-			projectId: "project-id",
-			description: "Test API Key",
-			createdBy: "user-id",
-		});
-
-		await db.insert(tables.providerKey).values({
-			id: "provider-key-id",
-			token: "sk-test-key",
-			provider: "obsidian",
-			organizationId: "org-id",
-			baseUrl: mockServerUrl,
-		});
-
-		setMockWebhookStatus("retry-video", 500);
-
-		const createRes = await app.request("/v1/videos", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer real-token",
-			},
-			body: JSON.stringify({
-				model: "veo-3.1-generate-preview",
-				prompt: "A spaceship landing on Mars",
-				callback_url: `${mockServerUrl}/mock-callback/retry-video`,
-				callback_secret: "whsec_retry",
-				seconds: 8,
-			}),
-		});
-
-		expect(createRes.status).toBe(200);
-		const created = await createRes.json();
-
-		const videoJob = await db.query.videoJob.findFirst({
-			where: { id: { eq: created.id } },
-		});
-		expect(videoJob).toBeTruthy();
-
-		setMockVideoStatus(videoJob!.upstreamId, "completed");
-		await processPendingVideoJobs();
-		await processPendingWebhookDeliveries();
-
-		const callbackLogs = await db.query.webhookDeliveryLog.findMany({
-			orderBy: {
-				attempt: "asc",
-			},
-		});
-		expect(callbackLogs).toHaveLength(2);
-		expect(callbackLogs[0].status).toBe("retrying");
-		expect(callbackLogs[1].status).toBe("pending");
-		expect(callbackLogs[1].attempt).toBe(2);
-		expect(callbackLogs[1].nextRetryAt.getTime()).toBeGreaterThan(
-			callbackLogs[0].createdAt.getTime(),
-		);
-	});
-
-	test("/v1/videos times out stale jobs and delivers failed callbacks", async () => {
-		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			token: "real-token",
-			projectId: "project-id",
-			description: "Test API Key",
-			createdBy: "user-id",
-		});
-
-		await db.insert(tables.providerKey).values({
-			id: "provider-key-id",
-			token: "sk-test-key",
-			provider: "obsidian",
-			organizationId: "org-id",
-			baseUrl: mockServerUrl,
-		});
-
-		const createRes = await app.request("/v1/videos", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer real-token",
-			},
-			body: JSON.stringify({
-				model: "veo-3.1-fast-generate-preview",
-				prompt: "A train moving through a snowy forest",
-				callback_url: `${mockServerUrl}/mock-callback/video-timeout`,
-				callback_secret: "whsec_timeout",
-				seconds: 8,
-			}),
-		});
-
-		expect(createRes.status).toBe(200);
-		const created = await createRes.json();
-
-		const staleAgeMs = 2 * 60 * 60 * 1000;
-		const staleCreatedAt = new Date(Date.now() - staleAgeMs);
-		await db
-			.update(tables.videoJob)
-			.set({
-				createdAt: staleCreatedAt,
-				nextPollAt: new Date(),
-			})
-			.where(eq(tables.videoJob.id, created.id));
-
-		const videoJob = await db.query.videoJob.findFirst({
-			where: { id: { eq: created.id } },
-		});
-		expect(videoJob).toBeTruthy();
-
-		setMockVideoStatus(videoJob!.upstreamId, "in_progress");
-		await processPendingVideoJobs();
-		await processPendingWebhookDeliveries();
-
-		const updatedJob = await db.query.videoJob.findFirst({
-			where: { id: { eq: created.id } },
-		});
-		expect(updatedJob?.status).toBe("failed");
-		expect(updatedJob?.error).toMatchObject({
-			code: "timeout",
-		});
-
-		const deliveries = getMockWebhookDeliveries("video-timeout");
-		expect(deliveries).toHaveLength(1);
-		expect((deliveries[0].body as { type: string }).type).toBe("video.failed");
-		expect(
-			(
-				deliveries[0].body as {
-					data: { status: string; error: { code?: string } | null };
-				}
-			).data,
-		).toMatchObject({
-			status: "failed",
-			error: {
-				code: "timeout",
-			},
-		});
-
-		const callbackLogs = await db.query.webhookDeliveryLog.findMany({});
-		expect(callbackLogs).toHaveLength(1);
-		expect(callbackLogs[0].status).toBe("delivered");
-	});
-
-	test("/v1/videos backs off polling after repeated status fetch errors", async () => {
-		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			token: "real-token",
-			projectId: "project-id",
-			description: "Test API Key",
-			createdBy: "user-id",
-		});
-
-		await db.insert(tables.providerKey).values({
-			id: "provider-key-id",
-			token: "sk-test-key",
-			provider: "obsidian",
-			organizationId: "org-id",
-			baseUrl: mockServerUrl,
-		});
-
-		const createRes = await app.request("/v1/videos", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer real-token",
-			},
-			body: JSON.stringify({
-				model: "veo-3.1-fast-generate-preview",
-				prompt: "A surfer riding a massive wave",
-				seconds: 8,
-			}),
-		});
-
-		expect(createRes.status).toBe(200);
-		const created = await createRes.json();
-
-		await db
-			.update(tables.providerKey)
-			.set({
-				baseUrl: "http://127.0.0.1:1",
-			})
-			.where(eq(tables.providerKey.organizationId, "org-id"));
-
-		await db
-			.update(tables.videoJob)
-			.set({
-				nextPollAt: new Date(),
-			})
-			.where(eq(tables.videoJob.id, created.id));
-
-		await processPendingVideoJobs();
-
-		const firstFailure = await db.query.videoJob.findFirst({
-			where: { id: { eq: created.id } },
-		});
-		expect(firstFailure).toBeTruthy();
-		expect(firstFailure?.status).toBe("queued");
-		expect(firstFailure?.upstreamStatusResponse).toMatchObject({
-			llmgateway_poll_error_count: 1,
-		});
-
-		const firstDelayMs =
-			firstFailure!.nextPollAt.getTime() -
-			firstFailure!.lastPolledAt!.getTime();
-
-		await db
-			.update(tables.videoJob)
-			.set({
-				nextPollAt: new Date(),
-			})
-			.where(eq(tables.videoJob.id, created.id));
-
-		await processPendingVideoJobs();
-
-		const secondFailure = await db.query.videoJob.findFirst({
-			where: { id: { eq: created.id } },
-		});
-		expect(secondFailure).toBeTruthy();
-		expect(secondFailure?.upstreamStatusResponse).toMatchObject({
-			llmgateway_poll_error_count: 2,
-		});
-
-		const secondDelayMs =
-			secondFailure!.nextPollAt.getTime() -
-			secondFailure!.lastPolledAt!.getTime();
-		expect(secondDelayMs).toBeGreaterThan(firstDelayMs);
-	});
-
 	test("/v1/videos rejects non-positive duration values", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
@@ -2347,201 +2595,5 @@ describe("videos", () => {
 		const json = await res.json();
 		expect(JSON.stringify(json)).toContain("size");
 		expect(JSON.stringify(json)).toContain("1280x720");
-	});
-
-	test("/v1/videos rejects 4k sizes when only obsidian is available", async () => {
-		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			token: "real-token",
-			projectId: "project-id",
-			description: "Test API Key",
-			createdBy: "user-id",
-		});
-
-		await db.insert(tables.providerKey).values({
-			id: "provider-key-id",
-			token: "sk-test-key",
-			provider: "obsidian",
-			organizationId: "org-id",
-			baseUrl: mockServerUrl,
-		});
-
-		const res = await app.request("/v1/videos", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer real-token",
-			},
-			body: JSON.stringify({
-				model: "veo-3.1-generate-preview",
-				prompt: "An eagle flying over snowy peaks",
-				size: "3840x2160",
-				seconds: 8,
-			}),
-		});
-
-		expect(res.status).toBe(400);
-		const json = await res.json();
-		expect(JSON.stringify(json)).toContain("3840x2160");
-		expect(JSON.stringify(json)).toContain("obsidian");
-	});
-
-	test("/v1/videos does not require $1 in available credits for API key mode", async () => {
-		await db
-			.update(tables.organization)
-			.set({
-				credits: "0.50",
-			})
-			.where(eq(tables.organization.id, "org-id"));
-
-		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			token: "real-token",
-			projectId: "project-id",
-			description: "Test API Key",
-			createdBy: "user-id",
-		});
-
-		await db.insert(tables.providerKey).values({
-			id: "provider-key-id",
-			token: "sk-test-key",
-			provider: "obsidian",
-			organizationId: "org-id",
-			baseUrl: mockServerUrl,
-		});
-
-		const res = await app.request("/v1/videos", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer real-token",
-			},
-			body: JSON.stringify({
-				model: "veo-3.1-generate-preview",
-				prompt: "A waterfall in slow motion",
-				seconds: 8,
-			}),
-		});
-
-		expect(res.status).toBe(200);
-
-		const videoJobs = await db.query.videoJob.findMany({});
-		expect(videoJobs).toHaveLength(1);
-		expect(videoJobs[0]?.usedMode).toBe("api-keys");
-	});
-
-	test("/v1/videos requires at least $1 in available credits for credits mode", async () => {
-		const originalObsidianApiKey = process.env.LLM_OBSIDIAN_API_KEY;
-		const originalObsidianBaseUrl = process.env.LLM_OBSIDIAN_BASE_URL;
-
-		process.env.LLM_OBSIDIAN_API_KEY = "sk-test-env-key";
-		process.env.LLM_OBSIDIAN_BASE_URL = mockServerUrl;
-
-		try {
-			await db
-				.update(tables.organization)
-				.set({
-					credits: "0.50",
-				})
-				.where(eq(tables.organization.id, "org-id"));
-
-			await db
-				.update(tables.project)
-				.set({
-					mode: "credits",
-				})
-				.where(eq(tables.project.id, "project-id"));
-
-			await db.insert(tables.apiKey).values({
-				id: "token-id",
-				token: "real-token",
-				projectId: "project-id",
-				description: "Test API Key",
-				createdBy: "user-id",
-			});
-
-			const res = await app.request("/v1/videos", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Authorization: "Bearer real-token",
-				},
-				body: JSON.stringify({
-					model: "veo-3.1-generate-preview",
-					prompt: "A waterfall in slow motion",
-					seconds: 8,
-				}),
-			});
-
-			expect(res.status).toBe(402);
-			const json = await res.json();
-			expect(JSON.stringify(json)).toContain("$1.00");
-
-			const videoJobs = await db.query.videoJob.findMany({});
-			expect(videoJobs).toHaveLength(0);
-		} finally {
-			if (originalObsidianApiKey !== undefined) {
-				process.env.LLM_OBSIDIAN_API_KEY = originalObsidianApiKey;
-			} else {
-				delete process.env.LLM_OBSIDIAN_API_KEY;
-			}
-
-			if (originalObsidianBaseUrl !== undefined) {
-				process.env.LLM_OBSIDIAN_BASE_URL = originalObsidianBaseUrl;
-			} else {
-				delete process.env.LLM_OBSIDIAN_BASE_URL;
-			}
-		}
-	});
-
-	test("/v1/videos does not require $1 in available credits for hybrid provider keys", async () => {
-		await db
-			.update(tables.organization)
-			.set({
-				credits: "0.50",
-			})
-			.where(eq(tables.organization.id, "org-id"));
-
-		await db
-			.update(tables.project)
-			.set({
-				mode: "hybrid",
-			})
-			.where(eq(tables.project.id, "project-id"));
-
-		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			token: "real-token",
-			projectId: "project-id",
-			description: "Test API Key",
-			createdBy: "user-id",
-		});
-
-		await db.insert(tables.providerKey).values({
-			id: "provider-key-id",
-			token: "sk-test-key",
-			provider: "obsidian",
-			organizationId: "org-id",
-			baseUrl: mockServerUrl,
-		});
-
-		const res = await app.request("/v1/videos", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer real-token",
-			},
-			body: JSON.stringify({
-				model: "veo-3.1-generate-preview",
-				prompt: "A waterfall in slow motion",
-				seconds: 8,
-			}),
-		});
-
-		expect(res.status).toBe(200);
-
-		const videoJobs = await db.query.videoJob.findMany({});
-		expect(videoJobs).toHaveLength(1);
-		expect(videoJobs[0]?.usedMode).toBe("api-keys");
 	});
 });

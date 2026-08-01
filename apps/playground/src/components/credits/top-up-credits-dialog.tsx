@@ -6,6 +6,7 @@ import {
 } from "@stripe/react-stripe-js";
 import { useQueryClient } from "@tanstack/react-query";
 import { CreditCard, ExternalLink, Plus } from "lucide-react";
+import { motion, useReducedMotion } from "motion/react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -48,12 +49,16 @@ interface TopUpCreditsDialogProps {
 	children?: React.ReactNode;
 	open?: boolean;
 	onOpenChange?: (open: boolean) => void;
+	// The org credits should be added to (the playground's Chat org). When
+	// omitted, the API falls back to the user's first organization.
+	organizationId?: string;
 }
 
 export function TopUpCreditsDialog({
 	children,
 	open: controlledOpen,
 	onOpenChange: controlledOnOpenChange,
+	organizationId,
 }: TopUpCreditsDialogProps) {
 	const [internalOpen, setInternalOpen] = useState(false);
 	const open = controlledOpen ?? internalOpen;
@@ -117,6 +122,7 @@ export function TopUpCreditsDialog({
 					<AmountStep
 						amount={amount}
 						setAmount={setAmount}
+						organizationId={organizationId}
 						onNext={() => {
 							if (paymentMethodsLoading) {
 								return; // Don't proceed if still loading
@@ -144,6 +150,7 @@ export function TopUpCreditsDialog({
 					<ConfirmPaymentStep
 						amount={amount}
 						paymentMethodId={selectedPaymentMethod!}
+						organizationId={organizationId}
 						onSuccess={handlePaymentSuccess}
 						onBack={() => setStep("select-payment")}
 						onCancel={handleClose}
@@ -157,6 +164,7 @@ export function TopUpCreditsDialog({
 						<Elements stripe={stripe as any}>
 							<PaymentStep
 								amount={amount}
+								organizationId={organizationId}
 								onBack={() => setStep("amount")}
 								onSuccess={handlePaymentSuccess}
 								onCancel={handleClose}
@@ -173,14 +181,73 @@ export function TopUpCreditsDialog({
 	);
 }
 
+interface FeeData {
+	baseAmount: number;
+	platformFee: number;
+	internationalFee: number;
+	totalAmount: number;
+}
+
+function FeeBreakdownReceipt({
+	feeData,
+	feeDataLoading,
+	amount,
+}: {
+	feeData: FeeData | undefined;
+	feeDataLoading: boolean;
+	/** Shown as a plain fallback when fee data is unavailable. */
+	amount?: number;
+}) {
+	return (
+		<div className="rounded-lg border border-dashed bg-muted/40 p-4 font-mono">
+			<p className="mb-2 text-center text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+				· Lounge bar receipt ·
+			</p>
+			{feeDataLoading ? (
+				<div className="flex items-center justify-center py-4">
+					<div className="h-5 w-5 animate-spin border-2 border-muted-foreground border-t-transparent rounded-full" />
+					<span className="ml-2 text-sm text-muted-foreground">
+						Calculating fees...
+					</span>
+				</div>
+			) : feeData ? (
+				<div className="space-y-2 text-sm tabular-nums">
+					<div className="flex justify-between">
+						<span>Credits</span>
+						<span>${feeData.baseAmount.toFixed(2)}</span>
+					</div>
+					<div className="flex justify-between">
+						<span>Platform fee (5%)</span>
+						<span>${feeData.platformFee.toFixed(2)}</span>
+					</div>
+					{feeData.internationalFee > 0 ? (
+						<div className="flex justify-between">
+							<span>Intl. card fee (1.5%)</span>
+							<span>${feeData.internationalFee.toFixed(2)}</span>
+						</div>
+					) : null}
+					<div className="flex justify-between border-t border-dashed pt-2 font-semibold">
+						<span>Total</span>
+						<span>${feeData.totalAmount.toFixed(2)}</span>
+					</div>
+				</div>
+			) : amount !== undefined ? (
+				<p className="text-sm text-muted-foreground">Amount: ${amount}</p>
+			) : null}
+		</div>
+	);
+}
+
 function AmountStep({
 	amount,
 	setAmount,
+	organizationId,
 	onNext,
 	onCancel,
 }: {
 	amount: number;
 	setAmount: (amount: number) => void;
+	organizationId?: string;
 	onNext: () => void;
 	onCancel: () => void;
 }) {
@@ -217,7 +284,11 @@ function AmountStep({
 		setCheckoutLoading(true);
 		try {
 			const { checkoutUrl } = await createCheckoutSession({
-				body: { amount, returnUrl: window.location.href.split("?")[0] },
+				body: {
+					amount,
+					returnUrl: window.location.href.split("?")[0],
+					...(organizationId ? { organizationId } : {}),
+				},
 			});
 			window.location.href = checkoutUrl;
 		} catch (error: unknown) {
@@ -234,7 +305,13 @@ function AmountStep({
 	return (
 		<>
 			<DialogHeader>
-				<DialogTitle>Top Up Credits</DialogTitle>
+				<p className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.28em] text-lounge-gold">
+					<span aria-hidden className="h-px w-5 bg-lounge-gold/50" />
+					The Lounge · Pay as you go
+				</p>
+				<DialogTitle className="font-display text-2xl font-semibold">
+					Top Up Credits
+				</DialogTitle>
 				<DialogDescription>
 					Add credits to your organization account. Confirm details on the next
 					step.
@@ -277,32 +354,10 @@ function AmountStep({
 				</div>
 
 				{isAmountValid && (
-					<div className="border rounded-lg p-4 bg-muted/50">
-						<p className="font-medium mb-2">Fee Breakdown</p>
-						{feeDataLoading ? (
-							<div className="flex items-center justify-center py-4">
-								<div className="h-5 w-5 animate-spin border-2 border-muted-foreground border-t-transparent rounded-full" />
-								<span className="ml-2 text-sm text-muted-foreground">
-									Calculating fees...
-								</span>
-							</div>
-						) : feeData ? (
-							<div className="space-y-1 text-sm">
-								<div className="flex justify-between">
-									<span>Credits</span>
-									<span>${feeData.baseAmount.toFixed(2)}</span>
-								</div>
-								<div className="flex justify-between">
-									<span>Platform fee (5%)</span>
-									<span>${feeData.platformFee.toFixed(2)}</span>
-								</div>
-								<div className="border-t pt-1 flex justify-between font-medium">
-									<span>Total</span>
-									<span>${feeData.totalAmount.toFixed(2)}</span>
-								</div>
-							</div>
-						) : null}
-					</div>
+					<FeeBreakdownReceipt
+						feeData={feeData}
+						feeDataLoading={Boolean(feeDataLoading)}
+					/>
 				)}
 			</div>
 			<DialogFooter className="flex flex-col gap-3 sm:flex-col">
@@ -342,22 +397,45 @@ function AmountStep({
 					Stripe Checkout supports additional payment methods like Google Pay,
 					Apple Pay, and more.
 				</p>
+				<InvoiceSettingsNote />
 			</DialogFooter>
 		</>
 	);
 }
 
 function SuccessStep({ onClose }: { onClose: () => void }) {
+	const reduceMotion = useReducedMotion();
 	return (
 		<>
 			<DialogHeader>
-				<DialogTitle>Payment Successful</DialogTitle>
+				<DialogTitle className="font-display text-2xl font-semibold">
+					Payment Successful
+				</DialogTitle>
 				<DialogDescription>
 					Your credits have been added to your account.
 				</DialogDescription>
 			</DialogHeader>
-			<div className="py-4">
-				<p>
+			<div className="flex flex-col items-center gap-4 py-4">
+				<motion.span
+					aria-hidden
+					initial={
+						reduceMotion
+							? { opacity: 0 }
+							: { opacity: 0, scale: 2, rotate: -16 }
+					}
+					animate={
+						reduceMotion ? { opacity: 1 } : { opacity: 1, scale: 1, rotate: -6 }
+					}
+					transition={
+						reduceMotion
+							? { duration: 0.2, ease: "easeOut" }
+							: { type: "spring", duration: 0.4 }
+					}
+					className="rounded border-2 border-lounge-gold/60 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.3em] text-lounge-gold"
+				>
+					Credits added
+				</motion.span>
+				<p className="text-center">
 					Thank you for your purchase. Your credits are now available for use.
 				</p>
 			</div>
@@ -370,6 +448,7 @@ function SuccessStep({ onClose }: { onClose: () => void }) {
 
 function PaymentStep({
 	amount,
+	organizationId,
 	onBack,
 	onSuccess,
 	onCancel,
@@ -377,6 +456,7 @@ function PaymentStep({
 	setLoading,
 }: {
 	amount: number;
+	organizationId?: string;
 	onBack: () => void;
 	onSuccess: () => Promise<void> | void;
 	onCancel: () => void;
@@ -407,6 +487,8 @@ function PaymentStep({
 		setLoading(true);
 
 		try {
+			let stripePaymentMethodId: string | undefined;
+
 			if (saveCard) {
 				const { clientSecret: setupSecret } = await setupIntentMutation({});
 
@@ -423,19 +505,39 @@ function PaymentStep({
 					setLoading(false);
 					return;
 				}
+
+				const setupPaymentMethod = setupResult.setupIntent?.payment_method;
+				stripePaymentMethodId =
+					typeof setupPaymentMethod === "string"
+						? setupPaymentMethod
+						: setupPaymentMethod?.id;
+			} else {
+				const pmResult = await stripe.createPaymentMethod({
+					type: "card",
+					card: elements.getElement(CardElement) as any,
+				});
+
+				if (pmResult.error) {
+					toast.error("Error", {
+						description:
+							pmResult.error.message ?? "Could not read card details.",
+					});
+					setLoading(false);
+					return;
+				}
+
+				stripePaymentMethodId = pmResult.paymentMethod.id;
 			}
 
 			const { clientSecret } = await topUpMutation({
 				body: {
 					amount,
+					stripePaymentMethodId,
+					...(organizationId ? { organizationId } : {}),
 				},
 			});
 
-			const result = await stripe.confirmCardPayment(clientSecret, {
-				payment_method: {
-					card: elements.getElement(CardElement) as any,
-				},
-			});
+			const result = await stripe.confirmCardPayment(clientSecret);
 
 			if (result.error) {
 				toast.error("Payment Failed", {
@@ -497,6 +599,9 @@ function PaymentStep({
 						</Label>
 					</div>
 				</div>
+				<p className="text-xs text-muted-foreground">
+					International cards are subject to an additional 1.5% processing fee.
+				</p>
 				<DialogFooter className="flex space-x-2 justify-end">
 					<Button
 						type="button"
@@ -518,6 +623,7 @@ function PaymentStep({
 						{loading ? "Processing..." : `Continue`}
 					</Button>
 				</DialogFooter>
+				<InvoiceSettingsNote />
 			</form>
 		</>
 	);
@@ -620,6 +726,7 @@ function SelectPaymentStep({
 function ConfirmPaymentStep({
 	amount,
 	paymentMethodId,
+	organizationId,
 	onSuccess,
 	onBack,
 	onCancel,
@@ -628,6 +735,7 @@ function ConfirmPaymentStep({
 }: {
 	amount: number;
 	paymentMethodId: string;
+	organizationId?: string;
 	onSuccess: () => Promise<void> | void;
 	onBack: () => void;
 	onCancel: () => void;
@@ -655,7 +763,11 @@ function ConfirmPaymentStep({
 
 		try {
 			await topUpMutation({
-				body: { amount, paymentMethodId },
+				body: {
+					amount,
+					paymentMethodId,
+					...(organizationId ? { organizationId } : {}),
+				},
 			});
 			await onSuccess();
 		} catch (error: any) {
@@ -676,34 +788,11 @@ function ConfirmPaymentStep({
 				</DialogDescription>
 			</DialogHeader>
 			<form onSubmit={handleSubmit} className="space-y-4 py-4">
-				<div className="border rounded-lg p-4">
-					<p className="font-medium mb-3">Payment Summary</p>
-					{feeDataLoading ? (
-						<div className="flex items-center justify-center py-4">
-							<div className="h-5 w-5 animate-spin border-2 border-muted-foreground border-t-transparent rounded-full" />
-							<span className="ml-2 text-sm text-muted-foreground">
-								Calculating fees...
-							</span>
-						</div>
-					) : feeData ? (
-						<div className="space-y-2 text-sm">
-							<div className="flex justify-between">
-								<span>Credits</span>
-								<span>${feeData.baseAmount.toFixed(2)}</span>
-							</div>
-							<div className="flex justify-between">
-								<span>Platform fee (5%)</span>
-								<span>${feeData.platformFee.toFixed(2)}</span>
-							</div>
-							<div className="border-t pt-2 flex justify-between font-medium">
-								<span>Total</span>
-								<span>${feeData.totalAmount.toFixed(2)}</span>
-							</div>
-						</div>
-					) : (
-						<p className="text-sm text-muted-foreground">Amount: ${amount}</p>
-					)}
-				</div>
+				<FeeBreakdownReceipt
+					feeData={feeData}
+					feeDataLoading={Boolean(feeDataLoading)}
+					amount={amount}
+				/>
 				<DialogFooter className="flex space-x-2 justify-end">
 					<Button
 						type="button"
@@ -727,7 +816,17 @@ function ConfirmPaymentStep({
 							: `Pay ${feeData ? `$${feeData.totalAmount.toFixed(2)}` : `$${amount}`}`}
 					</Button>
 				</DialogFooter>
+				<InvoiceSettingsNote />
 			</form>
 		</>
+	);
+}
+
+function InvoiceSettingsNote() {
+	return (
+		<p className="text-center text-[11px] leading-relaxed text-muted-foreground">
+			Need company/address details on your invoice? Update billing settings
+			before purchase. We email the invoice automatically after payment.
+		</p>
 	);
 }

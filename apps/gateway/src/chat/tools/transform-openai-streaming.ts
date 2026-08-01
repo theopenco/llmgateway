@@ -10,10 +10,29 @@ function normalizeUsage(usage: any): any {
 		return usage;
 	}
 
+	// Some upstreams (e.g. SGLang-served deepseek-v3.2-maas on Vertex AI) emit an
+	// intermediate streaming chunk carrying a partial `usage` object that only has
+	// `prompt_tokens_details` and omits the core token counts. Forwarding it would
+	// produce `usage.prompt_tokens: undefined`, which fails strict client schemas
+	// (e.g. the AI SDK). Treat a usage object without the required token counts as
+	// "no usage" for this chunk rather than emitting an invalid one.
+	const promptTokens = usage.prompt_tokens;
+	const completionTokens = usage.completion_tokens;
+	if (
+		typeof promptTokens !== "number" ||
+		typeof completionTokens !== "number"
+	) {
+		return null;
+	}
+	const totalTokens =
+		typeof usage.total_tokens === "number"
+			? usage.total_tokens
+			: promptTokens + completionTokens;
+
 	const normalizedUsage: any = {
-		prompt_tokens: usage.prompt_tokens,
-		completion_tokens: usage.completion_tokens,
-		total_tokens: usage.total_tokens,
+		prompt_tokens: promptTokens,
+		completion_tokens: completionTokens,
+		total_tokens: totalTokens,
 	};
 
 	// Extract reasoning_tokens from completion_tokens_details if present
@@ -28,9 +47,21 @@ function normalizeUsage(usage: any): any {
 		normalizedUsage.reasoning_tokens = usage.reasoning_tokens;
 	}
 
-	// Preserve prompt_tokens_details if present
+	// Preserve prompt_tokens_details if present. Alibaba's explicit-cache field
+	// `cache_creation_input_tokens` is nested under prompt_tokens_details; rename
+	// it to `cache_write_tokens` / `cache_creation_tokens` so downstream
+	// Anthropic-style consumers pick it up.
 	if (usage.prompt_tokens_details) {
-		normalizedUsage.prompt_tokens_details = usage.prompt_tokens_details;
+		const existing = usage.prompt_tokens_details;
+		const cacheCreation = existing.cache_creation_input_tokens;
+		normalizedUsage.prompt_tokens_details = {
+			...existing,
+			...(cacheCreation !== undefined &&
+				cacheCreation > 0 && {
+					cache_write_tokens: cacheCreation,
+					cache_creation_tokens: cacheCreation,
+				}),
+		};
 	}
 
 	// Note: We intentionally don't pass through completion_tokens_details
@@ -59,6 +90,17 @@ export function transformOpenaiStreaming(
 			role: delta.role ?? "assistant",
 		};
 
+		// Some upstreams (e.g. the Tundra endpoint) emit an empty
+		// `tool_calls: []` array in the leading delta chunk. OpenAI never sends an
+		// empty tool_calls array, and downstream consumers treat any present
+		// tool_calls field as an actual tool-call delta, so drop it when empty.
+		if (
+			Array.isArray(newDelta.tool_calls) &&
+			newDelta.tool_calls.length === 0
+		) {
+			delete newDelta.tool_calls;
+		}
+
 		const normalizedReasoning =
 			newDelta.reasoning ??
 			newDelta.reasoning_content ??
@@ -68,21 +110,36 @@ export function transformOpenaiStreaming(
 		if (normalizedReasoning) {
 			const {
 				reasoning_content: _reasoningContent,
-				reasoning_details: _reasoningDetails,
+				reasoning_details: reasoningDetails,
 				...rest
 			} = newDelta;
+			// Keep opaque (non-text) reasoning details — e.g. encrypted reasoning
+			// payloads — since their content cannot be folded into the plain
+			// `reasoning` string and clients need them to replay reasoning.
+			const opaqueDetails = Array.isArray(reasoningDetails)
+				? reasoningDetails.filter(
+						(detail: any) =>
+							detail &&
+							typeof detail === "object" &&
+							typeof detail.text !== "string",
+					)
+				: [];
+			const preservedDetails =
+				opaqueDetails.length > 0 ? { reasoning_details: opaqueDetails } : {};
 			// If the model doesn't support reasoning, treat reasoning_content as
-			// regular content (some providers like CanopyWave return the actual
-			// answer in reasoning_content for non-reasoning models).
+			// regular content (some providers return the actual answer in
+			// reasoning_content for non-reasoning models).
 			// Only override content if it's not already set to avoid losing data.
 			if (!supportsReasoning) {
 				return {
 					...rest,
+					...preservedDetails,
 					...(!rest.content && { content: normalizedReasoning }),
 				};
 			}
 			return {
 				...rest,
+				...preservedDetails,
 				reasoning: normalizedReasoning,
 			};
 		}

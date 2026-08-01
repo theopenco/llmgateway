@@ -1,5 +1,7 @@
 import { createHmac } from "node:crypto";
 
+import { getStopSignal, isStopRequested } from "@/shutdown.js";
+
 import { redisClient } from "@llmgateway/cache";
 import {
 	and,
@@ -9,26 +11,34 @@ import {
 	type InferSelectModel,
 	inArray,
 	isNull,
+	type LogInsertData,
 	lte,
 	or,
 	shortid,
+	stripRetentionSensitiveLogFields,
 	tables,
 	UnifiedFinishReason,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
+	type EnvVarVariant,
+	getOrganizationEnvVariant,
 	getProviderEnvConfig,
 	getProviderEnvValue,
 	getProviderEnvVar,
+	getVariantEnvVarName,
 	models,
 	type Provider,
 	type ProviderModelMapping,
+	resolveVertexTokenType,
+	type VertexTokenType,
 } from "@llmgateway/models";
 import {
 	buildGatewayVideoLogContentUrl,
 	getAvalancheApiBaseUrl,
 	getAvalancheJobsApiBaseUrl,
 	getVideoProxyRedisKey,
+	isContentFilterErrorText,
 	VIDEO_PROXY_REDIS_TTL_SECONDS,
 } from "@llmgateway/shared";
 import {
@@ -37,6 +47,39 @@ import {
 	parseGcsUri,
 } from "@llmgateway/shared/gcs";
 import { buildSignedGatewayVideoLogContentUrl } from "@llmgateway/shared/video-access";
+
+const UPSTREAM_FETCH_TIMEOUT_MS = 30_000;
+const WEBHOOK_DELIVERY_TIMEOUT_MS = 30_000;
+
+function fetchWithSignals(
+	url: string,
+	init: RequestInit,
+	timeoutMs: number,
+): Promise<Response> {
+	const stopSignal = getStopSignal();
+	const timeoutSignal = AbortSignal.timeout(timeoutMs);
+	return fetch(url, {
+		...init,
+		signal: AbortSignal.any([stopSignal, timeoutSignal]),
+	});
+}
+
+function isShutdownAbort(error: unknown): boolean {
+	if (!isStopRequested()) {
+		return false;
+	}
+	if (error instanceof Error && error.name === "AbortError") {
+		return true;
+	}
+	if (
+		error instanceof Error &&
+		error.cause instanceof Error &&
+		error.cause.name === "AbortError"
+	) {
+		return true;
+	}
+	return false;
+}
 
 const MAX_WEBHOOK_ATTEMPTS = 8;
 const WEBHOOK_BASE_DELAY_MS = 30_000;
@@ -51,6 +94,8 @@ const VIDEO_JOB_MAX_POLL_ERROR_COUNT = 5;
 const VIDEO_RESOLUTION_4K = "4k";
 const VIDEO_RESOLUTION_HD = "hd";
 const VIDEO_RESOLUTION_1080P = "1080p";
+const VIDEO_RESOLUTION_720P = "720p";
+const VIDEO_RESOLUTION_480P = "480p";
 const VIDEO_DEFAULT_RESOLUTION = "default";
 const ACTIVE_VIDEO_STATUSES = ["queued", "in_progress"] as const;
 const TERMINAL_VIDEO_STATUS_VALUES: Array<VideoJobRecord["status"]> = [
@@ -66,6 +111,7 @@ type WebhookDeliveryRecord = InferSelectModel<typeof tables.webhookDeliveryLog>;
 interface ResolvedVideoProviderContext {
 	baseUrl: string;
 	token: string;
+	vertexTokenType?: VertexTokenType;
 }
 
 function isGoogleVertexVideoProvider(providerId: string): boolean {
@@ -101,8 +147,18 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 	switch (providerId) {
 		case "openai":
 			return "https://api.openai.com";
+		case "xai":
+			return "https://api.x.ai";
+		case "atlascloud":
+			return "https://api.atlascloud.ai";
+		case "bytedance":
+			return "https://ark.ap-southeast.bytepluses.com/api/v3";
 		case "google-vertex":
 			return "https://aiplatform.googleapis.com";
+		case "minimax":
+			return "https://api.minimax.io";
+		case "alibaba":
+			return "https://dashscope-intl.aliyuncs.com";
 		default:
 			return null;
 	}
@@ -122,6 +178,7 @@ async function findActiveProviderKey(
 	organizationId: string,
 	providerId: string,
 	selectionKey?: string,
+	filter?: (key: InferSelectModel<typeof tables.providerKey>) => boolean,
 ): Promise<InferSelectModel<typeof tables.providerKey> | undefined> {
 	const providerKeys = await db
 		.select()
@@ -135,14 +192,35 @@ async function findActiveProviderKey(
 		)
 		.orderBy(asc(tables.providerKey.createdAt), asc(tables.providerKey.id));
 
-	return selectLoadBalancedItem(providerKeys, selectionKey);
+	const filtered = filter ? providerKeys.filter(filter) : providerKeys;
+	return selectLoadBalancedItem(filtered, selectionKey);
+}
+
+function getVideoProviderKeyFilter(
+	providerId: Provider,
+): ((key: InferSelectModel<typeof tables.providerKey>) => boolean) | undefined {
+	if (!isGoogleVertexVideoProvider(providerId)) {
+		return undefined;
+	}
+	const allowedBaseUrls = new Set<string>();
+	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
+	if (defaultBaseUrl) {
+		allowedBaseUrls.add(defaultBaseUrl);
+	}
+	const envBaseUrl = getProviderEnvValue(providerId, "baseUrl");
+	if (envBaseUrl) {
+		allowedBaseUrls.add(envBaseUrl);
+	}
+	return (key) => !key.baseUrl || allowedBaseUrls.has(key.baseUrl);
 }
 
 function resolveProviderEnvToken(
 	providerId: Provider,
 	configIndex: number | null,
+	variant?: EnvVarVariant,
 ): string {
-	const envVarName = getProviderEnvVar(providerId);
+	const envVarName =
+		getVariantEnvVarName(providerId, variant) ?? getProviderEnvVar(providerId);
 	if (!envVarName) {
 		throw new Error(`No environment variable set for provider: ${providerId}`);
 	}
@@ -197,6 +275,7 @@ async function resolveVideoProviderContext(
 			job.organizationId,
 			job.usedProvider,
 			job.requestId,
+			getVideoProviderKeyFilter(providerId),
 		);
 		if (!providerKey) {
 			throw new Error(`No API key set for provider: ${job.usedProvider}`);
@@ -213,15 +292,39 @@ async function resolveVideoProviderContext(
 		return {
 			baseUrl,
 			token: providerKey.token,
+			vertexTokenType: isGoogleVertexVideoProvider(providerId)
+				? resolveVertexTokenType(
+						"google-vertex",
+						providerKey.options ?? undefined,
+						undefined,
+						true,
+					)
+				: undefined,
 		};
 	}
 
-	const token = resolveProviderEnvToken(providerId, job.providerConfigIndex);
+	// Polls must use the same credential class as job creation: some providers
+	// scope job visibility to the creating API key, so an enterprise/plan
+	// org's job created with a variant env override must also be polled with it.
+	const organization = await db.query.organization.findFirst({
+		where: {
+			id: { eq: job.organizationId },
+		},
+	});
+	const envVariant = getOrganizationEnvVariant(organization);
+
+	const token = resolveProviderEnvToken(
+		providerId,
+		job.providerConfigIndex,
+		envVariant,
+	);
 	const baseUrl =
 		getProviderEnvValue(
 			providerId,
 			"baseUrl",
 			job.providerConfigIndex ?? undefined,
+			undefined,
+			envVariant,
 		) ?? defaultBaseUrl;
 	if (!baseUrl) {
 		throw new Error(`No base URL set for provider: ${job.usedProvider}`);
@@ -230,6 +333,15 @@ async function resolveVideoProviderContext(
 	return {
 		baseUrl,
 		token,
+		vertexTokenType: isGoogleVertexVideoProvider(providerId)
+			? resolveVertexTokenType(
+					"google-vertex",
+					undefined,
+					job.providerConfigIndex ?? undefined,
+					false,
+					envVariant,
+				)
+			: undefined,
 	};
 }
 
@@ -238,7 +350,11 @@ function getVideoProviderHeaders(
 	providerContext: ResolvedVideoProviderContext,
 ): Record<string, string> {
 	if (isGoogleVertexVideoProvider(job.usedProvider)) {
-		return {};
+		// Vertex API keys go in the `?key=` query param; OAuth2 access tokens
+		// must be sent as a Bearer header instead.
+		return providerContext.vertexTokenType === "oauth"
+			? { Authorization: `Bearer ${providerContext.token}` }
+			: {};
 	}
 
 	return {
@@ -277,6 +393,7 @@ function normalizeVideoStatus(value: unknown): VideoJobRecord["status"] {
 		case "generating":
 			return "in_progress";
 		case "completed":
+		case "done":
 		case "success":
 		case "succeeded":
 			return "completed";
@@ -373,6 +490,7 @@ function extractContentUrl(body: Record<string, unknown>): string | null {
 		body.url,
 		body.video_url,
 		body.output_url,
+		body.video,
 		body.content,
 		body.output,
 	];
@@ -384,6 +502,9 @@ function extractContentUrl(body: Record<string, unknown>): string | null {
 
 		if (Array.isArray(candidate)) {
 			for (const item of candidate) {
+				if (typeof item === "string" && item.startsWith("http")) {
+					return item;
+				}
 				if (
 					item &&
 					typeof item === "object" &&
@@ -595,21 +716,6 @@ function getInlineGoogleVertexVideo(
 	return null;
 }
 
-async function getVideoLogIdByRequestId(
-	requestId: string,
-): Promise<string | null> {
-	const existingLog = await db
-		.select({
-			id: tables.log.id,
-		})
-		.from(tables.log)
-		.where(eq(tables.log.requestId, requestId))
-		.limit(1)
-		.then((rows) => rows[0]);
-
-	return existingLog?.id ?? null;
-}
-
 async function getPublicVideoContentUrl(
 	job: VideoJobRecord,
 	logId?: string | null,
@@ -618,8 +724,7 @@ async function getPublicVideoContentUrl(
 		return null;
 	}
 
-	const resolvedLogId =
-		logId ?? (await getVideoLogIdByRequestId(job.requestId));
+	const resolvedLogId = logId ?? job.logId;
 	if (
 		resolvedLogId &&
 		(job.contentUrl || job.storageUri || getInlineGoogleVertexVideo(job))
@@ -720,6 +825,16 @@ function getFormattedUsedVideoModel(job: VideoJobRecord): string {
 
 function getRequestedVideoSize(job: VideoJobRecord): string | null {
 	for (const candidate of getVideoMetadataCandidates(job)) {
+		const requestedSize = readNestedValue(
+			candidate,
+			"llmgateway_requested_size",
+		);
+		if (typeof requestedSize === "string" && requestedSize.length > 0) {
+			return requestedSize;
+		}
+	}
+
+	for (const candidate of getVideoMetadataCandidates(job)) {
 		const value = readNestedValue(candidate, "size");
 		if (typeof value === "string" && value.length > 0) {
 			return value;
@@ -765,7 +880,7 @@ function getRequestedVideoMetadata(job: VideoJobRecord): {
 	size: string;
 	width: number;
 	height: number;
-	resolution: "720p" | "1080p" | "hd" | "4k";
+	resolution: "480p" | "720p" | "1080p" | "hd" | "4k";
 } | null {
 	const size = getRequestedVideoSize(job);
 	if (!size) {
@@ -783,15 +898,49 @@ function getRequestedVideoMetadata(job: VideoJobRecord): {
 		return null;
 	}
 
+	let requestedResolution: "480p" | "720p" | "1080p" | "hd" | "4k" | null =
+		null;
+	for (const candidate of getVideoMetadataCandidates(job)) {
+		const value = readNestedValue(candidate, "llmgateway_requested_resolution");
+		if (
+			value === "480p" ||
+			value === "720p" ||
+			value === "1080p" ||
+			value === "hd" ||
+			value === "4k"
+		) {
+			requestedResolution = value;
+			break;
+		}
+	}
+	if (!requestedResolution) {
+		for (const candidate of getVideoMetadataCandidates(job)) {
+			const value = readNestedValue(candidate, "resolution");
+			if (
+				value === "480p" ||
+				value === "720p" ||
+				value === "1080p" ||
+				value === "hd" ||
+				value === "4k"
+			) {
+				requestedResolution = value;
+				break;
+			}
+		}
+	}
+
 	const largestDimension = Math.max(width, height);
 	const resolution =
-		largestDimension >= 3840
+		requestedResolution ??
+		(largestDimension >= 3840
 			? "4k"
 			: largestDimension >= 1920
 				? "1080p"
 				: largestDimension >= 1792
 					? "hd"
-					: "720p";
+					: largestDimension >= 720
+						? "720p"
+						: "480p");
 
 	return {
 		size,
@@ -804,6 +953,7 @@ function getRequestedVideoMetadata(job: VideoJobRecord): {
 function getRequestedVideoDurationSeconds(job: VideoJobRecord): number | null {
 	for (const candidate of getVideoMetadataCandidates(job)) {
 		for (const key of [
+			"llmgateway_requested_duration_seconds",
 			"duration",
 			"duration_seconds",
 			"durationSeconds",
@@ -1048,7 +1198,7 @@ async function fetchJsonResponse(
 	body: Record<string, unknown>;
 	response: Response;
 }> {
-	const response = await fetch(url, init);
+	const response = await fetchWithSignals(url, init, UPSTREAM_FETCH_TIMEOUT_MS);
 	const text = await response.text();
 
 	let body: Record<string, unknown> = {};
@@ -1377,7 +1527,12 @@ async function fetchGoogleVertexStatus(
 		providerContext.baseUrl,
 		`/v1/projects/${operationMetadata.projectId}/locations/${operationMetadata.region}/publishers/google/models/${operationMetadata.modelName}:fetchPredictOperation`,
 	);
-	const authenticatedUrl = appendQueryParam(url, "key", providerContext.token);
+	// OAuth tokens are sent via the Bearer header (getVideoProviderHeaders);
+	// only API keys go in the `?key=` query param.
+	const authenticatedUrl =
+		providerContext.vertexTokenType === "oauth"
+			? url
+			: appendQueryParam(url, "key", providerContext.token);
 	const { body, response } = await fetchJsonResponse(authenticatedUrl, {
 		method: "POST",
 		headers: {
@@ -1392,9 +1547,9 @@ async function fetchGoogleVertexStatus(
 	if (!response.ok) {
 		throw new Error(
 			body.error &&
-			typeof body.error === "object" &&
-			"message" in body.error &&
-			typeof body.error.message === "string"
+				typeof body.error === "object" &&
+				"message" in body.error &&
+				typeof body.error.message === "string"
 				? body.error.message
 				: `Google Vertex status request failed with status ${response.status}`,
 		);
@@ -1466,7 +1621,7 @@ function videoIncludesAudio(job: VideoJobRecord): boolean | null {
 }
 
 function inferVideoIncludesAudioFromPricing(
-	pricing: Record<string, number>,
+	pricing: Record<string, string>,
 ): boolean | null {
 	const pricingKeys = Object.keys(pricing);
 	const hasAudioPricing = pricingKeys.some((key) => key.endsWith("_audio"));
@@ -1482,7 +1637,7 @@ function inferVideoIncludesAudioFromPricing(
 	return null;
 }
 
-function getVideoPricing(job: VideoJobRecord): Record<string, number> | null {
+function getVideoPricing(job: VideoJobRecord): Record<string, string> | null {
 	const model = models.find((item) => item.id === job.model);
 	const mapping = model?.providers.find(
 		(provider) => provider.providerId === job.usedProvider,
@@ -1495,7 +1650,50 @@ function getVideoRequestPrice(job: VideoJobRecord): number | null {
 	const mapping = model?.providers.find(
 		(provider) => provider.providerId === job.usedProvider,
 	) as ProviderModelMapping | undefined;
-	return mapping?.requestPrice ?? null;
+	if (mapping?.requestPrice === undefined) {
+		return null;
+	}
+	const n = Number(mapping.requestPrice);
+	return Number.isFinite(n) ? n : null;
+}
+
+function getVideoImageInputPrice(job: VideoJobRecord): number | null {
+	const model = models.find((item) => item.id === job.model);
+	const mapping = model?.providers.find(
+		(provider) => provider.providerId === job.usedProvider,
+	) as ProviderModelMapping | undefined;
+	if (mapping?.imageInputPrice === undefined) {
+		return null;
+	}
+	const n = Number(mapping.imageInputPrice);
+	return Number.isFinite(n) ? n : null;
+}
+
+function getVideoInputImageCount(job: VideoJobRecord): number {
+	for (const candidate of getVideoMetadataCandidates(job)) {
+		const value = readNestedValue(candidate, "llmgateway_input_image_count");
+		if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
+			return value;
+		}
+
+		if (typeof value === "string" && value.length > 0) {
+			const parsed = Number(value);
+			if (Number.isInteger(parsed) && parsed >= 0) {
+				return parsed;
+			}
+		}
+	}
+
+	return 0;
+}
+
+function getVideoImageInputCost(job: VideoJobRecord): number {
+	const pricePerImage = getVideoImageInputPrice(job);
+	if (pricePerImage === null) {
+		return 0;
+	}
+
+	return Number((getVideoInputImageCount(job) * pricePerImage).toFixed(6));
 }
 
 function getVideoOutputCost(job: VideoJobRecord): number {
@@ -1522,7 +1720,11 @@ function getVideoOutputCost(job: VideoJobRecord): number {
 			? VIDEO_RESOLUTION_HD
 			: requestedResolution === VIDEO_RESOLUTION_1080P
 				? VIDEO_RESOLUTION_1080P
-				: VIDEO_DEFAULT_RESOLUTION;
+				: requestedResolution === VIDEO_RESOLUTION_720P
+					? VIDEO_RESOLUTION_720P
+					: requestedResolution === VIDEO_RESOLUTION_480P
+						? VIDEO_RESOLUTION_480P
+						: VIDEO_DEFAULT_RESOLUTION;
 	const resolutionCandidates = [
 		requestedResolution,
 		resolutionKey,
@@ -1543,10 +1745,12 @@ function getVideoOutputCost(job: VideoJobRecord): number {
 					),
 					...resolutionCandidates,
 				];
-	const pricePerSecond = priceCandidates
+	const pricePerSecondStr = priceCandidates
 		.map((key) => pricing[key])
-		.find((value): value is number => value !== undefined);
-	if (pricePerSecond === undefined) {
+		.find((value): value is string => value !== undefined);
+	const pricePerSecond =
+		pricePerSecondStr !== undefined ? Number(pricePerSecondStr) : undefined;
+	if (pricePerSecond === undefined || !Number.isFinite(pricePerSecond)) {
 		logger.warn("Could not determine per-second video price", {
 			videoId: job.id,
 			model: job.model,
@@ -1615,24 +1819,35 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				.then((rows) => rows[0]);
 			const videoOutputCost =
 				jobToLog.status === "completed" ? getVideoOutputCost(jobToLog) : 0;
+			const imageInputCost =
+				jobToLog.status === "completed" ? getVideoImageInputCost(jobToLog) : 0;
+			const totalCost = Number((videoOutputCost + imageInputCost).toFixed(6));
 			const responsePayload = await serializeVideoJob(jobToLog, logId);
 			const responseSize = JSON.stringify(responsePayload).length;
-			const messages =
-				organization?.retentionLevel === "retain"
-					? [
-							{
-								role: "user",
-								content: jobToLog.prompt,
-							},
-						]
-					: null;
 
-			await tx.insert(tables.log).values({
+			const isContentFilterFailure =
+				jobToLog.status === "failed" &&
+				isContentFilterErrorText(
+					[jobToLog.error?.code, jobToLog.error?.message]
+						.filter(Boolean)
+						.join(" "),
+				);
+			const failureFinishReason = isContentFilterFailure
+				? "content_filter"
+				: "upstream_error";
+			const failureUnifiedFinishReason = isContentFilterFailure
+				? UnifiedFinishReason.CONTENT_FILTER
+				: UnifiedFinishReason.UPSTREAM_ERROR;
+
+			const logValues: LogInsertData = {
 				id: logId,
 				requestId: jobToLog.requestId,
+				apiOrigin: "videos",
 				organizationId: jobToLog.organizationId,
 				projectId: jobToLog.projectId,
 				apiKeyId: jobToLog.apiKeyId,
+				endUserSessionId: jobToLog.endUserSessionId,
+				endCustomerWalletId: jobToLog.endCustomerWalletId,
 				duration: Math.max(0, Date.now() - jobToLog.createdAt.getTime()),
 				requestedModel: getFormattedRequestedVideoModel(jobToLog),
 				requestedProvider: jobToLog.requestedProvider,
@@ -1645,11 +1860,11 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 						? buildGatewayVideoLogContentUrl(logId)
 						: null,
 				finishReason:
-					jobToLog.status === "completed" ? "completed" : "upstream_error",
+					jobToLog.status === "completed" ? "completed" : failureFinishReason,
 				unifiedFinishReason:
 					jobToLog.status === "completed"
 						? UnifiedFinishReason.COMPLETED
-						: UnifiedFinishReason.UPSTREAM_ERROR,
+						: failureUnifiedFinishReason,
 				hasError: jobToLog.status !== "completed",
 				errorDetails: jobToLog.error
 					? {
@@ -1658,11 +1873,17 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 							responseText: jobToLog.error.message,
 						}
 					: null,
-				cost: videoOutputCost,
+				cost: totalCost,
 				requestCost: 0,
+				imageInputCost,
 				videoOutputCost,
 				estimatedCost: false,
-				messages,
+				messages: [
+					{
+						role: "user",
+						content: jobToLog.prompt,
+					},
+				],
 				mode: jobToLog.mode,
 				usedMode: jobToLog.usedMode,
 				routingMetadata: jobToLog.routingMetadata ?? null,
@@ -1678,9 +1899,24 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				upstreamResponse: jobToLog.upstreamStatusResponse,
 				processedAt: null,
 				dataStorageCost: "0",
-			});
+			};
 
-			return jobToLog;
+			// Strip request/response payload fields for orgs that don't retain data,
+			// keeping the video log consistent with every other endpoint's policy.
+			await tx
+				.insert(tables.log)
+				.values(
+					organization?.retentionLevel === "retain"
+						? logValues
+						: stripRetentionSensitiveLogFields(logValues),
+				);
+
+			await tx
+				.update(tables.videoJob)
+				.set({ logId })
+				.where(eq(tables.videoJob.id, jobToLog.id));
+
+			return { ...jobToLog, logId };
 		});
 
 		if (claimedJob?.contentUrl) {
@@ -1735,6 +1971,295 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 	}
 }
 
+function isBytedanceVideoProvider(providerId: string): boolean {
+	return providerId === "bytedance";
+}
+
+function isMinimaxVideoProvider(providerId: string): boolean {
+	return providerId === "minimax";
+}
+
+function isAlibabaVideoProvider(providerId: string): boolean {
+	return providerId === "alibaba";
+}
+
+function isAtlasCloudVideoProvider(providerId: string): boolean {
+	return providerId === "atlascloud";
+}
+
+async function fetchAtlasCloudStatus(
+	job: VideoJobRecord,
+	providerContext: ResolvedVideoProviderContext,
+): Promise<Record<string, unknown>> {
+	const url = joinUrl(
+		providerContext.baseUrl,
+		`/api/v1/model/prediction/${job.upstreamId}`,
+	);
+	const { body, response } = await fetchJsonResponse(url, {
+		method: "GET",
+		headers: getVideoProviderHeaders(job, providerContext),
+	});
+
+	if (!response.ok) {
+		throw new Error(
+			typeof body.error === "object" &&
+				body.error &&
+				"message" in body.error &&
+				typeof body.error.message === "string"
+				? body.error.message
+				: `AtlasCloud status request failed with status ${response.status}`,
+		);
+	}
+
+	const data =
+		body.data && typeof body.data === "object"
+			? (body.data as Record<string, unknown>)
+			: body;
+	const status = normalizeVideoStatus(data.status);
+	const outputs = Array.isArray(data.outputs) ? data.outputs : [];
+	const outputUrl =
+		outputs
+			.map((output) =>
+				typeof output === "string"
+					? output
+					: output &&
+						  typeof output === "object" &&
+						  "url" in output &&
+						  typeof output.url === "string"
+						? output.url
+						: null,
+			)
+			.find((url) => url !== null) ?? null;
+
+	return addRequestedVideoMetadata(job, {
+		...body,
+		status,
+		progress:
+			status === "completed"
+				? 100
+				: status === "failed"
+					? 100
+					: status === "in_progress"
+						? 50
+						: 0,
+		url: outputUrl,
+		output_url: outputUrl,
+		outputs,
+		mime_type: outputUrl ? "video/mp4" : undefined,
+		error:
+			status === "failed"
+				? {
+						message:
+							typeof data.error === "string"
+								? data.error
+								: data.error &&
+									  typeof data.error === "object" &&
+									  "message" in data.error &&
+									  typeof data.error.message === "string"
+									? data.error.message
+									: "AtlasCloud video generation failed",
+						details: body,
+					}
+				: null,
+		atlascloud_raw_response: body,
+	});
+}
+
+async function fetchAlibabaStatus(
+	job: VideoJobRecord,
+	providerContext: ResolvedVideoProviderContext,
+): Promise<Record<string, unknown>> {
+	const url = joinUrl(
+		providerContext.baseUrl,
+		`/api/v1/tasks/${job.upstreamId}`,
+	);
+	const { body, response } = await fetchJsonResponse(url, {
+		method: "GET",
+		headers: getVideoProviderHeaders(job, providerContext),
+	});
+
+	if (!response.ok) {
+		throw new Error(
+			typeof body.message === "string"
+				? body.message
+				: `Alibaba status request failed with status ${response.status}`,
+		);
+	}
+
+	const output =
+		body.output && typeof body.output === "object"
+			? (body.output as Record<string, unknown>)
+			: {};
+	const rawStatus =
+		typeof output.task_status === "string" ? output.task_status : "PENDING";
+	const status = normalizeVideoStatus(rawStatus);
+	const videoUrl =
+		typeof output.video_url === "string" ? output.video_url : null;
+
+	return addRequestedVideoMetadata(job, {
+		...body,
+		status,
+		progress:
+			status === "completed"
+				? 100
+				: status === "failed"
+					? 100
+					: status === "in_progress"
+						? 50
+						: 0,
+		url: videoUrl,
+		video_url: videoUrl,
+		output_url: videoUrl,
+		mime_type: videoUrl ? "video/mp4" : undefined,
+		error:
+			status === "failed"
+				? {
+						message:
+							typeof output.message === "string"
+								? output.message
+								: typeof body.message === "string"
+									? body.message
+									: "Alibaba video generation failed",
+						code:
+							typeof output.code === "string"
+								? output.code
+								: typeof body.code === "string"
+									? body.code
+									: undefined,
+						details: body,
+					}
+				: null,
+		alibaba_raw_response: body,
+	});
+}
+
+async function fetchMinimaxStatus(
+	job: VideoJobRecord,
+	providerContext: ResolvedVideoProviderContext,
+): Promise<Record<string, unknown>> {
+	const url = joinUrl(
+		providerContext.baseUrl,
+		`/v1/query/video_generation?task_id=${job.upstreamId}`,
+	);
+	const { body, response } = await fetchJsonResponse(url, {
+		method: "GET",
+		headers: getVideoProviderHeaders(job, providerContext),
+	});
+
+	if (!response.ok) {
+		throw new Error(
+			typeof body.error === "object" &&
+				body.error &&
+				"message" in body.error &&
+				typeof body.error.message === "string"
+				? body.error.message
+				: `MiniMax status request failed with status ${response.status}`,
+		);
+	}
+
+	const rawStatus =
+		typeof body.status === "string" ? body.status : "Processing";
+	const normalizedStatus =
+		rawStatus === "Success"
+			? "completed"
+			: rawStatus === "Fail" || rawStatus === "Failed"
+				? "failed"
+				: "in_progress";
+	const fileId =
+		typeof body.file_id === "string"
+			? body.file_id
+			: typeof body.file_id === "number"
+				? String(body.file_id)
+				: null;
+
+	return addRequestedVideoMetadata(job, {
+		...body,
+		status: normalizedStatus,
+		progress:
+			normalizedStatus === "completed"
+				? 100
+				: normalizedStatus === "failed"
+					? 100
+					: rawStatus === "Processing"
+						? 50
+						: 0,
+		file_id: fileId,
+		error:
+			normalizedStatus === "failed"
+				? {
+						message:
+							typeof body.base_resp === "object" &&
+							body.base_resp &&
+							"status_msg" in (body.base_resp as Record<string, unknown>)
+								? String((body.base_resp as Record<string, unknown>).status_msg)
+								: "MiniMax video generation failed",
+					}
+				: null,
+	});
+}
+
+async function fetchBytedanceStatus(
+	job: VideoJobRecord,
+	providerContext: ResolvedVideoProviderContext,
+): Promise<Record<string, unknown>> {
+	const url = joinUrl(
+		providerContext.baseUrl,
+		`/contents/generations/tasks/${job.upstreamId}`,
+	);
+	const { body, response } = await fetchJsonResponse(url, {
+		method: "GET",
+		headers: getVideoProviderHeaders(job, providerContext),
+	});
+
+	if (!response.ok) {
+		throw new Error(
+			typeof body.error === "object" &&
+				body.error &&
+				"message" in body.error &&
+				typeof body.error.message === "string"
+				? body.error.message
+				: `ByteDance status request failed with status ${response.status}`,
+		);
+	}
+
+	const data =
+		body.data && typeof body.data === "object"
+			? (body.data as Record<string, unknown>)
+			: body;
+
+	const rawStatus = typeof data.status === "string" ? data.status : "queued";
+	const content =
+		data.content && typeof data.content === "object"
+			? (data.content as Record<string, unknown>)
+			: null;
+	const videoUrl =
+		content && typeof content.video_url === "string" ? content.video_url : null;
+
+	return addRequestedVideoMetadata(job, {
+		...body,
+		status: rawStatus,
+		progress:
+			rawStatus === "succeeded" || rawStatus === "completed"
+				? 100
+				: rawStatus === "failed"
+					? 100
+					: rawStatus === "running"
+						? 50
+						: 0,
+		url: videoUrl,
+		video_url: videoUrl,
+		output_url: videoUrl,
+		mime_type: videoUrl ? "video/mp4" : undefined,
+		error:
+			rawStatus === "failed"
+				? (extractError(data) ?? {
+						message: "ByteDance video generation failed",
+					})
+				: null,
+		bytedance_raw_response: body,
+	});
+}
+
 async function fetchUpstreamStatus(
 	job: VideoJobRecord,
 ): Promise<Record<string, unknown>> {
@@ -1748,6 +2273,22 @@ async function fetchUpstreamStatus(
 
 	if (isGoogleVertexVideoProvider(job.usedProvider)) {
 		return await fetchGoogleVertexStatus(job, providerContext);
+	}
+
+	if (isBytedanceVideoProvider(job.usedProvider)) {
+		return await fetchBytedanceStatus(job, providerContext);
+	}
+
+	if (isMinimaxVideoProvider(job.usedProvider)) {
+		return await fetchMinimaxStatus(job, providerContext);
+	}
+
+	if (isAlibabaVideoProvider(job.usedProvider)) {
+		return await fetchAlibabaStatus(job, providerContext);
+	}
+
+	if (isAtlasCloudVideoProvider(job.usedProvider)) {
+		return await fetchAtlasCloudStatus(job, providerContext);
 	}
 
 	return await fetchGenericVideoStatus(job, providerContext);
@@ -1766,9 +2307,9 @@ async function fetchGenericVideoStatus(
 	if (!response.ok) {
 		throw new Error(
 			typeof body.error === "object" &&
-			body.error &&
-			"message" in body.error &&
-			typeof body.error.message === "string"
+				body.error &&
+				"message" in body.error &&
+				typeof body.error.message === "string"
 				? body.error.message
 				: `Upstream status request failed with status ${response.status}`,
 		);
@@ -1782,7 +2323,11 @@ async function fetchUpstreamContentMetadata(
 ): Promise<Record<string, unknown> | null> {
 	if (
 		job.usedProvider === "avalanche" ||
-		isGoogleVertexVideoProvider(job.usedProvider)
+		job.usedProvider === "xai" ||
+		isGoogleVertexVideoProvider(job.usedProvider) ||
+		isMinimaxVideoProvider(job.usedProvider) ||
+		isAlibabaVideoProvider(job.usedProvider) ||
+		isAtlasCloudVideoProvider(job.usedProvider)
 	) {
 		return null;
 	}
@@ -1792,14 +2337,18 @@ async function fetchUpstreamContentMetadata(
 		providerContext.baseUrl,
 		`/v1/videos/${job.upstreamId}/content`,
 	);
-	const response = await fetch(url, {
-		method: "GET",
-		headers: {
-			Authorization: `Bearer ${providerContext.token}`,
-			Accept: "application/json",
+	const response = await fetchWithSignals(
+		url,
+		{
+			method: "GET",
+			headers: {
+				Authorization: `Bearer ${providerContext.token}`,
+				Accept: "application/json",
+			},
+			redirect: "manual",
 		},
-		redirect: "manual",
-	});
+		UPSTREAM_FETCH_TIMEOUT_MS,
+	);
 	const contentType = response.headers.get("Content-Type") ?? "";
 	if (!contentType.toLowerCase().includes("application/json")) {
 		return null;
@@ -1865,6 +2414,9 @@ export async function processPendingVideoJobs(): Promise<void> {
 	const jobsToPoll = await claimDueVideoJobsForPolling(now);
 
 	for (const job of jobsToPoll) {
+		if (isStopRequested()) {
+			break;
+		}
 		try {
 			const upstreamStatus = await fetchUpstreamStatus(job);
 			let enrichedUpstreamStatus = upstreamStatus;
@@ -1961,6 +2513,14 @@ export async function processPendingVideoJobs(): Promise<void> {
 				}
 			}
 		} catch (error) {
+			if (isShutdownAbort(error)) {
+				logger.info("Skipping video job poll bookkeeping due to shutdown", {
+					videoJobId: job.id,
+					upstreamId: job.upstreamId,
+				});
+				break;
+			}
+
 			const message = error instanceof Error ? error.message : String(error);
 			logger.error(
 				"Error polling video job",
@@ -2058,6 +2618,9 @@ export async function processPendingVideoJobs(): Promise<void> {
 		.limit(25);
 
 	for (const job of terminalJobsToFinalize) {
+		if (isStopRequested()) {
+			break;
+		}
 		try {
 			await finalizeVideoJob(job);
 		} catch (error) {
@@ -2123,12 +2686,16 @@ async function deliverWebhook(
 	const startedAt = new Date();
 
 	try {
-		const response = await fetch(delivery.targetUrl, {
-			method: "POST",
-			headers,
-			body: payload,
-			redirect: "manual",
-		});
+		const response = await fetchWithSignals(
+			delivery.targetUrl,
+			{
+				method: "POST",
+				headers,
+				body: payload,
+				redirect: "manual",
+			},
+			WEBHOOK_DELIVERY_TIMEOUT_MS,
+		);
 		const responseText = (await response.text()).slice(0, 4000);
 
 		if (response.ok) {
@@ -2202,6 +2769,17 @@ async function deliverWebhook(
 			});
 		});
 	} catch (error) {
+		if (isShutdownAbort(error)) {
+			logger.info(
+				"Skipping webhook delivery bookkeeping due to shutdown; will retry on next worker run",
+				{
+					videoJobId: job.id,
+					deliveryId: delivery.id,
+				},
+			);
+			return;
+		}
+
 		const message =
 			error instanceof Error ? error.message : "Unknown webhook delivery error";
 
@@ -2259,6 +2837,9 @@ export async function processPendingWebhookDeliveries(): Promise<void> {
 		.limit(25);
 
 	for (const delivery of dueDeliveries) {
+		if (isStopRequested()) {
+			break;
+		}
 		const job = await db
 			.select()
 			.from(tables.videoJob)

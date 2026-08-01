@@ -5,6 +5,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { HeroRSC } from "@/components/landing/hero-rsc";
+import { LegalSummary } from "@/components/legal/legal-summary";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 
 import { allLegals } from "content-collections";
@@ -42,6 +43,8 @@ export default async function LegalEntryPage({ params }: LegalEntryPageProps) {
 							</Link>
 						</div>
 
+						<LegalSummary slug={slug} />
+
 						<article className="prose prose-lg dark:prose-invert max-w-none">
 							<div className="prose prose-lg dark:prose-invert max-w-none">
 								<Markdown options={getMarkdownOptions()}>
@@ -75,16 +78,18 @@ export async function generateMetadata({
 	}
 
 	return {
-		title: `${entry.title} - LLM Gateway`,
+		title: entry.title,
 		description: entry.description ?? "LLM Gateway legal post",
+		alternates: { canonical: `/legal/${entry.slug}` },
 		openGraph: {
-			title: `${entry.title} - LLM Gateway`,
+			title: `${entry.title} | LLM Gateway`,
 			description: entry.description ?? "LLM Gateway legal post",
 			type: "website",
+			url: `https://llmgateway.io/legal/${entry.slug}`,
 		},
 		twitter: {
 			card: "summary_large_image",
-			title: `${entry.title} - LLM Gateway`,
+			title: `${entry.title} | LLM Gateway`,
 			description: entry.description ?? "LLM Gateway legal post",
 		},
 	};

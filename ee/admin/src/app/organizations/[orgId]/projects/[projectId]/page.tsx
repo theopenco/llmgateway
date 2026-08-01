@@ -13,6 +13,7 @@ import {
 	type ModelDefinition,
 } from "@llmgateway/models";
 
+import { ProjectCostByModelTimeseries } from "./project-cost-by-model-timeseries";
 import { ProjectLogsSection } from "./project-logs";
 import { ProjectMetricsSection } from "./project-metrics";
 
@@ -119,6 +120,8 @@ export default async function ProjectDetailPage({
 			</header>
 
 			<ProjectMetricsSection orgId={orgId} projectId={projectId} />
+
+			<ProjectCostByModelTimeseries orgId={orgId} projectId={projectId} />
 
 			<div>
 				<Button variant="outline" size="sm" asChild>

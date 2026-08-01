@@ -1,0 +1,43 @@
+name: 📖 Documentation issue
+description: Report something missing, unclear, or incorrect in the docs.
+title: "[Docs]: "
+labels: ["documentation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping us improve the [documentation](https://docs.llmgateway.io)!
+  - type: input
+    id: page
+    attributes:
+      label: Page / URL
+      description: Which docs page does this relate to?
+      placeholder: https://docs.llmgateway.io/...
+    validations:
+      required: false
+  - type: dropdown
+    id: type
+    attributes:
+      label: Type of issue
+      options:
+        - "Incorrect or outdated information"
+        - "Missing documentation"
+        - "Unclear / confusing explanation"
+        - "Typo or formatting"
+        - "Broken link or example"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What's wrong, missing, or could be improved?
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested fix
+      description: If you have one, how would you word or structure it?
+    validations:
+      required: false

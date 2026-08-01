@@ -1,5 +1,8 @@
+import { swrWrap } from "@llmgateway/cache";
 import {
+	cdb,
 	db,
+	getTableName,
 	guardrailConfig,
 	guardrailRule,
 	guardrailViolation,
@@ -12,6 +15,7 @@ import {
 import {
 	systemRules,
 	redactPii,
+	redactSecrets,
 	checkBlockedTerms,
 	checkCustomRegex,
 	checkTopicRestriction,
@@ -33,28 +37,37 @@ import type {
 	GuardrailAction,
 } from "@llmgateway/db";
 
+const guardrailConfigTableName = getTableName(guardrailConfig);
+const guardrailRuleTableName = getTableName(guardrailRule);
+
 export async function getGuardrailConfig(
 	organizationId: string,
 ): Promise<GuardrailConfigData | null> {
-	const configs = await db
-		.select()
-		.from(guardrailConfig)
-		.where(eq(guardrailConfig.organizationId, organizationId))
-		.limit(1);
+	return await swrWrap(
+		`guardrailConfig:${organizationId}`,
+		[guardrailConfigTableName],
+		async () => {
+			const configs = await cdb
+				.select()
+				.from(guardrailConfig)
+				.where(eq(guardrailConfig.organizationId, organizationId))
+				.limit(1);
 
-	const config = configs[0];
+			const config = configs[0];
 
-	if (!config) {
-		return null;
-	}
+			if (!config) {
+				return null;
+			}
 
-	return {
-		enabled: config.enabled,
-		systemRules: config.systemRules ?? defaultSystemRulesConfig,
-		maxFileSizeMb: config.maxFileSizeMb,
-		allowedFileTypes: config.allowedFileTypes ?? defaultAllowedFileTypes,
-		piiAction: config.piiAction ?? "redact",
-	};
+			return {
+				enabled: config.enabled,
+				systemRules: config.systemRules ?? defaultSystemRulesConfig,
+				maxFileSizeMb: config.maxFileSizeMb,
+				allowedFileTypes: config.allowedFileTypes ?? defaultAllowedFileTypes,
+				piiAction: config.piiAction ?? "redact",
+			};
+		},
+	);
 }
 
 export async function checkGuardrails(
@@ -95,50 +108,59 @@ export async function checkGuardrails(
 			const result = rule.check(content, ruleConfig);
 
 			if (!result.passed) {
-				// Handle PII redaction specially
-				if (
-					rule.id === "system:pii_detection" &&
-					ruleConfig.action === "redact"
-				) {
-					const { patterns } = redactPii(content);
-					for (const pattern of patterns) {
-						redactions.push({
-							ruleId: rule.id,
-							pattern,
-							replacement: `[${pattern.toUpperCase()}_REDACTED]`,
-							messageIndex,
-							originalContent: content,
-						});
+				let matchedPattern = result.matches.join(", ");
+
+				if (ruleConfig.action === "redact") {
+					if (rule.id === "system:pii_detection") {
+						const { patterns } = redactPii(content);
+						if (patterns.length > 0) {
+							redactions.push({
+								ruleId: rule.id,
+								messageIndex,
+								kind: "pii",
+								matches: [],
+								pattern: patterns.join(", "),
+							});
+						}
+						// Avoid logging the raw PII; log the detected types instead
+						matchedPattern = patterns.join(", ");
+					} else if (rule.id === "system:secrets") {
+						const { patterns } = redactSecrets(content);
+						if (patterns.length > 0) {
+							redactions.push({
+								ruleId: rule.id,
+								messageIndex,
+								kind: "secrets",
+								matches: [],
+								pattern: patterns.join(", "),
+							});
+						}
 					}
-					// Also add as violation for logging
-					violations.push({
-						ruleId: rule.id,
-						ruleName: rule.name,
-						category: rule.category,
-						action: ruleConfig.action,
-						matchedPattern: patterns.join(", "),
-						matchedContent: content.substring(0, 100),
-					});
-				} else {
-					violations.push({
-						ruleId: rule.id,
-						ruleName: rule.name,
-						category: rule.category,
-						action: ruleConfig.action,
-						matchedPattern: result.matches.join(", "),
-						matchedContent: content.substring(0, 100),
-					});
 				}
+
+				violations.push({
+					ruleId: rule.id,
+					ruleName: rule.name,
+					category: rule.category,
+					action: ruleConfig.action,
+					matchedPattern,
+					matchedContent: content.substring(0, 100),
+				});
 			}
 		}
 	}
 
 	// Check custom rules
-	const customRules = await db
-		.select()
-		.from(guardrailRule)
-		.where(eq(guardrailRule.organizationId, input.organizationId))
-		.orderBy(desc(guardrailRule.priority));
+	const customRules = await swrWrap(
+		`guardrailRules:${input.organizationId}`,
+		[guardrailRuleTableName],
+		async () =>
+			await cdb
+				.select()
+				.from(guardrailRule)
+				.where(eq(guardrailRule.organizationId, input.organizationId))
+				.orderBy(desc(guardrailRule.priority)),
+	);
 
 	for (const rule of customRules) {
 		if (!rule.enabled) {
@@ -147,7 +169,7 @@ export async function checkGuardrails(
 
 		rulesChecked++;
 
-		for (const { content } of textContents) {
+		for (const { content, messageIndex } of textContents) {
 			let result: {
 				passed: boolean;
 				matches: string[];
@@ -189,6 +211,16 @@ export async function checkGuardrails(
 					matchedPattern: result.matches.join(", "),
 					matchedContent: content.substring(0, 100),
 				});
+
+				if (result.action === "redact" && result.matches.length > 0) {
+					redactions.push({
+						ruleId: rule.id,
+						messageIndex,
+						kind: "mask",
+						matches: result.matches,
+						pattern: result.matches.join(", "),
+					});
+				}
 			}
 		}
 	}
@@ -251,25 +283,52 @@ export function applyRedactions(
 			return message;
 		}
 
+		const hasPii = messageRedactions.some((r) => r.kind === "pii");
+		const hasSecrets = messageRedactions.some((r) => r.kind === "secrets");
+		const maskMatches = messageRedactions
+			.filter((r) => r.kind === "mask")
+			.flatMap((r) => r.matches);
+
+		const redactText = (text: string): string => {
+			let result = text;
+			if (hasPii) {
+				result = redactPii(result).redacted;
+			}
+			if (hasSecrets) {
+				result = redactSecrets(result).redacted;
+			}
+			for (const match of maskMatches) {
+				result = maskMatch(result, match);
+			}
+			return result;
+		};
+
 		if (typeof message.content === "string") {
-			let content = message.content;
-			// Apply PII redaction
-			const { redacted } = redactPii(content);
-			content = redacted;
-			return { ...message, content };
+			return { ...message, content: redactText(message.content) };
 		}
 
 		// Handle array content (multimodal)
 		const content = message.content.map((part) => {
 			if (part.type === "text" && part.text) {
-				const { redacted } = redactPii(part.text);
-				return { ...part, text: redacted };
+				return { ...part, text: redactText(part.text) };
 			}
 			return part;
 		});
 
 		return { ...message, content };
 	});
+}
+
+function escapeRegex(str: string): string {
+	return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function maskMatch(content: string, match: string): string {
+	if (!match || !match.trim()) {
+		return content;
+	}
+	const regex = new RegExp(escapeRegex(match), "gi");
+	return content.replace(regex, (m) => "*".repeat(m.length));
 }
 
 function extractTextContent(

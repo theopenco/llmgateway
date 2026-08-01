@@ -1,5 +1,6 @@
 import { BlogList } from "@/components/blog/list";
 import { HeroRSC } from "@/components/landing/hero-rsc";
+import { JsonLd } from "@/components/seo/json-ld";
 
 interface BlogItem {
 	id: string;
@@ -20,8 +21,53 @@ export default async function BlogPage() {
 		.filter((entry: any) => !entry?.draft)
 		.map(({ ...entry }: any) => entry as BlogItem);
 
+	// Standalone top-level ItemList (referenced by the CollectionPage via @id)
+	// so parsers that only inspect top-level @type values still see the list.
+	const itemListSchema = {
+		"@context": "https://schema.org",
+		"@type": "ItemList",
+		"@id": "https://llmgateway.io/blog#post-list",
+		name: "LLM Gateway Blog",
+		numberOfItems: sortedEntries.length,
+		itemListElement: sortedEntries.map((entry, index) => ({
+			"@type": "ListItem",
+			position: index + 1,
+			url: `https://llmgateway.io/blog/${entry.slug}`,
+			name: entry.title,
+		})),
+	};
+
+	const collectionSchema = {
+		"@context": "https://schema.org",
+		"@type": "CollectionPage",
+		name: "LLM Gateway Blog",
+		description: "News, tutorials, and deep-dives from the LLM Gateway team.",
+		url: "https://llmgateway.io/blog",
+		mainEntity: { "@id": "https://llmgateway.io/blog#post-list" },
+	};
+
+	const breadcrumbSchema = {
+		"@context": "https://schema.org",
+		"@type": "BreadcrumbList",
+		itemListElement: [
+			{
+				"@type": "ListItem",
+				position: 1,
+				name: "Home",
+				item: "https://llmgateway.io",
+			},
+			{
+				"@type": "ListItem",
+				position: 2,
+				name: "Blog",
+				item: "https://llmgateway.io/blog",
+			},
+		],
+	};
+
 	return (
 		<div>
+			<JsonLd data={[collectionSchema, itemListSchema, breadcrumbSchema]} />
 			<HeroRSC navbarOnly />
 			<BlogList
 				entries={sortedEntries}
@@ -34,17 +80,22 @@ export default async function BlogPage() {
 
 export async function generateMetadata() {
 	return {
-		title: "Blog - LLM Gateway",
-		description: "News, tutorials, and deep-dives from the LLM Gateway team.",
+		title: "Blog — News, Tutorials, and Deep-Dives",
+		description:
+			"News, tutorials, and deep-dives from the LLM Gateway team on AI gateways, model routing, LLM costs, model comparisons, and shipping production AI apps.",
+		alternates: { canonical: "/blog" },
 		openGraph: {
-			title: "Blog - LLM Gateway",
-			description: "News, tutorials, and deep-dives from the LLM Gateway team.",
+			title: "Blog — News, Tutorials, and Deep-Dives",
+			description:
+				"News, tutorials, and deep-dives from the LLM Gateway team on AI gateways, model routing, LLM costs, model comparisons, and shipping production AI apps.",
 			type: "website",
+			url: "https://llmgateway.io/blog",
 		},
 		twitter: {
 			card: "summary_large_image",
-			title: "Blog - LLM Gateway",
-			description: "News, tutorials, and deep-dives from the LLM Gateway team.",
+			title: "Blog — News, Tutorials, and Deep-Dives",
+			description:
+				"News, tutorials, and deep-dives from the LLM Gateway team on AI gateways, routing, and building with LLMs.",
 		},
 	};
 }

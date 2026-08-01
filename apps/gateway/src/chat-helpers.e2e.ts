@@ -1,10 +1,12 @@
 import "dotenv/config";
 import { describe, expect, it } from "vitest";
 
-import { db, tables } from "@llmgateway/db";
+import { db, tables, type ProviderKeyOptions } from "@llmgateway/db";
 import {
 	type ModelDefinition,
+	getProviderDefinition,
 	getProviderEnvVar,
+	getSupportedServiceTiers,
 	models,
 	type ProviderModelMapping,
 	providers,
@@ -12,6 +14,7 @@ import {
 	getTestOptions,
 	expandAllProviderRegions,
 } from "@llmgateway/models";
+import { uniqueId } from "@llmgateway/shared/random";
 
 import {
 	clearCache,
@@ -22,7 +25,7 @@ export { getConcurrentTestOptions, getTestOptions };
 
 // Helper function to generate unique request IDs for tests
 export function generateTestRequestId(): string {
-	return `test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+	return uniqueId("test");
 }
 
 export const fullMode = process.env.FULL_MODE;
@@ -103,6 +106,60 @@ if (specifiedProviders) {
 	console.log(`TEST_PROVIDERS specified: ${specifiedProviders.join(", ")}`);
 }
 
+/**
+ * Check whether a single TEST_MODELS entry matches at least one real
+ * provider/model mapping (regions expanded).
+ */
+function testModelMatchesAnyMapping(entry: ParsedTestModel): boolean {
+	return models.some((model) => {
+		if (model.id !== entry.modelId) {
+			return false;
+		}
+		return expandAllProviderRegions(
+			model.providers as ProviderModelMapping[],
+		).some(
+			(p) =>
+				p.providerId === entry.providerId &&
+				(entry.region === undefined || p.region === entry.region),
+		);
+	});
+}
+
+// Fail loudly if TEST_MODELS is set but some entries match zero mappings.
+// Otherwise a typo'd model string silently runs no tests and "passes",
+// giving a false sense of security.
+if (specifiedModels && parsedTestModels) {
+	const unmatched = specifiedModels.filter(
+		(_, i) => !testModelMatchesAnyMapping(parsedTestModels[i]),
+	);
+	if (unmatched.length > 0) {
+		throw new Error(
+			`TEST_MODELS contains ${unmatched.length} entr${
+				unmatched.length === 1 ? "y that matches" : "ies that match"
+			} no provider/model mapping: ${unmatched.join(
+				", ",
+			)}. Check for typos (expected "provider/model" or "provider/model:region").`,
+		);
+	}
+}
+
+function hasAllRequiredProviderEnvVars(providerId: string): boolean {
+	const def = getProviderDefinition(providerId);
+	if (!def) {
+		return false;
+	}
+	const required = def.env.required as Record<string, string | undefined>;
+	for (const envVarName of Object.values(required)) {
+		if (!envVarName) {
+			continue;
+		}
+		if (!process.env[envVarName]) {
+			return false;
+		}
+	}
+	return true;
+}
+
 // Filter models based on test skip/only property
 export const hasOnlyModels = models.some((model) =>
 	model.providers.some(
@@ -125,11 +182,40 @@ if (hasOnlyModels) {
 export const filteredModels = models
 	// Filter out auto/custom models
 	.filter((model) => !["custom", "auto"].includes(model.id))
-	// Filter out video-only models (they use the /v1/videos endpoint, not chat completions)
+	// Filter out video-only, audio-only and transcription-only models (they use
+	// dedicated endpoints — /v1/videos, /v1/audio/speech and
+	// /v1/audio/transcriptions — not chat completions)
 	.filter((model) => {
 		const output = (model as ModelDefinition).output;
-		return !output || !output.includes("video") || output.includes("text");
+		if (!output || output.includes("text")) {
+			return true;
+		}
+		return (
+			!output.includes("video") &&
+			!output.includes("audio") &&
+			!output.includes("transcription")
+		);
 	})
+	// Filter out OCR models (they use the dedicated /v1/ocr endpoint, not chat
+	// completions, and are covered by ocr.e2e.ts)
+	.filter(
+		(model) =>
+			!model.providers.some((p) => (p as ProviderModelMapping).ocr === true),
+	)
+	// Filter out embedding models (they use the dedicated /v1/embeddings
+	// endpoint, not chat completions, and are covered by embeddings.e2e.ts)
+	.filter(
+		(model) =>
+			!model.providers.some(
+				(p) => (p as ProviderModelMapping).embeddings === true,
+			),
+	)
+	// Filter out rerank models (they use the dedicated /v1/rerank
+	// endpoint, not chat completions, and are covered by rerank.e2e.ts)
+	.filter(
+		(model) =>
+			!model.providers.some((p) => (p as ProviderModelMapping).rerank === true),
+	)
 	// Filter out unstable models if not in full mode, unless they have test: "only" or are in TEST_MODELS
 	// Note: This only filters models with model-level stability, not provider-level stability
 	.filter((model) => {
@@ -293,6 +379,14 @@ export const testModels = filteredModels
 				if (provider.test === "skip") {
 					continue;
 				}
+
+				// Skip providers whose required env vars aren't set (no creds to hit them)
+				if (
+					provider.test !== "only" &&
+					!hasAllRequiredProviderEnvVars(provider.providerId)
+				) {
+					continue;
+				}
 			}
 
 			// Skip unstable providers if not in full mode, unless they have test: "only" or are in TEST_MODELS/TEST_PROVIDERS
@@ -325,7 +419,7 @@ export const testModels = filteredModels
 			}
 
 			testCases.push({
-				model: `${provider.providerId}/${provider.region ? provider.modelName : model.id}`,
+				model: `${provider.providerId}/${model.id}${provider.region ? `:${provider.region}` : ""}`,
 				providers: [provider],
 				originalModel: model.id, // Keep track of the original model for reference
 			});
@@ -382,6 +476,14 @@ export const providerModels = filteredModels
 					continue;
 				}
 
+				// Skip providers whose required env vars aren't set (no creds to hit them)
+				if (
+					provider.test !== "only" &&
+					!hasAllRequiredProviderEnvVars(provider.providerId)
+				) {
+					continue;
+				}
+
 				// Skip unstable providers if not in full mode, unless they have test: "only"
 				if (
 					(provider.stability === "unstable" ||
@@ -401,7 +503,7 @@ export const providerModels = filteredModels
 			}
 
 			testCases.push({
-				model: `${provider.providerId}/${provider.region ? provider.modelName : model.id}`,
+				model: `${provider.providerId}/${model.id}${provider.region ? `:${provider.region}` : ""}`,
 				provider,
 				originalModel: model.id, // Keep track of the original model for reference
 			});
@@ -410,9 +512,358 @@ export const providerModels = filteredModels
 		return testCases;
 	});
 
+// Embedding models are excluded from filteredModels above (they use the
+// dedicated /v1/embeddings endpoint). Build a separate list of embedding
+// provider/model mappings for embeddings.e2e.ts, applying the same
+// TEST_MODELS/TEST_PROVIDERS, deactivation, env-var, and stability filters.
+export const embeddingModels = models
+	.filter((model) => !["custom", "auto"].includes(model.id))
+	.filter((model) =>
+		model.providers.some(
+			(provider: ProviderModelMapping) => provider.embeddings === true,
+		),
+	)
+	// If any model has test: "only", only include those models
+	.filter((model) => {
+		if (hasOnlyModels) {
+			return model.providers.some(
+				(provider: ProviderModelMapping) => provider.test === "only",
+			);
+		}
+		return true;
+	})
+	.flatMap((model) => {
+		const testCases = [];
+		const expandedProviders = expandAllProviderRegions(
+			model.providers as ProviderModelMapping[],
+		);
+		for (const provider of expandedProviders) {
+			if (!provider.embeddings) {
+				continue;
+			}
+
+			// Skip deactivated / deprecated provider mappings
+			if (provider.deactivatedAt && new Date() > provider.deactivatedAt) {
+				continue;
+			}
+			if (provider.deprecatedAt && new Date() > provider.deprecatedAt) {
+				continue;
+			}
+
+			if (specifiedModels || specifiedProviders) {
+				if (specifiedProviders) {
+					if (!specifiedProviders.includes(provider.providerId)) {
+						continue;
+					}
+				} else {
+					if (
+						!matchesTestModel(provider.providerId, model.id, provider.region)
+					) {
+						continue;
+					}
+				}
+				// TEST_MODELS/TEST_PROVIDERS takes precedence over test: "skip"
+			} else {
+				if (provider.test === "skip") {
+					continue;
+				}
+				if (
+					provider.test !== "only" &&
+					!hasAllRequiredProviderEnvVars(provider.providerId)
+				) {
+					continue;
+				}
+				if (
+					(provider.stability === "unstable" ||
+						provider.stability === "experimental") &&
+					!fullMode &&
+					provider.test !== "only"
+				) {
+					continue;
+				}
+			}
+
+			// If we have any "only" providers, skip those not marked as "only"
+			if (hasOnlyModels && provider.test !== "only") {
+				continue;
+			}
+
+			testCases.push({
+				model: `${provider.providerId}/${model.id}${provider.region ? `:${provider.region}` : ""}`,
+				provider,
+				originalModel: model.id,
+			});
+		}
+		return testCases;
+	});
+
+// Speech generation (text-to-speech) models are excluded from filteredModels
+// above (audio-only output, served by the dedicated /v1/audio/speech endpoint).
+// Build a separate list of speech provider/model mappings for speech.e2e.ts,
+// applying the same TEST_MODELS/TEST_PROVIDERS, deactivation, env-var, and
+// stability filters as embeddingModels.
+export const speechModels = models
+	.filter((model) => !["custom", "auto"].includes(model.id))
+	.filter((model) =>
+		model.providers.some(
+			(provider: ProviderModelMapping) => provider.speechGenerations === true,
+		),
+	)
+	// If any model has test: "only", only include those models
+	.filter((model) => {
+		if (hasOnlyModels) {
+			return model.providers.some(
+				(provider: ProviderModelMapping) => provider.test === "only",
+			);
+		}
+		return true;
+	})
+	.flatMap((model) => {
+		const testCases = [];
+		const expandedProviders = expandAllProviderRegions(
+			model.providers as ProviderModelMapping[],
+		);
+		for (const provider of expandedProviders) {
+			if (!provider.speechGenerations) {
+				continue;
+			}
+
+			// Skip deactivated / deprecated provider mappings
+			if (provider.deactivatedAt && new Date() > provider.deactivatedAt) {
+				continue;
+			}
+			if (provider.deprecatedAt && new Date() > provider.deprecatedAt) {
+				continue;
+			}
+
+			if (specifiedModels || specifiedProviders) {
+				if (specifiedProviders) {
+					if (!specifiedProviders.includes(provider.providerId)) {
+						continue;
+					}
+				} else {
+					if (
+						!matchesTestModel(provider.providerId, model.id, provider.region)
+					) {
+						continue;
+					}
+				}
+				// TEST_MODELS/TEST_PROVIDERS takes precedence over test: "skip"
+			} else {
+				if (provider.test === "skip") {
+					continue;
+				}
+				if (
+					provider.test !== "only" &&
+					!hasAllRequiredProviderEnvVars(provider.providerId)
+				) {
+					continue;
+				}
+				if (
+					(provider.stability === "unstable" ||
+						provider.stability === "experimental") &&
+					!fullMode &&
+					provider.test !== "only"
+				) {
+					continue;
+				}
+			}
+
+			// If we have any "only" providers, skip those not marked as "only"
+			if (hasOnlyModels && provider.test !== "only") {
+				continue;
+			}
+
+			testCases.push({
+				model: `${provider.providerId}/${model.id}${provider.region ? `:${provider.region}` : ""}`,
+				provider,
+				originalModel: model.id,
+			});
+		}
+		return testCases;
+	});
+
+// Transcription (speech-to-text) models are likewise excluded from
+// filteredModels (transcription-only output, served by the dedicated
+// /v1/audio/transcriptions endpoint). Build a separate list of transcription
+// provider/model mappings for transcriptions.e2e.ts, applying the same
+// TEST_MODELS/TEST_PROVIDERS, deactivation, env-var, and stability filters as
+// speechModels.
+export const transcriptionModels = models
+	.filter((model) => !["custom", "auto"].includes(model.id))
+	.filter((model) =>
+		model.providers.some(
+			(provider: ProviderModelMapping) => provider.transcriptions === true,
+		),
+	)
+	// If any model has test: "only", only include those models
+	.filter((model) => {
+		if (hasOnlyModels) {
+			return model.providers.some(
+				(provider: ProviderModelMapping) => provider.test === "only",
+			);
+		}
+		return true;
+	})
+	.flatMap((model) => {
+		const testCases = [];
+		const expandedProviders = expandAllProviderRegions(
+			model.providers as ProviderModelMapping[],
+		);
+		for (const provider of expandedProviders) {
+			if (!provider.transcriptions) {
+				continue;
+			}
+
+			// Skip deactivated / deprecated provider mappings
+			if (provider.deactivatedAt && new Date() > provider.deactivatedAt) {
+				continue;
+			}
+			if (provider.deprecatedAt && new Date() > provider.deprecatedAt) {
+				continue;
+			}
+
+			if (specifiedModels || specifiedProviders) {
+				if (specifiedProviders) {
+					if (!specifiedProviders.includes(provider.providerId)) {
+						continue;
+					}
+				} else {
+					if (
+						!matchesTestModel(provider.providerId, model.id, provider.region)
+					) {
+						continue;
+					}
+				}
+				// TEST_MODELS/TEST_PROVIDERS takes precedence over test: "skip"
+			} else {
+				if (provider.test === "skip") {
+					continue;
+				}
+				if (
+					provider.test !== "only" &&
+					!hasAllRequiredProviderEnvVars(provider.providerId)
+				) {
+					continue;
+				}
+				if (
+					(provider.stability === "unstable" ||
+						provider.stability === "experimental") &&
+					!fullMode &&
+					provider.test !== "only"
+				) {
+					continue;
+				}
+			}
+
+			// If we have any "only" providers, skip those not marked as "only"
+			if (hasOnlyModels && provider.test !== "only") {
+				continue;
+			}
+
+			testCases.push({
+				model: `${provider.providerId}/${model.id}${provider.region ? `:${provider.region}` : ""}`,
+				provider,
+				originalModel: model.id,
+			});
+		}
+		return testCases;
+	});
+
+// Rerank models are excluded from filteredModels above (they use the
+// dedicated /v1/rerank endpoint). Build a separate list of rerank
+// provider/model mappings for rerank.e2e.ts, applying the same
+// TEST_MODELS/TEST_PROVIDERS, deactivation, env-var, and stability filters
+// as embeddingModels.
+export const rerankModels = models
+	.filter((model) => !["custom", "auto"].includes(model.id))
+	.filter((model) =>
+		model.providers.some(
+			(provider: ProviderModelMapping) => provider.rerank === true,
+		),
+	)
+	// If any model has test: "only", only include those models
+	.filter((model) => {
+		if (hasOnlyModels) {
+			return model.providers.some(
+				(provider: ProviderModelMapping) => provider.test === "only",
+			);
+		}
+		return true;
+	})
+	.flatMap((model) => {
+		const testCases = [];
+		const expandedProviders = expandAllProviderRegions(
+			model.providers as ProviderModelMapping[],
+		);
+		for (const provider of expandedProviders) {
+			if (!provider.rerank) {
+				continue;
+			}
+
+			// Skip deactivated / deprecated provider mappings
+			if (provider.deactivatedAt && new Date() > provider.deactivatedAt) {
+				continue;
+			}
+			if (provider.deprecatedAt && new Date() > provider.deprecatedAt) {
+				continue;
+			}
+
+			if (specifiedModels || specifiedProviders) {
+				if (specifiedProviders) {
+					if (!specifiedProviders.includes(provider.providerId)) {
+						continue;
+					}
+				} else {
+					if (
+						!matchesTestModel(provider.providerId, model.id, provider.region)
+					) {
+						continue;
+					}
+				}
+			} else {
+				if (provider.test === "skip") {
+					continue;
+				}
+				if (
+					provider.test !== "only" &&
+					!hasAllRequiredProviderEnvVars(provider.providerId)
+				) {
+					continue;
+				}
+				if (
+					(provider.stability === "unstable" ||
+						provider.stability === "experimental") &&
+					!fullMode &&
+					provider.test !== "only"
+				) {
+					continue;
+				}
+			}
+
+			// If we have any "only" providers, skip those not marked as "only"
+			if (hasOnlyModels && provider.test !== "only") {
+				continue;
+			}
+
+			testCases.push({
+				model: `${provider.providerId}/${model.id}${provider.region ? `:${provider.region}` : ""}`,
+				provider,
+				originalModel: model.id,
+			});
+		}
+		return testCases;
+	});
+
 // Log the number of test models after filtering
 console.log(`Testing ${testModels.length} model configurations`);
 console.log(`Testing ${providerModels.length} provider model configurations`);
+console.log(`Testing ${embeddingModels.length} embedding model configurations`);
+console.log(`Testing ${speechModels.length} speech model configurations`);
+console.log(
+	`Testing ${transcriptionModels.length} transcription model configurations`,
+);
+console.log(`Testing ${rerankModels.length} rerank model configurations`);
 
 export const streamingModels = testModels.filter((m) =>
 	m.providers.some((p: ProviderModelMapping) => {
@@ -427,6 +878,66 @@ export const streamingModels = testModels.filter((m) =>
 
 export const reasoningModels = testModels.filter((m) =>
 	m.providers.some((p: ProviderModelMapping) => p.reasoning === true),
+);
+
+// Efforts are forwarded to providers as-is and rejected when unsupported, so
+// tests must send an effort the mapping declares. Prefers "medium" and falls
+// back to the strongest declared tier.
+export function getSupportedReasoningEffort(
+	providers: ProviderModelMapping[] | undefined,
+): string {
+	const efforts = providers?.find(
+		(p) => p.reasoning === true,
+	)?.reasoningEfforts;
+	if (!efforts || efforts.includes("medium")) {
+		return "medium";
+	}
+	for (const effort of ["high", "low", "minimal", "xhigh", "max"]) {
+		if (efforts.includes(effort as (typeof efforts)[number])) {
+			return effort;
+		}
+	}
+	return "medium";
+}
+
+// One test case per (reasoning model, declared effort) so every effort tier a
+// mapping declares via `reasoningEfforts` is exercised against the endpoint.
+// Only expanded in FULL_MODE — it multiplies each mapping by its effort count.
+export const reasoningEffortModels = fullMode
+	? reasoningModels.flatMap((m) =>
+			(
+				m.providers.find((p: ProviderModelMapping) => p.reasoning === true)
+					?.reasoningEfforts ?? []
+			).map((effort) => ({ model: m.model, effort })),
+		)
+	: [];
+
+export const verbosityModels = testModels.filter((m) =>
+	m.providers.some((p: ProviderModelMapping) => p.verbosity === true),
+);
+
+/**
+ * One case per (provider mapping, service tier) the catalogue declares, so a
+ * mapping that opts into Flex/Priority is exercised against the real upstream.
+ * Only provider-pinned entries are used — the tier is a per-mapping property,
+ * and the tests pin the provider with x-no-fallback so an upstream that rejects
+ * the tier surfaces instead of falling back.
+ */
+export const serviceTierModels = testModels.flatMap((m) =>
+	m.originalModel
+		? m.providers.flatMap((p: ProviderModelMapping) =>
+				getSupportedServiceTiers(
+					m.originalModel as string,
+					p.providerId,
+					p.region ?? null,
+				).map((tier) => ({
+					model: m.model,
+					serviceTier: tier.id,
+					multiplier: tier.multiplier,
+					mapping: p,
+				})),
+			)
+		: [],
 );
 
 export const streamingReasoningModels = reasoningModels.filter((m) =>
@@ -524,6 +1035,8 @@ export async function createProviderKey(
 	provider: string,
 	token: string,
 	keyType: "api-keys" | "credits" = "api-keys",
+	baseUrl?: string,
+	options?: ProviderKeyOptions,
 ) {
 	const keyId =
 		keyType === "credits" ? `env-${provider}` : `provider-key-${provider}`;
@@ -534,8 +1047,17 @@ export async function createProviderKey(
 			token,
 			provider: provider.replace("env-", ""), // Remove env- prefix for the provider field
 			organizationId: "org-id",
+			baseUrl,
+			options,
 		})
-		.onConflictDoNothing();
+		.onConflictDoUpdate({
+			target: tables.providerKey.id,
+			set: {
+				token,
+				baseUrl,
+				options,
+			},
+		});
 }
 
 export function validateResponse(json: any) {
@@ -630,11 +1152,52 @@ export async function beforeAllHook() {
 	for (const provider of providers) {
 		const envVarName = getProviderEnvVar(provider.id);
 		const envVarValue = envVarName ? process.env[envVarName] : undefined;
+		const baseUrlEnvName =
+			(provider.env.required as Record<string, string | undefined>).baseUrl ??
+			(provider.env.optional as Record<string, string | undefined> | undefined)
+				?.baseUrl;
+		const baseUrlValue = baseUrlEnvName
+			? process.env[baseUrlEnvName]
+			: undefined;
+		const providerOptions = providerEnvOptionsForTests(provider.id);
 		if (envVarValue) {
-			await createProviderKey(provider.id, envVarValue, "api-keys");
-			await createProviderKey(provider.id, envVarValue, "credits");
+			await createProviderKey(
+				provider.id,
+				envVarValue,
+				"api-keys",
+				baseUrlValue,
+				providerOptions,
+			);
+			await createProviderKey(
+				provider.id,
+				envVarValue,
+				"credits",
+				baseUrlValue,
+				providerOptions,
+			);
 		}
 	}
+}
+
+function providerEnvOptionsForTests(
+	providerId: string,
+): ProviderKeyOptions | undefined {
+	if (providerId === "azure" && process.env.LLM_AZURE_RESOURCE) {
+		return { azure_resource: process.env.LLM_AZURE_RESOURCE };
+	}
+	if (providerId === "azure-ai-foundry") {
+		const resource = process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE;
+		const apiVersion = process.env.LLM_AZURE_AI_FOUNDRY_API_VERSION;
+		const opts: ProviderKeyOptions = {};
+		if (resource) {
+			opts.azure_ai_foundry_resource = resource;
+		}
+		if (apiVersion) {
+			opts.azure_ai_foundry_api_version = apiVersion;
+		}
+		return Object.keys(opts).length > 0 ? opts : undefined;
+	}
+	return undefined;
 }
 
 export async function beforeEachHook() {

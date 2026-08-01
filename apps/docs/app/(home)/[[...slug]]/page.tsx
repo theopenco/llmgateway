@@ -12,6 +12,9 @@ import posthog from "posthog-js";
 import { LLMCopyButton, ViewOptions } from "@/components/ai/page-actions";
 import { EnterpriseCTA } from "@/components/enterprise-cta";
 import { Feedback } from "@/components/feedback";
+import { JsonLd } from "@/components/json-ld";
+import { docsBaseUrl } from "@/lib/base-url";
+import { marketingGuideCanonical } from "@/lib/guide-canonical";
 import { source } from "@/lib/source";
 import { getMDXComponents } from "@/mdx-components";
 
@@ -30,17 +33,38 @@ export async function generateMetadata({
 		notFound();
 	}
 
+	const path = page.url === "/" ? "" : page.url;
+	const canonicalUrl =
+		marketingGuideCanonical(page.url) ?? `${docsBaseUrl}${path}`;
 	const image = ["/docs-og", ...slug, "image.png"].join("/");
 
+	// The root page's frontmatter title composes to a short 46-char <title> via
+	// the layout template, so it gets an absolute, keyword-carrying title
+	// instead. The visible page H1 (frontmatter title) is unchanged.
+	const isRoot = page.url === "/";
+	const metaTitle = isRoot
+		? "LLM Gateway Documentation — OpenAI-Compatible AI Gateway"
+		: page.data.title;
+
 	return {
-		metadataBase: new URL(process.env.DOCS_URL ?? "https://docs.llmgateway.io"),
-		title: page.data.title,
+		metadataBase: new URL(docsBaseUrl),
+		title: isRoot ? { absolute: metaTitle } : metaTitle,
 		description: page.data.description,
+		alternates: {
+			canonical: canonicalUrl,
+		},
 		openGraph: {
+			title: metaTitle,
+			description: page.data.description,
+			url: canonicalUrl,
 			images: image,
+			type: "article",
+			siteName: "LLM Gateway Docs",
 		},
 		twitter: {
 			card: "summary_large_image",
+			title: metaTitle,
+			description: page.data.description,
 			images: image,
 		},
 	};
@@ -68,6 +92,26 @@ export default async function Page(props: {
 
 	const MDXContent = page.data.body;
 
+	const path = page.url === "/" ? "" : page.url;
+	const techArticleSchema = {
+		"@context": "https://schema.org",
+		"@type": "TechArticle",
+		headline: page.data.title,
+		description: page.data.description,
+		url: marketingGuideCanonical(page.url) ?? `${docsBaseUrl}${path}`,
+		...(time ? { dateModified: new Date(time).toISOString() } : {}),
+		author: {
+			"@type": "Organization",
+			name: "LLM Gateway",
+			url: "https://llmgateway.io",
+		},
+		publisher: {
+			"@type": "Organization",
+			name: "LLM Gateway",
+			url: "https://llmgateway.io",
+		},
+	};
+
 	return (
 		<DocsPage
 			toc={page.data.toc}
@@ -78,6 +122,7 @@ export default async function Page(props: {
 			}}
 			lastUpdate={time ? new Date(time) : new Date()}
 		>
+			<JsonLd data={techArticleSchema} />
 			<nav
 				aria-label="Page actions"
 				className="flex flex-row gap-2 items-center border-b pt-2 pb-6"

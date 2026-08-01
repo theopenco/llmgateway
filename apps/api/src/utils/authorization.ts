@@ -22,9 +22,15 @@ export async function getUserOrganizationIds(
 }
 
 /**
- * Get all project IDs that a user has access to through their organizations
+ * Get all project IDs a user can access, honoring project-level RBAC.
+ *
+ * - owner/admin members have implicit access to every non-deleted project in
+ *   their org.
+ * - "developer" members are limited to the projects explicitly granted to them
+ *   via the user_project table.
+ *
  * @param userId - The user ID to check
- * @returns Promise<string[]> - Array of project IDs
+ * @returns Promise<string[]> - Array of accessible project IDs
  */
 export async function getUserProjectIds(userId: string): Promise<string[]> {
 	const userOrgs = await db.query.userOrganization.findMany({
@@ -39,14 +45,70 @@ export async function getUserProjectIds(userId: string): Promise<string[]> {
 					projects: true,
 				},
 			},
+			userProjects: true,
 		},
 	});
 
-	return userOrgs.flatMap((org) =>
-		org
-			.organization!.projects.filter((project) => project.status !== "deleted")
-			.map((project) => project.id),
-	);
+	const projectIds = new Set<string>();
+	for (const membership of userOrgs) {
+		const projects = (membership.organization?.projects ?? []).filter(
+			(project) => project.status !== "deleted",
+		);
+		if (membership.role === "developer") {
+			const granted = new Set(
+				membership.userProjects.map((grant) => grant.projectId),
+			);
+			for (const project of projects) {
+				if (granted.has(project.id)) {
+					projectIds.add(project.id);
+				}
+			}
+		} else {
+			for (const project of projects) {
+				projectIds.add(project.id);
+			}
+		}
+	}
+
+	return Array.from(projectIds);
+}
+
+/**
+ * Check whether a user can access a specific project (RBAC-aware).
+ */
+export async function userHasProjectAccess(
+	userId: string,
+	projectId: string,
+): Promise<boolean> {
+	const projectIds = await getUserProjectIds(userId);
+	return projectIds.includes(projectId);
+}
+
+/**
+ * Get the organization IDs where the user is an owner or admin. Org-level
+ * resources (provider keys, custom models, billing, discounts, etc.) are
+ * administered here, so project-scoped "developer" members are excluded.
+ */
+export async function getAdminOrganizationIds(
+	userId: string,
+): Promise<string[]> {
+	const userOrgs = await db.query.userOrganization.findMany({
+		where: {
+			userId: {
+				eq: userId,
+			},
+		},
+		with: {
+			organization: true,
+		},
+	});
+	return userOrgs
+		.filter(
+			(uo) =>
+				uo.organization?.status !== "deleted" &&
+				(uo.role === "owner" || uo.role === "admin"),
+		)
+		.map((uo) => uo.organization!.id);
 }
 
 /**

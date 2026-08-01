@@ -551,6 +551,7 @@ const listViolations = createRoute({
 			startDate: z.string().datetime({ offset: true }).optional(),
 			endDate: z.string().datetime({ offset: true }).optional(),
 			actionTaken: z.string().optional(),
+			category: z.string().optional(),
 			ruleId: z.string().optional(),
 		}),
 	},
@@ -589,6 +590,7 @@ guardrails.openapi(listViolations, async (c) => {
 		startDate,
 		endDate,
 		actionTaken,
+		category,
 		ruleId,
 	} = query;
 
@@ -620,6 +622,9 @@ guardrails.openapi(listViolations, async (c) => {
 				actionTaken as (typeof guardrailActionsTaken)[number],
 			),
 		);
+	}
+	if (category) {
+		whereConditions.push(eq(tables.guardrailViolation.category, category));
 	}
 	if (ruleId) {
 		whereConditions.push(eq(tables.guardrailViolation.ruleId, ruleId));
@@ -681,10 +686,15 @@ const getStats = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
-						blocked: z.number(),
-						redacted: z.number(),
-						warned: z.number(),
-						total: z.number(),
+						totalViolations: z.number(),
+						last24Hours: z.number(),
+						last7Days: z.number(),
+						byAction: z.object({
+							blocked: z.number(),
+							redacted: z.number(),
+							warned: z.number(),
+						}),
+						byCategory: z.record(z.string(), z.number()),
 					}),
 				},
 			},
@@ -703,32 +713,53 @@ guardrails.openapi(getStats, async (c) => {
 	await checkEnterpriseAccess(user.id, organizationId);
 
 	const { days } = c.req.valid("query");
-	const startDate = new Date();
-	startDate.setDate(startDate.getDate() - days);
+	const windowStart = new Date();
+	windowStart.setDate(windowStart.getDate() - days);
 
 	const violations = await db.query.guardrailViolation.findMany({
 		where: {
 			organizationId: { eq: organizationId },
-			createdAt: { gte: startDate },
+			createdAt: { gte: windowStart },
 		},
-		columns: { actionTaken: true },
+		columns: { actionTaken: true, category: true, createdAt: true },
 	});
 
+	const now = Date.now();
+	const dayMs = 24 * 60 * 60 * 1000;
+	const weekMs = 7 * dayMs;
+	const last24HoursStart = now - dayMs;
+	const last7DaysStart = now - weekMs;
+
 	const stats = {
-		blocked: 0,
-		redacted: 0,
-		warned: 0,
-		total: violations.length,
+		totalViolations: violations.length,
+		last24Hours: 0,
+		last7Days: 0,
+		byAction: {
+			blocked: 0,
+			redacted: 0,
+			warned: 0,
+		},
+		byCategory: {} as Record<string, number>,
 	};
 
 	for (const v of violations) {
-		if (v.actionTaken === "blocked") {
-			stats.blocked++;
-		} else if (v.actionTaken === "redacted") {
-			stats.redacted++;
-		} else if (v.actionTaken === "warned") {
-			stats.warned++;
+		const createdAtMs = v.createdAt.getTime();
+		if (createdAtMs >= last24HoursStart) {
+			stats.last24Hours++;
 		}
+		if (createdAtMs >= last7DaysStart) {
+			stats.last7Days++;
+		}
+
+		if (v.actionTaken === "blocked") {
+			stats.byAction.blocked++;
+		} else if (v.actionTaken === "redacted") {
+			stats.byAction.redacted++;
+		} else if (v.actionTaken === "warned") {
+			stats.byAction.warned++;
+		}
+
+		stats.byCategory[v.category] = (stats.byCategory[v.category] ?? 0) + 1;
 	}
 
 	return c.json(stats);

@@ -26,6 +26,28 @@ describe("extractTokenUsage", () => {
 			expect(result.totalTokens).toBe(350);
 		});
 
+		it("extracts cache creation tokens from cacheDetails by TTL", () => {
+			const data = {
+				usage: {
+					inputTokens: 100,
+					cacheReadInputTokens: 0,
+					cacheWriteInputTokens: 1000,
+					cacheDetails: [
+						{ ttl: "1h", inputTokens: 700 },
+						{ ttl: "5m", inputTokens: 300 },
+					],
+					outputTokens: 200,
+					totalTokens: 1300,
+				},
+			};
+
+			const result = extractTokenUsage(data, "aws-bedrock");
+
+			expect(result.cacheCreationTokens).toBe(1000);
+			expect(result.cacheCreation5mTokens).toBe(300);
+			expect(result.cacheCreation1hTokens).toBe(700);
+		});
+
 		it("returns cachedTokens with correct value when cacheReadInputTokens > 0", () => {
 			const data = {
 				usage: {
@@ -84,6 +106,7 @@ describe("extractTokenUsage", () => {
 			const result = extractTokenUsage(data, "anthropic");
 
 			expect(result.cachedTokens).toBe(0);
+			expect(result.cacheCreationTokens).toBe(50);
 			expect(result.promptTokens).toBe(150); // 100 + 50 + 0
 			expect(result.completionTokens).toBe(200);
 		});
@@ -101,6 +124,7 @@ describe("extractTokenUsage", () => {
 			const result = extractTokenUsage(data, "anthropic");
 
 			expect(result.cachedTokens).toBe(800);
+			expect(result.cacheCreationTokens).toBe(0);
 			expect(result.promptTokens).toBe(900); // 100 + 0 + 800
 		});
 
@@ -197,6 +221,294 @@ describe("extractTokenUsage", () => {
 			expect(result.reasoningTokens).toBe(0);
 			expect(result.totalTokens).toBe(150);
 		});
+
+		it("extracts thinking tokens from output_tokens_details.thinking_tokens", () => {
+			// Current Anthropic API shape: thinking tokens live under
+			// output_tokens_details.thinking_tokens (adaptive thinking returns an
+			// encrypted thinking block with no text, so this count is the only
+			// signal reasoning happened).
+			const data = {
+				usage: {
+					input_tokens: 60,
+					output_tokens: 2928,
+					output_tokens_details: { thinking_tokens: 1502 },
+				},
+			};
+
+			const result = extractTokenUsage(data, "anthropic");
+
+			expect(result.completionTokens).toBe(2928);
+			expect(result.reasoningTokens).toBe(1502);
+			expect(result.totalTokens).toBe(2988); // 60 + 2928, not double-counted
+		});
+
+		it("prefers output_tokens_details.thinking_tokens over legacy field", () => {
+			const data = {
+				usage: {
+					input_tokens: 10,
+					output_tokens: 100,
+					output_tokens_details: { thinking_tokens: 40 },
+					reasoning_output_tokens: 31,
+				},
+			};
+
+			const result = extractTokenUsage(data, "anthropic");
+
+			expect(result.reasoningTokens).toBe(40);
+		});
+
+		it("extracts 1h cache creation tokens from cache_creation breakdown", () => {
+			const data = {
+				usage: {
+					input_tokens: 10,
+					cache_creation_input_tokens: 1000,
+					cache_creation: {
+						ephemeral_5m_input_tokens: 400,
+						ephemeral_1h_input_tokens: 600,
+					},
+					cache_read_input_tokens: 0,
+					output_tokens: 50,
+				},
+			};
+
+			const result = extractTokenUsage(data, "anthropic");
+
+			expect(result.cacheCreationTokens).toBe(1000);
+			expect(result.cacheCreation5mTokens).toBe(400);
+			expect(result.cacheCreation1hTokens).toBe(600);
+		});
+
+		it("extracts cache creation tokens from Anthropic streaming message_start", () => {
+			const data = {
+				type: "message_start",
+				message: {
+					usage: {
+						input_tokens: 10,
+						cache_creation_input_tokens: 1000,
+						cache_creation: {
+							ephemeral_5m_input_tokens: 400,
+							ephemeral_1h_input_tokens: 600,
+						},
+						cache_read_input_tokens: 0,
+						output_tokens: 1,
+					},
+				},
+			};
+
+			const result = extractTokenUsage(data, "anthropic");
+
+			expect(result.promptTokens).toBe(1010);
+			expect(result.completionTokens).toBe(1);
+			expect(result.cacheCreationTokens).toBe(1000);
+			expect(result.cacheCreation5mTokens).toBe(400);
+			expect(result.cacheCreation1hTokens).toBe(600);
+		});
+
+		it("does not clear prompt cache usage from output-only Anthropic deltas", () => {
+			const data = {
+				type: "message_delta",
+				usage: {
+					output_tokens: 50,
+				},
+			};
+
+			const result = extractTokenUsage(data, "anthropic");
+
+			expect(result.promptTokens).toBeNull();
+			expect(result.cachedTokens).toBeNull();
+			expect(result.cacheCreationTokens).toBeNull();
+			expect(result.cacheCreation5mTokens).toBeNull();
+			expect(result.cacheCreation1hTokens).toBeNull();
+			expect(result.completionTokens).toBe(50);
+			expect(result.totalTokens).toBeNull();
+		});
+
+		it("returns null cacheCreation1hTokens when only 5m writes are present", () => {
+			const data = {
+				usage: {
+					input_tokens: 10,
+					cache_creation_input_tokens: 400,
+					cache_creation: {
+						ephemeral_5m_input_tokens: 400,
+						ephemeral_1h_input_tokens: 0,
+					},
+					cache_read_input_tokens: 0,
+					output_tokens: 50,
+				},
+			};
+
+			const result = extractTokenUsage(data, "anthropic");
+
+			expect(result.cacheCreationTokens).toBe(400);
+			expect(result.cacheCreation5mTokens).toBe(400);
+			expect(result.cacheCreation1hTokens).toBeNull();
+		});
+
+		it("returns null cacheCreation1hTokens when cache_creation breakdown is missing", () => {
+			const data = {
+				usage: {
+					input_tokens: 10,
+					cache_creation_input_tokens: 400,
+					cache_read_input_tokens: 0,
+					output_tokens: 50,
+				},
+			};
+
+			const result = extractTokenUsage(data, "anthropic");
+
+			expect(result.cacheCreationTokens).toBe(400);
+			expect(result.cacheCreation1hTokens).toBeNull();
+		});
+	});
+
+	describe("vertex-anthropic", () => {
+		// Vertex Anthropic streams the same Anthropic Messages wire format, so it
+		// must extract usage identically to the direct anthropic provider rather
+		// than falling through to the OpenAI-shaped default branch.
+		it("extracts cache and reasoning tokens from a streaming message_start", () => {
+			const data = {
+				type: "message_start",
+				message: {
+					usage: {
+						input_tokens: 100,
+						cache_creation_input_tokens: 50,
+						cache_read_input_tokens: 800,
+						output_tokens: 2928,
+						output_tokens_details: { thinking_tokens: 1502 },
+					},
+				},
+			};
+
+			const result = extractTokenUsage(data, "vertex-anthropic");
+
+			expect(result.promptTokens).toBe(950); // 100 + 50 + 800
+			expect(result.cachedTokens).toBe(800);
+			expect(result.cacheCreationTokens).toBe(50);
+			expect(result.completionTokens).toBe(2928);
+			expect(result.reasoningTokens).toBe(1502);
+			expect(result.totalTokens).toBe(3878); // 950 + 2928, reasoning not double-counted
+		});
+
+		it("matches the direct anthropic provider for the same chunk", () => {
+			const data = {
+				usage: {
+					input_tokens: 51,
+					cache_read_input_tokens: 20,
+					output_tokens: 136,
+					reasoning_output_tokens: 31,
+				},
+			};
+
+			expect(extractTokenUsage(data, "vertex-anthropic")).toEqual(
+				extractTokenUsage(data, "anthropic"),
+			);
+		});
+	});
+
+	describe("alibaba", () => {
+		it("extracts prompt_tokens_details.cache_creation_input_tokens into 5m cache write fields", () => {
+			const data = {
+				usage: {
+					prompt_tokens: 1500,
+					completion_tokens: 200,
+					total_tokens: 1700,
+					prompt_tokens_details: {
+						cache_creation_input_tokens: 1000,
+						cached_tokens: 0,
+					},
+				},
+			};
+
+			const result = extractTokenUsage(data, "alibaba");
+
+			expect(result.promptTokens).toBe(1500);
+			expect(result.completionTokens).toBe(200);
+			expect(result.totalTokens).toBe(1700);
+			expect(result.cacheCreationTokens).toBe(1000);
+			expect(result.cacheCreation5mTokens).toBe(1000);
+			// Alibaba's explicit cache is fixed at 5 minutes — no 1h variant exists.
+			expect(result.cacheCreation1hTokens).toBeNull();
+		});
+
+		it("extracts cached_tokens from prompt_tokens_details alongside cache creation", () => {
+			const data = {
+				usage: {
+					prompt_tokens: 2000,
+					completion_tokens: 100,
+					total_tokens: 2100,
+					prompt_tokens_details: {
+						cache_creation_input_tokens: 500,
+						cached_tokens: 800,
+					},
+				},
+			};
+
+			const result = extractTokenUsage(data, "alibaba");
+
+			expect(result.cachedTokens).toBe(800);
+			expect(result.cacheCreationTokens).toBe(500);
+			expect(result.cacheCreation5mTokens).toBe(500);
+		});
+
+		it("leaves cache creation fields null when cache_creation_input_tokens is 0", () => {
+			const data = {
+				usage: {
+					prompt_tokens: 100,
+					completion_tokens: 50,
+					total_tokens: 150,
+					prompt_tokens_details: {
+						cache_creation_input_tokens: 0,
+					},
+				},
+			};
+
+			const result = extractTokenUsage(data, "alibaba");
+
+			expect(result.cacheCreationTokens).toBeNull();
+			expect(result.cacheCreation5mTokens).toBeNull();
+			expect(result.cacheCreation1hTokens).toBeNull();
+		});
+
+		it("leaves cache creation fields null when prompt_tokens_details is absent", () => {
+			const data = {
+				usage: {
+					prompt_tokens: 100,
+					completion_tokens: 50,
+					total_tokens: 150,
+				},
+			};
+
+			const result = extractTokenUsage(data, "alibaba");
+
+			expect(result.cacheCreationTokens).toBeNull();
+			expect(result.cacheCreation5mTokens).toBeNull();
+		});
+
+		it("ignores a stray top-level cache_creation_input_tokens (wrong shape)", () => {
+			const data = {
+				usage: {
+					prompt_tokens: 100,
+					completion_tokens: 50,
+					total_tokens: 150,
+					cache_creation_input_tokens: 999,
+				},
+			};
+
+			const result = extractTokenUsage(data, "alibaba");
+
+			expect(result.cacheCreationTokens).toBeNull();
+			expect(result.cacheCreation5mTokens).toBeNull();
+		});
+
+		it("returns null for all fields when usage is missing", () => {
+			const data = {};
+
+			const result = extractTokenUsage(data, "alibaba");
+
+			expect(result.promptTokens).toBeNull();
+			expect(result.completionTokens).toBeNull();
+			expect(result.cacheCreationTokens).toBeNull();
+		});
 	});
 
 	describe("openai (default)", () => {
@@ -229,6 +541,47 @@ describe("extractTokenUsage", () => {
 			const result = extractTokenUsage(data, "openai");
 
 			expect(result.cachedTokens).toBeNull();
+		});
+
+		it("extracts GPT-5.6 cache_write_tokens from prompt_tokens_details", () => {
+			const data = {
+				usage: {
+					prompt_tokens: 2006,
+					completion_tokens: 300,
+					total_tokens: 2306,
+					prompt_tokens_details: {
+						cached_tokens: 1920,
+						cache_write_tokens: 40,
+					},
+				},
+			};
+
+			const result = extractTokenUsage(data, "openai");
+
+			expect(result.promptTokens).toBe(2006);
+			expect(result.cachedTokens).toBe(1920);
+			expect(result.cacheCreationTokens).toBe(40);
+			// OpenAI has a single 30m TTL — no 5m/1h breakdown exists.
+			expect(result.cacheCreation5mTokens).toBeNull();
+			expect(result.cacheCreation1hTokens).toBeNull();
+		});
+
+		it("leaves cache creation null when cache_write_tokens is 0", () => {
+			const data = {
+				usage: {
+					prompt_tokens: 2006,
+					completion_tokens: 300,
+					total_tokens: 2306,
+					prompt_tokens_details: {
+						cached_tokens: 1920,
+						cache_write_tokens: 0,
+					},
+				},
+			};
+
+			const result = extractTokenUsage(data, "openai");
+
+			expect(result.cacheCreationTokens).toBeNull();
 		});
 	});
 
@@ -279,6 +632,29 @@ describe("extractTokenUsage", () => {
 			expect(result.totalTokens).toBe(150);
 			expect(result.cachedTokens).toBeNull();
 			expect(result.reasoningTokens).toBeNull();
+		});
+
+		it("extracts GPT-5.6 cache_write_tokens from input_tokens_details", () => {
+			const data = {
+				type: "response.completed",
+				response: {
+					usage: {
+						input_tokens: 2006,
+						output_tokens: 300,
+						total_tokens: 2306,
+						input_tokens_details: {
+							cached_tokens: 1920,
+							cache_write_tokens: 40,
+						},
+					},
+				},
+			};
+
+			const result = extractTokenUsage(data, "openai");
+
+			expect(result.promptTokens).toBe(2006);
+			expect(result.cachedTokens).toBe(1920);
+			expect(result.cacheCreationTokens).toBe(40);
 		});
 
 		it("prefers response.usage over data.usage when both present", () => {

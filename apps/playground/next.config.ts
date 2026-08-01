@@ -1,4 +1,3 @@
-import { readdirSync } from "fs";
 import { join } from "path";
 
 import type { NextConfig } from "next";
@@ -19,34 +18,28 @@ const nextConfig: NextConfig = {
 			"@radix-ui/react-icons",
 			"date-fns",
 		],
+		serverSourceMaps: true,
 	},
-	webpack: (config, { isServer }) => {
-		if (isServer) {
-			config.devtool = "source-map";
-		}
-		// mermaid -> @mermaid-js/parser -> langium has transitive deps
-		// (vscode-jsonrpc, vscode-languageserver-types, etc.) that pnpm
-		// doesn't hoist to a location webpack can resolve
-		const pnpmDir = join(__dirname, "../../node_modules/.pnpm");
-		const depsToHoist = [
-			"langium",
-			"chevrotain",
-			"vscode-languageserver-protocol",
-			"vscode-languageserver",
+	serverExternalPackages: [
+		"@resvg/resvg-js",
+		"@react-pdf/renderer",
+		"@json-render/react-pdf",
+		"@json-render/image",
+	],
+	async rewrites() {
+		return [
+			// First-party PostHog ingestion proxy — ad blockers block
+			// *.posthog.com directly, silently dropping client events. The
+			// client is configured with api_host: "/ingest" (providers.tsx).
+			{
+				source: "/ingest/static/:path*",
+				destination: "https://us-assets.i.posthog.com/static/:path*",
+			},
+			{
+				source: "/ingest/:path*",
+				destination: "https://us.i.posthog.com/:path*",
+			},
 		];
-		const extraModules: string[] = [];
-		for (const dep of depsToHoist) {
-			for (const entry of readdirSync(pnpmDir)) {
-				if (entry.startsWith(`${dep}@`)) {
-					extraModules.push(join(pnpmDir, entry, "node_modules"));
-				}
-			}
-		}
-		config.resolve.modules = [
-			...(config.resolve.modules ?? []),
-			...extraModules,
-		];
-		return config;
 	},
 	typescript: {
 		ignoreBuildErrors: true,

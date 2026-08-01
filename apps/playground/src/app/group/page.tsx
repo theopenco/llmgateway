@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { LastUsedProjectTracker } from "@/components/last-used-project-tracker";
 import GroupChatClient from "@/components/playground/group-chat-client";
+import { PlaygroundSeoSection } from "@/components/seo/playground-seo-section";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -13,6 +14,7 @@ export const metadata: Metadata = {
 	title: "Group Chat - Compare AI Models Side by Side",
 	description:
 		"Send one prompt to multiple AI models simultaneously. Compare responses from GPT-4, Claude, Gemini, and more in real-time.",
+	alternates: { canonical: "/group" },
 };
 
 export interface GatewayModel {
@@ -34,8 +36,12 @@ export default async function GroupPage({
 		fetchProviders(),
 	]);
 
-	// Fetch organizations server-side
-	const initialOrganizationsData = await fetchServerData("GET", "/orgs");
+	// Ensure the dedicated Chat org exists, then list it so it can back the
+	// default billing context for the playground.
+	await fetchServerData("GET", "/playground/chat-org");
+	const initialOrganizationsData = await fetchServerData("GET", "/orgs", {
+		params: { query: { includeChat: "true" } },
+	});
 
 	// Fetch projects for the specific organization (if provided)
 	let initialProjectsData: { projects: Project[] } | null = null;
@@ -73,7 +79,7 @@ export default async function GroupPage({
 		}
 	}
 
-	const organizations = (
+	const allOrganizations = (
 		initialOrganizationsData &&
 		typeof initialOrganizationsData === "object" &&
 		"organizations" in initialOrganizationsData
@@ -81,8 +87,14 @@ export default async function GroupPage({
 					.organizations
 			: []
 	) as Organization[];
+	// The Chat org backs the default billing context and must not appear in the
+	// dashboard org switcher.
+	const chatOrg = allOrganizations.find((o) => o.kind === "chat") ?? null;
+	const organizations = allOrganizations.filter((o) => o.kind === "default");
 	const selectedOrganization =
-		(orgId ? organizations.find((o) => o.id === orgId) : organizations[0]) ??
+		(orgId ? organizations.find((o) => o.id === orgId) : null) ??
+		chatOrg ??
+		organizations[0] ??
 		null;
 
 	// Ensure we have projects for the selected organization (when orgId not provided)
@@ -135,8 +147,12 @@ export default async function GroupPage({
 					projectId={selectedProject.id}
 				/>
 			) : null}
+			<PlaygroundSeoSection variant="group" />
 			<GroupChatClient
-				models={models.filter((m) => !m.output?.includes("video"))}
+				models={models.filter(
+					(m) =>
+						!m.output?.includes("video") && !m.output?.includes("embedding"),
+				)}
 				providers={providers}
 				organizations={organizations}
 				selectedOrganization={selectedOrganization}

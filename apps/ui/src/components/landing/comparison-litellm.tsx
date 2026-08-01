@@ -43,7 +43,7 @@ const comparisonData = [
 				title: "Real-time cost analytics",
 				description: "Detailed cost tracking for every request",
 				llmgateway: true,
-				litellm: "Basic",
+				litellm: true,
 			},
 			{
 				title: "Latency analytics",
@@ -55,13 +55,13 @@ const comparisonData = [
 				title: "Request-level insights",
 				description: "Granular analytics for each API call",
 				llmgateway: true,
-				litellm: "Requires custom setup",
+				litellm: true,
 			},
 			{
 				title: "Model usage dashboard",
 				description: "Comprehensive model usage metrics and trends",
 				llmgateway: true,
-				litellm: "Requires integration",
+				litellm: true,
 			},
 			{
 				title: "Cost optimization insights",
@@ -96,7 +96,7 @@ const comparisonData = [
 				title: "Priority support",
 				description: "Dedicated support for paid plans",
 				llmgateway: "Pro+",
-				litellm: "Community only",
+				litellm: "Enterprise",
 			},
 			{
 				title: "SSO integration",
@@ -116,7 +116,7 @@ const comparisonData = [
 				litellm: true,
 			},
 			{
-				title: "Interactive playground",
+				title: "Interactive chat app (Lounge)",
 				description: "Test models directly in the browser",
 				llmgateway: true,
 				litellm: false,
@@ -131,7 +131,7 @@ const comparisonData = [
 				title: "Request caching",
 				description: "Built-in Redis caching for responses",
 				llmgateway: true,
-				litellm: "Manual setup required",
+				litellm: "Built-in, needs config",
 			},
 			{
 				title: "Comprehensive docs",
@@ -280,6 +280,16 @@ export function ComparisonLiteLLM() {
 					<p className="text-sm text-muted-foreground mt-3">
 						No credit card required • Self-host option available • Enterprise
 						support included
+					</p>
+					<p className="text-sm text-muted-foreground mt-3">
+						Weighing more options? See the{" "}
+						<Link
+							href={"/blog/litellm-alternatives" as any}
+							className="underline underline-offset-4 hover:text-foreground"
+						>
+							8 best LiteLLM alternatives in 2026
+						</Link>
+						.
 					</p>
 				</div>
 			</div>

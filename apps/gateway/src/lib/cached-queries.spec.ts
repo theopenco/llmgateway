@@ -160,6 +160,23 @@ describe("Cached Queries - Gateway Database Access", () => {
 
 			expect(result).toBeUndefined();
 		});
+
+		it("should return undefined for platform secret tokens", async () => {
+			const platformSecretToken = "sk-test-platform-secret-cached-queries";
+			await db.insert(apiKey).values({
+				id: "test-platform-secret-cached-queries",
+				token: platformSecretToken,
+				projectId: testProjectId,
+				description: "Test Platform Secret",
+				status: "active",
+				createdBy: testUserId,
+				keyType: "platform_secret",
+			});
+
+			const result = await findApiKeyByToken(platformSecretToken);
+
+			expect(result).toBeUndefined();
+		});
 	});
 
 	describe("findProjectById", () => {
@@ -271,6 +288,22 @@ describe("Cached Queries - Gateway Database Access", () => {
 			const result = await findProviderKey(testOrgId, "openai");
 
 			expect(result?.id).toBe("test-provider-key-cached-queries-2");
+		});
+
+		it("should keep tracked key health isolated per model scope", async () => {
+			reportTrackedKeyError(testProviderKeyId, 500, undefined, "gpt-4");
+			reportTrackedKeyError(testProviderKeyId, 500, undefined, "gpt-4");
+			reportTrackedKeyError(testProviderKeyId, 500, undefined, "gpt-4");
+
+			const gpt4Selection = await findProviderKey(testOrgId, "openai", "gpt-4");
+			const claudeSelection = await findProviderKey(
+				testOrgId,
+				"openai",
+				"claude-3-5-sonnet",
+			);
+
+			expect(gpt4Selection?.id).toBe("test-provider-key-cached-queries-2");
+			expect(claudeSelection?.id).toBe(testProviderKeyId);
 		});
 
 		it("should select the next provider key when the current one is excluded", async () => {

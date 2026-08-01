@@ -75,6 +75,15 @@ export default [
 			"@eslint-react/naming-convention/use-state": "off",
 			"@eslint-react/prefer-use-state-lazy-initialization": "off",
 			"no-console": "error",
+			"no-restricted-properties": [
+				"error",
+				{
+					object: "Math",
+					property: "random",
+					message:
+						"Math.random() is not cryptographically secure. Use randomFloat/randomInt/randomItem/randomToken/uniqueId from @llmgateway/shared/random instead.",
+				},
+			],
 			"no-unused-vars": [
 				"error",
 				{
@@ -121,6 +130,10 @@ export default [
 							pattern: "@llmgateway/**",
 							group: "internal",
 							position: "before",
+						},
+						{
+							pattern: "content-collections",
+							group: "internal",
 						},
 					],
 					pathGroupsExcludedImportTypes: ["builtin", "type"],

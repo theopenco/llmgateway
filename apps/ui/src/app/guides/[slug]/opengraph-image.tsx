@@ -1,5 +1,7 @@
 import { ImageResponse } from "next/og";
 
+import { getIconForGuide } from "@/app/guides/og-icons";
+
 import type { Guide } from "content-collections";
 
 export const size = {
@@ -7,196 +9,6 @@ export const size = {
 	height: 630,
 };
 export const contentType = "image/png";
-
-// Anthropic Icon (coral/salmon brand color)
-const AnthropicIcon = () => (
-	<svg
-		xmlns="http://www.w3.org/2000/svg"
-		shapeRendering="geometricPrecision"
-		textRendering="geometricPrecision"
-		imageRendering="optimizeQuality"
-		fillRule="evenodd"
-		clipRule="evenodd"
-		viewBox="0 0 512 509.64"
-		width={100}
-		height={100}
-	>
-		<path
-			fill="#D77655"
-			d="M115.612 0h280.775C459.974 0 512 52.026 512 115.612v278.415c0 63.587-52.026 115.612-115.613 115.612H115.612C52.026 509.639 0 457.614 0 394.027V115.612C0 52.026 52.026 0 115.612 0z"
-		/>
-		<path
-			fill="#FCF2EE"
-			fillRule="nonzero"
-			d="m142.27 316.619 73.655-41.326 1.238-3.589-1.238-1.996-3.589-.001-12.31-.759-42.084-1.138-36.498-1.516-35.361-1.896-8.897-1.895-8.34-10.995.859-5.484 7.482-5.03 10.717.935 23.683 1.617 35.537 2.452 25.782 1.517 38.193 3.968h6.064l.86-2.451-2.073-1.517-1.618-1.517-36.776-24.922-39.81-26.338-20.852-15.166-11.273-7.683-5.687-7.204-2.451-15.721 10.237-11.273 13.75.935 3.513.936 13.928 10.716 29.749 23.027 38.848 28.612 5.687 4.727 2.275-1.617.278-1.138-2.553-4.271-21.13-38.193-22.546-38.848-10.035-16.101-2.654-9.655c-.935-3.968-1.617-7.304-1.617-11.374l11.652-15.823 6.445-2.073 15.545 2.073 6.547 5.687 9.655 22.092 15.646 34.78 24.265 47.291 7.103 14.028 3.791 12.992 1.416 3.968 2.449-.001v-2.275l1.997-26.641 3.69-32.707 3.589-42.084 1.239-11.854 5.863-14.206 11.652-7.683 9.099 4.348 7.482 10.716-1.036 6.926-4.449 28.915-8.72 45.294-5.687 30.331h3.313l3.792-3.791 15.342-20.372 25.782-32.227 11.374-12.789 13.27-14.129 8.517-6.724 16.1-.001 11.854 17.617-5.307 18.199-16.581 21.029-13.75 17.819-19.716 26.54-12.309 21.231 1.138 1.694 2.932-.278 44.536-9.479 24.062-4.347 28.714-4.928 12.992 6.066 1.416 6.167-5.106 12.613-30.71 7.583-36.018 7.204-53.636 12.689-.657.48.758.935 24.164 2.275 10.337.556h25.301l47.114 3.514 12.309 8.139 7.381 9.959-1.238 7.583-18.957 9.655-25.579-6.066-59.702-14.205-20.474-5.106-2.83-.001v1.694l17.061 16.682 31.266 28.233 39.152 36.397 1.997 8.999-5.03 7.102-5.307-.758-34.401-25.883-13.27-11.651-30.053-25.302-1.996-.001v2.654l6.926 10.136 36.574 54.975 1.895 16.859-2.653 5.485-9.479 3.311-10.414-1.895-21.408-30.054-22.092-33.844-17.819-30.331-2.173 1.238-10.515 113.261-4.929 5.788-11.374 4.348-9.478-7.204-5.03-11.652 5.03-23.027 6.066-30.052 4.928-23.886 4.449-29.674 2.654-9.858-.177-.657-2.173.278-22.37 30.71-34.021 45.977-26.919 28.815-6.445 2.553-11.173-5.789 1.037-10.337 6.243-9.2 37.257-47.392 22.47-29.371 14.508-16.961-.101-2.451h-.859l-98.954 64.251-17.618 2.275-7.583-7.103.936-11.652 3.589-3.791 29.749-20.474-.101.102.024.101z"
-		/>
-	</svg>
-);
-
-// OpenCode Icon
-const OpenCodeIcon = () => (
-	<svg
-		fill="none"
-		xmlns="http://www.w3.org/2000/svg"
-		viewBox="0 0 240 300"
-		width={100}
-		height={100}
-	>
-		<path d="M180 240H60V120h120z" fill="#888888" />
-		<path d="M180 60H60v180h120zm60 240H0V0h240z" fill="#ffffff" />
-	</svg>
-);
-
-// Cursor Icon
-const CursorIcon = () => (
-	<svg
-		xmlns="http://www.w3.org/2000/svg"
-		viewBox="0 0 466.73 532.09"
-		width={100}
-		height={100}
-	>
-		<path
-			d="M457.43 125.94 244.42 2.96c-6.84-3.95-15.28-3.95-22.12 0L9.3 125.94C3.55 129.26 0 135.4 0 142.05v247.99c0 6.65 3.55 12.79 9.3 16.11l213.01 122.98c6.84 3.95 15.28 3.95 22.12 0l213.01-122.98c5.75-3.32 9.3-9.46 9.3-16.11V142.05c0-6.65-3.55-12.79-9.3-16.11zm-13.38 26.05L238.42 508.15c-1.39 2.4-5.06 1.42-5.06-1.36V273.58c0-4.66-2.49-8.97-6.53-11.31L24.87 145.67c-2.4-1.39-1.42-5.06 1.36-5.06h411.26c5.84 0 9.49 6.33 6.57 11.39h-.01Z"
-			fill="#ffffff"
-		/>
-	</svg>
-);
-
-// Cline Icon
-const ClineIcon = () => (
-	<svg
-		xmlns="http://www.w3.org/2000/svg"
-		viewBox="0 0 466.73 487.04"
-		width={100}
-		height={100}
-	>
-		<path
-			d="m463.6 275.08-29.26-58.75V182.5c0-56.08-45.01-101.5-100.53-101.5H283.8c3.62-7.43 5.61-15.79 5.61-24.61C289.41 25.22 264.33 0 233.34 0s-56.07 25.22-56.07 56.39c0 8.82 1.99 17.17 5.61 24.61h-50.01C77.36 81 32.35 126.42 32.35 182.5v33.83L2.48 274.92c-3.01 5.9-3.01 12.92 0 18.81l29.87 57.93v33.83c0 56.08 45.01 101.5 100.52 101.5h200.95c55.51 0 100.53-45.42 100.53-101.5v-33.83l29.21-58.13c2.9-5.79 2.9-12.61.05-18.46Zm-260.85 47.88c0 25.48-20.54 46.14-45.88 46.14s-45.88-20.66-45.88-46.14v-82.02c0-25.48 20.54-46.14 45.88-46.14s45.88 20.66 45.88 46.14zm147.83 0c0 25.48-20.54 46.14-45.88 46.14s-45.88-20.66-45.88-46.14v-82.02c0-25.48 20.54-46.14 45.88-46.14s45.88 20.66 45.88 46.14z"
-			fill="#ffffff"
-		/>
-	</svg>
-);
-
-// N8N Icon
-const N8nIcon = () => (
-	<svg
-		viewBox="0 0 24 24"
-		xmlns="http://www.w3.org/2000/svg"
-		width={100}
-		height={100}
-	>
-		<path
-			clipRule="evenodd"
-			d="M24 8.4c0 1.325-1.102 2.4-2.462 2.4-1.146 0-2.11-.765-2.384-1.8h-3.436c-.602 0-1.115.424-1.214 1.003l-.101.592a2.38 2.38 0 0 1-.8 1.405c.412.354.704.844.8 1.405l.1.592A1.222 1.222 0 0 0 15.719 15h.975c.273-1.035 1.237-1.8 2.384-1.8 1.36 0 2.461 1.075 2.461 2.4S20.436 18 19.078 18c-1.147 0-2.11-.765-2.384-1.8h-.975c-1.204 0-2.23-.848-2.428-2.005l-.101-.592a1.222 1.222 0 0 0-1.214-1.003H10.97c-.308.984-1.246 1.7-2.356 1.7-1.11 0-2.048-.716-2.355-1.7H4.817c-.308.984-1.246 1.7-2.355 1.7C1.102 14.3 0 13.225 0 11.9s1.102-2.4 2.462-2.4c1.183 0 2.172.815 2.408 1.9h1.337c.236-1.085 1.225-1.9 2.408-1.9 1.184 0 2.172.815 2.408 1.9h.952c.601 0 1.115-.424 1.213-1.003l.102-.592c.198-1.157 1.225-2.005 2.428-2.005h3.436c.274-1.035 1.238-1.8 2.384-1.8C22.898 6 24 7.075 24 8.4zm-1.23 0c0 .663-.552 1.2-1.232 1.2-.68 0-1.23-.537-1.23-1.2 0-.663.55-1.2 1.23-1.2.68 0 1.231.537 1.231 1.2zM2.461 13.1c.68 0 1.23-.537 1.23-1.2 0-.663-.55-1.2-1.23-1.2-.68 0-1.231.537-1.231 1.2 0 .663.55 1.2 1.23 1.2zm6.153 0c.68 0 1.231-.537 1.231-1.2 0-.663-.55-1.2-1.23-1.2-.68 0-1.231.537-1.231 1.2 0 .663.55 1.2 1.23 1.2zm10.462 3.7c.68 0 1.23-.537 1.23-1.2 0-.663-.55-1.2-1.23-1.2-.68 0-1.23.537-1.23 1.2 0 .663.55 1.2 1.23 1.2z"
-			fill="#EA4B71"
-			fillRule="evenodd"
-		/>
-	</svg>
-);
-
-// VS Code Icon
-const VSCodeIcon = () => (
-	<svg
-		xmlns="http://www.w3.org/2000/svg"
-		viewBox="0 0 24 24"
-		width={100}
-		height={100}
-	>
-		<path
-			d="M23.15 2.587L18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.12-3.128a.999.999 0 0 0-1.276.057L.327 7.261A1 1 0 0 0 .326 8.74L3.899 12 .326 15.26a1 1 0 0 0 .001 1.479L1.65 17.94a.999.999 0 0 0 1.276.057l4.12-3.128 9.46 8.63a1.492 1.492 0 0 0 1.704.29l4.942-2.377A1.5 1.5 0 0 0 24 20.06V3.939a1.5 1.5 0 0 0-.85-1.352zm-5.146 14.861L10.826 12l7.178-5.448v10.896z"
-			fill="#007ACC"
-		/>
-	</svg>
-);
-
-// OpenClaw Icon
-const OpenClawIcon = () => (
-	<svg
-		xmlns="http://www.w3.org/2000/svg"
-		viewBox="0 0 16 16"
-		width={100}
-		height={100}
-	>
-		<path fill="none" d="M0 0h16v16H0z" />
-		<g fill="#3a0a0d">
-			<path d="M1 5h1v3H1zM2 4h1v1H2zM2 8h1v1H2zM3 3h1v1H3zM3 9h1v1H3zM4 2h1v1H4zM4 10h1v1H4zM5 2h6v1H5zM11 2h1v1h-1zM12 3h1v1h-1zM12 9h1v1h-1zM13 4h1v1h-1zM13 8h1v1h-1zM14 5h1v3h-1zM5 11h6v1H5zM4 12h1v1H4zM11 12h1v1h-1zM3 13h1v1H3zM12 13h1v1h-1zM5 14h6v1H5z" />
-		</g>
-		<g fill="#ff4f40">
-			<path d="M5 3h6v1H5zM4 4h8v1H4zM3 5h10v1H3zM3 6h10v1H3zM3 7h10v1H3zM4 8h8v1H4zM5 9h6v1H5zM5 12h6v1H5zM6 13h4v1H6z" />
-		</g>
-		<g fill="#ff775f">
-			<path d="M1 6h2v1H1zM2 5h1v1H2zM2 7h1v1H2zM13 6h2v1h-2zM13 5h1v1h-1zM13 7h1v1h-1z" />
-		</g>
-		<g fill="#081016">
-			<path d="M6 5h1v1H6zM9 5h1v1H9z" />
-		</g>
-		<g fill="#f5fbff">
-			<path d="M6 4h1v1H6zM9 4h1v1H9z" />
-		</g>
-	</svg>
-);
-
-// Autohand Icon
-const AutohandIcon = () => (
-	<svg
-		fill="none"
-		xmlns="http://www.w3.org/2000/svg"
-		viewBox="0 0 261 124"
-		width={100}
-		height={100}
-	>
-		<circle cx="163.29" cy="94.37" r="27.13" stroke="#ffffff" strokeWidth="5" />
-		<circle cx="163.84" cy="94.92" r="7.73" fill="#ffffff" stroke="#ffffff" />
-		<circle cx="163.29" cy="29.63" r="27.13" stroke="#ffffff" strokeWidth="5" />
-		<circle cx="163.84" cy="30.18" r="7.73" fill="#ffffff" stroke="#ffffff" />
-		<circle cx="231.33" cy="94.37" r="27.13" stroke="#ffffff" strokeWidth="5" />
-		<circle cx="231.88" cy="94.92" r="7.73" fill="#ffffff" stroke="#ffffff" />
-		<circle cx="231.33" cy="29.63" r="27.13" stroke="#ffffff" strokeWidth="5" />
-		<circle cx="231.88" cy="30.18" r="7.73" fill="#ffffff" stroke="#ffffff" />
-		<circle cx="29.63" cy="94.37" r="27.13" stroke="#ffffff" strokeWidth="5" />
-		<circle cx="30.18" cy="94.92" r="7.73" fill="#ffffff" stroke="#ffffff" />
-		<circle cx="29.63" cy="29.63" r="27.13" stroke="#ffffff" strokeWidth="5" />
-		<circle cx="30.18" cy="30.18" r="7.73" fill="#ffffff" stroke="#ffffff" />
-		<circle cx="97.66" cy="94.37" r="27.13" stroke="#ffffff" strokeWidth="5" />
-		<circle cx="98.21" cy="94.92" r="7.73" fill="#ffffff" stroke="#ffffff" />
-		<circle cx="97.66" cy="29.63" r="27.13" stroke="#ffffff" strokeWidth="5" />
-		<circle cx="98.21" cy="30.18" r="7.73" fill="#ffffff" stroke="#ffffff" />
-	</svg>
-);
-
-// Codex CLI Icon
-const CodexCliIcon = () => (
-	<svg
-		fill="#ffffff"
-		fillRule="evenodd"
-		xmlns="http://www.w3.org/2000/svg"
-		viewBox="0 0 24 24"
-		width={100}
-		height={100}
-	>
-		<path
-			clipRule="evenodd"
-			d="M8.086.457a6.105 6.105 0 0 1 3.046-.415c1.333.153 2.521.72 3.564 1.7a.117.117 0 0 0 .107.029c1.408-.346 2.762-.224 4.061.366l.063.03.154.076c1.357.703 2.33 1.77 2.918 3.198.278.679.418 1.388.421 2.126a5.655 5.655 0 0 1-.18 1.631.167.167 0 0 0 .04.155 5.982 5.982 0 0 1 1.578 2.891c.385 1.901-.01 3.615-1.183 5.14l-.182.22a6.063 6.063 0 0 1-2.934 1.851.162.162 0 0 0-.108.102c-.255.736-.511 1.364-.987 1.992-1.199 1.582-2.962 2.462-4.948 2.451-1.583-.008-2.986-.587-4.21-1.736a.145.145 0 0 0-.14-.032c-.518.167-1.04.191-1.604.185a5.924 5.924 0 0 1-2.595-.622 6.058 6.058 0 0 1-2.146-1.781c-.203-.269-.404-.522-.551-.821a7.74 7.74 0 0 1-.495-1.283 6.11 6.11 0 0 1-.017-3.064.166.166 0 0 0 .008-.074.115.115 0 0 0-.037-.064 5.958 5.958 0 0 1-1.38-2.202 5.196 5.196 0 0 1-.333-1.589 6.915 6.915 0 0 1 .188-2.132c.45-1.484 1.309-2.648 2.577-3.493.282-.188.55-.334.802-.438.286-.12.573-.22.861-.304a.129.129 0 0 0 .087-.087A6.016 6.016 0 0 1 5.635 2.31C6.315 1.464 7.132.846 8.086.457m-.804 7.85a.848.848 0 0 0-1.473.842l1.694 2.965-1.688 2.848a.849.849 0 0 0 1.46.864l1.94-3.272a.849.849 0 0 0 .007-.854zm5.446 6.24a.849.849 0 0 0 0 1.695h4.848a.849.849 0 0 0 0-1.696h-4.848z"
-		/>
-	</svg>
-);
-
-// Map slugs to their icons
-function getIconForGuide(slug: string) {
-	const iconMap: Record<string, () => React.JSX.Element> = {
-		"claude-code": AnthropicIcon,
-		opencode: OpenCodeIcon,
-		cursor: CursorIcon,
-		cline: ClineIcon,
-		n8n: N8nIcon,
-		vscode: VSCodeIcon,
-		openclaw: OpenClawIcon,
-		autohand: AutohandIcon,
-		"codex-cli": CodexCliIcon,
-	};
-
-	return iconMap[slug] || OpenCodeIcon; // Default to OpenCode icon
-}
 
 export default async function GuideOgImage({
 	params,
@@ -210,16 +22,14 @@ export default async function GuideOgImage({
 
 	if (!guide) {
 		return new ImageResponse(
-			(
-				<div
-					style={{
-						width: "100%",
-						height: "100%",
-						display: "flex",
-						background: "#000000",
-					}}
-				/>
-			),
+			<div
+				style={{
+					width: "100%",
+					height: "100%",
+					display: "flex",
+					background: "#000000",
+				}}
+			/>,
 			size,
 		);
 	}
@@ -227,144 +37,139 @@ export default async function GuideOgImage({
 	const Icon = getIconForGuide(guide.slug);
 
 	return new ImageResponse(
-		(
+		<div
+			style={{
+				width: "100%",
+				height: "100%",
+				display: "flex",
+				flexDirection: "column",
+				justifyContent: "space-between",
+				alignItems: "stretch",
+				background: "#000000",
+				color: "white",
+				fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+				padding: 60,
+				boxSizing: "border-box",
+			}}
+		>
+			{/* Header with logo */}
 			<div
 				style={{
-					width: "100%",
-					height: "100%",
 					display: "flex",
-					flexDirection: "column",
-					justifyContent: "space-between",
-					alignItems: "stretch",
-					background: "#000000",
-					color: "white",
-					fontFamily:
-						"system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
-					padding: 60,
-					boxSizing: "border-box",
+					flexDirection: "row",
+					alignItems: "center",
+					gap: 16,
 				}}
 			>
-				{/* Header with logo */}
+				<svg
+					fill="none"
+					xmlns="http://www.w3.org/2000/svg"
+					viewBox="0 0 218 232"
+					width={48}
+					height={48}
+				>
+					<path
+						d="M218 59.4686c0-4.1697-2.351-7.9813-6.071-9.8441L119.973 3.58361s2.926 3.32316 2.926 7.01529V218.833c0 4.081-2.926 7.016-2.926 7.016l15.24-7.468c2.964-2.232 7.187-7.443 7.438-16.006.293-9.976.61-84.847.732-121.0353.487-3.6678 4.096-11.0032 14.63-11.0032 10.535 0 29.262 5.1348 37.309 7.7022 2.439.7336 7.608 4.1812 8.779 12.1036 1.17 7.9223.975 59.0507.731 83.6247 0 2.445.137 7.069 6.653 7.069 6.515 0 6.515-7.069 6.515-7.069V59.4686Z"
+						fill="#ffffff"
+					/>
+					<path
+						d="M149.235 86.323c0-5.5921 5.132-9.7668 10.589-8.6132l31.457 6.6495c4.061.8585 6.967 4.4207 6.967 8.5824v81.9253c0 5.868 5.121 9.169 5.121 9.169l-51.9-12.658c-1.311-.32-2.234-1.498-2.234-2.852V86.323ZM99.7535 1.15076c7.2925-3.60996 15.8305 1.71119 15.8305 9.86634V220.983c0 8.155-8.538 13.476-15.8305 9.866L6.11596 184.496C2.37105 182.642 0 178.818 0 174.63v-17.868l49.7128 19.865c4.0474 1.617 8.4447-1.372 8.4449-5.741 0-2.66-1.6975-5.022-4.2142-5.863L0 146.992v-14.305l40.2756 7.708c3.9656.759 7.6405-2.289 7.6405-6.337 0-3.286-2.4628-6.048-5.7195-6.413L0 122.917V108.48l78.5181-3.014c4.1532-.16 7.4381-3.582 7.4383-7.7498 0-4.6256-4.0122-8.2229-8.5964-7.7073L0 98.7098V82.4399l53.447-17.8738c2.3764-.7948 3.9791-3.0254 3.9792-5.5374 0-4.0961-4.0978-6.9185-7.9106-5.4486L0 72.6695V57.3696c.0000304-4.1878 2.37107-8.0125 6.11596-9.8664L99.7535 1.15076Z"
+						fill="#ffffff"
+					/>
+				</svg>
 				<div
 					style={{
 						display: "flex",
 						flexDirection: "row",
 						alignItems: "center",
-						gap: 16,
+						gap: 8,
+						fontSize: 24,
+						color: "#9CA3AF",
 					}}
 				>
-					<svg
-						fill="none"
-						xmlns="http://www.w3.org/2000/svg"
-						viewBox="0 0 218 232"
-						width={48}
-						height={48}
-					>
-						<path
-							d="M218 59.4686c0-4.1697-2.351-7.9813-6.071-9.8441L119.973 3.58361s2.926 3.32316 2.926 7.01529V218.833c0 4.081-2.926 7.016-2.926 7.016l15.24-7.468c2.964-2.232 7.187-7.443 7.438-16.006.293-9.976.61-84.847.732-121.0353.487-3.6678 4.096-11.0032 14.63-11.0032 10.535 0 29.262 5.1348 37.309 7.7022 2.439.7336 7.608 4.1812 8.779 12.1036 1.17 7.9223.975 59.0507.731 83.6247 0 2.445.137 7.069 6.653 7.069 6.515 0 6.515-7.069 6.515-7.069V59.4686Z"
-							fill="#ffffff"
-						/>
-						<path
-							d="M149.235 86.323c0-5.5921 5.132-9.7668 10.589-8.6132l31.457 6.6495c4.061.8585 6.967 4.4207 6.967 8.5824v81.9253c0 5.868 5.121 9.169 5.121 9.169l-51.9-12.658c-1.311-.32-2.234-1.498-2.234-2.852V86.323ZM99.7535 1.15076c7.2925-3.60996 15.8305 1.71119 15.8305 9.86634V220.983c0 8.155-8.538 13.476-15.8305 9.866L6.11596 184.496C2.37105 182.642 0 178.818 0 174.63v-17.868l49.7128 19.865c4.0474 1.617 8.4447-1.372 8.4449-5.741 0-2.66-1.6975-5.022-4.2142-5.863L0 146.992v-14.305l40.2756 7.708c3.9656.759 7.6405-2.289 7.6405-6.337 0-3.286-2.4628-6.048-5.7195-6.413L0 122.917V108.48l78.5181-3.014c4.1532-.16 7.4381-3.582 7.4383-7.7498 0-4.6256-4.0122-8.2229-8.5964-7.7073L0 98.7098V82.4399l53.447-17.8738c2.3764-.7948 3.9791-3.0254 3.9792-5.5374 0-4.0961-4.0978-6.9185-7.9106-5.4486L0 72.6695V57.3696c.0000304-4.1878 2.37107-8.0125 6.11596-9.8664L99.7535 1.15076Z"
-							fill="#ffffff"
-						/>
-					</svg>
-					<div
-						style={{
-							display: "flex",
-							flexDirection: "row",
-							alignItems: "center",
-							gap: 8,
-							fontSize: 24,
-							color: "#9CA3AF",
-						}}
-					>
-						<span style={{ color: "#ffffff", fontWeight: 600 }}>
-							LLM Gateway
-						</span>
-						<span style={{ opacity: 0.6 }}>•</span>
-						<span>Guides</span>
-					</div>
+					<span style={{ color: "#ffffff", fontWeight: 600 }}>LLM Gateway</span>
+					<span style={{ opacity: 0.6 }}>•</span>
+					<span>Guides</span>
+				</div>
+			</div>
+
+			{/* Main content */}
+			<div
+				style={{
+					display: "flex",
+					flexDirection: "column",
+					alignItems: "center",
+					justifyContent: "center",
+					flex: 1,
+					gap: 48,
+				}}
+			>
+				{/* Integration icon */}
+				<div
+					style={{
+						width: 120,
+						height: 120,
+						borderRadius: 20,
+						backgroundColor: "#1a1a1a",
+						border: "2px solid rgba(255,255,255,0.1)",
+						display: "flex",
+						alignItems: "center",
+						justifyContent: "center",
+						padding: 16,
+					}}
+				>
+					<Icon />
 				</div>
 
-				{/* Main content */}
+				{/* Title and description */}
 				<div
 					style={{
 						display: "flex",
 						flexDirection: "column",
 						alignItems: "center",
-						justifyContent: "center",
-						flex: 1,
-						gap: 48,
+						gap: 24,
+						maxWidth: 1000,
 					}}
 				>
-					{/* Integration icon */}
-					<div
+					<h1
 						style={{
-							width: 120,
-							height: 120,
-							borderRadius: 20,
-							backgroundColor: "#1a1a1a",
-							border: "2px solid rgba(255,255,255,0.1)",
-							display: "flex",
-							alignItems: "center",
-							justifyContent: "center",
-							padding: 16,
+							fontSize: 80,
+							fontWeight: 700,
+							margin: 0,
+							letterSpacing: "-0.03em",
+							textAlign: "center",
+							lineHeight: 1.1,
 						}}
 					>
-						<Icon />
-					</div>
-
-					{/* Title and description */}
-					<div
+						{guide.title}
+					</h1>
+					<p
 						style={{
-							display: "flex",
-							flexDirection: "column",
-							alignItems: "center",
-							gap: 24,
-							maxWidth: 1000,
+							fontSize: 36,
+							color: "#9CA3AF",
+							margin: 0,
+							textAlign: "center",
+							lineHeight: 1.3,
 						}}
 					>
-						<h1
-							style={{
-								fontSize: 80,
-								fontWeight: 700,
-								margin: 0,
-								letterSpacing: "-0.03em",
-								textAlign: "center",
-								lineHeight: 1.1,
-							}}
-						>
-							{guide.title}
-						</h1>
-						<p
-							style={{
-								fontSize: 36,
-								color: "#9CA3AF",
-								margin: 0,
-								textAlign: "center",
-								lineHeight: 1.3,
-							}}
-						>
-							{guide.description}
-						</p>
-					</div>
-				</div>
-
-				{/* Footer */}
-				<div
-					style={{
-						display: "flex",
-						flexDirection: "row",
-						justifyContent: "flex-end",
-						fontSize: 20,
-						color: "#9CA3AF",
-					}}
-				>
-					<span>llmgateway.io</span>
+						{guide.description}
+					</p>
 				</div>
 			</div>
-		),
+
+			{/* Footer */}
+			<div
+				style={{
+					display: "flex",
+					flexDirection: "row",
+					justifyContent: "flex-end",
+					fontSize: 20,
+					color: "#9CA3AF",
+				}}
+			>
+				<span>llmgateway.io</span>
+			</div>
+		</div>,
 		size,
 	);
 }

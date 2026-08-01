@@ -116,6 +116,9 @@ gateway:
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
+  # -- Internal-only port for the Prometheus /metrics endpoint. Exposed via the
+  # ClusterIP Service for in-cluster scraping; never routed by the ingress.
+  metricsPort: 9090
   resources:
     requests:
       cpu: 100m
@@ -124,17 +127,45 @@ gateway:
       cpu: 200m
       memory: 256Mi
   config:
-    gatewayTimeoutMs: 300000
-    aiStreamingTimeoutMs: 240000
-    aiTimeoutMs: 180000
+    gatewayTimeoutMs: 1500000
+    aiStreamingTimeoutMs: 1200000
+    aiTimeoutMs: 600000
     keepAliveTimeoutS: 620
-    shutdownGracePeriodMs: 120000
+    shutdownGracePeriodMs: 1200000
     healthCheckSkipDatabase: ""
     healthCheckTimeoutMs: 15000
     maxStreamingBufferMb: 50
+  # Hard deadline for pod shutdown; caps every in-process drain above. Defaults
+  # to 120s, or realtime.config.maxSessionSeconds + 120 when realtime.enabled.
+  # Set explicitly only to override that.
+  terminationGracePeriodSeconds: ""
   extraEnv: []
   nodeSelector: {}
   tolerations: []
+
+# =============================================================================
+# Realtime (/v1/realtime WebSocket proxy)
+# =============================================================================
+# Hosted inside the gateway process, not as its own deployment: a separate
+# deployment would need the same drain-before-shutdown behaviour anyway, so it
+# buys isolation at the cost of another service to operate. Disabled by default
+# (staged rollout).
+#
+# Enabling this raises the gateway's terminationGracePeriodSeconds to cover
+# maxSessionSeconds, because a rolling deploy waits for live calls to hang up
+# before retiring a pod. Sessions also pin a caller to one pod for their whole
+# duration, so watch gateway memory as concurrency grows.
+realtime:
+  enabled: false
+  config:
+    # Hard per-session duration cap in seconds (OpenAI caps sessions at 60m).
+    # Also sets how long a gateway pod may spend draining on shutdown.
+    maxSessionSeconds: 3600
+    # Hard per-session spend cap in USD.
+    maxSessionSpendUsd: "10"
+    # Redis-leased concurrency caps.
+    maxSessionsPerOrg: 20
+    maxSessionsPerKey: 10
 
 # =============================================================================
 # UI Dashboard (Next.js)
@@ -350,6 +381,40 @@ externalRedis:
   password: ""
 
 # =============================================================================
+# Built-in Storage Redis
+# Dedicated instance for Responses API state (30-day retention) and gateway
+# response caching. Runs with AOF persistence since it holds a source of
+# truth, not just cache. Set enabled: false to use an external instance
+# (configure externalStorageRedis); with neither configured, the apps fall
+# back to the main Redis connection.
+# =============================================================================
+storageRedis:
+  enabled: true
+  image:
+    repository: redis
+    tag: "8-alpine"
+    pullPolicy: IfNotPresent
+  # -- Redis password (leave empty for no authentication)
+  password: ""
+  port: 6379
+  persistence:
+    size: 10Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 512Mi
+
+# -- External storage Redis (used when storageRedis.enabled is false)
+externalStorageRedis:
+  host: ""
+  port: 6379
+  password: ""
+
+# =============================================================================
 # Ingress
 # =============================================================================
 ingress:
@@ -393,12 +458,14 @@ llmProviders:
   # LLM_MISTRAL_API_KEY: ""
   # LLM_PERPLEXITY_API_KEY: ""
   # LLM_TOGETHER_AI_API_KEY: ""
+  # LLM_SCX_AI_API_KEY: ""
   # LLM_ALIBABA_API_KEY: ""
   # LLM_NEBIUS_API_KEY: ""
   # LLM_CEREBRAS_API_KEY: ""
   # LLM_MOONSHOT_API_KEY: ""
   # LLM_NOVITA_AI_API_KEY: ""
   # LLM_AWS_BEDROCK_API_KEY: ""
+  # LLM_AWS_MANTLE_API_KEY: ""
   # LLM_AZURE_API_KEY: ""
   # LLM_INFERENCE_NET_API_KEY: ""
   # LLM_NANO_GPT_API_KEY: ""
@@ -416,6 +483,8 @@ stripe:
   devPlanMaxPriceId: ""
 
 billing:
+  # Bill cancelled/aborted streaming requests for the inference already consumed.
+  # Defaults to enabled in code; set to "false" only to opt out (see GHSA-724j-f2pf-phf7).
   billCancelledRequests: ""
   platformFeePercentage: ""
 

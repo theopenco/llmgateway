@@ -21,6 +21,22 @@ export function mapFinishReasonToOpenai(
 		return "content_filter";
 	}
 
+	// Anthropic-family safety-classifier refusals (`stop_reason: "refusal"` on
+	// the direct API, Vertex, and Bedrock) have no OpenAI-canonical equivalent.
+	// Surface them as "content_filter" so OpenAI-compatible clients don't fall
+	// back to "other"/"stop" for a policy refusal.
+	if (finishReason === "refusal") {
+		return "content_filter";
+	}
+
+	// Anthropic models stop with `model_context_window_exceeded` when generation
+	// hits the model's context window before `max_tokens`. Like `refusal`, it
+	// surfaces across the direct API, Vertex, and Bedrock, so map it uniformly
+	// to the OpenAI-canonical length limit.
+	if (finishReason === "model_context_window_exceeded") {
+		return "length";
+	}
+
 	switch (finishReason) {
 		case "stop":
 		case "length":
@@ -32,9 +48,9 @@ export function mapFinishReasonToOpenai(
 	switch (usedProvider) {
 		case "google-ai-studio":
 		case "glacier":
+		case "iceberg":
 		case "google-vertex":
 		case "quartz":
-		case "obsidian":
 			if (!finishReason) {
 				return hasToolCalls ? "tool_calls" : "stop";
 			}
@@ -63,6 +79,7 @@ export function mapFinishReasonToOpenai(
 					return "stop";
 			}
 		case "anthropic":
+		case "vertex-anthropic":
 			if (!finishReason) {
 				return hasToolCalls ? "tool_calls" : "stop";
 			}

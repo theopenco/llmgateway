@@ -3,9 +3,12 @@ packages:
   - packages/*
   - ee/*
 
-ignoredBuiltDependencies:
-  - protobufjs
-  - unrs-resolver
+allowBuilds:
+  core-js: true
+  esbuild: true
+  protobufjs: true
+  sharp: true
+  unrs-resolver: true
 
 onlyBuiltDependencies:
   - '@parcel/watcher'

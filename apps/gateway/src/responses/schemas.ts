@@ -1,16 +1,46 @@
 import { z } from "@hono/zod-openapi";
 
+// OpenAI explicit prompt cache breakpoint marker (GPT-5.6 and later).
+const promptCacheBreakpointSchema = z
+	.object({
+		mode: z.enum(["explicit"]).optional(),
+	})
+	.optional();
+
+const responseInputContentSchema = z.union([
+	z.object({
+		type: z.literal("input_text"),
+		text: z.string(),
+		prompt_cache_breakpoint: promptCacheBreakpointSchema,
+	}),
+	z.object({
+		type: z.literal("input_image"),
+		image_url: z.string().optional(),
+		file_id: z.string().optional(),
+		detail: z.enum(["low", "high", "auto", "original"]).optional(),
+		prompt_cache_breakpoint: promptCacheBreakpointSchema,
+	}),
+	z.object({
+		type: z.literal("input_file"),
+		file_data: z.string().optional(),
+		file_id: z.string().optional(),
+		file_url: z.string().optional(),
+		filename: z.string().optional(),
+		detail: z.enum(["low", "high"]).optional(),
+		prompt_cache_breakpoint: promptCacheBreakpointSchema,
+	}),
+]);
+
 const messageItemSchema = z.object({
+	type: z.literal("message").optional(),
 	role: z.enum(["user", "assistant", "system", "developer"]),
+	phase: z.enum(["commentary", "final_answer"]).optional(),
 	content: z
 		.union([
 			z.string(),
 			z.array(
 				z.union([
-					z.object({
-						type: z.literal("input_text"),
-						text: z.string(),
-					}),
+					responseInputContentSchema,
 					z.object({
 						type: z.literal("output_text"),
 						text: z.string(),
@@ -18,11 +48,7 @@ const messageItemSchema = z.object({
 					z.object({
 						type: z.literal("text"),
 						text: z.string(),
-					}),
-					z.object({
-						type: z.literal("input_image"),
-						image_url: z.string().optional(),
-						detail: z.enum(["low", "high", "auto"]).optional(),
+						prompt_cache_breakpoint: promptCacheBreakpointSchema,
 					}),
 					z.object({
 						type: z.literal("image_url"),
@@ -30,6 +56,7 @@ const messageItemSchema = z.object({
 							url: z.string(),
 							detail: z.enum(["low", "high", "auto"]).optional(),
 						}),
+						prompt_cache_breakpoint: promptCacheBreakpointSchema,
 					}),
 				]),
 			),
@@ -61,14 +88,50 @@ const functionCallItemSchema = z.object({
 
 const functionCallOutputItemSchema = z.object({
 	type: z.literal("function_call_output"),
+	id: z.string().optional(),
 	call_id: z.string(),
-	output: z.string(),
+	output: z.union([z.string(), z.array(responseInputContentSchema)]),
+	status: z.enum(["in_progress", "completed", "incomplete"]).optional(),
+});
+
+// Clients replaying reasoning items statelessly (Codex sends the whole prior
+// output back as `input`) serialize their absent optional fields as explicit
+// nulls, so every field here must accept null as well as being omitted —
+// rejecting them 400s a client on reasoning the gateway itself just emitted.
+// Nulls are normalized to undefined so downstream conversion stays unchanged.
+const nullishToUndefined = <T extends z.ZodTypeAny>(schema: T) =>
+	schema
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val));
+
+const reasoningItemSchema = z.object({
+	type: z.literal("reasoning"),
+	id: nullishToUndefined(z.string()),
+	summary: nullishToUndefined(z.array(z.record(z.any()))),
+	content: nullishToUndefined(z.array(z.record(z.any()))),
+	encrypted_content: nullishToUndefined(z.string()),
+	status: nullishToUndefined(
+		z.enum(["in_progress", "completed", "incomplete"]),
+	),
+});
+
+// Reference to an item produced by a previous (stored) response. Stateful
+// clients send these instead of re-sending the full item (e.g. a function_call
+// the gateway emitted earlier). The id points at the `id` of a stored output
+// item (e.g. `fc_...`, `msg_...`, `rs_...`) and is resolved back to the full
+// item before conversion to chat messages.
+const itemReferenceItemSchema = z.object({
+	type: z.literal("item_reference"),
+	id: z.string(),
 });
 
 const inputItemSchema = z.union([
 	messageItemSchema,
+	reasoningItemSchema,
 	functionCallItemSchema,
 	functionCallOutputItemSchema,
+	itemReferenceItemSchema,
 ]);
 
 export const responsesRequestSchema = z.object({
@@ -79,6 +142,30 @@ export const responsesRequestSchema = z.object({
 	instructions: z.string().optional(),
 	previous_response_id: z.string().optional(),
 	stream: z.boolean().optional().default(false),
+	prompt_cache_key: z
+		.string()
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val)),
+	prompt_cache_retention: z
+		.enum(["in_memory", "24h"])
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val)),
+	prompt_cache_options: z
+		.object({
+			mode: z.enum(["implicit", "explicit"]).optional(),
+			ttl: z.enum(["30m"]).optional(),
+		})
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val)),
+	routing: z.enum(["auto", "price", "throughput", "latency"]).optional(),
+	service_tier: z
+		.enum(["auto", "default", "flex", "priority"])
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val)),
 	temperature: z
 		.number()
 		.nullable()
@@ -111,6 +198,8 @@ export const responsesRequestSchema = z.object({
 						.optional(),
 					search_context_size: z.enum(["low", "medium", "high"]).optional(),
 					max_uses: z.number().optional(),
+					allowed_domains: z.array(z.string()).optional(),
+					blocked_domains: z.array(z.string()).optional(),
 				}),
 				// catch-all for unknown tool types (e.g. computer_use, code_interpreter)
 				z.record(z.any()),
@@ -132,14 +221,26 @@ export const responsesRequestSchema = z.object({
 		.optional(),
 	reasoning: z
 		.object({
-			effort: z.enum(["minimal", "low", "medium", "high", "xhigh"]).optional(),
+			effort: z
+				.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"])
+				.optional(),
 			summary: z.enum(["detailed", "auto"]).optional(),
+			context: z.enum(["auto", "current_turn", "all_turns"]).optional(),
 		})
 		.nullable()
 		.optional()
 		.transform((val) => (val === null ? undefined : val)),
 	text: z.record(z.any()).optional(),
 	store: z.boolean().optional(),
+	// Additional output data to include. Only "reasoning.encrypted_content" has
+	// gateway-level behavior (returns encrypted reasoning payloads on reasoning
+	// output items so they can be replayed statelessly); other values are
+	// accepted and ignored.
+	include: z
+		.array(z.string())
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val)),
 	metadata: z.record(z.string()).optional(),
 	top_p: z
 		.number()
@@ -150,3 +251,32 @@ export const responsesRequestSchema = z.object({
 });
 
 export type ResponsesRequest = z.infer<typeof responsesRequestSchema>;
+
+export const compactRequestSchema = z.object({
+	model: z.string().openapi({
+		example: "gpt-4o-mini",
+	}),
+	input: z
+		.union([z.string(), z.array(inputItemSchema)])
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val)),
+	previous_response_id: z
+		.string()
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val)),
+	instructions: z
+		.string()
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val)),
+	prompt_cache_key: z
+		.string()
+		.max(64)
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val)),
+});
+
+export type CompactRequest = z.infer<typeof compactRequestSchema>;

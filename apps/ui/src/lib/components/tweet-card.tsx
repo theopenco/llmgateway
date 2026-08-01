@@ -44,6 +44,31 @@ const Verified = ({ className, ...props }: TwitterIconProps) => (
 	</svg>
 );
 
+// react-tweet's enrichTweet iterates entities.{hashtags,user_mentions,urls,symbols}
+// without null checks; the syndication API sometimes omits these arrays, which
+// crashes server rendering. Backfill missing arrays before passing into enrichTweet.
+function normalizeEntities<T extends { entities: Tweet["entities"] }>(t: T): T {
+	const entities = t.entities ?? ({} as Tweet["entities"]);
+	return {
+		...t,
+		entities: {
+			...entities,
+			hashtags: entities.hashtags ?? [],
+			user_mentions: entities.user_mentions ?? [],
+			urls: entities.urls ?? [],
+			symbols: entities.symbols ?? [],
+		},
+	};
+}
+
+function normalizeTweetEntities(tweet: Tweet): Tweet {
+	const normalized = normalizeEntities(tweet);
+	if (normalized.quoted_tweet) {
+		normalized.quoted_tweet = normalizeEntities(normalized.quoted_tweet);
+	}
+	return normalized;
+}
+
 export const truncate = (str: string | null, length: number) => {
 	if (!str || str.length <= length) {
 		return str;
@@ -115,29 +140,22 @@ export const TweetHeader = ({ tweet }: { tweet: EnrichedTweet }) => (
 					className="overflow-hidden rounded-full border border-transparent"
 				/>
 			</a>
-			<div>
-				<a
-					href={tweet.user.url}
-					target="_blank"
-					rel="noreferrer"
-					className="flex items-center whitespace-nowrap font-semibold"
-				>
+			<a
+				href={tweet.user.url}
+				target="_blank"
+				rel="noreferrer"
+				className="block"
+			>
+				<span className="flex items-center whitespace-nowrap font-semibold">
 					{truncate(tweet.user.name, 20)}
 					{(tweet.user.verified || tweet.user.is_blue_verified) && (
 						<Verified className="ml-1 inline size-4 text-[#1d9bf0]" />
 					)}
-				</a>
-				<div className="flex items-center space-x-1">
-					<a
-						href={tweet.user.url}
-						target="_blank"
-						rel="noreferrer"
-						className="text-sm text-gray-500 transition-all duration-75"
-					>
-						@{truncate(tweet.user.screen_name, 16)}
-					</a>
-				</div>
-			</div>
+				</span>
+				<span className="block text-sm text-gray-600 dark:text-gray-300 transition-all duration-75">
+					@{truncate(tweet.user.screen_name, 16)}
+				</span>
+			</a>
 		</div>
 		<a href={tweet.url} target="_blank" rel="noreferrer">
 			<span className="sr-only">Link to tweet</span>
@@ -160,7 +178,7 @@ export const TweetBody = ({ tweet }: { tweet: EnrichedTweet }) => (
 							href={entity.href}
 							target="_blank"
 							rel="noopener noreferrer"
-							className="text-sm font-normal text-gray-500"
+							className="text-sm font-normal text-gray-600 underline underline-offset-2 dark:text-gray-300"
 						>
 							<span>{entity.text}</span>
 						</a>
@@ -282,7 +300,7 @@ export const TweetCard = async ({
 		if (result.tombstone || result.notFound || !result.data?.user) {
 			tweet = undefined;
 		} else {
-			tweet = result.data;
+			tweet = normalizeTweetEntities(result.data);
 		}
 	} catch (err) {
 		if (onError) {

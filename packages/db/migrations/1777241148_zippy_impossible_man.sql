@@ -1,0 +1,1 @@
+ALTER TABLE "organization" ADD COLUMN "dev_plan_cycle" text DEFAULT 'monthly' NOT NULL;

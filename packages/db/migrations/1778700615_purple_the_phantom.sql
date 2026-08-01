@@ -1,0 +1,1 @@
+ALTER TABLE "log" ADD COLUMN "content_filter_cost" real;

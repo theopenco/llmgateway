@@ -2,13 +2,21 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { apiAuth as auth, updateResendContact } from "@/auth/config.js";
+import {
+	apiAuth as auth,
+	deleteResendContact,
+	updateResendContact,
+} from "@/auth/config.js";
+import { notifyUserAccountDeleted } from "@/utils/discord.js";
+import { computeProfileData, profileSchema } from "@/utils/profile.js";
 
 import { and, db, eq, tables } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
 export const user = new OpenAPIHono<ServerTypes>();
+
+const USERNAME_REGEX = /^[a-z0-9_-]{3,30}$/;
 
 const publicUserSchema = z.object({
 	id: z.string(),
@@ -17,12 +25,19 @@ const publicUserSchema = z.object({
 	onboardingCompleted: z.boolean(),
 	emailVerified: z.boolean(),
 	isAdmin: z.boolean(),
+	username: z.string().nullable(),
+	profilePublic: z.boolean(),
+	profileHidePicture: z.boolean(),
+	bio: z.string().nullable(),
+	githubUsername: z.string().nullable(),
+	xUsername: z.string().nullable(),
 	accounts: z.array(
 		z.object({
 			providerId: z.string(),
 		}),
 	),
 	hasPasskeys: z.boolean(),
+	isSsoUser: z.boolean(),
 });
 
 async function getUserAuthInfo(userId: string) {
@@ -34,10 +49,51 @@ async function getUserAuthInfo(userId: string) {
 			where: { userId },
 		}),
 	]);
+	// A user authenticated via enterprise SSO/SCIM has an `account` whose
+	// providerId matches a registered `ssoProvider` connection slug. Resolving
+	// it here lets the frontend treat these users specially without shipping the
+	// list of connection slugs to the client.
+	const providerIds = accounts.map((a) => a.providerId);
+	const ssoAccount =
+		providerIds.length > 0
+			? await db.query.ssoProvider.findFirst({
+					columns: { id: true },
+					where: { providerId: { in: providerIds } },
+				})
+			: null;
 	return {
 		accounts: accounts.map((a) => ({ providerId: a.providerId })),
 		hasPasskeys: passkeys.length > 0,
 		hasCredentialAccount: accounts.some((a) => a.providerId === "credential"),
+		isSsoUser: !!ssoAccount,
+	};
+}
+
+function toPublicUser(
+	userRecord: typeof tables.user.$inferSelect,
+	authInfo: {
+		accounts: { providerId: string }[];
+		hasPasskeys: boolean;
+		isSsoUser: boolean;
+	},
+	isAdmin: boolean,
+): z.infer<typeof publicUserSchema> {
+	return {
+		id: userRecord.id,
+		email: userRecord.email,
+		name: userRecord.name,
+		onboardingCompleted: userRecord.onboardingCompleted,
+		emailVerified: userRecord.emailVerified,
+		isAdmin,
+		username: userRecord.username,
+		profilePublic: userRecord.profilePublic,
+		profileHidePicture: userRecord.profileHidePicture,
+		bio: userRecord.bio,
+		githubUsername: userRecord.githubUsername,
+		xUsername: userRecord.xUsername,
+		accounts: authInfo.accounts,
+		hasPasskeys: authInfo.hasPasskeys,
+		isSsoUser: authInfo.isSsoUser,
 	};
 }
 
@@ -97,22 +153,31 @@ user.openapi(get, async (c) => {
 	const isAdmin = isAdminEmail(user.email);
 
 	return c.json({
-		user: {
-			id: user.id,
-			email: user.email,
-			name: user.name,
-			onboardingCompleted: user.onboardingCompleted,
-			emailVerified: user.emailVerified,
-			isAdmin,
-			accounts: authInfo.accounts,
-			hasPasskeys: authInfo.hasPasskeys,
-		},
+		user: toPublicUser(user, authInfo, isAdmin),
 	});
 });
 
 const updateUserSchema = z.object({
 	name: z.string().optional(),
 	email: z.string().email("Invalid email address").optional(),
+	username: z
+		.string()
+		.transform((v) => v.trim().toLowerCase())
+		.pipe(
+			z
+				.string()
+				.regex(
+					USERNAME_REGEX,
+					"Username must be 3-30 characters using lowercase letters, numbers, hyphens or underscores",
+				),
+		)
+		.nullable()
+		.optional(),
+	profilePublic: z.boolean().optional(),
+	profileHidePicture: z.boolean().optional(),
+	bio: z.string().max(280).nullable().optional(),
+	githubUsername: z.string().max(100).nullable().optional(),
+	xUsername: z.string().max(100).nullable().optional(),
 });
 
 const completeOnboardingSchema = z.object({});
@@ -256,6 +321,37 @@ user.openapi(updateUser, async (c) => {
 		});
 	}
 
+	// Resolve the final state. `username` is only present in updateData when the
+	// client explicitly sends it (including null to clear it); otherwise the
+	// existing value is kept.
+	const finalUsername =
+		"username" in updateData ? updateData.username : userRecord.username;
+	const finalProfilePublic =
+		updateData.profilePublic ?? userRecord.profilePublic;
+
+	// A username is required before a profile can be public. Validate the final
+	// state so clearing the username can't leave a public profile without one.
+	if (finalProfilePublic && !finalUsername) {
+		throw new HTTPException(400, {
+			message: "Choose a username before making your profile public",
+		});
+	}
+
+	// Enforce username uniqueness (case-insensitive, excluding the current user).
+	if (updateData.username) {
+		const existing = await db.query.user.findFirst({
+			where: {
+				username: updateData.username,
+				id: { ne: authUser.id },
+			},
+		});
+		if (existing) {
+			throw new HTTPException(400, {
+				message: "That username is already taken",
+			});
+		}
+	}
+
 	const [updatedUser] = await db
 		.update(tables.user)
 		.set({
@@ -272,16 +368,7 @@ user.openapi(updateUser, async (c) => {
 	const isAdmin = isAdminEmail(updatedUser.email);
 
 	return c.json({
-		user: {
-			id: updatedUser.id,
-			email: updatedUser.email,
-			name: updatedUser.name,
-			onboardingCompleted: updatedUser.onboardingCompleted,
-			emailVerified: updatedUser.emailVerified,
-			isAdmin,
-			accounts: authInfo.accounts,
-			hasPasskeys: authInfo.hasPasskeys,
-		},
+		user: toPublicUser(updatedUser, authInfo, isAdmin),
 		message: "User updated successfully",
 	});
 });
@@ -415,11 +502,23 @@ user.openapi(deleteUser, async (c) => {
 		});
 	}
 
+	// Sign out before deleting the user: the delete cascades the session rows
+	// away, after which better-auth can no longer resolve the session to revoke
+	// it or emit the cookie-clearing headers.
+	const signOutResult = await auth.api.signOut({
+		headers: c.req.raw.headers,
+		returnHeaders: true,
+	});
+
 	await db.delete(tables.user).where(eq(tables.user.id, authUser.id));
 
-	await auth.api.signOut({
-		headers: c.req.raw.headers,
-	});
+	await notifyUserAccountDeleted(userRecord.email, userRecord.name);
+
+	await deleteResendContact(userRecord.email);
+
+	for (const cookie of signOutResult.headers.getSetCookie()) {
+		c.header("set-cookie", cookie, { append: true });
+	}
 
 	return c.json({
 		message: "Account deleted successfully",
@@ -514,16 +613,148 @@ user.openapi(completeOnboarding, async (c) => {
 	const isAdmin = isAdminEmail(updatedUser.email);
 
 	return c.json({
-		user: {
-			id: updatedUser.id,
-			email: updatedUser.email,
-			name: updatedUser.name,
-			onboardingCompleted: updatedUser.onboardingCompleted,
-			emailVerified: updatedUser.emailVerified,
-			isAdmin,
-			accounts: authInfo.accounts,
-			hasPasskeys: authInfo.hasPasskeys,
-		},
+		user: toPublicUser(updatedUser, authInfo, isAdmin),
 		message: "Onboarding completed successfully",
 	});
+});
+
+const getProfile = createRoute({
+	method: "get",
+	path: "/profile",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ profile: profileSchema }),
+				},
+			},
+			description: "The authenticated user's DevPass profile data.",
+		},
+		401: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "Unauthorized.",
+		},
+	},
+});
+
+user.openapi(getProfile, async (c) => {
+	const authUser = c.get("user");
+
+	if (!authUser) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const profile = await computeProfileData(authUser.id);
+
+	if (!profile) {
+		throw new HTTPException(404, { message: "User not found" });
+	}
+
+	return c.json({ profile }, 200);
+});
+
+const getFavorites = createRoute({
+	method: "get",
+	path: "/favorites",
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ favorites: z.array(z.string()) }),
+				},
+			},
+			description: "List of favorite model IDs.",
+		},
+	},
+});
+
+user.openapi(getFavorites, async (c) => {
+	const authUser = c.get("user");
+	if (!authUser) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const rows = await db.query.userFavoriteModel.findMany({
+		where: { userId: authUser.id },
+	});
+	return c.json({ favorites: rows.map((r) => r.modelId) });
+});
+
+const addFavorite = createRoute({
+	method: "post",
+	path: "/favorites",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ modelId: z.string() }),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "Favorite added.",
+		},
+	},
+});
+
+user.openapi(addFavorite, async (c) => {
+	const authUser = c.get("user");
+	if (!authUser) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { modelId } = c.req.valid("json");
+	await db
+		.insert(tables.userFavoriteModel)
+		.values({ userId: authUser.id, modelId })
+		.onConflictDoNothing();
+	return c.json({ message: "ok" });
+});
+
+const removeFavorite = createRoute({
+	method: "delete",
+	path: "/favorites",
+	request: {
+		query: z.object({ modelId: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "Favorite removed.",
+		},
+	},
+});
+
+user.openapi(removeFavorite, async (c) => {
+	const authUser = c.get("user");
+	if (!authUser) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { modelId } = c.req.valid("query");
+	await db
+		.delete(tables.userFavoriteModel)
+		.where(
+			and(
+				eq(tables.userFavoriteModel.userId, authUser.id),
+				eq(tables.userFavoriteModel.modelId, modelId),
+			),
+		);
+	return c.json({ message: "ok" });
 });

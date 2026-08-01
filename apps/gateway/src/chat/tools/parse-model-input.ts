@@ -72,15 +72,8 @@ export function parseModelInput(modelInput: string): ParseModelInputResult {
 					m.providers.some((p) => p.providerId === requestedProvider),
 			);
 
-			// Fall back to matching by model name only
+			// Fall back to matching by catalog id only
 			modelDef ??= models.find((m) => m.id === modelName);
-
-			modelDef ??= models.find((m) =>
-				m.providers.some(
-					(p) =>
-						p.modelName === modelName && p.providerId === requestedProvider,
-				),
-			);
 
 			if (!modelDef) {
 				throw new HTTPException(400, {
@@ -94,33 +87,15 @@ export function parseModelInput(modelInput: string): ParseModelInputResult {
 				});
 			}
 
-			// Use the provider-specific model name if available
-			// For models with multiple mappings for the same provider (routing models),
-			// keep the base model ID so routing can select the right variant later
-			const providerMappings = modelDef.providers.filter(
-				(p) => p.providerId === requestedProvider,
-			);
-			if (providerMappings.length > 1) {
-				requestedModel = modelDef.id as Model;
-			} else if (providerMappings.length === 1) {
-				requestedModel = providerMappings[0].modelName;
-			} else {
-				requestedModel = modelName as Model;
-			}
+			// Use the canonical catalog id, never the upstream externalId: two
+			// catalog entries (e.g. a free and a paid sibling) can share the same
+			// externalId, so collapsing to externalId here would let downstream
+			// resolution pick the wrong entry. The upstream externalId is derived
+			// separately from the selected provider mapping at request time.
+			requestedModel = modelDef.id as Model;
 		}
 	} else if (models.find((m) => m.id === modelInput)) {
 		requestedModel = modelInput as Model;
-	} else if (
-		models.find((m) => m.providers.find((p) => p.modelName === modelInput))
-	) {
-		const model = models.find((m) =>
-			m.providers.find((p) => p.modelName === modelInput),
-		);
-		const provider = model?.providers.find((p) => p.modelName === modelInput);
-
-		throw new HTTPException(400, {
-			message: `Model ${modelInput} must be requested with a provider prefix. Use the format: ${provider?.providerId}/${model?.id}`,
-		});
 	} else {
 		throw new HTTPException(400, {
 			message: `Requested model ${modelInput} not supported`,

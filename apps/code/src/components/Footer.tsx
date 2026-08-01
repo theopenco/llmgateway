@@ -1,13 +1,16 @@
 "use client";
 
-import { Code, GithubIcon } from "lucide-react";
+import { GithubIcon } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Logo } from "@/components/ui/logo";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
+
+import { MARKETING_STATS } from "@llmgateway/shared";
 
 function Newsletter() {
 	const [email, setEmail] = useState("");
@@ -114,10 +117,18 @@ export function Footer() {
 					<div>
 						<Link href="/" className="flex items-center gap-2">
 							<div className="flex h-7 w-7 items-center justify-center rounded-lg bg-foreground text-background">
-								<Code className="h-4 w-4" />
+								<Logo className="h-4 w-4" />
 							</div>
 							<span className="font-semibold">DevPass</span>
 						</Link>
+						<a
+							href={config.uiUrl}
+							target="_blank"
+							rel="noopener noreferrer"
+							className="mt-2 inline-block text-xs text-muted-foreground hover:text-foreground transition-colors"
+						>
+							by LLM Gateway — one API for {MARKETING_STATS.models} models
+						</a>
 						<div className="flex items-center gap-3 mt-4">
 							<a
 								href={config.githubUrl}
@@ -168,28 +179,44 @@ export function Footer() {
 							</h3>
 							<ul className="space-y-2">
 								<li>
-									<a
-										href={`${config.uiUrl}/models`}
-										target="_blank"
-										rel="noopener noreferrer"
+									<Link
+										href="/coding-models"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 									>
-										Models
-									</a>
+										Coding Models
+									</Link>
 								</li>
 								<li>
 									<Link
-										href="/#pricing"
+										href="/pricing"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 									>
 										Pricing
 									</Link>
 								</li>
 								<li>
+									<Link
+										href="/compare"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+									>
+										Compare Plans
+									</Link>
+								</li>
+								<li>
+									<a
+										href={`${config.uiUrl}/models?from=devpass`}
+										rel="noopener"
+										target="_blank"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+									>
+										All Models
+									</a>
+								</li>
+								<li>
 									<a
 										href={config.uiUrl}
+										rel="noopener"
 										target="_blank"
-										rel="noopener noreferrer"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 									>
 										LLM Gateway
@@ -206,7 +233,7 @@ export function Footer() {
 									<a
 										href={config.docsUrl}
 										target="_blank"
-										rel="noopener noreferrer"
+										rel="noopener"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 									>
 										Documentation
@@ -216,7 +243,7 @@ export function Footer() {
 									<a
 										href={`${config.uiUrl}/integrations`}
 										target="_blank"
-										rel="noopener noreferrer"
+										rel="noopener"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 									>
 										Integrations
@@ -226,7 +253,7 @@ export function Footer() {
 									<a
 										href={`${config.uiUrl}/blog`}
 										target="_blank"
-										rel="noopener noreferrer"
+										rel="noopener"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 									>
 										Blog
@@ -279,22 +306,18 @@ export function Footer() {
 						&copy; {new Date().getFullYear()} LLM Gateway. All rights reserved.
 					</p>
 					<div className="flex items-center gap-6">
-						<a
-							href={`${config.uiUrl}/legal/privacy`}
-							target="_blank"
-							rel="noopener noreferrer"
+						<Link
+							href="/legal/privacy"
 							className="text-sm text-muted-foreground hover:underline underline-offset-4 hover:text-foreground"
 						>
 							Privacy Policy
-						</a>
-						<a
-							href={`${config.uiUrl}/legal/terms`}
-							target="_blank"
-							rel="noopener noreferrer"
+						</Link>
+						<Link
+							href="/legal/terms"
 							className="text-sm text-muted-foreground hover:underline underline-offset-4 hover:text-foreground"
 						>
 							Terms of Use
-						</a>
+						</Link>
 					</div>
 				</div>
 			</div>

@@ -1,10 +1,15 @@
 import { redisClient } from "@llmgateway/cache";
+import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import { calculatePromptTokensFromMessages } from "./calculate-prompt-tokens.js";
 import { extractImages } from "./extract-images.js";
-import { adjustGoogleCandidateTokens } from "./extract-token-usage.js";
+import {
+	adjustGoogleCandidateTokens,
+	extractBedrockCacheCreationDetails,
+} from "./extract-token-usage.js";
 import { mapFinishReasonToOpenai } from "./map-finish-reason-to-openai.js";
+import { buildEncryptedReasoningDetail } from "./reasoning-details.js";
 import { transformOpenaiStreaming } from "./transform-openai-streaming.js";
 
 import type { Annotation, StreamingDelta } from "./types.js";
@@ -14,23 +19,43 @@ function normalizeAnthropicUsage(usage: any): any {
 	if (!usage || typeof usage !== "object") {
 		return null;
 	}
-	const inputTokens = usage.input_tokens ?? 0;
-	const cacheCreation = usage.cache_creation_input_tokens ?? 0;
-	const cacheRead = usage.cache_read_input_tokens ?? 0;
-	const outputTokens = usage.output_tokens ?? 0;
-	const promptTokens = inputTokens + cacheCreation + cacheRead;
-	const hasCacheInfo = cacheRead > 0 || cacheCreation > 0;
-	return {
-		prompt_tokens: promptTokens,
-		completion_tokens: outputTokens,
-		total_tokens: promptTokens + outputTokens,
-		...(hasCacheInfo && {
-			prompt_tokens_details: {
-				cached_tokens: cacheRead,
-				...(cacheCreation > 0 && { cache_creation_tokens: cacheCreation }),
-			},
-		}),
+	const hasInputUsage =
+		usage.input_tokens !== undefined ||
+		usage.cache_creation_input_tokens !== undefined ||
+		usage.cache_read_input_tokens !== undefined;
+	const outputTokens = usage.output_tokens;
+	if (!hasInputUsage && outputTokens === undefined) {
+		return null;
+	}
+
+	const inputTokens = hasInputUsage ? (usage.input_tokens ?? 0) : null;
+	const cacheCreation = hasInputUsage
+		? (usage.cache_creation_input_tokens ?? 0)
+		: null;
+	const cacheRead = hasInputUsage ? (usage.cache_read_input_tokens ?? 0) : null;
+	const promptTokens = hasInputUsage
+		? (inputTokens ?? 0) + (cacheCreation ?? 0) + (cacheRead ?? 0)
+		: null;
+	const normalizedUsage: Record<string, any> = {
+		...(promptTokens !== null && { prompt_tokens: promptTokens }),
+		...(outputTokens !== undefined && { completion_tokens: outputTokens }),
+		...(promptTokens !== null &&
+			outputTokens !== undefined && {
+				total_tokens: promptTokens + outputTokens,
+			}),
+		...(cacheRead !== null &&
+			cacheCreation !== null &&
+			(cacheRead > 0 || cacheCreation > 0) && {
+				prompt_tokens_details: {
+					cached_tokens: cacheRead,
+					...(cacheCreation > 0 && {
+						cache_write_tokens: cacheCreation,
+						cache_creation_tokens: cacheCreation,
+					}),
+				},
+			}),
 	};
+	return normalizedUsage;
 }
 
 export function transformStreamingToOpenai(
@@ -65,8 +90,27 @@ export function transformStreamingToOpenai(
 	};
 
 	switch (usedProvider) {
-		case "anthropic": {
-			if (data.type === "content_block_delta" && data.delta?.text) {
+		case "anthropic":
+		case "vertex-anthropic": {
+			const usage = data.message?.usage ?? data.usage;
+			if (data.type === "message_start") {
+				transformedData = {
+					id: data.message?.id ?? data.id ?? `chatcmpl-${Date.now()}`,
+					object: "chat.completion.chunk",
+					created: data.created ?? Math.floor(Date.now() / 1000),
+					model: data.message?.model ?? data.model ?? usedModel,
+					choices: [
+						{
+							index: 0,
+							delta: {
+								role: "assistant",
+							},
+							finish_reason: null,
+						},
+					],
+					usage: normalizeAnthropicUsage(usage),
+				};
+			} else if (data.type === "content_block_delta" && data.delta?.text) {
 				transformedData = {
 					id: data.id ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -82,7 +126,7 @@ export function transformStreamingToOpenai(
 							finish_reason: null,
 						},
 					],
-					usage: normalizeAnthropicUsage(data.usage),
+					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (
 				data.type === "content_block_delta" &&
@@ -104,7 +148,7 @@ export function transformStreamingToOpenai(
 							finish_reason: null,
 						},
 					],
-					usage: normalizeAnthropicUsage(data.usage),
+					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (
 				data.type === "content_block_start" &&
@@ -130,7 +174,7 @@ export function transformStreamingToOpenai(
 							finish_reason: null,
 						},
 					],
-					usage: normalizeAnthropicUsage(data.usage),
+					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (
 				data.type === "content_block_start" &&
@@ -161,12 +205,17 @@ export function transformStreamingToOpenai(
 							finish_reason: null,
 						},
 					],
-					usage: normalizeAnthropicUsage(data.usage),
+					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (
 				data.type === "content_block_delta" &&
-				data.delta?.partial_json
+				(data.delta?.type === "input_json_delta" ||
+					data.delta?.partial_json !== undefined)
 			) {
+				// input_json_delta carries the tool-call arguments. The first delta
+				// of a tool_use block often has an empty partial_json (""), so match
+				// on the delta type rather than the truthiness of partial_json.
+				const partialJson = data.delta.partial_json ?? "";
 				// Skip partial_json deltas for server_tool_use blocks (e.g. web search)
 				if (
 					serverToolUseIndices &&
@@ -187,7 +236,7 @@ export function transformStreamingToOpenai(
 								finish_reason: null,
 							},
 						],
-						usage: normalizeAnthropicUsage(data.usage),
+						usage: normalizeAnthropicUsage(usage),
 					};
 				} else {
 					transformedData = {
@@ -203,7 +252,7 @@ export function transformStreamingToOpenai(
 										{
 											index: data.index ?? 0,
 											function: {
-												arguments: data.delta.partial_json,
+												arguments: partialJson,
 											},
 										},
 									],
@@ -212,7 +261,7 @@ export function transformStreamingToOpenai(
 								finish_reason: null,
 							},
 						],
-						usage: normalizeAnthropicUsage(data.usage),
+						usage: normalizeAnthropicUsage(usage),
 					};
 				}
 			} else if (
@@ -248,8 +297,18 @@ export function transformStreamingToOpenai(
 							finish_reason: null,
 						},
 					],
-					usage: normalizeAnthropicUsage(data.usage),
+					usage: normalizeAnthropicUsage(usage),
 				};
+			} else if (
+				data.type === "content_block_start" ||
+				data.type === "content_block_stop"
+			) {
+				// Text/thinking/redacted_thinking blocks open with a
+				// content_block_start and close with a content_block_stop. Neither
+				// carries renderable content or usage (that arrives in the
+				// content_block_delta and message_delta chunks), so drop them
+				// instead of forwarding an empty assistant delta.
+				return null;
 			} else if (data.type === "message_delta" && data.delta?.stop_reason) {
 				const stopReason = data.delta.stop_reason;
 				transformedData = {
@@ -266,7 +325,7 @@ export function transformStreamingToOpenai(
 							finish_reason: mapFinishReasonToOpenai(stopReason, usedProvider),
 						},
 					],
-					usage: normalizeAnthropicUsage(data.usage),
+					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (data.type === "message_stop" || data.stop_reason) {
 				const stopReason = data.stop_reason ?? "end_turn";
@@ -284,7 +343,7 @@ export function transformStreamingToOpenai(
 							finish_reason: mapFinishReasonToOpenai(stopReason, usedProvider),
 						},
 					],
-					usage: normalizeAnthropicUsage(data.usage),
+					usage: normalizeAnthropicUsage(usage),
 				};
 			} else if (data.delta?.text) {
 				transformedData = {
@@ -302,8 +361,10 @@ export function transformStreamingToOpenai(
 							finish_reason: null,
 						},
 					],
-					usage: normalizeAnthropicUsage(data.usage),
+					usage: normalizeAnthropicUsage(usage),
 				};
+			} else if (data.type === "ping") {
+				return null;
 			} else {
 				logger.warn("[streaming] Unrecognized Anthropic chunk", {
 					provider: usedProvider,
@@ -326,7 +387,7 @@ export function transformStreamingToOpenai(
 							finish_reason: null,
 						},
 					],
-					usage: normalizeAnthropicUsage(data.usage),
+					usage: normalizeAnthropicUsage(usage),
 				};
 			}
 			break;
@@ -334,9 +395,9 @@ export function transformStreamingToOpenai(
 
 		case "google-ai-studio":
 		case "glacier":
+		case "iceberg":
 		case "google-vertex":
-		case "quartz":
-		case "obsidian": {
+		case "quartz": {
 			const buildUsage = (
 				usageMetadata: any | undefined,
 				messagesForFallback: any[],
@@ -408,9 +469,16 @@ export function transformStreamingToOpenai(
 				? data.candidates[0]
 				: undefined;
 
+			// Google streams may end with a usage-only chunk (usageMetadata +
+			// modelVersion/responseId, no candidates) — that's expected, not an error.
+			const isUsageOnlyChunk =
+				(!data.candidates || data.candidates.length === 0) &&
+				!!data.usageMetadata;
+
 			if (
 				(!data.candidates || data.candidates.length === 0) &&
-				!data.promptFeedback?.blockReason
+				!data.promptFeedback?.blockReason &&
+				!isUsageOnlyChunk
 			) {
 				logger.error(
 					"[transform-streaming-to-openai] Google streaming chunk missing candidates",
@@ -495,9 +563,12 @@ export function transformStreamingToOpenai(
 					}
 
 					if (part.functionCall) {
-						const callIndex = toolCalls.length;
-						const toolCallId =
-							part.functionCall.name + "_" + Date.now() + "_" + callIndex;
+						// The id doubles as the `thought_signature:<id>` Redis key, so it
+						// MUST be globally unique — a name+timestamp id collides whenever
+						// two callers invoke the same tool in the same millisecond, and
+						// replaying a call with another call's signature makes Gemini
+						// reject the turn ("Corrupted thought signature").
+						const toolCallId = `${part.functionCall.name}_${shortid(24)}`;
 						toolCalls.push({
 							id: toolCallId,
 							type: "function",
@@ -646,17 +717,21 @@ export function transformStreamingToOpenai(
 					usage: buildUsage(data.usageMetadata, messages),
 				};
 			} else {
-				logger.warn("[streaming] Google chunk with no content", {
-					provider: usedProvider,
-					model: usedModel,
-					hasCandidates: hasCandidatesArray,
-					candidatesCount: candidates.length,
-					firstCandidateKeys: firstCandidate ? Object.keys(firstCandidate) : [],
-					hasContentParts: !!(firstCandidate?.content?.parts?.length > 0),
-					partsCount: firstCandidate?.content?.parts?.length ?? 0,
-					hasUsageMetadata: !!data.usageMetadata,
-					dataKeys: Object.keys(data),
-				});
+				if (!isUsageOnlyChunk) {
+					logger.warn("[streaming] Google chunk with no content", {
+						provider: usedProvider,
+						model: usedModel,
+						hasCandidates: hasCandidatesArray,
+						candidatesCount: candidates.length,
+						firstCandidateKeys: firstCandidate
+							? Object.keys(firstCandidate)
+							: [],
+						hasContentParts: !!(firstCandidate?.content?.parts?.length > 0),
+						partsCount: firstCandidate?.content?.parts?.length ?? 0,
+						hasUsageMetadata: !!data.usageMetadata,
+						dataKeys: Object.keys(data),
+					});
+				}
 				transformedData = {
 					id: data.responseId ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
@@ -677,7 +752,28 @@ export function transformStreamingToOpenai(
 		}
 
 		case "azure":
+		case "sakana":
+		case "meta":
+		case "aws-mantle":
 		case "openai": {
+			// Azure precedes every stream with a prompt-filter-only chunk that has
+			// empty id/object/model and no choices. The default OpenAI fallback
+			// path passes the empty values through and breaks downstream
+			// hasOpenAIFormat checks. Drop it — if any prompt filter actually
+			// fires, Azure surfaces it via a content_filter error/finish_reason.
+			// Responses API events also lack top-level id/object/choices/usage
+			// but always carry a `type` field, so guard against dropping them.
+			if (
+				usedProvider === "azure" &&
+				!data.type &&
+				!data.id &&
+				!data.object &&
+				(!data.choices || data.choices.length === 0) &&
+				!data.usage
+			) {
+				transformedData = null;
+				break;
+			}
 			if (data.type) {
 				switch (data.type) {
 					case "keepalive":
@@ -746,7 +842,20 @@ export function transformStreamingToOpenai(
 								choices: [
 									{
 										index: 0,
-										delta: { role: "assistant" },
+										delta: {
+											role: "assistant",
+											// Mark the start of each upstream message output item so
+											// the Responses translator can preserve exact item
+											// boundaries (e.g. two commentary messages split by a
+											// tool call), along with the item's phase.
+											...(item?.type === "message" && {
+												message_start: true,
+											}),
+											...(item?.type === "message" &&
+												typeof item.phase === "string" && {
+													phase: item.phase,
+												}),
+										},
 										finish_reason: null,
 									},
 								],
@@ -758,9 +867,28 @@ export function transformStreamingToOpenai(
 					case "response.output_item.done":
 					case "response.content_part.done":
 					case "response.output_text.done":
+					case "response.reasoning_summary_text.done":
+					case "response.reasoning_summary_part.done":
 					case "response.web_search_call.in_progress":
 					case "response.web_search_call.searching":
-					case "response.web_search_call.completed":
+					case "response.web_search_call.completed": {
+						// A completed reasoning item may carry encrypted reasoning
+						// (store:false + include:["reasoning.encrypted_content"]).
+						// Surface it as a reasoning_details delta so clients can replay
+						// it on later turns to preserve reasoning across calls.
+						const doneItem = data.item;
+						const encryptedReasoning =
+							data.type === "response.output_item.done" &&
+							doneItem?.type === "reasoning" &&
+							typeof doneItem.encrypted_content === "string" &&
+							doneItem.encrypted_content.length > 0
+								? [
+										buildEncryptedReasoningDetail(
+											doneItem,
+											data.output_index ?? 0,
+										),
+									]
+								: null;
 						transformedData = {
 							id: data.response?.id ?? `chatcmpl-${Date.now()}`,
 							object: "chat.completion.chunk",
@@ -770,13 +898,24 @@ export function transformStreamingToOpenai(
 							choices: [
 								{
 									index: 0,
-									delta: { role: "assistant" },
+									delta: {
+										role: "assistant",
+										...(encryptedReasoning && {
+											reasoning_details: encryptedReasoning,
+										}),
+										...(data.type === "response.output_item.done" &&
+											doneItem?.type === "message" &&
+											typeof doneItem.phase === "string" && {
+												phase: doneItem.phase,
+											}),
+									},
 									finish_reason: null,
 								},
 							],
 							usage: null,
 						};
 						break;
+					}
 
 					case "response.reasoning_summary_part.added":
 					case "response.reasoning_summary_text.delta":
@@ -872,11 +1011,33 @@ export function transformStreamingToOpenai(
 						};
 						break;
 
+					case "response.output_text.annotation.added":
 					case "response.output_item.annotations.added":
 					case "response.content_part.annotations.added": {
-						// Handle web search annotations/citations from OpenAI Responses API
-						const annotations =
-							data.annotations ?? data.part?.annotations ?? [];
+						// Handle web search annotations/citations from OpenAI Responses API.
+						// Annotations arrive flat ({type, url, title, ...}) and must be
+						// mapped to the chat-completions nested url_citation shape.
+						const rawAnnotations = data.annotation
+							? [data.annotation]
+							: (data.annotations ?? data.part?.annotations ?? []);
+						const annotations: Annotation[] = [];
+						for (const annotation of rawAnnotations) {
+							if (annotation?.type !== "url_citation") {
+								continue;
+							}
+							annotations.push({
+								type: "url_citation",
+								url_citation: {
+									url: annotation.url ?? annotation.url_citation?.url ?? "",
+									title: annotation.title ?? annotation.url_citation?.title,
+									start_index:
+										annotation.start_index ??
+										annotation.url_citation?.start_index,
+									end_index:
+										annotation.end_index ?? annotation.url_citation?.end_index,
+								},
+							});
+						}
 						transformedData = {
 							id: data.response?.id ?? `chatcmpl-${Date.now()}`,
 							object: "chat.completion.chunk",
@@ -899,6 +1060,14 @@ export function transformStreamingToOpenai(
 					}
 
 					case "response.completed": {
+						// A response whose output contains function calls must end with
+						// finish_reason "tool_calls" — OpenAI-compatible clients key tool
+						// execution off the terminal finish reason, not just the deltas.
+						const completedWithToolCalls = Array.isArray(data.response?.output)
+							? data.response.output.some(
+									(item: { type?: string }) => item.type === "function_call",
+								)
+							: false;
 						const responseUsage = data.response?.usage;
 						let usage = null;
 						if (responseUsage) {
@@ -928,10 +1097,16 @@ export function transformStreamingToOpenai(
 								{
 									index: 0,
 									delta: {},
-									finish_reason: "stop",
+									finish_reason: completedWithToolCalls ? "tool_calls" : "stop",
 								},
 							],
 							usage,
+							...(typeof data.response?.service_tier === "string" && {
+								service_tier: data.response.service_tier,
+							}),
+							...(typeof data.response?.reasoning?.context === "string" && {
+								reasoning_context: data.response.reasoning.context,
+							}),
 						};
 						break;
 					}
@@ -974,6 +1149,12 @@ export function transformStreamingToOpenai(
 								},
 							],
 							usage,
+							...(typeof data.response?.service_tier === "string" && {
+								service_tier: data.response.service_tier,
+							}),
+							...(typeof data.response?.reasoning?.context === "string" && {
+								reasoning_context: data.response.reasoning.context,
+							}),
 						};
 						break;
 					}
@@ -1142,11 +1323,17 @@ export function transformStreamingToOpenai(
 			} else if (eventType === "messageStop") {
 				const stopReason = data.stopReason;
 				let finishReason = "stop";
-				if (stopReason === "max_tokens") {
+				if (
+					stopReason === "max_tokens" ||
+					stopReason === "model_context_window_exceeded"
+				) {
 					finishReason = "length";
 				} else if (stopReason === "tool_use") {
 					finishReason = "tool_calls";
-				} else if (stopReason === "content_filtered") {
+				} else if (
+					stopReason === "content_filtered" ||
+					stopReason === "refusal"
+				) {
 					finishReason = "content_filter";
 				}
 
@@ -1167,7 +1354,11 @@ export function transformStreamingToOpenai(
 				const inputTokens = data.usage.inputTokens ?? 0;
 				const cacheReadTokens = data.usage.cacheReadInputTokens ?? 0;
 				const cacheWriteTokens = data.usage.cacheWriteInputTokens ?? 0;
+				const cacheDetails = extractBedrockCacheCreationDetails(data.usage);
 				const promptTokens = inputTokens + cacheReadTokens + cacheWriteTokens;
+				const hasCacheCreationDetails =
+					cacheDetails.cacheCreation5mTokens !== null ||
+					cacheDetails.cacheCreation1hTokens !== null;
 
 				transformedData = {
 					id: `chatcmpl-${Date.now()}`,
@@ -1185,9 +1376,27 @@ export function transformStreamingToOpenai(
 						prompt_tokens: promptTokens,
 						completion_tokens: data.usage.outputTokens ?? 0,
 						total_tokens: data.usage.totalTokens ?? 0,
-						...(cacheReadTokens > 0 && {
+						...((cacheReadTokens > 0 || cacheWriteTokens > 0) && {
 							prompt_tokens_details: {
 								cached_tokens: cacheReadTokens,
+								...(cacheWriteTokens > 0 && {
+									cache_write_tokens: cacheWriteTokens,
+									cache_creation_tokens: cacheWriteTokens,
+								}),
+								...(cacheWriteTokens > 0 &&
+									hasCacheCreationDetails && {
+										cache_creation: {
+											ephemeral_5m_input_tokens:
+												cacheDetails.cacheCreation5mTokens ??
+												Math.max(
+													0,
+													cacheWriteTokens -
+														(cacheDetails.cacheCreation1hTokens ?? 0),
+												),
+											ephemeral_1h_input_tokens:
+												cacheDetails.cacheCreation1hTokens ?? 0,
+										},
+									}),
 							},
 						}),
 					},
@@ -1215,15 +1424,40 @@ export function transformStreamingToOpenai(
 		case "moonshot":
 		case "perplexity":
 		case "nebius":
+		case "fireworks":
 		case "canopywave":
 		case "inference.net":
-		case "together.ai":
+		case "together-ai":
+		case "scx-ai":
+		case "deepinfra":
 		case "custom":
 		case "nanogpt":
 		case "bytedance":
 		case "minimax":
 		case "embercloud":
+		case "runware":
+		case "gonka24":
+		case "granite":
+		case "tundra":
+		case "xiaomi":
+		case "azure-ai-foundry":
+		case "vertex-openai":
 		case "llmgateway": {
+			// Azure AI Foundry mirrors Azure OpenAI's prompt-filter-only leading
+			// chunk on some models — empty id/object/choices, no usage. Drop it
+			// for the same reason: it breaks downstream hasOpenAIFormat checks.
+			// Skip the guard for Responses API events (identified by `data.type`).
+			if (
+				usedProvider === "azure-ai-foundry" &&
+				!data.type &&
+				!data.id &&
+				!data.object &&
+				(!data.choices || data.choices.length === 0) &&
+				!data.usage
+			) {
+				transformedData = null;
+				break;
+			}
 			// Transform standard OpenAI streaming format with finish reason mapping
 			transformedData = transformOpenaiStreaming(
 				data,
@@ -1235,7 +1469,14 @@ export function transformStreamingToOpenai(
 			if (transformedData?.choices?.[0]?.finish_reason === "end_turn") {
 				transformedData.choices[0].finish_reason = "stop";
 			} else if (transformedData?.choices?.[0]?.finish_reason === "abort") {
-				transformedData.choices[0].finish_reason = "canceled";
+				logger.warn("[streaming] Upstream sent abort finish_reason", {
+					provider: usedProvider,
+					model: usedModel,
+					chunk: data,
+				});
+				// "abort" is an upstream-initiated interruption, not a client
+				// cancellation, so it counts as an upstream error.
+				transformedData.choices[0].finish_reason = "upstream_error";
 			} else if (transformedData?.choices?.[0]?.finish_reason === "tool_use") {
 				transformedData.choices[0].finish_reason = "tool_calls";
 			}

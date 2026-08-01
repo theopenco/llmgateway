@@ -12,6 +12,12 @@ import {
 
 import type { Log } from "@llmgateway/db";
 
+type DashboardLog = Partial<Log> & {
+	organizationName?: string | null;
+	projectName?: string | null;
+	apiKeyName?: string | null;
+};
+
 function NextLink({
 	href,
 	className,
@@ -33,7 +39,7 @@ export function LogCard({
 	orgId,
 	projectId,
 }: {
-	log: Partial<Log>;
+	log: DashboardLog;
 	orgId?: string;
 	projectId?: string;
 }) {
@@ -59,14 +65,34 @@ export function LogCard({
 		[fetchClient],
 	);
 
+	const fetchInputImages = useCallback(
+		async (logId: string) => {
+			const { data } = await fetchClient.GET("/logs/{id}", {
+				params: { path: { id: logId } },
+			});
+			const messages = data?.log?.messages;
+			if (!messages) {
+				return null;
+			}
+			const haystack = JSON.stringify(messages);
+			const dataUrlRegex =
+				/data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g;
+			const matches = haystack.match(dataUrlRegex);
+			return matches && matches.length > 0 ? matches : null;
+		},
+		[fetchClient],
+	);
+
 	return (
 		<SharedLogCard
 			log={log as LogCardData}
 			getDetailUrl={getDetailUrl}
 			getRetriedUrl={getRetriedUrl}
 			renderLink={NextLink}
+			showCopyButtons
 			isUserFacing
 			fetchImageContent={fetchImageContent}
+			fetchInputImages={fetchInputImages}
 		/>
 	);
 }

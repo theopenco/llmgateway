@@ -43,7 +43,7 @@ export interface ApiKey {
 }
 
 export interface ComboboxModel {
-	id: string; // providerId/modelName (value sent to API)
+	id: string; // providerId/modelId[:region] (value sent to API)
 	name?: string; // Friendly model name
 	provider?: string; // Provider display name
 	providerId?: string; // Provider id
@@ -52,10 +52,12 @@ export interface ComboboxModel {
 	inputPrice?: number;
 	outputPrice?: number;
 	vision?: boolean;
+	audio?: boolean;
 	tools?: boolean;
 	imageGen?: boolean;
 	supportsVideoAudio?: boolean;
 	supportsVideoWithoutAudio?: boolean;
+	imageInputRequired?: boolean;
 }
 
 export interface Project {
@@ -75,7 +77,13 @@ export interface Organization {
 	createdAt: string;
 	updatedAt: string;
 	name: string;
+	kind: "default" | "chat" | "devpass";
 	credits: string;
+	chatPlan?: "none" | "starter" | "plus" | "pro";
+	chatPlanCreditsLimit?: string | null;
+	chatPlanCreditsUsed?: string | null;
+	chatPlanCancelled?: boolean | null;
+	chatPlanExpiresAt?: string | null;
 	plan: "free" | "pro" | "enterprise";
 	planExpiresAt: string | null;
 	retentionLevel: "retain" | "none";

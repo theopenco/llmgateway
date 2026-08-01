@@ -11,6 +11,7 @@ import {
 	Coins,
 	Copy,
 	Check,
+	Filter,
 	Globe,
 	Info,
 	Package,
@@ -35,12 +36,25 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
+import {
+	formatServiceTierMultiplier,
+	getServiceTier,
+} from "@llmgateway/models";
+import { API_ORIGIN_LABELS } from "@llmgateway/shared/components";
+
 import type { LogDetailData } from "@/types/activity";
 import type { Log } from "@llmgateway/db";
+
+type LogWithResources = Log & {
+	organizationName?: string | null;
+	projectName?: string | null;
+	apiKeyName?: string | null;
+};
 
 interface ImageConfig {
 	aspect_ratio?: string;
 	image_size?: string;
+	image_quality?: string;
 	n?: number;
 	output_format?: string;
 	output_compression?: number;
@@ -54,11 +68,13 @@ interface LogDetailClientProps {
 	logId: string;
 }
 
-function CopyButton({ value }: { value: string }) {
+function CopyButton({ value, label }: { value: string; label: string }) {
 	const [copied, setCopied] = useState(false);
 	return (
 		<button
 			type="button"
+			aria-label={label}
+			title={label}
 			onClick={() => {
 				void navigator.clipboard.writeText(value);
 				setCopied(true);
@@ -68,6 +84,30 @@ function CopyButton({ value }: { value: string }) {
 		>
 			{copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
 		</button>
+	);
+}
+
+function RelatedResourceValue({
+	id,
+	name,
+	copyLabel,
+}: {
+	id: string;
+	name?: string | null;
+	copyLabel: string;
+}) {
+	const displayName = name?.trim();
+
+	return (
+		<span className="min-w-0 space-y-0.5 text-right">
+			{displayName && <span className="block break-words">{displayName}</span>}
+			<span className="flex min-w-0 items-center justify-end gap-1.5 font-mono text-xs text-muted-foreground break-all">
+				<span className="min-w-0 break-all">
+					{displayName ? `ID: ${id}` : id}
+				</span>
+				<CopyButton value={id} label={copyLabel} />
+			</span>
+		</span>
 	);
 }
 
@@ -165,24 +205,181 @@ function formatDuration(ms: number) {
 	return `${(ms / 1000).toFixed(2)}s`;
 }
 
+// Selection reasons where the weighted-score formula is bypassed entirely, so
+// every provider's score is a hardcoded 0 placeholder rather than a real value.
+// "session-sticky" is intentionally excluded: it scores providers with the
+// normal weighted algorithm and pins the result for the session, so the logged
+// scores are real values worth surfacing. The all-zero fallback below hides
+// those scores when they couldn't be computed (no metrics available).
+const SCORE_BYPASSED_SELECTION_REASONS = new Set([
+	"random-exploration",
+	"price-only-no-metrics",
+]);
+
+// The per-provider score only carries information when scoring actually ran.
+// Exploration/price-only paths emit 0 for every provider, and "stable-preferred"
+// can layer on top of a sticky pick, so treat an all-zero set as "scoring did
+// not run" regardless of the reason.
+function isProviderScoreMeaningful(
+	selectionReason: string | null | undefined,
+	providerScores: { score: number }[],
+): boolean {
+	if (
+		selectionReason &&
+		SCORE_BYPASSED_SELECTION_REASONS.has(selectionReason)
+	) {
+		return false;
+	}
+	return providerScores.some((s) => s.score !== 0);
+}
+
+function isBase64ImageChar(char: string) {
+	return (
+		(char >= "A" && char <= "Z") ||
+		(char >= "a" && char <= "z") ||
+		(char >= "0" && char <= "9") ||
+		char === "+" ||
+		char === "/" ||
+		char === "="
+	);
+}
+
+function isWhitespace(char: string) {
+	return char === " " || char === "\n" || char === "\r" || char === "\t";
+}
+
+function compactBase64(value: string) {
+	let compacted = "";
+	for (const char of value) {
+		if (!isWhitespace(char)) {
+			compacted += char;
+		}
+	}
+	return compacted;
+}
+
+function findLikelyBase64Run(content: string, minLength = 200) {
+	let runLength = 0;
+	for (const char of content) {
+		if (isBase64ImageChar(char)) {
+			runLength++;
+			if (runLength >= minLength) {
+				return true;
+			}
+		} else if (!isWhitespace(char)) {
+			runLength = 0;
+		}
+	}
+	return false;
+}
+
+function isRawBase64ImageContent(content: string) {
+	let hasBase64Char = false;
+	for (const char of content) {
+		if (isWhitespace(char)) {
+			continue;
+		}
+		if (!isBase64ImageChar(char)) {
+			return false;
+		}
+		hasBase64Char = true;
+	}
+	return hasBase64Char;
+}
+
+function shouldTryRenderImageContent(content: string) {
+	return (
+		content.length > 500 &&
+		(content.includes("data:image/") || findLikelyBase64Run(content))
+	);
+}
+
 function extractBase64Images(
 	content: string,
 ): Array<{ src: string; index: number }> {
 	const images: Array<{ src: string; index: number }> = [];
-	// Match data:image/...;base64,... patterns
-	const dataUrlRegex = /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+/g;
-	let match;
-	while ((match = dataUrlRegex.exec(content)) !== null) {
-		images.push({ src: match[0].replace(/\s/g, ""), index: images.length });
-	}
-	// If no data URLs found, try treating the entire content as raw base64
-	if (images.length === 0 && /^[A-Za-z0-9+/=\s]+$/.test(content.trim())) {
+
+	let searchFrom = 0;
+	while (searchFrom < content.length) {
+		const dataUrlStart = content.indexOf("data:image/", searchFrom);
+		if (dataUrlStart === -1) {
+			break;
+		}
+		const base64Start = content.indexOf(";base64,", dataUrlStart);
+		if (base64Start === -1) {
+			break;
+		}
+		let end = base64Start + ";base64,".length;
+		while (end < content.length) {
+			const char = content[end];
+			if (!isBase64ImageChar(char) && !isWhitespace(char)) {
+				break;
+			}
+			end++;
+		}
 		images.push({
-			src: `data:image/png;base64,${content.trim().replace(/\s/g, "")}`,
+			src: compactBase64(content.slice(dataUrlStart, end)),
+			index: images.length,
+		});
+		searchFrom = end;
+	}
+
+	// If no data URLs found, try treating the entire content as raw base64
+	if (images.length === 0 && isRawBase64ImageContent(content)) {
+		images.push({
+			src: `data:image/png;base64,${compactBase64(content)}`,
 			index: 0,
 		});
 	}
 	return images;
+}
+
+function extractMessageImages(
+	messages: unknown,
+): Array<{ src: string; index: number }> {
+	const images: Array<{ src: string; index: number }> = [];
+
+	function visit(value: unknown) {
+		if (typeof value === "string") {
+			if (value.length > 500) {
+				for (const img of extractBase64Images(value)) {
+					images.push({ src: img.src, index: images.length });
+				}
+			}
+			return;
+		}
+		if (Array.isArray(value)) {
+			for (const item of value) {
+				visit(item);
+			}
+			return;
+		}
+		if (value && typeof value === "object") {
+			for (const v of Object.values(value)) {
+				visit(v);
+			}
+		}
+	}
+
+	visit(messages);
+	return images;
+}
+
+function stringifyMessagesCompact(messages: unknown): string {
+	return JSON.stringify(
+		messages,
+		(_key, value) => {
+			if (
+				typeof value === "string" &&
+				value.length > 500 &&
+				(value.includes(";base64,") || /[A-Za-z0-9+/=]{400,}/.test(value))
+			) {
+				return "[base64 image data]";
+			}
+			return value;
+		},
+		2,
+	);
 }
 
 function ImageContentRenderer({ content }: { content: string }) {
@@ -261,10 +458,12 @@ export function LogDetailClient({
 			? new Date(data.log.lastVideoDownloadedAt)
 			: null,
 		videoDownloadCount: data.log.videoDownloadCount ?? 0,
-	} as Log;
+	} as LogWithResources;
 
 	const imageConfig = (log.params as { image_config?: ImageConfig } | null)
 		?.image_config;
+
+	const inputImages = extractMessageImages(log.messages);
 
 	const retentionEnabled =
 		log.dataStorageCost !== null &&
@@ -272,9 +471,14 @@ export function LogDetailClient({
 		Number(log.dataStorageCost) > 0;
 
 	const throughput =
-		log.duration && log.totalTokens
-			? (Number(log.totalTokens) / (log.duration / 1000)).toFixed(1)
+		log.duration && log.completionTokens
+			? (Number(log.completionTokens) / (log.duration / 1000)).toFixed(1)
 			: null;
+
+	// Reasoning models stream thinking before any content, so the first
+	// reasoning token is the real first-token latency when present.
+	const timeToFirstToken =
+		log.timeToFirstReasoningToken ?? log.timeToFirstToken;
 
 	return (
 		<div className="flex flex-col">
@@ -345,14 +549,14 @@ export function LogDetailClient({
 							{throughput ? `${throughput} t/s` : "-"}
 						</p>
 					</div>
-					{log.timeToFirstToken && (
+					{timeToFirstToken && (
 						<div className="rounded-lg border bg-card p-3">
 							<div className="flex items-center gap-2 text-muted-foreground mb-1">
 								<Clock className="h-3.5 w-3.5" />
 								<span className="text-xs">TTFT</span>
 							</div>
 							<p className="text-lg font-semibold tabular-nums">
-								{formatDuration(log.timeToFirstToken)}
+								{formatDuration(timeToFirstToken)}
 							</p>
 						</div>
 					)}
@@ -486,78 +690,87 @@ export function LogDetailClient({
 											/>
 										)}
 									{log.routingMetadata.providerScores &&
-										log.routingMetadata.providerScores.length > 0 && (
-											<div className="mt-3 pt-3 border-t border-border/50">
-												<p className="text-xs text-muted-foreground mb-2">
-													Provider Scores
-												</p>
-												<div className="space-y-1.5">
-													{log.routingMetadata.providerScores.map((score) => (
-														<div
-															key={`${score.providerId}-${score.region ?? "default"}`}
-															className="flex items-center justify-between text-xs font-mono"
-														>
-															<span className="flex items-center gap-1.5">
-																{score.providerId}
-																{score.region && (
-																	<span className="text-muted-foreground">
-																		({score.region})
-																	</span>
-																)}
-																{score.failed && (
-																	<span className="inline-flex items-center gap-0.5 text-red-500">
-																		<AlertCircle className="h-3 w-3" />
-																		<span>
-																			{score.status_code}
-																			{score.error_type && (
-																				<span className="ml-0.5 text-red-400">
-																					{score.error_type}
-																				</span>
-																			)}
+										log.routingMetadata.providerScores.length > 0 &&
+										(() => {
+											const scores = log.routingMetadata?.providerScores ?? [];
+											const showScore = isProviderScoreMeaningful(
+												log.routingMetadata?.selectionReason,
+												scores,
+											);
+											return (
+												<div className="mt-3 pt-3 border-t border-border/50">
+													<p className="text-xs text-muted-foreground mb-2">
+														Provider Scores
+													</p>
+													<div className="space-y-1.5">
+														{scores.map((score) => (
+															<div
+																key={`${score.providerId}-${score.region ?? "default"}`}
+																className="flex items-center justify-between text-xs font-mono"
+															>
+																<span className="flex items-center gap-1.5">
+																	{score.providerId}
+																	{score.region && (
+																		<span className="text-muted-foreground">
+																			({score.region})
 																		</span>
-																	</span>
-																)}
-																{score.rate_limited && (
-																	<span className="inline-flex items-center gap-0.5 text-amber-500">
-																		<Clock className="h-3 w-3" />
-																		<span>rpm capped</span>
-																	</span>
-																)}
-																{score.excludedByContentFilter && (
-																	<span className="inline-flex items-center gap-0.5 text-amber-500">
-																		<Ban className="h-3 w-3" />
-																		<span>content filter</span>
-																	</span>
-																)}
-															</span>
-															<span className="text-muted-foreground font-mono">
-																{score.score.toFixed(2)}
-																{score.uptime !== undefined && (
-																	<span className="ml-2">
-																		{score.uptime?.toFixed(0)}% up
-																	</span>
-																)}
-																{score.throughput !== undefined && (
-																	<span className="ml-2">
-																		{score.throughput?.toFixed(0)}t/s
-																	</span>
-																)}
-																{score.latency !== undefined && (
-																	<span className="ml-2">
-																		{score.latency?.toFixed(0)}ms
-																	</span>
-																)}
-																{score.price !== undefined && (
-																	<span className="ml-2">
-																		${score.price.toFixed(10)}
-																	</span>
-																)}
-															</span>
-														</div>
-													))}
+																	)}
+																	{score.failed && (
+																		<span className="inline-flex items-center gap-0.5 text-red-500">
+																			<AlertCircle className="h-3 w-3" />
+																			<span>
+																				{score.status_code}
+																				{score.error_type && (
+																					<span className="ml-0.5 text-red-400">
+																						{score.error_type}
+																					</span>
+																				)}
+																			</span>
+																		</span>
+																	)}
+																	{score.rate_limited && (
+																		<span className="inline-flex items-center gap-0.5 text-amber-500">
+																			<Clock className="h-3 w-3" />
+																			<span>rpm capped</span>
+																		</span>
+																	)}
+																	{score.excludedByContentFilter && (
+																		<span className="inline-flex items-center gap-0.5 text-amber-500">
+																			<Ban className="h-3 w-3" />
+																			<span>content filter</span>
+																		</span>
+																	)}
+																</span>
+																<span className="text-muted-foreground font-mono">
+																	{showScore && score.score.toFixed(2)}
+																	{score.uptime !== undefined && (
+																		<span className="ml-2">
+																			{score.uptime?.toFixed(0)}% up
+																		</span>
+																	)}
+																	{score.throughput !== undefined && (
+																		<span className="ml-2">
+																			{score.throughput?.toFixed(0)}t/s
+																		</span>
+																	)}
+																	{score.latency !== undefined && (
+																		<span className="ml-2">
+																			{score.latency?.toFixed(0)}ms
+																		</span>
+																	)}
+																	{score.price !== undefined && (
+																		<span className="ml-2">${score.price}</span>
+																	)}
+																	{score.cacheSupported && (
+																		<span className="ml-2">cache</span>
+																	)}
+																</span>
+															</div>
+														))}
+													</div>
 												</div>
-											</div>
-										)}
+											);
+										})()}
 									{log.routingMetadata.routing &&
 										log.routingMetadata.routing.length > 0 && (
 											<div className="mt-3 pt-3 border-t border-border/50">
@@ -605,6 +818,43 @@ export function LogDetailClient({
 												</div>
 											</div>
 										)}
+									{log.routingMetadata.filteredProviders &&
+										log.routingMetadata.filteredProviders.length > 0 && (
+											<div className="mt-3 pt-3 border-t border-border/50">
+												<p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
+													<Filter className="h-3 w-3" />
+													Filtered Providers
+												</p>
+												<div className="space-y-1.5">
+													{log.routingMetadata.filteredProviders.map(
+														(filtered) => (
+															<div
+																key={filtered.providerId}
+																className="flex items-center justify-between text-xs font-mono"
+															>
+																<span className="text-amber-600">
+																	{filtered.providerId}
+																</span>
+																<span className="text-muted-foreground text-right">
+																	{filtered.reasons.join(", ")}
+																</span>
+															</div>
+														),
+													)}
+												</div>
+											</div>
+										)}
+									{log.routingMetadata.strippedParameters &&
+										log.routingMetadata.strippedParameters.length > 0 && (
+											<div className="mt-3 pt-3 border-t border-border/50">
+												<p className="text-xs text-muted-foreground mb-2">
+													Stripped Parameters
+												</p>
+												<p className="text-xs font-mono text-amber-600">
+													{log.routingMetadata.strippedParameters.join(", ")}
+												</p>
+											</div>
+										)}
 								</div>
 							</Section>
 						)}
@@ -640,6 +890,14 @@ export function LogDetailClient({
 													muted
 												/>
 											)}
+										{!!log.cacheWriteInputCost &&
+											Number(log.cacheWriteInputCost) > 0 && (
+												<Field
+													label="Cache Write Cost"
+													value={`$${Number(log.cacheWriteInputCost).toFixed(8)}`}
+													muted
+												/>
+											)}
 										<Field
 											label="Request Cost"
 											value={
@@ -656,6 +914,14 @@ export function LogDetailClient({
 												muted
 											/>
 										)}
+										{!!log.contentFilterCost &&
+											Number(log.contentFilterCost) > 0 && (
+												<Field
+													label="Content Filter Cost"
+													value={`$${Number(log.contentFilterCost).toFixed(8)}`}
+													muted
+												/>
+											)}
 										{!!log.imageInputCost && Number(log.imageInputCost) > 0 && (
 											<Field
 												label="Image Input Cost"
@@ -679,6 +945,13 @@ export function LogDetailClient({
 													muted
 												/>
 											)}
+										{!!log.audioInputCost && Number(log.audioInputCost) > 0 && (
+											<Field
+												label="Audio Input Cost"
+												value={`$${Number(log.audioInputCost).toFixed(8)}`}
+												muted
+											/>
+										)}
 										<Field
 											label="Inference Total"
 											value={log.cost ? `$${log.cost.toFixed(8)}` : "$0"}
@@ -697,6 +970,38 @@ export function LogDetailClient({
 										{log.pricingTier && (
 											<Field label="Pricing Tier" value={log.pricingTier} />
 										)}
+										{log.requestedServiceTier && (
+											<Field
+												label="Requested Service Tier"
+												value={
+													log.requestedServiceTier.charAt(0).toUpperCase() +
+													log.requestedServiceTier.slice(1)
+												}
+											/>
+										)}
+										{log.usedServiceTier &&
+											(() => {
+												const tierName =
+													log.usedServiceTier.charAt(0).toUpperCase() +
+													log.usedServiceTier.slice(1);
+												const tier = getServiceTier(
+													log.usedProvider ?? "",
+													log.usedServiceTier,
+												);
+												const multiplier = tier
+													? formatServiceTierMultiplier(tier.multiplier)
+													: "";
+												return (
+													<Field
+														label="Used Service Tier"
+														value={
+															multiplier
+																? `${tierName} (${multiplier})`
+																: tierName
+														}
+													/>
+												);
+											})()}
 									</div>
 								</div>
 								<div className="border-t border-border/50 pt-4">
@@ -726,6 +1031,26 @@ export function LogDetailClient({
 								{log.cachedTokens && Number(log.cachedTokens) > 0 && (
 									<Field label="Cached Input Tokens" value={log.cachedTokens} />
 								)}
+								{log.cacheWriteTokens && Number(log.cacheWriteTokens) > 0 && (
+									<Field
+										label="Cache Write Tokens"
+										value={log.cacheWriteTokens}
+									/>
+								)}
+								{log.cacheWrite5mTokens &&
+									Number(log.cacheWrite5mTokens) > 0 && (
+										<Field
+											label="Cache Write Tokens (5m TTL)"
+											value={log.cacheWrite5mTokens}
+										/>
+									)}
+								{log.cacheWrite1hTokens &&
+									Number(log.cacheWrite1hTokens) > 0 && (
+										<Field
+											label="Cache Write Tokens (1h TTL)"
+											value={log.cacheWrite1hTokens}
+										/>
+									)}
 								{log.reasoningTokens && (
 									<Field label="Reasoning Tokens" value={log.reasoningTokens} />
 								)}
@@ -739,6 +1064,12 @@ export function LogDetailClient({
 									<Field
 										label="Image Output Tokens"
 										value={log.imageOutputTokens}
+									/>
+								)}
+								{log.audioInputTokens && Number(log.audioInputTokens) > 0 && (
+									<Field
+										label="Audio Input Tokens"
+										value={log.audioInputTokens}
 									/>
 								)}
 								<Field
@@ -785,38 +1116,49 @@ export function LogDetailClient({
 										label="Unified Finish Reason"
 										value={log.unifiedFinishReason ?? "-"}
 									/>
-									{imageConfig?.aspect_ratio && (
+								</TooltipProvider>
+							</div>
+						</Section>
+
+						{imageConfig && (
+							<Section title="Image Generation">
+								<div className="rounded-lg border bg-card p-4">
+									{imageConfig.aspect_ratio && (
 										<Field
 											label="Aspect Ratio"
 											value={imageConfig.aspect_ratio}
 										/>
 									)}
-									{imageConfig?.image_size && (
+									{imageConfig.image_size && (
 										<Field label="Image Size" value={imageConfig.image_size} />
 									)}
-									{imageConfig?.n !== undefined && imageConfig.n !== null && (
+									<Field
+										label="Image Quality"
+										value={imageConfig.image_quality ?? "-"}
+									/>
+									{imageConfig.n !== undefined && imageConfig.n !== null && (
 										<Field label="Image Count" value={imageConfig.n} />
 									)}
-									{imageConfig?.output_format && (
+									{imageConfig.output_format && (
 										<Field
 											label="Output Format"
 											value={imageConfig.output_format}
 										/>
 									)}
-									{imageConfig?.output_compression !== undefined &&
+									{imageConfig.output_compression !== undefined &&
 										imageConfig.output_compression !== null && (
 											<Field
 												label="Compression"
 												value={imageConfig.output_compression}
 											/>
 										)}
-									{imageConfig?.seed !== undefined &&
+									{imageConfig.seed !== undefined &&
 										imageConfig.seed !== null && (
 											<Field label="Seed" value={imageConfig.seed} />
 										)}
-								</TooltipProvider>
-							</div>
-						</Section>
+								</div>
+							</Section>
+						)}
 
 						<Section title="Metadata">
 							<div className="rounded-lg border bg-card p-4">
@@ -825,8 +1167,24 @@ export function LogDetailClient({
 									value={
 										<span className="inline-flex items-center gap-2">
 											<span className="font-mono text-xs">{log.requestId}</span>
-											<CopyButton value={log.requestId} />
+											<CopyButton
+												value={log.requestId}
+												label="Copy request ID"
+											/>
 										</span>
+									}
+								/>
+								<Field
+									label="Trace ID"
+									value={
+										log.traceId ? (
+											<span className="inline-flex items-center gap-2">
+												<span className="font-mono text-xs">{log.traceId}</span>
+												<CopyButton value={log.traceId} label="Copy trace ID" />
+											</span>
+										) : (
+											"—"
+										)
 									}
 								/>
 								<Field
@@ -834,20 +1192,36 @@ export function LogDetailClient({
 									value={
 										<span className="inline-flex items-center gap-2">
 											<span className="font-mono text-xs">{log.id}</span>
-											<CopyButton value={log.id} />
+											<CopyButton value={log.id} label="Copy log ID" />
 										</span>
 									}
 								/>
 								<Field
-									label="Project ID"
+									label="Project"
 									value={
-										<span className="font-mono text-xs">{log.projectId}</span>
+										<RelatedResourceValue
+											id={log.projectId}
+											name={log.projectName}
+											copyLabel="Copy project ID"
+										/>
 									}
 								/>
 								<Field
-									label="API Key ID"
+									label="API Key"
 									value={
-										<span className="font-mono text-xs">{log.apiKeyId}</span>
+										<RelatedResourceValue
+											id={log.apiKeyId}
+											name={log.apiKeyName}
+											copyLabel="Copy API key ID"
+										/>
+									}
+								/>
+								<Field
+									label="API Origin"
+									value={
+										log.apiOrigin
+											? (API_ORIGIN_LABELS[log.apiOrigin] ?? log.apiOrigin)
+											: "—"
 									}
 								/>
 								<Field label="Mode" value={log.mode || "?"} />
@@ -1055,10 +1429,26 @@ export function LogDetailClient({
 				)}
 
 				<Section title="Messages">
-					<div className="rounded-lg border bg-card p-4">
+					<div className="rounded-lg border bg-card p-4 space-y-4">
+						{inputImages.length > 0 && (
+							<div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
+								{inputImages.map((img) => (
+									<div
+										key={img.index}
+										className="rounded-md border overflow-hidden bg-muted/30"
+									>
+										<img
+											src={img.src}
+											alt={`Input image ${img.index + 1}`}
+											className="w-full h-auto"
+										/>
+									</div>
+								))}
+							</div>
+						)}
 						{log.messages ? (
 							<pre className="max-h-80 text-xs overflow-auto whitespace-pre-wrap break-all font-mono bg-muted/30 rounded-md p-3">
-								{JSON.stringify(log.messages, null, 2)}
+								{stringifyMessagesCompact(log.messages)}
 							</pre>
 						) : !retentionEnabled ? (
 							<p className="text-sm text-muted-foreground italic">
@@ -1095,9 +1485,7 @@ export function LogDetailClient({
 
 				<Section title="Response">
 					<div className="rounded-lg border bg-card p-4">
-						{log.content &&
-						log.content.length > 500 &&
-						/[A-Za-z0-9+/]{200,}/.test(log.content) ? (
+						{log.content && shouldTryRenderImageContent(log.content) ? (
 							<ImageContentRenderer content={log.content} />
 						) : log.content ? (
 							<pre className="max-h-80 text-xs overflow-auto whitespace-pre-wrap break-all font-mono bg-muted/30 rounded-md p-3">

@@ -2,7 +2,9 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import {
+	Activity,
 	AlertTriangle,
+	BarChart3,
 	Building2,
 	Cpu,
 	Gauge,
@@ -12,12 +14,15 @@ import {
 	Mail,
 	Menu,
 	MessageCircle,
+	MessageSquare,
 	Percent,
 	Server,
+	Sparkles,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
+import { ThemeToggle } from "@/components/landing/theme-toggle";
 import { Button } from "@/components/ui/button";
 import {
 	Sidebar,
@@ -71,6 +76,7 @@ function MobileHeader() {
 					</span>
 				</div>
 			</div>
+			<ThemeToggle size="compact" className="ml-auto" />
 		</header>
 	);
 }
@@ -83,12 +89,19 @@ export function AdminShell({ children }: AdminShellProps) {
 
 	const isDashboard = pathname === "/" || pathname === "";
 	const isOrganizations = pathname.startsWith("/organizations");
+	const isDevpass = pathname.startsWith("/devpass");
+	const isChatPlans = pathname.startsWith("/chat-plans");
+	const isGlobalStats = pathname.startsWith("/global-stats");
 	const isDiscounts = pathname === "/discounts";
 	const isRateLimits = pathname === "/rate-limits";
 	const isProviders = pathname === "/providers";
 	const isModels = pathname === "/models";
 	const isModelProviderMappings = pathname === "/model-provider-mappings";
+	const isUnstableMappings = pathname.startsWith("/unstable-mappings");
 	const isContactSubmissions = pathname.startsWith("/contact-submissions");
+	const isProviderListingRequests = pathname.startsWith(
+		"/provider-listing-requests",
+	);
 	const isChatSupportLogs = pathname.startsWith("/chat-support-logs");
 	const isPaymentFailures = pathname.startsWith("/payment-failures");
 
@@ -145,10 +158,34 @@ export function AdminShell({ children }: AdminShellProps) {
 								</Link>
 							</SidebarMenuItem>
 							<SidebarMenuItem>
+								<Link href="/devpass" className="block">
+									<SidebarMenuButton isActive={isDevpass} size="lg">
+										<Sparkles className="h-4 w-4" />
+										<span>DevPass</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<Link href="/chat-plans" className="block">
+									<SidebarMenuButton isActive={isChatPlans} size="lg">
+										<MessageSquare className="h-4 w-4" />
+										<span>Lounge Plans</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<Link href="/global-stats" className="block">
+									<SidebarMenuButton isActive={isGlobalStats} size="lg">
+										<BarChart3 className="h-4 w-4" />
+										<span>Global Stats</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
 								<Link href="/discounts" className="block">
 									<SidebarMenuButton isActive={isDiscounts} size="lg">
 										<Percent className="h-4 w-4" />
-										<span>Global Discounts</span>
+										<span>Discounts</span>
 									</SidebarMenuButton>
 								</Link>
 							</SidebarMenuItem>
@@ -188,10 +225,29 @@ export function AdminShell({ children }: AdminShellProps) {
 								</Link>
 							</SidebarMenuItem>
 							<SidebarMenuItem>
+								<Link href="/unstable-mappings" className="block">
+									<SidebarMenuButton isActive={isUnstableMappings} size="lg">
+										<Activity className="h-4 w-4" />
+										<span>Unstable Mappings</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
 								<Link href="/contact-submissions" className="block">
 									<SidebarMenuButton isActive={isContactSubmissions} size="lg">
 										<Mail className="h-4 w-4" />
 										<span>Contact Submissions</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<Link href="/provider-listing-requests" className="block">
+									<SidebarMenuButton
+										isActive={isProviderListingRequests}
+										size="lg"
+									>
+										<Building2 className="h-4 w-4" />
+										<span>Provider Requests</span>
 									</SidebarMenuButton>
 								</Link>
 							</SidebarMenuItem>
@@ -215,6 +271,9 @@ export function AdminShell({ children }: AdminShellProps) {
 					</SidebarGroup>
 				</SidebarContent>
 				<SidebarFooter className="border-t border-sidebar-border/60">
+					<div className="flex justify-center">
+						<ThemeToggle size="compact" />
+					</div>
 					<Button
 						variant="ghost"
 						size="sm"

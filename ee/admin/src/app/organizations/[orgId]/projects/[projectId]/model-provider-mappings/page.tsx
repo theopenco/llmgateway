@@ -1,31 +1,15 @@
-import {
-	ArrowDown,
-	ArrowLeft,
-	ArrowUp,
-	ArrowUpDown,
-	Search,
-} from "lucide-react";
+import { ArrowLeft, Search } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
+import { ProjectMappingsTable } from "@/components/project-mappings-table";
 import { TimeWindowSelector } from "@/components/time-window-selector";
 import { Button } from "@/components/ui/button";
-import {
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from "@/components/ui/table";
 import { parsePageWindow, windowToFromTo } from "@/lib/page-window";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
-import { cn } from "@/lib/utils";
-
-import { getProviderIcon } from "@llmgateway/shared";
 
 type SortBy = "logsCount" | "errorsCount" | "cost" | "modelId" | "providerId";
 type SortOrder = "asc" | "desc";
@@ -35,10 +19,6 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
 	currency: "USD",
 	maximumFractionDigits: 4,
 });
-
-function formatNumber(n: number) {
-	return new Intl.NumberFormat("en-US").format(n);
-}
 
 function formatCompactNumber(value: number): string {
 	if (value >= 1_000_000_000) {
@@ -51,50 +31,6 @@ function formatCompactNumber(value: number): string {
 		return `${(value / 1_000).toFixed(1)}k`;
 	}
 	return value.toLocaleString("en-US");
-}
-
-function SortableHeader({
-	label,
-	sortKey,
-	currentSortBy,
-	currentSortOrder,
-	search,
-	pageWindow,
-	basePath,
-}: {
-	label: string;
-	sortKey: SortBy;
-	currentSortBy: SortBy;
-	currentSortOrder: SortOrder;
-	search: string;
-	pageWindow: string;
-	basePath: string;
-}) {
-	const isActive = currentSortBy === sortKey;
-	const nextOrder = isActive && currentSortOrder === "asc" ? "desc" : "asc";
-	const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
-	const href = `${basePath}?sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}&window=${pageWindow}`;
-
-	return (
-		<Link
-			href={href}
-			className={cn(
-				"flex items-center gap-1 hover:text-foreground transition-colors",
-				isActive ? "text-foreground" : "text-muted-foreground",
-			)}
-		>
-			{label}
-			{isActive ? (
-				currentSortOrder === "asc" ? (
-					<ArrowUp className="h-3.5 w-3.5" />
-				) : (
-					<ArrowDown className="h-3.5 w-3.5" />
-				)
-			) : (
-				<ArrowUpDown className="h-3.5 w-3.5 opacity-50" />
-			)}
-		</Link>
-	);
 }
 
 export default async function ProjectModelProviderMappingsPage({
@@ -166,20 +102,6 @@ export default async function ProjectModelProviderMappingsPage({
 		);
 	}
 
-	const sh = (label: string, sortKey: SortBy) => (
-		<TableHead>
-			<SortableHeader
-				label={label}
-				sortKey={sortKey}
-				currentSortBy={sortBy}
-				currentSortOrder={sortOrder}
-				search={search}
-				pageWindow={pageWindow}
-				basePath={basePath}
-			/>
-		</TableHead>
-	);
-
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 overflow-hidden px-4 py-8 md:px-8">
 			<header className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
@@ -220,7 +142,7 @@ export default async function ProjectModelProviderMappingsPage({
 				</div>
 			</header>
 
-			<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+			<div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
 				<div className="flex flex-wrap items-center gap-6 text-sm">
 					<div>
 						<span className="text-muted-foreground">Total Requests</span>
@@ -241,77 +163,26 @@ export default async function ProjectModelProviderMappingsPage({
 						</p>
 					</div>
 				</div>
-				<Suspense>
-					<TimeWindowSelector current={pageWindow} />
-				</Suspense>
+				<div className="flex flex-col items-end gap-1">
+					<Suspense>
+						<TimeWindowSelector current={pageWindow} />
+					</Suspense>
+					<p className="text-[11px] text-muted-foreground">
+						Per-project data is bucketed hourly
+					</p>
+				</div>
 			</div>
 
 			<div className="min-w-0 overflow-x-auto rounded-lg border border-border/60 bg-card">
-				<Table>
-					<TableHeader>
-						<TableRow>
-							{sh("Provider", "providerId")}
-							{sh("Model", "modelId")}
-							{sh("Requests", "logsCount")}
-							{sh("Errors", "errorsCount")}
-							<TableHead>Error Rate</TableHead>
-							<TableHead>Cached</TableHead>
-							<TableHead>Tokens</TableHead>
-							{sh("Cost", "cost")}
-						</TableRow>
-					</TableHeader>
-					<TableBody>
-						{data.mappings.length === 0 ? (
-							<TableRow>
-								<TableCell
-									colSpan={8}
-									className="h-24 text-center text-muted-foreground"
-								>
-									No usage data found
-								</TableCell>
-							</TableRow>
-						) : (
-							data.mappings.map((m) => {
-								const ProviderIcon = getProviderIcon(m.providerId);
-								const errorRate =
-									m.logsCount > 0
-										? ((m.errorsCount / m.logsCount) * 100).toFixed(1)
-										: "0.0";
-								return (
-									<TableRow key={`${m.providerId}-${m.modelId}`}>
-										<TableCell>
-											<div className="flex items-center gap-2">
-												<ProviderIcon className="h-4 w-4 shrink-0 dark:text-white" />
-												<span className="font-medium">{m.providerName}</span>
-											</div>
-										</TableCell>
-										<TableCell>
-											{m.modelId.includes("/")
-												? m.modelId.split("/").slice(1).join("/")
-												: m.modelId}
-										</TableCell>
-										<TableCell className="tabular-nums">
-											{formatNumber(m.logsCount)}
-										</TableCell>
-										<TableCell className="tabular-nums">
-											{formatNumber(m.errorsCount)}
-										</TableCell>
-										<TableCell className="tabular-nums">{errorRate}%</TableCell>
-										<TableCell className="tabular-nums">
-											{formatNumber(m.cachedCount)}
-										</TableCell>
-										<TableCell className="tabular-nums">
-											{formatCompactNumber(m.totalTokens)}
-										</TableCell>
-										<TableCell className="tabular-nums">
-											{currencyFormatter.format(m.cost)}
-										</TableCell>
-									</TableRow>
-								);
-							})
-						)}
-					</TableBody>
-				</Table>
+				<ProjectMappingsTable
+					mappings={data.mappings}
+					projectId={projectId}
+					sortBy={sortBy}
+					sortOrder={sortOrder}
+					search={search}
+					pageWindow={pageWindow}
+					basePath={basePath}
+				/>
 			</div>
 		</div>
 	);

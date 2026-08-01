@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-import { logger, createLogger } from "@/index.js";
+import { logger, createLogger, toError } from "@/index.js";
 
 describe("LLMGateway Logger", () => {
 	beforeEach(() => {
@@ -46,6 +46,50 @@ describe("LLMGateway Logger", () => {
 		const childLogger = logger.child({ component: "test" });
 		expect(childLogger).toBeDefined();
 		expect(typeof childLogger.info).toBe("function");
+	});
+
+	describe("toError", () => {
+		it("returns Error instances unchanged", () => {
+			const err = new Error("boom");
+			expect(toError(err)).toBe(err);
+		});
+
+		it("wraps string values", () => {
+			expect(toError("nope").message).toBe("nope");
+		});
+
+		it("uses message field for plain error-like objects", () => {
+			const result = toError({ message: "upstream failed", code: 500 });
+			expect(result.message).toBe("upstream failed");
+			expect((result as Error & { cause?: unknown }).cause).toEqual({
+				message: "upstream failed",
+				code: 500,
+			});
+		});
+
+		it("uses error field when message is missing", () => {
+			expect(toError({ error: "auth_failed" }).message).toBe("auth_failed");
+		});
+
+		it("JSON-serializes objects without message/error", () => {
+			expect(toError({ status: 502, retry: true }).message).toBe(
+				'{"status":502,"retry":true}',
+			);
+		});
+
+		it("falls back to constructor name for empty objects", () => {
+			expect(toError({}).message).toBe("[unserializable Object]");
+		});
+
+		it("handles null and undefined", () => {
+			expect(toError(null).message).toBe("Unknown error");
+			expect(toError(undefined).message).toBe("Unknown error");
+		});
+
+		it("avoids the [object Object] string for plain objects", () => {
+			const result = toError({ foo: "bar" });
+			expect(result.message).not.toBe("[object Object]");
+		});
 	});
 
 	it("should serialize Error instances passed to warn", () => {

@@ -79,7 +79,7 @@ Choose the billing approach that works for you:
 
 **Credits Mode** - Use our credit system with transparent pricing
 
-**API Keys Mode** - Use your own provider API keys (Pro plan)
+**API Keys Mode** - Use your own provider API keys
 
 **Hybrid Mode** - Automatic fallback between API keys and credits
 
@@ -109,23 +109,19 @@ Multi-dimensional analytics:
 
 **Error analysis** Detailed error tracking and debugging
 
-## 🔧 Pro Plan Features
+## 🔧 Bring Your Own Keys
 
 ### Use Your Own API Keys
 
-The biggest Pro feature - use your own provider keys **with reduced fees**:
+Use your own provider keys with full transparency:
 
 **Direct cost control** Pay providers directly at their rates
-
-**2.5% LLM Gateway fees** Half the free plan rate on your API key usage
 
 **Hybrid mode** Automatic fallback to credits when keys hit limits
 
 **Full transparency** See exactly what you're paying each provider
 
-### Enhanced Billing Management
-
-**Flexible billing** Monthly ($50) or yearly ($500, save 20%)
+### Billing Management
 
 **Auto top-up** Configurable credit thresholds and amounts
 

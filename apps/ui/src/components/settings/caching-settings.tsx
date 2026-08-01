@@ -1,11 +1,9 @@
 "use client";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
-import * as React from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
-import { Alert, AlertDescription } from "@/lib/components/alert";
 import { Button } from "@/lib/components/button";
 import {
 	Form,
@@ -33,6 +31,7 @@ const cachingFormSchema = z.object({
 			31536000,
 			"Cache duration must not exceed 31,536,000 seconds (1 year)",
 		),
+	providerCacheControlEnabled: z.boolean(),
 });
 
 type CachingFormData = z.infer<typeof cachingFormSchema>;
@@ -60,6 +59,8 @@ export function CachingSettings({
 				initialData.preferences.preferences.cachingEnabled ?? false,
 			cacheDurationSeconds:
 				initialData.preferences.preferences.cacheDurationSeconds ?? 60,
+			providerCacheControlEnabled:
+				initialData.preferences.preferences.providerCacheControlEnabled ?? true,
 		},
 	});
 
@@ -67,19 +68,6 @@ export function CachingSettings({
 
 	const api = useApi();
 
-	// Fetch organization to check retention level
-	const { data: organizationsData } = api.useQuery("get", "/orgs");
-	const organization = organizationsData?.organizations?.find(
-		(org) => org.id === orgId,
-	);
-	const isMetadataOnlyRetention = organization?.retentionLevel === "none";
-
-	// Override form value if organization uses metadata-only retention
-	React.useEffect(() => {
-		if (isMetadataOnlyRetention) {
-			form.setValue("cachingEnabled", false);
-		}
-	}, [isMetadataOnlyRetention, form]);
 	const updateProject = api.useMutation("patch", "/projects/{id}", {
 		onSuccess: () => {
 			const queryKey = api.queryOptions("get", "/orgs/{id}/projects", {
@@ -96,6 +84,7 @@ export function CachingSettings({
 				body: {
 					cachingEnabled: data.cachingEnabled,
 					cacheDurationSeconds: data.cacheDurationSeconds,
+					providerCacheControlEnabled: data.providerCacheControlEnabled,
 				},
 			});
 
@@ -128,16 +117,6 @@ export function CachingSettings({
 
 			<Form {...form}>
 				<form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-					{isMetadataOnlyRetention && (
-						<Alert>
-							<AlertDescription>
-								🔒 Caching is disabled because your organization is using
-								metadata-only data retention. To enable caching, switch to
-								"Retain All Data" in the organization policies settings.
-							</AlertDescription>
-						</Alert>
-					)}
-
 					<FormField
 						control={form.control}
 						name="cachingEnabled"
@@ -147,17 +126,10 @@ export function CachingSettings({
 									<Switch
 										checked={field.value}
 										onCheckedChange={field.onChange}
-										disabled={isMetadataOnlyRetention}
 									/>
 								</FormControl>
 								<div className="space-y-1 leading-none">
-									<FormLabel
-										className={
-											isMetadataOnlyRetention ? "text-muted-foreground" : ""
-										}
-									>
-										Enable request caching
-									</FormLabel>
+									<FormLabel>Enable request caching</FormLabel>
 								</div>
 							</FormItem>
 						)}
@@ -175,7 +147,7 @@ export function CachingSettings({
 										min={10}
 										max={31536000}
 										className="w-32"
-										disabled={!cachingEnabled || isMetadataOnlyRetention}
+										disabled={!cachingEnabled}
 										{...field}
 										onChange={(e) => field.onChange(Number(e.target.value))}
 									/>
@@ -191,13 +163,49 @@ export function CachingSettings({
 						)}
 					/>
 
+					<Separator />
+
+					<div>
+						<h4 className="text-base font-medium">Provider Cache Writes</h4>
+						<p className="text-muted-foreground text-sm">
+							Anthropic and AWS Bedrock (Claude) only
+						</p>
+					</div>
+
+					<FormField
+						control={form.control}
+						name="providerCacheControlEnabled"
+						render={({ field }) => (
+							<FormItem className="flex flex-row items-start space-x-3 space-y-0">
+								<FormControl>
+									<Switch
+										checked={field.value}
+										onCheckedChange={field.onChange}
+									/>
+								</FormControl>
+								<div className="space-y-1 leading-none">
+									<FormLabel>Allow provider cache writes</FormLabel>
+									<FormDescription>
+										When disabled, the gateway strips all{" "}
+										<code>cache_control</code> markers from outgoing requests —
+										both the ones it adds automatically for long prompts and any
+										markers your client sends (e.g. Claude Code, Cursor, Cline).
+										Cache writes are billed at 1.25× (5m) or 2× (1h) the input
+										price; reads are 0.1×. Disable this if you send long prompts
+										sporadically with gaps longer than the 5-minute cache TTL —
+										otherwise you pay the write premium without ever benefiting
+										from a cache read. Note: changing this setting may take up
+										to 5 minutes to take effect.
+									</FormDescription>
+								</div>
+							</FormItem>
+						)}
+					/>
+
 					<div className="flex justify-end">
 						<Button
 							type="submit"
-							disabled={
-								(form.formState.isSubmitting || updateProject.isPending) ??
-								isMetadataOnlyRetention
-							}
+							disabled={form.formState.isSubmitting || updateProject.isPending}
 						>
 							{form.formState.isSubmitting || updateProject.isPending
 								? "Saving..."

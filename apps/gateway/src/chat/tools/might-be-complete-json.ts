@@ -89,20 +89,30 @@ export function mightBeCompleteJson(str: string): boolean {
 /**
  * Optimized heuristic for large JSON payloads (100KB+).
  *
- * Instead of scanning the entire string, we scan from the start until we
- * enter a string value that extends beyond our scan window, then scan backward
- * from the end until we enter the same string. The structural depth counted
- * from each end should match for the JSON to be balanced.
+ * This function must honor the same contract as `mightBeCompleteJson`: it may
+ * only return `false` when the payload is *definitely* incomplete. Returning a
+ * false negative here is not merely a wasted `JSON.parse` — the SSE scanner in
+ * chat.ts uses this result to decide where an event ends, so a spurious `false`
+ * makes it over-consume and merge two SSE events into one string, which then
+ * throws a `json_parse_error` ("Unexpected non-whitespace character after JSON").
  *
- * This turns an O(n) scan into O(k) where k is the size of the structural
- * JSON skeleton (typically a few hundred bytes even for multi-MB payloads).
+ * We scan a bounded window from the start. The common large-payload case is a
+ * single opaque string value (e.g. a base64 image): a *truncated* one ends
+ * mid-string, so its last char is not `}`/`]` and the caller's cheap first/last
+ * char check already rejects it before we get here. That means anything reaching
+ * this function already *looks* complete. Rather than trying to prove balance
+ * cheaply — which is unsound for large, densely-structured JSON (e.g. an OpenAI
+ * `response.created` event with a big `tools` array), where the structural depth
+ * lives across the whole payload and not just at the ends — we defer the final
+ * decision to `JSON.parse` and return `true`. We still return an exact answer
+ * for payloads whose structure fits inside the scan window.
  */
 function mightBeCompleteJsonLarge(trimmed: string): boolean {
-	const SCAN_LIMIT = 8192; // scan at most 8KB from each end
+	const SCAN_LIMIT = 8192; // scan at most 8KB from the start
 
-	// Forward scan: count structural depth until we enter a long string
-	let fBraces = 0;
-	let fBrackets = 0;
+	// Forward scan: count structural depth until we run out of window
+	let braces = 0;
+	let brackets = 0;
 	let inString = false;
 	let i = 0;
 	const forwardEnd = Math.min(trimmed.length, SCAN_LIMIT);
@@ -120,84 +130,26 @@ function mightBeCompleteJsonLarge(trimmed: string): boolean {
 			if (c === '"') {
 				inString = true;
 			} else if (c === "{") {
-				fBraces++;
+				braces++;
 			} else if (c === "}") {
-				fBraces--;
+				braces--;
 			} else if (c === "[") {
-				fBrackets++;
+				brackets++;
 			} else if (c === "]") {
-				fBrackets--;
+				brackets--;
 			}
 		}
 		i++;
 	}
 
-	// If we finished scanning the entire string (unlikely given >100KB), use result directly
+	// If the whole payload fit inside the window, we have an exact answer.
 	if (i >= trimmed.length) {
-		return !inString && fBraces === 0 && fBrackets === 0;
+		return !inString && braces === 0 && brackets === 0;
 	}
 
-	// If we're NOT in a string at the forward scan limit, the structural content
-	// extends beyond our window in a non-string context. This is unusual for large
-	// payloads. Use a conservative approach: the first/last char check already passed.
-	if (!inString) {
-		return true;
-	}
-
-	// We entered a large string value in the forward scan.
-	// Now scan backward from the end. The reverse scan counts structural depth
-	// from the end until it enters a string going backward (which should be the
-	// same string the forward scan entered).
-	//
-	// For the JSON to be balanced:
-	//   - Forward opened fBraces braces before the string
-	//   - Reverse should see the same number of closing braces after the string
-	//   - Same for brackets
-	let rBraces = 0;
-	let rBrackets = 0;
-	let rInString = false;
-	let j = trimmed.length - 1;
-	const reverseEnd = Math.max(0, trimmed.length - SCAN_LIMIT);
-
-	while (j >= reverseEnd) {
-		const c = trimmed[j];
-		if (rInString) {
-			// Inside a string scanning backward - check for unescaped quote
-			if (c === '"') {
-				let backslashes = 0;
-				let k = j - 1;
-				while (k >= 0 && trimmed[k] === "\\") {
-					backslashes++;
-					k--;
-				}
-				if (backslashes % 2 === 0) {
-					rInString = false;
-				}
-			}
-			// Once we enter the large string going backward, we've accounted for
-			// all the closing structure. Stop scanning.
-			if (rInString && j < trimmed.length - SCAN_LIMIT + 1) {
-				// We're deep in the string and past our scan limit - stop
-				break;
-			}
-		} else {
-			if (c === '"') {
-				rInString = true;
-			} else if (c === "}") {
-				rBraces++;
-			} else if (c === "{") {
-				rBraces--;
-			} else if (c === "]") {
-				rBrackets++;
-			} else if (c === "[") {
-				rBrackets--;
-			}
-		}
-		j--;
-	}
-
-	// Forward scan opened fBraces/fBrackets before entering the string.
-	// Reverse scan should have closed the same number after the string.
-	// rBraces counts '}' as +1 and '{' as -1, so for balance: fBraces === rBraces
-	return fBraces === rBraces && fBrackets === rBrackets;
+	// The structure extends beyond our scan window. We cannot cheaply prove the
+	// payload is unbalanced (a mismatch measured only at the ends is unsound for
+	// densely-structured JSON), so we must not return a false negative here.
+	// The first/last char check already passed, so let JSON.parse decide.
+	return true;
 }

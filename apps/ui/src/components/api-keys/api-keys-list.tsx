@@ -2,15 +2,20 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
 	BarChart3Icon,
 	EditIcon,
+	InfoIcon,
 	KeyIcon,
 	MoreHorizontal,
+	PencilIcon,
 	PlusIcon,
+	PowerIcon,
+	RefreshCwIcon,
 	Shield,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
+import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -58,7 +63,11 @@ import {
 	type ApiKeyLimitPayload,
 } from "./api-key-limit-fields";
 import { ApiKeyLimitsDialog } from "./api-key-limits-dialog";
+import { formatApiKeyExpiry } from "./api-key-ttl-fields";
 import { CreateApiKeyDialog } from "./create-api-key-dialog";
+import { ReactivateApiKeyDialog } from "./reactivate-api-key-dialog";
+import { RenameApiKeyDialog } from "./rename-api-key-dialog";
+import { RollApiKeyDialog } from "./roll-api-key-dialog";
 
 import type { ApiKey, Project } from "@/lib/types";
 import type { Route } from "next";
@@ -71,6 +80,23 @@ interface ApiKeysListProps {
 type StatusFilter = "all" | "active" | "inactive";
 type CreatorFilter = "mine" | "all";
 
+const PLAYGROUND_KEY_DESCRIPTION = "Auto-generated playground key";
+
+function PlaygroundKeyNote() {
+	return (
+		<>
+			<DropdownMenuSeparator />
+			<div className="text-muted-foreground flex max-w-52 items-start gap-2 px-2 py-1.5 text-xs">
+				<InfoIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+				<span>
+					The auto-generated Lounge key is managed by LLM Gateway and can't be
+					edited.
+				</span>
+			</div>
+		</>
+	);
+}
+
 export function ApiKeysList({
 	selectedProject,
 	initialData,
@@ -78,18 +104,24 @@ export function ApiKeysList({
 	const queryClient = useQueryClient();
 	const api = useApi();
 	const pathname = usePathname();
+	const { selectedOrganization } = useDashboardNavigation();
+	// Developers only ever see their own keys, so the All/Mine selector is hidden.
+	const isDeveloper = selectedOrganization?.role === "developer";
 	const { orgId, projectId } = useMemo(
 		() => extractOrgAndProjectFromPath(pathname),
 		[pathname],
 	);
 	const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
 	const [creatorFilter, setCreatorFilter] = useState<CreatorFilter>("all");
+	const [reactivateKey, setReactivateKey] = useState<ApiKey | null>(null);
+	const [rollKey, setRollKey] = useState<ApiKey | null>(null);
+	const [renameKey, setRenameKey] = useState<ApiKey | null>(null);
 
 	const getIamRulesUrl = (keyId: string) =>
 		`/dashboard/${orgId}/${projectId}/api-keys/${keyId}/iam` as Route;
 
 	const getStatisticsUrl = (keyId: string) =>
-		`/dashboard/${orgId}/${projectId}/usage?apiKeyId=${keyId}` as Route;
+		`/dashboard/${orgId}/${projectId}/api-keys/${keyId}` as Route;
 
 	// All hooks must be called before any conditional returns
 	const { data, isLoading, error } = api.useQuery(
@@ -126,15 +158,22 @@ export function ApiKeysList({
 		"delete",
 		"/keys/api/{id}",
 	);
-	const { mutate: toggleKeyStatus } = api.useMutation(
-		"patch",
-		"/keys/api/{id}",
-	);
+	const {
+		mutate: toggleKeyStatus,
+		mutateAsync: toggleKeyStatusAsync,
+		isPending: isTogglePending,
+	} = api.useMutation("patch", "/keys/api/{id}");
 
 	const updateKeyUsageLimitMutation = api.useMutation(
 		"patch",
 		"/keys/api/limit/{id}",
 	);
+
+	const { mutateAsync: rollKeyAsync, isPending: isRollPending } =
+		api.useMutation("post", "/keys/api/{id}/roll");
+
+	const { mutateAsync: renameKeyAsync, isPending: isRenamePending } =
+		api.useMutation("patch", "/keys/api/{id}");
 
 	const allKeys = data?.apiKeys.filter((key) => key.status !== "deleted") ?? [];
 	const activeKeys = allKeys.filter((key) => key.status === "active");
@@ -235,16 +274,33 @@ export function ApiKeysList({
 		);
 	};
 
-	const toggleStatus = (
-		id: string,
-		currentStatus: "active" | "inactive" | "deleted" | null,
-	) => {
-		const newStatus = currentStatus === "active" ? "inactive" : "active";
+	const invalidateApiKeys = () => {
+		const queryKey = api.queryOptions("get", "/keys/api", {
+			params: {
+				query: { projectId: selectedProject.id },
+			},
+		}).queryKey;
+
+		void queryClient.invalidateQueries({ queryKey });
+	};
+
+	const toggleStatus = (key: ApiKey) => {
+		// Reactivating a key whose TTL has already passed requires a fresh future
+		// expiration, so prompt for one instead of toggling directly.
+		if (key.status !== "active") {
+			const expiry = formatApiKeyExpiry(key.expiresAt);
+			if (expiry?.expired) {
+				setReactivateKey(key);
+				return;
+			}
+		}
+
+		const newStatus = key.status === "active" ? "inactive" : "active";
 
 		toggleKeyStatus(
 			{
 				params: {
-					path: { id },
+					path: { id: key.id },
 				},
 				body: {
 					status: newStatus,
@@ -252,13 +308,7 @@ export function ApiKeysList({
 			},
 			{
 				onSuccess: () => {
-					const queryKey = api.queryOptions("get", "/keys/api", {
-						params: {
-							query: { projectId: selectedProject.id },
-						},
-					}).queryKey;
-
-					void queryClient.invalidateQueries({ queryKey });
+					invalidateApiKeys();
 
 					toast({
 						title: "API Key Status Updated",
@@ -267,6 +317,96 @@ export function ApiKeysList({
 				},
 			},
 		);
+	};
+
+	const handleReactivate = async (expiresAt: string) => {
+		if (!reactivateKey) {
+			return;
+		}
+
+		try {
+			await toggleKeyStatusAsync({
+				params: {
+					path: { id: reactivateKey.id },
+				},
+				body: {
+					status: "active",
+					expiresAt,
+				},
+			});
+
+			invalidateApiKeys();
+			setReactivateKey(null);
+
+			toast({
+				title: "API Key Reactivated",
+				description: "The API key is active again with a new expiration.",
+			});
+		} catch {
+			toast({
+				title: "Failed to reactivate API key.",
+				variant: "destructive",
+			});
+		}
+	};
+
+	const handleRoll = async (): Promise<string | undefined> => {
+		if (!rollKey) {
+			return undefined;
+		}
+
+		try {
+			const data = await rollKeyAsync({
+				params: {
+					path: { id: rollKey.id },
+				},
+			});
+
+			invalidateApiKeys();
+
+			toast({
+				title: "API Key Rolled",
+				description: "A new secret has been generated for this key.",
+			});
+
+			return data.apiKey.token;
+		} catch {
+			toast({
+				title: "Failed to roll API key.",
+				variant: "destructive",
+			});
+			return undefined;
+		}
+	};
+
+	const handleRename = async (description: string) => {
+		if (!renameKey) {
+			return;
+		}
+
+		try {
+			await renameKeyAsync({
+				params: {
+					path: { id: renameKey.id },
+				},
+				body: {
+					description,
+				},
+			});
+
+			invalidateApiKeys();
+			setRenameKey(null);
+
+			toast({
+				title: "API Key Renamed",
+				description: "The API key has been renamed.",
+			});
+		} catch {
+			toast({
+				title: "Failed to rename API key.",
+				variant: "destructive",
+			});
+		}
 	};
 
 	const updateKeyUsageLimit = async (
@@ -335,6 +475,21 @@ export function ApiKeysList({
 		);
 	};
 
+	const renderExpiry = (key: ApiKey) => {
+		const expiry = formatApiKeyExpiry(key.expiresAt);
+		if (!expiry) {
+			return null;
+		}
+
+		return (
+			<div
+				className={`text-xs ${expiry.expired ? "text-destructive" : "text-muted-foreground"}`}
+			>
+				{expiry.expired ? "Expired" : "Expires"} {expiry.label}
+			</div>
+		);
+	};
+
 	const renderLimitSummary = (key: ApiKey) => (
 		<div className="text-left">
 			<div className="font-mono text-xs">
@@ -362,7 +517,7 @@ export function ApiKeysList({
 					}
 					disabledMessage={
 						planLimits
-							? `${planLimits.plan === "pro" ? "Pro" : "Free"} plan allows maximum ${planLimits.maxKeys} API keys per project`
+							? `${planLimits.plan === "enterprise" ? "Enterprise" : planLimits.plan === "pro" ? "Pro" : "Free"} plan allows maximum ${planLimits.maxKeys} API keys per organization`
 							: undefined
 					}
 				>
@@ -385,16 +540,18 @@ export function ApiKeysList({
 		<>
 			{/* Filter Tabs */}
 			<div className="mb-6 flex flex-col gap-4">
-				{/* Creator Filter */}
-				<Tabs
-					value={creatorFilter}
-					onValueChange={(value) => setCreatorFilter(value as CreatorFilter)}
-				>
-					<TabsList className="flex space-x-2 w-full md:w-fit">
-						<TabsTrigger value="all">All Keys</TabsTrigger>
-						<TabsTrigger value="mine">My Keys</TabsTrigger>
-					</TabsList>
-				</Tabs>
+				{/* Creator Filter — hidden for developers (own keys only) */}
+				{!isDeveloper && (
+					<Tabs
+						value={creatorFilter}
+						onValueChange={(value) => setCreatorFilter(value as CreatorFilter)}
+					>
+						<TabsList className="flex space-x-2 w-full md:w-fit">
+							<TabsTrigger value="all">All Keys</TabsTrigger>
+							<TabsTrigger value="mine">My Keys</TabsTrigger>
+						</TabsList>
+					</Tabs>
+				)}
 
 				{/* Status Filter Tabs */}
 				<Tabs
@@ -471,149 +628,185 @@ export function ApiKeysList({
 							<TableHead>Current Period</TableHead>
 							<TableHead>Limits</TableHead>
 							<TableHead>IAM Rules</TableHead>
-							<TableHead className="text-right">Actions</TableHead>
+							<TableHead className="sticky right-0 bg-card w-12" />
 						</TableRow>
 					</TableHeader>
 					<TableBody>
-						{filteredKeys.map((key) => (
-							<TableRow
-								key={key.id}
-								className="hover:bg-muted/30 transition-colors"
-							>
-								<TableCell className="font-medium">
-									<span className="text-sm font-medium">{key.description}</span>
-								</TableCell>
-								<TableCell className="min-w-40 max-w-40">
-									<div className="flex items-center space-x-2">
-										<span className="font-mono text-xs truncate">
-											{key.maskedToken}
+						{filteredKeys.map((key) => {
+							const isPlaygroundKey =
+								key.description === PLAYGROUND_KEY_DESCRIPTION;
+							return (
+								<TableRow
+									key={key.id}
+									className="hover:bg-muted/30 transition-colors"
+								>
+									<TableCell className="font-medium">
+										<span className="text-sm font-medium">
+											{isPlaygroundKey
+												? "Auto-generated Lounge key"
+												: key.description}
 										</span>
-									</div>
-								</TableCell>
-								<TableCell>
-									<StatusBadge status={key.status} variant="detailed" />
-								</TableCell>
-								<TableCell>
-									<Tooltip>
-										<TooltipTrigger asChild>
-											<span className="text-muted-foreground cursor-help border-b border-dotted border-muted-foreground/50 hover:border-muted-foreground">
-												{Intl.DateTimeFormat(undefined, {
-													month: "short",
-													day: "numeric",
-													year: "numeric",
-												}).format(new Date(key.createdAt))}
+									</TableCell>
+									<TableCell className="min-w-40 max-w-40">
+										<div className="flex items-center space-x-2">
+											<span className="font-mono text-xs truncate">
+												{key.maskedToken}
 											</span>
-										</TooltipTrigger>
-										<TooltipContent>
-											<p className="max-w-xs text-xs whitespace-nowrap">
-												{Intl.DateTimeFormat(undefined, {
-													month: "short",
-													day: "numeric",
-													year: "numeric",
-													hour: "2-digit",
-													minute: "2-digit",
-												}).format(new Date(key.createdAt))}
-											</p>
-										</TooltipContent>
-									</Tooltip>
-								</TableCell>
-								<TableCell>
-									<Tooltip>
-										<TooltipTrigger asChild>
-											<span className="text-muted-foreground cursor-help">
-												{key.creator?.name ?? key.creator?.email ?? "Unknown"}
-											</span>
-										</TooltipTrigger>
-										<TooltipContent>
-											<p className="max-w-xs text-xs">
-												{key.creator?.email ?? "No email available"}
-											</p>
-										</TooltipContent>
-									</Tooltip>
-								</TableCell>
-								<TableCell>{formatCurrencyAmount(key.usage)}</TableCell>
-								<TableCell>{renderCurrentPeriodUsage(key)}</TableCell>
-								<TableCell>
-									<ApiKeyLimitsDialog
-										apiKey={key}
-										onSubmit={(payload) => updateKeyUsageLimit(key.id, payload)}
-									>
-										<Button
-											variant="outline"
-											size="sm"
-											className="min-w-48 flex items-center justify-between gap-3"
+										</div>
+									</TableCell>
+									<TableCell>
+										<div className="space-y-1">
+											<StatusBadge status={key.status} variant="detailed" />
+											{renderExpiry(key)}
+										</div>
+									</TableCell>
+									<TableCell>
+										<Tooltip>
+											<TooltipTrigger asChild>
+												<span className="text-muted-foreground cursor-help border-b border-dotted border-muted-foreground/50 hover:border-muted-foreground">
+													{Intl.DateTimeFormat(undefined, {
+														month: "short",
+														day: "numeric",
+														year: "numeric",
+													}).format(new Date(key.createdAt))}
+												</span>
+											</TooltipTrigger>
+											<TooltipContent>
+												<p className="max-w-xs text-xs whitespace-nowrap">
+													{Intl.DateTimeFormat(undefined, {
+														month: "short",
+														day: "numeric",
+														year: "numeric",
+														hour: "2-digit",
+														minute: "2-digit",
+													}).format(new Date(key.createdAt))}
+												</p>
+											</TooltipContent>
+										</Tooltip>
+									</TableCell>
+									<TableCell>
+										<Tooltip>
+											<TooltipTrigger asChild>
+												<span className="text-muted-foreground cursor-help">
+													{key.creator?.name ?? key.creator?.email ?? "Unknown"}
+												</span>
+											</TooltipTrigger>
+											<TooltipContent>
+												<p className="max-w-xs text-xs">
+													{key.creator?.email ?? "No email available"}
+												</p>
+											</TooltipContent>
+										</Tooltip>
+									</TableCell>
+									<TableCell>{formatCurrencyAmount(key.usage)}</TableCell>
+									<TableCell>{renderCurrentPeriodUsage(key)}</TableCell>
+									<TableCell>
+										<ApiKeyLimitsDialog
+											apiKey={key}
+											organizationId={orgId ?? ""}
+											onSubmit={(payload) =>
+												updateKeyUsageLimit(key.id, payload)
+											}
 										>
-											{renderLimitSummary(key)}
-											<EditIcon />
-										</Button>
-									</ApiKeyLimitsDialog>
-								</TableCell>
-								<TableCell>
-									{key.iamRules && key.iamRules.length > 0 ? (
-										<Button
-											variant="outline"
-											size="sm"
-											className="text-xs"
-											asChild
-										>
-											<Link href={getIamRulesUrl(key.id)}>
-												{
-													key.iamRules.filter(
-														(rule) => rule.status === "active",
-													).length
-												}{" "}
-												rule
-												{key.iamRules.filter((rule) => rule.status === "active")
-													.length !== 1
-													? "s"
-													: ""}
-											</Link>
-										</Button>
-									) : (
-										<Button
-											variant="ghost"
-											size="sm"
-											className="text-xs text-muted-foreground"
-											asChild
-										>
-											<Link href={getIamRulesUrl(key.id)}>No rules</Link>
-										</Button>
-									)}
-								</TableCell>
-								<TableCell className="text-right">
-									<DropdownMenu>
-										<DropdownMenuTrigger asChild>
-											<Button variant="ghost" size="icon" className="h-8 w-8">
-												<MoreHorizontal className="h-4 w-4" />
-												<span className="sr-only">Open menu</span>
+											<Button
+												variant="outline"
+												size="sm"
+												className="min-w-48 flex items-center justify-between gap-3"
+											>
+												{renderLimitSummary(key)}
+												<EditIcon />
 											</Button>
-										</DropdownMenuTrigger>
-										<DropdownMenuContent align="end">
-											<DropdownMenuLabel>Actions</DropdownMenuLabel>
-											<DropdownMenuItem asChild>
-												<Link href={getStatisticsUrl(key.id)} prefetch={true}>
-													<BarChart3Icon className="mr-2 h-4 w-4" />
-													View Statistics
-												</Link>
-											</DropdownMenuItem>
-											<DropdownMenuItem asChild>
+										</ApiKeyLimitsDialog>
+									</TableCell>
+									<TableCell>
+										{key.iamRules && key.iamRules.length > 0 ? (
+											<Button
+												variant="outline"
+												size="sm"
+												className="text-xs"
+												asChild
+											>
 												<Link href={getIamRulesUrl(key.id)}>
-													<Shield className="mr-2 h-4 w-4" />
-													Manage IAM Rules
+													{
+														key.iamRules.filter(
+															(rule) => rule.status === "active",
+														).length
+													}{" "}
+													rule
+													{key.iamRules.filter(
+														(rule) => rule.status === "active",
+													).length !== 1
+														? "s"
+														: ""}
 												</Link>
-											</DropdownMenuItem>
-											{key.description !== "Auto-generated playground key" && (
-												<>
-													<DropdownMenuSeparator />
+											</Button>
+										) : (
+											<Button
+												variant="ghost"
+												size="sm"
+												className="text-xs text-muted-foreground"
+												asChild
+											>
+												<Link href={getIamRulesUrl(key.id)}>No rules</Link>
+											</Button>
+										)}
+									</TableCell>
+									<TableCell className="sticky right-0 bg-card group-hover:bg-muted/30 text-center">
+										<DropdownMenu>
+											<DropdownMenuTrigger asChild>
+												<Button variant="ghost" size="icon" className="h-8 w-8">
+													<MoreHorizontal className="h-4 w-4" />
+													<span className="sr-only">Open menu</span>
+												</Button>
+											</DropdownMenuTrigger>
+											<DropdownMenuContent align="end">
+												<DropdownMenuLabel>Actions</DropdownMenuLabel>
+												<DropdownMenuItem asChild>
+													<Link href={getStatisticsUrl(key.id)} prefetch={true}>
+														<BarChart3Icon className="mr-2 h-4 w-4" />
+														View Statistics
+													</Link>
+												</DropdownMenuItem>
+												<DropdownMenuItem asChild>
+													<Link href={getIamRulesUrl(key.id)}>
+														<Shield className="mr-2 h-4 w-4" />
+														Manage IAM Rules
+													</Link>
+												</DropdownMenuItem>
+												<DropdownMenuSeparator />
+												<DropdownMenuItem
+													disabled={isPlaygroundKey}
+													onClick={() => setRenameKey(key)}
+												>
+													<PencilIcon className="mr-2 h-4 w-4" />
+													Rename Key
+												</DropdownMenuItem>
+												<DropdownMenuItem
+													disabled={isPlaygroundKey}
+													onClick={() => toggleStatus(key)}
+												>
+													<PowerIcon className="mr-2 h-4 w-4" />
+													{key.status === "active"
+														? "Deactivate"
+														: "Activate"}{" "}
+													Key
+												</DropdownMenuItem>
+												<DropdownMenuItem
+													disabled={isPlaygroundKey}
+													onClick={() => setRollKey(key)}
+												>
+													<RefreshCwIcon className="mr-2 h-4 w-4" />
+													Roll Key
+												</DropdownMenuItem>
+												<DropdownMenuSeparator />
+												{isPlaygroundKey ? (
 													<DropdownMenuItem
-														onClick={() => toggleStatus(key.id, key.status)}
+														disabled
+														className="text-destructive focus:text-destructive"
 													>
-														{key.status === "active"
-															? "Deactivate"
-															: "Activate"}{" "}
-														Key
+														Delete
 													</DropdownMenuItem>
-													<DropdownMenuSeparator />
+												) : (
 													<AlertDialog>
 														<AlertDialogTrigger asChild>
 															<DropdownMenuItem
@@ -644,70 +837,93 @@ export function ApiKeysList({
 															</AlertDialogFooter>
 														</AlertDialogContent>
 													</AlertDialog>
-												</>
-											)}
-										</DropdownMenuContent>
-									</DropdownMenu>
-								</TableCell>
-							</TableRow>
-						))}
+												)}
+												{isPlaygroundKey && <PlaygroundKeyNote />}
+											</DropdownMenuContent>
+										</DropdownMenu>
+									</TableCell>
+								</TableRow>
+							);
+						})}
 					</TableBody>
 				</Table>
 			</div>
 
 			{/* Mobile Cards */}
 			<div className="md:hidden space-y-3">
-				{filteredKeys.map((key) => (
-					<div key={key.id} className="border rounded-lg p-3 space-y-3">
-						<div className="flex items-start justify-between">
-							<div className="flex-1 min-w-0">
-								<div className="flex items-center gap-2">
-									<h3 className="font-medium text-sm">{key.description}</h3>
-									<StatusBadge status={key.status} />
+				{filteredKeys.map((key) => {
+					const isPlaygroundKey =
+						key.description === PLAYGROUND_KEY_DESCRIPTION;
+					return (
+						<div key={key.id} className="border rounded-lg p-3 space-y-3">
+							<div className="flex items-start justify-between">
+								<div className="flex-1 min-w-0">
+									<div className="flex items-center gap-2">
+										<h3 className="font-medium text-sm">
+											{isPlaygroundKey
+												? "Auto-generated Lounge key"
+												: key.description}
+										</h3>
+										<StatusBadge status={key.status} />
+									</div>
+									{renderExpiry(key)}
+									<div className="flex items-center gap-2 mt-1">
+										<span className="text-xs text-muted-foreground">
+											{Intl.DateTimeFormat(undefined, {
+												month: "short",
+												day: "numeric",
+												year: "numeric",
+												hour: "2-digit",
+												minute: "2-digit",
+											}).format(new Date(key.createdAt))}
+										</span>
+									</div>
 								</div>
-								<div className="flex items-center gap-2 mt-1">
-									<span className="text-xs text-muted-foreground">
-										{Intl.DateTimeFormat(undefined, {
-											month: "short",
-											day: "numeric",
-											year: "numeric",
-											hour: "2-digit",
-											minute: "2-digit",
-										}).format(new Date(key.createdAt))}
-									</span>
-								</div>
-							</div>
-							<DropdownMenu>
-								<DropdownMenuTrigger asChild>
-									<Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-										<MoreHorizontal className="h-4 w-4" />
-										<span className="sr-only">Open menu</span>
-									</Button>
-								</DropdownMenuTrigger>
-								<DropdownMenuContent align="end">
-									<DropdownMenuLabel>Actions</DropdownMenuLabel>
-									<DropdownMenuItem asChild>
-										<Link href={getStatisticsUrl(key.id)} prefetch={true}>
-											<BarChart3Icon className="mr-2 h-4 w-4" />
-											View Statistics
-										</Link>
-									</DropdownMenuItem>
-									<DropdownMenuItem asChild>
-										<Link href={getIamRulesUrl(key.id)}>
-											<Shield className="mr-2 h-4 w-4" />
-											Manage IAM Rules
-										</Link>
-									</DropdownMenuItem>
-									{key.description !== "Auto-generated playground key" && (
-										<>
-											<DropdownMenuSeparator />
+								<DropdownMenu>
+									<DropdownMenuTrigger asChild>
+										<Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+											<MoreHorizontal className="h-4 w-4" />
+											<span className="sr-only">Open menu</span>
+										</Button>
+									</DropdownMenuTrigger>
+									<DropdownMenuContent align="end">
+										<DropdownMenuLabel>Actions</DropdownMenuLabel>
+										<DropdownMenuItem asChild>
+											<Link href={getStatisticsUrl(key.id)} prefetch={true}>
+												<BarChart3Icon className="mr-2 h-4 w-4" />
+												View Statistics
+											</Link>
+										</DropdownMenuItem>
+										<DropdownMenuItem asChild>
+											<Link href={getIamRulesUrl(key.id)}>
+												<Shield className="mr-2 h-4 w-4" />
+												Manage IAM Rules
+											</Link>
+										</DropdownMenuItem>
+										<DropdownMenuSeparator />
+										<DropdownMenuItem
+											disabled={isPlaygroundKey}
+											onClick={() => toggleStatus(key)}
+										>
+											<PowerIcon className="mr-2 h-4 w-4" />
+											{key.status === "active" ? "Deactivate" : "Activate"} Key
+										</DropdownMenuItem>
+										<DropdownMenuItem
+											disabled={isPlaygroundKey}
+											onClick={() => setRollKey(key)}
+										>
+											<RefreshCwIcon className="mr-2 h-4 w-4" />
+											Roll Key
+										</DropdownMenuItem>
+										<DropdownMenuSeparator />
+										{isPlaygroundKey ? (
 											<DropdownMenuItem
-												onClick={() => toggleStatus(key.id, key.status)}
+												disabled
+												className="text-destructive focus:text-destructive"
 											>
-												{key.status === "active" ? "Deactivate" : "Activate"}{" "}
-												Key
+												Delete
 											</DropdownMenuItem>
-											<DropdownMenuSeparator />
+										) : (
 											<AlertDialog>
 												<AlertDialogTrigger asChild>
 													<DropdownMenuItem
@@ -738,100 +954,143 @@ export function ApiKeysList({
 													</AlertDialogFooter>
 												</AlertDialogContent>
 											</AlertDialog>
-										</>
-									)}
-								</DropdownMenuContent>
-							</DropdownMenu>
-						</div>
-						<div className="pt-2 border-t">
-							<div className="text-xs text-muted-foreground mb-1">API Key</div>
-							<div className="font-mono text-xs break-all">
-								{key.maskedToken}
+										)}
+										{isPlaygroundKey && <PlaygroundKeyNote />}
+									</DropdownMenuContent>
+								</DropdownMenu>
 							</div>
-						</div>
-						<div className="pt-2 border-t grid gap-3 md:grid-cols-3">
-							<div className="py-1">
-								<div className="text-xs text-muted-foreground mb-1">Usage</div>
-								<div className="font-mono text-xs break-all">
-									{formatCurrencyAmount(key.usage)}
-								</div>
-							</div>
-							<div className="py-1">
+							<div className="pt-2 border-t">
 								<div className="text-xs text-muted-foreground mb-1">
-									Current Period
+									API Key
 								</div>
-								{renderCurrentPeriodUsage(key)}
+								<div className="font-mono text-xs break-all">
+									{key.maskedToken}
+								</div>
 							</div>
-							<div>
-								<ApiKeyLimitsDialog
-									apiKey={key}
-									onSubmit={(payload) => updateKeyUsageLimit(key.id, payload)}
-								>
-									<Button
-										variant="outline"
-										size="sm"
-										className="min-w-32 flex justify-between h-full py-2"
+							<div className="pt-2 border-t grid gap-3 md:grid-cols-3">
+								<div className="py-1">
+									<div className="text-xs text-muted-foreground mb-1">
+										Usage
+									</div>
+									<div className="font-mono text-xs break-all">
+										{formatCurrencyAmount(key.usage)}
+									</div>
+								</div>
+								<div className="py-1">
+									<div className="text-xs text-muted-foreground mb-1">
+										Current Period
+									</div>
+									{renderCurrentPeriodUsage(key)}
+								</div>
+								<div>
+									<ApiKeyLimitsDialog
+										apiKey={key}
+										organizationId={orgId ?? ""}
+										onSubmit={(payload) => updateKeyUsageLimit(key.id, payload)}
 									>
-										<div className="text-left">
-											<div className="text-xs text-muted-foreground mb-1">
-												Limits
+										<Button
+											variant="outline"
+											size="sm"
+											className="min-w-32 flex justify-between h-full py-2"
+										>
+											<div className="text-left">
+												<div className="text-xs text-muted-foreground mb-1">
+													Limits
+												</div>
+												{renderLimitSummary(key)}
 											</div>
-											{renderLimitSummary(key)}
-										</div>
-										<EditIcon />
-									</Button>
-								</ApiKeyLimitsDialog>
+											<EditIcon />
+										</Button>
+									</ApiKeyLimitsDialog>
+								</div>
+							</div>
+							<div className="pt-2 border-t">
+								<div className="text-xs text-muted-foreground mb-1">
+									IAM Rules
+								</div>
+								<div className="flex items-center">
+									{key.iamRules && key.iamRules.length > 0 ? (
+										<Button
+											variant="outline"
+											size="sm"
+											className="text-xs h-7"
+											asChild
+										>
+											<Link href={getIamRulesUrl(key.id)}>
+												{
+													key.iamRules.filter(
+														(rule) => rule.status === "active",
+													).length
+												}{" "}
+												active rule
+												{key.iamRules.filter((rule) => rule.status === "active")
+													.length !== 1
+													? "s"
+													: ""}
+											</Link>
+										</Button>
+									) : (
+										<Button
+											variant="ghost"
+											size="sm"
+											className="text-xs text-muted-foreground h-7"
+											asChild
+										>
+											<Link href={getIamRulesUrl(key.id)}>
+												No rules configured
+											</Link>
+										</Button>
+									)}
+								</div>
+							</div>
+							<div className="pt-2 border-t">
+								<div className="text-xs text-muted-foreground mb-1">
+									Created By
+								</div>
+								<div className="text-sm">
+									{key.creator?.name ?? key.creator?.email ?? "Unknown"}
+								</div>
 							</div>
 						</div>
-						<div className="pt-2 border-t">
-							<div className="text-xs text-muted-foreground mb-1">
-								IAM Rules
-							</div>
-							<div className="flex items-center">
-								{key.iamRules && key.iamRules.length > 0 ? (
-									<Button
-										variant="outline"
-										size="sm"
-										className="text-xs h-7"
-										asChild
-									>
-										<Link href={getIamRulesUrl(key.id)}>
-											{
-												key.iamRules.filter((rule) => rule.status === "active")
-													.length
-											}{" "}
-											active rule
-											{key.iamRules.filter((rule) => rule.status === "active")
-												.length !== 1
-												? "s"
-												: ""}
-										</Link>
-									</Button>
-								) : (
-									<Button
-										variant="ghost"
-										size="sm"
-										className="text-xs text-muted-foreground h-7"
-										asChild
-									>
-										<Link href={getIamRulesUrl(key.id)}>
-											No rules configured
-										</Link>
-									</Button>
-								)}
-							</div>
-						</div>
-						<div className="pt-2 border-t">
-							<div className="text-xs text-muted-foreground mb-1">
-								Created By
-							</div>
-							<div className="text-sm">
-								{key.creator?.name ?? key.creator?.email ?? "Unknown"}
-							</div>
-						</div>
-					</div>
-				))}
+					);
+				})}
 			</div>
+
+			<ReactivateApiKeyDialog
+				apiKey={reactivateKey}
+				open={reactivateKey !== null}
+				onOpenChange={(open) => {
+					if (!open) {
+						setReactivateKey(null);
+					}
+				}}
+				onConfirm={handleReactivate}
+				isPending={isTogglePending}
+			/>
+
+			<RollApiKeyDialog
+				apiKey={rollKey}
+				open={rollKey !== null}
+				onOpenChange={(open) => {
+					if (!open) {
+						setRollKey(null);
+					}
+				}}
+				onConfirm={handleRoll}
+				isPending={isRollPending}
+			/>
+
+			<RenameApiKeyDialog
+				apiKey={renameKey}
+				open={renameKey !== null}
+				onOpenChange={(open) => {
+					if (!open) {
+						setRenameKey(null);
+					}
+				}}
+				onConfirm={handleRename}
+				isPending={isRenamePending}
+			/>
 		</>
 	);
 }

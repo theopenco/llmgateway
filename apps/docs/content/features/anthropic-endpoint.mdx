@@ -40,6 +40,13 @@ export ANTHROPIC_MODEL=gpt-5  # or any model from our catalog
 claude
 ```
 
+<Callout type="info">
+	Environment variables are read once at startup. The `/model` picker lists
+	Claude models only, so non-Claude models are selected with `ANTHROPIC_MODEL`
+	or `--model`. See the [Claude Code guide](/guides/claude-code) for the
+	settings-file options and gateway model discovery.
+</Callout>
+
 ### Choosing Models
 
 You can use any model from the [models page](https://llmgateway.io/models). Popular options for Claude Code include:
@@ -52,7 +59,7 @@ export ANTHROPIC_MODEL=gpt-5
 export ANTHROPIC_MODEL=gpt-5-mini
 
 # Use Google's Gemini
-export ANTHROPIC_MODEL=gemini-2.5-pro
+export ANTHROPIC_MODEL=gemini-3.1-pro-preview
 
 # Use Anthropic's actual Claude models
 export ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
@@ -125,3 +132,52 @@ The endpoint returns responses in Anthropic's message format:
 	}
 }
 ```
+
+### Prompt Caching
+
+For Claude models, `cache_control` markers on `system` and message content blocks are forwarded to the provider unchanged, including the optional `ttl` (`5m` or `1h`):
+
+```json
+{
+	"model": "claude-sonnet-4-6",
+	"max_tokens": 100,
+	"system": [
+		{
+			"type": "text",
+			"text": "<several thousand tokens of stable instructions...>",
+			"cache_control": { "type": "ephemeral" }
+		}
+	],
+	"messages": [{ "role": "user", "content": "Hello!" }]
+}
+```
+
+Cache usage comes back in Anthropic's native fields: `usage.cache_creation_input_tokens` (tokens written to the cache this request, billed at the write premium), `usage.cache_read_input_tokens` (tokens served from cache at the discounted rate), and `usage.cache_creation` (the per-TTL write breakdown).
+
+<Callout type="warning">
+	Each Claude model has a minimum cacheable prompt length (4,096 tokens on
+	current-generation models such as Opus 4.5+, Sonnet 5, and Haiku 4.5). A
+	`cache_control` marker on a shorter prompt is accepted but silently not cached
+	— both cache usage fields stay `0`. See [Provider Cache
+	Control](/features/caching/provider-cache-control) for the per-model
+	thresholds and details.
+</Callout>
+
+### Web Search
+
+Anthropic's server-side web search tool works on this endpoint. Pass it as usual and the response carries `server_tool_use` and `web_search_tool_result` blocks before the text that cites them, so Anthropic SDK clients surface sources:
+
+```json
+{
+	"model": "claude-haiku-4-5",
+	"max_tokens": 400,
+	"messages": [{ "role": "user", "content": "What shipped in Node 24?" }],
+	"tools": [{ "type": "web_search_20250305", "name": "web_search" }]
+}
+```
+
+Replaying the assistant turn verbatim on the next request is supported: the `server_tool_use` and `web_search_tool_result` blocks are accepted and dropped, since the provider re-runs the search rather than reusing the previous results.
+
+### Gateway Response Cache
+
+If [gateway caching](/features/caching/gateway-caching) is enabled on the project, a byte-identical request is replayed from cache instead of being sent upstream. Because the replayed body is identical (same `id`, same `usage`), the `x-llmgateway-cache: HIT` response header is the marker to check. Send `x-no-cache: true` to bypass the cache for a single request.

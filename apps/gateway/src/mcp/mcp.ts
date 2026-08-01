@@ -4,11 +4,18 @@ import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import {
+	assertApiKeyWithinUsageLimits,
+	assertMemberWithinBudget,
+} from "@/lib/api-key-usage-limits.js";
+import { findApiKeyByToken, findProjectById } from "@/lib/cached-queries.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
 
-import { logger } from "@llmgateway/logger";
+import { parseDataUrl } from "@llmgateway/actions";
+import { logger, toError } from "@llmgateway/logger";
 import {
 	models as modelsList,
 	type ModelDefinition,
@@ -210,10 +217,7 @@ function createMcpServer(apiKey: string): McpServer {
 					],
 				};
 			} catch (error) {
-				logger.error(
-					"MCP chat tool error",
-					error instanceof Error ? error : new Error(String(error)),
-				);
+				logger.error("MCP chat tool error", toError(error));
 				return {
 					content: [
 						{
@@ -394,10 +398,7 @@ function createMcpServer(apiKey: string): McpServer {
 					],
 				};
 			} catch (error) {
-				logger.error(
-					"MCP list-models tool error",
-					error instanceof Error ? error : new Error(String(error)),
-				);
+				logger.error("MCP list-models tool error", toError(error));
 				return {
 					content: [
 						{
@@ -507,13 +508,12 @@ function createMcpServer(apiKey: string): McpServer {
 
 						// Check if it's a base64 data URL
 						if (url.startsWith("data:")) {
-							// Parse data URL: data:image/png;base64,<data>
-							const matches = url.match(/^data:([^;]+);base64,(.+)$/);
-							if (matches) {
+							const parsed = parseDataUrl(url);
+							if (parsed && parsed.isBase64 && parsed.data) {
 								contentBlocks.push({
 									type: "image" as const,
-									data: matches[2],
-									mimeType: matches[1],
+									data: parsed.data,
+									mimeType: parsed.mediaType,
 								});
 							}
 						} else {
@@ -538,10 +538,7 @@ function createMcpServer(apiKey: string): McpServer {
 					content: contentBlocks,
 				};
 			} catch (error) {
-				logger.error(
-					"MCP generate-image tool error",
-					error instanceof Error ? error : new Error(String(error)),
-				);
+				logger.error("MCP generate-image tool error", toError(error));
 				return {
 					content: [
 						{
@@ -657,8 +654,7 @@ function createMcpServer(apiKey: string): McpServer {
 					: undefined;
 
 				let parsedFilename:
-					| { baseName: string; fileExt: string | undefined }
-					| undefined;
+					{ baseName: string; fileExt: string | undefined } | undefined;
 				if (resolvedUploadDir && input.filename) {
 					const rawName = input.filename;
 					if (
@@ -702,13 +698,13 @@ function createMcpServer(apiKey: string): McpServer {
 						continue;
 					}
 
-					const matches = url.match(/^data:([^;]+);base64,(.+)$/);
-					if (!matches) {
+					const parsed = parseDataUrl(url);
+					if (!parsed || !parsed.isBase64 || !parsed.data) {
 						continue;
 					}
 
-					const mimeType = matches[1];
-					const base64Data = matches[2];
+					const mimeType = parsed.mediaType;
+					const base64Data = parsed.data;
 
 					const ext = extMap[mimeType] || ".png";
 
@@ -768,10 +764,7 @@ function createMcpServer(apiKey: string): McpServer {
 					content: contentBlocks,
 				};
 			} catch (error) {
-				logger.error(
-					"MCP generate-nano-banana tool error",
-					error instanceof Error ? error : new Error(String(error)),
-				);
+				logger.error("MCP generate-nano-banana tool error", toError(error));
 				return {
 					content: [
 						{
@@ -838,7 +831,7 @@ function createMcpServer(apiKey: string): McpServer {
 					responseText += `- **Family:** ${modelData.family}\n`;
 					if (
 						modelData.requestPrice !== undefined &&
-						modelData.requestPrice > 0
+						Number(modelData.requestPrice) > 0
 					) {
 						responseText += `- **Price:** $${modelData.requestPrice} per request\n`;
 					}
@@ -869,10 +862,7 @@ function createMcpServer(apiKey: string): McpServer {
 					],
 				};
 			} catch (error) {
-				logger.error(
-					"MCP list-image-models tool error",
-					error instanceof Error ? error : new Error(String(error)),
-				);
+				logger.error("MCP list-image-models tool error", toError(error));
 				return {
 					content: [
 						{
@@ -1119,20 +1109,6 @@ export async function mcpHandler(c: Context): Promise<Response> {
 		},
 	});
 
-	// Handle OPTIONS for CORS
-	if (method === "OPTIONS") {
-		return new Response(null, {
-			status: 204,
-			headers: {
-				"Access-Control-Allow-Origin": "*",
-				"Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-				"Access-Control-Allow-Headers":
-					"Content-Type, Authorization, x-api-key, mcp-session-id",
-				"Access-Control-Expose-Headers": "mcp-session-id",
-			},
-		});
-	}
-
 	// Extract API key for authentication
 	const apiKey = parseApiToken(c);
 	if (!apiKey) {
@@ -1147,6 +1123,58 @@ export async function mcpHandler(c: Context): Promise<Response> {
 				id: null,
 			},
 			401,
+		);
+	}
+
+	// Validate the API key against the database, mirroring the gateway's chat
+	// endpoint. Without this, any arbitrary string was accepted as a valid key
+	// (GHSA-8h26-h6v8-f9cg).
+	const apiKeyRecord = await findApiKeyByToken(apiKey);
+	if (!apiKeyRecord || apiKeyRecord.status !== "active") {
+		return c.json(
+			{
+				jsonrpc: "2.0",
+				error: {
+					code: -32001,
+					message:
+						"Invalid or inactive LLMGateway API key. Generate a new token on the 'API Keys' page.",
+				},
+				id: null,
+			},
+			401,
+		);
+	}
+
+	try {
+		// User-level limits take priority: enforce the per-member budget (set on
+		// the Teams page; fails open on read errors) before the per-key usage
+		// limits, so a member who is over budget is denied even if the key itself
+		// is within limits. Resolve the project so the org is known for the lookup.
+		const mcpProject = await findProjectById(apiKeyRecord.projectId);
+		if (mcpProject) {
+			await assertMemberWithinBudget(
+				apiKeyRecord.createdBy,
+				mcpProject.organizationId,
+			);
+		}
+		assertApiKeyWithinUsageLimits(apiKeyRecord);
+	} catch (error) {
+		// Preserve the thrown status: assertMemberWithinBudget uses 403 for a
+		// budget breach, which must not be flattened into a 401 (invalid key).
+		const status = error instanceof HTTPException ? error.status : 401;
+		return c.json(
+			{
+				jsonrpc: "2.0",
+				error: {
+					code: -32001,
+					message:
+						error instanceof HTTPException
+							? error.message
+							: "LLMGateway API key cannot be used.",
+				},
+				id: null,
+			},
+			status,
 		);
 	}
 
@@ -1215,9 +1243,6 @@ export async function mcpHandler(c: Context): Promise<Response> {
 				"Content-Type": "text/event-stream",
 				"Cache-Control": "no-cache",
 				Connection: "keep-alive",
-				"Access-Control-Allow-Origin": "*",
-				"Access-Control-Allow-Headers":
-					"Content-Type, Authorization, x-api-key, mcp-session-id",
 				"mcp-session-id": sessionId,
 			},
 		});
@@ -1324,10 +1349,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 				);
 			}
 
-			logger.error(
-				"MCP request error",
-				error instanceof Error ? error : new Error(String(error)),
-			);
+			logger.error("MCP request error", toError(error));
 			return c.json(
 				{
 					jsonrpc: "2.0",
@@ -1864,10 +1886,7 @@ async function oauthRegisterHandler(c: Context): Promise<Response> {
 			201,
 		);
 	} catch (error) {
-		logger.error(
-			"OAuth registration error",
-			error instanceof Error ? error : new Error(String(error)),
-		);
+		logger.error("OAuth registration error", toError(error));
 		return c.json(
 			{
 				error: "invalid_request",

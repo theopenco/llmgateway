@@ -9,11 +9,20 @@ import {
 	AnthropicIcon,
 	AutohandIcon,
 	CodexIcon,
+	ContinueIcon,
+	CrushIcon,
 	OpenClawIcon,
 	ClineIcon,
 	CursorIcon,
+	DevPassCodeIcon,
+	GitHubCopilotIcon,
+	HermesIcon,
+	KiloCodeIcon,
+	KimiIcon,
+	MimoCodeIcon,
 	N8nIcon,
 	OpenCodeIcon,
+	PiIcon,
 	VSCodeIcon,
 } from "@llmgateway/shared/components";
 
@@ -31,6 +40,14 @@ interface Integration {
 }
 
 const integrations: Integration[] = [
+	{
+		name: "DevPass Code",
+		description:
+			"Our open-source terminal coding agent built for LLM Gateway. One browser login, every model, no per-provider keys.",
+		href: "/guides/devpass-code",
+		icon: DevPassCodeIcon,
+		comingSoon: false,
+	},
 	{
 		name: "Autohand Code",
 		description:
@@ -50,11 +67,11 @@ const integrations: Integration[] = [
 	{
 		name: "Cursor",
 		description:
-			"Use LLM Gateway with Cursor IDE for AI-powered code editing and chat.",
+			"Use LLM Gateway with Cursor IDE in plan and agent mode. Tab autocomplete and inline edit stay on Cursor's backend.",
 		href: "https://docs.llmgateway.io/guides/cursor",
 		icon: CursorIcon,
 		comingSoon: false,
-		badge: "Plan mode only",
+		badge: "Plan + Agent mode",
 	},
 	{
 		name: "Codex CLI",
@@ -73,6 +90,63 @@ const integrations: Integration[] = [
 		comingSoon: false,
 	},
 	{
+		name: "Continue CLI",
+		description:
+			"Use LLM Gateway with Continue's open-source AI code assistant CLI.",
+		href: "/guides/continue",
+		icon: ContinueIcon,
+		comingSoon: false,
+	},
+	{
+		name: "Crush",
+		description:
+			"Use LLM Gateway with Charm's Crush coding agent for AI-powered terminal coding.",
+		href: "/guides/crush",
+		icon: CrushIcon,
+		comingSoon: false,
+	},
+	{
+		name: "GitHub Copilot app",
+		description:
+			"Use LLM Gateway as a model provider in GitHub's Copilot desktop app for agent sessions with any model.",
+		href: "/guides/github-copilot",
+		icon: GitHubCopilotIcon,
+		comingSoon: false,
+		badge: "BYOK",
+	},
+	{
+		name: "Hermes Agent",
+		description:
+			"Use LLM Gateway with Nous Research's Hermes Agent for terminal-based AI coding.",
+		href: "/guides/hermes-agent",
+		icon: HermesIcon,
+		comingSoon: false,
+	},
+	{
+		name: "Kilo Code",
+		description:
+			"Use LLM Gateway with Kilo Code in VS Code for autonomous AI coding with built-in provider support.",
+		href: "/guides/kilo-code",
+		icon: KiloCodeIcon,
+		comingSoon: false,
+	},
+	{
+		name: "Kimi Code",
+		description:
+			"Use LLM Gateway with Kimi Code CLI for autonomous terminal-based AI coding.",
+		href: "/guides/kimi-code",
+		icon: KimiIcon,
+		comingSoon: false,
+	},
+	{
+		name: "MiMo Code",
+		description:
+			"Use LLM Gateway with MiMo Code CLI for autonomous terminal-based AI coding.",
+		href: "/guides/mimocode",
+		icon: MimoCodeIcon,
+		comingSoon: false,
+	},
+	{
 		name: "n8n",
 		description:
 			"Connect n8n workflow automation to LLM Gateway for AI-powered workflows.",
@@ -83,8 +157,16 @@ const integrations: Integration[] = [
 	{
 		name: "OpenCode",
 		description:
-			"Use LLM Gateway with OpenCode for AI-powered development workflows.",
+			"Use LLM Gateway with OpenCode CLI for AI-powered development workflows.",
 		href: "/guides/opencode",
+		icon: OpenCodeIcon,
+		comingSoon: false,
+	},
+	{
+		name: "OpenCode Desktop",
+		description:
+			"Use LLM Gateway with OpenCode Desktop app — connect via GUI, no config files needed.",
+		href: "/guides/opencode-desktop",
 		icon: OpenCodeIcon,
 		comingSoon: false,
 	},
@@ -94,6 +176,14 @@ const integrations: Integration[] = [
 			"Use LLM Gateway with OpenClaw for AI-powered chat across Discord, WhatsApp, Telegram, and more.",
 		href: "/guides/openclaw",
 		icon: OpenClawIcon,
+		comingSoon: false,
+	},
+	{
+		name: "Pi",
+		description:
+			"Use LLM Gateway with Pi coding agent for AI-powered terminal coding with any model.",
+		href: "/guides/pi",
+		icon: PiIcon,
 		comingSoon: false,
 	},
 	{
@@ -109,7 +199,7 @@ const integrations: Integration[] = [
 function DevPlansCta() {
 	return (
 		<a
-			href="https://code.llmgateway.io"
+			href="https://devpass.llmgateway.io"
 			target="_blank"
 			rel="noopener noreferrer"
 			className="group relative mb-10 block overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-background via-background to-muted/40 transition-all duration-500 hover:border-foreground/20 hover:shadow-[0_0_40px_-12px_rgba(0,0,0,0.15)] dark:hover:shadow-[0_0_40px_-12px_rgba(255,255,255,0.06)]"

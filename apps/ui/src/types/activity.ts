@@ -10,12 +10,23 @@ export interface ActivityModelUsage {
 	cost: number;
 }
 
+export interface ActivityApiKeyUsage {
+	id: string;
+	description: string;
+	requestCount: number;
+	inputTokens: number;
+	outputTokens: number;
+	totalTokens: number;
+	cost: number;
+}
+
 export interface DailyActivity {
 	date: string;
 	requestCount: number;
 	inputTokens: number;
 	outputTokens: number;
 	cachedTokens: number;
+	cacheWriteTokens: number;
 	totalTokens: number;
 	cost: number;
 	outputCost: number;
@@ -23,9 +34,12 @@ export interface DailyActivity {
 	requestCost: number;
 	dataStorageCost: number;
 	imageInputCost: number;
+	audioInputCost: number;
+	audioOutputCost: number;
 	imageOutputCost: number;
 	videoOutputCost: number;
 	cachedInputCost: number;
+	cacheWriteInputCost: number;
 	errorCount: number;
 	errorRate: number;
 	cacheCount: number;
@@ -38,6 +52,7 @@ export interface DailyActivity {
 	creditsDataStorageCost: number;
 	apiKeysDataStorageCost: number;
 	modelBreakdown: ActivityModelUsage[];
+	apiKeyBreakdown: ActivityApiKeyUsage[];
 }
 
 export interface ActivityResponse {
@@ -52,6 +67,7 @@ export type ActivitT =
 				inputTokens: number;
 				outputTokens: number;
 				cachedTokens: number;
+				cacheWriteTokens: number;
 				totalTokens: number;
 				cost: number;
 				inputCost: number;
@@ -59,9 +75,12 @@ export type ActivitT =
 				requestCost: number;
 				dataStorageCost: number;
 				imageInputCost: number;
+				audioInputCost: number;
+				audioOutputCost: number;
 				imageOutputCost: number;
 				videoOutputCost: number;
 				cachedInputCost: number;
+				cacheWriteInputCost: number;
 				errorCount: number;
 				errorRate: number;
 				cacheCount: number;
@@ -74,6 +93,7 @@ export type ActivitT =
 				creditsDataStorageCost: number;
 				apiKeysDataStorageCost: number;
 				modelBreakdown: ActivityModelUsage[];
+				apiKeyBreakdown: ActivityApiKeyUsage[];
 			}[];
 	  }
 	| undefined;
@@ -86,3 +106,8 @@ export interface LogsData {
 
 export type LogDetailData =
 	paths["/logs/{id}"]["get"]["responses"][200]["content"]["application/json"];
+
+export type SourceActivityData =
+	paths["/activity/sources"]["get"]["responses"][200]["content"]["application/json"];
+
+export type SourceUsage = SourceActivityData["sources"][number];

@@ -140,12 +140,7 @@ function isModelUnstable(
 }
 
 type PriceField =
-	| "input"
-	| "output"
-	| "cachedInput"
-	| "request"
-	| "imageInput"
-	| "imageOutput";
+	"input" | "output" | "cachedInput" | "request" | "imageInput" | "imageOutput";
 
 interface MappingPriceInfo {
 	label: string;
@@ -153,7 +148,10 @@ interface MappingPriceInfo {
 	discounted?: string;
 }
 
-// Helper to format prices using any provider discount while reusing shared formatPrice logic.
+function priceToNumber(price?: string): number | undefined {
+	return price === undefined ? undefined : Number(price);
+}
+
 function getMappingPriceInfo(
 	mapping: ProviderModelMapping | undefined,
 	field: PriceField,
@@ -164,17 +162,17 @@ function getMappingPriceInfo(
 
 	let basePrice: number | undefined;
 	if (field === "input") {
-		basePrice = mapping.inputPrice;
+		basePrice = priceToNumber(mapping.inputPrice);
 	} else if (field === "output") {
-		basePrice = mapping.outputPrice;
+		basePrice = priceToNumber(mapping.outputPrice);
 	} else if (field === "cachedInput") {
-		basePrice = mapping.cachedInputPrice;
+		basePrice = priceToNumber(mapping.cachedInputPrice);
 	} else if (field === "request") {
-		basePrice = mapping.requestPrice;
+		basePrice = priceToNumber(mapping.requestPrice);
 	} else if (field === "imageInput") {
-		basePrice = mapping.imageInputPrice;
+		basePrice = priceToNumber(mapping.imageInputPrice);
 	} else if (field === "imageOutput") {
-		basePrice = mapping.imageOutputPrice;
+		basePrice = priceToNumber(mapping.imageOutputPrice);
 	}
 
 	if (basePrice === undefined) {
@@ -189,25 +187,10 @@ function getMappingPriceInfo(
 	// Request price is a flat per-request fee, not per-token
 	if (field === "request") {
 		const original = `$${basePrice.toFixed(3)}/req`;
-		if (mapping.discount && mapping.discount > 0) {
-			const discountedPrice = basePrice * (1 - mapping.discount);
-			const discounted = `$${discountedPrice.toFixed(3)}/req`;
-			return { label: discounted, original, discounted };
-		}
 		return { label: original, original };
 	}
 
 	const original = formatPrice(basePrice);
-
-	// Apply discount if present
-	if (mapping.discount && mapping.discount > 0) {
-		const discounted = formatPrice(basePrice * (1 - mapping.discount));
-		return {
-			label: discounted,
-			original,
-			discounted,
-		};
-	}
 
 	return { label: original, original };
 }
@@ -237,17 +220,15 @@ function getRootAggregateInfo(model: ModelDefinition): RootAggregateInfo {
 	let maxOutput: number | undefined;
 	const capabilitySet = new Set<string>();
 
-	const applyDiscount = (price: number | undefined, discount?: number) => {
+	const readPrice = (price: string | undefined) => {
 		if (price === undefined) {
 			return undefined;
 		}
-		if (price === 0) {
-			return 0;
+		const priceNum = Number(price);
+		if (!Number.isFinite(priceNum)) {
+			return undefined;
 		}
-		if (!discount || discount <= 0) {
-			return price;
-		}
-		return price * (1 - discount);
+		return priceNum;
 	};
 
 	for (const mapping of model.providers) {
@@ -258,7 +239,7 @@ function getRootAggregateInfo(model: ModelDefinition): RootAggregateInfo {
 			continue;
 		}
 
-		const effectiveInput = applyDiscount(mapping.inputPrice, mapping.discount);
+		const effectiveInput = readPrice(mapping.inputPrice);
 		if (
 			effectiveInput !== undefined &&
 			(minInputPrice === undefined || effectiveInput < minInputPrice)
@@ -266,10 +247,7 @@ function getRootAggregateInfo(model: ModelDefinition): RootAggregateInfo {
 			minInputPrice = effectiveInput;
 		}
 
-		const effectiveOutput = applyDiscount(
-			mapping.outputPrice,
-			mapping.discount,
-		);
+		const effectiveOutput = readPrice(mapping.outputPrice);
 		if (
 			effectiveOutput !== undefined &&
 			(minOutputPrice === undefined || effectiveOutput < minOutputPrice)
@@ -277,10 +255,7 @@ function getRootAggregateInfo(model: ModelDefinition): RootAggregateInfo {
 			minOutputPrice = effectiveOutput;
 		}
 
-		const effectiveCached = applyDiscount(
-			mapping.cachedInputPrice,
-			mapping.discount,
-		);
+		const effectiveCached = readPrice(mapping.cachedInputPrice);
 		if (
 			effectiveCached !== undefined &&
 			(minCachedInputPrice === undefined ||
@@ -290,10 +265,7 @@ function getRootAggregateInfo(model: ModelDefinition): RootAggregateInfo {
 		}
 
 		// Track image generation pricing
-		const effectiveRequest = applyDiscount(
-			mapping.requestPrice,
-			mapping.discount,
-		);
+		const effectiveRequest = readPrice(mapping.requestPrice);
 		if (
 			effectiveRequest !== undefined &&
 			(minRequestPrice === undefined || effectiveRequest < minRequestPrice)
@@ -301,10 +273,7 @@ function getRootAggregateInfo(model: ModelDefinition): RootAggregateInfo {
 			minRequestPrice = effectiveRequest;
 		}
 
-		const effectiveImageInput = applyDiscount(
-			mapping.imageInputPrice,
-			mapping.discount,
-		);
+		const effectiveImageInput = readPrice(mapping.imageInputPrice);
 		if (
 			effectiveImageInput !== undefined &&
 			(minImageInputPrice === undefined ||
@@ -313,10 +282,7 @@ function getRootAggregateInfo(model: ModelDefinition): RootAggregateInfo {
 			minImageInputPrice = effectiveImageInput;
 		}
 
-		const effectiveImageOutput = applyDiscount(
-			mapping.imageOutputPrice,
-			mapping.discount,
-		);
+		const effectiveImageOutput = readPrice(mapping.imageOutputPrice);
 		if (
 			effectiveImageOutput !== undefined &&
 			(minImageOutputPrice === undefined ||
@@ -393,6 +359,21 @@ export function ModelSelector({
 		hideUnstable: true,
 		showOnlyRoot: false,
 	});
+	const [previewExpandTokens, setPreviewExpandTokens] = React.useState(false);
+	const [selectedExpandTokens, setSelectedExpandTokens] = React.useState(false);
+
+	const isImageGen = (model?: ModelDefinition | null) =>
+		!!model?.output && model.output.includes("image");
+	const previewIsImageGen = isImageGen(previewEntry?.model);
+	const selectedIsImageGen = isImageGen(selectedDetails?.model);
+
+	React.useEffect(() => {
+		setPreviewExpandTokens(false);
+	}, [previewEntry?.model]);
+
+	React.useEffect(() => {
+		setSelectedExpandTokens(false);
+	}, [selectedDetails?.model]);
 
 	// Parse value as provider/model-id (preferred). Fallback to model id only.
 	const raw = value ?? "";
@@ -526,8 +507,15 @@ export function ModelSelector({
 			});
 		}
 		if (deferredSearch) {
-			const q = normalize(deferredSearch);
-			list = list.filter((entry) => entry.searchText.includes(q));
+			const tokens = deferredSearch
+				.toLowerCase()
+				.split(/[-_\s]+/)
+				.filter(Boolean);
+			if (tokens.length > 0) {
+				list = list.filter((entry) =>
+					tokens.every((t) => entry.searchText.includes(t)),
+				);
+			}
 		}
 		if (filters.providers.length > 0) {
 			list = list.filter(
@@ -549,8 +537,8 @@ export function ModelSelector({
 					return false;
 				}
 
-				const price = e.mapping.inputPrice ?? 0;
-				const requestPrice = e.mapping.requestPrice ?? 0;
+				const price = Number(e.mapping.inputPrice ?? 0);
+				const requestPrice = Number(e.mapping.requestPrice ?? 0);
 				switch (filters.priceRange) {
 					case "free":
 						return e.model.free === true && price === 0 && requestPrice === 0;
@@ -564,6 +552,20 @@ export function ModelSelector({
 						return true;
 				}
 			});
+		}
+		if (deferredSearch) {
+			const tokens = deferredSearch
+				.toLowerCase()
+				.split(/[-_\s]+/)
+				.filter(Boolean);
+			if (tokens.length > 0) {
+				list = [...list].sort((a, b) => {
+					if (a.isRoot === b.isRoot) {
+						return 0;
+					}
+					return a.isRoot ? -1 : 1;
+				});
+			}
 		}
 		return list;
 	}, [allEntries, deferredSearch, filters]);
@@ -963,7 +965,7 @@ export function ModelSelector({
 													const entryKey = `${model.id}-root-${index}`;
 													const _aggregate = getRootAggregateInfo(model);
 													const hasRequestPrice = model.providers.some(
-														(p) => p.requestPrice && p.requestPrice > 0,
+														(p) => p.requestPrice && Number(p.requestPrice) > 0,
 													);
 													const isFreeRoot =
 														model.free === true && !hasRequestPrice;
@@ -1044,7 +1046,8 @@ export function ModelSelector({
 													mapping.deprecatedAt &&
 													new Date(mapping.deprecatedAt) <= new Date();
 												const hasRequestPrice =
-													mapping.requestPrice && mapping.requestPrice > 0;
+													mapping.requestPrice &&
+													Number(mapping.requestPrice) > 0;
 												const isFreeMapping =
 													model.free === true && !hasRequestPrice;
 												const isSelected =
@@ -1216,28 +1219,37 @@ export function ModelSelector({
 																		</span>
 																	</h5>
 																	<div className="grid grid-cols-2 gap-3">
-																		<div className="space-y-1">
-																			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																				Input
-																			</span>
-																			<p className="text-xs font-mono">
-																				{aggregate.minInputPrice !== undefined
-																					? formatPrice(aggregate.minInputPrice)
-																					: "Unknown"}
-																			</p>
-																		</div>
-																		<div className="space-y-1">
-																			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																				Output
-																			</span>
-																			<p className="text-xs font-mono">
-																				{aggregate.minOutputPrice !== undefined
-																					? formatPrice(
-																							aggregate.minOutputPrice,
-																						)
-																					: "Unknown"}
-																			</p>
-																		</div>
+																		{(!previewIsImageGen ||
+																			previewExpandTokens) && (
+																			<>
+																				<div className="space-y-1">
+																					<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																						Input
+																					</span>
+																					<p className="text-xs font-mono">
+																						{aggregate.minInputPrice !==
+																						undefined
+																							? formatPrice(
+																									aggregate.minInputPrice,
+																								)
+																							: "Unknown"}
+																					</p>
+																				</div>
+																				<div className="space-y-1">
+																					<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																						Output
+																					</span>
+																					<p className="text-xs font-mono">
+																						{aggregate.minOutputPrice !==
+																						undefined
+																							? formatPrice(
+																									aggregate.minOutputPrice,
+																								)
+																							: "Unknown"}
+																					</p>
+																				</div>
+																			</>
+																		)}
 																		<div className="space-y-1">
 																			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
 																				Context
@@ -1257,6 +1269,19 @@ export function ModelSelector({
 																			</p>
 																		</div>
 																	</div>
+																	{previewIsImageGen && (
+																		<button
+																			type="button"
+																			className="text-[11px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+																			onClick={() =>
+																				setPreviewExpandTokens((v) => !v)
+																			}
+																		>
+																			{previewExpandTokens
+																				? "Hide token pricing"
+																				: "Expand details"}
+																		</button>
+																	)}
 																</div>
 															)}
 
@@ -1350,66 +1375,70 @@ export function ModelSelector({
 														Pricing & Limits
 													</h5>
 													<div className="grid grid-cols-2 gap-3">
-														<div className="space-y-1">
-															<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																Input
-															</span>
-															<p className="text-xs font-mono">
-																{(() => {
-																	const price = getMappingPriceInfo(
-																		previewEntry.mapping,
-																		"input",
-																	);
-																	if (
-																		price.original &&
-																		price.discounted &&
-																		price.original !== price.discounted
-																	) {
-																		return (
-																			<>
-																				<span className="line-through text-muted-foreground">
-																					{price.original}
-																				</span>{" "}
-																				<span className="text-green-500">
-																					{price.discounted}
-																				</span>
-																			</>
-																		);
-																	}
-																	return price.label;
-																})()}
-															</p>
-														</div>
-														<div className="space-y-1">
-															<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																Output
-															</span>
-															<p className="text-xs font-mono">
-																{(() => {
-																	const price = getMappingPriceInfo(
-																		previewEntry.mapping,
-																		"output",
-																	);
-																	if (
-																		price.original &&
-																		price.discounted &&
-																		price.original !== price.discounted
-																	) {
-																		return (
-																			<>
-																				<span className="line-through text-muted-foreground">
-																					{price.original}
-																				</span>{" "}
-																				<span className="text-green-500">
-																					{price.discounted}
-																				</span>
-																			</>
-																		);
-																	}
-																	return price.label;
-																})()}
-															</p>
-														</div>
+														{(!previewIsImageGen || previewExpandTokens) && (
+															<>
+																<div className="space-y-1">
+																	<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																		Input
+																	</span>
+																	<p className="text-xs font-mono">
+																		{(() => {
+																			const price = getMappingPriceInfo(
+																				previewEntry.mapping,
+																				"input",
+																			);
+																			if (
+																				price.original &&
+																				price.discounted &&
+																				price.original !== price.discounted
+																			) {
+																				return (
+																					<>
+																						<span className="line-through text-muted-foreground">
+																							{price.original}
+																						</span>{" "}
+																						<span className="text-green-500">
+																							{price.discounted}
+																						</span>
+																					</>
+																				);
+																			}
+																			return price.label;
+																		})()}
+																	</p>
+																</div>
+																<div className="space-y-1">
+																	<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																		Output
+																	</span>
+																	<p className="text-xs font-mono">
+																		{(() => {
+																			const price = getMappingPriceInfo(
+																				previewEntry.mapping,
+																				"output",
+																			);
+																			if (
+																				price.original &&
+																				price.discounted &&
+																				price.original !== price.discounted
+																			) {
+																				return (
+																					<>
+																						<span className="line-through text-muted-foreground">
+																							{price.original}
+																						</span>{" "}
+																						<span className="text-green-500">
+																							{price.discounted}
+																						</span>
+																					</>
+																				);
+																			}
+																			return price.label;
+																		})()}
+																	</p>
+																</div>
+															</>
+														)}
 														<div className="space-y-1">
 															<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
 																Context
@@ -1431,44 +1460,59 @@ export function ModelSelector({
 															</p>
 														</div>
 													</div>
-													{previewEntry.mapping?.cachedInputPrice && (
-														<div className="pt-2 border-t border-dashed">
-															<div className="space-y-1">
-																<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-																	Cached Input
-																</span>
-																<p className="text-xs font-mono text-green-600 dark:text-green-400">
-																	{(() => {
-																		const price = getMappingPriceInfo(
-																			previewEntry.mapping,
-																			"cachedInput",
-																		);
-																		if (
-																			price.original &&
-																			price.discounted &&
-																			price.original !== price.discounted
-																		) {
-																			return (
-																				<>
-																					<span className="line-through text-muted-foreground">
-																						{price.original}
-																					</span>{" "}
-																					<span className="text-green-500">
-																						{price.discounted}
-																					</span>
-																				</>
-																			);
-																		}
-																		return price.label;
-																	})()}
-																</p>
-															</div>
-														</div>
+													{previewIsImageGen && (
+														<button
+															type="button"
+															className="text-[11px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+															onClick={() => setPreviewExpandTokens((v) => !v)}
+														>
+															{previewExpandTokens
+																? "Hide token pricing"
+																: "Expand details"}
+														</button>
 													)}
+													{(!previewIsImageGen || previewExpandTokens) &&
+														previewEntry.mapping?.cachedInputPrice && (
+															<div className="pt-2 border-t border-dashed">
+																<div className="space-y-1">
+																	<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																		Cached Input
+																	</span>
+																	<p className="text-xs font-mono text-green-600 dark:text-green-400">
+																		{(() => {
+																			const price = getMappingPriceInfo(
+																				previewEntry.mapping,
+																				"cachedInput",
+																			);
+																			if (
+																				price.original &&
+																				price.discounted &&
+																				price.original !== price.discounted
+																			) {
+																				return (
+																					<>
+																						<span className="line-through text-muted-foreground">
+																							{price.original}
+																						</span>{" "}
+																						<span className="text-green-500">
+																							{price.discounted}
+																						</span>
+																					</>
+																				);
+																			}
+																			return price.label;
+																		})()}
+																	</p>
+																</div>
+															</div>
+														)}
 													{/* Image Generation Pricing */}
-													{(previewEntry.mapping?.requestPrice ??
-														previewEntry.mapping?.imageInputPrice ??
-														previewEntry.mapping?.imageOutputPrice) && (
+													{(Number(previewEntry.mapping?.requestPrice ?? 0) >
+														0 ||
+														previewEntry.mapping?.imageInputPrice !==
+															undefined ||
+														previewEntry.mapping?.imageOutputPrice !==
+															undefined) && (
 														<div className="pt-2 border-t border-dashed">
 															<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide block mb-2">
 																Image Pricing
@@ -1476,7 +1520,8 @@ export function ModelSelector({
 															<div className="grid grid-cols-2 gap-3">
 																{previewEntry.mapping?.requestPrice !==
 																	undefined &&
-																	previewEntry.mapping?.requestPrice > 0 && (
+																	Number(previewEntry.mapping?.requestPrice) >
+																		0 && (
 																		<div className="space-y-1">
 																			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
 																				Per Request
@@ -1725,26 +1770,33 @@ export function ModelSelector({
 																</span>
 															</h5>
 															<div className="grid grid-cols-2 gap-3">
-																<div className="space-y-1">
-																	<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-																		Input
-																	</span>
-																	<p className="text-sm font-mono">
-																		{aggregate.minInputPrice !== undefined
-																			? formatPrice(aggregate.minInputPrice)
-																			: "Unknown"}
-																	</p>
-																</div>
-																<div className="space-y-1">
-																	<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-																		Output
-																	</span>
-																	<p className="text-sm font-mono">
-																		{aggregate.minOutputPrice !== undefined
-																			? formatPrice(aggregate.minOutputPrice)
-																			: "Unknown"}
-																	</p>
-																</div>
+																{(!selectedIsImageGen ||
+																	selectedExpandTokens) && (
+																	<>
+																		<div className="space-y-1">
+																			<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+																				Input
+																			</span>
+																			<p className="text-sm font-mono">
+																				{aggregate.minInputPrice !== undefined
+																					? formatPrice(aggregate.minInputPrice)
+																					: "Unknown"}
+																			</p>
+																		</div>
+																		<div className="space-y-1">
+																			<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+																				Output
+																			</span>
+																			<p className="text-sm font-mono">
+																				{aggregate.minOutputPrice !== undefined
+																					? formatPrice(
+																							aggregate.minOutputPrice,
+																						)
+																					: "Unknown"}
+																			</p>
+																		</div>
+																	</>
+																)}
 																<div className="space-y-1">
 																	<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
 																		Context
@@ -1764,6 +1816,19 @@ export function ModelSelector({
 																	</p>
 																</div>
 															</div>
+															{selectedIsImageGen && (
+																<button
+																	type="button"
+																	className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+																	onClick={() =>
+																		setSelectedExpandTokens((v) => !v)
+																	}
+																>
+																	{selectedExpandTokens
+																		? "Hide token pricing"
+																		: "Expand details"}
+																</button>
+															)}
 														</div>
 													)}
 
@@ -1847,66 +1912,70 @@ export function ModelSelector({
 										<div className="space-y-3">
 											<h5 className="font-medium text-sm">Pricing & Limits</h5>
 											<div className="grid grid-cols-2 gap-3">
-												<div className="space-y-1">
-													<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-														Input
-													</span>
-													<p className="text-sm font-mono">
-														{(() => {
-															const price = getMappingPriceInfo(
-																selectedDetails.mapping,
-																"input",
-															);
-															if (
-																price.original &&
-																price.discounted &&
-																price.original !== price.discounted
-															) {
-																return (
-																	<>
-																		<span className="line-through text-muted-foreground">
-																			{price.original}
-																		</span>{" "}
-																		<span className="text-green-500">
-																			{price.discounted}
-																		</span>
-																	</>
-																);
-															}
-															return price.label;
-														})()}
-													</p>
-												</div>
-												<div className="space-y-1">
-													<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-														Output
-													</span>
-													<p className="text-sm font-mono">
-														{(() => {
-															const price = getMappingPriceInfo(
-																selectedDetails.mapping,
-																"output",
-															);
-															if (
-																price.original &&
-																price.discounted &&
-																price.original !== price.discounted
-															) {
-																return (
-																	<>
-																		<span className="line-through text-muted-foreground">
-																			{price.original}
-																		</span>{" "}
-																		<span className="text-green-500">
-																			{price.discounted}
-																		</span>
-																	</>
-																);
-															}
-															return price.label;
-														})()}
-													</p>
-												</div>
+												{(!selectedIsImageGen || selectedExpandTokens) && (
+													<>
+														<div className="space-y-1">
+															<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+																Input
+															</span>
+															<p className="text-sm font-mono">
+																{(() => {
+																	const price = getMappingPriceInfo(
+																		selectedDetails.mapping,
+																		"input",
+																	);
+																	if (
+																		price.original &&
+																		price.discounted &&
+																		price.original !== price.discounted
+																	) {
+																		return (
+																			<>
+																				<span className="line-through text-muted-foreground">
+																					{price.original}
+																				</span>{" "}
+																				<span className="text-green-500">
+																					{price.discounted}
+																				</span>
+																			</>
+																		);
+																	}
+																	return price.label;
+																})()}
+															</p>
+														</div>
+														<div className="space-y-1">
+															<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+																Output
+															</span>
+															<p className="text-sm font-mono">
+																{(() => {
+																	const price = getMappingPriceInfo(
+																		selectedDetails.mapping,
+																		"output",
+																	);
+																	if (
+																		price.original &&
+																		price.discounted &&
+																		price.original !== price.discounted
+																	) {
+																		return (
+																			<>
+																				<span className="line-through text-muted-foreground">
+																					{price.original}
+																				</span>{" "}
+																				<span className="text-green-500">
+																					{price.discounted}
+																				</span>
+																			</>
+																		);
+																	}
+																	return price.label;
+																})()}
+															</p>
+														</div>
+													</>
+												)}
 												<div className="space-y-1">
 													<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
 														Context
@@ -1928,44 +1997,59 @@ export function ModelSelector({
 													</p>
 												</div>
 											</div>
-											{selectedDetails.mapping?.cachedInputPrice && (
-												<div className="pt-2 border-t border-dashed">
-													<div className="space-y-1">
-														<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-															Cached Input
-														</span>
-														<p className="text-sm font-mono text-green-600 dark:text-green-400">
-															{(() => {
-																const price = getMappingPriceInfo(
-																	selectedDetails.mapping,
-																	"cachedInput",
-																);
-																if (
-																	price.original &&
-																	price.discounted &&
-																	price.original !== price.discounted
-																) {
-																	return (
-																		<>
-																			<span className="line-through text-muted-foreground">
-																				{price.original}
-																			</span>{" "}
-																			<span className="text-green-500">
-																				{price.discounted}
-																			</span>
-																		</>
-																	);
-																}
-																return price.label;
-															})()}
-														</p>
-													</div>
-												</div>
+											{selectedIsImageGen && (
+												<button
+													type="button"
+													className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+													onClick={() => setSelectedExpandTokens((v) => !v)}
+												>
+													{selectedExpandTokens
+														? "Hide token pricing"
+														: "Expand details"}
+												</button>
 											)}
+											{(!selectedIsImageGen || selectedExpandTokens) &&
+												selectedDetails.mapping?.cachedInputPrice && (
+													<div className="pt-2 border-t border-dashed">
+														<div className="space-y-1">
+															<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+																Cached Input
+															</span>
+															<p className="text-sm font-mono text-green-600 dark:text-green-400">
+																{(() => {
+																	const price = getMappingPriceInfo(
+																		selectedDetails.mapping,
+																		"cachedInput",
+																	);
+																	if (
+																		price.original &&
+																		price.discounted &&
+																		price.original !== price.discounted
+																	) {
+																		return (
+																			<>
+																				<span className="line-through text-muted-foreground">
+																					{price.original}
+																				</span>{" "}
+																				<span className="text-green-500">
+																					{price.discounted}
+																				</span>
+																			</>
+																		);
+																	}
+																	return price.label;
+																})()}
+															</p>
+														</div>
+													</div>
+												)}
 											{/* Image Generation Pricing */}
-											{(selectedDetails.mapping?.requestPrice ??
-												selectedDetails.mapping?.imageInputPrice ??
-												selectedDetails.mapping?.imageOutputPrice) && (
+											{(Number(selectedDetails.mapping?.requestPrice ?? 0) >
+												0 ||
+												selectedDetails.mapping?.imageInputPrice !==
+													undefined ||
+												selectedDetails.mapping?.imageOutputPrice !==
+													undefined) && (
 												<div className="pt-2 border-t border-dashed">
 													<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-2">
 														Image Pricing
@@ -1973,7 +2057,8 @@ export function ModelSelector({
 													<div className="grid grid-cols-2 gap-3">
 														{selectedDetails.mapping?.requestPrice !==
 															undefined &&
-															selectedDetails.mapping?.requestPrice > 0 && (
+															Number(selectedDetails.mapping?.requestPrice) >
+																0 && (
 																<div className="space-y-1">
 																	<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
 																		Per Request

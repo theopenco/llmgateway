@@ -1,4 +1,4 @@
-import { subDays, subHours, subMinutes } from "date-fns";
+import { startOfDay, subDays, subHours, subMinutes } from "date-fns";
 import { ChevronDownIcon } from "lucide-react";
 import * as React from "react";
 import { useMemo, useState } from "react";
@@ -23,6 +23,14 @@ interface RelativeTimeOption {
 }
 
 const RELATIVE_TIME_OPTIONS: RelativeTimeOption[] = [
+	{
+		label: "Today",
+		value: "today",
+		getRange: () => ({
+			start: startOfDay(new Date()),
+			end: new Date(),
+		}),
+	},
 	{
 		label: "Last 1 minute",
 		value: "1m",
@@ -124,9 +132,14 @@ const RELATIVE_TIME_OPTIONS: RelativeTimeOption[] = [
 interface DateRangeSelectProps {
 	value?: string;
 	onChange: (value: string, range: DateRange) => void;
+	className?: string;
 }
 
-export function DateRangeSelect({ value, onChange }: DateRangeSelectProps) {
+export function DateRangeSelect({
+	value,
+	onChange,
+	className,
+}: DateRangeSelectProps) {
 	const [open, setOpen] = useState(false);
 	const [search, setSearch] = useState("");
 	const [selected, setSelected] = useState(value);
@@ -164,10 +177,16 @@ export function DateRangeSelect({ value, onChange }: DateRangeSelectProps) {
 			<PopoverTrigger asChild>
 				<button
 					type="button"
-					className="border-input hover:bg-accent hover:text-accent-foreground flex h-9 items-center gap-2 whitespace-nowrap rounded-md border px-3 py-2 text-sm transition-colors"
+					className={cn(
+						"border-input hover:bg-accent hover:text-accent-foreground flex h-9 items-center justify-between gap-2 whitespace-nowrap rounded-md border px-3 py-2 text-sm transition-colors",
+						!selectedOption && "text-muted-foreground",
+						className,
+					)}
 				>
-					{selectedOption?.label ?? "Select time range"}
-					<ChevronDownIcon className="h-4 w-4 opacity-50" />
+					<span className="truncate">
+						{selectedOption?.label ?? "Select time range"}
+					</span>
+					<ChevronDownIcon className="h-4 w-4 shrink-0 opacity-50" />
 				</button>
 			</PopoverTrigger>
 			<PopoverContent className="w-52 p-0" align="start">

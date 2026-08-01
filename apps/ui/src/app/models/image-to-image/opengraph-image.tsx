@@ -8,5 +8,5 @@ export const size = ogSize;
 export const contentType = ogContentType;
 
 export default async function ImageToImageModelsOgImage() {
-	return generateCategoryOgImage("image-to-image");
+	return await generateCategoryOgImage("image-to-image");
 }

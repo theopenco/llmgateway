@@ -2,6 +2,7 @@
 
 import { Lock } from "lucide-react";
 
+import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import {
 	Tooltip,
 	TooltipContent,
@@ -21,28 +22,42 @@ const FREE_RANGES = [
 const PRO_RANGES = [{ value: "30d", label: "30d" }] as const;
 
 export type TimeRangeValue =
-	| (typeof FREE_RANGES)[number]["value"]
-	| (typeof PRO_RANGES)[number]["value"];
+	(typeof FREE_RANGES)[number]["value"] | (typeof PRO_RANGES)[number]["value"];
 
 interface TimeRangePickerProps {
 	value: TimeRangeValue;
 	onChange: (value: TimeRangeValue) => void;
+	// Restrict which ranges are shown. Defaults to all ranges.
+	allowedValues?: readonly TimeRangeValue[];
 }
 
-export function TimeRangePicker({ value, onChange }: TimeRangePickerProps) {
+export function TimeRangePicker({
+	value,
+	onChange,
+	allowedValues,
+}: TimeRangePickerProps) {
 	const config = useAppConfig();
-	const isGated = config.hosted;
+	const { selectedOrganization } = useDashboardNavigation();
+	const isEnterprise = selectedOrganization?.plan === "enterprise";
+	const isGated = config.hosted && !isEnterprise;
+
+	const freeRanges = allowedValues
+		? FREE_RANGES.filter((r) => allowedValues.includes(r.value))
+		: FREE_RANGES;
+	const proRanges = allowedValues
+		? PRO_RANGES.filter((r) => allowedValues.includes(r.value))
+		: PRO_RANGES;
 
 	return (
 		<TooltipProvider>
-			<div className="inline-flex items-center rounded-md border bg-muted p-0.5">
-				{FREE_RANGES.map((range) => (
+			<div className="flex w-full items-center rounded-md border bg-muted p-0.5 sm:inline-flex sm:w-auto">
+				{freeRanges.map((range) => (
 					<button
 						key={range.value}
 						type="button"
 						onClick={() => onChange(range.value)}
 						className={cn(
-							"px-3 py-1 text-sm font-medium rounded-sm transition-colors",
+							"flex-1 px-3 py-1 text-sm font-medium rounded-sm transition-colors sm:flex-none",
 							value === range.value
 								? "bg-background text-foreground shadow-sm"
 								: "text-muted-foreground hover:text-foreground",
@@ -51,7 +66,7 @@ export function TimeRangePicker({ value, onChange }: TimeRangePickerProps) {
 						{range.label}
 					</button>
 				))}
-				{PRO_RANGES.map((range) =>
+				{proRanges.map((range) =>
 					isGated ? (
 						<Tooltip key={range.value}>
 							<TooltipTrigger asChild>
@@ -59,7 +74,7 @@ export function TimeRangePicker({ value, onChange }: TimeRangePickerProps) {
 									type="button"
 									disabled
 									aria-disabled="true"
-									className="px-3 py-1 text-sm font-medium rounded-sm text-muted-foreground/40 cursor-not-allowed inline-flex items-center gap-1"
+									className="flex-1 px-3 py-1 text-sm font-medium rounded-sm text-muted-foreground/40 cursor-not-allowed inline-flex items-center justify-center gap-1 sm:flex-none"
 								>
 									{range.label}
 									<Lock className="h-3 w-3" />
@@ -81,7 +96,7 @@ export function TimeRangePicker({ value, onChange }: TimeRangePickerProps) {
 							type="button"
 							onClick={() => onChange(range.value)}
 							className={cn(
-								"px-3 py-1 text-sm font-medium rounded-sm transition-colors",
+								"flex-1 px-3 py-1 text-sm font-medium rounded-sm transition-colors sm:flex-none",
 								value === range.value
 									? "bg-background text-foreground shadow-sm"
 									: "text-muted-foreground hover:text-foreground",

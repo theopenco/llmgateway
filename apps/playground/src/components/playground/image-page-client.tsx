@@ -11,11 +11,32 @@ import { ImageControls } from "@/components/playground/image-controls";
 import { ImageGallery } from "@/components/playground/image-gallery";
 import { ImageHeader } from "@/components/playground/image-header";
 import { ImageSidebar } from "@/components/playground/image-sidebar";
+import { ChatPlanUpsell } from "@/components/pricing/chat-plan-upsell";
 import { Button } from "@/components/ui/button";
 import { SidebarProvider } from "@/components/ui/sidebar";
+import {
+	useImageHistory,
+	useImageHistoryItem,
+	useSaveImageHistory,
+} from "@/hooks/usePlaygroundHistory";
 import { useUser } from "@/hooks/useUser";
-import { getModelImageConfig } from "@/lib/image-gen";
+import { useAppConfig } from "@/lib/config";
+import {
+	chatPlanCreditErrorMessage,
+	isInsufficientCreditsError,
+} from "@/lib/credit-error";
+import { useApi } from "@/lib/fetch-client";
+import {
+	getModelImageConfig,
+	ImageGenerationError,
+	readImageGenerationResponse,
+} from "@/lib/image-gen";
 import { mapModels } from "@/lib/mapmodels";
+import {
+	getModelPreferenceCookie,
+	IMAGE_MODEL_COOKIE,
+	setModelPreferenceCookie,
+} from "@/lib/model-preferences";
 import { shouldDisableFallback } from "@/lib/no-fallback";
 
 import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
@@ -29,25 +50,48 @@ interface ImagePageClientProps {
 	selectedOrganization: Organization | null;
 	projects: Project[];
 	selectedProject: Project | null;
+	initialModelPreference?: string | null;
 }
 
 export default function ImagePageClient({
 	models,
 	providers,
-	organizations: _organizations,
+	organizations,
 	selectedOrganization,
 	projects: _projects,
 	selectedProject,
+	initialModelPreference,
 }: ImagePageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
+	const api = useApi();
 	const posthog = usePostHog();
+	const config = useAppConfig();
 	const pathname = usePathname();
 	const router = useRouter();
 	const searchParams = useSearchParams();
 
-	// Filter models to image-gen only (includes image-edit models)
+	// Filter models to image-gen only (includes image-edit models), sorted
+	// newest-first by releasedAt with createdAt as fallback. releasedAt comes
+	// from the static model definition so the order is stable regardless of
+	// when each row was inserted into the gateway DB.
 	const imageGenModels = useMemo(
-		() => models.filter((m) => m.output?.includes("image")),
+		() =>
+			models
+				.filter((m) => m.output?.includes("image"))
+				.slice()
+				.sort((a, b) => {
+					const dateA = a.releasedAt
+						? new Date(a.releasedAt).getTime()
+						: a.createdAt
+							? new Date(a.createdAt).getTime()
+							: 0;
+					const dateB = b.releasedAt
+						? new Date(b.releasedAt).getTime()
+						: b.createdAt
+							? new Date(b.createdAt).getTime()
+							: 0;
+					return dateB - dateA;
+				}),
 		[models],
 	);
 
@@ -57,11 +101,19 @@ export default function ImagePageClient({
 	);
 	const [availableModels] = useState<ComboboxModel[]>(mapped);
 
-	// State — initialize from URL params
+	// State — initialize from URL params, then cookie, then default
 	const [selectedModels, setSelectedModels] = useState<string[]>(() => {
 		const modelParam = searchParams.get("model");
 		if (modelParam) {
 			const models = modelParam.split(",").filter(Boolean);
+			if (models.length > 0) {
+				return models;
+			}
+		}
+		const stored =
+			getModelPreferenceCookie(IMAGE_MODEL_COOKIE) ?? initialModelPreference;
+		if (stored) {
+			const models = stored.split(",").filter(Boolean);
 			if (models.length > 0) {
 				return models;
 			}
@@ -73,14 +125,27 @@ export default function ImagePageClient({
 		() => searchParams.get("compare") === "1",
 	);
 	const [prompt, setPrompt] = useState("");
-	const [galleryItems, setGalleryItems] = useState<GalleryItem[]>([]);
+	const [activeItems, setActiveItems] = useState<GalleryItem[]>([]);
+	const imageIdFromUrl = searchParams.get("id");
+	const [selectedItemId, setSelectedItemId] = useState<string | null>(
+		imageIdFromUrl,
+	);
 	const [isGenerating, setIsGenerating] = useState(false);
 	const [showTopUp, setShowTopUp] = useState(false);
 
 	// Image config state
 	const [imageAspectRatio, setImageAspectRatio] = useState<AspectRatio>("auto");
 	const [imageSize, setImageSize] = useState<string>("1K");
-	const [alibabaImageSize, setAlibabaImageSize] = useState<string>("1024x1024");
+	const [alibabaImageSize, setAlibabaImageSize] = useState<string>(() => {
+		const primaryModel = selectedModels[0] ?? "";
+		const config = getModelImageConfig(primaryModel);
+		return config.isGptImage ? config.defaultSize : "1024x1024";
+	});
+	const [imageQuality, setImageQuality] = useState<string>(() => {
+		const primaryModel = selectedModels[0] ?? "";
+		const config = getModelImageConfig(primaryModel);
+		return config.defaultQuality ?? "auto";
+	});
 	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
 
 	// Input images for image-edit models
@@ -100,10 +165,13 @@ export default function ImagePageClient({
 			.filter((m): m is NonNullable<typeof m> => m !== null);
 	}, [selectedModels, imageGenModels]);
 
-	// Detect if any selected model supports image input (editing)
+	// Detect if all selected models support image input (editing)
 	const isEditModel = useMemo(() => {
-		return selectedModelDefs.some((m) =>
-			m.mappings.some((mapping) => mapping.vision === true),
+		return (
+			selectedModelDefs.length > 0 &&
+			selectedModelDefs.every((m) =>
+				m.mappings.some((mapping) => mapping.vision === true),
+			)
 		);
 	}, [selectedModelDefs]);
 
@@ -115,6 +183,138 @@ export default function ImagePageClient({
 	// Auth
 	const isAuthenticated = !isUserLoading && !!user;
 	const showAuthDialog = !isAuthenticated && !isUserLoading && !user;
+
+	// DB-persisted history
+	const { data: historyData, isLoading: isHistoryLoading } = useImageHistory(
+		isAuthenticated,
+		selectedOrganization?.id,
+	);
+	const { mutate: saveImageHistory } = useSaveImageHistory();
+	const savedItemIdsRef = useRef<Set<string>>(new Set());
+	const pendingSaveRef = useRef<{ localId: string; dbId: string } | null>(null);
+
+	// The history list is metadata-only (no base64). Image data is fetched per
+	// item below when one is selected.
+	const galleryItems = useMemo<GalleryItem[]>(() => {
+		const historical: GalleryItem[] = (historyData?.items ?? []).map(
+			(item) => ({
+				id: item.id,
+				prompt: item.prompt,
+				timestamp: new Date(item.createdAt).getTime(),
+				thumbnailUrl: item.models.some((m) => m.imageCount > 0)
+					? `${config.apiUrl}/playground/image-history/${item.id}/thumbnail`
+					: null,
+				models: item.models.map((m) => ({
+					modelId: m.modelId,
+					modelName: m.modelName,
+					images: [],
+					imageCount: m.imageCount,
+					error: m.error,
+					isLoading: false,
+				})),
+			}),
+		);
+		return [...activeItems, ...historical];
+	}, [activeItems, historyData, config.apiUrl]);
+
+	const { data: selectedItemDetail } = useImageHistoryItem(
+		activeItems.length === 0 ? selectedItemId : null,
+	);
+
+	const displayItems = useMemo<GalleryItem[]>(() => {
+		if (activeItems.length > 0) {
+			return activeItems;
+		}
+		if (!selectedItemId) {
+			return [];
+		}
+		const detail = selectedItemDetail?.item;
+		if (detail && detail.id === selectedItemId) {
+			return [
+				{
+					id: detail.id,
+					prompt: detail.prompt,
+					timestamp: new Date(detail.createdAt).getTime(),
+					inputImages: detail.inputImages ?? undefined,
+					models: detail.models.map((m) => ({ ...m, isLoading: false })),
+				},
+			];
+		}
+		// Detail still loading: render the metadata item with per-model
+		// skeletons so the gallery shows progress instead of a blank page.
+		const light = galleryItems.find((i) => i.id === selectedItemId);
+		if (light) {
+			return [
+				{
+					...light,
+					models: light.models.map((m) => ({ ...m, isLoading: !m.error })),
+				},
+			];
+		}
+		return [];
+	}, [activeItems, selectedItemId, selectedItemDetail, galleryItems]);
+
+	// Auto-save completed active items to DB then remove from local state
+	useEffect(() => {
+		const done = activeItems.filter(
+			(item) =>
+				item.models.length > 0 &&
+				item.models.every((m) => !m.isLoading) &&
+				!savedItemIdsRef.current.has(item.id),
+		);
+		if (done.length === 0) {
+			return;
+		}
+		for (const item of done) {
+			savedItemIdsRef.current.add(item.id);
+			if (item.models.some((m) => m.images.length > 0)) {
+				saveImageHistory(
+					{
+						body: {
+							prompt: item.prompt,
+							organizationId: item.organizationId,
+							inputImages: item.inputImages,
+							models: item.models.map((m) => ({
+								modelId: m.modelId,
+								modelName: m.modelName,
+								images: m.images,
+								error: m.error,
+							})),
+						},
+					},
+					{
+						onSuccess: (data) => {
+							const newId = data.item.id;
+							setSelectedItemId(newId);
+							const params = new URLSearchParams(window.location.search);
+							params.set("id", newId);
+							router.replace(`${pathname}?${params.toString()}`, {
+								scroll: false,
+							});
+							pendingSaveRef.current = { localId: item.id, dbId: newId };
+						},
+						onError: () => {
+							savedItemIdsRef.current.delete(item.id);
+						},
+					},
+				);
+			} else {
+				setActiveItems((prev) => prev.filter((i) => i.id !== item.id));
+			}
+		}
+	}, [activeItems, saveImageHistory, router, pathname]);
+
+	useEffect(() => {
+		const pending = pendingSaveRef.current;
+		if (!pending) {
+			return;
+		}
+		const found = historyData?.items.some((i) => i.id === pending.dbId);
+		if (found) {
+			setActiveItems((prev) => prev.filter((i) => i.id !== pending.localId));
+			pendingSaveRef.current = null;
+		}
+	}, [historyData]);
 
 	const returnUrl = useMemo(() => {
 		const search = searchParams.toString();
@@ -133,16 +333,19 @@ export default function ImagePageClient({
 			if (!selectedOrganization) {
 				return;
 			}
-			if (ensuredProjectRef.current === selectedProject.id) {
+			const projectId = selectedProject.id;
+			if (ensuredProjectRef.current === projectId) {
 				return;
 			}
 			try {
-				await fetch("/api/ensure-playground-key", {
+				const response = await fetch("/api/ensure-playground-key", {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ projectId: selectedProject.id }),
+					body: JSON.stringify({ projectId }),
 				});
-				ensuredProjectRef.current = selectedProject.id;
+				if (response.ok && selectedProject.id === projectId) {
+					ensuredProjectRef.current = projectId;
+				}
 			} catch {
 				// ignore
 			}
@@ -152,34 +355,95 @@ export default function ImagePageClient({
 
 	// Keep URL in sync with selected model(s)
 	useEffect(() => {
-		const params = new URLSearchParams(Array.from(searchParams.entries()));
+		// Read current URL params directly to avoid stale searchParams closure
+		// and to prevent an infinite loop where router.replace produces a new
+		// searchParams reference that re-triggers this effect (each such cycle
+		// causes Next.js to refetch the RSC, re-hitting /orgs forever).
+		const currentParams = new URLSearchParams(window.location.search);
 		if (comparisonMode) {
-			params.set("model", selectedModels.join(","));
-			params.set("compare", "1");
+			currentParams.set("model", selectedModels.join(","));
+			currentParams.set("compare", "1");
 		} else {
 			const primary = selectedModels[0];
 			if (primary) {
-				params.set("model", primary);
+				currentParams.set("model", primary);
 			} else {
-				params.delete("model");
+				currentParams.delete("model");
 			}
-			params.delete("compare");
+			currentParams.delete("compare");
 		}
-		const qs = params.toString();
-		router.replace(qs ? `?${qs}` : "");
-	}, [comparisonMode, router, searchParams, selectedModels]);
+		const qs = currentParams.toString();
+		const nextUrl = `${pathname}${qs ? `?${qs}` : ""}`;
+		const currentUrl = `${window.location.pathname}${window.location.search}`;
+		if (nextUrl !== currentUrl) {
+			router.replace(nextUrl, { scroll: false });
+		}
+	}, [comparisonMode, pathname, router, selectedModels]);
 
-	// Reset imageSize when model changes, clear input images when switching away from edit model
+	useEffect(() => {
+		if (selectedModels.length > 0) {
+			setModelPreferenceCookie(IMAGE_MODEL_COOKIE, selectedModels.join(","));
+		}
+	}, [selectedModels]);
+
+	// Sync URL → state for back/forward navigation
+	useEffect(() => {
+		if (imageIdFromUrl !== selectedItemId) {
+			setSelectedItemId(imageIdFromUrl);
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [imageIdFromUrl]);
+
+	const restoredItemsRef = useRef<Set<string>>(new Set());
+
+	// Restore compare mode and selected models when loading a history item on page load.
+	// Uses a ref to run only once per item ID so history re-fetches don't clobber
+	// manual model changes the user makes while viewing a history item.
+	useEffect(() => {
+		if (!selectedItemId || activeItems.length > 0) {
+			return;
+		}
+		if (restoredItemsRef.current.has(selectedItemId)) {
+			return;
+		}
+		const item = galleryItems.find((i) => i.id === selectedItemId);
+		if (!item) {
+			return;
+		}
+		restoredItemsRef.current.add(selectedItemId);
+		const isCompare = item.models.length > 1;
+		setComparisonMode(isCompare);
+		setSelectedModels(item.models.map((m) => m.modelId));
+	}, [selectedItemId, galleryItems, activeItems.length]);
+
+	// Reset image size/quality when the selected model changes and the current
+	// value isn't valid for the new model. Including the value itself in deps
+	// would clobber the user's explicit selection on every re-render.
 	useEffect(() => {
 		const primaryModel = selectedModels[0] ?? "";
 		const config = getModelImageConfig(primaryModel);
-		if (!config.availableSizes.includes(imageSize as never)) {
+		if (config.usesPixelDimensions) {
+			if (
+				!(config.availableSizes as readonly string[]).includes(alibabaImageSize)
+			) {
+				setAlibabaImageSize(config.defaultSize);
+			}
+		} else if (
+			!(config.availableSizes as readonly string[]).includes(imageSize)
+		) {
 			setImageSize(config.defaultSize);
+		}
+		if (
+			config.supportsQuality &&
+			!(config.availableQualities as readonly string[]).includes(imageQuality)
+		) {
+			setImageQuality(config.defaultQuality ?? "auto");
 		}
 		if (!isEditModel) {
 			setInputImages([]);
 		}
-	}, [selectedModels, imageSize, imageGenModels, isEditModel]);
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally exclude size/quality values to avoid clobbering the user's explicit selection
+	}, [selectedModels, isEditModel]);
 
 	const getModelName = useCallback(
 		(modelId: string) => {
@@ -187,6 +451,19 @@ export default function ImagePageClient({
 			return model?.name ?? modelId;
 		},
 		[availableModels],
+	);
+
+	// In the Chat plan context the plan status endpoint is the source of truth
+	// for remaining credits; the org row passed from the server can be stale.
+	const isChatPlanContext = Boolean(selectedOrganization?.kind === "chat");
+	const { data: chatPlanStatus } = api.useQuery(
+		"get",
+		"/chat-plans/status",
+		undefined,
+		{ enabled: isChatPlanContext && !!user, staleTime: 30_000 },
+	);
+	const chatPlanSubscribed = Boolean(
+		chatPlanStatus && chatPlanStatus.chatPlan !== "none",
 	);
 
 	const generateImages = useCallback(
@@ -220,12 +497,16 @@ export default function ImagePageClient({
 			});
 
 			const itemId = crypto.randomUUID();
+			const modelsToGenerate = comparisonMode
+				? selectedModels
+				: selectedModels.slice(0, 1);
 
 			// Create placeholder gallery item
 			const placeholderItem: GalleryItem = {
 				id: itemId,
 				prompt: currentPrompt,
 				timestamp: Date.now(),
+				organizationId: selectedOrganization?.id,
 				inputImages:
 					inputImages.length > 0
 						? inputImages.map((img) => ({
@@ -233,7 +514,7 @@ export default function ImagePageClient({
 								mediaType: img.mediaType,
 							}))
 						: undefined,
-				models: selectedModels.map((modelId) => ({
+				models: modelsToGenerate.map((modelId) => ({
 					modelId,
 					modelName: getModelName(modelId),
 					images: [],
@@ -241,18 +522,28 @@ export default function ImagePageClient({
 				})),
 			};
 
-			setGalleryItems((prev) => [placeholderItem, ...prev]);
+			setActiveItems((prev) => [placeholderItem, ...prev]);
+			setSelectedItemId(null);
 			setPrompt("");
 			setInputImages([]);
 
 			// Build image config
 			const primaryModel = selectedModels[0] ?? "";
 			const config = getModelImageConfig(primaryModel);
+			// Always forward the user's quality choice (including "auto") so it
+			// shows up in the activity log; the gateway / model treat "auto" the
+			// same as omitting the field upstream.
+			const includeQuality = config.supportsQuality && !!imageQuality;
 			const imageConfigBody = config.usesPixelDimensions
 				? {
-						...(alibabaImageSize !== "1024x1024" && {
-							image_size: alibabaImageSize,
-						}),
+						...(config.isGptImage
+							? alibabaImageSize !== "auto" && {
+									image_size: alibabaImageSize,
+								}
+							: alibabaImageSize !== "1024x1024" && {
+									image_size: alibabaImageSize,
+								}),
+						...(includeQuality && { image_quality: imageQuality }),
 						n: imageCount,
 					}
 				: {
@@ -264,9 +555,9 @@ export default function ImagePageClient({
 					};
 
 			// Fire requests independently — each updates gallery as images stream in
-			pendingRef.current = selectedModels.length;
+			pendingRef.current = modelsToGenerate.length;
 
-			for (const modelId of selectedModels) {
+			for (const modelId of modelsToGenerate) {
 				const noFallback = shouldDisableFallback(modelId);
 				void (async () => {
 					try {
@@ -291,26 +582,28 @@ export default function ImagePageClient({
 							}),
 						});
 
-						if (!response.ok) {
-							const errorData = await response.json().catch(() => null);
-							throw new Error(
-								errorData?.error ??
-									`HTTP ${response.status}: ${response.statusText}`,
-							);
+						let generatedImages: { base64: string; mediaType: string }[];
+						try {
+							generatedImages = await readImageGenerationResponse(response);
+						} catch (error) {
+							if (error instanceof ImageGenerationError) {
+								throw new Error(
+									isChatPlanContext &&
+										isInsufficientCreditsError(error.status, error.message)
+										? chatPlanCreditErrorMessage(chatPlanSubscribed, "images")
+										: error.message,
+								);
+							}
+							throw error;
 						}
 
-						const data = await response.json();
-						const generatedImages = data.images as
-							| { base64: string; mediaType: string }[]
-							| undefined;
-
-						if (!generatedImages || generatedImages.length === 0) {
+						if (generatedImages.length === 0) {
 							throw new Error(
 								"The model did not generate any images. Try a different model.",
 							);
 						}
 
-						setGalleryItems((prev) =>
+						setActiveItems((prev) =>
 							prev.map((item) => {
 								if (item.id !== itemId) {
 									return item;
@@ -331,7 +624,12 @@ export default function ImagePageClient({
 							}),
 						);
 					} catch (error) {
-						setGalleryItems((prev) =>
+						const errorMessage =
+							error instanceof Error
+								? error.message
+								: "Image generation failed";
+						toast.error(errorMessage);
+						setActiveItems((prev) =>
 							prev.map((item) => {
 								if (item.id !== itemId) {
 									return item;
@@ -345,10 +643,7 @@ export default function ImagePageClient({
 										return {
 											...m,
 											isLoading: false,
-											error:
-												error instanceof Error
-													? error.message
-													: "Image generation failed",
+											error: errorMessage,
 										};
 									}),
 								};
@@ -372,10 +667,14 @@ export default function ImagePageClient({
 			alibabaImageSize,
 			imageAspectRatio,
 			imageSize,
+			imageQuality,
 			imageCount,
 			inputImages,
 			posthog,
 			requiresImageInput,
+			selectedOrganization?.id,
+			isChatPlanContext,
+			chatPlanSubscribed,
 		],
 	);
 
@@ -423,33 +722,105 @@ export default function ImagePageClient({
 	);
 
 	const handleNewChat = useCallback(() => {
-		setGalleryItems([]);
+		setActiveItems([]);
+		setSelectedItemId(null);
 		setPrompt("");
 		setInputImages([]);
 		setIsGenerating(false);
+		setComparisonMode(false);
 		pendingRef.current = 0;
-	}, []);
+		const params = new URLSearchParams(window.location.search);
+		params.delete("id");
+		const qs = params.toString();
+		router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+	}, [pathname, router]);
 
-	const handleItemClick = useCallback((itemId: string) => {
-		const element = document.getElementById(`gallery-${itemId}`);
-		if (element) {
-			element.scrollIntoView({ behavior: "smooth", block: "start" });
-		}
-	}, []);
+	const handleItemClick = useCallback(
+		(itemId: string) => {
+			if (activeItems.length > 0) {
+				return;
+			}
+			setSelectedItemId(itemId);
+			const item = galleryItems.find((i) => i.id === itemId);
+			if (item) {
+				restoredItemsRef.current.add(itemId);
+				const isCompare = item.models.length > 1;
+				setComparisonMode(isCompare);
+				setSelectedModels(item.models.map((m) => m.modelId));
+			}
+			const params = new URLSearchParams(window.location.search);
+			params.set("id", itemId);
+			if (item && item.models.length > 1) {
+				params.set("compare", "1");
+			} else {
+				params.delete("compare");
+			}
+			router.push(`${pathname}?${params.toString()}`, { scroll: false });
+		},
+		[activeItems, galleryItems, pathname, router],
+	);
 
-	// Low credits check
+	const handleUseAsReference = useCallback(
+		(image: { base64: string; mediaType: string }) => {
+			handleNewChat();
+			setInputImages([
+				{
+					dataUrl: `data:${image.mediaType};base64,${image.base64}`,
+					mediaType: image.mediaType,
+				},
+			]);
+		},
+		[handleNewChat],
+	);
+
+	const handleInsertPrompt = useCallback(
+		(prompt: string) => {
+			handleNewChat();
+			setPrompt(prompt);
+		},
+		[handleNewChat],
+	);
+
+	const chatPlanCreditsRemaining =
+		chatPlanStatus && chatPlanStatus.chatPlan !== "none"
+			? Number(chatPlanStatus.chatPlanCreditsRemaining)
+			: 0;
 	const isLowCredits = selectedOrganization
-		? Number(selectedOrganization.credits) < 1
+		? isChatPlanContext
+			? chatPlanStatus !== undefined &&
+				Number(chatPlanStatus.regularCredits) + chatPlanCreditsRemaining < 1
+			: Number(selectedOrganization.credits) < 1
 		: false;
+	// In the Chat plan context an out-of-credits state upsells the plans inline
+	// instead of a top-up banner.
+	const showPlanUpsell = isChatPlanContext && isLowCredits;
+
+	const handleSelectOrganization = useCallback(
+		(org: Organization | null) => {
+			const params = new URLSearchParams(Array.from(searchParams.entries()));
+			if (org?.id) {
+				params.set("orgId", org.id);
+			} else {
+				params.delete("orgId");
+			}
+			params.delete("projectId");
+			router.push(params.toString() ? `/image?${params.toString()}` : "/image");
+		},
+		[router, searchParams],
+	);
 
 	return (
 		<SidebarProvider>
 			<div className="flex h-dvh w-full">
 				<ImageSidebar
 					galleryItems={galleryItems}
+					isHistoryLoading={isHistoryLoading}
 					onNewChat={handleNewChat}
 					onItemClick={handleItemClick}
+					organizations={organizations}
 					selectedOrganization={selectedOrganization}
+					onSelectOrganization={handleSelectOrganization}
+					currentItemId={selectedItemId}
 				/>
 				<div className="flex flex-1 flex-col min-w-0">
 					<ImageHeader
@@ -461,8 +832,9 @@ export default function ImagePageClient({
 						onRemoveModel={handleRemoveModel}
 						comparisonMode={comparisonMode}
 						onComparisonModeChange={handleComparisonModeChange}
+						hideCompare={displayItems.length > 0}
 					/>
-					{isLowCredits && (
+					{isLowCredits && !isChatPlanContext && (
 						<div className="bg-yellow-50 dark:bg-yellow-900/20 border-b px-4 py-2 flex items-center justify-between">
 							<p className="text-sm text-yellow-800 dark:text-yellow-200">
 								Low credits remaining. Top up to continue generating images.
@@ -486,6 +858,8 @@ export default function ImagePageClient({
 						setImageSize={setImageSize}
 						alibabaImageSize={alibabaImageSize}
 						setAlibabaImageSize={setAlibabaImageSize}
+						imageQuality={imageQuality}
+						setImageQuality={setImageQuality}
 						imageCount={imageCount}
 						setImageCount={setImageCount}
 						isGenerating={isGenerating}
@@ -496,18 +870,34 @@ export default function ImagePageClient({
 						setInputImages={setInputImages}
 					/>
 					<div className="flex-1 overflow-y-auto p-4">
-						<div className="max-w-6xl mx-auto">
-							<ImageGallery
-								items={galleryItems}
-								comparisonMode={comparisonMode}
-								onSuggestionClick={handleSuggestionClick}
+						{showPlanUpsell ? (
+							<ChatPlanUpsell
+								noun="images"
+								isAuthenticated={!!user}
+								subscribed={chatPlanSubscribed}
 							/>
-						</div>
+						) : (
+							<div className="max-w-6xl mx-auto">
+								<ImageGallery
+									items={displayItems}
+									comparisonMode={comparisonMode}
+									onSuggestionClick={handleSuggestionClick}
+									onUseAsReference={
+										isEditModel ? handleUseAsReference : undefined
+									}
+									onInsertPrompt={handleInsertPrompt}
+								/>
+							</div>
+						)}
 					</div>
 				</div>
 			</div>
 			<AuthDialog open={showAuthDialog} returnUrl={returnUrl} />
-			<TopUpCreditsDialog open={showTopUp} onOpenChange={setShowTopUp} />
+			<TopUpCreditsDialog
+				open={showTopUp}
+				onOpenChange={setShowTopUp}
+				organizationId={selectedOrganization?.id}
+			/>
 		</SidebarProvider>
 	);
 }

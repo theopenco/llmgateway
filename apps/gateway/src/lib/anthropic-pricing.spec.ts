@@ -1,0 +1,232 @@
+import { describe, expect, it } from "vitest";
+
+import { models, type ProviderModelMapping } from "@llmgateway/models";
+
+const FIVE_MIN_WRITE_MULTIPLIER = 1.25;
+const ONE_HOUR_WRITE_MULTIPLIER = 2;
+const CACHE_READ_MULTIPLIER = 0.1;
+const RATIO_TOLERANCE = 1e-9;
+
+const LEGACY_RATIO_EXCEPTIONS = new Set(["claude-3-haiku-20240307"]);
+
+function assertRatio(
+	externalId: string,
+	label: string,
+	actualStr: string,
+	expected: number,
+) {
+	const actual = Number(actualStr);
+	expect(
+		actual,
+		`${externalId} ${label}: expected ${expected} (got ${actual}). If Anthropic's published price diverges from the standard multiplier, add the externalId to LEGACY_RATIO_EXCEPTIONS.`,
+	).toBeCloseTo(expected, undefined);
+	expect(Math.abs(actual - expected)).toBeLessThan(
+		Math.max(expected * 1e-6, RATIO_TOLERANCE),
+	);
+}
+
+describe("Anthropic model pricing", () => {
+	const anthropicProviderEntries = models.flatMap((model) =>
+		model.family === "anthropic"
+			? model.providers
+					.filter((provider) => provider.providerId === "anthropic")
+					.map((provider) => ({
+						modelId: model.id,
+						provider: provider as ProviderModelMapping,
+					}))
+			: [],
+	);
+
+	it("has at least one anthropic provider mapping to validate", () => {
+		expect(anthropicProviderEntries.length).toBeGreaterThan(0);
+	});
+
+	it.each(anthropicProviderEntries)(
+		"$modelId defines cacheWriteInputPrice1h whenever cacheWriteInputPrice is set",
+		({ provider }) => {
+			if (provider.cacheWriteInputPrice === undefined) {
+				return;
+			}
+			expect(
+				provider.cacheWriteInputPrice1h,
+				`${provider.externalId}: cacheWriteInputPrice is set but cacheWriteInputPrice1h is missing — 1h cache writes would silently bill at the 5m rate`,
+			).toBeDefined();
+		},
+	);
+
+	it.each(anthropicProviderEntries)(
+		"$modelId defines cacheWriteInputPrice1h on every pricing tier that sets cacheWriteInputPrice",
+		({ provider }) => {
+			const tiers = provider.pricingTiers ?? [];
+			for (const tier of tiers) {
+				if (tier.cacheWriteInputPrice === undefined) {
+					continue;
+				}
+				expect(
+					tier.cacheWriteInputPrice1h,
+					`${provider.externalId} tier "${tier.name}": cacheWriteInputPrice is set but cacheWriteInputPrice1h is missing`,
+				).toBeDefined();
+			}
+		},
+	);
+
+	it.each(anthropicProviderEntries)(
+		"$modelId cache prices follow the standard 1.25x/2x/0.1x ratios",
+		({ provider }) => {
+			if (LEGACY_RATIO_EXCEPTIONS.has(provider.externalId)) {
+				return;
+			}
+			if (provider.inputPrice === undefined) {
+				return;
+			}
+			const base = Number(provider.inputPrice);
+			if (provider.cacheWriteInputPrice !== undefined) {
+				assertRatio(
+					provider.externalId,
+					"cacheWriteInputPrice (5m)",
+					provider.cacheWriteInputPrice,
+					base * FIVE_MIN_WRITE_MULTIPLIER,
+				);
+			}
+			if (provider.cacheWriteInputPrice1h !== undefined) {
+				assertRatio(
+					provider.externalId,
+					"cacheWriteInputPrice1h",
+					provider.cacheWriteInputPrice1h,
+					base * ONE_HOUR_WRITE_MULTIPLIER,
+				);
+			}
+			if (provider.cachedInputPrice !== undefined) {
+				assertRatio(
+					provider.externalId,
+					"cachedInputPrice",
+					provider.cachedInputPrice,
+					base * CACHE_READ_MULTIPLIER,
+				);
+			}
+			for (const tier of provider.pricingTiers ?? []) {
+				if (tier.inputPrice === undefined) {
+					continue;
+				}
+				const tierBase = Number(tier.inputPrice);
+				const label = `tier "${tier.name}"`;
+				if (tier.cacheWriteInputPrice !== undefined) {
+					assertRatio(
+						provider.externalId,
+						`${label} cacheWriteInputPrice (5m)`,
+						tier.cacheWriteInputPrice,
+						tierBase * FIVE_MIN_WRITE_MULTIPLIER,
+					);
+				}
+				if (tier.cacheWriteInputPrice1h !== undefined) {
+					assertRatio(
+						provider.externalId,
+						`${label} cacheWriteInputPrice1h`,
+						tier.cacheWriteInputPrice1h,
+						tierBase * ONE_HOUR_WRITE_MULTIPLIER,
+					);
+				}
+				if (tier.cachedInputPrice !== undefined) {
+					assertRatio(
+						provider.externalId,
+						`${label} cachedInputPrice`,
+						tier.cachedInputPrice,
+						tierBase * CACHE_READ_MULTIPLIER,
+					);
+				}
+			}
+		},
+	);
+});
+
+describe("AWS Bedrock Anthropic model pricing", () => {
+	const bedrockProviderEntries = models.flatMap((model) =>
+		model.family === "anthropic"
+			? model.providers
+					.filter((provider) => provider.providerId === "aws-bedrock")
+					.map((provider) => ({
+						modelId: model.id,
+						provider: provider as ProviderModelMapping,
+					}))
+			: [],
+	);
+
+	it("has at least one AWS Bedrock Anthropic provider mapping to validate", () => {
+		expect(bedrockProviderEntries.length).toBeGreaterThan(0);
+	});
+
+	it.each(bedrockProviderEntries)(
+		"$modelId defines cacheWriteInputPrice whenever cachedInputPrice is set",
+		({ provider }) => {
+			if (provider.cachedInputPrice === undefined) {
+				return;
+			}
+			expect(
+				provider.cacheWriteInputPrice,
+				`${provider.externalId}: cachedInputPrice is set but cacheWriteInputPrice is missing`,
+			).toBeDefined();
+		},
+	);
+
+	const ONE_HOUR_BEDROCK_PREFIXES = [
+		"anthropic.claude-fable-5",
+		"anthropic.claude-opus-4-5",
+		"anthropic.claude-opus-4-6",
+		"anthropic.claude-opus-4-7",
+		"anthropic.claude-opus-4-8",
+		"anthropic.claude-opus-5",
+		"anthropic.claude-haiku-4-5",
+		"anthropic.claude-sonnet-4-5",
+		"anthropic.claude-sonnet-4-6",
+		"anthropic.claude-sonnet-5",
+	];
+	const supportsBedrock1h = (externalId: string) =>
+		ONE_HOUR_BEDROCK_PREFIXES.some((prefix) => externalId.startsWith(prefix));
+
+	it.each(bedrockProviderEntries)(
+		"$modelId only sets cacheWriteInputPrice1h on bedrock models that support 1h TTL",
+		({ provider }) => {
+			if (provider.cacheWriteInputPrice1h === undefined) {
+				return;
+			}
+			expect(
+				supportsBedrock1h(provider.externalId),
+				`${provider.externalId}: cacheWriteInputPrice1h is set but bedrock does not document 1h TTL support for this model`,
+			).toBe(true);
+		},
+	);
+
+	it.each(bedrockProviderEntries)(
+		"$modelId cache prices follow the standard 1.25x/2x/0.1x ratios",
+		({ provider }) => {
+			if (provider.inputPrice === undefined) {
+				return;
+			}
+			const base = Number(provider.inputPrice);
+			if (provider.cacheWriteInputPrice !== undefined) {
+				assertRatio(
+					provider.externalId,
+					"cacheWriteInputPrice (5m)",
+					provider.cacheWriteInputPrice,
+					base * FIVE_MIN_WRITE_MULTIPLIER,
+				);
+			}
+			if (provider.cacheWriteInputPrice1h !== undefined) {
+				assertRatio(
+					provider.externalId,
+					"cacheWriteInputPrice1h",
+					provider.cacheWriteInputPrice1h,
+					base * ONE_HOUR_WRITE_MULTIPLIER,
+				);
+			}
+			if (provider.cachedInputPrice !== undefined) {
+				assertRatio(
+					provider.externalId,
+					"cachedInputPrice",
+					provider.cachedInputPrice,
+					base * CACHE_READ_MULTIPLIER,
+				);
+			}
+		},
+	);
+});
