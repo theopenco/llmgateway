@@ -29,8 +29,10 @@ import {
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
+	ENV_VAR_VARIANT_SUFFIXES,
 	getProviderApiKeyEnvCounts,
 	getProviderEnvKeys,
+	getProviderEnvVar,
 	providers,
 } from "@llmgateway/models";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
@@ -78,6 +80,25 @@ const configKeySchema = z.object({
 	required: z.boolean(),
 });
 
+/**
+ * One API key currently configured through the deployment's environment,
+ * masked and fingerprinted exactly like a managed credential so an operator
+ * can tell which keys serve traffic and correlate them with
+ * `log.usedApiKeyHash`. The plaintext never leaves the process.
+ */
+const envCredentialSchema = z.object({
+	/** Variable the key comes from, including any variant/region suffix. */
+	envVar: z.string(),
+	variant: variantSchema,
+	/** Region the variable is scoped to via `__{REGION}`, null for the base. */
+	region: z.string().nullable(),
+	/** Position in the comma-separated list; matches the gateway's configIndex. */
+	index: z.number(),
+	maskedToken: z.string(),
+	/** HMAC fingerprint, identical to `log.usedApiKeyHash` on requests it served. */
+	tokenHash: z.string(),
+});
+
 const catalogEntrySchema = z.object({
 	id: z.string(),
 	name: z.string(),
@@ -95,6 +116,14 @@ const catalogEntrySchema = z.object({
 		plans: z.number(),
 	}),
 	/**
+	 * Every API key the deployment's environment currently holds for this
+	 * provider, across the base variable and its variant/region overrides.
+	 * These are read-only from the dashboard: they can only be changed by
+	 * redeploying, and once the provider has any active managed credential
+	 * covering an audience they stop being used for it.
+	 */
+	envCredentials: z.array(envCredentialSchema),
+	/**
 	 * Regions the provider's catalogue declares. Empty for providers that are
 	 * not region-scoped, in which case a credential must not carry a region at
 	 * all — there is nothing for it to select against.
@@ -104,6 +133,79 @@ const catalogEntrySchema = z.object({
 	defaultRegion: z.string().nullable(),
 	configKeys: z.array(configKeySchema),
 });
+
+/**
+ * A service-account JSON value contains commas and is read whole by the
+ * gateway rather than comma-split; masking must treat it the same way or the
+ * "list" would be JSON fragments.
+ */
+function splitEnvApiKeys(value: string): string[] {
+	const trimmed = value.trim();
+	if (!trimmed) {
+		return [];
+	}
+	if (trimmed.startsWith("{")) {
+		return [trimmed];
+	}
+	return trimmed
+		.split(",")
+		.map((entry) => entry.trim())
+		.filter((entry) => entry.length > 0);
+}
+
+/**
+ * Enumerates the API keys the environment currently holds for a provider,
+ * across the base var, the `__ENTERPRISE`/`__PLANS` variants and every
+ * `__{REGION}` override of each — the same slots the gateway reads.
+ */
+function collectEnvCredentials(
+	providerId: string,
+	regionIds: string[],
+): z.infer<typeof envCredentialSchema>[] {
+	const baseEnvVar = getProviderEnvVar(providerId);
+	if (!baseEnvVar) {
+		return [];
+	}
+
+	const slots: {
+		envVar: string;
+		variant: ProviderKeyVariant;
+		region: string | null;
+	}[] = [];
+	for (const variant of PROVIDER_KEY_VARIANTS) {
+		const variantVar =
+			variant === "default"
+				? baseEnvVar
+				: `${baseEnvVar}${ENV_VAR_VARIANT_SUFFIXES[variant]}`;
+		slots.push({ envVar: variantVar, variant, region: null });
+		for (const region of regionIds) {
+			slots.push({
+				envVar: `${variantVar}__${region.toUpperCase().replace(/-/g, "_")}`,
+				variant,
+				region,
+			});
+		}
+	}
+
+	const entries: z.infer<typeof envCredentialSchema>[] = [];
+	for (const slot of slots) {
+		const value = process.env[slot.envVar];
+		if (!value) {
+			continue;
+		}
+		splitEnvApiKeys(value).forEach((key, index) => {
+			entries.push({
+				envVar: slot.envVar,
+				variant: slot.variant,
+				region: slot.region,
+				index,
+				maskedToken: maskToken(key),
+				tokenHash: getApiKeyFingerprint(key),
+			});
+		});
+	}
+	return entries;
+}
 
 type CredentialRow = typeof tables.providerKey.$inferSelect;
 
@@ -307,6 +409,7 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 				getProviderEnvKeys(provider.id).find((entry) => entry.key === "apiKey")
 					?.envVar ?? null;
 			const regionConfig = (provider as ProviderDefinition).regionConfig;
+			const regions = regionConfig?.regions ?? [];
 			return {
 				id: provider.id,
 				name: provider.name,
@@ -314,9 +417,13 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 				apiKeyEnvConfigured: apiKeyEnvVar
 					? Boolean(process.env[apiKeyEnvVar])
 					: false,
-				regions: regionConfig?.regions ?? [],
+				regions,
 				defaultRegion: regionConfig?.defaultRegion ?? null,
 				apiKeyEnvCounts: getProviderApiKeyEnvCounts(provider.id),
+				envCredentials: collectEnvCredentials(
+					provider.id,
+					regions.map((region) => region.id),
+				),
 				configKeys: getManagedCredentialConfigKeys(provider.id),
 			};
 		});

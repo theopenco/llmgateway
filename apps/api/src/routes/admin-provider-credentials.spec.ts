@@ -339,6 +339,57 @@ describe("admin provider credentials", () => {
 			plans: 0,
 		});
 	});
+
+	test("catalog lists env keys masked and fingerprinted, never plaintext", async () => {
+		vi.stubEnv("LLM_ALIBABA_API_KEY", "sk-env-primary-secret,sk-env-two");
+		vi.stubEnv("LLM_ALIBABA_API_KEY__ENTERPRISE", "sk-env-ent-secret");
+		// Clear every other slot the catalog enumerates: a developer .env with
+		// real regional keys would otherwise add entries to this list.
+		vi.stubEnv("LLM_ALIBABA_API_KEY__PLANS", "");
+		for (const region of ["SINGAPORE", "US_VIRGINIA", "CN_BEIJING"]) {
+			for (const variant of ["", "__ENTERPRISE", "__PLANS"]) {
+				vi.stubEnv(`LLM_ALIBABA_API_KEY${variant}__${region}`, "");
+			}
+		}
+
+		const res = await app.request("/admin/provider-credentials/catalog", {
+			headers: { Cookie: cookie },
+		});
+		expect(res.status).toBe(200);
+		const body = await res.text();
+		expect(body).not.toContain("sk-env-primary-secret");
+		expect(body).not.toContain("sk-env-ent-secret");
+
+		const json = JSON.parse(body) as {
+			providers: {
+				id: string;
+				envCredentials: {
+					envVar: string;
+					variant: string;
+					region: string | null;
+					index: number;
+					maskedToken: string;
+					tokenHash: string;
+				}[];
+			}[];
+		};
+		const alibaba = json.providers.find((p) => p.id === "alibaba");
+		expect(alibaba?.envCredentials).toHaveLength(3);
+
+		const [primary] = alibaba!.envCredentials;
+		expect(primary.envVar).toBe("LLM_ALIBABA_API_KEY");
+		expect(primary.variant).toBe("default");
+		expect(primary.index).toBe(0);
+		// Fingerprint matches what request logs record for this key.
+		expect(primary.tokenHash).toBe(
+			getApiKeyFingerprint("sk-env-primary-secret"),
+		);
+
+		const enterprise = alibaba!.envCredentials.find(
+			(entry) => entry.variant === "enterprise",
+		);
+		expect(enterprise?.envVar).toBe("LLM_ALIBABA_API_KEY__ENTERPRISE");
+	});
 });
 
 describe("managed credential region scoping", () => {

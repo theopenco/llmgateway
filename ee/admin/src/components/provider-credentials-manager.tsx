@@ -141,6 +141,88 @@ function ProviderCell({ provider }: { provider: string }) {
 	);
 }
 
+type EnvCredential = ProviderCredentialCatalogEntry["envCredentials"][number];
+
+/**
+ * An API key configured through the deployment's environment, shown alongside
+ * the managed credentials so an operator sees every key that can serve a
+ * provider in one table. Read-only by nature: it can only be changed by
+ * redeploying, so there is no edit/delete and it takes no part in reordering.
+ * `superseded` marks it visibly unused once managed credentials cover its
+ * audience — the gateway then ignores the variable entirely.
+ */
+function EnvCredentialRow({
+	provider,
+	entry,
+	superseded,
+}: {
+	provider: string;
+	entry: EnvCredential;
+	superseded: boolean;
+}) {
+	return (
+		<TableRow className="border-b bg-muted/40 transition-colors hover:bg-muted/60">
+			<TableCell className="w-10">
+				<span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+					env
+				</span>
+			</TableCell>
+			<TableCell>
+				<div className={superseded ? "opacity-60" : undefined}>
+					<ProviderCell provider={provider} />
+				</div>
+			</TableCell>
+			<TableCell className="font-mono text-xs">
+				<div className={superseded ? "text-muted-foreground" : undefined}>
+					{entry.maskedToken}
+				</div>
+				<div
+					className="text-[11px] text-muted-foreground"
+					title={`Matches usedApiKeyHash on logs served by this key: ${entry.tokenHash}`}
+				>
+					{entry.tokenHash.slice(0, 12)}
+				</div>
+			</TableCell>
+			<TableCell className="max-w-[260px]">
+				<code className="text-xs text-muted-foreground">
+					{entry.envVar}
+					{entry.index > 0 ? `[${entry.index}]` : ""}
+				</code>
+			</TableCell>
+			<TableCell className="text-sm">
+				{VARIANT_LABELS[entry.variant as Variant] ?? entry.variant}
+			</TableCell>
+			<TableCell className="text-sm">{entry.region || "Any"}</TableCell>
+			<TableCell>
+				<span className="text-sm text-muted-foreground">—</span>
+			</TableCell>
+			<TableCell>
+				{superseded ? (
+					<Badge
+						variant="secondary"
+						className="text-muted-foreground"
+						title="Managed credentials cover this audience, so the gateway no longer reads this variable for it. Safe to remove on the next deploy."
+					>
+						unused
+					</Badge>
+				) : (
+					<Badge title="No managed credential covers this audience yet, so this variable still serves its traffic.">
+						in use
+					</Badge>
+				)}
+			</TableCell>
+			<TableCell className="text-right">
+				<span
+					className="text-xs text-muted-foreground"
+					title="Environment keys can only be changed by redeploying."
+				>
+					read-only
+				</span>
+			</TableCell>
+		</TableRow>
+	);
+}
+
 export function ProviderCredentialsManager({
 	credentials,
 	catalog,
@@ -286,6 +368,56 @@ export function ProviderCredentialsManager({
 		[order, providerFilter],
 	);
 
+	const envByProvider = useMemo(() => {
+		const map = new Map<string, EnvCredential[]>();
+		for (const entry of catalog) {
+			if (entry.envCredentials.length > 0) {
+				map.set(entry.id, entry.envCredentials);
+			}
+		}
+		return map;
+	}, [catalog]);
+
+	// Audiences each provider has an ACTIVE managed credential for. An env key
+	// is unused for its audience once that audience is covered directly or via
+	// the `default` fallback — mirroring findManagedProviderKey's selection.
+	const managedCoverage = useMemo(() => {
+		const map = new Map<string, Set<string>>();
+		for (const credential of credentials) {
+			if (credential.status !== "active") {
+				continue;
+			}
+			const set = map.get(credential.provider) ?? new Set<string>();
+			set.add(credential.variant);
+			map.set(credential.provider, set);
+		}
+		return map;
+	}, [credentials]);
+
+	const isEnvSuperseded = useCallback(
+		(provider: string, variant: string) => {
+			const covered = managedCoverage.get(provider);
+			return Boolean(
+				covered && (covered.has(variant) || covered.has("default")),
+			);
+		},
+		[managedCoverage],
+	);
+
+	// Providers whose only keys live in the environment get their own read-only
+	// group below the managed ones.
+	const envOnlyProviders = useMemo(
+		() =>
+			Array.from(envByProvider.keys())
+				.filter((provider) => !serverOrder.has(provider))
+				.filter(
+					(provider) =>
+						providerFilter === ALL_PROVIDERS || provider === providerFilter,
+				)
+				.sort(),
+		[envByProvider, serverOrder, providerFilter],
+	);
+
 	function applyReorder(provider: string, ids: string[]) {
 		if (!preDragOrder.current) {
 			preDragOrder.current = new Map(order);
@@ -365,7 +497,7 @@ export function ProviderCredentialsManager({
 							<TableHead className="text-right">Actions</TableHead>
 						</TableRow>
 					</TableHeader>
-					{credentials.length === 0 ? (
+					{credentials.length === 0 && envOnlyProviders.length === 0 ? (
 						<TableBody>
 							<TableRow>
 								<TableCell
@@ -377,7 +509,7 @@ export function ProviderCredentialsManager({
 								</TableCell>
 							</TableRow>
 						</TableBody>
-					) : visibleGroups.length === 0 ? (
+					) : visibleGroups.length === 0 && envOnlyProviders.length === 0 ? (
 						// Reachable by hand-editing the query string, or by following a
 						// link to a provider whose last credential has since been removed.
 						<TableBody>
@@ -401,124 +533,148 @@ export function ProviderCredentialsManager({
 						// One tbody per provider: several are valid inside a table and
 						// stack seamlessly, and it makes dragging a row into another
 						// provider's group structurally impossible.
-						visibleGroups.map(([provider, ids]) => (
-							<ReorderableList
-								key={provider}
-								as="tbody"
-								ids={ids}
-								disabled={savingProvider === provider}
-								onReorder={(next) => applyReorder(provider, next)}
-								onCommit={(next) => void commitReorder(provider, next)}
-							>
-								{ids.map((id: string, index: number) => {
-									const credential = credentialById.get(id);
-									if (!credential) {
-										return null;
-									}
-									const configEntries = Object.entries(credential.config ?? {});
-									return (
-										<ReorderableItem
-											key={credential.id}
-											id={credential.id}
-											as="tr"
-											itemLabel={`${credential.provider} credential ${credential.maskedToken}`}
-											className="border-b bg-card transition-colors hover:bg-muted/50"
-										>
-											{(handle) => (
-												<>
-													<TableCell className="w-10">
-														<div className="flex items-center gap-1">
-															{handle}
-															<span className="text-xs tabular-nums text-muted-foreground">
-																{index + 1}
-															</span>
-														</div>
-													</TableCell>
-													<TableCell>
-														<ProviderCell provider={credential.provider} />
-													</TableCell>
-													<TableCell className="font-mono text-xs">
-														<div>{credential.maskedToken}</div>
-														{credential.tokenHash ? (
-															<div
-																className="text-[11px] text-muted-foreground"
-																title={`Matches usedApiKeyHash on logs served by this credential: ${credential.tokenHash}`}
-															>
-																{credential.tokenHash.slice(0, 12)}
+						<>
+							{visibleGroups.map(([provider, ids]) => (
+								<ReorderableList
+									key={provider}
+									as="tbody"
+									ids={ids}
+									disabled={savingProvider === provider}
+									onReorder={(next) => applyReorder(provider, next)}
+									onCommit={(next) => void commitReorder(provider, next)}
+								>
+									{ids.map((id: string, index: number) => {
+										const credential = credentialById.get(id);
+										if (!credential) {
+											return null;
+										}
+										const configEntries = Object.entries(
+											credential.config ?? {},
+										);
+										return (
+											<ReorderableItem
+												key={credential.id}
+												id={credential.id}
+												as="tr"
+												itemLabel={`${credential.provider} credential ${credential.maskedToken}`}
+												className="border-b bg-card transition-colors hover:bg-muted/50"
+											>
+												{(handle) => (
+													<>
+														<TableCell className="w-10">
+															<div className="flex items-center gap-1">
+																{handle}
+																<span className="text-xs tabular-nums text-muted-foreground">
+																	{index + 1}
+																</span>
 															</div>
-														) : null}
-													</TableCell>
-													<TableCell className="max-w-[260px] text-sm text-muted-foreground">
-														{credential.comment || "—"}
-													</TableCell>
-													<TableCell className="text-sm">
-														{VARIANT_LABELS[credential.variant as Variant] ??
-															credential.variant}
-													</TableCell>
-													<TableCell className="text-sm">
-														{credential.region || "Any"}
-													</TableCell>
-													<TableCell>
-														{configEntries.length === 0 ? (
-															<span className="text-sm text-muted-foreground">
-																—
-															</span>
-														) : (
-															<div className="flex flex-wrap gap-1">
-																{configEntries.map(([key, value]) => (
-																	<Badge
-																		key={key}
-																		variant="secondary"
-																		className="font-mono text-[11px]"
-																		title={`${key}: ${value}`}
-																	>
-																		{key}
-																	</Badge>
-																))}
+														</TableCell>
+														<TableCell>
+															<ProviderCell provider={credential.provider} />
+														</TableCell>
+														<TableCell className="font-mono text-xs">
+															<div>{credential.maskedToken}</div>
+															{credential.tokenHash ? (
+																<div
+																	className="text-[11px] text-muted-foreground"
+																	title={`Matches usedApiKeyHash on logs served by this credential: ${credential.tokenHash}`}
+																>
+																	{credential.tokenHash.slice(0, 12)}
+																</div>
+															) : null}
+														</TableCell>
+														<TableCell className="max-w-[260px] text-sm text-muted-foreground">
+															{credential.comment || "—"}
+														</TableCell>
+														<TableCell className="text-sm">
+															{VARIANT_LABELS[credential.variant as Variant] ??
+																credential.variant}
+														</TableCell>
+														<TableCell className="text-sm">
+															{credential.region || "Any"}
+														</TableCell>
+														<TableCell>
+															{configEntries.length === 0 ? (
+																<span className="text-sm text-muted-foreground">
+																	—
+																</span>
+															) : (
+																<div className="flex flex-wrap gap-1">
+																	{configEntries.map(([key, value]) => (
+																		<Badge
+																			key={key}
+																			variant="secondary"
+																			className="font-mono text-[11px]"
+																			title={`${key}: ${value}`}
+																		>
+																			{key}
+																		</Badge>
+																	))}
+																</div>
+															)}
+														</TableCell>
+														<TableCell>
+															<Badge
+																variant={
+																	credential.status === "active"
+																		? "default"
+																		: "secondary"
+																}
+															>
+																{credential.status}
+															</Badge>
+														</TableCell>
+														<TableCell className="text-right">
+															<div className="flex justify-end gap-1">
+																<Button
+																	variant="ghost"
+																	size="sm"
+																	aria-label={`Edit ${credential.provider} credential ${credential.maskedToken}`}
+																	onClick={() => setEditing(credential)}
+																>
+																	<Pencil className="h-4 w-4" />
+																</Button>
+																<Button
+																	variant="ghost"
+																	size="sm"
+																	aria-label={`Remove ${credential.provider} credential ${credential.maskedToken}`}
+																	onClick={() => {
+																		setDeleteError(null);
+																		setDeleting(credential);
+																	}}
+																>
+																	<Trash2 className="h-4 w-4" />
+																</Button>
 															</div>
-														)}
-													</TableCell>
-													<TableCell>
-														<Badge
-															variant={
-																credential.status === "active"
-																	? "default"
-																	: "secondary"
-															}
-														>
-															{credential.status}
-														</Badge>
-													</TableCell>
-													<TableCell className="text-right">
-														<div className="flex justify-end gap-1">
-															<Button
-																variant="ghost"
-																size="sm"
-																aria-label={`Edit ${credential.provider} credential ${credential.maskedToken}`}
-																onClick={() => setEditing(credential)}
-															>
-																<Pencil className="h-4 w-4" />
-															</Button>
-															<Button
-																variant="ghost"
-																size="sm"
-																aria-label={`Remove ${credential.provider} credential ${credential.maskedToken}`}
-																onClick={() => {
-																	setDeleteError(null);
-																	setDeleting(credential);
-																}}
-															>
-																<Trash2 className="h-4 w-4" />
-															</Button>
-														</div>
-													</TableCell>
-												</>
-											)}
-										</ReorderableItem>
-									);
-								})}
-							</ReorderableList>
-						))
+														</TableCell>
+													</>
+												)}
+											</ReorderableItem>
+										);
+									})}
+									{(envByProvider.get(provider) ?? []).map((entry) => (
+										<EnvCredentialRow
+											key={`${entry.envVar}:${entry.index}`}
+											provider={provider}
+											entry={entry}
+											superseded={isEnvSuperseded(provider, entry.variant)}
+										/>
+									))}
+								</ReorderableList>
+							))}
+							{envOnlyProviders.map((provider) => (
+								<TableBody key={`env-${provider}`}>
+									{(envByProvider.get(provider) ?? []).map((entry) => (
+										<EnvCredentialRow
+											key={`${entry.envVar}:${entry.index}`}
+											provider={provider}
+											entry={entry}
+											superseded={isEnvSuperseded(provider, entry.variant)}
+										/>
+									))}
+								</TableBody>
+							))}
+						</>
 					)}
 				</Table>
 			</div>
