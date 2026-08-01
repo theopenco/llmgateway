@@ -200,6 +200,17 @@ describe("provider keys route", () => {
 		).rejects.toThrow();
 	});
 
+	test("provider_key CHECK constraint rejects rows with neither token form", async () => {
+		// A row readProviderKey could never resolve must not be storable.
+		await expect(
+			db.insert(tables.providerKey).values({
+				id: "test-tokenless-shape",
+				provider: "openai",
+				organizationId: "test-org-id",
+			}),
+		).rejects.toThrow();
+	});
+
 	test("POST /keys/provider rejects token with non-ASCII characters", async () => {
 		const res = await app.request("/keys/provider", {
 			method: "POST",

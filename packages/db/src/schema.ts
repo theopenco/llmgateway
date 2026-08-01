@@ -1671,9 +1671,12 @@ export const providerKey = pgTable(
 			table.managed,
 			table.provider,
 		),
+		// Exactly one storage form per row: a legacy plaintext token XOR an
+		// encrypted one. Also rejects rows with neither, which readProviderKey
+		// could never resolve into a credential.
 		check(
 			"provider_key_token_xor",
-			sql`${table.token} IS NULL OR ${table.tokenCiphertext} IS NULL`,
+			sql`(${table.token} IS NULL) <> (${table.tokenCiphertext} IS NULL)`,
 		),
 		// Managed credentials are platform-owned and never belong to an org;
 		// every other row must be org-scoped.
