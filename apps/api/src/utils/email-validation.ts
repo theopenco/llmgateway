@@ -15,7 +15,7 @@ const BLACKLISTED_DOMAINS = [
 	"addy.io",
 	"xigege.me",
 	"duckmail.sbs",
-	"1nawaks.web.id",
+	"web.id",
 	"web-library.net",
 	"hitbtcpool.cloud",
 	"tempmail.edu.ge",
