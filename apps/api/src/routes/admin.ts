@@ -86,6 +86,38 @@ function escapeHtml(text: string): string {
 	return text.replace(/[&<>"']/g, (char) => htmlEscapeMap[char] || char);
 }
 
+// Search terms and stored matchers are plain substrings, so LIKE
+// metacharacters must be escaped before wrapping them in wildcards. For the
+// organization search this is a safety guard, not just correctness: an
+// unescaped "%" would silently become a match-everything filter, and the bulk
+// block endpoint reuses that filter to decide which organizations get banned.
+function escapeLikePattern(value: string): string {
+	return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+/**
+ * Builds the organization search filter shared by the listing and the bulk
+ * block endpoints. Returns `undefined` for an empty search so callers must
+ * decide explicitly what "no filter" means — the listing shows everything, the
+ * bulk block endpoints reject the request.
+ */
+function buildOrganizationSearchFilter(search: string | undefined) {
+	const trimmed = search?.trim();
+	if (!trimmed) {
+		return undefined;
+	}
+
+	const textPattern = `%${escapeLikePattern(trimmed.toLowerCase())}%`;
+	const idPattern = `%${escapeLikePattern(trimmed)}%`;
+
+	return or(
+		sql`LOWER(${tables.organization.name}) LIKE ${textPattern} ESCAPE '\\'`,
+		sql`LOWER(${tables.organization.billingEmail}) LIKE ${textPattern} ESCAPE '\\'`,
+		sql`${tables.organization.id} LIKE ${idPattern} ESCAPE '\\'`,
+		sql`EXISTS (SELECT 1 FROM ${tables.userOrganization} uo JOIN ${tables.user} u ON uo.user_id = u.id WHERE uo.organization_id = ${tables.organization.id} AND LOWER(u.email) LIKE ${textPattern} ESCAPE '\\')`,
+	);
+}
+
 export const admin = new OpenAPIHono<ServerTypes>();
 
 admin.use("/*", adminMiddleware);
@@ -2074,15 +2106,7 @@ admin.openapi(getOrganizations, async (c) => {
 	const sortBy = query.sortBy ?? "createdAt";
 	const sortOrder = query.sortOrder ?? "desc";
 
-	const searchLower = search?.toLowerCase();
-	const whereClause = searchLower
-		? or(
-				sql`LOWER(${tables.organization.name}) LIKE ${`%${searchLower}%`}`,
-				sql`LOWER(${tables.organization.billingEmail}) LIKE ${`%${searchLower}%`}`,
-				sql`${tables.organization.id} LIKE ${`%${search}%`}`,
-				sql`EXISTS (SELECT 1 FROM ${tables.userOrganization} uo JOIN ${tables.user} u ON uo.user_id = u.id WHERE uo.organization_id = ${tables.organization.id} AND LOWER(u.email) LIKE ${`%${searchLower}%`})`,
-			)
-		: undefined;
+	const whereClause = buildOrganizationSearchFilter(search);
 
 	const [countResult] = await db
 		.select({
@@ -6054,10 +6078,22 @@ const blockOrganizationRoute = createRoute({
 	},
 });
 
-admin.openapi(blockOrganizationRoute, async (c) => {
-	const user = c.get("user");
-	const { orgId } = c.req.valid("param");
+interface BlockOrganizationOutcome {
+	cancelledSubscriptionIds: string[];
+	memberCount: number;
+	deactivatedUserCount: number;
+}
 
+/**
+ * Blocks a single organization: cancels its Stripe subscriptions, marks it
+ * deleted, deactivates members that have no other active organization, and
+ * writes the audit entry. Shared by the single-org and bulk block endpoints so
+ * both paths always apply the exact same effects.
+ */
+async function blockOrganizationById(
+	orgId: string,
+	adminUserId: string,
+): Promise<BlockOrganizationOutcome> {
 	const org = await db.query.organization.findFirst({
 		where: { id: { eq: orgId } },
 	});
@@ -6174,7 +6210,7 @@ admin.openapi(blockOrganizationRoute, async (c) => {
 
 	await logAuditEvent({
 		organizationId: orgId,
-		userId: user!.id,
+		userId: adminUserId,
 		action: "organization.block",
 		resourceType: "organization",
 		resourceId: orgId,
@@ -6188,10 +6224,347 @@ admin.openapi(blockOrganizationRoute, async (c) => {
 		},
 	});
 
+	return {
+		cancelledSubscriptionIds,
+		memberCount: memberUserIds.length,
+		deactivatedUserCount: userIdsToDeactivate.length,
+	};
+}
+
+admin.openapi(blockOrganizationRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+
+	const { cancelledSubscriptionIds } = await blockOrganizationById(
+		orgId,
+		user!.id,
+	);
+
 	return c.json({
 		message: "Organization blocked and subscriptions cancelled.",
 		cancelledSubscriptionIds,
 	});
+});
+
+// --- Bulk block organizations (filtered list) ---
+
+// Hard ceiling on a single bulk block. A filter matching more than this is
+// treated as too broad to be an intentional selection and is rejected outright
+// rather than partially applied.
+const MAX_BULK_BLOCK_ORGANIZATIONS = 500;
+// A one or two character filter matches far too much to be a deliberate
+// selection, so require something specific enough to identify a set of orgs.
+const MIN_BULK_BLOCK_SEARCH_LENGTH = 3;
+
+const bulkBlockOrganizationSchema = z.object({
+	id: z.string(),
+	name: z.string(),
+	billingEmail: z.string(),
+	plan: z.string(),
+	status: z.string().nullable(),
+	createdAt: z.string(),
+});
+
+interface BulkBlockCandidates {
+	search: string;
+	matched: number;
+	candidates: {
+		id: string;
+		name: string;
+		billingEmail: string;
+		plan: string;
+		status: string | null;
+		createdAt: Date;
+	}[];
+}
+
+/**
+ * Resolves the exact set of organizations a bulk block would affect.
+ *
+ * Every guard that prevents a bulk block from degenerating into "ban
+ * everything" lives here, so the preview and the mutation can never disagree
+ * about the target set:
+ * - an empty or too-short search throws, so there is no unfiltered code path;
+ * - the LIKE filter escapes wildcards, so "%" cannot match every row;
+ * - organizations that are already blocked are excluded;
+ * - organizations the acting admin belongs to are excluded, so an admin can
+ *   never lock themselves (or their own org's members) out;
+ * - a filter resolving to more than MAX_BULK_BLOCK_ORGANIZATIONS throws rather
+ *   than silently truncating to the first N.
+ *
+ * Callers mutate strictly by the returned ids, never by re-running the filter
+ * as the WHERE clause of an UPDATE.
+ */
+async function resolveBulkBlockCandidates(
+	search: string,
+	adminUserId: string,
+): Promise<BulkBlockCandidates> {
+	const trimmed = search.trim();
+
+	if (trimmed.length < MIN_BULK_BLOCK_SEARCH_LENGTH) {
+		throw new HTTPException(400, {
+			message: `Bulk blocking requires a search filter of at least ${MIN_BULK_BLOCK_SEARCH_LENGTH} characters.`,
+		});
+	}
+
+	const searchFilter = buildOrganizationSearchFilter(trimmed);
+
+	if (!searchFilter) {
+		throw new HTTPException(400, {
+			message: "Bulk blocking requires a search filter.",
+		});
+	}
+
+	const adminOrgLinks = await db.query.userOrganization.findMany({
+		where: { userId: { eq: adminUserId } },
+		columns: { organizationId: true },
+	});
+	const adminOrgIds = [
+		...new Set(adminOrgLinks.map((link) => link.organizationId)),
+	];
+
+	const candidateFilter = and(
+		searchFilter,
+		or(
+			isNull(tables.organization.status),
+			ne(tables.organization.status, "deleted"),
+		),
+		adminOrgIds.length > 0
+			? notInArray(tables.organization.id, adminOrgIds)
+			: undefined,
+	);
+
+	const [matchedRow] = await db
+		.select({ count: sql<number>`COUNT(*)`.as("count") })
+		.from(tables.organization)
+		.where(searchFilter);
+
+	const candidates = await db
+		.select({
+			id: tables.organization.id,
+			name: tables.organization.name,
+			billingEmail: tables.organization.billingEmail,
+			plan: tables.organization.plan,
+			status: tables.organization.status,
+			createdAt: tables.organization.createdAt,
+		})
+		.from(tables.organization)
+		.where(candidateFilter)
+		.orderBy(asc(tables.organization.createdAt))
+		.limit(MAX_BULK_BLOCK_ORGANIZATIONS + 1);
+
+	if (candidates.length > MAX_BULK_BLOCK_ORGANIZATIONS) {
+		throw new HTTPException(400, {
+			message: `This filter matches more than ${MAX_BULK_BLOCK_ORGANIZATIONS} organizations. Narrow the search before bulk blocking.`,
+		});
+	}
+
+	return {
+		search: trimmed,
+		matched: Number(matchedRow?.count ?? 0),
+		candidates,
+	};
+}
+
+const bulkBlockPreviewRoute = createRoute({
+	method: "get",
+	path: "/organizations/bulk-block/preview",
+	request: {
+		query: z.object({
+			search: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						search: z.string(),
+						matched: z.number(),
+						blockable: z.number(),
+						skipped: z.number(),
+						maxBulkSize: z.number(),
+						organizations: z.array(bulkBlockOrganizationSchema),
+					}),
+				},
+			},
+			description: "Organizations a bulk block would affect.",
+		},
+		400: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "Search filter missing, too short, or too broad.",
+		},
+	},
+});
+
+admin.openapi(bulkBlockPreviewRoute, async (c) => {
+	const user = c.get("user");
+	const { search } = c.req.valid("query");
+
+	const {
+		matched,
+		candidates,
+		search: normalizedSearch,
+	} = await resolveBulkBlockCandidates(search, user!.id);
+
+	return c.json(
+		{
+			search: normalizedSearch,
+			matched,
+			blockable: candidates.length,
+			skipped: Math.max(0, matched - candidates.length),
+			maxBulkSize: MAX_BULK_BLOCK_ORGANIZATIONS,
+			organizations: candidates.map((org) => ({
+				id: org.id,
+				name: org.name,
+				billingEmail: org.billingEmail,
+				plan: org.plan,
+				status: org.status,
+				createdAt: org.createdAt.toISOString(),
+			})),
+		},
+		200,
+	);
+});
+
+const bulkBlockOrganizationsRoute = createRoute({
+	method: "post",
+	path: "/organizations/bulk-block",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						search: z.string(),
+						// The number of organizations the admin confirmed in the UI. The
+						// server re-resolves the set and refuses to act unless it matches
+						// exactly, so a filter that widened between preview and confirm
+						// blocks nothing instead of blocking extra organizations.
+						expectedCount: z
+							.number()
+							.int()
+							.min(1)
+							.max(MAX_BULK_BLOCK_ORGANIZATIONS),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						blockedCount: z.number(),
+						failedCount: z.number(),
+						blocked: z.array(
+							z.object({
+								id: z.string(),
+								name: z.string(),
+								cancelledSubscriptionIds: z.array(z.string()),
+							}),
+						),
+						failed: z.array(
+							z.object({
+								id: z.string(),
+								name: z.string(),
+								error: z.string(),
+							}),
+						),
+					}),
+				},
+			},
+			description: "Bulk block result.",
+		},
+		400: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "Search filter missing, too short, or too broad.",
+		},
+		409: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description:
+				"The confirmed count no longer matches the filtered organizations.",
+		},
+	},
+});
+
+admin.openapi(bulkBlockOrganizationsRoute, async (c) => {
+	const user = c.get("user");
+	const { search, expectedCount } = c.req.valid("json");
+
+	const { candidates } = await resolveBulkBlockCandidates(search, user!.id);
+
+	if (candidates.length !== expectedCount) {
+		throw new HTTPException(409, {
+			message: `The filter now matches ${candidates.length} blockable organization(s) but ${expectedCount} were confirmed. Nothing was blocked — re-run the search and confirm again.`,
+		});
+	}
+
+	// Defensive: `expectedCount` is already validated as >= 1, so this can only
+	// trip if the guards above ever change. Blocking nothing is the safe outcome.
+	if (candidates.length === 0) {
+		throw new HTTPException(400, {
+			message: "No organizations matched the filter.",
+		});
+	}
+
+	const blocked: {
+		id: string;
+		name: string;
+		cancelledSubscriptionIds: string[];
+	}[] = [];
+	const failed: { id: string; name: string; error: string }[] = [];
+
+	// Sequential on purpose: each iteration talks to Stripe, and one failure must
+	// not abort the organizations that follow it.
+	for (const candidate of candidates) {
+		try {
+			const outcome = await blockOrganizationById(candidate.id, user!.id);
+			blocked.push({
+				id: candidate.id,
+				name: candidate.name,
+				cancelledSubscriptionIds: outcome.cancelledSubscriptionIds,
+			});
+		} catch (error) {
+			const message =
+				error instanceof HTTPException
+					? error.message
+					: error instanceof Error
+						? error.message
+						: "Unknown error";
+			logger.error(
+				`Bulk block failed for organization ${candidate.id}: ${message}`,
+			);
+			failed.push({ id: candidate.id, name: candidate.name, error: message });
+		}
+	}
+
+	return c.json(
+		{
+			message:
+				failed.length === 0
+					? `Blocked ${blocked.length} organization(s).`
+					: `Blocked ${blocked.length} organization(s), ${failed.length} failed.`,
+			blockedCount: blocked.length,
+			failedCount: failed.length,
+			blocked,
+			failed,
+		},
+		200,
+	);
 });
 
 // --- History endpoints ---
@@ -8661,12 +9034,6 @@ function resolveUnstableMappingsWindow(
 // `retried` is nullable; legacy rows predate the column and are NULL. Treat
 // those as non-retried so they are not silently dropped from the rankings.
 const unstableMappingsNotRetriedClause = sql`AND ${tables.log.retried} IS DISTINCT FROM true`;
-
-// Matchers are plain substrings, so LIKE metacharacters in the stored pattern
-// must be escaped before wrapping in wildcards.
-function escapeLikePattern(pattern: string): string {
-	return pattern.replace(/[\\%_]/g, (char) => `\\${char}`);
-}
 
 interface IgnoredErrorMatcherTarget {
 	pattern: string | null;
