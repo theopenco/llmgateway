@@ -121,7 +121,7 @@ const modelSchema = z.object({
 	context_length: z.number().optional(),
 	max_output: z.number().optional().openapi({
 		description:
-			"Largest max_tokens value guaranteed to be accepted regardless of which provider mapping serves the request (the minimum across mappings that declare a limit). Omitted when no mapping declares one.",
+			"Largest max_tokens value guaranteed to be accepted regardless of which provider mapping serves the request (the minimum across still-servable mappings that declare a limit; deactivated mappings are excluded). Omitted when no such mapping declares one.",
 	}),
 	per_request_limits: z.record(z.string()).optional(),
 	supported_parameters: z.array(z.string()).optional(),
@@ -328,7 +328,7 @@ modelsApi.openapi(listModels, async (c) => {
 				context_length:
 					Math.max(...model.providers.map((p) => p.contextSize ?? 0)) ??
 					undefined,
-				max_output: getModelLevelMaxOutput(model.providers),
+				max_output: getModelLevelMaxOutput(model.providers, currentDate),
 				per_request_limits: getPerRequestLimits(model),
 				// Get supported parameters from model definitions with fallback to defaults
 				supported_parameters: getSupportedParametersFromModel(model),
@@ -383,11 +383,15 @@ function getModelLevelDate(dates: (Date | undefined)[]): string | undefined {
 // maxOutput of whichever provider mapping ends up serving them, so advertise the
 // minimum across mappings that declare one — the largest value guaranteed to be
 // accepted regardless of routing. Mappings without a declared limit accept any
-// max_tokens and therefore do not constrain the bound.
+// max_tokens and therefore do not constrain the bound. Deactivated mappings can
+// no longer serve requests, so they don't constrain it either; deprecated
+// mappings remain routable and keep enforcing their limit, so they stay in.
 function getModelLevelMaxOutput(
 	mappings: ProviderModelMapping[],
+	currentDate: Date,
 ): number | undefined {
 	const limits = mappings
+		.filter((p) => !(p.deactivatedAt && currentDate > p.deactivatedAt))
 		.map((p) => p.maxOutput)
 		.filter((limit): limit is number => limit !== undefined);
 	return limits.length > 0 ? Math.min(...limits) : undefined;
