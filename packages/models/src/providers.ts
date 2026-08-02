@@ -1300,7 +1300,8 @@ export const providers: ProviderDefinition[] = [
 	{
 		id: "scx-ai-gp",
 		name: "SCX.ai",
-		description: "",
+		description:
+			"SCX.ai is an Australian sovereign AI platform providing OpenAI-compatible general-purpose inference endpoints for a range of open models and SCX's own models, hosted on renewable-powered infrastructure.",
 		env: {
 			required: {
 				apiKey: "LLM_SCX_AI_API_KEY",
