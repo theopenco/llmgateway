@@ -6096,6 +6096,33 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 	});
 });
 
+// --- Deleting/blocking an organization requires a non-positive balance ---
+
+/**
+ * Admin deletion is a fallback for abuse handling, not an account-closure tool.
+ * An organization that still holds credits is a paying customer, so wiping it
+ * from the admin panel is never the right move — the balance has to be spent,
+ * refunded, or zeroed deliberately first, and the account then handled manually.
+ *
+ * Every path that marks an organization `deleted` (status toggle, single block,
+ * bulk block) funnels through this guard so no single entry point can bypass it.
+ */
+function assertOrganizationDeletable(org: {
+	name: string;
+	credits: string | null;
+}): void {
+	const credits = Number(org.credits ?? "0");
+
+	// Written as `!(credits <= 0)` rather than `credits > 0` so an unparseable
+	// balance (NaN) also refuses the delete: not deleting is always the safe
+	// direction here.
+	if (!(credits <= 0)) {
+		throw new HTTPException(409, {
+			message: `"${org.name}" still has a positive credit balance (${org.credits ?? "0"}). Deleting is only allowed for organizations with zero or negative credits — zero out or refund the balance first, then handle this account manually.`,
+		});
+	}
+}
+
 // --- Set Organization Status ---
 
 const orgStatusSchema = z.enum(["active", "deleted"]);
@@ -6139,6 +6166,16 @@ const setOrganizationStatusRoute = createRoute({
 			},
 			description: "Organization not found.",
 		},
+		409: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Organization still has a positive credit balance.",
+		},
 	},
 });
 
@@ -6153,6 +6190,11 @@ admin.openapi(setOrganizationStatusRoute, async (c) => {
 
 	if (!org) {
 		throw new HTTPException(404, { message: "Organization not found" });
+	}
+
+	// Re-enabling is always allowed; only the destructive direction is gated.
+	if (status === "deleted") {
+		assertOrganizationDeletable(org);
 	}
 
 	const memberLinks = await db.query.userOrganization.findMany({
@@ -6280,6 +6322,16 @@ const blockOrganizationRoute = createRoute({
 			},
 			description: "Organization not found.",
 		},
+		409: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Organization still has a positive credit balance.",
+		},
 	},
 });
 
@@ -6306,6 +6358,10 @@ async function blockOrganizationById(
 	if (!org) {
 		throw new HTTPException(404, { message: "Organization not found" });
 	}
+
+	// Checked before any Stripe call so a paying organization is refused without
+	// its subscriptions being cancelled first.
+	assertOrganizationDeletable(org);
 
 	const subscriptionIds = [
 		org.stripeSubscriptionId,
@@ -6484,6 +6540,8 @@ interface BulkBlockCandidates {
  * - an empty or too-short search throws, so there is no unfiltered code path;
  * - the LIKE filter escapes wildcards, so "%" cannot match every row;
  * - organizations that are already blocked are excluded;
+ * - organizations that still hold credits are excluded, so a bulk block can
+ *   never sweep up a paying customer (see assertOrganizationDeletable);
  * - organizations the acting admin belongs to are excluded, so an admin can
  *   never lock themselves (or their own org's members) out;
  * - a filter resolving to more than MAX_BULK_BLOCK_ORGANIZATIONS throws rather
@@ -6526,6 +6584,7 @@ async function resolveBulkBlockCandidates(
 			isNull(tables.organization.status),
 			ne(tables.organization.status, "deleted"),
 		),
+		lte(tables.organization.credits, "0"),
 		adminOrgIds.length > 0
 			? notInArray(tables.organization.id, adminOrgIds)
 			: undefined,
