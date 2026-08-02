@@ -1,4 +1,6 @@
+import { ProviderKeySpendCell } from "@/components/provider-key-spend-cell";
 import { ProviderKeySpendDialog } from "@/components/provider-key-spend-dialog";
+import { ProviderKeyStatusBadge } from "@/components/provider-key-status-badge";
 import { Badge } from "@/components/ui/badge";
 import {
 	Table,
@@ -8,7 +10,6 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { formatUsd, hasReachedSpendLimit } from "@/lib/provider-key-spend";
 
 import type { paths } from "@/lib/api/v1";
 
@@ -64,36 +65,11 @@ export function ProviderKeysTable({
 								<TableCell className="max-w-[240px] truncate text-xs text-muted-foreground">
 									{key.baseUrl ?? "—"}
 								</TableCell>
-								<TableCell className="text-sm tabular-nums">
-									<div>{formatUsd(key.usage)}</div>
-									{key.usageLimit !== null ? (
-										<div
-											className="text-[11px] text-muted-foreground"
-											title="The key is automatically deactivated once its attributed spend reaches this cap."
-										>
-											of {formatUsd(key.usageLimit)}
-										</div>
-									) : null}
+								<TableCell className="text-sm">
+									<ProviderKeySpendCell keyRow={key} />
 								</TableCell>
 								<TableCell>
-									{hasReachedSpendLimit(key) ? (
-										<Badge
-											variant="destructive"
-											title={`Automatically deactivated: spend reached the ${formatUsd(
-												key.usageLimit ?? "0",
-											)} cap. Raise or clear the limit to re-enable.`}
-										>
-											limit reached
-										</Badge>
-									) : (
-										<Badge
-											variant={
-												key.status === "active" ? "secondary" : "outline"
-											}
-										>
-											{key.status ?? "active"}
-										</Badge>
-									)}
+									<ProviderKeyStatusBadge keyRow={key} />
 								</TableCell>
 								<TableCell className="text-muted-foreground">
 									{formatDate(key.createdAt)}

@@ -5,7 +5,9 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { ProviderKeySpendCell } from "@/components/provider-key-spend-cell";
 import { ProviderKeySpendDialog } from "@/components/provider-key-spend-dialog";
+import { ProviderKeyStatusBadge } from "@/components/provider-key-status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -35,7 +37,8 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { formatUsd, hasReachedSpendLimit } from "@/lib/provider-key-spend";
+import { formatUsd, isInRotation } from "@/lib/provider-key-spend";
+import { cn } from "@/lib/utils";
 
 import { getProviderIcon } from "@llmgateway/shared";
 import {
@@ -380,6 +383,26 @@ export function ProviderCredentialsManager({
 		[order, providerFilter],
 	);
 
+	/**
+	 * Rotation position per credential id, counting only the credentials the
+	 * gateway will actually consider. Ids absent from the map are out of
+	 * rotation.
+	 */
+	const rotationPositions = useMemo(() => {
+		const positions = new Map<string, number>();
+		order.forEach((ids) => {
+			let position = 0;
+			for (const id of ids) {
+				const credential = credentialById.get(id);
+				if (credential && isInRotation(credential)) {
+					position++;
+					positions.set(id, position);
+				}
+			}
+		});
+		return positions;
+	}, [order, credentialById]);
+
 	const envByProvider = useMemo(() => {
 		const map = new Map<string, EnvCredential[]>();
 		for (const entry of catalog) {
@@ -556,11 +579,17 @@ export function ProviderCredentialsManager({
 									onReorder={(next) => applyReorder(provider, next)}
 									onCommit={(next) => void commitReorder(provider, next)}
 								>
-									{ids.map((id: string, index: number) => {
+									{ids.map((id: string) => {
 										const credential = credentialById.get(id);
 										if (!credential) {
 											return null;
 										}
+										// Position the gateway would actually try this credential
+										// at. Selection skips anything not active, so numbering
+										// every row by its list index would show a shut-off key
+										// as "#1" while the gateway silently serves from the one
+										// below it.
+										const rotationPosition = rotationPositions.get(id) ?? null;
 										const configEntries = Object.entries(
 											credential.config ?? {},
 										);
@@ -570,16 +599,31 @@ export function ProviderCredentialsManager({
 												id={credential.id}
 												as="tr"
 												itemLabel={`${credential.provider} credential ${credential.maskedToken}`}
-												className="border-b bg-card transition-colors hover:bg-muted/50"
+												className={cn(
+													"border-b bg-card transition-colors hover:bg-muted/50",
+													rotationPosition === null && "bg-muted/30",
+												)}
 											>
 												{(handle) => (
 													<>
 														<TableCell className="w-10">
 															<div className="flex items-center gap-1">
 																{handle}
-																<span className="text-xs tabular-nums text-muted-foreground">
-																	{index + 1}
-																</span>
+																{rotationPosition === null ? (
+																	<span
+																		className="text-xs text-muted-foreground"
+																		title="Not in rotation: the gateway only selects active credentials, so this one is skipped entirely."
+																	>
+																		—
+																	</span>
+																) : (
+																	<span
+																		className="text-xs tabular-nums text-muted-foreground"
+																		title={`Position ${rotationPosition} in this provider's rotation. The gateway tries credentials in this order and falls through to the next when one is unhealthy.`}
+																	>
+																		{rotationPosition}
+																	</span>
+																)}
 															</div>
 														</TableCell>
 														<TableCell>
@@ -626,38 +670,11 @@ export function ProviderCredentialsManager({
 																</div>
 															)}
 														</TableCell>
-														<TableCell className="text-sm tabular-nums">
-															<div>{formatUsd(credential.usage)}</div>
-															{credential.usageLimit !== null ? (
-																<div
-																	className="text-[11px] text-muted-foreground"
-																	title="The credential is automatically deactivated once its attributed spend reaches this cap."
-																>
-																	of {formatUsd(credential.usageLimit)}
-																</div>
-															) : null}
+														<TableCell className="text-sm">
+															<ProviderKeySpendCell keyRow={credential} />
 														</TableCell>
 														<TableCell>
-															{hasReachedSpendLimit(credential) ? (
-																<Badge
-																	variant="destructive"
-																	title={`Automatically deactivated: spend reached the ${formatUsd(
-																		credential.usageLimit ?? "0",
-																	)} cap. Raise or clear the limit to reactivate.`}
-																>
-																	limit reached
-																</Badge>
-															) : (
-																<Badge
-																	variant={
-																		credential.status === "active"
-																			? "default"
-																			: "secondary"
-																	}
-																>
-																	{credential.status}
-																</Badge>
-															)}
+															<ProviderKeyStatusBadge keyRow={credential} />
 														</TableCell>
 														<TableCell className="text-right">
 															<div className="flex justify-end gap-1">
