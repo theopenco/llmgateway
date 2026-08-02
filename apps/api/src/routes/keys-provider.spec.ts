@@ -903,10 +903,20 @@ describe("provider keys route", () => {
 			const rows = await db.query.providerKey.findMany({
 				where: { organizationId: { eq: orgId }, provider: { eq: "openai" } },
 			});
-			return rows
-				.slice()
-				.sort((a, b) => (a.sortOrder ?? 99) - (b.sortOrder ?? 99))
-				.map((row) => [row.id, row.sortOrder] as const);
+			return (
+				rows
+					.slice()
+					// id tiebreak: the rejection cases assert every key is still
+					// unpositioned, so every sortOrder is null and the numeric compare
+					// returns 0 for every pair. Without it the assertion depends on
+					// Postgres heap order.
+					.sort(
+						(a, b) =>
+							(a.sortOrder ?? 99) - (b.sortOrder ?? 99) ||
+							a.id.localeCompare(b.id),
+					)
+					.map((row) => [row.id, row.sortOrder] as const)
+			);
 		}
 
 		test("requires authentication", async () => {
