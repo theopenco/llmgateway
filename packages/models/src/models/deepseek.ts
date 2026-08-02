@@ -316,7 +316,13 @@ export const deepseekModels = [
 				maxOutput: 163840,
 				streaming: true,
 				reasoning: true,
-				reasoningEfforts: ["high", "max"],
+				// Together's deployment accepts any reasoning_effort string without
+				// validating it, and only the top tiers measurably change behaviour:
+				// xhigh and max roughly double the reasoning tokens, while
+				// low/medium/high land on the provider default. `none` is honoured
+				// through the `thinking` switch, not through reasoning_effort.
+				reasoningEfforts: ["none", "xhigh", "max"],
+				requiresDisableThinkingParam: true,
 				reasoningOutput: "omit",
 				vision: false,
 				tools: true,

@@ -776,6 +776,9 @@ export const openaiModels = [
 				vision: false,
 				tools: true,
 				reasoning: true,
+				// Together validates reasoning_effort on the gpt-oss route and 400s
+				// ("Input validation error") on anything outside low/medium/high.
+				reasoningEfforts: ["low", "medium", "high"],
 				jsonOutput: false,
 			},
 			{
@@ -878,6 +881,9 @@ export const openaiModels = [
 				vision: false,
 				tools: true,
 				reasoning: true,
+				// Together validates reasoning_effort on the gpt-oss route and 400s
+				// ("Input validation error") on anything outside low/medium/high.
+				reasoningEfforts: ["low", "medium", "high"],
 				jsonOutput: false,
 			},
 		],
