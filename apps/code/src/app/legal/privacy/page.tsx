@@ -14,7 +14,7 @@ export default function PrivacyPage() {
 			<p>
 				<strong>Effective Date:</strong> April 26, 2026
 				<br />
-				<strong>Last Updated:</strong> June 26, 2026
+				<strong>Last Updated:</strong> August 2, 2026
 			</p>
 			<p>
 				This Supplemental Privacy Policy describes how{" "}
@@ -74,21 +74,14 @@ export default function PrivacyPage() {
 				<li>IP address, user agent, and approximate region</li>
 			</ul>
 			<p>
-				Whether full request and response <strong>payloads</strong> (your
-				prompts and the model output) are stored depends on your DevPass
-				retention settings:
+				Full request and response <strong>payloads</strong> (your prompts and
+				the model output) are <strong>never stored</strong> on DevPass. DevPass
+				is metadata only: the counts, costs, and routing information listed
+				above are kept, and prompts and responses are discarded once the request
+				completes. There is no setting to turn payload storage on, on any
+				DevPass plan. The configurable data retention available on pay-as-you-go
+				LLM Gateway organizations does not apply to DevPass.
 			</p>
-			<ul>
-				<li>
-					<strong>Retain all data</strong> — payloads and metadata are stored
-					and visible in the dashboard
-				</li>
-				<li>
-					<strong>Metadata only</strong> — only counts, costs, and routing info
-					are kept; prompts and responses are discarded after the request
-					completes
-				</li>
-			</ul>
 			<h3>c. Cookies and Local Storage</h3>
 			<p>
 				We use first-party cookies and local storage to keep you signed in,
@@ -167,12 +160,11 @@ export default function PrivacyPage() {
 				</li>
 				<li>
 					<strong>Request metadata</strong> — kept for the life of your active
-					DevPass subscription according to your retention setting (default:
-					retained on Lite, Pro, and Max)
+					DevPass subscription on every plan (Lite, Pro, and Max)
 				</li>
 				<li>
-					<strong>Request payloads</strong> — only stored if you opt in; you can
-					purge them at any time from settings
+					<strong>Request payloads</strong> — never stored; prompts and
+					responses are discarded once the request completes
 				</li>
 				<li>
 					<strong>Logs and audit trails</strong> — kept for security and

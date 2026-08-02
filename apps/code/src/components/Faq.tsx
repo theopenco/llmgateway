@@ -87,7 +87,7 @@ const faqData: FaqItem[] = [
 	},
 	{
 		question: "Do I need a subscription, or is there pay-as-you-go?",
-		answer: `Both work. DevPass plans turn every dollar into $3 of model usage. If you'd rather not subscribe, LLM Gateway offers pay-as-you-go: top up credits and pay per token at provider rates with a flat ${MARKETING_STATS.platformFee} platform fee, or bring your own provider keys for free. In both modes, optional full data retention is billed at ${MARKETING_STATS.dataStoragePrice}.`,
+		answer: `Both work. DevPass plans turn every dollar into $3 of model usage. If you'd rather not subscribe, LLM Gateway offers pay-as-you-go: top up credits and pay per token at provider rates with a flat ${MARKETING_STATS.platformFee} platform fee, or bring your own provider keys for free. Pay-as-you-go organizations can optionally enable full data retention, billed at ${MARKETING_STATS.dataStoragePrice}; DevPass never stores request payloads.`,
 	},
 	{
 		question: "Can my team or company use DevPass?",

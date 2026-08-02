@@ -24,6 +24,13 @@ LLM Gateway supports two retention levels that can be configured per organizatio
 	without additional storage costs.
 </Callout>
 
+<Callout type="warning">
+	Retention levels are configurable on standard (pay-as-you-go) organizations
+	only. DevPass and chat subscriptions are always metadata only — request and
+	response payloads are never stored for them, and there is no setting to turn
+	payload storage on.
+</Callout>
+
 ## Storage Pricing
 
 When full data retention is enabled, storage is billed at **$0.01 per 1 million tokens**. This rate applies to:
@@ -47,7 +54,7 @@ Storage cost = 1,500 / 1,000,000 × $0.01 = **$0.000015**
 
 ## Configuring Retention
 
-Data retention is configured at the organization level in your dashboard settings:
+Data retention is configured at the organization level in your dashboard settings. The setting is only available on standard pay-as-you-go organizations:
 
 1. Navigate to **Organization Settings** → **Policies**
 2. Select your preferred **Data Retention Level**

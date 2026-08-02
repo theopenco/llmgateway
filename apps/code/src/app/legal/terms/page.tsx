@@ -16,7 +16,7 @@ export default function TermsPage() {
 			<p>
 				<strong>Effective Date:</strong> April 26, 2026
 				<br />
-				<strong>Last Updated:</strong> July 22, 2026
+				<strong>Last Updated:</strong> August 2, 2026
 			</p>
 			<p>
 				<strong>DevPass</strong> is a service operated by{" "}
@@ -261,9 +261,10 @@ export default function TermsPage() {
 				<Link href="/legal/privacy">DevPass Privacy Policy</Link>, which builds
 				on the main{" "}
 				<a href="https://llmgateway.io/privacy">LLM Gateway Privacy Policy</a>.
-				Request payloads, responses, and per-agent metadata are stored to power
-				your dashboard, usage reporting, and per-tool insights, subject to the
-				retention options available in your account settings.
+				Per-agent metadata — token counts, costs, models, and routing
+				information — is stored to power your dashboard, usage reporting, and
+				per-tool insights. Request payloads and responses are never stored on
+				DevPass.
 			</p>
 			<hr />
 			<h2>6. Contact</h2>
