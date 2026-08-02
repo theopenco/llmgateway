@@ -1962,9 +1962,10 @@ export const openaiModels = [
 				cacheWriteInputPrice: "6.875e-6",
 				requestPrice: "0",
 				// AWS caps the Mantle deployment at a 272K context (vs 1.05M
-				// first-party), so OpenAI's over-272K pricing tier never applies.
-				// AWS's "272K" is 272 * 1024: upstream rejects prompts of 278528
-				// tokens or more.
+				// first-party). AWS's "272K" is 272 * 1024: upstream rejects prompts
+				// of 278528 tokens or more. No pricingTiers because AWS publishes a
+				// single flat rate for Mantle and does not expose OpenAI's
+				// long-context tier at all.
 				contextSize: 278528,
 				maxOutput: 128000,
 				streaming: true,
@@ -2122,9 +2123,10 @@ export const openaiModels = [
 				cacheWriteInputPrice: "2.75e-6",
 				requestPrice: "0",
 				// AWS caps the Mantle deployment at a 272K context (vs 1.05M
-				// first-party), so OpenAI's over-272K pricing tier never applies.
-				// AWS's "272K" is 272 * 1024: upstream rejects prompts of 278528
-				// tokens or more.
+				// first-party). AWS's "272K" is 272 * 1024: upstream rejects prompts
+				// of 278528 tokens or more. No pricingTiers because AWS publishes a
+				// single flat rate for Mantle and does not expose OpenAI's
+				// long-context tier at all.
 				contextSize: 278528,
 				maxOutput: 128000,
 				streaming: true,
@@ -2282,9 +2284,10 @@ export const openaiModels = [
 				cacheWriteInputPrice: "0.275e-6",
 				requestPrice: "0",
 				// AWS caps the Mantle deployment at a 272K context (vs 1.05M
-				// first-party), so OpenAI's over-272K pricing tier never applies.
-				// AWS's "272K" is 272 * 1024: upstream rejects prompts of 278528
-				// tokens or more.
+				// first-party). AWS's "272K" is 272 * 1024: upstream rejects prompts
+				// of 278528 tokens or more. No pricingTiers because AWS publishes a
+				// single flat rate for Mantle and does not expose OpenAI's
+				// long-context tier at all.
 				contextSize: 278528,
 				maxOutput: 128000,
 				streaming: true,

@@ -389,7 +389,13 @@ export function getProviderEndpoint(
 				// region carrying the whole GPT-5.6 family (Sol is not in us-west-2).
 				const envBaseUrl = skipEnvVars
 					? undefined
-					: getProviderEnvValue("aws-mantle", "baseUrl", configIndex);
+					: getProviderEnvValue(
+							"aws-mantle",
+							"baseUrl",
+							configIndex,
+							undefined,
+							variant,
+						);
 				const mantleRegion =
 					envValueOrDefault("aws-mantle", "region", "us-east-1") ?? "us-east-1";
 				url =

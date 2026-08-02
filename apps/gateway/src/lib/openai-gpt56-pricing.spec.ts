@@ -127,7 +127,8 @@ describe("OpenAI GPT-5.6 family pricing", () => {
 // Bedrock Mantle in-region inference is priced at OpenAI's data-residency
 // tier, a flat 10% premium over the first-party rates, and AWS caps the
 // deployment at a 272 * 1024 token context (upstream rejects prompts of
-// 278528 tokens or more), so the over-272K tier can never apply.
+// 278528 tokens or more). AWS publishes a single flat rate per model and does
+// not expose OpenAI's long-context tier, so pricingTiers stays unset.
 const BEDROCK_PREMIUM = 1.1;
 const MANTLE_CONTEXT_SIZE = 272 * 1024;
 
@@ -246,9 +247,13 @@ describe("GPT-5.6 on AWS Bedrock Mantle", () => {
 		for (const { modelId, provider } of mantleEntries) {
 			const expanded = expandProviderRegions(provider);
 			// synthetic root + one entry per region
-			expect(expanded).toHaveLength(
-				(EXPECTED_REGIONS[modelId]?.length ?? 0) + 1,
-			);
+			// The synthetic root carries no region and must come first, followed by
+			// exactly the declared regions — a count check alone would pass if a
+			// region were duplicated or mislabelled.
+			expect(expanded.map((entry) => entry.region)).toEqual([
+				undefined,
+				...EXPECTED_REGIONS[modelId],
+			]);
 			for (const entry of expanded) {
 				expect(entry.inputPrice, `${modelId} ${entry.region}`).toBe(
 					provider.inputPrice,

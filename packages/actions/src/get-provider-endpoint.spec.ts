@@ -15,6 +15,7 @@ const originalXiaomiBaseUrl = process.env.LLM_XIAOMI_BASE_URL;
 const originalOpenaiBaseUrl = process.env.LLM_OPENAI_BASE_URL;
 const originalBedrockBaseUrl = process.env.LLM_AWS_BEDROCK_BASE_URL;
 const originalBedrockRegion = process.env.LLM_AWS_BEDROCK_REGION;
+const originalMantleRegion = process.env.LLM_AWS_MANTLE_REGION;
 
 afterEach(() => {
 	if (originalAiStudioBaseUrl === undefined) {
@@ -88,6 +89,12 @@ afterEach(() => {
 		delete process.env.LLM_AWS_BEDROCK_REGION;
 	} else {
 		process.env.LLM_AWS_BEDROCK_REGION = originalBedrockRegion;
+	}
+
+	if (originalMantleRegion === undefined) {
+		delete process.env.LLM_AWS_MANTLE_REGION;
+	} else {
+		process.env.LLM_AWS_MANTLE_REGION = originalMantleRegion;
 	}
 });
 
@@ -879,6 +886,54 @@ describe("getProviderEndpoint", () => {
 
 			expect(endpoint).toBe(
 				"https://bedrock-mantle.us-east-1.api.aws/openai/v1/responses",
+			);
+		});
+
+		it("prefers the selected region over LLM_AWS_MANTLE_REGION", () => {
+			// The env var is a deployment-level default; a region resolved from the
+			// request or from a provider key's options must still win.
+			process.env.LLM_AWS_MANTLE_REGION = "us-east-1";
+
+			const endpoint = getProviderEndpoint(
+				"aws-mantle",
+				undefined,
+				"openai.gpt-5.6-terra",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"us-west-2",
+				false, // read env vars
+			);
+
+			expect(endpoint).toBe(
+				"https://bedrock-mantle.us-west-2.api.aws/openai/v1/responses",
+			);
+		});
+
+		it("falls back to LLM_AWS_MANTLE_REGION when no region is selected", () => {
+			process.env.LLM_AWS_MANTLE_REGION = "us-east-2";
+
+			const endpoint = getProviderEndpoint(
+				"aws-mantle",
+				undefined,
+				"openai.gpt-5.6-terra",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false, // read env vars
+			);
+
+			expect(endpoint).toBe(
+				"https://bedrock-mantle.us-east-2.api.aws/openai/v1/responses",
 			);
 		});
 
