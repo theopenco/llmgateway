@@ -34,18 +34,16 @@ export function applyGoogleServiceTier(
 }
 
 /**
- * The Google providers the gateway forwards premium tiers to via Google's
- * transports: the `service_tier` body field (BODY_TIER_PROVIDERS) or the
- * Vertex request headers. A premium tier is only guaranteed to apply when the
- * request reaches Google's real upstream — a key pointing at a proxy / custom
- * base URL may silently drop the tier and the request is served (and billed)
- * as standard, never at the tier the caller asked for. Service-tier routing
- * is therefore restricted to keys targeting the provider's default base URL.
+ * Providers whose premium tiers only apply when the request reaches their real
+ * upstream: the Google providers (the `service_tier` body field for
+ * BODY_TIER_PROVIDERS, the Vertex request headers for google-vertex) and
+ * Fireworks. A key pointing at a proxy / custom base URL may silently drop the
+ * tier, so the request is served (and billed) as standard, never at the tier
+ * the caller asked for. Service-tier routing is therefore restricted to keys
+ * targeting the provider's default base URL.
  */
-const GOOGLE_TIER_PROVIDERS: ReadonlySet<ProviderId> = new Set<ProviderId>([
-	...BODY_TIER_PROVIDERS,
-	"google-vertex",
-]);
+const UPSTREAM_ONLY_TIER_PROVIDERS: ReadonlySet<ProviderId> =
+	new Set<ProviderId>([...BODY_TIER_PROVIDERS, "google-vertex", "fireworks"]);
 
 /**
  * The OpenAI-compatible processing tiers that select premium (Flex / Priority)
@@ -71,18 +69,19 @@ function normalizeServiceTierBaseUrl(baseUrl: string): string {
 
 /**
  * Whether a provider key's base URL is eligible to carry a Flex/Priority
- * service-tier request. Eligible when the provider is not one of the Google
- * tier providers, when the key uses the managed default (no custom base URL),
- * or when the custom base URL exactly matches the provider's default base URL
- * (its real upstream). A custom base URL on google-ai-studio / google-vertex
- * is the only case this rejects — glacier has no static default base URL
- * (env-defined deployment), so there is no canonical upstream to enforce.
+ * service-tier request. Eligible when the provider is not one of the
+ * upstream-only tier providers, when the key uses the managed default (no
+ * custom base URL), or when the custom base URL exactly matches the provider's
+ * default base URL (its real upstream). A custom base URL on google-ai-studio /
+ * google-vertex / fireworks is the only case this rejects — glacier has no
+ * static default base URL (env-defined deployment), so there is no canonical
+ * upstream to enforce.
  */
 export function providerKeyBaseUrlSupportsServiceTier(
 	provider: ProviderId,
 	baseUrl: string | null | undefined,
 ): boolean {
-	if (!GOOGLE_TIER_PROVIDERS.has(provider) || !baseUrl) {
+	if (!UPSTREAM_ONLY_TIER_PROVIDERS.has(provider) || !baseUrl) {
 		return true;
 	}
 	const upstream = getProviderDefaultBaseUrl(provider);
@@ -134,4 +133,31 @@ export function resolveServedServiceTier(signals: {
 		return "flex";
 	}
 	return null;
+}
+
+/**
+ * Providers that honor `service_tier` but report nothing back about the tier
+ * they served — no field in the response body, no response header. Fireworks
+ * is one: a Priority request is either served at Priority or shed with a 503
+ * ("server overloaded"), so there is no silent downgrade to standard and a
+ * successful response can be attributed to the tier that was forwarded.
+ */
+const UNREPORTED_TIER_PROVIDERS: ReadonlySet<ProviderId> = new Set<ProviderId>([
+	"fireworks",
+]);
+
+/**
+ * The tier to bill for providers that never report a served tier. Returns the
+ * forwarded tier when the upstream accepted the request, and null otherwise so
+ * a rejected request is never logged as having run at a premium tier.
+ */
+export function assumeServedServiceTier(
+	provider: ProviderId,
+	forwardedServiceTier: string | null | undefined,
+	responseOk: boolean,
+): "flex" | "priority" | null {
+	if (!responseOk || !isPremiumServiceTier(forwardedServiceTier)) {
+		return null;
+	}
+	return UNREPORTED_TIER_PROVIDERS.has(provider) ? forwardedServiceTier : null;
 }

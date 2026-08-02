@@ -12,7 +12,6 @@ export const moonshotModels = [
 				providerId: "groq",
 				externalId: "moonshotai/kimi-k2-instruct",
 				// Frequently over capacity on Groq (503)
-				// Ref: https://groqstatus.com
 				stability: "unstable",
 				inputPrice: "1.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -264,8 +263,6 @@ export const moonshotModels = [
 				providerId: "together-ai",
 				externalId: "moonshotai/Kimi-K2.5",
 				// Together.ai intermittently returns 500 for this model (~98.7% uptime)
-				// Ref: https://status.together.ai
-				// Model page: https://www.together.ai/models/kimi-k2-5
 				stability: "unstable",
 				inputPrice: "0.5e-6",
 				outputPrice: "2.8e-6",
@@ -468,6 +465,12 @@ export const moonshotModels = [
 				maxOutput: 32768,
 				streaming: true,
 				reasoning: true,
+				// Together's deployment accepts any reasoning_effort string without
+				// validating it, and no tier measurably changes the reasoning length,
+				// so `none` — honoured through the `thinking` switch rather than
+				// reasoning_effort — is the only effort this mapping really applies.
+				reasoningEfforts: ["none"],
+				requiresDisableThinkingParam: true,
 				vision: true,
 				tools: false,
 				jsonOutput: false,
@@ -697,6 +700,12 @@ export const moonshotModels = [
 				quantization: "fp4",
 				streaming: true,
 				reasoning: true,
+				// Together's deployment accepts any reasoning_effort string without
+				// validating it, and no tier measurably changes the reasoning length,
+				// so `none` — honoured through the `thinking` switch rather than
+				// reasoning_effort — is the only effort this mapping really applies.
+				reasoningEfforts: ["none"],
+				requiresDisableThinkingParam: true,
 				vision: true,
 				tools: true,
 				jsonOutput: true,
@@ -740,6 +749,10 @@ export const moonshotModels = [
 				cachedInputPrice: "0.3e-6",
 				outputPrice: "15.0e-6",
 				requestPrice: "0",
+				// Fireworks publishes a Priority rate card for Kimi K3 at exactly
+				// 1.25x the standard rates ($3.75 / $0.375 / $18.75 per million),
+				// which is the provider-level multiplier — no override needed.
+				serviceTiers: ["priority"],
 				contextSize: 1040384,
 				maxOutput: 1040384,
 				streaming: true,
@@ -779,6 +792,34 @@ export const moonshotModels = [
 					"xhigh",
 					"max",
 				],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
+		],
+	},
+	{
+		id: "kimi-k3-fast",
+		name: "Kimi K3 Fast",
+		description:
+			"Kimi K3 served on Fireworks' low-latency Fast router, trading a higher token price for faster generation.",
+		family: "moonshot",
+		releasedAt: new Date("2026-07-16"),
+		providers: [
+			{
+				providerId: "fireworks",
+				externalId: "accounts/fireworks/routers/kimi-k3-fast",
+				inputPrice: "4.5e-6",
+				cachedInputPrice: "0.45e-6",
+				outputPrice: "22.5e-6",
+				requestPrice: "0",
+				contextSize: 1040384,
+				maxOutput: 1040384,
+				streaming: true,
+				reasoning: true,
+				// Like the standard Fireworks deployment, the full effort enum is
+				// accepted and "minimal" is rejected with a 400.
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
 				vision: true,
 				tools: true,
 				jsonOutput: true,

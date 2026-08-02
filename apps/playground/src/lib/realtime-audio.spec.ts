@@ -5,10 +5,14 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+	base64ToBytes,
+	bytesToBase64,
 	computeRms,
 	floatToPcm16Base64,
 	PCM_RECORDER_WORKLET_URL,
 	pcm16Base64ToFloat,
+	pcm16ChunksToWavBase64,
+	REALTIME_SAMPLE_RATE,
 	resampleLinear,
 	rmsToLevel,
 } from "./realtime-audio";
@@ -81,6 +85,87 @@ describe("PCM16 base64 round trip", () => {
 		const binary = atob(base64);
 		expect(binary.charCodeAt(0)).toBe(0x00);
 		expect(binary.charCodeAt(1)).toBe(0x40);
+	});
+});
+
+describe("pcm16ChunksToWavBase64", () => {
+	const readAscii = (bytes: Uint8Array, offset: number, length: number) =>
+		String.fromCharCode(...Array.from(bytes.subarray(offset, offset + length)));
+	const view = (bytes: Uint8Array) =>
+		new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+
+	it("writes a RIFF/WAVE header", () => {
+		const wav = base64ToBytes(
+			pcm16ChunksToWavBase64([bytesToBase64(new Uint8Array([1, 2, 3, 4]))]),
+		);
+		expect(readAscii(wav, 0, 4)).toBe("RIFF");
+		expect(readAscii(wav, 8, 4)).toBe("WAVE");
+		expect(readAscii(wav, 12, 4)).toBe("fmt ");
+		expect(readAscii(wav, 36, 4)).toBe("data");
+		expect(view(wav).getUint32(4, true)).toBe(36 + 4);
+		expect(view(wav).getUint32(40, true)).toBe(4);
+	});
+
+	it("describes mono 16-bit PCM at the given sample rate", () => {
+		const wav = base64ToBytes(pcm16ChunksToWavBase64([], 16000));
+		const header = view(wav);
+		expect(header.getUint32(16, true)).toBe(16);
+		expect(header.getUint16(20, true)).toBe(1);
+		expect(header.getUint16(22, true)).toBe(1);
+		expect(header.getUint32(24, true)).toBe(16000);
+		expect(header.getUint32(28, true)).toBe(16000 * 2);
+		expect(header.getUint16(32, true)).toBe(2);
+		expect(header.getUint16(34, true)).toBe(16);
+	});
+
+	it("defaults to the realtime wire sample rate", () => {
+		const wav = base64ToBytes(pcm16ChunksToWavBase64([]));
+		expect(view(wav).getUint32(24, true)).toBe(REALTIME_SAMPLE_RATE);
+	});
+
+	it("concatenates chunks in order without altering the payload", () => {
+		const first = new Uint8Array([0x00, 0x40, 0x01, 0x80]);
+		const second = new Uint8Array([0xff, 0x7f]);
+		const wav = base64ToBytes(
+			pcm16ChunksToWavBase64([bytesToBase64(first), bytesToBase64(second)]),
+		);
+		expect(Array.from(wav.subarray(44))).toEqual([
+			...Array.from(first),
+			...Array.from(second),
+		]);
+		expect(view(wav).getUint32(40, true)).toBe(6);
+	});
+
+	it("returns a header-only WAV for empty input", () => {
+		const wav = base64ToBytes(pcm16ChunksToWavBase64([]));
+		expect(wav.length).toBe(44);
+		expect(view(wav).getUint32(40, true)).toBe(0);
+		expect(view(wav).getUint32(4, true)).toBe(36);
+	});
+
+	it("survives payloads larger than the base64 chunk size", () => {
+		const chunk = new Uint8Array(0x8000 * 3).fill(0x7f);
+		const wav = base64ToBytes(pcm16ChunksToWavBase64([bytesToBase64(chunk)]));
+		expect(wav.length).toBe(44 + chunk.length);
+		expect(wav[44]).toBe(0x7f);
+		expect(wav[wav.length - 1]).toBe(0x7f);
+	});
+});
+
+describe("bytesToBase64 / base64ToBytes", () => {
+	it("round-trips arbitrary bytes", () => {
+		const bytes = new Uint8Array(256);
+		for (let i = 0; i < bytes.length; i++) {
+			bytes[i] = i;
+		}
+		expect(Array.from(base64ToBytes(bytesToBase64(bytes)))).toEqual(
+			Array.from(bytes),
+		);
+	});
+
+	it("round-trips an empty buffer", () => {
+		expect(bytesToBase64(new Uint8Array(0))).toBe("");
+		expect(base64ToBytes("").length).toBe(0);
 	});
 });
 

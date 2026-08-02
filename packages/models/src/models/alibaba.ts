@@ -494,7 +494,6 @@ export const alibabaModels = [
 				jsonOutput: true,
 			},
 			{
-				// Cerebras: FP16/FP8 (weights only)
 				providerId: "cerebras",
 				test: "skip",
 				externalId: "qwen-3-235b-a22b-instruct-2507",
@@ -713,7 +712,6 @@ export const alibabaModels = [
 				jsonOutput: true,
 			},
 			{
-				// Cerebras: FP16
 				providerId: "cerebras",
 				externalId: "qwen-3-32b",
 				inputPrice: "0.4e-6",
@@ -2051,7 +2049,6 @@ export const alibabaModels = [
 						// QwQ models are officially stream-only per Alibaba docs:
 						// "Some models only support streaming calls: [...] the commercial
 						// and open-source versions of QwQ"
-						// Ref: https://www.alibabacloud.com/help/en/model-studio/stream
 						streaming: "only",
 					},
 				],
@@ -3166,8 +3163,6 @@ export const alibabaModels = [
 				externalId: "qwen-audio-3.0-tts-plus",
 				inputPrice: "0",
 				outputPrice: "0",
-				// Billed per input character: $20.00 per million characters
-				// ($0.20 per 10,000 characters).
 				inputCharacterPrice: "20e-6",
 				requestPrice: "0",
 				contextSize: 20000,
@@ -3217,8 +3212,6 @@ export const alibabaModels = [
 				externalId: "qwen-audio-3.0-tts-flash",
 				inputPrice: "0",
 				outputPrice: "0",
-				// Billed per input character: $15.00 per million characters
-				// ($0.15 per 10,000 characters).
 				inputCharacterPrice: "15e-6",
 				requestPrice: "0",
 				contextSize: 20000,

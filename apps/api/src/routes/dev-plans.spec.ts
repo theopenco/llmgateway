@@ -356,6 +356,57 @@ describe("dev plan tier changes", () => {
 		expect(transaction).toBeUndefined();
 	});
 
+	it("surfaces Stripe's card error message as a 402, not a generic 500", async () => {
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(),
+		);
+		stripeMock.prices.retrieve.mockResolvedValue({ unit_amount: 7900 });
+		// `error_if_incomplete` rejects the update when the card itself is
+		// refused (wrong CVC here, but equally expired card, insufficient funds,
+		// a plain decline, ...) and leaves the subscription on the old tier. The
+		// error's message is Stripe's user-facing explanation and must reach the
+		// client verbatim so the user knows what to fix.
+		stripeMock.subscriptions.update.mockRejectedValue({
+			type: "StripeCardError",
+			rawType: "card_error",
+			code: "incorrect_cvc",
+			message: "Your card's security code is incorrect.",
+		});
+
+		const res = await app.request("/dev-plans/change-tier", {
+			method: "POST",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				newTier: "pro",
+				expectedAmountDueCents: 7900,
+			}),
+		});
+
+		expect(res.status).toBe(402);
+		const body = await res.json();
+		expect(body.message).toBe(
+			"Your card's security code is incorrect. Update your payment method and try again.",
+		);
+
+		// Nothing was applied locally and the lease is released, so the user can
+		// fix the card and retry immediately.
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlan).toBe("lite");
+		expect(org?.devPlanCreditsUsed).toBe("12.5");
+		expect(org?.devPlanCreditsLimit).toBe("87");
+		expect(org?.devPlanTierChangeClaimedAt).toBeNull();
+
+		const transaction = await db.query.transaction.findFirst({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(transaction).toBeUndefined();
+	});
+
 	it("voids a pending cycle-renewal invoice before re-anchoring the cycle", async () => {
 		// The old cycle just ended: Stripe drafted its renewal invoice but has
 		// not charged it yet (that happens ~1h after drafting). The upgrade must

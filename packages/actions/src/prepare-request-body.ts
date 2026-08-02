@@ -1167,10 +1167,10 @@ export async function prepareRequestBody(
 	// `none` reasoning effort is handled natively by a few providers:
 	// OpenAI/Azure forward it (their newer models accept it to turn reasoning
 	// off), and Google, Moonshot, Alibaba, MiniMax, Xiaomi, DeepSeek, Fireworks,
-	// and Z.ai reason by default so they must explicitly disable thinking when
-	// asked. Every other provider treats the absence of reasoning_effort as
-	// "off" already, so normalize `none` away for them to avoid forwarding an
-	// unsupported enum value.
+	// Together AI, and Z.ai reason by default so they must explicitly disable
+	// thinking when asked. Every other provider treats the absence of
+	// reasoning_effort as "off" already, so normalize `none` away for them to
+	// avoid forwarding an unsupported enum value.
 	const handlesNoneNatively =
 		usedProvider === "openai" ||
 		usedProvider === "azure" ||
@@ -1186,6 +1186,7 @@ export async function prepareRequestBody(
 		usedProvider === "xiaomi" ||
 		usedProvider === "deepseek" ||
 		usedProvider === "fireworks" ||
+		usedProvider === "together-ai" ||
 		usedProvider === "zai" ||
 		providerMappingForOptions?.apiFormat === "openai-chat-completions";
 	if (reasoning_effort === "none" && !handlesNoneNatively) {
@@ -3719,6 +3720,33 @@ export async function prepareRequestBody(
 			if (presence_penalty !== undefined) {
 				requestBody.presence_penalty = presence_penalty;
 			}
+
+			// Together AI is OpenAI-compatible on `reasoning_effort`, so graded
+			// tiers are forwarded verbatim (unsupported ones surface the provider's
+			// 4xx per the no-downgrade rule). Turning thinking *off* is not uniform:
+			// Together runs reasoning models on two serving stacks, each with its
+			// own switch (verified live against the API). The gpt-oss and Gemma
+			// deployments validate `reasoning_effort` — they name their accepted
+			// literals in the 400 — and take `none` there, while `thinking` is
+			// ignored. The DeepSeek V4 Pro, MiniMax M3 and Kimi deployments do the
+			// reverse: they accept any `reasoning_effort` string without complaint
+			// and keep thinking on, and only `thinking: { type: "disabled" }`
+			// (which they validate) actually turns it off. Mappings on the second
+			// stack set `requiresDisableThinkingParam`; either way only mappings
+			// that declare `none` in `reasoningEfforts` can disable at all.
+			if (supportsReasoning && reasoning_effort !== undefined) {
+				if (reasoning_effort !== "none") {
+					requestBody.reasoning_effort = reasoning_effort;
+				} else if (
+					providerMappingForOptions?.reasoningEfforts?.includes("none")
+				) {
+					if (providerMappingForOptions.requiresDisableThinkingParam) {
+						requestBody.thinking = { type: "disabled" };
+					} else {
+						requestBody.reasoning_effort = "none";
+					}
+				}
+			}
 			break;
 		}
 		case "cerebras": {
@@ -3938,6 +3966,14 @@ export async function prepareRequestBody(
 			}
 			if (response_format) {
 				requestBody.response_format = response_format;
+			}
+
+			// Fireworks selects the processing tier with the OpenAI-compatible
+			// `service_tier` body field on its chat completions endpoint. Its
+			// schema only accepts auto/default/flex/priority, and supportedServiceTier
+			// already narrows to the tiers the catalog declares for this mapping.
+			if (usedProvider === "fireworks" && supportedServiceTier) {
+				requestBody.service_tier = supportedServiceTier;
 			}
 
 			// Vertex's OpenAI-compatible chat completions endpoint requires the

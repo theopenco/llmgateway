@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useState } from "react";
 
 import { HistoryChart } from "@/components/history-chart";
+import { TokenBreakdownCell } from "@/components/token-breakdown";
 import { Button } from "@/components/ui/button";
 import {
 	Table,
@@ -34,6 +35,12 @@ export interface ProjectMappingEntry {
 	cachedCount: number;
 	cost: number;
 	totalTokens: number;
+	inputTokens: number;
+	cachedTokens: number;
+	outputTokens: number;
+	inputCost: number;
+	cachedInputCost: number;
+	outputCost: number;
 }
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -164,6 +171,9 @@ function MappingRow({
 				<TableCell className="tabular-nums">
 					{formatCompactNumber(mapping.totalTokens)}
 				</TableCell>
+				<TableCell>
+					<TokenBreakdownCell breakdown={mapping} />
+				</TableCell>
 				<TableCell className="tabular-nums">
 					{currencyFormatter.format(mapping.cost)}
 				</TableCell>
@@ -184,7 +194,7 @@ function MappingRow({
 			</TableRow>
 			{expanded && (
 				<TableRow>
-					<TableCell colSpan={9} className="p-4">
+					<TableCell colSpan={10} className="p-4">
 						<HistoryChart
 							title={`${mapping.providerId}/${displayModel} — History`}
 							description="Hourly request volume, errors, tokens, and cost for this project"
@@ -242,6 +252,7 @@ export function ProjectMappingsTable({
 					<TableHead>Error Rate</TableHead>
 					<TableHead>Cached</TableHead>
 					<TableHead>Tokens</TableHead>
+					<TableHead>Token Breakdown</TableHead>
 					{sh("Cost", "cost")}
 					<TableHead></TableHead>
 				</TableRow>
@@ -250,7 +261,7 @@ export function ProjectMappingsTable({
 				{mappings.length === 0 ? (
 					<TableRow>
 						<TableCell
-							colSpan={9}
+							colSpan={10}
 							className="h-24 text-center text-muted-foreground"
 						>
 							No usage data found

@@ -36,8 +36,7 @@ overrides:
   valibot@<1.4.2: ^1.4.2
   body-parser@<1.20.6: ^1.20.6
   body-parser@>=2 <2.3.0: ^2.3.0
-  brace-expansion@>=1 <2.1.3: 2.1.3
-  brace-expansion@>=5 <5.0.8: 5.0.8
+  brace-expansion@<5.0.8: 5.0.8
   mermaid@>=11 <11.15.0: ^11.15.0
   js-yaml@<4.3.0: ^4.3.0
   mdast-util-to-hast@>=13 <13.2.1: ^13.2.1
@@ -53,10 +52,14 @@ overrides:
   '@opentelemetry/propagator-jaeger@<2.9.0': ^2.9.0
   sharp@<0.35.0: ^0.35.0
   '@babel/core@<=7.29.0': ^7.29.6
+  '@hono/node-server@<2.0.5': ^2.0.5
 
 packageExtensionsChecksum: sha256-7EyWhva5Lcamo6pe18OzfUc27A7xbWt39+G/ofluF9k=
 
 patchedDependencies:
+  brace-expansion@5.0.8:
+    hash: 3dac86b614043eca2b402aa43952515e990242adc4be98ed894be852fe567c98
+    path: patches/brace-expansion@5.0.8.patch
   gray-matter@4.0.3:
     hash: 5e73cf5a4218f9a21d163ff21105495be3eea8c20af0f515db916ab0157fe5bc
     path: patches/gray-matter@4.0.3.patch
@@ -2571,12 +2574,6 @@ packages:
 
   '@hexagon/base64@1.1.28':
     resolution: {integrity: sha512-lhqDEAvWixy3bZ+UOYbPwUbBkwBq5C1LAJ/xPC8Oi+lL54oyakv/npbA0aU2hgCsx/1NUd4IBvV03+aUBWxerw==}
-
-  '@hono/node-server@1.19.14':
-    resolution: {integrity: sha512-GwtvgtXxnWsucXvbQXkRgqksiH2Qed37H9xHZocE5sA3N8O8O8/8FA3uclQXxXVzc9XBZuEOMK7+r02FmSpHtw==}
-    engines: {node: '>=18.14.1'}
-    peerDependencies:
-      hono: ^4
 
   '@hono/node-server@2.0.10':
     resolution: {integrity: sha512-ZcnNVhKTmyDJeg0UlnZjvM73JBsTAuhrH/J4fjwGOw59PwOW51r4J+p6CsKZWXdKSme4MFqU62CZMOsdDrU4CA==}
@@ -6620,9 +6617,6 @@ packages:
   bail@2.0.2:
     resolution: {integrity: sha512-0xO6mYd7JB2YesxDKplafRpsiOzPt9V02ddPCLbY1xYGPOX24NTyN50qnUxgCPcSoYMhKpAuBTjQoRZCAkUDRw==}
 
-  balanced-match@1.0.2:
-    resolution: {integrity: sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw==}
-
   balanced-match@4.0.4:
     resolution: {integrity: sha512-BLrgEcRTwX2o6gGxGOCNyMvGSp35YofuYzw9h1IMTRmKqttAZZVU67bdb9Pr2vUHA8+j3i2tJfjO6C6+4myGTA==}
     engines: {node: 18 || 20 || >=22}
@@ -6751,9 +6745,6 @@ packages:
 
   bottleneck@2.19.5:
     resolution: {integrity: sha512-VHiNCbI1lKdl44tGrhNfU3lup0Tj/ZBMJB5/2ZbNXRCPuRCO7ed2mgcK4r17y+KB2EfuYuRaVlwNbAeaWGSpbw==}
-
-  brace-expansion@2.1.3:
-    resolution: {integrity: sha512-DRdx5neNsG/QXbniLFWi2YmC/68oeOOmKz6zOjVk6ZS1ZLXgLIKqVEc6hWsmkjBbgii0SwaBTcJ5XKj5gzY/4A==}
 
   brace-expansion@5.0.8:
     resolution: {integrity: sha512-JZyDyq3D4AUifKTPOB7DELf6XsB3WdPuNxCtob1vFXPsSXhdAiHBWJ/tJ8HAc9aH84BK+5JFZLNkJKx3G9kzQg==}
@@ -13925,10 +13916,6 @@ snapshots:
 
   '@hexagon/base64@1.1.28': {}
 
-  '@hono/node-server@1.19.14(hono@4.12.27)':
-    dependencies:
-      hono: 4.12.27
-
   '@hono/node-server@2.0.10(hono@4.12.27)':
     dependencies:
       hono: 4.12.27
@@ -14228,7 +14215,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.29.0(zod@3.25.75)':
     dependencies:
-      '@hono/node-server': 1.19.14(hono@4.12.27)
+      '@hono/node-server': 2.0.10(hono@4.12.27)
       ajv: 8.18.0
       ajv-formats: 3.0.1(ajv@8.18.0)
       content-type: 1.0.5
@@ -14250,7 +14237,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.29.0(zod@4.3.6)':
     dependencies:
-      '@hono/node-server': 1.19.14(hono@4.12.27)
+      '@hono/node-server': 2.0.10(hono@4.12.27)
       ajv: 8.18.0
       ajv-formats: 3.0.1(ajv@8.18.0)
       content-type: 1.0.5
@@ -18337,8 +18324,6 @@ snapshots:
 
   bail@2.0.2: {}
 
-  balanced-match@1.0.2: {}
-
   balanced-match@4.0.4: {}
 
   base64-arraybuffer@1.0.2:
@@ -18513,11 +18498,7 @@ snapshots:
 
   bottleneck@2.19.5: {}
 
-  brace-expansion@2.1.3:
-    dependencies:
-      balanced-match: 1.0.2
-
-  brace-expansion@5.0.8:
+  brace-expansion@5.0.8(patch_hash=3dac86b614043eca2b402aa43952515e990242adc4be98ed894be852fe567c98):
     dependencies:
       balanced-match: 4.0.4
 
@@ -22347,19 +22328,19 @@ snapshots:
 
   minimatch@10.2.5:
     dependencies:
-      brace-expansion: 5.0.8
+      brace-expansion: 5.0.8(patch_hash=3dac86b614043eca2b402aa43952515e990242adc4be98ed894be852fe567c98)
 
   minimatch@3.1.5:
     dependencies:
-      brace-expansion: 2.1.3
+      brace-expansion: 5.0.8(patch_hash=3dac86b614043eca2b402aa43952515e990242adc4be98ed894be852fe567c98)
 
   minimatch@5.1.9:
     dependencies:
-      brace-expansion: 2.1.3
+      brace-expansion: 5.0.8(patch_hash=3dac86b614043eca2b402aa43952515e990242adc4be98ed894be852fe567c98)
 
   minimatch@9.0.9:
     dependencies:
-      brace-expansion: 2.1.3
+      brace-expansion: 5.0.8(patch_hash=3dac86b614043eca2b402aa43952515e990242adc4be98ed894be852fe567c98)
 
   minimist@1.2.8: {}
 

@@ -3,6 +3,8 @@ import { HeroCompare } from "@/components/compare/hero-compare";
 import { ComparisonPortkey } from "@/components/landing/comparison-portkey";
 import Footer from "@/components/landing/footer";
 
+import { MARKETING_STATS } from "@llmgateway/shared";
+
 import type { CompareFaqItem } from "@/components/compare/compare-faq";
 
 const portkeyFaqs: CompareFaqItem[] = [
@@ -18,8 +20,7 @@ const portkeyFaqs: CompareFaqItem[] = [
 	},
 	{
 		question: "How does pricing compare to Portkey?",
-		answer:
-			"Pay per token at provider rates with a flat 5% platform fee on credits, or bring your own provider keys and pay providers directly for free. There are no per-seat or request-volume tiers.",
+		answer: `Pay per token at provider rates with a flat 5% platform fee on credits, or bring your own provider keys and pay providers directly for free. There are no per-seat or request-volume tiers, and optional full data retention is billed at ${MARKETING_STATS.dataStoragePrice}.`,
 	},
 	{
 		question: "Can I migrate from Portkey without changing my code?",

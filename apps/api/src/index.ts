@@ -37,6 +37,7 @@ import { publicDiscounts } from "./routes/public-discounts.js";
 import { publicLeaderboard } from "./routes/public-leaderboard.js";
 import { publicLoungeLeaderboard } from "./routes/public-lounge-leaderboard.js";
 import { publicModelRatings } from "./routes/public-model-ratings.js";
+import { publicModelStats } from "./routes/public-model-stats.js";
 import { publicModelSurvey } from "./routes/public-model-survey.js";
 import { publicNewsletter } from "./routes/public-newsletter.js";
 import { publicProfile } from "./routes/public-profile.js";
@@ -315,6 +316,7 @@ app.route("/public/profile", publicProfile);
 app.route("/public/leaderboard", publicLeaderboard);
 app.route("/public/lounge-leaderboard", publicLoungeLeaderboard);
 app.route("/public/providers/stats", publicProvidersStats);
+app.route("/public/models/stats", publicModelStats);
 app.route("/public/model-ratings", publicModelRatings);
 app.route("/public/model-survey", publicModelSurvey);
 
