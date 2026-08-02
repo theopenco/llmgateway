@@ -513,7 +513,7 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "deepinfra",
-				externalId: "deepseek-ai/DeepSeek-V4-Flash",
+				externalId: "deepseek-ai/DeepSeek-V4-Flash-0731",
 				inputPrice: "0.14e-6",
 				cachedInputPrice: "0.028e-6",
 				outputPrice: "0.28e-6",
