@@ -471,7 +471,7 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "novita",
-				externalId: "deepseek/deepseek-v4-flash",
+				externalId: "deepseek/deepseek-v4-flash-0731",
 				inputPrice: "0.14e-6",
 				cachedInputPrice: "0.028e-6",
 				outputPrice: "0.28e-6",
@@ -483,6 +483,10 @@ export const deepseekModels = [
 				reasoning: true,
 				vision: false,
 				tools: true,
+				// The -0731 deployment 400s on "required" and named-function
+				// tool_choice, and silently emits no tool call at all when "required"
+				// is streamed; only "auto"/"none" behave (verified 2026-08-02).
+				supportedToolChoices: ["auto", "none"],
 				jsonOutput: true,
 			},
 			{
