@@ -10,6 +10,12 @@ interface OrgStatusToggleButtonProps {
 	orgId: string;
 	orgName: string;
 	currentStatus: "active" | "deleted" | string | null | undefined;
+	/**
+	 * Why disabling is refused, surfaced as the tooltip. Set when the
+	 * organization still has credits. Only gates the disable direction —
+	 * re-enabling an already-disabled organization is always allowed.
+	 */
+	disableBlockedReason?: string | null;
 	onToggle: (
 		orgId: string,
 		status: "active" | "deleted",
@@ -20,6 +26,7 @@ export function OrgStatusToggleButton({
 	orgId,
 	orgName,
 	currentStatus,
+	disableBlockedReason,
 	onToggle,
 }: OrgStatusToggleButtonProps) {
 	const router = useRouter();
@@ -27,6 +34,7 @@ export function OrgStatusToggleButton({
 
 	const isDisabled = currentStatus === "deleted";
 	const nextStatus: "active" | "deleted" = isDisabled ? "active" : "deleted";
+	const blockedReason = isDisabled ? null : (disableBlockedReason ?? null);
 
 	const handleClick = async () => {
 		const verb = isDisabled ? "re-enable" : "disable";
@@ -58,13 +66,16 @@ export function OrgStatusToggleButton({
 			variant="ghost"
 			size="icon-sm"
 			onClick={handleClick}
-			disabled={loading}
+			disabled={loading || blockedReason !== null}
 			className={
 				isDisabled
 					? "text-emerald-600 hover:text-emerald-600"
 					: "text-amber-600 hover:text-amber-600"
 			}
-			title={isDisabled ? "Re-enable organization" : "Disable organization"}
+			title={
+				blockedReason ??
+				(isDisabled ? "Re-enable organization" : "Disable organization")
+			}
 		>
 			{loading ? (
 				<Loader2 className="h-4 w-4 animate-spin" />

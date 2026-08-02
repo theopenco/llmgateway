@@ -74,6 +74,88 @@ export async function getUserProjectIds(userId: string): Promise<string[]> {
 }
 
 /**
+ * The api keys a user is allowed to see usage for, within a set of projects.
+ *
+ * owner/admin members see every key in their projects. "developer" members are
+ * limited to the keys they created — project access alone does not entitle them
+ * to a teammate's traffic, cost, or request payloads.
+ *
+ * `restrictedProjectIds` is the subset of `projectIds` where the caller is a
+ * developer; `ownApiKeyIds` are their keys inside those projects. A user can be
+ * an owner in one org and a developer in another, so both lists are needed to
+ * build a correct filter:
+ *
+ *   projectId IN privilegedProjectIds
+ *     OR (projectId IN restrictedProjectIds AND apiKeyId IN ownApiKeyIds)
+ */
+export interface ApiKeyScope {
+	privilegedProjectIds: string[];
+	restrictedProjectIds: string[];
+	ownApiKeyIds: string[];
+}
+
+export async function getApiKeyScope(
+	userId: string,
+	projectIds: string[],
+): Promise<ApiKeyScope> {
+	if (!projectIds.length) {
+		return {
+			privilegedProjectIds: [],
+			restrictedProjectIds: [],
+			ownApiKeyIds: [],
+		};
+	}
+
+	const userOrgs = await db.query.userOrganization.findMany({
+		where: { userId: { eq: userId } },
+		with: { organization: { with: { projects: true } } },
+	});
+
+	const inScope = new Set(projectIds);
+	const privilegedProjectIds: string[] = [];
+	const restrictedProjectIds: string[] = [];
+
+	for (const membership of userOrgs) {
+		for (const project of membership.organization?.projects ?? []) {
+			if (!inScope.has(project.id)) {
+				continue;
+			}
+			if (membership.role === "developer") {
+				restrictedProjectIds.push(project.id);
+			} else {
+				privilegedProjectIds.push(project.id);
+			}
+		}
+	}
+
+	if (!restrictedProjectIds.length) {
+		return { privilegedProjectIds, restrictedProjectIds, ownApiKeyIds: [] };
+	}
+
+	const ownKeys = await db.query.apiKey.findMany({
+		where: {
+			projectId: { in: restrictedProjectIds },
+			createdBy: { eq: userId },
+		},
+		columns: { id: true },
+	});
+
+	return {
+		privilegedProjectIds,
+		restrictedProjectIds,
+		ownApiKeyIds: ownKeys.map((key) => key.id),
+	};
+}
+
+/**
+ * True when the caller is a developer in at least one of the projects in scope,
+ * i.e. the query must be narrowed to their own keys.
+ */
+export function isKeyScoped(scope: ApiKeyScope): boolean {
+	return scope.restrictedProjectIds.length > 0;
+}
+
+/**
  * Check whether a user can access a specific project (RBAC-aware).
  */
 export async function userHasProjectAccess(

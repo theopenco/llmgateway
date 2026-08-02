@@ -2,8 +2,13 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { apiKeyScopeFilter } from "@/lib/api-key-scope-filter.js";
+import { requireEnterpriseAdmin } from "@/lib/require-enterprise-admin.js";
+import { getUserUsageBreakdown } from "@/lib/user-usage-breakdown.js";
 import {
+	getApiKeyScope,
 	getUserProjectIds,
+	isKeyScoped,
 	userHasProjectAccess,
 } from "@/utils/authorization.js";
 import {
@@ -31,6 +36,7 @@ import {
 } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
+import type { AnyColumn } from "@llmgateway/db";
 
 export const activity = new OpenAPIHono<ServerTypes>();
 
@@ -49,6 +55,19 @@ const modelUsageSchema = z.object({
 const apiKeyUsageSchema = z.object({
 	id: z.string(),
 	description: z.string(),
+	requestCount: z.number(),
+	inputTokens: z.number(),
+	outputTokens: z.number(),
+	totalTokens: z.number(),
+	cost: z.number(),
+});
+
+// Define the response schema for per-member usage. Requests are attributed to
+// the member who created the api key that made them (api_key.created_by),
+// matching the organization-wide member analytics.
+const userUsageSchema = z.object({
+	id: z.string(),
+	name: z.string(),
 	requestCount: z.number(),
 	inputTokens: z.number(),
 	outputTokens: z.number(),
@@ -90,6 +109,7 @@ const dailyActivitySchema = z.object({
 	apiKeysDataStorageCost: z.number(),
 	modelBreakdown: z.array(modelUsageSchema),
 	apiKeyBreakdown: z.array(apiKeyUsageSchema),
+	userBreakdown: z.array(userUsageSchema),
 });
 
 type ActivityRow = z.infer<typeof dailyActivitySchema>;
@@ -128,6 +148,7 @@ function buildEmptyActivityRow(date: string): ActivityRow {
 		apiKeysDataStorageCost: 0,
 		modelBreakdown: [],
 		apiKeyBreakdown: [],
+		userBreakdown: [],
 	};
 }
 
@@ -159,7 +180,7 @@ const getActivity = createRoute({
 			projectId: z.string().optional(),
 			apiKeyId: z.string().optional(),
 			timeRange: z.enum(["1h", "4h", "24h", "7d", "30d", "365d"]).optional(),
-			groupBy: z.enum(["model", "apiKey"]).optional(),
+			groupBy: z.enum(["model", "apiKey", "user"]).optional(),
 			timezone: z
 				.string()
 				.max(64)
@@ -194,7 +215,7 @@ activity.openapi(getActivity, async (c) => {
 	// Get the query parameters
 	const { days, from, to, projectId, apiKeyId, timeRange, groupBy, timezone } =
 		c.req.valid("query");
-	const breakdownByApiKey = groupBy === "apiKey";
+	const breakdownDimension = groupBy ?? "model";
 	const timeZone = timezone ?? "UTC";
 
 	// Calculate the date range and granularity
@@ -244,6 +265,16 @@ activity.openapi(getActivity, async (c) => {
 	// SQL expressions that change based on granularity
 	const isHourly = granularity === "hourly";
 
+	// The per-member breakdown exposes every member's spend, so it needs the same
+	// enterprise + owner/admin gate as the organization-wide member analytics.
+	// Without a project the request can span several organizations, which leaves
+	// nothing unambiguous to gate on, so require one.
+	if (breakdownDimension === "user" && !projectId) {
+		throw new HTTPException(400, {
+			message: "projectId is required when grouping by user",
+		});
+	}
+
 	// Projects the user can access (RBAC-aware: developers are limited to their
 	// granted projects).
 	const accessibleProjectIds = await getUserProjectIds(user.id);
@@ -260,6 +291,18 @@ activity.openapi(getActivity, async (c) => {
 		});
 	}
 
+	if (breakdownDimension === "user" && projectId) {
+		const targetProject = await db.query.project.findFirst({
+			where: { id: { eq: projectId } },
+		});
+
+		if (!targetProject) {
+			throw new HTTPException(404, { message: "Project not found" });
+		}
+
+		await requireEnterpriseAdmin(user.id, targetProject.organizationId);
+	}
+
 	const projectIds = projectId ? [projectId] : accessibleProjectIds;
 
 	if (!projectIds.length) {
@@ -268,8 +311,33 @@ activity.openapi(getActivity, async (c) => {
 		});
 	}
 
-	// If filtering by apiKeyId, use the apiKeyHourlyStats aggregation table
-	if (apiKeyId) {
+	// Developers only see their own keys' traffic, even in a project they were
+	// granted. Everything below is filtered through this scope.
+	const scope = await getApiKeyScope(user.id, projectIds);
+	const keyScoped = isKeyScoped(scope);
+	const scopeFilter = (projectIdColumn: AnyColumn, apiKeyIdColumn: AnyColumn) =>
+		apiKeyScopeFilter(scope, projectIdColumn, apiKeyIdColumn);
+
+	if (apiKeyId && keyScoped && !scope.ownApiKeyIds.includes(apiKeyId)) {
+		const inRestrictedProject = await db.query.apiKey.findFirst({
+			where: {
+				id: { eq: apiKeyId },
+				projectId: { in: scope.restrictedProjectIds },
+			},
+			columns: { id: true },
+		});
+		if (inRestrictedProject) {
+			throw new HTTPException(403, {
+				message: "You don't have access to this API key",
+			});
+		}
+	}
+
+	// Read from the per-key rollups whenever the result must be narrowed to
+	// individual keys: an explicit apiKeyId filter, or a developer who may only
+	// see their own. The project rollups have no apiKeyId column, so they cannot
+	// answer either question.
+	if (apiKeyId || keyScoped) {
 		// Query aggregated data from apiKeyHourlyStats table
 		const hourlyAggregates = await db
 			.select({
@@ -389,7 +457,8 @@ activity.openapi(getActivity, async (c) => {
 			.from(apiKeyHourlyStats)
 			.where(
 				and(
-					eq(apiKeyHourlyStats.apiKeyId, apiKeyId),
+					apiKeyId ? eq(apiKeyHourlyStats.apiKeyId, apiKeyId) : undefined,
+					scopeFilter(apiKeyHourlyStats.projectId, apiKeyHourlyStats.apiKeyId),
 					inArray(apiKeyHourlyStats.projectId, projectIds),
 					gte(apiKeyHourlyStats.hourTimestamp, startDate),
 					lte(apiKeyHourlyStats.hourTimestamp, endDate),
@@ -431,7 +500,11 @@ activity.openapi(getActivity, async (c) => {
 			.from(apiKeyHourlyModelStats)
 			.where(
 				and(
-					eq(apiKeyHourlyModelStats.apiKeyId, apiKeyId),
+					apiKeyId ? eq(apiKeyHourlyModelStats.apiKeyId, apiKeyId) : undefined,
+					scopeFilter(
+						apiKeyHourlyModelStats.projectId,
+						apiKeyHourlyModelStats.apiKeyId,
+					),
 					inArray(apiKeyHourlyModelStats.projectId, projectIds),
 					gte(apiKeyHourlyModelStats.hourTimestamp, startDate),
 					lte(apiKeyHourlyModelStats.hourTimestamp, endDate),
@@ -459,6 +532,76 @@ activity.openapi(getActivity, async (c) => {
 				totalTokens: Number(breakdown.totalTokens),
 				cost: Number(breakdown.cost),
 			});
+		}
+
+		// A key-scoped caller asking for the api-key breakdown still gets one, over
+		// the keys they are allowed to see.
+		const apiKeyBreakdownByDate = new Map<
+			string,
+			z.infer<typeof apiKeyUsageSchema>[]
+		>();
+		if (breakdownDimension === "apiKey") {
+			const apiKeyBreakdowns = await db
+				.select({
+					date: bucketDate(
+						apiKeyHourlyStats.hourTimestamp,
+						timeZone,
+						isHourly,
+					).as("date"),
+					apiKeyId: apiKeyHourlyStats.apiKeyId,
+					description: apiKey.description,
+					requestCount:
+						sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCount}), 0)`.as(
+							"requestCount",
+						),
+					inputTokens:
+						sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.inputTokens} AS NUMERIC)), 0)`.as(
+							"inputTokens",
+						),
+					outputTokens:
+						sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.outputTokens} AS NUMERIC)), 0)`.as(
+							"outputTokens",
+						),
+					totalTokens:
+						sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
+							"totalTokens",
+						),
+					cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as(
+						"cost",
+					),
+				})
+				.from(apiKeyHourlyStats)
+				.leftJoin(apiKey, eq(apiKey.id, apiKeyHourlyStats.apiKeyId))
+				.where(
+					and(
+						apiKeyId ? eq(apiKeyHourlyStats.apiKeyId, apiKeyId) : undefined,
+						scopeFilter(
+							apiKeyHourlyStats.projectId,
+							apiKeyHourlyStats.apiKeyId,
+						),
+						inArray(apiKeyHourlyStats.projectId, projectIds),
+						inArray(apiKey.keyType, ["user", "end_user_customer"]),
+						gte(apiKeyHourlyStats.hourTimestamp, startDate),
+						lte(apiKeyHourlyStats.hourTimestamp, endDate),
+					),
+				)
+				.groupBy(sql`1, ${apiKeyHourlyStats.apiKeyId}, ${apiKey.description}`)
+				.orderBy(sql`1 ASC, ${apiKeyHourlyStats.apiKeyId} ASC`);
+
+			for (const breakdown of apiKeyBreakdowns) {
+				if (!apiKeyBreakdownByDate.has(breakdown.date)) {
+					apiKeyBreakdownByDate.set(breakdown.date, []);
+				}
+				apiKeyBreakdownByDate.get(breakdown.date)!.push({
+					id: breakdown.apiKeyId,
+					description: breakdown.description ?? "Deleted key",
+					requestCount: Number(breakdown.requestCount),
+					inputTokens: Number(breakdown.inputTokens),
+					outputTokens: Number(breakdown.outputTokens),
+					totalTokens: Number(breakdown.totalTokens),
+					cost: Number(breakdown.cost),
+				});
+			}
 		}
 
 		// Process daily aggregates and add calculated fields
@@ -528,8 +671,12 @@ activity.openapi(getActivity, async (c) => {
 				apiKeysCost,
 				creditsDataStorageCost,
 				apiKeysDataStorageCost,
-				modelBreakdown: modelBreakdownByDate.get(day.date) ?? [],
-				apiKeyBreakdown: [],
+				modelBreakdown:
+					breakdownDimension === "model"
+						? (modelBreakdownByDate.get(day.date) ?? [])
+						: [],
+				apiKeyBreakdown: apiKeyBreakdownByDate.get(day.date) ?? [],
+				userBreakdown: [],
 			};
 		});
 
@@ -544,8 +691,9 @@ activity.openapi(getActivity, async (c) => {
 		});
 	}
 
-	// Use aggregation tables for fast queries (when not filtering by apiKeyId)
-	// Query aggregated data from projectHourlyStats table
+	// Whole-project rollups. Only reachable when the caller is owner/admin in every
+	// project in scope — the branch above handles anyone restricted to their own
+	// keys, since these tables have no apiKeyId to filter on.
 	const hourlyAggregates = await db
 		.select({
 			date: bucketDate(projectHourlyStats.hourTimestamp, timeZone, isHourly).as(
@@ -671,13 +819,13 @@ activity.openapi(getActivity, async (c) => {
 		.orderBy(sql`1 ASC`);
 
 	// Create a map to organize model breakdowns by date.
-	// Only query when not breaking down by api key — saves an aggregate scan
-	// for callers that opt into the api-key breakdown.
+	// Only query for the requested dimension — saves an aggregate scan for
+	// callers that opt into one of the other breakdowns.
 	const modelBreakdownByDate = new Map<
 		string,
 		z.infer<typeof modelUsageSchema>[]
 	>();
-	if (!breakdownByApiKey) {
+	if (breakdownDimension === "model") {
 		const modelBreakdowns = await db
 			.select({
 				date: bucketDate(
@@ -741,7 +889,7 @@ activity.openapi(getActivity, async (c) => {
 		string,
 		z.infer<typeof apiKeyUsageSchema>[]
 	>();
-	if (breakdownByApiKey) {
+	if (breakdownDimension === "apiKey") {
 		const apiKeyBreakdowns = await db
 			.select({
 				date: bucketDate(
@@ -796,6 +944,36 @@ activity.openapi(getActivity, async (c) => {
 				outputTokens: Number(breakdown.outputTokens),
 				totalTokens: Number(breakdown.totalTokens),
 				cost: Number(breakdown.cost),
+			});
+		}
+	}
+
+	// Query the per-member breakdown only when the caller asks for it.
+	const userBreakdownByDate = new Map<
+		string,
+		z.infer<typeof userUsageSchema>[]
+	>();
+	if (breakdownDimension === "user") {
+		const userBreakdowns = await getUserUsageBreakdown({
+			projectIds,
+			startDate,
+			endDate,
+			timeZone,
+			isHourly,
+		});
+
+		for (const breakdown of userBreakdowns) {
+			if (!userBreakdownByDate.has(breakdown.date)) {
+				userBreakdownByDate.set(breakdown.date, []);
+			}
+			userBreakdownByDate.get(breakdown.date)!.push({
+				id: breakdown.userId,
+				name: breakdown.name,
+				requestCount: breakdown.requestCount,
+				inputTokens: breakdown.inputTokens,
+				outputTokens: breakdown.outputTokens,
+				totalTokens: breakdown.totalTokens,
+				cost: breakdown.cost,
 			});
 		}
 	}
@@ -868,6 +1046,7 @@ activity.openapi(getActivity, async (c) => {
 			apiKeysDataStorageCost,
 			modelBreakdown: modelBreakdownByDate.get(day.date) ?? [],
 			apiKeyBreakdown: apiKeyBreakdownByDate.get(day.date) ?? [],
+			userBreakdown: userBreakdownByDate.get(day.date) ?? [],
 		};
 	});
 
@@ -956,6 +1135,16 @@ activity.openapi(getSourceActivity, async (c) => {
 	if (!(await userHasProjectAccess(user.id, projectId))) {
 		throw new HTTPException(403, {
 			message: "You don't have access to this project",
+		});
+	}
+
+	// projectHourlySourceStats has no apiKeyId column, so a developer's own
+	// sources cannot be separated from their teammates'. Rather than serve them
+	// the whole project's agent traffic, refuse — the Agents page is not part of
+	// the developer navigation anyway.
+	if (isKeyScoped(await getApiKeyScope(user.id, [projectId]))) {
+		throw new HTTPException(403, {
+			message: "Only organization owners and admins can view project sources",
 		});
 	}
 

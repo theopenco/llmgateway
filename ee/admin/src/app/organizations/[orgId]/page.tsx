@@ -30,6 +30,7 @@ import {
 	manageOrganization,
 	updateReferralBonus,
 } from "@/lib/admin-organizations";
+import { getOrgDeletionBlockedReason } from "@/lib/org-deletion";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 
@@ -301,7 +302,13 @@ export default async function OrganizationPage({
 						orgId={orgId}
 						orgName={org.name}
 						variant="full"
-						disabled={org.status === "deleted"}
+						disabled={
+							org.status === "deleted" ||
+							getOrgDeletionBlockedReason(org.credits) !== null
+						}
+						disabledReason={
+							getOrgDeletionBlockedReason(org.credits) ?? undefined
+						}
 						onBlock={async (id) => {
 							"use server";
 							return await blockOrganization(id);
