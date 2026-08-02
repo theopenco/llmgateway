@@ -1187,6 +1187,7 @@ export async function prepareRequestBody(
 		usedProvider === "deepseek" ||
 		usedProvider === "fireworks" ||
 		usedProvider === "together-ai" ||
+		usedProvider === "bytedance" ||
 		usedProvider === "zai" ||
 		providerMappingForOptions?.apiFormat === "openai-chat-completions";
 	if (reasoning_effort === "none" && !handlesNoneNatively) {
