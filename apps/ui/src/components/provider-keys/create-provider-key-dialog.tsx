@@ -555,8 +555,9 @@ export function CreateProviderKeyDialog({
 								</SelectContent>
 							</Select>
 							<p className="text-sm text-muted-foreground">
-								API keys are region-specific. Make sure your key matches the
-								selected region.
+								{selectedProviderDef.regionConfig.sharedCredentialAcrossRegions
+									? "One key works across every region for this provider."
+									: "API keys are region-specific. Make sure your key matches the selected region."}
 							</p>
 						</div>
 					)}

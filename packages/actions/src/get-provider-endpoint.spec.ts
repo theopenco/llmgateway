@@ -834,4 +834,73 @@ describe("getProviderEndpoint", () => {
 			);
 		});
 	});
+
+	describe("aws-mantle regions", () => {
+		it.each([
+			{ region: "us-east-1" },
+			{ region: "us-east-2" },
+			{ region: "us-west-2" },
+		])("routes to the $region Mantle endpoint", ({ region }) => {
+			const endpoint = getProviderEndpoint(
+				"aws-mantle",
+				undefined,
+				"openai.gpt-5.6-terra",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				region,
+				true,
+			);
+
+			expect(endpoint).toBe(
+				`https://bedrock-mantle.${region}.api.aws/openai/v1/responses`,
+			);
+		});
+
+		it("falls back to us-east-1 when no region is selected", () => {
+			const endpoint = getProviderEndpoint(
+				"aws-mantle",
+				undefined,
+				"openai.gpt-5.6-sol",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				true,
+			);
+
+			expect(endpoint).toBe(
+				"https://bedrock-mantle.us-east-1.api.aws/openai/v1/responses",
+			);
+		});
+
+		it("keeps an explicit base URL over the region-derived endpoint", () => {
+			const endpoint = getProviderEndpoint(
+				"aws-mantle",
+				"https://mantle-proxy.internal",
+				"openai.gpt-5.6-luna",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"us-west-2",
+				true,
+			);
+
+			expect(endpoint).toBe(
+				"https://mantle-proxy.internal/openai/v1/responses",
+			);
+		});
+	});
 });

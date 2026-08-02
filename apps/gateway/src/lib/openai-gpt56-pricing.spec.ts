@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { models, type ProviderModelMapping } from "@llmgateway/models";
+import {
+	expandProviderRegions,
+	models,
+	providers,
+	type ProviderModelMapping,
+} from "@llmgateway/models";
 
 // OpenAI GPT-5.6 pricing invariants per
 // https://developers.openai.com/api/docs/pricing and
@@ -195,4 +200,63 @@ describe("GPT-5.6 on AWS Bedrock Mantle", () => {
 			expect(provider.pricingTiers).toBeUndefined();
 		},
 	);
+
+	// Sol is not deployed to us-west-2 — that region 404s "The model
+	// 'openai.gpt-5.6-sol' does not exist" — while Terra and Luna are in all
+	// three. Mantle offers no cross-region profiles, so no "global"/"us" entry
+	// may appear here.
+	const EXPECTED_REGIONS: Record<string, string[]> = {
+		"gpt-5.6-sol": ["us-east-1", "us-east-2"],
+		"gpt-5.6-terra": ["us-east-1", "us-east-2", "us-west-2"],
+		"gpt-5.6-luna": ["us-east-1", "us-east-2", "us-west-2"],
+	};
+
+	it.each(mantleEntries)(
+		"$modelId declares exactly the regions AWS deploys it to",
+		({ modelId, provider }) => {
+			expect(provider.regions?.map((r) => r.id)).toEqual(
+				EXPECTED_REGIONS[modelId],
+			);
+		},
+	);
+
+	it("only offers concrete AWS regions, never a cross-region profile", () => {
+		const def = providers.find((p) => p.id === "aws-mantle");
+		const configured = def?.regionConfig?.regions.map((r) => r.id) ?? [];
+
+		expect(configured).toEqual(["us-east-1", "us-east-2", "us-west-2"]);
+		// A synthetic default like aws-bedrock's `global` would be unroutable:
+		// Mantle has no cross-region inference profiles.
+		expect(def?.regionConfig?.pinDefaultRegion).toBeUndefined();
+		expect(configured).not.toContain("global");
+		// Every declared region needs an endpoint, and every model region must be
+		// one the provider actually configures.
+		for (const region of configured) {
+			expect(def?.regionConfig?.endpointMap[region]).toBe(
+				`https://bedrock-mantle.${region}.api.aws`,
+			);
+		}
+		const usedRegions = new Set(
+			mantleEntries.flatMap((e) => e.provider.regions?.map((r) => r.id) ?? []),
+		);
+		expect([...usedRegions].sort()).toEqual(configured);
+	});
+
+	it("expands each region without altering pricing", () => {
+		for (const { modelId, provider } of mantleEntries) {
+			const expanded = expandProviderRegions(provider);
+			// synthetic root + one entry per region
+			expect(expanded).toHaveLength(
+				(EXPECTED_REGIONS[modelId]?.length ?? 0) + 1,
+			);
+			for (const entry of expanded) {
+				expect(entry.inputPrice, `${modelId} ${entry.region}`).toBe(
+					provider.inputPrice,
+				);
+				expect(entry.outputPrice, `${modelId} ${entry.region}`).toBe(
+					provider.outputPrice,
+				);
+			}
+		}
+	});
 });

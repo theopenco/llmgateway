@@ -1944,6 +1944,11 @@ export const openaiModels = [
 			{
 				providerId: "aws-mantle",
 				externalId: "openai.gpt-5.6-sol",
+				// Sol is the one family member AWS has not deployed to us-west-2 —
+				// that region 404s with "The model 'openai.gpt-5.6-sol' does not
+				// exist". Pricing is identical across regions, so the entries carry
+				// no per-region overrides.
+				regions: [{ id: "us-east-1" }, { id: "us-east-2" }],
 				// Mantle is in-region-only (the model cards list Geo and Global
 				// cross-region as unsupported, and AWS lists global cross-region
 				// pricing as "coming soon"), and AWS prices in-region inference at
@@ -2098,6 +2103,13 @@ export const openaiModels = [
 			{
 				providerId: "aws-mantle",
 				externalId: "openai.gpt-5.6-terra",
+				// Pricing is identical across regions, so the entries carry no
+				// per-region overrides.
+				regions: [
+					{ id: "us-east-1" },
+					{ id: "us-east-2" },
+					{ id: "us-west-2" },
+				],
 				// Mantle is in-region-only (the model cards list Geo and Global
 				// cross-region as unsupported, and AWS lists global cross-region
 				// pricing as "coming soon"), and AWS prices in-region inference at
@@ -2251,6 +2263,13 @@ export const openaiModels = [
 			{
 				providerId: "aws-mantle",
 				externalId: "openai.gpt-5.6-luna",
+				// Pricing is identical across regions, so the entries carry no
+				// per-region overrides.
+				regions: [
+					{ id: "us-east-1" },
+					{ id: "us-east-2" },
+					{ id: "us-west-2" },
+				],
 				// Mantle is in-region-only (the model cards list Geo and Global
 				// cross-region as unsupported, and AWS lists global cross-region
 				// pricing as "coming soon"), and AWS prices in-region inference at

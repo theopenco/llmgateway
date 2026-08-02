@@ -87,6 +87,9 @@ export const providerKeySchema = z.object({
 			alibaba_region: z
 				.enum(["singapore", "us-virginia", "cn-beijing"])
 				.optional(),
+			aws_mantle_region: z
+				.enum(["us-east-1", "us-east-2", "us-west-2"])
+				.optional(),
 			vertex_openai_project_id: z.string().optional(),
 		})
 		.nullable(),
@@ -243,6 +246,9 @@ const createProviderKeySchema = z.object({
 			azure_ai_foundry_api_version: z.string().optional(),
 			alibaba_region: z
 				.enum(["singapore", "us-virginia", "cn-beijing"])
+				.optional(),
+			aws_mantle_region: z
+				.enum(["us-east-1", "us-east-2", "us-west-2"])
 				.optional(),
 			google_vertex_project_id: z.string().optional(),
 			vertex_openai_project_id: z.string().optional(),
