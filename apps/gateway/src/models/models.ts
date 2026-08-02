@@ -92,6 +92,10 @@ const modelSchema = z.object({
 				description:
 					"Minimum prompt length (in tokens) the provider requires before a prompt-cache write can occur. cache_control markers on shorter prompts are accepted but silently not cached by the provider.",
 			}),
+			max_output: z.number().optional().openapi({
+				description:
+					"Maximum output tokens this provider mapping accepts as max_tokens; larger requests are rejected with HTTP 400. Omitted when the mapping declares no limit (any max_tokens is accepted).",
+			}),
 			stability: z
 				.enum(["stable", "beta", "unstable", "experimental"])
 				.optional(),
@@ -115,6 +119,10 @@ const modelSchema = z.object({
 		input_audio_hour: z.string().optional(),
 	}),
 	context_length: z.number().optional(),
+	max_output: z.number().optional().openapi({
+		description:
+			"Largest max_tokens value guaranteed to be accepted regardless of which provider mapping serves the request (the minimum across still-servable mappings that declare a limit; deactivated mappings are excluded). Omitted when no such mapping declares one.",
+	}),
 	per_request_limits: z.record(z.string()).optional(),
 	supported_parameters: z.array(z.string()).optional(),
 	json_output: z.boolean(),
@@ -307,6 +315,7 @@ modelsApi.openapi(listModels, async (c) => {
 						reasoning: provider.reasoning ?? false,
 						reasoning_efforts: provider.reasoningEfforts,
 						min_cacheable_tokens: provider.minCacheableTokens,
+						max_output: provider.maxOutput,
 						stability: provider.stability ?? model.stability,
 					};
 				}),
@@ -319,6 +328,7 @@ modelsApi.openapi(listModels, async (c) => {
 				context_length:
 					Math.max(...model.providers.map((p) => p.contextSize ?? 0)) ??
 					undefined,
+				max_output: getModelLevelMaxOutput(model.providers, currentDate),
 				per_request_limits: getPerRequestLimits(model),
 				// Get supported parameters from model definitions with fallback to defaults
 				supported_parameters: getSupportedParametersFromModel(model),
@@ -367,6 +377,24 @@ function getModelLevelDate(dates: (Date | undefined)[]): string | undefined {
 	return (dates as Date[])
 		.reduce((latest, d) => (d.getTime() > latest.getTime() ? d : latest))
 		.toISOString();
+}
+
+// The public max_tokens bound for a model. Requests are validated against the
+// maxOutput of whichever provider mapping ends up serving them, so advertise the
+// minimum across mappings that declare one — the largest value guaranteed to be
+// accepted regardless of routing. Mappings without a declared limit accept any
+// max_tokens and therefore do not constrain the bound. Deactivated mappings can
+// no longer serve requests, so they don't constrain it either; deprecated
+// mappings remain routable and keep enforcing their limit, so they stay in.
+function getModelLevelMaxOutput(
+	mappings: ProviderModelMapping[],
+	currentDate: Date,
+): number | undefined {
+	const limits = mappings
+		.filter((p) => !(p.deactivatedAt && currentDate > p.deactivatedAt))
+		.map((p) => p.maxOutput)
+		.filter((limit): limit is number => limit !== undefined);
+	return limits.length > 0 ? Math.min(...limits) : undefined;
 }
 
 // Whether a provider mapping carries any pricing information at all.

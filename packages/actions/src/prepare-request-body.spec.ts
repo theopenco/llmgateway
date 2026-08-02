@@ -4802,6 +4802,110 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 
 			expect(requestBody.max_tokens).toBeUndefined();
 		});
+
+		// Together AI takes graded tiers through `reasoning_effort` everywhere,
+		// but disabling thinking differs per serving stack: the gpt-oss and Gemma
+		// deployments take `reasoning_effort: "none"`, while the DeepSeek/MiniMax/
+		// Kimi deployments only honour `thinking: { type: "disabled" }` and mark
+		// themselves with `requiresDisableThinkingParam`. Verified live.
+		const togetherReasoning = (
+			model: string,
+			externalId: string,
+			reasoning_effort:
+				| "none"
+				| "minimal"
+				| "low"
+				| "medium"
+				| "high"
+				| "xhigh"
+				| "max"
+				| undefined,
+		) =>
+			prepareRequestBody(
+				"together-ai",
+				model,
+				null,
+				externalId,
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				reasoning_effort,
+				true,
+				false,
+			) as Promise<any>;
+
+		test("forwards reasoning_effort on validating routes", async () => {
+			const requestBody = await togetherReasoning(
+				"gpt-oss-120b",
+				"openai/gpt-oss-120b",
+				"high",
+			);
+
+			expect(requestBody.reasoning_effort).toBe("high");
+			expect(requestBody.thinking).toBeUndefined();
+		});
+
+		test("forwards none as an effort on validating routes", async () => {
+			const requestBody = await togetherReasoning(
+				"gemma-4-31b-it",
+				"google/gemma-4-31b-it",
+				"none",
+			);
+
+			expect(requestBody.reasoning_effort).toBe("none");
+			expect(requestBody.thinking).toBeUndefined();
+		});
+
+		test("drops none on routes that do not declare it", async () => {
+			const requestBody = await togetherReasoning(
+				"gpt-oss-120b",
+				"openai/gpt-oss-120b",
+				"none",
+			);
+
+			expect(requestBody.reasoning_effort).toBeUndefined();
+			expect(requestBody.thinking).toBeUndefined();
+		});
+
+		test("maps none onto the thinking switch when the mapping needs it", async () => {
+			const requestBody = await togetherReasoning(
+				"deepseek-v4-pro",
+				"deepseek-ai/DeepSeek-V4-Pro",
+				"none",
+			);
+
+			expect(requestBody.thinking).toEqual({ type: "disabled" });
+			expect(requestBody.reasoning_effort).toBeUndefined();
+		});
+
+		test("forwards graded tiers verbatim on thinking-switch routes", async () => {
+			const requestBody = await togetherReasoning(
+				"kimi-k3",
+				"moonshotai/Kimi-K3",
+				"high",
+			);
+
+			expect(requestBody.reasoning_effort).toBe("high");
+			expect(requestBody.thinking).toBeUndefined();
+		});
+
+		test("sends no reasoning parameters when the caller omits effort", async () => {
+			const requestBody = await togetherReasoning(
+				"minimax-m3",
+				"MiniMaxAI/MiniMax-M3",
+				undefined,
+			);
+
+			expect(requestBody.reasoning_effort).toBeUndefined();
+			expect(requestBody.thinking).toBeUndefined();
+		});
 	});
 
 	describe("inference.net", () => {
