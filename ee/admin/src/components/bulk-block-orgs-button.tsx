@@ -175,7 +175,8 @@ export function BulkBlockOrgsButton({
 						<DialogDescription>
 							Blocking cancels every active Stripe subscription, marks each
 							organization as deleted, and deactivates members that have no
-							other active organization.
+							other active organization. Organizations with a positive credit
+							balance are never included — handle those manually.
 						</DialogDescription>
 					</DialogHeader>
 
@@ -201,8 +202,8 @@ export function BulkBlockOrgsButton({
 									{preview.skipped > 0 && (
 										<>
 											{" "}
-											{preview.skipped} skipped (already blocked, or your own
-											organizations).
+											{preview.skipped} skipped (already blocked, still holding
+											credits, or your own organizations).
 										</>
 									)}
 								</p>

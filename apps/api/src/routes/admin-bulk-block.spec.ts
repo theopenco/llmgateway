@@ -163,6 +163,43 @@ describe("admin bulk block organizations", () => {
 		]);
 	});
 
+	it("excludes organizations that still have credits", async () => {
+		await insertOrg("bulk-a", "Fraud Ring Alpha");
+		await insertOrg("bulk-paying", "Fraud Ring Paying", { credits: "42.00" });
+		await insertOrg("bulk-negative", "Fraud Ring Negative", {
+			credits: "-3.00",
+		});
+
+		const res = await preview("fraud ring", cookie);
+		expect(res.status).toBe(200);
+		const json = (await res.json()) as PreviewResponse;
+
+		expect(json.matched).toBe(3);
+		expect(json.blockable).toBe(2);
+		expect(json.skipped).toBe(1);
+		expect(json.organizations.map((o) => o.id).sort()).toEqual([
+			"bulk-a",
+			"bulk-negative",
+		]);
+	});
+
+	it("never blocks an organization that still has credits", async () => {
+		await insertOrg("bulk-a", "Fraud Ring Alpha");
+		await insertOrg("bulk-paying", "Fraud Ring Paying", { credits: "0.01" });
+
+		const res = await bulkBlock(
+			{ search: "fraud ring", expectedCount: 1 },
+			cookie,
+		);
+		expect(res.status).toBe(200);
+		const json = (await res.json()) as BulkBlockResponse;
+		expect(json.blockedCount).toBe(1);
+		expect(json.blocked.map((o) => o.id)).toEqual(["bulk-a"]);
+
+		expect(await getStatus("bulk-a")).toBe("deleted");
+		expect(await getStatus("bulk-paying")).toBe("active");
+	});
+
 	it("blocks exactly the filtered organizations and nothing else", async () => {
 		await insertOrg("bulk-a", "Fraud Ring Alpha");
 		await insertOrg("bulk-b", "Fraud Ring Beta");
