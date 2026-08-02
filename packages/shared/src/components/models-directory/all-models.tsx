@@ -77,6 +77,7 @@ import { cn } from "@/lib/utils";
 
 import { isMappingDeactivated } from "./deactivation";
 import { formatDeprecationDate } from "./format";
+import { supportsJsonOutput } from "./json-output";
 import { ModelCard } from "./model-card";
 import { applyCategoryFilter } from "./model-category-filters";
 import { useIsMobile } from "./use-mobile";
@@ -917,7 +918,7 @@ export function AllModels({
 						}
 						const hasCodeCapabilities = model.providerDetails.some(
 							(p) =>
-								(p.provider.jsonOutput ?? p.provider.jsonOutputSchema) &&
+								supportsJsonOutput(p.provider) &&
 								p.provider.tools &&
 								p.provider.streaming &&
 								p.provider.cachedInputPrice !== null,

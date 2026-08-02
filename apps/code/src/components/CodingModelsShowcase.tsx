@@ -20,6 +20,7 @@ import { isPremiumModel } from "@llmgateway/shared";
 import {
 	getModelFamilyIcon,
 	OPEN_WEIGHT_LAB_FAMILIES,
+	supportsJsonOutput,
 } from "@llmgateway/shared/components";
 
 export type CodingModelsView = "recommended" | "standard" | "premium" | "all";
@@ -54,7 +55,7 @@ function isCodingModel(model: ModelDefinition): boolean {
 	return model.providers.some(
 		(p) =>
 			isActiveMapping(p) &&
-			(p.jsonOutput ?? p.jsonOutputSchema) &&
+			supportsJsonOutput(p) &&
 			p.tools &&
 			p.streaming &&
 			p.cachedInputPrice !== undefined,
