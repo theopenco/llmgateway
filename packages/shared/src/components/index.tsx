@@ -5,7 +5,6 @@ export * from "./model-selector";
 export * from "./models-directory/all-models";
 export * from "./models-directory/api-types";
 export * from "./models-directory/deactivation";
-export * from "./models-directory/json-output";
 export * from "./models-directory/model-card";
 export * from "./models-directory/model-category-filters";
 export * from "./models-directory/model-code-example-dialog";

@@ -46,6 +46,7 @@ import Link from "next/link.js";
 import { usePathname, useRouter, useSearchParams } from "next/navigation.js";
 import React, { useMemo, useState, useCallback, useEffect } from "react";
 
+import { isCodingModel } from "@/coding-models.js";
 import { getProviderIcon } from "@/components/provider-icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -77,7 +78,6 @@ import { cn } from "@/lib/utils";
 
 import { isMappingDeactivated } from "./deactivation";
 import { formatDeprecationDate } from "./format";
-import { supportsJsonOutput } from "./json-output";
 import { ModelCard } from "./model-card";
 import { applyCategoryFilter } from "./model-category-filters";
 import { useIsMobile } from "./use-mobile";
@@ -906,24 +906,15 @@ export function AllModels({
 			if (filters.category && filters.category !== "all") {
 				switch (filters.category) {
 					case "code": {
-						// Code generation: needs tools, JSON output, streaming, and cached input pricing
-						if (model.free) {
-							return false;
-						}
+						// Exactly the predicate the gateway enforces for DevPass coding
+						// plans, so this list can never claim less than the plan serves.
 						if (
-							model.stability === "unstable" ||
-							model.stability === "experimental"
+							!isCodingModel({
+								free: model.free,
+								stability: model.stability,
+								providers: model.providerDetails.map((p) => p.provider),
+							})
 						) {
-							return false;
-						}
-						const hasCodeCapabilities = model.providerDetails.some(
-							(p) =>
-								supportsJsonOutput(p.provider) &&
-								p.provider.tools &&
-								p.provider.streaming &&
-								p.provider.cachedInputPrice !== null,
-						);
-						if (!hasCodeCapabilities) {
 							return false;
 						}
 						break;
