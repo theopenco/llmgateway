@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { ProviderKeySpendDialog } from "@/components/provider-key-spend-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -34,6 +35,7 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { formatUsd, hasReachedSpendLimit } from "@/lib/provider-key-spend";
 
 import { getProviderIcon } from "@llmgateway/shared";
 import {
@@ -659,6 +661,10 @@ export function ProviderCredentialsManager({
 														</TableCell>
 														<TableCell className="text-right">
 															<div className="flex justify-end gap-1">
+																<ProviderKeySpendDialog
+																	providerKeyId={credential.id}
+																	label={`${credential.provider} ${credential.maskedToken}`}
+																/>
 																<Button
 																	variant="ghost"
 																	size="sm"
@@ -821,25 +827,6 @@ interface CredentialFormValues {
 }
 
 const nonNegativeDecimalPattern = /^\d+(?:\.\d+)?$/;
-
-function formatUsd(value: string): string {
-	const amount = Number(value);
-	return Number.isFinite(amount) ? `$${amount.toFixed(2)}` : `$${value}`;
-}
-
-/**
- * A credential the worker auto-deactivated because its attributed spend
- * reached the configured cap. Derived, not stored: an inactive credential
- * whose usage sits at or above its limit can only have gotten there via the
- * worker (reactivating it without raising the limit is rejected by the API).
- */
-function hasReachedSpendLimit(credential: ProviderCredential): boolean {
-	return (
-		credential.status === "inactive" &&
-		credential.usageLimit !== null &&
-		Number(credential.usage) >= Number(credential.usageLimit)
-	);
-}
 
 function CredentialDialog({
 	catalog,

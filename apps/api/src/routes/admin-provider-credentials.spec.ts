@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { app } from "@/index.js";
-import { createTestUser, deleteAll } from "@/testing.js";
+import {
+	aggregateLogsForTesting,
+	createTestUser,
+	deleteAll,
+} from "@/testing.js";
 
 import { decryptProviderKey } from "@llmgateway/actions";
 import {
@@ -894,5 +898,178 @@ describe("managed credential reorder cache invalidation", () => {
 			"cache-cred-b",
 			"cache-cred-a",
 		]);
+	});
+	describe("spend breakdown", () => {
+		const providerKeyId = "spend-cred";
+		const orgId = "spend-org";
+		const projectId = "spend-project";
+		const apiKeyId = "spend-api-key";
+
+		async function seedTraffic(
+			costs: {
+				providerKeyId: string | null;
+				cost: number;
+				cached?: boolean;
+			}[],
+		) {
+			await db.insert(tables.organization).values({
+				id: orgId,
+				name: "Spend Org",
+				billingEmail: "spend@example.com",
+				credits: "100",
+			});
+			await db.insert(tables.project).values({
+				id: projectId,
+				name: "Spend Project",
+				organizationId: orgId,
+				mode: "credits",
+			});
+			await db.insert(tables.apiKey).values({
+				id: apiKeyId,
+				token: "spend-api-key-token",
+				projectId,
+				description: "Spend Key",
+				createdBy: "test-user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: providerKeyId,
+				token: "sk-spend-cred",
+				provider: "openai",
+				managed: true,
+				organizationId: null,
+				usage: "1.50",
+				usageLimit: "10",
+			});
+
+			let index = 0;
+			for (const entry of costs) {
+				await db.insert(tables.log).values({
+					id: `spend-log-${index}`,
+					requestId: `spend-request-${index}`,
+					organizationId: orgId,
+					projectId,
+					apiKeyId,
+					providerKeyId: entry.providerKeyId,
+					cost: entry.cost,
+					cached: entry.cached ?? false,
+					duration: 1000,
+					usedMode: "credits",
+					requestedModel: "openai/gpt-4o-mini",
+					requestedProvider: "openai",
+					usedModel: "gpt-4o-mini",
+					usedProvider: "openai",
+					responseSize: 100,
+					mode: "credits",
+				});
+				index++;
+			}
+
+			await aggregateLogsForTesting();
+		}
+
+		async function getSpend(id = providerKeyId) {
+			return await app.request(`/admin/provider-keys/${id}/spend?window=1d`, {
+				headers: { Cookie: cookie },
+			});
+		}
+
+		test("requires authentication", async () => {
+			const res = await app.request(
+				`/admin/provider-keys/${providerKeyId}/spend`,
+			);
+			expect(res.status).toBe(401);
+		});
+
+		test("404s for an unknown key", async () => {
+			const res = await getSpend("does-not-exist");
+			expect(res.status).toBe(404);
+		});
+
+		test("still reports spend for a soft-deleted key", async () => {
+			// The admin organization view lists deleted keys, and their historical
+			// spend outlives the key itself.
+			await db.insert(tables.providerKey).values({
+				id: "retired-cred",
+				token: "sk-retired",
+				provider: "openai",
+				managed: true,
+				organizationId: null,
+				status: "deleted",
+			});
+
+			const res = await getSpend("retired-cred");
+			expect(res.status).toBe(200);
+		});
+
+		test("returns attributed spend bucketed over the window", async () => {
+			await seedTraffic([
+				{ providerKeyId, cost: 0.01 },
+				{ providerKeyId, cost: 0.02 },
+				// Not attributable: served by an env-var credential.
+				{ providerKeyId: null, cost: 5 },
+			]);
+
+			const res = await getSpend();
+			expect(res.status).toBe(200);
+			const body = (await res.json()) as {
+				bucket: string;
+				totalCost: number;
+				totalRequests: number;
+				key: { usage: string; usageLimit: string | null; managed: boolean };
+				data: { cost: number }[];
+				organizations: { organizationId: string; cost: number }[];
+			};
+
+			expect(body.bucket).toBe("hour");
+			expect(body.totalCost).toBeCloseTo(0.03, 6);
+			expect(body.totalRequests).toBe(2);
+			// The lifetime counter is reported alongside, not recomputed from logs.
+			expect(body.key.usage).toBe("1.50");
+			expect(body.key.usageLimit).toBe("10");
+			expect(body.key.managed).toBe(true);
+			expect(body.data.length).toBeGreaterThan(0);
+		});
+
+		test("splits spend by consuming organization", async () => {
+			await seedTraffic([
+				{ providerKeyId, cost: 0.04 },
+				{ providerKeyId, cost: 0.06 },
+			]);
+
+			const res = await getSpend();
+			const body = (await res.json()) as {
+				organizations: {
+					organizationId: string;
+					organizationName: string | null;
+					cost: number;
+				}[];
+			};
+
+			expect(body.organizations).toHaveLength(1);
+			expect(body.organizations[0].organizationId).toBe(orgId);
+			expect(body.organizations[0].organizationName).toBe("Spend Org");
+			expect(body.organizations[0].cost).toBeCloseTo(0.1, 6);
+		});
+
+		test("reports zeroes for a key with no attributed traffic", async () => {
+			await db.insert(tables.providerKey).values({
+				id: "quiet-cred",
+				token: "sk-quiet",
+				provider: "openai",
+				managed: true,
+				organizationId: null,
+			});
+
+			const res = await getSpend("quiet-cred");
+			expect(res.status).toBe(200);
+			const body = (await res.json()) as {
+				totalCost: number;
+				data: unknown[];
+				organizations: unknown[];
+			};
+			expect(body.totalCost).toBe(0);
+			expect(body.data).toEqual([]);
+			expect(body.organizations).toEqual([]);
+		});
 	});
 });

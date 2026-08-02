@@ -1,3 +1,4 @@
+import { ProviderKeySpendDialog } from "@/components/provider-key-spend-dialog";
 import { Badge } from "@/components/ui/badge";
 import {
 	Table,
@@ -7,6 +8,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { formatUsd, hasReachedSpendLimit } from "@/lib/provider-key-spend";
 
 import type { paths } from "@/lib/api/v1";
 
@@ -35,15 +37,17 @@ export function ProviderKeysTable({
 						<TableHead>Name</TableHead>
 						<TableHead>Token</TableHead>
 						<TableHead>Base URL</TableHead>
+						<TableHead>Spend</TableHead>
 						<TableHead>Status</TableHead>
 						<TableHead>Created</TableHead>
+						<TableHead className="text-right">Usage</TableHead>
 					</TableRow>
 				</TableHeader>
 				<TableBody>
 					{providerKeys.length === 0 ? (
 						<TableRow>
 							<TableCell
-								colSpan={6}
+								colSpan={8}
 								className="h-24 text-center text-muted-foreground"
 							>
 								No provider keys found
@@ -60,15 +64,45 @@ export function ProviderKeysTable({
 								<TableCell className="max-w-[240px] truncate text-xs text-muted-foreground">
 									{key.baseUrl ?? "—"}
 								</TableCell>
+								<TableCell className="text-sm tabular-nums">
+									<div>{formatUsd(key.usage)}</div>
+									{key.usageLimit !== null ? (
+										<div
+											className="text-[11px] text-muted-foreground"
+											title="The key is automatically deactivated once its attributed spend reaches this cap."
+										>
+											of {formatUsd(key.usageLimit)}
+										</div>
+									) : null}
+								</TableCell>
 								<TableCell>
-									<Badge
-										variant={key.status === "active" ? "secondary" : "outline"}
-									>
-										{key.status ?? "active"}
-									</Badge>
+									{hasReachedSpendLimit(key) ? (
+										<Badge
+											variant="destructive"
+											title={`Automatically deactivated: spend reached the ${formatUsd(
+												key.usageLimit ?? "0",
+											)} cap. Raise or clear the limit to re-enable.`}
+										>
+											limit reached
+										</Badge>
+									) : (
+										<Badge
+											variant={
+												key.status === "active" ? "secondary" : "outline"
+											}
+										>
+											{key.status ?? "active"}
+										</Badge>
+									)}
 								</TableCell>
 								<TableCell className="text-muted-foreground">
 									{formatDate(key.createdAt)}
+								</TableCell>
+								<TableCell className="text-right">
+									<ProviderKeySpendDialog
+										providerKeyId={key.id}
+										label={key.name ?? key.provider}
+									/>
 								</TableCell>
 							</TableRow>
 						))

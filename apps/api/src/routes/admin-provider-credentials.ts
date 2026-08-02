@@ -4,6 +4,11 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { maskToken } from "@/lib/maskToken.js";
+import {
+	getBucketUnitForWindow,
+	getTokenWindowStartDate,
+	tokenWindowSchema,
+} from "@/lib/stats-window.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { createNullableLimitSchema } from "@/routes/keys-api.js";
 
@@ -22,7 +27,9 @@ import {
 	and,
 	cdb,
 	db,
+	desc,
 	eq,
+	gte,
 	inArray,
 	ne,
 	shortid,
@@ -482,6 +489,192 @@ adminProviderCredentials.openapi(listCredentials, async (c) => {
 	});
 
 	return c.json({ credentials: rows.map(toCredential) });
+});
+
+const spendPointSchema = z.object({
+	timestamp: z.string(),
+	cost: z.number(),
+	requestCount: z.number(),
+	errorCount: z.number(),
+	upstreamErrorCount: z.number(),
+	totalTokens: z.string(),
+});
+
+const spendByOrganizationSchema = z.object({
+	organizationId: z.string(),
+	organizationName: z.string().nullable(),
+	cost: z.number(),
+	requestCount: z.number(),
+});
+
+const providerKeySpendSchema = z.object({
+	window: tokenWindowSchema,
+	bucket: z.enum(["hour", "day"]),
+	key: z.object({
+		id: z.string(),
+		provider: z.string(),
+		name: z.string().nullable(),
+		managed: z.boolean(),
+		status: z.string().nullable(),
+		organizationId: z.string().nullable(),
+		/** Lifetime counter the spend limit is enforced against. */
+		usage: z.string(),
+		usageLimit: z.string().nullable(),
+	}),
+	/** Window totals, from the rollup — not the lifetime `key.usage` counter. */
+	totalCost: z.number(),
+	totalRequests: z.number(),
+	totalErrors: z.number(),
+	data: z.array(spendPointSchema),
+	/**
+	 * Spend split by consuming organization, highest first. Always a single
+	 * entry for a BYOK key; the interesting case is a managed credential shared
+	 * across tenants.
+	 */
+	organizations: z.array(spendByOrganizationSchema),
+});
+
+const getProviderKeySpend = createRoute({
+	method: "get",
+	path: "/provider-keys/{providerKeyId}/spend",
+	request: {
+		params: z.object({ providerKeyId: z.string() }),
+		query: z.object({
+			window: tokenWindowSchema.default("7d").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: providerKeySpendSchema,
+				},
+			},
+			description:
+				"Upstream spend attributed to a provider key over time, split by consuming organization.",
+		},
+		404: {
+			description: "Provider key not found.",
+		},
+	},
+});
+
+adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
+	const { providerKeyId } = c.req.valid("param");
+	const window = c.req.valid("query").window ?? "7d";
+	const startDate = getTokenWindowStartDate(window);
+	const bucketUnit = getBucketUnitForWindow(window);
+
+	const key = await db.query.providerKey.findFirst({
+		where: { id: { eq: providerKeyId } },
+	});
+
+	// Soft-deleted keys are deliberately still readable here: the admin
+	// organization view lists them, and their attributed spend stays in the
+	// rollup after the key is retired — which is exactly when someone asks what
+	// it cost.
+	if (!key) {
+		throw new HTTPException(404, { message: "Provider key not found" });
+	}
+
+	const bucketExpr = sql<Date>`date_trunc(${sql.raw(`'${bucketUnit}'`)}, ${tables.providerKeyHourlyStats.hourTimestamp})`;
+
+	const baseFilter = and(
+		eq(tables.providerKeyHourlyStats.providerKeyId, providerKeyId),
+		gte(tables.providerKeyHourlyStats.hourTimestamp, startDate),
+	);
+
+	const [points, organizations] = await Promise.all([
+		db
+			.select({
+				timestamp: bucketExpr.as("bucket"),
+				cost: sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.cost}), 0)`.as(
+					"cost",
+				),
+				requestCount:
+					sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.requestCount}), 0)`.as(
+						"request_count",
+					),
+				errorCount:
+					sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.errorCount}), 0)`.as(
+						"error_count",
+					),
+				upstreamErrorCount:
+					sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.upstreamErrorCount}), 0)`.as(
+						"upstream_error_count",
+					),
+				totalTokens:
+					sql<string>`COALESCE(SUM(CAST(${tables.providerKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
+						"total_tokens",
+					),
+			})
+			.from(tables.providerKeyHourlyStats)
+			.where(baseFilter)
+			.groupBy(bucketExpr)
+			.orderBy(bucketExpr),
+		// Attribution runs through the denormalized projectId, so the consuming
+		// organization comes from the project rather than the key: a managed
+		// credential has no organizationId of its own.
+		db
+			.select({
+				organizationId: tables.project.organizationId,
+				organizationName: tables.organization.name,
+				cost: sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.cost}), 0)`.as(
+					"cost",
+				),
+				requestCount:
+					sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.requestCount}), 0)`.as(
+						"request_count",
+					),
+			})
+			.from(tables.providerKeyHourlyStats)
+			.innerJoin(
+				tables.project,
+				eq(tables.project.id, tables.providerKeyHourlyStats.projectId),
+			)
+			.leftJoin(
+				tables.organization,
+				eq(tables.organization.id, tables.project.organizationId),
+			)
+			.where(baseFilter)
+			.groupBy(tables.project.organizationId, tables.organization.name)
+			.orderBy(desc(sql`SUM(${tables.providerKeyHourlyStats.cost})`))
+			.limit(20),
+	]);
+
+	const data = points.map((point) => ({
+		timestamp: new Date(point.timestamp).toISOString(),
+		cost: Number(point.cost),
+		requestCount: Number(point.requestCount),
+		errorCount: Number(point.errorCount),
+		upstreamErrorCount: Number(point.upstreamErrorCount),
+		totalTokens: String(point.totalTokens),
+	}));
+
+	return c.json({
+		window,
+		bucket: bucketUnit,
+		key: {
+			id: key.id,
+			provider: key.provider,
+			name: key.name,
+			managed: key.managed,
+			status: key.status,
+			organizationId: key.organizationId,
+			usage: key.usage,
+			usageLimit: key.usageLimit,
+		},
+		totalCost: data.reduce((sum, point) => sum + point.cost, 0),
+		totalRequests: data.reduce((sum, point) => sum + point.requestCount, 0),
+		totalErrors: data.reduce((sum, point) => sum + point.errorCount, 0),
+		data,
+		organizations: organizations.map((row) => ({
+			organizationId: row.organizationId,
+			organizationName: row.organizationName,
+			cost: Number(row.cost),
+			requestCount: Number(row.requestCount),
+		})),
+	});
 });
 
 const createCredential = createRoute({

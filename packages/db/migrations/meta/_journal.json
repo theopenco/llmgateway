@@ -1527,6 +1527,13 @@
       "when": 1785624146431,
       "tag": "1785624146_lying_titanium_man",
       "breakpoints": true
+    },
+    {
+      "idx": 218,
+      "version": "8",
+      "when": 1785629776776,
+      "tag": "1785629776_faithful_gauntlet",
+      "breakpoints": true
     }
   ]
 }

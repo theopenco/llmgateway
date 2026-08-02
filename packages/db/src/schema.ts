@@ -4141,6 +4141,77 @@ export const apiKeyHourlyStats = pgTable(
 	],
 );
 
+// Provider key hourly statistics aggregation — upstream spend per credential.
+//
+// `provider_key.usage` is a lifetime scalar the billing worker increments; it
+// answers "has this key hit its cap" but nothing about when the spend happened
+// or who caused it. This table is the time dimension: the same attributed
+// upstream cost, bucketed hourly and split by project.
+//
+// The grain deliberately includes `projectId`. A provider key is not owned by
+// one project the way an api_key is — a managed credential serves every
+// organization at once — so a (providerKeyId, hour) grain could not be
+// recomputed from a single project-hour bucket without `+=` upserts, which the
+// aggregator's stale-bucket re-processing would double-count. Keeping the
+// project in the key preserves the replace-on-recalculate semantics every
+// sibling table relies on, and doubles as the per-tenant breakdown for a shared
+// managed credential.
+//
+// Only rows with a non-null `log.providerKeyId` land here: env-var credentials
+// and error paths that never resolved a credential are not attributable.
+export const providerKeyHourlyStats = pgTable(
+	"provider_key_hourly_stats",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerKeyId: text().notNull(),
+		projectId: text().notNull(), // Denormalized for per-tenant breakdowns
+		hourTimestamp: timestamp().notNull(), // Start of the hour bucket
+		requestCount: integer().notNull().default(0),
+		errorCount: integer().notNull().default(0),
+		// Subset of errorCount: failures the provider returned, which is what
+		// distinguishes an unhealthy credential from a misbehaving caller.
+		upstreamErrorCount: integer().notNull().default(0),
+		cacheCount: integer().notNull().default(0),
+		inputTokens: decimal().notNull().default("0"),
+		outputTokens: decimal().notNull().default("0"),
+		totalTokens: decimal().notNull().default("0"),
+		// Upstream provider cost (`log.cost`), matching what the billing worker
+		// accumulates into `provider_key.usage` — NOT billingCost, which carries
+		// the plan/margin adjustments on what the org pays us. Cached responses
+		// are logged with cost 0, so they contribute nothing here just as they are
+		// skipped by the worker's counter.
+		cost: real().notNull().default(0),
+	},
+	(table) => [
+		// Named explicitly: the auto-generated name for a three-column unique on
+		// this table is 74 characters, past Postgres' 63-byte identifier limit,
+		// so it would be silently truncated and drift from the snapshot.
+		unique("provider_key_hourly_stats_key_project_hour_unique").on(
+			table.providerKeyId,
+			table.projectId,
+			table.hourTimestamp,
+		),
+		// Dashboard queries: one credential over a time range.
+		index("provider_key_hourly_stats_key_id_hour_timestamp_idx").on(
+			table.providerKeyId,
+			table.hourTimestamp,
+		),
+		// Reverse lookup: every credential a project's traffic touched.
+		index("provider_key_hourly_stats_project_id_hour_timestamp_idx").on(
+			table.projectId,
+			table.hourTimestamp,
+		),
+		index("provider_key_hourly_stats_hour_timestamp_idx").on(
+			table.hourTimestamp,
+		),
+	],
+);
+
 // API key hourly model statistics aggregation - model breakdown per API key per hour
 export const apiKeyHourlyModelStats = pgTable(
 	"api_key_hourly_model_stats",

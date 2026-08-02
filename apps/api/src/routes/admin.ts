@@ -6,6 +6,11 @@ import { z } from "zod";
 import { deleteResendContact } from "@/auth/config.js";
 import { maskToken } from "@/lib/maskToken.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
+import {
+	getBucketUnitForWindow,
+	getTokenWindowStartDate,
+	tokenWindowSchema,
+} from "@/lib/stats-window.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { getStripe } from "@/routes/payments.js";
 import {
@@ -334,17 +339,6 @@ const adminTimeseriesSchema = z.object({
 	}),
 });
 
-const tokenWindowSchema = z.enum([
-	"1h",
-	"4h",
-	"12h",
-	"1d",
-	"7d",
-	"30d",
-	"90d",
-	"365d",
-]);
-
 const organizationSchema = z.object({
 	id: z.string(),
 	name: z.string(),
@@ -487,6 +481,10 @@ const providerKeyAdminSchema = z.object({
 	name: z.string().nullable(),
 	baseUrl: z.string().nullable(),
 	status: z.string().nullable(),
+	/** USD spend cap; the key auto-deactivates when usage reaches it. */
+	usageLimit: z.string().nullable(),
+	/** Cumulative upstream spend (USD) attributed by the billing worker. */
+	usage: z.string(),
 	createdAt: z.string(),
 	updatedAt: z.string(),
 });
@@ -2839,6 +2837,8 @@ admin.openapi(getOrganizationProviderKeys, async (c) => {
 			name: tables.providerKey.name,
 			baseUrl: tables.providerKey.baseUrl,
 			status: tables.providerKey.status,
+			usageLimit: tables.providerKey.usageLimit,
+			usage: tables.providerKey.usage,
 			createdAt: tables.providerKey.createdAt,
 			updatedAt: tables.providerKey.updatedAt,
 		})
@@ -2858,6 +2858,8 @@ admin.openapi(getOrganizationProviderKeys, async (c) => {
 			name: k.name,
 			baseUrl: k.baseUrl,
 			status: k.status,
+			usageLimit: k.usageLimit,
+			usage: k.usage,
 			createdAt: k.createdAt.toISOString(),
 			updatedAt: k.updatedAt.toISOString(),
 		})),
@@ -8112,21 +8114,6 @@ const costByModelResponseSchema = z.object({
 	totalRequests: z.number(),
 });
 
-function getTokenWindowStartDate(window: string): Date {
-	const windowMs: Record<string, number> = {
-		"1h": 60 * 60 * 1000,
-		"4h": 4 * 60 * 60 * 1000,
-		"12h": 12 * 60 * 60 * 1000,
-		"1d": 24 * 60 * 60 * 1000,
-		"7d": 7 * 24 * 60 * 60 * 1000,
-		"30d": 30 * 24 * 60 * 60 * 1000,
-		"90d": 90 * 24 * 60 * 60 * 1000,
-		"365d": 365 * 24 * 60 * 60 * 1000,
-	};
-	const ms = windowMs[window] ?? 7 * 24 * 60 * 60 * 1000;
-	return new Date(Date.now() - ms);
-}
-
 // Global cost by model
 const getGlobalCostByModel = createRoute({
 	method: "get",
@@ -8336,18 +8323,6 @@ const costByModelTimeseriesResponseSchema = z.object({
 	models: z.array(z.string()),
 	data: z.array(costByModelTimeseriesPointSchema),
 });
-
-function getBucketUnitForWindow(window: string): "hour" | "day" {
-	if (
-		window === "1h" ||
-		window === "4h" ||
-		window === "12h" ||
-		window === "1d"
-	) {
-		return "hour";
-	}
-	return "day";
-}
 
 function formatBucketTimestamp(date: Date): string {
 	const pad = (n: number) => String(n).padStart(2, "0");
