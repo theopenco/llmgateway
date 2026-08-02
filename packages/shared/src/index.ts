@@ -201,4 +201,6 @@ export {
 	isProviderUrlGuardEnabled,
 } from "./url-safety.js";
 
+export { parseUsedModel, regionFromUsedModel } from "./used-model.js";
+
 export * from "./components/ui/index.js";

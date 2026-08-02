@@ -5562,6 +5562,115 @@ describe("api", () => {
 		}
 	});
 
+	describe("regional routing metadata", () => {
+		async function seedRegionalProviderKey() {
+			await harness.setProjectMode("hybrid");
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-db-key",
+				provider: "alibaba",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+		}
+
+		test("non-streaming response reports the served region", async () => {
+			await seedRegionalProviderKey();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "alibaba/qwen-plus:us-virginia",
+					messages: [
+						{ role: "user", content: "region metadata, non-streaming" },
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.metadata.used_provider).toBe("alibaba");
+			expect(json.metadata.used_region).toBe("us-virginia");
+			expect(json.metadata.routing?.[0]?.region).toBe("us-virginia");
+		});
+
+		test("streaming final chunk reports the served region", async () => {
+			await seedRegionalProviderKey();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "alibaba/qwen-plus:us-virginia",
+					stream: true,
+					messages: [{ role: "user", content: "region metadata, streaming" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const body = await res.text();
+			const metadataChunks = body
+				.split("\n")
+				.filter((line) => line.startsWith("data: ") && !line.includes("[DONE]"))
+				.map((line) => JSON.parse(line.slice("data: ".length)))
+				.filter((chunk) => chunk.metadata);
+
+			expect(metadataChunks.length).toBeGreaterThan(0);
+			const finalMetadata = metadataChunks[metadataChunks.length - 1]!.metadata;
+			expect(finalMetadata.used_provider).toBe("alibaba");
+			expect(finalMetadata.used_region).toBe("us-virginia");
+			expect(finalMetadata.routing?.[0]?.region).toBe("us-virginia");
+		});
+
+		test("region-less providers omit used_region", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-db-key",
+				provider: "openai",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "openai/gpt-4o-mini",
+					messages: [{ role: "user", content: "no region for openai" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.metadata.used_provider).toBe("openai");
+			expect(json.metadata.used_region).toBeUndefined();
+		});
+	});
+
 	test("/v1/chat/completions hybrid prefers keyed provider over credits-backed provider for gemini-2.5-flash-lite", async () => {
 		await harness.setProjectMode("hybrid");
 		await harness.setRoutingMetrics(
