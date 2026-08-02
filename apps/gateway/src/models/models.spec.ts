@@ -101,6 +101,50 @@ describe("Models API", () => {
 		}
 	});
 
+	test("GET /v1/models exposes max_output per provider mapping and as the safe model-level minimum", async () => {
+		const res = await app.request("/v1/models?include_deactivated=true");
+		expect(res.status).toBe(200);
+		const json = await res.json();
+
+		const haiku = json.data.find(
+			(m: { id: string }) => m.id === "claude-haiku-4-5",
+		);
+		expect(haiku).toBeDefined();
+		const anthropicMapping = haiku.providers.find(
+			(p: { providerId: string }) => p.providerId === "anthropic",
+		);
+		expect(anthropicMapping.max_output).toBe(64000);
+		expect(haiku.max_output).toBe(64000);
+
+		// The model-level value must be the minimum across still-servable
+		// mappings that declare a limit (requests are validated against the
+		// serving mapping's maxOutput, and deactivated mappings can no longer
+		// serve), and omitted entirely when no such mapping declares one.
+		const now = new Date();
+		const definitionById = new Map(modelsList.map((m) => [m.id, m]));
+		for (const model of json.data) {
+			const definition = definitionById.get(model.id);
+			expect(definition).toBeDefined();
+			const limits = (definition!.providers as ProviderModelMapping[])
+				.filter((p) => !(p.deactivatedAt && now > p.deactivatedAt))
+				.map((p) => p.maxOutput)
+				.filter((limit): limit is number => limit !== undefined);
+
+			expect(model.max_output).toBe(
+				limits.length > 0 ? Math.min(...limits) : undefined,
+			);
+		}
+
+		// deepseek-v3.2 has a deactivated Nebius mapping declaring 32768; the
+		// advertised bound must come from the mappings that can still serve
+		// (65536), not from limits that no longer apply.
+		const deepseek = json.data.find(
+			(m: { id: string }) => m.id === "deepseek-v3.2",
+		);
+		expect(deepseek).toBeDefined();
+		expect(deepseek.max_output).toBe(65536);
+	});
+
 	test("GET /v1/models exposes reasoning_efforts on provider mappings that define them", async () => {
 		const res = await app.request("/v1/models");
 		expect(res.status).toBe(200);
