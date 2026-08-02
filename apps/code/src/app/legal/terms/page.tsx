@@ -263,8 +263,9 @@ export default function TermsPage() {
 				<a href="https://llmgateway.io/privacy">LLM Gateway Privacy Policy</a>.
 				Per-agent metadata — token counts, costs, models, and routing
 				information — is stored to power your dashboard, usage reporting, and
-				per-tool insights. Request payloads and responses are never stored on
-				DevPass.
+				per-tool insights. Request payloads and responses are not retained on
+				DevPass, except for stateful Responses API requests, which are stored
+				for up to 30 days so response chaining works.
 			</p>
 			<hr />
 			<h2>6. Contact</h2>

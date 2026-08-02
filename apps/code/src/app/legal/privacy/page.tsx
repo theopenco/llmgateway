@@ -74,13 +74,27 @@ export default function PrivacyPage() {
 				<li>IP address, user agent, and approximate region</li>
 			</ul>
 			<p>
-				Full request and response <strong>payloads</strong> (your prompts and
-				the model output) are <strong>never stored</strong> on DevPass. DevPass
-				is metadata only: the counts, costs, and routing information listed
-				above are kept, and prompts and responses are discarded once the request
-				completes. There is no setting to turn payload storage on, on any
-				DevPass plan. The configurable data retention available on pay-as-you-go
-				LLM Gateway organizations does not apply to DevPass.
+				DevPass is <strong>metadata only</strong>: we keep the counts, costs,
+				and routing information listed above, and full request and response{" "}
+				<strong>payloads</strong> (your prompts and the model output) are not
+				retained in your DevPass logs or dashboard. There is no setting to turn
+				payload storage on, on any DevPass plan — the configurable data
+				retention available on pay-as-you-go LLM Gateway organizations does not
+				apply to DevPass.
+			</p>
+			<p>
+				<strong>Exception — the Responses API.</strong> Requests to{" "}
+				<code>/v1/responses</code> (used by tools such as Codex CLI) are
+				stateful by design: so that <code>previous_response_id</code> chaining
+				and <code>GET /v1/responses/&#123;id&#125;</code> work, the input and
+				output items of those requests are held in dedicated storage for up to{" "}
+				<strong>30 days</strong>, after which they are automatically deleted.
+				This applies regardless of retention settings and matches OpenAI&rsquo;s
+				own Responses API retention. Send <code>store: false</code> with the
+				request to opt out; other endpoints, such as{" "}
+				<code>/v1/chat/completions</code> and <code>/v1/messages</code>, are
+				unaffected. Payloads may also be held transiently in memory or cache
+				while a request is being processed.
 			</p>
 			<h3>c. Cookies and Local Storage</h3>
 			<p>
@@ -163,8 +177,10 @@ export default function PrivacyPage() {
 					DevPass subscription on every plan (Lite, Pro, and Max)
 				</li>
 				<li>
-					<strong>Request payloads</strong> — never stored; prompts and
-					responses are discarded once the request completes
+					<strong>Request payloads</strong> — not retained; prompts and
+					responses are discarded once the request completes. The one exception
+					is the Responses API described in Section&nbsp;1b, whose stored
+					responses are kept for up to 30 days and then deleted
 				</li>
 				<li>
 					<strong>Logs and audit trails</strong> — kept for security and
