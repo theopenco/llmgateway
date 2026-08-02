@@ -10022,6 +10022,12 @@ chat.openapi(completions, async (c) => {
 							model: usedInternalModel,
 							bufferSnapshot: buffer ? buffer.substring(0, 5000) : undefined,
 							phase: "upstream_read",
+							// Stealth providers must not leak their identity through a
+							// mid-stream read fault: the raw message, undici cause chain
+							// (host / ENOTFOUND / TLS) and buffered body are scrubbed from
+							// the client SSE, matching the sibling redaction at
+							// chat.ts:8335 / chat.ts:9254. The internal log stays raw.
+							redact: shouldRedactProviderError(usedProvider),
 						});
 
 						const upstreamReadErrorMeta = {
