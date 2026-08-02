@@ -43,7 +43,7 @@ export interface NormalizedStreamingError {
 		details: {
 			statusCode: number;
 			statusText: string;
-			errorName: string;
+			errorName?: string;
 			errorCode?: string;
 			cause?: string;
 		};
