@@ -102,7 +102,7 @@ describe("videos", () => {
 	});
 
 	test("/v1/videos redacts stealth-provider errors persisted by the worker", async () => {
-		const secret = "SecretVendor content filter at https://api.secretvendor.com";
+		const secret = "SecretVendor SensitiveContentDetected at https://api.secretvendor.com";
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			token: "real-token",
