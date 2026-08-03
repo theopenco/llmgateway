@@ -92,6 +92,8 @@ import {
 	verifyVideoContentAccessToken,
 } from "@llmgateway/shared/video-access";
 
+import { clientFacingUpstreamMessage } from "./upstream-error.js";
+
 import type { ServerTypes } from "@/vars.js";
 import type { ResolvedRoutingConfig } from "@llmgateway/shared/routing-config";
 import type { Context } from "hono";
@@ -2786,6 +2788,7 @@ function isDebugMode(c: Context): boolean {
 async function fetchUpstreamJson(
 	url: string,
 	init: RequestInit,
+	providerId?: string,
 ): Promise<Record<string, unknown>> {
 	// SSRF: never follow redirects on a tenant-baseUrl provider request.
 	const response = await fetch(url, { ...init, redirect: "error" });
@@ -2853,7 +2856,11 @@ async function fetchUpstreamJson(
 					body.error &&
 					"message" in body.error &&
 					typeof body.error.message === "string"
-						? body.error.message
+						? clientFacingUpstreamMessage(
+								providerId,
+								response.status,
+								body.error.message,
+							)
 						: `Upstream provider error (${response.status})`,
 			},
 		);
@@ -2866,7 +2873,11 @@ async function fetchUpstreamJson(
 			body,
 		});
 		throw new HTTPException(upstreamApplicationError.status, {
-			message: upstreamApplicationError.message,
+			message: clientFacingUpstreamMessage(
+				providerId,
+				upstreamApplicationError.status,
+				upstreamApplicationError.message,
+			),
 		});
 	}
 
@@ -2976,18 +2987,22 @@ async function createOpenAIVideoJob(
 					referenceImages,
 				)
 			: JSON.stringify(upstreamRequest);
-	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
-		method: "POST",
-		headers: {
-			...getProviderHeaders("openai", providerContext.token, {
-				requestId: providerContext.requestId,
-			}),
-			...(referenceImages.length === 0
-				? { "Content-Type": "application/json" }
-				: {}),
+	const rawResponse = await fetchUpstreamJson(
+		upstreamUrl,
+		{
+			method: "POST",
+			headers: {
+				...getProviderHeaders("openai", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
+				...(referenceImages.length === 0
+					? { "Content-Type": "application/json" }
+					: {}),
+			},
+			body: upstreamBody,
 		},
-		body: upstreamBody,
-	});
+		providerContext.providerId,
+	);
 	const upstreamResponse = addRequestedVideoMetadata(
 		{
 			...rawResponse,
@@ -3069,16 +3084,20 @@ async function createAvalancheVeoVideoJob(
 		enableFallback: false,
 		...(imageUrls.length > 0 ? { imageUrls } : {}),
 	};
-	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			...getProviderHeaders("avalanche", providerContext.token, {
-				requestId: providerContext.requestId,
-			}),
+	const rawResponse = await fetchUpstreamJson(
+		upstreamUrl,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...getProviderHeaders("avalanche", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
+			},
+			body: JSON.stringify(upstreamRequest),
 		},
-		body: JSON.stringify(upstreamRequest),
-	});
+		providerContext.providerId,
+	);
 	const upstreamResponse = addRequestedVideoMetadata(
 		{
 			...rawResponse,
@@ -3145,16 +3164,20 @@ async function createAvalancheSoraVideoJob(
 		model: upstreamModelName,
 		input,
 	};
-	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			...getProviderHeaders("avalanche", providerContext.token, {
-				requestId: providerContext.requestId,
-			}),
+	const rawResponse = await fetchUpstreamJson(
+		upstreamUrl,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...getProviderHeaders("avalanche", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
+			},
+			body: JSON.stringify(upstreamRequest),
 		},
-		body: JSON.stringify(upstreamRequest),
-	});
+		providerContext.providerId,
+	);
 	const upstreamResponse = addRequestedVideoMetadata(
 		{
 			...rawResponse,
@@ -3270,15 +3293,21 @@ async function createGoogleVertexVideoJob(
 			...(outputStorageUri ? { storageUri: outputStorageUri } : {}),
 		},
 	};
-	const rawResponse = await fetchUpstreamJson(authenticatedUpstreamUrl, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			"x-request-id": providerContext.requestId,
-			...(useOAuth ? { Authorization: `Bearer ${providerContext.token}` } : {}),
+	const rawResponse = await fetchUpstreamJson(
+		authenticatedUpstreamUrl,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"x-request-id": providerContext.requestId,
+				...(useOAuth
+					? { Authorization: `Bearer ${providerContext.token}` }
+					: {}),
+			},
+			body: JSON.stringify(upstreamRequest),
 		},
-		body: JSON.stringify(upstreamRequest),
-	});
+		providerContext.providerId,
+	);
 	const upstreamId =
 		typeof rawResponse.name === "string" && rawResponse.name.length > 0
 			? rawResponse.name
@@ -3345,13 +3374,17 @@ async function uploadAtlasCloudMedia(
 		}),
 		`input.${fileExtension}`,
 	);
-	const response = await fetchUpstreamJson(uploadUrl, {
-		method: "POST",
-		headers: getProviderHeaders("atlascloud", providerContext.token, {
-			requestId: providerContext.requestId,
-		}),
-		body: formData,
-	});
+	const response = await fetchUpstreamJson(
+		uploadUrl,
+		{
+			method: "POST",
+			headers: getProviderHeaders("atlascloud", providerContext.token, {
+				requestId: providerContext.requestId,
+			}),
+			body: formData,
+		},
+		providerContext.providerId,
+	);
 	const uploadedUrl = extractAtlasCloudUploadedMediaUrl(response);
 
 	if (!uploadedUrl) {
@@ -3500,16 +3533,20 @@ async function createAtlasCloudVideoJob(
 		providerContext.baseUrl,
 		"/api/v1/model/generateVideo",
 	);
-	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			...getProviderHeaders("atlascloud", providerContext.token, {
-				requestId: providerContext.requestId,
-			}),
+	const rawResponse = await fetchUpstreamJson(
+		upstreamUrl,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...getProviderHeaders("atlascloud", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
+			},
+			body: JSON.stringify(upstreamRequest),
 		},
-		body: JSON.stringify(upstreamRequest),
-	});
+		providerContext.providerId,
+	);
 
 	const upstreamResponse = addRequestedVideoMetadata(
 		{
@@ -3635,16 +3672,20 @@ async function createBytedanceVideoJob(
 		providerContext.baseUrl,
 		"/contents/generations/tasks",
 	);
-	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			...getProviderHeaders("bytedance", providerContext.token, {
-				requestId: providerContext.requestId,
-			}),
+	const rawResponse = await fetchUpstreamJson(
+		upstreamUrl,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...getProviderHeaders("bytedance", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
+			},
+			body: JSON.stringify(upstreamRequest),
 		},
-		body: JSON.stringify(upstreamRequest),
-	});
+		providerContext.providerId,
+	);
 
 	const upstreamResponse = addRequestedVideoMetadata(
 		{
@@ -3704,16 +3745,20 @@ async function createMinimaxVideoJob(
 	}
 
 	const upstreamUrl = joinUrl(providerContext.baseUrl, "/v1/video_generation");
-	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			...getProviderHeaders("minimax", providerContext.token, {
-				requestId: providerContext.requestId,
-			}),
+	const rawResponse = await fetchUpstreamJson(
+		upstreamUrl,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...getProviderHeaders("minimax", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
+			},
+			body: JSON.stringify(upstreamRequest),
 		},
-		body: JSON.stringify(upstreamRequest),
-	});
+		providerContext.providerId,
+	);
 
 	const baseResp = rawResponse.base_resp as
 		{ status_code?: number; status_msg?: string } | undefined;
@@ -3773,16 +3818,20 @@ async function createXaiVideoJob(
 		providerContext.baseUrl,
 		"/v1/videos/generations",
 	);
-	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			...getProviderHeaders("xai", providerContext.token, {
-				requestId: providerContext.requestId,
-			}),
+	const rawResponse = await fetchUpstreamJson(
+		upstreamUrl,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...getProviderHeaders("xai", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
+			},
+			body: JSON.stringify(upstreamRequest),
 		},
-		body: JSON.stringify(upstreamRequest),
-	});
+		providerContext.providerId,
+	);
 
 	const upstreamResponse = addRequestedVideoMetadata(
 		{
@@ -3831,17 +3880,21 @@ async function createAlibabaVideoJob(
 		providerContext.baseUrl,
 		"/api/v1/services/aigc/video-generation/video-synthesis",
 	);
-	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			"X-DashScope-Async": "enable",
-			...getProviderHeaders("alibaba", providerContext.token, {
-				requestId: providerContext.requestId,
-			}),
+	const rawResponse = await fetchUpstreamJson(
+		upstreamUrl,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"X-DashScope-Async": "enable",
+				...getProviderHeaders("alibaba", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
+			},
+			body: JSON.stringify(upstreamRequest),
 		},
-		body: JSON.stringify(upstreamRequest),
-	});
+		providerContext.providerId,
+	);
 
 	const output =
 		rawResponse.output && typeof rawResponse.output === "object"
@@ -4315,19 +4368,23 @@ async function uploadAvalancheBase64Image(
 		),
 		"/api/file-base64-upload",
 	);
-	const response = await fetchUpstreamJson(uploadUrl, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			...getProviderHeaders("avalanche", providerContext.token, {
-				requestId: providerContext.requestId,
+	const response = await fetchUpstreamJson(
+		uploadUrl,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...getProviderHeaders("avalanche", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
+			},
+			body: JSON.stringify({
+				base64Data: `data:${image.mimeType};base64,${image.bytesBase64Encoded}`,
+				uploadPath: "videos/input-images",
 			}),
 		},
-		body: JSON.stringify({
-			base64Data: `data:${image.mimeType};base64,${image.bytesBase64Encoded}`,
-			uploadPath: "videos/input-images",
-		}),
-	});
+		providerContext.providerId,
+	);
 	const data =
 		response.data && typeof response.data === "object"
 			? (response.data as Record<string, unknown>)
