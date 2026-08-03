@@ -165,6 +165,14 @@ const listModels = createRoute({
 					"Only return models and provider mappings whose provider does not train on API data",
 				)
 				.openapi({ example: "false" }),
+			mapped: z
+				.string()
+				.optional()
+				.transform((val) => val === "true")
+				.describe(
+					"Return one entry per provider mapping with `provider/model-id` ids (the gateway's provider-pinned request format) instead of one aggregated entry per model. Each entry carries that specific mapping's pricing, context length, and capabilities.",
+				)
+				.openapi({ example: "false" }),
 		}),
 	},
 	responses: {
@@ -185,6 +193,7 @@ modelsApi.openapi(listModels, async (c) => {
 		const includeDeactivated = query.include_deactivated || false;
 		const excludeDeprecated = query.exclude_deprecated || false;
 		const noTraining = query.no_training || false;
+		const mapped = query.mapped || false;
 		const currentDate = new Date();
 
 		// Set of provider ids that do not train on API data
@@ -237,6 +246,105 @@ modelsApi.openapi(listModels, async (c) => {
 					}))
 					.filter((model) => model.providers.length > 0)
 			: deactivationFilteredModels;
+
+		// Mapped view: one entry per provider mapping, addressed the way the
+		// gateway accepts provider-pinned requests (`provider/model-id`). The
+		// deactivation/deprecation filters apply per mapping here — a mapping
+		// drops out on its own rather than only once the whole model flips.
+		if (mapped) {
+			const mappedData = filteredModels.flatMap((model: ModelDefinition) =>
+				model.providers
+					.filter((provider) => {
+						if (
+							!includeDeactivated &&
+							provider.deactivatedAt &&
+							currentDate > provider.deactivatedAt
+						) {
+							return false;
+						}
+						if (
+							excludeDeprecated &&
+							provider.deprecatedAt &&
+							currentDate > provider.deprecatedAt
+						) {
+							return false;
+						}
+						return true;
+					})
+					.map((provider: ProviderModelMapping) => {
+						const providerDef = providers.find(
+							(p) => p.id === provider.providerId,
+						);
+						const name = `${model.name ?? model.id} (${providerDef?.name ?? provider.providerId})`;
+
+						const inputModalities: (
+							"text" | "image" | "video" | "embedding" | "audio"
+						)[] = ["text"];
+						if (provider.vision) {
+							inputModalities.push("image");
+						}
+						if (provider.audio) {
+							inputModalities.push("audio");
+						}
+
+						const outputModalities: (
+							| "text"
+							| "image"
+							| "video"
+							| "embedding"
+							| "audio"
+							| "ocr"
+							| "transcription"
+							| "rerank"
+						)[] = model.output ?? ["text"];
+
+						return {
+							id: `${provider.providerId}/${model.id}`,
+							name,
+							display_name: name,
+							aliases: model.aliases?.map(
+								(alias) => `${provider.providerId}/${alias}`,
+							),
+							created: model.releasedAt
+								? Math.floor(model.releasedAt.getTime() / 1000)
+								: undefined,
+							description: `${model.id} served by ${provider.providerId}`,
+							family: model.family,
+							architecture: {
+								input_modalities: inputModalities,
+								output_modalities: outputModalities,
+								tokenizer: "GPT",
+							},
+							top_provider: {
+								is_moderated: true,
+							},
+							providers: [serializeProviderMapping(provider, model)],
+							pricing: {
+								...buildPricingFields(
+									hasPricing(provider) ? provider : undefined,
+								),
+								web_search: "0",
+								internal_reasoning: "0",
+							},
+							context_length: provider.contextSize,
+							max_output: provider.maxOutput,
+							per_request_limits: getPerRequestLimits(model),
+							supported_parameters: getSupportedParametersFromModel({
+								...model,
+								providers: [provider],
+							}),
+							json_output: provider.jsonOutput === true,
+							structured_outputs: provider.jsonOutputSchema === true,
+							free: model.free ?? false,
+							deprecated_at: provider.deprecatedAt?.toISOString(),
+							deactivated_at: provider.deactivatedAt?.toISOString(),
+							stability: provider.stability ?? model.stability,
+						};
+					}),
+			);
+
+			return c.json({ data: mappedData });
+		}
 
 		const modelData = filteredModels.map((model: ModelDefinition) => {
 			// Determine input modalities (if model supports images)
@@ -291,34 +399,9 @@ modelsApi.openapi(listModels, async (c) => {
 				top_provider: {
 					is_moderated: true,
 				},
-				providers: model.providers.map((provider: ProviderModelMapping) => {
-					// Find the provider definition to get cancellation support
-					const providerDef = providers.find(
-						(p) => p.id === provider.providerId,
-					);
-
-					return {
-						providerId: provider.providerId,
-						externalId: provider.externalId,
-						supportedVideoSizes: provider.supportedVideoSizes,
-						supportsVideoAudio: provider.supportsVideoAudio,
-						supportsVideoWithoutAudio: provider.supportsVideoWithoutAudio,
-						pricing: hasPricing(provider)
-							? buildPricingFields(provider)
-							: undefined,
-						streaming: provider.streaming,
-						vision: provider.vision ?? false,
-						realtime: provider.realtime === true ? true : undefined,
-						cancellation: providerDef?.cancellation ?? false,
-						tools: provider.tools ?? false,
-						parallelToolCalls: provider.parallelToolCalls ?? false,
-						reasoning: provider.reasoning ?? false,
-						reasoning_efforts: provider.reasoningEfforts,
-						min_cacheable_tokens: provider.minCacheableTokens,
-						max_output: provider.maxOutput,
-						stability: provider.stability ?? model.stability,
-					};
-				}),
+				providers: model.providers.map((provider: ProviderModelMapping) =>
+					serializeProviderMapping(provider, model),
+				),
 				pricing: {
 					...buildPricingFields(pricingProvider),
 					web_search: "0", // Not defined in model definitions yet
@@ -363,6 +446,36 @@ modelsApi.openapi(listModels, async (c) => {
 		throw new HTTPException(500, { message: "Internal server error" });
 	}
 });
+
+// Serialize a provider mapping into the public `providers` entry shape shared
+// by the aggregated and mapped views.
+function serializeProviderMapping(
+	provider: ProviderModelMapping,
+	model: ModelDefinition,
+) {
+	// Find the provider definition to get cancellation support
+	const providerDef = providers.find((p) => p.id === provider.providerId);
+
+	return {
+		providerId: provider.providerId,
+		externalId: provider.externalId,
+		supportedVideoSizes: provider.supportedVideoSizes,
+		supportsVideoAudio: provider.supportsVideoAudio,
+		supportsVideoWithoutAudio: provider.supportsVideoWithoutAudio,
+		pricing: hasPricing(provider) ? buildPricingFields(provider) : undefined,
+		streaming: provider.streaming,
+		vision: provider.vision ?? false,
+		realtime: provider.realtime === true ? true : undefined,
+		cancellation: providerDef?.cancellation ?? false,
+		tools: provider.tools ?? false,
+		parallelToolCalls: provider.parallelToolCalls ?? false,
+		reasoning: provider.reasoning ?? false,
+		reasoning_efforts: provider.reasoningEfforts,
+		min_cacheable_tokens: provider.minCacheableTokens,
+		max_output: provider.maxOutput,
+		stability: provider.stability ?? model.stability,
+	};
+}
 
 // Collapse the per-provider-mapping deprecation/deactivation dates into a single
 // model-level date. A model is only considered deprecated/deactivated once every
