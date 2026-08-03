@@ -324,6 +324,11 @@ const querySchema = z.object({
 		description: "Filter logs by session ID",
 		example: "conversation-9f8e7d6c",
 	}),
+	usedMode: z.enum(["all", "credits", "api-keys"]).optional().openapi({
+		description:
+			"Filter logs by billing mode: credits (billed against the organization balance) or api-keys (BYOK provider keys, not billed)",
+		example: "credits",
+	}),
 });
 
 const get = createRoute({
@@ -401,6 +406,7 @@ logs.openapi(get, async (c) => {
 		customHeaderValue,
 		requestId,
 		sessionId,
+		usedMode,
 	} = {
 		...query,
 		apiKeyId: sanitize(query.apiKeyId),
@@ -418,6 +424,7 @@ logs.openapi(get, async (c) => {
 		customHeaderValue: sanitize(query.customHeaderValue),
 		requestId: sanitize(query.requestId),
 		sessionId: sanitize(query.sessionId),
+		usedMode: sanitize(query.usedMode) as "credits" | "api-keys" | undefined,
 	};
 
 	// Set default limit if not provided or enforce max limit
@@ -601,6 +608,11 @@ logs.openapi(get, async (c) => {
 		whereConditions.push(
 			eq(tables.log.unifiedFinishReason, unifiedFinishReason),
 		);
+	}
+
+	// Add billing mode filter
+	if (usedMode) {
+		whereConditions.push(eq(tables.log.usedMode, usedMode));
 	}
 
 	// Add apiKeyId filter

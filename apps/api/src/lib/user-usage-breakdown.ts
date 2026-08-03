@@ -1,3 +1,4 @@
+import { mapModeSplit, modeSplitFields } from "@/lib/mode-split.js";
 import { bucketDate } from "@/utils/timezone.js";
 
 import {
@@ -23,6 +24,10 @@ export interface UserUsageRow {
 	outputTokens: number;
 	totalTokens: number;
 	cost: number;
+	creditsRequestCount: number;
+	apiKeysRequestCount: number;
+	creditsCost: number;
+	apiKeysCost: number;
 }
 
 /**
@@ -78,6 +83,7 @@ export async function getUserUsageBreakdown(options: {
 					"totalTokens",
 				),
 			cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as("cost"),
+			...modeSplitFields(apiKeyHourlyStats),
 		})
 		.from(apiKeyHourlyStats)
 		.innerJoin(tables.apiKey, eq(tables.apiKey.id, apiKeyHourlyStats.apiKeyId))
@@ -117,5 +123,6 @@ export async function getUserUsageBreakdown(options: {
 		outputTokens: Number(row.outputTokens),
 		totalTokens: Number(row.totalTokens),
 		cost: Number(row.cost),
+		...mapModeSplit(row),
 	}));
 }
