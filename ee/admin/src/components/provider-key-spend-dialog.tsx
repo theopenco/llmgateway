@@ -82,6 +82,10 @@ export function ProviderKeySpendDialog({
 	const points = data?.data ?? [];
 	const organizations = data?.organizations ?? [];
 	const bucketIsHour = data?.bucket === "hour";
+	const windowTokens = points.reduce(
+		(sum, point) => sum + Number(point.totalTokens),
+		0,
+	);
 
 	return (
 		<Dialog open={open} onOpenChange={setOpen}>
@@ -121,7 +125,7 @@ export function ProviderKeySpendDialog({
 					<div className="h-64 animate-pulse rounded-md bg-muted" />
 				) : (
 					<>
-						<div className="grid grid-cols-3 gap-4">
+						<div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
 							<Stat
 								label="Window spend"
 								value={currencyFormatter.format(data?.totalCost ?? 0)}
@@ -130,6 +134,7 @@ export function ProviderKeySpendDialog({
 								label="Requests"
 								value={(data?.totalRequests ?? 0).toLocaleString()}
 							/>
+							<Stat label="Tokens" value={windowTokens.toLocaleString()} />
 							<Stat
 								label="Lifetime spend"
 								value={

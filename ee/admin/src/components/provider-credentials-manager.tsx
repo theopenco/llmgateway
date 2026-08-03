@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { ProviderCredentialsSpendOverview } from "@/components/provider-credentials-spend-overview";
 import { ProviderKeySpendCell } from "@/components/provider-key-spend-cell";
 import { ProviderKeySpendDialog } from "@/components/provider-key-spend-dialog";
 import { ProviderKeyStatusBadge } from "@/components/provider-key-status-badge";
@@ -280,6 +281,11 @@ export function ProviderCredentialsManager({
 		[catalog],
 	);
 
+	const providerNames = useMemo(
+		() => Object.fromEntries(catalog.map((entry) => [entry.id, entry.name])),
+		[catalog],
+	);
+
 	// Shown against each provider in the picker so an admin adding a key can see
 	// at a glance which providers are already covered and which are still bare,
 	// broken down by audience to pair with each one's env-var count.
@@ -514,6 +520,13 @@ export function ProviderCredentialsManager({
 					Add credential
 				</Button>
 			</div>
+
+			<ProviderCredentialsSpendOverview
+				providerFilter={
+					providerFilter === ALL_PROVIDERS ? null : providerFilter
+				}
+				providerNames={providerNames}
+			/>
 
 			<div className="min-w-0 overflow-x-auto rounded-lg border border-border/60 bg-card">
 				<Table>
