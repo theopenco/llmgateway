@@ -1592,8 +1592,8 @@ importers:
         specifier: 4.104.0
         version: 4.104.0(ws@8.21.0)(zod@3.25.75)
       resend:
-        specifier: 4.5.1
-        version: 4.5.1(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+        specifier: 6.8.0
+        version: 6.8.0(@react-email/render@1.0.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))
       sql.js:
         specifier: 1.12.0
         version: 1.12.0
@@ -11241,10 +11241,6 @@ packages:
   require-in-the-middle@8.0.1:
     resolution: {integrity: sha512-QT7FVMXfWOYFbeRBF6nu+I6tr2Tf3u0q8RIEjNob/heKY/nh7drD/k7eeMFmSQgnTtCzLDcCu/XEnpW2wk4xCQ==}
     engines: {node: '>=9.3.0 || >=8.10.0 <9.0.0'}
-
-  resend@4.5.1:
-    resolution: {integrity: sha512-ryhHpZqCBmuVyzM19IO8Egtc2hkWI4JOL5lf5F3P7Dydu3rFeX6lHNpGqG0tjWoZ63rw0l731JEmuJZBdDm3og==}
-    engines: {node: '>=18'}
 
   resend@6.8.0:
     resolution: {integrity: sha512-fDOXGqafQfQXl8nXe93wr93pus8tW7YPpowenE3SmG7dJJf0hH3xUWm3xqacnPvhqjCQTJH9xETg07rmUeSuqQ==}
@@ -23736,13 +23732,6 @@ snapshots:
       module-details-from-path: 1.0.4
     transitivePeerDependencies:
       - supports-color
-
-  resend@4.5.1(react-dom@19.2.7(react@19.2.7))(react@19.2.7):
-    dependencies:
-      '@react-email/render': 1.0.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-    transitivePeerDependencies:
-      - react
-      - react-dom
 
   resend@6.8.0(@react-email/render@1.0.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7)):
     dependencies:
