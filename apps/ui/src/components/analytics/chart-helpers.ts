@@ -9,6 +9,10 @@ export interface ModelBreakdownEntry {
 	outputTokens: number;
 	totalTokens: number;
 	cost: number;
+	creditsRequestCount: number;
+	apiKeysRequestCount: number;
+	creditsCost: number;
+	apiKeysCost: number;
 }
 
 export interface ActivityRow {
@@ -186,6 +190,10 @@ export interface DimensionEntry {
 	cost: number;
 	requestCount: number;
 	totalTokens: number;
+	creditsRequestCount: number;
+	apiKeysRequestCount: number;
+	creditsCost: number;
+	apiKeysCost: number;
 }
 
 export interface DimensionRow {

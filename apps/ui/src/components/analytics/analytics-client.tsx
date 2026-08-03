@@ -10,9 +10,14 @@ import {
 } from "@/components/analytics/analytics-date-range";
 import { CostByModelCard } from "@/components/analytics/cost-by-model-card";
 import { CostByModelOverTimeCard } from "@/components/analytics/cost-by-model-over-time-card";
+import {
+	UsageModeSelector,
+	useUsageMode,
+} from "@/components/shared/usage-mode-selector";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useApi } from "@/lib/fetch-client";
 import { getBrowserTimeZone } from "@/lib/timezone";
+import { applyUsageModeToDaily } from "@/lib/usage-mode";
 
 import type { ActivityRow } from "@/components/analytics/chart-helpers";
 
@@ -67,7 +72,10 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 		},
 	);
 
-	const activity = (data?.activity ?? []) as ActivityRow[];
+	const usageMode = useUsageMode();
+	const activity: ActivityRow[] = (data?.activity ?? []).map((day) =>
+		applyUsageModeToDaily(day, usageMode),
+	);
 
 	return (
 		<div className="flex flex-col">
@@ -79,11 +87,14 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 							Cost and usage broken down by model for this project
 						</p>
 					</div>
-					<AnalyticsDateRange
-						isEnterprise={isEnterprise}
-						buildUrl={buildUrl}
-						path="analytics"
-					/>
+					<div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+						<AnalyticsDateRange
+							isEnterprise={isEnterprise}
+							buildUrl={buildUrl}
+							path="analytics"
+						/>
+						<UsageModeSelector />
+					</div>
 				</div>
 
 				<CostByModelOverTimeCard activity={activity} loading={isLoading} />
