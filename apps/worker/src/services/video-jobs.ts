@@ -52,6 +52,8 @@ import { buildSignedGatewayVideoLogContentUrl } from "@llmgateway/shared/video-a
 
 const UPSTREAM_FETCH_TIMEOUT_MS = 30_000;
 const WEBHOOK_DELIVERY_TIMEOUT_MS = 30_000;
+const VIDEO_JOB_PUBLIC_ERROR_STATUS_CODE = 502;
+const VIDEO_JOB_PUBLIC_ERROR_STATUS_TEXT = "Bad Gateway";
 
 function fetchWithSignals(
 	url: string,
@@ -588,7 +590,7 @@ function clientFacingVideoJobError(
 	}
 
 	return {
-		message: "Upstream provider error",
+		message: `Upstream provider error (${VIDEO_JOB_PUBLIC_ERROR_STATUS_CODE} ${VIDEO_JOB_PUBLIC_ERROR_STATUS_TEXT})`,
 	};
 }
 
@@ -1840,10 +1842,35 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 			const responsePayload = await serializeVideoJob(jobToLog, logId);
 			const responseSize = JSON.stringify(responsePayload).length;
 
+			const rawVideoError =
+				jobToLog.upstreamStatusResponse &&
+				typeof jobToLog.upstreamStatusResponse === "object" &&
+				!Array.isArray(jobToLog.upstreamStatusResponse)
+					? extractError(jobToLog.upstreamStatusResponse as Record<string, unknown>)
+					: jobToLog.error;
+			const redactStealthProviderError = isStealthProvider(
+				jobToLog.usedProvider as ProviderId,
+			);
+			const rawErrorDetails = rawVideoError
+				? {
+						statusCode: VIDEO_JOB_PUBLIC_ERROR_STATUS_CODE,
+						statusText: jobToLog.status,
+						responseText: rawVideoError.message,
+					}
+				: null;
+			const publicErrorDetails =
+				redactStealthProviderError && rawErrorDetails
+					? {
+							statusCode: VIDEO_JOB_PUBLIC_ERROR_STATUS_CODE,
+							statusText: VIDEO_JOB_PUBLIC_ERROR_STATUS_TEXT,
+							responseText: `Upstream provider error (${VIDEO_JOB_PUBLIC_ERROR_STATUS_CODE} ${VIDEO_JOB_PUBLIC_ERROR_STATUS_TEXT})`,
+						}
+					: rawErrorDetails;
+
 			const isContentFilterFailure =
 				jobToLog.status === "failed" &&
 				isContentFilterErrorText(
-					[jobToLog.error?.code, jobToLog.error?.message]
+					[rawVideoError?.code, rawVideoError?.message]
 						.filter(Boolean)
 						.join(" "),
 				);
@@ -1881,13 +1908,10 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 						? UnifiedFinishReason.COMPLETED
 						: failureUnifiedFinishReason,
 				hasError: jobToLog.status !== "completed",
-				errorDetails: jobToLog.error
-					? {
-							statusCode: 502,
-							statusText: jobToLog.status,
-							responseText: jobToLog.error.message,
-						}
-					: null,
+				errorDetails: publicErrorDetails,
+				internalErrorDetails: redactStealthProviderError
+					? rawErrorDetails
+					: undefined,
 				cost: totalCost,
 				requestCost: 0,
 				imageInputCost,
@@ -1911,7 +1935,9 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 					jobToLog,
 					"llmgateway_upstream_request",
 				),
-				upstreamResponse: jobToLog.upstreamStatusResponse,
+				upstreamResponse: redactStealthProviderError
+					? null
+					: jobToLog.upstreamStatusResponse,
 				processedAt: null,
 				dataStorageCost: "0",
 			};
