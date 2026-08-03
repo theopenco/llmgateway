@@ -659,8 +659,8 @@ export const moonshotModels = [
 				reasoning: true,
 				// K3 always thinks; the effort level is set via the native
 				// top-level `reasoning_effort` field (no K2-era `thinking`
-				// toggle), which currently accepts only "max".
-				reasoningEfforts: ["max"],
+				// toggle), which accepts low, high, and max (default max).
+				reasoningEfforts: ["low", "high", "max"],
 				streaming: true,
 				vision: true,
 				tools: true,

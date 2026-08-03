@@ -1167,7 +1167,7 @@ export async function prepareRequestBody(
 	// `none` reasoning effort is handled natively by a few providers:
 	// OpenAI/Azure forward it (their newer models accept it to turn reasoning
 	// off), and Google, Moonshot, Alibaba, MiniMax, Xiaomi, DeepSeek, Fireworks,
-	// Together AI, and Z.ai reason by default so they must explicitly disable
+	// Together AI, ByteDance, and Z.ai reason by default so they must explicitly disable
 	// thinking when asked. Every other provider treats the absence of
 	// reasoning_effort as "off" already, so normalize `none` away for them to
 	// avoid forwarding an unsupported enum value.
@@ -1187,6 +1187,7 @@ export async function prepareRequestBody(
 		usedProvider === "deepseek" ||
 		usedProvider === "fireworks" ||
 		usedProvider === "together-ai" ||
+		usedProvider === "bytedance" ||
 		usedProvider === "zai" ||
 		providerMappingForOptions?.apiFormat === "openai-chat-completions";
 	if (reasoning_effort === "none" && !handlesNoneNatively) {

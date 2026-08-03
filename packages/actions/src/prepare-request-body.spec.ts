@@ -970,6 +970,14 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 		expect(requestBody.reasoning.effort).toBe("none");
 	});
 
+	test("forwards none to ByteDance GLM-5.2", async () => {
+		const requestBody = await prepare({
+			provider: "bytedance",
+			model: "glm-5.2",
+		});
+		expect(requestBody.reasoning_effort).toBe("none");
+	});
+
 	test("disables thinking for Google on none", async () => {
 		const requestBody = await prepare({
 			provider: "google-ai-studio",
