@@ -78,6 +78,41 @@ describe("Models API", () => {
 		expect(sonnet?.display_name).toBe("Claude Sonnet 5");
 	});
 
+	test("GET /v1/models?mapped=true returns one provider-prefixed entry per mapping", async () => {
+		const [mappedRes, rootRes] = await Promise.all([
+			app.request("/v1/models?mapped=true"),
+			app.request("/v1/models"),
+		]);
+		expect(mappedRes.status).toBe(200);
+		const mapped = await mappedRes.json();
+		const root = await rootRes.json();
+
+		expect(Array.isArray(mapped.data)).toBe(true);
+		// The mapped view expands multi-provider models, so it must be strictly
+		// larger than the aggregated catalogue.
+		expect(mapped.data.length).toBeGreaterThan(root.data.length);
+
+		// Ids are `provider/model-id`, unique, and each entry carries exactly the
+		// one mapping named by its prefix.
+		const ids = mapped.data.map((m: { id: string }) => m.id);
+		expect(new Set(ids).size).toBe(ids.length);
+		for (const model of mapped.data) {
+			expect(model.providers).toHaveLength(1);
+			expect(model.id).toBe(
+				`${model.providers[0].providerId}/${model.id.split("/").slice(1).join("/")}`,
+			);
+		}
+
+		// Entry-level pricing/context come from that specific mapping, not the
+		// cheapest mapping across providers.
+		const sonnet = mapped.data.find(
+			(m: { id: string }) => m.id === "anthropic/claude-sonnet-5",
+		);
+		expect(sonnet).toBeDefined();
+		expect(sonnet.display_name).toBe("Claude Sonnet 5 (Anthropic)");
+		expect(sonnet.pricing.prompt).toBe(sonnet.providers[0].pricing.prompt);
+	});
+
 	test("GET /v1/models exposes min_cacheable_tokens on provider mappings that define it", async () => {
 		const res = await app.request("/v1/models");
 		expect(res.status).toBe(200);
