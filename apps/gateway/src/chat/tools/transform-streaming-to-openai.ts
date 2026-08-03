@@ -1429,6 +1429,7 @@ export function transformStreamingToOpenai(
 		case "inference.net":
 		case "together-ai":
 		case "scx-ai":
+		case "scx-ai-gp":
 		case "deepinfra":
 		case "custom":
 		case "nanogpt":
