@@ -768,6 +768,40 @@ describe("parseProviderResponse", () => {
 
 			expect(result.finishReason).toBe("stop");
 		});
+
+		it("does not normalize 'stop' for the general-purpose tier", () => {
+			const json = {
+				choices: [
+					{
+						message: {
+							role: "assistant",
+							content: null,
+							tool_calls: [
+								{
+									id: "call_1",
+									type: "function",
+									function: {
+										name: "get_weather",
+										arguments: '{"city":"San Francisco"}',
+									},
+								},
+							],
+						},
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = parseProviderResponse("scx-ai-gp", "GLM-5.2", json);
+
+			expect(result.finishReason).toBe("stop");
+			expect(result.toolResults).toHaveLength(1);
+		});
 	});
 
 	describe("openai-format finish reason mapping", () => {

@@ -65,6 +65,11 @@ export async function renderPlaygroundShell({
 		redirect(`/?${newParams.toString()}`);
 	}
 
+	// Start the model catalogue fetches immediately — they don't depend on any
+	// of the org/billing lookups below, so they resolve while those run.
+	const modelsPromise = fetchModels();
+	const providersPromise = fetchProviders();
+
 	const initialOrganizationsData = await fetchServerData("GET", "/orgs");
 	const allOrganizations = (
 		initialOrganizationsData &&
@@ -201,8 +206,8 @@ export async function renderPlaygroundShell({
 
 	const projects = (initialProjectsData?.projects ?? []) as Project[];
 	const [models, providers] = await Promise.all([
-		fetchModels(),
-		fetchProviders(),
+		modelsPromise,
+		providersPromise,
 	]);
 
 	let selectedProject: Project | null = null;

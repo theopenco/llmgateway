@@ -10,6 +10,14 @@ export {
 } from "./coding-agents.js";
 
 export {
+	type CodingModel,
+	type CodingModelMapping,
+	isCodingModel,
+	mappingSupportsCoding,
+	providerSupportsCachedInput,
+} from "./coding-models.js";
+
+export {
 	AGENT_LOG_CSV_HEADERS,
 	type AgentCsvLog,
 	buildAgentLogsCsv,
@@ -200,5 +208,7 @@ export {
 	isPrivateOrReservedIp,
 	isProviderUrlGuardEnabled,
 } from "./url-safety.js";
+
+export { parseUsedModel, regionFromUsedModel } from "./used-model.js";
 
 export * from "./components/ui/index.js";

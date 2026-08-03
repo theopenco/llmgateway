@@ -75,6 +75,7 @@ import {
 	getIncludedResetPassesRemaining,
 	MAX_BULK_BLOCK_ORGANIZATIONS,
 	MIN_BULK_BLOCK_SEARCH_LENGTH,
+	parseUsedModel,
 } from "@llmgateway/shared";
 import {
 	getResendClient,
@@ -9439,28 +9440,6 @@ async function listIgnoredErrorMatchers() {
 			createdAt: "desc",
 		},
 	});
-}
-
-// Gateway logs store `used_model` as the display value `provider/model[:region]`
-// (for example `openai/gpt-5-nano` or `alibaba/glm-4.6:cn-beijing`), but the
-// mapping detail page and the `model_provider_mapping` table key off the bare
-// `model_id` plus `region`. Split the provider prefix and region suffix so the
-// table can link to the exact regional mapping rather than a root/other region.
-function parseUsedModel(
-	usedModel: string,
-	usedProvider: string,
-): { modelId: string; region: string | null } {
-	let rest = usedModel;
-	const prefix = `${usedProvider}/`;
-	if (rest.startsWith(prefix)) {
-		rest = rest.slice(prefix.length);
-	} else if (rest.includes("/")) {
-		rest = rest.slice(rest.indexOf("/") + 1);
-	}
-	const regionIdx = rest.lastIndexOf(":");
-	return regionIdx === -1
-		? { modelId: rest, region: null }
-		: { modelId: rest.slice(0, regionIdx), region: rest.slice(regionIdx + 1) };
 }
 
 const unstableMappingEntrySchema = z.object({
