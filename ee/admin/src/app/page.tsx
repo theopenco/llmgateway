@@ -406,6 +406,14 @@ export default async function Page({
 									value: currencyFormatter.format(metrics.totalSpent),
 								},
 								{
+									label: "Spent (credits)",
+									value: currencyFormatter.format(metrics.totalCreditsSpent),
+								},
+								{
+									label: "Spent (BYOK, not billed)",
+									value: currencyFormatter.format(metrics.totalApiKeysSpent),
+								},
+								{
 									label: "Unused",
 									value: currencyFormatter.format(metrics.unusedCredits),
 								},
