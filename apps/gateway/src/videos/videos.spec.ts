@@ -14,11 +14,17 @@ describe("videos", () => {
 	const harness = createGatewayApiTestHarness();
 	let mockServerUrl: string;
 	let originalGoogleVertexBaseUrl: string | undefined;
+	let originalAvalancheApiKey: string | undefined;
+	let originalAvalancheBaseUrl: string | undefined;
 
 	beforeAll(() => {
 		mockServerUrl = harness.mockServerUrl;
 		originalGoogleVertexBaseUrl = process.env.LLM_GOOGLE_VERTEX_BASE_URL;
+		originalAvalancheApiKey = process.env.LLM_AVALANCHE_API_KEY;
+		originalAvalancheBaseUrl = process.env.LLM_AVALANCHE_BASE_URL;
 		process.env.LLM_GOOGLE_VERTEX_BASE_URL = mockServerUrl;
+		process.env.LLM_AVALANCHE_API_KEY = "avalanche-env-key";
+		process.env.LLM_AVALANCHE_BASE_URL = mockServerUrl;
 	});
 
 	afterAll(() => {
@@ -26,6 +32,16 @@ describe("videos", () => {
 			process.env.LLM_GOOGLE_VERTEX_BASE_URL = originalGoogleVertexBaseUrl;
 		} else {
 			delete process.env.LLM_GOOGLE_VERTEX_BASE_URL;
+		}
+		if (originalAvalancheApiKey !== undefined) {
+			process.env.LLM_AVALANCHE_API_KEY = originalAvalancheApiKey;
+		} else {
+			delete process.env.LLM_AVALANCHE_API_KEY;
+		}
+		if (originalAvalancheBaseUrl !== undefined) {
+			process.env.LLM_AVALANCHE_BASE_URL = originalAvalancheBaseUrl;
+		} else {
+			delete process.env.LLM_AVALANCHE_BASE_URL;
 		}
 	});
 
@@ -86,7 +102,7 @@ describe("videos", () => {
 	});
 
 	test("/v1/videos redacts stealth-provider errors persisted by the worker", async () => {
-		const secret = "SecretVendor error at https://api.secretvendor.com";
+		const secret = "SecretVendor content filter at https://api.secretvendor.com";
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			token: "real-token",
@@ -127,6 +143,26 @@ describe("videos", () => {
 
 		await processPendingVideoJobs();
 
+		const persistedJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		const log = await db.query.log.findFirst({
+			where: { requestId: { eq: job!.requestId } },
+		});
+		expect(persistedJob).toBeTruthy();
+		expect(log).toBeTruthy();
+		expect(JSON.stringify(persistedJob!.upstreamStatusResponse)).toContain(secret);
+		expect(log!.finishReason).toBe("content_filter");
+		expect(log!.upstreamResponse).toBeNull();
+		expect(log!.internalErrorDetails).toMatchObject({ responseText: secret });
+		expect(log!.errorDetails).toEqual({
+			statusCode: 502,
+			statusText: "Bad Gateway",
+			responseText: "Upstream provider error (502 Bad Gateway)",
+		});
+		expect(JSON.stringify(log)).not.toContain("SecretVendor");
+		expect(JSON.stringify(log)).not.toContain("secretvendor.com");
+
 		const statusRes = await app.request(`/v1/videos/${created.id}`, {
 			headers: { Authorization: "Bearer real-token" },
 		});
@@ -135,7 +171,7 @@ describe("videos", () => {
 		expect(responseText).not.toContain("SecretVendor");
 		expect(responseText).not.toContain("secretvendor.com");
 		expect(JSON.parse(responseText).error).toEqual({
-			message: "Upstream provider error",
+			message: "Upstream provider error (502 Bad Gateway)",
 		});
 	});
 
