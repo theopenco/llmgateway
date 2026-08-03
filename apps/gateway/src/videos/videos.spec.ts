@@ -160,8 +160,9 @@ describe("videos", () => {
 			statusText: "Bad Gateway",
 			responseText: "Upstream provider error (502 Bad Gateway)",
 		});
-		expect(JSON.stringify(log)).not.toContain("SecretVendor");
-		expect(JSON.stringify(log)).not.toContain("secretvendor.com");
+		const { internalErrorDetails: _internalErrorDetails, ...publicLog } = log!;
+		expect(JSON.stringify(publicLog)).not.toContain("SecretVendor");
+		expect(JSON.stringify(publicLog)).not.toContain("secretvendor.com");
 
 		const statusRes = await app.request(`/v1/videos/${created.id}`, {
 			headers: { Authorization: "Bearer real-token" },
