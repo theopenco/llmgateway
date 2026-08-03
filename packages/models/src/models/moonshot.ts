@@ -465,6 +465,12 @@ export const moonshotModels = [
 				maxOutput: 32768,
 				streaming: true,
 				reasoning: true,
+				// Together's deployment accepts any reasoning_effort string without
+				// validating it, and no tier measurably changes the reasoning length,
+				// so `none` — honoured through the `thinking` switch rather than
+				// reasoning_effort — is the only effort this mapping really applies.
+				reasoningEfforts: ["none"],
+				requiresDisableThinkingParam: true,
 				vision: true,
 				tools: false,
 				jsonOutput: false,
@@ -694,6 +700,12 @@ export const moonshotModels = [
 				quantization: "fp4",
 				streaming: true,
 				reasoning: true,
+				// Together's deployment accepts any reasoning_effort string without
+				// validating it, and no tier measurably changes the reasoning length,
+				// so `none` — honoured through the `thinking` switch rather than
+				// reasoning_effort — is the only effort this mapping really applies.
+				reasoningEfforts: ["none"],
+				requiresDisableThinkingParam: true,
 				vision: true,
 				tools: true,
 				jsonOutput: true,

@@ -372,6 +372,17 @@ export interface ProviderModelMapping {
 	 */
 	requiresEnableThinking?: boolean;
 	/**
+	 * Whether this provider mapping turns thinking off through a separate binary
+	 * `thinking: { type: "disabled" }` parameter instead of
+	 * `reasoning_effort: "none"`. Together AI serves reasoning models on two
+	 * stacks: its gpt-oss/Gemma deployments validate `reasoning_effort` and take
+	 * `none` there (sending `thinking` has no effect), while its
+	 * DeepSeek/MiniMax/Kimi deployments ignore `reasoning_effort: "none"` and
+	 * only honour the `thinking` switch. Only meaningful on mappings that
+	 * declare `none` in `reasoningEfforts`.
+	 */
+	requiresDisableThinkingParam?: boolean;
+	/**
 	 * Whether this model supports the OpenAI responses API (defaults to true if reasoning is true)
 	 */
 	supportsResponsesApi?: boolean;

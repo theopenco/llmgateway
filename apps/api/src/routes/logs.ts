@@ -2,8 +2,10 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { apiKeyScopeFilter } from "@/lib/api-key-scope-filter.js";
 import {
 	getActiveUserOrganizationIds,
+	getApiKeyScope,
 	getUserProjectIds,
 	userHasProjectAccess,
 } from "@/utils/authorization.js";
@@ -488,6 +490,10 @@ logs.openapi(get, async (c) => {
 		});
 	}
 
+	// Developers only see logs for the keys they created — a project grant does
+	// not entitle them to a teammate's request and response payloads.
+	const scope = await getApiKeyScope(user.id, projectIds);
+
 	// Check apiKeyId authorization if provided
 	if (apiKeyId) {
 		const apiKey = await db.query.apiKey.findFirst({
@@ -504,6 +510,15 @@ logs.openapi(get, async (c) => {
 
 		// Check if the API key belongs to one of the user's projects
 		if (!projectIds.includes(apiKey.projectId)) {
+			throw new HTTPException(403, {
+				message: "You don't have access to this API key",
+			});
+		}
+
+		if (
+			scope.restrictedProjectIds.includes(apiKey.projectId) &&
+			!scope.ownApiKeyIds.includes(apiKey.id)
+		) {
 			throw new HTTPException(403, {
 				message: "You don't have access to this API key",
 			});
@@ -540,6 +555,15 @@ logs.openapi(get, async (c) => {
 		whereConditions.push(eq(tables.log.projectId, projectId));
 	} else {
 		whereConditions.push(inArray(tables.log.projectId, projectIds));
+	}
+
+	const scopeCondition = apiKeyScopeFilter(
+		scope,
+		tables.log.projectId,
+		tables.log.apiKeyId,
+	);
+	if (scopeCondition) {
+		whereConditions.push(scopeCondition);
 	}
 
 	// Add date range filters
@@ -838,6 +862,17 @@ logs.openapi(uniqueModelsGet, async (c) => {
 		whereConditions.push(inArray(tables.log.projectId, projectIds));
 	}
 
+	// The filter options must describe the logs the caller can actually read, so
+	// a developer sees only the models and providers their own keys used.
+	const scopeCondition = apiKeyScopeFilter(
+		await getApiKeyScope(user.id, projectIds),
+		tables.log.projectId,
+		tables.log.apiKeyId,
+	);
+	if (scopeCondition) {
+		whereConditions.push(scopeCondition);
+	}
+
 	const finalWhereClause =
 		whereConditions.length > 0 ? and(...whereConditions) : undefined;
 
@@ -915,6 +950,18 @@ logs.openapi(getById, async (c) => {
 	// Verify the user can access this log's project (RBAC-aware: developers are
 	// limited to their granted projects).
 	if (!(await userHasProjectAccess(user.id, log.projectId))) {
+		throw new HTTPException(403, {
+			message: "You don't have access to this log",
+		});
+	}
+
+	// Within a granted project, a developer may still only read their own keys'
+	// requests — the payload carries the full prompt and completion.
+	const scope = await getApiKeyScope(user.id, [log.projectId]);
+	if (
+		scope.restrictedProjectIds.includes(log.projectId) &&
+		!scope.ownApiKeyIds.includes(log.apiKeyId)
+	) {
 		throw new HTTPException(403, {
 			message: "You don't have access to this log",
 		});

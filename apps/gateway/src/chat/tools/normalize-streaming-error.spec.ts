@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { redactedProviderErrorText } from "@/lib/stealth-provider-errors.js";
+
 import {
 	isUpstreamTermination,
 	normalizeStreamingError,
@@ -108,6 +110,141 @@ describe("normalizeStreamingError", () => {
 
 		expect(normalized.log.details.responseText).not.toBe("[object Object]");
 		expect(normalized.client.message).not.toContain("[object Object]");
+	});
+
+	it("scrubs the client payload when redact is set but keeps the log raw", () => {
+		// A mid-stream read fault whose undici cause chain and buffered body both
+		// embed the secret stealth host / vendor identity.
+		const dnsError = new Error(
+			"getaddrinfo ENOTFOUND api.secretvendor.com",
+		) as Error & { code?: string };
+		dnsError.code = "ENOTFOUND";
+		const error = new TypeError("fetch failed", { cause: dnsError });
+
+		const bufferSnapshot =
+			'data: {"error":{"message":"SecretVendor quota exceeded at api.secretvendor.com"}}';
+
+		const normalized = normalizeStreamingError({
+			error,
+			provider: "tundra",
+			model: "kimi-k2.6",
+			bufferSnapshot,
+			phase: "upstream_read",
+			redact: true,
+		});
+
+		// Client payload: no host, vendor identity, raw message or buffered body.
+		const clientSerialized = JSON.stringify(normalized.client);
+		expect(clientSerialized).not.toContain("SecretVendor");
+		expect(clientSerialized).not.toContain("secretvendor.com");
+		expect(clientSerialized).not.toContain("fetch failed");
+		expect(clientSerialized).not.toContain("getaddrinfo");
+		expect(clientSerialized).not.toContain(bufferSnapshot);
+
+		// The cause chain (which embeds the secret host) is dropped entirely.
+		expect(normalized.client.details.cause).toBeUndefined();
+		// Node-level failure identifiers are dropped too, matching the sibling
+		// redactErrorDetails: only statusCode/statusText survive.
+		expect(normalized.client.details.errorName).toBeUndefined();
+		expect(normalized.client.details.errorCode).toBeUndefined();
+		expect(clientSerialized).not.toContain("ENOTFOUND");
+		// Only the gateway-derived status survives, as the generic status text.
+		expect(normalized.client.details.statusCode).toBe(500);
+		expect(normalized.client.responseText).toBe(redactedProviderErrorText(500));
+		expect(normalized.client.message).toBe(redactedProviderErrorText(500));
+		expect(normalized.client.code).toBe("streaming_error");
+
+		// The internal log is never redacted: it feeds the internal-only columns.
+		expect(normalized.log.details.responseText).toContain(
+			"api.secretvendor.com",
+		);
+		expect(normalized.log.details.cause).toContain("ENOTFOUND");
+		expect(normalized.log.details.bufferSnapshot).toBe(bufferSnapshot);
+	});
+
+	it("scrubs the buffered body on a redacted upstream termination", () => {
+		// The realistic mid-stream leak: the provider kills the socket while a
+		// half-written, vendor-branded event is still sitting in the SSE buffer,
+		// so the raw bytes reach the client through responseText rather than
+		// through the error message.
+		const socketCloseError = new Error("other side closed") as Error & {
+			code?: string;
+		};
+		socketCloseError.name = "SocketError";
+		socketCloseError.code = "UND_ERR_SOCKET";
+		const error = new TypeError("terminated", { cause: socketCloseError });
+
+		const bufferSnapshot =
+			'data: {"choices":[{"delta":{"content":"SecretVendor internal note: api.secretvendor.com';
+
+		const normalized = normalizeStreamingError({
+			error,
+			provider: "tundra",
+			model: "kimi-k2.6",
+			bufferSnapshot,
+			phase: "upstream_read",
+			redact: true,
+		});
+
+		// Redaction must not change how the failure is classified: it is still an
+		// upstream termination, so it keeps the 502/warn treatment.
+		expect(normalized.terminated).toBe(true);
+		expect(normalized.client.details.statusCode).toBe(502);
+		expect(normalized.client.details.statusText).toBe(
+			"Upstream Stream Terminated",
+		);
+		expect(normalized.client.type).toBe("gateway_error");
+
+		const clientSerialized = JSON.stringify(normalized.client);
+		expect(clientSerialized).not.toContain("SecretVendor");
+		expect(clientSerialized).not.toContain("secretvendor.com");
+		expect(clientSerialized).not.toContain("UND_ERR_SOCKET");
+		expect(normalized.client.responseText).toBe(redactedProviderErrorText(502));
+		expect(normalized.client.message).toBe(redactedProviderErrorText(502));
+
+		expect(normalized.log.details.bufferSnapshot).toBe(bufferSnapshot);
+		expect(normalized.log.details.errorCode).toBe("UND_ERR_SOCKET");
+	});
+
+	it("leaves the client payload untouched when redact is false", () => {
+		const socketCloseError = new Error("other side closed") as Error & {
+			code?: string;
+		};
+		socketCloseError.name = "SocketError";
+		socketCloseError.code = "UND_ERR_SOCKET";
+		const error = new TypeError("terminated", { cause: socketCloseError });
+
+		const normalized = normalizeStreamingError({
+			error,
+			provider: "openai",
+			model: "gpt-4.1-mini",
+			bufferSnapshot: 'data: {"choices":[{"delta":{"content":"partial',
+			phase: "upstream_read",
+			redact: false,
+		});
+
+		expect(normalized.client.responseText).toBe(
+			'data: {"choices":[{"delta":{"content":"partial',
+		);
+		expect(normalized.client.details.errorCode).toBe("UND_ERR_SOCKET");
+		expect(normalized.client.details.cause).toContain("other side closed");
+	});
+
+	it("leaves the client payload untouched when redact is not set", () => {
+		const error = new SyntaxError("Unexpected end of JSON input");
+
+		const normalized = normalizeStreamingError({
+			error,
+			provider: "openai",
+			model: "gpt-4.1-mini",
+			bufferSnapshot: "data: {",
+			phase: "upstream_read",
+		});
+
+		expect(normalized.client.message).toBe(
+			"Streaming error: Unexpected end of JSON input",
+		);
+		expect(normalized.client.responseText).toBe("data: {");
 	});
 });
 

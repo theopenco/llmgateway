@@ -2307,6 +2307,10 @@ export const googleModels = [
 				maxOutput: 32768,
 				streaming: true,
 				reasoning: true,
+				// Together validates reasoning_effort on this route and names the
+				// accepted literals in its 400 ("Input should be 'none', 'low',
+				// 'medium' or 'high'"); `none` zeroes out the reasoning output.
+				reasoningEfforts: ["none", "low", "medium", "high"],
 				vision: false,
 				tools: true,
 				jsonOutput: true,

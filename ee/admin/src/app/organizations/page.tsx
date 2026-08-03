@@ -28,6 +28,7 @@ import {
 	previewBulkBlockOrganizations,
 	setOrganizationStatus,
 } from "@/lib/admin-organizations";
+import { getOrgDeletionBlockedReason } from "@/lib/org-deletion";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
@@ -430,12 +431,21 @@ export default async function OrganizationsPage({
 												orgId={org.id}
 												orgName={org.name}
 												currentStatus={org.status}
+												disableBlockedReason={getOrgDeletionBlockedReason(
+													org.credits,
+												)}
 												onToggle={handleToggleOrgStatus}
 											/>
 											<BlockOrgButton
 												orgId={org.id}
 												orgName={org.name}
-												disabled={org.status === "deleted"}
+												disabled={
+													org.status === "deleted" ||
+													getOrgDeletionBlockedReason(org.credits) !== null
+												}
+												disabledReason={
+													getOrgDeletionBlockedReason(org.credits) ?? undefined
+												}
 												onBlock={handleBlockOrganization}
 											/>
 										</div>

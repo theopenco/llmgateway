@@ -1301,7 +1301,7 @@ export const providers: ProviderDefinition[] = [
 	},
 	{
 		id: "scx-ai",
-		name: "SCX.ai",
+		name: "SCX.ai (Turbo)",
 		description:
 			"SCX.ai is an Australian sovereign AI platform providing OpenAI-compatible Turbo inference endpoints — up to 4x faster than comparable providers — for a range of open models and SCX's own models, hosted on renewable-powered infrastructure.",
 		env: {
@@ -1324,6 +1324,36 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
+			soc2: 1,
+			iso27001: true,
+		},
+	},
+	{
+		id: "scx-ai-gp",
+		name: "SCX.ai",
+		description:
+			"SCX.ai is an Australian sovereign AI platform providing OpenAI-compatible general-purpose inference endpoints for a range of open models and SCX's own models, hosted on renewable-powered infrastructure.",
+		env: {
+			required: {
+				apiKey: "LLM_SCX_AI_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#1a1a2e",
+		website: "https://scx.ai",
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: "https://scx.ai/terms",
+		privacyPolicyUrl: "https://scx.ai/privacy",
+		headquarters: "AU",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: 1,
+			iso27001: true,
 		},
 	},
 	{
