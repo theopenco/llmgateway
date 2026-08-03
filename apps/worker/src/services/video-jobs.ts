@@ -52,8 +52,13 @@ import { buildSignedGatewayVideoLogContentUrl } from "@llmgateway/shared/video-a
 
 const UPSTREAM_FETCH_TIMEOUT_MS = 30_000;
 const WEBHOOK_DELIVERY_TIMEOUT_MS = 30_000;
+// A failed video job is reported by an upstream status poll that itself
+// returned 200, so there is no real upstream status code to surface. 502 is a
+// stand-in that matches the status this path has always stamped on the log
+// row's errorDetails — do not "fix" it to the poll's actual status.
 const VIDEO_JOB_PUBLIC_ERROR_STATUS_CODE = 502;
 const VIDEO_JOB_PUBLIC_ERROR_STATUS_TEXT = "Bad Gateway";
+const VIDEO_JOB_PUBLIC_ERROR_TEXT = `Upstream provider error (${VIDEO_JOB_PUBLIC_ERROR_STATUS_CODE} ${VIDEO_JOB_PUBLIC_ERROR_STATUS_TEXT})`;
 
 function fetchWithSignals(
 	url: string,
@@ -590,9 +595,7 @@ function clientFacingVideoJobError(
 	}
 
 	return {
-		message: `Upstream provider error (${
-			VIDEO_JOB_PUBLIC_ERROR_STATUS_CODE
-		} ${VIDEO_JOB_PUBLIC_ERROR_STATUS_TEXT})`,
+		message: VIDEO_JOB_PUBLIC_ERROR_TEXT,
 	};
 }
 
@@ -1849,8 +1852,8 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				typeof jobToLog.upstreamStatusResponse === "object" &&
 				!Array.isArray(jobToLog.upstreamStatusResponse)
 					? extractError(
-						jobToLog.upstreamStatusResponse as Record<string, unknown>,
-					)
+							jobToLog.upstreamStatusResponse as Record<string, unknown>,
+						)
 					: jobToLog.error;
 			const redactStealthProviderError = isStealthProvider(
 				jobToLog.usedProvider as ProviderId,
@@ -1867,9 +1870,7 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 					? {
 							statusCode: VIDEO_JOB_PUBLIC_ERROR_STATUS_CODE,
 							statusText: VIDEO_JOB_PUBLIC_ERROR_STATUS_TEXT,
-							responseText: `Upstream provider error (${
-							VIDEO_JOB_PUBLIC_ERROR_STATUS_CODE
-							} ${VIDEO_JOB_PUBLIC_ERROR_STATUS_TEXT})`,
+							responseText: VIDEO_JOB_PUBLIC_ERROR_TEXT,
 						}
 					: rawErrorDetails;
 

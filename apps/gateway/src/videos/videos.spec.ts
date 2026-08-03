@@ -102,7 +102,8 @@ describe("videos", () => {
 	});
 
 	test("/v1/videos redacts stealth-provider errors persisted by the worker", async () => {
-		const secret = "SecretVendor SensitiveContentDetected at https://api.secretvendor.com";
+		const secret =
+			"SecretVendor SensitiveContentDetected at https://api.secretvendor.com";
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			token: "real-token",
@@ -151,7 +152,9 @@ describe("videos", () => {
 		});
 		expect(persistedJob).toBeTruthy();
 		expect(log).toBeTruthy();
-		expect(JSON.stringify(persistedJob!.upstreamStatusResponse)).toContain(secret);
+		expect(JSON.stringify(persistedJob!.upstreamStatusResponse)).toContain(
+			secret,
+		);
 		expect(log!.finishReason).toBe("content_filter");
 		expect(log!.upstreamResponse).toBeNull();
 		expect(log!.internalErrorDetails).toMatchObject({ responseText: secret });
