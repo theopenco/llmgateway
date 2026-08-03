@@ -590,7 +590,9 @@ function clientFacingVideoJobError(
 	}
 
 	return {
-		message: `Upstream provider error (${VIDEO_JOB_PUBLIC_ERROR_STATUS_CODE} ${VIDEO_JOB_PUBLIC_ERROR_STATUS_TEXT})`,
+		message: `Upstream provider error (${
+			VIDEO_JOB_PUBLIC_ERROR_STATUS_CODE
+		} ${VIDEO_JOB_PUBLIC_ERROR_STATUS_TEXT})`,
 	};
 }
 
@@ -1846,7 +1848,9 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				jobToLog.upstreamStatusResponse &&
 				typeof jobToLog.upstreamStatusResponse === "object" &&
 				!Array.isArray(jobToLog.upstreamStatusResponse)
-					? extractError(jobToLog.upstreamStatusResponse as Record<string, unknown>)
+					? extractError(
+						jobToLog.upstreamStatusResponse as Record<string, unknown>,
+					)
 					: jobToLog.error;
 			const redactStealthProviderError = isStealthProvider(
 				jobToLog.usedProvider as ProviderId,
@@ -1863,7 +1867,9 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 					? {
 							statusCode: VIDEO_JOB_PUBLIC_ERROR_STATUS_CODE,
 							statusText: VIDEO_JOB_PUBLIC_ERROR_STATUS_TEXT,
-							responseText: `Upstream provider error (${VIDEO_JOB_PUBLIC_ERROR_STATUS_CODE} ${VIDEO_JOB_PUBLIC_ERROR_STATUS_TEXT})`,
+							responseText: `Upstream provider error (${
+							VIDEO_JOB_PUBLIC_ERROR_STATUS_CODE
+							} ${VIDEO_JOB_PUBLIC_ERROR_STATUS_TEXT})`,
 						}
 					: rawErrorDetails;
 
