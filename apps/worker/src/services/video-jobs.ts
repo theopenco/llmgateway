@@ -27,8 +27,10 @@ import {
 	getProviderEnvValue,
 	getProviderEnvVar,
 	getVariantEnvVarName,
+	isStealthProvider,
 	models,
 	type Provider,
+	type ProviderId,
 	type ProviderModelMapping,
 	resolveVertexTokenType,
 	type VertexTokenType,
@@ -574,6 +576,19 @@ function extractError(body: Record<string, unknown>): VideoJobRecord["error"] {
 				? candidate.message
 				: "Video generation failed",
 		details: candidate,
+	};
+}
+
+function clientFacingVideoJobError(
+	providerId: string,
+	error: VideoJobRecord["error"],
+): VideoJobRecord["error"] {
+	if (!error || !isStealthProvider(providerId as ProviderId)) {
+		return error;
+	}
+
+	return {
+		message: "Upstream provider error",
 	};
 }
 
@@ -2463,7 +2478,10 @@ export async function processPendingVideoJobs(): Promise<void> {
 				.set({
 					status,
 					progress,
-					error: extractError(enrichedUpstreamStatus),
+					error: clientFacingVideoJobError(
+						job.usedProvider,
+						extractError(enrichedUpstreamStatus),
+					),
 					contentUrl:
 						extractContentUrl(enrichedUpstreamStatus) ?? job.contentUrl,
 					storageProvider:
@@ -2567,7 +2585,10 @@ export async function processPendingVideoJobs(): Promise<void> {
 					.set({
 						status: "failed",
 						progress: 100,
-						error: extractError(failedResponse),
+						error: clientFacingVideoJobError(
+							job.usedProvider,
+							extractError(failedResponse),
+						),
 						completedAt: now,
 						lastPolledAt: now,
 						nextPollAt: now,

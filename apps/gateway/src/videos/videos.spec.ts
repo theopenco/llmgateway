@@ -85,6 +85,60 @@ describe("videos", () => {
 		expect(JSON.stringify(json)).toContain("fixed 8s clips");
 	});
 
+	test("/v1/videos redacts stealth-provider errors persisted by the worker", async () => {
+		const secret = "SecretVendor error at https://api.secretvendor.com";
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-avalanche-key",
+			provider: "avalanche",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "avalanche/veo-3.1-generate-preview",
+				prompt: "A mountain range at sunrise",
+				size: "1920x1080",
+				seconds: 8,
+			}),
+		});
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		const job = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(job).toBeTruthy();
+		setMockVideoStatus(job!.upstreamId, "failed", {
+			error: { message: secret },
+		});
+
+		await processPendingVideoJobs();
+
+		const statusRes = await app.request(`/v1/videos/${created.id}`, {
+			headers: { Authorization: "Bearer real-token" },
+		});
+		expect(statusRes.status).toBe(200);
+		const responseText = await statusRes.text();
+		expect(responseText).not.toContain("SecretVendor");
+		expect(responseText).not.toContain("secretvendor.com");
+		expect(JSON.parse(responseText).error).toEqual({
+			message: "Upstream provider error",
+		});
+	});
+
 	test("/v1/videos rejects dev-plan personal orgs with 403", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",

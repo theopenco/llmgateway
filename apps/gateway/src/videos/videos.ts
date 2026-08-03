@@ -38,6 +38,7 @@ import { validateRequestModelAccess } from "@/lib/iam.js";
 import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
+import { clientFacingUpstreamErrorMessage } from "@/lib/stealth-provider-errors.js";
 
 import {
 	getCheapestFromAvailableProviders,
@@ -91,8 +92,6 @@ import {
 	buildSignedGatewayVideoLogContentUrl,
 	verifyVideoContentAccessToken,
 } from "@llmgateway/shared/video-access";
-
-import { clientFacingUpstreamMessage } from "./upstream-error.js";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ResolvedRoutingConfig } from "@llmgateway/shared/routing-config";
@@ -2788,7 +2787,7 @@ function isDebugMode(c: Context): boolean {
 async function fetchUpstreamJson(
 	url: string,
 	init: RequestInit,
-	providerId?: string,
+	providerId: string,
 ): Promise<Record<string, unknown>> {
 	// SSRF: never follow redirects on a tenant-baseUrl provider request.
 	const response = await fetch(url, { ...init, redirect: "error" });
@@ -2842,6 +2841,13 @@ async function fetchUpstreamJson(
 			: null;
 
 	if (!response.ok) {
+		const rawMessage =
+			typeof body.error === "object" &&
+			body.error &&
+			"message" in body.error &&
+			typeof body.error.message === "string"
+				? body.error.message
+				: `Upstream provider error (${response.status})`;
 		logger.warn("Upstream video request failed", {
 			url,
 			status: response.status,
@@ -2851,17 +2857,11 @@ async function fetchUpstreamJson(
 			response.status as
 				400 | 401 | 403 | 404 | 409 | 422 | 429 | 500 | 502 | 503 | 504,
 			{
-				message:
-					typeof body.error === "object" &&
-					body.error &&
-					"message" in body.error &&
-					typeof body.error.message === "string"
-						? clientFacingUpstreamMessage(
-								providerId,
-								response.status,
-								body.error.message,
-							)
-						: `Upstream provider error (${response.status})`,
+				message: clientFacingUpstreamErrorMessage(
+					providerId,
+					response.status,
+					rawMessage,
+				),
 			},
 		);
 	}
@@ -2873,7 +2873,7 @@ async function fetchUpstreamJson(
 			body,
 		});
 		throw new HTTPException(upstreamApplicationError.status, {
-			message: clientFacingUpstreamMessage(
+			message: clientFacingUpstreamErrorMessage(
 				providerId,
 				upstreamApplicationError.status,
 				upstreamApplicationError.message,
