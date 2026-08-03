@@ -938,6 +938,7 @@ export const googleModels = [
 				tools: true,
 				webSearch: true,
 				reasoning: true,
+				reasoningEfforts: ["minimal", "low", "medium", "high"],
 				reasoningMaxTokens: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
