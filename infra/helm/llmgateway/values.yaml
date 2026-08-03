@@ -415,6 +415,32 @@ externalStorageRedis:
   password: ""
 
 # =============================================================================
+# Payload Storage (S3-compatible object storage)
+# Offloads log payload blobs (messages, raw request/response, tool results)
+# to object storage; the log table keeps truncated previews plus a blob
+# reference. Leave bucket empty to keep payloads in Postgres (default).
+# Blob retention is a bucket lifecycle rule (e.g. delete after 30 days), not
+# managed by the app. For GCS use the S3-interoperability endpoint
+# (https://storage.googleapis.com) with HMAC keys from a service account
+# scoped to the bucket (roles/storage.objectAdmin).
+# =============================================================================
+payloadStorage:
+  # -- S3 bucket name; empty disables payload offloading entirely
+  bucket: ""
+  # -- S3 endpoint URL (e.g. https://storage.googleapis.com); empty uses AWS
+  endpoint: ""
+  # -- S3 region
+  region: "us-east-1"
+  # -- Path-style addressing (required by MinIO; supported by GCS)
+  forcePathStyle: "true"
+  # -- Optional key prefix inside the bucket
+  prefix: ""
+  # -- HMAC access key id (stored in the chart secret)
+  accessKeyId: ""
+  # -- HMAC secret access key (stored in the chart secret)
+  secretAccessKey: ""
+
+# =============================================================================
 # Ingress
 # =============================================================================
 ingress:

@@ -17,6 +17,19 @@ data:
   STORAGE_REDIS_PORT: {{ include "llmgateway.storageRedis.port" . | quote }}
   {{- end }}
 
+  # Payload storage (S3-compatible object storage for log payload blobs)
+  {{- if .Values.payloadStorage.bucket }}
+  PAYLOAD_STORAGE_S3_BUCKET: {{ .Values.payloadStorage.bucket | quote }}
+  {{- if .Values.payloadStorage.endpoint }}
+  PAYLOAD_STORAGE_S3_ENDPOINT: {{ .Values.payloadStorage.endpoint | quote }}
+  {{- end }}
+  PAYLOAD_STORAGE_S3_REGION: {{ .Values.payloadStorage.region | default "us-east-1" | quote }}
+  PAYLOAD_STORAGE_S3_FORCE_PATH_STYLE: {{ .Values.payloadStorage.forcePathStyle | default "true" | quote }}
+  {{- if .Values.payloadStorage.prefix }}
+  PAYLOAD_STORAGE_S3_PREFIX: {{ .Values.payloadStorage.prefix | quote }}
+  {{- end }}
+  {{- end }}
+
   # Public-facing URLs
   {{- if .Values.urls.ui }}
   UI_URL: {{ .Values.urls.ui | quote }}
