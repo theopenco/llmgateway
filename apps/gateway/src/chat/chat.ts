@@ -77,6 +77,11 @@ import {
 	resolvePreferredProvider,
 	setPreferredProvider,
 } from "@/lib/preferred-provider.js";
+import {
+	isProviderCircuitOpen,
+	openCircuitOnUpstreamFailure,
+	providerCapabilityContext,
+} from "@/lib/provider-circuit-breaker.js";
 import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
 import {
 	checkProviderRateLimit,
@@ -3214,13 +3219,37 @@ chat.openapi(completions, async (c) => {
 					anyPostComplianceCandidate = true;
 				}
 			}
-			// Filter by context size requirement, reasoning capability, and deprecation status
+			// Filter by context size requirement, reasoning capability, deprecation
+			// status, and open provider circuits.
 			const filteredOutForModel: Array<{
 				providerId: string;
 				reasons: string[];
 			}> = [];
+			const circuitChecks = await Promise.all(
+				complianceFilteredProviders.map(async (provider) => ({
+					provider,
+					open: await isProviderCircuitOpen(
+						project.organizationId,
+						provider.providerId,
+						modelDef.id,
+						provider.region,
+					),
+				})),
+			);
 			const suitableProviders = complianceFilteredProviders.filter(
 				(provider) => {
+					const circuitCheck = circuitChecks.find(
+						(c) =>
+							c.provider.providerId === provider.providerId &&
+							c.provider.region === provider.region,
+					);
+					if (circuitCheck?.open) {
+						recordFilteredProvider(filteredOutForModel, provider.providerId, [
+							"circuit open",
+						]);
+						return false;
+					}
+
 					// Skip deprecated provider mappings
 					if (provider.deprecatedAt && now > provider.deprecatedAt!) {
 						return false;
@@ -7612,6 +7641,19 @@ chat.openapi(completions, async (c) => {
 									usedInternalModel,
 								);
 							}
+							await openCircuitOnUpstreamFailure(
+								project.organizationId,
+								usedProvider,
+								usedInternalModel,
+								0,
+								usedRegion,
+								providerCapabilityContext(
+									modelInfo.providers,
+									usedProvider,
+									hasAssistantPrefill,
+									response_format?.type,
+								),
+							);
 
 							if (willRetrySameProvider && sameProviderRetryContext) {
 								routingAttempts.push(
@@ -7969,6 +8011,22 @@ chat.openapi(completions, async (c) => {
 							);
 						}
 
+						if (finishReason !== "content_filter") {
+							await openCircuitOnUpstreamFailure(
+								project.organizationId,
+								usedProvider,
+								usedInternalModel,
+								res.status,
+								usedRegion,
+								providerCapabilityContext(
+									modelInfo.providers,
+									usedProvider,
+									hasAssistantPrefill,
+									response_format?.type,
+								),
+							);
+						}
+
 						if (willRetrySameProvider && sameProviderRetryContext) {
 							routingAttempts.push(
 								buildRoutingAttempt(
@@ -8300,6 +8358,22 @@ chat.openapi(completions, async (c) => {
 								inferredStatusCode,
 								errorResponseText,
 								usedInternalModel,
+							);
+						}
+
+						if (errorType !== "content_filter") {
+							await openCircuitOnUpstreamFailure(
+								project.organizationId,
+								usedProvider,
+								usedInternalModel,
+								inferredStatusCode,
+								usedRegion,
+								providerCapabilityContext(
+									modelInfo.providers,
+									usedProvider,
+									hasAssistantPrefill,
+									response_format?.type,
+								),
 							);
 						}
 
@@ -11654,6 +11728,19 @@ chat.openapi(completions, async (c) => {
 					usedInternalModel,
 				);
 			}
+			await openCircuitOnUpstreamFailure(
+				project.organizationId,
+				usedProvider,
+				usedInternalModel,
+				0,
+				usedRegion,
+				providerCapabilityContext(
+					modelInfo.providers,
+					usedProvider,
+					hasAssistantPrefill,
+					response_format?.type,
+				),
+			);
 
 			if (willRetrySameProvider && sameProviderRetryContext) {
 				routingAttempts.push(
@@ -12152,6 +12239,22 @@ chat.openapi(completions, async (c) => {
 					res.status,
 					errorResponseText,
 					usedInternalModel,
+				);
+			}
+
+			if (finishReason !== "content_filter") {
+				await openCircuitOnUpstreamFailure(
+					project.organizationId,
+					usedProvider,
+					usedInternalModel,
+					res.status,
+					usedRegion,
+					providerCapabilityContext(
+						modelInfo.providers,
+						usedProvider,
+						hasAssistantPrefill,
+						response_format?.type,
+					),
 				);
 			}
 
