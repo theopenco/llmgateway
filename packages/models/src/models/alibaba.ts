@@ -1608,6 +1608,53 @@ export const alibabaModels = [
 		],
 	},
 	{
+		id: "qwen3.8-max",
+		name: "Qwen3.8 Max",
+		description:
+			"Flagship 2.4-trillion-parameter MoE model in the Qwen3.8 series with native visual understanding, excelling at coding, professional work, and long-horizon autonomous agent tasks.",
+		family: "alibaba",
+		releasedAt: new Date("2026-08-02"),
+		providers: [
+			{
+				providerId: "alibaba",
+				externalId: "qwen3.8-max",
+				inputPrice: "2e-6",
+				outputPrice: "6e-6",
+				// Alibaba publishes off-ratio cache rates for this model: implicit hits
+				// are 0.125x and explicit hits 0.085x of input, not the usual 0.20x/0.10x
+				// (cache creation still follows 1.25x). Do not "correct" these to the ratio.
+				cachedInputPrice: "0.25e-6",
+				cacheReadInputPrice: "0.17e-6",
+				cacheWriteInputPrice: "2.5e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 131072,
+				reasoning: true,
+				reasoningMaxTokens: true,
+				reasoningOutput: "omit",
+				streaming: true,
+				vision: true,
+				tools: true,
+				webSearch: true,
+				webSearchPrice: "0.01",
+				jsonOutput: true,
+				// Qwen thinking models reject tool_choice "required" or object
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"tools",
+					"response_format",
+					"reasoning_effort",
+				],
+			},
+		],
+	},
+	{
 		id: "qwen3-coder-next",
 		name: "Qwen3 Coder Next",
 		description:

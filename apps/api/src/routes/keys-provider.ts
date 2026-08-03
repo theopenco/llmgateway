@@ -493,6 +493,16 @@ keysProvider.openapi(create, async (c) => {
 		const modelPart = validationResult.model
 			? ` using model ${validationResult.model}`
 			: "";
+		// A 401 is an auth or entitlement failure, so "try again later" is the
+		// wrong advice — the key will keep failing until it is replaced or the
+		// account is granted access. The provider's own message distinguishes the
+		// two (a bad token vs. a valid token without access to the model), so
+		// surface it rather than guessing.
+		if (validationResult.statusCode === 401) {
+			throw new HTTPException(400, {
+				message: `Provider ${provider} rejected the key${modelPart}${statusPart}. Make sure the key is correct and that your account has access to that model. Provider response: ${errorMessage}`,
+			});
+		}
 		throw new HTTPException(400, {
 			message: `Error from provider ${provider}: ${errorMessage}${statusPart}${modelPart}. Please try again later or contact support.`,
 		});

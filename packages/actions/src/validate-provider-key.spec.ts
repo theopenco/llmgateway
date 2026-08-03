@@ -1,10 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { models } from "@llmgateway/models";
 
 import {
 	getValidationModel,
 	pickCheapestRecentModel,
+	validateProviderKey,
 } from "./validate-provider-key.js";
 
 describe("getValidationModel", () => {
@@ -83,5 +84,72 @@ describe("pickCheapestRecentModel", () => {
 			{ id: "old", price: 0.5, releasedAt: new Date("2023-01-01") },
 		]);
 		expect(picked?.id).toBe("new");
+	});
+});
+
+describe("validateProviderKey error reporting", () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	function mockUpstream(status: number, body: unknown) {
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response(JSON.stringify(body), {
+				status,
+				headers: { "Content-Type": "application/json" },
+			}),
+		);
+	}
+
+	// A provider can answer 401 for a perfectly valid key that simply lacks
+	// entitlement to the validation model (AWS Bedrock does exactly this). The
+	// reason must reach the caller instead of being flattened into a generic
+	// "invalid API key", which sends users chasing the wrong problem.
+	it("forwards the upstream message on a 401", async () => {
+		const message =
+			"openai.gpt-5.6-luna is not available for this account. You can explore other available models on Amazon Bedrock.";
+		mockUpstream(401, { error: { message } });
+
+		const result = await validateProviderKey(
+			"aws-mantle",
+			"ABSKtest",
+			undefined,
+			false,
+		);
+
+		expect(result.valid).toBe(false);
+		expect(result.statusCode).toBe(401);
+		expect(result.error).toBe(message);
+	});
+
+	it("still forwards the upstream message on non-401 failures", async () => {
+		mockUpstream(429, { error: { message: "Rate limit exceeded" } });
+
+		const result = await validateProviderKey(
+			"openai",
+			"sk-test",
+			undefined,
+			false,
+		);
+
+		expect(result.valid).toBe(false);
+		expect(result.statusCode).toBe(429);
+		expect(result.error).toBe("Rate limit exceeded");
+	});
+
+	it("falls back to status text when the body carries no message", async () => {
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response("not json", { status: 401, statusText: "Unauthorized" }),
+		);
+
+		const result = await validateProviderKey(
+			"openai",
+			"sk-test",
+			undefined,
+			false,
+		);
+
+		expect(result.valid).toBe(false);
+		expect(result.error).toBe("401 Unauthorized");
 	});
 });
