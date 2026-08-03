@@ -1534,6 +1534,7 @@ export interface ProviderKeyOptions {
 	azure_ai_foundry_resource?: string;
 	azure_ai_foundry_api_version?: string;
 	alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
+	aws_mantle_region?: "us-east-1" | "us-east-2" | "us-west-2";
 	google_vertex_project_id?: string;
 	google_vertex_token_type?: "api-key" | "oauth";
 	vertex_openai_project_id?: string;
