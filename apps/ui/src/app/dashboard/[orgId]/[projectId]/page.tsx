@@ -18,17 +18,6 @@ export default async function Dashboard({
 	}>;
 }) {
 	const { orgId, projectId } = await params;
-
-	// Project-scoped "developer" members don't get the project-wide dashboard —
-	// send them to their personal usage view.
-	const orgsData = await fetchServerData<{
-		organizations?: { id: string; role?: string }[];
-	}>("GET", "/orgs");
-	const role = orgsData?.organizations?.find((o) => o.id === orgId)?.role;
-	if (role === "developer") {
-		redirect(`/dashboard/${orgId}/${projectId}/me`);
-	}
-
 	const searchParamsData = searchParams ? await searchParams : {};
 
 	const today = new Date();
@@ -36,7 +25,11 @@ export default async function Dashboard({
 		searchParamsData?.from ?? format(subDays(today, 6), "yyyy-MM-dd");
 	const toParam = searchParamsData?.to ?? format(today, "yyyy-MM-dd");
 
-	const initialActivityData = await fetchServerData<ActivitT>(
+	const orgsDataPromise = fetchServerData<{
+		organizations?: { id: string; role?: string }[];
+	}>("GET", "/orgs");
+
+	const initialActivityDataPromise = fetchServerData<ActivitT>(
 		"GET",
 		"/activity",
 		{
@@ -49,6 +42,16 @@ export default async function Dashboard({
 			},
 		},
 	);
+
+	// Project-scoped "developer" members don't get the project-wide dashboard —
+	// send them to their personal usage view.
+	const orgsData = await orgsDataPromise;
+	const role = orgsData?.organizations?.find((o) => o.id === orgId)?.role;
+	if (role === "developer") {
+		redirect(`/dashboard/${orgId}/${projectId}/me`);
+	}
+
+	const initialActivityData = await initialActivityDataPromise;
 
 	return (
 		<DashboardClient initialActivityData={initialActivityData ?? undefined} />
