@@ -40,6 +40,7 @@ import {
 	formatServiceTierMultiplier,
 	getServiceTier,
 } from "@llmgateway/models";
+import { regionFromUsedModel } from "@llmgateway/shared";
 import { API_ORIGIN_LABELS } from "@llmgateway/shared/components";
 
 import type { LogDetailData } from "@/types/activity";
@@ -465,6 +466,10 @@ export function LogDetailClient({
 
 	const inputImages = extractMessageImages(log.messages);
 
+	// Regional mappings encode the served region as a `:region` suffix on
+	// `usedModel`; providers without regional deployments have none.
+	const usedRegion = regionFromUsedModel(log.usedModel, log.usedProvider);
+
 	const retentionEnabled =
 		log.dataStorageCost !== null &&
 		log.dataStorageCost !== undefined &&
@@ -624,6 +629,7 @@ export function LogDetailClient({
 									/>
 								)}
 								<Field label="Provider" value={log.usedProvider} />
+								{usedRegion && <Field label="Region" value={usedRegion} mono />}
 								{log.requestedProvider && (
 									<Field
 										label="Requested Provider"

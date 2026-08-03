@@ -43,6 +43,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { regionFromUsedModel } from "@/used-model.js";
 
 import {
 	formatServiceTierMultiplier,
@@ -375,6 +376,9 @@ export function LogCard({
 	fetchInputImages,
 }: LogCardProps) {
 	const routingMetadata = log.routingMetadata as RoutingMetadata | undefined;
+	// Regional mappings encode the served region as a `:region` suffix on
+	// `usedModel`; providers without regional deployments have none.
+	const usedRegion = regionFromUsedModel(log.usedModel, log.usedProvider);
 	const errorDetails = log.errorDetails as ErrorDetails | undefined;
 	const pluginResults = log.pluginResults as PluginResults | undefined;
 	const toolResults = log.toolResults as ToolCall[] | undefined;
@@ -643,6 +647,14 @@ export function LogCard({
 								)}
 								<div className="text-muted-foreground">Provider</div>
 								<div>{log.usedProvider}</div>
+								{usedRegion && (
+									<>
+										<div className="text-muted-foreground">Region</div>
+										<div className="font-mono text-xs break-all">
+											{usedRegion}
+										</div>
+									</>
+								)}
 							</div>
 							{routingMetadata && (
 								<div className="mt-3">

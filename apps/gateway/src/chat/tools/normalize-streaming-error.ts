@@ -1,3 +1,5 @@
+import { redactedProviderErrorText } from "@/lib/stealth-provider-errors.js";
+
 import { extractErrorCause } from "./extract-error-cause.js";
 
 interface ErrorWithCode extends Error {
@@ -11,6 +13,17 @@ export interface NormalizeStreamingErrorOptions {
 	model: string;
 	bufferSnapshot?: string;
 	phase: "upstream_connect" | "upstream_read";
+	/**
+	 * When true, the client-facing payload is scrubbed of every raw upstream
+	 * detail so a stealth provider's identity cannot leak through a mid-stream
+	 * read fault. The raw error message, the undici `cause` chain (which can
+	 * embed the secret host via ENOTFOUND/ECONNREFUSED/TLS errors) and the
+	 * buffered upstream body are all dropped; only the gateway-derived status
+	 * survives. The internal `log` payload is never redacted — it feeds the
+	 * internal-only log columns, consistent with the sibling error branches
+	 * (chat.ts:8335 / chat.ts:9254) and redactErrorDetails.
+	 */
+	redact?: boolean;
 }
 
 export interface NormalizedStreamingError {
@@ -30,7 +43,7 @@ export interface NormalizedStreamingError {
 		details: {
 			statusCode: number;
 			statusText: string;
-			errorName: string;
+			errorName?: string;
 			errorCode?: string;
 			cause?: string;
 		};
@@ -153,7 +166,7 @@ export function isUpstreamTermination(error: unknown): boolean {
 export function normalizeStreamingError(
 	options: NormalizeStreamingErrorOptions,
 ): NormalizedStreamingError {
-	const { error, provider, model, bufferSnapshot, phase } = options;
+	const { error, provider, model, bufferSnapshot, phase, redact } = options;
 
 	const errorName =
 		error instanceof Error
@@ -176,22 +189,42 @@ export function normalizeStreamingError(
 		: `Streaming error: ${rawMessage}`;
 	const responseText = cause ? `${rawMessage} | cause: ${cause}` : rawMessage;
 
+	const client: NormalizedStreamingError["client"] = redact
+		? {
+				// Generic, status-only payload: no raw message, no cause chain,
+				// no buffered upstream body — none of which may reach a client
+				// for a stealth provider.
+				message: redactedProviderErrorText(statusCode),
+				type: "gateway_error",
+				param: null,
+				code: "streaming_error",
+				responseText: redactedProviderErrorText(statusCode),
+				// Status only: errorName / errorCode / cause are all dropped so a stealth
+				// provider's failure mode cannot be inferred client-side, matching
+				// redactErrorDetails on the sibling branches (chat.ts 8335 / 9254).
+				details: {
+					statusCode,
+					statusText,
+				},
+			}
+		: {
+				message,
+				type: "gateway_error",
+				param: null,
+				code: "streaming_error",
+				responseText: bufferSnapshot,
+				details: {
+					statusCode,
+					statusText,
+					errorName,
+					...(errorCode ? { errorCode } : {}),
+					...(cause ? { cause } : {}),
+				},
+			};
+
 	return {
 		terminated,
-		client: {
-			message,
-			type: "gateway_error",
-			param: null,
-			code: "streaming_error",
-			responseText: bufferSnapshot,
-			details: {
-				statusCode,
-				statusText,
-				errorName,
-				...(errorCode ? { errorCode } : {}),
-				...(cause ? { cause } : {}),
-			},
-		},
+		client,
 		log: {
 			message: rawMessage,
 			type: "streaming_error",

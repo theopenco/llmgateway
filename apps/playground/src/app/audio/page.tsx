@@ -32,36 +32,31 @@ export default async function AudioPage({
 		cookieStore.get(AUDIO_MODEL_COOKIE)?.value,
 	);
 
-	const [models, providers] = await Promise.all([
-		fetchModels(),
-		fetchProviders(),
-	]);
-
-	// Ensure the dedicated Chat org exists, then list it so it can back the
-	// default billing context for the playground.
-	await fetchServerData("GET", "/playground/chat-org");
-	const initialOrganizationsData = await fetchServerData("GET", "/orgs", {
-		params: { query: { includeChat: "true" } },
-	});
-
-	let initialProjectsData: { projects: Project[] } | null = null;
-	if (orgId) {
-		try {
-			initialProjectsData = (await fetchServerData(
-				"GET",
-				"/orgs/{id}/projects",
-				{
-					params: {
-						path: {
-							id: orgId,
+	const [models, providers, initialOrganizationsData, orgIdProjectsData] =
+		await Promise.all([
+			fetchModels(),
+			fetchProviders(),
+			// Ensure the dedicated Chat org exists, then list it so it can back the
+			// default billing context for the playground.
+			fetchServerData("GET", "/playground/chat-org").then(() =>
+				fetchServerData("GET", "/orgs", {
+					params: { query: { includeChat: "true" } },
+				}),
+			),
+			orgId
+				? fetchServerData("GET", "/orgs/{id}/projects", {
+						params: {
+							path: {
+								id: orgId,
+							},
 						},
-					},
-				},
-			)) as { projects: Project[] };
-		} catch (error) {
-			console.warn("Failed to fetch projects for organization:", orgId, error);
-		}
-	}
+					})
+				: null,
+		]);
+
+	let initialProjectsData = (orgIdProjectsData ?? null) as {
+		projects: Project[];
+	} | null;
 
 	if (
 		projectId &&
