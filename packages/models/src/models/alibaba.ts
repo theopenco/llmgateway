@@ -1620,6 +1620,9 @@ export const alibabaModels = [
 				externalId: "qwen3.8-max",
 				inputPrice: "2e-6",
 				outputPrice: "6e-6",
+				// Alibaba publishes off-ratio cache rates for this model: implicit hits
+				// are 0.125x and explicit hits 0.085x of input, not the usual 0.20x/0.10x
+				// (cache creation still follows 1.25x). Do not "correct" these to the ratio.
 				cachedInputPrice: "0.25e-6",
 				cacheReadInputPrice: "0.17e-6",
 				cacheWriteInputPrice: "2.5e-6",
