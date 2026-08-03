@@ -453,7 +453,7 @@ export function ProviderCredentialsSpendOverview({
 						No managed credentials to chart yet.
 					</p>
 				) : (
-					<div className="grid gap-4 xl:grid-cols-2">
+					<div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
 						{providerSeries.map((series) => (
 							<ProviderSpendChart
 								key={series.provider}

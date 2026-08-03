@@ -37,6 +37,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { formatUsd, isInRotation } from "@/lib/provider-key-spend";
 import { cn } from "@/lib/utils";
@@ -251,6 +252,26 @@ export function ProviderCredentialsManager({
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
 	const providerFilter = searchParams.get("provider") ?? ALL_PROVIDERS;
+	const view = searchParams.get("view") === "spend" ? "spend" : "credentials";
+
+	// Kept in the URL like the provider filter, so a shared link opens on the
+	// same tab. The credentials table is the default: with dozens of providers
+	// the chart grid would otherwise push it off screen.
+	const setView = useCallback(
+		(next: string) => {
+			const params = new URLSearchParams(searchParams.toString());
+			if (next === "spend") {
+				params.set("view", "spend");
+			} else {
+				params.delete("view");
+			}
+			const query = params.toString();
+			router.replace(query ? `${pathname}?${query}` : pathname, {
+				scroll: false,
+			});
+		},
+		[searchParams, router, pathname],
+	);
 
 	// Kept in the URL so a filtered view can be reloaded, shared and navigated
 	// back to, matching how the other admin tables persist their filters.
@@ -502,251 +523,266 @@ export function ProviderCredentialsManager({
 	}
 
 	return (
-		<div className="flex flex-col gap-4">
+		<Tabs value={view} onValueChange={setView} className="flex flex-col gap-4">
 			<div className="flex flex-wrap items-center justify-between gap-3">
-				<div className="w-full sm:w-72">
-					<SearchableSelect
-						value={providerFilter}
-						onValueChange={setProviderFilter}
-						options={filterOptions}
-						placeholder="All providers"
-						searchPlaceholder="Filter by provider..."
-						emptyMessage="No providers found."
-						aria-label="Filter by provider"
-					/>
+				<TabsList>
+					<TabsTrigger value="credentials">Credentials</TabsTrigger>
+					<TabsTrigger value="spend">Spend</TabsTrigger>
+				</TabsList>
+				<div className="flex flex-1 flex-wrap items-center justify-end gap-3">
+					<div className="w-full sm:w-72">
+						<SearchableSelect
+							value={providerFilter}
+							onValueChange={setProviderFilter}
+							options={filterOptions}
+							placeholder="All providers"
+							searchPlaceholder="Filter by provider..."
+							emptyMessage="No providers found."
+							aria-label="Filter by provider"
+						/>
+					</div>
+					<Button onClick={() => setCreating(true)}>
+						<Plus className="mr-1 h-4 w-4" />
+						Add credential
+					</Button>
 				</div>
-				<Button onClick={() => setCreating(true)}>
-					<Plus className="mr-1 h-4 w-4" />
-					Add credential
-				</Button>
 			</div>
 
-			<ProviderCredentialsSpendOverview
-				providerFilter={
-					providerFilter === ALL_PROVIDERS ? null : providerFilter
-				}
-				providerNames={providerNames}
-			/>
+			{/* Inactive tab content is unmounted, so the charts and their query
+			    only exist once the Spend tab is opened — with dozens of providers
+			    the table view stays free of them entirely. */}
+			<TabsContent value="spend">
+				<ProviderCredentialsSpendOverview
+					providerFilter={
+						providerFilter === ALL_PROVIDERS ? null : providerFilter
+					}
+					providerNames={providerNames}
+				/>
+			</TabsContent>
 
-			<div className="min-w-0 overflow-x-auto rounded-lg border border-border/60 bg-card">
-				<Table>
-					<TableHeader>
-						<TableRow>
-							<TableHead className="w-10">
-								<span className="sr-only">Order</span>
-							</TableHead>
-							<TableHead>Provider</TableHead>
-							<TableHead>Key</TableHead>
-							<TableHead>Note</TableHead>
-							<TableHead>Applies to</TableHead>
-							<TableHead>Region</TableHead>
-							<TableHead>Settings</TableHead>
-							<TableHead>Spend</TableHead>
-							<TableHead>Status</TableHead>
-							<TableHead className="text-right">Actions</TableHead>
-						</TableRow>
-					</TableHeader>
-					{credentials.length === 0 && envOnlyProviders.length === 0 ? (
-						<TableBody>
+			<TabsContent value="credentials">
+				<div className="min-w-0 overflow-x-auto rounded-lg border border-border/60 bg-card">
+					<Table>
+						<TableHeader>
 							<TableRow>
-								<TableCell
-									colSpan={10}
-									className="py-10 text-center text-muted-foreground"
-								>
-									No managed credentials yet. Providers fall back to their{" "}
-									<code>LLM_*</code> environment variables until one is added.
-								</TableCell>
+								<TableHead className="w-10">
+									<span className="sr-only">Order</span>
+								</TableHead>
+								<TableHead>Provider</TableHead>
+								<TableHead>Key</TableHead>
+								<TableHead>Note</TableHead>
+								<TableHead>Applies to</TableHead>
+								<TableHead>Region</TableHead>
+								<TableHead>Settings</TableHead>
+								<TableHead>Spend</TableHead>
+								<TableHead>Status</TableHead>
+								<TableHead className="text-right">Actions</TableHead>
 							</TableRow>
-						</TableBody>
-					) : visibleGroups.length === 0 && envOnlyProviders.length === 0 ? (
-						// Reachable by hand-editing the query string, or by following a
-						// link to a provider whose last credential has since been removed.
-						<TableBody>
-							<TableRow>
-								<TableCell
-									colSpan={10}
-									className="py-10 text-center text-muted-foreground"
-								>
-									No credentials for this provider.{" "}
-									<button
-										type="button"
-										className="underline underline-offset-2"
-										onClick={() => setProviderFilter(ALL_PROVIDERS)}
+						</TableHeader>
+						{credentials.length === 0 && envOnlyProviders.length === 0 ? (
+							<TableBody>
+								<TableRow>
+									<TableCell
+										colSpan={10}
+										className="py-10 text-center text-muted-foreground"
 									>
-										Show all providers
-									</button>
-								</TableCell>
-							</TableRow>
-						</TableBody>
-					) : (
-						// One tbody per provider: several are valid inside a table and
-						// stack seamlessly, and it makes dragging a row into another
-						// provider's group structurally impossible.
-						<>
-							{visibleGroups.map(([provider, ids]) => (
-								<ReorderableList
-									key={provider}
-									as="tbody"
-									ids={ids}
-									disabled={savingProvider === provider}
-									onReorder={(next) => applyReorder(provider, next)}
-									onCommit={(next) => void commitReorder(provider, next)}
-								>
-									{ids.map((id: string) => {
-										const credential = credentialById.get(id);
-										if (!credential) {
-											return null;
-										}
-										// Position the gateway would actually try this credential
-										// at. Selection skips anything not active, so numbering
-										// every row by its list index would show a shut-off key
-										// as "#1" while the gateway silently serves from the one
-										// below it.
-										const rotationPosition = rotationPositions.get(id) ?? null;
-										const configEntries = Object.entries(
-											credential.config ?? {},
-										);
-										return (
-											<ReorderableItem
-												key={credential.id}
-												id={credential.id}
-												as="tr"
-												itemLabel={`${credential.provider} credential ${credential.maskedToken}`}
-												className={cn(
-													"border-b bg-card transition-colors hover:bg-muted/50",
-													rotationPosition === null && "bg-muted/30",
-												)}
-											>
-												{(handle) => (
-													<>
-														<TableCell className="w-10">
-															<div className="flex items-center gap-1">
-																{handle}
-																{rotationPosition === null ? (
-																	<span
-																		className="text-xs text-muted-foreground"
-																		title="Not in rotation: the gateway only selects active credentials, so this one is skipped entirely."
+										No managed credentials yet. Providers fall back to their{" "}
+										<code>LLM_*</code> environment variables until one is added.
+									</TableCell>
+								</TableRow>
+							</TableBody>
+						) : visibleGroups.length === 0 && envOnlyProviders.length === 0 ? (
+							// Reachable by hand-editing the query string, or by following a
+							// link to a provider whose last credential has since been removed.
+							<TableBody>
+								<TableRow>
+									<TableCell
+										colSpan={10}
+										className="py-10 text-center text-muted-foreground"
+									>
+										No credentials for this provider.{" "}
+										<button
+											type="button"
+											className="underline underline-offset-2"
+											onClick={() => setProviderFilter(ALL_PROVIDERS)}
+										>
+											Show all providers
+										</button>
+									</TableCell>
+								</TableRow>
+							</TableBody>
+						) : (
+							// One tbody per provider: several are valid inside a table and
+							// stack seamlessly, and it makes dragging a row into another
+							// provider's group structurally impossible.
+							<>
+								{visibleGroups.map(([provider, ids]) => (
+									<ReorderableList
+										key={provider}
+										as="tbody"
+										ids={ids}
+										disabled={savingProvider === provider}
+										onReorder={(next) => applyReorder(provider, next)}
+										onCommit={(next) => void commitReorder(provider, next)}
+									>
+										{ids.map((id: string) => {
+											const credential = credentialById.get(id);
+											if (!credential) {
+												return null;
+											}
+											// Position the gateway would actually try this credential
+											// at. Selection skips anything not active, so numbering
+											// every row by its list index would show a shut-off key
+											// as "#1" while the gateway silently serves from the one
+											// below it.
+											const rotationPosition =
+												rotationPositions.get(id) ?? null;
+											const configEntries = Object.entries(
+												credential.config ?? {},
+											);
+											return (
+												<ReorderableItem
+													key={credential.id}
+													id={credential.id}
+													as="tr"
+													itemLabel={`${credential.provider} credential ${credential.maskedToken}`}
+													className={cn(
+														"border-b bg-card transition-colors hover:bg-muted/50",
+														rotationPosition === null && "bg-muted/30",
+													)}
+												>
+													{(handle) => (
+														<>
+															<TableCell className="w-10">
+																<div className="flex items-center gap-1">
+																	{handle}
+																	{rotationPosition === null ? (
+																		<span
+																			className="text-xs text-muted-foreground"
+																			title="Not in rotation: the gateway only selects active credentials, so this one is skipped entirely."
+																		>
+																			—
+																		</span>
+																	) : (
+																		<span
+																			className="text-xs tabular-nums text-muted-foreground"
+																			title={`Position ${rotationPosition} in this provider's rotation. The gateway tries credentials in this order and falls through to the next when one is unhealthy.`}
+																		>
+																			{rotationPosition}
+																		</span>
+																	)}
+																</div>
+															</TableCell>
+															<TableCell>
+																<ProviderCell provider={credential.provider} />
+															</TableCell>
+															<TableCell className="font-mono text-xs">
+																<div>{credential.maskedToken}</div>
+																{credential.tokenHash ? (
+																	<div
+																		className="text-[11px] text-muted-foreground"
+																		title={`Matches usedApiKeyHash on logs served by this credential: ${credential.tokenHash}`}
 																	>
+																		{credential.tokenHash.slice(0, 12)}
+																	</div>
+																) : null}
+															</TableCell>
+															<TableCell className="max-w-[260px] text-sm text-muted-foreground">
+																{credential.comment || "—"}
+															</TableCell>
+															<TableCell className="text-sm">
+																{VARIANT_LABELS[
+																	credential.variant as Variant
+																] ?? credential.variant}
+															</TableCell>
+															<TableCell className="text-sm">
+																{credential.region || "Any"}
+															</TableCell>
+															<TableCell>
+																{configEntries.length === 0 ? (
+																	<span className="text-sm text-muted-foreground">
 																		—
 																	</span>
 																) : (
-																	<span
-																		className="text-xs tabular-nums text-muted-foreground"
-																		title={`Position ${rotationPosition} in this provider's rotation. The gateway tries credentials in this order and falls through to the next when one is unhealthy.`}
-																	>
-																		{rotationPosition}
-																	</span>
+																	<div className="flex flex-wrap gap-1">
+																		{configEntries.map(([key, value]) => (
+																			<Badge
+																				key={key}
+																				variant="secondary"
+																				className="font-mono text-[11px]"
+																				title={`${key}: ${value}`}
+																			>
+																				{key}
+																			</Badge>
+																		))}
+																	</div>
 																)}
-															</div>
-														</TableCell>
-														<TableCell>
-															<ProviderCell provider={credential.provider} />
-														</TableCell>
-														<TableCell className="font-mono text-xs">
-															<div>{credential.maskedToken}</div>
-															{credential.tokenHash ? (
-																<div
-																	className="text-[11px] text-muted-foreground"
-																	title={`Matches usedApiKeyHash on logs served by this credential: ${credential.tokenHash}`}
-																>
-																	{credential.tokenHash.slice(0, 12)}
+															</TableCell>
+															<TableCell className="text-sm">
+																<ProviderKeySpendCell keyRow={credential} />
+															</TableCell>
+															<TableCell>
+																<ProviderKeyStatusBadge keyRow={credential} />
+															</TableCell>
+															<TableCell className="text-right">
+																<div className="flex justify-end gap-1">
+																	<ProviderKeySpendDialog
+																		providerKeyId={credential.id}
+																		label={`${credential.provider} ${credential.maskedToken}`}
+																	/>
+																	<Button
+																		variant="ghost"
+																		size="sm"
+																		aria-label={`Edit ${credential.provider} credential ${credential.maskedToken}`}
+																		onClick={() => setEditing(credential)}
+																	>
+																		<Pencil className="h-4 w-4" />
+																	</Button>
+																	<Button
+																		variant="ghost"
+																		size="sm"
+																		aria-label={`Remove ${credential.provider} credential ${credential.maskedToken}`}
+																		onClick={() => {
+																			setDeleteError(null);
+																			setDeleting(credential);
+																		}}
+																	>
+																		<Trash2 className="h-4 w-4" />
+																	</Button>
 																</div>
-															) : null}
-														</TableCell>
-														<TableCell className="max-w-[260px] text-sm text-muted-foreground">
-															{credential.comment || "—"}
-														</TableCell>
-														<TableCell className="text-sm">
-															{VARIANT_LABELS[credential.variant as Variant] ??
-																credential.variant}
-														</TableCell>
-														<TableCell className="text-sm">
-															{credential.region || "Any"}
-														</TableCell>
-														<TableCell>
-															{configEntries.length === 0 ? (
-																<span className="text-sm text-muted-foreground">
-																	—
-																</span>
-															) : (
-																<div className="flex flex-wrap gap-1">
-																	{configEntries.map(([key, value]) => (
-																		<Badge
-																			key={key}
-																			variant="secondary"
-																			className="font-mono text-[11px]"
-																			title={`${key}: ${value}`}
-																		>
-																			{key}
-																		</Badge>
-																	))}
-																</div>
-															)}
-														</TableCell>
-														<TableCell className="text-sm">
-															<ProviderKeySpendCell keyRow={credential} />
-														</TableCell>
-														<TableCell>
-															<ProviderKeyStatusBadge keyRow={credential} />
-														</TableCell>
-														<TableCell className="text-right">
-															<div className="flex justify-end gap-1">
-																<ProviderKeySpendDialog
-																	providerKeyId={credential.id}
-																	label={`${credential.provider} ${credential.maskedToken}`}
-																/>
-																<Button
-																	variant="ghost"
-																	size="sm"
-																	aria-label={`Edit ${credential.provider} credential ${credential.maskedToken}`}
-																	onClick={() => setEditing(credential)}
-																>
-																	<Pencil className="h-4 w-4" />
-																</Button>
-																<Button
-																	variant="ghost"
-																	size="sm"
-																	aria-label={`Remove ${credential.provider} credential ${credential.maskedToken}`}
-																	onClick={() => {
-																		setDeleteError(null);
-																		setDeleting(credential);
-																	}}
-																>
-																	<Trash2 className="h-4 w-4" />
-																</Button>
-															</div>
-														</TableCell>
-													</>
-												)}
-											</ReorderableItem>
-										);
-									})}
-									{(envByProvider.get(provider) ?? []).map((entry) => (
-										<EnvCredentialRow
-											key={`${entry.envVar}:${entry.index}`}
-											provider={provider}
-											entry={entry}
-											superseded={isEnvSuperseded(provider, entry.variant)}
-										/>
-									))}
-								</ReorderableList>
-							))}
-							{envOnlyProviders.map((provider) => (
-								<TableBody key={`env-${provider}`}>
-									{(envByProvider.get(provider) ?? []).map((entry) => (
-										<EnvCredentialRow
-											key={`${entry.envVar}:${entry.index}`}
-											provider={provider}
-											entry={entry}
-											superseded={isEnvSuperseded(provider, entry.variant)}
-										/>
-									))}
-								</TableBody>
-							))}
-						</>
-					)}
-				</Table>
-			</div>
+															</TableCell>
+														</>
+													)}
+												</ReorderableItem>
+											);
+										})}
+										{(envByProvider.get(provider) ?? []).map((entry) => (
+											<EnvCredentialRow
+												key={`${entry.envVar}:${entry.index}`}
+												provider={provider}
+												entry={entry}
+												superseded={isEnvSuperseded(provider, entry.variant)}
+											/>
+										))}
+									</ReorderableList>
+								))}
+								{envOnlyProviders.map((provider) => (
+									<TableBody key={`env-${provider}`}>
+										{(envByProvider.get(provider) ?? []).map((entry) => (
+											<EnvCredentialRow
+												key={`${entry.envVar}:${entry.index}`}
+												provider={provider}
+												entry={entry}
+												superseded={isEnvSuperseded(provider, entry.variant)}
+											/>
+										))}
+									</TableBody>
+								))}
+							</>
+						)}
+					</Table>
+				</div>
+			</TabsContent>
 
 			{creating ? (
 				<CredentialDialog
@@ -839,7 +875,7 @@ export function ProviderCredentialsManager({
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>
-		</div>
+		</Tabs>
 	);
 }
 
