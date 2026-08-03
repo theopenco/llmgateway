@@ -1662,6 +1662,15 @@ export const providerKey = pgTable(
 			.on(table.organizationId, table.name)
 			.where(sql`status <> 'deleted'`),
 		index("provider_key_organization_id_idx").on(table.organizationId),
+		index("provider_key_sort_order_idx").on(
+			table.organizationId,
+			table.provider,
+			table.sortOrder,
+		),
+		index("provider_key_managed_provider_idx").on(
+			table.managed,
+			table.provider,
+		),
 		// Exactly one storage form per row: a legacy plaintext token XOR an
 		// encrypted one. Also rejects rows with neither, which readProviderKey
 		// could never resolve into a credential.
@@ -1995,6 +2004,13 @@ export const log = pgTable(
 		index("log_end_customer_wallet_id_created_at_idx")
 			.on(table.endCustomerWalletId, table.createdAt)
 			.where(sql`end_customer_wallet_id IS NOT NULL`),
+		// Added in its own migration, after the one that creates
+		// log.provider_key_id: on a production-sized "log" this must be built
+		// out of band with CREATE INDEX CONCURRENTLY, which is only possible once
+		// the column exists.
+		index("log_provider_key_id_created_at_idx")
+			.on(table.providerKeyId, table.createdAt)
+			.where(sql`provider_key_id IS NOT NULL`),
 		index("log_end_user_session_id_created_at_idx")
 			.on(table.endUserSessionId, table.createdAt)
 			.where(sql`end_user_session_id IS NOT NULL`),
@@ -4182,6 +4198,19 @@ export const providerKeyHourlyStats = pgTable(
 		unique("provider_key_hourly_stats_key_project_hour_unique").on(
 			table.providerKeyId,
 			table.projectId,
+			table.hourTimestamp,
+		),
+		// Dashboard queries: one credential over a time range.
+		index("provider_key_hourly_stats_key_id_hour_timestamp_idx").on(
+			table.providerKeyId,
+			table.hourTimestamp,
+		),
+		// Reverse lookup: every credential a project's traffic touched.
+		index("provider_key_hourly_stats_project_id_hour_timestamp_idx").on(
+			table.projectId,
+			table.hourTimestamp,
+		),
+		index("provider_key_hourly_stats_hour_timestamp_idx").on(
 			table.hourTimestamp,
 		),
 	],
