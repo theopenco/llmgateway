@@ -124,6 +124,8 @@ describe("stealth provider error redaction (routes)", () => {
 			"LLM_GLACIER_BASE_URL",
 			"LLM_OPENAI_API_KEY",
 			"LLM_OPENAI_BASE_URL",
+			"LLM_AVALANCHE_API_KEY",
+			"LLM_AVALANCHE_BASE_URL",
 		]) {
 			savedEnv[key] = process.env[key];
 		}
@@ -134,6 +136,8 @@ describe("stealth provider error redaction (routes)", () => {
 		// openai is the non-stealth control: same leaky mock, no redaction.
 		process.env.LLM_OPENAI_API_KEY = "openai-env-key";
 		process.env.LLM_OPENAI_BASE_URL = leakyServerUrl;
+		process.env.LLM_AVALANCHE_API_KEY = "avalanche-env-key";
+		process.env.LLM_AVALANCHE_BASE_URL = leakyServerUrl;
 	});
 
 	afterAll(async () => {
@@ -192,14 +196,6 @@ describe("stealth provider error redaction (routes)", () => {
 
 	test("/v1/videos hides the raw upstream error for a stealth provider", async () => {
 		await setupCreditsApiKey("stealth-video-token");
-		await db.insert(tables.providerKey).values({
-			id: "stealth-video-avalanche-key",
-			token: "stealth-video-provider-key",
-			provider: "avalanche",
-			organizationId: "org-id",
-			baseUrl: leakyServerUrl,
-		});
-
 		const res = await app.request("/v1/videos", {
 			method: "POST",
 			headers: {
