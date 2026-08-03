@@ -13,19 +13,22 @@ export const metadata = {
 };
 
 export default async function SurveyPage() {
-	const userData = await fetchServerData<{ user: { id: string } } | null>(
+	const userDataPromise = fetchServerData<{ user: { id: string } } | null>(
 		"GET",
 		"/user/me",
 	);
+	const eligibilityPromise = fetchServerData<SurveyEligibility>(
+		"GET",
+		"/model-survey/eligibility",
+	);
+
+	const userData = await userDataPromise;
 
 	if (!userData?.user) {
 		redirect("/login?returnUrl=/dashboard/survey");
 	}
 
-	const eligibility = await fetchServerData<SurveyEligibility>(
-		"GET",
-		"/model-survey/eligibility",
-	);
+	const eligibility = await eligibilityPromise;
 
 	if (!eligibility || eligibility.topModels.length === 0) {
 		const year = eligibility?.year ?? new Date().getUTCFullYear();

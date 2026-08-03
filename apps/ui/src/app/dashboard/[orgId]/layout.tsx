@@ -18,13 +18,28 @@ interface OrgLayoutProps {
 export default async function OrgLayout({ children, params }: OrgLayoutProps) {
 	const { orgId } = await params;
 
-	const initialUserData = await fetchServerData<
+	const initialUserDataPromise = fetchServerData<
 		{ user: User } | undefined | null
 	>("GET", "/user/me");
 
-	const initialOrganizationsData = await fetchServerData<{
+	const initialOrganizationsDataPromise = fetchServerData<{
 		organizations: Organization[];
 	}>("GET", "/orgs");
+
+	const initialProjectsDataPromise = orgId
+		? fetchServerData("GET", "/orgs/{id}/projects", {
+				params: {
+					path: {
+						id: orgId,
+					},
+				},
+			})
+		: null;
+
+	const [initialUserData, initialOrganizationsData] = await Promise.all([
+		initialUserDataPromise,
+		initialOrganizationsDataPromise,
+	]);
 
 	const orgs = initialOrganizationsData?.organizations ?? [];
 	const isAuthorizedForOrg = orgs.some((org) => org.id === orgId);
@@ -42,17 +57,7 @@ export default async function OrgLayout({ children, params }: OrgLayoutProps) {
 
 	if (orgId) {
 		try {
-			initialProjectsData = await fetchServerData(
-				"GET",
-				"/orgs/{id}/projects",
-				{
-					params: {
-						path: {
-							id: orgId,
-						},
-					},
-				},
-			);
+			initialProjectsData = await initialProjectsDataPromise;
 
 			// Get last used project for navigation fallback
 			if (
