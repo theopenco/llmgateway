@@ -343,7 +343,7 @@ services:
     volumes:
       - redis_storage_data:/data
     ports:
-      - "${STORAGE_REDIS_PORT:-6380}:6379"
+      - "${STORAGE_REDIS_PORT:-6479}:6379"
     environment:
       CI: ${CI}
     healthcheck:

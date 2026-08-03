@@ -1,10 +1,14 @@
 "use client";
 
+import { TokenBreakdownCards } from "@/components/token-breakdown";
+
+import type { TokenBreakdownData } from "@/components/token-breakdown";
+
 function formatNumber(n: number) {
 	return new Intl.NumberFormat("en-US").format(n);
 }
 
-export interface DetailStats {
+export interface DetailStats extends TokenBreakdownData {
 	logsCount: number;
 	errorsCount: number;
 	clientErrorsCount: number;
@@ -67,6 +71,8 @@ export function DetailStatCards({
 					loading={loading}
 				/>
 			</section>
+
+			<TokenBreakdownCards breakdown={stats} loading={loading} />
 
 			<section className="grid gap-4 sm:grid-cols-3">
 				<StatCard

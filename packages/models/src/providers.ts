@@ -107,6 +107,14 @@ export interface ProviderCompliancePolicy {
 	/** Require the provider to NOT log prompts (promptLogging === false). */
 	blockPromptLogging?: boolean;
 	/**
+	 * Block stealth providers (see {@link isStealthProvider}) — undisclosed
+	 * platforms whose data policy and headquarters are unknown. They already
+	 * fail every certification/data-policy requirement (fail-closed on a null
+	 * `dataPolicy`), so this exists to exclude them even when no other
+	 * requirement is active.
+	 */
+	blockStealthProviders?: boolean;
+	/**
 	 * Restrict routing to providers headquartered in one of these ISO 3166-1
 	 * alpha-2 country codes. Empty/omitted means no country restriction. Only
 	 * codes present in the catalogue (see {@link getProviderCountries}) are
@@ -1270,7 +1278,7 @@ export const providers: ProviderDefinition[] = [
 	},
 	{
 		id: "scx-ai",
-		name: "SCX.ai",
+		name: "SCX.ai (Turbo)",
 		description:
 			"SCX.ai is an Australian sovereign AI platform providing OpenAI-compatible Turbo inference endpoints — up to 4x faster than comparable providers — for a range of open models and SCX's own models, hosted on renewable-powered infrastructure.",
 		env: {
@@ -1293,6 +1301,36 @@ export const providers: ProviderDefinition[] = [
 			consumerTraining: false,
 			promptLogging: false,
 			retentionPeriod: "0 days",
+			soc2: 1,
+			iso27001: true,
+		},
+	},
+	{
+		id: "scx-ai-gp",
+		name: "SCX.ai",
+		description:
+			"SCX.ai is an Australian sovereign AI platform providing OpenAI-compatible general-purpose inference endpoints for a range of open models and SCX's own models, hosted on renewable-powered infrastructure.",
+		env: {
+			required: {
+				apiKey: "LLM_SCX_AI_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#1a1a2e",
+		website: "https://scx.ai",
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: "https://scx.ai/terms",
+		privacyPolicyUrl: "https://scx.ai/privacy",
+		headquarters: "AU",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+			soc2: 1,
+			iso27001: true,
 		},
 	},
 	{
@@ -1698,6 +1736,15 @@ export const providers: ProviderDefinition[] = [
 		website: "https://fireworks.ai",
 		statusPageUrl: "https://status.fireworks.ai",
 		announcement: null,
+		serviceTiers: [
+			{
+				id: "priority",
+				name: "Priority",
+				multiplier: 1.25,
+				description:
+					"Queue precedence over standard traffic and protection from load shedding during congestion, at a 25% premium.",
+			},
+		],
 		termsUrl: "https://fireworks.ai/terms-of-service",
 		privacyPolicyUrl: "https://fireworks.ai/privacy-policy",
 		headquarters: "US",
@@ -1747,6 +1794,91 @@ export interface ProviderComplianceAttestation {
 }
 
 /**
+ * Whether a provider is a "stealth" provider — one that has no default base URL
+ * and instead requires the base URL to be supplied via a `baseUrl` env var
+ * (`env.required.baseUrl`). Because the platform behind such a provider is
+ * undisclosed, users cannot self-configure a provider key for it (they can't
+ * know the endpoint), so these are hidden from the UI provider selector.
+ */
+export function isStealthProvider(
+	provider: ProviderId | ProviderDefinition,
+): boolean {
+	const def =
+		typeof provider === "string"
+			? providers.find((p) => p.id === provider)
+			: provider;
+	return Boolean(def?.env.required.baseUrl);
+}
+
+/**
+ * Machine-readable reason a provider (or attestation) fails a compliance
+ * policy. Requirement keys mirror {@link ProviderCompliancePolicy}; the list
+ * keys report a hit on the fine-grained provider lists, and `noAttestation`
+ * marks a custom provider with no self-attested posture on file.
+ */
+export type ComplianceFailureReason =
+	| "requireSoc2"
+	| "requireSoc2Type2"
+	| "requireIso27001"
+	| "requireSoc2OrIso27001"
+	| "requireGdpr"
+	| "blockApiTraining"
+	| "blockPromptLogging"
+	| "blockStealthProviders"
+	| "allowedCountries"
+	| "blockedProviders"
+	| "allowedProviders"
+	| "noAttestation";
+
+/**
+ * Every active requirement of the policy that the data policy does not
+ * explicitly satisfy (fail-closed, so a missing data policy fails all active
+ * requirements). Empty when compliant; always empty for a disabled policy.
+ */
+export function getDataPolicyComplianceFailures(
+	dataPolicy: ProviderDataPolicy | null | undefined,
+	headquarters: string | null | undefined,
+	policy: ProviderCompliancePolicy,
+): ComplianceFailureReason[] {
+	if (!policy.enabled) {
+		return [];
+	}
+	const failures: ComplianceFailureReason[] = [];
+	if (policy.requireSoc2 && !dataPolicy?.soc2) {
+		failures.push("requireSoc2");
+	}
+	if (policy.requireSoc2Type2 && dataPolicy?.soc2 !== 2) {
+		failures.push("requireSoc2Type2");
+	}
+	if (policy.requireIso27001 && dataPolicy?.iso27001 !== true) {
+		failures.push("requireIso27001");
+	}
+	if (
+		policy.requireSoc2OrIso27001 &&
+		!(dataPolicy?.soc2 === 2 || dataPolicy?.iso27001 === true)
+	) {
+		failures.push("requireSoc2OrIso27001");
+	}
+	if (policy.requireGdpr && dataPolicy?.gdpr !== true) {
+		failures.push("requireGdpr");
+	}
+	if (policy.blockApiTraining && dataPolicy?.apiTraining !== false) {
+		failures.push("blockApiTraining");
+	}
+	if (policy.blockPromptLogging && dataPolicy?.promptLogging !== false) {
+		failures.push("blockPromptLogging");
+	}
+	if (
+		policy.allowedCountries &&
+		policy.allowedCountries.length > 0 &&
+		(!headquarters || !policy.allowedCountries.includes(headquarters))
+	) {
+		failures.push("allowedCountries");
+	}
+	return failures;
+}
+
+/**
  * Core fail-closed compliance predicate shared by catalogue providers and
  * self-attested custom deployments: any active requirement that the data
  * policy does not explicitly satisfy (including a missing policy) fails.
@@ -1757,41 +1889,10 @@ export function isDataPolicyCompliant(
 	headquarters: string | null | undefined,
 	policy: ProviderCompliancePolicy,
 ): boolean {
-	if (!policy.enabled) {
-		return true;
-	}
-	if (policy.requireSoc2 && !dataPolicy?.soc2) {
-		return false;
-	}
-	if (policy.requireSoc2Type2 && dataPolicy?.soc2 !== 2) {
-		return false;
-	}
-	if (policy.requireIso27001 && dataPolicy?.iso27001 !== true) {
-		return false;
-	}
-	if (
-		policy.requireSoc2OrIso27001 &&
-		!(dataPolicy?.soc2 === 2 || dataPolicy?.iso27001 === true)
-	) {
-		return false;
-	}
-	if (policy.requireGdpr && dataPolicy?.gdpr !== true) {
-		return false;
-	}
-	if (policy.blockApiTraining && dataPolicy?.apiTraining !== false) {
-		return false;
-	}
-	if (policy.blockPromptLogging && dataPolicy?.promptLogging !== false) {
-		return false;
-	}
-	if (
-		policy.allowedCountries &&
-		policy.allowedCountries.length > 0 &&
-		(!headquarters || !policy.allowedCountries.includes(headquarters))
-	) {
-		return false;
-	}
-	return true;
+	return (
+		getDataPolicyComplianceFailures(dataPolicy, headquarters, policy).length ===
+		0
+	);
 }
 
 /**
@@ -1826,20 +1927,33 @@ export function isProviderRefAllowedByPolicy(
 	providerRef: string,
 	policy: ProviderCompliancePolicy,
 ): boolean {
+	return getProviderRefPolicyListFailures(providerRef, policy).length === 0;
+}
+
+/**
+ * The fine-grained provider-list checks a provider ref fails: an entry on the
+ * deny list, or absence from a non-empty allow list. Empty when the ref passes
+ * both lists; always empty for a disabled policy.
+ */
+export function getProviderRefPolicyListFailures(
+	providerRef: string,
+	policy: ProviderCompliancePolicy,
+): ComplianceFailureReason[] {
 	if (!policy.enabled) {
-		return true;
+		return [];
 	}
+	const failures: ComplianceFailureReason[] = [];
 	if (policy.blockedProviders?.includes(providerRef)) {
-		return false;
+		failures.push("blockedProviders");
 	}
 	if (
 		policy.allowedProviders &&
 		policy.allowedProviders.length > 0 &&
 		!policy.allowedProviders.includes(providerRef)
 	) {
-		return false;
+		failures.push("allowedProviders");
 	}
-	return true;
+	return failures;
 }
 
 /**
@@ -1880,10 +1994,47 @@ export function isProviderCompliant(
 	provider: ProviderDefinition,
 	policy: ProviderCompliancePolicy,
 ): boolean {
-	return (
-		isProviderRefAllowedByPolicy(provider.id, policy) &&
-		isDataPolicyCompliant(provider.dataPolicy, provider.headquarters, policy)
+	return getProviderComplianceFailures(provider, policy).length === 0;
+}
+
+/**
+ * Every requirement a catalogue provider fails: the certification/data-policy
+ * checks plus the provider-level stealth check. Deliberately excludes the
+ * fine-grained provider lists, so callers editing those lists (the dashboard
+ * pickers) can show whether a provider would otherwise satisfy the policy.
+ */
+export function getProviderRequirementFailures(
+	provider: ProviderDefinition,
+	policy: ProviderCompliancePolicy,
+): ComplianceFailureReason[] {
+	const failures = getDataPolicyComplianceFailures(
+		provider.dataPolicy,
+		provider.headquarters,
+		policy,
 	);
+	if (
+		policy.enabled &&
+		policy.blockStealthProviders &&
+		isStealthProvider(provider)
+	) {
+		failures.push("blockStealthProviders");
+	}
+	return failures;
+}
+
+/**
+ * Every reason a catalogue provider fails an organization's compliance policy:
+ * fine-grained provider-list hits plus unmet certification/data-policy
+ * requirements. Empty when the provider is compliant.
+ */
+export function getProviderComplianceFailures(
+	provider: ProviderDefinition,
+	policy: ProviderCompliancePolicy,
+): ComplianceFailureReason[] {
+	return [
+		...getProviderRefPolicyListFailures(provider.id, policy),
+		...getProviderRequirementFailures(provider, policy),
+	];
 }
 
 /**
@@ -1895,13 +2046,25 @@ export function isAttestationCompliant(
 	attestation: ProviderComplianceAttestation | null | undefined,
 	policy: ProviderCompliancePolicy,
 ): boolean {
+	return getAttestationComplianceFailures(attestation, policy).length === 0;
+}
+
+/**
+ * Every reason a self-attested compliance posture fails an organization's
+ * compliance policy. A missing attestation fails closed as `noAttestation`
+ * (even when no individual requirement is active). Empty when compliant.
+ */
+export function getAttestationComplianceFailures(
+	attestation: ProviderComplianceAttestation | null | undefined,
+	policy: ProviderCompliancePolicy,
+): ComplianceFailureReason[] {
 	if (!policy.enabled) {
-		return true;
+		return [];
 	}
 	if (!attestation) {
-		return false;
+		return ["noAttestation"];
 	}
-	return isDataPolicyCompliant(
+	return getDataPolicyComplianceFailures(
 		{
 			apiTraining: attestation.apiTraining ?? null,
 			consumerTraining: attestation.consumerTraining ?? null,

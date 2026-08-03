@@ -10,6 +10,14 @@ export {
 } from "./coding-agents.js";
 
 export {
+	type CodingModel,
+	type CodingModelMapping,
+	isCodingModel,
+	mappingSupportsCoding,
+	providerSupportsCachedInput,
+} from "./coding-models.js";
+
+export {
 	AGENT_LOG_CSV_HEADERS,
 	type AgentCsvLog,
 	buildAgentLogsCsv,
@@ -144,6 +152,11 @@ export { MARKETING_STATS, RUNWARE_PROMO } from "./marketing.js";
 export { isContentFilterErrorText } from "./content-filter.js";
 
 export {
+	MAX_BULK_BLOCK_ORGANIZATIONS,
+	MIN_BULK_BLOCK_SEARCH_LENGTH,
+} from "./bulk-block.js";
+
+export {
 	CUSTOM_PROVIDER_NAME_MESSAGE,
 	CUSTOM_PROVIDER_NAME_REGEX,
 } from "./custom-providers.js";
@@ -195,5 +208,7 @@ export {
 	isPrivateOrReservedIp,
 	isProviderUrlGuardEnabled,
 } from "./url-safety.js";
+
+export { parseUsedModel, regionFromUsedModel } from "./used-model.js";
 
 export * from "./components/ui/index.js";

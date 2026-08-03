@@ -5,6 +5,7 @@ import { Suspense } from "react";
 
 import { MappingsTable } from "@/components/mappings-table";
 import { TimeWindowSelector } from "@/components/time-window-selector";
+import { TokenBreakdown } from "@/components/token-breakdown";
 import { Button } from "@/components/ui/button";
 import {
 	pageWindowOptionsWithMinutes,
@@ -163,6 +164,7 @@ export default async function ModelProviderMappingsPage({
 						<p className="text-xl font-semibold tabular-nums">
 							{formatCompactNumber(totalTokens)}
 						</p>
+						<TokenBreakdown breakdown={data} short className="mt-0.5" />
 					</div>
 					<div>
 						<span className="text-muted-foreground">Total Cost</span>

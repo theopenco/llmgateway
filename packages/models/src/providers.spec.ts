@@ -1,15 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import {
-	getSupportedServiceTiers,
-	isStealthProvider,
-	supportsServiceTier,
-} from "./helpers.js";
+import { getSupportedServiceTiers, supportsServiceTier } from "./helpers.js";
 import { anthropicModels } from "./models/anthropic.js";
 import { models } from "./models.js";
 import {
 	formatServiceTierMultiplier,
 	getServiceTier,
+	isStealthProvider,
 	providers,
 } from "./providers.js";
 import {
@@ -152,6 +149,22 @@ describe("model service tier support", () => {
 				"google-vertex",
 			).map((tier) => tier.id),
 		).toEqual(["flex"]);
+	});
+
+	it("returns the Fireworks Priority tier for Kimi K3 only", () => {
+		expect(
+			getSupportedServiceTiers("kimi-k3", "fireworks").map((tier) => tier.id),
+		).toEqual(["priority"]);
+		expect(
+			getSupportedServiceTiers("kimi-k3", "fireworks").find(
+				(tier) => tier.id === "priority",
+			)?.multiplier,
+		).toBe(1.25);
+		// Fireworks' schema accepts "flex", but it has no published flex rate
+		// card, so the gateway must not route flex traffic there.
+		expect(supportsServiceTier("kimi-k3", "fireworks", "flex")).toBe(false);
+		// Other providers serving the same model expose no tiers.
+		expect(getSupportedServiceTiers("kimi-k3", "novita")).toEqual([]);
 	});
 
 	it("returns explicit Google AI Studio tiers for supported models", () => {

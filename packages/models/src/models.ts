@@ -19,6 +19,7 @@ import { openbmbModels } from "./models/openbmb.js";
 import { perplexityModels } from "./models/perplexity.js";
 import { reveModels } from "./models/reve.js";
 import { sakanaModels } from "./models/sakana.js";
+import { tencentModels } from "./models/tencent.js";
 import { xaiModels } from "./models/xai.js";
 import { xiaomiModels } from "./models/xiaomi.js";
 import { zaiModels } from "./models/zai.js";
@@ -370,6 +371,17 @@ export interface ProviderModelMapping {
 	 * parameter) when the caller requests reasoning.
 	 */
 	requiresEnableThinking?: boolean;
+	/**
+	 * Whether this provider mapping turns thinking off through a separate binary
+	 * `thinking: { type: "disabled" }` parameter instead of
+	 * `reasoning_effort: "none"`. Together AI serves reasoning models on two
+	 * stacks: its gpt-oss/Gemma deployments validate `reasoning_effort` and take
+	 * `none` there (sending `thinking` has no effect), while its
+	 * DeepSeek/MiniMax/Kimi deployments ignore `reasoning_effort: "none"` and
+	 * only honour the `thinking` switch. Only meaningful on mappings that
+	 * declare `none` in `reasoningEfforts`.
+	 */
+	requiresDisableThinkingParam?: boolean;
 	/**
 	 * Whether this model supports the OpenAI responses API (defaults to true if reasoning is true)
 	 */
@@ -736,6 +748,7 @@ export const models = [
 	...nousresearchModels,
 	...reveModels,
 	...sakanaModels,
+	...tencentModels,
 	...nvidiaModels,
 	...openbmbModels,
 	...zaiModels,

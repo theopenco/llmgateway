@@ -104,6 +104,7 @@ import { validateModelOutput } from "@/lib/validate-model-output.js";
 
 import {
 	applyGoogleServiceTier,
+	assumeServedServiceTier,
 	getCheapestFromAvailableProviders,
 	getDiscountedProviderSelectionPrice,
 	getGcpServiceAccountAccessToken,
@@ -763,7 +764,8 @@ function isVertexCompatibleProvider(provider: string): boolean {
  * Dev-only verification log confirming a requested processing tier reached the
  * provider. AI Studio reports the served tier in the `x-gemini-service-tier`
  * response header; Vertex reports it in `usageMetadata.trafficType` (logged
- * separately once the response body is parsed).
+ * separately once the response body is parsed); Fireworks reports nothing, so
+ * an accepted request is attributed to the tier it was sent at.
  */
 function logServiceTierRequest(
 	provider: string,
@@ -773,7 +775,7 @@ function logServiceTierRequest(
 	if (
 		process.env.NODE_ENV === "production" ||
 		(serviceTier !== "flex" && serviceTier !== "priority") ||
-		!isGoogleCompatibleProvider(provider)
+		!(isGoogleCompatibleProvider(provider) || provider === "fireworks")
 	) {
 		return;
 	}
@@ -783,7 +785,13 @@ function logServiceTierRequest(
 		transport: isVertexCompatibleProvider(provider)
 			? "X-Vertex-AI-LLM-Shared-Request-Type header"
 			: "service_tier body field",
-		servedServiceTier: res?.headers.get("x-gemini-service-tier") ?? null,
+		servedServiceTier:
+			res?.headers.get("x-gemini-service-tier") ??
+			assumeServedServiceTier(
+				provider as Provider,
+				serviceTier,
+				res?.ok ?? false,
+			),
 		status: res?.status,
 	});
 }
@@ -1930,6 +1938,19 @@ chat.openapi(completions, async (c) => {
 			offset++;
 		}
 	};
+
+	// Which provider/model/region actually served the request. The non-streaming
+	// path gets this from `transformResponseToOpenai`; streaming has to build it
+	// itself so both surfaces report the same routing identity.
+	const buildRoutingIdentityMetadata = () => ({
+		requested_model: initialRequestedModel,
+		requested_provider: requestedProvider ?? null,
+		used_model: usedInternalModel,
+		used_provider: usedProvider,
+		// Omitted for providers without regional deployments (OpenAI, Anthropic, …).
+		...(usedRegion ? { used_region: usedRegion } : {}),
+		underlying_used_model: usedInternalModel,
+	});
 
 	const buildFinalResponseMetadata = (discount?: number | null) =>
 		toResponseMetadataExtras({
@@ -4081,6 +4102,17 @@ chat.openapi(completions, async (c) => {
 			usedInternalModel = modelInfo.id;
 			usedExternalId = iamFilteredModelProviders[0].externalId;
 			usedRegion = iamFilteredModelProviders[0].region;
+			// This shortcut bypasses provider selection (and with it the sticky
+			// pinning inside getCheapestFromAvailableProviders), but the session is
+			// now genuinely served by this provider — e.g. a service_tier request
+			// narrowed the candidates to the one tier-capable provider. Persist the
+			// pin so later requests in the same session with a wider candidate list
+			// (e.g. after the tier is dropped again) stay on this provider and keep
+			// its prompt cache warm instead of re-scoring to a different provider.
+			const singleProviderSessionStore = createSessionStore(modelInfo.id);
+			if (singleProviderSessionStore) {
+				await singleProviderSessionStore.set(usedProvider, usedRegion);
+			}
 		} else {
 			const providerIds = iamFilteredModelProviders.map((p) => p.providerId);
 			const providerKeys = await findProviderKeysByProviders(
@@ -6996,6 +7028,18 @@ chat.openapi(completions, async (c) => {
 
 				// --- Retry loop for provider fallback ---
 				const routingAttempts: RoutingAttempt[] = [];
+
+				// Routing metadata used to ride on a separate chunk emitted after the
+				// stream drained, but that chunk is skipped whenever the upstream SSE
+				// carries its own `[DONE]` (the common case) — so streaming clients
+				// never saw `used_provider`/`used_region`/`routing` at all. Attach it
+				// to the final usage chunk instead, which is always written before
+				// `[DONE]`.
+				const buildStreamingFinalMetadata = (discount?: number | null) => ({
+					...buildRoutingIdentityMetadata(),
+					...(routingAttempts.length > 0 ? { routing: routingAttempts } : {}),
+					...buildFinalResponseMetadata(discount),
+				});
 				const failedProviderIds = new Set<string>();
 				let sameKeyRetryCount = 0;
 				let res: Response | undefined;
@@ -7145,9 +7189,17 @@ chat.openapi(completions, async (c) => {
 						logServiceTierRequest(usedProvider, forwardedServiceTier, res);
 						// AI Studio reports the served tier in a response header; Vertex
 						// reports it later in usageMetadata.trafficType (set below).
-						servedServiceTier = resolveServedServiceTier({
-							serviceTierHeader: res?.headers.get("x-gemini-service-tier"),
-						});
+						// Providers that report no tier at all (Fireworks) fall back to
+						// the tier the accepted request was sent at.
+						servedServiceTier =
+							resolveServedServiceTier({
+								serviceTierHeader: res?.headers.get("x-gemini-service-tier"),
+							}) ??
+							assumeServedServiceTier(
+								usedProvider,
+								forwardedServiceTier,
+								res?.ok ?? false,
+							);
 					} catch (error) {
 						// Clean up the event listeners
 						c.req.raw.signal.removeEventListener("abort", onAbort);
@@ -9037,7 +9089,7 @@ chat.openapi(completions, async (c) => {
 											},
 										],
 										usage: finalStreamUsage,
-										metadata: buildFinalResponseMetadata(
+										metadata: buildStreamingFinalMetadata(
 											streamingCosts.discount ?? null,
 										),
 									};
@@ -9995,6 +10047,12 @@ chat.openapi(completions, async (c) => {
 							model: usedInternalModel,
 							bufferSnapshot: buffer ? buffer.substring(0, 5000) : undefined,
 							phase: "upstream_read",
+							// Stealth providers must not leak their identity through a
+							// mid-stream read fault: the raw message, undici cause chain
+							// (host / ENOTFOUND / TLS) and buffered body are scrubbed from
+							// the client SSE, matching the sibling redaction at
+							// chat.ts:8335 / chat.ts:9254. The internal log stays raw.
+							redact: shouldRedactProviderError(usedProvider),
 						});
 
 						const upstreamReadErrorMeta = {
@@ -10560,7 +10618,7 @@ chat.openapi(completions, async (c) => {
 									});
 									return earlyUsage;
 								})(),
-								metadata: buildFinalResponseMetadata(
+								metadata: buildStreamingFinalMetadata(
 									streamingCostsEarly.discount ?? null,
 								),
 							};
@@ -10673,18 +10731,9 @@ chat.openapi(completions, async (c) => {
 											finish_reason: null,
 										},
 									],
-									metadata: {
-										requested_model: initialRequestedModel,
-										requested_provider: requestedProvider ?? null,
-										used_model: usedInternalModel,
-										used_provider: usedProvider,
-										...(usedRegion && { used_region: usedRegion }),
-										underlying_used_model: usedInternalModel,
-										routing: routingAttempts,
-										...buildFinalResponseMetadata(
-											streamingCostsEarly.discount ?? null,
-										),
-									},
+									metadata: buildStreamingFinalMetadata(
+										streamingCostsEarly.discount ?? null,
+									),
 								};
 								await writeSSEAndCache({
 									data: JSON.stringify(routingChunk),
@@ -11398,10 +11447,18 @@ chat.openapi(completions, async (c) => {
 
 			logServiceTierRequest(usedProvider, forwardedServiceTier, res);
 			// AI Studio reports the served tier in a response header; Vertex reports
-			// it later in usageMetadata.trafficType (set below).
-			servedServiceTier = resolveServedServiceTier({
-				serviceTierHeader: res?.headers.get("x-gemini-service-tier"),
-			});
+			// it later in usageMetadata.trafficType (set below). Providers that
+			// report no tier at all (Fireworks) fall back to the tier the accepted
+			// request was sent at.
+			servedServiceTier =
+				resolveServedServiceTier({
+					serviceTierHeader: res?.headers.get("x-gemini-service-tier"),
+				}) ??
+				assumeServedServiceTier(
+					usedProvider,
+					forwardedServiceTier,
+					res?.ok ?? false,
+				);
 		} catch (error) {
 			// Check for timeout error first (AbortSignal.timeout throws TimeoutError)
 			if (isTimeoutError(error)) {
@@ -13032,6 +13089,15 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// OpenAI echoes the served tier in its response payload; providers that
+	// report no tier of their own (Fireworks) echo the tier the gateway
+	// resolved so clients still see what the request actually ran at.
+	const echoedServiceTier =
+		usedProvider === "openai"
+			? readServiceTierValue(json)
+			: (assumeServedServiceTier(usedProvider, servedServiceTier, true) ??
+				undefined);
+
 	// Transform response to OpenAI format for non-OpenAI providers
 	// Include costs in response for all users
 	const shouldIncludeCosts = true;
@@ -13081,7 +13147,7 @@ chat.openapi(completions, async (c) => {
 		cacheCreation5mTokens,
 		cacheCreation1hTokens,
 		audioInputTokens,
-		usedProvider === "openai" ? readServiceTierValue(json) : undefined,
+		echoedServiceTier,
 	);
 	// Attach opaque reasoning payloads (e.g. OpenAI encrypted reasoning) to the
 	// assistant message so clients can replay them on later turns to preserve

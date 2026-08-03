@@ -55,12 +55,16 @@ interface StoredResponseRecord {
 	outputRefs: string[];
 }
 
+// Shared prefix of every key written to the responses storage. Tests use it to
+// keep this state out of blanket Redis resets (see clearCache in test-utils).
+export const RESPONSES_STORAGE_KEY_PREFIX = "responses:";
+
 function itemStorageKey(projectId: string, itemRef: string): string {
-	return `responses:item:${projectId}:${itemRef}`;
+	return `${RESPONSES_STORAGE_KEY_PREFIX}item:${projectId}:${itemRef}`;
 }
 
 function responseStorageKey(projectId: string, responseId: string): string {
-	return `responses:resp:${projectId}:${responseId}`;
+	return `${RESPONSES_STORAGE_KEY_PREFIX}resp:${projectId}:${responseId}`;
 }
 
 /**

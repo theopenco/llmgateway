@@ -282,7 +282,7 @@ components:
             memory: 128M
       image: "redis:8-alpine"
       ports:
-        - "6380:6379"
+        - "6479:6379"
       restart: unless-stopped
     hosts:
       - hostname: "redis-storage-{{ env.base_domain }}"

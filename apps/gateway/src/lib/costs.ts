@@ -111,12 +111,16 @@ export function zeroInferenceCosts(costs: MutableInferenceCosts): void {
 
 /**
  * Check if billing for cancelled requests is enabled via environment variable.
- * Defaults to false if not set.
+ * Defaults to true if not set: a cancelled streaming request has already
+ * consumed upstream inference (prompt tokens, plus any completion tokens
+ * emitted before the client disconnected), so it must be billed by default to
+ * prevent a streaming-abort billing bypass (GHSA-724j-f2pf-phf7). Only an
+ * explicit "false" disables it.
  */
 export function shouldBillCancelledRequests(): boolean {
 	const envValue = process.env.BILL_CANCELLED_REQUESTS;
-	// Default to false if not set, only enable if explicitly set to "true"
-	return envValue === "true";
+	// Default to true unless explicitly disabled with "false".
+	return envValue !== "false";
 }
 
 /**

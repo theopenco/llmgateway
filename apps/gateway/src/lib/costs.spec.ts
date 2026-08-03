@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
 	calculateCosts,
 	isRefusalFinishReason,
+	shouldBillCancelledRequests,
 	zeroInferenceCosts,
 } from "./costs.js";
 
@@ -875,6 +876,33 @@ describe("calculateCosts", () => {
 			);
 			expect(result.outputCost).toBeCloseTo(standardOutputCost * 2, 8);
 			expect(result.totalCost).toBeCloseTo(standardCost * 2, 8);
+		});
+
+		it("applies the Fireworks Priority multiplier (1.25x) to token costs", async () => {
+			const result = await calculateCosts(
+				"kimi-k3",
+				"fireworks",
+				null,
+				1000,
+				700,
+				200,
+				undefined,
+				null,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "priority" },
+			);
+			// Fireworks publishes Kimi K3 Priority at $3.75 / $0.375 / $18.75 per
+			// million, i.e. exactly 1.25x the standard $3.00 / $0.30 / $15.00.
+			expect(result.inputCost).toBeCloseTo(800 * 3.75e-6, 8);
+			expect(result.cachedInputCost).toBeCloseTo(200 * 0.375e-6, 8);
+			expect(result.outputCost).toBeCloseTo(700 * 18.75e-6, 8);
 		});
 
 		it("bills a downgraded request (servedServiceTier null) at standard rates", async () => {
@@ -1782,5 +1810,40 @@ describe("zeroInferenceCosts", () => {
 		expect(costs.totalCost).toBe(0);
 		// Storage retention is billed separately from inference.
 		expect(costs.dataStorageCost).toBe(0.01);
+	});
+});
+
+describe("shouldBillCancelledRequests", () => {
+	const original = process.env.BILL_CANCELLED_REQUESTS;
+
+	afterEach(() => {
+		if (original === undefined) {
+			delete process.env.BILL_CANCELLED_REQUESTS;
+		} else {
+			process.env.BILL_CANCELLED_REQUESTS = original;
+		}
+	});
+
+	// Regression for GHSA-724j-f2pf-phf7: an unset value must bill cancelled
+	// requests so a client cannot abort a stream after receiving content to
+	// dodge usage/cost accounting.
+	it("defaults to true when unset", () => {
+		delete process.env.BILL_CANCELLED_REQUESTS;
+		expect(shouldBillCancelledRequests()).toBe(true);
+	});
+
+	it("defaults to true for an empty string (Helm's empty ConfigMap value)", () => {
+		process.env.BILL_CANCELLED_REQUESTS = "";
+		expect(shouldBillCancelledRequests()).toBe(true);
+	});
+
+	it("stays enabled when explicitly set to true", () => {
+		process.env.BILL_CANCELLED_REQUESTS = "true";
+		expect(shouldBillCancelledRequests()).toBe(true);
+	});
+
+	it("only disables billing when explicitly set to false", () => {
+		process.env.BILL_CANCELLED_REQUESTS = "false";
+		expect(shouldBillCancelledRequests()).toBe(false);
 	});
 });

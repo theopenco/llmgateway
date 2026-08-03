@@ -316,7 +316,13 @@ export const deepseekModels = [
 				maxOutput: 163840,
 				streaming: true,
 				reasoning: true,
-				reasoningEfforts: ["high", "max"],
+				// Together's deployment accepts any reasoning_effort string without
+				// validating it, and only the top tiers measurably change behaviour:
+				// xhigh and max roughly double the reasoning tokens, while
+				// low/medium/high land on the provider default. `none` is honoured
+				// through the `thinking` switch, not through reasoning_effort.
+				reasoningEfforts: ["none", "xhigh", "max"],
+				requiresDisableThinkingParam: true,
 				reasoningOutput: "omit",
 				vision: false,
 				tools: true,
@@ -465,7 +471,7 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "novita",
-				externalId: "deepseek/deepseek-v4-flash",
+				externalId: "deepseek/deepseek-v4-flash-0731",
 				inputPrice: "0.14e-6",
 				cachedInputPrice: "0.028e-6",
 				outputPrice: "0.28e-6",
@@ -477,11 +483,15 @@ export const deepseekModels = [
 				reasoning: true,
 				vision: false,
 				tools: true,
+				// The -0731 deployment 400s on "required" and named-function
+				// tool_choice, and silently emits no tool call at all when "required"
+				// is streamed; only "auto"/"none" behave (verified 2026-08-02).
+				supportedToolChoices: ["auto", "none"],
 				jsonOutput: true,
 			},
 			{
 				providerId: "alibaba",
-				externalId: "deepseek-v4-flash",
+				externalId: "deepseek-v4-flash-0731",
 				inputPrice: "0.2e-6",
 				cachedInputPrice: "0.04e-6",
 				outputPrice: "0.4e-6",
@@ -507,7 +517,7 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "deepinfra",
-				externalId: "deepseek-ai/DeepSeek-V4-Flash",
+				externalId: "deepseek-ai/DeepSeek-V4-Flash-0731",
 				inputPrice: "0.14e-6",
 				cachedInputPrice: "0.028e-6",
 				outputPrice: "0.28e-6",
@@ -537,6 +547,31 @@ export const deepseekModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: false,
+			},
+			{
+				providerId: "fireworks",
+				// The undated `deepseek-v4-flash` alias still resolves to the launch
+				// snapshot; `-0731` is the current deployment.
+				externalId: "accounts/fireworks/models/deepseek-v4-flash-0731",
+				inputPrice: "0.14e-6",
+				cachedInputPrice: "0.028e-6",
+				outputPrice: "0.28e-6",
+				requestPrice: "0",
+				// Fireworks prices DeepSeek's Priority tier at 1.5x standard rather
+				// than the 1.25x that applies to the rest of its catalogue.
+				serviceTiers: ["priority"],
+				serviceTierMultipliers: { priority: 1.5 },
+				contextSize: 1048576,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				// Fireworks rejects "minimal" for this model; the rest of the enum
+				// (plus "none" for non-thinking mode) is accepted.
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
 			},
 		],
 	},

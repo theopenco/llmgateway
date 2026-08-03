@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { voidPendingCycleRenewalInvoices } from "@/lib/pending-renewal.js";
+import { getStripeCardErrorMessage } from "@/lib/stripe-card-error.js";
 import { ensureStripeCustomer } from "@/stripe.js";
 import { getOrCreateChatOrg } from "@/utils/personal-org.js";
 
@@ -545,6 +546,18 @@ chatPlans.openapi(changeTier, async (c) => {
 			typeof error === "object" && error !== null && "code" in error
 				? String((error as { code?: unknown }).code)
 				: undefined;
+		const cardErrorMessage = getStripeCardErrorMessage(error);
+		if (cardErrorMessage) {
+			// Any card error (incorrect CVC, expired card, insufficient funds, plain
+			// decline, ...) carries Stripe's user-facing explanation — pass it
+			// through so the user learns what to fix instead of a generic failure.
+			logger.warn("Chat plan tier change payment declined", {
+				code: errCode,
+			});
+			throw new HTTPException(402, {
+				message: `${cardErrorMessage} Update your payment method and try again.`,
+			});
+		}
 		if (errCode === "card_declined" || errCode === "invoice_payment_required") {
 			logger.warn("Chat plan tier change payment declined", {
 				code: errCode,

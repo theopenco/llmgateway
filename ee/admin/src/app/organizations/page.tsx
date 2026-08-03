@@ -10,6 +10,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { BlockOrgButton } from "@/components/block-org-button";
+import { BulkBlockOrgsButton } from "@/components/bulk-block-orgs-button";
 import { OrgStatusToggleButton } from "@/components/org-status-toggle-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,11 +24,16 @@ import {
 } from "@/components/ui/table";
 import {
 	blockOrganization,
+	bulkBlockOrganizations,
+	previewBulkBlockOrganizations,
 	setOrganizationStatus,
 } from "@/lib/admin-organizations";
+import { getOrgDeletionBlockedReason } from "@/lib/org-deletion";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
+
+import { MIN_BULK_BLOCK_SEARCH_LENGTH } from "@llmgateway/shared";
 
 type SortBy =
 	| "name"
@@ -198,6 +204,18 @@ export default async function OrganizationsPage({
 		return await blockOrganization(orgId);
 	}
 
+	async function handlePreviewBulkBlock(searchValue: string) {
+		"use server";
+
+		return await previewBulkBlockOrganizations(searchValue);
+	}
+
+	async function handleBulkBlock(searchValue: string, expectedCount: number) {
+		"use server";
+
+		return await bulkBlockOrganizations(searchValue, expectedCount);
+	}
+
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
 			<header className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
@@ -231,6 +249,21 @@ export default async function OrganizationsPage({
 					</Button>
 				</form>
 			</header>
+
+			{search.trim().length >= MIN_BULK_BLOCK_SEARCH_LENGTH && (
+				<div className="flex flex-col items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+					<p className="text-sm text-muted-foreground">
+						Bulk actions apply to every organization matching the current
+						filter, not just this page.
+					</p>
+					<BulkBlockOrgsButton
+						search={search}
+						minSearchLength={MIN_BULK_BLOCK_SEARCH_LENGTH}
+						onPreview={handlePreviewBulkBlock}
+						onBulkBlock={handleBulkBlock}
+					/>
+				</div>
+			)}
 
 			<div className="overflow-x-auto rounded-lg border border-border/60 bg-card">
 				<Table>
@@ -398,12 +431,21 @@ export default async function OrganizationsPage({
 												orgId={org.id}
 												orgName={org.name}
 												currentStatus={org.status}
+												disableBlockedReason={getOrgDeletionBlockedReason(
+													org.credits,
+												)}
 												onToggle={handleToggleOrgStatus}
 											/>
 											<BlockOrgButton
 												orgId={org.id}
 												orgName={org.name}
-												disabled={org.status === "deleted"}
+												disabled={
+													org.status === "deleted" ||
+													getOrgDeletionBlockedReason(org.credits) !== null
+												}
+												disabledReason={
+													getOrgDeletionBlockedReason(org.credits) ?? undefined
+												}
 												onBlock={handleBlockOrganization}
 											/>
 										</div>

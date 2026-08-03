@@ -142,6 +142,7 @@ NOTE: these commands can only be run in the root directory of the repository, no
 - **API** (`apps/api`) - Backend API for user management, billing, analytics (Hono + Zod + OpenAPI)
 
 Production domain mapping (counterintuitive — do not mix these up): `api.llmgateway.io` serves `apps/gateway` (the LLM gateway, :4001 in dev), and `internal.llmgateway.io` serves `apps/api` (the backend API, :4002 in dev).
+
 - **UI** (`apps/ui`) - Frontend dashboard (Next.js App Router)
 - **Playground** (`apps/playground`) - Interactive LLM testing environment (Next.js App Router)
 - **Code** (`apps/code`) - Dev plans + coding tools landing & dashboard (Next.js App Router)
@@ -217,8 +218,10 @@ When creating a new package in `packages/`, include these config files. Copy the
 - Use conventional commit message format and limit the commit message title to max 50 characters
 - Do not --amend commits after pushing to remote
 - Never force push on main/default branch; force pushing is only acceptable on feature branches
-- When checking out an existing PR or remote branch, always set its upstream (`git checkout -B <branch> FETCH_HEAD && git branch --set-upstream-to=origin/<branch>`, or `gh pr checkout <n>`) so plain `git pull --rebase` and `git push` work afterwards
+- When checking out an existing PR or remote branch, always set its upstream (`git checkout -B <branch> FETCH_HEAD && git branch --set-upstream-to=origin/<branch>`, or `gh pr checkout <n>`) so plain `git pull` and `git push` work afterwards
+- When syncing a feature branch with main, default to a merge commit; only rebase when it is required or clearly the better choice, and say why
 - When resolving conflicts involving `pnpm-lock.yaml`, just run `pnpm install` to automatically resolve them
+- Use the local `pull-request` skill for opening pull requests, writing/updating PR titles and descriptions, embedding screenshots in a PR body, and triggering e2e CI on a PR.
 - When writing pull request titles, use the conventional commit message format and limit to max 50 characters
 - Always open pull requests as normal ready-for-review PRs, not draft PRs, unless the user explicitly asks for a draft PR
 - When creating a pull request, always write/update both the PR title and description; if the PR's scope changes in later commits, update the title and description to reflect the final scope before handing it off
@@ -229,6 +232,8 @@ When creating a new package in `packages/`, include these config files. Copy the
 - Exception: in `packages/models`, explicit duplication of model/provider mappings is acceptable and preferred over helper-based expansion. This is the only place in the repo where duplicating model definitions is OK. NEVER add helper functions (e.g. `makeModel(...)`/`makeProvider(...)`) that build model or provider definition objects, even when it means repeating fields across entries — write each model and provider mapping out in full as a plain object literal in the `models` array. Small shared `const` values are fine, but the definition objects themselves must not be constructed by a function.
 - Models and provider mappings in `packages/models` can NEVER be removed, only deactivated. To retire a model or provider mapping, set `deactivatedAt: new Date("YYYY-MM-DD")` (today's date) on the relevant provider mapping(s) instead of deleting the definition. Historical usage records and analytics reference these definitions, so deleting them breaks lookups.
 - In `packages/models`, ALWAYS express per-token prices (`inputPrice`, `outputPrice`, `cachedInputPrice`, and any other per-token price field) using `e-6` notation so the coefficient reads directly as USD per million tokens (e.g. `"1.4e-6"` for $1.40/M — the exact number providers publish). Never use `e-3` or other exponents for per-token prices. This does NOT apply to `requestPrice`, which is a flat USD amount charged per request (e.g. `"0.035"`), nor to `perSecondPrice`.
+- In `packages/models`, never add comments that only cite a source or restate a value — e.g. "taken from provider X's pricing page", "// Ref: https://…", "verified live on <date>", or `webSearchPrice: "0.01", // $0.01 per search`. They add nothing the field does not already say, and they rot as soon as the catalogue changes. Comments explaining WHY a field is set to a non-obvious value ARE valuable and must be kept and maintained: why a capability flag is `false` or restricted (`jsonOutput: false`, `supportedToolChoices`, a trimmed `reasoningEfforts` list), why a mapping is `stability: "unstable"` / `test: "skip"` / `deactivatedAt`, or any deployment quirk that a future reader would otherwise "fix" by reverting.
+- In `packages/models`, a single model definition must never contain two provider mappings with the same `providerId` (regional variants belong in that mapping's `regions` array instead). Mapping lookup keys on `(providerId, region)` throughout the gateway — `selectProviderMapping`, `costs.ts`, `prepare-request-body.ts` — so a second same-provider mapping is unaddressable: it silently resolves back to the first one, meaning requests get validated and **billed** at the wrong mapping's prices, and e2e generates two identically-named test cases that both exercise only the first. A distinct upstream deployment (e.g. a provider's "fast"/priority router with its own `externalId` and pricing) needs its own root model entry with its own `id`.
 - No unnecessary code comments
 - Organizations backing LLM SDK end-user wallets are always regular PAYG (credits) organizations — never `devpass` or `chat` plan orgs. Gateway logic gated on the org's `kind`/plan (e.g. dev-plan model restrictions or the dev-plan default service tier) therefore never needs to account for the end-user-wallet credits substitution (`withWalletCredits`); that substitution only affects downstream credit gating.
 - Do not use broad try/catch in API handlers unless to check for specific errors; instead, let errors propagate and be handled by the global error handler
@@ -254,6 +259,7 @@ When creating a new package in `packages/`, include these config files. Copy the
 - Admin: http://localhost:3006
 - PostgreSQL: localhost:5432
 - Redis: localhost:6379
+- Storage Redis: localhost:6479 (only used when a `STORAGE_REDIS_*` var is set; otherwise the main Redis connection is reused)
 
 ## Folder Structure
 

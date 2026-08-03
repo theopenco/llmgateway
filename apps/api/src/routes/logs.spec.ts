@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 
 describe("logs route", () => {
 	let token: string;
@@ -680,6 +680,123 @@ describe("logs route", () => {
 			expect(json.log.errorDetails.responseText).toBe(
 				"Upstream provider error (500 Internal Server Error)",
 			);
+		});
+	});
+	// Project access is not key access: a developer may only read logs produced by
+	// the api keys they created, since the payload holds the full prompt and
+	// completion.
+	describe("developer key scoping", () => {
+		const SECRET_PROMPT = "teammate-confidential-prompt";
+
+		beforeEach(async () => {
+			await db
+				.update(tables.userOrganization)
+				.set({ role: "developer" })
+				.where(eq(tables.userOrganization.id, "test-user-org-id"));
+
+			await db.insert(tables.userProject).values({
+				id: "scoping-user-project-id",
+				userOrganizationId: "test-user-org-id",
+				projectId: "test-project-id",
+			});
+
+			await db.insert(tables.user).values({
+				id: "teammate-id",
+				name: "Teammate",
+				email: "teammate@example.com",
+				emailVerified: true,
+			});
+
+			await db.insert(tables.apiKey).values({
+				id: "teammate-key",
+				token: "teammate-token",
+				projectId: "test-project-id",
+				description: "Teammate Key",
+				createdBy: "teammate-id",
+			});
+
+			await db.insert(tables.log).values({
+				id: "teammate-log-id",
+				requestId: "teammate-log-id",
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "teammate-key",
+				duration: 100,
+				requestedModel: "gpt-4",
+				requestedProvider: "openai",
+				usedModel: "teammate-only-model",
+				usedProvider: "openai",
+				responseSize: 1000,
+				content: "teammate response",
+				promptTokens: "10",
+				completionTokens: "20",
+				totalTokens: "30",
+				messages: JSON.stringify([{ role: "user", content: SECRET_PROMPT }]),
+				mode: "api-keys",
+				usedMode: "api-keys",
+			});
+		});
+
+		test("list omits a teammate's logs and their payloads", async () => {
+			const res = await app.request("/logs?projectId=test-project-id", {
+				headers: { Cookie: token },
+			});
+			expect(res.status).toBe(200);
+			const text = await res.text();
+			expect(text).not.toContain(SECRET_PROMPT);
+
+			const json = JSON.parse(text);
+			const ids = json.logs.map((log: { id: string }) => log.id);
+			expect(ids).not.toContain("teammate-log-id");
+			expect(ids).toContain("test-log-id-1");
+		});
+
+		test("detail rejects a teammate's log", async () => {
+			const res = await app.request("/logs/teammate-log-id", {
+				headers: { Cookie: token },
+			});
+			expect(res.status).toBe(403);
+			expect(await res.text()).not.toContain(SECRET_PROMPT);
+		});
+
+		test("detail still serves the caller's own log", async () => {
+			const res = await app.request("/logs/test-log-id-1", {
+				headers: { Cookie: token },
+			});
+			expect(res.status).toBe(200);
+		});
+
+		test("rejects filtering by a teammate's api key", async () => {
+			const res = await app.request(
+				"/logs?projectId=test-project-id&apiKeyId=teammate-key",
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(403);
+		});
+
+		test("unique-models omits a teammate's models", async () => {
+			const res = await app.request(
+				"/logs/unique-models?projectId=test-project-id",
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.models).not.toContain("teammate-only-model");
+		});
+
+		test("owners still see the whole project", async () => {
+			await db
+				.update(tables.userOrganization)
+				.set({ role: "owner" })
+				.where(eq(tables.userOrganization.id, "test-user-org-id"));
+
+			const res = await app.request("/logs?projectId=test-project-id", {
+				headers: { Cookie: token },
+			});
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			const ids = json.logs.map((log: { id: string }) => log.id);
+			expect(ids).toContain("teammate-log-id");
 		});
 	});
 });

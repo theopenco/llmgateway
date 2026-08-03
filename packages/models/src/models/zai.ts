@@ -126,7 +126,6 @@ export const zaiModels = [
 				providerId: "alibaba",
 				externalId: "glm-5.2",
 				inputPrice: "1.4e-6",
-				// implicit cache hits bill at 20% of the input price
 				cachedInputPrice: "0.28e-6",
 				outputPrice: "4.4e-6",
 				regions: [{ id: "singapore" }],
@@ -167,6 +166,23 @@ export const zaiModels = [
 				contextSize: 1048576,
 				maxOutput: undefined,
 				quantization: "fp4",
+				streaming: true,
+				reasoning: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
+				providerId: "scx-ai-gp",
+				externalId: "GLM-5.2",
+				inputPrice: "0.822e-6",
+				cachedInputPrice: "0.206e-6",
+				outputPrice: "2.888e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				// SCX rejects max_tokens above 131072 ("expected a value <= 131072"),
+				// despite its catalogue advertising a 128k ceiling
+				maxOutput: 131072,
 				streaming: true,
 				reasoning: true,
 				vision: false,
@@ -499,7 +515,7 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				webSearch: true,
-				webSearchPrice: "0.01", // $0.01 per search
+				webSearchPrice: "0.01",
 				jsonOutput: true,
 			},
 			{
@@ -740,7 +756,7 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				webSearch: true,
-				webSearchPrice: "0.01", // $0.01 per search
+				webSearchPrice: "0.01",
 				jsonOutput: true,
 			},
 			{
@@ -761,7 +777,6 @@ export const zaiModels = [
 				jsonOutput: true,
 			},
 			{
-				// Cerebras: FP16/FP8 (weights only)
 				providerId: "cerebras",
 				test: "skip",
 				externalId: "zai-glm-4.7",
@@ -1026,11 +1041,10 @@ export const zaiModels = [
 				// function choices for glm-4.6 (verified live 2026-07-14)
 				supportedToolChoices: ["auto", "none"],
 				webSearch: true,
-				webSearchPrice: "0.01", // $0.01 per search
+				webSearchPrice: "0.01",
 				jsonOutput: true,
 			},
 			{
-				// Cerebras: FP16/FP8 (weights only)
 				providerId: "cerebras",
 				test: "skip",
 				deactivatedAt: new Date("2026-01-20"),

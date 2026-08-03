@@ -327,14 +327,11 @@ export async function validateProviderKey(
 				error: errorMessage,
 			});
 
-			if (response.status === 401) {
-				return {
-					valid: false,
-					statusCode: response.status,
-					model: validationModel?.modelId,
-				};
-			}
-
+			// 401 used to drop the upstream text and fall back to a generic
+			// "invalid API key" message, which is wrong whenever the key is fine
+			// but lacks entitlement — AWS Bedrock answers 401 with "<model> is not
+			// available for this account", and Azure/Vertex behave similarly. The
+			// caller decides how to word it; always hand it the provider's reason.
 			return {
 				valid: false,
 				error: errorMessage,

@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { LastUsedProjectTracker } from "@/components/last-used-project-tracker";
 import ChatPageClient from "@/components/playground/chat-page-client";
 import OrgPageClient from "@/components/playground/org-page-client";
+import { LoungeLandingSections } from "@/components/seo/lounge-landing-sections";
 import { PlaygroundSeoSection } from "@/components/seo/playground-seo-section";
 import { CHAT_CONTEXT_COOKIE } from "@/lib/constants";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
@@ -63,6 +64,11 @@ export async function renderPlaygroundShell({
 		newParams.set("model", model);
 		redirect(`/?${newParams.toString()}`);
 	}
+
+	// Start the model catalogue fetches immediately — they don't depend on any
+	// of the org/billing lookups below, so they resolve while those run.
+	const modelsPromise = fetchModels();
+	const providersPromise = fetchProviders();
 
 	const initialOrganizationsData = await fetchServerData("GET", "/orgs");
 	const allOrganizations = (
@@ -200,8 +206,8 @@ export async function renderPlaygroundShell({
 
 	const projects = (initialProjectsData?.projects ?? []) as Project[];
 	const [models, providers] = await Promise.all([
-		fetchModels(),
-		fetchProviders(),
+		modelsPromise,
+		providersPromise,
 	]);
 
 	let selectedProject: Project | null = null;
@@ -234,6 +240,12 @@ export async function renderPlaygroundShell({
 		);
 	}
 
+	// The chat org is provisioned on demand for every signed-in user, so its
+	// absence is a cheap signed-out signal (no extra request). Signed-out
+	// visitors — which includes crawlers — get the visible landing sections
+	// below the app; members keep the clean full-viewport chat.
+	const isMember = chatOrg !== null;
+
 	return (
 		<>
 			{projectOrgId && selectedProject?.id ? (
@@ -242,7 +254,7 @@ export async function renderPlaygroundShell({
 					projectId={selectedProject.id}
 				/>
 			) : null}
-			<PlaygroundSeoSection variant="chat" />
+			{isMember ? <PlaygroundSeoSection variant="chat" /> : null}
 			<ChatPageClient
 				models={models.filter(
 					(m) =>
@@ -256,6 +268,7 @@ export async function renderPlaygroundShell({
 				initialPrompt={q}
 				enableWebSearch={hints === "search"}
 			/>
+			{isMember ? null : <LoungeLandingSections />}
 		</>
 	);
 }

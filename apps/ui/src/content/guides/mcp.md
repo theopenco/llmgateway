@@ -96,6 +96,6 @@ Every tool call is a normal LLM Gateway request — it shows up in your [dashboa
 - **Image generation anywhere** — any MCP client becomes an image studio
 - **One key, one bill** — MCP traffic and API traffic share credits, caching, and analytics
 
-For the full tool parameter reference, see the [MCP docs](https://docs.llmgateway.io/guides/mcp).
+For the full tool parameter reference, see the [MCP docs](https://docs.llmgateway.io/developers/mcp).
 
 [Get started for free](/signup) — no credit card required.

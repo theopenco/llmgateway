@@ -8,8 +8,9 @@ export type TeamMembersData =
 	paths["/team/{organizationId}/members"]["get"]["responses"][200]["content"]["application/json"];
 
 export function useTeamMembers(
-	organizationId: string,
+	organizationId: string | undefined,
 	initialData?: TeamMembersData,
+	options?: { enabled?: boolean },
 ) {
 	const api = useApi();
 
@@ -19,11 +20,14 @@ export function useTeamMembers(
 		{
 			params: {
 				path: {
-					organizationId,
+					organizationId: organizationId ?? "",
 				},
 			},
 		},
-		initialData ? { initialData } : undefined,
+		{
+			...(initialData ? { initialData } : {}),
+			enabled: (options?.enabled ?? true) && !!organizationId,
+		},
 	);
 }
 

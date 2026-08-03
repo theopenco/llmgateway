@@ -93,6 +93,7 @@ const providerCompliancePolicySchema = z.object({
 	requireGdpr: z.boolean().optional(),
 	blockApiTraining: z.boolean().optional(),
 	blockPromptLogging: z.boolean().optional(),
+	blockStealthProviders: z.boolean().optional(),
 	allowedCountries: z
 		.array(
 			z.string().refine((code) => providerCountryCodes.has(code), {
@@ -1443,10 +1444,21 @@ organization.openapi(getCreditsRunway, async (c) => {
 	}
 
 	const { id } = c.req.param();
-	const hasAccess = await userHasOrganizationAccess(user.id, id);
-	if (!hasAccess) {
+	const membership = await db.query.userOrganization.findFirst({
+		where: { userId: { eq: user.id }, organizationId: { eq: id } },
+	});
+	if (!membership) {
 		throw new HTTPException(403, {
 			message: "You do not have access to this organization",
+		});
+	}
+
+	// Runway aggregates spend across every project in the org, including ones a
+	// developer was never granted, so it is owner/admin only. The dashboard hides
+	// the credits widget from developers anyway.
+	if (membership.role === "developer") {
+		throw new HTTPException(403, {
+			message: "Only organization owners and admins can view credits runway",
 		});
 	}
 
@@ -1454,7 +1466,9 @@ organization.openapi(getCreditsRunway, async (c) => {
 		where: { id: { eq: id } },
 	});
 
-	if (!org) {
+	// A membership row outlives the organization it points at, so check the status
+	// here as the other org-scoped reads do.
+	if (!org || org.status === "deleted") {
 		throw new HTTPException(404, { message: "Organization not found" });
 	}
 

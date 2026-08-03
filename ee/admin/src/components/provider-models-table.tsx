@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
+import { TokenBreakdownCell } from "@/components/token-breakdown";
 import { Badge } from "@/components/ui/badge";
 import {
 	Table,
@@ -153,6 +154,7 @@ export function ProviderModelsTable({
 					<TableHead>Status</TableHead>
 					{sh("Requests", "logsCount")}
 					{sh("Cost", "totalCost")}
+					<TableHead>Tokens</TableHead>
 					{sh("Errors", "errorsCount")}
 					{sh("Client", "clientErrorsCount")}
 					{sh("Gateway", "gatewayErrorsCount")}
@@ -198,6 +200,9 @@ export function ProviderModelsTable({
 							</TableCell>
 							<TableCell className="tabular-nums">
 								{formatCost(m.totalCost)}
+							</TableCell>
+							<TableCell>
+								<TokenBreakdownCell breakdown={m} />
 							</TableCell>
 							<TableCell className="tabular-nums">
 								{formatNumber(m.errorsCount)}

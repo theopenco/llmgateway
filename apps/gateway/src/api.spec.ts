@@ -1600,6 +1600,76 @@ describe("api", () => {
 		);
 	});
 
+	test("/v1/chat/completions rejects flex on Fireworks, which only sells priority", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-fireworks-flex",
+			token: "real-token-fireworks-flex",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-fireworks-flex",
+			},
+			body: JSON.stringify({
+				model: "fireworks/kimi-k3",
+				service_tier: "flex",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.error).toMatchObject({
+			param: "service_tier",
+			code: "unsupported_service_tier",
+		});
+	});
+
+	test("/v1/chat/completions rejects a Fireworks tier request on a proxied key", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-fireworks-proxy-tier",
+			token: "real-token-fireworks-proxy-tier",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		// Fireworks never reports the tier it served, so a priority request is
+		// billed at the tier it was sent at. A proxy base URL may silently drop
+		// the field, which would overbill — the request must be rejected instead.
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-fireworks-proxy-tier",
+			token: "sk-test-key",
+			provider: "fireworks",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-fireworks-proxy-tier",
+			},
+			body: JSON.stringify({
+				model: "fireworks/kimi-k3",
+				service_tier: "priority",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.error.message).toContain(
+			"requires a provider key that targets the original upstream endpoint",
+		);
+	});
+
 	test("/v1/chat/completions strips log payload when retention is disabled", async () => {
 		await db
 			.update(tables.organization)
@@ -5490,6 +5560,115 @@ describe("api", () => {
 					previousAlibabaRegionalKey;
 			}
 		}
+	});
+
+	describe("regional routing metadata", () => {
+		async function seedRegionalProviderKey() {
+			await harness.setProjectMode("hybrid");
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-db-key",
+				provider: "alibaba",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+		}
+
+		test("non-streaming response reports the served region", async () => {
+			await seedRegionalProviderKey();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "alibaba/qwen-plus:us-virginia",
+					messages: [
+						{ role: "user", content: "region metadata, non-streaming" },
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.metadata.used_provider).toBe("alibaba");
+			expect(json.metadata.used_region).toBe("us-virginia");
+			expect(json.metadata.routing?.[0]?.region).toBe("us-virginia");
+		});
+
+		test("streaming final chunk reports the served region", async () => {
+			await seedRegionalProviderKey();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "alibaba/qwen-plus:us-virginia",
+					stream: true,
+					messages: [{ role: "user", content: "region metadata, streaming" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const body = await res.text();
+			const metadataChunks = body
+				.split("\n")
+				.filter((line) => line.startsWith("data: ") && !line.includes("[DONE]"))
+				.map((line) => JSON.parse(line.slice("data: ".length)))
+				.filter((chunk) => chunk.metadata);
+
+			expect(metadataChunks.length).toBeGreaterThan(0);
+			const finalMetadata = metadataChunks[metadataChunks.length - 1]!.metadata;
+			expect(finalMetadata.used_provider).toBe("alibaba");
+			expect(finalMetadata.used_region).toBe("us-virginia");
+			expect(finalMetadata.routing?.[0]?.region).toBe("us-virginia");
+		});
+
+		test("region-less providers omit used_region", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-db-key",
+				provider: "openai",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "openai/gpt-4o-mini",
+					messages: [{ role: "user", content: "no region for openai" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.metadata.used_provider).toBe("openai");
+			expect(json.metadata.used_region).toBeUndefined();
+		});
 	});
 
 	test("/v1/chat/completions hybrid prefers keyed provider over credits-backed provider for gemini-2.5-flash-lite", async () => {

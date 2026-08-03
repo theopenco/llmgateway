@@ -28,6 +28,9 @@ const providerStatRowSchema = z.object({
 	timeToFirstTokenCount: z.number(),
 	throughput: z.number().nullable(),
 	uptime: z.number().nullable(),
+	// Total tokens processed by the provider over the window, for public
+	// volume displays (provider detail stats band).
+	totalTokens: z.number(),
 	updatedAt: z.string().nullable(),
 });
 
@@ -104,6 +107,7 @@ publicProvidersStats.openapi(listRoute, async (c) => {
 			totalTimeToFirstReasoningToken: sql<string>`COALESCE(SUM(${mph.totalTimeToFirstReasoningToken}), 0)`,
 			timeToFirstReasoningTokenCount: sql<string>`COALESCE(SUM(${mph.timeToFirstReasoningTokenCount}), 0)`,
 			totalOutputTokens: sql<string>`COALESCE(SUM(${mph.totalOutputTokens}), 0)`,
+			totalTokens: sql<string>`COALESCE(SUM(${mph.totalTokens}), 0)`,
 			totalDuration: sql<string>`COALESCE(SUM(${mph.totalDuration}), 0)`,
 			updatedAt: sql<Date | null>`MAX(${mphTs})`,
 		})
@@ -119,7 +123,7 @@ publicProvidersStats.openapi(listRoute, async (c) => {
 		.$withCache({
 			// The version prefix is bumped whenever the selected columns change so
 			// a rolling deploy doesn't serve rows cached in the previous shape.
-			tag: `publicProviderStats:v3:${window}`,
+			tag: `publicProviderStats:v4:${window}`,
 			autoInvalidate: false,
 			config: { ex: STATS_CACHE_TTL_SECONDS },
 		});
@@ -166,6 +170,7 @@ publicProvidersStats.openapi(listRoute, async (c) => {
 			timeToFirstTokenCount,
 			throughput,
 			uptime,
+			totalTokens: Number(r.totalTokens) || 0,
 			updatedAt: r.updatedAt ? new Date(r.updatedAt).toISOString() : null,
 		};
 	});

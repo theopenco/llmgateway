@@ -3,6 +3,7 @@
 import {
 	AlertCircle,
 	AlertTriangle,
+	Ban,
 	Check,
 	ChevronDown,
 	ChevronLeft,
@@ -45,6 +46,7 @@ import Link from "next/link.js";
 import { usePathname, useRouter, useSearchParams } from "next/navigation.js";
 import React, { useMemo, useState, useCallback, useEffect } from "react";
 
+import { isCodingModel } from "@/coding-models.js";
 import { getProviderIcon } from "@/components/provider-icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -128,6 +130,11 @@ interface AllModelsProps {
 	 * surface is pinned to a single use case.
 	 */
 	hideUseCaseFilter?: boolean;
+	/**
+	 * Hide the page header (title, description and API docs/Compare buttons).
+	 * Embedding surfaces like the dashboard render their own header instead.
+	 */
+	hideHeader?: boolean;
 }
 
 type SortField =
@@ -275,11 +282,18 @@ const ModelTableRow = React.memo(
 		modelHref: (path: string) => string;
 	}) => {
 		const { ProviderIcon } = row;
+		const isCustom = row.model.source === "custom";
+		const blockedReasons = row.provider.blockedReasons ?? [];
+		const isBlocked = blockedReasons.length > 0;
 
 		return (
 			<>
 				<TableRow
-					className="cursor-pointer hover:bg-muted/50 transition-colors"
+					className={cn(
+						"hover:bg-muted/50 transition-colors",
+						isCustom ? "cursor-default" : "cursor-pointer",
+						isBlocked && "opacity-60",
+					)}
 					onClick={onNavigate}
 				>
 					{/* Provider Column */}
@@ -318,20 +332,60 @@ const ModelTableRow = React.memo(
 										.toUpperCase()}
 								</div>
 							)}
-							<Link
-								href={modelHref(
-									`/models/${encodeURIComponent(row.model.id)}/${row.provider.providerId}`,
-								)}
-								onClick={(e) => e.stopPropagation()}
-								className="text-sm hover:text-primary hover:underline"
-							>
-								{row.providerInfo?.name ?? row.provider.providerId}
-								{row.provider.region && (
-									<span className="text-muted-foreground text-xs ml-1">
-										({row.provider.region})
-									</span>
-								)}
-							</Link>
+							{isCustom ? (
+								<span className="text-sm">
+									{row.providerInfo?.name ?? row.provider.providerId}
+								</span>
+							) : (
+								<Link
+									href={modelHref(
+										`/models/${encodeURIComponent(row.model.id)}/${row.provider.providerId}`,
+									)}
+									onClick={(e) => e.stopPropagation()}
+									className="text-sm hover:text-primary hover:underline"
+								>
+									{row.providerInfo?.name ?? row.provider.providerId}
+									{row.provider.region && (
+										<span className="text-muted-foreground text-xs ml-1">
+											({row.provider.region})
+										</span>
+									)}
+								</Link>
+							)}
+							{isCustom && (
+								<Badge
+									variant="outline"
+									className="text-[10px] px-1.5 py-0 shrink-0"
+								>
+									Custom
+								</Badge>
+							)}
+							{isBlocked && (
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<span className="shrink-0 cursor-help">
+											<Ban className="h-3.5 w-3.5 text-red-500" />
+										</span>
+									</TooltipTrigger>
+									<TooltipContent className="max-w-xs">
+										<p className="text-xs font-medium mb-1">
+											Not available under your organization&apos;s compliance
+											policy:
+										</p>
+										<ul
+											className={cn(
+												"text-xs",
+												blockedReasons.length > 1 &&
+													"list-disc pl-4 space-y-0.5",
+											)}
+										>
+											{blockedReasons.map((reason) => (
+												<li key={reason}>{reason}</li>
+											))}
+										</ul>
+									</TooltipContent>
+								</Tooltip>
+							)}
 							{row.provider.deactivatedAt && (
 								<Tooltip>
 									<TooltipTrigger asChild>
@@ -366,20 +420,28 @@ const ModelTableRow = React.memo(
 									</TooltipContent>
 								</Tooltip>
 							)}
-							<ExternalLink className="h-3 w-3 text-muted-foreground" />
+							{!isCustom && (
+								<ExternalLink className="h-3 w-3 text-muted-foreground" />
+							)}
 						</div>
 					</TableCell>
 
 					{/* Model ID Column */}
 					<TableCell>
 						<div className="flex items-center gap-2">
-							<Link
-								href={modelHref(`/models/${encodeURIComponent(row.model.id)}`)}
-								onClick={(e) => e.stopPropagation()}
-								className="font-medium text-sm hover:text-primary hover:underline"
-							>
-								{row.model.id}
-							</Link>
+							{isCustom ? (
+								<span className="font-medium text-sm">{row.model.id}</span>
+							) : (
+								<Link
+									href={modelHref(
+										`/models/${encodeURIComponent(row.model.id)}`,
+									)}
+									onClick={(e) => e.stopPropagation()}
+									className="font-medium text-sm hover:text-primary hover:underline"
+								>
+									{row.model.id}
+								</Link>
+							)}
 							{row.model.premium && (
 								<Tooltip>
 									<TooltipTrigger asChild>
@@ -397,9 +459,13 @@ const ModelTableRow = React.memo(
 							)}
 							<button
 								onClick={(e) => {
-									const fullId = row.provider.region
-										? `${row.provider.providerId}/${row.model.id}:${row.provider.region}`
-										: `${row.provider.providerId}/${row.model.id}`;
+									// Custom models are requested as `<name>/<model>`, which is
+									// already the row's model id.
+									const fullId = isCustom
+										? row.model.id
+										: row.provider.region
+											? `${row.provider.providerId}/${row.model.id}:${row.provider.region}`
+											: `${row.provider.providerId}/${row.model.id}`;
 									onCopy(fullId, row.rowKey, e);
 								}}
 								className="p-1 hover:bg-muted rounded transition-colors"
@@ -613,6 +679,7 @@ export function AllModels({
 	showPricingTierFilter = false,
 	defaultCategory = "all",
 	hideUseCaseFilter = false,
+	hideHeader = false,
 }: AllModelsProps) {
 	const router = useRouter();
 	const pathname = usePathname();
@@ -676,6 +743,8 @@ export function AllModels({
 		},
 		selectedProvider: searchParams.get("provider") ?? "all",
 		showDeactivated: searchParams.get("deactivated") === "true",
+		source: searchParams.get("source") ?? "all",
+		eligibleOnly: searchParams.get("eligibility") === "eligible",
 		inputPrice: {
 			min: searchParams.get("inputPriceMin") ?? "",
 			max: searchParams.get("inputPriceMax") ?? "",
@@ -689,6 +758,20 @@ export function AllModels({
 			max: searchParams.get("contextSizeMax") ?? "",
 		},
 	});
+
+	// Org-directory extensions: the Source and Eligibility filters only appear
+	// when the surface actually mixes in custom models or compliance data.
+	const hasCustomModels = useMemo(
+		() => models.some((model) => model.source === "custom"),
+		[models],
+	);
+	const hasBlockedMappings = useMemo(
+		() =>
+			models.some((model) =>
+				model.mappings.some((mapping) => mapping.blockedReasons?.length),
+			),
+		[models],
+	);
 
 	const updateUrlWithFilters = useCallback(
 		(newParams: Record<string, string | undefined>) => {
@@ -729,6 +812,15 @@ export function AllModels({
 		const now = new Date();
 
 		const baseModels = models
+			.filter((model) => {
+				if (filters.source === "custom") {
+					return model.source === "custom";
+				}
+				if (filters.source === "catalog") {
+					return model.source !== "custom";
+				}
+				return true;
+			})
 			.map((model) => {
 				// Filter out deprecated provider mappings, plus deactivated ones
 				// unless the visitor opted into seeing them
@@ -737,6 +829,9 @@ export function AllModels({
 						return false;
 					}
 					if (!filters.showDeactivated && isMappingDeactivated(mapping, now)) {
+						return false;
+					}
+					if (filters.eligibleOnly && mapping.blockedReasons?.length) {
 						return false;
 					}
 					return true;
@@ -811,24 +906,15 @@ export function AllModels({
 			if (filters.category && filters.category !== "all") {
 				switch (filters.category) {
 					case "code": {
-						// Code generation: needs tools, JSON output, streaming, and cached input pricing
-						if (model.free) {
-							return false;
-						}
+						// Exactly the predicate the gateway enforces for DevPass coding
+						// plans, so this list can never claim less than the plan serves.
 						if (
-							model.stability === "unstable" ||
-							model.stability === "experimental"
+							!isCodingModel({
+								free: model.free,
+								stability: model.stability,
+								providers: model.providerDetails.map((p) => p.provider),
+							})
 						) {
-							return false;
-						}
-						const hasCodeCapabilities = model.providerDetails.some(
-							(p) =>
-								(p.provider.jsonOutput ?? p.provider.jsonOutputSchema) &&
-								p.provider.tools &&
-								p.provider.streaming &&
-								p.provider.cachedInputPrice !== null,
-						);
-						if (!hasCodeCapabilities) {
 							return false;
 						}
 						break;
@@ -1322,6 +1408,8 @@ export function AllModels({
 		Object.values(filters.capabilities).some(Boolean) ||
 		(filters.selectedProvider && filters.selectedProvider !== "all") ||
 		filters.showDeactivated ||
+		(filters.source && filters.source !== "all") ||
+		filters.eligibleOnly ||
 		filters.inputPrice.min ||
 		filters.inputPrice.max ||
 		filters.outputPrice.min ||
@@ -1500,6 +1588,8 @@ export function AllModels({
 			},
 			selectedProvider: "all",
 			showDeactivated: false,
+			source: "all",
+			eligibleOnly: false,
 			inputPrice: { min: "", max: "" },
 			outputPrice: { min: "", max: "" },
 			contextSize: { min: "", max: "" },
@@ -1527,6 +1617,8 @@ export function AllModels({
 			discounted: undefined,
 			provider: undefined,
 			deactivated: undefined,
+			source: undefined,
+			eligibility: undefined,
 			inputPriceMin: undefined,
 			inputPriceMax: undefined,
 			outputPriceMin: undefined,
@@ -1816,23 +1908,83 @@ export function AllModels({
 							</SelectContent>
 						</Select>
 
+						{hasCustomModels && (
+							<>
+								<div className="font-medium text-sm">Source</div>
+								<Select
+									value={filters.source}
+									onValueChange={(value) => {
+										setFilters((prev) => ({ ...prev, source: value }));
+										updateUrlWithFilters({
+											source: value === "all" ? undefined : value,
+											page: undefined,
+										});
+									}}
+								>
+									<SelectTrigger className="w-full">
+										<SelectValue placeholder="All models" />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="all">
+											<div className="flex items-center gap-2">
+												<List className="h-4 w-4 text-muted-foreground" />
+												Catalog & custom
+											</div>
+										</SelectItem>
+										<SelectItem value="catalog">
+											<div className="flex items-center gap-2">
+												<Boxes className="h-4 w-4 text-indigo-500" />
+												Catalog models
+											</div>
+										</SelectItem>
+										<SelectItem value="custom">
+											<div className="flex items-center gap-2">
+												<Wrench className="h-4 w-4 text-emerald-500" />
+												Custom models
+											</div>
+										</SelectItem>
+									</SelectContent>
+								</Select>
+							</>
+						)}
+
 						<div className="font-medium text-sm">Status</div>
-						<Toggle
-							variant="outline"
-							size="sm"
-							pressed={filters.showDeactivated}
-							onPressedChange={(pressed) => {
-								setFilters((prev) => ({ ...prev, showDeactivated: pressed }));
-								updateUrlWithFilters({
-									deactivated: pressed ? "true" : undefined,
-									page: undefined,
-								});
-							}}
-							className="gap-1.5"
-						>
-							<AlertCircle className="h-3.5 w-3.5 text-red-500" />
-							<span className="text-xs">Show deactivated</span>
-						</Toggle>
+						<div className="flex flex-wrap gap-2">
+							<Toggle
+								variant="outline"
+								size="sm"
+								pressed={filters.showDeactivated}
+								onPressedChange={(pressed) => {
+									setFilters((prev) => ({ ...prev, showDeactivated: pressed }));
+									updateUrlWithFilters({
+										deactivated: pressed ? "true" : undefined,
+										page: undefined,
+									});
+								}}
+								className="gap-1.5"
+							>
+								<AlertCircle className="h-3.5 w-3.5 text-red-500" />
+								<span className="text-xs">Show deactivated</span>
+							</Toggle>
+							{hasBlockedMappings && (
+								<Toggle
+									variant="outline"
+									size="sm"
+									pressed={filters.eligibleOnly}
+									onPressedChange={(pressed) => {
+										setFilters((prev) => ({ ...prev, eligibleOnly: pressed }));
+										updateUrlWithFilters({
+											eligibility: pressed ? "eligible" : undefined,
+											page: undefined,
+										});
+									}}
+									className="gap-1.5"
+								>
+									<Check className="h-3.5 w-3.5 text-emerald-500" />
+									<span className="text-xs">Eligible only</span>
+								</Toggle>
+							)}
+						</div>
 					</div>
 
 					<div className="space-y-3">
@@ -2012,6 +2164,10 @@ export function AllModels({
 								onToggleExpand={() => toggleRowExpanded(row.rowKey)}
 								onCopy={copyToClipboard}
 								onNavigate={() => {
+									// Custom models have no public model page to navigate to.
+									if (row.model.source === "custom") {
+										return;
+									}
 									const url = modelHref(
 										`/models/${encodeURIComponent(row.model.id)}/${row.provider.providerId}`,
 									);
@@ -2040,6 +2196,10 @@ export function AllModels({
 					getCapabilityIcons={getCapabilityIcons}
 					model={model}
 					goToModel={() => {
+						// Custom models have no public model page to navigate to.
+						if (model.source === "custom") {
+							return;
+						}
 						const url = modelHref(`/models/${encodeURIComponent(model.id)}`);
 						if (modelHrefBase) {
 							window.open(url, "_blank");
@@ -2075,35 +2235,37 @@ export function AllModels({
 				>
 					<TooltipProvider delayDuration={300} skipDelayDuration={100}>
 						<div className="container mx-auto py-8 space-y-6">
-							<div className="flex items-start md:items-center justify-between flex-col md:flex-row gap-4">
-								<div>
-									<h1 className="text-3xl font-bold">{title ?? "Models"}</h1>
-									<p className="text-muted-foreground mt-2">
-										{description ??
-											"Comprehensive list of all supported models and their providers"}
-									</p>
-								</div>
+							{!hideHeader && (
+								<div className="flex items-start md:items-center justify-between flex-col md:flex-row gap-4">
+									<div>
+										<h1 className="text-3xl font-bold">{title ?? "Models"}</h1>
+										<p className="text-muted-foreground mt-2">
+											{description ??
+												"Comprehensive list of all supported models and their providers"}
+										</p>
+									</div>
 
-								<div className="flex items-center gap-2">
-									<Link
-										href="https://docs.llmgateway.io/v1_models"
-										target="_blank"
-										rel="noopener noreferrer"
-									>
-										<Button variant="outline" size="sm">
-											<ExternalLink className="h-4 w-4 mr-1" />
-											API Docs
-										</Button>
-									</Link>
-
-									<Button size="sm" asChild>
-										<Link href={modelHref("/models/compare")}>
-											<Scale className="h-4 w-4 mr-1" />
-											Compare
+									<div className="flex items-center gap-2">
+										<Link
+											href="https://docs.llmgateway.io/v1_models"
+											target="_blank"
+											rel="noopener noreferrer"
+										>
+											<Button variant="outline" size="sm">
+												<ExternalLink className="h-4 w-4 mr-1" />
+												API Docs
+											</Button>
 										</Link>
-									</Button>
+
+										<Button size="sm" asChild>
+											<Link href={modelHref("/models/compare")}>
+												<Scale className="h-4 w-4 mr-1" />
+												Compare
+											</Link>
+										</Button>
+									</div>
 								</div>
-							</div>
+							)}
 
 							<div className="flex flex-col gap-4">
 								<div className="flex items-center gap-4">
@@ -2153,6 +2315,8 @@ export function AllModels({
 													Object.values(filters.capabilities).filter(Boolean)
 														.length,
 													filters.showDeactivated ? 1 : 0,
+													filters.source && filters.source !== "all" ? 1 : 0,
+													filters.eligibleOnly ? 1 : 0,
 													[
 														filters.inputPrice.min,
 														filters.inputPrice.max,
