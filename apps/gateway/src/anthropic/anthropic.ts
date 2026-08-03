@@ -346,6 +346,33 @@ function toAnthropicMessageId(id: unknown): string {
 	return `msg_${id.replace(/^chatcmpl[-_]/, "")}`;
 }
 
+// Anthropic tool_use ids are `toolu_`-prefixed, and Anthropic SDK clients key
+// on that prefix the same way they do on `msg_`. The inner
+// /v1/chat/completions response carries OpenAI-style tool-call ids — e.g.
+// Runware (a deepseek-v4-flash router) emits `chatcmpl-tool-…`, DeepSeek
+// native emits `call_…` — so re-prefix them here instead of leaking the raw
+// OpenAI schema. The full upstream id is kept (prefix included) so the mapping
+// is injective — `call_123` and `fc_123` must not collapse onto the same
+// `toolu_` id, or a response with both would emit duplicate tool_use blocks
+// the client could not pair back to distinct tool_results.
+//
+// The minted id is safe to reuse on both sides of the round trip: the client
+// echoes the assistant's `tool_use` id back in `tool_result.tool_use_id`, and
+// the request path forwards that verbatim as the OpenAI `tool_call_id` (see
+// the `tool_result` conversion below), while the replayed assistant message
+// carries the same minted id. OpenAI-compatible endpoints pair tool calls to
+// results by exact string equality and treat the id as opaque, so the pair
+// stays consistent without a remap table.
+function toAnthropicToolUseId(upstreamId: string | undefined): string {
+	if (!upstreamId) {
+		return `toolu_${randomUUID()}`;
+	}
+	if (upstreamId.startsWith("toolu_")) {
+		return upstreamId;
+	}
+	return `toolu_${upstreamId}`;
+}
+
 // Map the inner chat completions response's url_citation annotations onto
 // Anthropic web_search_result entries. The OpenAI-format annotations only
 // carry url/title, so the Anthropic-only fields (encrypted_content, page_age)
@@ -1072,6 +1099,24 @@ anthropic.openapi(messages, async (c) => {
 					});
 				};
 
+				// If the upstream stream ends without ever sending a finish_reason
+				// while a tool_use block is still in flight (a dropped/truncated
+				// mid-tool-call stream), the client would otherwise be left with a
+				// dangling tool call and no terminal events. Synthesize a truncation
+				// stop_reason so it's treated as truncated (retryable) instead.
+				const synthesizeTruncatedStopReasonIfNeeded = () => {
+					if (
+						stopReason === null &&
+						contentBlocks.some((block) => block.type === "tool_use")
+					) {
+						logger.warn(
+							"Anthropic stream ended without finish_reason while tool call arguments were still streaming; emitting truncated stop_reason",
+							{ path: c.req.path },
+						);
+						stopReason = "max_tokens";
+					}
+				};
+
 				try {
 					while (true) {
 						const { done, value } = await reader.read();
@@ -1101,6 +1146,7 @@ anthropic.openapi(messages, async (c) => {
 							if (line.startsWith("data: ")) {
 								const data = line.slice(6).trim();
 								if (data === "[DONE]") {
+									synthesizeTruncatedStopReasonIfNeeded();
 									await sendContentBlockStops();
 									await sendMessageDelta();
 									// Send final Anthropic streaming event
@@ -1388,7 +1434,9 @@ anthropic.openapi(messages, async (c) => {
 										if (blockIndex === undefined) {
 											blockIndex = contentBlocks.length;
 											toolCallBlockIndex.set(toolCall.index, blockIndex);
-											const id = toolCall.id ?? `tool_${toolCall.index}`;
+											const id = toAnthropicToolUseId(
+												toolCall.id ?? `tool_${toolCall.index}`,
+											);
 											const name = toolCall.function?.name ?? "";
 											contentBlocks.push({
 												type: "tool_use",
@@ -1450,6 +1498,7 @@ anthropic.openapi(messages, async (c) => {
 					// Stream ended without an explicit [DONE]. Emit any deferred
 					// terminator events so downstream clients see a well-formed
 					// Anthropic stream.
+					synthesizeTruncatedStopReasonIfNeeded();
 					await sendContentBlockStops();
 					await sendMessageDelta();
 					if (stopReason !== null) {
@@ -1587,17 +1636,24 @@ anthropic.openapi(messages, async (c) => {
 			try {
 				input = JSON.parse(toolCall.function.arguments ?? "{}");
 			} catch (err) {
-				logger.error("Failed to parse anthropic tool call arguments", {
-					err: err instanceof Error ? err : new Error(String(err)),
-					arguments: toolCall.function.arguments,
-				});
-				throw new HTTPException(500, {
-					message: "Failed to parse tool call arguments",
-				});
+				// Truncated/malformed argument JSON is an upstream model fault,
+				// not a request fault. Degrade to an empty input so the turn
+				// stays alive for the remaining tool calls instead of killing
+				// the whole response with a 500 (the client can't fix it, and
+				// its tool_result for this call would be lost entirely).
+				logger.warn(
+					"Failed to parse tool call arguments; replacing with empty input",
+					{
+						err: err instanceof Error ? err : new Error(String(err)),
+						argumentsLength: toolCall.function.arguments?.length ?? 0,
+						toolName: toolCall.function.name,
+					},
+				);
+				input = {};
 			}
 			content.push({
 				type: "tool_use",
-				id: toolCall.id,
+				id: toAnthropicToolUseId(toolCall.id),
 				name: toolCall.function.name,
 				input,
 			});

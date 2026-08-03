@@ -52,6 +52,17 @@ Browse [models with tool calling support](https://llmgateway.io/models?filters=1
 | `gpt-4o-mini`                        | Routine tasks, cost-conscious usage         | $    |
 | `glm-4.5v`                           | Similar quality, 50-70% cheaper than Claude | $    |
 
+> **Caveat:** tool-call ids are normalized to Anthropic's `toolu_` prefix by the
+> gateway, so they look right to Claude Code no matter which upstream answered
+> (see [this fix](https://github.com/theopenco/llmgateway/pull/3389)). However,
+> `deepseek-v4-flash` can still occasionally drop a command argument or invent
+> an extra field on tool-heavy turns — that argument flakiness is upstream model
+> behavior, not a gateway rewrite. If Claude Code executes a mangled command,
+> check what actually ran before retrying — a malformed command may already have
+> created, deleted, or modified files. Retry only if the tool call was rejected
+> outright or the command is known to be idempotent (e.g. a read-only `ls` or
+> `cat`). For tool-heavy work, prefer a higher-effort model.
+
 ## Advanced Configuration
 
 ### Model Switching

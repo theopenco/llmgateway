@@ -752,6 +752,462 @@ describe("api", () => {
 		expect(messageStart.message.id).toMatch(/^msg_/);
 	});
 
+	interface ToolUseBlock {
+		type: "tool_use";
+		id: string;
+		name: string;
+		input: Record<string, unknown>;
+	}
+
+	interface UpstreamToolCall {
+		id: string;
+		type: "function";
+		function: { name: string; arguments: string };
+	}
+
+	interface UpstreamMessage {
+		role: string;
+		tool_calls?: UpstreamToolCall[];
+		tool_call_id?: string;
+		content?: unknown;
+	}
+
+	// The inner /v1/chat/completions response carries OpenAI-style tool-call ids
+	// (`chatcmpl-tool-…`). Anthropic SDK clients key on the `toolu_` prefix, so
+	// the gateway must re-prefix them rather than leaking the OpenAI schema.
+	test("/v1/messages returns Anthropic-style tool_use ids (non-streaming)", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				max_tokens: 1024,
+				messages: [{ role: "user", content: "TRIGGER_TOOL_CALLS" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		const toolUse = json.content?.find(
+			(b: ToolUseBlock) => b.type === "tool_use",
+		);
+		expect(toolUse).toBeTruthy();
+		expect(toolUse.id).toMatch(/^toolu_/);
+		expect(toolUse.id).toBe("toolu_chatcmpl-tool-9c2b95219658aa6f");
+		expect(toolUse.name).toBe("Bash");
+		expect(toolUse.input).toEqual({ command: "echo hello_mangled_test" });
+		expect(json.stop_reason).toBe("tool_use");
+	});
+
+	test("/v1/messages returns Anthropic-style tool_use ids (streaming)", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				max_tokens: 1024,
+				stream: true,
+				messages: [{ role: "user", content: "TRIGGER_TOOL_CALLS" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const events = (await res.text())
+			.split("\n")
+			.filter((line) => line.startsWith("data: "))
+			.map((line) => line.slice(6).trim())
+			.filter((data) => data && data !== "[DONE]")
+			.map((data) => JSON.parse(data));
+
+		const toolStart = events.find(
+			(e) =>
+				e.type === "content_block_start" &&
+				e.content_block?.type === "tool_use",
+		);
+		expect(toolStart).toBeTruthy();
+		expect(toolStart.content_block.id).toMatch(/^toolu_/);
+		expect(toolStart.content_block.id).toBe(
+			"toolu_chatcmpl-tool-9c2b95219658aa6f",
+		);
+		expect(toolStart.content_block.name).toBe("Bash");
+
+		const inputDelta = events.find(
+			(e) =>
+				e.type === "content_block_delta" &&
+				e.delta?.type === "input_json_delta",
+		);
+		expect(inputDelta).toBeTruthy();
+		expect(inputDelta.delta.partial_json).toContain("echo hello_mangled_test");
+
+		const messageDelta = events.find((e) => e.type === "message_delta");
+		expect(messageDelta).toBeTruthy();
+		expect(messageDelta.delta.stop_reason).toBe("tool_use");
+	});
+
+	// DeepSeek native emits OpenAI-style `call_…` tool-call ids (vs Runware's
+	// `chatcmpl-tool-…`); the gateway must normalize both to `toolu_` so the
+	// Anthropic-facing id is stable regardless of which router answered.
+	test("/v1/messages normalizes native DeepSeek `call_` tool-call ids", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				max_tokens: 1024,
+				messages: [{ role: "user", content: "TRIGGER_TOOL_CALLS_CALL_PREFIX" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		const toolUse = json.content?.find(
+			(b: ToolUseBlock) => b.type === "tool_use",
+		);
+		expect(toolUse).toBeTruthy();
+		expect(toolUse.id).toBe("toolu_call_00_9c2b95219658aa6f");
+		expect(toolUse.id).toMatch(/^toolu_/);
+	});
+
+	// Two tool calls in one response must each get a distinct stable `toolu_`
+	// id that stays consistent across the stream, so the client can pair each
+	// tool_result with its own call (a shared/duplicated id would merge them).
+	test("/v1/messages mints distinct toolu_ ids per multi-tool-call stream", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				max_tokens: 1024,
+				stream: true,
+				messages: [{ role: "user", content: "TRIGGER_TOOL_CALLS_MULTI" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const events = (await res.text())
+			.split("\n")
+			.filter((line) => line.startsWith("data: "))
+			.map((line) => line.slice(6).trim())
+			.filter((data) => data && data !== "[DONE]")
+			.map((data) => JSON.parse(data));
+
+		const toolStarts = events.filter(
+			(e) =>
+				e.type === "content_block_start" &&
+				e.content_block?.type === "tool_use",
+		);
+		expect(toolStarts).toHaveLength(2);
+
+		const ids = toolStarts.map((e) => e.content_block.id);
+		expect(new Set(ids).size).toBe(2);
+		expect(ids.every((id: string) => /^toolu_/.test(id))).toBe(true);
+		const inputDeltas = events.filter(
+			(e) =>
+				e.type === "content_block_delta" &&
+				e.delta?.type === "input_json_delta",
+		);
+		expect(inputDeltas).toHaveLength(2);
+		const deltaIndexes = inputDeltas.map((e) => e.index);
+		expect(deltaIndexes).toEqual([0, 1]);
+		// Each delta index must correspond to a content_block_start at the same index.
+		const startIndexes = toolStarts.map((e) => e.index);
+		expect(startIndexes).toEqual([0, 1]);
+
+		const messageDelta = events.find((e) => e.type === "message_delta");
+		expect(messageDelta).toBeTruthy();
+		expect(messageDelta.delta.stop_reason).toBe("tool_use");
+	});
+
+	// A truncated/malformed argument payload is an upstream model fault; the
+	// gateway must degrade to an empty input (HTTP 200) instead of killing the
+	// whole response with a 500 the client can't fix.
+	test("/v1/messages degrades malformed tool args to empty input instead of 500", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				max_tokens: 1024,
+				messages: [
+					{ role: "user", content: "TRIGGER_TOOL_CALLS_MALFORMED_ARGS" },
+				],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		const toolUse = json.content?.find(
+			(b: ToolUseBlock) => b.type === "tool_use",
+		);
+		expect(toolUse).toBeTruthy();
+		expect(toolUse.input).toEqual({});
+		expect(toolUse.id).toMatch(/^toolu_/);
+		expect(json.stop_reason).toBe("tool_use");
+	});
+
+	// A stream that cuts off mid-tool-call (no finish_reason, no [DONE]) must
+	// still terminate the Anthropic stream with a synthesized stop_reason so
+	// the client treats the dangling tool call as truncated (retryable) rather
+	// than waiting on a stream that never ends.
+	test("/v1/messages terminates a mid-tool-call stream drop with a truncated stop_reason", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				max_tokens: 1024,
+				stream: true,
+				messages: [{ role: "user", content: "TRIGGER_TOOL_CALLS_TRUNCATED" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const events = (await res.text())
+			.split("\n")
+			.filter((line) => line.startsWith("data: "))
+			.map((line) => line.slice(6).trim())
+			.filter((data) => data && data !== "[DONE]")
+			.map((data) => JSON.parse(data));
+
+		const messageDelta = events.find((e) => e.type === "message_delta");
+		expect(messageDelta).toBeTruthy();
+		expect(messageDelta.delta.stop_reason).toBe("max_tokens");
+		expect(events.some((e) => e.type === "message_stop")).toBe(true);
+	});
+
+	// The client echoes the assistant tool_use id back in its tool_result; the
+	// gateway must forward that id (not remap it) so the upstream sees a
+	// consistent tool_call / tool_call_id pair on the next turn.
+	test("/v1/messages round-trips tool_use ids into tool_result tool_call_ids", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const originalFetch = globalThis.fetch;
+		let upstreamBody: { messages: UpstreamMessage[] } | null = null;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+
+				if (url === `${mockServerUrl}/v1/chat/completions`) {
+					const body =
+						input instanceof Request ? await input.text() : String(init?.body);
+					upstreamBody = JSON.parse(body);
+
+					return new Response(
+						JSON.stringify({
+							id: "chatcmpl-1",
+							object: "chat.completion",
+							created: 1774549411,
+							model: "llmgateway/custom",
+							choices: [
+								{
+									index: 0,
+									message: { role: "assistant", content: "Done." },
+									finish_reason: "stop",
+								},
+							],
+							usage: {
+								prompt_tokens: 5,
+								completion_tokens: 3,
+								total_tokens: 8,
+							},
+						}),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					);
+				}
+
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+
+		try {
+			const res = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					max_tokens: 1024,
+					messages: [
+						{ role: "user", content: "Run the command." },
+						{
+							role: "assistant",
+							content: [
+								{
+									type: "tool_use",
+									id: "toolu_9c2b95219658aa6f",
+									name: "Bash",
+									input: { command: "echo hello" },
+								},
+							],
+						},
+						{
+							role: "user",
+							content: [
+								{
+									type: "tool_result",
+									tool_use_id: "toolu_9c2b95219658aa6f",
+									content: "hello",
+								},
+							],
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect(upstreamBody).toBeTruthy();
+
+			const assistantMsg = upstreamBody!.messages.find(
+				(m: UpstreamMessage) => m.role === "assistant" && m.tool_calls,
+			);
+			expect(assistantMsg).toBeTruthy();
+			expect(assistantMsg!.tool_calls![0].id).toBe("toolu_9c2b95219658aa6f");
+
+			const toolMsg = upstreamBody!.messages.find(
+				(m: UpstreamMessage) => m.role === "tool",
+			);
+			expect(toolMsg).toBeTruthy();
+			expect(toolMsg!.tool_call_id).toBe("toolu_9c2b95219658aa6f");
+		} finally {
+			fetchSpy.mockRestore();
+		}
+	});
+
 	test("/v1/messages surfaces reasoning as thinking_delta events (streaming)", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",

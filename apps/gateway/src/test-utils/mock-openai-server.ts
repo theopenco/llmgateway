@@ -895,6 +895,38 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		chatMessages,
 		"TRIGGER_REASONING",
 	);
+	const shouldReturnToolCalls = hasUserMessageTrigger(
+		chatMessages,
+		"TRIGGER_TOOL_CALLS",
+	);
+	// Tool-call response variants that share the `shouldReturnToolCalls` shape
+	// but swap the id prefix, add a second call, or emit malformed arguments.
+	const shouldReturnCallPrefixToolId = hasUserMessageTrigger(
+		chatMessages,
+		"TRIGGER_TOOL_CALLS_CALL_PREFIX",
+	);
+	const shouldReturnMultiToolCalls = hasUserMessageTrigger(
+		chatMessages,
+		"TRIGGER_TOOL_CALLS_MULTI",
+	);
+	const shouldReturnMalformedToolArgs = hasUserMessageTrigger(
+		chatMessages,
+		"TRIGGER_TOOL_CALLS_MALFORMED_ARGS",
+	);
+	// A stream that cuts off mid-tool-call: tool-call start + partial args,
+	// then [DONE] with no finish_reason. The inner OpenAI layer treats [DONE]
+	// as a clean end, so the Anthropic translator must synthesize a terminal
+	// stop_reason instead of leaving a dangling tool_use block.
+	const shouldReturnTruncatedToolCall = hasUserMessageTrigger(
+		chatMessages,
+		"TRIGGER_TOOL_CALLS_TRUNCATED",
+	);
+	const toolCallId = shouldReturnCallPrefixToolId
+		? "call_00_9c2b95219658aa6f"
+		: "chatcmpl-tool-9c2b95219658aa6f";
+	const toolCallArguments = shouldReturnMalformedToolArgs
+		? "{command: broken"
+		: '{"command":"echo hello_mangled_test"}';
 	const reasoningContent = "Let me think about this step by step.";
 	const shouldTruncateStream = hasUserMessageTrigger(
 		chatMessages,
@@ -1078,6 +1110,129 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 				}
 			}
 
+			if (shouldReturnToolCalls) {
+				// Tool-call chunks: the first delta carries id + name, the second
+				// the arguments (mirrors real OpenAI streaming tool calls). The id
+				// is intentionally an OpenAI-style id (`chatcmpl-tool-…` or, for
+				// the `call_00_…` variant, a native DeepSeek `call_` id) so the
+				// regression tests can assert the gateway re-prefixes it `toolu_`.
+				const toolCalls = shouldReturnMultiToolCalls
+					? [
+							{
+								index: 0,
+								id: "chatcmpl-tool-9c2b95219658aa6f",
+								name: "Bash",
+								arguments: '{"command":"echo hello_first_tool"}',
+							},
+							{
+								index: 1,
+								id: "call_00_7d3f19a48b20c5e1",
+								name: "Read",
+								arguments: '{"file_path":"/tmp/second_tool.txt"}',
+							},
+						]
+					: [
+							{
+								index: 0,
+								id: toolCallId,
+								name: "Bash",
+								arguments: toolCallArguments,
+							},
+						];
+
+				for (const toolCall of toolCalls) {
+					await stream.writeSSE({
+						data: JSON.stringify({
+							id: "chatcmpl-123",
+							object: "chat.completion.chunk",
+							created: Math.floor(Date.now() / 1000),
+							model: body.model ?? "gpt-4o-mini",
+							choices: [
+								{
+									index: 0,
+									delta: {
+										tool_calls: [
+											{
+												index: toolCall.index,
+												id: toolCall.id,
+												type: "function",
+												function: {
+													name: toolCall.name,
+													arguments: "",
+												},
+											},
+										],
+									},
+									finish_reason: null,
+								},
+							],
+						}),
+						id: String(eventId++),
+					});
+					await stream.writeSSE({
+						data: JSON.stringify({
+							id: "chatcmpl-123",
+							object: "chat.completion.chunk",
+							created: Math.floor(Date.now() / 1000),
+							model: body.model ?? "gpt-4o-mini",
+							choices: [
+								{
+									index: 0,
+									delta: {
+										tool_calls: [
+											{
+												index: toolCall.index,
+												function: {
+													arguments: toolCall.arguments,
+												},
+											},
+										],
+									},
+									finish_reason: null,
+								},
+							],
+						}),
+						id: String(eventId++),
+					});
+				}
+
+				if (shouldReturnTruncatedToolCall) {
+					// Terminate the stream mid-tool-call: [DONE] but no
+					// finish_reason. The inner OpenAI layer treats [DONE] as a
+					// clean end, so the Anthropic translator must synthesize a
+					// terminal stop_reason instead of ending the message with a
+					// dangling tool_use block and no stop_reason.
+					await stream.writeSSE({
+						event: "done",
+						data: "[DONE]",
+						id: String(eventId++),
+					});
+					return;
+				}
+
+				await stream.writeSSE({
+					data: JSON.stringify({
+						id: "chatcmpl-123",
+						object: "chat.completion.chunk",
+						created: Math.floor(Date.now() / 1000),
+						model: body.model ?? "gpt-4o-mini",
+						choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+						usage: {
+							prompt_tokens: 10,
+							completion_tokens: 20,
+							total_tokens: 30,
+						},
+					}),
+					id: String(eventId++),
+				});
+				await stream.writeSSE({
+					event: "done",
+					data: "[DONE]",
+					id: String(eventId++),
+				});
+				return;
+			}
+
 			// Content chunks: one per choice index. For n > 1 each variant tags
 			// the content so the test can assert that no two choice streams
 			// were merged into one buffer.
@@ -1216,17 +1371,55 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 	}
 
 	const baseChoice = sampleChatCompletionResponse.choices[0];
+	// OpenAI-style tool-call id; the regression test asserts the gateway
+	// re-prefixes it `toolu_` on the Anthropic-facing side.
+	const toolCalls = shouldReturnToolCalls
+		? shouldReturnMultiToolCalls
+			? [
+					{
+						id: "chatcmpl-tool-9c2b95219658aa6f",
+						type: "function",
+						function: {
+							name: "Bash",
+							arguments: '{"command":"echo hello_first_tool"}',
+						},
+					},
+					{
+						id: "call_00_7d3f19a48b20c5e1",
+						type: "function",
+						function: {
+							name: "Read",
+							arguments: '{"file_path":"/tmp/second_tool.txt"}',
+						},
+					},
+				]
+			: [
+					{
+						id: toolCallId,
+						type: "function",
+						function: {
+							name: "Bash",
+							arguments: toolCallArguments,
+						},
+					},
+				]
+		: undefined;
 	const choices = Array.from({ length: requestedN }, (_, index) => ({
 		...baseChoice,
 		index,
 		message: {
 			role: "assistant",
-			content:
-				requestedN > 1
+			content: shouldReturnToolCalls
+				? null
+				: requestedN > 1
 					? `${assistantContent} (variant ${index + 1})`
 					: assistantContent,
 			...(shouldReturnReasoning && { reasoning: reasoningContent }),
+			...(shouldReturnToolCalls && { tool_calls: toolCalls }),
 		},
+		finish_reason: shouldReturnToolCalls
+			? "tool_calls"
+			: baseChoice.finish_reason,
 	}));
 
 	const baseUsage = sampleChatCompletionResponse.usage;
