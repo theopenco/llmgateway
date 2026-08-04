@@ -6,6 +6,13 @@ import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, tables } from "@llmgateway/db";
 
+import {
+	cancelOrganizationSubscriptions,
+	findSoleMemberOrganizations,
+	getOrganizationSubscriptionIds,
+	tearDownSoleMemberOrganizations,
+} from "./account-deletion.js";
+
 import type * as PaymentsModule from "@/routes/payments.js";
 
 const stripeMock = vi.hoisted(() => ({
@@ -279,5 +286,358 @@ describe("account deletion cancels subscriptions", () => {
 		expect(
 			json.organizations.find((org: { id: string }) => org.id === ORG_ID),
 		).toBeUndefined();
+	});
+});
+
+describe("getOrganizationSubscriptionIds", () => {
+	test("returns all three subscription slots in a stable order", () => {
+		expect(
+			getOrganizationSubscriptionIds({
+				stripeSubscriptionId: "sub_pro",
+				devPlanStripeSubscriptionId: "sub_devpass",
+				chatPlanStripeSubscriptionId: "sub_chat",
+			}),
+		).toEqual(["sub_pro", "sub_devpass", "sub_chat"]);
+	});
+
+	test("skips the slots that are empty", () => {
+		expect(
+			getOrganizationSubscriptionIds({
+				stripeSubscriptionId: null,
+				devPlanStripeSubscriptionId: "sub_devpass",
+				chatPlanStripeSubscriptionId: null,
+			}),
+		).toEqual(["sub_devpass"]);
+	});
+
+	test("returns nothing for an organization with no subscriptions", () => {
+		expect(
+			getOrganizationSubscriptionIds({
+				stripeSubscriptionId: null,
+				devPlanStripeSubscriptionId: null,
+				chatPlanStripeSubscriptionId: null,
+			}),
+		).toEqual([]);
+	});
+});
+
+describe("cancelOrganizationSubscriptions", () => {
+	beforeEach(() => {
+		stripeMock.subscriptions.cancel.mockReset();
+		stripeMock.subscriptions.cancel.mockResolvedValue({ status: "canceled" });
+	});
+
+	test("cancels immediately without a proration invoice", async () => {
+		const cancelled = await cancelOrganizationSubscriptions({
+			stripeSubscriptionId: "sub_pro",
+			devPlanStripeSubscriptionId: null,
+			chatPlanStripeSubscriptionId: null,
+		});
+
+		expect(cancelled).toEqual(["sub_pro"]);
+		expect(stripeMock.subscriptions.cancel).toHaveBeenCalledWith("sub_pro", {
+			invoice_now: false,
+			prorate: false,
+		});
+	});
+
+	test("does not call Stripe when there is nothing to cancel", async () => {
+		const cancelled = await cancelOrganizationSubscriptions({
+			stripeSubscriptionId: null,
+			devPlanStripeSubscriptionId: null,
+			chatPlanStripeSubscriptionId: null,
+		});
+
+		expect(cancelled).toEqual([]);
+		expect(stripeMock.subscriptions.cancel).not.toHaveBeenCalled();
+	});
+
+	test.each([
+		["resource_missing", "No such subscription: sub_x"],
+		[undefined, "This subscription has already been canceled"],
+		[undefined, "A subscription which is already canceled cannot be updated"],
+	])(
+		"treats a terminal subscription as cancelled (code %s)",
+		async (code, message) => {
+			stripeMock.subscriptions.cancel.mockRejectedValue(
+				new Stripe.errors.StripeInvalidRequestError({
+					type: "invalid_request_error",
+					code,
+					message,
+				}),
+			);
+
+			await expect(
+				cancelOrganizationSubscriptions({
+					stripeSubscriptionId: "sub_x",
+					devPlanStripeSubscriptionId: null,
+					chatPlanStripeSubscriptionId: null,
+				}),
+			).resolves.toEqual(["sub_x"]);
+		},
+	);
+
+	test("re-throws a genuine Stripe failure instead of swallowing it", async () => {
+		stripeMock.subscriptions.cancel.mockRejectedValue(
+			new Stripe.errors.StripeAPIError({
+				type: "api_error",
+				message: "Stripe is down",
+			}),
+		);
+
+		await expect(
+			cancelOrganizationSubscriptions({
+				stripeSubscriptionId: "sub_pro",
+				devPlanStripeSubscriptionId: null,
+				chatPlanStripeSubscriptionId: null,
+			}),
+		).rejects.toThrow("Stripe is down");
+	});
+
+	test("stops at the first genuine failure rather than continuing", async () => {
+		stripeMock.subscriptions.cancel
+			.mockResolvedValueOnce({ status: "canceled" })
+			.mockRejectedValueOnce(
+				new Stripe.errors.StripeAPIError({
+					type: "api_error",
+					message: "Stripe is down",
+				}),
+			);
+
+		await expect(
+			cancelOrganizationSubscriptions({
+				stripeSubscriptionId: "sub_pro",
+				devPlanStripeSubscriptionId: "sub_devpass",
+				chatPlanStripeSubscriptionId: "sub_chat",
+			}),
+		).rejects.toThrow("Stripe is down");
+
+		// The third slot must not have been attempted after the failure.
+		expect(stripeMock.subscriptions.cancel).toHaveBeenCalledTimes(2);
+	});
+});
+
+describe("findSoleMemberOrganizations", () => {
+	beforeEach(async () => {
+		await deleteAll();
+		await db.insert(tables.user).values({
+			id: USER_ID,
+			name: "Test User",
+			email: "admin@example.com",
+			emailVerified: true,
+		});
+	});
+
+	afterEach(async () => {
+		await deleteAll();
+	});
+
+	test("returns nothing for a user with no memberships", async () => {
+		await expect(findSoleMemberOrganizations(USER_ID)).resolves.toEqual([]);
+	});
+
+	test("returns an organization whose only member is the user", async () => {
+		await seedOrg({ devPlanStripeSubscriptionId: "sub_devpass", credits: "5" });
+
+		const organizations = await findSoleMemberOrganizations(USER_ID);
+
+		expect(organizations).toHaveLength(1);
+		expect(organizations[0]).toMatchObject({
+			id: ORG_ID,
+			kind: "devpass",
+			credits: "5",
+			hasForfeitableCredits: true,
+			subscriptionIds: ["sub_devpass"],
+		});
+	});
+
+	test("excludes an organization that has another member", async () => {
+		await seedOrg();
+		await addSecondMember();
+
+		await expect(findSoleMemberOrganizations(USER_ID)).resolves.toEqual([]);
+	});
+
+	test("excludes an organization that is already deleted", async () => {
+		await seedOrg({ status: "deleted" });
+
+		await expect(findSoleMemberOrganizations(USER_ID)).resolves.toEqual([]);
+	});
+
+	test("keeps sole-member orgs while dropping shared ones", async () => {
+		await seedOrg();
+		await addSecondMember();
+		await db.insert(tables.organization).values({
+			id: "solo-org-id",
+			name: "Solo",
+			billingEmail: "admin@example.com",
+		});
+		await db.insert(tables.userOrganization).values({
+			userId: USER_ID,
+			organizationId: "solo-org-id",
+			role: "owner",
+		});
+
+		const organizations = await findSoleMemberOrganizations(USER_ID);
+
+		expect(organizations.map((org) => org.id)).toEqual(["solo-org-id"]);
+	});
+
+	test.each([
+		["0", false],
+		["0.99", false],
+		["1", true],
+		["1.00", true],
+		["12.34", true],
+	])("flags a %s balance as forfeitable: %s", async (credits, expected) => {
+		await seedOrg({ credits });
+
+		const [organization] = await findSoleMemberOrganizations(USER_ID);
+
+		expect(organization.hasForfeitableCredits).toBe(expected);
+	});
+});
+
+describe("tearDownSoleMemberOrganizations", () => {
+	beforeEach(async () => {
+		await deleteAll();
+		await db.insert(tables.user).values({
+			id: USER_ID,
+			name: "Test User",
+			email: "admin@example.com",
+			emailVerified: true,
+		});
+		stripeMock.subscriptions.cancel.mockReset();
+		stripeMock.subscriptions.cancel.mockResolvedValue({ status: "canceled" });
+	});
+
+	afterEach(async () => {
+		await deleteAll();
+	});
+
+	test("cancels every slot and clears the organization's plan state", async () => {
+		await seedOrg({
+			kind: "default",
+			plan: "pro",
+			planExpiresAt: null,
+			isTrialActive: true,
+			autoTopUpEnabled: true,
+			stripeSubscriptionId: "sub_pro",
+			devPlan: "max",
+			devPlanStripeSubscriptionId: "sub_devpass",
+			devPlanPendingTier: "lite",
+			chatPlan: "plus",
+			chatPlanStripeSubscriptionId: "sub_chat",
+		});
+
+		const closed = await tearDownSoleMemberOrganizations(USER_ID);
+
+		expect(closed.map((org) => org.id)).toEqual([ORG_ID]);
+		expect(stripeMock.subscriptions.cancel).toHaveBeenCalledTimes(3);
+
+		const org = await getOrg();
+		expect(org).toMatchObject({
+			status: "deleted",
+			plan: "free",
+			stripeSubscriptionId: null,
+			subscriptionCancelled: true,
+			isTrialActive: false,
+			autoTopUpEnabled: false,
+			devPlan: "none",
+			devPlanStripeSubscriptionId: null,
+			devPlanCancelled: true,
+			devPlanPendingTier: null,
+			chatPlan: "none",
+			chatPlanStripeSubscriptionId: null,
+			chatPlanCancelled: true,
+		});
+		expect(org?.planExpiresAt).toBeInstanceOf(Date);
+		expect(org?.devPlanExpiresAt).toBeInstanceOf(Date);
+		expect(org?.chatPlanExpiresAt).toBeInstanceOf(Date);
+	});
+
+	test("closes a sole-member org that has no subscription at all", async () => {
+		await seedOrg();
+
+		const closed = await tearDownSoleMemberOrganizations(USER_ID);
+
+		expect(closed.map((org) => org.id)).toEqual([ORG_ID]);
+		expect(stripeMock.subscriptions.cancel).not.toHaveBeenCalled();
+		expect((await getOrg())?.status).toBe("deleted");
+	});
+
+	test("leaves a shared organization fully intact", async () => {
+		await seedOrg({
+			kind: "default",
+			plan: "pro",
+			stripeSubscriptionId: "sub_pro",
+		});
+		await addSecondMember();
+
+		await expect(tearDownSoleMemberOrganizations(USER_ID)).resolves.toEqual([]);
+
+		expect(stripeMock.subscriptions.cancel).not.toHaveBeenCalled();
+		expect(await getOrg()).toMatchObject({
+			status: "active",
+			plan: "pro",
+			stripeSubscriptionId: "sub_pro",
+		});
+	});
+
+	test("leaves local state untouched when Stripe cancellation fails", async () => {
+		await seedOrg({
+			devPlan: "pro",
+			devPlanStripeSubscriptionId: "sub_devpass",
+		});
+
+		stripeMock.subscriptions.cancel.mockRejectedValue(
+			new Stripe.errors.StripeAPIError({
+				type: "api_error",
+				message: "Stripe is down",
+			}),
+		);
+
+		await expect(tearDownSoleMemberOrganizations(USER_ID)).rejects.toThrow(
+			"Stripe is down",
+		);
+
+		expect(await getOrg()).toMatchObject({
+			status: "active",
+			devPlan: "pro",
+			devPlanStripeSubscriptionId: "sub_devpass",
+			devPlanCancelled: false,
+		});
+	});
+
+	test("does not cancel a second org's subscription when the first fails", async () => {
+		await seedOrg({ devPlanStripeSubscriptionId: "sub_devpass" });
+		await db.insert(tables.organization).values({
+			id: "second-org-id",
+			name: "Second",
+			billingEmail: "admin@example.com",
+			plan: "pro",
+			stripeSubscriptionId: "sub_second",
+		});
+		await db.insert(tables.userOrganization).values({
+			userId: USER_ID,
+			organizationId: "second-org-id",
+			role: "owner",
+		});
+
+		stripeMock.subscriptions.cancel.mockRejectedValue(
+			new Stripe.errors.StripeAPIError({
+				type: "api_error",
+				message: "Stripe is down",
+			}),
+		);
+
+		await expect(tearDownSoleMemberOrganizations(USER_ID)).rejects.toThrow(
+			"Stripe is down",
+		);
+
+		const cancelledIds = stripeMock.subscriptions.cancel.mock.calls.map(
+			(call) => call[0],
+		);
+		expect(cancelledIds).not.toContain("sub_second");
 	});
 });
