@@ -10,7 +10,6 @@ import {
 import { notifyUserAccountDeleted } from "@/utils/discord.js";
 import { computeProfileData, profileSchema } from "@/utils/profile.js";
 
-import { logAuditEvent } from "@llmgateway/audit";
 import { and, db, eq, tables } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
@@ -180,45 +179,6 @@ const updateUserSchema = z.object({
 	githubUsername: z.string().max(100).nullable().optional(),
 	xUsername: z.string().max(100).nullable().optional(),
 });
-
-/**
- * Audit logs are organization-scoped, so a user-level change is recorded once
- * per organization the user belongs to — that way org admins see it in their
- * own audit trail.
- */
-async function logUserEmailChange(
-	userId: string,
-	oldEmail: string,
-	newEmail: string,
-): Promise<void> {
-	const memberships = await db.query.userOrganization.findMany({
-		where: {
-			userId: {
-				eq: userId,
-			},
-		},
-		columns: {
-			organizationId: true,
-		},
-	});
-
-	await Promise.all(
-		memberships.map((membership) =>
-			logAuditEvent({
-				organizationId: membership.organizationId,
-				userId,
-				action: "user.email_change",
-				resourceType: "user",
-				resourceId: userId,
-				metadata: {
-					changes: { email: { old: oldEmail, new: newEmail } },
-					targetUserId: userId,
-					targetUserEmail: newEmail,
-				},
-			}),
-		),
-	);
-}
 
 const completeOnboardingSchema = z.object({});
 
@@ -403,10 +363,6 @@ user.openapi(updateUser, async (c) => {
 	// Sync name to Resend if email is verified (contact exists in Resend)
 	if (updatedUser.emailVerified && updateData.name !== undefined) {
 		await updateResendContact(updatedUser.email, { name: updateData.name });
-	}
-
-	if (updateData.email && updateData.email !== userRecord.email) {
-		await logUserEmailChange(authUser.id, userRecord.email, updatedUser.email);
 	}
 
 	const isAdmin = isAdminEmail(updatedUser.email);

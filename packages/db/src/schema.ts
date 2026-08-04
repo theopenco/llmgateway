@@ -3318,8 +3318,6 @@ export const auditLogActions = [
 	"organization.block",
 	"organization.manage",
 	"organization.sso_auto_join.update",
-	// User account
-	"user.email_change",
 	// Project
 	"project.create",
 	"project.update",
@@ -3420,7 +3418,6 @@ export const auditLogActions = [
 
 export const auditLogResourceTypes = [
 	"organization",
-	"user",
 	"project",
 	"team_member",
 	"team_invite",
