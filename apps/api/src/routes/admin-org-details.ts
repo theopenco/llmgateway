@@ -156,7 +156,9 @@ adminOrgDetails.openapi(getOrganizationAuditLogs, async (c) => {
 		.from(tables.auditLog)
 		.leftJoin(tables.user, eq(tables.auditLog.userId, tables.user.id))
 		.where(whereClause)
-		.orderBy(desc(tables.auditLog.createdAt))
+		// Same-transaction writes share a createdAt, so break ties on id to keep
+		// offset pagination stable.
+		.orderBy(desc(tables.auditLog.createdAt), desc(tables.auditLog.id))
 		.limit(limit)
 		.offset(offset);
 
