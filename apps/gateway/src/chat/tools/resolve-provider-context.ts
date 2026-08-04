@@ -186,6 +186,12 @@ interface OrgInfo {
  * Throws when a DevPass subscriber has exhausted the weekly fair-use
  * allowance for premium-tier models. No-op for non-DevPass orgs and
  * non-premium models.
+ *
+ * trackRejection must only be true at request-entry gates. The env-fallback
+ * call sites below run inside provider retry loops that swallow this throw
+ * (tryResolveAlternateKeyForCurrentProvider catches and returns null), so
+ * tracking there would emit one event per fallback candidate — including for
+ * requests that ultimately succeed on another key.
  */
 export function assertDevPlanPremiumCapNotExceeded(
 	organization: Pick<
@@ -193,6 +199,7 @@ export function assertDevPlanPremiumCapNotExceeded(
 		"id" | "devPlan" | "devPlanPremiumCreditsUsed" | "devPlanPremiumWeekStart"
 	>,
 	modelInfo: Pick<ModelDefinition, "id">,
+	trackRejection = false,
 ): void {
 	if (organization.devPlan === "none") {
 		return;
@@ -220,17 +227,22 @@ export function assertDevPlanPremiumCapNotExceeded(
 	// dashboard's devpass_weekly_cap_hit_viewed only fires when the user
 	// opens the dashboard, but most cap hits happen inside a coding agent
 	// that swallows this 402 — without this event the funnel undercounts.
-	posthog.capture({
-		distinctId: organization.id,
-		event: "devpass_premium_cap_rejected",
-		groups: { organization: organization.id },
-		properties: {
-			devPlan: tier,
-			model: modelInfo.id,
-			msUntilReset,
-			organization: organization.id,
-		},
-	});
+	// $process_person_profile: false — the distinct id is an org id, not a
+	// user; don't mint a person profile for it.
+	if (trackRejection) {
+		posthog.capture({
+			distinctId: organization.id,
+			event: "devpass_premium_cap_rejected",
+			groups: { organization: organization.id },
+			properties: {
+				devPlan: tier,
+				model: modelInfo.id,
+				msUntilReset,
+				organization: organization.id,
+				$process_person_profile: false,
+			},
+		});
+	}
 	throw new HTTPException(402, {
 		message: `You've used your weekly allowance for premium-tier models on the ${tier} plan. Redeem a Reset Pass from your dashboard for an instant reset, upgrade for a higher allowance, or use any standard model now. Resets in ${formatTimeUntilReset(msUntilReset)}.`,
 	});

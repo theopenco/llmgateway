@@ -81,7 +81,7 @@ The gateway sees everything, so it has to clear a higher bar than the providers 
 | 1   | Provider inventory             | Single gateway + providers directory            | All plans  |
 | 2   | Routing restrictions           | Compliance policies, fail-closed                | Enterprise |
 | 3   | Geographic control             | Headquarters filter + region pinning            | Enterprise |
-| 4   | Retention policy               | Metadata-only default, opt-in payload retention | All plans  |
+| 4   | Retention policy               | Metadata-only default, opt-in payload retention | PAYG plans |
 | 5   | Access gating                  | Org restrictions over IAM rules                 | Enterprise |
 | 6   | Audit trail                    | Security events + audit logs                    | Enterprise |
 | 7   | Custom-deployment attestations | Self-attestation, fail-closed evaluation        | Enterprise |

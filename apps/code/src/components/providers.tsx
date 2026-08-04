@@ -55,11 +55,14 @@ export function Providers({ children, config }: ProvidersProps) {
 		const init = () => {
 			posthog.init(key, posthogOptions);
 		};
+		// Captures fired before init() are dropped by posthog-js, so the idle
+		// deferral must be bounded — a busy main thread can starve
+		// requestIdleCallback long enough for a user to act.
 		if (typeof requestIdleCallback !== "undefined") {
-			const id = requestIdleCallback(init);
+			const id = requestIdleCallback(init, { timeout: 800 });
 			return () => cancelIdleCallback(id);
 		}
-		const timer = setTimeout(init, 1000);
+		const timer = setTimeout(init, 300);
 		return () => clearTimeout(timer);
 	}, [config.posthogKey, posthogOptions]);
 
