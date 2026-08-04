@@ -457,10 +457,10 @@ export const deepseekModels = [
 				maxOutput: 384000,
 				quantization: "fp8",
 				streaming: true,
-				reasoning: true,
-				// Runware maps reasoning_effort onto its thinkingLevel setting and
-				// 400s minimal/low/medium for this model.
-				reasoningEfforts: ["none", "high", "xhigh", "max"],
+				// Runware's vLLM proxy has a reasoning → tool_call transition bug
+				// (high leaks content, max drops ~half the handoffs). Only `none`
+				// is reliable (verified live, 2026-08-04).
+				reasoning: false,
 				vision: false,
 				tools: true,
 				// Runware rejects json_object for this model ("Missing required
