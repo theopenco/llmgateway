@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "a3353ad8-d9b0-403d-b78c-c80a58495a2c",
+  "id": "8e06be17-0e94-438d-995a-23e11b36ff6d",
   "prevId": "7838cd84-ad3f-40f3-a839-63ffb561bec2",
   "ddl": [
     {
@@ -12382,6 +12382,19 @@
     {
       "type": "text",
       "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "logo",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
       "default": null,
@@ -17678,19 +17691,6 @@
       "generated": null,
       "identity": null,
       "name": "usage",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_key"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 1,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "allowed_models",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_key"
