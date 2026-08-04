@@ -809,6 +809,7 @@ export const openaiModels = [
 				requestPrice: "0",
 				contextSize: 131072,
 				maxOutput: 32768,
+				quantization: "bf16",
 				streaming: true,
 				reasoning: true,
 				vision: false,

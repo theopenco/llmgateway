@@ -290,6 +290,7 @@ export const deepseekModels = [
 				requestPrice: "0",
 				contextSize: 1048576,
 				maxOutput: 384000,
+				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
 				// Runware maps reasoning_effort onto its thinkingLevel setting and
@@ -454,6 +455,7 @@ export const deepseekModels = [
 				requestPrice: "0",
 				contextSize: 1048576,
 				maxOutput: 384000,
+				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
 				// Runware maps reasoning_effort onto its thinkingLevel setting and
