@@ -677,6 +677,171 @@ adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 	});
 });
 
+const spendOverviewKeySchema = z.object({
+	id: z.string(),
+	provider: z.string(),
+	variant: variantSchema,
+	region: z.string().nullable(),
+	comment: z.string().nullable(),
+	maskedToken: z.string(),
+	status: z.enum(["active", "inactive", "deleted"]).nullable(),
+	/** Lifetime counter the spend limit is enforced against. */
+	usage: z.string(),
+	usageLimit: z.string().nullable(),
+	/** Window totals, from the rollup — not the lifetime `usage` counter. */
+	totalCost: z.number(),
+	totalRequests: z.number(),
+	totalTokens: z.string(),
+});
+
+const spendOverviewPointSchema = z.object({
+	timestamp: z.string(),
+	providerKeyId: z.string(),
+	cost: z.number(),
+	requestCount: z.number(),
+	totalTokens: z.string(),
+});
+
+const spendOverviewSchema = z.object({
+	window: tokenWindowSchema,
+	bucket: z.enum(["hour", "day"]),
+	/**
+	 * Every managed credential, in the gateway's selection order. Soft-deleted
+	 * ones appear only while they still have attributed spend in the window —
+	 * their history should not vanish before the money stops being interesting.
+	 */
+	keys: z.array(spendOverviewKeySchema),
+	/** One row per (bucket, credential); pivot client-side for stacking. */
+	data: z.array(spendOverviewPointSchema),
+});
+
+const getSpendOverview = createRoute({
+	method: "get",
+	path: "/provider-credentials/spend",
+	request: {
+		query: z.object({
+			window: tokenWindowSchema.default("7d").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: spendOverviewSchema,
+				},
+			},
+			description:
+				"Upstream spend over time for every managed credential, one series per key.",
+		},
+	},
+});
+
+/**
+ * The whole-fleet counterpart of the per-key spend route above: one query
+ * grouped by credential so the dashboard can stack every key of a provider in
+ * a single chart. Env-var credentials cannot appear here — requests they serve
+ * are logged with a NULL `providerKeyId`, so there is nothing to attribute.
+ */
+adminProviderCredentials.openapi(getSpendOverview, async (c) => {
+	const window = c.req.valid("query").window ?? "7d";
+	const startDate = getTokenWindowStartDate(window);
+	const bucketUnit = getBucketUnitForWindow(window);
+
+	const bucketExpr = sql<Date>`date_trunc(${sql.raw(`'${bucketUnit}'`)}, ${tables.providerKeyHourlyStats.hourTimestamp})`;
+
+	const [keys, points] = await Promise.all([
+		// Any status: a soft-deleted key is kept when the window still holds its
+		// spend, and dropped below once it has aged out.
+		db.query.providerKey.findMany({
+			where: { managed: { eq: true } },
+			orderBy: {
+				provider: "asc",
+				sortOrder: "asc",
+				createdAt: "asc",
+				id: "asc",
+			},
+		}),
+		db
+			.select({
+				timestamp: bucketExpr.as("bucket"),
+				providerKeyId: tables.providerKeyHourlyStats.providerKeyId,
+				cost: sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.cost}), 0)`.as(
+					"cost",
+				),
+				requestCount:
+					sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.requestCount}), 0)`.as(
+						"request_count",
+					),
+				totalTokens:
+					sql<string>`COALESCE(SUM(CAST(${tables.providerKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
+						"total_tokens",
+					),
+			})
+			.from(tables.providerKeyHourlyStats)
+			.innerJoin(
+				tables.providerKey,
+				eq(tables.providerKey.id, tables.providerKeyHourlyStats.providerKeyId),
+			)
+			.where(
+				and(
+					eq(tables.providerKey.managed, true),
+					gte(tables.providerKeyHourlyStats.hourTimestamp, startDate),
+				),
+			)
+			.groupBy(bucketExpr, tables.providerKeyHourlyStats.providerKeyId)
+			.orderBy(bucketExpr),
+	]);
+
+	const data = points.map((point) => ({
+		timestamp: new Date(point.timestamp).toISOString(),
+		providerKeyId: point.providerKeyId,
+		cost: Number(point.cost),
+		requestCount: Number(point.requestCount),
+		totalTokens: String(point.totalTokens),
+	}));
+
+	const totalsByKey = new Map<
+		string,
+		{ cost: number; requests: number; tokens: Decimal }
+	>();
+	for (const point of data) {
+		const totals = totalsByKey.get(point.providerKeyId) ?? {
+			cost: 0,
+			requests: 0,
+			tokens: new Decimal(0),
+		};
+		totals.cost += point.cost;
+		totals.requests += point.requestCount;
+		totals.tokens = totals.tokens.plus(point.totalTokens);
+		totalsByKey.set(point.providerKeyId, totals);
+	}
+
+	return c.json({
+		window,
+		bucket: bucketUnit,
+		keys: keys
+			.filter((key) => key.status !== "deleted" || totalsByKey.has(key.id))
+			.map((key) => {
+				const totals = totalsByKey.get(key.id);
+				return {
+					id: key.id,
+					provider: key.provider,
+					variant: key.variant,
+					region: key.region,
+					comment: key.comment,
+					maskedToken: key.tokenMasked ?? maskToken(key.token ?? ""),
+					status: key.status,
+					usage: key.usage,
+					usageLimit: key.usageLimit,
+					totalCost: totals?.cost ?? 0,
+					totalRequests: totals?.requests ?? 0,
+					totalTokens: totals?.tokens.toString() ?? "0",
+				};
+			}),
+		data,
+	});
+});
+
 const createCredential = createRoute({
 	method: "post",
 	path: "/provider-credentials",

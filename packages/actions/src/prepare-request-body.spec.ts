@@ -970,6 +970,14 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 		expect(requestBody.reasoning.effort).toBe("none");
 	});
 
+	test("forwards none to ByteDance GLM-5.2", async () => {
+		const requestBody = await prepare({
+			provider: "bytedance",
+			model: "glm-5.2",
+		});
+		expect(requestBody.reasoning_effort).toBe("none");
+	});
+
 	test("disables thinking for Google on none", async () => {
 		const requestBody = await prepare({
 			provider: "google-ai-studio",
@@ -1190,9 +1198,19 @@ describe("prepareRequestBody - Alibaba thinking", () => {
 		expect(requestBody.reasoning_effort).toBeUndefined();
 	});
 
-	test("sends nothing for mappings without budget-controlled thinking", async () => {
+	test("sends enable_thinking and thinking_budget for glm-5 (budget-controlled thinking)", async () => {
 		const requestBody = await prepare({
 			model: "glm-5",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.enable_thinking).toBe(true);
+		expect(requestBody.thinking_budget).toBe(24576);
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("sends nothing for mappings without budget-controlled thinking", async () => {
+		const requestBody = await prepare({
+			model: "qwq-plus",
 			reasoningEffort: "high",
 		});
 		expect(requestBody.enable_thinking).toBeUndefined();

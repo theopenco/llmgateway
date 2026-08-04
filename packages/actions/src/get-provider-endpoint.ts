@@ -407,15 +407,25 @@ export function getProviderEndpoint(
 			}
 			case "aws-mantle": {
 				// Bedrock Mantle: OpenAI frontier models on AWS, Responses API only.
-				// GPT-5.6 Sol is deployed in us-east-1/us-east-2 only (Terra/Luna
-				// additionally in us-west-2), so default to us-east-1 where the
-				// whole family is available.
+				// The selected region normally resolves through regionConfig's
+				// endpointMap; the env var stays supported as a deployment-level
+				// override, and us-east-1 is the fallback because it is the only
+				// region carrying the whole GPT-5.6 family (Sol is not in us-west-2).
 				const envBaseUrl = skipEnvVars
 					? undefined
-					: getProviderEnvValue("aws-mantle", "baseUrl", configIndex);
+					: getProviderEnvValue(
+							"aws-mantle",
+							"baseUrl",
+							configIndex,
+							undefined,
+							variant,
+						);
 				const mantleRegion =
 					envValueOrDefault("aws-mantle", "region", "us-east-1") ?? "us-east-1";
-				url = envBaseUrl ?? `https://bedrock-mantle.${mantleRegion}.api.aws`;
+				url =
+					envBaseUrl ??
+					regionBaseUrl ??
+					`https://bedrock-mantle.${mantleRegion}.api.aws`;
 				break;
 			}
 			case "azure": {

@@ -1072,4 +1072,197 @@ describe("managed credential reorder cache invalidation", () => {
 			expect(body.organizations).toEqual([]);
 		});
 	});
+
+	describe("spend overview", () => {
+		const orgId = "overview-org";
+		const projectId = "overview-project";
+		const apiKeyId = "overview-api-key";
+
+		interface OverviewKey {
+			id: string;
+			provider: string;
+			status: string | null;
+			totalCost: number;
+			totalRequests: number;
+			totalTokens: string;
+		}
+
+		interface OverviewBody {
+			bucket: string;
+			keys: OverviewKey[];
+			data: { providerKeyId: string; cost: number; totalTokens: string }[];
+		}
+
+		async function seedTraffic(
+			logs: {
+				providerKeyId: string | null;
+				cost: number;
+				totalTokens?: number;
+			}[],
+		) {
+			await db.insert(tables.organization).values({
+				id: orgId,
+				name: "Overview Org",
+				billingEmail: "overview@example.com",
+				credits: "100",
+			});
+			await db.insert(tables.project).values({
+				id: projectId,
+				name: "Overview Project",
+				organizationId: orgId,
+				mode: "credits",
+			});
+			await db.insert(tables.apiKey).values({
+				id: apiKeyId,
+				token: "overview-api-key-token",
+				projectId,
+				description: "Overview Key",
+				createdBy: "test-user-id",
+			});
+
+			let index = 0;
+			for (const entry of logs) {
+				await db.insert(tables.log).values({
+					id: `overview-log-${index}`,
+					requestId: `overview-request-${index}`,
+					organizationId: orgId,
+					projectId,
+					apiKeyId,
+					providerKeyId: entry.providerKeyId,
+					cost: entry.cost,
+					totalTokens: entry.totalTokens?.toString(),
+					duration: 1000,
+					usedMode: "credits",
+					requestedModel: "openai/gpt-4o-mini",
+					requestedProvider: "openai",
+					usedModel: "gpt-4o-mini",
+					usedProvider: "openai",
+					responseSize: 100,
+					mode: "credits",
+				});
+				index++;
+			}
+
+			await aggregateLogsForTesting();
+		}
+
+		async function getOverview(): Promise<OverviewBody> {
+			const res = await app.request(
+				"/admin/provider-credentials/spend?window=1d",
+				{ headers: { Cookie: cookie } },
+			);
+			expect(res.status).toBe(200);
+			return (await res.json()) as OverviewBody;
+		}
+
+		test("requires authentication", async () => {
+			const res = await app.request("/admin/provider-credentials/spend");
+			expect(res.status).toBe(401);
+		});
+
+		test("returns one series per managed credential", async () => {
+			await db.insert(tables.providerKey).values([
+				{
+					id: "overview-cred-a",
+					token: "sk-overview-a",
+					provider: "openai",
+					managed: true,
+					organizationId: null,
+				},
+				{
+					id: "overview-cred-b",
+					token: "sk-overview-b",
+					provider: "anthropic",
+					managed: true,
+					organizationId: null,
+				},
+			]);
+			await seedTraffic([
+				{ providerKeyId: "overview-cred-a", cost: 0.01, totalTokens: 100 },
+				{ providerKeyId: "overview-cred-a", cost: 0.02, totalTokens: 200 },
+				{ providerKeyId: "overview-cred-b", cost: 0.04, totalTokens: 50 },
+				// Served by an env-var credential: attributable to nothing.
+				{ providerKeyId: null, cost: 5 },
+			]);
+
+			const body = await getOverview();
+			expect(body.bucket).toBe("hour");
+
+			const keyA = body.keys.find((key) => key.id === "overview-cred-a");
+			const keyB = body.keys.find((key) => key.id === "overview-cred-b");
+			expect(keyA?.totalCost).toBeCloseTo(0.03, 6);
+			expect(keyA?.totalRequests).toBe(2);
+			expect(keyA?.totalTokens).toBe("300");
+			expect(keyB?.totalCost).toBeCloseTo(0.04, 6);
+			expect(keyB?.totalTokens).toBe("50");
+
+			const seriesIds = new Set(body.data.map((point) => point.providerKeyId));
+			expect(seriesIds).toEqual(
+				new Set(["overview-cred-a", "overview-cred-b"]),
+			);
+		});
+
+		test("excludes BYOK keys and their spend", async () => {
+			await db.insert(tables.organization).values({
+				id: "byok-org",
+				name: "BYOK Org",
+				billingEmail: "byok@example.com",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "overview-byok",
+				token: "sk-overview-byok",
+				provider: "openai",
+				managed: false,
+				organizationId: "byok-org",
+			});
+			await seedTraffic([{ providerKeyId: "overview-byok", cost: 0.25 }]);
+
+			const body = await getOverview();
+			expect(body.keys).toEqual([]);
+			expect(body.data).toEqual([]);
+		});
+
+		test("keeps quiet keys, drops deleted ones without window spend", async () => {
+			await db.insert(tables.providerKey).values([
+				{
+					id: "overview-quiet",
+					token: "sk-overview-quiet",
+					provider: "openai",
+					managed: true,
+					organizationId: null,
+				},
+				{
+					id: "overview-retired",
+					token: "sk-overview-retired",
+					provider: "openai",
+					managed: true,
+					organizationId: null,
+					status: "deleted",
+				},
+				{
+					id: "overview-retired-spending",
+					token: "sk-overview-retired-spending",
+					provider: "openai",
+					managed: true,
+					organizationId: null,
+					status: "deleted",
+				},
+			]);
+			await seedTraffic([
+				{ providerKeyId: "overview-retired-spending", cost: 0.5 },
+			]);
+
+			const body = await getOverview();
+			const ids = body.keys.map((key) => key.id);
+			// A key with no traffic still belongs in the legend; a deleted key
+			// earns a row only while its spend is still inside the window.
+			expect(ids).toContain("overview-quiet");
+			expect(ids).toContain("overview-retired-spending");
+			expect(ids).not.toContain("overview-retired");
+
+			const quiet = body.keys.find((key) => key.id === "overview-quiet");
+			expect(quiet?.totalCost).toBe(0);
+			expect(quiet?.totalTokens).toBe("0");
+		});
+	});
 });

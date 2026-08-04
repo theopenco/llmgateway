@@ -305,6 +305,15 @@ export const moonshotModels = [
 				contextSize: 262144,
 				maxOutput: 98304,
 				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				reasoningMaxTokens: true,
 				streaming: true,
 				vision: true,
@@ -413,6 +422,7 @@ export const moonshotModels = [
 				requestPrice: "0",
 				contextSize: 262144,
 				maxOutput: 131072,
+				quantization: "fp4",
 				streaming: true,
 				reasoning: true,
 				vision: true,
@@ -659,8 +669,8 @@ export const moonshotModels = [
 				reasoning: true,
 				// K3 always thinks; the effort level is set via the native
 				// top-level `reasoning_effort` field (no K2-era `thinking`
-				// toggle), which currently accepts only "max".
-				reasoningEfforts: ["max"],
+				// toggle), which accepts low, high, and max (default max).
+				reasoningEfforts: ["low", "high", "max"],
 				streaming: true,
 				vision: true,
 				tools: true,

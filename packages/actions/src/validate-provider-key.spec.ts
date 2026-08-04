@@ -1,10 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { models } from "@llmgateway/models";
 
 import {
 	getValidationModel,
 	pickCheapestRecentModel,
+	validateProviderKey,
 } from "./validate-provider-key.js";
 
 describe("getValidationModel", () => {
@@ -83,5 +84,130 @@ describe("pickCheapestRecentModel", () => {
 			{ id: "old", price: 0.5, releasedAt: new Date("2023-01-01") },
 		]);
 		expect(picked?.id).toBe("new");
+	});
+});
+
+describe("validateProviderKey error reporting", () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	function mockUpstream(status: number, body: unknown) {
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response(JSON.stringify(body), {
+				status,
+				headers: { "Content-Type": "application/json" },
+			}),
+		);
+	}
+
+	// A provider can answer 401 for a perfectly valid key that simply lacks
+	// entitlement to the validation model (AWS Bedrock does exactly this). The
+	// reason must reach the caller instead of being flattened into a generic
+	// "invalid API key", which sends users chasing the wrong problem.
+	it("forwards the upstream message on a 401", async () => {
+		const message =
+			"openai.gpt-5.6-luna is not available for this account. You can explore other available models on Amazon Bedrock.";
+		mockUpstream(401, { error: { message } });
+
+		const result = await validateProviderKey(
+			"aws-mantle",
+			"ABSKtest",
+			undefined,
+			false,
+		);
+
+		expect(result.valid).toBe(false);
+		expect(result.statusCode).toBe(401);
+		expect(result.error).toBe(message);
+	});
+
+	it("still forwards the upstream message on non-401 failures", async () => {
+		mockUpstream(429, { error: { message: "Rate limit exceeded" } });
+
+		const result = await validateProviderKey(
+			"openai",
+			"sk-test",
+			undefined,
+			false,
+		);
+
+		expect(result.valid).toBe(false);
+		expect(result.statusCode).toBe(429);
+		expect(result.error).toBe("Rate limit exceeded");
+	});
+
+	it("falls back to status text when the body carries no message", async () => {
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response("not json", { status: 401, statusText: "Unauthorized" }),
+		);
+
+		const result = await validateProviderKey(
+			"openai",
+			"sk-test",
+			undefined,
+			false,
+		);
+
+		expect(result.valid).toBe(false);
+		expect(result.error).toBe("401 Unauthorized");
+	});
+});
+
+describe("validateProviderKey region resolution", () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	// Covers the whole BYOK chain rather than just the endpoint helper: the
+	// region stored on the provider key must reach the Mantle URL. Region-aware
+	// providers resolve it from regionConfig.optionsKey, so a break anywhere
+	// between the stored option and the request would silently send traffic to
+	// the default region.
+	it.each([
+		{ region: "us-east-1" as const },
+		{ region: "us-east-2" as const },
+		{ region: "us-west-2" as const },
+	])(
+		"sends validation to $region when the provider key selects it",
+		async ({ region }) => {
+			const fetchMock = vi
+				.spyOn(globalThis, "fetch")
+				.mockResolvedValue(new Response("{}", { status: 200 }));
+
+			const result = await validateProviderKey(
+				"aws-mantle",
+				"ABSKtest",
+				undefined,
+				false,
+				{ aws_mantle_region: region },
+			);
+
+			expect(result.valid).toBe(true);
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+			expect(fetchMock.mock.calls[0][0]).toBe(
+				`https://bedrock-mantle.${region}.api.aws/openai/v1/responses`,
+			);
+		},
+	);
+
+	// Sol is not deployed to us-west-2, so a key pinned there must validate
+	// against a model that actually exists in the region.
+	it("picks a us-west-2 model when the key is pinned to us-west-2", async () => {
+		const fetchMock = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(new Response("{}", { status: 200 }));
+
+		const result = await validateProviderKey(
+			"aws-mantle",
+			"ABSKtest",
+			undefined,
+			false,
+			{ aws_mantle_region: "us-west-2" },
+		);
+
+		expect(result.model).not.toBe("gpt-5.6-sol");
+		const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+		expect(body.model).not.toBe("openai.gpt-5.6-sol");
 	});
 });

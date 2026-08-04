@@ -29,8 +29,10 @@ import {
 	getProviderEnvValue,
 	getProviderEnvVar,
 	getVariantEnvVarName,
+	isStealthProvider,
 	models,
 	type Provider,
+	type ProviderId,
 	type ProviderModelMapping,
 	resolveVertexTokenType,
 	type VertexTokenType,
@@ -52,6 +54,13 @@ import { buildSignedGatewayVideoLogContentUrl } from "@llmgateway/shared/video-a
 
 const UPSTREAM_FETCH_TIMEOUT_MS = 30_000;
 const WEBHOOK_DELIVERY_TIMEOUT_MS = 30_000;
+// A failed video job is reported by an upstream status poll that itself
+// returned 200, so there is no real upstream status code to surface. 502 is a
+// stand-in that matches the status this path has always stamped on the log
+// row's errorDetails — do not "fix" it to the poll's actual status.
+const VIDEO_JOB_PUBLIC_ERROR_STATUS_CODE = 502;
+const VIDEO_JOB_PUBLIC_ERROR_STATUS_TEXT = "Bad Gateway";
+const VIDEO_JOB_PUBLIC_ERROR_TEXT = `Upstream provider error (${VIDEO_JOB_PUBLIC_ERROR_STATUS_CODE} ${VIDEO_JOB_PUBLIC_ERROR_STATUS_TEXT})`;
 
 function fetchWithSignals(
 	url: string,
@@ -611,6 +620,19 @@ function extractError(body: Record<string, unknown>): VideoJobRecord["error"] {
 				? candidate.message
 				: "Video generation failed",
 		details: candidate,
+	};
+}
+
+function clientFacingVideoJobError(
+	providerId: string,
+	error: VideoJobRecord["error"],
+): VideoJobRecord["error"] {
+	if (!error || !isStealthProvider(providerId as ProviderId)) {
+		return error;
+	}
+
+	return {
+		message: VIDEO_JOB_PUBLIC_ERROR_TEXT,
 	};
 }
 
@@ -1862,10 +1884,37 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 			const responsePayload = await serializeVideoJob(jobToLog, logId);
 			const responseSize = JSON.stringify(responsePayload).length;
 
+			const rawVideoError =
+				jobToLog.upstreamStatusResponse &&
+				typeof jobToLog.upstreamStatusResponse === "object" &&
+				!Array.isArray(jobToLog.upstreamStatusResponse)
+					? extractError(
+							jobToLog.upstreamStatusResponse as Record<string, unknown>,
+						)
+					: jobToLog.error;
+			const redactStealthProviderError = isStealthProvider(
+				jobToLog.usedProvider as ProviderId,
+			);
+			const rawErrorDetails = rawVideoError
+				? {
+						statusCode: VIDEO_JOB_PUBLIC_ERROR_STATUS_CODE,
+						statusText: jobToLog.status,
+						responseText: rawVideoError.message,
+					}
+				: null;
+			const publicErrorDetails =
+				redactStealthProviderError && rawErrorDetails
+					? {
+							statusCode: VIDEO_JOB_PUBLIC_ERROR_STATUS_CODE,
+							statusText: VIDEO_JOB_PUBLIC_ERROR_STATUS_TEXT,
+							responseText: VIDEO_JOB_PUBLIC_ERROR_TEXT,
+						}
+					: rawErrorDetails;
+
 			const isContentFilterFailure =
 				jobToLog.status === "failed" &&
 				isContentFilterErrorText(
-					[jobToLog.error?.code, jobToLog.error?.message]
+					[rawVideoError?.code, rawVideoError?.message]
 						.filter(Boolean)
 						.join(" "),
 				);
@@ -1907,13 +1956,10 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 						? UnifiedFinishReason.COMPLETED
 						: failureUnifiedFinishReason,
 				hasError: jobToLog.status !== "completed",
-				errorDetails: jobToLog.error
-					? {
-							statusCode: 502,
-							statusText: jobToLog.status,
-							responseText: jobToLog.error.message,
-						}
-					: null,
+				errorDetails: publicErrorDetails,
+				internalErrorDetails: redactStealthProviderError
+					? rawErrorDetails
+					: undefined,
 				cost: totalCost,
 				requestCost: 0,
 				imageInputCost,
@@ -1937,7 +1983,9 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 					jobToLog,
 					"llmgateway_upstream_request",
 				),
-				upstreamResponse: jobToLog.upstreamStatusResponse,
+				upstreamResponse: redactStealthProviderError
+					? null
+					: jobToLog.upstreamStatusResponse,
 				processedAt: null,
 				dataStorageCost: "0",
 			};
@@ -2504,7 +2552,10 @@ export async function processPendingVideoJobs(): Promise<void> {
 				.set({
 					status,
 					progress,
-					error: extractError(enrichedUpstreamStatus),
+					error: clientFacingVideoJobError(
+						job.usedProvider,
+						extractError(enrichedUpstreamStatus),
+					),
 					contentUrl:
 						extractContentUrl(enrichedUpstreamStatus) ?? job.contentUrl,
 					storageProvider:
@@ -2608,7 +2659,10 @@ export async function processPendingVideoJobs(): Promise<void> {
 					.set({
 						status: "failed",
 						progress: 100,
-						error: extractError(failedResponse),
+						error: clientFacingVideoJobError(
+							job.usedProvider,
+							extractError(failedResponse),
+						),
 						completedAt: now,
 						lastPolledAt: now,
 						nextPollAt: now,

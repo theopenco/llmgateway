@@ -440,7 +440,7 @@ export interface ProviderModelMapping {
 	/**
 	 * Whether this model supports explicit reasoning.max_tokens parameter.
 	 * When true, users can specify the exact token budget for reasoning instead of using reasoning_effort levels.
-	 * Supported by Anthropic and Google thinking models.
+	 * Used by Anthropic, Google, Alibaba, DeepSeek, Z.AI, and Moonshot thinking models.
 	 */
 	reasoningMaxTokens?: boolean;
 	/**

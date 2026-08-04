@@ -1,9 +1,9 @@
-import { expect, test, beforeEach, describe, afterEach } from "vitest";
+import { expect, test, beforeEach, describe, afterEach, vi } from "vitest";
 
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { decryptProviderKey } from "@llmgateway/actions";
+import { decryptProviderKey, validateProviderKey } from "@llmgateway/actions";
 import {
 	redisClient,
 	SWR_PREFIX,
@@ -11,6 +11,17 @@ import {
 	waitForSwrMirrorWrites,
 } from "@llmgateway/cache";
 import { and, asc, cdb, db, eq, getTableName, tables } from "@llmgateway/db";
+
+import type * as ActionsModule from "@llmgateway/actions";
+
+// Validation is skipped in the test env, so the only way to exercise the
+// upstream-failure branches is to stand in for the validator. Delegates to the
+// real implementation unless a test overrides it, keeping every other case on
+// the normal path.
+vi.mock("@llmgateway/actions", async (importOriginal) => {
+	const actual = await importOriginal<typeof ActionsModule>();
+	return { ...actual, validateProviderKey: vi.fn(actual.validateProviderKey) };
+});
 
 describe("provider keys route", () => {
 	let token: string;
@@ -240,6 +251,74 @@ describe("provider keys route", () => {
 			}),
 		});
 		expect(res.status).toBe(400);
+	});
+
+	describe("POST /keys/provider upstream validation failures", () => {
+		// A provider can answer 401 for a key that is perfectly valid but not
+		// entitled to the validation model — AWS Bedrock does exactly this. The
+		// response must carry that reason instead of a generic "invalid key",
+		// which would send the user chasing the wrong problem.
+		test("surfaces the provider reason behind a 401", async () => {
+			const reason =
+				"openai.gpt-5.6-luna is not available for this account. You can explore other available models on Amazon Bedrock.";
+			vi.mocked(validateProviderKey).mockResolvedValueOnce({
+				valid: false,
+				statusCode: 401,
+				model: "gpt-5.6-luna",
+				error: reason,
+			});
+
+			const res = await app.request("/keys/provider", {
+				method: "POST",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({
+					provider: "aws-mantle",
+					token: "ABSKtest",
+					organizationId: "test-org-id",
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(json.message).toContain(reason);
+			expect(json.message).toContain("aws-mantle");
+			expect(json.message).toContain("gpt-5.6-luna");
+			expect(json.message).toContain("status 401");
+			// The old generic wording is what this fix removes.
+			expect(json.message).not.toContain("Invalid API key");
+			// A 401 never resolves by waiting, so it must not advise retrying.
+			expect(json.message).not.toContain("try again later");
+
+			const stored = await db.query.providerKey.findFirst({
+				where: { provider: { eq: "aws-mantle" } },
+			});
+			expect(stored).toBeUndefined();
+		});
+
+		test("keeps the retryable wording for non-401 upstream errors", async () => {
+			vi.mocked(validateProviderKey).mockResolvedValueOnce({
+				valid: false,
+				statusCode: 429,
+				model: "gpt-4o-mini",
+				error: "Rate limit exceeded",
+			});
+
+			const res = await app.request("/keys/provider", {
+				method: "POST",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({
+					provider: "inference.net",
+					token: "inference-test-token",
+					organizationId: "test-org-id",
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(json.message).toContain("Rate limit exceeded");
+			expect(json.message).toContain("status 429");
+			expect(json.message).toContain("try again later");
+		});
 	});
 
 	test("POST /keys/provider rejects stealth providers", async () => {
