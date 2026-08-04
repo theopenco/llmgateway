@@ -461,6 +461,7 @@ export const deepseekModels = [
 				// (high leaks content, max drops ~half the handoffs). Only `none`
 				// is reliable (verified live, 2026-08-04).
 				reasoning: false,
+				stability: "unstable" as const, // see reasoning bug above
 				vision: false,
 				tools: true,
 				// Runware rejects json_object for this model ("Missing required
