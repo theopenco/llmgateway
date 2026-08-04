@@ -13,7 +13,7 @@ export function BlogCta({
 	variant = "devpass",
 	location = "inline",
 }: {
-	variant?: "devpass" | "gateway";
+	variant?: "devpass" | "gateway" | "enterprise";
 	location?: string;
 }) {
 	const posthog = usePostHog();
@@ -27,6 +27,45 @@ export function BlogCta({
 			post,
 		});
 	};
+
+	if (variant === "enterprise") {
+		return (
+			<div className="not-prose my-10 rounded-xl border bg-muted/30 p-6 sm:p-8">
+				<div className="font-mono text-[10px] uppercase tracking-[0.35em] text-muted-foreground">
+					LLM Gateway · Enterprise
+				</div>
+				<h3 className="mt-3 text-2xl font-bold tracking-tight text-foreground">
+					Put a compliance boundary in front of your LLM traffic.
+				</h3>
+				<p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
+					Provider compliance policies, custom data retention, audit logs, and
+					SSO — enforced at the gateway, before any prompt leaves your boundary.
+				</p>
+				<div className="mt-5 flex flex-wrap items-center gap-3">
+					<Button
+						asChild
+						className="bg-zinc-900 font-medium text-white hover:bg-zinc-700 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
+					>
+						<Link
+							href="/enterprise#contact"
+							prefetch={true}
+							onClick={() => track("talk_to_us")}
+						>
+							Talk to us
+						</Link>
+					</Button>
+					<Link
+						href="/enterprise/compliance"
+						prefetch={true}
+						onClick={() => track("compliance_policies")}
+						className="text-sm text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground"
+					>
+						See provider compliance policies
+					</Link>
+				</div>
+			</div>
+		);
+	}
 
 	if (variant === "gateway") {
 		return (
