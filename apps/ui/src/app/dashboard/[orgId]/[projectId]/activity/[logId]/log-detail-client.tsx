@@ -1416,6 +1416,17 @@ export function LogDetailClient({
 									{log.errorDetails.responseText}
 								</pre>
 							</div>
+							{/* Network failures surface as a bare "fetch failed" message; the
+							    underlying reason (timeouts, DNS, TLS, connection resets) only
+							    exists in the cause chain, so it has to be shown separately. */}
+							{!!log.errorDetails.cause && (
+								<div>
+									<p className="text-xs text-red-400 mb-1">Cause</p>
+									<pre className="text-xs overflow-auto whitespace-pre-wrap break-all font-mono bg-background rounded border p-3">
+										{log.errorDetails.cause}
+									</pre>
+								</div>
+							)}
 							{log.retried && log.retriedByLogId && (
 								<div className="flex items-center gap-2 rounded-md border border-amber-500/20 bg-amber-500/10 p-3 text-sm">
 									<RefreshCw className="h-4 w-4 text-amber-600" />
