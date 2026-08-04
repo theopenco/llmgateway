@@ -80,6 +80,9 @@ describe("collectProviderEnvCredentials", () => {
 	});
 
 	it("treats a service-account JSON as one credential, not comma fragments", () => {
+		for (const variant of ["__ENTERPRISE", "__PLANS"]) {
+			vi.stubEnv(`LLM_GOOGLE_VERTEX_API_KEY${variant}`, "");
+		}
 		vi.stubEnv(
 			"LLM_GOOGLE_VERTEX_API_KEY",
 			'{"type":"service_account","project_id":"p","private_key":"x"}',

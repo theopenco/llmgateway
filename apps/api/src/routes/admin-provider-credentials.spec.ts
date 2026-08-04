@@ -51,6 +51,20 @@ describe("admin provider credentials", () => {
 		await deleteAll();
 	});
 
+	/**
+	 * A developer .env carries real keys for many providers, so every alibaba
+	 * slot the catalog enumerates is stubbed blank; a test then sets only the
+	 * ones it asserts on.
+	 */
+	function clearAlibabaEnvSlots() {
+		for (const variant of ["", "__ENTERPRISE", "__PLANS"]) {
+			vi.stubEnv(`LLM_ALIBABA_API_KEY${variant}`, "");
+			for (const region of ["SINGAPORE", "US_VIRGINIA", "CN_BEIJING"]) {
+				vi.stubEnv(`LLM_ALIBABA_API_KEY${variant}__${region}`, "");
+			}
+		}
+	}
+
 	async function create(body: Record<string, unknown>) {
 		return await app.request("/admin/provider-credentials", {
 			method: "POST",
@@ -440,16 +454,9 @@ describe("admin provider credentials", () => {
 	});
 
 	test("catalog lists env keys masked and fingerprinted, never plaintext", async () => {
+		clearAlibabaEnvSlots();
 		vi.stubEnv("LLM_ALIBABA_API_KEY", "sk-env-primary-secret,sk-env-two");
 		vi.stubEnv("LLM_ALIBABA_API_KEY__ENTERPRISE", "sk-env-ent-secret");
-		// Clear every other slot the catalog enumerates: a developer .env with
-		// real regional keys would otherwise add entries to this list.
-		vi.stubEnv("LLM_ALIBABA_API_KEY__PLANS", "");
-		for (const region of ["SINGAPORE", "US_VIRGINIA", "CN_BEIJING"]) {
-			for (const variant of ["", "__ENTERPRISE", "__PLANS"]) {
-				vi.stubEnv(`LLM_ALIBABA_API_KEY${variant}__${region}`, "");
-			}
-		}
 
 		const res = await app.request("/admin/provider-credentials/catalog", {
 			headers: { Cookie: cookie },
@@ -517,14 +524,8 @@ describe("admin provider credentials", () => {
 	 * this process's environment would report the wrong set (usually none).
 	 */
 	test("catalog prefers the gateway's published keys over its own env", async () => {
+		clearAlibabaEnvSlots();
 		vi.stubEnv("LLM_ALIBABA_API_KEY", "sk-gateway-key");
-		vi.stubEnv("LLM_ALIBABA_API_KEY__ENTERPRISE", "");
-		vi.stubEnv("LLM_ALIBABA_API_KEY__PLANS", "");
-		for (const region of ["SINGAPORE", "US_VIRGINIA", "CN_BEIJING"]) {
-			for (const variant of ["", "__ENTERPRISE", "__PLANS"]) {
-				vi.stubEnv(`LLM_ALIBABA_API_KEY${variant}__${region}`, "");
-			}
-		}
 		await publishProviderEnvInventory();
 
 		// Whatever this process holds afterwards must not influence the listing.
@@ -561,14 +562,9 @@ describe("admin provider credentials", () => {
 	});
 
 	test("catalog reports zero env keys for a provider the gateway has none for", async () => {
-		// A developer .env carries real regional keys; clear every slot so the
-		// published snapshot genuinely holds nothing for this provider.
-		for (const variant of ["", "__ENTERPRISE", "__PLANS"]) {
-			vi.stubEnv(`LLM_ALIBABA_API_KEY${variant}`, "");
-			for (const region of ["SINGAPORE", "US_VIRGINIA", "CN_BEIJING"]) {
-				vi.stubEnv(`LLM_ALIBABA_API_KEY${variant}__${region}`, "");
-			}
-		}
+		// Published with nothing set, so the snapshot genuinely holds no key for
+		// this provider.
+		clearAlibabaEnvSlots();
 		await publishProviderEnvInventory();
 		// Set locally after publishing: the API's own key must not resurface a
 		// provider the gateway cannot serve.

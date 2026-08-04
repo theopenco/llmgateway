@@ -249,12 +249,22 @@ function EnvCredentialRow({
 	);
 }
 
+/**
+ * Renders the snapshot time in UTC rather than the viewer's locale.
+ *
+ * This component is server-rendered before it hydrates, and `toLocaleString()`
+ * resolves against the runtime's locale and time zone — a server in UTC and a
+ * browser anywhere else produce different text for the same instant, which is a
+ * hydration mismatch. A fixed UTC rendering is also the more useful one here:
+ * every operator reading it sees the same timestamp as the gateway's logs.
+ */
 function formatPublishedAt(publishedAt: string): string {
 	const published = new Date(publishedAt);
 	if (Number.isNaN(published.getTime())) {
-		return "unknown time";
+		return "an unknown time";
 	}
-	return published.toLocaleString();
+	const [date, time] = published.toISOString().split("T");
+	return `${date} ${time.slice(0, 5)} UTC`;
 }
 
 /**
@@ -648,7 +658,13 @@ export function ProviderCredentialsManager({
 								<TableHead className="text-right">Actions</TableHead>
 							</TableRow>
 						</TableHeader>
-						{credentials.length === 0 && envOnlyProviders.length === 0 ? (
+						{/* Unfiltered only: with a provider filter applied, an empty
+						    result says nothing about the other providers, so it belongs
+						    in the "no credentials for this provider" branch below rather
+						    than in a claim about the whole deployment. */}
+						{providerFilter === ALL_PROVIDERS &&
+						credentials.length === 0 &&
+						envOnlyProviders.length === 0 ? (
 							<TableBody>
 								<TableRow>
 									<TableCell

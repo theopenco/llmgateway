@@ -126,11 +126,12 @@ const catalogEntrySchema = z.object({
 		plans: z.number(),
 	}),
 	/**
-	 * Every API key the gateway's environment currently holds for this provider,
-	 * across the base variable and its variant/region overrides. These are
-	 * read-only from the dashboard: they can only be changed by redeploying, and
-	 * once the provider has any active managed credential covering an audience
-	 * they stop being used for it.
+	 * Every API key the environment `envSource` names currently holds for this
+	 * provider — the gateway's, or this process's own when no gateway has
+	 * published — across the base variable and its variant/region overrides.
+	 * These are read-only from the dashboard: they can only be changed by
+	 * redeploying, and once the provider has any active managed credential
+	 * covering an audience they stop being used for it.
 	 */
 	envCredentials: z.array(envCredentialSchema),
 	/**

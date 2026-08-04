@@ -272,6 +272,17 @@ export function validateProviderEnv(provider: Provider): string[] {
 }
 
 /**
+ * Suffix a region contributes to an env var name (`us-virginia` → `US_VIRGINIA`).
+ *
+ * Every reader and every enumerator of regional credentials must derive the
+ * name the same way — a variable spelled differently than the gateway looks it
+ * up is simply never read.
+ */
+export function getRegionEnvVarSuffix(region: string): string {
+	return region.toUpperCase().replace(/-/g, "_");
+}
+
+/**
  * Get a region-specific environment variable value.
  * Checks for `{BASE_ENV_VAR}__{REGION}` first, then falls back to the base env var.
  * Region is normalized to uppercase with hyphens replaced by underscores.
@@ -287,7 +298,7 @@ export function getRegionSpecificEnvValue(
 	if (!baseEnvVar) {
 		return undefined;
 	}
-	const regionSuffix = region.toUpperCase().replace(/-/g, "_");
+	const regionSuffix = getRegionEnvVarSuffix(region);
 	return (
 		process.env[`${baseEnvVar}__${regionSuffix}`] ?? process.env[baseEnvVar]
 	);
@@ -312,7 +323,7 @@ export function getRegionSpecificEnvVarName(
 	if (!baseEnvVar) {
 		return undefined;
 	}
-	const regionSuffix = region.toUpperCase().replace(/-/g, "_");
+	const regionSuffix = getRegionEnvVarSuffix(region);
 	if (variant) {
 		const variantRegionalName = `${baseEnvVar}${ENV_VAR_VARIANT_SUFFIXES[variant]}__${regionSuffix}`;
 		if (process.env[variantRegionalName]) {
@@ -336,7 +347,7 @@ export function hasRegionSpecificEnvKey(
 	if (!baseEnvVar) {
 		return false;
 	}
-	const regionSuffix = region.toUpperCase().replace(/-/g, "_");
+	const regionSuffix = getRegionEnvVarSuffix(region);
 	if (process.env[`${baseEnvVar}__${regionSuffix}`]) {
 		return true;
 	}

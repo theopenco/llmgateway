@@ -3,6 +3,7 @@ import { logger } from "@llmgateway/logger";
 import {
 	ENV_VAR_VARIANT_SUFFIXES,
 	getProviderEnvVar,
+	getRegionEnvVarSuffix,
 	providers,
 } from "@llmgateway/models";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
@@ -135,7 +136,7 @@ export function collectProviderEnvCredentials(
 		slots.push({ envVar: variantVar, variant, region: null });
 		for (const region of providerRegionIds(providerId)) {
 			slots.push({
-				envVar: `${variantVar}__${region.toUpperCase().replace(/-/g, "_")}`,
+				envVar: `${variantVar}__${getRegionEnvVarSuffix(region)}`,
 				variant,
 				region,
 			});
@@ -314,7 +315,13 @@ export async function readProviderEnvInventory(): Promise<ProviderEnvInventory |
 	)) {
 		if (Array.isArray(entries) && entries.every(isEnvCredential)) {
 			byProvider[provider] = entries;
+			continue;
 		}
+		// Dropping these silently would look exactly like the provider having no
+		// keys at all — the very misreading this snapshot exists to prevent.
+		logger.warn("Discarding malformed provider env inventory entries", {
+			provider,
+		});
 	}
 
 	return {
