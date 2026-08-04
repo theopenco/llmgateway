@@ -156,39 +156,6 @@ export function hasProviderEnvironmentToken(
 	return envVar ? Boolean(process.env[envVar]) : false;
 }
 
-/**
- * How many API keys each audience has configured through env vars.
- *
- * The API-key env var holds a comma-separated list, so this counts entries in
- * the list rather than variables. A variant reports its own override only: 0
- * means the override is unset and matching organizations fall back to the
- * `default` list, which is what `getProviderEnvValue` does at request time.
- */
-export function getProviderApiKeyEnvCounts(
-	provider: Provider | string,
-): Record<"default" | EnvVarVariant, number> {
-	const baseEnvVar = getProviderEnvVar(provider);
-	const countEntries = (envVarName: string | undefined) =>
-		envVarName
-			? (process.env[envVarName] ?? "")
-					.split(",")
-					.map((value) => value.trim())
-					.filter((value) => value.length > 0).length
-			: 0;
-
-	return {
-		default: countEntries(baseEnvVar),
-		enterprise: countEntries(
-			baseEnvVar
-				? `${baseEnvVar}${ENV_VAR_VARIANT_SUFFIXES.enterprise}`
-				: undefined,
-		),
-		plans: countEntries(
-			baseEnvVar ? `${baseEnvVar}${ENV_VAR_VARIANT_SUFFIXES.plans}` : undefined,
-		),
-	};
-}
-
 export function getProviderEnvValue(
 	provider: Provider,
 	key: string,

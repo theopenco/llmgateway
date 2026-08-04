@@ -3,7 +3,6 @@ import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { maskToken } from "@/lib/maskToken.js";
 import { assertOrganizationProviderKey } from "@/lib/organization-provider-key.js";
 import { createNullableLimitSchema } from "@/routes/keys-api.js";
 import {
@@ -35,6 +34,7 @@ import {
 	CUSTOM_PROVIDER_NAME_REGEX,
 } from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
+import { maskToken } from "@llmgateway/shared/mask-token";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import type { ServerTypes } from "@/vars.js";

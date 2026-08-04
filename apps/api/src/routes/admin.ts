@@ -4,7 +4,6 @@ import Stripe from "stripe";
 import { z } from "zod";
 
 import { deleteResendContact } from "@/auth/config.js";
-import { maskToken } from "@/lib/maskToken.js";
 import { modeSplitFields } from "@/lib/mode-split.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import {
@@ -83,6 +82,7 @@ import {
 	fromEmail,
 	replyToEmail,
 } from "@llmgateway/shared/email";
+import { maskToken } from "@llmgateway/shared/mask-token";
 
 import type { ServerTypes } from "@/vars.js";
 

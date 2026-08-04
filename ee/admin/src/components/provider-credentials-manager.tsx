@@ -106,6 +106,15 @@ interface MutationResult {
 interface ProviderCredentialsManagerProps {
 	credentials: ProviderCredential[];
 	catalog: ProviderCredentialCatalogEntry[];
+	/**
+	 * Which process the listed `LLM_*` keys were read from. The gateway publishes
+	 * its own set (the keys that actually serve traffic); `api` means no snapshot
+	 * was available and the backend fell back to its own environment, which in a
+	 * split deployment normally holds no provider keys at all.
+	 */
+	envSource: "gateway" | "api";
+	/** ISO timestamp of the gateway's snapshot; null when envSource is `api`. */
+	envPublishedAt: string | null;
 	onCreate: (body: {
 		provider: string;
 		token: string;
@@ -240,9 +249,58 @@ function EnvCredentialRow({
 	);
 }
 
+function formatPublishedAt(publishedAt: string): string {
+	const published = new Date(publishedAt);
+	if (Number.isNaN(published.getTime())) {
+		return "unknown time";
+	}
+	return published.toLocaleString();
+}
+
+/**
+ * Says where the `env` rows came from.
+ *
+ * The gateway and the API are separate deployments and only the gateway is
+ * given `LLM_*` variables, so it publishes what it holds (masked, never the
+ * tokens) for this page to read. Without that snapshot the backend can only
+ * report its own environment — which normally holds nothing — and an operator
+ * would otherwise read an empty table as "no keys configured" rather than "not
+ * visible from here".
+ */
+function EnvSourceNote({
+	source,
+	publishedAt,
+	envKeyCount,
+}: {
+	source: "gateway" | "api";
+	publishedAt: string | null;
+	envKeyCount: number;
+}) {
+	if (source === "gateway") {
+		return (
+			<p className="text-xs text-muted-foreground">
+				{envKeyCount} environment {envKeyCount === 1 ? "key is" : "keys are"}{" "}
+				configured on the gateway, reported{" "}
+				{publishedAt ? formatPublishedAt(publishedAt) : "recently"}.
+			</p>
+		);
+	}
+
+	return (
+		<p className="text-xs text-muted-foreground">
+			No gateway has published its <code>LLM_*</code> keys, so any listed below
+			are the ones this backend can see itself. A gateway publishes on startup
+			and refreshes every 5 minutes; if this persists, check that it runs a
+			build with the publisher and shares this Redis.
+		</p>
+	);
+}
+
 export function ProviderCredentialsManager({
 	credentials,
 	catalog,
+	envSource,
+	envPublishedAt,
 	onCreate,
 	onUpdate,
 	onDelete,
@@ -440,6 +498,12 @@ export function ProviderCredentialsManager({
 		return map;
 	}, [catalog]);
 
+	const envKeyCount = useMemo(
+		() =>
+			catalog.reduce((total, entry) => total + entry.envCredentials.length, 0),
+		[catalog],
+	);
+
 	// Audiences each provider has an ACTIVE managed credential for. An env key
 	// is unused for its audience once that audience is covered directly or via
 	// the `default` fallback — mirroring findManagedProviderKey's selection.
@@ -560,7 +624,12 @@ export function ProviderCredentialsManager({
 				/>
 			</TabsContent>
 
-			<TabsContent value="credentials">
+			<TabsContent value="credentials" className="flex flex-col gap-2">
+				<EnvSourceNote
+					source={envSource}
+					publishedAt={envPublishedAt}
+					envKeyCount={envKeyCount}
+				/>
 				<div className="min-w-0 overflow-x-auto rounded-lg border border-border/60 bg-card">
 					<Table>
 						<TableHeader>
@@ -586,8 +655,19 @@ export function ProviderCredentialsManager({
 										colSpan={10}
 										className="py-10 text-center text-muted-foreground"
 									>
-										No managed credentials yet. Providers fall back to their{" "}
-										<code>LLM_*</code> environment variables until one is added.
+										{envSource === "gateway" ? (
+											<>
+												No managed credentials yet, and the gateway reports no{" "}
+												<code>LLM_*</code> keys either — nothing can serve
+												credits-mode traffic.
+											</>
+										) : (
+											<>
+												No managed credentials yet. Providers keep reading the
+												gateway&apos;s <code>LLM_*</code> variables, which
+												cannot be listed here until it publishes them.
+											</>
+										)}
 									</TableCell>
 								</TableRow>
 							</TableBody>

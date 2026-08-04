@@ -5,7 +5,6 @@ import { z } from "zod";
 
 import { apiAuth } from "@/auth/config.js";
 import { getApiBaseUrl } from "@/lib/api-url.js";
-import { maskToken } from "@/lib/maskToken.js";
 import { getOrgProjectsOldestFirst } from "@/lib/sso-default-projects.js";
 import { normalizeSsoDomains } from "@/lib/sso-domains.js";
 import { recomputeRoleForGroupName } from "@/lib/sso-roles.js";
@@ -14,6 +13,7 @@ import { logAuditEvent } from "@llmgateway/audit";
 import { and, db, eq, isNull, shortid, tables } from "@llmgateway/db";
 import { SSO_TEAM_DEFAULT_DEVELOPER_BUDGET } from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
+import { maskToken } from "@llmgateway/shared/mask-token";
 
 import type { ServerTypes } from "@/vars.js";
 import type { SSOOptions, SSOPlugin } from "@better-auth/sso";
