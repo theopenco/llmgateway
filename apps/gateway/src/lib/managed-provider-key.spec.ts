@@ -276,6 +276,173 @@ describe("findManagedProviderIds", () => {
 });
 
 /**
+ * A credential restricted via allowedModels can only serve the models it
+ * lists, so routing must not advertise its provider for other models and
+ * credential selection must skip it — otherwise auto-routing picks a provider
+ * whose key the upstream account cannot use and the request fails upstream.
+ */
+describe("allowedModels restriction", () => {
+	beforeEach(async () => {
+		resetKeyHealth();
+		await waitForSwrMirrorWrites();
+		await db.delete(providerKey);
+		await db.delete(organization);
+		await redisClient.flushdb();
+		await db.insert(organization).values({
+			id: ORG_ID,
+			name: "Managed Keys Org",
+			billingEmail: "managed-keys@example.com",
+			credits: "100",
+		});
+	});
+
+	afterEach(async () => {
+		await db.delete(providerKey);
+		await db.delete(organization);
+	});
+
+	it("does not advertise a provider for a model its only credential excludes", async () => {
+		await insertManaged({
+			id: "restricted-key",
+			allowedModels: ["gpt-5.2"],
+		});
+
+		expect(await findManagedProviderIds(undefined, "gpt-5.2")).toContain(
+			"openai",
+		);
+		expect(
+			await findManagedProviderIds(undefined, "some-other-model"),
+		).not.toContain("openai");
+		// Callers that do not know the model yet keep the unfiltered answer.
+		expect(await findManagedProviderIds()).toContain("openai");
+	});
+
+	it("treats an unrestricted credential as serving every model", async () => {
+		await insertManaged({ id: "unrestricted-key" });
+
+		expect(await findManagedProviderIds(undefined, "any-model")).toContain(
+			"openai",
+		);
+	});
+
+	it("advertises the provider when any credential allows the model", async () => {
+		await insertManaged({
+			id: "restricted-key",
+			allowedModels: ["gpt-5.2"],
+		});
+		await insertManaged({ id: "unrestricted-key" });
+
+		expect(
+			await findManagedProviderIds(undefined, "some-other-model"),
+		).toContain("openai");
+	});
+
+	it("falls back to a default credential when the variant's keys exclude the model", async () => {
+		// Model filtering runs before variant narrowing (mirroring how
+		// findManagedProviderKey applies its filter), so an enterprise request
+		// whose enterprise credential lacks the model uses the shared default —
+		// same as when the enterprise variant has no credential at all.
+		await insertManaged({
+			id: "ent-restricted",
+			variant: "enterprise",
+			allowedModels: ["gpt-5.2"],
+		});
+		await insertManaged({ id: "default-unrestricted" });
+
+		expect(
+			await findManagedProviderIds("enterprise", "some-other-model"),
+		).toContain("openai");
+	});
+
+	it("selection skips a credential whose allowedModels exclude the model", async () => {
+		const { resolvePlatformCredential } =
+			await import("../chat/tools/resolve-platform-credential.js");
+		await insertManaged({
+			id: "restricted-key",
+			allowedModels: ["gpt-5.2"],
+		});
+		await insertManaged({ id: "fallback-key" });
+
+		const allowed = await resolvePlatformCredential("openai", {
+			selectionScope: "gpt-5.2",
+			model: "gpt-5.2",
+			variant: undefined,
+			region: undefined,
+			requiresServiceTier: false,
+		});
+		expect(allowed.managedKey?.id).toBe("restricted-key");
+
+		const excluded = await resolvePlatformCredential("openai", {
+			selectionScope: "some-other-model",
+			model: "some-other-model",
+			variant: undefined,
+			region: undefined,
+			requiresServiceTier: false,
+		});
+		expect(excluded.managedKey?.id).toBe("fallback-key");
+	});
+
+	it("falls through to the env credential when every managed key excludes the model", async () => {
+		const { resolvePlatformCredential } =
+			await import("../chat/tools/resolve-platform-credential.js");
+		await insertManaged({
+			id: "restricted-key",
+			allowedModels: ["gpt-5.2"],
+		});
+
+		// With no selectable managed credential the env-var path takes over;
+		// whether an env key exists depends on the local environment, so only
+		// assert that no managed credential is chosen.
+		const result = await resolvePlatformCredential("openai", {
+			selectionScope: "some-other-model",
+			model: "some-other-model",
+			variant: undefined,
+			region: undefined,
+			requiresServiceTier: false,
+		}).catch(() => undefined);
+		expect(result?.managedKey).toBeUndefined();
+	});
+
+	it("BYOK lookups skip keys excluded by the caller's model filter", async () => {
+		await db.insert(providerKey).values({
+			id: "byok-restricted",
+			provider: "openai",
+			token: "sk-byok-restricted",
+			organizationId: ORG_ID,
+			allowedModels: ["gpt-5.2"],
+		});
+		await db.insert(providerKey).values({
+			id: "byok-open",
+			provider: "openai",
+			token: "sk-byok-open",
+			organizationId: ORG_ID,
+		});
+
+		// resolveProviderContext passes this exact filter shape.
+		const { providerKeyAllowsModel } = await import("@llmgateway/db");
+		expect(
+			(
+				await findProviderKey(
+					ORG_ID,
+					"openai",
+					"some-other-model",
+					undefined,
+					(key) =>
+						providerKeyAllowsModel(key.allowedModels, "some-other-model"),
+				)
+			)?.id,
+		).toBe("byok-open");
+		expect(
+			(
+				await findProviderKey(ORG_ID, "openai", "gpt-5.2", undefined, (key) =>
+					providerKeyAllowsModel(key.allowedModels, "gpt-5.2"),
+				)
+			)?.id,
+		).toBe("byok-restricted");
+	});
+});
+
+/**
  * The gateway serves managed credentials from the SWR mirror, so a credential
  * added through the admin API has to appear without anyone flushing a cache.
  * `cdb` writes invalidate the Drizzle cache and the SWR mirrors centrally by

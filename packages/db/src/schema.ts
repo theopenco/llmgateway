@@ -1641,6 +1641,12 @@ export const providerKey = pgTable(
 		// Cumulative upstream provider cost (log.cost) attributed to this key by
 		// the billing worker. Lifetime counter; never reset automatically.
 		usage: decimal().notNull().default("0"),
+		// Canonical LLM Gateway model ids this credential may serve, for accounts
+		// that only have a subset of the provider's catalogue enabled upstream.
+		// Routing and credential selection skip the key for any model not listed,
+		// instead of picking it and failing upstream. NULL (or empty) means the
+		// key serves every model of its provider.
+		allowedModels: text().array(),
 		// Explicit position among a provider's keys, lowest first. The gateway
 		// treats the first key as primary and only falls back when one is
 		// unhealthy, so this is how an operator promotes a key.

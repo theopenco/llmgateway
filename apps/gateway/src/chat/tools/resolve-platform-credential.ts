@@ -4,6 +4,7 @@ import {
 	providerKeyBaseUrlSupportsServiceTier,
 	readProviderKey,
 } from "@llmgateway/actions";
+import { providerKeyAllowsModel } from "@llmgateway/db";
 import { getProviderEnvValue } from "@llmgateway/models";
 
 import {
@@ -73,6 +74,12 @@ function combineFilters(
 
 export interface ResolvePlatformCredentialOptions {
 	selectionScope: string;
+	/**
+	 * Canonical model id the credential will serve. Managed credentials
+	 * restricted via `allowedModels` are skipped when they exclude it, falling
+	 * through to the next credential or the env vars.
+	 */
+	model?: string;
 	variant: EnvVarVariant | undefined;
 	region: string | undefined;
 	/** True when the request asked for a premium (flex/priority) service tier. */
@@ -109,6 +116,9 @@ export async function resolvePlatformCredential(
 		filter: combineFilters(
 			options.filter,
 			options.requiresServiceTier ? supportsServiceTier : undefined,
+			options.model !== undefined
+				? (key) => providerKeyAllowsModel(key.allowedModels, options.model!)
+				: undefined,
 		),
 	});
 

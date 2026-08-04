@@ -17,6 +17,7 @@ import {
 	readProviderKey,
 	selectProviderMapping,
 } from "@llmgateway/actions";
+import { providerKeyAllowsModel } from "@llmgateway/db";
 import {
 	type BaseMessage,
 	getOrganizationEnvVariant,
@@ -365,6 +366,16 @@ export async function resolveProviderContext(
 				)
 		: undefined;
 
+	// Skip BYOK keys whose allowedModels restriction excludes the model being
+	// served, so a key that cannot satisfy the request upstream is never picked
+	// over a sibling key (or the credits fallback in hybrid mode) that can.
+	// Custom provider keys are exempt: their catalog already scopes them.
+	const byokKeyFilter = (
+		key: InferSelectModel<typeof tables.providerKey>,
+	): boolean =>
+		providerKeyAllowsModel(key.allowedModels, usedInternalModel) &&
+		(serviceTierKeyFilter ? serviceTierKeyFilter(key) : true);
+
 	if (project.mode === "api-keys") {
 		if (usedProvider === "custom" && options.customProviderName) {
 			providerKey = await findCustomProviderKey(
@@ -379,7 +390,7 @@ export async function resolveProviderContext(
 				usedProvider,
 				usedInternalModel,
 				options.excludedProviderKeyIds,
-				serviceTierKeyFilter,
+				byokKeyFilter,
 			);
 		}
 
@@ -396,6 +407,7 @@ export async function resolveProviderContext(
 			usedProvider as Provider,
 			{
 				selectionScope: usedInternalModel,
+				model: usedInternalModel,
 				variant: envVariant,
 				region: providerMapping.region,
 				requiresServiceTier: serviceTierKeyFilter !== undefined,
@@ -421,7 +433,7 @@ export async function resolveProviderContext(
 				usedProvider,
 				usedInternalModel,
 				options.excludedProviderKeyIds,
-				serviceTierKeyFilter,
+				byokKeyFilter,
 			);
 		}
 
@@ -433,6 +445,7 @@ export async function resolveProviderContext(
 				usedProvider as Provider,
 				{
 					selectionScope: usedInternalModel,
+					model: usedInternalModel,
 					variant: envVariant,
 					region: providerMapping.region,
 					requiresServiceTier: serviceTierKeyFilter !== undefined,

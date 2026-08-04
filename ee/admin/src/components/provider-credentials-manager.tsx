@@ -1,6 +1,18 @@
 "use client";
 
-import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import {
+	AlertTriangle,
+	Check,
+	CheckCircle2,
+	ChevronDown,
+	Loader2,
+	MinusCircle,
+	Pencil,
+	Plus,
+	Trash2,
+	X,
+	XCircle,
+} from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -13,6 +25,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+	Command,
+	CommandEmpty,
+	CommandInput,
+	CommandItem,
+	CommandList,
+} from "@/components/ui/command";
+import {
 	Dialog,
 	DialogContent,
 	DialogDescription,
@@ -22,6 +41,11 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from "@/components/ui/popover";
 import {
 	Select,
 	SelectContent,
@@ -50,8 +74,11 @@ import {
 } from "@llmgateway/shared/components";
 
 import type {
+	CredentialTestInput,
 	ProviderCredential,
 	ProviderCredentialCatalogEntry,
+	ProviderCredentialModelVerification,
+	ProviderCredentialSelfTestResult,
 } from "@/lib/admin-provider-credentials";
 
 type Variant = "default" | "enterprise" | "plans";
@@ -114,6 +141,7 @@ interface ProviderCredentialsManagerProps {
 		region?: string;
 		config?: Record<string, string>;
 		usageLimit?: string | null;
+		allowedModels?: string[] | null;
 		skipValidation?: boolean;
 	}) => Promise<MutationResult>;
 	onUpdate: (
@@ -126,6 +154,7 @@ interface ProviderCredentialsManagerProps {
 			status?: "active" | "inactive";
 			config?: Record<string, string>;
 			usageLimit?: string | null;
+			allowedModels?: string[] | null;
 			skipValidation?: boolean;
 		},
 	) => Promise<MutationResult>;
@@ -134,6 +163,14 @@ interface ProviderCredentialsManagerProps {
 		provider: string,
 		credentialIds: string[],
 	) => Promise<MutationResult>;
+	onSelfTest: (
+		body: CredentialTestInput,
+	) => Promise<MutationResult & { result?: ProviderCredentialSelfTestResult }>;
+	onVerifyModels: (
+		body: CredentialTestInput & { models: string[] },
+	) => Promise<
+		MutationResult & { result?: ProviderCredentialModelVerification }
+	>;
 }
 
 function ProviderIcon({ provider }: { provider: string }) {
@@ -203,6 +240,14 @@ function EnvCredentialRow({
 			</TableCell>
 			<TableCell className="text-sm">{entry.region || "Any"}</TableCell>
 			<TableCell>
+				<span
+					className="text-sm text-muted-foreground"
+					title="Env keys always serve the provider's full catalogue; model restrictions apply to managed credentials only."
+				>
+					All
+				</span>
+			</TableCell>
+			<TableCell>
 				<span className="text-sm text-muted-foreground">—</span>
 			</TableCell>
 			<TableCell>
@@ -247,6 +292,8 @@ export function ProviderCredentialsManager({
 	onUpdate,
 	onDelete,
 	onReorder,
+	onSelfTest,
+	onVerifyModels,
 }: ProviderCredentialsManagerProps) {
 	const router = useRouter();
 	const pathname = usePathname();
@@ -573,6 +620,7 @@ export function ProviderCredentialsManager({
 								<TableHead>Note</TableHead>
 								<TableHead>Applies to</TableHead>
 								<TableHead>Region</TableHead>
+								<TableHead>Models</TableHead>
 								<TableHead>Settings</TableHead>
 								<TableHead>Spend</TableHead>
 								<TableHead>Status</TableHead>
@@ -583,7 +631,7 @@ export function ProviderCredentialsManager({
 							<TableBody>
 								<TableRow>
 									<TableCell
-										colSpan={10}
+										colSpan={11}
 										className="py-10 text-center text-muted-foreground"
 									>
 										No managed credentials yet. Providers fall back to their{" "}
@@ -597,7 +645,7 @@ export function ProviderCredentialsManager({
 							<TableBody>
 								<TableRow>
 									<TableCell
-										colSpan={10}
+										colSpan={11}
 										className="py-10 text-center text-muted-foreground"
 									>
 										No credentials for this provider.{" "}
@@ -699,6 +747,28 @@ export function ProviderCredentialsManager({
 																{credential.region || "Any"}
 															</TableCell>
 															<TableCell>
+																{credential.allowedModels &&
+																credential.allowedModels.length > 0 ? (
+																	<Badge
+																		variant="secondary"
+																		className="text-[11px]"
+																		title={`Only serves: ${credential.allowedModels.join(", ")}`}
+																	>
+																		{credential.allowedModels.length} model
+																		{credential.allowedModels.length === 1
+																			? ""
+																			: "s"}
+																	</Badge>
+																) : (
+																	<span
+																		className="text-sm text-muted-foreground"
+																		title="Serves every model of the provider."
+																	>
+																		All
+																	</span>
+																)}
+															</TableCell>
+															<TableCell>
 																{configEntries.length === 0 ? (
 																	<span className="text-sm text-muted-foreground">
 																		—
@@ -790,6 +860,8 @@ export function ProviderCredentialsManager({
 					credentialCounts={credentialCounts}
 					regionsInUse={regionsInUse}
 					onClose={() => setCreating(false)}
+					onSelfTest={onSelfTest}
+					onVerifyModels={onVerifyModels}
 					onSubmit={async (values) => {
 						const result = await onCreate({
 							provider: values.provider,
@@ -799,6 +871,8 @@ export function ProviderCredentialsManager({
 							region: values.region || undefined,
 							config: values.config,
 							usageLimit: values.usageLimit || undefined,
+							allowedModels:
+								values.allowedModels.length > 0 ? values.allowedModels : null,
 							skipValidation: values.skipValidation,
 						});
 						if (result.success) {
@@ -818,6 +892,8 @@ export function ProviderCredentialsManager({
 					credentialCounts={credentialCounts}
 					regionsInUse={regionsInUse}
 					onClose={() => setEditing(null)}
+					onSelfTest={onSelfTest}
+					onVerifyModels={onVerifyModels}
 					onSubmit={async (values) => {
 						const result = await onUpdate(editing.id, {
 							...(values.token ? { token: values.token } : {}),
@@ -827,6 +903,8 @@ export function ProviderCredentialsManager({
 							status: values.status,
 							config: values.config,
 							usageLimit: values.usageLimit || null,
+							allowedModels:
+								values.allowedModels.length > 0 ? values.allowedModels : null,
 							skipValidation: values.skipValidation,
 						});
 						if (result.success) {
@@ -889,10 +967,15 @@ interface CredentialFormValues {
 	config: Record<string, string>;
 	/** USD spend cap as entered; empty string means no limit. */
 	usageLimit: string;
+	/** Canonical model ids the credential may serve; empty means unrestricted. */
+	allowedModels: string[];
 	skipValidation: boolean;
 }
 
 const nonNegativeDecimalPattern = /^\d+(?:\.\d+)?$/;
+
+type ModelVerificationEntry =
+	ProviderCredentialModelVerification["results"][number];
 
 function CredentialDialog({
 	catalog,
@@ -902,6 +985,8 @@ function CredentialDialog({
 	regionsInUse,
 	onClose,
 	onSubmit,
+	onSelfTest,
+	onVerifyModels,
 }: {
 	catalog: ProviderCredentialCatalogEntry[];
 	credential?: ProviderCredential;
@@ -912,6 +997,8 @@ function CredentialDialog({
 	regionsInUse: { provider: string; region: string | null }[];
 	onClose: () => void;
 	onSubmit: (values: CredentialFormValues) => Promise<MutationResult>;
+	onSelfTest: ProviderCredentialsManagerProps["onSelfTest"];
+	onVerifyModels: ProviderCredentialsManagerProps["onVerifyModels"];
 }) {
 	const isEdit = credential !== undefined;
 	const [provider, setProvider] = useState(
@@ -930,9 +1017,79 @@ function CredentialDialog({
 		credential?.config ?? {},
 	);
 	const [usageLimit, setUsageLimit] = useState(credential?.usageLimit ?? "");
+	const [allowedModels, setAllowedModels] = useState<string[]>(
+		credential?.allowedModels ?? [],
+	);
 	const [skipValidation, setSkipValidation] = useState(false);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+
+	// Self-test / verify-models probes run against the CURRENT form values (not
+	// what is stored), so an admin can check edits before saving. Results are
+	// cleared whenever an input that changes what the probe would send changes.
+	const [selfTestLoading, setSelfTestLoading] = useState(false);
+	const [selfTestOutcome, setSelfTestOutcome] = useState<
+		{ result?: ProviderCredentialSelfTestResult; error?: string } | undefined
+	>();
+	const [verifyLoading, setVerifyLoading] = useState(false);
+	const [verifyOutcome, setVerifyOutcome] = useState<
+		{ result?: ProviderCredentialModelVerification; error?: string } | undefined
+	>();
+
+	const clearProbeResults = useCallback(() => {
+		setSelfTestOutcome(undefined);
+		setVerifyOutcome(undefined);
+	}, []);
+
+	/**
+	 * The credential the test endpoints should probe: the stored one (its token
+	 * is read server-side) with any dialog edits layered on top.
+	 */
+	const credentialUnderTest = useCallback(
+		(): CredentialTestInput => ({
+			...(credential ? { credentialId: credential.id } : {}),
+			provider,
+			...(token ? { token } : {}),
+			config,
+			region: region || null,
+		}),
+		[credential, provider, token, config, region],
+	);
+
+	async function handleSelfTest() {
+		setSelfTestLoading(true);
+		setSelfTestOutcome(undefined);
+		const outcome = await onSelfTest(credentialUnderTest());
+		setSelfTestLoading(false);
+		setSelfTestOutcome(
+			outcome.success
+				? { result: outcome.result }
+				: { error: outcome.error ?? "Failed to test credential" },
+		);
+	}
+
+	async function handleVerifyModels() {
+		setVerifyLoading(true);
+		setVerifyOutcome(undefined);
+		const outcome = await onVerifyModels({
+			...credentialUnderTest(),
+			models: allowedModels,
+		});
+		setVerifyLoading(false);
+		setVerifyOutcome(
+			outcome.success
+				? { result: outcome.result }
+				: { error: outcome.error ?? "Failed to verify models" },
+		);
+	}
+
+	const verificationByModel = useMemo(() => {
+		const map = new Map<string, ModelVerificationEntry>();
+		for (const entry of verifyOutcome?.result?.results ?? []) {
+			map.set(entry.model, entry);
+		}
+		return map;
+	}, [verifyOutcome]);
 
 	const selectedEntry =
 		catalogEntry ?? catalog.find((entry) => entry.id === provider);
@@ -993,6 +1150,7 @@ function CredentialDialog({
 			status,
 			config,
 			usageLimit: trimmedLimit,
+			allowedModels,
 			skipValidation,
 		});
 		setLoading(false);
@@ -1036,9 +1194,11 @@ function CredentialDialog({
 							onValueChange={(next) => {
 								setProvider(next);
 								setConfig({});
-								// Regions are per-provider; carrying one over would be
-								// rejected by the server.
+								// Regions and models are per-provider; carrying either over
+								// would be rejected by the server.
 								setRegion("");
+								setAllowedModels([]);
+								clearProbeResults();
 							}}
 							options={providerOptions}
 						/>
@@ -1100,7 +1260,10 @@ function CredentialDialog({
 							// stretches it past the dialog and scrolls the whole thing
 							// sideways. Breaking anywhere keeps it inside its column.
 							className="break-all"
-							onChange={(event) => setToken(event.target.value)}
+							onChange={(event) => {
+								setToken(event.target.value);
+								clearProbeResults();
+							}}
 							placeholder={
 								isEdit
 									? `Leave blank to keep ${credential?.maskedToken}`
@@ -1139,12 +1302,13 @@ function CredentialDialog({
 									<Input
 										id={`config-${entry.key}`}
 										value={config[entry.key] ?? ""}
-										onChange={(event) =>
+										onChange={(event) => {
 											setConfig((current) => ({
 												...current,
 												[entry.key]: event.target.value,
-											}))
-										}
+											}));
+											clearProbeResults();
+										}}
 										placeholder={entry.envVar}
 									/>
 								</div>
@@ -1187,9 +1351,10 @@ function CredentialDialog({
 							<Label htmlFor="region">Region</Label>
 							<Select
 								value={region || ANY_REGION}
-								onValueChange={(value) =>
-									setRegion(value === ANY_REGION ? "" : value)
-								}
+								onValueChange={(value) => {
+									setRegion(value === ANY_REGION ? "" : value);
+									clearProbeResults();
+								}}
 								disabled={!isRegionScoped}
 							>
 								<SelectTrigger id="region">
@@ -1227,6 +1392,124 @@ function CredentialDialog({
 										: "Serves every region the provider covers."}
 							</p>
 						</div>
+					</div>
+
+					<div className="flex flex-col gap-3 rounded-md border border-border/60 p-3">
+						<div className="flex items-center justify-between gap-2">
+							<p className="text-sm font-medium">Allowed models</p>
+							<div className="flex gap-2">
+								<Button
+									type="button"
+									variant="outline"
+									size="sm"
+									onClick={handleSelfTest}
+									disabled={
+										selfTestLoading ||
+										verifyLoading ||
+										!provider ||
+										(!isEdit && !token)
+									}
+									title="Sends one minimal request through the key using the provider's default validation model, without saving anything."
+								>
+									{selfTestLoading ? (
+										<Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+									) : null}
+									Self-test key
+								</Button>
+								<Button
+									type="button"
+									variant="outline"
+									size="sm"
+									onClick={handleVerifyModels}
+									disabled={
+										selfTestLoading ||
+										verifyLoading ||
+										allowedModels.length === 0 ||
+										!provider ||
+										(!isEdit && !token)
+									}
+									title="Probes every listed model through the key and reports which ones the account can actually serve."
+								>
+									{verifyLoading ? (
+										<Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+									) : null}
+									Verify models
+								</Button>
+							</div>
+						</div>
+						<AllowedModelsPicker
+							availableModels={selectedEntry?.models ?? []}
+							value={allowedModels}
+							onChange={(next) => {
+								setAllowedModels(next);
+								// A changed list invalidates the last verification report.
+								setVerifyOutcome(undefined);
+							}}
+							verificationByModel={verificationByModel}
+						/>
+						<p className="text-xs text-muted-foreground">
+							{allowedModels.length === 0
+								? "Empty means the key serves every model of the provider. Restrict it when the upstream account only has some models enabled, so routing never picks this key for a model it cannot serve. Paste a comma-separated list to fill it quickly."
+								: `Routing will only use this credential for the ${allowedModels.length === 1 ? "listed model" : `${allowedModels.length} listed models`}.`}
+						</p>
+						{selfTestOutcome ? (
+							selfTestOutcome.error || !selfTestOutcome.result?.valid ? (
+								<p className="text-sm text-destructive">
+									Self-test failed
+									{selfTestOutcome.result?.model
+										? ` (probed ${selfTestOutcome.result.model})`
+										: ""}
+									:{" "}
+									{selfTestOutcome.error ??
+										selfTestOutcome.result?.error ??
+										"the provider rejected the request"}
+								</p>
+							) : (
+								<p className="flex items-center gap-1 text-sm text-green-600">
+									<CheckCircle2 className="h-4 w-4" />
+									Key works
+									{selfTestOutcome.result?.model
+										? ` — probed ${selfTestOutcome.result.model}`
+										: ""}
+									.
+								</p>
+							)
+						) : null}
+						{verifyOutcome?.error ? (
+							<p className="text-sm text-destructive">{verifyOutcome.error}</p>
+						) : null}
+						{verifyOutcome?.result ? (
+							<div className="flex flex-col gap-1 rounded-md bg-muted/40 p-2">
+								<p
+									className={cn(
+										"text-xs font-medium",
+										verifyOutcome.result.allValid
+											? "text-green-600"
+											: "text-destructive",
+									)}
+								>
+									{verifyOutcome.result.allValid
+										? "All listed models verified."
+										: "Some models failed verification — save anyway if you know better, or remove them."}
+								</p>
+								<ul className="flex flex-col gap-1">
+									{verifyOutcome.result.results.map((entry) => (
+										<li
+											key={entry.model}
+											className="flex items-start gap-1.5 text-xs"
+										>
+											<ModelVerificationIcon entry={entry} />
+											<span className="font-mono">{entry.model}</span>
+											{entry.error ? (
+												<span className="text-muted-foreground">
+													— {entry.error}
+												</span>
+											) : null}
+										</li>
+									))}
+								</ul>
+							</div>
+						) : null}
 					</div>
 
 					<div className="flex flex-col gap-2">
@@ -1288,8 +1571,10 @@ function CredentialDialog({
 							</Label>
 							<p className="text-xs text-muted-foreground">
 								Saving sends one minimal request through this credential to
-								confirm it works. Skip it for providers with no chat model to
-								test against, or when the upstream is temporarily down.
+								confirm it works — against the first allowed model when a
+								restriction is set, the provider&apos;s default validation model
+								otherwise. Skip it for providers with no chat model to test
+								against, or when the upstream is temporarily down.
 							</p>
 						</div>
 					</div>
@@ -1311,5 +1596,177 @@ function CredentialDialog({
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>
+	);
+}
+
+/**
+ * Status icon for one row of the verify-models report, mirroring the badge
+ * icons in the picker: green = probed and served, red = probed and rejected
+ * (or unknown to the catalogue), gray = listed but not probeable (image,
+ * embedding and other non-chat models).
+ */
+function ModelVerificationIcon({ entry }: { entry: ModelVerificationEntry }) {
+	if (entry.valid === true) {
+		return (
+			<CheckCircle2 className="mt-px h-3.5 w-3.5 shrink-0 text-green-600" />
+		);
+	}
+	if (entry.valid === false || !entry.inCatalog) {
+		return <XCircle className="mt-px h-3.5 w-3.5 shrink-0 text-destructive" />;
+	}
+	return (
+		<MinusCircle className="mt-px h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+	);
+}
+
+/**
+ * Multi-select over the provider's catalogue models, with paste support:
+ * pasting a comma/whitespace-separated list into the search box adds every
+ * entry at once (accepting `provider/model` ids by stripping the prefix).
+ * Entries the catalogue does not know stay visible, flagged, so a typo is
+ * seen here rather than only as a rejected save.
+ */
+function AllowedModelsPicker({
+	availableModels,
+	value,
+	onChange,
+	verificationByModel,
+}: {
+	availableModels: string[];
+	value: string[];
+	onChange: (models: string[]) => void;
+	verificationByModel: Map<string, ModelVerificationEntry>;
+}) {
+	const [open, setOpen] = useState(false);
+	const [search, setSearch] = useState("");
+
+	const toggleModel = (modelId: string) => {
+		onChange(
+			value.includes(modelId)
+				? value.filter((id) => id !== modelId)
+				: [...value, modelId],
+		);
+	};
+
+	const addPastedList = (text: string) => {
+		const entries = text
+			.split(/[\s,]+/)
+			.map((entry) => entry.trim())
+			.filter(Boolean)
+			.map((entry) => {
+				if (availableModels.includes(entry)) {
+					return entry;
+				}
+				// Accept provider-prefixed ids ("openai/gpt-5.2") the way the
+				// gateway's model strings carry them.
+				const slash = entry.indexOf("/");
+				const suffix = slash >= 0 ? entry.slice(slash + 1) : entry;
+				return availableModels.includes(suffix) ? suffix : entry;
+			});
+		onChange(Array.from(new Set([...value, ...entries])));
+	};
+
+	return (
+		<div className="flex flex-col gap-2">
+			{value.length > 0 ? (
+				<div className="flex flex-wrap gap-1">
+					{value.map((modelId) => {
+						const verification = verificationByModel.get(modelId);
+						const unknown = !availableModels.includes(modelId);
+						return (
+							<Badge
+								key={modelId}
+								variant={
+									unknown || verification?.valid === false
+										? "destructive"
+										: "secondary"
+								}
+								className="flex items-center gap-1 font-mono text-[11px]"
+								title={
+									unknown
+										? "Not in the catalogue for this provider — saving will be rejected."
+										: (verification?.error ?? undefined)
+								}
+							>
+								{verification?.valid === true ? (
+									<CheckCircle2 className="h-3 w-3 text-green-600" />
+								) : null}
+								{verification?.valid === false ? (
+									<XCircle className="h-3 w-3" />
+								) : null}
+								{unknown ? <AlertTriangle className="h-3 w-3" /> : null}
+								{modelId}
+								<button
+									type="button"
+									aria-label={`Remove ${modelId}`}
+									className="ml-0.5 rounded-sm opacity-70 hover:opacity-100"
+									onClick={() => toggleModel(modelId)}
+								>
+									<X className="h-3 w-3" />
+								</button>
+							</Badge>
+						);
+					})}
+				</div>
+			) : null}
+
+			<Popover open={open} onOpenChange={setOpen}>
+				<PopoverTrigger asChild>
+					<Button
+						type="button"
+						variant="outline"
+						role="combobox"
+						aria-expanded={open}
+						className="w-full justify-between font-normal"
+					>
+						<span className="truncate text-left">
+							{value.length === 0
+								? "All models (no restriction)"
+								: `${value.length} model${value.length === 1 ? "" : "s"} selected`}
+						</span>
+						<ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+					</Button>
+				</PopoverTrigger>
+				<PopoverContent className="w-[420px] p-0" align="start">
+					<Command>
+						<CommandInput
+							placeholder="Search models, or paste a comma-separated list..."
+							value={search}
+							onValueChange={setSearch}
+							onPaste={(event) => {
+								const text = event.clipboardData.getData("text");
+								// A single id pastes into the search like any text; only a
+								// list is intercepted and added wholesale.
+								if (!/[\s,]/.test(text.trim())) {
+									return;
+								}
+								event.preventDefault();
+								addPastedList(text);
+								setSearch("");
+							}}
+						/>
+						<CommandList className="max-h-[280px]">
+							<CommandEmpty>No models found.</CommandEmpty>
+							{availableModels.map((modelId) => {
+								const isSelected = value.includes(modelId);
+								return (
+									<CommandItem
+										key={modelId}
+										value={modelId}
+										onSelect={() => toggleModel(modelId)}
+										className="flex items-center justify-between"
+									>
+										<span className="font-mono text-xs">{modelId}</span>
+										{isSelected ? (
+											<Check className="h-4 w-4 text-green-600" />
+										) : null}
+									</CommandItem>
+								);
+							})}
+						</CommandList>
+					</Command>
+				</PopoverContent>
+			</Popover>
+		</div>
 	);
 }

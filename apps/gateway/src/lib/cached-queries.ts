@@ -32,6 +32,7 @@ import {
 	endUserSession as endUserSessionTable,
 	getEffectiveRateLimit,
 	addApiKeyPeriodDuration,
+	providerKeyAllowsModel,
 	organization as organizationTable,
 	project as projectTable,
 	providerKey as providerKeyTable,
@@ -690,9 +691,14 @@ export async function findManagedProviderKey(
  *   variable. A provider whose only credentials are region-pinned is therefore
  *   not advertised, the same as a deployment that sets only
  *   `LLM_X_API_KEY__US_EAST_1` and no `LLM_X_API_KEY`.
+ * - Model: a credential restricted via `allowedModels` cannot serve any other
+ *   model, so when the caller knows the model it is routing, credentials that
+ *   exclude it are ignored — a provider whose every credential excludes the
+ *   model is not advertised for it (unless its env var can still serve it).
  */
 export async function findManagedProviderIds(
 	variant?: EnvVarVariant,
+	modelId?: string,
 ): Promise<Set<string>> {
 	// Fetched whole and narrowed in memory so the request's variant stays out
 	// of the cache key, the same way findManagedProviderKey keeps variant,
@@ -706,6 +712,7 @@ export async function findManagedProviderIds(
 					provider: providerKeyTable.provider,
 					variant: providerKeyTable.variant,
 					region: providerKeyTable.region,
+					allowedModels: providerKeyTable.allowedModels,
 				})
 				.from(providerKeyTable)
 				.where(
@@ -718,6 +725,9 @@ export async function findManagedProviderIds(
 
 	const byProvider = new Map<string, typeof rows>();
 	for (const row of rows) {
+		if (modelId && !providerKeyAllowsModel(row.allowedModels, modelId)) {
+			continue;
+		}
 		const existing = byProvider.get(row.provider);
 		if (existing) {
 			existing.push(row);

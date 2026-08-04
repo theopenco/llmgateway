@@ -144,8 +144,75 @@ export function getValidationModel(
 	return best ? { modelId: best.modelId, externalId: best.externalId } : null;
 }
 
+export interface PinnedValidationModel {
+	modelId: string;
+	externalId: string;
+	/**
+	 * Whether the mapping can answer a minimal chat completion — the only probe
+	 * this validator knows how to send. Non-chat mappings (image, video,
+	 * embeddings, speech, transcription, OCR) pass the catalogue check but
+	 * cannot be live-tested here.
+	 */
+	chatCapable: boolean;
+}
+
 /**
- * Validate a provider API key by making a minimal request
+ * Resolves a specific catalogue model into the pair the validator probes with,
+ * for callers that need to test a key against one exact model (e.g. verifying
+ * a provider key's allowedModels restriction) rather than whichever cheap
+ * model getValidationModel would pick. Returns null when the model does not
+ * exist or the provider has no live (non-deactivated) mapping for it.
+ */
+export function getPinnedValidationModel(
+	provider: ProviderId,
+	modelId: string,
+	providerKeyOptions?: ProviderKeyOptions,
+): PinnedValidationModel | null {
+	const modelDef = models.find((m) => m.id === modelId);
+	if (!modelDef) {
+		return null;
+	}
+
+	const providerDef = providers.find((p) => p.id === provider) as
+		ProviderDefinition | undefined;
+	const regionKey = providerDef?.regionConfig?.optionsKey;
+	const selectedRegion = regionKey
+		? ((providerKeyOptions as Record<string, string | undefined> | undefined)?.[
+				regionKey
+			] ?? providerDef?.regionConfig?.defaultRegion)
+		: undefined;
+
+	const mapping = (modelDef.providers.find(
+		(p) =>
+			p.providerId === provider &&
+			((p as ProviderModelMapping).region ?? null) === (selectedRegion ?? null),
+	) ?? modelDef.providers.find((p) => p.providerId === provider)) as
+		ProviderModelMapping | undefined;
+	if (!mapping) {
+		return null;
+	}
+	if (mapping.deactivatedAt && new Date() >= mapping.deactivatedAt) {
+		return null;
+	}
+
+	const chatCapable = !(
+		mapping.imageGenerations ||
+		mapping.videoGenerations ||
+		mapping.embeddings ||
+		mapping.speechGenerations ||
+		mapping.transcriptions ||
+		mapping.ocr
+	);
+
+	return { modelId: modelDef.id, externalId: mapping.externalId, chatCapable };
+}
+
+/**
+ * Validate a provider API key by making a minimal request.
+ *
+ * When `pinnedModelId` is set the probe is sent to that exact model instead of
+ * the auto-picked cheap one, so the caller learns whether the key can serve
+ * that specific model on this account.
  */
 export async function validateProviderKey(
 	provider: ProviderId,
@@ -153,6 +220,7 @@ export async function validateProviderKey(
 	baseUrl?: string,
 	skipValidation = false,
 	providerKeyOptions?: ProviderKeyOptions,
+	pinnedModelId?: string,
 ): Promise<ProviderValidationResult> {
 	// Skip validation if requested (e.g. in test environment)
 	if (skipValidation) {
@@ -167,9 +235,21 @@ export async function validateProviderKey(
 	let validationModel: { modelId: string; externalId: string } | undefined;
 
 	try {
-		validationModel =
-			getValidationModel(provider, providerKeyOptions) ?? undefined;
+		validationModel = pinnedModelId
+			? (getPinnedValidationModel(
+					provider,
+					pinnedModelId,
+					providerKeyOptions,
+				) ?? undefined)
+			: (getValidationModel(provider, providerKeyOptions) ?? undefined);
 		if (!validationModel) {
+			if (pinnedModelId) {
+				return {
+					valid: false,
+					error: `Model ${pinnedModelId} is not available from ${provider}`,
+					model: pinnedModelId,
+				};
+			}
 			throw new Error(
 				`No suitable validation model found for provider ${provider}`,
 			);
