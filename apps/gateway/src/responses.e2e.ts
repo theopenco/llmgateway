@@ -206,11 +206,15 @@ describe("e2e", getConcurrentTestOptions(), () => {
 		"responses stateless encrypted reasoning $model",
 		getTestOptions(),
 		async ({ model }) => {
+			// The prompt has to make the model actually think: cheap reasoning
+			// models (e.g. gpt-5.6-luna) spend zero reasoning tokens on a trivial
+			// "remember my name" turn and then emit no reasoning item at all, so
+			// there would be no encrypted payload to round-trip.
 			const firstInput = [
 				{
 					role: "user",
 					content:
-						"My name is Ada. Please remember it. Reply with a brief acknowledgement.",
+						"My name is Ada. Please remember it. Also work out 17 * 23 step by step and state the result.",
 				},
 			];
 			const firstRequestId = generateTestRequestId();
