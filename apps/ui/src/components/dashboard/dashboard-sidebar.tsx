@@ -8,6 +8,7 @@ import {
 	CreditCard,
 	ExternalLink,
 	MoonIcon,
+	Search,
 	Shield,
 	SunIcon,
 	User as UserIcon,
@@ -74,6 +75,7 @@ import {
 	SidebarGroupContent,
 	SidebarGroupLabel,
 	SidebarHeader,
+	SidebarInput,
 	SidebarMenu,
 	SidebarMenuButton,
 	SidebarMenuItem,
@@ -176,6 +178,72 @@ const PROJECT_SETTINGS = [
 	},
 ] as const;
 
+// Org-level nav items. `enterpriseGated` items show the enterprise indicator
+// badge on non-enterprise plans.
+const ORGANIZATION_NAVIGATION: readonly {
+	href: string;
+	label: string;
+	icon: AnimatedIconComponent;
+	enterpriseGated?: boolean;
+}[] = [
+	{
+		href: "org/team",
+		label: "Team",
+		icon: AnimatedUsers,
+	},
+	{
+		href: "org/provider-keys",
+		label: "Provider Keys",
+		icon: AnimatedKeyRound,
+	},
+	{
+		href: "org/discounts",
+		label: "Your Discounts",
+		icon: AnimatedPercent,
+	},
+	{
+		href: "org/models",
+		label: "Models",
+		icon: AnimatedBotMessageSquare,
+	},
+	{
+		href: "org/analytics",
+		label: "Analytics",
+		icon: AnimatedChartArea,
+		enterpriseGated: true,
+	},
+	{
+		href: "org/guardrails",
+		label: "Guardrails",
+		icon: AnimatedShield,
+		enterpriseGated: true,
+	},
+	{
+		href: "org/compliance",
+		label: "Compliance",
+		icon: AnimatedBadgeCheck,
+		enterpriseGated: true,
+	},
+	{
+		href: "org/security-events",
+		label: "Security Events",
+		icon: AnimatedShieldAlert,
+		enterpriseGated: true,
+	},
+	{
+		href: "org/master-keys",
+		label: "Master Keys",
+		icon: AnimatedKeySquare,
+		enterpriseGated: true,
+	},
+	{
+		href: "org/sso",
+		label: "SSO",
+		icon: AnimatedBuilding2,
+		enterpriseGated: true,
+	},
+];
+
 const ORGANIZATION_SETTINGS = [
 	{
 		href: "org/billing",
@@ -239,11 +307,15 @@ function DashboardSidebarHeader({
 	selectedOrganization,
 	onSelectOrganization,
 	onOrganizationCreated,
+	searchQuery,
+	onSearchQueryChange,
 }: {
 	organizations: Organization[];
 	selectedOrganization: Organization | null;
 	onSelectOrganization: (org: Organization | null) => void;
 	onOrganizationCreated: (org: Organization) => void;
+	searchQuery: string;
+	onSearchQueryChange: (query: string) => void;
 }) {
 	const { buildUrl } = useDashboardNavigation();
 
@@ -271,7 +343,129 @@ function DashboardSidebarHeader({
 					onOrganizationCreated={onOrganizationCreated}
 				/>
 			</div>
+			<div className="relative px-2 pb-1 group-data-[collapsible=icon]:hidden">
+				<Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-[calc(50%+2px)] text-muted-foreground" />
+				<SidebarInput
+					placeholder="Search links..."
+					value={searchQuery}
+					onChange={(e) => onSearchQueryChange(e.target.value)}
+					onKeyDown={(e) => {
+						if (e.key === "Escape") {
+							onSearchQueryChange("");
+						}
+					}}
+					className="pl-8"
+					aria-label="Search sidebar links"
+				/>
+			</div>
 		</SidebarHeader>
+	);
+}
+
+interface SearchableLink {
+	href: string;
+	label: string;
+	section: string;
+	external?: boolean;
+	icon?: AnimatedIconComponent;
+	enterpriseGated?: boolean;
+}
+
+function SearchResultItem({
+	link,
+	onNavigate,
+	showEnterpriseBadge,
+}: {
+	link: SearchableLink;
+	onNavigate: () => void;
+	showEnterpriseBadge: boolean;
+}) {
+	const [isHovered, setIsHovered] = useState(false);
+	const Icon = link.icon;
+	const content = (
+		<>
+			{Icon && <Icon isHovered={isHovered} />}
+			<span className="truncate">{link.label}</span>
+			<span className="ml-auto flex items-center gap-1 text-[0.65rem] text-muted-foreground">
+				{link.section}
+				{link.external && <ExternalLink className="h-3 w-3" />}
+				{link.enterpriseGated && showEnterpriseBadge && (
+					<Building2 className="h-3.5 w-3.5 text-blue-500/70 dark:text-blue-400/70" />
+				)}
+			</span>
+		</>
+	);
+
+	return (
+		<SidebarMenuItem
+			onMouseEnter={() => setIsHovered(true)}
+			onMouseLeave={() => setIsHovered(false)}
+		>
+			<SidebarMenuButton asChild tooltip={link.label}>
+				{link.external ? (
+					<a
+						href={link.href}
+						target="_blank"
+						rel="noopener noreferrer"
+						onClick={onNavigate}
+					>
+						{content}
+					</a>
+				) : (
+					<Link href={link.href as Route} onClick={onNavigate} prefetch={true}>
+						{content}
+					</Link>
+				)}
+			</SidebarMenuButton>
+		</SidebarMenuItem>
+	);
+}
+
+// Replaces the regular nav sections while the user is typing in the sidebar
+// search box: a flat list of every link whose label matches the query, with
+// its section as a hint.
+function SidebarSearchResults({
+	links,
+	query,
+	onNavigate,
+	showEnterpriseBadge,
+}: {
+	links: SearchableLink[];
+	query: string;
+	onNavigate: () => void;
+	showEnterpriseBadge: boolean;
+}) {
+	const normalizedQuery = query.trim().toLowerCase();
+	const matches = links.filter(
+		(link) =>
+			link.label.toLowerCase().includes(normalizedQuery) ||
+			link.section.toLowerCase().includes(normalizedQuery),
+	);
+
+	return (
+		<SidebarGroup>
+			<SidebarGroupLabel className="text-muted-foreground px-2 text-xs font-medium">
+				Search results
+			</SidebarGroupLabel>
+			<SidebarGroupContent className="mt-2">
+				{matches.length === 0 ? (
+					<p className="px-2 py-1.5 text-sm text-muted-foreground">
+						No links match your search.
+					</p>
+				) : (
+					<SidebarMenu>
+						{matches.map((link) => (
+							<SearchResultItem
+								key={`${link.section}-${link.href}`}
+								link={link}
+								onNavigate={onNavigate}
+								showEnterpriseBadge={showEnterpriseBadge}
+							/>
+						))}
+					</SidebarMenu>
+				)}
+			</SidebarGroupContent>
+		</SidebarGroup>
 	);
 }
 
@@ -449,92 +643,18 @@ function OrganizationSection({
 			</SidebarGroupLabel>
 			<SidebarGroupContent className="mt-2">
 				<SidebarMenu>
-					<OrgNavItem
-						href={buildOrgUrl("org/team")}
-						label="Team"
-						icon={AnimatedUsers}
-						isActive={isActive("org/team")}
-						isMobile={isMobile}
-						toggleSidebar={toggleSidebar}
-					/>
-					<OrgNavItem
-						href={buildOrgUrl("org/provider-keys")}
-						label="Provider Keys"
-						icon={AnimatedKeyRound}
-						isActive={isActive("org/provider-keys")}
-						isMobile={isMobile}
-						toggleSidebar={toggleSidebar}
-					/>
-					<OrgNavItem
-						href={buildOrgUrl("org/discounts")}
-						label="Your Discounts"
-						icon={AnimatedPercent}
-						isActive={isActive("org/discounts")}
-						isMobile={isMobile}
-						toggleSidebar={toggleSidebar}
-					/>
-					<OrgNavItem
-						href={buildOrgUrl("org/models")}
-						label="Models"
-						icon={AnimatedBotMessageSquare}
-						isActive={isActive("org/models")}
-						isMobile={isMobile}
-						toggleSidebar={toggleSidebar}
-					/>
-					<OrgNavItem
-						href={buildOrgUrl("org/analytics")}
-						label="Analytics"
-						icon={AnimatedChartArea}
-						isActive={isActive("org/analytics")}
-						isMobile={isMobile}
-						toggleSidebar={toggleSidebar}
-						showEnterpriseBadge={showEnterpriseBadge}
-					/>
-					<OrgNavItem
-						href={buildOrgUrl("org/guardrails")}
-						label="Guardrails"
-						icon={AnimatedShield}
-						isActive={isActive("org/guardrails")}
-						isMobile={isMobile}
-						toggleSidebar={toggleSidebar}
-						showEnterpriseBadge={showEnterpriseBadge}
-					/>
-					<OrgNavItem
-						href={buildOrgUrl("org/compliance")}
-						label="Compliance"
-						icon={AnimatedBadgeCheck}
-						isActive={isActive("org/compliance")}
-						isMobile={isMobile}
-						toggleSidebar={toggleSidebar}
-						showEnterpriseBadge={showEnterpriseBadge}
-					/>
-					<OrgNavItem
-						href={buildOrgUrl("org/security-events")}
-						label="Security Events"
-						icon={AnimatedShieldAlert}
-						isActive={isActive("org/security-events")}
-						isMobile={isMobile}
-						toggleSidebar={toggleSidebar}
-						showEnterpriseBadge={showEnterpriseBadge}
-					/>
-					<OrgNavItem
-						href={buildOrgUrl("org/master-keys")}
-						label="Master Keys"
-						icon={AnimatedKeySquare}
-						isActive={isActive("org/master-keys")}
-						isMobile={isMobile}
-						toggleSidebar={toggleSidebar}
-						showEnterpriseBadge={showEnterpriseBadge}
-					/>
-					<OrgNavItem
-						href={buildOrgUrl("org/sso")}
-						label="SSO"
-						icon={AnimatedBuilding2}
-						isActive={isActive("org/sso")}
-						isMobile={isMobile}
-						toggleSidebar={toggleSidebar}
-						showEnterpriseBadge={showEnterpriseBadge}
-					/>
+					{ORGANIZATION_NAVIGATION.map((item) => (
+						<OrgNavItem
+							key={item.href}
+							href={buildOrgUrl(item.href)}
+							label={item.label}
+							icon={item.icon}
+							isActive={isActive(item.href)}
+							isMobile={isMobile}
+							toggleSidebar={toggleSidebar}
+							showEnterpriseBadge={item.enterpriseGated && showEnterpriseBadge}
+						/>
+					))}
 					<SidebarMenuItem
 						onMouseEnter={() => setSettingsHovered(true)}
 						onMouseLeave={() => setSettingsHovered(false)}
@@ -997,8 +1117,10 @@ export function DashboardSidebar({
 	const posthog = usePostHog();
 	const queryClient = useQueryClient();
 	const { signOut } = useAuth();
+	const { buildUrl, buildOrgUrl } = useDashboardNavigation();
 	const [showUpgradeCTA, setShowUpgradeCTA] = useState(true);
 	const [ctaLoaded, setCTALoaded] = useState(false);
+	const [searchQuery, setSearchQuery] = useState("");
 
 	const { user } = useUser({
 		redirectTo: "/login",
@@ -1082,6 +1204,77 @@ export function DashboardSidebar({
 		[],
 	);
 
+	const isDeveloper = selectedOrganization?.role === "developer";
+
+	// Flat index of every link the sidebar can show for the current role, used
+	// by the search box to filter across all sections at once.
+	const searchableLinks = useMemo<SearchableLink[]>(() => {
+		if (isDeveloper) {
+			return [
+				...USER_NAVIGATION.map((item) => ({
+					href: buildUrl(item.href),
+					label: item.label,
+					section: "User",
+					icon: item.icon,
+				})),
+				{
+					href: buildOrgUrl("org/models"),
+					label: "Models",
+					section: "Organization",
+					icon: AnimatedBotMessageSquare,
+				},
+			];
+		}
+
+		return [
+			...PROJECT_NAVIGATION.map((item) => ({
+				href: buildUrl(item.href),
+				label: item.label,
+				section: "Project",
+				icon: item.icon,
+			})),
+			...PROJECT_SETTINGS.map((item) => ({
+				href: buildUrl(item.href),
+				label: item.label,
+				section: "Project Settings",
+			})),
+			...ORGANIZATION_NAVIGATION.map((item) => ({
+				href: buildOrgUrl(item.href),
+				label: item.label,
+				section: "Organization",
+				icon: item.icon,
+				enterpriseGated: item.enterpriseGated,
+			})),
+			...ORGANIZATION_SETTINGS.map((item) => ({
+				href:
+					"search" in item
+						? buildUrlWithParams(
+								buildOrgUrl(item.href),
+								searchParams,
+								item.search,
+							)
+						: buildOrgUrl(item.href),
+				label: item.label,
+				section: "Org Settings",
+				enterpriseGated: "enterpriseOnly" in item && item.enterpriseOnly,
+			})),
+			...toolsResources.map((item) => ({
+				href: item.href,
+				label: item.label,
+				section: "Tools",
+				icon: item.icon,
+				external: !item.internal,
+			})),
+		];
+	}, [isDeveloper, buildUrl, buildOrgUrl, searchParams, toolsResources]);
+
+	const handleSearchNavigate = () => {
+		setSearchQuery("");
+		if (isMobile) {
+			toggleSidebar();
+		}
+	};
+
 	const hideCreditCTA = () => {
 		setShowUpgradeCTA(false);
 		// Persist dismissal in localStorage with timestamp
@@ -1132,9 +1325,18 @@ export function DashboardSidebar({
 				selectedOrganization={selectedOrganization}
 				onSelectOrganization={onSelectOrganization}
 				onOrganizationCreated={onOrganizationCreated}
+				searchQuery={searchQuery}
+				onSearchQueryChange={setSearchQuery}
 			/>
 			<SidebarContent>
-				{selectedOrganization?.role === "developer" ? (
+				{searchQuery.trim() ? (
+					<SidebarSearchResults
+						links={searchableLinks}
+						query={searchQuery}
+						onNavigate={handleSearchNavigate}
+						showEnterpriseBadge={selectedOrganization?.plan !== "enterprise"}
+					/>
+				) : selectedOrganization?.role === "developer" ? (
 					// Project-scoped "developer" members get a minimal, personal nav:
 					// their own usage dashboard, their own API keys, and a read-only
 					// view of the org's models directory.
