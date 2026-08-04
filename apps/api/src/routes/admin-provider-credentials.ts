@@ -3,7 +3,6 @@ import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { maskToken } from "@/lib/maskToken.js";
 import {
 	getBucketUnitForWindow,
 	getTokenWindowStartDate,
@@ -13,12 +12,15 @@ import { adminMiddleware } from "@/middleware/admin.js";
 import { createNullableLimitSchema } from "@/routes/keys-api.js";
 
 import {
+	collectProviderEnvCredentials,
+	countEnvCredentialsByVariant,
 	encryptProviderKey,
 	getManagedCredentialConfigKeys,
 	getMissingManagedCredentialKeys,
 	getUnknownManagedCredentialKeys,
 	managedCredentialValidationOptions,
 	providerKeyEncryptionScope,
+	readProviderEnvInventory,
 	readProviderKey,
 	redactToken,
 	validateProviderKey,
@@ -37,14 +39,9 @@ import {
 	tables,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import {
-	ENV_VAR_VARIANT_SUFFIXES,
-	getProviderApiKeyEnvCounts,
-	getProviderEnvKeys,
-	getProviderEnvVar,
-	providers,
-} from "@llmgateway/models";
+import { getProviderEnvKeys, providers } from "@llmgateway/models";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
+import { maskToken } from "@llmgateway/shared/mask-token";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import type { ServerTypes } from "@/vars.js";
@@ -97,7 +94,7 @@ const configKeySchema = z.object({
  * One API key currently configured through the deployment's environment,
  * masked and fingerprinted exactly like a managed credential so an operator
  * can tell which keys serve traffic and correlate them with
- * `log.usedApiKeyHash`. The plaintext never leaves the process.
+ * `log.usedApiKeyHash`. The plaintext never leaves the process that holds it.
  */
 const envCredentialSchema = z.object({
 	/** Variable the key comes from, including any variant/region suffix. */
@@ -117,7 +114,7 @@ const catalogEntrySchema = z.object({
 	name: z.string(),
 	/** Env var carrying the API key, shown so admins can find what to migrate. */
 	apiKeyEnvVar: z.string().nullable(),
-	/** Whether that env var is currently set on this deployment. */
+	/** Whether that env var is set wherever the reported keys were read from. */
 	apiKeyEnvConfigured: z.boolean(),
 	/**
 	 * API keys configured through env vars per audience, so the form can show
@@ -129,8 +126,9 @@ const catalogEntrySchema = z.object({
 		plans: z.number(),
 	}),
 	/**
-	 * Every API key the deployment's environment currently holds for this
-	 * provider, across the base variable and its variant/region overrides.
+	 * Every API key the environment `envSource` names currently holds for this
+	 * provider — the gateway's, or this process's own when no gateway has
+	 * published — across the base variable and its variant/region overrides.
 	 * These are read-only from the dashboard: they can only be changed by
 	 * redeploying, and once the provider has any active managed credential
 	 * covering an audience they stop being used for it.
@@ -146,79 +144,6 @@ const catalogEntrySchema = z.object({
 	defaultRegion: z.string().nullable(),
 	configKeys: z.array(configKeySchema),
 });
-
-/**
- * A service-account JSON value contains commas and is read whole by the
- * gateway rather than comma-split; masking must treat it the same way or the
- * "list" would be JSON fragments.
- */
-function splitEnvApiKeys(value: string): string[] {
-	const trimmed = value.trim();
-	if (!trimmed) {
-		return [];
-	}
-	if (trimmed.startsWith("{")) {
-		return [trimmed];
-	}
-	return trimmed
-		.split(",")
-		.map((entry) => entry.trim())
-		.filter((entry) => entry.length > 0);
-}
-
-/**
- * Enumerates the API keys the environment currently holds for a provider,
- * across the base var, the `__ENTERPRISE`/`__PLANS` variants and every
- * `__{REGION}` override of each — the same slots the gateway reads.
- */
-function collectEnvCredentials(
-	providerId: string,
-	regionIds: string[],
-): z.infer<typeof envCredentialSchema>[] {
-	const baseEnvVar = getProviderEnvVar(providerId);
-	if (!baseEnvVar) {
-		return [];
-	}
-
-	const slots: {
-		envVar: string;
-		variant: ProviderKeyVariant;
-		region: string | null;
-	}[] = [];
-	for (const variant of PROVIDER_KEY_VARIANTS) {
-		const variantVar =
-			variant === "default"
-				? baseEnvVar
-				: `${baseEnvVar}${ENV_VAR_VARIANT_SUFFIXES[variant]}`;
-		slots.push({ envVar: variantVar, variant, region: null });
-		for (const region of regionIds) {
-			slots.push({
-				envVar: `${variantVar}__${region.toUpperCase().replace(/-/g, "_")}`,
-				variant,
-				region,
-			});
-		}
-	}
-
-	const entries: z.infer<typeof envCredentialSchema>[] = [];
-	for (const slot of slots) {
-		const value = process.env[slot.envVar];
-		if (!value) {
-			continue;
-		}
-		splitEnvApiKeys(value).forEach((key, index) => {
-			entries.push({
-				envVar: slot.envVar,
-				variant: slot.variant,
-				region: slot.region,
-				index,
-				maskedToken: maskToken(key),
-				tokenHash: getApiKeyFingerprint(key),
-			});
-		});
-	}
-	return entries;
-}
 
 type CredentialRow = typeof tables.providerKey.$inferSelect;
 
@@ -407,7 +332,20 @@ const getCatalog = createRoute({
 		200: {
 			content: {
 				"application/json": {
-					schema: z.object({ providers: z.array(catalogEntrySchema) }),
+					schema: z.object({
+						providers: z.array(catalogEntrySchema),
+						/**
+						 * Where the reported env credentials were read from.
+						 * `gateway` is the snapshot the gateway publishes for its own
+						 * process — the keys that actually serve traffic. `api` is this
+						 * process's own environment, used only when no gateway has
+						 * published one (single-process deployments, or a gateway that
+						 * cannot reach this Redis).
+						 */
+						envSource: z.enum(["gateway", "api"]),
+						/** When the gateway published its snapshot; null for `api`. */
+						envPublishedAt: z.string().nullable(),
+					}),
 				},
 			},
 			description:
@@ -417,6 +355,14 @@ const getCatalog = createRoute({
 });
 
 adminProviderCredentials.openapi(getCatalog, async (c) => {
+	// Provider keys live on the gateway, which is a separate deployment: reading
+	// this process's own environment would report nothing at all in a split
+	// setup, and where both services happen to hold keys the API's copy can
+	// differ from the set actually spending money. Prefer what the gateway
+	// published about itself, and fall back to local env only when there is no
+	// snapshot.
+	const inventory = await readProviderEnvInventory();
+
 	const entries = providers
 		.filter((provider) => provider.id !== "custom")
 		.map((provider) => {
@@ -425,25 +371,28 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 					?.envVar ?? null;
 			const regionConfig = (provider as ProviderDefinition).regionConfig;
 			const regions = regionConfig?.regions ?? [];
+			const envCredentials = inventory
+				? (inventory.providers[provider.id] ?? [])
+				: collectProviderEnvCredentials(provider.id);
+			const apiKeyEnvCounts = countEnvCredentialsByVariant(envCredentials);
 			return {
 				id: provider.id,
 				name: provider.name,
 				apiKeyEnvVar,
-				apiKeyEnvConfigured: apiKeyEnvVar
-					? Boolean(process.env[apiKeyEnvVar])
-					: false,
+				apiKeyEnvConfigured: apiKeyEnvCounts.default > 0,
 				regions,
 				defaultRegion: regionConfig?.defaultRegion ?? null,
-				apiKeyEnvCounts: getProviderApiKeyEnvCounts(provider.id),
-				envCredentials: collectEnvCredentials(
-					provider.id,
-					regions.map((region) => region.id),
-				),
+				apiKeyEnvCounts,
+				envCredentials,
 				configKeys: getManagedCredentialConfigKeys(provider.id),
 			};
 		});
 
-	return c.json({ providers: entries });
+	return c.json({
+		providers: entries,
+		envSource: inventory ? ("gateway" as const) : ("api" as const),
+		envPublishedAt: inventory?.publishedAt ?? null,
+	});
 });
 
 const listCredentials = createRoute({

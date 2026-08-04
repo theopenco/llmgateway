@@ -156,39 +156,6 @@ export function hasProviderEnvironmentToken(
 	return envVar ? Boolean(process.env[envVar]) : false;
 }
 
-/**
- * How many API keys each audience has configured through env vars.
- *
- * The API-key env var holds a comma-separated list, so this counts entries in
- * the list rather than variables. A variant reports its own override only: 0
- * means the override is unset and matching organizations fall back to the
- * `default` list, which is what `getProviderEnvValue` does at request time.
- */
-export function getProviderApiKeyEnvCounts(
-	provider: Provider | string,
-): Record<"default" | EnvVarVariant, number> {
-	const baseEnvVar = getProviderEnvVar(provider);
-	const countEntries = (envVarName: string | undefined) =>
-		envVarName
-			? (process.env[envVarName] ?? "")
-					.split(",")
-					.map((value) => value.trim())
-					.filter((value) => value.length > 0).length
-			: 0;
-
-	return {
-		default: countEntries(baseEnvVar),
-		enterprise: countEntries(
-			baseEnvVar
-				? `${baseEnvVar}${ENV_VAR_VARIANT_SUFFIXES.enterprise}`
-				: undefined,
-		),
-		plans: countEntries(
-			baseEnvVar ? `${baseEnvVar}${ENV_VAR_VARIANT_SUFFIXES.plans}` : undefined,
-		),
-	};
-}
-
 export function getProviderEnvValue(
 	provider: Provider,
 	key: string,
@@ -305,6 +272,17 @@ export function validateProviderEnv(provider: Provider): string[] {
 }
 
 /**
+ * Suffix a region contributes to an env var name (`us-virginia` → `US_VIRGINIA`).
+ *
+ * Every reader and every enumerator of regional credentials must derive the
+ * name the same way — a variable spelled differently than the gateway looks it
+ * up is simply never read.
+ */
+export function getRegionEnvVarSuffix(region: string): string {
+	return region.toUpperCase().replace(/-/g, "_");
+}
+
+/**
  * Get a region-specific environment variable value.
  * Checks for `{BASE_ENV_VAR}__{REGION}` first, then falls back to the base env var.
  * Region is normalized to uppercase with hyphens replaced by underscores.
@@ -320,7 +298,7 @@ export function getRegionSpecificEnvValue(
 	if (!baseEnvVar) {
 		return undefined;
 	}
-	const regionSuffix = region.toUpperCase().replace(/-/g, "_");
+	const regionSuffix = getRegionEnvVarSuffix(region);
 	return (
 		process.env[`${baseEnvVar}__${regionSuffix}`] ?? process.env[baseEnvVar]
 	);
@@ -345,7 +323,7 @@ export function getRegionSpecificEnvVarName(
 	if (!baseEnvVar) {
 		return undefined;
 	}
-	const regionSuffix = region.toUpperCase().replace(/-/g, "_");
+	const regionSuffix = getRegionEnvVarSuffix(region);
 	if (variant) {
 		const variantRegionalName = `${baseEnvVar}${ENV_VAR_VARIANT_SUFFIXES[variant]}__${regionSuffix}`;
 		if (process.env[variantRegionalName]) {
@@ -369,7 +347,7 @@ export function hasRegionSpecificEnvKey(
 	if (!baseEnvVar) {
 		return false;
 	}
-	const regionSuffix = region.toUpperCase().replace(/-/g, "_");
+	const regionSuffix = getRegionEnvVarSuffix(region);
 	if (process.env[`${baseEnvVar}__${regionSuffix}`]) {
 		return true;
 	}
