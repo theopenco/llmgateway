@@ -744,6 +744,77 @@ describe("logs route", () => {
 			);
 		});
 	});
+
+	// Network failures log a bare "fetch failed" message; the actual reason only
+	// exists in the cause chain, so the public endpoints have to serve it for the
+	// dashboard to show anything useful.
+	describe("error cause is served to the dashboard", () => {
+		const CAUSE =
+			"HeadersTimeoutError: Headers Timeout Error (code: UND_ERR_HEADERS_TIMEOUT)";
+
+		beforeEach(async () => {
+			await db.insert(tables.log).values({
+				id: "fetch-failed-log-id",
+				requestId: "fetch-failed-log-id",
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "test-api-key-id",
+				duration: 301880,
+				requestedModel: "gpt-4",
+				requestedProvider: "openai",
+				usedModel: "gpt-4",
+				usedProvider: "openai",
+				responseSize: 0,
+				finishReason: "upstream_error",
+				unifiedFinishReason: "upstream_error",
+				hasError: true,
+				errorDetails: {
+					statusCode: 0,
+					statusText: "TypeError",
+					responseText: "fetch failed",
+					cause: CAUSE,
+				},
+				messages: JSON.stringify([{ role: "user", content: "Hello" }]),
+				mode: "credits",
+				usedMode: "credits",
+			});
+		});
+
+		test("list endpoint serves the error cause", async () => {
+			const params = new URLSearchParams({ projectId: "test-project-id" });
+			const res = await app.request("/logs?" + params, {
+				method: "GET",
+				headers: {
+					Cookie: token,
+				},
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			const log = json.logs.find(
+				(entry: { id: string }) => entry.id === "fetch-failed-log-id",
+			);
+			expect(log.errorDetails.cause).toBe(CAUSE);
+		});
+
+		test("detail endpoint serves the error cause", async () => {
+			const res = await app.request("/logs/fetch-failed-log-id", {
+				method: "GET",
+				headers: {
+					Cookie: token,
+				},
+			});
+
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.log.errorDetails).toEqual({
+				statusCode: 0,
+				statusText: "TypeError",
+				responseText: "fetch failed",
+				cause: CAUSE,
+			});
+		});
+	});
 	// Project access is not key access: a developer may only read logs produced by
 	// the api keys they created, since the payload holds the full prompt and
 	// completion.
