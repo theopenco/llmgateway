@@ -64,6 +64,11 @@ const creditsFormatter = new Intl.NumberFormat("en-US", {
 	maximumFractionDigits: 2,
 });
 
+function parsePage(value: string | undefined) {
+	const parsed = parseInt(value ?? "1", 10);
+	return Number.isNaN(parsed) ? 1 : Math.max(1, parsed);
+}
+
 function formatDate(dateString: string) {
 	return new Date(dateString).toLocaleDateString("en-US", {
 		year: "numeric",
@@ -155,9 +160,9 @@ export default async function OrganizationPage({
 
 	const { orgId } = await params;
 	const searchParamsData = await searchParams;
-	const txPage = Math.max(1, parseInt(searchParamsData?.txPage ?? "1", 10));
-	const akPage = Math.max(1, parseInt(searchParamsData?.akPage ?? "1", 10));
-	const alPage = Math.max(1, parseInt(searchParamsData?.alPage ?? "1", 10));
+	const txPage = parsePage(searchParamsData?.txPage);
+	const akPage = parsePage(searchParamsData?.akPage);
+	const alPage = parsePage(searchParamsData?.alPage);
 	const alAction = searchParamsData?.alAction ?? "";
 	const alResource = searchParamsData?.alResource ?? "";
 	const activeTab = searchParamsData?.tab ?? "transactions";

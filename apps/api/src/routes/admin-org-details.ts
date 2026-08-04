@@ -47,7 +47,7 @@ const auditLogEntrySchema = z.object({
 	action: z.string(),
 	resourceType: z.string(),
 	resourceId: z.string().nullable(),
-	metadata: z.any().nullable(),
+	metadata: z.unknown().nullable(),
 	user: z
 		.object({
 			id: z.string(),
