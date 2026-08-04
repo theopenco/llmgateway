@@ -2216,12 +2216,20 @@ devPlans.openapi(updateBillingDetails, async (c) => {
 			.returning();
 		updatedOrg = updated;
 
+		const changes: Record<string, { old: unknown; new: unknown }> = {};
+		for (const [field, value] of Object.entries(updateData)) {
+			const previous = personalOrg[field as keyof typeof updateData];
+			if (previous !== value) {
+				changes[field] = { old: previous ?? null, new: value };
+			}
+		}
+
 		await logAuditEvent({
 			organizationId: personalOrg.id,
 			userId: user.id,
 			action: "dev_plan.update_billing_details",
 			resourceType: "dev_plan",
-			metadata: { fields: Object.keys(updateData) },
+			metadata: { fields: Object.keys(updateData), changes },
 		});
 	}
 

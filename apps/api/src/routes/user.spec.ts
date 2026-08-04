@@ -354,3 +354,99 @@ describe("user accounts and email editability", () => {
 		expect(json.user.accounts).toHaveLength(2);
 	});
 });
+
+describe("user email change audit log", () => {
+	let token: string;
+
+	beforeEach(async () => {
+		token = await createTestUser();
+
+		await db.insert(tables.organization).values([
+			{
+				id: "audit-org-1",
+				name: "Audit Org One",
+				plan: "enterprise",
+				billingEmail: "billing-one@example.com",
+			},
+			{
+				id: "audit-org-2",
+				name: "Audit Org Two",
+				plan: "pro",
+				billingEmail: "billing-two@example.com",
+			},
+		]);
+
+		await db.insert(tables.userOrganization).values([
+			{ userId: "test-user-id", organizationId: "audit-org-1", role: "owner" },
+			{ userId: "test-user-id", organizationId: "audit-org-2", role: "owner" },
+		]);
+	});
+
+	afterEach(async () => {
+		await deleteAll();
+	});
+
+	async function patchUser(body: Record<string, unknown>) {
+		return await app.request("/user/me", {
+			method: "PATCH",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify(body),
+		});
+	}
+
+	it("records an audit log in every organization the user belongs to", async () => {
+		const res = await patchUser({ email: "changed@example.com" });
+		expect(res.status).toBe(200);
+
+		const logs = await db.query.auditLog.findMany({
+			where: { action: { eq: "user.email_change" } },
+		});
+
+		const memberships = await db.query.userOrganization.findMany({
+			where: { userId: { eq: "test-user-id" } },
+		});
+		const loggedOrgIds = logs.map((log) => log.organizationId).sort();
+
+		expect(loggedOrgIds).toEqual(
+			memberships.map((membership) => membership.organizationId).sort(),
+		);
+		expect(loggedOrgIds).toEqual(
+			expect.arrayContaining(["audit-org-1", "audit-org-2"]),
+		);
+		for (const log of logs) {
+			expect(log.userId).toBe("test-user-id");
+			expect(log.resourceType).toBe("user");
+			expect(log.resourceId).toBe("test-user-id");
+			expect(log.metadata?.changes?.email).toEqual({
+				old: "admin@example.com",
+				new: "changed@example.com",
+			});
+		}
+	});
+
+	it("does not record an audit log when the email is unchanged", async () => {
+		const res = await patchUser({
+			email: "admin@example.com",
+			name: "Same Email",
+		});
+		expect(res.status).toBe(200);
+
+		const logs = await db.query.auditLog.findMany({
+			where: { action: { eq: "user.email_change" } },
+		});
+		expect(logs).toHaveLength(0);
+	});
+
+	it("does not record an audit log for non-email updates", async () => {
+		const res = await patchUser({ name: "Only A Name" });
+		expect(res.status).toBe(200);
+
+		const logs = await db.query.auditLog.findMany({
+			where: { action: { eq: "user.email_change" } },
+		});
+		expect(logs).toHaveLength(0);
+	});
+});
