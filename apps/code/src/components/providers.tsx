@@ -36,7 +36,11 @@ export function Providers({ children, config }: ProvidersProps) {
 
 	const posthogOptions = useMemo<Partial<PostHogConfig>>(
 		() => ({
-			api_host: config.posthogHost,
+			// Ingest through our own origin (see the /ingest rewrites in
+			// next.config.ts) so ad blockers that block *.posthog.com don't
+			// silently drop client events.
+			api_host: "/ingest",
+			ui_host: config.posthogHost,
 			capture_pageview: "history_change",
 			autocapture: true,
 		}),

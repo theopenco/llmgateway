@@ -5,6 +5,7 @@ import {
 	findCustomProviderKey,
 	findProviderKey,
 } from "@/lib/cached-queries.js";
+import { posthog } from "@/posthog.js";
 
 import {
 	getGcpServiceAccountAccessToken,
@@ -189,7 +190,7 @@ interface OrgInfo {
 export function assertDevPlanPremiumCapNotExceeded(
 	organization: Pick<
 		OrgInfo,
-		"devPlan" | "devPlanPremiumCreditsUsed" | "devPlanPremiumWeekStart"
+		"id" | "devPlan" | "devPlanPremiumCreditsUsed" | "devPlanPremiumWeekStart"
 	>,
 	modelInfo: Pick<ModelDefinition, "id">,
 ): void {
@@ -215,6 +216,21 @@ export function assertDevPlanPremiumCapNotExceeded(
 		weekStart.getTime() + DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
 	);
 	const msUntilReset = Math.max(0, resetAt.getTime() - Date.now());
+	// Every rejected request is a sized signal of Reset Pass demand: the
+	// dashboard's devpass_weekly_cap_hit_viewed only fires when the user
+	// opens the dashboard, but most cap hits happen inside a coding agent
+	// that swallows this 402 — without this event the funnel undercounts.
+	posthog.capture({
+		distinctId: organization.id,
+		event: "devpass_premium_cap_rejected",
+		groups: { organization: organization.id },
+		properties: {
+			devPlan: tier,
+			model: modelInfo.id,
+			msUntilReset,
+			organization: organization.id,
+		},
+	});
 	throw new HTTPException(402, {
 		message: `You've used your weekly allowance for premium-tier models on the ${tier} plan. Redeem a Reset Pass from your dashboard for an instant reset, upgrade for a higher allowance, or use any standard model now. Resets in ${formatTimeUntilReset(msUntilReset)}.`,
 	});
