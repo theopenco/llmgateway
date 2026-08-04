@@ -1,9 +1,9 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
-import Stripe from "stripe";
 import { z } from "zod";
 
 import { deleteResendContact } from "@/auth/config.js";
+import { cancelOrganizationSubscriptions } from "@/lib/account-deletion.js";
 import { maskToken } from "@/lib/maskToken.js";
 import { modeSplitFields } from "@/lib/mode-split.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
@@ -13,7 +13,6 @@ import {
 	tokenWindowSchema,
 } from "@/lib/stats-window.js";
 import { adminMiddleware } from "@/middleware/admin.js";
-import { getStripe } from "@/routes/payments.js";
 import {
 	CHAT_PLAN_TX_TYPES,
 	DEV_PLAN_SUBSCRIPTION_TX_TYPES,
@@ -6539,40 +6538,9 @@ async function blockOrganizationById(
 	// its subscriptions being cancelled first.
 	assertOrganizationDeletable(org);
 
-	const subscriptionIds = [
-		org.stripeSubscriptionId,
-		org.devPlanStripeSubscriptionId,
-	].filter((id): id is string => Boolean(id));
-
-	// Cancel every Stripe subscription before mutating local state. Treat
-	// already-cancelled or missing subscriptions as success (their terminal
-	// state matches what we want anyway); re-throw other Stripe errors so the
-	// admin can retry once Stripe is healthy.
-	const cancelledSubscriptionIds: string[] = [];
-	for (const subscriptionId of subscriptionIds) {
-		try {
-			await getStripe().subscriptions.cancel(subscriptionId, {
-				invoice_now: false,
-				prorate: false,
-			});
-			cancelledSubscriptionIds.push(subscriptionId);
-		} catch (error) {
-			if (
-				error instanceof Stripe.errors.StripeInvalidRequestError &&
-				(error.code === "resource_missing" ||
-					error.statusCode === 404 ||
-					error.message.includes("already been canceled") ||
-					error.message.includes("already canceled"))
-			) {
-				logger.info(
-					`Stripe subscription ${subscriptionId} already terminal, skipping cancel: ${error.message}`,
-				);
-				cancelledSubscriptionIds.push(subscriptionId);
-				continue;
-			}
-			throw error;
-		}
-	}
+	// Cancel every Stripe subscription the org holds (dashboard plan, DevPass and
+	// Chat plan alike) before mutating local state.
+	const cancelledSubscriptionIds = await cancelOrganizationSubscriptions(org);
 
 	const memberLinks = await db.query.userOrganization.findMany({
 		where: { organizationId: { eq: orgId } },
@@ -6618,6 +6586,10 @@ async function blockOrganizationById(
 				devPlanStripeSubscriptionId: null,
 				devPlanCancelled: true,
 				devPlanExpiresAt: new Date(),
+				chatPlan: "none",
+				chatPlanStripeSubscriptionId: null,
+				chatPlanCancelled: true,
+				chatPlanExpiresAt: new Date(),
 				subscriptionCancelled: true,
 			})
 			.where(eq(tables.organization.id, orgId));
