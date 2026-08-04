@@ -2362,6 +2362,7 @@ export const googleModels = [
 				requestPrice: "0",
 				contextSize: 262144,
 				maxOutput: 65536,
+				quantization: "bf16",
 				streaming: true,
 				reasoning: true,
 				// Runware maps reasoning_effort onto its thinkingLevel setting and

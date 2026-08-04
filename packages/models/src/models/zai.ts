@@ -158,6 +158,7 @@ export const zaiModels = [
 				requestPrice: "0",
 				contextSize: 1024000,
 				maxOutput: 128000,
+				quantization: "fp4",
 				streaming: true,
 				reasoning: true,
 				vision: false,
