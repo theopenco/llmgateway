@@ -23,7 +23,7 @@ import {
 } from "next/navigation";
 import { useTheme } from "next-themes";
 import { usePostHog } from "posthog-js/react";
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 
 import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
 import {
@@ -309,6 +309,8 @@ function DashboardSidebarHeader({
 	onOrganizationCreated,
 	searchQuery,
 	onSearchQueryChange,
+	onSearchSubmit,
+	searchInputRef,
 }: {
 	organizations: Organization[];
 	selectedOrganization: Organization | null;
@@ -316,6 +318,8 @@ function DashboardSidebarHeader({
 	onOrganizationCreated: (org: Organization) => void;
 	searchQuery: string;
 	onSearchQueryChange: (query: string) => void;
+	onSearchSubmit: () => void;
+	searchInputRef: React.RefObject<HTMLInputElement | null>;
 }) {
 	const { buildUrl } = useDashboardNavigation();
 
@@ -346,17 +350,26 @@ function DashboardSidebarHeader({
 			<div className="relative px-2 pb-1 group-data-[collapsible=icon]:hidden">
 				<Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-[calc(50%+2px)] text-muted-foreground" />
 				<SidebarInput
+					ref={searchInputRef}
 					placeholder="Search links..."
 					value={searchQuery}
 					onChange={(e) => onSearchQueryChange(e.target.value)}
 					onKeyDown={(e) => {
 						if (e.key === "Escape") {
 							onSearchQueryChange("");
+						} else if (e.key === "Enter") {
+							e.preventDefault();
+							onSearchSubmit();
 						}
 					}}
-					className="pl-8"
+					className="pl-8 pr-8"
 					aria-label="Search sidebar links"
 				/>
+				{!searchQuery && (
+					<kbd className="pointer-events-none absolute right-4 top-1/2 -translate-y-[calc(50%+2px)] rounded border border-border bg-muted px-1.5 font-mono text-[0.65rem] text-muted-foreground">
+						/
+					</kbd>
+				)}
 			</div>
 		</SidebarHeader>
 	);
@@ -371,13 +384,28 @@ interface SearchableLink {
 	enterpriseGated?: boolean;
 }
 
+function filterSearchableLinks(
+	links: SearchableLink[],
+	query: string,
+): SearchableLink[] {
+	const normalizedQuery = query.trim().toLowerCase();
+	if (!normalizedQuery) {
+		return [];
+	}
+	return links.filter(
+		(link) =>
+			link.label.toLowerCase().includes(normalizedQuery) ||
+			link.section.toLowerCase().includes(normalizedQuery),
+	);
+}
+
 function SearchResultItem({
 	link,
 	onNavigate,
 	showEnterpriseBadge,
 }: {
 	link: SearchableLink;
-	onNavigate: () => void;
+	onNavigate: (link: SearchableLink) => void;
 	showEnterpriseBadge: boolean;
 }) {
 	const [isHovered, setIsHovered] = useState(false);
@@ -407,12 +435,16 @@ function SearchResultItem({
 						href={link.href}
 						target="_blank"
 						rel="noopener noreferrer"
-						onClick={onNavigate}
+						onClick={() => onNavigate(link)}
 					>
 						{content}
 					</a>
 				) : (
-					<Link href={link.href as Route} onClick={onNavigate} prefetch={true}>
+					<Link
+						href={link.href as Route}
+						onClick={() => onNavigate(link)}
+						prefetch={true}
+					>
 						{content}
 					</Link>
 				)}
@@ -425,23 +457,14 @@ function SearchResultItem({
 // search box: a flat list of every link whose label matches the query, with
 // its section as a hint.
 function SidebarSearchResults({
-	links,
-	query,
+	matches,
 	onNavigate,
 	showEnterpriseBadge,
 }: {
-	links: SearchableLink[];
-	query: string;
-	onNavigate: () => void;
+	matches: SearchableLink[];
+	onNavigate: (link: SearchableLink) => void;
 	showEnterpriseBadge: boolean;
 }) {
-	const normalizedQuery = query.trim().toLowerCase();
-	const matches = links.filter(
-		(link) =>
-			link.label.toLowerCase().includes(normalizedQuery) ||
-			link.section.toLowerCase().includes(normalizedQuery),
-	);
-
 	return (
 		<SidebarGroup>
 			<SidebarGroupLabel className="text-muted-foreground px-2 text-xs font-medium">
@@ -1121,6 +1144,10 @@ export function DashboardSidebar({
 	const [showUpgradeCTA, setShowUpgradeCTA] = useState(true);
 	const [ctaLoaded, setCTALoaded] = useState(false);
 	const [searchQuery, setSearchQuery] = useState("");
+	const searchInputRef = useRef<HTMLInputElement>(null);
+	// Destination of a search-result navigation; the scroll-to-active effect
+	// waits until the route actually lands there before scrolling.
+	const pendingScrollHref = useRef<string | null>(null);
 
 	const { user } = useUser({
 		redirectTo: "/login",
@@ -1268,12 +1295,85 @@ export function DashboardSidebar({
 		];
 	}, [isDeveloper, buildUrl, buildOrgUrl, searchParams, toolsResources]);
 
-	const handleSearchNavigate = () => {
+	const searchMatches = useMemo(
+		() => filterSearchableLinks(searchableLinks, searchQuery),
+		[searchableLinks, searchQuery],
+	);
+
+	const handleSearchNavigate = (link: SearchableLink) => {
+		// Once the query clears, the regular sections come back; remember the
+		// destination so the effect below can scroll its link into view.
+		if (!link.external) {
+			pendingScrollHref.current = link.href;
+		}
 		setSearchQuery("");
+		searchInputRef.current?.blur();
 		if (isMobile) {
 			toggleSidebar();
 		}
 	};
+
+	// Enter in the search box opens the top result.
+	const handleSearchSubmit = () => {
+		const first = searchMatches[0];
+		if (!first) {
+			return;
+		}
+		if (first.external) {
+			window.open(first.href, "_blank", "noopener,noreferrer");
+		} else {
+			router.push(first.href as Route);
+		}
+		handleSearchNavigate(first);
+	};
+
+	// "/" focuses the sidebar search from anywhere (unless already typing in a
+	// field), mirroring the common browse-page shortcut.
+	useEffect(() => {
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) {
+				return;
+			}
+			const target = e.target as HTMLElement | null;
+			if (
+				target &&
+				(target.tagName === "INPUT" ||
+					target.tagName === "TEXTAREA" ||
+					target.tagName === "SELECT" ||
+					target.isContentEditable)
+			) {
+				return;
+			}
+			e.preventDefault();
+			searchInputRef.current?.focus();
+		};
+		document.addEventListener("keydown", onKeyDown);
+		return () => document.removeEventListener("keydown", onKeyDown);
+	}, []);
+
+	// After navigating via a search result, the search clears and the regular
+	// sections re-render — once the route has landed on the destination,
+	// scroll the active item into view (deepest match, so a settings sub-link
+	// wins over its parent). Waiting for the pathname to match matters: the
+	// query clears before navigation completes, and scrolling then would
+	// target the previous page's active link.
+	useEffect(() => {
+		const href = pendingScrollHref.current;
+		if (!href || searchQuery) {
+			return;
+		}
+		if (pathname !== href.split("?")[0]) {
+			return;
+		}
+		pendingScrollHref.current = null;
+		const actives = document.querySelectorAll(
+			'[data-sidebar="content"] [data-active="true"]',
+		);
+		const target = actives[actives.length - 1];
+		if (target) {
+			target.scrollIntoView({ block: "center", behavior: "smooth" });
+		}
+	}, [pathname, searchQuery]);
 
 	const hideCreditCTA = () => {
 		setShowUpgradeCTA(false);
@@ -1327,12 +1427,13 @@ export function DashboardSidebar({
 				onOrganizationCreated={onOrganizationCreated}
 				searchQuery={searchQuery}
 				onSearchQueryChange={setSearchQuery}
+				onSearchSubmit={handleSearchSubmit}
+				searchInputRef={searchInputRef}
 			/>
 			<SidebarContent>
 				{searchQuery.trim() ? (
 					<SidebarSearchResults
-						links={searchableLinks}
-						query={searchQuery}
+						matches={searchMatches}
 						onNavigate={handleSearchNavigate}
 						showEnterpriseBadge={selectedOrganization?.plan !== "enterprise"}
 					/>
