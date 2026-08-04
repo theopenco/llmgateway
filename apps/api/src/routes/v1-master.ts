@@ -10,6 +10,7 @@ import {
 	validateIamRuleInput,
 } from "@/lib/iam-rules.js";
 import { maskToken } from "@/lib/maskToken.js";
+import { assertOrganizationProviderKey } from "@/lib/organization-provider-key.js";
 import {
 	applyCustomModelUpdate,
 	createCustomModelSchema,
@@ -34,25 +35,26 @@ import {
 	complianceAttestationSchema,
 	customProviderNameSchema,
 	isValidProviderToken,
-	providerKeyResponseSchema,
-	serializeProviderKey,
+	providerKeyPublicSchema,
 	stampComplianceAttestation,
+	toPublicProviderKey,
 } from "@/routes/keys-provider.js";
 import { createProjectForOrg } from "@/routes/projects.js";
 import { memberIamRuleSchema } from "@/routes/team.js";
 
+import { encryptProviderKey, readProviderKey } from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
 import {
 	cdb,
 	db,
 	eq,
 	getApiKeyCurrentPeriodState,
+	shortid,
 	tables,
 } from "@llmgateway/db";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 import type { ServerTypes } from "@/vars.js";
-import type { ProviderKeyComplianceAttestation } from "@llmgateway/db";
 
 export const v1Master = new OpenAPIHono<ServerTypes>();
 
@@ -1464,6 +1466,11 @@ async function loadCustomProviderKeyForOrg(id: string, organizationId: string) {
 		});
 	}
 
+	// Narrows organizationId to non-null for consumers (insertCustomModel etc.).
+	// Guaranteed by the org check above: platform-managed rows have a NULL
+	// organizationId and can never match a master key's organization.
+	assertOrganizationProviderKey(providerKey);
+
 	return providerKey;
 }
 
@@ -1530,7 +1537,7 @@ const createCustomProvider = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
-						customProvider: providerKeyResponseSchema.openapi({}),
+						customProvider: providerKeyPublicSchema.openapi({}),
 					}),
 				},
 			},
@@ -1551,14 +1558,25 @@ v1Master.openapi(createCustomProvider, async (c) => {
 	await assertProviderBaseUrlAllowed(baseUrl);
 	await assertCustomProviderNameAvailable(masterKey.organizationId, name);
 
+	// Generate the id up front so the AAD — which binds the ciphertext to the
+	// row id and the organization id — can be computed before the INSERT.
+	const providerKeyId = shortid();
 	const [providerKey] = await cdb
 		.insert(tables.providerKey)
 		.values({
+			id: providerKeyId,
 			organizationId: masterKey.organizationId,
 			provider: "custom",
 			name,
 			baseUrl,
-			token,
+			token: null,
+			tokenCiphertext: encryptProviderKey(
+				token,
+				providerKeyId,
+				masterKey.organizationId,
+			),
+			tokenMasked: maskToken(token),
+			tokenHash: getApiKeyFingerprint(token),
 			customModelsOnly: customModelsOnly ?? false,
 			complianceAttestation: complianceAttestation
 				? stampComplianceAttestation(complianceAttestation, masterKey.createdBy)
@@ -1575,7 +1593,7 @@ v1Master.openapi(createCustomProvider, async (c) => {
 		metadata: { provider: "custom", resourceName: name },
 	});
 
-	return c.json({ customProvider: serializeProviderKey(providerKey) }, 201);
+	return c.json({ customProvider: toPublicProviderKey(providerKey) }, 201);
 });
 
 const listCustomProviders = createRoute({
@@ -1586,7 +1604,7 @@ const listCustomProviders = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
-						customProviders: z.array(providerKeyResponseSchema).openapi({}),
+						customProviders: z.array(providerKeyPublicSchema).openapi({}),
 					}),
 				},
 			},
@@ -1611,7 +1629,7 @@ v1Master.openapi(listCustomProviders, async (c) => {
 		orderBy: { createdAt: "asc" },
 	});
 
-	return c.json({ customProviders: providerKeys.map(serializeProviderKey) });
+	return c.json({ customProviders: providerKeys.map(toPublicProviderKey) });
 });
 
 const getCustomProvider = createRoute({
@@ -1625,7 +1643,7 @@ const getCustomProvider = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
-						customProvider: providerKeyResponseSchema.openapi({}),
+						customProvider: providerKeyPublicSchema.openapi({}),
 					}),
 				},
 			},
@@ -1647,7 +1665,7 @@ v1Master.openapi(getCustomProvider, async (c) => {
 		masterKey.organizationId,
 	);
 
-	return c.json({ customProvider: serializeProviderKey(providerKey) });
+	return c.json({ customProvider: toPublicProviderKey(providerKey) });
 });
 
 const updateCustomProvider = createRoute({
@@ -1668,7 +1686,7 @@ const updateCustomProvider = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
-						customProvider: providerKeyResponseSchema.openapi({}),
+						customProvider: providerKeyPublicSchema.openapi({}),
 					}),
 				},
 			},
@@ -1696,18 +1714,19 @@ v1Master.openapi(updateCustomProvider, async (c) => {
 		await assertProviderBaseUrlAllowed(baseUrl);
 	}
 
-	const updates: {
-		baseUrl?: string;
-		token?: string;
-		status?: "active" | "inactive";
-		customModelsOnly?: boolean;
-		complianceAttestation?: ProviderKeyComplianceAttestation | null;
-	} = {};
+	const updates: Partial<typeof tables.providerKey.$inferInsert> = {};
 	if (baseUrl !== undefined) {
 		updates.baseUrl = baseUrl;
 	}
 	if (token !== undefined) {
-		updates.token = token;
+		updates.token = null;
+		updates.tokenCiphertext = encryptProviderKey(
+			token,
+			existing.id,
+			masterKey.organizationId,
+		);
+		updates.tokenMasked = maskToken(token);
+		updates.tokenHash = getApiKeyFingerprint(token);
 	}
 	if (status !== undefined) {
 		updates.status = status;
@@ -1732,8 +1751,11 @@ v1Master.openapi(updateCustomProvider, async (c) => {
 	if (baseUrl !== undefined && existing.baseUrl !== baseUrl) {
 		changes.baseUrl = { old: existing.baseUrl, new: baseUrl };
 	}
-	// The token itself is never written to the audit log, only the fact it rotated.
-	if (token !== undefined && existing.token !== token) {
+	// The token itself is never written to the audit log, only the fact it
+	// rotated. Compare via readProviderKey: the plaintext column is NULL for
+	// encrypted rows, so a raw column comparison would log every no-op
+	// resubmission of the same token as a rotation.
+	if (token !== undefined && readProviderKey(existing) !== token) {
 		changes.token = { old: "<redacted>", new: "<rotated>" };
 	}
 	if (status !== undefined && existing.status !== status) {
@@ -1770,7 +1792,7 @@ v1Master.openapi(updateCustomProvider, async (c) => {
 		});
 	}
 
-	return c.json({ customProvider: serializeProviderKey(updated) });
+	return c.json({ customProvider: toPublicProviderKey(updated) });
 });
 
 const deleteCustomProvider = createRoute({

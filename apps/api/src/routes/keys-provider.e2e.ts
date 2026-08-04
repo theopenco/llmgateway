@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 import { app } from "@/index.js";
 import { deleteAll } from "@/testing.js";
 
+import { readProviderKey } from "@llmgateway/actions";
 import { db, tables } from "@llmgateway/db";
 import {
 	getProviderEnvVar,
@@ -203,7 +204,12 @@ describe(
 				});
 				expect(providerKey).not.toBeNull();
 				expect(providerKey?.provider).toBe(providerId);
-				expect(providerKey?.token).toBe(envVarValue);
+				// Stored encrypted at rest: the legacy plaintext column stays NULL
+				// and the ciphertext decrypts back to the submitted key.
+				// eslint-disable-next-line no-restricted-syntax
+				expect(providerKey?.token).toBeNull();
+				expect(providerKey?.tokenCiphertext).toMatch(/^llmgw:v2:/);
+				expect(readProviderKey(providerKey!)).toBe(envVarValue);
 			},
 		);
 

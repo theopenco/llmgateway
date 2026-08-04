@@ -13,6 +13,7 @@ import { getGcpServiceAccountAccessToken } from "./gcp-access-token.js";
 import { getProviderEndpoint } from "./get-provider-endpoint.js";
 import { getProviderHeaders } from "./get-provider-headers.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
+import { redactToken } from "./provider-key/redact.js";
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
 
@@ -320,11 +321,16 @@ export async function validateProviderKey(
 				}
 			} catch {}
 
+			// Upstream providers occasionally echo the submitted key in their
+			// error body. Redact before logging or returning so the plaintext
+			// never reaches logs, the client-facing 400, or telemetry spans.
+			const safeErrorMessage = redactToken(errorMessage, token);
+
 			logger.warn("Provider key validation returned error response", {
 				provider,
 				model: validationModel?.modelId,
 				statusCode: response.status,
-				error: errorMessage,
+				error: safeErrorMessage,
 			});
 
 			// 401 used to drop the upstream text and fall back to a generic
@@ -334,7 +340,7 @@ export async function validateProviderKey(
 			// caller decides how to word it; always hand it the provider's reason.
 			return {
 				valid: false,
-				error: errorMessage,
+				error: safeErrorMessage,
 				statusCode: response.status,
 				model: validationModel?.modelId,
 			};
@@ -346,17 +352,22 @@ export async function validateProviderKey(
 		});
 		return { valid: true, model: validationModel.modelId };
 	} catch (error) {
-		const errorMessage =
+		const rawMessage =
 			error instanceof Error ? error.message : "Unknown error occurred";
+		const safeErrorMessage = redactToken(rawMessage, token);
+		const safeStack =
+			error instanceof Error
+				? redactToken(error.stack, token) || undefined
+				: undefined;
 		logger.error("Provider key validation failed with exception", {
 			provider,
 			model: validationModel?.modelId,
-			error: errorMessage,
-			stack: error instanceof Error ? error.stack : undefined,
+			error: safeErrorMessage,
+			stack: safeStack,
 		});
 		return {
 			valid: false,
-			error: errorMessage,
+			error: safeErrorMessage,
 			model: validationModel?.modelId,
 		};
 	}

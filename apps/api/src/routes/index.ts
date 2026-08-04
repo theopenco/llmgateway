@@ -3,6 +3,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { apiAuth as auth } from "@/auth/config.js";
 
 import { activity } from "./activity.js";
+import adminProviderCredentials from "./admin-provider-credentials.js";
 import admin from "./admin.js";
 import { analytics } from "./analytics.js";
 import { auditLogs } from "./audit-logs.js";
@@ -58,6 +59,7 @@ routes.route("/logs", logs);
 routes.route("/activity", activity);
 
 routes.route("/admin", admin);
+routes.route("/admin", adminProviderCredentials);
 
 routes.route("/analytics", analytics);
 

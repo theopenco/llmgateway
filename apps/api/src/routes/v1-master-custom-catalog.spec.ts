@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
+import { readProviderKey } from "@llmgateway/actions";
 import { db, tables } from "@llmgateway/db";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
@@ -100,7 +101,11 @@ describe("v1/master custom providers and models", () => {
 		});
 		expect(stored?.provider).toBe("custom");
 		expect(stored?.organizationId).toBe("test-org-id");
-		expect(stored?.token).toBe("sk-acme-secret");
+		// Stored encrypted at rest: the legacy plaintext column stays NULL and
+		// the ciphertext decrypts back to the submitted token.
+		expect(stored?.token).toBeNull();
+		expect(stored?.tokenCiphertext).toMatch(/^llmgw:v2:/);
+		expect(readProviderKey(stored!)).toBe("sk-acme-secret");
 	});
 
 	test("rejects a duplicate custom provider name in the same organization", async () => {

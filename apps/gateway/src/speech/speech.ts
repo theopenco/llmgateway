@@ -5,7 +5,10 @@ import { buildRoutingAttempt } from "@/chat/tools/build-routing-attempt.js";
 import { createLogEntry } from "@/chat/tools/create-log-entry.js";
 import { extractCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
 import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
-import { getProviderEnv } from "@/chat/tools/get-provider-env.js";
+import {
+	getCredentialSetting,
+	resolvePlatformCredential,
+} from "@/chat/tools/resolve-platform-credential.js";
 import {
 	getErrorType,
 	isRetryableErrorType,
@@ -37,13 +40,16 @@ import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
-import { getProviderHeaders } from "@llmgateway/actions";
+import {
+	getProviderHeaders,
+	managedCredentialOptions,
+	readProviderKey,
+} from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	ELEVENLABS_VOICE_IDS,
 	getOrganizationEnvVariant,
-	getProviderEnvValue,
 	models as modelDefinitions,
 	resolveVertexTokenType,
 } from "@llmgateway/models";
@@ -746,6 +752,8 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 
 	interface SpeechAttempt {
 		providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
+		/** Platform-managed credential when one served this attempt. */
+		managedKey: InferSelectModel<typeof tables.providerKey> | undefined;
 		usedToken: string;
 		configIndex: number;
 		envVarName: string | undefined;
@@ -755,6 +763,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 
 	async function resolveAttempt(): Promise<SpeechAttempt> {
 		let providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
+		let managedKey: InferSelectModel<typeof tables.providerKey> | undefined;
 		let usedToken: string | undefined;
 		let configIndex = 0;
 		let envVarName: string | undefined;
@@ -780,7 +789,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 					message: `No API key set for provider: ${providerId}. Please add a provider key in your settings or add credits and switch to credits or hybrid mode.`,
 				});
 			}
-			usedToken = providerKey.token;
+			usedToken = readProviderKey(providerKey);
 		} else if (retryProject.mode === "credits") {
 			assertCreditsAvailable(
 				retryOrganization,
@@ -790,14 +799,18 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 					`Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
 			);
 
-			const envResult = getProviderEnv(providerId, {
+			const platformCredential = await resolvePlatformCredential(providerId, {
 				selectionScope: upstreamModel,
-				excludedIndices: excludedEnvKeyIndices,
 				variant: envVariant,
+				region: undefined,
+				requiresServiceTier: false,
+				excludedEnvIndices: excludedEnvKeyIndices,
+				excludedProviderKeyIds,
 			});
-			usedToken = envResult.token;
-			configIndex = envResult.configIndex;
-			envVarName = envResult.envVarName;
+			managedKey = platformCredential.managedKey;
+			usedToken = platformCredential.token;
+			configIndex = platformCredential.configIndex;
+			envVarName = platformCredential.envVarName;
 		} else if (retryProject.mode === "hybrid") {
 			providerKey = await findProviderKey(
 				retryProject.organizationId,
@@ -806,7 +819,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				excludedProviderKeyIds,
 			);
 			if (providerKey) {
-				usedToken = providerKey.token;
+				usedToken = readProviderKey(providerKey);
 			} else {
 				assertCreditsAvailable(
 					retryOrganization,
@@ -816,14 +829,18 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 						`No API key set for provider. Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
 				);
 
-				const envResult = getProviderEnv(providerId, {
+				const platformCredential = await resolvePlatformCredential(providerId, {
 					selectionScope: upstreamModel,
-					excludedIndices: excludedEnvKeyIndices,
 					variant: envVariant,
+					region: undefined,
+					requiresServiceTier: false,
+					excludedEnvIndices: excludedEnvKeyIndices,
+					excludedProviderKeyIds,
 				});
-				usedToken = envResult.token;
-				configIndex = envResult.configIndex;
-				envVarName = envResult.envVarName;
+				managedKey = platformCredential.managedKey;
+				usedToken = platformCredential.token;
+				configIndex = platformCredential.configIndex;
+				envVarName = platformCredential.envVarName;
 			}
 		} else {
 			throw new HTTPException(400, {
@@ -845,13 +862,10 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 			throw new HTTPException(500, { message: "No token" });
 		}
 
-		const envBaseUrl = getProviderEnvValue(
-			providerId,
-			"baseUrl",
+		const envBaseUrl = getCredentialSetting(providerId, "baseUrl", managedKey, {
 			configIndex,
-			undefined,
-			envVariant,
-		);
+			variant: envVariant,
+		});
 		const resolvedBaseUrl =
 			providerKey?.baseUrl ??
 			envBaseUrl ??
@@ -876,13 +890,10 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		} else if (isGoogleVertex) {
 			const vertexProjectId =
 				providerKey?.options?.google_vertex_project_id ??
-				getProviderEnvValue(
-					"google-vertex",
-					"project",
+				getCredentialSetting("google-vertex", "project", managedKey, {
 					configIndex,
-					undefined,
-					envVariant,
-				);
+					variant: envVariant,
+				});
 			if (!vertexProjectId) {
 				throw new HTTPException(500, {
 					message:
@@ -890,21 +901,21 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				});
 			}
 			const vertexRegion =
-				getProviderEnvValue(
-					"google-vertex",
-					"region",
+				getCredentialSetting("google-vertex", "region", managedKey, {
 					configIndex,
-					"global",
-					envVariant,
-				) ?? "global";
+					defaultValue: "global",
+					variant: envVariant,
+				}) ?? "global";
 			// OAuth tokens are sent via the Authorization header; only API keys go
 			// in the `?key=` query param. Resolve once so the header and the query
 			// param agree.
 			vertexTokenType = resolveVertexTokenType(
 				"google-vertex",
-				providerKey?.options ?? undefined,
+				providerKey
+					? (providerKey.options ?? undefined)
+					: managedCredentialOptions(managedKey),
 				configIndex,
-				providerKey !== undefined,
+				providerKey !== undefined || managedKey !== undefined,
 				envVariant,
 			);
 			const vertexAuthQuery =
@@ -918,6 +929,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 
 		return {
 			providerKey,
+			managedKey,
 			usedToken,
 			configIndex,
 			envVarName,
@@ -932,7 +944,8 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		failedKeys.remember(providerId, undefined, {
 			envVarName: failedAttempt.envVarName,
 			configIndex: failedAttempt.configIndex,
-			providerKeyId: failedAttempt.providerKey?.id,
+			providerKeyId:
+				failedAttempt.providerKey?.id ?? failedAttempt.managedKey?.id,
 		});
 		try {
 			const next = await resolveAttempt();
@@ -966,7 +979,10 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				requestId,
 				project,
 				apiKey,
-				providerKeyId: attempt.providerKey?.id,
+				// BYOK only: a managed credential is the platform's own key and its
+				// traffic must still bill as credits.
+				organizationProviderKeyId: attempt.providerKey?.id,
+				usedProviderKeyId: attempt.providerKey?.id ?? attempt.managedKey?.id,
 				usedModel: `${providerId}/${modelDefId}`,
 				usedModelMapping: upstreamModel,
 				usedProvider: providerId,
@@ -1031,9 +1047,11 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 							upstreamModel,
 						);
 					}
-					if (attempt.providerKey?.id) {
+					const trackedKeyHealthId =
+						attempt.providerKey?.id ?? attempt.managedKey?.id;
+					if (trackedKeyHealthId) {
 						reportTrackedKeyError(
-							attempt.providerKey.id,
+							trackedKeyHealthId,
 							0,
 							undefined,
 							upstreamModel,
@@ -1178,9 +1196,11 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 						upstreamModel,
 					);
 				}
-				if (attempt.providerKey?.id) {
+				const trackedKeyHealthId =
+					attempt.providerKey?.id ?? attempt.managedKey?.id;
+				if (trackedKeyHealthId) {
 					reportTrackedKeyError(
-						attempt.providerKey.id,
+						trackedKeyHealthId,
 						status,
 						upstreamText,
 						upstreamModel,
@@ -1295,8 +1315,10 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 					upstreamModel,
 				);
 			}
-			if (attempt.providerKey?.id) {
-				reportTrackedKeySuccess(attempt.providerKey.id, upstreamModel);
+			const trackedKeyHealthId =
+				attempt.providerKey?.id ?? attempt.managedKey?.id;
+			if (trackedKeyHealthId) {
+				reportTrackedKeySuccess(trackedKeyHealthId, upstreamModel);
 			}
 
 			// OpenAI and ElevenLabs return the audio already encoded in the

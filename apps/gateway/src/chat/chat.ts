@@ -20,6 +20,7 @@ import {
 import { resolveChatApiOrigin } from "@/lib/api-origin.js";
 import {
 	findApiKeyByToken,
+	findManagedProviderIds,
 	findProjectById,
 	findOrganizationById,
 	findCustomProviderKey,
@@ -114,12 +115,15 @@ import {
 	providerKeyBaseUrlSupportsServiceTier,
 	resolveServedServiceTier,
 	googleProviderSupportsAudioFormat,
+	hasProviderKey,
 	InvalidFileContentError,
+	managedCredentialOptions,
 	parseGoogleUpstreamDocumentError,
 	prepareRequestBody,
 	providerSupportsCaching,
-	selectProviderMapping,
+	readProviderKey,
 	RequestError,
+	selectProviderMapping,
 	UnsupportedAudioFormatError,
 	UnsupportedDocumentFormatError,
 	type RoutingMetadata,
@@ -213,8 +217,6 @@ import { extractToolCalls } from "./tools/extract-tool-calls.js";
 import { getFinishReasonFromError } from "./tools/get-finish-reason-from-error.js";
 import {
 	getEnvKeyCount,
-	getProviderEnv,
-	getServiceTierIneligibleEnvIndices,
 	hasServiceTierEligibleEnvCredential,
 } from "./tools/get-provider-env.js";
 import { hasMeaningfulAssistantOutput } from "./tools/has-meaningful-assistant-output.js";
@@ -253,6 +255,7 @@ import {
 	splitReasoningFromTaggedContent,
 } from "./tools/reasoning-details.js";
 import { resolveModelInfo } from "./tools/resolve-model-info.js";
+import { resolvePlatformCredential } from "./tools/resolve-platform-credential.js";
 import {
 	assertDevPlanPremiumCapNotExceeded,
 	formatUsedModelForDisplay,
@@ -505,7 +508,13 @@ function resolveExplicitRegionFromProviderKey(
  * a region on their provider key (e.g. `aws_bedrock_region: "eu"`), only that
  * region should be a routing candidate for the provider.
  */
-function buildProviderLockedRegions(
+/**
+ * Region each provider is pinned to by the organization's own keys.
+ *
+ * Exported for its unit test — the first-wins rule has to stay in lockstep
+ * with selectProviderKeyWithFailover, which also treats index 0 as primary.
+ */
+export function buildProviderLockedRegions(
 	providerKeys: InferSelectModel<typeof tables.providerKey>[],
 ): Map<string, string> {
 	const locked = new Map<string, string>();
@@ -517,7 +526,12 @@ function buildProviderLockedRegions(
 			const lockedRegion = (key.options as Record<string, string | undefined>)[
 				regionKey
 			];
-			if (lockedRegion) {
+			// First key wins, matching selectProviderKeyWithFailover, which treats
+			// index 0 of this same ordered array as the primary. Overwriting per
+			// iteration would take the region from the LAST key while the request
+			// runs on the FIRST one — invisible while order was just "oldest
+			// first", but wrong as soon as an organization orders its keys.
+			if (lockedRegion && !locked.has(key.provider)) {
 				locked.set(key.provider, lockedRegion);
 			}
 		}
@@ -2054,6 +2068,12 @@ chat.openapi(completions, async (c) => {
 	// this org's env-credential reads. Undefined = base vars only.
 	const envVariant = getOrganizationEnvVariant(organization);
 
+	// Providers LLM Gateway holds a managed credential for that this org can
+	// actually use. Routing treats these as available in credits mode even when
+	// the provider's LLM_* env var is unset, which is what lets a deployment
+	// drop the env vars entirely.
+	const managedProviderIds = await findManagedProviderIds(envVariant);
+
 	// Dev-plan (DevPass) orgs can default routing to cheaper flex processing via
 	// their dashboard settings to save on plan credits. Applied softly, and only
 	// when the request itself doesn't specify a service_tier: the tier kicks in
@@ -3064,6 +3084,7 @@ chat.openapi(completions, async (c) => {
 				project.mode,
 				providerKeys,
 				supportedProviderIds,
+				managedProviderIds,
 			);
 		// Region locks from DB provider keys, so auto-routing honors an org's
 		// configured region (e.g. aws_bedrock_region: "eu") instead of being
@@ -3680,6 +3701,7 @@ chat.openapi(completions, async (c) => {
 						project.mode,
 						providerKeys,
 						providerIds,
+						managedProviderIds,
 					);
 
 				const availableModelProviders = preferConcreteRegionalMappings(
@@ -3898,6 +3920,7 @@ chat.openapi(completions, async (c) => {
 						project.mode,
 						providerKeys,
 						providerIds,
+						managedProviderIds,
 					);
 
 				// Filter model providers to only those available (excluding the low-uptime one)
@@ -4124,6 +4147,7 @@ chat.openapi(completions, async (c) => {
 					project.mode,
 					providerKeys,
 					providerIds,
+					managedProviderIds,
 				);
 
 			// Build a map of provider → locked region from DB provider keys.
@@ -4713,6 +4737,11 @@ chat.openapi(completions, async (c) => {
 	// Get the provider key for the selected provider based on project mode
 
 	let providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
+	// Platform-managed credential (credits mode): the database-backed
+	// replacement for the provider's LLM_* env vars. Kept separate from
+	// `providerKey` so BYOK-only behaviour (free-model gating, billing) keeps
+	// treating a credits-mode request as a credits-mode request.
+	let managedKey: InferSelectModel<typeof tables.providerKey> | undefined;
 	let usedToken: string | undefined;
 	let usedApiKeyHash: string | undefined;
 	let envVarName: string | undefined; // Environment variable name for health tracking
@@ -4771,7 +4800,7 @@ chat.openapi(completions, async (c) => {
 			});
 		}
 
-		usedToken = providerKey.token;
+		usedToken = readProviderKey(providerKey);
 		trackedKeyHealthId = providerKey.id;
 		if (
 			modelHasRegionalMappingsForProvider(
@@ -4857,23 +4886,23 @@ chat.openapi(completions, async (c) => {
 			});
 		}
 
-		const envResult = getProviderEnv(usedProvider, {
+		const platformCredential = await resolvePlatformCredential(usedProvider, {
 			selectionScope: usedInternalModel,
-			excludedIndices: isRequestedServiceTier(service_tier)
-				? getServiceTierIneligibleEnvIndices(
-						usedProvider as Provider,
-						envVariant,
-					)
-				: undefined,
 			variant: envVariant,
+			region: usedRegion,
+			requiresServiceTier: isRequestedServiceTier(service_tier),
 		});
-		usedToken = envResult.token;
-		configIndex = envResult.configIndex;
-		envVarName = envResult.envVarName;
+		managedKey = platformCredential.managedKey;
+		usedToken = platformCredential.token;
+		configIndex = platformCredential.configIndex;
+		envVarName = platformCredential.envVarName;
+		trackedKeyHealthId = managedKey?.id;
 
 		// Override with region-specific env var if a non-default region is selected.
-		// Health attribution must follow the credential we actually send.
-		if (usedRegion) {
+		// Managed credentials are already selected per region, so this only
+		// applies to the env-var path. Health attribution must follow the
+		// credential we actually send.
+		if (usedRegion && !managedKey) {
 			const regionEnvVarName = getRegionSpecificEnvVarName(
 				usedProvider,
 				usedRegion,
@@ -4907,7 +4936,7 @@ chat.openapi(completions, async (c) => {
 		}
 
 		if (providerKey) {
-			usedToken = providerKey.token;
+			usedToken = readProviderKey(providerKey);
 			trackedKeyHealthId = providerKey.id;
 			if (
 				modelHasRegionalMappingsForProvider(
@@ -4992,23 +5021,23 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 
-			const envResult = getProviderEnv(usedProvider, {
+			const platformCredential = await resolvePlatformCredential(usedProvider, {
 				selectionScope: usedInternalModel,
-				excludedIndices: isRequestedServiceTier(service_tier)
-					? getServiceTierIneligibleEnvIndices(
-							usedProvider as Provider,
-							envVariant,
-						)
-					: undefined,
 				variant: envVariant,
+				region: usedRegion,
+				requiresServiceTier: isRequestedServiceTier(service_tier),
 			});
-			usedToken = envResult.token;
-			configIndex = envResult.configIndex;
-			envVarName = envResult.envVarName;
+			managedKey = platformCredential.managedKey;
+			usedToken = platformCredential.token;
+			configIndex = platformCredential.configIndex;
+			envVarName = platformCredential.envVarName;
+			trackedKeyHealthId = managedKey?.id;
 
 			// Override with region-specific env var if a non-default region is selected.
-			// Health attribution must follow the credential we actually send.
-			if (usedRegion) {
+			// Managed credentials are already selected per region, so this only
+			// applies to the env-var path. Health attribution must follow the
+			// credential we actually send.
+			if (usedRegion && !managedKey) {
 				const regionEnvVarName = getRegionSpecificEnvVarName(
 					usedProvider,
 					usedRegion,
@@ -5031,18 +5060,24 @@ chat.openapi(completions, async (c) => {
 	}
 
 	if (usedProvider === "vertex-anthropic") {
-		const gcpToken = await getGcpAccessToken(
-			providerKey ? undefined : envVariant,
-		);
-		if (gcpToken) {
-			usedToken = gcpToken;
+		if (managedKey) {
+			// The managed credential's token is the service-account JSON, so
+			// exchange it directly instead of reading the deployment's env var.
+			usedToken = await getGcpServiceAccountAccessToken(usedToken);
+		} else {
+			const gcpToken = await getGcpAccessToken(
+				providerKey ? undefined : envVariant,
+			);
+			if (gcpToken) {
+				usedToken = gcpToken;
+			}
 		}
 	}
 
 	// Check email verification and rate limits for free models (only when using credits/environment tokens)
 	if (
 		isModelTrulyFree((finalModelInfo ?? modelInfo) as ModelDefinition) &&
-		(!providerKey || !providerKey.token)
+		!hasProviderKey(providerKey)
 	) {
 		await validateFreeModelUsage(
 			c,
@@ -5354,11 +5389,25 @@ chat.openapi(completions, async (c) => {
 		(msg: any) => msg.tool_calls ?? msg.role === "tool",
 	);
 
+	// Settings of whichever database-backed credential is active: the BYOK
+	// provider key, or the platform-managed credential serving credits mode
+	// (whose `config` column replaces the provider's LLM_* env vars).
+	const credentialOptions = providerKey
+		? (providerKey.options ?? undefined)
+		: managedCredentialOptions(managedKey);
+	const credentialBaseUrl = providerKey
+		? (providerKey.baseUrl ?? undefined)
+		: undefined;
+	// A managed credential describes itself completely, so env vars must not
+	// leak into its endpoint resolution any more than they do for BYOK.
+	const usesDatabaseCredential =
+		providerKey !== undefined || managedKey !== undefined;
+
 	// Strip :region suffix, then apply azure_deployment_name override if set
 	// so users can target deployments whose names differ from the registry.
 	const azureDeploymentName =
 		usedProvider === "azure"
-			? providerKey?.options?.azure_deployment_name
+			? credentialOptions?.azure_deployment_name
 			: undefined;
 	const upstreamModelName = azureDeploymentName || usedExternalId;
 
@@ -5379,7 +5428,7 @@ chat.openapi(completions, async (c) => {
 		const dbKeyIsActiveCredential = trackedKeyHealthId !== undefined;
 		return resolveVertexTokenType(
 			usedProvider,
-			dbKeyIsActiveCredential ? (providerKey?.options ?? undefined) : undefined,
+			dbKeyIsActiveCredential ? credentialOptions : undefined,
 			configIndex,
 			dbKeyIsActiveCredential,
 			envVariant,
@@ -5395,17 +5444,17 @@ chat.openapi(completions, async (c) => {
 
 		url = getProviderEndpoint(
 			usedProvider,
-			providerKey?.baseUrl ?? undefined,
+			credentialBaseUrl,
 			upstreamModelName,
 			usesGoogleQueryToken(usedProvider) ? usedToken : undefined,
 			stream,
 			supportsReasoning,
 			hasExistingToolCalls,
-			providerKey?.options ?? undefined,
+			credentialOptions,
 			configIndex,
 			isImageGeneration,
 			usedRegion,
-			providerKey !== undefined,
+			usesDatabaseCredential,
 			usedInternalModel,
 			resolveActiveVertexTokenType(),
 			envVariant,
@@ -5665,6 +5714,7 @@ chat.openapi(completions, async (c) => {
 
 				await insertLogEntry({
 					...baseLogEntry,
+					providerKeyId: trackedKeyHealthId ?? null,
 					id: finalLogId,
 					duration: 0, // No processing time for cached response
 					timeToFirstToken: null, // Not applicable for cached response
@@ -5971,6 +6021,7 @@ chat.openapi(completions, async (c) => {
 
 				await insertLogEntry({
 					...baseLogEntry,
+					providerKeyId: trackedKeyHealthId ?? null,
 					id: finalLogId,
 					duration,
 					timeToFirstToken: null, // Not applicable for cached response
@@ -6531,6 +6582,7 @@ chat.openapi(completions, async (c) => {
 		usedToken = ctx.usedToken;
 		usedApiKeyHash = ctx.usedApiKeyHash;
 		providerKey = ctx.providerKey;
+		managedKey = ctx.managedKey;
 		trackedKeyHealthId = ctx.trackedKeyHealthId;
 		configIndex = ctx.configIndex;
 		envVarName = ctx.envVarName;
@@ -6956,6 +7008,7 @@ chat.openapi(completions, async (c) => {
 
 					await insertLogEntry({
 						...baseLogEntry,
+						providerKeyId: trackedKeyHealthId ?? null,
 						duration: Date.now() - perAttemptStartTime,
 						timeToFirstToken: null, // Not applicable for canceled request
 						timeToFirstReasoningToken: null, // Not applicable for canceled request
@@ -7232,7 +7285,7 @@ chat.openapi(completions, async (c) => {
 							rememberFailedKey(usedProvider, usedRegion, {
 								envVarName,
 								configIndex,
-								providerKeyId: providerKey?.id,
+								providerKeyId: providerKey?.id ?? managedKey?.id,
 							});
 							sameProviderRetryContext =
 								await tryResolveAlternateKeyForCurrentProvider(true);
@@ -7319,6 +7372,7 @@ chat.openapi(completions, async (c) => {
 
 							await insertLogEntry({
 								...baseLogEntry,
+								providerKeyId: trackedKeyHealthId ?? null,
 								id: attemptLogId,
 								duration: Date.now() - perAttemptStartTime,
 								timeToFirstToken: null,
@@ -7469,7 +7523,7 @@ chat.openapi(completions, async (c) => {
 								rememberFailedKey(usedProvider, usedRegion, {
 									envVarName,
 									configIndex,
-									providerKeyId: providerKey?.id,
+									providerKeyId: providerKey?.id ?? managedKey?.id,
 								});
 								sameProviderRetryContext =
 									await tryResolveAlternateKeyForCurrentProvider(true);
@@ -7557,6 +7611,7 @@ chat.openapi(completions, async (c) => {
 
 							await insertLogEntry({
 								...baseLogEntry,
+								providerKeyId: trackedKeyHealthId ?? null,
 								id: attemptLogId,
 								duration: Date.now() - perAttemptStartTime,
 								timeToFirstToken: null, // Not applicable for error case
@@ -7784,7 +7839,7 @@ chat.openapi(completions, async (c) => {
 							rememberFailedKey(usedProvider, usedRegion, {
 								envVarName,
 								configIndex,
-								providerKeyId: providerKey?.id,
+								providerKeyId: providerKey?.id ?? managedKey?.id,
 							});
 							sameProviderRetryContext =
 								await tryResolveAlternateKeyForCurrentProvider(true);
@@ -7906,6 +7961,7 @@ chat.openapi(completions, async (c) => {
 
 						await insertLogEntry({
 							...baseLogEntry,
+							providerKeyId: trackedKeyHealthId ?? null,
 							id: attemptLogId,
 							duration: Date.now() - perAttemptStartTime,
 							timeToFirstToken: null,
@@ -8157,7 +8213,7 @@ chat.openapi(completions, async (c) => {
 							rememberFailedKey(usedProvider, usedRegion, {
 								envVarName,
 								configIndex,
-								providerKeyId: providerKey?.id,
+								providerKeyId: providerKey?.id ?? managedKey?.id,
 							});
 							sameProviderRetryContext =
 								await tryResolveAlternateKeyForCurrentProvider(true);
@@ -8246,6 +8302,7 @@ chat.openapi(completions, async (c) => {
 
 						await insertLogEntry({
 							...baseLogEntry,
+							providerKeyId: trackedKeyHealthId ?? null,
 							id: attemptLogId,
 							duration: Date.now() - perAttemptStartTime,
 							timeToFirstToken: null,
@@ -10931,6 +10988,7 @@ chat.openapi(completions, async (c) => {
 
 					await insertLogEntry({
 						...baseLogEntry,
+						providerKeyId: trackedKeyHealthId ?? null,
 						id: finalLogId,
 						duration,
 						timeToFirstToken,
@@ -11213,6 +11271,7 @@ chat.openapi(completions, async (c) => {
 
 		await insertLogEntry({
 			...baseLogEntry,
+			providerKeyId: trackedKeyHealthId ?? null,
 			duration: Date.now() - startTime,
 			timeToFirstToken: null, // Not applicable for canceled request
 			timeToFirstReasoningToken: null, // Not applicable for canceled request
@@ -11511,7 +11570,7 @@ chat.openapi(completions, async (c) => {
 				rememberFailedKey(usedProvider, usedRegion, {
 					envVarName,
 					configIndex,
-					providerKeyId: providerKey?.id,
+					providerKeyId: providerKey?.id ?? managedKey?.id,
 				});
 				sameProviderRetryContext =
 					await tryResolveAlternateKeyForCurrentProvider(stream);
@@ -11598,6 +11657,7 @@ chat.openapi(completions, async (c) => {
 
 			await insertLogEntry({
 				...baseLogEntry,
+				providerKeyId: trackedKeyHealthId ?? null,
 				id: attemptLogId,
 				duration: perAttemptDuration,
 				timeToFirstToken: null, // Not applicable for error case
@@ -11841,6 +11901,7 @@ chat.openapi(completions, async (c) => {
 
 					await insertLogEntry({
 						...baseLogEntry,
+						providerKeyId: trackedKeyHealthId ?? null,
 						duration: Date.now() - perAttemptStartTime,
 						timeToFirstToken: null,
 						timeToFirstReasoningToken: null,
@@ -11951,7 +12012,7 @@ chat.openapi(completions, async (c) => {
 				rememberFailedKey(usedProvider, usedRegion, {
 					envVarName,
 					configIndex,
-					providerKeyId: providerKey?.id,
+					providerKeyId: providerKey?.id ?? managedKey?.id,
 				});
 				sameProviderRetryContext =
 					await tryResolveAlternateKeyForCurrentProvider(stream);
@@ -12073,6 +12134,7 @@ chat.openapi(completions, async (c) => {
 
 			await insertLogEntry({
 				...baseLogEntry,
+				providerKeyId: trackedKeyHealthId ?? null,
 				id: attemptLogId,
 				duration: perAttemptDuration,
 				timeToFirstToken: null, // Not applicable for error case
@@ -12536,6 +12598,7 @@ chat.openapi(completions, async (c) => {
 
 				await insertLogEntry({
 					...sseLogEntry,
+					providerKeyId: trackedKeyHealthId ?? null,
 					duration: Date.now() - startTime,
 					timeToFirstToken: null,
 					timeToFirstReasoningToken: null,
@@ -12789,6 +12852,7 @@ chat.openapi(completions, async (c) => {
 
 			await insertLogEntry({
 				...baseLogEntry,
+				providerKeyId: trackedKeyHealthId ?? null,
 				duration: Date.now() - startTime,
 				timeToFirstToken: null,
 				timeToFirstReasoningToken: null,
@@ -13306,6 +13370,7 @@ chat.openapi(completions, async (c) => {
 
 	await insertLogEntry({
 		...baseLogEntry,
+		providerKeyId: trackedKeyHealthId ?? null,
 		id: finalLogId,
 		duration,
 		timeToFirstToken: null, // Not applicable for non-streaming requests

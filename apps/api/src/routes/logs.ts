@@ -116,6 +116,7 @@ const logSchema = z.object({
 	projectName: z.string().nullable().optional(),
 	apiKeyId: z.string(),
 	apiKeyName: z.string().nullable().optional(),
+	providerKeyId: z.string().nullable().optional(),
 	duration: z.number(),
 	requestedModel: z.string(),
 	requestedProvider: z.string().nullable(),
@@ -539,8 +540,13 @@ logs.openapi(get, async (c) => {
 			});
 		}
 
-		// Check if the provider key belongs to one of the user's organizations
-		if (!organizationIds.includes(providerKey.organizationId)) {
+		// Check if the provider key belongs to one of the user's organizations.
+		// Platform-managed credentials have no owning organization, so they are
+		// never accessible here.
+		if (
+			!providerKey.organizationId ||
+			!organizationIds.includes(providerKey.organizationId)
+		) {
 			throw new HTTPException(403, {
 				message: "You don't have access to this provider key",
 			});
@@ -610,7 +616,7 @@ logs.openapi(get, async (c) => {
 
 	// Add providerKeyId filter
 	if (providerKeyId) {
-		// whereConditions.push(eq(tables.log.providerKeyId, providerKeyId));
+		whereConditions.push(eq(tables.log.providerKeyId, providerKeyId));
 	}
 
 	// Add custom header filter

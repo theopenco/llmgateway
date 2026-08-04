@@ -6,6 +6,11 @@ import { z } from "zod";
 import { deleteResendContact } from "@/auth/config.js";
 import { maskToken } from "@/lib/maskToken.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
+import {
+	getBucketUnitForWindow,
+	getTokenWindowStartDate,
+	tokenWindowSchema,
+} from "@/lib/stats-window.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 import { getStripe } from "@/routes/payments.js";
 import {
@@ -337,17 +342,6 @@ const adminTimeseriesSchema = z.object({
 	}),
 });
 
-const tokenWindowSchema = z.enum([
-	"1h",
-	"4h",
-	"12h",
-	"1d",
-	"7d",
-	"30d",
-	"90d",
-	"365d",
-]);
-
 const organizationSchema = z.object({
 	id: z.string(),
 	name: z.string(),
@@ -482,11 +476,18 @@ const apiKeysListSchema = z.object({
 
 const providerKeyAdminSchema = z.object({
 	id: z.string(),
+	/** Masked token. The plaintext is never returned. */
 	token: z.string(),
+	/** HMAC fingerprint, matching `log.usedApiKeyHash` on requests this key served. */
+	tokenHash: z.string().nullable(),
 	provider: z.string(),
 	name: z.string().nullable(),
 	baseUrl: z.string().nullable(),
 	status: z.string().nullable(),
+	/** USD spend cap; the key auto-deactivates when usage reaches it. */
+	usageLimit: z.string().nullable(),
+	/** Cumulative upstream spend (USD) attributed by the billing worker. */
+	usage: z.string(),
 	createdAt: z.string(),
 	updatedAt: z.string(),
 });
@@ -2830,11 +2831,17 @@ admin.openapi(getOrganizationProviderKeys, async (c) => {
 	const providerKeys = await db
 		.select({
 			id: tables.providerKey.id,
-			token: tables.providerKey.token,
+			// Legacy pre-encryption rows still carry plaintext here; it is selected
+			// only to compute the mask below and must never reach the response.
+			legacyToken: tables.providerKey.token,
+			tokenMasked: tables.providerKey.tokenMasked,
+			tokenHash: tables.providerKey.tokenHash,
 			provider: tables.providerKey.provider,
 			name: tables.providerKey.name,
 			baseUrl: tables.providerKey.baseUrl,
 			status: tables.providerKey.status,
+			usageLimit: tables.providerKey.usageLimit,
+			usage: tables.providerKey.usage,
 			createdAt: tables.providerKey.createdAt,
 			updatedAt: tables.providerKey.updatedAt,
 		})
@@ -2843,9 +2850,19 @@ admin.openapi(getOrganizationProviderKeys, async (c) => {
 		.orderBy(desc(tables.providerKey.createdAt));
 
 	return c.json({
+		// Explicit allowlist, never a spread of the row: a provider token is
+		// write-only once stored, and an admin identifies a key by its mask and
+		// its `tokenHash` (which matches `log.usedApiKeyHash`).
 		providerKeys: providerKeys.map((k) => ({
-			...k,
-			token: maskToken(k.token, 6),
+			id: k.id,
+			token: k.tokenMasked ?? maskToken(k.legacyToken ?? "", 6),
+			tokenHash: k.tokenHash,
+			provider: k.provider,
+			name: k.name,
+			baseUrl: k.baseUrl,
+			status: k.status,
+			usageLimit: k.usageLimit,
+			usage: k.usage,
 			createdAt: k.createdAt.toISOString(),
 			updatedAt: k.updatedAt.toISOString(),
 		})),
@@ -8151,21 +8168,6 @@ const costByModelResponseSchema = z.object({
 	totalRequests: z.number(),
 });
 
-function getTokenWindowStartDate(window: string): Date {
-	const windowMs: Record<string, number> = {
-		"1h": 60 * 60 * 1000,
-		"4h": 4 * 60 * 60 * 1000,
-		"12h": 12 * 60 * 60 * 1000,
-		"1d": 24 * 60 * 60 * 1000,
-		"7d": 7 * 24 * 60 * 60 * 1000,
-		"30d": 30 * 24 * 60 * 60 * 1000,
-		"90d": 90 * 24 * 60 * 60 * 1000,
-		"365d": 365 * 24 * 60 * 60 * 1000,
-	};
-	const ms = windowMs[window] ?? 7 * 24 * 60 * 60 * 1000;
-	return new Date(Date.now() - ms);
-}
-
 // Global cost by model
 const getGlobalCostByModel = createRoute({
 	method: "get",
@@ -8375,18 +8377,6 @@ const costByModelTimeseriesResponseSchema = z.object({
 	models: z.array(z.string()),
 	data: z.array(costByModelTimeseriesPointSchema),
 });
-
-function getBucketUnitForWindow(window: string): "hour" | "day" {
-	if (
-		window === "1h" ||
-		window === "4h" ||
-		window === "12h" ||
-		window === "1d"
-	) {
-		return "hour";
-	}
-	return "day";
-}
 
 function formatBucketTimestamp(date: Date): string {
 	const pad = (n: number) => String(n).padStart(2, "0");
@@ -9462,6 +9452,16 @@ const unstableMappingEntrySchema = z.object({
 	usedModel: z.string(),
 	providerId: z.string(),
 	providerName: z.string(),
+	/**
+	 * Only populated when the ranking is split by provider key: the credential
+	 * (managed or BYOK) whose token served this row's traffic. Null with the
+	 * split on means the traffic ran on env-var keys, or failed before a
+	 * credential was resolved — there is no key row to attribute it to.
+	 */
+	providerKeyId: z.string().nullable(),
+	/** The key's note when set, its masked token otherwise. */
+	providerKeyLabel: z.string().nullable(),
+	providerKeyManaged: z.boolean().nullable(),
 	logsCount: z.number(),
 	errorsCount: z.number(),
 	errorRate: z.number(),
@@ -9474,6 +9474,7 @@ const unstableMappingsListSchema = z.object({
 	logLimit: z.number(),
 	includeRetried: z.boolean(),
 	ignoreExpected: z.boolean(),
+	splitByKey: z.boolean(),
 	// Number of ignore matchers applied to this ranking (0 when disabled).
 	ignoredMatcherCount: z.number(),
 });
@@ -9492,6 +9493,7 @@ const getUnstableMappings = createRoute({
 			includeRetried: z.enum(["true", "false"]).optional(),
 			window: unstableMappingsWindowSchema.optional(),
 			ignoreExpected: z.enum(["true", "false"]).optional(),
+			splitByKey: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
@@ -9516,8 +9518,15 @@ admin.openapi(getUnstableMappings, async (c) => {
 		? sql``
 		: unstableMappingsNotRetriedClause;
 	const ignoreExpected = query.ignoreExpected !== "false";
+	const splitByKey = query.splitByKey === "true";
 	const { interval: windowInterval, hours: windowHours } =
 		resolveUnstableMappingsWindow(query.window);
+
+	// With the split off every row carries a constant NULL key, so the extra
+	// GROUP BY column is a no-op and both modes share one query shape.
+	const providerKeyExpr = splitByKey
+		? sql`${tables.log.providerKeyId}`
+		: sql`NULL::text`;
 
 	// When ignore matchers apply, errors matching any matcher count as
 	// successes: the log stays in the sample (denominator) but no longer counts
@@ -9533,6 +9542,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 	const rows = await db.execute<{
 		used_model: string;
 		used_provider: string;
+		provider_key_id: string | null;
 		logs_count: string;
 		errors_count: string;
 		error_rate: string;
@@ -9541,6 +9551,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 		WITH recent_logs AS (
 			SELECT ${tables.log.usedModel} AS used_model,
 				${tables.log.usedProvider} AS used_provider,
+				${providerKeyExpr} AS provider_key_id,
 				${hasErrorExpr} AS has_error
 			FROM ${tables.log}
 			WHERE ${tables.log.createdAt} >= ${windowInterval}
@@ -9550,12 +9561,13 @@ admin.openapi(getUnstableMappings, async (c) => {
 		)
 		SELECT used_model,
 			used_provider,
+			provider_key_id,
 			COUNT(*) AS logs_count,
 			COUNT(*) FILTER (WHERE has_error) AS errors_count,
 			COUNT(*) FILTER (WHERE has_error)::float / COUNT(*) AS error_rate,
 			(SELECT COUNT(*) FROM recent_logs) AS sampled_logs
 		FROM recent_logs
-		GROUP BY used_model, used_provider
+		GROUP BY used_model, used_provider, provider_key_id
 		HAVING COUNT(*) FILTER (WHERE has_error) > 0
 		ORDER BY error_rate DESC, errors_count DESC
 		LIMIT ${limit}
@@ -9571,18 +9583,54 @@ admin.openapi(getUnstableMappings, async (c) => {
 			: [];
 	const providerNameMap = new Map(providerRows.map((p) => [p.id, p.name]));
 
+	// The key rows behind the split, for the label an operator can relate back
+	// to the credentials pages: the note when one is set, the mask otherwise.
+	const providerKeyIds = [
+		...new Set(
+			resultRows
+				.map((r) => r.provider_key_id)
+				.filter((id): id is string => id !== null),
+		),
+	];
+	const providerKeyRows =
+		providerKeyIds.length > 0
+			? await db
+					.select({
+						id: tables.providerKey.id,
+						comment: tables.providerKey.comment,
+						tokenMasked: tables.providerKey.tokenMasked,
+						// Legacy pre-encryption rows still carry plaintext here; it is
+						// selected only to compute the mask below and must never reach
+						// the response.
+						legacyToken: tables.providerKey.token,
+						managed: tables.providerKey.managed,
+					})
+					.from(tables.providerKey)
+					.where(inArray(tables.providerKey.id, providerKeyIds))
+			: [];
+	const providerKeyMap = new Map(providerKeyRows.map((k) => [k.id, k]));
+
 	const sampledLogs =
 		resultRows.length > 0 ? Number(resultRows[0].sampled_logs) : 0;
 
 	return c.json({
 		mappings: resultRows.map((r) => {
 			const { modelId, region } = parseUsedModel(r.used_model, r.used_provider);
+			const keyRow = r.provider_key_id
+				? providerKeyMap.get(r.provider_key_id)
+				: undefined;
 			return {
 				modelId,
 				region,
 				usedModel: r.used_model,
 				providerId: r.used_provider,
 				providerName: providerNameMap.get(r.used_provider) ?? r.used_provider,
+				providerKeyId: r.provider_key_id,
+				providerKeyLabel: keyRow
+					? keyRow.comment?.trim() ||
+						(keyRow.tokenMasked ?? maskToken(keyRow.legacyToken ?? "", 6))
+					: null,
+				providerKeyManaged: keyRow ? keyRow.managed : null,
 				logsCount: Number(r.logs_count),
 				errorsCount: Number(r.errors_count),
 				errorRate: Number(r.error_rate),
@@ -9593,6 +9641,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 		logLimit,
 		includeRetried,
 		ignoreExpected,
+		splitByKey,
 		ignoredMatcherCount: ignoredMatchers.length,
 	});
 });
@@ -9635,6 +9684,13 @@ const getUnstableMappingErrors = createRoute({
 				.max(UNSTABLE_MAPPINGS_MAX_LOG_LIMIT)
 				.optional(),
 			ignoreExpected: z.enum(["true", "false"]).optional(),
+			/**
+			 * Narrows the sample to one provider key, mirroring a row of the
+			 * key-split ranking. The literal `__unattributed__` selects logs with
+			 * no key at all (env-var credentials, or failures that never resolved
+			 * one).
+			 */
+			providerKeyId: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -9651,12 +9707,25 @@ const getUnstableMappingErrors = createRoute({
 });
 
 admin.openapi(getUnstableMappingErrors, async (c) => {
-	const { model, provider, includeRetried, window, logLimit, ignoreExpected } =
-		c.req.valid("query");
+	const {
+		model,
+		provider,
+		includeRetried,
+		window,
+		logLimit,
+		ignoreExpected,
+		providerKeyId,
+	} = c.req.valid("query");
 	const sampleLimit = logLimit ?? UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT;
 	const retriedClause =
 		includeRetried === "true" ? sql`` : unstableMappingsNotRetriedClause;
 	const { interval: windowInterval } = resolveUnstableMappingsWindow(window);
+	const providerKeyClause =
+		providerKeyId === undefined
+			? sql``
+			: providerKeyId === "__unattributed__"
+				? sql`AND ${tables.log.providerKeyId} IS NULL`
+				: sql`AND ${tables.log.providerKeyId} = ${providerKeyId}`;
 
 	// Mirror the ranking view: drop errors matching an ignore matcher so the
 	// drilldown shows the same errors that counted against the mapping.
@@ -9686,6 +9755,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 				AND ${tables.log.usedModel} = ${model}
 				AND ${tables.log.usedProvider} = ${provider}
 				AND ${tables.log.createdAt} >= ${windowInterval}
+				${providerKeyClause}
 				${retriedClause}
 				${ignoredClause}
 			ORDER BY ${tables.log.createdAt} DESC
