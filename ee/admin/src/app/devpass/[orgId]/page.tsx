@@ -207,6 +207,12 @@ export default async function DevpassDetailPage({
 					</div>
 					<div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
 						<span>{sub.ownerEmail ?? sub.billingEmail}</span>
+						{sub.ownerUsername && (
+							<>
+								<span>•</span>
+								<span>@{sub.ownerUsername}</span>
+							</>
+						)}
 						<span>•</span>
 						<span>Subscribed {formatDate(sub.subscribedSince)}</span>
 					</div>

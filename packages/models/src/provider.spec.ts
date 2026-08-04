@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
 	getOrganizationEnvVariant,
-	getProviderApiKeyEnvCounts,
 	getProviderEnvValue,
 	getRegionSpecificEnvVarName,
 	getVariantEnvVarName,
@@ -203,54 +202,6 @@ describe("variant env var helpers", () => {
 			).toBeUndefined();
 			expect(getOrganizationEnvVariant(null)).toBeUndefined();
 			expect(getOrganizationEnvVariant(undefined)).toBeUndefined();
-		});
-	});
-});
-
-describe("getProviderApiKeyEnvCounts", () => {
-	beforeEach(() => {
-		for (const name of [BASE, ENTERPRISE, PLANS]) {
-			vi.stubEnv(name, undefined);
-		}
-	});
-
-	afterEach(() => {
-		vi.unstubAllEnvs();
-	});
-
-	it("reports zero for every audience when nothing is set", () => {
-		expect(getProviderApiKeyEnvCounts("alibaba")).toEqual({
-			default: 0,
-			enterprise: 0,
-			plans: 0,
-		});
-	});
-
-	it("counts entries in the comma-separated list, not variables", () => {
-		vi.stubEnv(BASE, "key-a,key-b,key-c");
-		expect(getProviderApiKeyEnvCounts("alibaba").default).toBe(3);
-	});
-
-	it("ignores blank and whitespace-only entries", () => {
-		vi.stubEnv(BASE, " key-a , ,key-b,,  ");
-		expect(getProviderApiKeyEnvCounts("alibaba").default).toBe(2);
-	});
-
-	it("reports each variant override on its own, without falling back", () => {
-		vi.stubEnv(BASE, "key-a,key-b");
-		vi.stubEnv(ENTERPRISE, "ent-key");
-		expect(getProviderApiKeyEnvCounts("alibaba")).toEqual({
-			default: 2,
-			enterprise: 1,
-			plans: 0,
-		});
-	});
-
-	it("returns zeroes for a provider with no API-key env var", () => {
-		expect(getProviderApiKeyEnvCounts("not-a-provider")).toEqual({
-			default: 0,
-			enterprise: 0,
-			plans: 0,
 		});
 	});
 });

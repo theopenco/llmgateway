@@ -7,7 +7,11 @@ import {
 	deleteAll,
 } from "@/testing.js";
 
-import { decryptProviderKey } from "@llmgateway/actions";
+import {
+	decryptProviderKey,
+	deleteProviderEnvInventory,
+	publishProviderEnvInventory,
+} from "@llmgateway/actions";
 import {
 	redisClient,
 	swrWrap,
@@ -36,12 +40,30 @@ describe("admin provider credentials", () => {
 	beforeEach(async () => {
 		process.env.ADMIN_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
+		// The catalog prefers the gateway's published snapshot, so the tests that
+		// assert the env fallback must start without one.
+		await deleteProviderEnvInventory();
 	});
 
 	afterEach(async () => {
 		vi.unstubAllEnvs();
+		await deleteProviderEnvInventory();
 		await deleteAll();
 	});
+
+	/**
+	 * A developer .env carries real keys for many providers, so every alibaba
+	 * slot the catalog enumerates is stubbed blank; a test then sets only the
+	 * ones it asserts on.
+	 */
+	function clearAlibabaEnvSlots() {
+		for (const variant of ["", "__ENTERPRISE", "__PLANS"]) {
+			vi.stubEnv(`LLM_ALIBABA_API_KEY${variant}`, "");
+			for (const region of ["SINGAPORE", "US_VIRGINIA", "CN_BEIJING"]) {
+				vi.stubEnv(`LLM_ALIBABA_API_KEY${variant}__${region}`, "");
+			}
+		}
+	}
 
 	async function create(body: Record<string, unknown>) {
 		return await app.request("/admin/provider-credentials", {
@@ -432,16 +454,9 @@ describe("admin provider credentials", () => {
 	});
 
 	test("catalog lists env keys masked and fingerprinted, never plaintext", async () => {
+		clearAlibabaEnvSlots();
 		vi.stubEnv("LLM_ALIBABA_API_KEY", "sk-env-primary-secret,sk-env-two");
 		vi.stubEnv("LLM_ALIBABA_API_KEY__ENTERPRISE", "sk-env-ent-secret");
-		// Clear every other slot the catalog enumerates: a developer .env with
-		// real regional keys would otherwise add entries to this list.
-		vi.stubEnv("LLM_ALIBABA_API_KEY__PLANS", "");
-		for (const region of ["SINGAPORE", "US_VIRGINIA", "CN_BEIJING"]) {
-			for (const variant of ["", "__ENTERPRISE", "__PLANS"]) {
-				vi.stubEnv(`LLM_ALIBABA_API_KEY${variant}__${region}`, "");
-			}
-		}
 
 		const res = await app.request("/admin/provider-credentials/catalog", {
 			headers: { Cookie: cookie },
@@ -480,6 +495,96 @@ describe("admin provider credentials", () => {
 			(entry) => entry.variant === "enterprise",
 		);
 		expect(enterprise?.envVar).toBe("LLM_ALIBABA_API_KEY__ENTERPRISE");
+	});
+
+	test("catalog reports its own environment only as a fallback", async () => {
+		vi.stubEnv("LLM_ALIBABA_API_KEY", "sk-api-process-key");
+
+		const res = await app.request("/admin/provider-credentials/catalog", {
+			headers: { Cookie: cookie },
+		});
+		expect(res.status).toBe(200);
+		const json = (await res.json()) as {
+			envSource: string;
+			envPublishedAt: string | null;
+			providers: { id: string; envCredentials: { tokenHash: string }[] }[];
+		};
+
+		expect(json.envSource).toBe("api");
+		expect(json.envPublishedAt).toBeNull();
+		const alibaba = json.providers.find((p) => p.id === "alibaba");
+		expect(alibaba?.envCredentials[0]?.tokenHash).toBe(
+			getApiKeyFingerprint("sk-api-process-key"),
+		);
+	});
+
+	/**
+	 * Provider keys are set on the gateway, not on this service, so the keys the
+	 * dashboard lists must come from the gateway's published snapshot — reading
+	 * this process's environment would report the wrong set (usually none).
+	 */
+	test("catalog prefers the gateway's published keys over its own env", async () => {
+		clearAlibabaEnvSlots();
+		vi.stubEnv("LLM_ALIBABA_API_KEY", "sk-gateway-key");
+		await publishProviderEnvInventory();
+
+		// Whatever this process holds afterwards must not influence the listing.
+		vi.stubEnv("LLM_ALIBABA_API_KEY", "sk-api-process-key");
+
+		const res = await app.request("/admin/provider-credentials/catalog", {
+			headers: { Cookie: cookie },
+		});
+		expect(res.status).toBe(200);
+		const body = await res.text();
+		expect(body).not.toContain("sk-gateway-key");
+
+		const json = JSON.parse(body) as {
+			envSource: string;
+			envPublishedAt: string | null;
+			providers: {
+				id: string;
+				apiKeyEnvConfigured: boolean;
+				apiKeyEnvCounts: { default: number };
+				envCredentials: { tokenHash: string }[];
+			}[];
+		};
+
+		expect(json.envSource).toBe("gateway");
+		expect(json.envPublishedAt).not.toBeNull();
+
+		const alibaba = json.providers.find((p) => p.id === "alibaba");
+		expect(alibaba?.envCredentials).toHaveLength(1);
+		expect(alibaba?.envCredentials[0].tokenHash).toBe(
+			getApiKeyFingerprint("sk-gateway-key"),
+		);
+		expect(alibaba?.apiKeyEnvConfigured).toBe(true);
+		expect(alibaba?.apiKeyEnvCounts.default).toBe(1);
+	});
+
+	test("catalog reports zero env keys for a provider the gateway has none for", async () => {
+		// Published with nothing set, so the snapshot genuinely holds no key for
+		// this provider.
+		clearAlibabaEnvSlots();
+		await publishProviderEnvInventory();
+		// Set locally after publishing: the API's own key must not resurface a
+		// provider the gateway cannot serve.
+		vi.stubEnv("LLM_ALIBABA_API_KEY", "sk-api-process-key");
+
+		const res = await app.request("/admin/provider-credentials/catalog", {
+			headers: { Cookie: cookie },
+		});
+		expect(res.status).toBe(200);
+		const json = (await res.json()) as {
+			providers: {
+				id: string;
+				apiKeyEnvConfigured: boolean;
+				envCredentials: unknown[];
+			}[];
+		};
+
+		const alibaba = json.providers.find((p) => p.id === "alibaba");
+		expect(alibaba?.envCredentials).toEqual([]);
+		expect(alibaba?.apiKeyEnvConfigured).toBe(false);
 	});
 });
 

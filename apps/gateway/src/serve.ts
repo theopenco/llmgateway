@@ -1,5 +1,6 @@
 import { serve } from "@hono/node-server";
 
+import { startProviderEnvInventoryPublisher } from "@llmgateway/actions";
 import { redisClient, storageRedisClient } from "@llmgateway/cache";
 import { closeDatabase, setQueryTags } from "@llmgateway/db";
 import {
@@ -43,6 +44,7 @@ const realtimeInline = process.env.REALTIME_INLINE === "true";
 let sdk: NodeSDK | null = null;
 let metricsServer: ServerType | null = null;
 let realtime: RealtimeServer | null = null;
+let stopEnvInventoryPublisher: (() => void) | null = null;
 
 async function startServer() {
 	// Tag every DB query with the originating service for Cloud SQL Query Insights
@@ -79,6 +81,12 @@ async function startServer() {
 		realtime = attachRealtimeServer(server as Server);
 		logger.info("Realtime WebSocket proxy attached inline", { port });
 	}
+
+	// Publish which LLM_* API keys this process holds (masked and fingerprinted,
+	// never the tokens) so the admin dashboard lists the keys actually serving
+	// traffic. The API is a separate deployment and generally has no provider
+	// keys of its own to report.
+	stopEnvInventoryPublisher = startProviderEnvInventoryPublisher();
 
 	return server;
 }
@@ -147,6 +155,11 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 	logger.info("Received shutdown signal, starting graceful shutdown", {
 		signal,
 	});
+
+	// Stop refreshing before the Redis connection closes below; the snapshot
+	// expires on its own once no gateway is publishing.
+	stopEnvInventoryPublisher?.();
+	stopEnvInventoryPublisher = null;
 
 	try {
 		// Stop accepting new realtime sessions, then let the live calls hang up

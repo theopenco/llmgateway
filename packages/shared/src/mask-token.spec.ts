@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { maskToken } from "./maskToken.js";
+import { maskToken } from "./mask-token.js";
 
 describe("maskToken", () => {
 	it("masks all characters after the visible ones", () => {
