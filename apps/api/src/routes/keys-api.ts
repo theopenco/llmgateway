@@ -10,7 +10,6 @@ import {
 	iamRuleValueSchema,
 	validateIamRuleInput,
 } from "@/lib/iam-rules.js";
-import { maskToken } from "@/lib/maskToken.js";
 import { platformKeyMode } from "@/lib/platform-secret-auth.js";
 import { getUserProjectIds } from "@/utils/authorization.js";
 
@@ -30,6 +29,7 @@ import {
 	type ApiKeyPeriodDurationUnit,
 	type InferSelectModel,
 } from "@llmgateway/db";
+import { maskToken } from "@llmgateway/shared/mask-token";
 
 import type { ServerTypes } from "@/vars.js";
 

@@ -9,7 +9,6 @@ import {
 	iamRuleValueSchema,
 	validateIamRuleInput,
 } from "@/lib/iam-rules.js";
-import { maskToken } from "@/lib/maskToken.js";
 import { assertOrganizationProviderKey } from "@/lib/organization-provider-key.js";
 import {
 	applyCustomModelUpdate,
@@ -53,6 +52,7 @@ import {
 	tables,
 } from "@llmgateway/db";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
+import { maskToken } from "@llmgateway/shared/mask-token";
 
 import type { ServerTypes } from "@/vars.js";
 

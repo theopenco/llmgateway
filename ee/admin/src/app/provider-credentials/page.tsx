@@ -61,6 +61,8 @@ export default async function ProviderCredentialsPage() {
 			<ProviderCredentialsManager
 				credentials={credentialsData.credentials}
 				catalog={catalogData.providers}
+				envSource={catalogData.envSource}
+				envPublishedAt={catalogData.envPublishedAt}
 				onCreate={createProviderCredential}
 				onUpdate={updateProviderCredential}
 				onDelete={deleteProviderCredential}

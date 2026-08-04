@@ -133,6 +133,15 @@ interface MutationResult {
 interface ProviderCredentialsManagerProps {
 	credentials: ProviderCredential[];
 	catalog: ProviderCredentialCatalogEntry[];
+	/**
+	 * Which process the listed `LLM_*` keys were read from. The gateway publishes
+	 * its own set (the keys that actually serve traffic); `api` means no snapshot
+	 * was available and the backend fell back to its own environment, which in a
+	 * split deployment normally holds no provider keys at all.
+	 */
+	envSource: "gateway" | "api";
+	/** ISO timestamp of the gateway's snapshot; null when envSource is `api`. */
+	envPublishedAt: string | null;
 	onCreate: (body: {
 		provider: string;
 		token: string;
@@ -285,9 +294,68 @@ function EnvCredentialRow({
 	);
 }
 
+/**
+ * Renders the snapshot time in UTC rather than the viewer's locale.
+ *
+ * This component is server-rendered before it hydrates, and `toLocaleString()`
+ * resolves against the runtime's locale and time zone — a server in UTC and a
+ * browser anywhere else produce different text for the same instant, which is a
+ * hydration mismatch. A fixed UTC rendering is also the more useful one here:
+ * every operator reading it sees the same timestamp as the gateway's logs.
+ */
+function formatPublishedAt(publishedAt: string): string {
+	const published = new Date(publishedAt);
+	if (Number.isNaN(published.getTime())) {
+		return "an unknown time";
+	}
+	const [date, time] = published.toISOString().split("T");
+	return `${date} ${time.slice(0, 5)} UTC`;
+}
+
+/**
+ * Says where the `env` rows came from.
+ *
+ * The gateway and the API are separate deployments and only the gateway is
+ * given `LLM_*` variables, so it publishes what it holds (masked, never the
+ * tokens) for this page to read. Without that snapshot the backend can only
+ * report its own environment — which normally holds nothing — and an operator
+ * would otherwise read an empty table as "no keys configured" rather than "not
+ * visible from here".
+ */
+function EnvSourceNote({
+	source,
+	publishedAt,
+	envKeyCount,
+}: {
+	source: "gateway" | "api";
+	publishedAt: string | null;
+	envKeyCount: number;
+}) {
+	if (source === "gateway") {
+		return (
+			<p className="text-xs text-muted-foreground">
+				{envKeyCount} environment {envKeyCount === 1 ? "key is" : "keys are"}{" "}
+				configured on the gateway, reported{" "}
+				{publishedAt ? formatPublishedAt(publishedAt) : "recently"}.
+			</p>
+		);
+	}
+
+	return (
+		<p className="text-xs text-muted-foreground">
+			No gateway has published its <code>LLM_*</code> keys, so any listed below
+			are the ones this backend can see itself. A gateway publishes on startup
+			and refreshes every 5 minutes; if this persists, check that it runs a
+			build with the publisher and shares this Redis.
+		</p>
+	);
+}
+
 export function ProviderCredentialsManager({
 	credentials,
 	catalog,
+	envSource,
+	envPublishedAt,
 	onCreate,
 	onUpdate,
 	onDelete,
@@ -487,6 +555,12 @@ export function ProviderCredentialsManager({
 		return map;
 	}, [catalog]);
 
+	const envKeyCount = useMemo(
+		() =>
+			catalog.reduce((total, entry) => total + entry.envCredentials.length, 0),
+		[catalog],
+	);
+
 	// Audiences each provider has an ACTIVE managed credential for. An env key
 	// is unused for its audience once that audience is covered directly or via
 	// the `default` fallback — mirroring findManagedProviderKey's selection.
@@ -607,7 +681,12 @@ export function ProviderCredentialsManager({
 				/>
 			</TabsContent>
 
-			<TabsContent value="credentials">
+			<TabsContent value="credentials" className="flex flex-col gap-2">
+				<EnvSourceNote
+					source={envSource}
+					publishedAt={envPublishedAt}
+					envKeyCount={envKeyCount}
+				/>
 				<div className="min-w-0 overflow-x-auto rounded-lg border border-border/60 bg-card">
 					<Table>
 						<TableHeader>
@@ -627,15 +706,32 @@ export function ProviderCredentialsManager({
 								<TableHead className="text-right">Actions</TableHead>
 							</TableRow>
 						</TableHeader>
-						{credentials.length === 0 && envOnlyProviders.length === 0 ? (
+						{/* Unfiltered only: with a provider filter applied, an empty
+						    result says nothing about the other providers, so it belongs
+						    in the "no credentials for this provider" branch below rather
+						    than in a claim about the whole deployment. */}
+						{providerFilter === ALL_PROVIDERS &&
+						credentials.length === 0 &&
+						envOnlyProviders.length === 0 ? (
 							<TableBody>
 								<TableRow>
 									<TableCell
 										colSpan={11}
 										className="py-10 text-center text-muted-foreground"
 									>
-										No managed credentials yet. Providers fall back to their{" "}
-										<code>LLM_*</code> environment variables until one is added.
+										{envSource === "gateway" ? (
+											<>
+												No managed credentials yet, and the gateway reports no{" "}
+												<code>LLM_*</code> keys either — nothing can serve
+												credits-mode traffic.
+											</>
+										) : (
+											<>
+												No managed credentials yet. Providers keep reading the
+												gateway&apos;s <code>LLM_*</code> variables, which
+												cannot be listed here until it publishes them.
+											</>
+										)}
 									</TableCell>
 								</TableRow>
 							</TableBody>

@@ -112,6 +112,7 @@ const organizationSchema = z.object({
 	createdAt: z.date(),
 	updatedAt: z.date(),
 	name: z.string(),
+	logo: z.string().nullable(),
 	billingEmail: z.string(),
 	billingCompany: z.string().nullable(),
 	billingAddress: z.string().nullable(),
@@ -195,8 +196,24 @@ const createOrganizationSchema = z.object({
 	name: z.string().min(1).max(255),
 });
 
+// Logos are stored inline as small base64 data URLs (no object storage).
+// Raster formats only — SVG is rejected since it can embed active content.
+// 256KB of base64 (~190KB binary) is far above what the client-side resize
+// produces, so the cap only guards against abuse.
+const LOGO_MAX_CHARS = 256 * 1024;
+const LOGO_DATA_URL_REGEX =
+	/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/;
+
 const updateOrganizationSchema = z.object({
 	name: z.string().min(1).max(255).optional(),
+	logo: z
+		.string()
+		.max(LOGO_MAX_CHARS)
+		.regex(LOGO_DATA_URL_REGEX, {
+			message: "Logo must be a base64 data URL of a PNG, JPEG or WebP image",
+		})
+		.nullable()
+		.optional(),
 	billingEmail: z.string().email().optional(),
 	billingCompany: z.string().optional(),
 	billingAddress: z.string().optional(),
@@ -581,6 +598,7 @@ organization.openapi(updateOrganization, async (c) => {
 	const { id } = c.req.param();
 	const {
 		name,
+		logo,
 		billingEmail,
 		billingCompany,
 		billingAddress,
@@ -700,6 +718,9 @@ organization.openapi(updateOrganization, async (c) => {
 	if (name !== undefined) {
 		updateData.name = name;
 	}
+	if (logo !== undefined) {
+		updateData.logo = logo;
+	}
 	if (billingEmail !== undefined) {
 		updateData.billingEmail = billingEmail;
 	}
@@ -770,6 +791,13 @@ organization.openapi(updateOrganization, async (c) => {
 	const oldOrg = userOrganization.organization!;
 	if (name !== undefined && name !== oldOrg.name) {
 		changes.name = { old: oldOrg.name, new: name };
+	}
+	// Audit only the presence transition — base64 image data would bloat the log.
+	if (logo !== undefined && logo !== oldOrg.logo) {
+		changes.logo = {
+			old: oldOrg.logo ? "(image)" : null,
+			new: logo ? "(image)" : null,
+		};
 	}
 	if (billingEmail !== undefined && billingEmail !== oldOrg.billingEmail) {
 		changes.billingEmail = { old: oldOrg.billingEmail, new: billingEmail };

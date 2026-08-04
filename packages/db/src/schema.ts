@@ -186,6 +186,10 @@ export const organization = pgTable(
 			.defaultNow()
 			.$onUpdate(() => new Date()),
 		name: text().notNull(),
+		// Organization logo shown in the dashboard org switcher, stored as a
+		// small base64 data URL (raster image only, resized client-side) so no
+		// object storage is needed. Null = no logo, UI falls back to initials.
+		logo: text(),
 		billingEmail: text().notNull(),
 		billingCompany: text(),
 		billingAddress: text(),
