@@ -689,7 +689,7 @@ export default async function DevpassPage({
 						<input
 							type="text"
 							name="search"
-							placeholder="Search by org name, email, owner, or ID..."
+							placeholder="Search by org name, email, owner, username, or ID..."
 							defaultValue={search}
 							className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
 						/>
@@ -945,6 +945,11 @@ export default async function DevpassPage({
 										<p className="text-xs text-muted-foreground">
 											{sub.ownerEmail ?? sub.billingEmail}
 										</p>
+										{sub.ownerUsername && (
+											<p className="text-xs text-muted-foreground">
+												@{sub.ownerUsername}
+											</p>
+										)}
 									</TableCell>
 									<TableCell>
 										<Badge variant={getTierBadgeVariant(sub.tier)}>
