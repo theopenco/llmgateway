@@ -11764,6 +11764,7 @@ const devpassSubscriberSchema = z.object({
 	ownerUserId: z.string().nullable(),
 	ownerName: z.string().nullable(),
 	ownerEmail: z.string().nullable(),
+	ownerUsername: z.string().nullable(),
 	tier: devpassTierSchema,
 	pendingTier: devpassTierSchema.nullable(),
 	status: devpassStatusSchema,
@@ -12186,6 +12187,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			userId: tables.user.id,
 			userName: tables.user.name,
 			userEmail: tables.user.email,
+			userUsername: tables.user.username,
 		})
 		.from(tables.userOrganization)
 		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
@@ -12391,6 +12393,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 				sql`LOWER(${tables.organization.billingEmail}) LIKE ${`%${searchLower}%`}`,
 				sql`${tables.organization.id} LIKE ${`%${search}%`}`,
 				sql`LOWER(${ownerSub.userEmail}) LIKE ${`%${searchLower}%`}`,
+				sql`LOWER(${ownerSub.userUsername}) LIKE ${`%${searchLower}%`}`,
 			)!,
 		);
 	}
@@ -12446,6 +12449,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			ownerUserId: ownerSub.userId,
 			ownerName: ownerSub.userName,
 			ownerEmail: ownerSub.userEmail,
+			ownerUsername: ownerSub.userUsername,
 		})
 		.from(tables.organization)
 		.leftJoin(
@@ -12788,6 +12792,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			ownerUserId: row.ownerUserId ?? null,
 			ownerName: row.ownerName ?? null,
 			ownerEmail: row.ownerEmail ?? null,
+			ownerUsername: row.ownerUsername ?? null,
 			tier,
 			pendingTier: row.pendingTier ?? null,
 			status,
@@ -13256,6 +13261,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 			userId: tables.user.id,
 			userName: tables.user.name,
 			userEmail: tables.user.email,
+			userUsername: tables.user.username,
 		})
 		.from(tables.userOrganization)
 		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
@@ -13433,6 +13439,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		ownerUserId: owner[0]?.userId ?? null,
 		ownerName: owner[0]?.userName ?? null,
 		ownerEmail: owner[0]?.userEmail ?? null,
+		ownerUsername: owner[0]?.userUsername ?? null,
 		tier: org.devPlan,
 		pendingTier: org.devPlanPendingTier ?? null,
 		status,
