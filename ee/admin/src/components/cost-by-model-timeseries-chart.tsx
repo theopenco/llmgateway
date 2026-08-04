@@ -16,6 +16,10 @@ import {
 	ChartTooltip,
 	ChartTooltipContent,
 } from "@/components/ui/chart";
+import {
+	UsageModeSelector,
+	useUsageMode,
+} from "@/components/usage-mode-selector";
 import { cn } from "@/lib/utils";
 
 import type { ChartConfig } from "@/components/ui/chart";
@@ -119,6 +123,8 @@ export function CostByModelTimeseriesChart({
 		void loadData();
 	}, [loadData]);
 
+	const usageMode = useUsageMode();
+
 	const { chartData, config, keyToModel } = useMemo(() => {
 		if (!data) {
 			return {
@@ -137,6 +143,18 @@ export function CostByModelTimeseriesChart({
 				color: seriesColors[index % seriesColors.length],
 			};
 		});
+		// Cost/request series respect the billing-mode view; tokens are only
+		// tracked blended.
+		const metricKey =
+			usageMode === "total" || activeMetric === "totalTokens"
+				? activeMetric
+				: activeMetric === "cost"
+					? usageMode === "credits"
+						? ("creditsCost" as const)
+						: ("apiKeysCost" as const)
+					: usageMode === "credits"
+						? ("creditsRequestCount" as const)
+						: ("apiKeysRequestCount" as const);
 		const rows = data.data.map((point) => {
 			const row: Record<string, number | string> = {
 				timestamp: point.timestamp,
@@ -146,12 +164,12 @@ export function CostByModelTimeseriesChart({
 			}
 			for (const entry of point.entries) {
 				const key = sanitizeKey(entry.model);
-				row[key] = Number(entry[activeMetric] ?? 0);
+				row[key] = Number(entry[metricKey] ?? 0);
 			}
 			return row;
 		});
 		return { chartData: rows, config: cfg, keyToModel: keyToModelLocal };
-	}, [data, activeMetric]);
+	}, [data, activeMetric, usageMode]);
 
 	const bucket = data?.bucket ?? "day";
 
@@ -193,6 +211,7 @@ export function CostByModelTimeseriesChart({
 						))}
 					</div>
 					<div className="flex flex-wrap items-center gap-2">
+						<UsageModeSelector />
 						{onGroupByChange && (
 							<div className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-0.5">
 								{groupByTabs.map((tab) => (

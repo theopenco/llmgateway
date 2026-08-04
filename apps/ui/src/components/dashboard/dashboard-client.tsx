@@ -40,6 +40,10 @@ import {
 	getDateRangeFromParams,
 } from "@/components/date-range-picker";
 import { QuickStartSection } from "@/components/shared/quick-start-snippet";
+import {
+	UsageModeSelector,
+	useUsageMode,
+} from "@/components/shared/usage-mode-selector";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { Button } from "@/lib/components/button";
 import {
@@ -52,6 +56,7 @@ import {
 import { Skeleton } from "@/lib/components/skeleton";
 import { useApi } from "@/lib/fetch-client";
 import { getBrowserTimeZone } from "@/lib/timezone";
+import { applyUsageModeToDaily } from "@/lib/usage-mode";
 import { cn } from "@/lib/utils";
 
 import type { ActivitT } from "@/types/activity";
@@ -297,8 +302,16 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 		router.push(`${buildUrl()}?${params.toString()}`);
 	};
 
-	const activityData = data?.activity ?? [];
-	const prevActivityData = prevData?.activity ?? [];
+	// Mode-normalized rows: cost/requestCount reflect the selected billing view
+	// (credits vs BYOK); token, error and cache measures stay blended.
+	const usageMode = useUsageMode();
+	const rawActivityData = data?.activity ?? [];
+	const activityData = rawActivityData.map((day) =>
+		applyUsageModeToDaily(day, usageMode),
+	);
+	const prevActivityData = (prevData?.activity ?? []).map((day) =>
+		applyUsageModeToDaily(day, usageMode),
+	);
 
 	const totalRequests =
 		activityData.reduce((sum, day) => sum + day.requestCount, 0) ?? 0;
@@ -310,6 +323,14 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 		}
 	}, [totalRequests]);
 	const totalCost = activityData.reduce((sum, day) => sum + day.cost, 0) ?? 0;
+	const totalCreditsCost = rawActivityData.reduce(
+		(sum, day) => sum + day.creditsCost,
+		0,
+	);
+	const totalApiKeysCost = rawActivityData.reduce(
+		(sum, day) => sum + day.apiKeysCost,
+		0,
+	);
 	const totalInputCost =
 		activityData.reduce((sum, day) => sum + day.inputCost, 0) ?? 0;
 	const totalOutputCost =
@@ -485,6 +506,7 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 
 				<div className="flex flex-wrap items-center gap-x-3 gap-y-2">
 					<DateRangePicker buildUrl={buildUrl} />
+					<UsageModeSelector />
 					{rangeDays <= 366 && (
 						<p className="text-xs text-muted-foreground">
 							Trends compare to {format(prevFrom, "MMM d")} –{" "}
@@ -521,20 +543,32 @@ export function DashboardClient({ initialActivityData }: DashboardClientProps) {
 							isLoading={isLoading}
 						/>
 						<MetricCard
-							label="Total Spend"
+							label={
+								usageMode === "credits"
+									? "Credits Spend"
+									: usageMode === "api-keys"
+										? "BYOK Usage"
+										: "Total Spend"
+							}
 							value={`$${totalCost.toFixed(2)}`}
 							subtitle={
-								totalRequests > 0
-									? `avg $${avgCostPerRequest.toFixed(4)} per request${
-											totalRequestCost > 0
-												? ` • $${totalRequestCost.toFixed(2)} requests`
-												: ""
-										}${
-											totalDataStorageCost > 0
-												? ` • $${totalDataStorageCost.toFixed(4)} storage`
-												: ""
-										}`
-									: `${format(from, "MMM d")} – ${format(to, "MMM d")}`
+								usageMode === "total" &&
+								totalCreditsCost > 0 &&
+								totalApiKeysCost > 0
+									? `$${totalCreditsCost.toFixed(2)} credits • $${totalApiKeysCost.toFixed(2)} BYOK (not billed)`
+									: usageMode === "api-keys" && totalCost > 0
+										? "Served by your provider keys — not billed to credits"
+										: totalRequests > 0
+											? `avg $${avgCostPerRequest.toFixed(4)} per request${
+													totalRequestCost > 0
+														? ` • $${totalRequestCost.toFixed(2)} requests`
+														: ""
+												}${
+													totalDataStorageCost > 0
+														? ` • $${totalDataStorageCost.toFixed(4)} storage`
+														: ""
+												}`
+											: `${format(from, "MMM d")} – ${format(to, "MMM d")}`
 							}
 							icon={<CircleDollarSign className="h-4 w-4" />}
 							accent="blue"

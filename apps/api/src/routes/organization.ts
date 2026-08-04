@@ -1478,9 +1478,13 @@ organization.openapi(getCreditsRunway, async (c) => {
 	// eslint-disable-next-line no-mixed-operators
 	const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
+	// Only count spend that actually drains the credit balance: the worker debits
+	// credits-mode rows at their full cost (billing_cost ?? cost, storage
+	// excluded) and BYOK ("api-keys") rows at their data-storage cost only, so
+	// blended `cost` would overstate the burn rate for BYOK-heavy orgs.
 	const result = await db
 		.select({
-			totalCost: sql<number>`COALESCE(SUM(${projectHourlyStats.cost}), 0)`,
+			totalCost: sql<number>`COALESCE(SUM(${projectHourlyStats.creditsCost}), 0) + COALESCE(SUM(${projectHourlyStats.apiKeysDataStorageCost}), 0)`,
 		})
 		.from(projectHourlyStats)
 		.innerJoin(

@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { deleteResendContact } from "@/auth/config.js";
 import { maskToken } from "@/lib/maskToken.js";
+import { modeSplitFields } from "@/lib/mode-split.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import {
 	getBucketUnitForWindow,
@@ -288,6 +289,11 @@ const adminMetricsSchema = z.object({
 	totalOrganizations: z.number(),
 	totalToppedUp: z.number(),
 	totalSpent: z.number(),
+	// Credits-vs-BYOK split of totalSpent. totalSpent stays blended; BYOK
+	// ("api-keys") usage is provider list price paid by the customer's own key,
+	// not revenue-relevant spend.
+	totalCreditsSpent: z.number(),
+	totalApiKeysSpent: z.number(),
 	unusedCredits: z.number(),
 	overage: z.number(),
 	totalGiftedCredits: z.number(),
@@ -356,6 +362,8 @@ const organizationSchema = z.object({
 	credits: z.string(),
 	totalCreditsAllTime: z.string().optional(),
 	totalSpent: z.string().optional(),
+	totalCreditsSpent: z.string().optional(),
+	totalApiKeysSpent: z.string().optional(),
 	createdAt: z.string(),
 	status: z.string().nullable(),
 	referralBonusEnabled: z.boolean().optional(),
@@ -381,6 +389,10 @@ const orgMetricsSchema = z.object({
 	totalRequests: z.number(),
 	totalTokens: z.number(),
 	totalCost: z.number(),
+	creditsRequestCount: z.number(),
+	apiKeysRequestCount: z.number(),
+	creditsCost: z.number(),
+	apiKeysCost: z.number(),
 	inputTokens: z.number(),
 	inputCost: z.number(),
 	outputTokens: z.number(),
@@ -900,6 +912,20 @@ admin.openapi(getMetrics, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`.as(
 					"value",
 				),
+			creditsValue:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`.as(
+					"creditsValue",
+				),
+			apiKeysValue:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.apiKeysCost} AS NUMERIC)), 0)`.as(
+					"apiKeysValue",
+				),
+			// What the worker actually debits from credit balances: credits-mode
+			// rows at full cost plus BYOK rows' data-storage cost.
+			debitedValue:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0) + COALESCE(SUM(CAST(${projectHourlyStats.apiKeysDataStorageCost} AS NUMERIC)), 0)`.as(
+					"debitedValue",
+				),
 		})
 		.from(projectHourlyStats)
 		.innerJoin(
@@ -928,6 +954,9 @@ admin.openapi(getMetrics, async (c) => {
 		);
 
 	const totalSpent = Number(spentRow?.value ?? 0);
+	const totalCreditsSpent = Number(spentRow?.creditsValue ?? 0);
+	const totalApiKeysSpent = Number(spentRow?.apiKeysValue ?? 0);
+	const totalDebitedSpend = Number(spentRow?.debitedValue ?? 0);
 
 	// Total processed (gross Stripe amounts from completed non-gift, non-plan transactions)
 	const [processedRow] = await db
@@ -1158,7 +1187,10 @@ admin.openapi(getMetrics, async (c) => {
 		grossChatPlansRevenue +
 		grossProSubscriptionsRevenue;
 
-	const rawBalance = totalToppedUp - totalSpent;
+	// Balance derivation must use debited spend, not blended cost: BYOK usage
+	// never drains purchased credits, so subtracting it would understate
+	// unusedCredits (and overstate overage) for orgs with BYOK traffic.
+	const rawBalance = totalToppedUp - totalDebitedSpend;
 	const unusedCredits = Math.max(0, rawBalance);
 	const overage = Math.max(0, -rawBalance);
 
@@ -1171,6 +1203,8 @@ admin.openapi(getMetrics, async (c) => {
 		totalOrganizations,
 		totalToppedUp,
 		totalSpent,
+		totalCreditsSpent,
+		totalApiKeysSpent,
 		unusedCredits,
 		overage,
 		totalGiftedCredits,
@@ -1704,6 +1738,10 @@ const globalStatsMetricsSchema = z.object({
 	inputCost: z.number(),
 	cachedInputCost: z.number(),
 	outputCost: z.number(),
+	creditsRequestCount: z.number(),
+	apiKeysRequestCount: z.number(),
+	creditsCost: z.number(),
+	apiKeysCost: z.number(),
 });
 
 const globalStatsTimeseriesPointSchema = globalStatsMetricsSchema
@@ -1730,6 +1768,10 @@ const globalStatsTimeseriesBreakdownPointSchema = z
 		requestCount: z.number(),
 		cost: z.number(),
 		totalTokens: z.number(),
+		creditsRequestCount: z.number(),
+		apiKeysRequestCount: z.number(),
+		creditsCost: z.number(),
+		apiKeysCost: z.number(),
 	})
 	.openapi({});
 
@@ -1878,6 +1920,22 @@ admin.openapi(getGlobalStats, async (c) => {
 			sql<number>`COALESCE(SUM(${sourceTable.outputCost}), 0)::float8`.as(
 				"outputCost",
 			),
+		creditsRequestCount:
+			sql<number>`COALESCE(SUM(${sourceTable.creditsRequestCount}), 0)::int`.as(
+				"creditsRequestCount",
+			),
+		apiKeysRequestCount:
+			sql<number>`COALESCE(SUM(${sourceTable.apiKeysRequestCount}), 0)::int`.as(
+				"apiKeysRequestCount",
+			),
+		creditsCost:
+			sql<number>`COALESCE(SUM(${sourceTable.creditsCost}), 0)::float8`.as(
+				"creditsCost",
+			),
+		apiKeysCost:
+			sql<number>`COALESCE(SUM(${sourceTable.apiKeysCost}), 0)::float8`.as(
+				"apiKeysCost",
+			),
 	};
 
 	const dateExpr =
@@ -1916,6 +1974,10 @@ admin.openapi(getGlobalStats, async (c) => {
 			inputCost: Number(row.inputCost),
 			cachedInputCost: Number(row.cachedInputCost),
 			outputCost: Number(row.outputCost),
+			creditsRequestCount: Number(row.creditsRequestCount),
+			apiKeysRequestCount: Number(row.apiKeysRequestCount),
+			creditsCost: Number(row.creditsCost),
+			apiKeysCost: Number(row.apiKeysCost),
 		});
 	}
 
@@ -1931,6 +1993,10 @@ admin.openapi(getGlobalStats, async (c) => {
 		inputCost: 0,
 		cachedInputCost: 0,
 		outputCost: 0,
+		creditsRequestCount: 0,
+		apiKeysRequestCount: 0,
+		creditsCost: 0,
+		apiKeysCost: 0,
 	};
 
 	const timeseries: z.infer<typeof globalStatsTimeseriesPointSchema>[] = [];
@@ -1950,6 +2016,10 @@ admin.openapi(getGlobalStats, async (c) => {
 			inputCost: 0,
 			cachedInputCost: 0,
 			outputCost: 0,
+			creditsRequestCount: 0,
+			apiKeysRequestCount: 0,
+			creditsCost: 0,
+			apiKeysCost: 0,
 		};
 		timeseries.push(point);
 		totals.requestCount += point.requestCount;
@@ -1963,6 +2033,10 @@ admin.openapi(getGlobalStats, async (c) => {
 		totals.inputCost += point.inputCost;
 		totals.cachedInputCost += point.cachedInputCost;
 		totals.outputCost += point.outputCost;
+		totals.creditsRequestCount += point.creditsRequestCount;
+		totals.apiKeysRequestCount += point.apiKeysRequestCount;
+		totals.creditsCost += point.creditsCost;
+		totals.apiKeysCost += point.apiKeysCost;
 	}
 
 	const breakdownRows =
@@ -2032,6 +2106,10 @@ admin.openapi(getGlobalStats, async (c) => {
 							inputCost: Number(row.inputCost),
 							cachedInputCost: Number(row.cachedInputCost),
 							outputCost: Number(row.outputCost),
+							creditsRequestCount: Number(row.creditsRequestCount),
+							apiKeysRequestCount: Number(row.apiKeysRequestCount),
+							creditsCost: Number(row.creditsCost),
+							apiKeysCost: Number(row.apiKeysCost),
 						};
 					});
 
@@ -2099,6 +2177,10 @@ admin.openapi(getGlobalStats, async (c) => {
 			existing.requestCount += Number(row.requestCount);
 			existing.cost += Number(row.cost);
 			existing.totalTokens += Number(row.totalTokens);
+			existing.creditsRequestCount += Number(row.creditsRequestCount);
+			existing.apiKeysRequestCount += Number(row.apiKeysRequestCount);
+			existing.creditsCost += Number(row.creditsCost);
+			existing.apiKeysCost += Number(row.apiKeysCost);
 		} else {
 			timeseriesBreakdownMap.set(mapKey, {
 				date: row.date,
@@ -2107,6 +2189,10 @@ admin.openapi(getGlobalStats, async (c) => {
 				requestCount: Number(row.requestCount),
 				cost: Number(row.cost),
 				totalTokens: Number(row.totalTokens),
+				creditsRequestCount: Number(row.creditsRequestCount),
+				apiKeysRequestCount: Number(row.apiKeysRequestCount),
+				creditsCost: Number(row.creditsCost),
+				apiKeysCost: Number(row.apiKeysCost),
 			});
 		}
 	}
@@ -2149,6 +2235,10 @@ function aggregateModelRowsByCanonicalId(
 		inputCost: number;
 		cachedInputCost: number;
 		outputCost: number;
+		creditsRequestCount: number;
+		apiKeysRequestCount: number;
+		creditsCost: number;
+		apiKeysCost: number;
 	}>,
 ): z.infer<typeof globalStatsBreakdownItemSchema>[] {
 	const aggregated = new Map<
@@ -2170,6 +2260,10 @@ function aggregateModelRowsByCanonicalId(
 			existing.inputCost += Number(row.inputCost);
 			existing.cachedInputCost += Number(row.cachedInputCost);
 			existing.outputCost += Number(row.outputCost);
+			existing.creditsRequestCount += Number(row.creditsRequestCount);
+			existing.apiKeysRequestCount += Number(row.apiKeysRequestCount);
+			existing.creditsCost += Number(row.creditsCost);
+			existing.apiKeysCost += Number(row.apiKeysCost);
 		} else {
 			aggregated.set(canonical, {
 				key: canonical,
@@ -2185,6 +2279,10 @@ function aggregateModelRowsByCanonicalId(
 				inputCost: Number(row.inputCost),
 				cachedInputCost: Number(row.cachedInputCost),
 				outputCost: Number(row.outputCost),
+				creditsRequestCount: Number(row.creditsRequestCount),
+				apiKeysRequestCount: Number(row.apiKeysRequestCount),
+				creditsCost: Number(row.creditsCost),
+				apiKeysCost: Number(row.apiKeysCost),
 			});
 		}
 	}
@@ -2207,6 +2305,10 @@ function aggregateModelRowsByProvider(
 		inputCost: number;
 		cachedInputCost: number;
 		outputCost: number;
+		creditsRequestCount: number;
+		apiKeysRequestCount: number;
+		creditsCost: number;
+		apiKeysCost: number;
 	}>,
 ): z.infer<typeof globalStatsBreakdownItemSchema>[] {
 	const aggregated = new Map<
@@ -2228,6 +2330,10 @@ function aggregateModelRowsByProvider(
 			existing.inputCost += Number(row.inputCost);
 			existing.cachedInputCost += Number(row.cachedInputCost);
 			existing.outputCost += Number(row.outputCost);
+			existing.creditsRequestCount += Number(row.creditsRequestCount);
+			existing.apiKeysRequestCount += Number(row.apiKeysRequestCount);
+			existing.creditsCost += Number(row.creditsCost);
+			existing.apiKeysCost += Number(row.apiKeysCost);
 		} else {
 			aggregated.set(provider, {
 				key: provider,
@@ -2243,6 +2349,10 @@ function aggregateModelRowsByProvider(
 				inputCost: Number(row.inputCost),
 				cachedInputCost: Number(row.cachedInputCost),
 				outputCost: Number(row.outputCost),
+				creditsRequestCount: Number(row.creditsRequestCount),
+				apiKeysRequestCount: Number(row.apiKeysRequestCount),
+				creditsCost: Number(row.creditsCost),
+				apiKeysCost: Number(row.apiKeysCost),
 			});
 		}
 	}
@@ -2299,6 +2409,14 @@ admin.openapi(getOrganizations, async (c) => {
 				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`.as(
 					"total_spent",
 				),
+			creditsTotal:
+				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`.as(
+					"credits_spent",
+				),
+			apiKeysTotal:
+				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.apiKeysCost} AS NUMERIC)), 0)`.as(
+					"api_keys_spent",
+				),
 		})
 		.from(projectHourlyStats)
 		.innerJoin(
@@ -2353,6 +2471,14 @@ admin.openapi(getOrganizations, async (c) => {
 			totalSpent: sql<string>`COALESCE(${totalSpentSub.total}, '0')`.as(
 				"totalSpent",
 			),
+			totalCreditsSpent:
+				sql<string>`COALESCE(${totalSpentSub.creditsTotal}, '0')`.as(
+					"totalCreditsSpent",
+				),
+			totalApiKeysSpent:
+				sql<string>`COALESCE(${totalSpentSub.apiKeysTotal}, '0')`.as(
+					"totalApiKeysSpent",
+				),
 			ownerUserId: ownerSub.userId,
 			ownerName: ownerSub.userName,
 			ownerEmail: ownerSub.userEmail,
@@ -2383,6 +2509,8 @@ admin.openapi(getOrganizations, async (c) => {
 			credits: String(org.credits),
 			totalCreditsAllTime: String(org.totalCreditsAllTime ?? "0"),
 			totalSpent: String(org.totalSpent ?? "0"),
+			totalCreditsSpent: String(org.totalCreditsSpent ?? "0"),
+			totalApiKeysSpent: String(org.totalApiKeysSpent ?? "0"),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
 			ownerUserId: org.ownerUserId ?? null,
@@ -2440,6 +2568,10 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 	let totalRequests = 0;
 	let totalTokens = 0;
 	let totalCost = 0;
+	let creditsRequestCount = 0;
+	let apiKeysRequestCount = 0;
+	let creditsCost = 0;
+	let apiKeysCost = 0;
 	let inputTokens = 0;
 	let inputCost = 0;
 	let outputTokens = 0;
@@ -2461,6 +2593,7 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 					sql<number>`COALESCE(SUM(${projectHourlyStats.requestCount}), 0)`.as(
 						"totalRequests",
 					),
+				...modeSplitFields(projectHourlyStats),
 				inputTokens:
 					sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.inputTokens} AS INTEGER)), 0)`.as(
 						"inputTokens",
@@ -2518,6 +2651,10 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 			totalRequests = Number(totals.totalRequests) || 0;
 			totalTokens = Number(totals.totalTokens) || 0;
 			totalCost = Number(totals.totalCost) || 0;
+			creditsRequestCount = Number(totals.creditsRequestCount) || 0;
+			apiKeysRequestCount = Number(totals.apiKeysRequestCount) || 0;
+			creditsCost = Number(totals.creditsCost) || 0;
+			apiKeysCost = Number(totals.apiKeysCost) || 0;
 			inputTokens = Number(totals.inputTokens) || 0;
 			inputCost = Number(totals.inputCost) || 0;
 			outputTokens = Number(totals.outputTokens) || 0;
@@ -2582,6 +2719,10 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 		totalRequests,
 		totalTokens,
 		totalCost,
+		creditsRequestCount,
+		apiKeysRequestCount,
+		creditsCost,
+		apiKeysCost,
 		inputTokens,
 		inputCost,
 		outputTokens,
@@ -2927,6 +3068,10 @@ const projectMetricsSchema = z.object({
 	totalRequests: z.number(),
 	totalTokens: z.number(),
 	totalCost: z.number(),
+	creditsRequestCount: z.number(),
+	apiKeysRequestCount: z.number(),
+	creditsCost: z.number(),
+	apiKeysCost: z.number(),
 	inputTokens: z.number(),
 	inputCost: z.number(),
 	outputTokens: z.number(),
@@ -3005,6 +3150,10 @@ admin.openapi(getProjectMetrics, async (c) => {
 	let totalRequests = 0;
 	let totalTokens = 0;
 	let totalCost = 0;
+	let creditsRequestCount = 0;
+	let apiKeysRequestCount = 0;
+	let creditsCost = 0;
+	let apiKeysCost = 0;
 	let inputTokens = 0;
 	let inputCost = 0;
 	let outputTokens = 0;
@@ -3024,6 +3173,7 @@ admin.openapi(getProjectMetrics, async (c) => {
 				sql<number>`COALESCE(SUM(${projectHourlyStats.requestCount}), 0)`.as(
 					"totalRequests",
 				),
+			...modeSplitFields(projectHourlyStats),
 			inputTokens:
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.inputTokens} AS INTEGER)), 0)`.as(
 					"inputTokens",
@@ -3081,6 +3231,10 @@ admin.openapi(getProjectMetrics, async (c) => {
 		totalRequests = Number(totals.totalRequests) || 0;
 		totalTokens = Number(totals.totalTokens) || 0;
 		totalCost = Number(totals.totalCost) || 0;
+		creditsRequestCount = Number(totals.creditsRequestCount) || 0;
+		apiKeysRequestCount = Number(totals.apiKeysRequestCount) || 0;
+		creditsCost = Number(totals.creditsCost) || 0;
+		apiKeysCost = Number(totals.apiKeysCost) || 0;
 		inputTokens = Number(totals.inputTokens) || 0;
 		inputCost = Number(totals.inputCost) || 0;
 		outputTokens = Number(totals.outputTokens) || 0;
@@ -3139,6 +3293,10 @@ admin.openapi(getProjectMetrics, async (c) => {
 		totalRequests,
 		totalTokens,
 		totalCost,
+		creditsRequestCount,
+		apiKeysRequestCount,
+		creditsCost,
+		apiKeysCost,
 		inputTokens,
 		inputCost,
 		outputTokens,
@@ -8159,6 +8317,10 @@ const costByModelEntrySchema = z.object({
 	cost: z.number(),
 	requestCount: z.number(),
 	totalTokens: z.number(),
+	creditsRequestCount: z.number(),
+	apiKeysRequestCount: z.number(),
+	creditsCost: z.number(),
+	apiKeysCost: z.number(),
 });
 
 const costByModelResponseSchema = z.object({
@@ -8166,6 +8328,8 @@ const costByModelResponseSchema = z.object({
 	models: z.array(costByModelEntrySchema),
 	totalCost: z.number(),
 	totalRequests: z.number(),
+	totalCreditsCost: z.number(),
+	totalApiKeysCost: z.number(),
 });
 
 // Global cost by model
@@ -8218,6 +8382,7 @@ admin.openapi(getGlobalCostByModel, async (c) => {
 				sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`.as(
 					"total_tokens",
 				),
+			...modeSplitFields(projectHourlyModelStats),
 		})
 		.from(projectHourlyModelStats)
 		.where(
@@ -8237,6 +8402,14 @@ admin.openapi(getGlobalCostByModel, async (c) => {
 		(sum, r) => sum + Number(r.requestCount),
 		0,
 	);
+	const totalCreditsCost = rows.reduce(
+		(sum, r) => sum + Number(r.creditsCost),
+		0,
+	);
+	const totalApiKeysCost = rows.reduce(
+		(sum, r) => sum + Number(r.apiKeysCost),
+		0,
+	);
 
 	return c.json({
 		window,
@@ -8245,9 +8418,15 @@ admin.openapi(getGlobalCostByModel, async (c) => {
 			cost: Number(r.cost),
 			requestCount: Number(r.requestCount),
 			totalTokens: Number(r.totalTokens),
+			creditsRequestCount: Number(r.creditsRequestCount),
+			apiKeysRequestCount: Number(r.apiKeysRequestCount),
+			creditsCost: Number(r.creditsCost),
+			apiKeysCost: Number(r.apiKeysCost),
 		})),
 		totalCost,
 		totalRequests,
+		totalCreditsCost,
+		totalApiKeysCost,
 	});
 });
 
@@ -8303,6 +8482,8 @@ admin.openapi(getOrgCostByModel, async (c) => {
 			models: [],
 			totalCost: 0,
 			totalRequests: 0,
+			totalCreditsCost: 0,
+			totalApiKeysCost: 0,
 		});
 	}
 
@@ -8318,6 +8499,7 @@ admin.openapi(getOrgCostByModel, async (c) => {
 				sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`.as(
 					"total_tokens",
 				),
+			...modeSplitFields(projectHourlyModelStats),
 		})
 		.from(projectHourlyModelStats)
 		.where(
@@ -8335,6 +8517,14 @@ admin.openapi(getOrgCostByModel, async (c) => {
 		(sum, r) => sum + Number(r.requestCount),
 		0,
 	);
+	const totalCreditsCost = rows.reduce(
+		(sum, r) => sum + Number(r.creditsCost),
+		0,
+	);
+	const totalApiKeysCost = rows.reduce(
+		(sum, r) => sum + Number(r.apiKeysCost),
+		0,
+	);
 
 	return c.json({
 		window,
@@ -8343,9 +8533,15 @@ admin.openapi(getOrgCostByModel, async (c) => {
 			cost: Number(r.cost),
 			requestCount: Number(r.requestCount),
 			totalTokens: Number(r.totalTokens),
+			creditsRequestCount: Number(r.creditsRequestCount),
+			apiKeysRequestCount: Number(r.apiKeysRequestCount),
+			creditsCost: Number(r.creditsCost),
+			apiKeysCost: Number(r.apiKeysCost),
 		})),
 		totalCost,
 		totalRequests,
+		totalCreditsCost,
+		totalApiKeysCost,
 	});
 });
 
@@ -8362,6 +8558,10 @@ const costByModelTimeseriesBucketSchema = z.object({
 	cost: z.number(),
 	requestCount: z.number(),
 	totalTokens: z.number(),
+	creditsRequestCount: z.number(),
+	apiKeysRequestCount: z.number(),
+	creditsCost: z.number(),
+	apiKeysCost: z.number(),
 });
 
 const costByModelTimeseriesPointSchema = z.object({
@@ -8637,6 +8837,7 @@ async function buildCostByModelTimeseries({
 				sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`.as(
 					"total_tokens",
 				),
+			...modeSplitFields(projectHourlyModelStats),
 		})
 		.from(projectHourlyModelStats)
 		.where(
@@ -8658,6 +8859,10 @@ async function buildCostByModelTimeseries({
 				cost: Number(row.cost),
 				requestCount: Number(row.requestCount),
 				totalTokens: Number(row.totalTokens),
+				creditsRequestCount: Number(row.creditsRequestCount),
+				apiKeysRequestCount: Number(row.apiKeysRequestCount),
+				creditsCost: Number(row.creditsCost),
+				apiKeysCost: Number(row.apiKeysCost),
 			})),
 		}),
 	};
@@ -8714,6 +8919,7 @@ async function buildCostBySourceTimeseries({
 				sql<number>`SUM(CAST(${projectHourlySourceStats.totalTokens} AS NUMERIC))`.as(
 					"total_tokens",
 				),
+			...modeSplitFields(projectHourlySourceStats),
 		})
 		.from(projectHourlySourceStats)
 		.where(and(baseFilter, inArray(projectHourlySourceStats.source, topKeys)))
@@ -8730,6 +8936,10 @@ async function buildCostBySourceTimeseries({
 				cost: Number(row.cost),
 				requestCount: Number(row.requestCount),
 				totalTokens: Number(row.totalTokens),
+				creditsRequestCount: Number(row.creditsRequestCount),
+				apiKeysRequestCount: Number(row.apiKeysRequestCount),
+				creditsCost: Number(row.creditsCost),
+				apiKeysCost: Number(row.apiKeysCost),
 			})),
 		}),
 	};
@@ -8746,11 +8956,26 @@ function assembleCostTimeseriesPoints({
 		cost: number;
 		requestCount: number;
 		totalTokens: number;
+		creditsRequestCount: number;
+		apiKeysRequestCount: number;
+		creditsCost: number;
+		apiKeysCost: number;
 	}[];
 }): z.infer<typeof costByModelTimeseriesPointSchema>[] {
 	const bucketMap = new Map<
 		string,
-		Map<string, { cost: number; requestCount: number; totalTokens: number }>
+		Map<
+			string,
+			{
+				cost: number;
+				requestCount: number;
+				totalTokens: number;
+				creditsRequestCount: number;
+				apiKeysRequestCount: number;
+				creditsCost: number;
+				apiKeysCost: number;
+			}
+		>
 	>();
 
 	for (const row of rows) {
@@ -8759,10 +8984,18 @@ function assembleCostTimeseriesPoints({
 			cost: 0,
 			requestCount: 0,
 			totalTokens: 0,
+			creditsRequestCount: 0,
+			apiKeysRequestCount: 0,
+			creditsCost: 0,
+			apiKeysCost: 0,
 		};
 		existing.cost += row.cost;
 		existing.requestCount += row.requestCount;
 		existing.totalTokens += row.totalTokens;
+		existing.creditsRequestCount += row.creditsRequestCount;
+		existing.apiKeysRequestCount += row.apiKeysRequestCount;
+		existing.creditsCost += row.creditsCost;
+		existing.apiKeysCost += row.apiKeysCost;
 		entry.set(row.key, existing);
 		bucketMap.set(row.bucket, entry);
 	}
@@ -8775,6 +9008,10 @@ function assembleCostTimeseriesPoints({
 				cost: v.cost,
 				requestCount: v.requestCount,
 				totalTokens: v.totalTokens,
+				creditsRequestCount: v.creditsRequestCount,
+				apiKeysRequestCount: v.apiKeysRequestCount,
+				creditsCost: v.creditsCost,
+				apiKeysCost: v.apiKeysCost,
 			}),
 		),
 	}));
@@ -8791,6 +9028,10 @@ const projectModelProviderStatsEntrySchema = z.object({
 	cachedCount: z.number(),
 	cost: z.number(),
 	totalTokens: z.number(),
+	creditsRequestCount: z.number(),
+	apiKeysRequestCount: z.number(),
+	creditsCost: z.number(),
+	apiKeysCost: z.number(),
 	...tokenBreakdownShape,
 });
 
@@ -8918,6 +9159,7 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 			cachedCount: cachedCountExpr,
 			cost: costExpr,
 			totalTokens: totalTokensExpr,
+			...modeSplitFields(projectHourlyModelStats),
 			inputTokens:
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.inputTokens} AS NUMERIC)), 0)`.as(
 					"input_tokens",
@@ -8980,6 +9222,10 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 			cachedCount: Number(r.cachedCount),
 			cost: Number(r.cost),
 			totalTokens: Number(r.totalTokens),
+			creditsRequestCount: Number(r.creditsRequestCount),
+			apiKeysRequestCount: Number(r.apiKeysRequestCount),
+			creditsCost: Number(r.creditsCost),
+			apiKeysCost: Number(r.apiKeysCost),
 			...toTokenBreakdown(r),
 		})),
 		total: rows.length,
@@ -11861,12 +12107,14 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
 	);
 
-	// Subquery: real provider cost in current cycle, per org
+	// Subquery: real provider cost in current cycle, per org. Credits-mode cost
+	// only: BYOK ("api-keys") usage is paid by the customer's own provider key,
+	// so it is not a cost we bear and must not depress the margin.
 	const realCostSub = db
 		.select({
 			organizationId: tables.project.organizationId,
 			realCost:
-				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`.as(
+				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`.as(
 					"real_cost",
 				),
 		})
@@ -11953,7 +12201,8 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 	const allTimeCostSub = db
 		.select({
 			organizationId: tables.project.organizationId,
-			cost: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`.as(
+			// Credits-mode cost only — BYOK usage is not a cost we bear.
+			cost: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`.as(
 				"all_time_cost",
 			),
 		})
@@ -12742,8 +12991,9 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 	const costPerDay = await db
 		.select({
 			date: sql<string>`DATE(${projectHourlyStats.hourTimestamp})`.as("date"),
+			// Credits-mode cost only — BYOK usage is not a cost we bear.
 			total:
-				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`.as(
+				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`.as(
 					"total",
 				),
 		})
@@ -13054,7 +13304,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 	const [realCostRow] = org.devPlanBillingCycleStart
 		? await db
 				.select({
-					total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`,
+					total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`,
 				})
 				.from(projectHourlyStats)
 				.innerJoin(
@@ -13086,7 +13336,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 			: [...DEV_PLAN_TX_TYPES];
 	const [allTimeCostRow] = await db
 		.select({
-			total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`,
+			total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`,
 		})
 		.from(projectHourlyStats)
 		.innerJoin(
@@ -13673,12 +13923,14 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 		Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
 	);
 
-	// Subquery: real provider cost in current cycle, per org
+	// Subquery: real provider cost in current cycle, per org. Credits-mode cost
+	// only: BYOK ("api-keys") usage is paid by the customer's own provider key,
+	// so it is not a cost we bear and must not depress the margin.
 	const realCostSub = db
 		.select({
 			organizationId: tables.project.organizationId,
 			realCost:
-				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`.as(
+				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`.as(
 					"real_cost",
 				),
 		})
@@ -13754,7 +14006,8 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 	const allTimeCostSub = db
 		.select({
 			organizationId: tables.project.organizationId,
-			cost: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`.as(
+			// Credits-mode cost only — BYOK usage is not a cost we bear.
+			cost: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`.as(
 				"all_time_cost",
 			),
 		})
@@ -14411,8 +14664,9 @@ admin.openapi(getChatPlansTimeseries, async (c) => {
 	const costPerDay = await db
 		.select({
 			date: sql<string>`DATE(${projectHourlyStats.hourTimestamp})`.as("date"),
+			// Credits-mode cost only — BYOK usage is not a cost we bear.
 			total:
-				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`.as(
+				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`.as(
 					"total",
 				),
 		})
@@ -14725,7 +14979,7 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 	const [realCostRow] = org.chatPlanBillingCycleStart
 		? await db
 				.select({
-					total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`,
+					total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`,
 				})
 				.from(projectHourlyStats)
 				.innerJoin(
@@ -14749,7 +15003,7 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 
 	const [allTimeCostRow] = await db
 		.select({
-			total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`,
+			total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`,
 		})
 		.from(projectHourlyStats)
 		.innerJoin(
