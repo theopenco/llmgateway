@@ -4832,6 +4832,7 @@ chat.openapi(completions, async (c) => {
 		assertDevPlanPremiumCapNotExceeded(
 			organization,
 			(finalModelInfo ?? modelInfo) as ModelDefinition,
+			true,
 		);
 		const regularCredits = parseFloat(organization.credits ?? "0");
 		const devPlanCreditsRemaining =
@@ -4969,6 +4970,7 @@ chat.openapi(completions, async (c) => {
 			assertDevPlanPremiumCapNotExceeded(
 				organization,
 				(finalModelInfo ?? modelInfo) as ModelDefinition,
+				true,
 			);
 			const regularCredits = parseFloat(organization.credits ?? "0");
 			const devPlanCreditsRemaining =
