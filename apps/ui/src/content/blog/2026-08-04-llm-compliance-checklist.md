@@ -20,7 +20,7 @@ This LLM compliance checklist is the eight-point version of that review — the 
 
 ## 1. Inventory every provider that can see your data
 
-You can't review what you can't list. Every provider your traffic can reach — including fallbacks — is a data processor, and the list is longer than most teams think once automatic failover is involved.
+You can't review what you can't list. Every provider your traffic can reach — including fallbacks — receives your data, typically as a processor (confirm the exact role — processor, subprocessor, or controller — in each provider's DPA), and the list is longer than most teams think once automatic failover is involved.
 
 - **What good looks like:** a live list of eligible providers per model, not a wiki page from the launch review.
 - **How to enforce it:** route everything through one gateway so there is exactly one place the list lives. The [providers directory](https://llmgateway.io/providers) shows every catalogue provider with its certifications, data policy, and headquarters.

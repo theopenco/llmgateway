@@ -230,18 +230,23 @@ export function assertDevPlanPremiumCapNotExceeded(
 	// $process_person_profile: false — the distinct id is an org id, not a
 	// user; don't mint a person profile for it.
 	if (trackRejection) {
-		posthog.capture({
-			distinctId: organization.id,
-			event: "devpass_premium_cap_rejected",
-			groups: { organization: organization.id },
-			properties: {
-				devPlan: tier,
-				model: modelInfo.id,
-				msUntilReset,
-				organization: organization.id,
-				$process_person_profile: false,
-			},
-		});
+		try {
+			posthog.capture({
+				distinctId: organization.id,
+				event: "devpass_premium_cap_rejected",
+				groups: { organization: organization.id },
+				properties: {
+					devPlan: tier,
+					model: modelInfo.id,
+					msUntilReset,
+					organization: organization.id,
+					$process_person_profile: false,
+				},
+			});
+		} catch {
+			// Telemetry must never change the response: the 402 below is a
+			// billing gate, and a capture failure must not turn it into a 500.
+		}
 	}
 	throw new HTTPException(402, {
 		message: `You've used your weekly allowance for premium-tier models on the ${tier} plan. Redeem a Reset Pass from your dashboard for an instant reset, upgrade for a higher allowance, or use any standard model now. Resets in ${formatTimeUntilReset(msUntilReset)}.`,

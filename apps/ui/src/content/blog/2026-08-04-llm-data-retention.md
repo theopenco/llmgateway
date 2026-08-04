@@ -81,7 +81,7 @@ Metadata retention is free. Full payload retention costs $0.01 per 1 million tok
 
 ### How long does LLM Gateway keep stored request data?
 
-30 days for all users, after which records are deleted automatically. Enterprise organizations can configure custom retention periods to match their audit or data-minimization requirements.
+On the managed cloud, 30 days by default, after which records are deleted automatically; Enterprise organizations can configure custom retention periods to match their audit or data-minimization requirements. Payload retention itself is only configurable on standard pay-as-you-go organizations — DevPass and chat subscriptions stay metadata-only. Self-hosted deployments set their own retention periods through environment variables.
 
 ### Can I keep LLM logs inside my own infrastructure?
 

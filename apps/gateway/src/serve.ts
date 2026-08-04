@@ -14,6 +14,7 @@ import {
 	installUpstreamDispatcher,
 } from "./lib/upstream-dispatcher.js";
 import { metricsApp } from "./metrics-app.js";
+import { posthog } from "./posthog.js";
 import { attachRealtimeServer } from "./realtime/server.js";
 
 import type { RealtimeServer } from "./realtime/server.js";
@@ -188,6 +189,17 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 
 		logger.info("Closing upstream dispatcher");
 		await closeUpstreamDispatcher();
+
+		// Flush batched analytics before the process winds down — posthog-node
+		// buffers events (~10s), and a redeploy would otherwise drop the tail.
+		// Guarded: a telemetry flush failure must not abort the shutdown.
+		try {
+			await posthog.shutdown();
+		} catch (error) {
+			logger.warn("PostHog flush failed during shutdown", {
+				error: String(error),
+			});
+		}
 
 		logger.info("Closing database connection");
 		await closeDatabase();

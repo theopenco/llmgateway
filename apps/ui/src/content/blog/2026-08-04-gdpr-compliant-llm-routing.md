@@ -22,7 +22,7 @@ GDPR-compliant LLM routing means making those decisions once, as policy, instead
 
 GDPR doesn't name LLMs, but three of its requirements land directly on model routing:
 
-- **Knowing your processors.** Every provider that receives personal data is a processor. You need to know who they are — which is harder than it sounds when a gateway silently fails over between deployments.
+- **Knowing your processors.** A provider that receives personal data typically acts as your processor — though the actual role (processor, subprocessor, or independent controller) depends on its contract and on who determines the purposes and means of processing, so check each provider's DPA. Either way, you need to know who receives the data — which is harder than it sounds when a gateway silently fails over between deployments.
 - **Controlling transfers.** Where a provider processes data, and under what safeguards, determines whether you can lawfully send personal data there at all.
 - **Data minimization and storage limitation.** Prompts you or your provider retain are personal data you're accountable for.
 
@@ -57,11 +57,13 @@ Some providers expose the same model in multiple regions. LLM Gateway supports b
 # Let the gateway choose the best eligible region for the provider
 curl https://api.llmgateway.io/v1/chat/completions \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
   -d '{"model":"aws-bedrock/claude-sonnet-4-6","messages":[{"role":"user","content":"Hallo"}]}'
 
 # Pin the request to one exact region
 curl https://api.llmgateway.io/v1/chat/completions \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
   -d '{"model":"aws-bedrock/claude-sonnet-4-6:eu-west-2","messages":[{"role":"user","content":"Hallo"}]}'
 ```
 

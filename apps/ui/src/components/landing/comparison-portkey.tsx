@@ -276,7 +276,7 @@ export function ComparisonPortkey() {
 					<p className="text-sm text-muted-foreground mt-3">
 						Weighing more options? See the{" "}
 						<Link
-							href={"/blog/portkey-alternatives" as any}
+							href="/blog/portkey-alternatives"
 							className="underline underline-offset-4 hover:text-foreground"
 						>
 							8 best Portkey alternatives in 2026
