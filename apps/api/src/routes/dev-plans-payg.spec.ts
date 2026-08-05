@@ -152,6 +152,72 @@ describe("dev-plan PAYG settings", () => {
 		expect(body.devPlanPaygEnabled).toBe(true);
 		expect(body.regularCredits).toBe("42.50");
 	});
+
+	it("configures auto-reload with threshold and amount", async () => {
+		await insertOrg({ devPlanPaygEnabled: true });
+
+		const res = await settingsRequest(
+			{ autoTopUpEnabled: true, autoTopUpThreshold: 10, autoTopUpAmount: 25 },
+			token,
+		);
+		expect(res.status).toBe(200);
+		expect(await res.json()).toMatchObject({
+			success: true,
+			autoTopUpEnabled: true,
+			autoTopUpThreshold: "10",
+			autoTopUpAmount: "25",
+		});
+
+		const org = await getOrg();
+		expect(org.autoTopUpEnabled).toBe(true);
+		expect(org.autoTopUpThreshold).toBe("10");
+		expect(org.autoTopUpAmount).toBe("25");
+
+		const status = await app.request("/dev-plans/status", {
+			headers: { Cookie: token },
+		});
+		const body = await status.json();
+		expect(body.autoTopUpEnabled).toBe(true);
+		expect(body.autoTopUpThreshold).toBe("10");
+		expect(body.autoTopUpAmount).toBe("25");
+	});
+
+	it("rejects out-of-range auto-reload values", async () => {
+		await insertOrg({ devPlanPaygEnabled: true });
+
+		const badThreshold = await settingsRequest(
+			{ autoTopUpEnabled: true, autoTopUpThreshold: 2, autoTopUpAmount: 25 },
+			token,
+		);
+		expect(badThreshold.status).toBe(400);
+
+		const badAmount = await settingsRequest(
+			{ autoTopUpEnabled: true, autoTopUpThreshold: 10, autoTopUpAmount: 5 },
+			token,
+		);
+		expect(badAmount.status).toBe(400);
+		expect((await getOrg()).autoTopUpEnabled).toBe(false);
+	});
+
+	it("disabling overflow also disables auto-reload", async () => {
+		await insertOrg({ devPlanPaygEnabled: true });
+		const setup = await settingsRequest(
+			{ autoTopUpEnabled: true, autoTopUpThreshold: 10, autoTopUpAmount: 25 },
+			token,
+		);
+		expect(setup.status).toBe(200);
+
+		// Auto-reload without overflow would buy credits the org can't spend.
+		const res = await settingsRequest({ devPlanPaygEnabled: false }, token);
+		expect(res.status).toBe(200);
+		expect(await res.json()).toMatchObject({
+			devPlanPaygEnabled: false,
+			autoTopUpEnabled: false,
+		});
+		const org = await getOrg();
+		expect(org.devPlanPaygEnabled).toBe(false);
+		expect(org.autoTopUpEnabled).toBe(false);
+	});
 });
 
 describe("dev-plan PAYG top-up", () => {

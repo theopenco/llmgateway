@@ -18,8 +18,8 @@ const ActivityHeatmap = dynamic(
 const DashboardIntegrations = dynamic(
 	() => import("@/app/dashboard/components/DashboardIntegrations"),
 );
-const UsageOverview = dynamic(
-	() => import("@/app/dashboard/components/UsageOverview"),
+const UsageSummaryCard = dynamic(
+	() => import("@/app/dashboard/components/UsageSummaryCard"),
 );
 const CodingAgents = dynamic(
 	() => import("@/app/dashboard/components/CodingAgents"),
@@ -28,7 +28,7 @@ const QuickStart = dynamic(
 	() => import("@/app/dashboard/components/QuickStart"),
 );
 
-export default function UsagePage() {
+export default function OverviewPage() {
 	const config = useAppConfig();
 	const { posthogKey } = config;
 	const posthog = usePostHog();
@@ -99,27 +99,13 @@ export default function UsagePage() {
 			{/* GitHub-style activity heatmap — first thing the user sees */}
 			<ActivityHeatmap projectId={devPlanStatus.projectId ?? null} />
 
-			{/* Usage — full-width with metrics + chart */}
-			<UsageOverview
-				projectId={devPlanStatus.projectId ?? null}
-				organizationId={devPlanStatus.organizationId ?? null}
-				creditsUsed={creditsUsed}
-				creditsLimit={creditsLimit}
-				premiumCreditsUsed={premiumCreditsUsed}
-				premiumWeeklyLimit={premiumWeeklyLimit}
-				premiumWeekResetsAt={devPlanStatus.devPlanPremiumWeekResetsAt ?? null}
-				resetPasses={devPlanStatus.devPlanResetPasses ?? 0}
-				includedResetPasses={devPlanStatus.devPlanIncludedResetPasses ?? 0}
-				includedResetPassesRemaining={
-					devPlanStatus.devPlanIncludedResetPassesRemaining ?? 0
-				}
-				resetPassPrice={devPlanStatus.devPlanResetPassPrice ?? null}
+			{/* Compact allowance snapshot; full meters and charts live on
+			    /dashboard/usage */}
+			<UsageSummaryCard
 				planName={currentPlanName}
 				planPrice={currentPlanData?.price}
-				billingCycleStart={devPlanStatus.devPlanBillingCycleStart ?? null}
-				currentPeriodEnd={devPlanStatus.devPlanExpiresAt ?? null}
-				cancelledAtPeriodEnd={devPlanStatus.devPlanCancelled ?? false}
-				cycle={devPlanStatus.devPlanCycle ?? "monthly"}
+				creditsUsed={creditsUsed}
+				creditsLimit={creditsLimit}
 				paygEnabled={devPlanStatus.devPlanPaygEnabled ?? false}
 				regularCredits={parseFloat(devPlanStatus.regularCredits ?? "0")}
 			/>

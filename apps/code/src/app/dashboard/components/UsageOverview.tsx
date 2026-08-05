@@ -40,6 +40,9 @@ interface UsageOverviewProps {
 	cycle?: DevPlanCycle;
 	paygEnabled: boolean;
 	regularCredits: number;
+	autoTopUpEnabled: boolean;
+	autoTopUpThreshold: string | null;
+	autoTopUpAmount: string | null;
 }
 
 function MetricCard({
@@ -144,7 +147,7 @@ function WeeklyAllowanceMeter({
 	);
 }
 
-function UsageBar({
+export function UsageBar({
 	used,
 	limit,
 	lowMessage = "Above 80% of your monthly allowance. Consider upgrading or wait for the next reset.",
@@ -225,6 +228,9 @@ export default function UsageOverview({
 	cycle = "monthly",
 	paygEnabled,
 	regularCredits,
+	autoTopUpEnabled,
+	autoTopUpThreshold,
+	autoTopUpAmount,
 }: UsageOverviewProps) {
 	const api = useApi();
 	const posthog = usePostHog();
@@ -422,6 +428,9 @@ export default function UsageOverview({
 					paygEnabled={paygEnabled}
 					regularCredits={regularCredits}
 					monthlyExhausted={monthlyExhausted}
+					autoTopUpEnabled={autoTopUpEnabled}
+					autoTopUpThreshold={autoTopUpThreshold}
+					autoTopUpAmount={autoTopUpAmount}
 				/>
 			</div>
 

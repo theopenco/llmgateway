@@ -1736,6 +1736,11 @@ const getStatus = createRoute({
 						// Opt-in pay-as-you-go overflow: bill the org's regular
 						// credits once the monthly allowance is exhausted.
 						devPlanPaygEnabled: z.boolean(),
+						// Auto-reload: top up automatically when the credits balance
+						// falls below the threshold.
+						autoTopUpEnabled: z.boolean(),
+						autoTopUpThreshold: z.string().nullable(),
+						autoTopUpAmount: z.string().nullable(),
 						organizationId: z.string().nullable(),
 						projectId: z.string().nullable(),
 						apiKey: z.string().nullable(),
@@ -1797,6 +1802,9 @@ devPlans.openapi(getStatus, async (c) => {
 			devPlanExpiresAt: null,
 			regularCredits: "0",
 			devPlanPaygEnabled: false,
+			autoTopUpEnabled: false,
+			autoTopUpThreshold: null,
+			autoTopUpAmount: null,
 			organizationId: null,
 			projectId: null,
 			apiKey: null,
@@ -1897,6 +1905,9 @@ devPlans.openapi(getStatus, async (c) => {
 		devPlanExpiresAt: personalOrg.devPlanExpiresAt?.toISOString() ?? null,
 		regularCredits: personalOrg.credits,
 		devPlanPaygEnabled: personalOrg.devPlanPaygEnabled,
+		autoTopUpEnabled: personalOrg.autoTopUpEnabled,
+		autoTopUpThreshold: personalOrg.autoTopUpThreshold,
+		autoTopUpAmount: personalOrg.autoTopUpAmount,
 		organizationId: personalOrg.id,
 		projectId,
 		apiKey,
@@ -1923,6 +1934,15 @@ const updateSettings = createRoute({
 						defaultRoutingStrategy: z.enum(["auto", "price"]).optional(),
 						// Opt-in pay-as-you-go overflow past the monthly allowance.
 						devPlanPaygEnabled: z.boolean().optional(),
+						// Auto-reload: automatically top up when the credits balance
+						// falls below the threshold. Both values in whole USD.
+						autoTopUpEnabled: z.boolean().optional(),
+						autoTopUpThreshold: z.number().min(5).max(1000).optional(),
+						autoTopUpAmount: z
+							.number()
+							.min(CREDIT_TOP_UP_MIN_AMOUNT)
+							.max(CREDIT_TOP_UP_MAX_AMOUNT)
+							.optional(),
 					}),
 				},
 			},
@@ -1942,6 +1962,9 @@ const updateSettings = createRoute({
 							"latency",
 						]),
 						devPlanPaygEnabled: z.boolean(),
+						autoTopUpEnabled: z.boolean(),
+						autoTopUpThreshold: z.string().nullable(),
+						autoTopUpAmount: z.string().nullable(),
 					}),
 				},
 			},
@@ -1952,8 +1975,14 @@ const updateSettings = createRoute({
 
 devPlans.openapi(updateSettings, async (c) => {
 	const user = c.get("user");
-	const { devPlanServiceTier, defaultRoutingStrategy, devPlanPaygEnabled } =
-		c.req.valid("json");
+	const {
+		devPlanServiceTier,
+		defaultRoutingStrategy,
+		devPlanPaygEnabled,
+		autoTopUpEnabled,
+		autoTopUpThreshold,
+		autoTopUpAmount,
+	} = c.req.valid("json");
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -1990,6 +2019,9 @@ devPlans.openapi(updateSettings, async (c) => {
 	const updateData: {
 		devPlanServiceTier?: "default" | "flex";
 		devPlanPaygEnabled?: boolean;
+		autoTopUpEnabled?: boolean;
+		autoTopUpThreshold?: string;
+		autoTopUpAmount?: string;
 	} = {};
 
 	if (devPlanServiceTier !== undefined) {
@@ -1998,6 +2030,23 @@ devPlans.openapi(updateSettings, async (c) => {
 
 	if (devPlanPaygEnabled !== undefined) {
 		updateData.devPlanPaygEnabled = devPlanPaygEnabled;
+		// Auto-reload without overflow would charge money for credits the org
+		// cannot spend, so disabling overflow always disables auto-reload too.
+		if (!devPlanPaygEnabled && autoTopUpEnabled === undefined) {
+			updateData.autoTopUpEnabled = false;
+		}
+	}
+
+	if (autoTopUpEnabled !== undefined) {
+		updateData.autoTopUpEnabled = autoTopUpEnabled;
+	}
+
+	if (autoTopUpThreshold !== undefined) {
+		updateData.autoTopUpThreshold = autoTopUpThreshold.toString();
+	}
+
+	if (autoTopUpAmount !== undefined) {
+		updateData.autoTopUpAmount = autoTopUpAmount.toString();
 	}
 
 	const changes: Record<string, { old: unknown; new: unknown }> = {};
@@ -2028,6 +2077,36 @@ devPlans.openapi(updateSettings, async (c) => {
 			changes.devPlanPaygEnabled = {
 				old: personalOrg.devPlanPaygEnabled,
 				new: devPlanPaygEnabled,
+			};
+		}
+
+		if (
+			updateData.autoTopUpEnabled !== undefined &&
+			updateData.autoTopUpEnabled !== personalOrg.autoTopUpEnabled
+		) {
+			changes.autoTopUpEnabled = {
+				old: personalOrg.autoTopUpEnabled,
+				new: updateData.autoTopUpEnabled,
+			};
+		}
+
+		if (
+			updateData.autoTopUpThreshold !== undefined &&
+			updateData.autoTopUpThreshold !== personalOrg.autoTopUpThreshold
+		) {
+			changes.autoTopUpThreshold = {
+				old: personalOrg.autoTopUpThreshold,
+				new: updateData.autoTopUpThreshold,
+			};
+		}
+
+		if (
+			updateData.autoTopUpAmount !== undefined &&
+			updateData.autoTopUpAmount !== personalOrg.autoTopUpAmount
+		) {
+			changes.autoTopUpAmount = {
+				old: personalOrg.autoTopUpAmount,
+				new: updateData.autoTopUpAmount,
 			};
 		}
 	}
@@ -2081,6 +2160,11 @@ devPlans.openapi(updateSettings, async (c) => {
 		devPlanServiceTier: devPlanServiceTier ?? personalOrg.devPlanServiceTier,
 		defaultRoutingStrategy: effectiveRoutingStrategy,
 		devPlanPaygEnabled: devPlanPaygEnabled ?? personalOrg.devPlanPaygEnabled,
+		autoTopUpEnabled:
+			updateData.autoTopUpEnabled ?? personalOrg.autoTopUpEnabled,
+		autoTopUpThreshold:
+			updateData.autoTopUpThreshold ?? personalOrg.autoTopUpThreshold,
+		autoTopUpAmount: updateData.autoTopUpAmount ?? personalOrg.autoTopUpAmount,
 	});
 });
 

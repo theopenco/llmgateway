@@ -1,17 +1,20 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { CreditCard, Loader2, Wallet } from "lucide-react";
+import { CreditCard, Loader2, RefreshCw, Wallet } from "lucide-react";
 import { usePostHog } from "posthog-js/react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
 import {
+	AUTO_TOP_UP_DEFAULT_AMOUNT,
+	AUTO_TOP_UP_DEFAULT_THRESHOLD,
 	CREDIT_TOP_UP_MAX_AMOUNT,
 	CREDIT_TOP_UP_MIN_AMOUNT,
 } from "@llmgateway/shared";
@@ -21,6 +24,9 @@ interface PayAsYouGoCardProps {
 	paygEnabled: boolean;
 	regularCredits: number;
 	monthlyExhausted: boolean;
+	autoTopUpEnabled: boolean;
+	autoTopUpThreshold: string | null;
+	autoTopUpAmount: string | null;
 }
 
 const PRESET_AMOUNTS = [10, 25, 50, 100];
@@ -44,6 +50,9 @@ export default function PayAsYouGoCard({
 	paygEnabled,
 	regularCredits,
 	monthlyExhausted,
+	autoTopUpEnabled,
+	autoTopUpThreshold,
+	autoTopUpAmount,
 }: PayAsYouGoCardProps) {
 	const api = useApi();
 	const queryClient = useQueryClient();
@@ -52,6 +61,13 @@ export default function PayAsYouGoCard({
 
 	const [selectedAmount, setSelectedAmount] = useState<number>(25);
 	const [customAmount, setCustomAmount] = useState<string>("");
+	const [autoReloadOpen, setAutoReloadOpen] = useState(false);
+	const [reloadThreshold, setReloadThreshold] = useState<string>(
+		autoTopUpThreshold ?? String(AUTO_TOP_UP_DEFAULT_THRESHOLD),
+	);
+	const [reloadAmount, setReloadAmount] = useState<string>(
+		autoTopUpAmount ?? String(AUTO_TOP_UP_DEFAULT_AMOUNT),
+	);
 	// Idempotency key for the current purchase attempt: resubmitting the same
 	// attempt (double-click, network retry) reuses the same PaymentIntent on
 	// Stripe's side. Rotated whenever the amount changes or a request settles,
@@ -136,6 +152,52 @@ export default function PayAsYouGoCard({
 			// The outcome (success or a definitive decline) reached the client,
 			// so the next click is a new attempt, not a resubmission.
 			rotatePurchaseId();
+		}
+	};
+
+	const reloadThresholdNum = Number(reloadThreshold);
+	const reloadAmountNum = Number(reloadAmount);
+	const reloadValid =
+		Number.isFinite(reloadThresholdNum) &&
+		reloadThresholdNum >= 5 &&
+		reloadThresholdNum <= 1000 &&
+		Number.isFinite(reloadAmountNum) &&
+		reloadAmountNum >= CREDIT_TOP_UP_MIN_AMOUNT &&
+		reloadAmountNum <= CREDIT_TOP_UP_MAX_AMOUNT;
+
+	const handleAutoReload = async (enabled: boolean) => {
+		if (enabled && !reloadValid) {
+			setAutoReloadOpen(true);
+			return;
+		}
+		try {
+			await settingsMutation.mutateAsync({
+				body: enabled
+					? {
+							autoTopUpEnabled: true,
+							autoTopUpThreshold: reloadThresholdNum,
+							autoTopUpAmount: reloadAmountNum,
+						}
+					: { autoTopUpEnabled: false },
+			});
+			await invalidateDevPlanStatus(queryClient);
+			if (posthogKey) {
+				posthog.capture("devpass_payg_auto_reload_toggled", {
+					enabled,
+					threshold: enabled ? reloadThresholdNum : undefined,
+					amount: enabled ? reloadAmountNum : undefined,
+				});
+			}
+			toast.success(enabled ? "Auto-reload on" : "Auto-reload off", {
+				description: enabled
+					? `When your balance falls below $${reloadThresholdNum}, we'll reload $${reloadAmountNum} from your saved card.`
+					: "Your balance will no longer reload automatically.",
+			});
+			if (enabled) {
+				setAutoReloadOpen(false);
+			}
+		} catch {
+			toast.error("Could not update auto-reload");
 		}
 	};
 
@@ -275,6 +337,92 @@ export default function PayAsYouGoCard({
 										: `Top up ($${CREDIT_TOP_UP_MIN_AMOUNT}–$${CREDIT_TOP_UP_MAX_AMOUNT})`}
 								</Button>
 							</div>
+						</div>
+
+						{/* Auto-reload, mirroring the manual top-up box */}
+						<div className="mt-3 rounded-md border border-stone-300/80 bg-background/60 p-3 dark:border-stone-700/80">
+							<div className="flex flex-wrap items-center justify-between gap-3">
+								<div className="flex items-center gap-2 text-sm">
+									<RefreshCw className="h-3.5 w-3.5 text-muted-foreground" />
+									<span className="font-medium">Auto-reload</span>
+									<button
+										type="button"
+										onClick={() => setAutoReloadOpen(!autoReloadOpen)}
+										className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+										data-testid="payg-auto-reload-adjust"
+									>
+										{autoReloadOpen
+											? "Hide"
+											: autoTopUpEnabled
+												? "Adjust"
+												: "Set up"}
+									</button>
+								</div>
+								<Switch
+									checked={autoTopUpEnabled}
+									onCheckedChange={handleAutoReload}
+									disabled={settingsMutation.isPending}
+									aria-label="Auto-reload"
+									data-testid="payg-auto-reload-switch"
+								/>
+							</div>
+							{!autoReloadOpen && (
+								<p className="mt-1.5 text-xs text-muted-foreground">
+									{autoTopUpEnabled
+										? `When your balance falls below $${Number(autoTopUpThreshold ?? AUTO_TOP_UP_DEFAULT_THRESHOLD)}, we reload $${Number(autoTopUpAmount ?? AUTO_TOP_UP_DEFAULT_AMOUNT)} from your saved card.`
+										: "Keep coding through cap hits — reload your balance automatically when it runs low."}
+								</p>
+							)}
+							{autoReloadOpen && (
+								<div className="mt-3 flex flex-wrap items-end gap-3">
+									<label className="flex flex-col gap-1 text-xs text-muted-foreground">
+										When balance falls below
+										<div className="relative">
+											<span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+												$
+											</span>
+											<Input
+												type="number"
+												min={5}
+												max={1000}
+												value={reloadThreshold}
+												onChange={(e) => setReloadThreshold(e.target.value)}
+												className="h-9 w-24 pl-6 font-mono text-sm"
+												data-testid="payg-auto-reload-threshold"
+											/>
+										</div>
+									</label>
+									<label className="flex flex-col gap-1 text-xs text-muted-foreground">
+										Reload
+										<div className="relative">
+											<span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+												$
+											</span>
+											<Input
+												type="number"
+												min={CREDIT_TOP_UP_MIN_AMOUNT}
+												max={CREDIT_TOP_UP_MAX_AMOUNT}
+												value={reloadAmount}
+												onChange={(e) => setReloadAmount(e.target.value)}
+												className="h-9 w-24 pl-6 font-mono text-sm"
+												data-testid="payg-auto-reload-amount"
+											/>
+										</div>
+									</label>
+									<Button
+										size="sm"
+										variant="outline"
+										onClick={() => handleAutoReload(true)}
+										disabled={!reloadValid || settingsMutation.isPending}
+										data-testid="payg-auto-reload-save"
+									>
+										{settingsMutation.isPending ? (
+											<Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+										) : null}
+										{autoTopUpEnabled ? "Save" : "Save & turn on"}
+									</Button>
+								</div>
+							)}
 						</div>
 					</>
 				)}
