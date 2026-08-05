@@ -265,6 +265,9 @@ export const deepseekModels = [
 				jsonOutput: true,
 				streaming: true,
 				reasoning: true,
+				// DeepSeek temporarily maps `low` to `high` on the pro model, so only
+				// high/max are genuine tiers here (expected to resolve in early
+				// August 2026 — see api-docs.deepseek.com/guides/thinking_mode).
 				reasoningEfforts: ["none", "high", "max"],
 				vision: false,
 				tools: true,
@@ -320,12 +323,11 @@ export const deepseekModels = [
 				maxOutput: 163840,
 				streaming: true,
 				reasoning: true,
-				// Together's deployment accepts any reasoning_effort string without
-				// validating it, and only the top tiers measurably change behaviour:
-				// xhigh and max roughly double the reasoning tokens, while
-				// low/medium/high land on the provider default. `none` is honoured
-				// through the `thinking` switch, not through reasoning_effort.
-				reasoningEfforts: ["none", "xhigh", "max"],
+				// Together's docs list two native effort levels (high, max);
+				// low/medium are normalized to high and xhigh to max upstream.
+				// `none` is honoured through the `thinking` switch, not through
+				// reasoning_effort.
+				reasoningEfforts: ["none", "high", "max"],
 				requiresDisableThinkingParam: true,
 				reasoningOutput: "omit",
 				vision: false,
@@ -355,6 +357,7 @@ export const deepseekModels = [
 				streaming: true,
 				reasoning: true,
 				reasoningMaxTokens: true,
+				reasoningEfforts: ["none", "high", "max"],
 				vision: false,
 				tools: true,
 				jsonOutput: true,
@@ -371,7 +374,7 @@ export const deepseekModels = [
 				quantization: "fp4",
 				streaming: true,
 				reasoning: true,
-				reasoningEfforts: ["none", "low", "medium", "high", "xhigh"],
+				reasoningEfforts: ["none", "high", "max"],
 				vision: false,
 				tools: true,
 				jsonOutput: true,
@@ -433,7 +436,7 @@ export const deepseekModels = [
 				jsonOutput: true,
 				streaming: true,
 				reasoning: true,
-				reasoningEfforts: ["none", "high", "max"],
+				reasoningEfforts: ["none", "low", "high", "max"],
 				vision: false,
 				tools: true,
 				supportedParameters: [
@@ -489,6 +492,9 @@ export const deepseekModels = [
 				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
+				// Novita documents no reasoning_effort parameter for this model
+				// (thinking is a binary enable_thinking switch), so no tiers are
+				// declared.
 				vision: false,
 				tools: true,
 				// The -0731 deployment 400s on "required" and named-function
@@ -519,6 +525,7 @@ export const deepseekModels = [
 				streaming: true,
 				reasoning: true,
 				reasoningMaxTokens: true,
+				reasoningEfforts: ["none", "high", "max"],
 				vision: false,
 				tools: true,
 				jsonOutput: true,
@@ -535,6 +542,7 @@ export const deepseekModels = [
 				quantization: "fp4",
 				streaming: true,
 				reasoning: true,
+				reasoningEfforts: ["low", "high", "max"],
 				vision: false,
 				tools: true,
 				jsonOutput: true,
