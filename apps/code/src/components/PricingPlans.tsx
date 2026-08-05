@@ -216,7 +216,9 @@ export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 				tokens or ${Math.round(HIGH_COST_OUTPUT_PRICE * 1_000_000)}+ per million
 				output tokens — as a weekly allowance on top of your monthly usage,
 				published right on the card. Every other model draws on your full
-				monthly allowance. No hidden throttling.
+				monthly allowance. No hidden throttling. And the allowance isn&apos;t a
+				wall: opt into pay-as-you-go overflow in your dashboard to keep coding
+				past it, billed from a credits balance at provider rates.
 			</p>
 
 			<div className="mx-auto mt-8 flex max-w-2xl flex-col items-center gap-4 rounded-2xl border border-dashed border-emerald-500/30 bg-emerald-500/[0.04] p-6 text-center sm:flex-row sm:text-left">
