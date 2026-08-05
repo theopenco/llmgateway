@@ -692,6 +692,29 @@ describe("calculateCosts", () => {
 		expect(result.estimatedCost).toBe(false);
 	});
 
+	it("should not double-bill RanoAI reasoning tokens", async () => {
+		// RanoAI reports reasoning in completion_tokens_details (hoisted to a
+		// top-level reasoning_tokens by the streaming transform) while already
+		// counting it inside completion_tokens, so it must not be added again.
+		const result = await calculateCosts(
+			"gemma-4-31b-it",
+			"ranoai",
+			null,
+			1000,
+			330, // completionTokens already includes the 267 reasoning tokens
+			null,
+			undefined,
+			267,
+		);
+
+		// inputPrice 0.1e-6, outputPrice 0.3e-6. Precision matters here: billing
+		// 330 vs 597 output tokens differs by only 8e-5, which the default
+		// two-decimal toBeCloseTo would not catch.
+		expect(result.inputCost).toBeCloseTo(0.0001, 10);
+		expect(result.outputCost).toBeCloseTo(0.000099, 10); // 330 * 0.3e-6, not 597
+		expect(result.completionTokens).toBe(330);
+	});
+
 	it("should handle null reasoning tokens gracefully", async () => {
 		const result = await calculateCosts(
 			"gemini-2.5-pro",
