@@ -130,6 +130,10 @@ export default function PayAsYouGoCard({
 			const result = await topUpMutation.mutateAsync({
 				body: { amount, purchaseId: purchaseIdRef.current },
 			});
+			// The charge is confirmed, so the next click is a new attempt.
+			// Rotate before the client-side follow-ups so a hiccup in them
+			// can't leave a spent key behind.
+			rotatePurchaseId();
 			await invalidateDevPlanStatus(queryClient);
 			if (posthogKey) {
 				posthog.capture("devpass_payg_topup", {
@@ -142,16 +146,25 @@ export default function PayAsYouGoCard({
 			});
 			setCustomAmount("");
 		} catch (err) {
+			// The fetch client rejects with the API's parsed error body (a
+			// plain object with `message`) for definitive server outcomes, and
+			// with a real Error for network failures — where the server may
+			// still have charged. Only a definitive outcome rotates the key;
+			// an uncertain retry must reuse it so Stripe collapses the
+			// resubmission into the original PaymentIntent.
+			const serverMessage =
+				!(err instanceof Error) &&
+				typeof (err as { message?: unknown })?.message === "string"
+					? (err as { message: string }).message
+					: undefined;
+			if (serverMessage) {
+				rotatePurchaseId();
+			}
 			toast.error("Top-up failed", {
 				description:
-					err instanceof Error
-						? err.message
-						: "Your card could not be charged. Update it on the billing page and try again.",
+					serverMessage ??
+					"We couldn't confirm the payment. Check your connection and retry — a retry will not charge you twice.",
 			});
-		} finally {
-			// The outcome (success or a definitive decline) reached the client,
-			// so the next click is a new attempt, not a resubmission.
-			rotatePurchaseId();
 		}
 	};
 

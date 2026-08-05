@@ -3,7 +3,7 @@
 import { ArrowRight, Wallet } from "lucide-react";
 import Link from "next/link";
 
-import { UsageBar } from "./UsageOverview";
+import { UsageBar } from "./UsageBar";
 
 interface UsageSummaryCardProps {
 	planName: string;

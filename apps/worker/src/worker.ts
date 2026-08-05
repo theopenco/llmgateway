@@ -591,6 +591,34 @@ export async function processAutoTopUp(): Promise<void> {
 					isInternational,
 				});
 
+				// The org row was read once at the start of the pass, and the
+				// payment-method resolution above makes network calls — the user
+				// may have switched auto-reload (or DevPass PAYG overflow) off in
+				// the meantime. Re-read and re-authorize immediately before money
+				// moves: a charge that loses this check stops before the pending
+				// transaction and PaymentIntent are ever created. The residual
+				// window is the Stripe call itself, which a settings write cannot
+				// revoke.
+				const freshOrg = await db.query.organization.findFirst({
+					where: {
+						id: {
+							eq: org.id,
+						},
+					},
+				});
+				if (
+					!freshOrg ||
+					!freshOrg.autoTopUpEnabled ||
+					(freshOrg.kind === "devpass" && !freshOrg.devPlanPaygEnabled) ||
+					Number(freshOrg.credits || 0) >=
+						Number(freshOrg.autoTopUpThreshold ?? 10)
+				) {
+					logger.info(
+						`Skipping auto top-up for organization ${org.id}: settings changed mid-pass`,
+					);
+					continue;
+				}
+
 				// Insert pending transaction before creating payment intent
 				const pendingTransaction = await db
 					.insert(tables.transaction)

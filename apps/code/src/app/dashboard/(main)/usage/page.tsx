@@ -1,13 +1,8 @@
 "use client";
 
-import dynamic from "next/dynamic";
-
+import UsageOverview from "@/app/dashboard/components/UsageOverview";
 import { plans } from "@/app/dashboard/plans";
 import { useDevPlanStatus } from "@/app/dashboard/useDevPlanStatus";
-
-const UsageOverview = dynamic(
-	() => import("@/app/dashboard/components/UsageOverview"),
-);
 
 export default function UsagePage() {
 	const { data: devPlanStatus } = useDevPlanStatus();

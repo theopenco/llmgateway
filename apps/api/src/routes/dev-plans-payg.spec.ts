@@ -254,22 +254,34 @@ describe("dev-plan PAYG top-up", () => {
 	});
 
 	it("rejects unauthenticated requests", async () => {
-		const res = await topUpRequest({ amount: 25 });
+		const res = await topUpRequest({
+			amount: 25,
+			purchaseId: "attempt-fixed-1",
+		});
 		expect(res.status).toBe(401);
 	});
 
 	it("rejects a top-up without an active dev plan", async () => {
 		await insertOrg({ devPlan: "none" });
-		const res = await topUpRequest({ amount: 25 }, token);
+		const res = await topUpRequest(
+			{ amount: 25, purchaseId: "attempt-fixed-1" },
+			token,
+		);
 		expect(res.status).toBe(400);
 		expect(stripeMock.paymentIntents.create).not.toHaveBeenCalled();
 	});
 
 	it("rejects amounts outside the allowed range", async () => {
 		await insertOrg();
-		const tooSmall = await topUpRequest({ amount: 5 }, token);
+		const tooSmall = await topUpRequest(
+			{ amount: 5, purchaseId: "attempt-fixed-1" },
+			token,
+		);
 		expect(tooSmall.status).toBe(400);
-		const tooLarge = await topUpRequest({ amount: 10_000 }, token);
+		const tooLarge = await topUpRequest(
+			{ amount: 10_000, purchaseId: "attempt-fixed-1" },
+			token,
+		);
 		expect(tooLarge.status).toBe(400);
 		expect(stripeMock.paymentIntents.create).not.toHaveBeenCalled();
 	});
@@ -277,7 +289,10 @@ describe("dev-plan PAYG top-up", () => {
 	it("charges the saved card with credit top-up metadata", async () => {
 		await insertOrg();
 
-		const res = await topUpRequest({ amount: 25 }, token);
+		const res = await topUpRequest(
+			{ amount: 25, purchaseId: "attempt-fixed-1" },
+			token,
+		);
 		expect(res.status).toBe(200);
 		const body = await res.json();
 		expect(body.success).toBe(true);
@@ -302,7 +317,10 @@ describe("dev-plan PAYG top-up", () => {
 			default_payment_method: null,
 		});
 
-		const res = await topUpRequest({ amount: 25 }, token);
+		const res = await topUpRequest(
+			{ amount: 25, purchaseId: "attempt-fixed-1" },
+			token,
+		);
 		expect(res.status).toBe(200);
 		const params = stripeMock.paymentIntents.create.mock.calls[0][0];
 		expect(params.payment_method).toBe("pm_from_customer");
@@ -314,7 +332,10 @@ describe("dev-plan PAYG top-up", () => {
 			card: { country: "DE" },
 		});
 
-		const res = await topUpRequest({ amount: 100 }, token);
+		const res = await topUpRequest(
+			{ amount: 100, purchaseId: "attempt-fixed-1" },
+			token,
+		);
 		expect(res.status).toBe(200);
 		const body = await res.json();
 		// $100 + 5% platform fee + 1.5% international fee.
@@ -330,7 +351,10 @@ describe("dev-plan PAYG top-up", () => {
 			}),
 		);
 
-		const res = await topUpRequest({ amount: 25 }, token);
+		const res = await topUpRequest(
+			{ amount: 25, purchaseId: "attempt-fixed-1" },
+			token,
+		);
 		expect(res.status).toBe(402);
 		const body = await res.json();
 		expect(body.message).toContain("Your card was declined.");
@@ -346,7 +370,10 @@ describe("dev-plan PAYG top-up", () => {
 			metadata: {},
 		});
 
-		const res = await topUpRequest({ amount: 25 }, token);
+		const res = await topUpRequest(
+			{ amount: 25, purchaseId: "attempt-fixed-1" },
+			token,
+		);
 		expect(res.status).toBe(402);
 	});
 
@@ -387,12 +414,14 @@ describe("dev-plan PAYG top-up", () => {
 		).toBe(`dev-plan-topup:${ORG_ID}:attempt-def-456`);
 	});
 
-	it("omits the idempotency key when no purchaseId is sent", async () => {
+	it("rejects a top-up without a purchaseId", async () => {
 		await insertOrg();
 
+		// Every charge must be idempotent — a request with no purchase attempt
+		// id never reaches Stripe.
 		const res = await topUpRequest({ amount: 25 }, token);
-		expect(res.status).toBe(200);
-		expect(stripeMock.paymentIntents.create.mock.calls[0][1]).toBeUndefined();
+		expect(res.status).toBe(400);
+		expect(stripeMock.paymentIntents.create).not.toHaveBeenCalled();
 	});
 
 	it("rejects a top-up when no payment method is on file", async () => {
@@ -405,7 +434,10 @@ describe("dev-plan PAYG top-up", () => {
 			invoice_settings: {},
 		});
 
-		const res = await topUpRequest({ amount: 25 }, token);
+		const res = await topUpRequest(
+			{ amount: 25, purchaseId: "attempt-fixed-1" },
+			token,
+		);
 		expect(res.status).toBe(400);
 		expect(stripeMock.paymentIntents.create).not.toHaveBeenCalled();
 	});

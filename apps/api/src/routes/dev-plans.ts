@@ -3285,8 +3285,9 @@ const topUpCredits = createRoute({
 						// Client-generated purchase attempt id, forwarded to Stripe as
 						// the idempotency key so a resubmitted request (double-click,
 						// network retry, lost response) reuses the same PaymentIntent
-						// instead of charging twice.
-						purchaseId: z.string().min(8).max(64).optional(),
+						// instead of charging twice. Required: every charge must be
+						// idempotent, including raw API callers.
+						purchaseId: z.string().min(8).max(64),
 					}),
 				},
 			},
@@ -3376,9 +3377,7 @@ devPlans.openapi(topUpCredits, async (c) => {
 					userId: user.id,
 				},
 			},
-			purchaseId
-				? { idempotencyKey: `dev-plan-topup:${personalOrg.id}:${purchaseId}` }
-				: undefined,
+			{ idempotencyKey: `dev-plan-topup:${personalOrg.id}:${purchaseId}` },
 		);
 	} catch (err) {
 		const stripeErr = err as { type?: string; code?: string };
