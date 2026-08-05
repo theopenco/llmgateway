@@ -2455,17 +2455,14 @@ export const googleModels = [
 				// enforces a 20480-token window (prompt + max_tokens). Reasoning
 				// arrives as `reasoning_content` (streamed as deltas) only when
 				// `reasoning_effort` is passed explicitly — a request without it
-				// returns no reasoning at all, and "none" suppresses it. Usage
-				// never breaks out `reasoning_tokens`.
+				// returns no reasoning at all, and "none" suppresses it.
+				// `reasoning_tokens` is reported inside completion_tokens, so
+				// costs.ts lists this provider in completionIncludesReasoning.
 				//
-				// "auto" and "none" are honoured correctly. "required" and named
-				// function choices are accepted and now return well-formed
-				// responses, but neither is enforced: "required" lets the model
-				// answer without calling a tool, and a named choice is ignored
-				// (asking for get_time yields get_weather). Since the upstream
-				// simply disregards both constraints, downgrading them to "auto"
-				// is behaviourally identical and keeps the mapping from implying
-				// a guarantee it cannot make (verified 2026-07-28).
+				// All four tool_choice modes are honoured, so none are declared
+				// here (verified 2026-08-05). Prompt caching is still not offered:
+				// repeating an identical 2.5k-token prompt reports no
+				// prompt_tokens_details, hence no cachedInputPrice.
 				providerId: "ranoai",
 				externalId: "gemma-4-31b",
 				inputPrice: "0.1e-6",
@@ -2489,7 +2486,6 @@ export const googleModels = [
 				jsonOutput: true,
 				jsonOutputSchema: true,
 				supportsN: true,
-				supportedToolChoices: ["auto", "none"],
 			},
 		],
 	},
