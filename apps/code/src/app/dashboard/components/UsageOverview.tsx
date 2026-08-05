@@ -235,6 +235,10 @@ export default function UsageOverview({
 	// ceiling: once it's gone, Reset Passes can't unlock anything, so the pass
 	// card gives way to the upgrade/PAYG promo.
 	const monthlyExhausted = creditsLimit > 0 && creditsUsed >= creditsLimit;
+	// Overflow only actually flows with a positive balance — an opted-in org
+	// with empty credits still gets 402s, so the copy must say "top up", not
+	// "requests keep flowing".
+	const paygAvailable = paygEnabled && regularCredits > 0;
 
 	// Top of the Reset Pass upsell funnel: the user sees the exhausted weekly
 	// premium meter. reset_pass_purchased/redeemed are captured server-side,
@@ -367,9 +371,11 @@ export default function UsageOverview({
 					used={creditsUsed}
 					limit={creditsLimit}
 					exhaustedMessage={
-						paygEnabled
+						paygAvailable
 							? "Allowance reached — pay-as-you-go overflow is active, so requests keep flowing from your credits balance below."
-							: "Allowance reached for this billing cycle. Upgrade, or enable pay-as-you-go overflow below to keep coding."
+							: paygEnabled
+								? "Allowance reached — pay-as-you-go overflow is enabled but your credits balance is empty. Top up below to keep coding."
+								: "Allowance reached for this billing cycle. Upgrade, or enable pay-as-you-go overflow below to keep coding."
 					}
 				/>
 				{premiumWeeklyLimit > 0 && (

@@ -284,6 +284,51 @@ describe("dev-plan PAYG top-up", () => {
 		expect(res.status).toBe(402);
 	});
 
+	it("forwards the same idempotency key for a resubmitted purchase attempt", async () => {
+		await insertOrg();
+
+		// Same client purchaseId submitted twice (double-click / lost response):
+		// both requests must reach Stripe with the identical org-scoped
+		// idempotency key — that is what makes Stripe collapse them into one
+		// PaymentIntent (one charge), and the webhook's transaction dedup on the
+		// PaymentIntent id then credits it exactly once.
+		const first = await topUpRequest(
+			{ amount: 25, purchaseId: "attempt-abc-123" },
+			token,
+		);
+		const second = await topUpRequest(
+			{ amount: 25, purchaseId: "attempt-abc-123" },
+			token,
+		);
+		expect(first.status).toBe(200);
+		expect(second.status).toBe(200);
+
+		expect(stripeMock.paymentIntents.create).toHaveBeenCalledTimes(2);
+		const keys = stripeMock.paymentIntents.create.mock.calls.map(
+			(call) => call[1]?.idempotencyKey,
+		);
+		expect(keys[0]).toBe(`dev-plan-topup:${ORG_ID}:attempt-abc-123`);
+		expect(keys[1]).toBe(keys[0]);
+
+		// A new attempt gets a new key, so it is a distinct charge.
+		const third = await topUpRequest(
+			{ amount: 25, purchaseId: "attempt-def-456" },
+			token,
+		);
+		expect(third.status).toBe(200);
+		expect(
+			stripeMock.paymentIntents.create.mock.calls[2][1]?.idempotencyKey,
+		).toBe(`dev-plan-topup:${ORG_ID}:attempt-def-456`);
+	});
+
+	it("omits the idempotency key when no purchaseId is sent", async () => {
+		await insertOrg();
+
+		const res = await topUpRequest({ amount: 25 }, token);
+		expect(res.status).toBe(200);
+		expect(stripeMock.paymentIntents.create.mock.calls[0][1]).toBeUndefined();
+	});
+
 	it("rejects a top-up when no payment method is on file", async () => {
 		await insertOrg();
 		stripeMock.subscriptions.retrieve.mockResolvedValue({

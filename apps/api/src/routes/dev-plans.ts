@@ -3198,6 +3198,11 @@ const topUpCredits = createRoute({
 								CREDIT_TOP_UP_MAX_AMOUNT,
 								`Maximum top-up amount is $${CREDIT_TOP_UP_MAX_AMOUNT}.`,
 							),
+						// Client-generated purchase attempt id, forwarded to Stripe as
+						// the idempotency key so a resubmitted request (double-click,
+						// network retry, lost response) reuses the same PaymentIntent
+						// instead of charging twice.
+						purchaseId: z.string().min(8).max(64).optional(),
 					}),
 				},
 			},
@@ -3234,7 +3239,7 @@ devPlans.openapi(topUpCredits, async (c) => {
 		});
 	}
 
-	const { amount } = c.req.valid("json");
+	const { amount, purchaseId } = c.req.valid("json");
 
 	const personalOrg = await findPersonalOrg(user.id);
 
@@ -3262,26 +3267,35 @@ devPlans.openapi(topUpCredits, async (c) => {
 	// `baseAmount` in the metadata routes this PaymentIntent through
 	// handlePaymentIntentSucceeded's credit top-up path — the same
 	// fulfilment (dedup, bonus, invoice, analytics) as dashboard top-ups.
+	// The org-scoped idempotency key makes Stripe collapse resubmissions of
+	// the same purchase attempt into one PaymentIntent; the webhook's
+	// transaction dedup (keyed on the PaymentIntent id) then guarantees the
+	// collapsed charge is only credited once.
 	let paymentIntent: Stripe.PaymentIntent;
 	try {
-		paymentIntent = await getStripe().paymentIntents.create({
-			amount: Math.round(feeBreakdown.totalAmount * 100),
-			currency: "usd",
-			customer: stripeCustomerId,
-			payment_method: paymentMethodId,
-			off_session: true,
-			confirm: true,
-			description: `Credit purchase for ${amount} USD (including fees)`,
-			metadata: {
-				organizationId: personalOrg.id,
-				baseAmount: amount.toString(),
-				platformFee: feeBreakdown.platformFee.toString(),
-				internationalFee: feeBreakdown.internationalFee.toString(),
-				isInternational: isInternational.toString(),
-				userEmail: user.email,
-				userId: user.id,
+		paymentIntent = await getStripe().paymentIntents.create(
+			{
+				amount: Math.round(feeBreakdown.totalAmount * 100),
+				currency: "usd",
+				customer: stripeCustomerId,
+				payment_method: paymentMethodId,
+				off_session: true,
+				confirm: true,
+				description: `Credit purchase for ${amount} USD (including fees)`,
+				metadata: {
+					organizationId: personalOrg.id,
+					baseAmount: amount.toString(),
+					platformFee: feeBreakdown.platformFee.toString(),
+					internationalFee: feeBreakdown.internationalFee.toString(),
+					isInternational: isInternational.toString(),
+					userEmail: user.email,
+					userId: user.id,
+				},
 			},
-		});
+			purchaseId
+				? { idempotencyKey: `dev-plan-topup:${personalOrg.id}:${purchaseId}` }
+				: undefined,
+		);
 	} catch (err) {
 		const stripeErr = err as { type?: string; code?: string };
 		const cardErrorMessage = getStripeCardErrorMessage(err);

@@ -270,12 +270,16 @@ export function assertDevPlanPremiumCapNotExceeded(
 	organization: Pick<
 		OrgInfo,
 		| "id"
+		| "credits"
 		| "devPlan"
 		| "devPlanPaygEnabled"
 		| "devPlanCreditsLimit"
 		| "devPlanCreditsUsed"
 		| "devPlanPremiumCreditsUsed"
 		| "devPlanPremiumWeekStart"
+		| "chatPlan"
+		| "chatPlanCreditsLimit"
+		| "chatPlanCreditsUsed"
 	>,
 	modelInfo: Pick<ModelDefinition, "id">,
 	trackRejection = false,
@@ -302,10 +306,8 @@ export function assertDevPlanPremiumCapNotExceeded(
 	// allowance remaining, the cap still bites so Reset Passes remain the
 	// path to more premium usage within the plan.
 	if (organization.devPlanPaygEnabled) {
-		const monthlyRemaining =
-			parseFloat(organization.devPlanCreditsLimit ?? "0") -
-			parseFloat(organization.devPlanCreditsUsed ?? "0");
-		if (monthlyRemaining <= 0) {
+		const { devPlanCreditsRemaining } = getAvailableCredits(organization);
+		if (devPlanCreditsRemaining <= 0) {
 			return;
 		}
 	}

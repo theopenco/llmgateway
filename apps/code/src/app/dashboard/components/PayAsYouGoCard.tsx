@@ -3,7 +3,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { CreditCard, Loader2, Wallet } from "lucide-react";
 import { usePostHog } from "posthog-js/react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -52,6 +52,14 @@ export default function PayAsYouGoCard({
 
 	const [selectedAmount, setSelectedAmount] = useState<number>(25);
 	const [customAmount, setCustomAmount] = useState<string>("");
+	// Idempotency key for the current purchase attempt: resubmitting the same
+	// attempt (double-click, network retry) reuses the same PaymentIntent on
+	// Stripe's side. Rotated whenever the amount changes or a request settles,
+	// so a deliberate new attempt never replays a stale outcome.
+	const purchaseIdRef = useRef<string>(crypto.randomUUID());
+	const rotatePurchaseId = () => {
+		purchaseIdRef.current = crypto.randomUUID();
+	};
 
 	const serial = (organizationId ?? "GATEWAY").slice(-6).toUpperCase();
 
@@ -104,7 +112,7 @@ export default function PayAsYouGoCard({
 		}
 		try {
 			const result = await topUpMutation.mutateAsync({
-				body: { amount },
+				body: { amount, purchaseId: purchaseIdRef.current },
 			});
 			await invalidateDevPlanStatus(queryClient);
 			if (posthogKey) {
@@ -124,6 +132,10 @@ export default function PayAsYouGoCard({
 						? err.message
 						: "Your card could not be charged. Update it on the billing page and try again.",
 			});
+		} finally {
+			// The outcome (success or a definitive decline) reached the client,
+			// so the next click is a new attempt, not a resubmission.
+			rotatePurchaseId();
 		}
 	};
 
@@ -180,7 +192,9 @@ export default function PayAsYouGoCard({
 								</div>
 								<p className="mt-0.5 text-xs text-muted-foreground">
 									{monthlyExhausted
-										? "Covering overflow now — your allowance is used up."
+										? regularCredits > 0
+											? "Covering overflow now — your allowance is used up."
+											: "Balance empty — top up to resume requests."
 										: "Used only after your monthly allowance runs out."}
 								</p>
 							</div>
@@ -207,6 +221,7 @@ export default function PayAsYouGoCard({
 											onClick={() => {
 												setSelectedAmount(preset);
 												setCustomAmount("");
+												rotatePurchaseId();
 											}}
 											className={`rounded-md border px-3 py-1.5 font-mono text-sm tabular-nums transition-colors ${
 												active
@@ -229,7 +244,10 @@ export default function PayAsYouGoCard({
 										max={CREDIT_TOP_UP_MAX_AMOUNT}
 										placeholder="Custom"
 										value={customAmount}
-										onChange={(e) => setCustomAmount(e.target.value)}
+										onChange={(e) => {
+											setCustomAmount(e.target.value);
+											rotatePurchaseId();
+										}}
 										className="h-9 w-28 pl-6 font-mono text-sm"
 										data-testid="payg-custom-amount"
 									/>
