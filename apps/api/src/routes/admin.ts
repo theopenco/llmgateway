@@ -304,6 +304,10 @@ const adminMetricsSchema = z.object({
 	grossRevenue: z.number(),
 	grossCreditsRevenue: z.number(),
 	grossDevpassRevenue: z.number(),
+	// PAYG overflow top-ups purchased by DevPass orgs. Same `credit_topup`
+	// transaction type as the Credits split, attributed separately so DevPass
+	// overflow monetization is visible instead of blending into PAYG credits.
+	grossDevpassTopupsRevenue: z.number(),
 	grossResetPassRevenue: z.number(),
 	grossChatPlansRevenue: z.number(),
 	grossProSubscriptionsRevenue: z.number(),
@@ -1046,6 +1050,9 @@ admin.openapi(getMetrics, async (c) => {
 	//
 	// Credits: org credit top-ups + end-user wallet top-ups. Refund reversals
 	// are negative same-type rows, so only positive amounts count as gross.
+	// DevPass orgs buy `credit_topup` rows too (PAYG overflow), but those are
+	// DevPass monetization, not PAYG-product revenue — they get their own
+	// split below instead of inflating this one.
 	const [grossCreditsRow] = await db
 		.select({
 			value:
@@ -1054,16 +1061,46 @@ admin.openapi(getMetrics, async (c) => {
 				),
 		})
 		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
 		.where(
 			and(
 				eq(tables.transaction.status, "completed"),
 				inArray(tables.transaction.type, ["credit_topup", "end_user_topup"]),
+				ne(tables.organization.kind, "devpass"),
 				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
 				transactionDateFilter,
 			),
 		);
 
 	const grossCreditsRevenue = Number(grossCreditsRow?.value ?? 0);
+
+	// DevPass PAYG overflow top-ups: `credit_topup` purchases on devpass orgs.
+	const [grossDevpassTopupsRow] = await db
+		.select({
+			value:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"value",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.transaction.type, "credit_topup"),
+				eq(tables.organization.kind, "devpass"),
+				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+				transactionDateFilter,
+			),
+		);
+
+	const grossDevpassTopupsRevenue = Number(grossDevpassTopupsRow?.value ?? 0);
 
 	// DevPass: dev plan subscription payments (+ legacy `subscription_*` rows on
 	// devpass orgs), deduplicated per Stripe invoice. Mirrors
@@ -1183,6 +1220,7 @@ admin.openapi(getMetrics, async (c) => {
 	const grossRevenue =
 		grossCreditsRevenue +
 		grossDevpassRevenue +
+		grossDevpassTopupsRevenue +
 		grossResetPassRevenue +
 		grossChatPlansRevenue +
 		grossProSubscriptionsRevenue;
@@ -1213,6 +1251,7 @@ admin.openapi(getMetrics, async (c) => {
 		grossRevenue,
 		grossCreditsRevenue,
 		grossDevpassRevenue,
+		grossDevpassTopupsRevenue,
 		grossResetPassRevenue,
 		grossChatPlansRevenue,
 		grossProSubscriptionsRevenue,
@@ -11781,6 +11820,18 @@ const devpassSubscriberSchema = z.object({
 	cancelled: z.boolean(),
 	mrr: z.number(),
 	realCost: z.number(),
+	// PAYG overflow state (opt-in): overflow usage is funded by the org's own
+	// credit top-ups, so it is split out of the plan-margin math below.
+	paygEnabled: z.boolean(),
+	paygBalance: z.string(),
+	autoTopUpEnabled: z.boolean(),
+	// All-time gross `credit_topup` dollars charged (Stripe amount incl fees).
+	allTimeTopUps: z.number(),
+	// Cycle cost paid from the org's own credits rather than the plan pool:
+	// realCost minus the pool draw (devPlanCreditsUsed), floored at 0.
+	cycleOverflowCost: z.number(),
+	// Plan economics only: tier price minus the pool-funded share of realCost;
+	// overflow cost is excluded because its funding (top-ups) is not plan revenue.
 	margin: z.number(),
 	marginPct: z.number().nullable(),
 	allTimeRevenue: z.number(),
@@ -11810,6 +11861,16 @@ const devpassKpisSchema = z.object({
 	refundedAmountThisMonth: z.number(),
 	resetPassesSold: z.number(),
 	resetPassRevenue: z.number(),
+	// PAYG overflow adoption + monetization across active subscribers.
+	paygOptedIn: z.number(),
+	// Sum of credits balances held by active subscribers (deferred revenue —
+	// top-ups charged but not yet spent on overflow usage).
+	paygBalanceHeld: z.number(),
+	topupRevenueThisMonth: z.number(),
+	topupRevenueAllTime: z.number(),
+	// Cycle cost across the universe that was paid from org credit balances
+	// (not the plan pools); already excluded from totalMargin.
+	totalOverflowCostCycle: z.number(),
 	weightedAvgUtilization: z.number(),
 	totalRealCostCycle: z.number(),
 	totalMrrCycle: z.number(),
@@ -11838,6 +11899,8 @@ const devpassSortBySchema = z.enum([
 	"margin",
 	"mrr",
 	"creditsUsed",
+	"paygBalance",
+	"allTimeTopUps",
 	"allTimeRevenue",
 	"allTimeCost",
 	"allTimeMargin",
@@ -11987,6 +12050,9 @@ const devpassTimeseriesPointSchema = z.object({
 	date: z.string(),
 	revenue: z.number(),
 	rawRevenue: z.number(),
+	// PAYG overflow top-ups that day (net of top-up refunds). Counted into
+	// margin because `cost` includes the overflow usage they fund.
+	topupRevenue: z.number(),
 	cost: z.number(),
 	margin: z.number(),
 });
@@ -11996,6 +12062,7 @@ const devpassTimeseriesSchema = z.object({
 	totals: z.object({
 		revenue: z.number(),
 		rawRevenue: z.number(),
+		topupRevenue: z.number(),
 		cost: z.number(),
 		margin: z.number(),
 	}),
@@ -12295,11 +12362,44 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 				inArray(allTimeRefundOriginalTx.type, [
 					...DEV_PLAN_TX_TYPES,
 					...LEGACY_DEV_PLAN_TX_TYPES,
+					// PAYG overflow top-up refunds net out of all-time revenue,
+					// mirroring the top-up subquery below on the revenue side.
+					"credit_topup",
 				]),
 			),
 		)
 		.groupBy(tables.transaction.organizationId)
 		.as("all_time_refund_sub");
+
+	// All-time PAYG overflow top-ups per org: gross `credit_topup` dollars
+	// charged (Stripe `amount`, incl processing fees). Cash basis like the
+	// other revenue splits — a top-up is revenue when charged, with the unspent
+	// remainder visible separately as the org's credits balance.
+	const allTimeTopupsSub = db
+		.select({
+			organizationId: tables.transaction.organizationId,
+			topups:
+				sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"all_time_topups",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			and(
+				eq(tables.transaction.organizationId, tables.organization.id),
+				eq(tables.organization.kind, "devpass"),
+			),
+		)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.transaction.type, "credit_topup"),
+				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+			),
+		)
+		.groupBy(tables.transaction.organizationId)
+		.as("all_time_topups_sub");
 
 	const tierPriceExpr = sql<number>`CASE
 		WHEN ${tables.organization.devPlan} = 'lite' THEN ${DEV_PLAN_PRICES.lite}
@@ -12316,10 +12416,22 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 	END`;
 
 	const realCostExpr = sql<number>`COALESCE(CAST(${realCostSub.realCost} AS NUMERIC), 0)`;
-	const marginExpr = sql<number>`(${tierPriceExpr}) - COALESCE(CAST(${realCostSub.realCost} AS NUMERIC), 0)`;
+	// Cycle cost paid from the org's own credits (PAYG overflow) rather than
+	// the plan pool. The pool draw this cycle IS devPlanCreditsUsed (the worker
+	// increments it only for pool-funded usage, and renewal resets it together
+	// with the cycle window realCost is scoped to), so anything above it hit
+	// the org's `credits` balance.
+	const overflowCostExpr = sql<number>`GREATEST((${realCostExpr}) - CAST(${tables.organization.devPlanCreditsUsed} AS NUMERIC), 0)`;
+	// Plan economics only: overflow cost is funded ~1:1 by the org's own
+	// top-ups, so counting it against the tier price would understate margin.
+	const marginExpr = sql<number>`(${tierPriceExpr}) - ((${realCostExpr}) - (${overflowCostExpr}))`;
 
 	const allTimeCostExpr = sql<number>`COALESCE(CAST(${allTimeCostSub.cost} AS NUMERIC), 0)`;
-	const allTimeRevenueExpr = sql<number>`(COALESCE(CAST(${allTimeRevenueSub.revenue} AS NUMERIC), 0) - COALESCE(CAST(${allTimeRefundSub.refund} AS NUMERIC), 0))`;
+	const allTimeTopupsExpr = sql<number>`COALESCE(CAST(${allTimeTopupsSub.topups} AS NUMERIC), 0)`;
+	// Plan payments + PAYG top-ups, net of refunds against either. allTimeCost
+	// includes overflow usage, so the top-ups that funded it must be counted
+	// here for allTimeMargin to reconcile.
+	const allTimeRevenueExpr = sql<number>`(COALESCE(CAST(${allTimeRevenueSub.revenue} AS NUMERIC), 0) + (${allTimeTopupsExpr}) - COALESCE(CAST(${allTimeRefundSub.refund} AS NUMERIC), 0))`;
 	const allTimeMarginExpr = sql<number>`(${allTimeRevenueExpr}) - (${allTimeCostExpr})`;
 
 	const conditions = [];
@@ -12414,6 +12526,8 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		margin: sql`${marginExpr}`,
 		mrr: sql`${tierPriceExpr}`,
 		creditsUsed: sql`CAST(${tables.organization.devPlanCreditsUsed} AS NUMERIC)`,
+		paygBalance: sql`CAST(${tables.organization.credits} AS NUMERIC)`,
+		allTimeTopUps: sql`${allTimeTopupsExpr}`,
 		allTimeRevenue: sql`${allTimeRevenueExpr}`,
 		allTimeCost: sql`${allTimeCostExpr}`,
 		allTimeMargin: sql`${allTimeMarginExpr}`,
@@ -12439,6 +12553,11 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			utilizationPct: utilizationExpr,
 			mrr: tierPriceExpr,
 			realCost: realCostExpr,
+			paygEnabled: tables.organization.devPlanPaygEnabled,
+			paygBalance: tables.organization.credits,
+			autoTopUpEnabled: tables.organization.autoTopUpEnabled,
+			allTimeTopUps: allTimeTopupsExpr,
+			cycleOverflowCost: overflowCostExpr,
 			margin: marginExpr,
 			allTimeRevenue: allTimeRevenueExpr,
 			allTimeCost: allTimeCostExpr,
@@ -12480,6 +12599,10 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		.leftJoin(
 			allTimeRefundSub,
 			eq(tables.organization.id, allTimeRefundSub.organizationId),
+		)
+		.leftJoin(
+			allTimeTopupsSub,
+			eq(tables.organization.id, allTimeTopupsSub.organizationId),
 		);
 
 	const rows = await baseSelect
@@ -12728,6 +12851,9 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		.select({
 			totalCost: sql<string>`COALESCE(SUM(CAST(${realCostSub.realCost} AS NUMERIC)), 0)`,
 			totalMrr: sql<string>`COALESCE(SUM(${tierPriceExpr}), 0)`,
+			totalOverflow: sql<string>`COALESCE(SUM(${overflowCostExpr}), 0)`,
+			paygOptedIn: sql<number>`COUNT(*) FILTER (WHERE ${tables.organization.devPlanPaygEnabled})`,
+			paygBalanceHeld: sql<string>`COALESCE(SUM(CAST(${tables.organization.credits} AS NUMERIC)), 0)`,
 		})
 		.from(tables.organization)
 		.leftJoin(
@@ -12746,7 +12872,35 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		);
 	const totalRealCostCycle = Number(universeRow?.totalCost ?? 0);
 	const totalMrrCycle = Number(universeRow?.totalMrr ?? 0);
-	const totalMargin = totalMrrCycle - totalRealCostCycle;
+	const totalOverflowCostCycle = Number(universeRow?.totalOverflow ?? 0);
+	const paygOptedIn = Number(universeRow?.paygOptedIn ?? 0);
+	const paygBalanceHeld = Number(universeRow?.paygBalanceHeld ?? 0);
+	// Plan economics: overflow cost is funded by the orgs' own top-ups, so it
+	// doesn't count against plan MRR.
+	const totalMargin =
+		totalMrrCycle - (totalRealCostCycle - totalOverflowCostCycle);
+
+	// PAYG overflow top-up revenue on devpass orgs (gross Stripe amount).
+	const [topupRevenueRow] = await db
+		.select({
+			allTime: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+			thisMonth: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)) FILTER (WHERE ${tables.transaction.createdAt} >= ${monthStart}), 0)`,
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.type, "credit_topup"),
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "devpass"),
+				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+			),
+		);
+	const topupRevenueAllTime = Number(topupRevenueRow?.allTime ?? 0);
+	const topupRevenueThisMonth = Number(topupRevenueRow?.thisMonth ?? 0);
 
 	const subscribers = rows.map((row) => {
 		const tier = row.tier;
@@ -12809,6 +12963,11 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			cancelled,
 			mrr: mrrNum,
 			realCost: Number(row.realCost ?? 0),
+			paygEnabled: row.paygEnabled,
+			paygBalance: String(row.paygBalance ?? "0"),
+			autoTopUpEnabled: row.autoTopUpEnabled,
+			allTimeTopUps: Number(row.allTimeTopUps ?? 0),
+			cycleOverflowCost: Number(row.cycleOverflowCost ?? 0),
 			margin: marginNum,
 			marginPct,
 			allTimeRevenue: Number(row.allTimeRevenue ?? 0),
@@ -12843,6 +13002,11 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			refundedAmountThisMonth,
 			resetPassesSold,
 			resetPassRevenue,
+			paygOptedIn,
+			paygBalanceHeld,
+			topupRevenueThisMonth,
+			topupRevenueAllTime,
+			totalOverflowCostCycle,
 			weightedAvgUtilization,
 			totalRealCostCycle,
 			totalMrrCycle,
@@ -12989,6 +13153,67 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
 		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
 
+	// PAYG overflow top-ups per day (gross), net of top-up refunds below.
+	const topupsPerDay = await db
+		.select({
+			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
+			total:
+				sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.type, "credit_topup"),
+				eq(tables.transaction.status, "completed"),
+				gte(tables.transaction.createdAt, startDate),
+				lte(tables.transaction.createdAt, endDate),
+				eq(tables.organization.kind, "devpass"),
+				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+			),
+		)
+		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
+		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
+
+	const topupRefundOriginalTx = aliasedTable(
+		tables.transaction,
+		"topup_refund_original_tx",
+	);
+	const topupRefundsPerDay = await db
+		.select({
+			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
+			total:
+				sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			topupRefundOriginalTx,
+			eq(tables.transaction.relatedTransactionId, topupRefundOriginalTx.id),
+		)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.type, "credit_refund"),
+				eq(tables.transaction.status, "completed"),
+				gte(tables.transaction.createdAt, startDate),
+				lte(tables.transaction.createdAt, endDate),
+				eq(tables.organization.kind, "devpass"),
+				eq(topupRefundOriginalTx.type, "credit_topup"),
+			),
+		)
+		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
+		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
+
 	// Provider cost per day for projects belonging to DevPass orgs
 	// (kind = 'devpass'), which is stable across the subscription lifecycle so
 	// churned orgs (devPlan = 'none') are still included without reconstructing
@@ -13029,6 +13254,14 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 	for (const row of refundsPerDay) {
 		refundMap.set(row.date, Number(row.total));
 	}
+	const topupMap = new Map<string, number>();
+	for (const row of topupsPerDay) {
+		topupMap.set(row.date, Number(row.total));
+	}
+	const topupRefundMap = new Map<string, number>();
+	for (const row of topupRefundsPerDay) {
+		topupRefundMap.set(row.date, Number(row.total));
+	}
 	const costMap = new Map<string, number>();
 	for (const row of costPerDay) {
 		costMap.set(row.date, Number(row.total));
@@ -13038,6 +13271,7 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 		date: string;
 		revenue: number;
 		rawRevenue: number;
+		topupRevenue: number;
 		cost: number;
 		margin: number;
 	}> = [];
@@ -13057,19 +13291,25 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 
 	let totalRevenue = 0;
 	let totalRawRevenue = 0;
+	let totalTopupRevenue = 0;
 	let totalCost = 0;
 
 	// `rawRevenue` is the gross amount collected from dev plan payments that
-	// day; `revenue` nets refunds out of it. Margin stays net-based.
+	// day; `revenue` nets refunds out of it. `topupRevenue` is PAYG overflow
+	// top-ups net of their refunds — counted into margin because `cost`
+	// includes the overflow usage those top-ups fund. Margin stays net-based.
 	while (cursor.getTime() <= lastDay) {
 		const iso = cursor.toISOString().slice(0, 10);
 		const rawRevenue = revenueMap.get(iso) ?? 0;
 		const revenue = rawRevenue - (refundMap.get(iso) ?? 0);
+		const topupRevenue =
+			(topupMap.get(iso) ?? 0) - (topupRefundMap.get(iso) ?? 0);
 		const cost = costMap.get(iso) ?? 0;
-		const margin = revenue - cost;
-		data.push({ date: iso, revenue, rawRevenue, cost, margin });
+		const margin = revenue + topupRevenue - cost;
+		data.push({ date: iso, revenue, rawRevenue, topupRevenue, cost, margin });
 		totalRevenue += revenue;
 		totalRawRevenue += rawRevenue;
+		totalTopupRevenue += topupRevenue;
 		totalCost += cost;
 		cursor.setUTCDate(cursor.getUTCDate() + 1);
 	}
@@ -13079,8 +13319,9 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 		totals: {
 			revenue: totalRevenue,
 			rawRevenue: totalRawRevenue,
+			topupRevenue: totalTopupRevenue,
 			cost: totalCost,
-			margin: totalRevenue - totalCost,
+			margin: totalRevenue + totalTopupRevenue - totalCost,
 		},
 		range: {
 			from: startDate.toISOString().slice(0, 10),
@@ -13327,7 +13568,14 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 
 	const realCost = Number(realCostRow?.total ?? 0);
 	const mrr = tierPriceOf(org.devPlan);
-	const margin = mrr - realCost;
+	// Cycle cost above the plan-pool draw was paid from the org's own credits
+	// (PAYG overflow) and is funded by its top-ups, so plan margin only counts
+	// the pool-funded share. Mirrors the list endpoint's overflowCostExpr.
+	const cycleOverflowCost = Math.max(
+		0,
+		realCost - Number(org.devPlanCreditsUsed ?? 0),
+	);
+	const margin = mrr - (realCost - cycleOverflowCost);
 
 	// All-time figures: never windowed on the (resettable) billing cycle and
 	// never gated on plan status, so a blocked/expired/renewed org still shows
@@ -13369,6 +13617,24 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 			),
 		);
 
+	// PAYG overflow top-ups (gross Stripe amount, cash basis) — counted into
+	// all-time revenue because allTimeCost includes the overflow usage they
+	// funded. Mirrors the list endpoint's allTimeTopupsSub.
+	const [allTimeTopupsRow] = await db
+		.select({
+			total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.organizationId, orgId),
+				eq(tables.transaction.type, "credit_topup"),
+				eq(tables.transaction.status, "completed"),
+				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+			),
+		);
+	const allTimeTopUps = Number(allTimeTopupsRow?.total ?? 0);
+
 	const detailRefundOriginalTx = aliasedTable(
 		tables.transaction,
 		"detail_refund_original_tx",
@@ -13387,12 +13653,17 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 				eq(tables.transaction.organizationId, orgId),
 				eq(tables.transaction.type, "credit_refund"),
 				eq(tables.transaction.status, "completed"),
-				inArray(detailRefundOriginalTx.type, allTimeRevenueTypes),
+				inArray(detailRefundOriginalTx.type, [
+					...allTimeRevenueTypes,
+					// Top-up refunds net out of revenue like the top-ups counted in.
+					"credit_topup",
+				]),
 			),
 		);
 
 	const allTimeRevenue =
-		Number(allTimeRevenueRow?.total ?? 0) -
+		Number(allTimeRevenueRow?.total ?? 0) +
+		allTimeTopUps -
 		Number(allTimeRefundRow?.total ?? 0);
 	const allTimeMargin = allTimeRevenue - allTimeCost;
 
@@ -13460,6 +13731,11 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		cancelled: org.devPlanCancelled,
 		mrr,
 		realCost,
+		paygEnabled: org.devPlanPaygEnabled,
+		paygBalance: String(org.credits ?? "0"),
+		autoTopUpEnabled: org.autoTopUpEnabled,
+		allTimeTopUps,
+		cycleOverflowCost,
 		margin,
 		marginPct,
 		allTimeRevenue,

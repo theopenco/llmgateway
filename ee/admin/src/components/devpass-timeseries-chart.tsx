@@ -32,6 +32,10 @@ const chartConfig = {
 		label: "Raw revenue",
 		color: "hsl(258 90% 66%)",
 	},
+	topupRevenue: {
+		label: "PAYG top-ups",
+		color: "hsl(188 86% 40%)",
+	},
 	cost: {
 		label: "Provider cost",
 		color: "hsl(32 95% 44%)",
@@ -44,7 +48,13 @@ const chartConfig = {
 
 type SeriesKey = keyof typeof chartConfig;
 
-const SERIES_KEYS = ["revenue", "rawRevenue", "cost", "margin"] as const;
+const SERIES_KEYS = [
+	"revenue",
+	"rawRevenue",
+	"topupRevenue",
+	"cost",
+	"margin",
+] as const;
 
 const compactCurrency = new Intl.NumberFormat("en-US", {
 	style: "currency",
@@ -90,14 +100,23 @@ export function DevpassTimeseriesChart({
 		}
 		let revenue = 0;
 		let rawRevenue = 0;
+		let topupRevenue = 0;
 		let cost = 0;
 		let margin = 0;
 		return rows.map((row) => {
 			revenue += row.revenue;
 			rawRevenue += row.rawRevenue;
+			topupRevenue += row.topupRevenue;
 			cost += row.cost;
 			margin += row.margin;
-			return { date: row.date, revenue, rawRevenue, cost, margin };
+			return {
+				date: row.date,
+				revenue,
+				rawRevenue,
+				topupRevenue,
+				cost,
+				margin,
+			};
 		});
 	}, [data, cumulative]);
 
@@ -117,11 +136,12 @@ export function DevpassTimeseriesChart({
 					<CardTitle>DevPass revenue & usage</CardTitle>
 					<CardDescription>
 						Daily revenue from DevPass transactions (net of refunds), raw gross
-						revenue from DevPass subscriptions, real provider cost across
-						current and former subscribers, and the resulting margin. Click the
-						totals to toggle series on the chart. Totals aggregate the selected
-						date range — note these will not match the KPI cards above, which
-						always reflect the current billing cycle.
+						revenue from DevPass subscriptions, PAYG overflow top-ups, real
+						provider cost across current and former subscribers, and the
+						resulting margin (plans + top-ups − cost). Click the totals to
+						toggle series on the chart. Totals aggregate the selected date range
+						— note these will not match the KPI cards above, which always
+						reflect the current billing cycle.
 					</CardDescription>
 				</div>
 				<div className="flex flex-wrap">

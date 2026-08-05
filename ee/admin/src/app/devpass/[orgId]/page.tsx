@@ -291,7 +291,9 @@ export default async function DevpassDetailPage({
 						{currencyFormatterPrecise.format(sub.realCost)}
 					</div>
 					<div className="mt-1 text-xs text-muted-foreground">
-						From hourly project stats
+						{sub.cycleOverflowCost > 0
+							? `incl. ${currencyFormatterPrecise.format(sub.cycleOverflowCost)} PAYG overflow`
+							: "From hourly project stats"}
 					</div>
 				</div>
 				<div className="rounded-lg border border-border/60 bg-card p-4">
@@ -309,8 +311,68 @@ export default async function DevpassDetailPage({
 						{currencyFormatter.format(sub.margin)}
 					</div>
 					<div className="mt-1 text-xs text-muted-foreground">
-						{sub.tierChanges} tier change
-						{sub.tierChanges === 1 ? "" : "s"} all time
+						{sub.cycleOverflowCost > 0
+							? "Plan pool only — overflow is top-up funded"
+							: `${sub.tierChanges} tier change${sub.tierChanges === 1 ? "" : "s"} all time`}
+					</div>
+				</div>
+			</section>
+
+			<section className="space-y-3">
+				<div className="flex items-center gap-2">
+					<h2 className="text-sm font-semibold tracking-tight">
+						Pay-as-you-go overflow
+					</h2>
+					<span className="text-xs text-muted-foreground">
+						Opt-in credits billing once the monthly allowance is exhausted
+					</span>
+				</div>
+				<div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+					<div className="rounded-lg border border-border/60 bg-card p-4">
+						<div className="text-xs uppercase tracking-wide text-muted-foreground">
+							Status
+						</div>
+						<div className="mt-2 flex items-center gap-2">
+							<Badge variant={sub.paygEnabled ? "default" : "outline"}>
+								{sub.paygEnabled ? "enabled" : "off"}
+							</Badge>
+							{sub.autoTopUpEnabled && (
+								<Badge variant="outline">auto-reload</Badge>
+							)}
+						</div>
+					</div>
+					<div className="rounded-lg border border-border/60 bg-card p-4">
+						<div className="text-xs uppercase tracking-wide text-muted-foreground">
+							Credits balance
+						</div>
+						<div className="mt-2 text-2xl font-semibold tabular-nums">
+							{currencyFormatter.format(parseFloat(sub.paygBalance))}
+						</div>
+						<div className="mt-1 text-xs text-muted-foreground">
+							Deferred — charged but not yet spent
+						</div>
+					</div>
+					<div className="rounded-lg border border-border/60 bg-card p-4">
+						<div className="text-xs uppercase tracking-wide text-muted-foreground">
+							Top-ups (all-time)
+						</div>
+						<div className="mt-2 text-2xl font-semibold tabular-nums">
+							{currencyFormatter.format(sub.allTimeTopUps)}
+						</div>
+						<div className="mt-1 text-xs text-muted-foreground">
+							Gross charged incl. processing fees
+						</div>
+					</div>
+					<div className="rounded-lg border border-border/60 bg-card p-4">
+						<div className="text-xs uppercase tracking-wide text-muted-foreground">
+							Overflow spend (cycle)
+						</div>
+						<div className="mt-2 text-2xl font-semibold tabular-nums">
+							{currencyFormatterPrecise.format(sub.cycleOverflowCost)}
+						</div>
+						<div className="mt-1 text-xs text-muted-foreground">
+							Usage billed to credits, not the plan pool
+						</div>
 					</div>
 				</div>
 			</section>
@@ -391,7 +453,7 @@ export default async function DevpassDetailPage({
 							{currencyFormatter.format(sub.allTimeRevenue)}
 						</div>
 						<div className="mt-1 text-xs text-muted-foreground">
-							Net of refunds, across all cycles
+							Plan payments + PAYG top-ups, net of refunds
 						</div>
 					</div>
 					<div className="rounded-lg border border-border/60 bg-card p-4">

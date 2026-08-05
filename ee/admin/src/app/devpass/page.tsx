@@ -54,6 +54,8 @@ const SORT_BY_VALUES = [
 	"margin",
 	"mrr",
 	"creditsUsed",
+	"paygBalance",
+	"allTimeTopUps",
 	"allTimeRevenue",
 	"allTimeCost",
 	"allTimeMargin",
@@ -653,6 +655,36 @@ export default async function DevpassPage({
 					<div className="mt-1 text-xs text-muted-foreground">
 						{currencyFormatter.format(kpis.totalRealCostCycle)} provider cost
 						this cycle
+						{kpis.totalOverflowCostCycle > 0 ? (
+							<>
+								{" "}
+								(incl. {currencyFormatter.format(
+									kpis.totalOverflowCostCycle,
+								)}{" "}
+								PAYG overflow, excluded from margin)
+							</>
+						) : null}
+					</div>
+				</div>
+				<div className="rounded-lg border border-border/60 bg-card p-4">
+					<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+						<Wallet className="h-3.5 w-3.5" />
+						PAYG overflow
+					</div>
+					<div className="mt-2 flex items-baseline gap-2">
+						<span className="text-2xl font-semibold tabular-nums">
+							{kpis.paygOptedIn}
+						</span>
+						<span className="text-xs text-muted-foreground">opted in</span>
+					</div>
+					<div className="mt-1 text-xs text-muted-foreground">
+						{currencyFormatter.format(kpis.topupRevenueThisMonth)} top-ups this
+						month · {currencyFormatter.format(kpis.topupRevenueAllTime)}{" "}
+						all-time
+					</div>
+					<div className="mt-1 text-xs text-muted-foreground">
+						{currencyFormatter.format(kpis.paygBalanceHeld)} balance held by
+						active subs
 					</div>
 				</div>
 			</section>
@@ -890,6 +922,15 @@ export default async function DevpassPage({
 									queryString={queryString}
 								/>
 							</TableHead>
+							<TableHead>
+								<SortableHeader
+									label="PAYG"
+									sortKey="paygBalance"
+									currentSortBy={sortBy}
+									currentSortOrder={sortOrder}
+									queryString={queryString}
+								/>
+							</TableHead>
 							<TableHead>Premium (week)</TableHead>
 							<TableHead>
 								<SortableHeader
@@ -926,7 +967,7 @@ export default async function DevpassPage({
 						{data.subscribers.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={15}
+									colSpan={16}
 									className="h-24 text-center text-muted-foreground"
 								>
 									No subscribers match
@@ -994,6 +1035,40 @@ export default async function DevpassPage({
 										)}
 									>
 										{currencyFormatter.format(sub.margin)}
+										{sub.cycleOverflowCost > 0 && (
+											<p
+												className="mt-0.5 text-xs font-normal text-muted-foreground"
+												title="Cycle cost paid from the org's own PAYG credits — excluded from plan margin"
+											>
+												+
+												{currencyFormatterPrecise.format(sub.cycleOverflowCost)}{" "}
+												overflow
+											</p>
+										)}
+									</TableCell>
+									<TableCell className="tabular-nums text-xs">
+										{sub.paygEnabled ? (
+											<>
+												<span className="font-medium">
+													{currencyFormatter.format(
+														parseFloat(sub.paygBalance),
+													)}
+												</span>
+												{sub.autoTopUpEnabled && (
+													<Badge variant="outline" className="ml-1.5">
+														auto
+													</Badge>
+												)}
+												{sub.allTimeTopUps > 0 && (
+													<p className="mt-0.5 text-muted-foreground">
+														{currencyFormatter.format(sub.allTimeTopUps)} topped
+														up
+													</p>
+												)}
+											</>
+										) : (
+											<span className="text-muted-foreground">—</span>
+										)}
 									</TableCell>
 									<TableCell className="tabular-nums text-xs">
 										{(() => {
