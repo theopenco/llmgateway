@@ -3388,6 +3388,18 @@ devPlans.openapi(topUpCredits, async (c) => {
 				message: `${cardErrorMessage ?? "Your card was declined."} Update your payment method on the billing page and try again.`,
 			});
 		}
+		// Reusing a purchaseId with different parameters (amount, card) is a
+		// client bug, but Stripe's idempotency conflict must not surface as a
+		// 500 — it is a definitive, retryable client outcome.
+		if (
+			stripeErr?.type === "StripeIdempotencyError" ||
+			stripeErr?.code === "idempotency_error"
+		) {
+			throw new HTTPException(409, {
+				message:
+					"This purchase attempt was already submitted with different details. Start a new attempt and try again.",
+			});
+		}
 		throw err;
 	}
 
