@@ -23,6 +23,7 @@ import type {
 	ProviderComplianceAttestation,
 	ProviderCompliancePolicy,
 } from "@llmgateway/models";
+import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type z from "zod";
 
@@ -3715,6 +3716,60 @@ export const routingConfig = pgTable(
 			.$onUpdate(() => new Date()),
 	},
 	(table) => [index("routing_config_project_id_idx").on(table.projectId)],
+);
+
+// Dynamic routes - named, versioned routing flows invoked via the reserved
+// "dynamic/<name>" model-string prefix. The draft graph is mutable; publishing
+// snapshots it into an immutable dynamicRouteVersion row and re-points
+// publishedVersionId, so rollback is just re-pointing to a prior version.
+export const dynamicRoute = pgTable(
+	"dynamic_route",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+		name: text().notNull(),
+		description: text(),
+		enabled: boolean().default(true).notNull(),
+		draftGraph: jsonb("draft_graph").$type<DynamicRouteGraph>(),
+		publishedVersionId: text("published_version_id").references(
+			(): AnyPgColumn => dynamicRouteVersion.id,
+			{ onDelete: "set null" },
+		),
+		createdAt: timestamp("created_at").notNull().defaultNow(),
+		updatedAt: timestamp("updated_at")
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+	},
+	(table) => [
+		unique("dynamic_route_project_id_name_idx").on(table.projectId, table.name),
+		index("dynamic_route_project_id_idx").on(table.projectId),
+	],
+);
+
+export const dynamicRouteVersion = pgTable(
+	"dynamic_route_version",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		routeId: text("route_id")
+			.notNull()
+			.references(() => dynamicRoute.id, { onDelete: "cascade" }),
+		version: integer().notNull(),
+		graph: jsonb().$type<DynamicRouteGraph>().notNull(),
+		createdBy: text("created_by").references(() => user.id, {
+			onDelete: "set null",
+		}),
+		createdAt: timestamp("created_at").notNull().defaultNow(),
+	},
+	(table) => [
+		unique("dynamic_route_version_route_id_version_idx").on(
+			table.routeId,
+			table.version,
+		),
+		index("dynamic_route_version_route_id_idx").on(table.routeId),
+	],
 );
 
 // Discount - Admin-configurable discounts for providers/models

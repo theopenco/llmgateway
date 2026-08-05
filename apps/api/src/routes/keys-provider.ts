@@ -32,6 +32,8 @@ import { isStealthProvider, providers } from "@llmgateway/models";
 import {
 	CUSTOM_PROVIDER_NAME_MESSAGE,
 	CUSTOM_PROVIDER_NAME_REGEX,
+	RESERVED_CUSTOM_PROVIDER_NAME_MESSAGE,
+	RESERVED_CUSTOM_PROVIDER_NAMES,
 } from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 import { maskToken } from "@llmgateway/shared/mask-token";
@@ -176,7 +178,12 @@ export function toPublicProviderKey(row: ProviderKeyRow) {
 // model strings, so it must stay URL-safe and unique within the organization.
 export const customProviderNameSchema = z
 	.string()
-	.regex(CUSTOM_PROVIDER_NAME_REGEX, CUSTOM_PROVIDER_NAME_MESSAGE);
+	.regex(CUSTOM_PROVIDER_NAME_REGEX, CUSTOM_PROVIDER_NAME_MESSAGE)
+	.refine(
+		(name) =>
+			!(RESERVED_CUSTOM_PROVIDER_NAMES as readonly string[]).includes(name),
+		RESERVED_CUSTOM_PROVIDER_NAME_MESSAGE,
+	);
 
 export async function assertCustomProviderNameAvailable(
 	organizationId: string,
