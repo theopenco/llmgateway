@@ -171,6 +171,7 @@ interface OrgInfo {
 	plan: string;
 	kind: string;
 	devPlan: string;
+	devPlanPaygEnabled: boolean;
 	devPlanCreditsLimit: string | null;
 	devPlanCreditsUsed: string | null;
 	devPlanPremiumCreditsUsed: string | null;
@@ -180,6 +181,78 @@ interface OrgInfo {
 	chatPlanCreditsLimit: string | null;
 	chatPlanCreditsUsed: string | null;
 	chatPlanExpiresAt: Date | null;
+}
+
+export interface AvailableCredits {
+	regularCredits: number;
+	devPlanCreditsRemaining: number;
+	chatPlanCreditsRemaining: number;
+	totalAvailableCredits: number;
+}
+
+/**
+ * Computes the credit pools a request may draw on. For dev-plan (DevPass)
+ * orgs the regular PAYG `credits` balance only counts once the org has
+ * opted into pay-as-you-go overflow (devPlanPaygEnabled); without the
+ * opt-in the plan allowance is a hard cap, even if the org somehow holds
+ * a credits balance (e.g. an admin gift).
+ */
+export function getAvailableCredits(
+	organization: Pick<
+		OrgInfo,
+		| "credits"
+		| "devPlan"
+		| "devPlanPaygEnabled"
+		| "devPlanCreditsLimit"
+		| "devPlanCreditsUsed"
+		| "chatPlan"
+		| "chatPlanCreditsLimit"
+		| "chatPlanCreditsUsed"
+	>,
+): AvailableCredits {
+	const paygBalance = parseFloat(organization.credits ?? "0");
+	const regularCredits =
+		organization.devPlan === "none" || organization.devPlanPaygEnabled
+			? paygBalance
+			: 0;
+	const devPlanCreditsRemaining =
+		organization.devPlan !== "none"
+			? parseFloat(organization.devPlanCreditsLimit ?? "0") -
+				parseFloat(organization.devPlanCreditsUsed ?? "0")
+			: 0;
+	const chatPlanCreditsRemaining =
+		organization.chatPlan !== "none"
+			? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
+				parseFloat(organization.chatPlanCreditsUsed ?? "0")
+			: 0;
+	return {
+		regularCredits,
+		devPlanCreditsRemaining,
+		chatPlanCreditsRemaining,
+		totalAvailableCredits:
+			regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining,
+	};
+}
+
+/**
+ * The 402 thrown when a dev-plan org exhausts its monthly allowance. The
+ * hint tells opted-in orgs their PAYG balance is empty and everyone else
+ * that overflow exists — the moment this error fires is the moment that
+ * information is actionable.
+ */
+export function buildDevPlanCreditLimitError(
+	organization: Pick<OrgInfo, "devPlanPaygEnabled" | "devPlanExpiresAt">,
+	messagePrefix = "",
+): HTTPException {
+	const renewalDate = organization.devPlanExpiresAt
+		? new Date(organization.devPlanExpiresAt).toLocaleDateString()
+		: "your next billing date";
+	const paygHint = organization.devPlanPaygEnabled
+		? " Your pay-as-you-go balance is empty — top up credits from your DevPass dashboard to keep going."
+		: " Or enable pay-as-you-go overflow in your DevPass dashboard to keep going past your allowance.";
+	return new HTTPException(402, {
+		message: `${messagePrefix}Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.${paygHint}`,
+	});
 }
 
 /**
@@ -196,7 +269,13 @@ interface OrgInfo {
 export function assertDevPlanPremiumCapNotExceeded(
 	organization: Pick<
 		OrgInfo,
-		"id" | "devPlan" | "devPlanPremiumCreditsUsed" | "devPlanPremiumWeekStart"
+		| "id"
+		| "devPlan"
+		| "devPlanPaygEnabled"
+		| "devPlanCreditsLimit"
+		| "devPlanCreditsUsed"
+		| "devPlanPremiumCreditsUsed"
+		| "devPlanPremiumWeekStart"
 	>,
 	modelInfo: Pick<ModelDefinition, "id">,
 	trackRejection = false,
@@ -215,6 +294,20 @@ export function assertDevPlanPremiumCapNotExceeded(
 	);
 	if (remaining > 0) {
 		return;
+	}
+	// PAYG overflow: once the monthly pool is exhausted, an opted-in org is
+	// paying provider rates from its own credits, so the weekly premium cap
+	// (a fair-use limiter on the plan allowance) no longer applies — the
+	// regular credit gate downstream takes over. Mid-cycle, with monthly
+	// allowance remaining, the cap still bites so Reset Passes remain the
+	// path to more premium usage within the plan.
+	if (organization.devPlanPaygEnabled) {
+		const monthlyRemaining =
+			parseFloat(organization.devPlanCreditsLimit ?? "0") -
+			parseFloat(organization.devPlanCreditsUsed ?? "0");
+		if (monthlyRemaining <= 0) {
+			return;
+		}
 	}
 	const weekStart = organization.devPlanPremiumWeekStart
 		? new Date(organization.devPlanPremiumWeekStart)
@@ -286,19 +379,11 @@ function assertOrganizationHasCreditsForEnvFallback(
 		return;
 	}
 	assertDevPlanPremiumCapNotExceeded(organization, modelInfo);
-	const regularCredits = parseFloat(organization.credits ?? "0");
-	const devPlanCreditsRemaining =
-		organization.devPlan !== "none"
-			? parseFloat(organization.devPlanCreditsLimit ?? "0") -
-				parseFloat(organization.devPlanCreditsUsed ?? "0")
-			: 0;
-	const chatPlanCreditsRemaining =
-		organization.chatPlan !== "none"
-			? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
-				parseFloat(organization.chatPlanCreditsUsed ?? "0")
-			: 0;
-	const totalAvailableCredits =
-		regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
+	const {
+		devPlanCreditsRemaining,
+		chatPlanCreditsRemaining,
+		totalAvailableCredits,
+	} = getAvailableCredits(organization);
 	if (totalAvailableCredits > 0) {
 		return;
 	}
@@ -315,12 +400,7 @@ function assertOrganizationHasCreditsForEnvFallback(
 		});
 	}
 	if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
-		const renewalDate = organization.devPlanExpiresAt
-			? new Date(organization.devPlanExpiresAt).toLocaleDateString()
-			: "your next billing date";
-		throw new HTTPException(402, {
-			message: `Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
-		});
+		throw buildDevPlanCreditLimitError(organization);
 	}
 	throw new HTTPException(402, {
 		message: `Organization ${organization.id} has insufficient credits`,

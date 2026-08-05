@@ -120,6 +120,8 @@ export default function UsagePage() {
 				currentPeriodEnd={devPlanStatus.devPlanExpiresAt ?? null}
 				cancelledAtPeriodEnd={devPlanStatus.devPlanCancelled ?? false}
 				cycle={devPlanStatus.devPlanCycle ?? "monthly"}
+				paygEnabled={devPlanStatus.devPlanPaygEnabled ?? false}
+				regularCredits={parseFloat(devPlanStatus.regularCredits ?? "0")}
 			/>
 
 			{/* API Key + Quick start */}

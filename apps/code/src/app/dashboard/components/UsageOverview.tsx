@@ -10,6 +10,7 @@ import { useApi } from "@/lib/fetch-client";
 
 import { AgentModelUsageChart } from "./AgentModelUsageChart";
 import AllowanceExhaustedCard from "./AllowanceExhaustedCard";
+import PayAsYouGoCard from "./PayAsYouGoCard";
 import ResetPassCard from "./ResetPassCard";
 
 import type { paths } from "@/lib/api/v1";
@@ -37,6 +38,8 @@ interface UsageOverviewProps {
 	currentPeriodEnd: string | null;
 	cancelledAtPeriodEnd: boolean;
 	cycle?: DevPlanCycle;
+	paygEnabled: boolean;
+	regularCredits: number;
 }
 
 function MetricCard({
@@ -220,6 +223,8 @@ export default function UsageOverview({
 	currentPeriodEnd,
 	cancelledAtPeriodEnd,
 	cycle = "monthly",
+	paygEnabled,
+	regularCredits,
 }: UsageOverviewProps) {
 	const api = useApi();
 	const posthog = usePostHog();
@@ -362,9 +367,9 @@ export default function UsageOverview({
 					used={creditsUsed}
 					limit={creditsLimit}
 					exhaustedMessage={
-						tierKey === "max"
-							? "Allowance reached for this billing cycle. Switch to pay-as-you-go credits below to keep coding."
-							: undefined
+						paygEnabled
+							? "Allowance reached — pay-as-you-go overflow is active, so requests keep flowing from your credits balance below."
+							: "Allowance reached for this billing cycle. Upgrade, or enable pay-as-you-go overflow below to keep coding."
 					}
 				/>
 				{premiumWeeklyLimit > 0 && (
@@ -400,12 +405,18 @@ export default function UsageOverview({
 						)}
 					</div>
 				)}
-				{monthlyExhausted && (
+				{monthlyExhausted && !paygEnabled && (
 					<AllowanceExhaustedCard
 						tier={tierKey}
 						organizationId={organizationId}
 					/>
 				)}
+				<PayAsYouGoCard
+					organizationId={organizationId}
+					paygEnabled={paygEnabled}
+					regularCredits={regularCredits}
+					monthlyExhausted={monthlyExhausted}
+				/>
 			</div>
 
 			{/* Metrics strip — scoped to the current billing cycle so they

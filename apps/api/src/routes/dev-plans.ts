@@ -45,6 +45,9 @@ import {
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
+	calculateFees,
+	CREDIT_TOP_UP_MAX_AMOUNT,
+	CREDIT_TOP_UP_MIN_AMOUNT,
 	DEV_PLAN_INCLUDED_RESET_PASSES,
 	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
 	DEV_PLAN_PRICES,
@@ -62,7 +65,7 @@ import {
 	type DevPlanTier,
 } from "@llmgateway/shared";
 
-import { getStripe } from "./payments.js";
+import { getStripe, isInternationalPaymentMethod } from "./payments.js";
 
 import type { ServerTypes } from "@/vars.js";
 import type Stripe from "stripe";
@@ -1730,6 +1733,9 @@ const getStatus = createRoute({
 						devPlanCancelled: z.boolean(),
 						devPlanExpiresAt: z.string().nullable(),
 						regularCredits: z.string(),
+						// Opt-in pay-as-you-go overflow: bill the org's regular
+						// credits once the monthly allowance is exhausted.
+						devPlanPaygEnabled: z.boolean(),
 						organizationId: z.string().nullable(),
 						projectId: z.string().nullable(),
 						apiKey: z.string().nullable(),
@@ -1790,6 +1796,7 @@ devPlans.openapi(getStatus, async (c) => {
 			devPlanCancelled: false,
 			devPlanExpiresAt: null,
 			regularCredits: "0",
+			devPlanPaygEnabled: false,
 			organizationId: null,
 			projectId: null,
 			apiKey: null,
@@ -1889,6 +1896,7 @@ devPlans.openapi(getStatus, async (c) => {
 		devPlanCancelled: personalOrg.devPlanCancelled,
 		devPlanExpiresAt: personalOrg.devPlanExpiresAt?.toISOString() ?? null,
 		regularCredits: personalOrg.credits,
+		devPlanPaygEnabled: personalOrg.devPlanPaygEnabled,
 		organizationId: personalOrg.id,
 		projectId,
 		apiKey,
@@ -1913,6 +1921,8 @@ const updateSettings = createRoute({
 						// Coding plans optimize for prompt caching, so only the
 						// default weighted routing or the price strategy are allowed.
 						defaultRoutingStrategy: z.enum(["auto", "price"]).optional(),
+						// Opt-in pay-as-you-go overflow past the monthly allowance.
+						devPlanPaygEnabled: z.boolean().optional(),
 					}),
 				},
 			},
@@ -1931,6 +1941,7 @@ const updateSettings = createRoute({
 							"throughput",
 							"latency",
 						]),
+						devPlanPaygEnabled: z.boolean(),
 					}),
 				},
 			},
@@ -1941,7 +1952,8 @@ const updateSettings = createRoute({
 
 devPlans.openapi(updateSettings, async (c) => {
 	const user = c.get("user");
-	const { devPlanServiceTier, defaultRoutingStrategy } = c.req.valid("json");
+	const { devPlanServiceTier, defaultRoutingStrategy, devPlanPaygEnabled } =
+		c.req.valid("json");
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -1977,16 +1989,24 @@ devPlans.openapi(updateSettings, async (c) => {
 
 	const updateData: {
 		devPlanServiceTier?: "default" | "flex";
+		devPlanPaygEnabled?: boolean;
 	} = {};
 
 	if (devPlanServiceTier !== undefined) {
 		updateData.devPlanServiceTier = devPlanServiceTier;
 	}
 
+	if (devPlanPaygEnabled !== undefined) {
+		updateData.devPlanPaygEnabled = devPlanPaygEnabled;
+	}
+
 	const changes: Record<string, { old: unknown; new: unknown }> = {};
 
 	if (Object.keys(updateData).length > 0) {
-		await db
+		// Cached client so the gateway's org cache invalidates: the PAYG
+		// opt-in is a billing gate, and "enable, then retry the request"
+		// must work without waiting out a cache TTL.
+		await cdb
 			.update(tables.organization)
 			.set(updateData)
 			.where(eq(tables.organization.id, personalOrg.id));
@@ -1998,6 +2018,16 @@ devPlans.openapi(updateSettings, async (c) => {
 			changes.devPlanServiceTier = {
 				old: personalOrg.devPlanServiceTier,
 				new: devPlanServiceTier,
+			};
+		}
+
+		if (
+			devPlanPaygEnabled !== undefined &&
+			devPlanPaygEnabled !== personalOrg.devPlanPaygEnabled
+		) {
+			changes.devPlanPaygEnabled = {
+				old: personalOrg.devPlanPaygEnabled,
+				new: devPlanPaygEnabled,
 			};
 		}
 	}
@@ -2050,6 +2080,7 @@ devPlans.openapi(updateSettings, async (c) => {
 		success: true,
 		devPlanServiceTier: devPlanServiceTier ?? personalOrg.devPlanServiceTier,
 		defaultRoutingStrategy: effectiveRoutingStrategy,
+		devPlanPaygEnabled: devPlanPaygEnabled ?? personalOrg.devPlanPaygEnabled,
 	});
 });
 
@@ -2953,6 +2984,43 @@ devPlans.openapi(updatePaymentMethod, async (c) => {
 	);
 });
 
+// Resolves the card on file for off-session DevPass charges: the
+// subscription's default first, falling back to the customer's default.
+// DevPass subscriptions are card-only, so this is always a card.
+async function resolveDevPassPaymentMethodId(
+	personalOrg: { devPlanStripeSubscriptionId: string | null },
+	stripeCustomerId: string,
+): Promise<string> {
+	let paymentMethodId: string | null = null;
+	if (personalOrg.devPlanStripeSubscriptionId) {
+		try {
+			const subscription = await getStripe().subscriptions.retrieve(
+				personalOrg.devPlanStripeSubscriptionId,
+			);
+			paymentMethodId = getStripeId(subscription.default_payment_method);
+		} catch (err) {
+			logger.warn("Could not read subscription payment method", {
+				error: err instanceof Error ? err.message : String(err),
+			});
+		}
+	}
+	if (!paymentMethodId) {
+		const customer = await getStripe().customers.retrieve(stripeCustomerId);
+		if (!customer.deleted) {
+			paymentMethodId = getStripeId(
+				customer.invoice_settings?.default_payment_method,
+			);
+		}
+	}
+	if (!paymentMethodId) {
+		throw new HTTPException(400, {
+			message:
+				"No saved payment method found. Update your payment method on the billing page and try again.",
+		});
+	}
+	return paymentMethodId;
+}
+
 // Buy a Reset Pass — charges the saved payment method directly (the dashboard
 // shows a confirmation dialog first), so there is no Stripe Checkout redirect.
 // The charge and the fulfilment are synchronous: on success one pass is added
@@ -3027,37 +3095,10 @@ devPlans.openapi(purchaseResetPass, async (c) => {
 	const tier = personalOrg.devPlan;
 	const price = DEV_PLAN_RESET_PASS_PRICES[tier];
 	const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
-
-	// Charge the payment method on file: the subscription's default first,
-	// falling back to the customer's default. DevPass subscriptions are
-	// card-only, so this is always a card.
-	let paymentMethodId: string | null = null;
-	if (personalOrg.devPlanStripeSubscriptionId) {
-		try {
-			const subscription = await getStripe().subscriptions.retrieve(
-				personalOrg.devPlanStripeSubscriptionId,
-			);
-			paymentMethodId = getStripeId(subscription.default_payment_method);
-		} catch (err) {
-			logger.warn("Could not read subscription payment method", {
-				error: err instanceof Error ? err.message : String(err),
-			});
-		}
-	}
-	if (!paymentMethodId) {
-		const customer = await getStripe().customers.retrieve(stripeCustomerId);
-		if (!customer.deleted) {
-			paymentMethodId = getStripeId(
-				customer.invoice_settings?.default_payment_method,
-			);
-		}
-	}
-	if (!paymentMethodId) {
-		throw new HTTPException(400, {
-			message:
-				"No saved payment method found. Update your payment method on the billing page and try again.",
-		});
-	}
+	const paymentMethodId = await resolveDevPassPaymentMethodId(
+		personalOrg,
+		stripeCustomerId,
+	);
 
 	// `kind` (not `baseAmount`) in the metadata keeps this PaymentIntent out
 	// of handlePaymentIntentSucceeded's credit top-up path and routes it to
@@ -3131,6 +3172,150 @@ devPlans.openapi(purchaseResetPass, async (c) => {
 			? getPurchasedResetPasses(updatedOrg, tier)
 			: 0,
 		amount: (paymentIntent.amount_received || paymentIntent.amount) / 100,
+	});
+});
+
+// Top up pay-as-you-go credits on the DevPass personal org — charges the
+// saved payment method directly, like the Reset Pass purchase. Fulfilment
+// (credits + transaction + invoice) happens in the payment_intent.succeeded
+// webhook, the same path every other credit top-up uses; the dashboard's
+// status poll picks up the new balance.
+const topUpCredits = createRoute({
+	method: "post",
+	path: "/topup",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						amount: z
+							.number()
+							.min(
+								CREDIT_TOP_UP_MIN_AMOUNT,
+								`Minimum top-up amount is $${CREDIT_TOP_UP_MIN_AMOUNT}.`,
+							)
+							.max(
+								CREDIT_TOP_UP_MAX_AMOUNT,
+								`Maximum top-up amount is $${CREDIT_TOP_UP_MAX_AMOUNT}.`,
+							),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						success: z.boolean(),
+						// Total charged including fees.
+						totalAmount: z.number(),
+					}),
+				},
+			},
+			description: "Credits topped up successfully",
+		},
+	},
+});
+
+devPlans.openapi(topUpCredits, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	if (!user.emailVerified) {
+		throw new HTTPException(403, {
+			message: "Email verification required",
+		});
+	}
+
+	const { amount } = c.req.valid("json");
+
+	const personalOrg = await findPersonalOrg(user.id);
+
+	if (!personalOrg) {
+		throw new HTTPException(404, {
+			message: "Personal organization not found",
+		});
+	}
+
+	if (personalOrg.devPlan === "none") {
+		throw new HTTPException(400, {
+			message: "An active dev plan is required to top up credits.",
+		});
+	}
+
+	const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
+	const paymentMethodId = await resolveDevPassPaymentMethodId(
+		personalOrg,
+		stripeCustomerId,
+	);
+
+	const isInternational = await isInternationalPaymentMethod(paymentMethodId);
+	const feeBreakdown = calculateFees({ amount, isInternational });
+
+	// `baseAmount` in the metadata routes this PaymentIntent through
+	// handlePaymentIntentSucceeded's credit top-up path — the same
+	// fulfilment (dedup, bonus, invoice, analytics) as dashboard top-ups.
+	let paymentIntent: Stripe.PaymentIntent;
+	try {
+		paymentIntent = await getStripe().paymentIntents.create({
+			amount: Math.round(feeBreakdown.totalAmount * 100),
+			currency: "usd",
+			customer: stripeCustomerId,
+			payment_method: paymentMethodId,
+			off_session: true,
+			confirm: true,
+			description: `Credit purchase for ${amount} USD (including fees)`,
+			metadata: {
+				organizationId: personalOrg.id,
+				baseAmount: amount.toString(),
+				platformFee: feeBreakdown.platformFee.toString(),
+				internationalFee: feeBreakdown.internationalFee.toString(),
+				isInternational: isInternational.toString(),
+				userEmail: user.email,
+				userId: user.id,
+			},
+		});
+	} catch (err) {
+		const stripeErr = err as { type?: string; code?: string };
+		const cardErrorMessage = getStripeCardErrorMessage(err);
+		if (cardErrorMessage || stripeErr?.code === "card_declined") {
+			logger.warn("DevPass credit top-up declined", { code: stripeErr.code });
+			throw new HTTPException(402, {
+				message: `${cardErrorMessage ?? "Your card was declined."} Update your payment method on the billing page and try again.`,
+			});
+		}
+		throw err;
+	}
+
+	if (paymentIntent.status !== "succeeded") {
+		throw new HTTPException(402, {
+			message:
+				"The payment could not be completed. Update your payment method on the billing page and try again.",
+		});
+	}
+
+	await logAuditEvent({
+		organizationId: personalOrg.id,
+		userId: user.id,
+		action: "payment.credit_topup",
+		resourceType: "payment",
+		resourceId: paymentIntent.id,
+		metadata: {
+			amount,
+			paymentMethodId,
+		},
+	});
+
+	return c.json({
+		success: true,
+		totalAmount: feeBreakdown.totalAmount,
 	});
 });
 
