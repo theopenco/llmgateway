@@ -120,6 +120,18 @@ describe("admin /metrics — gross revenue splits", () => {
 				status: "completed",
 				createdAt: new Date("2026-01-08T00:00:00Z"),
 			},
+			// An end-user wallet top-up on a devpass org shouldn't exist (wallets
+			// are backed by regular PAYG orgs), but the invariant isn't
+			// DB-enforced — the row must count in gross credits revenue exactly
+			// once, not fall between the credits and DevPass top-up splits.
+			{
+				organizationId: DEVPASS_ORG_ID,
+				type: "end_user_topup",
+				amount: "7",
+				creditAmount: "6",
+				status: "completed",
+				createdAt: new Date("2026-01-09T00:00:00Z"),
+			},
 			// Chat Plan: $10 paid for a plan that includes $150 of virtual
 			// credits — the $150 allowance must never count as revenue.
 			{
@@ -155,9 +167,10 @@ describe("admin /metrics — gross revenue splits", () => {
 		expect(res.status).toBe(200);
 		const body = (await res.json()) as AdminMetricsResponse;
 
-		// Gross = positive Stripe amounts, refunds ignored: $21 + $11 credits.
-		// The devpass org's $26.25 top-up is NOT in here — it has its own split.
-		expect(body.grossCreditsRevenue).toBe(32);
+		// Gross = positive Stripe amounts, refunds ignored: $21 + $11 credits,
+		// plus the $7 devpass end_user_topup (only devpass credit_topup rows
+		// move to the DevPass split). The $26.25 top-up is NOT in here.
+		expect(body.grossCreditsRevenue).toBe(39);
 		// $20 start + $20 second-cycle renewal — the Reset Pass is NOT in here.
 		expect(body.grossDevpassRevenue).toBe(40);
 		// PAYG overflow top-up on the devpass org.
@@ -166,13 +179,13 @@ describe("admin /metrics — gross revenue splits", () => {
 		expect(body.grossChatPlansRevenue).toBe(10);
 		// Legacy subscription on a non-devpass org.
 		expect(body.grossProSubscriptionsRevenue).toBe(50);
-		expect(body.grossRevenue).toBe(167.25);
+		expect(body.grossRevenue).toBe(174.25);
 
 		// The credits-economy metrics must exclude ALL plan rows: chat plan
 		// creditAmount ($150) is a virtual allowance, not revenue. The devpass
 		// top-up is a real credits purchase, so it DOES count here.
-		expect(body.totalRevenue).toBe(45);
-		expect(body.totalProcessed).toBe(47.25);
+		expect(body.totalRevenue).toBe(51);
+		expect(body.totalProcessed).toBe(54.25);
 		expect(body.totalToppedUp).toBe(45);
 	});
 });

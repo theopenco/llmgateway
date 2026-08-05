@@ -1069,7 +1069,15 @@ admin.openapi(getMetrics, async (c) => {
 			and(
 				eq(tables.transaction.status, "completed"),
 				inArray(tables.transaction.type, ["credit_topup", "end_user_topup"]),
-				ne(tables.organization.kind, "devpass"),
+				// Only devpass `credit_topup` rows move to the DevPass split
+				// below. An `end_user_topup` on a devpass org shouldn't exist
+				// (end-user wallets are backed by regular PAYG orgs), but that
+				// invariant isn't DB-enforced — if a row ever appears it must
+				// still count here exactly once, not vanish from gross revenue.
+				or(
+					ne(tables.organization.kind, "devpass"),
+					ne(tables.transaction.type, "credit_topup"),
+				),
 				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
 				transactionDateFilter,
 			),
