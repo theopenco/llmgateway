@@ -4,7 +4,6 @@ import {
 	Building2,
 	CreditCard,
 	Receipt,
-	Ticket,
 } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -121,6 +120,73 @@ function formatStatus(status: string) {
 		return "cancel pending";
 	}
 	return status;
+}
+
+function StatCell({
+	label,
+	value,
+	hint,
+	valueClassName,
+}: {
+	label: string;
+	value: React.ReactNode;
+	hint?: string;
+	valueClassName?: string;
+}) {
+	return (
+		<div className="min-w-0 px-4 py-3.5">
+			<div className="text-xs uppercase tracking-wide text-muted-foreground">
+				{label}
+			</div>
+			<div
+				className={cn(
+					"mt-1 truncate text-xl font-semibold tabular-nums",
+					valueClassName,
+				)}
+			>
+				{value}
+			</div>
+			{hint && (
+				<div className="mt-0.5 text-xs leading-snug text-muted-foreground">
+					{hint}
+				</div>
+			)}
+		</div>
+	);
+}
+
+function StatPanel({
+	title,
+	subtitle,
+	actions,
+	columns,
+	children,
+}: {
+	title: string;
+	subtitle: string;
+	actions?: React.ReactNode;
+	columns: 3 | 4;
+	children: React.ReactNode;
+}) {
+	return (
+		<section className="rounded-lg border border-border/60 bg-card">
+			<div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-4 py-3">
+				<div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+					<h2 className="text-sm font-semibold tracking-tight">{title}</h2>
+					<span className="text-xs text-muted-foreground">{subtitle}</span>
+				</div>
+				{actions}
+			</div>
+			<div
+				className={cn(
+					"grid grid-cols-1 divide-y divide-border/60 sm:divide-x sm:divide-y-0",
+					columns === 4 ? "sm:grid-cols-4" : "sm:grid-cols-3",
+				)}
+			>
+				{children}
+			</div>
+		</section>
+	);
 }
 
 function SignInPrompt() {
@@ -318,77 +384,43 @@ export default async function DevpassDetailPage({
 				</div>
 			</section>
 
-			<section className="space-y-3">
-				<div className="flex items-center gap-2">
-					<h2 className="text-sm font-semibold tracking-tight">
-						Pay-as-you-go overflow
-					</h2>
-					<span className="text-xs text-muted-foreground">
-						Opt-in credits billing once the monthly allowance is exhausted
-					</span>
-				</div>
-				<div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-					<div className="rounded-lg border border-border/60 bg-card p-4">
-						<div className="text-xs uppercase tracking-wide text-muted-foreground">
-							Status
-						</div>
-						<div className="mt-2 flex items-center gap-2">
-							<Badge variant={sub.paygEnabled ? "default" : "outline"}>
-								{sub.paygEnabled ? "enabled" : "off"}
-							</Badge>
-							{sub.autoTopUpEnabled && (
-								<Badge variant="outline">auto-reload</Badge>
-							)}
-						</div>
-					</div>
-					<div className="rounded-lg border border-border/60 bg-card p-4">
-						<div className="text-xs uppercase tracking-wide text-muted-foreground">
-							Credits balance
-						</div>
-						<div className="mt-2 text-2xl font-semibold tabular-nums">
-							{currencyFormatter.format(parseFloat(sub.paygBalance))}
-						</div>
-						<div className="mt-1 text-xs text-muted-foreground">
-							Deferred — charged but not yet spent
-						</div>
-					</div>
-					<div className="rounded-lg border border-border/60 bg-card p-4">
-						<div className="text-xs uppercase tracking-wide text-muted-foreground">
-							Top-ups (all-time)
-						</div>
-						<div className="mt-2 text-2xl font-semibold tabular-nums">
-							{currencyFormatter.format(sub.allTimeTopUps)}
-						</div>
-						<div className="mt-1 text-xs text-muted-foreground">
-							Gross charged incl. processing fees
-						</div>
-					</div>
-					<div className="rounded-lg border border-border/60 bg-card p-4">
-						<div className="text-xs uppercase tracking-wide text-muted-foreground">
-							Overflow spend (cycle)
-						</div>
-						<div className="mt-2 text-2xl font-semibold tabular-nums">
-							{currencyFormatterPrecise.format(sub.cycleOverflowCost)}
-						</div>
-						<div className="mt-1 text-xs text-muted-foreground">
-							Usage billed to credits, not the plan pool
-						</div>
-					</div>
-				</div>
-			</section>
-
-			<section className="space-y-3">
-				<div className="flex items-center justify-between gap-2">
+			<StatPanel
+				title="Pay-as-you-go overflow"
+				subtitle="Opt-in credits billing once the monthly allowance is exhausted"
+				columns={3}
+				actions={
 					<div className="flex items-center gap-2">
-						<Ticket className="h-4 w-4 text-muted-foreground" />
-						<h2 className="text-sm font-semibold tracking-tight">
-							Reset Passes
-						</h2>
-						<span className="text-xs text-muted-foreground">
-							Purchased and gifted passes are tier-bound; included passes renew
-							each cycle
-						</span>
+						<Badge variant={sub.paygEnabled ? "default" : "outline"}>
+							{sub.paygEnabled ? "overflow enabled" : "overflow off"}
+						</Badge>
+						{sub.autoTopUpEnabled && (
+							<Badge variant="outline">auto-reload</Badge>
+						)}
 					</div>
+				}
+			>
+				<StatCell
+					label="Credits balance"
+					value={currencyFormatter.format(parseFloat(sub.paygBalance))}
+					hint="Deferred — charged but not yet spent"
+				/>
+				<StatCell
+					label="Top-ups (all-time)"
+					value={currencyFormatter.format(sub.allTimeTopUps)}
+					hint="Gross charged incl. processing fees"
+				/>
+				<StatCell
+					label="Overflow spend (cycle)"
+					value={currencyFormatterPrecise.format(sub.cycleOverflowCost)}
+					hint="Usage billed to credits, not the plan pool"
+				/>
+			</StatPanel>
+
+			<StatPanel
+				title="Reset Passes"
+				subtitle="Purchased and gifted passes are tier-bound; included passes renew each cycle"
+				columns={4}
+				actions={
 					<GiftResetPassesDialog
 						orgName={sub.name}
 						defaultTier={sub.tier === "none" ? "pro" : sub.tier}
@@ -397,96 +429,44 @@ export default async function DevpassDetailPage({
 							return await giftResetPasses(orgId, giftData);
 						}}
 					/>
-				</div>
-				<div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-					<div className="rounded-lg border border-border/60 bg-card p-4">
-						<div className="text-xs uppercase tracking-wide text-muted-foreground">
-							Lite passes
-						</div>
-						<div className="mt-2 text-2xl font-semibold tabular-nums">
-							{data.resetPasses.lite}
-						</div>
-					</div>
-					<div className="rounded-lg border border-border/60 bg-card p-4">
-						<div className="text-xs uppercase tracking-wide text-muted-foreground">
-							Pro passes
-						</div>
-						<div className="mt-2 text-2xl font-semibold tabular-nums">
-							{data.resetPasses.pro}
-						</div>
-					</div>
-					<div className="rounded-lg border border-border/60 bg-card p-4">
-						<div className="text-xs uppercase tracking-wide text-muted-foreground">
-							Max passes
-						</div>
-						<div className="mt-2 text-2xl font-semibold tabular-nums">
-							{data.resetPasses.max}
-						</div>
-					</div>
-					<div className="rounded-lg border border-border/60 bg-card p-4">
-						<div className="text-xs uppercase tracking-wide text-muted-foreground">
-							Included remaining
-						</div>
-						<div className="mt-2 text-2xl font-semibold tabular-nums">
-							{data.resetPasses.includedRemaining}
-						</div>
-						<div className="mt-1 text-xs text-muted-foreground">
-							This billing cycle, on the current tier
-						</div>
-					</div>
-				</div>
-			</section>
+				}
+			>
+				<StatCell label="Lite passes" value={data.resetPasses.lite} />
+				<StatCell label="Pro passes" value={data.resetPasses.pro} />
+				<StatCell label="Max passes" value={data.resetPasses.max} />
+				<StatCell
+					label="Included remaining"
+					value={data.resetPasses.includedRemaining}
+					hint="This billing cycle, on the current tier"
+				/>
+			</StatPanel>
 
-			<section className="space-y-3">
-				<div className="flex items-center gap-2">
-					<h2 className="text-sm font-semibold tracking-tight">All-time</h2>
-					<span className="text-xs text-muted-foreground">
-						Lifetime totals — unaffected by cycle resets or block/disable
-					</span>
-				</div>
-				<div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-					<div className="rounded-lg border border-border/60 bg-card p-4">
-						<div className="text-xs uppercase tracking-wide text-muted-foreground">
-							Revenue (all-time)
-						</div>
-						<div className="mt-2 text-2xl font-semibold tabular-nums">
-							{currencyFormatter.format(sub.allTimeRevenue)}
-						</div>
-						<div className="mt-1 text-xs text-muted-foreground">
-							Plan payments + PAYG top-ups, net of refunds
-						</div>
-					</div>
-					<div className="rounded-lg border border-border/60 bg-card p-4">
-						<div className="text-xs uppercase tracking-wide text-muted-foreground">
-							Real provider cost (all-time, credits-mode)
-						</div>
-						<div className="mt-2 text-2xl font-semibold tabular-nums">
-							{currencyFormatterPrecise.format(sub.allTimeCost)}
-						</div>
-						<div className="mt-1 text-xs text-muted-foreground">
-							From hourly project stats
-						</div>
-					</div>
-					<div className="rounded-lg border border-border/60 bg-card p-4">
-						<div className="text-xs uppercase tracking-wide text-muted-foreground">
-							Margin (all-time)
-						</div>
-						<div
-							className={cn(
-								"mt-2 text-2xl font-semibold tabular-nums",
-								sub.allTimeMargin < 0
-									? "text-rose-600 dark:text-rose-400"
-									: "text-emerald-600 dark:text-emerald-400",
-							)}
-						>
-							{currencyFormatter.format(sub.allTimeMargin)}
-						</div>
-						<div className="mt-1 text-xs text-muted-foreground">
-							Revenue − provider cost
-						</div>
-					</div>
-				</div>
-			</section>
+			<StatPanel
+				title="All-time"
+				subtitle="Lifetime totals — unaffected by cycle resets or block/disable"
+				columns={3}
+			>
+				<StatCell
+					label="Revenue (all-time)"
+					value={currencyFormatter.format(sub.allTimeRevenue)}
+					hint="Plan payments + PAYG top-ups, net of refunds"
+				/>
+				<StatCell
+					label="Provider cost (all-time, credits-mode)"
+					value={currencyFormatterPrecise.format(sub.allTimeCost)}
+					hint="From hourly project stats"
+				/>
+				<StatCell
+					label="Margin (all-time)"
+					value={currencyFormatter.format(sub.allTimeMargin)}
+					valueClassName={
+						sub.allTimeMargin < 0
+							? "text-rose-600 dark:text-rose-400"
+							: "text-emerald-600 dark:text-emerald-400"
+					}
+					hint="Revenue − provider cost"
+				/>
+			</StatPanel>
 
 			<Tabs defaultValue="transactions">
 				<TabsList className="w-full justify-start overflow-x-auto sm:w-auto">
