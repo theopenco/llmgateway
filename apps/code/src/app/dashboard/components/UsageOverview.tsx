@@ -324,6 +324,23 @@ export default function UsageOverview({
 								: "Allowance reached for this billing cycle. Upgrade, or enable pay-as-you-go overflow below to keep coding."
 					}
 				/>
+				{/* PAYG overflow lives directly under the monthly meter: it extends
+				    the monthly pool, not the weekly premium allowance below. */}
+				{monthlyExhausted && !paygEnabled && (
+					<AllowanceExhaustedCard
+						tier={tierKey}
+						organizationId={organizationId}
+					/>
+				)}
+				<PayAsYouGoCard
+					organizationId={organizationId}
+					paygEnabled={paygEnabled}
+					regularCredits={regularCredits}
+					monthlyExhausted={monthlyExhausted}
+					autoTopUpEnabled={autoTopUpEnabled}
+					autoTopUpThreshold={autoTopUpThreshold}
+					autoTopUpAmount={autoTopUpAmount}
+				/>
 				{premiumWeeklyLimit > 0 && (
 					<div className="mt-6 border-t pt-6">
 						<div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -357,21 +374,6 @@ export default function UsageOverview({
 						)}
 					</div>
 				)}
-				{monthlyExhausted && !paygEnabled && (
-					<AllowanceExhaustedCard
-						tier={tierKey}
-						organizationId={organizationId}
-					/>
-				)}
-				<PayAsYouGoCard
-					organizationId={organizationId}
-					paygEnabled={paygEnabled}
-					regularCredits={regularCredits}
-					monthlyExhausted={monthlyExhausted}
-					autoTopUpEnabled={autoTopUpEnabled}
-					autoTopUpThreshold={autoTopUpThreshold}
-					autoTopUpAmount={autoTopUpAmount}
-				/>
 			</div>
 
 			{/* Metrics strip — scoped to the current billing cycle so they
