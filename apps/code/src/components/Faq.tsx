@@ -67,16 +67,27 @@ const faqData: FaqItem[] = [
 	{
 		question: "What happens if I hit my monthly limit?",
 		answer:
-			"Requests pause until your allowance resets at the start of the next billing cycle. Or upgrade to a higher tier at any time: an immediate upgrade charges the new tier's full price, restarts your billing cycle, and grants the new tier's full monthly allowance right away — plus anything left of your current allowance rolls over. Credits only roll over on an immediate upgrade, never at a regular renewal.",
+			"By default requests pause until your allowance resets at the start of the next billing cycle. You have two ways to keep coding: enable pay-as-you-go overflow in your dashboard — an opt-in that bills extra usage from a credits balance at the same provider rates once your allowance is gone — or upgrade to a higher tier at any time: an immediate upgrade charges the new tier's full price, restarts your billing cycle, and grants the new tier's full monthly allowance right away, plus anything left of your current allowance rolls over. Credits only roll over on an immediate upgrade, never at a regular renewal.",
 		content: (
 			<>
-				Requests pause until your allowance resets at the start of the next
-				billing cycle. Or <strong>upgrade to a higher tier at any time</strong>:
-				an immediate upgrade charges the new tier&apos;s full price, restarts
-				your billing cycle, and grants the new tier&apos;s full monthly
-				allowance right away — plus anything left of your current allowance
-				rolls over. Credits only roll over on an immediate upgrade, never at a
-				regular renewal.
+				<p>
+					By default requests pause until your allowance resets at the start of
+					the next billing cycle. You have two ways to keep coding:
+				</p>
+				<p className="mt-3">
+					<strong>Enable pay-as-you-go overflow</strong> in your dashboard — an
+					opt-in that bills extra usage from a credits balance at the same
+					provider rates, only once your allowance is gone. Your plan stays a
+					hard cap until you turn it on.
+				</p>
+				<p className="mt-3">
+					Or <strong>upgrade to a higher tier at any time</strong>: an immediate
+					upgrade charges the new tier&apos;s full price, restarts your billing
+					cycle, and grants the new tier&apos;s full monthly allowance right
+					away — plus anything left of your current allowance rolls over.
+					Credits only roll over on an immediate upgrade, never at a regular
+					renewal.
+				</p>
 			</>
 		),
 	},
