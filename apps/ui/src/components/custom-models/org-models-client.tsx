@@ -11,7 +11,6 @@ import { CustomModelDialog } from "@/components/custom-models/custom-model-dialo
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useTeamMembers } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
-import { failureLabel } from "@/lib/compliance-failure-labels";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -62,6 +61,7 @@ import {
 	providers as providerDefinitions,
 	type ProviderCompliancePolicy,
 } from "@llmgateway/models";
+import { failureLabel } from "@llmgateway/shared";
 import { AllModels } from "@llmgateway/shared/components";
 
 import type { paths } from "@/lib/api/v1";
