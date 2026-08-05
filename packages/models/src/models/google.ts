@@ -2460,13 +2460,15 @@ export const googleModels = [
 				// costs.ts lists this provider in completionIncludesReasoning.
 				//
 				// All four tool_choice modes are honoured, so none are declared
-				// here (verified 2026-08-05). Prompt caching is still not offered:
-				// repeating an identical 2.5k-token prompt reports no
-				// prompt_tokens_details, hence no cachedInputPrice.
+				// here. Prompt caching is automatic prefix caching — the first
+				// request misses and later ones report `cached_tokens` — priced
+				// at the `input_cache_read` rate /v1/models advertises, half the
+				// input rate (verified 2026-08-05).
 				providerId: "ranoai",
 				externalId: "gemma-4-31b",
 				inputPrice: "0.1e-6",
 				outputPrice: "0.3e-6",
+				cachedInputPrice: "0.05e-6",
 				requestPrice: "0",
 				contextSize: 20480,
 				maxOutput: 20480,

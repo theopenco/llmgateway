@@ -692,6 +692,24 @@ describe("calculateCosts", () => {
 		expect(result.estimatedCost).toBe(false);
 	});
 
+	it("should bill RanoAI cached tokens at the cache-read rate", async () => {
+		// RanoAI does automatic prefix caching and charges input_cache_read
+		// (0.05/M), half the input rate. Without cachedInputPrice the engine
+		// falls back to inputPrice and would bill cached tokens at 2x.
+		const result = await calculateCosts(
+			"gemma-4-31b-it",
+			"ranoai",
+			null,
+			2521,
+			10,
+			2496, // cachedTokens
+		);
+
+		// 25 uncached * 0.1e-6 + 2496 cached * 0.05e-6
+		expect(result.inputCost).toBeCloseTo(0.0000025, 10);
+		expect(result.cachedInputCost).toBeCloseTo(0.0001248, 10);
+	});
+
 	it("should not double-bill RanoAI reasoning tokens", async () => {
 		// RanoAI reports reasoning in completion_tokens_details (hoisted to a
 		// top-level reasoning_tokens by the streaming transform) while already
