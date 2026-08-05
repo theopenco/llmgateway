@@ -643,8 +643,10 @@ export async function calculateCosts(
 	// For Google models, completionTokens already includes reasoning tokens
 	// (merged during extraction). The same holds for OpenAI-style Responses API
 	// providers (OpenAI, Azure, Sakana, Meta), whose `output_tokens` counts
-	// reasoning — their `reasoning_tokens` detail is informational only. For
-	// remaining providers, add reasoning separately.
+	// reasoning — their `reasoning_tokens` detail is informational only. Anthropic
+	// behaves the same: `output_tokens` already includes thinking tokens (see
+	// extract-token-usage, which builds totalTokens as prompt + output without
+	// re-adding reasoning). For remaining providers, add reasoning separately.
 	const completionIncludesReasoning =
 		provider === "google-ai-studio" ||
 		provider === "glacier" ||
@@ -655,7 +657,9 @@ export async function calculateCosts(
 		provider === "azure" ||
 		provider === "sakana" ||
 		provider === "meta" ||
-		provider === "aws-mantle";
+		provider === "aws-mantle" ||
+		provider === "anthropic" ||
+		provider === "vertex-anthropic";
 	const totalOutputTokens = completionIncludesReasoning
 		? calculatedCompletionTokens
 		: calculatedCompletionTokens + (reasoningTokens ?? 0);
