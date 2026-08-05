@@ -47,6 +47,7 @@ export const providerLogoUrls: Partial<
 	gonka24: ProviderIcons.gonka24,
 	fireworks: ProviderIcons.fireworks,
 	runware: ProviderIcons.runware,
+	saladcloud: ProviderIcons.saladcloud,
 };
 
 export const getProviderLogoDarkModeClasses = () => {

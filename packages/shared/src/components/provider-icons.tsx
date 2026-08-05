@@ -1523,6 +1523,83 @@ export const ScxIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 	</svg>
 );
 
+export const SaladCloudIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
+	props,
+) => (
+	<svg
+		{...props}
+		xmlns="http://www.w3.org/2000/svg"
+		viewBox="-7 0 100 100"
+		fill="currentColor"
+	>
+		<path
+			fillRule="evenodd"
+			clipRule="evenodd"
+			d="M64.4991 37.5006L85.9991 25.0006L64.4991 12.5006V37.5006Z"
+		/>
+		<path
+			fillRule="evenodd"
+			clipRule="evenodd"
+			d="M21.4996 62.4996L42.9996 75.0005L21.4996 87.4996V62.4996Z"
+		/>
+		<path
+			fillRule="evenodd"
+			clipRule="evenodd"
+			d="M42.9996 50.0004L21.4996 62.5004L42.9996 75.0004V50.0004Z"
+		/>
+		<path
+			fillRule="evenodd"
+			clipRule="evenodd"
+			d="M21.4995 87.5005L42.9986 99.9996H42.9995V75.0005L21.4995 87.5005Z"
+		/>
+		<path
+			fillRule="evenodd"
+			clipRule="evenodd"
+			d="M0 74.9996V75.0005L21.4991 87.4996V62.4996L0 74.9996Z"
+		/>
+		<path
+			fillRule="evenodd"
+			clipRule="evenodd"
+			d="M64.4991 62.5005L85.9991 75.0005V50.0005L64.4991 62.5005Z"
+		/>
+		<path
+			fillRule="evenodd"
+			clipRule="evenodd"
+			d="M42.9996 25.0004L64.4996 37.5004L42.9996 50.0004V25.0004Z"
+		/>
+		<path
+			fillRule="evenodd"
+			clipRule="evenodd"
+			d="M0 49.9997V50.0006L21.4991 62.5006V37.5006L0 49.9997Z"
+		/>
+		<path
+			fillRule="evenodd"
+			clipRule="evenodd"
+			d="M42.9998 100H43.0015L64.4989 87.5009L42.9998 75V100Z"
+		/>
+		<path
+			fillRule="evenodd"
+			clipRule="evenodd"
+			d="M64.4991 87.5004L85.9991 75.0004L64.4991 62.5004V87.5004Z"
+		/>
+		<path
+			fillRule="evenodd"
+			clipRule="evenodd"
+			d="M42.9998 0.000358582L21.4998 12.5004L42.9998 25.0004V0.000358582Z"
+		/>
+		<path
+			fillRule="evenodd"
+			clipRule="evenodd"
+			d="M64.4996 37.5004L42.9996 50.0004L64.4996 62.5004V37.5004Z"
+		/>
+		<path
+			fillRule="evenodd"
+			clipRule="evenodd"
+			d="M64.4996 62.4996L42.9996 75.0005L64.4996 87.4996V62.4996Z"
+		/>
+	</svg>
+);
+
 export const RunwareIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 	<svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 51">
 		<g fill="currentColor">
@@ -1586,6 +1663,7 @@ export const ProviderIcons = {
 	gonka24: Gonka24Icon,
 	fireworks: FireworksIcon,
 	runware: RunwareIcon,
+	saladcloud: SaladCloudIcon,
 } as const;
 
 // Type for provider icon keys
@@ -1637,6 +1715,7 @@ export const providerLogoUrls: Partial<
 	gonka24: ProviderIcons.gonka24,
 	fireworks: ProviderIcons.fireworks,
 	runware: ProviderIcons.runware,
+	saladcloud: ProviderIcons.saladcloud,
 };
 
 export const getProviderLogoDarkModeClasses = () => {

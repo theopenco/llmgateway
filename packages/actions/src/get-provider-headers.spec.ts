@@ -13,6 +13,12 @@ afterEach(() => {
 });
 
 describe("getProviderHeaders", () => {
+	it("uses bearer authentication for Salad AI Gateway", () => {
+		expect(getProviderHeaders("saladcloud", "salad-key")).toEqual({
+			Authorization: "Bearer salad-key",
+		});
+	});
+
 	describe("google-vertex", () => {
 		it("returns no auth header by default (api-key mode)", () => {
 			expect(

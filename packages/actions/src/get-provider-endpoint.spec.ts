@@ -16,6 +16,7 @@ const originalOpenaiBaseUrl = process.env.LLM_OPENAI_BASE_URL;
 const originalBedrockBaseUrl = process.env.LLM_AWS_BEDROCK_BASE_URL;
 const originalBedrockRegion = process.env.LLM_AWS_BEDROCK_REGION;
 const originalMantleRegion = process.env.LLM_AWS_MANTLE_REGION;
+const originalSaladCloudBaseUrl = process.env.LLM_SALADCLOUD_BASE_URL;
 
 afterEach(() => {
 	if (originalAiStudioBaseUrl === undefined) {
@@ -96,6 +97,12 @@ afterEach(() => {
 	} else {
 		process.env.LLM_AWS_MANTLE_REGION = originalMantleRegion;
 	}
+
+	if (originalSaladCloudBaseUrl === undefined) {
+		delete process.env.LLM_SALADCLOUD_BASE_URL;
+	} else {
+		process.env.LLM_SALADCLOUD_BASE_URL = originalSaladCloudBaseUrl;
+	}
 });
 
 describe("getProviderEndpoint", () => {
@@ -137,6 +144,30 @@ describe("getProviderEndpoint", () => {
 		const endpoint = getProviderEndpoint("openai", undefined, "gpt-4o");
 
 		expect(endpoint).toBe("https://api.openai.com/v1/chat/completions");
+	});
+
+	it("builds the Salad AI Gateway endpoint", () => {
+		delete process.env.LLM_SALADCLOUD_BASE_URL;
+
+		const endpoint = getProviderEndpoint(
+			"saladcloud",
+			undefined,
+			"qwen3.6-35b-a3b",
+		);
+
+		expect(endpoint).toBe("https://ai.salad.cloud/v1/chat/completions");
+	});
+
+	it("uses a Salad AI Gateway base URL override", () => {
+		process.env.LLM_SALADCLOUD_BASE_URL = "https://proxy.example.com/v1/";
+
+		const endpoint = getProviderEndpoint(
+			"saladcloud",
+			undefined,
+			"qwen3.6-35b-a3b",
+		);
+
+		expect(endpoint).toBe("https://proxy.example.com/v1/chat/completions");
 	});
 
 	it("uses the AI Studio base URL override when configured", () => {

@@ -506,3 +506,47 @@ describe("AtlasCloud video models", () => {
 		}
 	});
 });
+
+describe("Salad AI Gateway", () => {
+	it("defines provider metadata and environment variables", () => {
+		const provider = providers.find((item) => item.id === "saladcloud");
+
+		expect(provider).toMatchObject({
+			name: "Salad AI Gateway",
+			env: {
+				required: { apiKey: "LLM_SALADCLOUD_API_KEY" },
+				optional: { baseUrl: "LLM_SALADCLOUD_BASE_URL" },
+			},
+			streaming: true,
+			cancellation: true,
+			website: "https://salad.com/ai-gateway",
+		});
+	});
+
+	it("lists only qwen3.6-35b-a3b with current metadata", () => {
+		const model = models.find((item) => item.id === "qwen3.6-35b-a3b");
+		const mapping = model?.providers.find(
+			(item) => item.providerId === "saladcloud",
+		) as ProviderModelMapping | undefined;
+		const saladMappings = models.flatMap((item) =>
+			item.providers.filter((provider) => provider.providerId === "saladcloud"),
+		);
+
+		expect(saladMappings).toHaveLength(1);
+		expect(mapping).toMatchObject({
+			externalId: "qwen3.6-35b-a3b",
+			inputPrice: "0.09e-6",
+			outputPrice: "0.60e-6",
+			requestPrice: "0",
+			contextSize: 262144,
+			maxOutput: 262144,
+			reasoning: true,
+			supportsResponsesApi: false,
+			streaming: true,
+			vision: true,
+			tools: true,
+			jsonOutput: true,
+			jsonOutputSchema: true,
+		});
+	});
+});

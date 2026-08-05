@@ -1741,6 +1741,30 @@ export const providers: ProviderDefinition[] = [
 		dataPolicy: null,
 	},
 	{
+		id: "saladcloud",
+		name: "Salad AI Gateway",
+		description:
+			"Salad AI Gateway provides OpenAI-compatible access to Qwen models on SaladCloud's distributed GPU network.",
+		env: {
+			required: {
+				apiKey: "LLM_SALADCLOUD_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_SALADCLOUD_BASE_URL",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#44b855",
+		website: "https://salad.com/ai-gateway",
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: null,
+		privacyPolicyUrl: null,
+		headquarters: null,
+		dataPolicy: null,
+	},
+	{
 		id: "fireworks",
 		name: "Fireworks AI",
 		description:

@@ -135,6 +135,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	deepinfra: "https://api.deepinfra.com/v1/openai",
 	gonka24: "https://api.gonka24.com",
 	fireworks: "https://api.fireworks.ai/inference",
+	saladcloud: "https://ai.salad.cloud/v1",
 };
 
 export function getProviderDefaultBaseUrl(
@@ -243,6 +244,7 @@ export function getProviderEndpoint(
 			case "google-ai-studio":
 			case "google-vertex":
 			case "xiaomi":
+			case "saladcloud":
 				url =
 					envValueOrDefault(
 						provider,
@@ -648,6 +650,8 @@ export function getProviderEndpoint(
 			return `${url}/chat/completions`;
 		case "novita":
 			return `${url}/chat/completions`;
+		case "saladcloud":
+			return appendPath(url, "/chat/completions");
 		case "zai":
 			if (imageGenerations) {
 				return `${url}/api/paas/v4/images/generations`;

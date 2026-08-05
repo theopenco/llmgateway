@@ -139,6 +139,7 @@ export function getProviderHeaders(
 		case "deepseek":
 		case "perplexity":
 		case "novita":
+		case "saladcloud":
 		case "moonshot":
 		case "meta":
 		case "alibaba":
