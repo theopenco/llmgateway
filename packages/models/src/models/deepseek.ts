@@ -284,6 +284,7 @@ export const deepseekModels = [
 			{
 				providerId: "runware",
 				externalId: "deepseek-v4-pro",
+				deactivatedAt: new Date("2026-08-05"),
 				inputPrice: "0.961e-6",
 				outputPrice: "1.922e-6",
 				cachedInputPrice: "0.079e-6",
@@ -449,6 +450,7 @@ export const deepseekModels = [
 			{
 				providerId: "runware",
 				externalId: "deepseek-v4-flash",
+				deactivatedAt: new Date("2026-08-05"),
 				inputPrice: "0.076e-6",
 				outputPrice: "0.153e-6",
 				cachedInputPrice: "0.014e-6",
