@@ -692,6 +692,29 @@ describe("calculateCosts", () => {
 		expect(result.estimatedCost).toBe(false);
 	});
 
+	it("should not double-count reasoning tokens for Anthropic", async () => {
+		// Anthropic's output_tokens already includes thinking tokens, so the
+		// cost layer must not add reasoning again. Here 136 completion tokens
+		// already contain 31 reasoning tokens; output cost is 136 * price,
+		// not 167 * price.
+		const result = await calculateCosts(
+			"claude-3-5-sonnet-20241022",
+			"anthropic",
+			null,
+			51,
+			136, // completionTokens already includes the 31 reasoning tokens
+			0,
+			undefined,
+			31,
+		);
+
+		expect(result.inputCost).toBeCloseTo(0.000153, 6); // 51 * 0.000003
+		expect(result.outputCost).toBeCloseTo(0.00204, 6); // 136 * 0.000015, not 167 * 0.000015 = 0.002505
+		expect(result.totalCost).toBeCloseTo(0.002193, 6); // 0.000153 + 0.00204
+		expect(result.completionTokens).toBe(136);
+		expect(result.estimatedCost).toBe(false);
+	});
+
 	it("should handle null reasoning tokens gracefully", async () => {
 		const result = await calculateCosts(
 			"gemini-2.5-pro",
