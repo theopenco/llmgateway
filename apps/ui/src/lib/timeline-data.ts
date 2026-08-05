@@ -253,6 +253,63 @@ export function buildTimelineFaqs(
 	return faqs;
 }
 
+const monthYearFormatter = new Intl.DateTimeFormat("en-US", {
+	month: "long",
+	year: "numeric",
+	timeZone: "UTC",
+});
+
+export interface TimelineMonthSummary {
+	/** e.g. "August 2026" */
+	label: string;
+	year: string;
+	/** False when no model has shipped yet this month and we fell back. */
+	isCurrentMonth: boolean;
+	models: TimelineModel[];
+	providerCount: number;
+}
+
+/**
+ * Models released in the month containing `now`, newest first, for the hub's
+ * month answer block. Falls back to the month of the most recent release so
+ * the section never renders empty in the first days of a new month.
+ */
+export function getMonthSummary(
+	models: TimelineModel[],
+	now: Date,
+): TimelineMonthSummary | null {
+	const released = recentModels(models, models.length);
+	if (!released.length) {
+		return null;
+	}
+
+	const monthKey = (d: Date) =>
+		`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+	const currentKey = monthKey(now);
+	let monthModels = released.filter(
+		(model) => monthKey(new Date(model.releasedAt!)) === currentKey,
+	);
+
+	const isCurrentMonth = monthModels.length > 0;
+	const anchor = isCurrentMonth ? now : new Date(released[0].releasedAt!);
+	if (!isCurrentMonth) {
+		const fallbackKey = monthKey(anchor);
+		monthModels = released.filter(
+			(model) => monthKey(new Date(model.releasedAt!)) === fallbackKey,
+		);
+	}
+
+	const providers = new Set(monthModels.map((model) => model.providerName));
+
+	return {
+		label: monthYearFormatter.format(anchor),
+		year: String(anchor.getUTCFullYear()),
+		isCurrentMonth,
+		models: monthModels,
+		providerCount: providers.size,
+	};
+}
+
 export interface TimelineYearSummary {
 	year: string;
 	count: number;
