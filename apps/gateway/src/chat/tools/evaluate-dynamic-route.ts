@@ -55,12 +55,22 @@ function resolveFieldValue(
 	switch (source) {
 		case "header":
 			return ctx.getHeader(path);
-		case "metadata":
-			return (ctx.metadata as Record<string, unknown>)[path];
+		case "metadata": {
+			// Own-property check so prototype keys (e.g. "constructor") never
+			// resolve; the schema also restricts metadata paths to a fixed set.
+			const metadata = ctx.metadata as Record<string, unknown>;
+			return Object.prototype.hasOwnProperty.call(metadata, path)
+				? metadata[path]
+				: undefined;
+		}
 		case "body": {
 			let current: unknown = ctx.body;
 			for (const segment of path.split(".")) {
-				if (current === null || typeof current !== "object") {
+				if (
+					current === null ||
+					typeof current !== "object" ||
+					!Object.prototype.hasOwnProperty.call(current, segment)
+				) {
 					return undefined;
 				}
 				current = (current as Record<string, unknown>)[segment];

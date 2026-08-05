@@ -478,3 +478,111 @@ describe("dynamicRouteGraphSchema", () => {
 		).toBe(false);
 	});
 });
+
+describe("dynamicRouteGraphSchema review-hardening rules", () => {
+	it("rejects cyclic graphs at validation time", () => {
+		const result = dynamicRouteGraphSchema.safeParse({
+			entry: "a",
+			nodes: [
+				{
+					id: "a",
+					type: "conditional",
+					conditions: [
+						{
+							field: { source: "header", path: "x-a" },
+							op: "exists",
+							next: "b",
+						},
+					],
+					else: "b",
+				},
+				{
+					id: "b",
+					type: "conditional",
+					conditions: [
+						{
+							field: { source: "header", path: "x-b" },
+							op: "exists",
+							next: "a",
+						},
+					],
+					else: "a",
+				},
+			],
+		});
+		expect(result.success).toBe(false);
+		expect(JSON.stringify(result.error?.issues)).toMatch(/cycle/);
+	});
+
+	it("rejects unknown metadata paths", () => {
+		expect(
+			dynamicRouteGraphSchema.safeParse({
+				entry: "c",
+				nodes: [
+					{
+						id: "c",
+						type: "conditional",
+						conditions: [
+							{
+								field: { source: "metadata", path: "projcetId" },
+								op: "exists",
+								next: "m",
+							},
+						],
+						else: "m",
+					},
+					{ id: "m", type: "model", model: "gpt-5-nano" },
+				],
+			}).success,
+		).toBe(false);
+	});
+
+	it("rejects array values for non-in operators", () => {
+		expect(
+			dynamicRouteGraphSchema.safeParse({
+				entry: "c",
+				nodes: [
+					{
+						id: "c",
+						type: "conditional",
+						conditions: [
+							{
+								field: { source: "header", path: "x-a" },
+								op: "eq",
+								value: ["a", "b"],
+								next: "m",
+							},
+						],
+						else: "m",
+					},
+					{ id: "m", type: "model", model: "gpt-5-nano" },
+				],
+			}).success,
+		).toBe(false);
+	});
+
+	it("does not resolve prototype keys from metadata or body", () => {
+		const graph: DynamicRouteGraph = {
+			entry: "c",
+			nodes: [
+				{
+					id: "c",
+					type: "conditional",
+					conditions: [
+						{
+							field: { source: "body", path: "constructor" },
+							op: "exists",
+							next: "leak",
+						},
+					],
+					else: "safe",
+				},
+				{ id: "leak", type: "end" },
+				{ id: "safe", type: "model", model: "gpt-5-nano" },
+			],
+		};
+		expect(evaluateDynamicRoute(graph, makeContext())).toMatchObject({
+			model: "gpt-5-nano",
+		});
+	});
+});

@@ -3230,8 +3230,13 @@ chat.openapi(completions, async (c) => {
 
 			// A dynamic route already resolved the target model, so candidates
 			// narrow to exactly that model instead of the auto allowlist.
+			// free_models_only (including test-mode end-user wallets) still
+			// applies: a route resolving to a paid model must not select it.
 			if (dynamicRouteSelection) {
 				if (modelDef.id !== dynamicRouteSelection.model) {
+					continue;
+				}
+				if (effectiveFreeModelsOnly && !("free" in modelDef && modelDef.free)) {
 					continue;
 				}
 			}
@@ -3457,7 +3462,9 @@ chat.openapi(completions, async (c) => {
 			// default model — fail with the route's resolved target instead.
 			if (dynamicRouteSelection) {
 				throw new HTTPException(400, {
-					message: `Dynamic route "${dynamicRouteSelection.name}" resolved to model "${dynamicRouteSelection.model}" but no matching provider is currently available for this request`,
+					message: effectiveFreeModelsOnly
+						? `Dynamic route "${dynamicRouteSelection.name}" resolved to model "${dynamicRouteSelection.model}" which is not available with free_models_only`
+						: `Dynamic route "${dynamicRouteSelection.name}" resolved to model "${dynamicRouteSelection.model}" but no matching provider is currently available for this request`,
 				});
 			}
 			if (effectiveFreeModelsOnly) {

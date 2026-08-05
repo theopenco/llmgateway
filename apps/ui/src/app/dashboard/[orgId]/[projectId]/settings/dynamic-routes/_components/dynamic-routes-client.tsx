@@ -227,6 +227,15 @@ export function DynamicRoutesClient({ projectId }: { projectId: string }) {
 				invalidateAll();
 				toast({ title: "Published version updated" });
 			},
+			onError: (error) => {
+				toast({
+					title: "Failed to change published version",
+					description: String(
+						(error as { message?: string })?.message ?? error,
+					),
+					variant: "destructive",
+				});
+			},
 		},
 	);
 
@@ -236,6 +245,15 @@ export function DynamicRoutesClient({ projectId }: { projectId: string }) {
 		{
 			onSuccess: () => {
 				invalidateAll();
+			},
+			onError: (error) => {
+				toast({
+					title: "Failed to update route",
+					description: String(
+						(error as { message?: string })?.message ?? error,
+					),
+					variant: "destructive",
+				});
 			},
 		},
 	);
@@ -249,6 +267,15 @@ export function DynamicRoutesClient({ projectId }: { projectId: string }) {
 				setSelectedName(null);
 				setDraftText(null);
 				toast({ title: "Route deleted" });
+			},
+			onError: (error) => {
+				toast({
+					title: "Failed to delete route",
+					description: String(
+						(error as { message?: string })?.message ?? error,
+					),
+					variant: "destructive",
+				});
 			},
 		},
 	);
@@ -275,11 +302,13 @@ export function DynamicRoutesClient({ projectId }: { projectId: string }) {
 
 	const routes = listQuery.data?.routes ?? [];
 	const detail = detailQuery.data;
+	// Fall back to the live published graph before the starter template so a
+	// route with a cleared draft shows what actually serves traffic instead of
+	// inviting the user to publish the template over it.
+	const fallbackGraph =
+		detail?.draftGraph ?? detail?.publishedVersion?.graph ?? STARTER_GRAPH;
 	const effectiveDraftText =
-		draftText ??
-		(detail?.draftGraph
-			? JSON.stringify(detail.draftGraph, null, 2)
-			: JSON.stringify(STARTER_GRAPH, null, 2));
+		draftText ?? JSON.stringify(fallbackGraph, null, 2);
 
 	const handleSaveDraft = () => {
 		if (!selectedName) {
@@ -439,6 +468,7 @@ export function DynamicRoutesClient({ projectId }: { projectId: string }) {
 											<Button
 												variant="ghost"
 												size="icon"
+												aria-label="Delete route"
 												onClick={() => {
 													if (
 														window.confirm(

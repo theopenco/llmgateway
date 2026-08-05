@@ -37,12 +37,19 @@ const modelNodeSchema = z.object({
 	providers: z.array(z.string().min(1)).min(1).optional(),
 });
 
+export const DYNAMIC_ROUTE_METADATA_PATHS = [
+	"orgId",
+	"projectId",
+	"apiKeyId",
+	"plan",
+] as const;
+
 const conditionFieldSchema = z.object({
 	/**
 	 * - `header`: request header (path = header name, case-insensitive)
 	 * - `body`: dot-path into the JSON request body (e.g. "metadata.plan")
-	 * - `metadata`: gateway request context; path is one of "orgId",
-	 *   "projectId", "apiKeyId", "plan"
+	 * - `metadata`: gateway request context; path is one of
+	 *   DYNAMIC_ROUTE_METADATA_PATHS
 	 */
 	source: z.enum(["header", "body", "metadata"]),
 	path: z.string().min(1).max(256),
@@ -63,6 +70,18 @@ const conditionSchema = z
 		next: nodeIdSchema,
 	})
 	.superRefine((condition, ctx) => {
+		if (
+			condition.field.source === "metadata" &&
+			!(DYNAMIC_ROUTE_METADATA_PATHS as readonly string[]).includes(
+				condition.field.path,
+			)
+		) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				message: `Metadata path must be one of: ${DYNAMIC_ROUTE_METADATA_PATHS.join(", ")}`,
+				path: ["field", "path"],
+			});
+		}
 		if (condition.op === "exists") {
 			if (condition.value !== undefined) {
 				ctx.addIssue({
@@ -85,6 +104,13 @@ const conditionSchema = z
 			ctx.addIssue({
 				code: z.ZodIssueCode.custom,
 				message: `Operator "in" requires an array value`,
+				path: ["value"],
+			});
+		}
+		if (condition.op !== "in" && Array.isArray(condition.value)) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				message: `Operator "${condition.op}" does not accept an array value`,
 				path: ["value"],
 			});
 		}
@@ -245,6 +271,41 @@ export const dynamicRouteGraphSchema = z
 					path: ["nodes", index],
 				});
 			}
+		}
+		// Reject cycles outright: evaluation is deterministic per request (a
+		// revisited conditional or percentage node always takes the same branch
+		// again), so any cycle would spin until the hop bound and 400 at request
+		// time. Fail at save/publish time instead.
+		const visiting = new Set<string>();
+		const done = new Set<string>();
+		const detectCycle = (id: string): string | undefined => {
+			if (done.has(id)) {
+				return undefined;
+			}
+			if (visiting.has(id)) {
+				return id;
+			}
+			visiting.add(id);
+			const node = nodesById.get(id);
+			if (node) {
+				for (const ref of collectNodeReferences(node)) {
+					const cycleNode = detectCycle(ref);
+					if (cycleNode !== undefined) {
+						return cycleNode;
+					}
+				}
+			}
+			visiting.delete(id);
+			done.add(id);
+			return undefined;
+		};
+		const cycleNode = detectCycle(graph.entry);
+		if (cycleNode !== undefined) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				message: `Graph contains a cycle through node "${cycleNode}"`,
+				path: ["nodes"],
+			});
 		}
 	});
 

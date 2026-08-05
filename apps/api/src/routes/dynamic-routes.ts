@@ -2,7 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { and, cdb, db, eq, tables } from "@llmgateway/db";
+import { and, cdb, db, eq, sql, tables } from "@llmgateway/db";
 import {
 	DYNAMIC_ROUTE_NAME_MESSAGE,
 	DYNAMIC_ROUTE_NAME_REGEX,
@@ -175,15 +175,9 @@ dynamicRoutes.openapi(createRouteEndpoint, async (c) => {
 	await checkProjectEnterpriseAccess(user.id, projectId);
 	const body = c.req.valid("json");
 
-	const existing = await db.query.dynamicRoute.findFirst({
-		where: { projectId: { eq: projectId }, name: { eq: body.name } },
-	});
-	if (existing) {
-		throw new HTTPException(409, {
-			message: `A dynamic route named "${body.name}" already exists in this project`,
-		});
-	}
-
+	// The insert itself is the authoritative duplicate check: concurrent
+	// creates race past any pre-read, so let the unique (projectId, name)
+	// constraint decide and map the conflict to a 409.
 	const [row] = await cdb
 		.insert(tables.dynamicRoute)
 		.values({
@@ -192,7 +186,16 @@ dynamicRoutes.openapi(createRouteEndpoint, async (c) => {
 			description: body.description ?? null,
 			draftGraph: (body.graph ?? null) as DynamicRouteGraph | null,
 		})
+		.onConflictDoNothing({
+			target: [tables.dynamicRoute.projectId, tables.dynamicRoute.name],
+		})
 		.returning();
+
+	if (!row) {
+		throw new HTTPException(409, {
+			message: `A dynamic route named "${body.name}" already exists in this project`,
+		});
+	}
 
 	return c.json(await routeDetail(row.id), 201);
 });
@@ -382,25 +385,25 @@ dynamicRoutes.openapi(publishRoute, async (c) => {
 		});
 	}
 
-	const latest = await db.query.dynamicRouteVersion.findFirst({
-		where: { routeId: { eq: route.id } },
-		orderBy: { version: "desc" },
+	// Version insert and pointer re-point must land together (no orphan
+	// version rows), and the next version number is derived inside the
+	// database so concurrent publishes can't both read the same stale max.
+	await cdb.transaction(async (tx) => {
+		const [versionRow] = await tx
+			.insert(tables.dynamicRouteVersion)
+			.values({
+				routeId: route.id,
+				version: sql<number>`coalesce((select max(${tables.dynamicRouteVersion.version}) from ${tables.dynamicRouteVersion} where ${tables.dynamicRouteVersion.routeId} = ${route.id}), 0) + 1`,
+				graph: parsed.data as DynamicRouteGraph,
+				createdBy: user.id,
+			})
+			.returning();
+
+		await tx
+			.update(tables.dynamicRoute)
+			.set({ publishedVersionId: versionRow.id })
+			.where(eq(tables.dynamicRoute.id, route.id));
 	});
-
-	const [versionRow] = await cdb
-		.insert(tables.dynamicRouteVersion)
-		.values({
-			routeId: route.id,
-			version: (latest?.version ?? 0) + 1,
-			graph: parsed.data as DynamicRouteGraph,
-			createdBy: user.id,
-		})
-		.returning();
-
-	await cdb
-		.update(tables.dynamicRoute)
-		.set({ publishedVersionId: versionRow.id })
-		.where(eq(tables.dynamicRoute.id, route.id));
 
 	return c.json(await routeDetail(route.id));
 });
@@ -442,6 +445,16 @@ dynamicRoutes.openapi(rollbackRoute, async (c) => {
 	if (!version) {
 		throw new HTTPException(404, {
 			message: "Version not found for this route",
+		});
+	}
+
+	// Old versions can reference models/providers that have since left the
+	// catalog; re-validate like publish does so rollback can't re-enable a
+	// graph that would fail at request time.
+	const parsed = dynamicRouteGraphSchema.safeParse(version.graph);
+	if (!parsed.success) {
+		throw new HTTPException(400, {
+			message: `Version ${version.version} is no longer valid: ${parsed.error.issues[0]?.message}`,
 		});
 	}
 
