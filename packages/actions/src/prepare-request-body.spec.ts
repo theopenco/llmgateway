@@ -978,6 +978,17 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 		expect(requestBody.reasoning_effort).toBe("none");
 	});
 
+	test("forwards none to xAI Grok when the mapping declares it", async () => {
+		// xai/grok-4-3 publishes `none` in reasoningEfforts but xai is not in
+		// the handlesNoneNatively allowlist, so the gateway used to strip the
+		// value before the request was built (#3423).
+		const requestBody = await prepare({
+			provider: "xai",
+			model: "grok-4-3",
+		});
+		expect(requestBody.reasoning_effort).toBe("none");
+	});
+
 	test("disables thinking for Google on none", async () => {
 		const requestBody = await prepare({
 			provider: "google-ai-studio",
