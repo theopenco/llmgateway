@@ -35,7 +35,19 @@ import {
 	ChartTooltip,
 	ChartTooltipContent,
 } from "@/components/ui/chart";
+import {
+	UsageModeSelector,
+	useUsageMode,
+} from "@/components/usage-mode-selector";
 import { useApi } from "@/lib/fetch-client";
+import {
+	applyUsageMode,
+	pickCost,
+	pickRequests,
+	USAGE_MODE_ALL_TRAFFIC_NOTE,
+	usageModeDescription,
+	usageModeLabel,
+} from "@/lib/usage-mode";
 import { cn } from "@/lib/utils";
 
 import type { ChartConfig } from "@/components/ui/chart";
@@ -219,6 +231,7 @@ export function GlobalStatsClient() {
 	const searchParams = useSearchParams();
 
 	const { from, to } = resolveGlobalStatsRange(searchParams);
+	const usageMode = useUsageMode();
 	const groupBy = parseGroupBy(searchParams.get("groupBy"));
 	const chartMetric = parseMetric(searchParams.get("metric"));
 	const modelView = parseModelView(searchParams.get("modelView"));
@@ -244,12 +257,13 @@ export function GlobalStatsClient() {
 
 	const [breakdownPage, setBreakdownPage] = useState(1);
 
-	// The range picker writes from/to directly to the URL, so reset pagination
-	// during render when the selected window changes.
-	const rangeKey = `${from}|${to}`;
-	const [lastRangeKey, setLastRangeKey] = useState(rangeKey);
-	if (rangeKey !== lastRangeKey) {
-		setLastRangeKey(rangeKey);
+	// The range picker and the billing-mode selector write to the URL directly,
+	// so reset pagination during render when either changes (the mode also
+	// re-sorts the breakdown).
+	const viewKey = `${from}|${to}|${usageMode}`;
+	const [lastViewKey, setLastViewKey] = useState(viewKey);
+	if (viewKey !== lastViewKey) {
+		setLastViewKey(viewKey);
 		setBreakdownPage(1);
 	}
 
@@ -287,13 +301,31 @@ export function GlobalStatsClient() {
 		},
 	);
 
+	// `cost`/`requestCount` are narrowed to the selected billing mode so every
+	// chart, table and reducer below keeps working unchanged; the remaining
+	// measures stay blended (see USAGE_MODE_ALL_TRAFFIC_NOTE).
 	const totals = data?.totals;
-	const timeseries = useMemo(() => data?.timeseries ?? [], [data?.timeseries]);
-	const timeseriesBreakdown = useMemo(
-		() => data?.timeseriesBreakdown ?? [],
-		[data?.timeseriesBreakdown],
+	const timeseries = useMemo(
+		() => (data?.timeseries ?? []).map((p) => applyUsageMode(p, usageMode)),
+		[data?.timeseries, usageMode],
 	);
-	const breakdown = useMemo(() => data?.breakdown ?? [], [data?.breakdown]);
+	const timeseriesBreakdown = useMemo(
+		() =>
+			(data?.timeseriesBreakdown ?? []).map((p) =>
+				applyUsageMode(p, usageMode),
+			),
+		[data?.timeseriesBreakdown, usageMode],
+	);
+	// Dimensions with no traffic in the selected mode are dropped entirely, so
+	// e.g. the BYOK view doesn't page through credits-only models.
+	const breakdown = useMemo(() => {
+		const rows = (data?.breakdown ?? []).map((b) =>
+			applyUsageMode(b, usageMode),
+		);
+		return usageMode === "total"
+			? rows
+			: rows.filter((b) => b.requestCount > 0);
+	}, [data?.breakdown, usageMode]);
 
 	// Pie data: top 10 by the selected metric, the rest collapsed into "Other".
 	const pieData = useMemo(() => {
@@ -400,6 +432,10 @@ export function GlobalStatsClient() {
 				: "Model"
 			: "Source";
 
+	const modeNote = usageModeDescription(usageMode);
+	const modeSuffix =
+		usageMode === "total" ? "" : ` · ${usageModeLabel(usageMode)}`;
+
 	const breakdownTotalPages = Math.max(
 		1,
 		Math.ceil(sortedBreakdown.length / BREAKDOWN_PAGE_SIZE),
@@ -421,9 +457,11 @@ export function GlobalStatsClient() {
 					<p className="mt-1 text-sm text-muted-foreground">
 						Cross-organization usage aggregated by day, grouped by model or
 						x-source header.
+						{modeNote ? ` ${modeNote}` : ""}
 					</p>
 				</div>
 				<div className="flex flex-wrap items-center gap-3">
+					<UsageModeSelector compact />
 					<div className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-1">
 						{GROUP_OPTIONS.map((opt) => {
 							const Icon = opt.icon;
@@ -453,21 +491,49 @@ export function GlobalStatsClient() {
 
 			<section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
 				<StatCard
-					label="Total requests"
-					value={totals ? numberFormatter.format(totals.requestCount) : "—"}
-					subtitle={isLoading ? "Loading…" : undefined}
+					label={
+						usageMode === "credits"
+							? "Credits requests"
+							: usageMode === "api-keys"
+								? "BYOK requests"
+								: "Total requests"
+					}
+					value={
+						totals
+							? numberFormatter.format(pickRequests(totals, usageMode))
+							: "—"
+					}
+					subtitle={
+						isLoading
+							? "Loading…"
+							: totals && usageMode === "total"
+								? `Credits: ${numberFormatter.format(totals.creditsRequestCount)} · BYOK: ${numberFormatter.format(totals.apiKeysRequestCount)}`
+								: undefined
+					}
 					icon={<BarChart3 className="h-4 w-4" />}
 					accent="blue"
 				/>
 				<StatCard
-					label="Total cost"
-					value={totals ? currencyFormatter.format(totals.cost) : "—"}
+					label={
+						usageMode === "credits"
+							? "Credits cost"
+							: usageMode === "api-keys"
+								? "BYOK cost"
+								: "Total cost"
+					}
+					value={
+						totals ? currencyFormatter.format(pickCost(totals, usageMode)) : "—"
+					}
 					subtitle={
-						totals
-							? totals.apiKeysCost > 0
-								? `Credits: ${currencyFormatter.format(totals.creditsCost)} · BYOK: ${currencyFormatter.format(totals.apiKeysCost)}`
-								: `Input: ${currencyFormatter.format(totals.inputCost)} · Output: ${currencyFormatter.format(totals.outputCost)}`
-							: undefined
+						!totals
+							? undefined
+							: usageMode === "credits"
+								? "Billed against organization credits"
+								: usageMode === "api-keys"
+									? "Served by the organizations' own provider keys — not billed"
+									: totals.apiKeysCost > 0
+										? `Credits: ${currencyFormatter.format(totals.creditsCost)} · BYOK: ${currencyFormatter.format(totals.apiKeysCost)}`
+										: `Input: ${currencyFormatter.format(totals.inputCost)} · Output: ${currencyFormatter.format(totals.outputCost)}`
 					}
 					icon={<Coins className="h-4 w-4" />}
 					accent="green"
@@ -477,7 +543,7 @@ export function GlobalStatsClient() {
 					value={totals ? numberFormatter.format(totals.totalTokens) : "—"}
 					subtitle={
 						totals
-							? `In: ${compactNumberFormatter.format(totals.inputTokens)} · Cached: ${compactNumberFormatter.format(totals.cachedTokens)} · Out: ${compactNumberFormatter.format(totals.outputTokens)}`
+							? `In: ${compactNumberFormatter.format(totals.inputTokens)} · Cached: ${compactNumberFormatter.format(totals.cachedTokens)} · Out: ${compactNumberFormatter.format(totals.outputTokens)}${usageMode === "total" ? "" : " · all traffic"}`
 							: undefined
 					}
 					icon={<Layers className="h-4 w-4" />}
@@ -488,7 +554,7 @@ export function GlobalStatsClient() {
 					value={numberFormatter.format(breakdown.length)}
 					subtitle={
 						totals
-							? `Errors: ${numberFormatter.format(totals.errorCount)} · Cached: ${numberFormatter.format(totals.cacheCount)}`
+							? `Errors: ${numberFormatter.format(totals.errorCount)} · Cached: ${numberFormatter.format(totals.cacheCount)}${usageMode === "total" ? "" : " · all traffic"}`
 							: undefined
 					}
 					icon={
@@ -530,6 +596,11 @@ export function GlobalStatsClient() {
 									}`
 								: ` across all ${groupBy === "model" ? "models" : "sources"}`}
 							.
+							{usageMode === "total"
+								? ""
+								: chartMetric === "totalTokens"
+									? ` ${USAGE_MODE_ALL_TRAFFIC_NOTE}`
+									: ` ${usageModeLabel(usageMode)} traffic only.`}
 						</CardDescription>
 					</div>
 					<div className="flex flex-wrap items-center gap-2">
@@ -699,11 +770,17 @@ export function GlobalStatsClient() {
 						<CardTitle>
 							{timeseriesChartConfig[chartMetric].label as string} share —{" "}
 							{breakdownNoun}
+							{modeSuffix}
 						</CardTitle>
 						<CardDescription>
 							{breakdown.length > 10
 								? `Top 10 + Other across ${rangeLabel}.`
 								: `All ${breakdown.length} ${breakdownNoun} across ${rangeLabel}.`}
+							{usageMode === "total"
+								? ""
+								: chartMetric === "totalTokens"
+									? ` ${USAGE_MODE_ALL_TRAFFIC_NOTE}`
+									: ` ${usageModeLabel(usageMode)} traffic only.`}
 						</CardDescription>
 					</div>
 					<div className="flex flex-wrap items-center gap-3">
