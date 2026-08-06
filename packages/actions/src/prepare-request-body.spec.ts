@@ -989,6 +989,34 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 		expect(requestBody.reasoning_effort).toBe("none");
 	});
 
+	test.each([
+		["deepinfra", "deepseek-v4-pro"],
+		["deepinfra", "hy3"],
+		["novita", "hy3"],
+		["runware", "deepseek-v4-flash"],
+	])(
+		"forwards none to %s when the mapping declares it",
+		async (provider, model) => {
+			// These providers are in the handlesNoneNatively allowlist, and
+			// their catalog entries also publish `none` — both paths must
+			// agree so a mapping-declared opt-in is never stripped (#3423).
+			const requestBody = await prepare({ provider, model });
+			expect(requestBody.reasoning_effort).toBe("none");
+		},
+	);
+
+	test("strips none for an OpenAI-compatible mapping that does not declare it", async () => {
+		// grok-4-3 via azure-ai-foundry speaks a non-allowlisted provider and
+		// its catalog entry omits `none` from reasoningEfforts. The mapping
+		// must be the authority: with `none` undeclared, the value is
+		// normalized away instead of forwarded to a provider that may 4xx.
+		const requestBody = await prepare({
+			provider: "azure-ai-foundry",
+			model: "grok-4-3",
+		});
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
 	test("disables thinking for Google on none", async () => {
 		const requestBody = await prepare({
 			provider: "google-ai-studio",
