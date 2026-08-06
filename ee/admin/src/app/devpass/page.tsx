@@ -382,6 +382,12 @@ export default async function DevpassPage({
 		return <SignInPrompt />;
 	}
 
+	// Dedicated PAYG top-up revenue query — independent of the subscriber
+	// list, range-aware via the shared date picker.
+	const { data: paygStats } = await $api.GET("/admin/devpass/payg", {
+		params: { query: { from, to } },
+	});
+
 	const totalPages = Math.ceil(data.total / limit);
 
 	const queryParams = new URLSearchParams();
@@ -678,14 +684,43 @@ export default async function DevpassPage({
 						<span className="text-xs text-muted-foreground">opted in</span>
 					</div>
 					<div className="mt-1 text-xs text-muted-foreground">
-						{currencyFormatter.format(kpis.topupRevenueThisMonth)} top-ups this
-						month · {currencyFormatter.format(kpis.topupRevenueAllTime)}{" "}
-						all-time
-					</div>
-					<div className="mt-1 text-xs text-muted-foreground">
 						{currencyFormatter.format(kpis.paygBalanceHeld)} balance held by
 						active subs
 					</div>
+				</div>
+				<div className="rounded-lg border border-border/60 bg-card p-4">
+					<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+						<TrendingUp className="h-3.5 w-3.5" />
+						DevPass top-up revenue
+					</div>
+					<div className="mt-2 flex items-baseline gap-2">
+						<span className="text-2xl font-semibold tabular-nums">
+							{currencyFormatter.format(paygStats?.topups.allTime.net ?? 0)}
+						</span>
+						<span className="text-xs text-muted-foreground">net, all-time</span>
+					</div>
+					<div className="mt-1 text-xs text-muted-foreground">
+						{currencyFormatter.format(paygStats?.topups.thisMonth.net ?? 0)}{" "}
+						this month
+						{(paygStats?.topups.allTime.refunds ?? 0) > 0 ? (
+							<>
+								{" "}
+								·{" "}
+								<span className="text-rose-600 dark:text-rose-400">
+									{currencyFormatter.format(
+										paygStats?.topups.allTime.refunds ?? 0,
+									)}{" "}
+									refunded
+								</span>
+							</>
+						) : null}
+					</div>
+					{paygStats?.topups.range ? (
+						<div className="mt-1 text-xs text-muted-foreground">
+							{currencyFormatter.format(paygStats.topups.range.net)} in selected
+							range
+						</div>
+					) : null}
 				</div>
 			</section>
 

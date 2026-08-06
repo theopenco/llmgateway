@@ -12093,6 +12093,55 @@ const getDevpassTimeseries = createRoute({
 	},
 });
 
+// Standalone PAYG overflow stats: answers "how much $ did DevPass top-ups
+// make" without paying for the full subscriber-list endpoint. Revenue is the
+// gross Stripe `amount` (incl processing fees) of `credit_topup` purchases on
+// devpass orgs; refunds are `credit_refund` rows whose original transaction is
+// such a top-up; net = gross − refunds.
+const devpassTopupWindowSchema = z.object({
+	gross: z.number(),
+	refunds: z.number(),
+	net: z.number(),
+});
+
+const devpassPaygStatsSchema = z.object({
+	// Active subscribers with the overflow opt-in.
+	paygOptedIn: z.number(),
+	// Credits balances held by active subscribers (deferred revenue).
+	paygBalanceHeld: z.number(),
+	// Cycle cost across active subscribers paid from org credits, not plans.
+	totalOverflowCostCycle: z.number(),
+	topups: z.object({
+		thisMonth: devpassTopupWindowSchema,
+		allTime: devpassTopupWindowSchema,
+		// Present when from/to was supplied.
+		range: devpassTopupWindowSchema
+			.extend({ from: z.string(), to: z.string() })
+			.nullable(),
+	}),
+});
+
+const getDevpassPaygStats = createRoute({
+	method: "get",
+	path: "/devpass/payg",
+	request: {
+		query: z.object({
+			from: z.string().optional(),
+			to: z.string().optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: devpassPaygStatsSchema.openapi({}),
+				},
+			},
+			description: "DevPass PAYG overflow adoption and top-up revenue.",
+		},
+	},
+});
+
 const devpassUsageRowSchema = z.object({
 	id: z.string(),
 	requestCount: z.number(),
@@ -13326,6 +13375,158 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 		range: {
 			from: startDate.toISOString().slice(0, 10),
 			to: endDate.toISOString().slice(0, 10),
+		},
+	});
+});
+
+admin.openapi(getDevpassPaygStats, async (c) => {
+	const query = c.req.valid("query");
+	const now = new Date();
+	const monthStart = new Date(
+		Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+	);
+
+	const hasRange = Boolean(query.from && query.to);
+	const rangeStart = hasRange ? new Date(query.from + "T00:00:00.000Z") : null;
+	const rangeEnd = hasRange ? new Date(query.to + "T23:59:59.999Z") : null;
+
+	// Adoption, balances, and cycle overflow across active subscribers.
+	// Mirrors the KPI strip on /admin/devpass (same universe filter and
+	// overflow derivation) without the rest of that endpoint's queries.
+	const paygRealCostSub = db
+		.select({
+			organizationId: tables.project.organizationId,
+			realCost:
+				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`.as(
+					"payg_real_cost",
+				),
+		})
+		.from(projectHourlyStats)
+		.innerJoin(
+			tables.project,
+			eq(projectHourlyStats.projectId, tables.project.id),
+		)
+		.innerJoin(
+			tables.organization,
+			and(
+				eq(tables.project.organizationId, tables.organization.id),
+				isNotNull(tables.organization.devPlanBillingCycleStart),
+				sql`${projectHourlyStats.hourTimestamp} >= ${tables.organization.devPlanBillingCycleStart}`,
+			),
+		)
+		.groupBy(tables.project.organizationId)
+		.as("payg_real_cost_sub");
+
+	const paygOverflowExpr = sql<string>`GREATEST(COALESCE(CAST(${paygRealCostSub.realCost} AS NUMERIC), 0) - CAST(${tables.organization.devPlanCreditsUsed} AS NUMERIC), 0)`;
+
+	const [universeRow] = await db
+		.select({
+			paygOptedIn: sql<number>`COUNT(*) FILTER (WHERE ${tables.organization.devPlanPaygEnabled})`,
+			paygBalanceHeld: sql<string>`COALESCE(SUM(CAST(${tables.organization.credits} AS NUMERIC)), 0)`,
+			totalOverflow: sql<string>`COALESCE(SUM(${paygOverflowExpr}), 0)`,
+		})
+		.from(tables.organization)
+		.leftJoin(
+			paygRealCostSub,
+			eq(tables.organization.id, paygRealCostSub.organizationId),
+		)
+		.where(
+			and(
+				eq(tables.organization.kind, "devpass"),
+				ne(tables.organization.devPlan, "none"),
+				or(
+					isNull(tables.organization.devPlanExpiresAt),
+					sql`${tables.organization.devPlanExpiresAt} > NOW()`,
+				)!,
+			),
+		);
+
+	// Gross top-ups by window. Refund reversals are negative same-type rows
+	// and excluded by the positive-amount filter; explicit refunds are netted
+	// from the query below instead.
+	const amountExpr = sql`CAST(${tables.transaction.amount} AS NUMERIC)`;
+	const [grossRow] = await db
+		.select({
+			allTime: sql<string>`COALESCE(SUM(${amountExpr}), 0)`,
+			thisMonth: sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${monthStart}), 0)`,
+			range: hasRange
+				? sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${rangeStart} AND ${tables.transaction.createdAt} <= ${rangeEnd}), 0)`
+				: sql<string>`0`,
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.type, "credit_topup"),
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "devpass"),
+				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+			),
+		);
+
+	const paygRefundOriginalTx = aliasedTable(
+		tables.transaction,
+		"payg_refund_original_tx",
+	);
+	const [refundRow] = await db
+		.select({
+			allTime: sql<string>`COALESCE(SUM(${amountExpr}), 0)`,
+			thisMonth: sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${monthStart}), 0)`,
+			range: hasRange
+				? sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${rangeStart} AND ${tables.transaction.createdAt} <= ${rangeEnd}), 0)`
+				: sql<string>`0`,
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			paygRefundOriginalTx,
+			eq(tables.transaction.relatedTransactionId, paygRefundOriginalTx.id),
+		)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.type, "credit_refund"),
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "devpass"),
+				eq(paygRefundOriginalTx.type, "credit_topup"),
+			),
+		);
+
+	const window = (gross: number, refunds: number) => ({
+		gross,
+		refunds,
+		net: gross - refunds,
+	});
+
+	return c.json({
+		paygOptedIn: Number(universeRow?.paygOptedIn ?? 0),
+		paygBalanceHeld: Number(universeRow?.paygBalanceHeld ?? 0),
+		totalOverflowCostCycle: Number(universeRow?.totalOverflow ?? 0),
+		topups: {
+			thisMonth: window(
+				Number(grossRow?.thisMonth ?? 0),
+				Number(refundRow?.thisMonth ?? 0),
+			),
+			allTime: window(
+				Number(grossRow?.allTime ?? 0),
+				Number(refundRow?.allTime ?? 0),
+			),
+			range:
+				hasRange && rangeStart && rangeEnd
+					? {
+							from: rangeStart.toISOString().slice(0, 10),
+							to: rangeEnd.toISOString().slice(0, 10),
+							...window(
+								Number(grossRow?.range ?? 0),
+								Number(refundRow?.range ?? 0),
+							),
+						}
+					: null,
 		},
 	});
 });

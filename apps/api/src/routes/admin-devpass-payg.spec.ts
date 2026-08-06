@@ -143,6 +143,67 @@ describe("admin devpass PAYG overflow reporting", () => {
 		expect(body.kpis.totalMargin).toBe(79 - 237);
 	});
 
+	it("dedicated /admin/devpass/payg reports top-up revenue windows", async () => {
+		// Refund $5 of the top-up — net must reflect it in every window.
+		const topup = await db.query.transaction.findFirst({
+			where: { organizationId: { eq: ORG_ID }, type: { eq: "credit_topup" } },
+		});
+		await db.insert(tables.transaction).values({
+			organizationId: ORG_ID,
+			type: "credit_refund",
+			amount: "5",
+			creditAmount: "0",
+			status: "completed",
+			relatedTransactionId: topup!.id,
+			createdAt: new Date(),
+		});
+
+		const today = new Date().toISOString().slice(0, 10);
+		const res = await app.request(
+			`/admin/devpass/payg?from=${today}&to=${today}`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as {
+			paygOptedIn: number;
+			paygBalanceHeld: number;
+			totalOverflowCostCycle: number;
+			topups: {
+				thisMonth: { gross: number; refunds: number; net: number };
+				allTime: { gross: number; refunds: number; net: number };
+				range: {
+					from: string;
+					to: string;
+					gross: number;
+					refunds: number;
+					net: number;
+				} | null;
+			};
+		};
+
+		expect(body.paygOptedIn).toBe(1);
+		expect(body.paygBalanceHeld).toBe(22);
+		expect(body.totalOverflowCostCycle).toBe(3);
+		expect(body.topups.allTime).toEqual({
+			gross: 26.25,
+			refunds: 5,
+			net: 21.25,
+		});
+		expect(body.topups.thisMonth).toEqual({
+			gross: 26.25,
+			refunds: 5,
+			net: 21.25,
+		});
+		// The top-up and refund were both created "now", inside today's range.
+		expect(body.topups.range).toEqual({
+			from: today,
+			to: today,
+			gross: 26.25,
+			refunds: 5,
+			net: 21.25,
+		});
+	});
+
 	it("detail endpoint carries the same PAYG fields", async () => {
 		const res = await app.request(`/admin/devpass/${ORG_ID}`, {
 			headers: { Cookie: cookie },
