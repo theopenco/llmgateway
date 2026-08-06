@@ -1684,12 +1684,11 @@ export const alibabaModels = [
 			{
 				providerId: "scx-ai-gp",
 				externalId: "qwen3.8-max",
-				// SCX has not brought this deployment online yet: it is absent from
-				// their /v1/models listing and chat completions return "Unsupported
-				// model". Drop this once the deployment is live and verified.
 				test: "skip",
 				inputPrice: "1.815e-6",
 				cachedInputPrice: "0.21e-6",
+				cacheReadInputPrice: "0.17e-6",
+				cacheWriteInputPrice: "2.5e-6",
 				outputPrice: "5.4461e-6",
 				requestPrice: "0",
 				contextSize: 1000000,
@@ -1700,8 +1699,9 @@ export const alibabaModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				webSearch: true,
+				webSearchPrice: "0.01",
 				jsonOutput: true,
-				// Qwen thinking models reject tool_choice "required" or object
 				supportedParameters: [
 					"temperature",
 					"max_tokens",
