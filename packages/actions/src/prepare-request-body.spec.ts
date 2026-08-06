@@ -1101,6 +1101,46 @@ describe("prepareRequestBody - Moonshot thinking", () => {
 		expect(requestBody.max_completion_tokens).toBe(4096);
 		expect(requestBody.max_tokens).toBeUndefined();
 	});
+
+	type Effort = Parameters<typeof prepareRequestBody>[14];
+	const xaiEffortCases: Array<
+		[Parameters<typeof prepareRequestBody>[0], string, Extract<Effort, string>]
+	> = [
+		// xAI mappings that declare reasoning: true but previously omitted
+		// reasoning_effort from supportedParameters, silently dropping any
+		// effort value before the request was built (#3436, #3403).
+		["azure-ai-foundry", "grok-4-3", "medium"],
+		["azure-ai-foundry", "grok-4-1-fast-reasoning", "high"],
+		["vertex-openai", "grok-4-20-reasoning", "low"],
+		["xai", "grok-4", "high"],
+		["xai", "grok-4-20-beta-0309-reasoning", "medium"],
+		["xai", "grok-build-0-1", "low"],
+	];
+
+	test.each(xaiEffortCases)(
+		"forwards reasoning_effort for %s/%s once declared in supportedParameters",
+		async (provider, model, effort) => {
+			const requestBody = (await prepareRequestBody(
+				provider,
+				model,
+				null,
+				model,
+				[{ role: "user", content: "Hello!" }],
+				false, // stream
+				undefined, // temperature
+				undefined, // max_tokens
+				undefined, // top_p
+				undefined, // frequency_penalty
+				undefined, // presence_penalty
+				undefined, // response_format
+				undefined, // tools
+				undefined, // tool_choice
+				effort,
+				true, // supportsReasoning
+			)) as unknown as Record<string, unknown>;
+			expect(requestBody.reasoning_effort).toBe(effort);
+		},
+	);
 });
 
 describe("prepareRequestBody - Alibaba thinking", () => {
@@ -4304,7 +4344,7 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			expect(requestBody.max_tokens).toBe(8192);
 			expect(requestBody.max_completion_tokens).toBeUndefined();
 			expect(requestBody.top_p).toBe(0.9);
-			expect(requestBody.reasoning_effort).toBeUndefined();
+			expect(requestBody.reasoning_effort).toBe("medium");
 			expect(requestBody.inferenceConfig).toBeUndefined();
 		});
 	});
