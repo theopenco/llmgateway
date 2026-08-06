@@ -461,4 +461,61 @@ describe("dev-plan PAYG top-up", () => {
 		expect(res.status).toBe(400);
 		expect(stripeMock.paymentIntents.create).not.toHaveBeenCalled();
 	});
+
+	it("lists PAYG top-ups in the billing history next to plan payments", async () => {
+		await insertOrg();
+		await db.insert(tables.transaction).values([
+			{
+				organizationId: ORG_ID,
+				type: "dev_plan_start",
+				amount: "79",
+				creditAmount: "237",
+				status: "completed",
+				createdAt: new Date("2026-08-01T00:00:00Z"),
+			},
+			{
+				organizationId: ORG_ID,
+				type: "credit_topup",
+				amount: "26.25",
+				creditAmount: "25",
+				status: "completed",
+				description: "DevPass credits top-up via Stripe",
+				createdAt: new Date("2026-08-02T00:00:00Z"),
+			},
+			// Reversal bookkeeping row — never a billing event to display.
+			{
+				organizationId: ORG_ID,
+				type: "credit_topup",
+				amount: "-26.25",
+				creditAmount: "-25",
+				status: "completed",
+				createdAt: new Date("2026-08-03T00:00:00Z"),
+			},
+		]);
+
+		const res = await app.request("/dev-plans/invoices", {
+			headers: { Cookie: token },
+		});
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as {
+			invoices: {
+				type: string;
+				amount: string | null;
+				creditAmount: string | null;
+				description: string | null;
+			}[];
+		};
+
+		expect(body.invoices).toHaveLength(2);
+		expect(body.invoices[0]).toMatchObject({
+			type: "credit_topup",
+			amount: "26.25",
+			creditAmount: "25",
+			description: "DevPass credits top-up via Stripe",
+		});
+		expect(body.invoices[1]).toMatchObject({
+			type: "dev_plan_start",
+			amount: "79",
+		});
+	});
 });

@@ -2376,6 +2376,8 @@ const getInvoices = createRoute({
 									"dev_plan_renewal",
 									"dev_plan_upgrade",
 									"dev_plan_reset_pass",
+									// PAYG overflow credits purchases (manual and auto-reload).
+									"credit_topup",
 								]),
 								date: z.string(),
 								amount: z.string().nullable(),
@@ -2443,13 +2445,20 @@ devPlans.openapi(getInvoices, async (c) => {
 	});
 
 	const invoices = transactions
-		.filter((t) =>
-			[
-				"dev_plan_start",
-				"dev_plan_renewal",
-				"dev_plan_upgrade",
-				"dev_plan_reset_pass",
-			].includes(t.type),
+		.filter(
+			(t) =>
+				[
+					"dev_plan_start",
+					"dev_plan_renewal",
+					"dev_plan_upgrade",
+					"dev_plan_reset_pass",
+				].includes(t.type) ||
+				// PAYG overflow top-ups (manual + auto-reload) are DevPass charges
+				// too. Positive amounts only: reversal rows are bookkeeping, not a
+				// billing event the user should see.
+				(t.type === "credit_topup" &&
+					t.amount !== null &&
+					parseFloat(t.amount) > 0),
 		)
 		.map((t) => ({
 			id: t.id,
@@ -2457,7 +2466,8 @@ devPlans.openapi(getInvoices, async (c) => {
 				| "dev_plan_start"
 				| "dev_plan_renewal"
 				| "dev_plan_upgrade"
-				| "dev_plan_reset_pass",
+				| "dev_plan_reset_pass"
+				| "credit_topup",
 			date: t.createdAt.toISOString(),
 			amount: t.amount,
 			creditAmount: t.creditAmount,

@@ -61,6 +61,10 @@ function formatDateTime(dateString: string) {
 }
 
 function formatTransactionType(type: string) {
+	// On a DevPass org, credit_topup rows are PAYG overflow purchases.
+	if (type === "credit_topup") {
+		return "PAYG Top-up";
+	}
 	return type.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
