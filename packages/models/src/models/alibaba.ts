@@ -1698,11 +1698,6 @@ export const alibabaModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
-				// No webSearch: Alibaba's `enable_search` is a DashScope platform
-				// feature, not something the model carries to other deployments. SCX's
-				// plain OpenAI-compatible endpoint accepts the request but performs no
-				// search and reports no search usage, so declaring it would silently
-				// route web-search requests to a provider that cannot serve them.
 				jsonOutput: true,
 				supportedParameters: [
 					"temperature",
