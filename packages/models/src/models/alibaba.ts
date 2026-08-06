@@ -2043,8 +2043,8 @@ export const alibabaModels = [
 		],
 	},
 	{
-		id: "qwen-image-3",
-		name: "Qwen Image 3",
+		id: "qwen-image-3.0",
+		name: "Qwen Image 3.0",
 		description:
 			"Alibaba's third-generation Qwen image model for text-to-image generation and image editing with strong text rendering.",
 		family: "alibaba",
@@ -2054,11 +2054,11 @@ export const alibabaModels = [
 			{
 				test: "skip",
 				providerId: "alibaba",
-				externalId: "qwen-image-3",
+				externalId: "qwen-image-3.0",
 				inputPrice: "0",
 				outputPrice: "0",
 				requestPrice: "0.03",
-				contextSize: 65536,
+				contextSize: 4500,
 				maxOutput: 4096,
 				streaming: false,
 				vision: true,
@@ -2069,8 +2069,8 @@ export const alibabaModels = [
 		],
 	},
 	{
-		id: "qwen-image-3-pro",
-		name: "Qwen Image 3 Pro",
+		id: "qwen-image-3.0-pro",
+		name: "Qwen Image 3.0 Pro",
 		description:
 			"Alibaba's flagship third-generation Qwen image model for highest quality text-to-image generation and image editing.",
 		family: "alibaba",
@@ -2080,11 +2080,14 @@ export const alibabaModels = [
 			{
 				test: "skip",
 				providerId: "alibaba",
-				externalId: "qwen-image-3-pro",
+				externalId: "qwen-image-3.0-pro",
 				inputPrice: "0",
 				outputPrice: "0",
-				requestPrice: "0.04",
-				contextSize: 65536,
+				// Alibaba prices this model per output resolution ($0.04/image at
+				// 1K, $0.075/image at 2K); the gateway sends no default size and
+				// the endpoint returns 2K, so the flat rate has to be the 2K one.
+				requestPrice: "0.075",
+				contextSize: 4500,
 				maxOutput: 4096,
 				streaming: false,
 				vision: true,
