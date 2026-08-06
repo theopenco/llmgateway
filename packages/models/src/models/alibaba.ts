@@ -1681,6 +1681,29 @@ export const alibabaModels = [
 					"reasoning_effort",
 				],
 			},
+			{
+				providerId: "scx-ai-gp",
+				externalId: "qwen3.8-max",
+				// SCX has not brought this deployment online yet: it is absent from
+				// their /v1/models listing and chat completions return "Unsupported
+				// model". Drop this once the deployment is live and verified.
+				test: "skip",
+				inputPrice: "1.815e-6",
+				cachedInputPrice: "0.21e-6",
+				outputPrice: "5.4461e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 131072,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				// The upstream model is natively multimodal, but image input on SCX's
+				// deployment is unverified. Leave false so routing does not send image
+				// requests here until it is confirmed to work.
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
 		],
 	},
 	{
