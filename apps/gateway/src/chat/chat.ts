@@ -49,6 +49,7 @@ import {
 import {
 	buildEstimatedCompletionText,
 	calculateCosts,
+	capEstimatedCompletionTokensForModel,
 	isRefusalFinishReason,
 	shouldBillCancelledRequests,
 	zeroInferenceCosts,
@@ -8569,6 +8570,11 @@ chat.openapi(completions, async (c) => {
 				let completionTokens = null;
 				let totalTokens = null;
 				let reasoningTokens = null;
+				// True once the provider itself reports token usage. Tracked
+				// separately from the counts above because those get overwritten with
+				// our own estimates mid-stream, which would otherwise make an
+				// unreported stream look like a reported one.
+				let providerReportedUsage = false;
 				let cachedTokens = null;
 				let cacheCreationTokens: number | null = null;
 				let cacheCreation5mTokens: number | null = null;
@@ -9962,9 +9968,11 @@ chat.openapi(completions, async (c) => {
 								);
 								if (usage.promptTokens !== null) {
 									promptTokens = usage.promptTokens;
+									providerReportedUsage = true;
 								}
 								if (usage.completionTokens !== null) {
 									completionTokens = usage.completionTokens;
+									providerReportedUsage = true;
 								}
 								if (usage.totalTokens !== null) {
 									totalTokens = usage.totalTokens;
@@ -10242,7 +10250,17 @@ chat.openapi(completions, async (c) => {
 								const textTokens = estimateTokensFromContent(
 									estimatedCompletionText,
 								);
-								calculatedCompletionTokens = textTokens + imageTokens;
+								// Cap the guess at what the model can physically emit, so an
+								// over-accumulated stream cannot bill (or report) an
+								// impossible token count.
+								calculatedCompletionTokens =
+									capEstimatedCompletionTokensForModel(
+										textTokens + imageTokens,
+										usedInternalModel,
+										usedProvider,
+										usedRegion ?? null,
+										n ?? 1,
+									);
 							}
 						}
 
@@ -10921,13 +10939,11 @@ chat.openapi(completions, async (c) => {
 					// keeps the estimated token counts for analytics but is not billed.
 					// Failures where the provider *did* report usage stay billed: those
 					// counts are real and upstream charged us for them.
-					const upstreamReportedUsage =
-						(promptTokens ?? 0) > 0 || (completionTokens ?? 0) > 0;
 					if (
 						!canceled &&
 						(finishReason === "upstream_error" ||
 							finishReason === "gateway_error") &&
-						!upstreamReportedUsage &&
+						!providerReportedUsage &&
 						costs.totalCost !== null
 					) {
 						zeroInferenceCosts(costs);

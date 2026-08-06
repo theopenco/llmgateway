@@ -5,6 +5,7 @@ import { estimateTokensFromText } from "@llmgateway/shared";
 import {
 	buildEstimatedCompletionText,
 	calculateCosts,
+	capEstimatedCompletionTokensForModel,
 	isRefusalFinishReason,
 	shouldBillCancelledRequests,
 	zeroInferenceCosts,
@@ -1836,6 +1837,26 @@ describe("buildEstimatedCompletionText", () => {
 		expect(text).toContain("Berlin");
 	});
 
+	// Streaming arguments arrive as the raw JSON string the model emitted.
+	// Re-serialising it escapes every quote, newline and backslash a second
+	// time, so the estimate counted characters the model never produced.
+	it("does not re-escape arguments that are already a JSON string", () => {
+		const args = JSON.stringify({
+			patch: 'const x = "old";\nconst y = "new";\n'.repeat(50),
+		});
+
+		const text = buildEstimatedCompletionText("", [
+			{
+				id: "call_1",
+				type: "function",
+				function: { name: "edit", arguments: args },
+			},
+		]);
+
+		expect(text).toBe(`edit${args}`);
+		expect(text.length).toBeLessThan(`edit${JSON.stringify(args)}`.length);
+	});
+
 	// The streaming path logs the completion tokens it bills, so both sides must
 	// estimate over the same text: a tool-call-only stream that estimated over
 	// content alone logged zero completion tokens while still being charged for
@@ -1867,6 +1888,85 @@ describe("buildEstimatedCompletionText", () => {
 		);
 		expect(result.completionTokens).toBeGreaterThan(0);
 		expect(result.outputCost).toBeGreaterThan(0);
+	});
+});
+
+describe("capEstimatedCompletionTokensForModel", () => {
+	// gpt-4o-mini declares maxOutput 16384 on the openai mapping.
+	it("caps an estimate above the mapping's max output", () => {
+		expect(
+			capEstimatedCompletionTokensForModel(
+				5_000_000,
+				"gpt-4o-mini",
+				"openai",
+				null,
+				1,
+			),
+		).toBe(16384);
+	});
+
+	it("leaves an estimate within the ceiling untouched", () => {
+		expect(
+			capEstimatedCompletionTokensForModel(
+				1234,
+				"gpt-4o-mini",
+				"openai",
+				null,
+				1,
+			),
+		).toBe(1234);
+	});
+
+	it("scales the ceiling by the number of requested choices", () => {
+		expect(
+			capEstimatedCompletionTokensForModel(
+				5_000_000,
+				"gpt-4o-mini",
+				"openai",
+				null,
+				3,
+			),
+		).toBe(16384 * 3);
+	});
+
+	it("leaves the estimate alone for an unknown model", () => {
+		expect(
+			capEstimatedCompletionTokensForModel(
+				5_000_000,
+				"nope",
+				"openai",
+				null,
+				1,
+			),
+		).toBe(5_000_000);
+	});
+
+	// A provider-reported count is ground truth, so only estimates are capped.
+	it("does not cap provider-reported completion tokens", async () => {
+		const result = await calculateCosts(
+			"gpt-4o-mini",
+			"openai",
+			null,
+			100,
+			5_000_000,
+			null,
+		);
+
+		expect(result.completionTokens).toBe(5_000_000);
+	});
+
+	it("caps the completion tokens it estimates itself", async () => {
+		const result = await calculateCosts(
+			"gpt-4o-mini",
+			"openai",
+			null,
+			100,
+			null,
+			null,
+			{ prompt: "hi", completion: "x".repeat(40_000_000) },
+		);
+
+		expect(result.completionTokens).toBe(16384);
 	});
 });
 

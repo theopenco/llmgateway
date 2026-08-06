@@ -4,6 +4,7 @@ import { estimateTokensFromContent } from "@/chat/tools/estimate-tokens-from-con
 import { encodeChatMessages } from "@/chat/tools/tokenizer.js";
 
 import { getEffectiveDiscount } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 import {
 	type ModelDefinition,
 	type ProviderModelMapping,
@@ -129,13 +130,124 @@ export function buildEstimatedCompletionText(
 			if (toolResult?.function?.name) {
 				completionText += toolResult.function.name;
 			}
-			if (toolResult?.function?.arguments) {
-				completionText += JSON.stringify(toolResult.function.arguments);
+			const args = toolResult?.function?.arguments;
+			if (args) {
+				// Streaming arguments are accumulated as the raw JSON string the
+				// model emitted. Re-serialising that string escapes every quote,
+				// newline and backslash a second time, inflating the character
+				// count (and so the estimate) above what the model actually
+				// produced, so only serialise when it is not already text.
+				completionText +=
+					typeof args === "string" ? args : JSON.stringify(args);
 			}
 		}
 	}
 
 	return completionText;
+}
+
+/**
+ * Resolve the provider mapping used for pricing, keyed by providerId + region.
+ * Region matters when a single root model id has multiple per-region entries
+ * with different prices (see `regions:` on ProviderModelMapping);
+ * expandAllProviderRegions flattens those into one mapping per region.
+ *
+ * For regionalized providers we MUST match the exact region — falling back to
+ * the non-regional/base entry would bill at the default rate even when the
+ * caller named a region that doesn't exist on this provider, which silently
+ * masks the misroute. Only fall back to the non-regional entry when the
+ * provider has no regional variants at all.
+ */
+export function findPricingProviderMapping(
+	modelInfo: ModelDefinition | undefined,
+	provider: string,
+	region: string | null,
+): ProviderModelMapping | undefined {
+	if (!modelInfo) {
+		return undefined;
+	}
+
+	const expandedProviders = expandAllProviderRegions(
+		modelInfo.providers as ProviderModelMapping[],
+	);
+	const providerEntries = expandedProviders.filter(
+		(p) => p.providerId === provider,
+	);
+	const isBaseEntry = (p: ProviderModelMapping) =>
+		p.region === undefined || p.region === null;
+
+	if (region === null) {
+		return providerEntries.find(isBaseEntry) ?? providerEntries[0];
+	}
+
+	const regionalMatch = providerEntries.find((p) => p.region === region);
+	if (regionalMatch) {
+		return regionalMatch;
+	}
+	// Region was requested but doesn't match any regional variant. For a
+	// regionalized provider, bail out rather than billing at the base rate.
+	return providerEntries.some((p) => !isBaseEntry(p))
+		? undefined
+		: providerEntries.find(isBaseEntry);
+}
+
+/**
+ * Clamp an estimated completion-token count to what the provider mapping can
+ * physically emit (`maxOutput`, times the number of requested choices).
+ *
+ * Our estimate is a chars/4 guess over whatever text and tool-call arguments we
+ * managed to accumulate, and nothing else bounds it: a truncated or
+ * mis-accumulated stream can yield a count many times the model's ceiling and
+ * bill it at full price. A count above `maxOutput` is impossible by definition,
+ * so it is capped and logged rather than charged. Mappings without a declared
+ * `maxOutput` are left alone.
+ */
+export function capEstimatedCompletionTokens(
+	estimatedTokens: number,
+	providerMapping: ProviderModelMapping | undefined,
+	choiceCount: number,
+	context: { model: string; provider: string },
+): number {
+	const maxOutput = providerMapping?.maxOutput;
+	if (!maxOutput || maxOutput <= 0) {
+		return estimatedTokens;
+	}
+
+	const cap = maxOutput * Math.max(1, choiceCount);
+	if (estimatedTokens <= cap) {
+		return estimatedTokens;
+	}
+
+	logger.warn("Estimated completion tokens exceed the model's max output", {
+		model: context.model,
+		provider: context.provider,
+		estimatedTokens,
+		cap,
+		maxOutput,
+		choiceCount,
+	});
+	return cap;
+}
+
+/**
+ * {@link capEstimatedCompletionTokens} for callers that have the model id
+ * rather than a resolved provider mapping.
+ */
+export function capEstimatedCompletionTokensForModel(
+	estimatedTokens: number,
+	model: string,
+	provider: string,
+	region: string | null,
+	choiceCount: number,
+): number {
+	const modelInfo = models.find((m) => m.id === model) as
+		ModelDefinition | undefined;
+	return capEstimatedCompletionTokens(
+		estimatedTokens,
+		findPricingProviderMapping(modelInfo, provider, region),
+		choiceCount,
+		{ model, provider },
+	);
 }
 
 /**
@@ -406,35 +518,20 @@ export async function calculateCosts(
 	// Set completion tokens to 0 if not available (but still calculate input costs)
 	calculatedCompletionTokens ??= 0;
 
-	// Find the provider-specific pricing, keyed by providerId + region.
-	// Region matters when a single root model id has multiple per-region
-	// entries with different prices (see `regions:` on ProviderModelMapping);
-	// expandAllProviderRegions flattens those into one mapping per region.
-	//
-	// For regionalized providers we MUST match the exact region — falling back
-	// to the non-regional/base entry would bill at the default rate even when
-	// the caller named a region that doesn't exist on this provider, which
-	// silently masks the misroute. Only fall back to the non-regional entry
-	// when the provider has no regional variants at all.
-	const expandedProviders = expandAllProviderRegions(
-		modelInfo.providers as ProviderModelMapping[],
-	);
-	const providerEntries = expandedProviders.filter(
-		(p) => p.providerId === provider,
-	);
-	const isBaseEntry = (p: (typeof providerEntries)[number]) =>
-		p.region === undefined || p.region === null;
-	const hasRegionalEntries = providerEntries.some((p) => !isBaseEntry(p));
-	let providerInfo: (typeof providerEntries)[number] | undefined;
-	if (region !== null) {
-		providerInfo = providerEntries.find((p) => p.region === region);
-		// Region was requested but doesn't match any regional variant. For a
-		// regionalized provider, bail out rather than billing at the base rate.
-		if (!providerInfo && !hasRegionalEntries) {
-			providerInfo = providerEntries.find(isBaseEntry);
-		}
-	} else {
-		providerInfo = providerEntries.find(isBaseEntry) ?? providerEntries[0];
+	const providerInfo = findPricingProviderMapping(modelInfo, provider, region);
+
+	// An estimate is only ever a guess about how many tokens the model emitted,
+	// and the model cannot have emitted more than the mapping allows, so cap it
+	// before it becomes money. Only applies when we estimated the count
+	// ourselves — a provider-reported count is ground truth even if it exceeds
+	// our catalogue's `maxOutput`.
+	if (!completionTokens) {
+		calculatedCompletionTokens = capEstimatedCompletionTokens(
+			calculatedCompletionTokens,
+			providerInfo,
+			1,
+			{ model, provider },
+		);
 	}
 
 	if (!providerInfo) {
