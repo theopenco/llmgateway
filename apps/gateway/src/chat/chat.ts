@@ -49,7 +49,6 @@ import {
 import {
 	buildEstimatedCompletionText,
 	calculateCosts,
-	capEstimatedCompletionTokensForModel,
 	isRefusalFinishReason,
 	shouldBillCancelledRequests,
 	zeroInferenceCosts,
@@ -10250,17 +10249,7 @@ chat.openapi(completions, async (c) => {
 								const textTokens = estimateTokensFromContent(
 									estimatedCompletionText,
 								);
-								// Cap the guess at what the model can physically emit, so an
-								// over-accumulated stream cannot bill (or report) an
-								// impossible token count.
-								calculatedCompletionTokens =
-									capEstimatedCompletionTokensForModel(
-										textTokens + imageTokens,
-										usedInternalModel,
-										usedProvider,
-										usedRegion ?? null,
-										n ?? 1,
-									);
+								calculatedCompletionTokens = textTokens + imageTokens;
 							}
 						}
 

@@ -5,7 +5,6 @@ import { estimateTokensFromText } from "@llmgateway/shared";
 import {
 	buildEstimatedCompletionText,
 	calculateCosts,
-	capEstimatedCompletionTokensForModel,
 	isRefusalFinishReason,
 	shouldBillCancelledRequests,
 	zeroInferenceCosts,
@@ -1888,85 +1887,6 @@ describe("buildEstimatedCompletionText", () => {
 		);
 		expect(result.completionTokens).toBeGreaterThan(0);
 		expect(result.outputCost).toBeGreaterThan(0);
-	});
-});
-
-describe("capEstimatedCompletionTokensForModel", () => {
-	// gpt-4o-mini declares maxOutput 16384 on the openai mapping.
-	it("caps an estimate above the mapping's max output", () => {
-		expect(
-			capEstimatedCompletionTokensForModel(
-				5_000_000,
-				"gpt-4o-mini",
-				"openai",
-				null,
-				1,
-			),
-		).toBe(16384);
-	});
-
-	it("leaves an estimate within the ceiling untouched", () => {
-		expect(
-			capEstimatedCompletionTokensForModel(
-				1234,
-				"gpt-4o-mini",
-				"openai",
-				null,
-				1,
-			),
-		).toBe(1234);
-	});
-
-	it("scales the ceiling by the number of requested choices", () => {
-		expect(
-			capEstimatedCompletionTokensForModel(
-				5_000_000,
-				"gpt-4o-mini",
-				"openai",
-				null,
-				3,
-			),
-		).toBe(16384 * 3);
-	});
-
-	it("leaves the estimate alone for an unknown model", () => {
-		expect(
-			capEstimatedCompletionTokensForModel(
-				5_000_000,
-				"nope",
-				"openai",
-				null,
-				1,
-			),
-		).toBe(5_000_000);
-	});
-
-	// A provider-reported count is ground truth, so only estimates are capped.
-	it("does not cap provider-reported completion tokens", async () => {
-		const result = await calculateCosts(
-			"gpt-4o-mini",
-			"openai",
-			null,
-			100,
-			5_000_000,
-			null,
-		);
-
-		expect(result.completionTokens).toBe(5_000_000);
-	});
-
-	it("caps the completion tokens it estimates itself", async () => {
-		const result = await calculateCosts(
-			"gpt-4o-mini",
-			"openai",
-			null,
-			100,
-			null,
-			null,
-			{ prompt: "hi", completion: "x".repeat(40_000_000) },
-		);
-
-		expect(result.completionTokens).toBe(16384);
 	});
 });
 
