@@ -203,7 +203,7 @@ export default function PayAsYouGoCard({
 			}
 			toast.success(enabled ? "Auto-reload on" : "Auto-reload off", {
 				description: enabled
-					? `When your balance falls below $${reloadThresholdNum}, we'll reload $${reloadAmountNum} from your saved card.`
+					? `When your balance falls below $${reloadThresholdNum}, we'll reload $${reloadAmountNum} from your saved card, plus processing fees.`
 					: "Your balance will no longer reload automatically.",
 			});
 			if (enabled) {
@@ -382,7 +382,7 @@ export default function PayAsYouGoCard({
 							{!autoReloadOpen && (
 								<p className="mt-1.5 text-xs text-muted-foreground">
 									{autoTopUpEnabled
-										? `When your balance falls below $${Number(autoTopUpThreshold ?? AUTO_TOP_UP_DEFAULT_THRESHOLD)}, we reload $${Number(autoTopUpAmount ?? AUTO_TOP_UP_DEFAULT_AMOUNT)} from your saved card.`
+										? `When your balance falls below $${Number(autoTopUpThreshold ?? AUTO_TOP_UP_DEFAULT_THRESHOLD)}, we reload $${Number(autoTopUpAmount ?? AUTO_TOP_UP_DEFAULT_AMOUNT)} from your saved card, plus processing fees.`
 										: "Keep coding through cap hits — reload your balance automatically when it runs low."}
 								</p>
 							)}

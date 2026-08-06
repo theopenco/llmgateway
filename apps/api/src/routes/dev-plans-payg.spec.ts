@@ -360,6 +360,26 @@ describe("dev-plan PAYG top-up", () => {
 		expect(body.message).toContain("Your card was declined.");
 	});
 
+	it("surfaces an idempotency conflict as 409, not 500", async () => {
+		await insertOrg();
+		// Same purchaseId reused with different parameters — Stripe rejects the
+		// idempotent replay. A client bug, but a definitive, retryable outcome.
+		stripeMock.paymentIntents.create.mockRejectedValue(
+			Object.assign(new Error("Keys for idempotent requests can only..."), {
+				type: "StripeIdempotencyError",
+				code: "idempotency_error",
+			}),
+		);
+
+		const res = await topUpRequest(
+			{ amount: 25, purchaseId: "attempt-fixed-1" },
+			token,
+		);
+		expect(res.status).toBe(409);
+		const body = await res.json();
+		expect(body.message).toContain("already submitted with different details");
+	});
+
 	it("treats a non-succeeded intent as a failed payment", async () => {
 		await insertOrg();
 		stripeMock.paymentIntents.create.mockResolvedValue({
