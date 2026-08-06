@@ -1694,15 +1694,26 @@ export const alibabaModels = [
 				requestPrice: "0",
 				contextSize: 1000000,
 				maxOutput: 131072,
-				quantization: "fp8",
-				streaming: true,
 				reasoning: true,
-				// The upstream model is natively multimodal, but image input on SCX's
-				// deployment is unverified. Leave false so routing does not send image
-				// requests here until it is confirmed to work.
-				vision: false,
+				reasoningMaxTokens: true,
+				reasoningOutput: "omit",
+				streaming: true,
+				vision: true,
 				tools: true,
 				jsonOutput: true,
+				// Qwen thinking models reject tool_choice "required" or object
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"tools",
+					"response_format",
+					"reasoning_effort",
+				],
 			},
 		],
 	},
