@@ -6670,6 +6670,60 @@ describe("api", () => {
 			);
 		});
 
+		// A truncated stream never reports usage, so every token count on the log
+		// is the gateway's own chars/4 estimate over a partial payload. Billing
+		// that estimate charges for output the caller never received on a request
+		// the gateway answered with a 502.
+		test("truncated upstream streams are not billed", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "openai",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: "openai/gpt-4o-mini",
+					messages: [
+						{
+							role: "user",
+							content: `TRIGGER_TRUNCATED_STREAM ${randomUUID()}`,
+						},
+					],
+					stream: true,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const streamResult = await readAll(res.body);
+			expect(streamResult.errorEvents[0].error.code).toBe("stream_truncated");
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].finishReason).toBe("upstream_error");
+			expect(Number(logs[0].cost)).toBe(0);
+			expect(Number(logs[0].inputCost)).toBe(0);
+			expect(Number(logs[0].outputCost)).toBe(0);
+			// The estimated usage is still recorded for analytics.
+			expect(Number(logs[0].promptTokens)).toBeGreaterThan(0);
+		});
+
 		test("streaming request closes cleanly after finish reason without upstream done sentinel", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",

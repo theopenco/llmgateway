@@ -47,6 +47,7 @@ import {
 	type ComplianceCheckContext,
 } from "@/lib/compliance.js";
 import {
+	buildEstimatedCompletionText,
 	calculateCosts,
 	isRefusalFinishReason,
 	shouldBillCancelledRequests,
@@ -10220,15 +10221,29 @@ chat.openapi(completions, async (c) => {
 							calculatedPromptTokens = encodeChatMessages(messages);
 						}
 
-						if (!completionTokens && (fullContent || imageByteSize > 0)) {
-							// For images, estimate ~258 tokens per image + 1 token per 750 bytes
-							let imageTokens = 0;
-							if (imageByteSize > 0) {
-								imageTokens = 258 + Math.ceil(imageByteSize / 750);
-							}
+						if (!completionTokens) {
+							// Tool-call names and arguments are part of the completion the
+							// same way text is, and pricing already estimates over them, so
+							// they must be counted here too — otherwise a stream that emits
+							// only tool calls logs no completion tokens while still being
+							// billed for them.
+							const estimatedCompletionText = buildEstimatedCompletionText(
+								fullContent,
+								streamingToolCalls,
+							);
 
-							const textTokens = estimateTokensFromContent(fullContent);
-							calculatedCompletionTokens = textTokens + imageTokens;
+							if (estimatedCompletionText || imageByteSize > 0) {
+								// For images, estimate ~258 tokens per image + 1 token per 750 bytes
+								let imageTokens = 0;
+								if (imageByteSize > 0) {
+									imageTokens = 258 + Math.ceil(imageByteSize / 750);
+								}
+
+								const textTokens = estimateTokensFromContent(
+									estimatedCompletionText,
+								);
+								calculatedCompletionTokens = textTokens + imageTokens;
+							}
 						}
 
 						calculatedTotalTokens =
@@ -10896,6 +10911,27 @@ chat.openapi(completions, async (c) => {
 									},
 									finishReason === "content_filter",
 								));
+
+					// A stream that died with an upstream/gateway error never produced a
+					// complete response, and when the provider also reported no usage at
+					// all the only numbers we have are our own chars/4 estimates over a
+					// truncated payload — an estimate that can even exceed the model's
+					// max output. Charging that bills the caller for output they never
+					// received on a request the gateway answered with a 502, so the log
+					// keeps the estimated token counts for analytics but is not billed.
+					// Failures where the provider *did* report usage stay billed: those
+					// counts are real and upstream charged us for them.
+					const upstreamReportedUsage =
+						(promptTokens ?? 0) > 0 || (completionTokens ?? 0) > 0;
+					if (
+						!canceled &&
+						(finishReason === "upstream_error" ||
+							finishReason === "gateway_error") &&
+						!upstreamReportedUsage &&
+						costs.totalCost !== null
+					) {
+						zeroInferenceCosts(costs);
+					}
 
 					// Use costs.promptTokens as canonical value (includes image input
 					// tokens for providers that exclude them from upstream usage)

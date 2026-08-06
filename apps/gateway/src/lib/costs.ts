@@ -110,6 +110,35 @@ export function zeroInferenceCosts(costs: MutableInferenceCosts): void {
 }
 
 /**
+ * Build the text used to estimate completion tokens when the provider did not
+ * report them: the assistant's text plus every tool call's name and arguments.
+ *
+ * Exported so the streaming path can log the same completion-token count it is
+ * billed for. A stream that emits only tool calls has no assistant text at all,
+ * so estimating from content alone logs zero completion tokens while pricing
+ * still charges for the tool-call payload — a bill with no tokens behind it.
+ */
+export function buildEstimatedCompletionText(
+	completion: string | null | undefined,
+	toolResults: ToolCall[] | null | undefined,
+): string {
+	let completionText = completion ?? "";
+
+	if (toolResults && Array.isArray(toolResults)) {
+		for (const toolResult of toolResults) {
+			if (toolResult?.function?.name) {
+				completionText += toolResult.function.name;
+			}
+			if (toolResult?.function?.arguments) {
+				completionText += JSON.stringify(toolResult.function.arguments);
+			}
+		}
+	}
+
+	return completionText;
+}
+
+/**
  * Check if billing for cancelled requests is enabled via environment variable.
  * Defaults to true if not set: a cancelled streaming request has already
  * consumed upstream inference (prompt tokens, plus any completion tokens
@@ -335,24 +364,10 @@ export async function calculateCosts(
 
 		// Calculate completion tokens
 		if (!completionTokens && fullOutput) {
-			let completionText = "";
-
-			// Include main completion content
-			if (fullOutput.completion) {
-				completionText += fullOutput.completion;
-			}
-
-			// Include tool results if available
-			if (fullOutput.toolResults && Array.isArray(fullOutput.toolResults)) {
-				for (const toolResult of fullOutput.toolResults) {
-					if (toolResult?.function?.name) {
-						completionText += toolResult.function.name;
-					}
-					if (toolResult?.function?.arguments) {
-						completionText += JSON.stringify(toolResult.function.arguments);
-					}
-				}
-			}
+			const completionText = buildEstimatedCompletionText(
+				fullOutput.completion,
+				fullOutput.toolResults,
+			);
 
 			if (completionText) {
 				calculatedCompletionTokens = estimateTokensFromContent(completionText);

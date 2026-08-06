@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { estimateTokensFromText } from "@llmgateway/shared";
+
 import {
+	buildEstimatedCompletionText,
 	calculateCosts,
 	isRefusalFinishReason,
 	shouldBillCancelledRequests,
@@ -1810,6 +1813,60 @@ describe("zeroInferenceCosts", () => {
 		expect(costs.totalCost).toBe(0);
 		// Storage retention is billed separately from inference.
 		expect(costs.dataStorageCost).toBe(0.01);
+	});
+});
+
+describe("buildEstimatedCompletionText", () => {
+	it("returns the assistant text when there are no tool calls", () => {
+		expect(buildEstimatedCompletionText("hello there", null)).toBe(
+			"hello there",
+		);
+	});
+
+	it("includes tool call names and arguments", () => {
+		const text = buildEstimatedCompletionText("", [
+			{
+				id: "call_1",
+				type: "function",
+				function: { name: "get_weather", arguments: '{"city":"Berlin"}' },
+			},
+		]);
+
+		expect(text).toContain("get_weather");
+		expect(text).toContain("Berlin");
+	});
+
+	// The streaming path logs the completion tokens it bills, so both sides must
+	// estimate over the same text: a tool-call-only stream that estimated over
+	// content alone logged zero completion tokens while still being charged for
+	// the tool-call payload.
+	it("matches the completion tokens calculateCosts estimates", async () => {
+		const toolResults = [
+			{
+				id: "call_1",
+				type: "function" as const,
+				function: {
+					name: "apply_patch",
+					arguments: JSON.stringify({ patch: "x".repeat(4000) }),
+				},
+			},
+		];
+
+		const result = await calculateCosts(
+			"gpt-4",
+			"openai",
+			null,
+			100,
+			null,
+			null,
+			{ prompt: "do the thing", completion: "", toolResults },
+		);
+
+		expect(result.completionTokens).toBe(
+			estimateTokensFromText(buildEstimatedCompletionText("", toolResults)),
+		);
+		expect(result.completionTokens).toBeGreaterThan(0);
+		expect(result.outputCost).toBeGreaterThan(0);
 	});
 });
 
