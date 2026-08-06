@@ -197,6 +197,7 @@ export const OPEN_SOURCE_MODEL_IDS: ReadonlySet<string> = new Set([
 // API-only Muse Spark models alongside the open Llama family)
 export const CLOSED_SOURCE_MODEL_IDS: ReadonlySet<string> = new Set([
 	"muse-spark-1.1",
+	"muse-spark-1.2",
 	// API-only at launch; no open weights published (unlike the K2 family)
 	"kimi-k3",
 ]);

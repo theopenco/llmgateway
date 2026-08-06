@@ -2043,6 +2043,58 @@ export const alibabaModels = [
 		],
 	},
 	{
+		id: "qwen-image-3",
+		name: "Qwen Image 3",
+		description:
+			"Alibaba's third-generation Qwen image model for text-to-image generation and image editing with strong text rendering.",
+		family: "alibaba",
+		output: ["text", "image"],
+		releasedAt: new Date("2026-08-05"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "alibaba",
+				externalId: "qwen-image-3",
+				inputPrice: "0",
+				outputPrice: "0",
+				requestPrice: "0.03",
+				contextSize: 65536,
+				maxOutput: 4096,
+				streaming: false,
+				vision: true,
+				tools: false,
+				jsonOutput: false,
+				imageGenerations: true,
+			},
+		],
+	},
+	{
+		id: "qwen-image-3-pro",
+		name: "Qwen Image 3 Pro",
+		description:
+			"Alibaba's flagship third-generation Qwen image model for highest quality text-to-image generation and image editing.",
+		family: "alibaba",
+		output: ["text", "image"],
+		releasedAt: new Date("2026-08-05"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "alibaba",
+				externalId: "qwen-image-3-pro",
+				inputPrice: "0",
+				outputPrice: "0",
+				requestPrice: "0.04",
+				contextSize: 65536,
+				maxOutput: 4096,
+				streaming: false,
+				vision: true,
+				tools: false,
+				jsonOutput: false,
+				imageGenerations: true,
+			},
+		],
+	},
+	{
 		id: "qwen-image-plus",
 		name: "Qwen Image Plus",
 		description:
