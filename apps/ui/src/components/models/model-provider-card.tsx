@@ -614,6 +614,32 @@ export function ModelProviderCard({
 								</div>
 							</div>
 						)}
+					{provider.perImagePrice &&
+						Object.keys(provider.perImagePrice).length > 0 && (
+							<div className="mt-3 pt-3 border-t">
+								<div className="text-muted-foreground text-xs mb-2">
+									Image Pricing (per image, by output resolution)
+								</div>
+								<div className="space-y-1">
+									{Object.entries(provider.perImagePrice).map(
+										([key, price]) => (
+											<div
+												key={key}
+												className="flex justify-between items-center text-xs py-0.5"
+											>
+												<span className="text-muted-foreground">
+													{key.replace(/_/g, " ")}
+												</span>
+												<span className="font-mono">
+													${Number(price).toFixed(4)}
+													/image
+												</span>
+											</div>
+										),
+									)}
+								</div>
+							</div>
+						)}
 					{(() => {
 						const tiers = provider.providerInfo?.serviceTiers;
 						if (

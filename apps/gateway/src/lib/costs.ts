@@ -663,6 +663,8 @@ export async function calculateCosts(
 	// Calculate output cost, handling separate image output pricing if applicable.
 	// Models with token-based image pricing use imageOutputTokensByResolution
 	// for per-resolution token counts and imageOutputPrice for the per-token price.
+	// Models with flat per-image pricing use perImagePrice, keyed by resolution
+	// tier (imageSize) with a "default" fallback.
 	let outputCost: Decimal;
 	let imageOutputTokens: number | null = null;
 	let imageOutputCost: Decimal | null = null;
@@ -671,7 +673,20 @@ export async function calculateCosts(
 		imageSize,
 	);
 	const imageOutputPricePerToken = providerInfo.imageOutputPrice;
-	if (imageOutputPricePerToken && outputImageCount > 0) {
+	const perImagePriceMap = providerInfo.perImagePrice;
+	if (perImagePriceMap && outputImageCount > 0) {
+		const perImagePrice =
+			perImagePriceMap[imageSize ?? "default"] ??
+			perImagePriceMap["default"] ??
+			"0";
+		imageOutputCost = new Decimal(perImagePrice)
+			.times(outputImageCount)
+			.times(discountMultiplier);
+		outputCost = new Decimal(totalOutputTokens)
+			.times(outputPrice)
+			.times(tokenDiscountMultiplier)
+			.plus(imageOutputCost);
+	} else if (imageOutputPricePerToken && outputImageCount > 0) {
 		const LEGACY_DEFAULT_TOKENS_PER_IMAGE = 1120;
 		imageOutputTokens =
 			isImageOutputModel &&

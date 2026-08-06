@@ -61,6 +61,7 @@ const modelSchema = z.object({
 					input_audio_cache_read: z.string().optional(),
 					output_audio: z.string().optional(),
 					per_second: z.record(z.string()).optional(),
+					per_image: z.record(z.string()).optional(),
 					request: z.string().optional(),
 					input_cache_read: z.string().optional(),
 					input_cache_write: z.string().optional(),
@@ -109,6 +110,7 @@ const modelSchema = z.object({
 		input_audio_cache_read: z.string().optional(),
 		output_audio: z.string().optional(),
 		per_second: z.record(z.string()).optional(),
+		per_image: z.record(z.string()).optional(),
 		request: z.string().optional(),
 		input_cache_read: z.string().optional(),
 		input_cache_write: z.string().optional(),
@@ -517,6 +519,7 @@ function hasPricing(p: ProviderModelMapping): boolean {
 		p.outputPrice !== undefined ||
 		p.imageInputPrice !== undefined ||
 		p.perSecondPrice !== undefined ||
+		p.perImagePrice !== undefined ||
 		p.ocrPagePrice !== undefined ||
 		p.inputAudioHourPrice !== undefined
 	);
@@ -537,6 +540,14 @@ function buildPricingFields(p: ProviderModelMapping | undefined) {
 		per_second: p?.perSecondPrice
 			? Object.fromEntries(
 					Object.entries(p.perSecondPrice).map(([resolution, price]) => [
+						resolution,
+						price.toString(),
+					]),
+				)
+			: undefined,
+		per_image: p?.perImagePrice
+			? Object.fromEntries(
+					Object.entries(p.perImagePrice).map(([resolution, price]) => [
 						resolution,
 						price.toString(),
 					]),
@@ -570,6 +581,10 @@ function pricingScore(p: ProviderModelMapping): number {
 	}
 	if (p.perSecondPrice) {
 		const values = Object.values(p.perSecondPrice).map(Number);
+		return values.length > 0 ? Math.min(...values) : Infinity;
+	}
+	if (p.perImagePrice) {
+		const values = Object.values(p.perImagePrice).map(Number);
 		return values.length > 0 ? Math.min(...values) : Infinity;
 	}
 	if (p.requestPrice !== undefined) {

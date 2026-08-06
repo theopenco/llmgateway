@@ -13081,6 +13081,16 @@ chat.openapi(completions, async (c) => {
 		reasoningTokens,
 		reasoningContent,
 	);
+	// Alibaba's per-image models bill by the served resolution tier, which
+	// DashScope reports in usage.output_image_type (e.g. "qima_output_2k").
+	// Bill on that tier rather than the requested size: the model auto-picks
+	// the final resolution when no size is given, and perImagePrice keys on
+	// tier names ("1K"/"2K"), not on pixel-dimension size strings.
+	const alibabaServedImageTier =
+		usedProvider === "alibaba" &&
+		typeof json?.usage?.output_image_type === "string"
+			? json.usage.output_image_type.match(/_(\d+k)$/)?.[1]?.toUpperCase()
+			: undefined;
 	const costs = await calculateCosts(
 		usedInternalModel,
 		usedProvider,
@@ -13095,7 +13105,7 @@ chat.openapi(completions, async (c) => {
 		},
 		reasoningTokens,
 		convertedImages?.length || 0,
-		image_config?.image_size,
+		alibabaServedImageTier ?? image_config?.image_size,
 		inputImageCount,
 		webSearchCount,
 		project.organizationId,

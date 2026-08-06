@@ -2057,7 +2057,11 @@ export const alibabaModels = [
 				externalId: "qwen-image-3.0",
 				inputPrice: "0",
 				outputPrice: "0",
-				requestPrice: "0.03",
+				perImagePrice: {
+					"1K": "0.03",
+					"2K": "0.03",
+					default: "0.03",
+				},
 				contextSize: 4500,
 				maxOutput: 4096,
 				streaming: false,
@@ -2083,10 +2087,14 @@ export const alibabaModels = [
 				externalId: "qwen-image-3.0-pro",
 				inputPrice: "0",
 				outputPrice: "0",
-				// Alibaba prices this model per output resolution ($0.04/image at
-				// 1K, $0.075/image at 2K); the gateway sends no default size and
-				// the endpoint returns 2K, so the flat rate has to be the 2K one.
-				requestPrice: "0.075",
+				// The tier is billed on the served resolution DashScope reports in
+				// usage.output_image_type; "default" covers requests without a size,
+				// where the model auto-picks a resolution and serves 2K.
+				perImagePrice: {
+					"1K": "0.04",
+					"2K": "0.075",
+					default: "0.075",
+				},
 				contextSize: 4500,
 				maxOutput: 4096,
 				streaming: false,

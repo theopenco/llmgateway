@@ -2240,9 +2240,37 @@ export function ModelSelector({
 														})()}
 													{/* Image Generation Pricing */}
 													{(previewEntry.mapping?.requestPrice ??
+														previewEntry.mapping?.perImagePrice ??
 														previewEntry.mapping?.imageInputPrice) && (
 														<div className="pt-2">
 															<div className="grid grid-cols-2 gap-3">
+																{previewEntry.mapping?.perImagePrice &&
+																	Object.keys(
+																		previewEntry.mapping.perImagePrice,
+																	).length > 0 && (
+																		<div className="space-y-1">
+																			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+																				Per Image
+																			</span>
+																			<p className="text-xs font-mono">
+																				{(() => {
+																					const values = Object.values(
+																						previewEntry.mapping.perImagePrice,
+																					)
+																						.map(Number)
+																						.filter(Number.isFinite);
+																					if (values.length === 0) {
+																						return "Unknown";
+																					}
+																					const min = Math.min(...values);
+																					const max = Math.max(...values);
+																					return min === max
+																						? `$${min.toFixed(3)}/image`
+																						: `$${min.toFixed(3)} – $${max.toFixed(3)}/image`;
+																				})()}
+																			</p>
+																		</div>
+																	)}
 																{previewEntry.mapping?.requestPrice &&
 																	parseFloat(
 																		previewEntry.mapping.requestPrice,

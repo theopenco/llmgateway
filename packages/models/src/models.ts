@@ -301,6 +301,15 @@ export interface ProviderModelMapping {
 	 */
 	perSecondPrice?: Record<string, Price>;
 	/**
+	 * Price per generated output image in USD, keyed by resolution tier
+	 * (e.g. "1K", "2K") with a "default" fallback. For image models whose
+	 * provider bills a flat per-image rate that varies with the served
+	 * resolution rather than per token (e.g. Alibaba's qwen-image family,
+	 * whose usage reports the billed tier in `output_image_type`). Billed
+	 * per output image, unlike `requestPrice` which is flat per request.
+	 */
+	perImagePrice?: Record<string, Price>;
+	/**
 	 * Pricing tiers for models with context-length based pricing.
 	 * When set, inputPrice and outputPrice represent the base tier.
 	 * Tiers should be sorted by upToTokens in ascending order.

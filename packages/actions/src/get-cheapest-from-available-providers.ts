@@ -299,7 +299,11 @@ export function getProviderSelectionPrice(
 	providerInfo:
 		| Pick<
 				ProviderModelMapping,
-				"inputPrice" | "outputPrice" | "perSecondPrice" | "requestPrice"
+				| "inputPrice"
+				| "outputPrice"
+				| "perSecondPrice"
+				| "perImagePrice"
+				| "requestPrice"
 		  >
 		| undefined,
 	videoPricing?: VideoPricingContext,
@@ -326,6 +330,15 @@ export function getProviderSelectionPrice(
 		return new Decimal(inputPrice ?? "0").plus(outputPrice ?? "0").div(2);
 	}
 
+	if (providerInfo?.perImagePrice) {
+		const perImagePrice =
+			providerInfo.perImagePrice["default"] ??
+			Object.values(providerInfo.perImagePrice)[0];
+		if (perImagePrice !== undefined) {
+			return new Decimal(perImagePrice);
+		}
+	}
+
 	if (requestPrice !== undefined && !hasPositiveTokenPrice) {
 		return new Decimal(requestPrice);
 	}
@@ -340,7 +353,11 @@ export function getProviderSelectionPrice(
 type ProviderSelectionPriceInfo = AvailableModelProvider &
 	Pick<
 		ProviderModelMapping,
-		"inputPrice" | "outputPrice" | "perSecondPrice" | "requestPrice"
+		| "inputPrice"
+		| "outputPrice"
+		| "perSecondPrice"
+		| "perImagePrice"
+		| "requestPrice"
 	>;
 
 export async function getDiscountedProviderSelectionPrice(
