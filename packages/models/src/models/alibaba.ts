@@ -1684,7 +1684,6 @@ export const alibabaModels = [
 			{
 				providerId: "scx-ai-gp",
 				externalId: "qwen3.8-max",
-				test: "skip",
 				inputPrice: "1.815e-6",
 				cachedInputPrice: "0.21e-6",
 				cacheReadInputPrice: "0.17e-6",
@@ -1699,8 +1698,11 @@ export const alibabaModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
-				webSearch: true,
-				webSearchPrice: "0.01",
+				// No webSearch: Alibaba's `enable_search` is a DashScope platform
+				// feature, not something the model carries to other deployments. SCX's
+				// plain OpenAI-compatible endpoint accepts the request but performs no
+				// search and reports no search usage, so declaring it would silently
+				// route web-search requests to a provider that cannot serve them.
 				jsonOutput: true,
 				supportedParameters: [
 					"temperature",
