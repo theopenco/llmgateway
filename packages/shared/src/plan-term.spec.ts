@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
 	formatPlanTermBadge,
 	formatPlanTermLabel,
+	getOrganizationTerm,
 	getPlanTerm,
 } from "./plan-term.js";
 
@@ -92,5 +93,82 @@ describe("formatPlanTermBadge", () => {
 		expect(badgeFor("2026-09-06T00:00:00Z")).toBe("30d left");
 		expect(badgeFor("2026-08-07T00:00:00Z")).toBe("Last day");
 		expect(badgeFor("2026-08-06T00:00:00Z")).toBe("Expired");
+	});
+});
+
+describe("getOrganizationTerm", () => {
+	const trial = {
+		isTrialActive: true,
+		trialStartDate: "2026-07-21T00:00:00Z",
+		trialEndDate: "2026-08-20T00:00:00Z",
+	};
+	const contract = {
+		planStartedAt: "2026-01-01T00:00:00Z",
+		planExpiresAt: "2027-01-01T00:00:00Z",
+	};
+
+	test("returns null without a trial or a plan term", () => {
+		expect(getOrganizationTerm({ now })).toBeNull();
+		expect(
+			getOrganizationTerm({ isTrialActive: true, trialEndDate: null, now }),
+		).toBeNull();
+	});
+
+	test("an active trial takes precedence over the contract term", () => {
+		const resolved = getOrganizationTerm({ ...trial, ...contract, now });
+
+		expect(resolved?.kind).toBe("trial");
+		expect(resolved?.term.daysLeft).toBe(13);
+		expect(resolved?.term.totalDays).toBe(30);
+	});
+
+	test("falls back to the contract term once the trial is over", () => {
+		const resolved = getOrganizationTerm({
+			...trial,
+			...contract,
+			isTrialActive: false,
+			now,
+		});
+
+		expect(resolved?.kind).toBe("contract");
+		expect(resolved?.term.expiresAt.toISOString()).toBe(
+			"2027-01-01T00:00:00.000Z",
+		);
+	});
+
+	test("a trial uses thresholds scaled to its 30-day window", () => {
+		// 13 days into a 30-day trial is healthy, though it would be "expiring"
+		// under the contract thresholds.
+		expect(getOrganizationTerm({ ...trial, now })?.term.status).toBe("active");
+
+		const endingSoon = getOrganizationTerm({
+			isTrialActive: true,
+			trialStartDate: "2026-07-14T00:00:00Z",
+			trialEndDate: "2026-08-13T00:00:00Z",
+			now,
+		});
+		expect(endingSoon?.term.daysLeft).toBe(6);
+		expect(endingSoon?.term.status).toBe("expiring");
+
+		const lastDays = getOrganizationTerm({
+			isTrialActive: true,
+			trialEndDate: "2026-08-09T00:00:00Z",
+			now,
+		});
+		expect(lastDays?.term.daysLeft).toBe(2);
+		expect(lastDays?.term.status).toBe("critical");
+	});
+
+	test("an expired trial still reports as the live term", () => {
+		const resolved = getOrganizationTerm({
+			isTrialActive: true,
+			trialStartDate: "2026-06-01T00:00:00Z",
+			trialEndDate: "2026-07-01T00:00:00Z",
+			...contract,
+			now,
+		});
+
+		expect(resolved?.kind).toBe("trial");
+		expect(resolved?.term.status).toBe("expired");
 	});
 });

@@ -294,6 +294,9 @@ export default async function OrganizationPage({
 						<PlanTermBadge
 							planExpiresAt={org.planExpiresAt}
 							planStartedAt={org.planStartedAt}
+							isTrialActive={org.isTrialActive}
+							trialStartDate={org.trialStartDate}
+							trialEndDate={org.trialEndDate}
 						/>
 						{org.devPlan !== "none" && (
 							<Badge variant={getDevPlanBadgeVariant(org.devPlan)}>
@@ -322,6 +325,9 @@ export default async function OrganizationPage({
 						apiKeyLimit={org.apiKeyLimit ?? null}
 						planExpiresAt={org.planExpiresAt ?? null}
 						planStartedAt={org.planStartedAt ?? null}
+						isTrialActive={org.isTrialActive ?? false}
+						trialStartDate={org.trialStartDate ?? null}
+						trialEndDate={org.trialEndDate ?? null}
 						onSave={async (data) => {
 							"use server";
 							return await manageOrganization(orgId, data);

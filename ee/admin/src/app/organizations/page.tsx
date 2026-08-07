@@ -395,6 +395,9 @@ export default async function OrganizationsPage({
 											<PlanTermBadge
 												planExpiresAt={org.planExpiresAt}
 												planStartedAt={org.planStartedAt}
+												isTrialActive={org.isTrialActive}
+												trialStartDate={org.trialStartDate}
+												trialEndDate={org.trialEndDate}
 											/>
 										</div>
 									</TableCell>

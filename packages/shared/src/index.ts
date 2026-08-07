@@ -153,13 +153,18 @@ export {
 } from "./provider-model-ids.js";
 
 export {
+	ENTERPRISE_TRIAL_DAYS,
 	formatPlanTermBadge,
 	formatPlanTermLabel,
+	getOrganizationTerm,
 	getPlanTerm,
 	PLAN_TERM_CRITICAL_DAYS,
 	PLAN_TERM_EXPIRING_DAYS,
+	TRIAL_TERM_CRITICAL_DAYS,
+	TRIAL_TERM_EXPIRING_DAYS,
 	type PlanTerm,
 	type PlanTermStatus,
+	type PlanTermThresholds,
 } from "./plan-term.js";
 
 export { MARKETING_STATS, RUNWARE_PROMO } from "./marketing.js";

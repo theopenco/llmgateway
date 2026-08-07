@@ -8,27 +8,33 @@ import { formatTermDate } from "@/components/billing/enterprise-plan-term";
 import { useDashboardState } from "@/lib/dashboard-state";
 import { cn } from "@/lib/utils";
 
-import { formatPlanTermLabel, getPlanTerm } from "@llmgateway/shared";
+import { formatPlanTermLabel, getOrganizationTerm } from "@llmgateway/shared";
 
 /**
- * Quiet countdown strip for enterprise agreements that are close to lapsing.
+ * Quiet countdown strip for enterprise agreements and trials that are close to
+ * lapsing.
  *
- * It stays invisible for the whole healthy stretch of a term and only appears
- * inside the last 30 days, so it never becomes background noise the way an
- * always-on plan banner would. A dismissal is remembered per renewal date, so
- * renewing (or an admin moving the date) surfaces it again on the next term.
+ * It stays invisible for the whole healthy stretch of a term — the last 30 days
+ * of a contract, the last 7 of a trial — so it never becomes background noise
+ * the way an always-on plan banner would. A dismissal is remembered per end
+ * date, so renewing (or an admin moving the date) surfaces it again next term.
  */
 export function PlanExpiryBanner() {
 	const { selectedOrganization } = useDashboardState();
 	const [dismissed, setDismissed] = useState(true);
 
-	const term =
+	const resolved =
 		selectedOrganization?.plan === "enterprise"
-			? getPlanTerm({
-					expiresAt: selectedOrganization.planExpiresAt,
-					startedAt: selectedOrganization.planStartedAt,
+			? getOrganizationTerm({
+					isTrialActive: selectedOrganization.isTrialActive,
+					trialStartDate: selectedOrganization.trialStartDate,
+					trialEndDate: selectedOrganization.trialEndDate,
+					planStartedAt: selectedOrganization.planStartedAt,
+					planExpiresAt: selectedOrganization.planExpiresAt,
 				})
 			: null;
+	const term = resolved?.term ?? null;
+	const trial = resolved?.kind === "trial";
 
 	const storageKey =
 		selectedOrganization && term
@@ -53,7 +59,8 @@ export function PlanExpiryBanner() {
 
 	const expired = term.status === "expired";
 
-	// An expired agreement is not a nag, it is a live problem — it stays put.
+	// An expired agreement or trial is not a nag, it is a live problem — it
+	// stays put.
 	if (dismissed && !expired) {
 		return null;
 	}
@@ -83,7 +90,8 @@ export function PlanExpiryBanner() {
 			/>
 			<p className="min-w-0 flex-1">
 				<span className="font-medium">
-					Your enterprise agreement {expired ? "expired" : "ends"} on{" "}
+					Your enterprise {trial ? "trial" : "agreement"}{" "}
+					{expired ? "ended" : "ends"} on{" "}
 					<span className="tabular-nums">{formatTermDate(term.expiresAt)}</span>
 				</span>
 				<span className="opacity-80"> — {formatPlanTermLabel(term)}.</span>
@@ -92,7 +100,7 @@ export function PlanExpiryBanner() {
 				href="/enterprise"
 				className="shrink-0 font-medium underline underline-offset-4"
 			>
-				Renew
+				{trial ? "Talk to sales" : "Renew"}
 			</Link>
 			{!expired && (
 				<button

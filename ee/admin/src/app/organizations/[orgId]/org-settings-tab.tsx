@@ -74,30 +74,41 @@ function formatDate(dateString: string) {
 
 /**
  * Term readout for the settings sheet: the agreed window on one line, with the
- * countdown badge carrying the urgency colour so a lapsing contract is visible
- * without reading dates.
+ * countdown badge carrying the urgency colour so a lapsing contract or trial is
+ * visible without reading dates.
  */
 function PlanTerm({
-	planExpiresAt,
-	planStartedAt,
+	startsAt,
+	endsAt,
+	emptyLabel,
+	trial = false,
 }: {
-	planExpiresAt: string | null;
-	planStartedAt: string | null;
+	startsAt: string | null;
+	endsAt: string | null;
+	emptyLabel: string;
+	trial?: boolean;
 }) {
-	if (!planExpiresAt) {
-		return <span className="text-muted-foreground">Open-ended</span>;
+	if (!endsAt) {
+		return <span className="text-muted-foreground">{emptyLabel}</span>;
 	}
 
 	return (
 		<span className="flex flex-wrap items-center justify-end gap-2">
 			<span className="tabular-nums">
-				{planStartedAt ? `${formatDate(planStartedAt)} → ` : ""}
-				{formatDate(planExpiresAt)}
+				{startsAt ? `${formatDate(startsAt)} → ` : ""}
+				{formatDate(endsAt)}
 			</span>
-			<PlanTermBadge
-				planExpiresAt={planExpiresAt}
-				planStartedAt={planStartedAt}
-			/>
+			{trial ? (
+				<PlanTermBadge
+					planExpiresAt={null}
+					isTrialActive
+					trialStartDate={startsAt}
+					trialEndDate={endsAt}
+					showKind={false}
+				/>
+			) : (
+				<PlanTermBadge planExpiresAt={endsAt} planStartedAt={startsAt} />
+			)}
 		</span>
 	);
 }
@@ -267,8 +278,9 @@ export function OrgSettingsTab({ settings }: { settings: SettingsResponse }) {
 						</SettingRow>
 						<SettingRow label="Plan term">
 							<PlanTerm
-								planExpiresAt={org.planExpiresAt}
-								planStartedAt={org.planStartedAt}
+								startsAt={org.planStartedAt}
+								endsAt={org.planExpiresAt}
+								emptyLabel="Open-ended"
 							/>
 						</SettingRow>
 						<SettingRow label="Kind">{org.kind}</SettingRow>
@@ -293,9 +305,20 @@ export function OrgSettingsTab({ settings }: { settings: SettingsResponse }) {
 							{org.subscriptionCancelled ? "Yes" : "No"}
 						</SettingRow>
 						<SettingRow label="Trial">
-							{org.isTrialActive
-								? `Active${org.trialEndDate ? ` until ${formatDate(org.trialEndDate)}` : ""}`
-								: "No"}
+							{org.isTrialActive ? (
+								<PlanTerm
+									startsAt={org.trialStartDate}
+									endsAt={org.trialEndDate}
+									emptyLabel="Active, no end date"
+									trial
+								/>
+							) : org.trialEndDate ? (
+								<span className="text-muted-foreground">
+									Ended {formatDate(org.trialEndDate)}
+								</span>
+							) : (
+								<span className="text-muted-foreground">No</span>
+							)}
 						</SettingRow>
 						<SettingRow label="Auto top-up">
 							{org.autoTopUpEnabled ? "Enabled" : "Disabled"}

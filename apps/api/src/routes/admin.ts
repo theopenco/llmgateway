@@ -363,6 +363,11 @@ const organizationSchema = z.object({
 	// are admin-set; null = open-ended.
 	planExpiresAt: z.string().nullable().optional(),
 	planStartedAt: z.string().nullable().optional(),
+	// Enterprise trial window; an active trial takes precedence over the plan
+	// term when deciding which countdown to show.
+	isTrialActive: z.boolean().optional(),
+	trialStartDate: z.string().nullable().optional(),
+	trialEndDate: z.string().nullable().optional(),
 	// Manual seat-limit override; null = use the plan default.
 	seats: z.number().int().nullable().optional(),
 	// Manual API-key-limit override; null = use the plan default.
@@ -2514,6 +2519,9 @@ admin.openapi(getOrganizations, async (c) => {
 			devPlan: tables.organization.devPlan,
 			planExpiresAt: tables.organization.planExpiresAt,
 			planStartedAt: tables.organization.planStartedAt,
+			isTrialActive: tables.organization.isTrialActive,
+			trialStartDate: tables.organization.trialStartDate,
+			trialEndDate: tables.organization.trialEndDate,
 			credits: tables.organization.credits,
 			createdAt: tables.organization.createdAt,
 			status: tables.organization.status,
@@ -2561,6 +2569,9 @@ admin.openapi(getOrganizations, async (c) => {
 			devPlan: org.devPlan,
 			planExpiresAt: org.planExpiresAt?.toISOString() ?? null,
 			planStartedAt: org.planStartedAt?.toISOString() ?? null,
+			isTrialActive: org.isTrialActive,
+			trialStartDate: org.trialStartDate?.toISOString() ?? null,
+			trialEndDate: org.trialEndDate?.toISOString() ?? null,
 			credits: String(org.credits),
 			totalCreditsAllTime: String(org.totalCreditsAllTime ?? "0"),
 			totalSpent: String(org.totalSpent ?? "0"),
@@ -2764,6 +2775,9 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 			devPlan: org.devPlan,
 			planExpiresAt: org.planExpiresAt?.toISOString() ?? null,
 			planStartedAt: org.planStartedAt?.toISOString() ?? null,
+			isTrialActive: org.isTrialActive,
+			trialStartDate: org.trialStartDate?.toISOString() ?? null,
+			trialEndDate: org.trialEndDate?.toISOString() ?? null,
 			seats: org.seats,
 			apiKeyLimit: org.apiKeyLimit,
 			credits: String(org.credits),
@@ -2852,6 +2866,9 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			devPlan: org.devPlan,
 			planExpiresAt: org.planExpiresAt?.toISOString() ?? null,
 			planStartedAt: org.planStartedAt?.toISOString() ?? null,
+			isTrialActive: org.isTrialActive,
+			trialStartDate: org.trialStartDate?.toISOString() ?? null,
+			trialEndDate: org.trialEndDate?.toISOString() ?? null,
 			seats: org.seats,
 			apiKeyLimit: org.apiKeyLimit,
 			credits: String(org.credits),
@@ -6271,6 +6288,11 @@ const manageOrganizationRoute = createRoute({
 						// Null clears the plan term (open-ended plan).
 						planExpiresAt: planTermDateSchema,
 						planStartedAt: planTermDateSchema,
+						// Enterprise trial window. `isTrialActive` false leaves the dates
+						// on the record as history but stops the trial counting down.
+						isTrialActive: z.boolean(),
+						trialStartDate: planTermDateSchema,
+						trialEndDate: planTermDateSchema,
 					}),
 				},
 			},
@@ -6288,6 +6310,9 @@ const manageOrganizationRoute = createRoute({
 						apiKeyLimit: z.number().int().nullable(),
 						planExpiresAt: z.string().nullable(),
 						planStartedAt: z.string().nullable(),
+						isTrialActive: z.boolean(),
+						trialStartDate: z.string().nullable(),
+						trialEndDate: z.string().nullable(),
 					}),
 				},
 			},
@@ -6309,8 +6334,17 @@ const manageOrganizationRoute = createRoute({
 admin.openapi(manageOrganizationRoute, async (c) => {
 	const user = c.get("user");
 	const { orgId } = c.req.valid("param");
-	const { name, plan, seats, apiKeyLimit, planExpiresAt, planStartedAt } =
-		c.req.valid("json");
+	const {
+		name,
+		plan,
+		seats,
+		apiKeyLimit,
+		planExpiresAt,
+		planStartedAt,
+		isTrialActive,
+		trialStartDate,
+		trialEndDate,
+	} = c.req.valid("json");
 
 	const org = await db.query.organization.findFirst({
 		where: {
@@ -6326,10 +6360,29 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 
 	const expiresAt = planExpiresAt ? new Date(planExpiresAt) : null;
 	const startedAt = planStartedAt ? new Date(planStartedAt) : null;
+	const trialStartsAt = trialStartDate ? new Date(trialStartDate) : null;
+	const trialEndsAt = trialEndDate ? new Date(trialEndDate) : null;
 
 	if (expiresAt && startedAt && startedAt.getTime() >= expiresAt.getTime()) {
 		throw new HTTPException(400, {
 			message: "Plan start date must be before the plan expiry date",
+		});
+	}
+
+	if (
+		trialStartsAt &&
+		trialEndsAt &&
+		trialStartsAt.getTime() >= trialEndsAt.getTime()
+	) {
+		throw new HTTPException(400, {
+			message: "Trial start date must be before the trial end date",
+		});
+	}
+
+	// A trial that is "active" with no end date would count down forever.
+	if (isTrialActive && !trialEndsAt) {
+		throw new HTTPException(400, {
+			message: "An active trial needs a trial end date",
 		});
 	}
 
@@ -6342,6 +6395,9 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 			apiKeyLimit,
 			planExpiresAt: expiresAt,
 			planStartedAt: startedAt,
+			isTrialActive,
+			trialStartDate: trialStartsAt,
+			trialEndDate: trialEndsAt,
 		})
 		.where(eq(tables.organization.id, orgId));
 
@@ -6364,6 +6420,10 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 			newPlanExpiresAt: expiresAt?.toISOString() ?? null,
 			previousPlanStartedAt: org.planStartedAt?.toISOString() ?? null,
 			newPlanStartedAt: startedAt?.toISOString() ?? null,
+			previousIsTrialActive: org.isTrialActive,
+			newIsTrialActive: isTrialActive,
+			previousTrialEndDate: org.trialEndDate?.toISOString() ?? null,
+			newTrialEndDate: trialEndsAt?.toISOString() ?? null,
 		},
 	});
 
@@ -6375,6 +6435,9 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 		apiKeyLimit,
 		planExpiresAt: expiresAt?.toISOString() ?? null,
 		planStartedAt: startedAt?.toISOString() ?? null,
+		isTrialActive,
+		trialStartDate: trialStartsAt?.toISOString() ?? null,
+		trialEndDate: trialEndsAt?.toISOString() ?? null,
 	});
 });
 

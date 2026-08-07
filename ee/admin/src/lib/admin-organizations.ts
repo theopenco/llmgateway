@@ -104,6 +104,9 @@ export async function manageOrganization(
 		apiKeyLimit: number | null;
 		planExpiresAt: string | null;
 		planStartedAt: string | null;
+		isTrialActive: boolean;
+		trialStartDate: string | null;
+		trialEndDate: string | null;
 	},
 ): Promise<{ success: boolean; error?: string }> {
 	const $api = await createServerApiClient();

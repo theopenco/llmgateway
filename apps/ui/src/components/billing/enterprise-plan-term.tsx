@@ -46,7 +46,7 @@ const TONE = {
 	},
 } as const;
 
-function TermTrack({ term }: { term: PlanTerm }) {
+function TermTrack({ term, trial }: { term: PlanTerm; trial: boolean }) {
 	const target = Math.round((term.elapsedFraction ?? 0) * 100);
 	// Start at zero and fill on mount so the track draws itself in, which reads
 	// as time elapsing rather than as a static bar that happens to be partial.
@@ -88,14 +88,22 @@ function TermTrack({ term }: { term: PlanTerm }) {
 					</span>
 				</span>
 				<span>
-					{term.totalDays !== null ? `${term.totalDays}-day term` : null}
+					{term.totalDays !== null
+						? `${term.totalDays}-day ${trial ? "trial" : "term"}`
+						: null}
 				</span>
 			</div>
 		</div>
 	);
 }
 
-export function EnterprisePlanTerm({ term }: { term: PlanTerm | null }) {
+export function EnterprisePlanTerm({
+	term,
+	kind = "contract",
+}: {
+	term: PlanTerm | null;
+	kind?: "trial" | "contract";
+}) {
 	if (!term) {
 		return (
 			<div className="text-muted-foreground flex items-center gap-2 text-sm">
@@ -111,13 +119,20 @@ export function EnterprisePlanTerm({ term }: { term: PlanTerm | null }) {
 	const tone = TONE[term.status];
 	const expired = term.status === "expired";
 	const needsAttention = term.status !== "active";
+	const trial = kind === "trial";
 
 	return (
 		<div className="space-y-5">
 			<div className="flex flex-wrap items-end gap-x-8 gap-y-4">
 				<div>
 					<p className="text-muted-foreground text-[11px] font-medium tracking-[0.18em] uppercase">
-						{expired ? "Term ended" : "Remaining"}
+						{expired
+							? trial
+								? "Trial ended"
+								: "Term ended"
+							: trial
+								? "Trial remaining"
+								: "Remaining"}
 					</p>
 					<div className="mt-1 flex items-baseline gap-2">
 						<span
@@ -140,7 +155,7 @@ export function EnterprisePlanTerm({ term }: { term: PlanTerm | null }) {
 
 				<div className="border-border/60 sm:border-l sm:pl-8">
 					<p className="text-muted-foreground text-[11px] font-medium tracking-[0.18em] uppercase">
-						{expired ? "Expired on" : "Renews on"}
+						{expired ? "Ended on" : trial ? "Trial ends on" : "Renews on"}
 					</p>
 					<p className="mt-1 text-lg font-medium tabular-nums">
 						{formatTermDate(term.expiresAt)}
@@ -148,7 +163,7 @@ export function EnterprisePlanTerm({ term }: { term: PlanTerm | null }) {
 				</div>
 			</div>
 
-			{term.elapsedFraction !== null && <TermTrack term={term} />}
+			{term.elapsedFraction !== null && <TermTrack term={term} trial={trial} />}
 
 			{needsAttention && (
 				<div
@@ -162,13 +177,19 @@ export function EnterprisePlanTerm({ term }: { term: PlanTerm | null }) {
 					<p className="text-sm">
 						<span className="font-medium">{formatPlanTermLabel(term)}.</span>{" "}
 						<span className="text-muted-foreground">
-							{expired
-								? "Reach out to renew and keep your enterprise features."
-								: "Reach out to renew your agreement before it lapses."}
+							{trial
+								? expired
+									? "Talk to sales to keep your enterprise features."
+									: "Talk to sales to continue on Enterprise when your trial ends."
+								: expired
+									? "Reach out to renew and keep your enterprise features."
+									: "Reach out to renew your agreement before it lapses."}
 						</span>
 					</p>
 					<Button asChild size="sm" variant="outline" className="shrink-0">
-						<Link href="/enterprise">Contact your account team</Link>
+						<Link href="/enterprise">
+							{trial ? "Talk to sales" : "Contact your account team"}
+						</Link>
 					</Button>
 				</div>
 			)}

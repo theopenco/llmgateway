@@ -263,6 +263,8 @@ const EXTRA_ORGS: Array<{
 	// Enterprise contract window, so the dashboard countdown and the admin
 	// panel have terms in every urgency band to render.
 	planTermDays?: { started: number; endsIn: number };
+	// Active enterprise trial, so the trial countdown has data to render.
+	trialDays?: { started: number; endsIn: number };
 }> = [
 	{
 		id: "org-techcorp",
@@ -409,6 +411,7 @@ const EXTRA_ORGS: Array<{
 		status: "active",
 		kind: "default",
 		createdAt: daysAgo(450),
+		trialDays: { started: 18, endsIn: 12 },
 	},
 	{
 		id: "org-analytics",
@@ -2318,6 +2321,9 @@ async function seed() {
 			planExpiresAt: org.planTermDays
 				? daysFromNow(org.planTermDays.endsIn)
 				: null,
+			isTrialActive: Boolean(org.trialDays),
+			trialStartDate: org.trialDays ? daysAgo(org.trialDays.started) : null,
+			trialEndDate: org.trialDays ? daysFromNow(org.trialDays.endsIn) : null,
 			devPlan: org.devPlan,
 			devPlanCreditsUsed:
 				org.devPlan !== "none" ? String(randomFloat(0, 20)) : "0",

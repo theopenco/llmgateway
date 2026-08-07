@@ -23,8 +23,14 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 
-import { formatPlanTermLabel, getPlanTerm } from "@llmgateway/shared";
+import {
+	ENTERPRISE_TRIAL_DAYS,
+	formatPlanTermLabel,
+	getOrganizationTerm,
+	getPlanTerm,
+} from "@llmgateway/shared";
 
 type Plan = "free" | "pro" | "enterprise";
 
@@ -35,6 +41,9 @@ interface ManageOrgDialogProps {
 	apiKeyLimit: number | null;
 	planExpiresAt: string | null;
 	planStartedAt: string | null;
+	isTrialActive: boolean;
+	trialStartDate: string | null;
+	trialEndDate: string | null;
 	onSave: (data: {
 		name: string;
 		plan: Plan;
@@ -42,6 +51,9 @@ interface ManageOrgDialogProps {
 		apiKeyLimit: number | null;
 		planExpiresAt: string | null;
 		planStartedAt: string | null;
+		isTrialActive: boolean;
+		trialStartDate: string | null;
+		trialEndDate: string | null;
 	}) => Promise<{ success: boolean; error?: string }>;
 }
 
@@ -75,6 +87,13 @@ function todayInputValue(): string {
 	return new Date().toISOString().slice(0, 10);
 }
 
+/** Adds whole days in UTC to a YYYY-MM-DD input value. */
+function addDays(dateInput: string, days: number): string {
+	const [year, month, day] = dateInput.split("-").map(Number);
+	const target = new Date(Date.UTC(year, month - 1, day + days));
+	return target.toISOString().slice(0, 10);
+}
+
 /** Adds whole months in UTC, clamping to the last day of a shorter month. */
 function addMonths(dateInput: string, months: number): string {
 	const [year, month, day] = dateInput.split("-").map(Number);
@@ -93,6 +112,9 @@ export function ManageOrgDialog({
 	apiKeyLimit,
 	planExpiresAt,
 	planStartedAt,
+	isTrialActive,
+	trialStartDate,
+	trialEndDate,
 	onSave,
 }: ManageOrgDialogProps) {
 	const router = useRouter();
@@ -116,10 +138,34 @@ export function ManageOrgDialog({
 		toDateInputValue(planExpiresAt),
 	);
 
+	const [trialActiveValue, setTrialActiveValue] = useState(isTrialActive);
+	const [trialStartValue, setTrialStartValue] = useState(
+		toDateInputValue(trialStartDate),
+	);
+	const [trialEndValue, setTrialEndValue] = useState(
+		toDateInputValue(trialEndDate),
+	);
+
 	const previewTerm = getPlanTerm({
 		expiresAt: expiresAtValue || null,
 		startedAt: startedAtValue || null,
 	});
+
+	// Mirrors what the customer will see: an active trial wins over the contract.
+	const previewLive = getOrganizationTerm({
+		isTrialActive: trialActiveValue,
+		trialStartDate: trialStartValue || null,
+		trialEndDate: trialEndValue || null,
+		planStartedAt: startedAtValue || null,
+		planExpiresAt: expiresAtValue || null,
+	});
+
+	const startTrial = () => {
+		const start = todayInputValue();
+		setTrialActiveValue(true);
+		setTrialStartValue(start);
+		setTrialEndValue(addDays(start, ENTERPRISE_TRIAL_DAYS));
+	};
 
 	// A preset books a fresh term starting today rather than extending from the
 	// existing start date — otherwise clicking "1 year" on a contract that began
@@ -173,6 +219,20 @@ export function ManageOrgDialog({
 			return;
 		}
 
+		if (trialActiveValue && trialEndValue === "") {
+			setError("An active trial needs an end date");
+			return;
+		}
+
+		if (
+			trialStartValue !== "" &&
+			trialEndValue !== "" &&
+			trialStartValue >= trialEndValue
+		) {
+			setError("Trial start date must be before the trial end date");
+			return;
+		}
+
 		setLoading(true);
 		setError(null);
 
@@ -183,6 +243,9 @@ export function ManageOrgDialog({
 			apiKeyLimit: apiKeyLimitToSave,
 			planStartedAt: startedAtValue === "" ? null : startedAtValue,
 			planExpiresAt: expiresAtValue === "" ? null : expiresAtValue,
+			isTrialActive: trialActiveValue,
+			trialStartDate: trialStartValue === "" ? null : trialStartValue,
+			trialEndDate: trialEndValue === "" ? null : trialEndValue,
 		});
 
 		setLoading(false);
@@ -319,9 +382,87 @@ export function ManageOrgDialog({
 						</div>
 
 						<p className="text-muted-foreground text-xs">
-							The countdown the customer sees on their billing page. Presets
-							start a new term today; edit the dates directly to backdate one.
-							Leave both empty for an open-ended plan.
+							Presets start a new term today; edit the dates directly to
+							backdate one. Leave both empty for an open-ended plan.
+						</p>
+					</div>
+
+					<div className="space-y-3 rounded-lg border p-3">
+						<div className="flex items-center justify-between gap-2">
+							<Label htmlFor="manageTrialActive">Enterprise trial</Label>
+							<div className="flex items-center gap-2">
+								{trialActiveValue && previewLive?.kind === "trial" ? (
+									<span className="text-muted-foreground text-xs tabular-nums">
+										{formatPlanTermLabel(previewLive.term)}
+									</span>
+								) : null}
+								<Switch
+									id="manageTrialActive"
+									checked={trialActiveValue}
+									onCheckedChange={setTrialActiveValue}
+								/>
+							</div>
+						</div>
+
+						{trialActiveValue && (
+							<div className="grid grid-cols-2 gap-3">
+								<div className="space-y-1.5">
+									<Label
+										htmlFor="manageTrialStart"
+										className="text-muted-foreground text-xs font-normal"
+									>
+										Starts
+									</Label>
+									<Input
+										id="manageTrialStart"
+										type="date"
+										value={trialStartValue}
+										onChange={(e) => setTrialStartValue(e.target.value)}
+									/>
+								</div>
+								<div className="space-y-1.5">
+									<Label
+										htmlFor="manageTrialEnd"
+										className="text-muted-foreground text-xs font-normal"
+									>
+										Ends
+									</Label>
+									<Input
+										id="manageTrialEnd"
+										type="date"
+										value={trialEndValue}
+										onChange={(e) => setTrialEndValue(e.target.value)}
+									/>
+								</div>
+							</div>
+						)}
+
+						<div className="flex flex-wrap items-center gap-1.5">
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								className="h-7 px-2 text-xs"
+								onClick={startTrial}
+							>
+								Start {ENTERPRISE_TRIAL_DAYS}-day trial
+							</Button>
+							{trialActiveValue && (
+								<Button
+									type="button"
+									variant="ghost"
+									size="sm"
+									className="text-muted-foreground h-7 px-2 text-xs"
+									onClick={() => setTrialActiveValue(false)}
+								>
+									End trial
+								</Button>
+							)}
+						</div>
+
+						<p className="text-muted-foreground text-xs">
+							While a trial runs it is the countdown the customer sees, ahead of
+							the plan term. Ending one keeps the dates on record as history.
 						</p>
 					</div>
 

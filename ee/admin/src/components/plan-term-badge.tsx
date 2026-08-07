@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils";
 
 import {
 	formatPlanTermBadge,
-	getPlanTerm,
+	getOrganizationTerm,
 	type PlanTermStatus,
 } from "@llmgateway/shared";
 
@@ -37,30 +37,48 @@ const DOT: Record<PlanTermStatus, string> = {
 };
 
 /**
- * Compact countdown for dense admin surfaces. Renders nothing when the plan has
- * no end date, so free/PAYG rows stay visually quiet.
+ * Compact countdown for dense admin surfaces. Renders nothing when the org has
+ * neither a trial nor a plan end date, so free/PAYG rows stay visually quiet.
+ * An active trial takes precedence over the contract dates and says so, since
+ * that is the date deciding whether the org keeps its enterprise features.
  */
 export function PlanTermBadge({
 	planExpiresAt,
 	planStartedAt,
+	isTrialActive,
+	trialStartDate,
+	trialEndDate,
+	showKind = true,
 	className,
 }: {
 	planExpiresAt: string | null | undefined;
 	planStartedAt?: string | null;
+	isTrialActive?: boolean;
+	trialStartDate?: string | null;
+	trialEndDate?: string | null;
+	/** Drop the "Trial ·" prefix where the surrounding label already says it. */
+	showKind?: boolean;
 	className?: string;
 }) {
-	const term = getPlanTerm({
-		expiresAt: planExpiresAt,
-		startedAt: planStartedAt,
+	const resolved = getOrganizationTerm({
+		isTrialActive,
+		trialStartDate,
+		trialEndDate,
+		planStartedAt,
+		planExpiresAt,
 	});
 
-	if (!term) {
+	if (!resolved) {
 		return null;
 	}
 
+	const { term, kind } = resolved;
+	const trial = kind === "trial";
+	const verb = term.status === "expired" ? "Ended" : trial ? "Ends" : "Renews";
+
 	return (
 		<span
-			title={`${term.status === "expired" ? "Expired" : "Renews"} ${formatTermDate(term.expiresAt)}`}
+			title={`${trial ? "Trial" : "Plan term"} — ${verb} ${formatTermDate(term.expiresAt)}`}
 			className={cn(
 				"inline-flex w-fit shrink-0 items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium whitespace-nowrap tabular-nums",
 				TONE[term.status],
@@ -71,7 +89,9 @@ export function PlanTermBadge({
 				aria-hidden
 				className={cn("h-1.5 w-1.5 rounded-full", DOT[term.status])}
 			/>
-			{formatPlanTermBadge(term)}
+			{trial && showKind
+				? `Trial · ${formatPlanTermBadge(term)}`
+				: formatPlanTermBadge(term)}
 		</span>
 	);
 }

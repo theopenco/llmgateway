@@ -23,6 +23,9 @@ async function manage(
 			apiKeyLimit: null,
 			planStartedAt: null,
 			planExpiresAt: null,
+			isTrialActive: false,
+			trialStartDate: null,
+			trialEndDate: null,
 			...body,
 		}),
 	});
@@ -128,5 +131,58 @@ describe("admin organization plan term", () => {
 			newPlanExpiresAt: "2027-01-15T00:00:00.000Z",
 			newPlanStartedAt: "2026-01-15T00:00:00.000Z",
 		});
+	});
+
+	it("stores a trial window and marks the trial active", async () => {
+		const res = await manage(cookie, {
+			isTrialActive: true,
+			trialStartDate: "2026-08-01",
+			trialEndDate: "2026-08-31",
+		});
+
+		expect(res.status).toBe(200);
+
+		const org = await readOrg();
+		expect(org?.isTrialActive).toBe(true);
+		expect(org?.trialStartDate?.toISOString()).toBe("2026-08-01T00:00:00.000Z");
+		expect(org?.trialEndDate?.toISOString()).toBe("2026-08-31T00:00:00.000Z");
+	});
+
+	it("rejects an active trial with no end date", async () => {
+		const res = await manage(cookie, {
+			isTrialActive: true,
+			trialStartDate: "2026-08-01",
+			trialEndDate: null,
+		});
+
+		expect(res.status).toBe(400);
+	});
+
+	it("rejects a trial start that is not before the trial end", async () => {
+		const res = await manage(cookie, {
+			isTrialActive: true,
+			trialStartDate: "2026-08-31",
+			trialEndDate: "2026-08-01",
+		});
+
+		expect(res.status).toBe(400);
+	});
+
+	it("keeps the trial dates on record when the trial is ended", async () => {
+		await manage(cookie, {
+			isTrialActive: true,
+			trialStartDate: "2026-08-01",
+			trialEndDate: "2026-08-31",
+		});
+
+		await manage(cookie, {
+			isTrialActive: false,
+			trialStartDate: "2026-08-01",
+			trialEndDate: "2026-08-31",
+		});
+
+		const org = await readOrg();
+		expect(org?.isTrialActive).toBe(false);
+		expect(org?.trialEndDate?.toISOString()).toBe("2026-08-31T00:00:00.000Z");
 	});
 });

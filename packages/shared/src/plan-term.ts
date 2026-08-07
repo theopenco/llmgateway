@@ -7,13 +7,28 @@
  * internal one can never drift apart by a day.
  */
 
-/** A term with this many days left or fewer is close enough to flag. */
+/** A contract term with this many days left or fewer is close enough to flag. */
 export const PLAN_TERM_EXPIRING_DAYS = 30;
 
-/** A term with this many days left or fewer needs immediate attention. */
+/** A contract term with this many days left or fewer needs attention now. */
 export const PLAN_TERM_CRITICAL_DAYS = 7;
 
+/**
+ * Trials run 30 days, so the contract thresholds would paint one amber from
+ * the very first day. These are scaled to the shorter window instead.
+ */
+export const TRIAL_TERM_EXPIRING_DAYS = 7;
+export const TRIAL_TERM_CRITICAL_DAYS = 3;
+
+/** Length of an enterprise trial, in days. */
+export const ENTERPRISE_TRIAL_DAYS = 30;
+
 export type PlanTermStatus = "active" | "expiring" | "critical" | "expired";
+
+export interface PlanTermThresholds {
+	expiring: number;
+	critical: number;
+}
 
 export interface PlanTerm {
 	expiresAt: Date;
@@ -51,6 +66,7 @@ export function getPlanTerm(input: {
 	expiresAt: Date | string | null | undefined;
 	startedAt?: Date | string | null | undefined;
 	now?: Date;
+	thresholds?: PlanTermThresholds;
 }): PlanTerm | null {
 	const expiresAt = toDate(input.expiresAt);
 	if (!expiresAt) {
@@ -64,12 +80,17 @@ export function getPlanTerm(input: {
 		(utcMidnight(expiresAt) - utcMidnight(now)) / MS_PER_DAY,
 	);
 
+	const thresholds = input.thresholds ?? {
+		expiring: PLAN_TERM_EXPIRING_DAYS,
+		critical: PLAN_TERM_CRITICAL_DAYS,
+	};
+
 	let status: PlanTermStatus;
 	if (daysLeft < 0) {
 		status = "expired";
-	} else if (daysLeft <= PLAN_TERM_CRITICAL_DAYS) {
+	} else if (daysLeft <= thresholds.critical) {
 		status = "critical";
-	} else if (daysLeft <= PLAN_TERM_EXPIRING_DAYS) {
+	} else if (daysLeft <= thresholds.expiring) {
 		status = "expiring";
 	} else {
 		status = "active";
@@ -117,4 +138,44 @@ export function formatPlanTermBadge(term: PlanTerm): string {
 		return "Last day";
 	}
 	return `${daysLeft}d left`;
+}
+
+/**
+ * The term an organization is actually living in right now.
+ *
+ * An active trial always wins over the contract dates: while a trial runs, the
+ * trial end is the date that decides whether the customer keeps their
+ * enterprise features, so that is the countdown both surfaces must show.
+ * Returns null for organizations with neither a trial nor a plan term.
+ */
+export function getOrganizationTerm(input: {
+	isTrialActive?: boolean | null;
+	trialStartDate?: Date | string | null;
+	trialEndDate?: Date | string | null;
+	planStartedAt?: Date | string | null;
+	planExpiresAt?: Date | string | null;
+	now?: Date;
+}): { kind: "trial" | "contract"; term: PlanTerm } | null {
+	if (input.isTrialActive && input.trialEndDate) {
+		const term = getPlanTerm({
+			expiresAt: input.trialEndDate,
+			startedAt: input.trialStartDate,
+			now: input.now,
+			thresholds: {
+				expiring: TRIAL_TERM_EXPIRING_DAYS,
+				critical: TRIAL_TERM_CRITICAL_DAYS,
+			},
+		});
+		if (term) {
+			return { kind: "trial", term };
+		}
+	}
+
+	const term = getPlanTerm({
+		expiresAt: input.planExpiresAt,
+		startedAt: input.planStartedAt,
+		now: input.now,
+	});
+
+	return term ? { kind: "contract", term } : null;
 }

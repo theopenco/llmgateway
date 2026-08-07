@@ -18,7 +18,7 @@ import { useToast } from "@/lib/components/use-toast";
 import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
 
-import { getPlanTerm } from "@llmgateway/shared";
+import { getOrganizationTerm } from "@llmgateway/shared";
 
 const ENTERPRISE_FEATURES = [
 	"Dedicated support & SLA",
@@ -113,24 +113,37 @@ export function PlanManagement() {
 		: null;
 
 	if (selectedOrganization.plan === "enterprise") {
-		const term = getPlanTerm({
-			expiresAt: selectedOrganization.planExpiresAt,
-			startedAt: selectedOrganization.planStartedAt,
+		const resolved = getOrganizationTerm({
+			isTrialActive: selectedOrganization.isTrialActive,
+			trialStartDate: selectedOrganization.trialStartDate,
+			trialEndDate: selectedOrganization.trialEndDate,
+			planStartedAt: selectedOrganization.planStartedAt,
+			planExpiresAt: selectedOrganization.planExpiresAt,
 		});
+		const trial = resolved?.kind === "trial";
 
 		// Rendered without its own Card: the billing page already wraps this in
 		// one, and a second border around the term meter buries the countdown.
 		return (
 			<div className="space-y-6">
 				<div className="flex items-center gap-2">
-					<h3 className="text-lg font-medium">Enterprise agreement</h3>
-					<Badge variant="default">Enterprise</Badge>
+					<h3 className="text-lg font-medium">
+						{trial ? "Enterprise trial" : "Enterprise agreement"}
+					</h3>
+					<Badge variant={trial ? "secondary" : "default"}>
+						{trial ? "Trial" : "Enterprise"}
+					</Badge>
 				</div>
 
-				<EnterprisePlanTerm term={term} />
+				<EnterprisePlanTerm
+					term={resolved?.term ?? null}
+					kind={resolved?.kind ?? "contract"}
+				/>
 
 				<div className="space-y-3 rounded-lg border p-4">
-					<h4 className="font-medium">Included with Enterprise</h4>
+					<h4 className="font-medium">
+						{trial ? "Included during your trial" : "Included with Enterprise"}
+					</h4>
 					<div className="grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
 						<div className="space-y-2">
 							{ENTERPRISE_FEATURES.slice(0, 3).map((feature) => (
