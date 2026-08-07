@@ -18,6 +18,7 @@ import {
 	type PromptCacheRetention,
 	type ProviderRequestBody,
 	type ReasoningDetail,
+	type ResponsesToolChoice,
 	supportsOpenAIExplicitPromptCache,
 	supportsOpenAIExtendedPromptCache,
 	supportsServiceTier,
@@ -112,6 +113,23 @@ function toolChoiceModeOf(
 		return "function";
 	}
 	return undefined;
+}
+
+/**
+ * Translate a Chat Completions `tool_choice` into the Responses API shape. A
+ * named function choice nests the name under `function` in Chat Completions
+ * but is flat (`{type:"function",name}`) in the Responses API, and upstreams
+ * reject the nested form outright (Bedrock Mantle answers with
+ * `Invalid 'tool_choice': value did not match any expected variant`). The
+ * string modes are identical in both APIs.
+ */
+function toResponsesToolChoice(
+	toolChoice: ToolChoiceType,
+): ResponsesToolChoice {
+	if (typeof toolChoice === "object") {
+		return { type: "function", name: toolChoice.function.name };
+	}
+	return toolChoice;
 }
 
 /**
@@ -270,6 +288,26 @@ function isFunctionTool(
 	tool: OpenAIToolInput,
 ): tool is OpenAIFunctionToolInput {
 	return tool.type === "function";
+}
+
+/**
+ * Enables DashScope web search on an OpenAI-compatible request body.
+ *
+ * `enable_search` on its own is only a hint that the model is free to ignore,
+ * and in practice it always does: the prompt comes back the same size and the
+ * model answers that it has no live access. Pairing it with
+ * `search_options.forced_search` is what actually retrieves, so the two are
+ * always sent together and a search is guaranteed to have run.
+ *
+ * `search_strategy` is deliberately omitted. The documented "agent" and
+ * "agent_max" policies are rejected with a 400 ("The current model does not
+ * support the \"agent\" search strategy") by the Qwen max models mapped here,
+ * and the legacy turbo/standard/pro/max tiers only vary how many snippets get
+ * injected into the prompt.
+ */
+function applyDashScopeWebSearch(requestBody: Record<string, any>): void {
+	requestBody.enable_search = true;
+	requestBody.search_options = { forced_search: true };
 }
 
 /**
@@ -2057,7 +2095,7 @@ export async function prepareRequestBody(
 					responsesBody.tools.push(webSearch);
 				}
 				if (resolvedToolChoice) {
-					responsesBody.tool_choice = resolvedToolChoice;
+					responsesBody.tool_choice = toResponsesToolChoice(resolvedToolChoice);
 				}
 
 				// Add optional parameters if they are provided
@@ -2389,6 +2427,10 @@ export async function prepareRequestBody(
 			}
 			if (response_format) {
 				requestBody.response_format = response_format;
+			}
+
+			if (webSearchTool) {
+				applyDashScopeWebSearch(requestBody);
 			}
 
 			// Add optional parameters if they are provided
@@ -3977,6 +4019,13 @@ export async function prepareRequestBody(
 			// already narrows to the tiers the catalog declares for this mapping.
 			if (usedProvider === "fireworks" && supportedServiceTier) {
 				requestBody.service_tier = supportedServiceTier;
+			}
+
+			// SCX resells Alibaba's Qwen models and passes DashScope's search
+			// parameters straight through, so its Qwen mappings take the same shape
+			// as the `alibaba` case above.
+			if (usedProvider === "scx-ai-gp" && webSearchTool) {
+				applyDashScopeWebSearch(requestBody);
 			}
 
 			// Vertex's OpenAI-compatible chat completions endpoint requires the

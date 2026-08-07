@@ -135,6 +135,10 @@ export interface RoutingMetadata {
 		providerId: string;
 		reasons: string[];
 	}>;
+	// Where the requested service tier came from: the request body, or a dev-plan
+	// (DevPass) org's configured default tier. Only set when a premium tier was in
+	// play — a defaulted tier narrows routing without appearing in the request.
+	serviceTierSource?: "request" | "coding-plan-default";
 	// Parameters that were stripped from the request because the selected provider doesn't support them
 	strippedParameters?: string[];
 	// Set when the request was resolved through a named dynamic route

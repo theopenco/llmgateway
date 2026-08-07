@@ -90,6 +90,11 @@ interface RoutingMetadata {
 		apiKeyHash?: string;
 		logId?: string;
 	}>;
+	filteredProviders?: Array<{
+		providerId: string;
+		reasons: string[];
+	}>;
+	serviceTierSource?: string;
 }
 
 interface ErrorDetails {
@@ -702,6 +707,31 @@ export function LogCard({
 													</span>
 												</div>
 											)}
+										{routingMetadata.filteredProviders &&
+											routingMetadata.filteredProviders.length > 0 && (
+												<div className="pt-1 border-t border-dashed">
+													<div className="text-muted-foreground mb-1">
+														Filtered Out
+													</div>
+													<div className="space-y-1">
+														{routingMetadata.filteredProviders.map(
+															(filtered) => (
+																<div
+																	key={filtered.providerId}
+																	className="flex justify-between items-start gap-2"
+																>
+																	<span className="font-mono text-amber-600">
+																		{filtered.providerId}
+																	</span>
+																	<span className="text-muted-foreground text-right">
+																		{filtered.reasons.join(", ")}
+																	</span>
+																</div>
+															),
+														)}
+													</div>
+												</div>
+											)}
 										{routingMetadata.providerScores &&
 											routingMetadata.providerScores.length > 0 && (
 												<div className="pt-1 border-t border-dashed">
@@ -1082,6 +1112,12 @@ export function LogCard({
 													<span className="capitalize">
 														{log.requestedServiceTier}
 													</span>
+													{routingMetadata?.serviceTierSource ===
+														"coding-plan-default" && (
+														<span className="ml-1 text-muted-foreground">
+															(coding plan default)
+														</span>
+													)}
 												</div>
 											</>
 										)}

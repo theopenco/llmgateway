@@ -1100,3 +1100,122 @@ describe("dev plan tier changes", () => {
 		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
 	});
 });
+
+describe("dev plan status billing history", () => {
+	let token: string;
+
+	beforeEach(async () => {
+		vi.clearAllMocks();
+		token = await createTestUser();
+
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Personal Org",
+			billingEmail: "admin@example.com",
+			kind: "devpass",
+			devPlan: "lite",
+			devPlanStripeSubscriptionId: SUBSCRIPTION_ID,
+		});
+		await db.insert(tables.userOrganization).values({
+			userId: "test-user-id",
+			organizationId: ORG_ID,
+			role: "owner",
+		});
+	});
+
+	afterEach(async () => {
+		await db.delete(tables.transaction);
+		await deleteAll();
+	});
+
+	async function getStatus() {
+		const res = await app.request("/dev-plans/status", {
+			headers: { Cookie: token },
+		});
+		expect(res.status).toBe(200);
+		return await res.json();
+	}
+
+	it("reports no billing history before the first charge", async () => {
+		expect(await getStatus()).toMatchObject({
+			hasPersonalOrg: true,
+			hasBillingHistory: false,
+		});
+	});
+
+	it("reports billing history once a plan payment exists", async () => {
+		await db.insert(tables.transaction).values({
+			organizationId: ORG_ID,
+			type: "dev_plan_start",
+			amount: "29",
+			currency: "USD",
+			status: "completed",
+		});
+
+		expect(await getStatus()).toMatchObject({ hasBillingHistory: true });
+	});
+
+	it("keeps reporting billing history after the plan ends", async () => {
+		// Ending a plan clears every devPlan* column, so the invoices are the only
+		// remaining signal that this user still needs the billing page.
+		await db.insert(tables.transaction).values({
+			organizationId: ORG_ID,
+			type: "dev_plan_start",
+			amount: "29",
+			currency: "USD",
+			status: "completed",
+		});
+		await db
+			.update(tables.organization)
+			.set({ devPlan: "none", devPlanStripeSubscriptionId: null })
+			.where(eq(tables.organization.id, ORG_ID));
+
+		expect(await getStatus()).toMatchObject({
+			devPlan: "none",
+			hasBillingHistory: true,
+		});
+	});
+
+	it("ignores non-invoice bookkeeping rows", async () => {
+		await db.insert(tables.transaction).values({
+			organizationId: ORG_ID,
+			type: "dev_plan_cancel",
+			currency: "USD",
+			status: "completed",
+		});
+
+		expect(await getStatus()).toMatchObject({ hasBillingHistory: false });
+	});
+
+	it("counts legacy pre-rename subscription rows", async () => {
+		// Dev plans were billed as `subscription_*` before the DevPass rename; on
+		// a devpass-kind org those rows are a past DevPass subscriber.
+		await db.insert(tables.transaction).values({
+			organizationId: ORG_ID,
+			type: "subscription_start",
+			amount: "50",
+			currency: "USD",
+			status: "completed",
+		});
+		await db
+			.update(tables.organization)
+			.set({ devPlan: "none", devPlanStripeSubscriptionId: null })
+			.where(eq(tables.organization.id, ORG_ID));
+
+		expect(await getStatus()).toMatchObject({ hasBillingHistory: true });
+	});
+
+	it("counts an unsettled charge, matching the invoice list", async () => {
+		// The invoices endpoint renders pending and failed charges too (with a
+		// status badge), so the page has content to show and must stay reachable.
+		await db.insert(tables.transaction).values({
+			organizationId: ORG_ID,
+			type: "dev_plan_start",
+			amount: "29",
+			currency: "USD",
+			status: "failed",
+		});
+
+		expect(await getStatus()).toMatchObject({ hasBillingHistory: true });
+	});
+});

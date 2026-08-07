@@ -4,6 +4,12 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import {
+	allowedModelsSchema,
+	normalizeAllowedModels,
+	pickAllowedValidationModel,
+	validateAllowedModels,
+} from "@/lib/provider-key-allowed-models.js";
+import {
 	getBucketUnitForWindow,
 	getTokenWindowStartDate,
 	tokenWindowSchema,
@@ -17,6 +23,7 @@ import {
 	encryptProviderKey,
 	getManagedCredentialConfigKeys,
 	getMissingManagedCredentialKeys,
+	getPinnedValidationModel,
 	getUnknownManagedCredentialKeys,
 	managedCredentialValidationOptions,
 	providerKeyEncryptionScope,
@@ -40,6 +47,7 @@ import {
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { getProviderEnvKeys, providers } from "@llmgateway/models";
+import { getModelIdsByProvider } from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 import { maskToken } from "@llmgateway/shared/mask-token";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
@@ -82,6 +90,12 @@ const credentialSchema = z.object({
 	 * requests this credential served. The token itself is never returned.
 	 */
 	tokenHash: z.string().nullable(),
+	/**
+	 * Canonical model ids this credential may serve; routing skips it for any
+	 * other model. Null means the credential serves the provider's full
+	 * catalogue.
+	 */
+	allowedModels: z.array(z.string()).nullable(),
 });
 
 const configKeySchema = z.object({
@@ -143,6 +157,11 @@ const catalogEntrySchema = z.object({
 	/** Region used when a credential does not pin one. Null when not region-scoped. */
 	defaultRegion: z.string().nullable(),
 	configKeys: z.array(configKeySchema),
+	/**
+	 * Canonical model ids the catalogue currently maps to this provider
+	 * (deactivated mappings excluded), for the allowed-models picker.
+	 */
+	models: z.array(z.string()),
 });
 
 type CredentialRow = typeof tables.providerKey.$inferSelect;
@@ -170,6 +189,7 @@ function toCredential(row: CredentialRow) {
 		usage: row.usage,
 		maskedToken: row.tokenMasked ?? maskToken(row.token ?? ""),
 		tokenHash: row.tokenHash,
+		allowedModels: row.allowedModels,
 	};
 }
 
@@ -264,6 +284,14 @@ function validateRegion(provider: string, region: string | null): void {
 }
 
 /**
+ * Provider keys in unit tests are fixtures, not live credentials; e2e runs
+ * opt back in so the real upstream path stays covered.
+ */
+function isCredentialTestEnv(): boolean {
+	return process.env.NODE_ENV === "test" && process.env.E2E_TEST !== "true";
+}
+
+/**
  * Confirms the credential actually works upstream by sending one minimal
  * completion through it, using exactly the settings the gateway will send with
  * it: the row's `config` surfaced as `env_config`, plus the region the
@@ -274,18 +302,39 @@ function validateRegion(provider: string, region: string | null): void {
  * Admins can pass `skipValidation` for the cases a live check cannot cover —
  * a provider whose catalogue has no chat model to validate against, or an
  * upstream that is temporarily down.
+ *
+ * A credential restricted via `allowedModels` is probed with one of its own
+ * (chat-capable) allowed models instead of the provider's default validation
+ * model: the whole point of the restriction is that the account may not have
+ * the default model, so probing it would force skipValidation on exactly the
+ * credentials the restriction exists for. When no allowed model can answer a
+ * chat probe (image/embedding-only lists), the live check is skipped.
  */
 async function validateCredentialToken(
 	provider: string,
 	token: string,
 	config: Record<string, string>,
 	region: string | null | undefined,
+	allowedModels?: string[] | null,
 ): Promise<void> {
 	// Provider keys in unit tests are fixtures, not live credentials; e2e runs
 	// opt back in so the real upstream path stays covered.
-	const isTestEnv =
-		process.env.NODE_ENV === "test" && process.env.E2E_TEST !== "true";
-	if (isTestEnv) {
+	if (isCredentialTestEnv()) {
+		return;
+	}
+
+	const validationOptions = managedCredentialValidationOptions(
+		provider,
+		config,
+		region,
+	);
+
+	const pinnedModelId = pickAllowedValidationModel(
+		provider,
+		allowedModels ?? null,
+		validationOptions,
+	);
+	if (allowedModels?.length && !pinnedModelId) {
 		return;
 	}
 
@@ -294,7 +343,8 @@ async function validateCredentialToken(
 		token,
 		undefined, // base URL travels in config/env_config for managed credentials
 		false,
-		managedCredentialValidationOptions(provider, config, region),
+		validationOptions,
+		pinnedModelId,
 	);
 
 	if (result.valid) {
@@ -355,6 +405,9 @@ const getCatalog = createRoute({
 });
 
 adminProviderCredentials.openapi(getCatalog, async (c) => {
+	// Live catalogue models per provider, for the allowed-models picker.
+	const modelsByProvider = getModelIdsByProvider();
+
 	// Provider keys live on the gateway, which is a separate deployment: reading
 	// this process's own environment would report nothing at all in a split
 	// setup, and where both services happen to hold keys the API's copy can
@@ -385,6 +438,7 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 				apiKeyEnvCounts,
 				envCredentials,
 				configKeys: getManagedCredentialConfigKeys(provider.id),
+				models: modelsByProvider.get(provider.id) ?? [],
 			};
 		});
 
@@ -806,6 +860,7 @@ const createCredential = createRoute({
 						region: z.string().max(64).optional(),
 						config: z.record(z.string(), z.string()).optional(),
 						usageLimit: createNullableLimitSchema("Usage limit").optional(),
+						allowedModels: allowedModelsSchema,
 						skipValidation: z.boolean().optional(),
 					}),
 				},
@@ -828,9 +883,15 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 	const user = c.get("user")!;
 	const body = c.req.valid("json");
 	const config = normalizeConfig(body.config);
+	const allowedModels = normalizeAllowedModels(body.allowedModels);
 
 	await validateConfig(body.provider, config);
 	validateRegion(body.provider, body.region?.trim() || null);
+	validateAllowedModels(
+		body.provider,
+		allowedModels,
+		managedCredentialValidationOptions(body.provider, config, body.region),
+	);
 
 	if (!body.skipValidation) {
 		await validateCredentialToken(
@@ -838,6 +899,7 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 			body.token,
 			config,
 			body.region,
+			allowedModels,
 		);
 	}
 
@@ -864,6 +926,7 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 			region: body.region?.trim() || null,
 			config,
 			usageLimit: body.usageLimit ?? null,
+			allowedModels,
 		})
 		.returning();
 
@@ -894,6 +957,7 @@ const updateCredential = createRoute({
 						status: statusSchema.optional(),
 						config: z.record(z.string(), z.string()).optional(),
 						usageLimit: createNullableLimitSchema("Usage limit").optional(),
+						allowedModels: allowedModelsSchema,
 						skipValidation: z.boolean().optional(),
 					}),
 				},
@@ -941,22 +1005,44 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 		validateRegion(existing.provider, body.region?.trim() || null);
 	}
 
+	if (body.allowedModels !== undefined) {
+		const allowedModels = normalizeAllowedModels(body.allowedModels);
+		// Checked against the config/region this PATCH leaves in effect, so an
+		// edit that also moves the region validates against the right mapping.
+		validateAllowedModels(
+			existing.provider,
+			allowedModels,
+			managedCredentialValidationOptions(
+				existing.provider,
+				updates.config ?? existing.config ?? {},
+				body.region !== undefined ? body.region : existing.region,
+			),
+		);
+		updates.allowedModels = allowedModels;
+	}
+
 	// A new token, a changed config and a changed region all alter what the
 	// gateway will send upstream or which endpoint it reaches, so revalidate on
 	// any of them — a key enabled in one region is not necessarily enabled in
-	// another. Edits that leave the token alone are checked against the stored
-	// one, which is the pair that will actually serve traffic.
+	// another. A changed allowedModels list revalidates too, because it changes
+	// which model the probe uses (the account may not have the default one).
+	// Edits that leave the token alone are checked against the stored one,
+	// which is the pair that will actually serve traffic.
 	if (
 		!body.skipValidation &&
 		(body.token !== undefined ||
 			body.config !== undefined ||
-			body.region !== undefined)
+			body.region !== undefined ||
+			body.allowedModels !== undefined)
 	) {
 		await validateCredentialToken(
 			existing.provider,
 			body.token ?? readProviderKey(existing),
 			updates.config ?? existing.config ?? {},
 			body.region !== undefined ? body.region : existing.region,
+			body.allowedModels !== undefined
+				? (updates.allowedModels ?? null)
+				: existing.allowedModels,
 		);
 	}
 
@@ -1036,6 +1122,290 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 	});
 
 	return c.json({ credential: toCredential(updated) });
+});
+
+/**
+ * Fields both test endpoints below accept: either a stored credential (by id)
+ * or the raw values from a not-yet-saved dialog. Explicit fields win over the
+ * stored ones so an admin can test edits before saving them.
+ */
+const credentialUnderTestSchema = z.object({
+	/** Stored managed credential to test. Its token is read server-side. */
+	credentialId: z.string().optional(),
+	/** Required when no credentialId is given. */
+	provider: z.string().optional(),
+	/** Overrides the stored token; required when no credentialId is given. */
+	token: z.string().optional(),
+	config: z.record(z.string(), z.string()).optional(),
+	region: z.string().max(64).nullable().optional(),
+});
+
+interface CredentialUnderTest {
+	provider: string;
+	token: string;
+	config: Record<string, string>;
+	region: string | null;
+}
+
+async function resolveCredentialUnderTest(
+	body: z.infer<typeof credentialUnderTestSchema>,
+): Promise<CredentialUnderTest> {
+	let credential: CredentialRow | undefined;
+	if (body.credentialId) {
+		credential = await db.query.providerKey.findFirst({
+			where: {
+				id: { eq: body.credentialId },
+				managed: { eq: true },
+				status: { ne: "deleted" },
+			},
+		});
+		if (!credential) {
+			throw new HTTPException(404, { message: "Credential not found" });
+		}
+	}
+
+	const provider = body.provider ?? credential?.provider;
+	if (!provider || !providers.some((p) => p.id === provider)) {
+		throw new HTTPException(400, {
+			message: provider
+				? `Unknown provider: ${provider}`
+				: "Provide a provider or a credentialId",
+		});
+	}
+	if (credential && body.provider && body.provider !== credential.provider) {
+		throw new HTTPException(400, {
+			message: "provider does not match the stored credential",
+		});
+	}
+
+	// Trimmed both for the presence check and for use, so the probe and the
+	// error redaction see the same value the check accepted.
+	const explicitToken = body.token?.trim();
+	const token = explicitToken
+		? explicitToken
+		: credential
+			? readProviderKey(credential)
+			: undefined;
+	if (!token) {
+		throw new HTTPException(400, {
+			message: "Provide a token or a credentialId with a stored token",
+		});
+	}
+
+	return {
+		provider,
+		token,
+		config:
+			body.config !== undefined
+				? normalizeConfig(body.config)
+				: (credential?.config ?? {}),
+		region:
+			body.region !== undefined
+				? body.region?.trim() || null
+				: (credential?.region ?? null),
+	};
+}
+
+const selfTestResultSchema = z.object({
+	valid: z.boolean(),
+	/** Model the probe ran against, when one was resolved. */
+	model: z.string().optional(),
+	statusCode: z.number().optional(),
+	error: z.string().optional(),
+});
+
+const selfTestCredential = createRoute({
+	method: "post",
+	path: "/provider-credentials/self-test",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: credentialUnderTestSchema,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: selfTestResultSchema,
+				},
+			},
+			description:
+				"Result of sending one minimal completion through the credential, without storing anything.",
+		},
+	},
+});
+
+/**
+ * The save-time validation as a standalone probe: sends one minimal completion
+ * through the credential (default validation model) and reports the outcome
+ * instead of gating a write on it. Lets an admin check a key — stored or
+ * still in the dialog — before deciding what to save.
+ */
+adminProviderCredentials.openapi(selfTestCredential, async (c) => {
+	const body = c.req.valid("json");
+	const target = await resolveCredentialUnderTest(body);
+
+	if (isCredentialTestEnv()) {
+		return c.json({ valid: true });
+	}
+
+	const result = await validateProviderKey(
+		target.provider as ProviderId,
+		target.token,
+		undefined, // base URL travels in config/env_config for managed credentials
+		false,
+		managedCredentialValidationOptions(
+			target.provider,
+			target.config,
+			target.region,
+		),
+	);
+
+	return c.json({
+		valid: result.valid,
+		model: result.model,
+		statusCode: result.statusCode,
+		// validateProviderKey already redacts; re-redact defensively so no path
+		// can echo the plaintext token back to the admin client.
+		error: result.error ? redactToken(result.error, target.token) : undefined,
+	});
+});
+
+const verifyModelsResultSchema = z.object({
+	model: z.string(),
+	/** Whether the catalogue maps this model to the provider at all. */
+	inCatalog: z.boolean(),
+	/**
+	 * Live probe outcome: true/false, or null when the model was not probed —
+	 * either it is missing from the catalogue or it cannot answer a chat
+	 * completion (image/embedding/audio models).
+	 */
+	valid: z.boolean().nullable(),
+	statusCode: z.number().optional(),
+	error: z.string().optional(),
+});
+
+const verifyCredentialModels = createRoute({
+	method: "post",
+	path: "/provider-credentials/verify-models",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: credentialUnderTestSchema.extend({
+						models: z.array(z.string().min(1).max(200)).min(1).max(50),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						results: z.array(verifyModelsResultSchema),
+						/** True when no listed model failed a check it could run. */
+						allValid: z.boolean(),
+					}),
+				},
+			},
+			description:
+				"Per-model report of whether the credential can serve each listed model.",
+		},
+	},
+});
+
+/**
+ * Probes every listed model through the credential and reports each outcome,
+ * so an admin filling in allowedModels can confirm the account actually has
+ * the models before saving. Purely informational — nothing is stored.
+ */
+adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
+	const body = c.req.valid("json");
+	const target = await resolveCredentialUnderTest(body);
+	const modelIds = normalizeAllowedModels(body.models) ?? [];
+	// Whitespace-only entries survive the zod min-length check but normalize
+	// away; an empty run would report allValid: true for a verification that
+	// never happened.
+	if (modelIds.length === 0) {
+		throw new HTTPException(400, {
+			message: "models must contain at least one non-blank model id",
+		});
+	}
+
+	const validationOptions = managedCredentialValidationOptions(
+		target.provider,
+		target.config,
+		target.region,
+	);
+
+	type VerifyResult = z.infer<typeof verifyModelsResultSchema>;
+
+	const verifyOne = async (modelId: string): Promise<VerifyResult> => {
+		const pinned = getPinnedValidationModel(
+			target.provider as ProviderId,
+			modelId,
+			validationOptions,
+		);
+		if (!pinned) {
+			return {
+				model: modelId,
+				inCatalog: false,
+				valid: null,
+				error: `Not available from ${target.provider} per the catalogue`,
+			};
+		}
+		if (!pinned.chatCapable) {
+			return {
+				model: modelId,
+				inCatalog: true,
+				valid: null,
+				error:
+					"Cannot be live-tested: the model does not answer chat completions",
+			};
+		}
+		if (isCredentialTestEnv()) {
+			return { model: modelId, inCatalog: true, valid: true };
+		}
+		const result = await validateProviderKey(
+			target.provider as ProviderId,
+			target.token,
+			undefined,
+			false,
+			validationOptions,
+			modelId,
+		);
+		return {
+			model: modelId,
+			inCatalog: true,
+			valid: result.valid,
+			statusCode: result.statusCode,
+			error: result.error ? redactToken(result.error, target.token) : undefined,
+		};
+	};
+
+	// Small batches: enough parallelism that a long list stays responsive,
+	// bounded so the probe traffic cannot hammer the upstream into rate limits
+	// that would then read as failures.
+	const results: VerifyResult[] = [];
+	const batchSize = 5;
+	for (let i = 0; i < modelIds.length; i += batchSize) {
+		results.push(
+			...(await Promise.all(modelIds.slice(i, i + batchSize).map(verifyOne))),
+		);
+	}
+
+	return c.json({
+		results,
+		allValid: results.every(
+			(result) => result.inCatalog && result.valid !== false,
+		),
+	});
 });
 
 const deleteCredential = createRoute({

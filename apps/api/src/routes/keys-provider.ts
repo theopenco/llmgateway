@@ -4,6 +4,12 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { assertOrganizationProviderKey } from "@/lib/organization-provider-key.js";
+import {
+	allowedModelsSchema,
+	normalizeAllowedModels,
+	pickAllowedValidationModel,
+	validateAllowedModels,
+} from "@/lib/provider-key-allowed-models.js";
 import { createNullableLimitSchema } from "@/routes/keys-api.js";
 import {
 	getActiveUserOrganizationIds,
@@ -145,6 +151,12 @@ export const providerKeyPublicSchema = z.object({
 	/** Cumulative upstream spend (USD) attributed by the billing worker. */
 	usage: z.string(),
 	maskedToken: z.string(),
+	/**
+	 * Canonical model ids this key may serve; routing skips it for any other
+	 * model and (in hybrid mode) falls back to credits instead. Null means the
+	 * key serves the provider's full catalogue.
+	 */
+	allowedModels: z.array(z.string()).nullable(),
 });
 
 type ProviderKeyRow = typeof tables.providerKey.$inferSelect;
@@ -171,7 +183,23 @@ export function toPublicProviderKey(row: ProviderKeyRow) {
 		usageLimit: row.usageLimit,
 		usage: row.usage,
 		maskedToken: row.tokenMasked ?? maskToken(row.token ?? ""),
+		allowedModels: row.allowedModels,
 	};
+}
+
+/**
+ * A custom provider serves models that exist only in the organization's own
+ * catalogue, so there is nothing for a canonical-model-id restriction to match
+ * against. Restricting which of a custom provider's models are served is what
+ * `customModelsOnly` plus the org's model list already does.
+ */
+function assertAllowedModelsSupported(provider: string) {
+	if (provider === "custom") {
+		throw new HTTPException(400, {
+			message:
+				"allowedModels cannot be set on custom provider keys. Manage a custom provider's models from its model list instead.",
+		});
+	}
 }
 
 // The custom provider name is the routing segment used in `custom/<name>/<model>`
@@ -319,12 +347,18 @@ const createProviderKeySchema = z.object({
 	// Optional USD spend cap; the key auto-deactivates when its cumulative
 	// attributed spend reaches it.
 	usageLimit: createNullableLimitSchema("Usage limit").optional(),
+	// Optional allowlist of canonical model ids this key may serve. Empty/null
+	// means the provider's full catalogue.
+	allowedModels: allowedModelsSchema,
 });
 
 // Schema for updating a provider key status / settings
 const updateProviderKeyStatusSchema = z
 	.object({
 		status: z.enum(["active", "inactive"]).optional(),
+		// Canonical model ids this key may serve; `null` (or an empty list)
+		// removes the restriction.
+		allowedModels: allowedModelsSchema,
 		// Custom providers only: renames the provider, which changes the model
 		// prefix used in requests (e.g. "myprovider/some-model").
 		name: customProviderNameSchema.optional(),
@@ -342,7 +376,8 @@ const updateProviderKeyStatusSchema = z
 			v.name !== undefined ||
 			v.customModelsOnly !== undefined ||
 			v.complianceAttestation !== undefined ||
-			v.usageLimit !== undefined,
+			v.usageLimit !== undefined ||
+			v.allowedModels !== undefined,
 		{
 			message: "No updatable fields provided",
 		},
@@ -391,7 +426,10 @@ keysProvider.openapi(create, async (c) => {
 		options,
 		organizationId,
 		usageLimit,
+		allowedModels: requestedAllowedModels,
 	} = c.req.valid("json");
+
+	const allowedModels = normalizeAllowedModels(requestedAllowedModels);
 
 	// Verify the user has access to this organization
 	const userOrgs = await db.query.userOrganization.findMany({
@@ -455,6 +493,24 @@ keysProvider.openapi(create, async (c) => {
 		await assertCustomProviderNameAvailable(organizationId, name);
 	}
 
+	if (allowedModels) {
+		assertAllowedModelsSupported(provider);
+		validateAllowedModels(provider, allowedModels, options);
+	}
+
+	// A restricted key is probed with one of its own allowed models instead of
+	// the provider's default validation model: users restrict a key precisely
+	// because the upstream account only has some models, so probing the default
+	// would reject exactly the keys the restriction exists for. When no allowed
+	// model can answer a chat completion (image/embedding-only lists) there is
+	// nothing to probe with, so the live check is skipped.
+	const pinnedValidationModel = pickAllowedValidationModel(
+		provider,
+		allowedModels,
+		options,
+	);
+	const skipLiveValidation = !!allowedModels && !pinnedValidationModel;
+
 	let validationResult;
 	try {
 		const isTestEnv =
@@ -465,7 +521,7 @@ keysProvider.openapi(create, async (c) => {
 		}
 
 		// Skip validation for custom providers as they don't have predefined models
-		if (provider === "custom") {
+		if (provider === "custom" || skipLiveValidation) {
 			validationResult = { valid: true };
 		} else {
 			validationResult = await validateProviderKey(
@@ -474,6 +530,7 @@ keysProvider.openapi(create, async (c) => {
 				baseUrl,
 				isTestEnv,
 				options,
+				pinnedValidationModel,
 			);
 		}
 	} catch (error) {
@@ -552,6 +609,7 @@ keysProvider.openapi(create, async (c) => {
 			baseUrl,
 			options,
 			usageLimit: usageLimit ?? null,
+			allowedModels,
 		})
 		.returning();
 
@@ -564,6 +622,7 @@ keysProvider.openapi(create, async (c) => {
 		metadata: {
 			provider,
 			hasCustomBaseUrl: !!baseUrl,
+			allowedModels,
 		},
 	});
 
@@ -848,8 +907,14 @@ keysProvider.openapi(updateStatus, async (c) => {
 	}
 
 	const { id } = c.req.param();
-	const { status, name, customModelsOnly, complianceAttestation, usageLimit } =
-		c.req.valid("json");
+	const {
+		status,
+		name,
+		customModelsOnly,
+		complianceAttestation,
+		usageLimit,
+		allowedModels: requestedAllowedModels,
+	} = c.req.valid("json");
 
 	// Get all active organization IDs the user has access to
 	const organizationIds = await getAdminOrganizationIds(user.id);
@@ -903,6 +968,24 @@ keysProvider.openapi(updateStatus, async (c) => {
 		}
 	}
 
+	// Only the catalogue is checked here, not the key upstream: a PATCH cannot
+	// change the token, and narrowing which models a key serves never makes an
+	// already-working key fail. Blocking the edit on a live probe would also
+	// stand in the way of the case the restriction exists for — a key whose
+	// account lost access to some models, which the user is fixing right now.
+	const allowedModels =
+		requestedAllowedModels === undefined
+			? undefined
+			: normalizeAllowedModels(requestedAllowedModels);
+	if (allowedModels) {
+		assertAllowedModelsSupported(providerKey.provider);
+		validateAllowedModels(
+			providerKey.provider,
+			allowedModels,
+			providerKey.options ?? undefined,
+		);
+	}
+
 	if (complianceAttestation !== undefined) {
 		if (providerKey.provider !== "custom") {
 			throw new HTTPException(400, {
@@ -940,9 +1023,13 @@ keysProvider.openapi(updateStatus, async (c) => {
 		customModelsOnly?: boolean;
 		complianceAttestation?: ProviderKeyComplianceAttestation | null;
 		usageLimit?: string | null;
+		allowedModels?: string[] | null;
 	} = {};
 	if (status !== undefined) {
 		updates.status = status;
+	}
+	if (allowedModels !== undefined) {
+		updates.allowedModels = allowedModels;
 	}
 	if (usageLimit !== undefined) {
 		updates.usageLimit = usageLimit;
@@ -991,6 +1078,16 @@ keysProvider.openapi(updateStatus, async (c) => {
 	}
 	if (usageLimit !== undefined && providerKey.usageLimit !== usageLimit) {
 		changes.usageLimit = { old: providerKey.usageLimit, new: usageLimit };
+	}
+	if (
+		allowedModels !== undefined &&
+		(providerKey.allowedModels ?? []).join(",") !==
+			(allowedModels ?? []).join(",")
+	) {
+		changes.allowedModels = {
+			old: providerKey.allowedModels,
+			new: allowedModels,
+		};
 	}
 
 	if (Object.keys(changes).length > 0) {
