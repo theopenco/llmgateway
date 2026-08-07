@@ -2580,10 +2580,10 @@ describe("api", () => {
 		expect(moderationLog?.requestedModel).toBe("openai-moderation");
 		expect(moderationLog?.usedModelMapping).toBe("omni-moderation-latest");
 		expect(moderationLog?.usedProvider).toBe("openai");
-		expect(moderationLog?.cost).toBe(0);
+		expect(Number(moderationLog?.cost)).toBeCloseTo(0.00001, 8);
 		expect(moderationLog?.inputCost).toBe(0);
 		expect(moderationLog?.outputCost).toBe(0);
-		expect(moderationLog?.requestCost).toBe(0);
+		expect(Number(moderationLog?.requestCost)).toBeCloseTo(0.00001, 8);
 		expect(moderationLog?.streamed).toBe(false);
 		expect(moderationLog?.finishReason).toBe("stop");
 		expect(moderationLog?.messages).toEqual([
@@ -2696,10 +2696,12 @@ describe("api", () => {
 			expect(failedAttempt?.finishReason).toBe("gateway_error");
 			expect(failedAttempt?.retried).toBe(true);
 			expect(failedAttempt?.retriedByLogId).toBe(successAttempt?.id);
+			expect(failedAttempt?.cost).toBe(0);
 
 			expect(successAttempt).toBeTruthy();
 			expect(successAttempt?.finishReason).toBe("stop");
 			expect(successAttempt?.content).toContain('"flagged":false');
+			expect(Number(successAttempt?.cost)).toBeCloseTo(0.00001, 8);
 		} finally {
 			fetchSpy.mockRestore();
 			resetKeyHealth();
@@ -2709,6 +2711,66 @@ describe("api", () => {
 				process.env.LLM_OPENAI_API_KEY = previousOpenAIKey;
 			}
 		}
+	});
+
+	test("/v1/moderations credits mode requires credits", async () => {
+		await harness.setProjectMode("credits");
+		await harness.setOrganizationCredits("0");
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-moderations-credits",
+			token: "real-token-moderations-credits",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/moderations", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-moderations-credits",
+			},
+			body: JSON.stringify({
+				input: "I want to attack someone.",
+			}),
+		});
+
+		expect(res.status).toBe(402);
+		const json = await res.json();
+		expect(json.error.message).toBe(
+			"Organization org-id has insufficient credits",
+		);
+	});
+
+	test("/v1/moderations hybrid fallback requires credits", async () => {
+		await harness.setProjectMode("hybrid");
+		await harness.setOrganizationCredits("0");
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-moderations-hybrid-credits",
+			token: "real-token-moderations-hybrid-credits",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/moderations", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-moderations-hybrid-credits",
+			},
+			body: JSON.stringify({
+				input: "I want to attack someone.",
+			}),
+		});
+
+		expect(res.status).toBe(402);
+		const json = await res.json();
+		expect(json.error.message).toBe(
+			"No API key set for provider and organization has insufficient credits",
+		);
 	});
 
 	test("/v1/embeddings e2e success", async () => {
