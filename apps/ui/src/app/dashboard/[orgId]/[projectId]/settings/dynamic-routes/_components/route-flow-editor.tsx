@@ -14,6 +14,7 @@ import { Trash2 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { ModelSelector } from "@/components/models/playground-model-selector";
 import { Button } from "@/lib/components/button";
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
@@ -21,8 +22,13 @@ import { Label } from "@/lib/components/label";
 import {
 	type ModelDefinition,
 	models as modelCatalog,
+	type ProviderDefinition,
 	providers as providerDefinitions,
 } from "@llmgateway/models";
+import {
+	MultiProviderSelector,
+	type SelectableProviderOption,
+} from "@llmgateway/shared/components";
 import {
 	DYNAMIC_ROUTE_METADATA_PATHS,
 	type DynamicRouteCondition,
@@ -52,15 +58,12 @@ import type {
 
 const models = modelCatalog as readonly ModelDefinition[];
 
-const MODEL_OPTIONS = models
-	.filter(
-		(m) =>
-			m.id !== "auto" &&
-			m.id !== "custom" &&
-			(!m.output || m.output.includes("text")),
-	)
-	.map((m) => m.id)
-	.sort();
+const SELECTABLE_MODELS = models.filter(
+	(m) =>
+		m.id !== "auto" &&
+		m.id !== "custom" &&
+		(!m.output || m.output.includes("text")),
+);
 
 const NODE_TYPE_LABELS: Record<DynamicRouteNode["type"], string> = {
 	model: "Model",
@@ -646,102 +649,73 @@ function ModelInspector({
 	onChange: (updater: (node: DynamicRouteNode) => DynamicRouteNode) => void;
 }) {
 	const modelDef = models.find((m) => m.id === node.model);
-	const availableProviders = modelDef
-		? Array.from(new Set(modelDef.providers.map((p) => p.providerId))).filter(
-				(p) => !(node.providers ?? []).includes(p),
+	// Only providers actually serving the chosen model are selectable; selection
+	// order in MultiProviderSelector is the fallback order.
+	const selectableProviders: SelectableProviderOption[] = modelDef
+		? Array.from(new Set(modelDef.providers.map((p) => p.providerId))).map(
+				(id) => {
+					const def = providerDefinitions.find((p) => p.id === id);
+					return { id, name: def?.name ?? id, color: def?.color };
+				},
 			)
 		: [];
 	return (
 		<div className="space-y-2">
 			<div className="space-y-1">
 				<Label className="text-xs">Model</Label>
-				<Input
-					className="h-8 text-xs"
-					list="dynamic-route-model-options"
+				<ModelSelector
+					models={SELECTABLE_MODELS as ModelDefinition[]}
+					providers={providerDefinitions as unknown as ProviderDefinition[]}
 					value={node.model}
-					placeholder="gpt-5-nano"
-					onChange={(e) =>
+					onValueChange={(value) => {
+						// The selector emits "provider/model[:region]" even in rootOnly
+						// mode; a model node stores the root catalog id — the provider
+						// restriction lives in the fallback list below. (model.id never
+						// contains ":", so stripping after the last colon is safe.)
+						const withoutProvider = value.includes("/")
+							? value.slice(value.indexOf("/") + 1)
+							: value;
+						const lastColon = withoutProvider.lastIndexOf(":");
+						const modelId =
+							lastColon > -1
+								? withoutProvider.slice(0, lastColon)
+								: withoutProvider;
 						onChange((n) =>
 							n.type === "model"
-								? { ...n, model: e.target.value, providers: undefined }
-								: n,
-						)
-					}
-				/>
-				<datalist id="dynamic-route-model-options">
-					{MODEL_OPTIONS.map((id) => (
-						<option key={id} value={id} />
-					))}
-				</datalist>
-			</div>
-			<div className="space-y-1">
-				<Label className="text-xs">Provider fallback order (optional)</Label>
-				{(node.providers ?? []).length > 0 && (
-					<div className="flex flex-wrap gap-1">
-						{(node.providers ?? []).map((provider, index) => (
-							<span
-								key={provider}
-								className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[11px]"
-							>
-								{index + 1}. {provider}
-								<button
-									type="button"
-									aria-label={`Remove ${provider}`}
-									className="text-muted-foreground hover:text-destructive"
-									onClick={() =>
-										onChange((n) => {
-											if (n.type !== "model") {
-												return n;
-											}
-											const next = (n.providers ?? []).filter(
-												(p) => p !== provider,
-											);
-											return {
-												...n,
-												providers: next.length > 0 ? next : undefined,
-											};
-										})
-									}
-								>
-									×
-								</button>
-							</span>
-						))}
-					</div>
-				)}
-				<select
-					className="h-8 w-full rounded-md border bg-transparent px-2 text-xs"
-					value=""
-					disabled={!modelDef || availableProviders.length === 0}
-					onChange={(e) => {
-						const provider = e.target.value;
-						if (!provider) {
-							return;
-						}
-						onChange((n) =>
-							n.type === "model"
-								? { ...n, providers: [...(n.providers ?? []), provider] }
+								? { ...n, model: modelId, providers: undefined }
 								: n,
 						);
 					}}
-				>
-					<option value="">
-						{modelDef
-							? availableProviders.length > 0
-								? "Add provider…"
-								: "All providers added"
-							: "Choose a model first"}
-					</option>
-					{availableProviders.map((provider) => (
-						<option key={provider} value={provider}>
-							{providerDefinitions.find((p) => p.id === provider)?.name ??
-								provider}
-						</option>
-					))}
-				</select>
+					placeholder="Select a model..."
+					rootOnly
+				/>
+			</div>
+			<div className="space-y-1">
+				<Label className="text-xs">Provider fallback order (optional)</Label>
+				{modelDef ? (
+					<MultiProviderSelector
+						providers={selectableProviders}
+						selectedProviders={node.providers ?? []}
+						onProvidersChange={(selected) =>
+							onChange((n) =>
+								n.type === "model"
+									? {
+											...n,
+											providers: selected.length > 0 ? selected : undefined,
+										}
+									: n,
+							)
+						}
+						placeholder="All providers (smart routing)"
+					/>
+				) : (
+					<p className="text-[10px] text-muted-foreground">
+						Choose a model first.
+					</p>
+				)}
 				<p className="text-[10px] text-muted-foreground">
 					Empty = all providers with weighted smart routing. Listed providers
-					restrict routing and act as the fallback order.
+					restrict routing and are tried in the order selected.
 				</p>
 			</div>
 		</div>
