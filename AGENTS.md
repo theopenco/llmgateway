@@ -14,7 +14,7 @@ This file provides guidance to AI agents when working with code in this reposito
 
 NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.
 
-- `pnpm dev` - Start all development servers (UI on :3002, Playground on :3003, Code on :3004, API on :4002, Gateway on :4001, Docs on :3005, Admin on :3006)
+- `pnpm dev` - Start all development servers (UI on :3002, Playground on :3003, Code on :3004, API on :4002, Gateway on :4001, Docs on :3005, Admin on :3006). Every one of these ports, plus Postgres/Redis, is overridable per worktree — see "Running an isolated stack per worktree".
 - `pnpm build` - Build all applications for production. ALWAYS run this after finishing work on a feature. ALWAYS run a full build to make sure things fork.
 - `pnpm clean` - Clean build artifacts and cache directories
 
@@ -76,32 +76,89 @@ curl -N http://localhost:4001/v1/chat/completions \
 
 Without `x-no-fallback`, a failing pinned provider falls back to the next healthy provider, masking the error. Also note that the gateway caches responses (including errors) in Redis keyed on the request body, so vary the prompt when re-testing the same failure.
 
-Caveat: if you run multiple git worktrees (e.g. conductor workspaces), only one `pnpm dev` can own port :4001 — confirm which working tree is actually serving it (`lsof -a -p <pid> -d cwd -Fn`) before assuming your local edits are live, or launch your own build on a different `PORT`.
+Caveat: if you run multiple git worktrees (e.g. conductor workspaces), only one stack at a time can own :4001 / :5432 / :6379 — confirm which working tree is actually serving a port (`lsof -a -p <pid> -d cwd -Fn`) before assuming your local edits are live. Rather than fighting over the defaults, give the worktree its own isolated stack (below).
 
-#### Running the dev stack on alternate ports (avoiding worktree conflicts)
+#### Running an isolated stack per worktree (own Postgres, Redis, and app ports)
 
-When another worktree already owns the default ports, run your stack on an offset range instead of fighting for :4002/:3002/etc. The wiring is driven entirely by env vars — no code changes needed:
+Every host-facing port and every Docker name is env-var driven, and all defaults reproduce the historical single shared stack — a worktree that sets nothing behaves exactly as before. Set the block below and that worktree gets its **own** Postgres, Redis, storage Redis, and app ports, so `pnpm setup`, `pnpm dev`, and `pnpm test:unit` in one workspace cannot touch another's data or ports.
 
-- **API port**: `PORT` (default `4002`). The API's own base URL is `API_URL`.
-- **Frontends → API**: every frontend resolves the backend from `API_URL` (default `http://localhost:4002`), read server-side in `apps/*/src/lib/config-server.ts`. Set it to your relocated API for each frontend process.
-- **Auth + CORS**: the API reads `ORIGIN_URLS` (comma-separated CORS/better-auth trusted-origins allowlist; defaults to `localhost:3002..3006,4002`) and `UI_URL`. If you relocate a frontend you MUST add its new origin to `ORIGIN_URLS` or login/API calls fail CORS. Login itself works across ports because the better-auth session cookie is host-only for `localhost` (shared across all ports) — no `COOKIE_DOMAIN` change needed.
+Pick a **slot** number per worktree (1, 2, 3 …) and offset every port by it:
 
-Two gotchas:
+| Component            | Env var              | Default | Slot _N_        | Slot 1 |
+| -------------------- | -------------------- | ------- | --------------- | ------ |
+| Postgres (host port) | `POSTGRES_PORT`      | 5432    | 5432 + N × 100  | 5532   |
+| Redis                | `REDIS_PORT`         | 6379    | 6379 + N × 1000 | 7379   |
+| Storage Redis        | `STORAGE_REDIS_PORT` | 6479    | 6479 + N × 1000 | 7479   |
+| Gateway              | `GATEWAY_PORT`       | 4001    | 4001 + N × 100  | 4101   |
+| Gateway metrics      | `METRICS_PORT`       | 9090    | 9090 + N × 100  | 9190   |
+| API                  | `API_PORT`           | 4002    | 4002 + N × 100  | 4102   |
+| UI                   | `UI_PORT`            | 3002    | 3002 + N × 100  | 3102   |
+| Playground           | `PLAYGROUND_PORT`    | 3003    | 3003 + N × 100  | 3103   |
+| Code                 | `CODE_PORT`          | 3004    | 3004 + N × 100  | 3104   |
+| Docs                 | `DOCS_PORT`          | 3005    | 3005 + N × 100  | 3105   |
+| Admin                | `ADMIN_PORT`         | 3006    | 3006 + N × 100  | 3106   |
 
-- The `ui`/`playground`/`code` `dev` scripts hard-code `--port` in `package.json`, so overriding `PORT` alone won't move them — run `next dev --port <n>` directly.
-- The API `dev` script loads `../../.env` via `node --env-file`; Node does NOT override already-exported process env, so vars you `export`/prefix on the command line win over `.env`.
+The Redis pair uses a ×1000 offset on purpose: with ×100, slot 1's Redis would land on 6479, which is the _default_ storage-Redis port of another worktree.
 
-Example: API on :4102, UI on :3102, Playground on :3103 (run from repo root, backgrounded):
+Put the block in the worktree's **`.envrc`** (gitignored, per worktree, loaded by direnv — run `direnv allow` after editing). `.envrc` and not `.env`, because exported shell vars reach everything: `docker compose` interpolation, `drizzle-kit`, `vitest`, and the `pnpm dev` processes. Node's `--env-file` never overrides an already-exported var, so these also win over `.env` for the api/gateway/worker dev servers.
 
 ```bash
-ORIGINS="http://localhost:3102,http://localhost:3103,http://localhost:4102"
-( cd apps/api && PORT=4102 API_URL=http://localhost:4102 UI_URL=http://localhost:3102 ORIGIN_URLS="$ORIGINS" \
-    node --enable-source-maps --env-file=../../.env dist/serve.js )        # build first: turbo run build --filter=api
-( cd apps/ui         && API_URL=http://localhost:4102 pnpm exec next dev --port 3102 --turbopack )
-( cd apps/playground && API_URL=http://localhost:4102 pnpm exec next dev --port 3103 --turbopack )
+# --- isolated stack: worktree "tel-aviv", slot 1 ---
+export STACK_SUFFIX=-tel-aviv      # compose project + container name suffix (include the separator)
+export POSTGRES_PORT=5532
+export REDIS_PORT=7379
+export STORAGE_REDIS_PORT=7479
+
+export DATABASE_URL=postgres://postgres:pw@localhost:5532/db
+export TEST_DATABASE_URL=postgres://postgres:pw@localhost:5532/test
+
+export GATEWAY_PORT=4101
+export METRICS_PORT=9190
+export API_PORT=4102
+export UI_PORT=3102
+export PLAYGROUND_PORT=3103
+export CODE_PORT=3104
+export DOCS_PORT=3105
+export ADMIN_PORT=3106
+
+# URLs the services hand to each other / render into pages
+export API_URL=http://localhost:4102
+export UI_URL=http://localhost:3102
+export APP_URL=http://localhost:3102
+export GATEWAY_URL=http://localhost:4101
+export PLAYGROUND_URL=http://localhost:3103
+export DOCS_URL=http://localhost:3105
+export ADMIN_URL=http://localhost:3106
+export ORIGIN_URLS=http://localhost:3102,http://localhost:3103,http://localhost:3104,http://localhost:3105,http://localhost:3106,http://localhost:4102
 ```
 
-Running the built `dist/serve.js` gives no watch (rebuild + restart the API after code changes); swap in the `api` package's `dev` script if you want tsc-watch. All apps share the one Postgres/Redis on the default ports, so the relocated stack sees the same seeded DB.
+Then the normal commands just work, scoped to this worktree:
+
+```bash
+docker compose up -d          # project llmgateway-tel-aviv, containers postgres-tel-aviv, redis-tel-aviv, …
+pnpm setup                    # down -v + up + push-test + push-dev + seed — only your own stack
+pnpm dev                      # every app on its offset port
+curl http://localhost:4101/v1/chat/completions -H "Authorization: Bearer test-token" ...
+```
+
+How the wiring works:
+
+- **Docker isolation**: `docker-compose.yml` derives both the compose project name (`llmgateway${STACK_SUFFIX}`) and each `container_name` from `STACK_SUFFIX`, and publishes `${POSTGRES_PORT}`/`${REDIS_PORT}`/`${STORAGE_REDIS_PORT}`. Because the project name differs, `docker compose down -v` and `pnpm setup` only destroy your own containers and the `redis_storage_data` volume of your own project. Address containers via `docker compose exec postgres …` (service name, resolved within your project) rather than `docker exec postgres …`.
+- **Databases**: apps read `DATABASE_URL`; tests read `TEST_DATABASE_URL` (falling back to `DATABASE_URL`, then `postgres://postgres:pw@localhost:5432/test`). Always set **both** — `TEST_DATABASE_URL` is what stops `pnpm test:unit` from wiping the dev database once `DATABASE_URL` is exported, and it is what `pnpm push-test` pushes the schema to.
+- **Redis**: `packages/cache` reads `REDIS_HOST`/`REDIS_PORT` and `STORAGE_REDIS_HOST`/`STORAGE_REDIS_PORT`. Setting any `STORAGE_REDIS_*` var opts into the separate storage instance, so set `STORAGE_REDIS_PORT` even if the value is the default-shaped one.
+- **Service ports**: gateway and api both fall back to `PORT`, so never export `PORT` for an isolated stack — use `GATEWAY_PORT` and `API_PORT`, which take precedence. A second gateway also needs `METRICS_PORT` or it fails with `EADDRINUSE` on :9090. The Next.js `dev` scripts read `UI_PORT`/`PLAYGROUND_PORT`/`CODE_PORT`/`DOCS_PORT`/`ADMIN_PORT` with the historical ports as defaults.
+- **Auth + CORS**: the API reads `ORIGIN_URLS` (comma-separated CORS/better-auth trusted-origins allowlist; defaults to `localhost:3002..3006,4002`) and `UI_URL`. If you relocate a frontend you MUST add its new origin to `ORIGIN_URLS` or login/API calls fail CORS. Login itself works across ports because the better-auth session cookie is host-only for `localhost` (shared across all ports) — no `COOKIE_DOMAIN` change needed.
+- **Frontends → backends**: every frontend resolves the backend from `API_URL` (default `http://localhost:4002`) and the gateway from `GATEWAY_URL`, read server-side in `apps/*/src/lib/config-server.ts`.
+
+If you only need one relocated service rather than a whole isolated stack, prefix the vars on the command line instead — same precedence rules apply:
+
+```bash
+( cd apps/api && API_PORT=4102 API_URL=http://localhost:4102 UI_URL=http://localhost:3102 \
+    ORIGIN_URLS=http://localhost:3102,http://localhost:4102 \
+    node --enable-source-maps --env-file=../../.env dist/serve.js )   # build first: turbo run build --filter=api
+```
+
+Running the built `dist/serve.js` gives no watch (rebuild + restart after code changes); use the app's `dev` script if you want tsc-watch.
 
 #### E2E Test Options
 

@@ -868,6 +868,31 @@ export function ProviderSection({
 								}
 							}
 						}
+						if (perImage === null && activeMapping.perImagePrice) {
+							const tierEntries = Object.entries(
+								activeMapping.perImagePrice,
+							).filter(([k]) => k !== "default");
+							const entries =
+								tierEntries.length > 0
+									? tierEntries
+									: Object.entries(activeMapping.perImagePrice);
+							const values = entries
+								.map(([, v]) => parseFloat(v))
+								.filter(Number.isFinite);
+							if (values.length > 0) {
+								const min = Math.min(...values);
+								const max = Math.max(...values);
+								perImage = max * serviceTierMultiplier;
+								if (min !== max) {
+									const maxKey = entries.find(
+										([, v]) => parseFloat(v) === max,
+									)?.[0];
+									label = maxKey
+										? `Per image (${maxKey}, cheaper at lower resolutions)`
+										: "Per image";
+								}
+							}
+						}
 						if (perImage === null) {
 							return null;
 						}

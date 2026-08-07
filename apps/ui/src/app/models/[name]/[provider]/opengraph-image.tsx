@@ -139,6 +139,14 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 					]),
 				)
 			: undefined;
+		const perImagePrice = selectedMapping?.perImagePrice
+			? Object.fromEntries(
+					Object.entries(selectedMapping.perImagePrice).map(([k, v]) => [
+						k,
+						Number(v),
+					]),
+				)
+			: undefined;
 		const isVideoGen = selectedMapping?.videoGenerations === true;
 		const isImageGen = selectedMapping?.imageGenerations === true;
 		const isOcr = selectedMapping?.ocr === true;
@@ -163,11 +171,24 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 			inputAudioHourPrice > 0 &&
 			!(Number(selectedMapping?.inputPrice ?? 0) > 0) &&
 			!(Number(selectedMapping?.outputPrice ?? 0) > 0);
+		const hasPerImagePricing =
+			isImageGen &&
+			perImagePrice !== undefined &&
+			Object.keys(perImagePrice).length > 0;
+		const hasPositiveTokenPrice = [
+			pricing?.input,
+			pricing?.output,
+			pricing?.cachedInput,
+		].some((p) => (p?.original ?? 0) > 0);
+		// Per-image mappings declare token prices as the string "0" — placeholder
+		// values, not real token pricing — so zero token prices only count when
+		// the mapping has no per-image pricing to show instead.
 		const hasTokenPricing =
 			!isOcr &&
 			!hasCharPricing &&
 			!hasAudioHourPricing &&
-			(pricing?.input ?? pricing?.output ?? pricing?.cachedInput);
+			Boolean(pricing?.input ?? pricing?.output ?? pricing?.cachedInput) &&
+			(hasPositiveTokenPrice || !hasPerImagePricing);
 
 		const contextSize = selectedMapping?.contextSize ?? 0;
 
@@ -421,6 +442,7 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 					{(hasTokenPricing ||
 						(requestPrice !== undefined && requestPrice !== 0) ||
 						(perSecondPrice && Object.keys(perSecondPrice).length > 0) ||
+						(perImagePrice && Object.keys(perImagePrice).length > 0) ||
 						hasOcrPricing ||
 						hasCharPricing ||
 						hasAudioHourPricing) && (
@@ -441,14 +463,16 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 										? "Pricing per second"
 										: hasOcrPricing
 											? "Pricing per 1K pages"
-											: isImageGen &&
-												  requestPrice !== undefined &&
-												  requestPrice !== 0 &&
-												  !hasTokenPricing
-												? "Pricing per request"
-												: requestPrice !== undefined && requestPrice !== 0
-													? "Pricing"
-													: "Pricing per 1M tokens"}
+											: isImageGen && perImagePrice && !hasTokenPricing
+												? "Pricing per image"
+												: isImageGen &&
+													  requestPrice !== undefined &&
+													  requestPrice !== 0 &&
+													  !hasTokenPricing
+													? "Pricing per request"
+													: requestPrice !== undefined && requestPrice !== 0
+														? "Pricing"
+														: "Pricing per 1M tokens"}
 						</span>
 					)}
 					<div
@@ -581,6 +605,47 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 										</span>
 									</div>
 								))}
+
+						{/* Per-Image Price for image gen, tiered by output resolution.
+						    Fall back to the "default" tier when it is the only entry. */}
+						{isImageGen &&
+							perImagePrice &&
+							(() => {
+								const tierEntries = Object.entries(perImagePrice).filter(
+									([key]) => key !== "default",
+								);
+								const entries =
+									tierEntries.length > 0
+										? tierEntries
+										: Object.entries(perImagePrice);
+								return entries.slice(0, 2).map(([key, price]) => (
+									<div
+										key={key}
+										style={{
+											display: "flex",
+											flexDirection: "column",
+											gap: 10,
+											padding: "28px 36px",
+											backgroundColor: "#0A0A0A",
+											borderRadius: 20,
+											border: "1px solid #1F2937",
+										}}
+									>
+										<span
+											style={{
+												color: "#9CA3AF",
+												fontSize: 20,
+												fontWeight: 500,
+												textTransform: "uppercase",
+												letterSpacing: "0.05em",
+											}}
+										>
+											{key === "default" ? "Per Image" : `Per Image (${key})`}
+										</span>
+										{formatUnitPrice(price, "/image")}
+									</div>
+								));
+							})()}
 
 						{/* Request Price */}
 						{requestPrice !== undefined && requestPrice !== 0 && (

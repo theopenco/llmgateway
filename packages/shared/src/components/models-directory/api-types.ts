@@ -61,6 +61,7 @@ export interface ApiModelProviderMapping {
 	supportsVideoAudio: boolean | null;
 	supportsVideoWithoutAudio: boolean | null;
 	perSecondPrice: Record<string, string> | null;
+	perImagePrice: Record<string, string> | null;
 	pricingTiers: Array<{
 		name: string;
 		upToTokens: number | null;
