@@ -8672,7 +8672,16 @@ chat.openapi(completions, async (c) => {
 				let streamingToolCalls = null;
 				let imageByteSize = 0; // Track total image data size for token estimation
 				let outputImageCount = 0; // Track number of output images for cost calculation
-				let webSearchCount = usedProvider === "zai" && webSearchTool ? 1 : 0; // Track web search calls for cost calculation
+				// Track web search calls for cost calculation. Providers that report
+				// no search metadata in the stream are counted up front: zai, and
+				// the DashScope-compatible endpoints where we force the search.
+				let webSearchCount =
+					webSearchTool &&
+					(usedProvider === "zai" ||
+						usedProvider === "alibaba" ||
+						usedProvider === "scx-ai-gp")
+						? 1
+						: 0;
 				const serverToolUseIndices = new Set<number>(); // Track Anthropic server_tool_use block indices
 				let sawUpstreamDoneSentinel = false;
 				let sawProviderTerminalEvent = false;

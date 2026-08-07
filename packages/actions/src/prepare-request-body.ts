@@ -291,6 +291,26 @@ function isFunctionTool(
 }
 
 /**
+ * Enables DashScope web search on an OpenAI-compatible request body.
+ *
+ * `enable_search` on its own is only a hint that the model is free to ignore,
+ * and in practice it always does: the prompt comes back the same size and the
+ * model answers that it has no live access. Pairing it with
+ * `search_options.forced_search` is what actually retrieves, so the two are
+ * always sent together and a search is guaranteed to have run.
+ *
+ * `search_strategy` is deliberately omitted. The documented "agent" and
+ * "agent_max" policies are rejected with a 400 ("The current model does not
+ * support the \"agent\" search strategy") by the Qwen max models mapped here,
+ * and the legacy turbo/standard/pro/max tiers only vary how many snippets get
+ * injected into the prompt.
+ */
+function applyDashScopeWebSearch(requestBody: Record<string, any>): void {
+	requestBody.enable_search = true;
+	requestBody.search_options = { forced_search: true };
+}
+
+/**
  * Ensures function-tool parameters form a valid JSON Schema object. Some
  * upstreams (e.g. DeepSeek) reject tools whose parameters omit `type` or set
  * it to null, which happens when SDKs serialize parameter-less tools.
@@ -2409,6 +2429,10 @@ export async function prepareRequestBody(
 				requestBody.response_format = response_format;
 			}
 
+			if (webSearchTool) {
+				applyDashScopeWebSearch(requestBody);
+			}
+
 			// Add optional parameters if they are provided
 			if (temperature !== undefined) {
 				requestBody.temperature = temperature;
@@ -3995,6 +4019,13 @@ export async function prepareRequestBody(
 			// already narrows to the tiers the catalog declares for this mapping.
 			if (usedProvider === "fireworks" && supportedServiceTier) {
 				requestBody.service_tier = supportedServiceTier;
+			}
+
+			// SCX resells Alibaba's Qwen models and passes DashScope's search
+			// parameters straight through, so its Qwen mappings take the same shape
+			// as the `alibaba` case above.
+			if (usedProvider === "scx-ai-gp" && webSearchTool) {
+				applyDashScopeWebSearch(requestBody);
 			}
 
 			// Vertex's OpenAI-compatible chat completions endpoint requires the
