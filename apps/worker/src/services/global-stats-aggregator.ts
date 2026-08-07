@@ -286,7 +286,7 @@ async function setLastSafetyNetDay(day: Date): Promise<void> {
 // Returns true on full completion. Returns false if stop was requested
 // mid-walk; the caller must NOT mark the day as recomputed in that case so the
 // next worker start retries from the partially-recomputed state.
-export async function recomputeDayFully(day: Date): Promise<boolean> {
+async function recomputeDayFully(day: Date): Promise<boolean> {
 	const dayStr = formatUTCTimestamp(day);
 
 	await db.transaction(async (tx) => {

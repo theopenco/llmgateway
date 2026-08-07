@@ -6,8 +6,9 @@ ALTER TABLE "global_source_stats" ADD COLUMN "used_mode" text DEFAULT 'unknown' 
 ALTER TABLE "global_source_stats" ADD COLUMN "org_kind" text DEFAULT 'unknown' NOT NULL;--> statement-breakpoint
 -- Lossless attribution of pre-existing rows: when every request in a row used
 -- the same mode, all of that row's measures belong to that mode. Genuinely
--- mixed rows keep 'unknown' — their non-cost measures cannot be split without
--- re-aggregating the logs (see the backfill script). Nothing is prorated.
+-- mixed rows keep 'unknown', as does org_kind on every pre-existing row —
+-- recovering those means re-aggregating the raw logs, which is deliberately
+-- not done here. Nothing is prorated.
 UPDATE "global_model_stats" SET "used_mode" = 'credits' WHERE "credits_request_count" > 0 AND "api_keys_request_count" = 0;--> statement-breakpoint
 UPDATE "global_model_stats" SET "used_mode" = 'api-keys' WHERE "api_keys_request_count" > 0 AND "credits_request_count" = 0;--> statement-breakpoint
 UPDATE "global_source_stats" SET "used_mode" = 'credits' WHERE "credits_request_count" > 0 AND "api_keys_request_count" = 0;--> statement-breakpoint
