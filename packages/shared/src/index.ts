@@ -147,6 +147,11 @@ export {
 	uniqueId,
 } from "./random.js";
 
+export {
+	getModelIdsByProvider,
+	getProviderModelIds,
+} from "./provider-model-ids.js";
+
 export { MARKETING_STATS, RUNWARE_PROMO } from "./marketing.js";
 
 export { isContentFilterErrorText } from "./content-filter.js";

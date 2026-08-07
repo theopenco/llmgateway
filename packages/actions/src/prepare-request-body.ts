@@ -291,6 +291,26 @@ function isFunctionTool(
 }
 
 /**
+ * Enables DashScope web search on an OpenAI-compatible request body.
+ *
+ * `enable_search` on its own is only a hint that the model is free to ignore,
+ * and in practice it always does: the prompt comes back the same size and the
+ * model answers that it has no live access. Pairing it with
+ * `search_options.forced_search` is what actually retrieves, so the two are
+ * always sent together and a search is guaranteed to have run.
+ *
+ * `search_strategy` is deliberately omitted. The documented "agent" and
+ * "agent_max" policies are rejected with a 400 ("The current model does not
+ * support the \"agent\" search strategy") by the Qwen max models mapped here,
+ * and the legacy turbo/standard/pro/max tiers only vary how many snippets get
+ * injected into the prompt.
+ */
+function applyDashScopeWebSearch(requestBody: Record<string, any>): void {
+	requestBody.enable_search = true;
+	requestBody.search_options = { forced_search: true };
+}
+
+/**
  * Ensures function-tool parameters form a valid JSON Schema object. Some
  * upstreams (e.g. DeepSeek) reject tools whose parameters omit `type` or set
  * it to null, which happens when SDKs serialize parameter-less tools.
@@ -485,8 +505,62 @@ function resolveRef(ref: string, rootDefs: Record<string, any>): any {
 }
 
 /**
- * Recursively strips unsupported properties and expands $ref references for Google
- * Google doesn't support $ref, additionalProperties, $schema, and some other JSON schema properties
+ * The only keys Google's `Schema` proto accepts inside a function
+ * declaration's `parameters`. Anything else — a JSON Schema keyword Google
+ * never modelled (`readOnly`, `additionalItems`, `const`, …) or a vendor
+ * extension a client's schema generator invented (`~optional`, `x-*`) —
+ * is rejected outright with `Invalid JSON payload received. Unknown name
+ * "<key>" at 'tools[0].function_declarations[N]…': Cannot find field.`,
+ * failing the entire request with a 400 even though only one property of one
+ * tool carried the key.
+ *
+ * This is an allowlist on purpose. The previous denylist could only ever be
+ * as complete as the last such outage: clients keep emitting new extension
+ * keys, and every unanticipated one is a hard failure rather than a
+ * degradation.
+ *
+ * Deliberately omitted even though Google does accept them: `minLength`,
+ * `maxLength`, `pattern`, `minimum`, `maximum`, `minItems`, `maxItems`,
+ * `minProperties`, `maxProperties` and `not`. The gateway has always stripped
+ * those, and forwarding them would change how models fill tool arguments, so
+ * restoring them is a separate behavioural change rather than part of this
+ * fix. `$ref` / `$defs` / `definitions` are absent because they are consumed
+ * by the inline expansion below instead of being forwarded.
+ */
+const GOOGLE_SUPPORTED_SCHEMA_KEYS: ReadonlySet<string> = new Set([
+	"type",
+	"format",
+	"title",
+	"description",
+	"nullable",
+	"enum",
+	"items",
+	"properties",
+	"required",
+	"default",
+	"anyOf",
+	"oneOf",
+	"allOf",
+	"propertyOrdering",
+	"example",
+]);
+
+/**
+ * Keys whose value is an instance value rather than a subschema. They are
+ * copied verbatim: recursing into them would apply the schema allowlist to the
+ * value's own fields, so an object-typed `default` or `example` would arrive
+ * at the provider emptied out.
+ */
+const GOOGLE_OPAQUE_SCHEMA_VALUE_KEYS: ReadonlySet<string> = new Set([
+	"default",
+	"example",
+	"enum",
+]);
+
+/**
+ * Recursively drops everything Google's schema parser does not accept and
+ * expands $ref references inline, since Google supports neither $ref nor the
+ * bulk of JSON Schema's validation vocabulary.
  */
 function stripUnsupportedSchemaProperties(
 	schema: any,
@@ -540,53 +614,12 @@ function stripUnsupportedSchemaProperties(
 	const cleaned: any = {};
 
 	for (const [key, value] of Object.entries(schema)) {
-		// Skip unsupported properties
-		// Google doesn't support many JSON Schema validation keywords
-		if (
-			key === "additionalProperties" ||
-			key === "$schema" ||
-			key === "$defs" ||
-			key === "definitions" ||
-			key === "$ref" ||
-			key === "ref" ||
-			key === "$id" ||
-			key === "$comment" ||
-			key === "$anchor" ||
-			key === "$dynamicAnchor" ||
-			key === "$dynamicRef" ||
-			key === "$vocabulary" ||
-			key === "examples" ||
-			key === "enumTitles" ||
-			key === "prefill" ||
-			key === "maxLength" ||
-			key === "minLength" ||
-			key === "minimum" ||
-			key === "maximum" ||
-			key === "exclusiveMinimum" ||
-			key === "exclusiveMaximum" ||
-			key === "pattern" ||
-			key === "propertyNames" ||
-			key === "const" ||
-			key === "not" ||
-			key === "if" ||
-			key === "then" ||
-			key === "else" ||
-			key === "multipleOf" ||
-			key === "minItems" ||
-			key === "maxItems" ||
-			key === "uniqueItems" ||
-			key === "minProperties" ||
-			key === "maxProperties" ||
-			key === "patternProperties" ||
-			key === "dependentRequired" ||
-			key === "dependentSchemas" ||
-			key === "unevaluatedProperties" ||
-			key === "unevaluatedItems" ||
-			key === "contentMediaType" ||
-			key === "contentEncoding" ||
-			key === "prefixItems" ||
-			key === "contains"
-		) {
+		if (!GOOGLE_SUPPORTED_SCHEMA_KEYS.has(key)) {
+			continue;
+		}
+
+		if (GOOGLE_OPAQUE_SCHEMA_VALUE_KEYS.has(key)) {
+			cleaned[key] = value;
 			continue;
 		}
 
@@ -2409,6 +2442,10 @@ export async function prepareRequestBody(
 				requestBody.response_format = response_format;
 			}
 
+			if (webSearchTool) {
+				applyDashScopeWebSearch(requestBody);
+			}
+
 			// Add optional parameters if they are provided
 			if (temperature !== undefined) {
 				requestBody.temperature = temperature;
@@ -3995,6 +4032,13 @@ export async function prepareRequestBody(
 			// already narrows to the tiers the catalog declares for this mapping.
 			if (usedProvider === "fireworks" && supportedServiceTier) {
 				requestBody.service_tier = supportedServiceTier;
+			}
+
+			// SCX resells Alibaba's Qwen models and passes DashScope's search
+			// parameters straight through, so its Qwen mappings take the same shape
+			// as the `alibaba` case above.
+			if (usedProvider === "scx-ai-gp" && webSearchTool) {
+				applyDashScopeWebSearch(requestBody);
 			}
 
 			// Vertex's OpenAI-compatible chat completions endpoint requires the
