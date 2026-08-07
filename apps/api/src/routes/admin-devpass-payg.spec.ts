@@ -6,6 +6,7 @@ import { createTestUser, deleteAll } from "@/testing.js";
 import { db, tables } from "@llmgateway/db";
 
 const ORG_ID = "admin-devpass-payg-org";
+const OTHER_ORG_ID = "admin-devpass-payg-other-org";
 const PROJECT_ID = "admin-devpass-payg-project";
 const originalAdminEmails = process.env.ADMIN_EMAILS;
 
@@ -202,6 +203,94 @@ describe("admin devpass PAYG overflow reporting", () => {
 			refunds: 5,
 			net: 21.25,
 		});
+	});
+
+	it("ignores refunds whose original top-up is not counted as gross", async () => {
+		// Legacy rows can link a refund to a `credit_topup` no gross top-up sum
+		// ever counted: one that never completed, one carrying no amount, and
+		// one booked on a different organization. Subtracting those would drag
+		// the reported net below the gross it was never part of.
+		await db.insert(tables.organization).values({
+			id: OTHER_ORG_ID,
+			name: "Other Org",
+			billingEmail: "other@example.com",
+			kind: "default",
+		});
+		const uncountedOriginals = await db
+			.insert(tables.transaction)
+			.values([
+				{
+					organizationId: ORG_ID,
+					type: "credit_topup",
+					amount: "40",
+					creditAmount: "40",
+					status: "pending",
+				},
+				{
+					organizationId: ORG_ID,
+					type: "credit_topup",
+					amount: null,
+					creditAmount: null,
+					status: "completed",
+				},
+				{
+					organizationId: OTHER_ORG_ID,
+					type: "credit_topup",
+					amount: "60",
+					creditAmount: "60",
+					status: "completed",
+				},
+			])
+			.returning();
+		await db.insert(tables.transaction).values(
+			uncountedOriginals.map((original) => ({
+				organizationId: ORG_ID,
+				type: "credit_refund" as const,
+				amount: "40",
+				creditAmount: "0",
+				status: "completed" as const,
+				relatedTransactionId: original.id,
+			})),
+		);
+
+		const paygRes = await app.request("/admin/devpass/payg", {
+			headers: { Cookie: cookie },
+		});
+		expect(paygRes.status).toBe(200);
+		const payg = (await paygRes.json()) as {
+			topups: {
+				thisMonth: { gross: number; refunds: number; net: number };
+				allTime: { gross: number; refunds: number; net: number };
+			};
+		};
+		expect(payg.topups.allTime).toEqual({
+			gross: 26.25,
+			refunds: 0,
+			net: 26.25,
+		});
+		expect(payg.topups.thisMonth).toEqual({
+			gross: 26.25,
+			refunds: 0,
+			net: 26.25,
+		});
+
+		const listRes = await app.request("/admin/devpass", {
+			headers: { Cookie: cookie },
+		});
+		expect(listRes.status).toBe(200);
+		const list = (await listRes.json()) as ListResponse;
+		expect(list.subscribers.find((s) => s.id === ORG_ID)!.allTimeRevenue).toBe(
+			105.25,
+		);
+
+		const detailRes = await app.request(`/admin/devpass/${ORG_ID}`, {
+			headers: { Cookie: cookie },
+		});
+		expect(detailRes.status).toBe(200);
+		const detail = (await detailRes.json()) as {
+			subscriber: PaygSubscriber;
+		};
+		expect(detail.subscriber.allTimeRevenue).toBe(105.25);
 	});
 
 	it("detail endpoint carries the same PAYG fields", async () => {
