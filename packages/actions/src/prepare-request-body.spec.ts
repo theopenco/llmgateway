@@ -5752,3 +5752,69 @@ describe("prepareRequestBody - Sakana Fugu reasoning effort", () => {
 		}
 	});
 });
+
+describe("prepareRequestBody - DashScope web search", () => {
+	const prepare = (provider: string, model: string, webSearchTool?: any) =>
+		prepareRequestBody(
+			provider as any,
+			model,
+			null,
+			model,
+			[{ role: "user", content: "hi" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			webSearchTool,
+		) as Promise<any>;
+
+	test.each(["alibaba", "scx-ai-gp"])(
+		"%s pairs enable_search with forced_search",
+		async (provider) => {
+			const requestBody = await prepare(provider, "qwen3.8-max", {
+				type: "web_search",
+			});
+
+			// enable_search alone is a hint the model ignores; forced_search is what
+			// actually retrieves, so the two must always travel together.
+			expect(requestBody.enable_search).toBe(true);
+			expect(requestBody.search_options).toEqual({ forced_search: true });
+		},
+	);
+
+	test.each(["alibaba", "scx-ai-gp"])(
+		"%s omits search_strategy",
+		async (provider) => {
+			const requestBody = await prepare(provider, "qwen3.8-max", {
+				type: "web_search",
+			});
+
+			// The Qwen max models 400 on the documented "agent" policy.
+			expect(requestBody.search_options.search_strategy).toBeUndefined();
+		},
+	);
+
+	test.each(["alibaba", "scx-ai-gp"])(
+		"%s sends no search params without a web_search tool",
+		async (provider) => {
+			const requestBody = await prepare(provider, "qwen3.8-max");
+
+			expect(requestBody.enable_search).toBeUndefined();
+			expect(requestBody.search_options).toBeUndefined();
+		},
+	);
+});
