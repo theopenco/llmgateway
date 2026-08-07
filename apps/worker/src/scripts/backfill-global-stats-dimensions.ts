@@ -13,11 +13,16 @@ import { logger } from "@llmgateway/logger";
  * everything else — mixed-mode rows and every `org_kind` — can only be
  * recovered by re-aggregating the raw logs.
  *
- * Logs are pruned by data retention, so a blind wipe-and-recompute would
- * silently *destroy* aggregates for days whose logs are partly gone. Each day
- * is therefore only replaced when the log table still holds at least as many
- * requests as the stored aggregate accounts for. Skipped days keep their
- * existing (blended, "unknown") rows and are reported at the end.
+ * Run once after deploying the dimension migration, then it has nothing left
+ * to do (it exits early when no unattributed day remains). Deleting it later
+ * loses nothing permanently: data retention only nulls payload columns and
+ * never removes log rows, so the raw material for a recompute stays available.
+ *
+ * That said, a day whose logs have been pruned by hand or archived out would
+ * be silently *destroyed* by a blind wipe-and-recompute. Each day is therefore
+ * only replaced when the log table still holds at least as many requests as
+ * the stored aggregate accounts for. Skipped days keep their existing
+ * (blended, "unknown") rows and are reported at the end.
  *
  * Run with: pnpm --filter worker backfill:global-stats [--dry-run]
  */
