@@ -430,6 +430,32 @@ export function getProviderEndpoint(
 				break;
 			}
 			case "azure": {
+				// An explicit base URL wins over the resource: it is the only way to
+				// reach a deployment that serves the Azure surface from a host other
+				// than <resource>.openai.azure.com.
+				//
+				// Exactly one of the two belongs on any single credential, which is
+				// enforced where credentials are authored. Precedence still matters
+				// here because the two can arrive from different layers — a managed
+				// credential supplying a base URL must override a deployment-wide
+				// LLM_AZURE_RESOURCE rather than conflict with it.
+				const azureBaseUrl =
+					credentialConfig?.baseUrl ??
+					(skipEnvVars
+						? undefined
+						: getProviderEnvValue(
+								"azure",
+								"baseUrl",
+								configIndex,
+								undefined,
+								variant,
+							));
+
+				if (azureBaseUrl) {
+					url = azureBaseUrl;
+					break;
+				}
+
 				const resource =
 					credentialConfig?.resource ??
 					providerKeyOptions?.azure_resource ??
@@ -446,7 +472,7 @@ export function getProviderEndpoint(
 				if (!resource) {
 					const azureEnv = getProviderEnvConfig("azure");
 					throw new Error(
-						`Azure resource is required - set via provider options or ${azureEnv?.required.resource ?? "LLM_AZURE_RESOURCE"} env var`,
+						`Azure requires a resource or a base URL - set either via provider options or the ${azureEnv?.optional?.resource ?? "LLM_AZURE_RESOURCE"} / ${azureEnv?.optional?.baseUrl ?? "LLM_AZURE_BASE_URL"} env vars`,
 					);
 				}
 				url = `https://${resource}.openai.azure.com`;
