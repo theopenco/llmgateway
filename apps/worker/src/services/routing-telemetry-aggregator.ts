@@ -19,6 +19,10 @@ import { formatUTCTimestamp } from "./project-stats-aggregator.js";
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
+// Inferred drizzle transaction type, so both aggregations can run against the
+// same transaction rather than the pooled connection.
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 // Chunk size for the bulk upserts. Postgres caps a statement at 65535 bind
 // parameters and these rows have well under 20 columns, so 1000 stays safe.
 const UPSERT_CHUNK_SIZE = 1000;
@@ -81,10 +85,10 @@ function hourWindow(targetHour: Date) {
  * reason of `single-provider-available`, which is exactly the shape that makes a
  * well-scoring mapping look like it lost.
  */
-async function aggregateElections(targetHour: Date) {
+async function aggregateElections(tx: Tx, targetHour: Date) {
 	const { start, end } = hourWindow(targetHour);
 
-	const rows = await db
+	const rows = await tx
 		.select({
 			modelId: usedBaseModelSql.as("modelId"),
 			providerId: log.usedProvider,
@@ -115,7 +119,7 @@ async function aggregateElections(targetHour: Date) {
 
 	for (let i = 0; i < values.length; i += UPSERT_CHUNK_SIZE) {
 		const chunk = values.slice(i, i + UPSERT_CHUNK_SIZE);
-		await db
+		await tx
 			.insert(routingElectionHourly)
 			.values(chunk)
 			.onConflictDoUpdate({
@@ -156,7 +160,7 @@ async function aggregateElections(targetHour: Date) {
  * `excludedDecisionCount` counts each request once no matter how many reasons
  * it tripped, and is the only one that can be turned into an eligibility rate.
  */
-async function aggregateExclusions(targetHour: Date) {
+async function aggregateExclusions(tx: Tx, targetHour: Date) {
 	const { start, startUtc } = hourWindow(targetHour);
 
 	const reasonAllowlist = sql.raw(
@@ -166,7 +170,7 @@ async function aggregateExclusions(targetHour: Date) {
 	// One row per (model, provider, reason) with the exclusion count, plus a
 	// separate pass for the candidate denominator. Both are computed in SQL so the
 	// worker never materializes per-request rows in memory.
-	const rows = await db.execute<{
+	const rows = await tx.execute<{
 		model_id: string | null;
 		provider_id: string | null;
 		reason: string;
@@ -319,7 +323,7 @@ async function aggregateExclusions(targetHour: Date) {
 
 	for (let i = 0; i < values.length; i += UPSERT_CHUNK_SIZE) {
 		const chunk = values.slice(i, i + UPSERT_CHUNK_SIZE);
-		await db
+		await tx
 			.insert(routingExclusionHourly)
 			.values(chunk)
 			.onConflictDoUpdate({
@@ -350,12 +354,17 @@ async function aggregateExclusions(targetHour: Date) {
  * dashboard request, and the resulting hourly rows are what the admin dashboard
  * queries. Backfilling an hour whose logs have already been pruned simply
  * produces no rows and leaves any existing ones untouched.
+ *
+ * Both aggregations share one transaction so the hour lands all-or-nothing.
+ * Presence in routing_election_hourly is what tells the backfill an hour is
+ * done; if the elections committed on their own and the exclusions then failed,
+ * the hour would look complete and its exclusion rows would never be filled in.
  */
 export async function calculateRoutingTelemetryForHour(targetHour: Date) {
-	const [electionRows, exclusionRows] = [
-		await aggregateElections(targetHour),
-		await aggregateExclusions(targetHour),
-	];
+	const { electionRows, exclusionRows } = await db.transaction(async (tx) => ({
+		electionRows: await aggregateElections(tx, targetHour),
+		exclusionRows: await aggregateExclusions(tx, targetHour),
+	}));
 
 	logger.debug(
 		`Recorded routing telemetry for ${hourWindow(targetHour).start.toISOString()}`,

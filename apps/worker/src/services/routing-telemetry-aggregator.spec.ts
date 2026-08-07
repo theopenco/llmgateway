@@ -8,6 +8,7 @@ import {
 	project,
 	routingElectionHourly,
 	routingExclusionHourly,
+	sql,
 	user,
 } from "@llmgateway/db";
 
@@ -444,6 +445,35 @@ describe("routing telemetry aggregator", () => {
 		expect(await exclusions()).toEqual([
 			expect.objectContaining({ excludedCount: 1, candidateCount: 1 }),
 		]);
+	});
+
+	it("leaves no election rows behind when the exclusion pass fails", async () => {
+		// Presence in routing_election_hourly is what tells the backfill an hour is
+		// done. If the elections committed on their own and the exclusions then
+		// failed, the hour would look complete and never get its exclusion rows.
+		await db.insert(log).values([
+			withMetadata({
+				selectionReason: "weighted-score",
+				availableProviders: ["openai"],
+				filteredProviders: [
+					{ providerId: "azure", reasons: ["vision"], codes: ["vision"] },
+				],
+			}),
+		]);
+
+		// Break the exclusion query only, after the election upsert has run.
+		await db.execute(
+			sql`alter table "routing_exclusion_hourly" rename column "excluded_count" to "excluded_count_tmp"`,
+		);
+		try {
+			await expect(calculateRoutingTelemetryForHour(HOUR)).rejects.toThrow();
+		} finally {
+			await db.execute(
+				sql`alter table "routing_exclusion_hourly" rename column "excluded_count_tmp" to "excluded_count"`,
+			);
+		}
+
+		expect(await elections()).toEqual([]);
 	});
 
 	it("only aggregates logs inside the target hour", async () => {

@@ -270,8 +270,9 @@ describe("admin routing analytics endpoint", () => {
 		expect(eligibilityB.exclusionRate).toBe(0.7);
 		expect(eligibilityB.topReason).toBe("service_tier");
 
-		// A mapping that was never excluded reports no rate rather than 0%, so the
-		// dashboard can tell "always eligible" apart from "no data".
+		// A mapping with no exclusion rows reports no rate rather than 0%. The
+		// table only carries rows for mappings that were excluded at least once,
+		// so this covers both "always eligible" and "no telemetry".
 		const eligibilityA = body.eligibility.find(
 			(e: { providerId: string }) => e.providerId === providerA,
 		);

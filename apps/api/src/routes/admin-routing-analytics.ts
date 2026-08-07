@@ -140,7 +140,13 @@ const mappingEligibilitySchema = z
 		candidateCount: z.number(),
 		/** Routing decisions the mapping was dropped from, counted once each. */
 		excludedCount: z.number(),
-		/** excluded / candidate, or null when the mapping saw no routing decisions. */
+		/**
+		 * excluded / candidate, or null when the mapping has no exclusion telemetry
+		 * in the window. Candidate totals come from `routing_exclusion_hourly`,
+		 * which has no row for a mapping that was never excluded, so null covers
+		 * both "always eligible" and "no data" — it is not a claim that the mapping
+		 * saw no routing decisions.
+		 */
 		exclusionRate: z.number().nullable(),
 		topReason: z.string().nullable(),
 		/**
