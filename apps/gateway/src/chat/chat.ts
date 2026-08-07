@@ -3177,7 +3177,11 @@ chat.openapi(completions, async (c) => {
 		try {
 			evaluation = evaluateDynamicRoute(publishedRoute.graph, {
 				getHeader: (name) => c.req.header(name),
-				body: validationResult.data as unknown as Record<string, unknown>,
+				// The RAW request body, not validationResult.data: the completions
+				// schema strips unknown keys, which would make body conditions on
+				// caller-defined fields (e.g. "metadata.segment") silently never
+				// match.
+				body: rawBody as Record<string, unknown>,
 				metadata: {
 					orgId: project.organizationId,
 					projectId: project.id,

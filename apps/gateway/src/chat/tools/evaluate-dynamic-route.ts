@@ -7,7 +7,11 @@ import {
 
 export interface DynamicRouteEvaluationContext {
 	getHeader: (name: string) => string | undefined;
-	/** The validated chat-completions request body. */
+	/**
+	 * The RAW parsed request body as sent by the caller (not the
+	 * schema-validated copy, which strips unknown keys and would hide
+	 * caller-defined routing fields like "metadata.segment").
+	 */
 	body: Record<string, unknown>;
 	metadata: {
 		orgId: string;
