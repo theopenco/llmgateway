@@ -1007,9 +1007,16 @@ export const providers: ProviderDefinition[] = [
 		env: {
 			required: {
 				apiKey: "LLM_AZURE_API_KEY",
-				resource: "LLM_AZURE_RESOURCE",
 			},
 			optional: {
+				// A deployment needs either a resource, which builds the
+				// https://<resource>.openai.azure.com host, or an explicit base URL
+				// for a deployment that speaks the Azure surface from somewhere else
+				// (a gateway, a proxy, a private endpoint). Neither is required on
+				// its own, so both are optional here and endpoint resolution rejects
+				// a credential carrying neither.
+				resource: "LLM_AZURE_RESOURCE",
+				baseUrl: "LLM_AZURE_BASE_URL",
 				deploymentType: "LLM_AZURE_DEPLOYMENT_TYPE",
 				apiVersion: "LLM_AZURE_API_VERSION",
 				useResponsesApi: "LLM_AZURE_USE_RESPONSES_API",
