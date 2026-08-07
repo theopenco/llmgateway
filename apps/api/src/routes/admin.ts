@@ -22,6 +22,7 @@ import {
 	notEndUserWalletFilter,
 	notPlanFilter,
 	paidTransactionFilter,
+	refundsCountedTopupFilter,
 } from "@/utils/devpass-filter.js";
 import {
 	HOURLY_BUCKET_THRESHOLD_MINUTES,
@@ -12388,13 +12389,19 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			and(
 				eq(tables.transaction.type, "credit_refund"),
 				eq(tables.transaction.status, "completed"),
-				inArray(allTimeRefundOriginalTx.type, [
-					...DEV_PLAN_TX_TYPES,
-					...LEGACY_DEV_PLAN_TX_TYPES,
+				or(
+					inArray(allTimeRefundOriginalTx.type, [
+						...DEV_PLAN_TX_TYPES,
+						...LEGACY_DEV_PLAN_TX_TYPES,
+					]),
 					// PAYG overflow top-up refunds net out of all-time revenue,
-					// mirroring the top-up subquery below on the revenue side.
-					"credit_topup",
-				]),
+					// mirroring the top-up subquery below on the revenue side —
+					// so they are restricted to the same rows that subquery sums.
+					refundsCountedTopupFilter(
+						tables.transaction,
+						allTimeRefundOriginalTx,
+					),
+				)!,
 			),
 		)
 		.groupBy(tables.transaction.organizationId)
@@ -13237,7 +13244,7 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 				gte(tables.transaction.createdAt, startDate),
 				lte(tables.transaction.createdAt, endDate),
 				eq(tables.organization.kind, "devpass"),
-				eq(topupRefundOriginalTx.type, "credit_topup"),
+				refundsCountedTopupFilter(tables.transaction, topupRefundOriginalTx),
 			),
 		)
 		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
@@ -13473,7 +13480,7 @@ admin.openapi(getDevpassPaygStats, async (c) => {
 				eq(tables.transaction.type, "credit_refund"),
 				eq(tables.transaction.status, "completed"),
 				eq(tables.organization.kind, "devpass"),
-				eq(paygRefundOriginalTx.type, "credit_topup"),
+				refundsCountedTopupFilter(tables.transaction, paygRefundOriginalTx),
 			),
 		);
 
@@ -13834,11 +13841,12 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 				eq(tables.transaction.organizationId, orgId),
 				eq(tables.transaction.type, "credit_refund"),
 				eq(tables.transaction.status, "completed"),
-				inArray(detailRefundOriginalTx.type, [
-					...allTimeRevenueTypes,
-					// Top-up refunds net out of revenue like the top-ups counted in.
-					"credit_topup",
-				]),
+				or(
+					inArray(detailRefundOriginalTx.type, allTimeRevenueTypes),
+					// Top-up refunds net out of revenue like the top-ups counted
+					// in, so they match the same rows allTimeTopUps sums.
+					refundsCountedTopupFilter(tables.transaction, detailRefundOriginalTx),
+				)!,
 			),
 		);
 
