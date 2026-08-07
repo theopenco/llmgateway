@@ -152,6 +152,16 @@ export {
 	getProviderModelIds,
 } from "./provider-model-ids.js";
 
+export {
+	formatPlanTermBadge,
+	formatPlanTermLabel,
+	getPlanTerm,
+	PLAN_TERM_CRITICAL_DAYS,
+	PLAN_TERM_EXPIRING_DAYS,
+	type PlanTerm,
+	type PlanTermStatus,
+} from "./plan-term.js";
+
 export { MARKETING_STATS, RUNWARE_PROMO } from "./marketing.js";
 
 export { isContentFilterErrorText } from "./content-filter.js";

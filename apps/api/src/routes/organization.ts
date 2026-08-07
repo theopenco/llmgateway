@@ -121,6 +121,8 @@ const organizationSchema = z.object({
 	credits: z.string(),
 	plan: z.enum(["free", "pro", "enterprise"]),
 	planExpiresAt: z.date().nullable(),
+	// Start of the current plan term; null when it was never recorded.
+	planStartedAt: z.date().nullable(),
 	// Manual seat-limit override; null = use the plan default.
 	seats: z.number().nullable(),
 	// Manual API-key-limit override; null = use the plan default.

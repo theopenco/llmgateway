@@ -1,5 +1,6 @@
 import { Ban, Check, X } from "lucide-react";
 
+import { PlanTermBadge } from "@/components/plan-term-badge";
 import { Badge } from "@/components/ui/badge";
 import {
 	Card,
@@ -64,10 +65,41 @@ type RequirementKey =
 
 function formatDate(dateString: string) {
 	return new Date(dateString).toLocaleDateString("en-US", {
+		timeZone: "UTC",
 		year: "numeric",
 		month: "short",
 		day: "numeric",
 	});
+}
+
+/**
+ * Term readout for the settings sheet: the agreed window on one line, with the
+ * countdown badge carrying the urgency colour so a lapsing contract is visible
+ * without reading dates.
+ */
+function PlanTerm({
+	planExpiresAt,
+	planStartedAt,
+}: {
+	planExpiresAt: string | null;
+	planStartedAt: string | null;
+}) {
+	if (!planExpiresAt) {
+		return <span className="text-muted-foreground">Open-ended</span>;
+	}
+
+	return (
+		<span className="flex flex-wrap items-center justify-end gap-2">
+			<span className="tabular-nums">
+				{planStartedAt ? `${formatDate(planStartedAt)} → ` : ""}
+				{formatDate(planExpiresAt)}
+			</span>
+			<PlanTermBadge
+				planExpiresAt={planExpiresAt}
+				planStartedAt={planStartedAt}
+			/>
+		</span>
+	);
 }
 
 function SettingRow({
@@ -233,8 +265,11 @@ export function OrgSettingsTab({ settings }: { settings: SettingsResponse }) {
 								{org.plan}
 							</Badge>
 						</SettingRow>
-						<SettingRow label="Plan expires">
-							{org.planExpiresAt ? formatDate(org.planExpiresAt) : "—"}
+						<SettingRow label="Plan term">
+							<PlanTerm
+								planExpiresAt={org.planExpiresAt}
+								planStartedAt={org.planStartedAt}
+							/>
 						</SettingRow>
 						<SettingRow label="Kind">{org.kind}</SettingRow>
 						<SettingRow label="Dev plan">{org.devPlan}</SettingRow>

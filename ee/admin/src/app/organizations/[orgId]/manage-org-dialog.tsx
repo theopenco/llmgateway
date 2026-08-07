@@ -24,6 +24,8 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 
+import { formatPlanTermLabel, getPlanTerm } from "@llmgateway/shared";
+
 type Plan = "free" | "pro" | "enterprise";
 
 interface ManageOrgDialogProps {
@@ -31,11 +33,15 @@ interface ManageOrgDialogProps {
 	plan: string;
 	seats: number | null;
 	apiKeyLimit: number | null;
+	planExpiresAt: string | null;
+	planStartedAt: string | null;
 	onSave: (data: {
 		name: string;
 		plan: Plan;
 		seats: number | null;
 		apiKeyLimit: number | null;
+		planExpiresAt: string | null;
+		planStartedAt: string | null;
 	}) => Promise<{ success: boolean; error?: string }>;
 }
 
@@ -51,11 +57,42 @@ const PLAN_DEFAULT_API_KEYS: Record<Plan, number> = {
 	enterprise: 500,
 };
 
+// Contract lengths we actually sell, offered as one-click presets so booking a
+// renewal does not turn into date arithmetic in the admin's head.
+const TERM_PRESETS: { label: string; months: number }[] = [
+	{ label: "3 months", months: 3 },
+	{ label: "6 months", months: 6 },
+	{ label: "1 year", months: 12 },
+	{ label: "2 years", months: 24 },
+];
+
+/** Timestamps arrive as ISO strings; `<input type="date">` wants YYYY-MM-DD. */
+function toDateInputValue(value: string | null): string {
+	return value ? value.slice(0, 10) : "";
+}
+
+function todayInputValue(): string {
+	return new Date().toISOString().slice(0, 10);
+}
+
+/** Adds whole months in UTC, clamping to the last day of a shorter month. */
+function addMonths(dateInput: string, months: number): string {
+	const [year, month, day] = dateInput.split("-").map(Number);
+	const target = new Date(Date.UTC(year, month - 1 + months, 1));
+	const daysInTargetMonth = new Date(
+		Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0),
+	).getUTCDate();
+	target.setUTCDate(Math.min(day, daysInTargetMonth));
+	return target.toISOString().slice(0, 10);
+}
+
 export function ManageOrgDialog({
 	orgName,
 	plan,
 	seats,
 	apiKeyLimit,
+	planExpiresAt,
+	planStartedAt,
 	onSave,
 }: ManageOrgDialogProps) {
 	const router = useRouter();
@@ -72,6 +109,26 @@ export function ManageOrgDialog({
 	const [apiKeyLimitValue, setApiKeyLimitValue] = useState(
 		apiKeyLimit === null ? "" : String(apiKeyLimit),
 	);
+	const [startedAtValue, setStartedAtValue] = useState(
+		toDateInputValue(planStartedAt),
+	);
+	const [expiresAtValue, setExpiresAtValue] = useState(
+		toDateInputValue(planExpiresAt),
+	);
+
+	const previewTerm = getPlanTerm({
+		expiresAt: expiresAtValue || null,
+		startedAt: startedAtValue || null,
+	});
+
+	// A preset books a fresh term starting today rather than extending from the
+	// existing start date — otherwise clicking "1 year" on a contract that began
+	// a year ago would recompute the same expiry and appear to do nothing.
+	const applyPreset = (months: number) => {
+		const start = todayInputValue();
+		setStartedAtValue(start);
+		setExpiresAtValue(addMonths(start, months));
+	};
 
 	const handleSubmit = async () => {
 		const trimmedName = nameValue.trim();
@@ -102,6 +159,20 @@ export function ManageOrgDialog({
 			apiKeyLimitToSave = parsed;
 		}
 
+		if (startedAtValue !== "" && expiresAtValue === "") {
+			setError("A plan start date needs an expiry date too");
+			return;
+		}
+
+		if (
+			startedAtValue !== "" &&
+			expiresAtValue !== "" &&
+			startedAtValue >= expiresAtValue
+		) {
+			setError("Plan start date must be before the expiry date");
+			return;
+		}
+
 		setLoading(true);
 		setError(null);
 
@@ -110,6 +181,8 @@ export function ManageOrgDialog({
 			plan: planValue,
 			seats: seatsToSave,
 			apiKeyLimit: apiKeyLimitToSave,
+			planStartedAt: startedAtValue === "" ? null : startedAtValue,
+			planExpiresAt: expiresAtValue === "" ? null : expiresAtValue,
 		});
 
 		setLoading(false);
@@ -134,8 +207,8 @@ export function ManageOrgDialog({
 				<DialogHeader>
 					<DialogTitle>Manage {orgName}</DialogTitle>
 					<DialogDescription>
-						Change the plan tier and override the team-member seat limit and
-						API-key limit.
+						Change the plan tier, set the plan term, and override the
+						team-member seat limit and API-key limit.
 					</DialogDescription>
 				</DialogHeader>
 
@@ -166,6 +239,90 @@ export function ManageOrgDialog({
 								<SelectItem value="enterprise">Enterprise</SelectItem>
 							</SelectContent>
 						</Select>
+					</div>
+
+					<div className="space-y-3 rounded-lg border p-3">
+						<div className="flex items-center justify-between gap-2">
+							<Label>Plan term</Label>
+							{previewTerm ? (
+								<span className="text-muted-foreground text-xs tabular-nums">
+									{formatPlanTermLabel(previewTerm)}
+									{previewTerm.totalDays !== null
+										? ` · ${previewTerm.totalDays}-day term`
+										: ""}
+								</span>
+							) : (
+								<span className="text-muted-foreground text-xs">
+									No end date
+								</span>
+							)}
+						</div>
+
+						<div className="grid grid-cols-2 gap-3">
+							<div className="space-y-1.5">
+								<Label
+									htmlFor="managePlanStartedAt"
+									className="text-muted-foreground text-xs font-normal"
+								>
+									Starts
+								</Label>
+								<Input
+									id="managePlanStartedAt"
+									type="date"
+									value={startedAtValue}
+									onChange={(e) => setStartedAtValue(e.target.value)}
+								/>
+							</div>
+							<div className="space-y-1.5">
+								<Label
+									htmlFor="managePlanExpiresAt"
+									className="text-muted-foreground text-xs font-normal"
+								>
+									Expires
+								</Label>
+								<Input
+									id="managePlanExpiresAt"
+									type="date"
+									value={expiresAtValue}
+									onChange={(e) => setExpiresAtValue(e.target.value)}
+								/>
+							</div>
+						</div>
+
+						<div className="flex flex-wrap items-center gap-1.5">
+							{TERM_PRESETS.map((preset) => (
+								<Button
+									key={preset.months}
+									type="button"
+									variant="outline"
+									size="sm"
+									className="h-7 px-2 text-xs"
+									onClick={() => applyPreset(preset.months)}
+								>
+									{preset.label}
+								</Button>
+							))}
+							{(startedAtValue !== "" || expiresAtValue !== "") && (
+								<Button
+									type="button"
+									variant="ghost"
+									size="sm"
+									className="text-muted-foreground h-7 px-2 text-xs"
+									onClick={() => {
+										setStartedAtValue("");
+										setExpiresAtValue("");
+									}}
+								>
+									Clear
+								</Button>
+							)}
+						</div>
+
+						<p className="text-muted-foreground text-xs">
+							The countdown the customer sees on their billing page. Presets
+							start a new term today; edit the dates directly to backdate one.
+							Leave both empty for an open-ended plan.
+						</p>
 					</div>
 
 					<div className="space-y-2">
