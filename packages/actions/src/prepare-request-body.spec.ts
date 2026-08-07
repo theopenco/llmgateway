@@ -2583,6 +2583,169 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		expect(params.required).toContain("prefill");
 	});
 
+	test("should strip unknown vendor extensions from Google tool parameters", async () => {
+		// Google's schema parser rejects any key it does not model, failing the
+		// whole request with `Unknown name "<key>" … Cannot find field.` — so a
+		// single `~optional` marker left in by a client's schema generator 400s
+		// every tool call. These keys are not enumerable in advance, which is why
+		// the filter is an allowlist.
+		const toolsWithVendorExtensions = [
+			{
+				type: "function" as const,
+				function: {
+					name: "test_tool",
+					description: "Test tool",
+					parameters: {
+						type: "object",
+						"~standard": { version: 1, vendor: "zod" },
+						properties: {
+							field_a: {
+								type: "string",
+								"~optional": true,
+							},
+							field_b: {
+								type: "string",
+								readOnly: true,
+								writeOnly: true,
+								deprecated: true,
+							},
+							field_c: {
+								type: "array",
+								items: { type: "string", "x-vendor-hint": "list" },
+								additionalItems: false,
+							},
+							field_d: {
+								type: "string",
+								enum: ["one"],
+								enumNames: ["One"],
+							},
+						},
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.0-flash",
+			null,
+			"gemini-2.0-flash",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			toolsWithVendorExtensions,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const params = requestBody.tools[0].functionDeclarations[0].parameters;
+
+		expect(params["~standard"]).toBeUndefined();
+		expect(params.properties.field_a["~optional"]).toBeUndefined();
+		expect(params.properties.field_b.readOnly).toBeUndefined();
+		expect(params.properties.field_b.writeOnly).toBeUndefined();
+		expect(params.properties.field_b.deprecated).toBeUndefined();
+		expect(params.properties.field_c.additionalItems).toBeUndefined();
+		expect(params.properties.field_c.items["x-vendor-hint"]).toBeUndefined();
+		expect(params.properties.field_d.enumNames).toBeUndefined();
+
+		// The supported parts of each schema must survive untouched
+		expect(params.type).toBe("object");
+		expect(params.properties.field_a.type).toBe("string");
+		expect(params.properties.field_c.items.type).toBe("string");
+		expect(params.properties.field_d.enum).toEqual(["one"]);
+	});
+
+	test("should keep the schema keys Google supports in tool parameters", async () => {
+		const toolsWithSupportedKeys = [
+			{
+				type: "function" as const,
+				function: {
+					name: "test_tool",
+					description: "Test tool",
+					parameters: {
+						type: "object",
+						title: "Params",
+						description: "Parameters",
+						propertyOrdering: ["choice", "config"],
+						properties: {
+							choice: {
+								type: "string",
+								format: "enum",
+								nullable: true,
+								enum: ["a", "b"],
+								default: "a",
+								example: "b",
+							},
+							union: {
+								anyOf: [{ type: "string" }, { type: "number" }],
+							},
+							// An object-valued default must survive verbatim: it holds an
+							// instance value, not a subschema, so its own keys are not
+							// schema keywords and must not be filtered.
+							config: {
+								type: "object",
+								properties: { retries: { type: "number" } },
+								default: { retries: 3, mode: "fast" },
+							},
+						},
+						required: ["choice"],
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.0-flash",
+			null,
+			"gemini-2.0-flash",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			toolsWithSupportedKeys,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const params = requestBody.tools[0].functionDeclarations[0].parameters;
+
+		expect(params.title).toBe("Params");
+		expect(params.description).toBe("Parameters");
+		expect(params.propertyOrdering).toEqual(["choice", "config"]);
+		expect(params.required).toEqual(["choice"]);
+		expect(params.properties.choice).toEqual({
+			type: "string",
+			format: "enum",
+			nullable: true,
+			enum: ["a", "b"],
+			default: "a",
+			example: "b",
+		});
+		expect(params.properties.union.anyOf).toEqual([
+			{ type: "string" },
+			{ type: "number" },
+		]);
+		expect(params.properties.config.default).toEqual({
+			retries: 3,
+			mode: "fast",
+		});
+	});
+
 	test("should add additionalProperties: false to Cerebras tool parameters", async () => {
 		const toolsWithoutAdditionalProps = [
 			{
