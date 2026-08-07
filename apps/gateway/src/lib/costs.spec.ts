@@ -1408,6 +1408,134 @@ describe("calculateCosts", () => {
 		expect(result.imageOutputCost).toBeCloseTo(1120 * (60 / 1e6));
 	});
 
+	it("bills perImagePrice by the served resolution tier for qwen-image-3.0-pro", async () => {
+		// qwen-image-3.0-pro: $0.04/image at 1K, $0.075/image at 2K
+		const at1k = await calculateCosts(
+			"qwen-image-3.0-pro",
+			"alibaba",
+			null,
+			100,
+			0,
+			null,
+			undefined,
+			null,
+			1, // outputImageCount
+			"1K",
+			0,
+		);
+		expect(at1k.imageOutputCost).toBeCloseTo(0.04);
+		expect(at1k.outputCost).toBeCloseTo(0.04);
+
+		const at2k = await calculateCosts(
+			"qwen-image-3.0-pro",
+			"alibaba",
+			null,
+			100,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			"2K",
+			0,
+		);
+		expect(at2k.imageOutputCost).toBeCloseTo(0.075);
+		expect(at2k.outputCost).toBeCloseTo(0.075);
+	});
+
+	it("falls back to the default perImagePrice tier for unknown or missing sizes", async () => {
+		// A raw pixel size that is not a tier key must not undercharge: it falls
+		// back to "default" ($0.075 for the pro model, the no-size 2K case).
+		const unknownSize = await calculateCosts(
+			"qwen-image-3.0-pro",
+			"alibaba",
+			null,
+			100,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			"1024x1024",
+			0,
+		);
+		expect(unknownSize.imageOutputCost).toBeCloseTo(0.075);
+
+		const noSize = await calculateCosts(
+			"qwen-image-3.0-pro",
+			"alibaba",
+			null,
+			100,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			undefined,
+			0,
+		);
+		expect(noSize.imageOutputCost).toBeCloseTo(0.075);
+	});
+
+	it("multiplies perImagePrice by the output image count", async () => {
+		// qwen-image-3.0 is $0.03/image at every tier; n=3 bills 3 images.
+		const result = await calculateCosts(
+			"qwen-image-3.0",
+			"alibaba",
+			null,
+			100,
+			0,
+			null,
+			undefined,
+			null,
+			3,
+			"1K",
+			0,
+		);
+		expect(result.imageOutputCost).toBeCloseTo(0.09);
+		expect(result.outputCost).toBeCloseTo(0.09);
+		expect(result.totalCost).toBeCloseTo(
+			(result.inputCost ?? 0) + 0.09 + (result.requestCost ?? 0),
+		);
+	});
+
+	it("bills perImagePrice even when prompt usage is absent or zero", async () => {
+		// An upstream response that omits prompt usage must still charge for the
+		// generated images instead of bailing out of cost calculation entirely.
+		const noPromptTokens = await calculateCosts(
+			"qwen-image-3.0",
+			"alibaba",
+			null,
+			null,
+			null,
+			null,
+			undefined,
+			null,
+			1,
+			"1K",
+			0,
+		);
+		expect(noPromptTokens.imageOutputCost).toBeCloseTo(0.03);
+		expect(noPromptTokens.outputCost).toBeCloseTo(0.03);
+		expect(noPromptTokens.totalCost).toBeCloseTo(0.03);
+
+		const zeroPromptTokens = await calculateCosts(
+			"qwen-image-3.0",
+			"alibaba",
+			null,
+			0,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			"1K",
+			0,
+		);
+		expect(zeroPromptTokens.imageOutputCost).toBeCloseTo(0.03);
+		expect(zeroPromptTokens.totalCost).toBeCloseTo(0.03);
+	});
+
 	it("should include image costs in totalCost sum", async () => {
 		// totalCost = inputCost + outputCost + cachedInputCost + requestCost + webSearchCost
 		// (inputCost already includes imageInputCost, outputCost already includes imageOutputCost)

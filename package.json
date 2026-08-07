@@ -21,7 +21,7 @@
 		"prepare-codex": "mv ~/.nvm ~/.nvm-bak && export PATH=\"${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH\" && . ~/.bashrc && sudo service postgresql start && sudo service redis-server start && sleep 20 && pnpm sync",
 		"push": "pnpm push-dev && pnpm push-test",
 		"push-dev": "pnpm --filter db push",
-		"push-test": "DATABASE_URL=${DATABASE_URL:-postgres://postgres:pw@localhost:5432/test} pnpm --filter db push",
+		"push-test": "DATABASE_URL=${TEST_DATABASE_URL:-${DATABASE_URL:-postgres://postgres:pw@localhost:5432/test}} pnpm --filter db push",
 		"seed": "pnpm --filter db seed",
 		"setup": "pnpm build:core && docker compose down -v && docker compose up -d && sleep 5 && pnpm push-test && pnpm push-dev && pnpm seed",
 		"sync": "pnpm push-dev; pnpm push-test",

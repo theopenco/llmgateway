@@ -453,6 +453,7 @@ export interface ModelWithPricing {
 		inputPrice?: string;
 		outputPrice?: string;
 		perSecondPrice?: Record<string, string>;
+		perImagePrice?: Record<string, string>;
 		supportedParameters?: string[];
 		externalId: string;
 		region?: string;
