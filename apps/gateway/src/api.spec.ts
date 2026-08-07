@@ -1992,15 +1992,80 @@ describe("api", () => {
 		expect(res.status).toBe(200);
 		const json = await res.json();
 		expect(json.service_tier).toBe("flex");
-		// The tier came from the org default, not the request, so only the
-		// used tier is surfaced.
-		expect(json.metadata?.requested_service_tier).toBeUndefined();
+		// The tier came from the org default rather than the request, but the
+		// gateway did request it upstream — and it narrows provider routing — so
+		// it is reported, with the source recorded in the routing metadata.
+		expect(json.metadata?.requested_service_tier).toBe("flex");
 		expect(json.metadata?.used_service_tier).toBe("flex");
 
 		const logs = await waitForLogs(1);
 		expect(logs.length).toBe(1);
-		expect(logs[0].requestedServiceTier).toBeNull();
+		expect(logs[0].requestedServiceTier).toBe("flex");
 		expect(logs[0].usedServiceTier).toBe("flex");
+		expect(logs[0].routingMetadata?.serviceTierSource).toBe(
+			"coding-plan-default",
+		);
+	});
+
+	test("/v1/chat/completions records providers dropped by the dev-plan flex default", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-devplan-flex-filtered",
+			token: "real-token-devplan-flex-filtered",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-devplan-flex-filtered",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		await harness.setDevPlan({ devPlan: "pro", serviceTier: "flex" });
+
+		// gpt-5.6-sol maps to openai, azure and aws-mantle, but only the openai
+		// mapping sells flex. Routing therefore collapses to a single candidate —
+		// the log has to say so rather than implying the model has one provider.
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-devplan-flex-filtered",
+			},
+			body: JSON.stringify({
+				model: "gpt-5.6-sol",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		expect(logs[0].usedProvider).toBe("openai");
+		expect(logs[0].routingMetadata?.selectionReason).toBe(
+			"single-candidate-after-filtering",
+		);
+		// availableProviders stays the candidate set — the providers that dropped
+		// out are listed separately, with the reason, rather than being silently
+		// missing from both lists.
+		expect(logs[0].routingMetadata?.availableProviders).toEqual(["openai"]);
+		expect(logs[0].routingMetadata?.serviceTierSource).toBe(
+			"coding-plan-default",
+		);
+		const filtered = logs[0].routingMetadata?.filteredProviders ?? [];
+		expect(filtered.map((f) => f.providerId).sort()).toEqual([
+			"aws-mantle",
+			"azure",
+		]);
+		for (const entry of filtered) {
+			expect(entry.reasons).toContain(
+				"service tier 'flex' (coding plan default) not supported",
+			);
+		}
 	});
 
 	test("/v1/chat/completions lets an explicit service_tier win over the dev-plan default", async () => {
@@ -2580,10 +2645,10 @@ describe("api", () => {
 		expect(moderationLog?.requestedModel).toBe("openai-moderation");
 		expect(moderationLog?.usedModelMapping).toBe("omni-moderation-latest");
 		expect(moderationLog?.usedProvider).toBe("openai");
-		expect(moderationLog?.cost).toBe(0);
+		expect(Number(moderationLog?.cost)).toBeCloseTo(0.00001, 8);
 		expect(moderationLog?.inputCost).toBe(0);
 		expect(moderationLog?.outputCost).toBe(0);
-		expect(moderationLog?.requestCost).toBe(0);
+		expect(Number(moderationLog?.requestCost)).toBeCloseTo(0.00001, 8);
 		expect(moderationLog?.streamed).toBe(false);
 		expect(moderationLog?.finishReason).toBe("stop");
 		expect(moderationLog?.messages).toEqual([
@@ -2696,10 +2761,12 @@ describe("api", () => {
 			expect(failedAttempt?.finishReason).toBe("gateway_error");
 			expect(failedAttempt?.retried).toBe(true);
 			expect(failedAttempt?.retriedByLogId).toBe(successAttempt?.id);
+			expect(failedAttempt?.cost).toBe(0);
 
 			expect(successAttempt).toBeTruthy();
 			expect(successAttempt?.finishReason).toBe("stop");
 			expect(successAttempt?.content).toContain('"flagged":false');
+			expect(Number(successAttempt?.cost)).toBeCloseTo(0.00001, 8);
 		} finally {
 			fetchSpy.mockRestore();
 			resetKeyHealth();
@@ -2709,6 +2776,66 @@ describe("api", () => {
 				process.env.LLM_OPENAI_API_KEY = previousOpenAIKey;
 			}
 		}
+	});
+
+	test("/v1/moderations credits mode requires credits", async () => {
+		await harness.setProjectMode("credits");
+		await harness.setOrganizationCredits("0");
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-moderations-credits",
+			token: "real-token-moderations-credits",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/moderations", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-moderations-credits",
+			},
+			body: JSON.stringify({
+				input: "I want to attack someone.",
+			}),
+		});
+
+		expect(res.status).toBe(402);
+		const json = await res.json();
+		expect(json.error.message).toBe(
+			"Organization org-id has insufficient credits",
+		);
+	});
+
+	test("/v1/moderations hybrid fallback requires credits", async () => {
+		await harness.setProjectMode("hybrid");
+		await harness.setOrganizationCredits("0");
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-moderations-hybrid-credits",
+			token: "real-token-moderations-hybrid-credits",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/moderations", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-moderations-hybrid-credits",
+			},
+			body: JSON.stringify({
+				input: "I want to attack someone.",
+			}),
+		});
+
+		expect(res.status).toBe(402);
+		const json = await res.json();
+		expect(json.error.message).toBe(
+			"No API key set for provider and organization has insufficient credits",
+		);
 	});
 
 	test("/v1/embeddings e2e success", async () => {

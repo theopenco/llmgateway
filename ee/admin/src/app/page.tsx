@@ -321,6 +321,12 @@ export default async function Page({
 									value: currencyFormatter.format(metrics.grossDevpassRevenue),
 								},
 								{
+									label: "DevPass top-ups",
+									value: currencyFormatter.format(
+										metrics.grossDevpassTopupsRevenue,
+									),
+								},
+								{
 									label: "Reset passes",
 									value: currencyFormatter.format(
 										metrics.grossResetPassRevenue,

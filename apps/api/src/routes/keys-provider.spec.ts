@@ -11,6 +11,7 @@ import {
 	waitForSwrMirrorWrites,
 } from "@llmgateway/cache";
 import { and, asc, cdb, db, eq, getTableName, tables } from "@llmgateway/db";
+import { getProviderModelIds } from "@llmgateway/shared";
 
 import type * as ActionsModule from "@llmgateway/actions";
 
@@ -506,6 +507,132 @@ describe("provider keys route", () => {
 			const json = await raised.json();
 			expect(json.providerKey.status).toBe("active");
 			expect(json.providerKey.usageLimit).toBe("50");
+		});
+	});
+
+	describe("allowed models", () => {
+		// Taken from the catalogue rather than hardcoded so the assertions do not
+		// rot when a model is retired.
+		const openaiModels = getProviderModelIds("openai");
+
+		async function createKey(body: Record<string, unknown>) {
+			return await app.request("/keys/provider", {
+				method: "POST",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({
+					provider: "openai",
+					token: "sk-restricted",
+					organizationId: "test-org-id",
+					...body,
+				}),
+			});
+		}
+
+		async function patchKey(body: Record<string, unknown>) {
+			return await app.request("/keys/provider/test-provider-key-id", {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify(body),
+			});
+		}
+
+		test("stores a normalized list on create and returns it", async () => {
+			const [first, second] = openaiModels;
+			const res = await createKey({
+				allowedModels: [` ${first} `, second, first, ""],
+			});
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.providerKey.allowedModels).toEqual([first, second]);
+
+			const stored = await db.query.providerKey.findFirst({
+				where: { id: { eq: json.providerKey.id } },
+			});
+			expect(stored?.allowedModels).toEqual([first, second]);
+		});
+
+		test("treats an empty list as no restriction", async () => {
+			const res = await createKey({ allowedModels: [] });
+			expect(res.status).toBe(200);
+			expect((await res.json()).providerKey.allowedModels).toBeNull();
+		});
+
+		test("rejects a model the provider does not serve", async () => {
+			const res = await createKey({
+				allowedModels: ["definitely-not-a-model"],
+			});
+			expect(res.status).toBe(400);
+			expect(await res.text()).toContain("definitely-not-a-model");
+		});
+
+		test("validates the key against one of its own allowed models", async () => {
+			const validate = vi.mocked(validateProviderKey);
+			validate.mockClear();
+
+			const res = await createKey({ allowedModels: [openaiModels[0]] });
+			expect(res.status).toBe(200);
+			// Sixth argument is the pinned model: a restricted key must not be
+			// probed with the provider's default validation model, which the
+			// upstream account may not have.
+			expect(validate.mock.calls[0]?.[5]).toBe(openaiModels[0]);
+		});
+
+		test("rejects allowed models on a custom provider key", async () => {
+			const res = await createKey({
+				provider: "custom",
+				name: "myprovider",
+				baseUrl: "https://api.example.com",
+				allowedModels: [openaiModels[0]],
+			});
+			expect(res.status).toBe(400);
+			expect(await res.text()).toContain("custom provider keys");
+		});
+
+		test("PATCH sets, lists and clears the restriction", async () => {
+			const set = await patchKey({ allowedModels: [openaiModels[0]] });
+			expect(set.status).toBe(200);
+			expect((await set.json()).providerKey.allowedModels).toEqual([
+				openaiModels[0],
+			]);
+
+			const listed = await app.request("/keys/provider", {
+				headers: { Cookie: token },
+			});
+			const listJson = await listed.json();
+			expect(
+				listJson.providerKeys.find(
+					(key: { id: string }) => key.id === "test-provider-key-id",
+				).allowedModels,
+			).toEqual([openaiModels[0]]);
+
+			const clear = await patchKey({ allowedModels: null });
+			expect(clear.status).toBe(200);
+			expect((await clear.json()).providerKey.allowedModels).toBeNull();
+		});
+
+		test("PATCH rejects a model the provider does not serve", async () => {
+			const res = await patchKey({ allowedModels: ["not-an-openai-model"] });
+			expect(res.status).toBe(400);
+			expect(await res.text()).toContain("not-an-openai-model");
+		});
+
+		test("PATCH audits the change", async () => {
+			const res = await patchKey({ allowedModels: [openaiModels[0]] });
+			expect(res.status).toBe(200);
+
+			const entry = await db.query.auditLog.findFirst({
+				where: {
+					resourceId: { eq: "test-provider-key-id" },
+					action: { eq: "provider_key.update" },
+				},
+			});
+			expect(
+				(
+					entry?.metadata as {
+						changes?: { allowedModels?: { new: string[] } };
+					}
+				)?.changes?.allowedModels?.new,
+			).toEqual([openaiModels[0]]);
 		});
 	});
 

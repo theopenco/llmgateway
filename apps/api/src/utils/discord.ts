@@ -623,6 +623,11 @@ export async function notifyChatPlanRenewed(
 export async function notifyUserAccountDeleted(
 	email: string,
 	name: string | null | undefined,
+	teardown?: {
+		closedOrganizations: number;
+		cancelledSubscriptions: number;
+		forfeitedCredits: string;
+	},
 ): Promise<void> {
 	const displayName = name ?? "Unknown";
 
@@ -634,6 +639,25 @@ export async function notifyUserAccountDeleted(
 				fields: [
 					{ name: "Email", value: email, inline: true },
 					{ name: "Name", value: displayName, inline: true },
+					...(teardown
+						? [
+								{
+									name: "Orgs Closed",
+									value: String(teardown.closedOrganizations),
+									inline: true,
+								},
+								{
+									name: "Subscriptions Cancelled",
+									value: String(teardown.cancelledSubscriptions),
+									inline: true,
+								},
+								{
+									name: "Credits Forfeited",
+									value: `$${teardown.forfeitedCredits}`,
+									inline: true,
+								},
+							]
+						: []),
 				],
 				timestamp: new Date().toISOString(),
 			},

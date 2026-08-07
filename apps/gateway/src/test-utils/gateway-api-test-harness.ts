@@ -180,6 +180,7 @@ export function createGatewayApiTestHarness() {
 			creditsLimit?: string;
 			premiumCreditsUsed?: string;
 			premiumWeekStart?: Date | null;
+			paygEnabled?: boolean;
 		}) {
 			await db
 				.update(tables.organization)
@@ -191,6 +192,7 @@ export function createGatewayApiTestHarness() {
 					devPlanCreditsLimit: options.creditsLimit ?? "100",
 					devPlanPremiumCreditsUsed: options.premiumCreditsUsed ?? "0",
 					devPlanPremiumWeekStart: options.premiumWeekStart ?? null,
+					devPlanPaygEnabled: options.paygEnabled ?? false,
 				})
 				.where(eq(tables.organization.id, TEST_ORGANIZATION_ID));
 		},
