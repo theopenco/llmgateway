@@ -41,4 +41,8 @@ ALTER TABLE "model_provider_mapping_history" ADD COLUMN "service_tier_unconfirme
 ALTER TABLE "model_provider_mapping_history_hourly" ADD COLUMN "service_tier_explicit_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE "model_provider_mapping_history_hourly" ADD COLUMN "service_tier_implicit_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE "model_provider_mapping_history_hourly" ADD COLUMN "service_tier_served_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
-ALTER TABLE "model_provider_mapping_history_hourly" ADD COLUMN "service_tier_unconfirmed_count" integer DEFAULT 0 NOT NULL;
+ALTER TABLE "model_provider_mapping_history_hourly" ADD COLUMN "service_tier_unconfirmed_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+CREATE INDEX "routing_election_hourly_model_ts_idx" ON "routing_election_hourly" ("model_id","hour_timestamp");--> statement-breakpoint
+CREATE INDEX "routing_election_hourly_ts_idx" ON "routing_election_hourly" ("hour_timestamp");--> statement-breakpoint
+CREATE INDEX "routing_exclusion_hourly_model_ts_idx" ON "routing_exclusion_hourly" ("model_id","hour_timestamp");--> statement-breakpoint
+CREATE INDEX "routing_exclusion_hourly_ts_reason_idx" ON "routing_exclusion_hourly" ("hour_timestamp","reason");

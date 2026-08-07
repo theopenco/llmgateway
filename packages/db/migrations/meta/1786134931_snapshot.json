@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "c601e582-64cc-4c78-ad19-73f67600c0e4",
-  "prevId": "9a7f3183-2afc-4f1d-90fe-dc8b68c10f5b",
+  "id": "2260b4f0-bcab-4e85-b8d9-4947afb92628",
+  "prevId": "e15ffaeb-ad71-4218-a05a-6c7845c9cac7",
   "ddl": [
     {
       "isRlsEnabled": false,
