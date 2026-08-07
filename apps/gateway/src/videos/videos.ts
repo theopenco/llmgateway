@@ -4,6 +4,10 @@ import { HTTPException } from "hono/http-exception";
 import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
 import { getProviderEnv } from "@/chat/tools/get-provider-env.js";
 import {
+	getCredentialSetting,
+	resolvePlatformCredential,
+} from "@/chat/tools/resolve-platform-credential.js";
+import {
 	getErrorType,
 	selectNextProvider,
 	shouldRetryRequest,
@@ -16,6 +20,7 @@ import {
 import {
 	findApiKeyByToken,
 	findEffectiveDiscount,
+	findManagedProviderKey,
 	findOrganizationById,
 	findProjectById,
 	findProviderKey,
@@ -38,12 +43,15 @@ import { validateRequestModelAccess } from "@/lib/iam.js";
 import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
+import { clientFacingUpstreamErrorMessage } from "@/lib/stealth-provider-errors.js";
 
 import {
 	getCheapestFromAvailableProviders,
 	getDiscountedProviderSelectionPrice,
 	getProviderHeaders,
+	managedCredentialOptions,
 	processImageUrl,
+	readProviderKey,
 	type RoutingMetadata,
 	type VideoPricingContext,
 } from "@llmgateway/actions";
@@ -52,6 +60,7 @@ import {
 	and,
 	db,
 	eq,
+	findManagedProviderKeyById,
 	metricsKey,
 	sql,
 	shortid,
@@ -617,6 +626,17 @@ interface ProviderContext {
 	requestId: string;
 	usedMode: "api-keys" | "credits";
 	configIndex: number | null;
+	/**
+	 * Managed credential serving this job, when one did. Persisted on the job
+	 * so polling and content retrieval re-use the exact same credential.
+	 */
+	managedProviderKeyId?: string;
+	/**
+	 * BYOK provider key that created the job, for spend attribution on the
+	 * final log row only. Does not pin polling — BYOK polls re-resolve the
+	 * org's active key as they always did.
+	 */
+	providerKeyId?: string;
 	vertexProjectId?: string;
 	vertexRegion?: string;
 	vertexTokenType?: VertexTokenType;
@@ -625,26 +645,26 @@ interface ProviderContext {
 
 /**
  * Resolve the Vertex token type for video requests so the upstream call can
- * choose between `?key=` (API key) and `Authorization: Bearer` (OAuth2). BYOK
- * keys resolve from the provider-key option (env skipped); env-backed tokens
- * resolve from the `LLM_GOOGLE_VERTEX_TOKEN_TYPE` env var.
+ * choose between `?key=` (API key) and `Authorization: Bearer` (OAuth2).
+ * Database-backed credentials — an organization's BYOK key or a managed
+ * credential — resolve from their own settings with env skipped; env-backed
+ * tokens resolve from the `LLM_GOOGLE_VERTEX_TOKEN_TYPE` env var.
  */
 function resolveVideoVertexTokenType(
 	providerId: Provider,
 	providerKey: InferSelectModel<typeof tables.providerKey> | undefined,
 	configIndex: number | null,
 	variant?: EnvVarVariant,
+	managedKey?: InferSelectModel<typeof tables.providerKey>,
 ): VertexTokenType | undefined {
 	if (providerId !== "google-vertex") {
 		return undefined;
 	}
-	return providerKey
-		? resolveVertexTokenType(
-				providerId,
-				providerKey.options ?? undefined,
-				undefined,
-				true,
-			)
+	const databaseKeyOptions = providerKey
+		? (providerKey.options ?? undefined)
+		: managedCredentialOptions(managedKey);
+	return providerKey || managedKey
+		? resolveVertexTokenType(providerId, databaseKeyOptions, undefined, true)
 		: resolveVertexTokenType(
 				providerId,
 				undefined,
@@ -1345,12 +1365,13 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 	}
 }
 
-function getVideoProviderKeyFilter(
-	providerId: Provider,
-): ((key: { baseUrl: string | null }) => boolean) | undefined {
-	if (!isGoogleVertexVideoProvider(providerId)) {
-		return undefined;
-	}
+/**
+ * Base URLs a credential may point at and still serve Google Vertex video:
+ * the provider's canonical endpoint plus whatever the deployment configured.
+ * Vertex video writes its output to a bucket in the storage project, so a
+ * credential aimed anywhere else cannot produce a retrievable result.
+ */
+function getAllowedVideoBaseUrls(providerId: Provider): Set<string> {
 	const allowedBaseUrls = new Set<string>();
 	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
 	if (defaultBaseUrl) {
@@ -1360,7 +1381,76 @@ function getVideoProviderKeyFilter(
 	if (envBaseUrl) {
 		allowedBaseUrls.add(envBaseUrl);
 	}
+	return allowedBaseUrls;
+}
+
+function getVideoProviderKeyFilter(
+	providerId: Provider,
+): ((key: { baseUrl: string | null }) => boolean) | undefined {
+	if (!isGoogleVertexVideoProvider(providerId)) {
+		return undefined;
+	}
+	const allowedBaseUrls = getAllowedVideoBaseUrls(providerId);
 	return (key) => !key.baseUrl || allowedBaseUrls.has(key.baseUrl);
+}
+
+/**
+ * Managed credentials that can serve video generation for a provider.
+ *
+ * Mirrors the constraints applied to env credentials by
+ * getVideoExcludedConfigIndices and to BYOK keys by getVideoProviderKeyFilter:
+ * Google Vertex video writes its output to a bucket in the storage project, so
+ * a credential pointed at a different base URL or a different GCP project
+ * cannot serve it.
+ */
+function getManagedVideoCredentialFilter(
+	providerId: Provider,
+): ((key: InferSelectModel<typeof tables.providerKey>) => boolean) | undefined {
+	if (!isGoogleVertexVideoProvider(providerId)) {
+		return undefined;
+	}
+	const allowedBaseUrls = getAllowedVideoBaseUrls(providerId);
+	const storageProjectId = process.env.GOOGLE_CLOUD_PROJECT?.trim();
+	return (key) => {
+		const baseUrl = key.config?.baseUrl;
+		if (baseUrl && !allowedBaseUrls.has(baseUrl)) {
+			return false;
+		}
+		if (storageProjectId) {
+			const project = key.config?.project;
+			if (project && project !== storageProjectId) {
+				return false;
+			}
+		}
+		return true;
+	};
+}
+
+/**
+ * Whether a managed credential exists that can serve video generation for the
+ * provider, i.e. one that is video-eligible and carries every setting video
+ * generation needs. Used for routing availability, where a provider with a
+ * usable managed credential must be offered even with no env var set.
+ */
+async function hasManagedVideoCredential(
+	providerId: Provider,
+	defaultBaseUrl: string | null,
+	variant?: EnvVarVariant,
+): Promise<boolean> {
+	const managedKey = await findManagedProviderKey(providerId, {
+		variant,
+		filter: getManagedVideoCredentialFilter(providerId),
+	});
+	if (!managedKey) {
+		return false;
+	}
+	if (!(managedKey.config?.baseUrl ?? defaultBaseUrl)) {
+		return false;
+	}
+	if (isGoogleVertexVideoProvider(providerId) && !managedKey.config?.project) {
+		return false;
+	}
+	return true;
 }
 
 function getVideoExcludedConfigIndices(
@@ -1482,10 +1572,11 @@ async function resolveProviderContext(
 		const providerContext: ProviderContext = {
 			providerId,
 			baseUrl,
-			token: providerKey.token,
+			token: readProviderKey(providerKey),
 			requestId,
 			usedMode: "api-keys",
 			configIndex: null,
+			providerKeyId: providerKey.id,
 			vertexProjectId: sharedVertexProjectId,
 			vertexRegion: sharedVertexRegion,
 			vertexTokenType: resolveVideoVertexTokenType(
@@ -1503,78 +1594,13 @@ async function resolveProviderContext(
 	}
 
 	if (project.mode === "credits") {
-		const env = getProviderEnv(providerId, {
-			excludedIndices: getVideoExcludedConfigIndices(providerId),
-			selectionScope,
-			variant: envVariant,
-		});
-		const baseUrl =
-			getProviderEnvValue(
-				providerId,
-				"baseUrl",
-				env.configIndex,
-				undefined,
-				envVariant,
-			) ?? defaultBaseUrl;
-		if (!baseUrl) {
-			throw new HTTPException(500, {
-				message: `Base URL environment variable is required for ${providerId} provider`,
-			});
-		}
-
-		const vertexProjectId = isGoogleVertexVideoProvider(providerId)
-			? getProviderEnvValue(
-					providerId,
-					"project",
-					env.configIndex,
-					undefined,
-					envVariant,
-				)
-			: undefined;
-		const vertexRegion = isGoogleVertexVideoProvider(providerId)
-			? (getProviderEnvValue(
-					providerId,
-					"region",
-					env.configIndex,
-					"us-central1",
-					envVariant,
-				) ?? "us-central1")
-			: undefined;
-
-		if (isGoogleVertexVideoProvider(providerId) && !vertexProjectId) {
-			throw new HTTPException(500, {
-				message: `${providerId} project environment variable is required for video generation`,
-			});
-		}
-
-		const providerContext: ProviderContext = {
+		return await resolvePlatformVideoProviderContext(
 			providerId,
-			baseUrl,
-			token: env.token,
 			requestId,
-			usedMode: "credits",
-			configIndex: env.configIndex,
-			vertexProjectId,
-			vertexRegion,
-			vertexTokenType: resolveVideoVertexTokenType(
-				providerId,
-				undefined,
-				env.configIndex,
-				envVariant,
-			),
-			uploadBaseUrl:
-				providerId === "avalanche"
-					? getProviderEnvValue(
-							providerId,
-							"fileUploadBaseUrl",
-							env.configIndex,
-							undefined,
-							envVariant,
-						)
-					: undefined,
-		};
-
-		return providerContext;
+			selectionScope,
+			envVariant,
+			defaultBaseUrl,
+		);
 	}
 
 	const providerKey = await findProviderKey(
@@ -1604,10 +1630,11 @@ async function resolveProviderContext(
 		const providerContext: ProviderContext = {
 			providerId,
 			baseUrl,
-			token: providerKey.token,
+			token: readProviderKey(providerKey),
 			requestId,
 			usedMode: "api-keys",
 			configIndex: null,
+			providerKeyId: providerKey.id,
 			vertexProjectId: sharedVertexProjectId,
 			vertexRegion: sharedVertexRegion,
 			vertexTokenType: resolveVideoVertexTokenType(
@@ -1624,24 +1651,60 @@ async function resolveProviderContext(
 		return providerContext;
 	}
 
-	if (!hasProviderEnvironmentToken(providerId)) {
+	if (
+		!(await hasManagedVideoCredential(
+			providerId,
+			defaultBaseUrl,
+			envVariant,
+		)) &&
+		!hasProviderEnvironmentToken(providerId)
+	) {
 		throw new HTTPException(400, {
 			message: `No provider key or environment token set for provider: ${providerId}. Please add the provider key in the settings or switch the project mode to credits or hybrid.`,
 		});
 	}
 
-	const env = getProviderEnv(providerId, {
-		excludedIndices: getVideoExcludedConfigIndices(providerId),
+	return await resolvePlatformVideoProviderContext(
+		providerId,
+		requestId,
+		selectionScope,
+		envVariant,
+		defaultBaseUrl,
+	);
+}
+
+/**
+ * Credential LLM Gateway itself pays for, for video generation: a managed
+ * provider credential when one is configured, otherwise the provider's `LLM_*`
+ * env vars. Shared by credits mode and hybrid mode's fallback so both persist
+ * the same credential onto the job.
+ */
+async function resolvePlatformVideoProviderContext(
+	providerId: Provider,
+	requestId: string,
+	selectionScope: string,
+	envVariant: EnvVarVariant | undefined,
+	defaultBaseUrl: string | null,
+): Promise<ProviderContext> {
+	const platformCredential = await resolvePlatformCredential(providerId, {
+		selectionScope,
 		variant: envVariant,
+		region: undefined,
+		requiresServiceTier: false,
+		excludedEnvIndices: getVideoExcludedConfigIndices(providerId),
+		filter: getManagedVideoCredentialFilter(providerId),
 	});
-	const baseUrl =
-		getProviderEnvValue(
-			providerId,
-			"baseUrl",
-			env.configIndex,
-			undefined,
-			envVariant,
-		) ?? defaultBaseUrl;
+	const managedKey = platformCredential.managedKey;
+	const configIndex = platformCredential.configIndex;
+
+	const readSetting = (key: string, defaultValue?: string) =>
+		getCredentialSetting(providerId, key, managedKey, {
+			configIndex,
+			defaultValue,
+			variant: envVariant,
+		});
+
+	const baseUrl = readSetting("baseUrl") ?? defaultBaseUrl;
 	if (!baseUrl) {
 		throw new HTTPException(500, {
 			message: `Base URL environment variable is required for ${providerId} provider`,
@@ -1649,22 +1712,10 @@ async function resolveProviderContext(
 	}
 
 	const vertexProjectId = isGoogleVertexVideoProvider(providerId)
-		? getProviderEnvValue(
-				providerId,
-				"project",
-				env.configIndex,
-				undefined,
-				envVariant,
-			)
+		? readSetting("project")
 		: undefined;
 	const vertexRegion = isGoogleVertexVideoProvider(providerId)
-		? (getProviderEnvValue(
-				providerId,
-				"region",
-				env.configIndex,
-				"us-central1",
-				envVariant,
-			) ?? "us-central1")
+		? (readSetting("region", "us-central1") ?? "us-central1")
 		: undefined;
 
 	if (isGoogleVertexVideoProvider(providerId) && !vertexProjectId) {
@@ -1673,28 +1724,26 @@ async function resolveProviderContext(
 		});
 	}
 
-	const providerContext: ProviderContext = {
+	return {
 		providerId,
 		baseUrl,
-		token: env.token,
+		token: platformCredential.token,
 		requestId,
 		usedMode: "credits",
-		configIndex: env.configIndex,
+		configIndex,
+		managedProviderKeyId: managedKey?.id,
 		vertexProjectId,
 		vertexRegion,
+		vertexTokenType: resolveVideoVertexTokenType(
+			providerId,
+			undefined,
+			configIndex,
+			envVariant,
+			managedKey,
+		),
 		uploadBaseUrl:
-			providerId === "avalanche"
-				? getProviderEnvValue(
-						providerId,
-						"fileUploadBaseUrl",
-						env.configIndex,
-						undefined,
-						envVariant,
-					)
-				: undefined,
+			providerId === "avalanche" ? readSetting("fileUploadBaseUrl") : undefined,
 	};
-
-	return providerContext;
 }
 
 async function hasVideoProviderConfiguration(
@@ -1723,7 +1772,11 @@ async function hasVideoProviderConfiguration(
 	}
 
 	if (project.mode === "credits") {
-		return hasVideoEnvConfiguration(providerId, defaultBaseUrl);
+		return await hasPlatformVideoConfiguration(
+			providerId,
+			defaultBaseUrl,
+			organizationId,
+		);
 	}
 
 	const providerKey = await findProviderKey(
@@ -1743,6 +1796,28 @@ async function hasVideoProviderConfiguration(
 		);
 	}
 
+	return await hasPlatformVideoConfiguration(
+		providerId,
+		defaultBaseUrl,
+		organizationId,
+	);
+}
+
+/**
+ * Whether LLM Gateway holds a credential of its own that can serve video
+ * generation for the provider — a managed credential or the provider's env
+ * vars. Either alone makes the provider routable.
+ */
+async function hasPlatformVideoConfiguration(
+	providerId: Provider,
+	defaultBaseUrl: string | null,
+	organizationId: string,
+): Promise<boolean> {
+	const organization = await findOrganizationById(organizationId);
+	const variant = getOrganizationEnvVariant(organization);
+	if (await hasManagedVideoCredential(providerId, defaultBaseUrl, variant)) {
+		return true;
+	}
 	return hasVideoEnvConfiguration(providerId, defaultBaseUrl);
 }
 
@@ -2611,15 +2686,39 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 		return {
 			providerId,
 			baseUrl,
-			token: providerKey.token,
+			token: readProviderKey(providerKey),
 			requestId: job.requestId,
 		};
 	}
 
-	// Polls/content retrieval must use the same credential class as job
-	// creation: some providers scope job visibility to the creating API key,
-	// so an enterprise/plan org's job created with a variant env override
-	// must also be polled with it.
+	// Polls/content retrieval must use the same credential as job creation:
+	// some providers scope job visibility to the creating API key. A managed
+	// credential is pinned by id on the job; env credentials are re-resolved
+	// with the same variant so an enterprise/plan org's job created with a
+	// variant override is also polled with it.
+	if (job.managedProviderKeyId) {
+		const managedKey = await findManagedProviderKeyById(
+			job.managedProviderKeyId,
+		);
+		if (!managedKey) {
+			throw new HTTPException(500, {
+				message: `The managed credential that created this ${providerId} job no longer exists`,
+			});
+		}
+		const baseUrl = managedKey.config?.baseUrl ?? defaultBaseUrl;
+		if (!baseUrl) {
+			throw new HTTPException(500, {
+				message: `No base URL set for provider: ${providerId}`,
+			});
+		}
+		return {
+			providerId,
+			baseUrl,
+			token: readProviderKey(managedKey),
+			requestId: job.requestId,
+		};
+	}
+
 	const organization = await findOrganizationById(job.organizationId);
 	const envVariant = getOrganizationEnvVariant(organization);
 	const env = getProviderEnv(providerId, {
@@ -2786,6 +2885,7 @@ function isDebugMode(c: Context): boolean {
 async function fetchUpstreamJson(
 	url: string,
 	init: RequestInit,
+	providerId: string,
 ): Promise<Record<string, unknown>> {
 	// SSRF: never follow redirects on a tenant-baseUrl provider request.
 	const response = await fetch(url, { ...init, redirect: "error" });
@@ -2839,6 +2939,13 @@ async function fetchUpstreamJson(
 			: null;
 
 	if (!response.ok) {
+		const rawMessage =
+			typeof body.error === "object" &&
+			body.error &&
+			"message" in body.error &&
+			typeof body.error.message === "string"
+				? body.error.message
+				: `Upstream provider error (${response.status})`;
 		logger.warn("Upstream video request failed", {
 			url,
 			status: response.status,
@@ -2848,13 +2955,11 @@ async function fetchUpstreamJson(
 			response.status as
 				400 | 401 | 403 | 404 | 409 | 422 | 429 | 500 | 502 | 503 | 504,
 			{
-				message:
-					typeof body.error === "object" &&
-					body.error &&
-					"message" in body.error &&
-					typeof body.error.message === "string"
-						? body.error.message
-						: `Upstream provider error (${response.status})`,
+				message: clientFacingUpstreamErrorMessage(
+					providerId,
+					response.status,
+					rawMessage,
+				),
 			},
 		);
 	}
@@ -2866,7 +2971,11 @@ async function fetchUpstreamJson(
 			body,
 		});
 		throw new HTTPException(upstreamApplicationError.status, {
-			message: upstreamApplicationError.message,
+			message: clientFacingUpstreamErrorMessage(
+				providerId,
+				upstreamApplicationError.status,
+				upstreamApplicationError.message,
+			),
 		});
 	}
 
@@ -2976,18 +3085,22 @@ async function createOpenAIVideoJob(
 					referenceImages,
 				)
 			: JSON.stringify(upstreamRequest);
-	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
-		method: "POST",
-		headers: {
-			...getProviderHeaders("openai", providerContext.token, {
-				requestId: providerContext.requestId,
-			}),
-			...(referenceImages.length === 0
-				? { "Content-Type": "application/json" }
-				: {}),
+	const rawResponse = await fetchUpstreamJson(
+		upstreamUrl,
+		{
+			method: "POST",
+			headers: {
+				...getProviderHeaders("openai", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
+				...(referenceImages.length === 0
+					? { "Content-Type": "application/json" }
+					: {}),
+			},
+			body: upstreamBody,
 		},
-		body: upstreamBody,
-	});
+		providerContext.providerId,
+	);
 	const upstreamResponse = addRequestedVideoMetadata(
 		{
 			...rawResponse,
@@ -3069,16 +3182,20 @@ async function createAvalancheVeoVideoJob(
 		enableFallback: false,
 		...(imageUrls.length > 0 ? { imageUrls } : {}),
 	};
-	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			...getProviderHeaders("avalanche", providerContext.token, {
-				requestId: providerContext.requestId,
-			}),
+	const rawResponse = await fetchUpstreamJson(
+		upstreamUrl,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...getProviderHeaders("avalanche", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
+			},
+			body: JSON.stringify(upstreamRequest),
 		},
-		body: JSON.stringify(upstreamRequest),
-	});
+		providerContext.providerId,
+	);
 	const upstreamResponse = addRequestedVideoMetadata(
 		{
 			...rawResponse,
@@ -3145,16 +3262,20 @@ async function createAvalancheSoraVideoJob(
 		model: upstreamModelName,
 		input,
 	};
-	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			...getProviderHeaders("avalanche", providerContext.token, {
-				requestId: providerContext.requestId,
-			}),
+	const rawResponse = await fetchUpstreamJson(
+		upstreamUrl,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...getProviderHeaders("avalanche", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
+			},
+			body: JSON.stringify(upstreamRequest),
 		},
-		body: JSON.stringify(upstreamRequest),
-	});
+		providerContext.providerId,
+	);
 	const upstreamResponse = addRequestedVideoMetadata(
 		{
 			...rawResponse,
@@ -3270,15 +3391,21 @@ async function createGoogleVertexVideoJob(
 			...(outputStorageUri ? { storageUri: outputStorageUri } : {}),
 		},
 	};
-	const rawResponse = await fetchUpstreamJson(authenticatedUpstreamUrl, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			"x-request-id": providerContext.requestId,
-			...(useOAuth ? { Authorization: `Bearer ${providerContext.token}` } : {}),
+	const rawResponse = await fetchUpstreamJson(
+		authenticatedUpstreamUrl,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"x-request-id": providerContext.requestId,
+				...(useOAuth
+					? { Authorization: `Bearer ${providerContext.token}` }
+					: {}),
+			},
+			body: JSON.stringify(upstreamRequest),
 		},
-		body: JSON.stringify(upstreamRequest),
-	});
+		providerContext.providerId,
+	);
 	const upstreamId =
 		typeof rawResponse.name === "string" && rawResponse.name.length > 0
 			? rawResponse.name
@@ -3345,13 +3472,17 @@ async function uploadAtlasCloudMedia(
 		}),
 		`input.${fileExtension}`,
 	);
-	const response = await fetchUpstreamJson(uploadUrl, {
-		method: "POST",
-		headers: getProviderHeaders("atlascloud", providerContext.token, {
-			requestId: providerContext.requestId,
-		}),
-		body: formData,
-	});
+	const response = await fetchUpstreamJson(
+		uploadUrl,
+		{
+			method: "POST",
+			headers: getProviderHeaders("atlascloud", providerContext.token, {
+				requestId: providerContext.requestId,
+			}),
+			body: formData,
+		},
+		providerContext.providerId,
+	);
 	const uploadedUrl = extractAtlasCloudUploadedMediaUrl(response);
 
 	if (!uploadedUrl) {
@@ -3500,16 +3631,20 @@ async function createAtlasCloudVideoJob(
 		providerContext.baseUrl,
 		"/api/v1/model/generateVideo",
 	);
-	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			...getProviderHeaders("atlascloud", providerContext.token, {
-				requestId: providerContext.requestId,
-			}),
+	const rawResponse = await fetchUpstreamJson(
+		upstreamUrl,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...getProviderHeaders("atlascloud", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
+			},
+			body: JSON.stringify(upstreamRequest),
 		},
-		body: JSON.stringify(upstreamRequest),
-	});
+		providerContext.providerId,
+	);
 
 	const upstreamResponse = addRequestedVideoMetadata(
 		{
@@ -3635,16 +3770,20 @@ async function createBytedanceVideoJob(
 		providerContext.baseUrl,
 		"/contents/generations/tasks",
 	);
-	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			...getProviderHeaders("bytedance", providerContext.token, {
-				requestId: providerContext.requestId,
-			}),
+	const rawResponse = await fetchUpstreamJson(
+		upstreamUrl,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...getProviderHeaders("bytedance", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
+			},
+			body: JSON.stringify(upstreamRequest),
 		},
-		body: JSON.stringify(upstreamRequest),
-	});
+		providerContext.providerId,
+	);
 
 	const upstreamResponse = addRequestedVideoMetadata(
 		{
@@ -3704,16 +3843,20 @@ async function createMinimaxVideoJob(
 	}
 
 	const upstreamUrl = joinUrl(providerContext.baseUrl, "/v1/video_generation");
-	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			...getProviderHeaders("minimax", providerContext.token, {
-				requestId: providerContext.requestId,
-			}),
+	const rawResponse = await fetchUpstreamJson(
+		upstreamUrl,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...getProviderHeaders("minimax", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
+			},
+			body: JSON.stringify(upstreamRequest),
 		},
-		body: JSON.stringify(upstreamRequest),
-	});
+		providerContext.providerId,
+	);
 
 	const baseResp = rawResponse.base_resp as
 		{ status_code?: number; status_msg?: string } | undefined;
@@ -3773,16 +3916,20 @@ async function createXaiVideoJob(
 		providerContext.baseUrl,
 		"/v1/videos/generations",
 	);
-	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			...getProviderHeaders("xai", providerContext.token, {
-				requestId: providerContext.requestId,
-			}),
+	const rawResponse = await fetchUpstreamJson(
+		upstreamUrl,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...getProviderHeaders("xai", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
+			},
+			body: JSON.stringify(upstreamRequest),
 		},
-		body: JSON.stringify(upstreamRequest),
-	});
+		providerContext.providerId,
+	);
 
 	const upstreamResponse = addRequestedVideoMetadata(
 		{
@@ -3831,17 +3978,21 @@ async function createAlibabaVideoJob(
 		providerContext.baseUrl,
 		"/api/v1/services/aigc/video-generation/video-synthesis",
 	);
-	const rawResponse = await fetchUpstreamJson(upstreamUrl, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			"X-DashScope-Async": "enable",
-			...getProviderHeaders("alibaba", providerContext.token, {
-				requestId: providerContext.requestId,
-			}),
+	const rawResponse = await fetchUpstreamJson(
+		upstreamUrl,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"X-DashScope-Async": "enable",
+				...getProviderHeaders("alibaba", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
+			},
+			body: JSON.stringify(upstreamRequest),
 		},
-		body: JSON.stringify(upstreamRequest),
-	});
+		providerContext.providerId,
+	);
 
 	const output =
 		rawResponse.output && typeof rawResponse.output === "object"
@@ -4315,19 +4466,23 @@ async function uploadAvalancheBase64Image(
 		),
 		"/api/file-base64-upload",
 	);
-	const response = await fetchUpstreamJson(uploadUrl, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			...getProviderHeaders("avalanche", providerContext.token, {
-				requestId: providerContext.requestId,
+	const response = await fetchUpstreamJson(
+		uploadUrl,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...getProviderHeaders("avalanche", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
+			},
+			body: JSON.stringify({
+				base64Data: `data:${image.mimeType};base64,${image.bytesBase64Encoded}`,
+				uploadPath: "videos/input-images",
 			}),
 		},
-		body: JSON.stringify({
-			base64Data: `data:${image.mimeType};base64,${image.bytesBase64Encoded}`,
-			uploadPath: "videos/input-images",
-		}),
-	});
+		providerContext.providerId,
+	);
 	const data =
 		response.data && typeof response.data === "object"
 			? (response.data as Record<string, unknown>)
@@ -4797,6 +4952,9 @@ videos.openapi(createVideo, async (c) => {
 			usedProvider: selectedProviderContext.providerId,
 			usedModel: selectedUpstreamModelName,
 			providerConfigIndex: selectedProviderContext.configIndex,
+			managedProviderKeyId:
+				selectedProviderContext.managedProviderKeyId ?? null,
+			providerKeyId: selectedProviderContext.providerKeyId ?? null,
 			upstreamId,
 			prompt: request.prompt,
 			status: initialStatus,

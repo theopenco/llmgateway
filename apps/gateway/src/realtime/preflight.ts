@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { HTTPException } from "hono/http-exception";
 
-import { getProviderEnv } from "@/chat/tools/get-provider-env.js";
+import { resolvePlatformCredential } from "@/chat/tools/resolve-platform-credential.js";
 import { getApiKeyFingerprint } from "@/lib/api-key-fingerprint.js";
 import {
 	assertApiKeyWithinUsageLimits,
@@ -17,6 +17,13 @@ import {
 } from "@/lib/cached-queries.js";
 import { assertProviderCompliant } from "@/lib/compliance.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
+
+import { readProviderKey } from "@llmgateway/actions";
+import {
+	getOrganizationEnvVariant,
+	type EnvVarVariant,
+	type Provider,
+} from "@llmgateway/models";
 
 import {
 	findRealtimeMapping,
@@ -43,10 +50,24 @@ export interface RealtimePreflightResult {
 	organization: Organization;
 	match: RealtimeMappingMatch;
 	providerKey: ProviderKey | undefined;
+	/**
+	 * Platform-managed credential serving this credits-mode session, when one
+	 * is configured: the database-backed replacement for the provider's `LLM_*`
+	 * env vars. Distinct from `providerKey`, which is always the organization's
+	 * own BYOK key — a managed credential still bills as `credits`.
+	 */
+	managedKey: ProviderKey | undefined;
+	/**
+	 * Provider-key id to attribute upstream health failures to, following the
+	 * credential actually sent: the BYOK key or the managed credential.
+	 */
+	trackedKeyHealthId: string | undefined;
 	upstreamToken: string;
 	usedApiKeyHash: string;
 	envVarName: string | undefined;
 	configIndex: number;
+	/** Env-var variant the organization maps to, for env-backed settings reads. */
+	envVariant: EnvVarVariant | undefined;
 	usedMode: "api-keys" | "credits";
 	/**
 	 * Canonical ids of the input-audio transcription models this API key's IAM
@@ -293,9 +314,27 @@ async function runRealtimePreflightInner(
 
 	// --- Upstream credential resolution (mirrors the embeddings path) ---
 	let providerKey: ProviderKey | undefined;
+	let managedKey: ProviderKey | undefined;
 	let upstreamToken: string | undefined;
 	let configIndex = 0;
 	let envVarName: string | undefined;
+	const envVariant = getOrganizationEnvVariant(organization);
+
+	const resolveCredits = async () => {
+		const platformCredential = await resolvePlatformCredential(
+			providerId as Provider,
+			{
+				selectionScope: match.modelId,
+				variant: envVariant,
+				region: undefined,
+				requiresServiceTier: false,
+			},
+		);
+		managedKey = platformCredential.managedKey;
+		upstreamToken = platformCredential.token;
+		configIndex = platformCredential.configIndex;
+		envVarName = platformCredential.envVarName;
+	};
 
 	const assertCredits = () => {
 		if (getAvailableCredits(organization) <= 0) {
@@ -320,15 +359,10 @@ async function runRealtimePreflightInner(
 				`No API key set for provider: ${providerId}. Please add a provider key in your settings or add credits and switch to credits or hybrid mode.`,
 			);
 		}
-		upstreamToken = providerKey.token;
+		upstreamToken = readProviderKey(providerKey);
 	} else if (project.mode === "credits") {
 		assertCredits();
-		const envResult = getProviderEnv(providerId, {
-			selectionScope: match.modelId,
-		});
-		upstreamToken = envResult.token;
-		configIndex = envResult.configIndex;
-		envVarName = envResult.envVarName;
+		await resolveCredits();
 	} else if (project.mode === "hybrid") {
 		providerKey = await findProviderKey(
 			project.organizationId,
@@ -336,15 +370,10 @@ async function runRealtimePreflightInner(
 			match.modelId,
 		);
 		if (providerKey) {
-			upstreamToken = providerKey.token;
+			upstreamToken = readProviderKey(providerKey);
 		} else {
 			assertCredits();
-			const envResult = getProviderEnv(providerId, {
-				selectionScope: match.modelId,
-			});
-			upstreamToken = envResult.token;
-			configIndex = envResult.configIndex;
-			envVarName = envResult.envVarName;
+			await resolveCredits();
 		}
 	} else {
 		throw new RealtimeConnectError(
@@ -375,10 +404,15 @@ async function runRealtimePreflightInner(
 		organization,
 		match,
 		providerKey,
+		managedKey,
+		trackedKeyHealthId: providerKey?.id ?? managedKey?.id,
 		upstreamToken,
 		usedApiKeyHash: getApiKeyFingerprint(upstreamToken),
 		envVarName,
 		configIndex,
+		envVariant,
+		// Only an organization-owned BYOK key means the org pays the provider
+		// directly. A platform-managed credential still bills as credits.
 		usedMode: providerKey ? "api-keys" : "credits",
 		allowedTranscriptionModelIds,
 		clientIp: input.clientIp,

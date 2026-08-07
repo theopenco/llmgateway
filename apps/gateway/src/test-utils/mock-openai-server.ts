@@ -2816,7 +2816,10 @@ mockOpenAIServer.get("/api/v1/veo/record-info", async (c) => {
 
 	return c.json({
 		code: 200,
-		msg: "success",
+		msg:
+			job.status === "failed"
+				? (job.error?.message ?? "Mock video generation failed")
+				: "success",
 		data: {
 			taskId,
 			successFlag,

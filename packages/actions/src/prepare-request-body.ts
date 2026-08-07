@@ -1167,7 +1167,7 @@ export async function prepareRequestBody(
 	// `none` reasoning effort is handled natively by a few providers:
 	// OpenAI/Azure forward it (their newer models accept it to turn reasoning
 	// off), and Google, Moonshot, Alibaba, MiniMax, Xiaomi, DeepSeek, Fireworks,
-	// Together AI, and Z.ai reason by default so they must explicitly disable
+	// Together AI, ByteDance, and Z.ai reason by default so they must explicitly disable
 	// thinking when asked. Every other provider treats the absence of
 	// reasoning_effort as "off" already, so normalize `none` away for them to
 	// avoid forwarding an unsupported enum value.
@@ -1187,6 +1187,7 @@ export async function prepareRequestBody(
 		usedProvider === "deepseek" ||
 		usedProvider === "fireworks" ||
 		usedProvider === "together-ai" ||
+		usedProvider === "bytedance" ||
 		usedProvider === "zai" ||
 		providerMappingForOptions?.apiFormat === "openai-chat-completions";
 	if (reasoning_effort === "none" && !handlesNoneNatively) {
@@ -1913,14 +1914,16 @@ export async function prepareRequestBody(
 					}
 				}
 
-				// Fugu always reasons and only accepts "high"/"xhigh" effort — it has
-				// no off switch and rejects none/minimal/low/medium — so every tier at
-				// or below "high" (including a dropped "none") collapses onto its
-				// minimum ("high"), and "max" maps to its top tier ("xhigh").
+				// Fugu always reasons and only accepts "high"/"xhigh"/"max" effort — it
+				// has no off switch and rejects none/minimal/low/medium — so every tier
+				// at or below "high" (including a dropped "none") collapses onto its
+				// minimum ("high"). "max" is forwarded unchanged: it is a distinct top
+				// tier on fugu-ultra-v1.1 (what the "fugu-ultra" alias resolves to),
+				// and the older deployments still accept it as an alias of "xhigh".
 				const responsesReasoningEffort =
 					usedProvider === "sakana"
 						? reasoning_effort === "xhigh" || reasoning_effort === "max"
-							? "xhigh"
+							? reasoning_effort
 							: "high"
 						: (reasoning_effort ?? defaultEffort);
 
@@ -2208,7 +2211,7 @@ export async function prepareRequestBody(
 					if (usedProvider === "sakana") {
 						// Streaming Fugu uses Chat Completions, which (like its Responses
 						// API) only accepts "high"/"xhigh"/"max". Collapse the lower
-						// OpenAI tiers onto "high".
+						// OpenAI tiers onto "high" and forward the top tiers unchanged.
 						requestBody.reasoning_effort =
 							reasoning_effort === "xhigh" || reasoning_effort === "max"
 								? reasoning_effort

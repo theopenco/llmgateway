@@ -211,6 +211,9 @@ export function RecentLogs({
 	const [apiKeyId, setApiKeyId] = useState<string | undefined>(
 		searchParams.get("apiKeyId") ?? undefined,
 	);
+	const [usedMode, setUsedMode] = useState<string | undefined>(
+		searchParams.get("usedMode") ?? undefined,
+	);
 
 	const api = useApi();
 	const deferredModelSearch = useDeferredValue(modelSearch);
@@ -332,6 +335,9 @@ export function RecentLogs({
 	if (apiKeyId && apiKeyId !== "all") {
 		queryParams.apiKeyId = apiKeyId;
 	}
+	if (usedMode && usedMode !== "all") {
+		queryParams.usedMode = usedMode;
+	}
 	if (projectId) {
 		queryParams.projectId = projectId;
 	}
@@ -345,7 +351,8 @@ export function RecentLogs({
 		customHeaderKey === (searchParams.get("customHeaderKey") ?? "") &&
 		customHeaderValue === (searchParams.get("customHeaderValue") ?? "") &&
 		sessionId === (searchParams.get("sessionId") ?? "") &&
-		apiKeyId === (searchParams.get("apiKeyId") ?? undefined);
+		apiKeyId === (searchParams.get("apiKeyId") ?? undefined) &&
+		usedMode === (searchParams.get("usedMode") ?? undefined);
 
 	const {
 		data,
@@ -469,6 +476,7 @@ export function RecentLogs({
 		provider,
 		model,
 		apiKeyId,
+		usedMode,
 		customHeaderKey.trim() || undefined,
 		customHeaderValue.trim() || undefined,
 		sessionId.trim() || undefined,
@@ -483,6 +491,7 @@ export function RecentLogs({
 		setProvider(undefined);
 		setModel(undefined);
 		setApiKeyId(undefined);
+		setUsedMode(undefined);
 		setCustomHeaderKey("");
 		setCustomHeaderValue("");
 		setSessionId("");
@@ -493,6 +502,7 @@ export function RecentLogs({
 			provider: undefined,
 			model: undefined,
 			apiKeyId: undefined,
+			usedMode: undefined,
 			customHeaderKey: undefined,
 			customHeaderValue: undefined,
 			sessionId: undefined,
@@ -667,6 +677,20 @@ export function RecentLogs({
 										{option.label}
 									</SelectItem>
 								))}
+							</SelectContent>
+						</Select>
+
+						<Select
+							onValueChange={handleFilterChange("usedMode", setUsedMode)}
+							value={usedMode ?? "all"}
+						>
+							<SelectTrigger className="w-full">
+								<SelectValue placeholder="Filter by billing" />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="all">All billing</SelectItem>
+								<SelectItem value="credits">Credits</SelectItem>
+								<SelectItem value="api-keys">BYOK</SelectItem>
 							</SelectContent>
 						</Select>
 

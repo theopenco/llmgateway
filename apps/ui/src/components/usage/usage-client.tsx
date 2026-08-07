@@ -5,6 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
 
 import {
+	UsageModeSelector,
+	useUsageMode,
+} from "@/components/shared/usage-mode-selector";
+import {
 	TimeRangePicker,
 	type TimeRangeValue,
 } from "@/components/time-range-picker";
@@ -35,6 +39,7 @@ import {
 	TabsTrigger,
 } from "@/lib/components/tabs";
 import { useApi } from "@/lib/fetch-client";
+import { USAGE_MODE_ALL_TRAFFIC_NOTE } from "@/lib/usage-mode";
 
 import type { ActivitT } from "@/types/activity";
 
@@ -67,6 +72,7 @@ export function UsageClient({
 	const searchParams = useSearchParams();
 	const { buildUrl } = useDashboardNavigation();
 	const api = useApi();
+	const usageMode = useUsageMode();
 
 	// Fetch API keys for the project
 	const { data: apiKeysData } = api.useQuery(
@@ -153,6 +159,7 @@ export function UsageClient({
 							</SelectContent>
 						</Select>
 						<TimeRangePicker value={timeRange} onChange={updateTimeRange} />
+						<UsageModeSelector />
 					</div>
 				</div>
 				<Tabs defaultValue="requests" className="space-y-4">
@@ -201,6 +208,7 @@ export function UsageClient({
 								<CardTitle>Error Rate</CardTitle>
 								<CardDescription>
 									API request error rate over time
+									{usageMode !== "total" && ` — ${USAGE_MODE_ALL_TRAFFIC_NOTE}`}
 								</CardDescription>
 							</CardHeader>
 							<CardContent className="h-[400px]">
@@ -218,6 +226,7 @@ export function UsageClient({
 								<CardTitle>Cache Rate</CardTitle>
 								<CardDescription>
 									API request cache rate over time
+									{usageMode !== "total" && ` — ${USAGE_MODE_ALL_TRAFFIC_NOTE}`}
 								</CardDescription>
 							</CardHeader>
 							<CardContent className="h-[400px]">

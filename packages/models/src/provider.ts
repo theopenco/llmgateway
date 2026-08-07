@@ -106,6 +106,49 @@ export function getProviderEnvConfig(
 	return def?.env;
 }
 
+/**
+ * One configurable setting of a provider credential: the logical key it is
+ * addressed by (`apiKey`, `baseUrl`, `project`, `region`, …), the environment
+ * variable that carries it when the credential is configured through env vars,
+ * and whether the provider needs it at all.
+ */
+export interface ProviderEnvKey {
+	key: string;
+	envVar: string;
+	required: boolean;
+}
+
+/**
+ * Every setting a provider credential can carry, required ones first. Drives
+ * both the admin dashboard's credential form (which renders one field per
+ * entry) and server-side validation of managed credentials, so a provider that
+ * gains a new env var automatically gains the matching field.
+ *
+ * `apiKey` is included: it is the credential's token and is stored encrypted
+ * rather than alongside the other settings, so callers that only want the
+ * accompanying settings should filter it out.
+ */
+export function getProviderEnvKeys(
+	provider: Provider | string,
+): ProviderEnvKey[] {
+	const config = getProviderEnvConfig(provider);
+	if (!config) {
+		return [];
+	}
+	const keys: ProviderEnvKey[] = [];
+	for (const [key, envVar] of Object.entries(config.required)) {
+		if (envVar) {
+			keys.push({ key, envVar, required: true });
+		}
+	}
+	for (const [key, envVar] of Object.entries(config.optional ?? {})) {
+		if (envVar) {
+			keys.push({ key, envVar, required: false });
+		}
+	}
+	return keys;
+}
+
 export function hasProviderEnvironmentToken(
 	provider: Provider | string,
 ): boolean {
@@ -172,11 +215,13 @@ export type VertexTokenType = "api-key" | "oauth";
 
 interface VertexTokenTypeOptions {
 	google_vertex_token_type?: VertexTokenType;
+	env_config?: Record<string, string>;
 }
 
 /**
  * Google Vertex AI accepts either an API key (sent as `?key=`) or an OAuth2
- * Bearer token. Resolution order: provider-key option → env var → "api-key".
+ * Bearer token. Resolution order: provider-key option → managed-credential
+ * config → env var → "api-key".
  */
 export function resolveVertexTokenType(
 	provider: "google-vertex",
@@ -188,6 +233,10 @@ export function resolveVertexTokenType(
 	const optionValue = providerKeyOptions?.google_vertex_token_type;
 	if (optionValue === "api-key" || optionValue === "oauth") {
 		return optionValue;
+	}
+	const configValue = providerKeyOptions?.env_config?.tokenType;
+	if (configValue === "api-key" || configValue === "oauth") {
+		return configValue;
 	}
 	if (!skipEnvVars) {
 		const envValue = getProviderEnvValue(
@@ -223,6 +272,17 @@ export function validateProviderEnv(provider: Provider): string[] {
 }
 
 /**
+ * Suffix a region contributes to an env var name (`us-virginia` → `US_VIRGINIA`).
+ *
+ * Every reader and every enumerator of regional credentials must derive the
+ * name the same way — a variable spelled differently than the gateway looks it
+ * up is simply never read.
+ */
+export function getRegionEnvVarSuffix(region: string): string {
+	return region.toUpperCase().replace(/-/g, "_");
+}
+
+/**
  * Get a region-specific environment variable value.
  * Checks for `{BASE_ENV_VAR}__{REGION}` first, then falls back to the base env var.
  * Region is normalized to uppercase with hyphens replaced by underscores.
@@ -238,7 +298,7 @@ export function getRegionSpecificEnvValue(
 	if (!baseEnvVar) {
 		return undefined;
 	}
-	const regionSuffix = region.toUpperCase().replace(/-/g, "_");
+	const regionSuffix = getRegionEnvVarSuffix(region);
 	return (
 		process.env[`${baseEnvVar}__${regionSuffix}`] ?? process.env[baseEnvVar]
 	);
@@ -263,7 +323,7 @@ export function getRegionSpecificEnvVarName(
 	if (!baseEnvVar) {
 		return undefined;
 	}
-	const regionSuffix = region.toUpperCase().replace(/-/g, "_");
+	const regionSuffix = getRegionEnvVarSuffix(region);
 	if (variant) {
 		const variantRegionalName = `${baseEnvVar}${ENV_VAR_VARIANT_SUFFIXES[variant]}__${regionSuffix}`;
 		if (process.env[variantRegionalName]) {
@@ -287,7 +347,7 @@ export function hasRegionSpecificEnvKey(
 	if (!baseEnvVar) {
 		return false;
 	}
-	const regionSuffix = region.toUpperCase().replace(/-/g, "_");
+	const regionSuffix = getRegionEnvVarSuffix(region);
 	if (process.env[`${baseEnvVar}__${regionSuffix}`]) {
 		return true;
 	}

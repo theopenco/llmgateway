@@ -69,6 +69,7 @@ export function CreateProviderKeyDialog({
 	const [vertexTokenType, setVertexTokenType] = useState<"api-key" | "oauth">(
 		"api-key",
 	);
+	const [usageLimit, setUsageLimit] = useState("");
 	const [isValidating, setIsValidating] = useState(false);
 
 	const api = useApi();
@@ -81,8 +82,24 @@ export function CreateProviderKeyDialog({
 		(p) => p.id === selectedProvider,
 	) as ProviderDefinition | undefined;
 
+	// Sentinel for "let the gateway pick". Radix Select cannot hold an empty
+	// string value, so the no-preference choice needs its own id.
+	const ANY_REGION = "__any__";
+
+	// When one credential works in every region (AWS), don't pre-select a region:
+	// storing one pins the key to it and forfeits cross-region failover, for no
+	// gain when the regions are priced identically. Providers whose keys are
+	// region-scoped (Alibaba — a Singapore key does not work in Beijing) keep
+	// defaulting, since the key really does belong to one region.
+	const regionOptional =
+		selectedProviderDef?.regionConfig?.sharedCredentialAcrossRegions === true;
+
 	const effectiveRegion =
-		(selectedRegion || selectedProviderDef?.regionConfig?.defaultRegion) ?? "";
+		(selectedRegion ||
+			(regionOptional
+				? ANY_REGION
+				: selectedProviderDef?.regionConfig?.defaultRegion)) ??
+		"";
 
 	// Exclude the gateway itself and stealth providers (no default base URL):
 	// users can't configure a stealth provider key because the platform behind
@@ -148,6 +165,16 @@ export function CreateProviderKeyDialog({
 			return;
 		}
 
+		const trimmedUsageLimit = usageLimit.trim();
+		if (trimmedUsageLimit && !/^\d+(?:\.\d+)?$/.test(trimmedUsageLimit)) {
+			toast({
+				title: "Error",
+				description: "Max spend must be a non-negative number",
+				variant: "destructive",
+			});
+			return;
+		}
+
 		const payload: {
 			provider: string;
 			token: string;
@@ -155,6 +182,7 @@ export function CreateProviderKeyDialog({
 			baseUrl?: string;
 			options?: Record<string, string | undefined>;
 			organizationId: string;
+			usageLimit?: string;
 		} = {
 			provider: selectedProvider,
 			token: trimmedToken,
@@ -163,11 +191,20 @@ export function CreateProviderKeyDialog({
 		if (baseUrl) {
 			payload.baseUrl = baseUrl;
 		}
+		if (trimmedUsageLimit) {
+			payload.usageLimit = trimmedUsageLimit;
+		}
 		if (selectedProvider === "custom" && customName) {
 			payload.name = customName;
 		}
-		// Include region in options for providers that support it
-		if (selectedProviderDef?.regionConfig && effectiveRegion) {
+		// Include region in options for providers that support it. Storing a
+		// region locks routing to it (a data-residency guarantee), so the
+		// no-preference choice deliberately stores nothing.
+		if (
+			selectedProviderDef?.regionConfig &&
+			effectiveRegion &&
+			effectiveRegion !== ANY_REGION
+		) {
 			payload.options = {
 				...payload.options,
 				[selectedProviderDef.regionConfig.optionsKey]: effectiveRegion,
@@ -297,6 +334,7 @@ export function CreateProviderKeyDialog({
 			setSelectedRegion("");
 			setGoogleVertexProjectId("");
 			setVertexTokenType("api-key");
+			setUsageLimit("");
 		}, 300);
 	};
 
@@ -547,6 +585,11 @@ export function CreateProviderKeyDialog({
 									<SelectValue placeholder="Select region" />
 								</SelectTrigger>
 								<SelectContent>
+									{regionOptional && (
+										<SelectItem value={ANY_REGION}>
+											Any region (recommended)
+										</SelectItem>
+									)}
 									{selectedProviderDef.regionConfig.regions.map((r) => (
 										<SelectItem key={r.id} value={r.id}>
 											{r.label}
@@ -555,8 +598,9 @@ export function CreateProviderKeyDialog({
 								</SelectContent>
 							</Select>
 							<p className="text-sm text-muted-foreground">
-								API keys are region-specific. Make sure your key matches the
-								selected region.
+								{regionOptional
+									? "One key works across every region. Leave this on “Any region” to let the gateway route across all of them; pick one to keep requests in a single region."
+									: "API keys are region-specific. Make sure your key matches the selected region."}
 							</p>
 						</div>
 					)}
@@ -591,6 +635,29 @@ export function CreateProviderKeyDialog({
 							</div>
 						</>
 					)}
+
+					<div className="space-y-2">
+						<Label htmlFor="provider-key-usage-limit">Max spend (USD)</Label>
+						<div className="relative">
+							<span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+								$
+							</span>
+							<Input
+								id="provider-key-usage-limit"
+								className="pl-6"
+								type="number"
+								min={0}
+								step="0.01"
+								placeholder="No limit"
+								value={usageLimit}
+								onChange={(e) => setUsageLimit(e.target.value)}
+							/>
+						</div>
+						<p className="text-sm text-muted-foreground">
+							Optional security fuse: the key is automatically disabled once the
+							spend attributed to it reaches this amount.
+						</p>
+					</div>
 
 					<DialogFooter>
 						<Button type="button" variant="outline" onClick={handleClose}>

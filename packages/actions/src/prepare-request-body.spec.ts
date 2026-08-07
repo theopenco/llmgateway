@@ -970,6 +970,14 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 		expect(requestBody.reasoning.effort).toBe("none");
 	});
 
+	test("forwards none to ByteDance GLM-5.2", async () => {
+		const requestBody = await prepare({
+			provider: "bytedance",
+			model: "glm-5.2",
+		});
+		expect(requestBody.reasoning_effort).toBe("none");
+	});
+
 	test("disables thinking for Google on none", async () => {
 		const requestBody = await prepare({
 			provider: "google-ai-studio",
@@ -1190,9 +1198,19 @@ describe("prepareRequestBody - Alibaba thinking", () => {
 		expect(requestBody.reasoning_effort).toBeUndefined();
 	});
 
-	test("sends nothing for mappings without budget-controlled thinking", async () => {
+	test("sends enable_thinking and thinking_budget for glm-5 (budget-controlled thinking)", async () => {
 		const requestBody = await prepare({
 			model: "glm-5",
+			reasoningEffort: "high",
+		});
+		expect(requestBody.enable_thinking).toBe(true);
+		expect(requestBody.thinking_budget).toBe(24576);
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("sends nothing for mappings without budget-controlled thinking", async () => {
+		const requestBody = await prepare({
+			model: "qwq-plus",
 			reasoningEffort: "high",
 		});
 		expect(requestBody.enable_thinking).toBeUndefined();
@@ -5629,5 +5647,108 @@ describe("prepareRequestBody - developer role normalization", () => {
 	test("preserves developer role for OpenAI", async () => {
 		const requestBody = await prepare("openai", "gpt-4o-mini");
 		expect(requestBody.messages[0].role).toBe("developer");
+	});
+});
+
+describe("prepareRequestBody - Sakana Fugu reasoning effort", () => {
+	async function prepare(
+		reasoning_effort:
+			| "none"
+			| "minimal"
+			| "low"
+			| "medium"
+			| "high"
+			| "xhigh"
+			| "max"
+			| undefined,
+		stream: boolean,
+	) {
+		return (await prepareRequestBody(
+			"sakana",
+			"fugu-ultra",
+			null,
+			"fugu-ultra",
+			[{ role: "user", content: "Hello" }] as any,
+			stream,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			reasoning_effort,
+			true,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			// useResponsesApi mirrors the endpoint choice: Responses when
+			// non-streaming, Chat Completions when streaming.
+			!stream,
+		)) as any;
+	}
+
+	describe("Responses API (non-streaming)", () => {
+		test("forwards max unchanged as its own tier", async () => {
+			const requestBody = await prepare("max", false);
+			expect(requestBody.reasoning.effort).toBe("max");
+		});
+
+		test("forwards xhigh unchanged", async () => {
+			const requestBody = await prepare("xhigh", false);
+			expect(requestBody.reasoning.effort).toBe("xhigh");
+		});
+
+		test.each(["none", "minimal", "low", "medium", "high"] as const)(
+			"collapses %s onto high",
+			async (effort) => {
+				const requestBody = await prepare(effort, false);
+				expect(requestBody.reasoning.effort).toBe("high");
+			},
+		);
+	});
+
+	describe("Chat Completions (streaming)", () => {
+		test("forwards max unchanged as its own tier", async () => {
+			const requestBody = await prepare("max", true);
+			expect(requestBody.reasoning_effort).toBe("max");
+		});
+
+		test("forwards xhigh unchanged", async () => {
+			const requestBody = await prepare("xhigh", true);
+			expect(requestBody.reasoning_effort).toBe("xhigh");
+		});
+
+		test.each(["minimal", "low", "medium", "high"] as const)(
+			"collapses %s onto high",
+			async (effort) => {
+				const requestBody = await prepare(effort, true);
+				expect(requestBody.reasoning_effort).toBe("high");
+			},
+		);
+
+		// "none" is stripped before the provider switch (the mapping does not
+		// declare it), so nothing is sent and Fugu applies its own Chat
+		// Completions default, which is "high".
+		test("omits reasoning_effort entirely for none", async () => {
+			const requestBody = await prepare("none", true);
+			expect(requestBody.reasoning_effort).toBeUndefined();
+		});
+	});
+
+	test("both API surfaces agree on every declared tier", async () => {
+		for (const effort of ["high", "xhigh", "max"] as const) {
+			const responses = await prepare(effort, false);
+			const chat = await prepare(effort, true);
+			expect(responses.reasoning.effort).toBe(chat.reasoning_effort);
+			expect(responses.reasoning.effort).toBe(effort);
+		}
 	});
 });

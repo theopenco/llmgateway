@@ -16,11 +16,13 @@ import {
 	addApiKeyPeriodDuration,
 	and,
 	apiKey,
+	cdb,
 	closeDatabase,
 	db,
 	enqueueWebhookDeliveries,
 	eq,
 	inArray,
+	isNotNull,
 	isApiKeyPeriodLimitConfigured,
 	log,
 	type LogInsertData,
@@ -207,6 +209,7 @@ const schema = z.object({
 	billing_cost: z.string().nullable(),
 	cached: z.boolean(),
 	api_key_id: z.string(),
+	provider_key_id: z.string().nullable(),
 	end_user_session_id: z.string().nullable(),
 	end_customer_wallet_id: z.string().nullable(),
 	project_mode: z.enum(["api-keys", "credits", "hybrid"]),
@@ -889,6 +892,9 @@ export async function batchProcessLogs(): Promise<number> {
 
 	let processedCount = 0;
 	const deductedOrgIds: string[] = [];
+	// Provider keys (BYOK or managed) whose accumulated usage crossed their
+	// spend limit this batch — deactivated after the transaction commits.
+	let overLimitProviderKeyIds: string[] = [];
 	// LLM SDK: wallets that crossed below the low-balance threshold this
 	// batch — webhooks are enqueued after the transaction commits.
 	const walletLowBalanceEvents: Array<{
@@ -915,6 +921,7 @@ export async function batchProcessLogs(): Promise<number> {
 					billing_cost: log.billingCost,
 					cached: log.cached,
 					api_key_id: log.apiKeyId,
+					provider_key_id: log.providerKeyId,
 					end_user_session_id: log.endUserSessionId,
 					end_customer_wallet_id: log.endCustomerWalletId,
 					project_mode: tables.project.mode,
@@ -982,6 +989,11 @@ export async function batchProcessLogs(): Promise<number> {
 			// usage_debit ledger row back to a gateway log.
 			const walletCosts = new Map<string, Decimal>();
 			const walletLogIds = new Map<string, string>();
+			// Upstream provider spend attributed per provider_key row (BYOK and
+			// managed alike). Uses the raw `cost` column — what the credential
+			// spends at the provider — not billingCost, which carries plan/margin
+			// adjustments on what the org pays us.
+			const providerKeyCosts = new Map<string, Decimal>();
 
 			const isChatSource = (source: string | null | undefined) =>
 				source === "chat.llmgateway.io";
@@ -1027,6 +1039,23 @@ export async function batchProcessLogs(): Promise<number> {
 					traceId: row.trace_id,
 					unifiedFinishReason: row.unified_finish_reason,
 				});
+
+				// Cached responses never hit the upstream, so they don't spend
+				// against the credential. Runs before the wallet `continue` below so
+				// end-user-wallet traffic still attributes provider spend.
+				if (
+					row.provider_key_id &&
+					row.cost !== null &&
+					row.cost > 0 &&
+					!row.cached
+				) {
+					providerKeyCosts.set(
+						row.provider_key_id,
+						(providerKeyCosts.get(row.provider_key_id) ?? new Decimal(0)).plus(
+							new Decimal(row.cost),
+						),
+					);
+				}
 
 				// Prefer the exact decimal billingCost (realtime and other
 				// decimal-billed rows) over the legacy float cost column.
@@ -1496,6 +1525,37 @@ export async function batchProcessLogs(): Promise<number> {
 				}
 			}
 
+			// Accumulate upstream spend per provider key. Plain (uncached) writes
+			// on purpose: nothing hot-path reads `usage`, and invalidating the
+			// provider_key read cache every batch would hammer the database.
+			if (providerKeyCosts.size > 0) {
+				for (const [providerKeyId, keyCost] of providerKeyCosts.entries()) {
+					const costStr = keyCost.toString();
+					await tx
+						.update(tables.providerKey)
+						.set({
+							usage: sql`${tables.providerKey.usage} + ${costStr}`,
+						})
+						.where(eq(tables.providerKey.id, providerKeyId));
+				}
+
+				// Detect keys that crossed their spend limit; the status flip
+				// happens after commit so it can go through the cache-invalidating
+				// client without holding the batch transaction open.
+				const overLimitKeys = await tx
+					.select({ id: tables.providerKey.id })
+					.from(tables.providerKey)
+					.where(
+						and(
+							inArray(tables.providerKey.id, [...providerKeyCosts.keys()]),
+							eq(tables.providerKey.status, "active"),
+							isNotNull(tables.providerKey.usageLimit),
+							sql`${tables.providerKey.usage} >= ${tables.providerKey.usageLimit}`,
+						),
+					);
+				overLimitProviderKeyIds = overLimitKeys.map((key) => key.id);
+			}
+
 			// Mark all logs as processed within the same transaction.
 			// `= ANY($1)` keeps the query text constant across batch sizes; see
 			// the data-retention cleanup above for why this matters.
@@ -1510,6 +1570,45 @@ export async function batchProcessLogs(): Promise<number> {
 
 			return unprocessedLogs.rows.length;
 		});
+
+		// Auto-deactivate provider keys that hit their spend limit. Goes through
+		// cdb so the gateway's provider_key read cache and SWR mirrors are
+		// invalidated and the key drops out of rotation promptly — and only runs
+		// when a key actually crossed, so the 5s batch loop never busts the
+		// cache on quiet batches. The predicate is repeated to stay idempotent
+		// and to respect a limit raised between commit and flip. If the process
+		// dies in between, the key's next attributed batch re-detects it.
+		if (overLimitProviderKeyIds.length > 0) {
+			const deactivated = await cdb
+				.update(tables.providerKey)
+				.set({ status: "inactive" })
+				.where(
+					and(
+						inArray(tables.providerKey.id, overLimitProviderKeyIds),
+						eq(tables.providerKey.status, "active"),
+						isNotNull(tables.providerKey.usageLimit),
+						sql`${tables.providerKey.usage} >= ${tables.providerKey.usageLimit}`,
+					),
+				)
+				.returning({
+					id: tables.providerKey.id,
+					provider: tables.providerKey.provider,
+					managed: tables.providerKey.managed,
+					organizationId: tables.providerKey.organizationId,
+					usage: tables.providerKey.usage,
+					usageLimit: tables.providerKey.usageLimit,
+				});
+			for (const key of deactivated) {
+				logger.info("Provider key auto-deactivated: spend limit reached", {
+					providerKeyId: key.id,
+					provider: key.provider,
+					managed: key.managed,
+					organizationId: key.organizationId,
+					usage: key.usage,
+					usageLimit: key.usageLimit,
+				});
+			}
+		}
 
 		// Async low-balance alert check (outside transaction, non-blocking)
 		if (deductedOrgIds.length > 0) {

@@ -962,6 +962,29 @@ export const providers: ProviderDefinition[] = [
 		website: "https://aws.amazon.com/bedrock",
 		statusPageUrl: "https://health.aws.amazon.com/health/status",
 		announcement: null,
+		regionConfig: {
+			optionsKey: "aws_mantle_region",
+			defaultRegion: "us-east-1",
+			// Mantle has no cross-region inference profiles at all — the model
+			// cards mark Geo and Global as unsupported — so every entry is a
+			// concrete AWS region and `pinDefaultRegion` stays unset, letting the
+			// gateway route across regions like Alibaba instead of pinning to a
+			// synthetic global default the way aws-bedrock does.
+			regions: [
+				{ id: "us-east-1", label: "US East (N. Virginia)" },
+				{ id: "us-east-2", label: "US East (Ohio)" },
+				{ id: "us-west-2", label: "US West (Oregon)" },
+			],
+			endpointMap: {
+				"us-east-1": "https://bedrock-mantle.us-east-1.api.aws",
+				"us-east-2": "https://bedrock-mantle.us-east-2.api.aws",
+				"us-west-2": "https://bedrock-mantle.us-west-2.api.aws",
+			},
+			// Bedrock long-term API keys are IAM-global: one ABSK key authenticates
+			// against every regional Mantle endpoint, so non-default regions do not
+			// need their own `LLM_AWS_MANTLE_API_KEY__<REGION>` env key.
+			sharedCredentialAcrossRegions: true,
+		},
 		apiKeyInstructions:
 			"Use AWS Bedrock Long-Term API Keys (not IAM service account or private keys)",
 		termsUrl: "https://aws.amazon.com/service-terms",
@@ -1756,6 +1779,32 @@ export const providers: ProviderDefinition[] = [
 			soc2: 2,
 			iso27001: true,
 			gdpr: true,
+		},
+	},
+	{
+		id: "ranoai",
+		name: "RanoAI",
+		description:
+			"RanoAI serves open-weight large language models on Furiosa RNGD NPU hardware via an OpenAI-compatible inference API.",
+		env: {
+			required: {
+				apiKey: "LLM_RANOAI_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#000000",
+		website: "https://ranoai.com",
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: "https://ranoai.com/terms",
+		privacyPolicyUrl: "https://ranoai.com/privacy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
 		},
 	},
 ] as const satisfies ProviderDefinition[];

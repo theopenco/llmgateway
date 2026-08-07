@@ -51,10 +51,13 @@ function buildVertexCompatibleEndpoint(
 	const endpoint = stream ? "streamGenerateContent" : "generateContent";
 	const model = externalId ?? "gemini-3.1-flash-lite";
 
+	const credentialConfig = providerKeyOptions?.env_config;
 	const projectId =
+		credentialConfig?.project ??
 		providerKeyOptions?.google_vertex_project_id ??
 		getProviderEnvValue(provider, "project", configIndex, undefined, variant);
 	const region =
+		credentialConfig?.region ??
 		getProviderEnvValue(provider, "region", configIndex, "global", variant) ??
 		"global";
 
@@ -132,6 +135,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	deepinfra: "https://api.deepinfra.com/v1/openai",
 	gonka24: "https://api.gonka24.com",
 	fireworks: "https://api.fireworks.ai/inference",
+	ranoai: "https://api.ranoai.com",
 };
 
 export function getProviderDefaultBaseUrl(
@@ -194,6 +198,12 @@ export function getProviderEndpoint(
 	}
 	let url: string | undefined;
 
+	// Settings carried by a managed (platform-owned) credential, keyed by the
+	// provider's logical env keys. Always wins over the environment: a managed
+	// credential is meant to describe itself completely so the deployment does
+	// not need the matching LLM_* vars set at all.
+	const credentialConfig = providerKeyOptions?.env_config;
+
 	// Helper: read env value only when not in BYOK mode (skipEnvVars).
 	// In BYOK mode, only the hardcoded default is used.
 	const envValueOrDefault = (
@@ -201,10 +211,11 @@ export function getProviderEndpoint(
 		key: string,
 		defaultValue?: string,
 	): string | undefined =>
-		skipEnvVars
+		credentialConfig?.[key] ??
+		(skipEnvVars
 			? defaultValue
 			: (getProviderEnvValue(p, key, configIndex, defaultValue, variant) ??
-				defaultValue);
+				defaultValue));
 
 	// Generic region-based base URL resolution.
 	// Any provider with a regionConfig + endpointMap can use this.
@@ -241,15 +252,17 @@ export function getProviderEndpoint(
 					) ?? getProviderDefaultBaseUrl(provider);
 				break;
 			case "glacier":
-				url = skipEnvVars
-					? undefined
-					: getProviderEnvValue(
-							"glacier",
-							"baseUrl",
-							configIndex,
-							undefined,
-							variant,
-						);
+				url =
+					credentialConfig?.baseUrl ??
+					(skipEnvVars
+						? undefined
+						: getProviderEnvValue(
+								"glacier",
+								"baseUrl",
+								configIndex,
+								undefined,
+								variant,
+							));
 				if (!url) {
 					throw new Error(
 						"Glacier provider requires LLM_GLACIER_BASE_URL environment variable",
@@ -257,15 +270,17 @@ export function getProviderEndpoint(
 				}
 				break;
 			case "iceberg":
-				url = skipEnvVars
-					? undefined
-					: getProviderEnvValue(
-							"iceberg",
-							"baseUrl",
-							configIndex,
-							undefined,
-							variant,
-						);
+				url =
+					credentialConfig?.baseUrl ??
+					(skipEnvVars
+						? undefined
+						: getProviderEnvValue(
+								"iceberg",
+								"baseUrl",
+								configIndex,
+								undefined,
+								variant,
+							));
 				if (!url) {
 					throw new Error(
 						"Iceberg provider requires LLM_ICEBERG_BASE_URL environment variable",
@@ -273,15 +288,17 @@ export function getProviderEndpoint(
 				}
 				break;
 			case "granite":
-				url = skipEnvVars
-					? undefined
-					: getProviderEnvValue(
-							"granite",
-							"baseUrl",
-							configIndex,
-							undefined,
-							variant,
-						);
+				url =
+					credentialConfig?.baseUrl ??
+					(skipEnvVars
+						? undefined
+						: getProviderEnvValue(
+								"granite",
+								"baseUrl",
+								configIndex,
+								undefined,
+								variant,
+							));
 				if (!url) {
 					throw new Error(
 						"Granite provider requires LLM_GRANITE_BASE_URL environment variable",
@@ -301,6 +318,7 @@ export function getProviderEndpoint(
 			}
 			case "vertex-anthropic": {
 				const vaDefaultRegion =
+					credentialConfig?.region ??
 					providerKeyOptions?.vertex_anthropic_region ??
 					getProviderEnvValue(
 						"vertex-anthropic",
@@ -320,15 +338,17 @@ export function getProviderEndpoint(
 				break;
 			}
 			case "quartz":
-				url = skipEnvVars
-					? undefined
-					: getProviderEnvValue(
-							"quartz",
-							"baseUrl",
-							configIndex,
-							undefined,
-							variant,
-						);
+				url =
+					credentialConfig?.baseUrl ??
+					(skipEnvVars
+						? undefined
+						: getProviderEnvValue(
+								"quartz",
+								"baseUrl",
+								configIndex,
+								undefined,
+								variant,
+							));
 				if (!url) {
 					throw new Error(
 						"Quartz provider requires LLM_QUARTZ_BASE_URL environment variable",
@@ -336,15 +356,17 @@ export function getProviderEndpoint(
 				}
 				break;
 			case "tundra":
-				url = skipEnvVars
-					? undefined
-					: getProviderEnvValue(
-							"tundra",
-							"baseUrl",
-							configIndex,
-							undefined,
-							variant,
-						);
+				url =
+					credentialConfig?.baseUrl ??
+					(skipEnvVars
+						? undefined
+						: getProviderEnvValue(
+								"tundra",
+								"baseUrl",
+								configIndex,
+								undefined,
+								variant,
+							));
 				if (!url) {
 					throw new Error(
 						"Tundra provider requires LLM_TUNDRA_BASE_URL environment variable",
@@ -367,15 +389,17 @@ export function getProviderEndpoint(
 				// region-derived endpoint > hardcoded default. An explicitly
 				// configured base URL (e.g. a proxy / private endpoint) must win
 				// over the region endpoint so regional requests don't bypass it.
-				const envBaseUrl = skipEnvVars
-					? undefined
-					: getProviderEnvValue(
-							"aws-bedrock",
-							"baseUrl",
-							configIndex,
-							undefined,
-							variant,
-						);
+				const envBaseUrl =
+					credentialConfig?.baseUrl ??
+					(skipEnvVars
+						? undefined
+						: getProviderEnvValue(
+								"aws-bedrock",
+								"baseUrl",
+								configIndex,
+								undefined,
+								variant,
+							));
 				url =
 					envBaseUrl ??
 					regionBaseUrl ??
@@ -384,19 +408,30 @@ export function getProviderEndpoint(
 			}
 			case "aws-mantle": {
 				// Bedrock Mantle: OpenAI frontier models on AWS, Responses API only.
-				// GPT-5.6 Sol is deployed in us-east-1/us-east-2 only (Terra/Luna
-				// additionally in us-west-2), so default to us-east-1 where the
-				// whole family is available.
+				// The selected region normally resolves through regionConfig's
+				// endpointMap; the env var stays supported as a deployment-level
+				// override, and us-east-1 is the fallback because it is the only
+				// region carrying the whole GPT-5.6 family (Sol is not in us-west-2).
 				const envBaseUrl = skipEnvVars
 					? undefined
-					: getProviderEnvValue("aws-mantle", "baseUrl", configIndex);
+					: getProviderEnvValue(
+							"aws-mantle",
+							"baseUrl",
+							configIndex,
+							undefined,
+							variant,
+						);
 				const mantleRegion =
 					envValueOrDefault("aws-mantle", "region", "us-east-1") ?? "us-east-1";
-				url = envBaseUrl ?? `https://bedrock-mantle.${mantleRegion}.api.aws`;
+				url =
+					envBaseUrl ??
+					regionBaseUrl ??
+					`https://bedrock-mantle.${mantleRegion}.api.aws`;
 				break;
 			}
 			case "azure": {
 				const resource =
+					credentialConfig?.resource ??
 					providerKeyOptions?.azure_resource ??
 					(skipEnvVars
 						? undefined
@@ -419,6 +454,7 @@ export function getProviderEndpoint(
 			}
 			case "azure-ai-foundry": {
 				const resource =
+					credentialConfig?.resource ??
 					providerKeyOptions?.azure_ai_foundry_resource ??
 					(skipEnvVars
 						? undefined
@@ -518,6 +554,7 @@ export function getProviderEndpoint(
 			);
 		case "vertex-openai": {
 			const projectId =
+				credentialConfig?.project ??
 				providerKeyOptions?.vertex_openai_project_id ??
 				getProviderEnvValue(
 					"vertex-openai",
@@ -534,6 +571,7 @@ export function getProviderEndpoint(
 			}
 			const vertexRegion =
 				region ??
+				credentialConfig?.region ??
 				providerKeyOptions?.vertex_openai_region ??
 				getProviderEnvValue(
 					"vertex-openai",
@@ -582,7 +620,11 @@ export function getProviderEndpoint(
 					}
 				}
 			}
+			// Same precedence as vaDefaultRegion above, which picks the host: the
+			// two must agree or the request goes to one region's host with another
+			// region in its path.
 			const vaRegion =
+				credentialConfig?.region ??
 				providerKeyOptions?.vertex_anthropic_region ??
 				getProviderEnvValue(
 					"vertex-anthropic",
@@ -642,6 +684,7 @@ export function getProviderEndpoint(
 		case "azure": {
 			const deploymentType =
 				providerKeyOptions?.azure_deployment_type ??
+				credentialConfig?.deploymentType ??
 				getProviderEnvValue(
 					"azure",
 					"deploymentType",
@@ -655,6 +698,7 @@ export function getProviderEndpoint(
 				// Traditional Azure (deployment-based)
 				const apiVersion =
 					providerKeyOptions?.azure_api_version ??
+					credentialConfig?.apiVersion ??
 					getProviderEnvValue(
 						"azure",
 						"apiVersion",
@@ -668,6 +712,7 @@ export function getProviderEndpoint(
 					// gpt-image models require a preview api-version
 					const imageApiVersion =
 						providerKeyOptions?.azure_api_version ??
+						credentialConfig?.apiVersion ??
 						getProviderEnvValue(
 							"azure",
 							"apiVersion",
@@ -686,13 +731,15 @@ export function getProviderEndpoint(
 					return `${url}/openai/v1/images/generations?api-version=preview`;
 				}
 
-				const useResponsesApiEnv = getProviderEnvValue(
-					"azure",
-					"useResponsesApi",
-					configIndex,
-					"true",
-					variant,
-				);
+				const useResponsesApiEnv =
+					credentialConfig?.useResponsesApi ??
+					getProviderEnvValue(
+						"azure",
+						"useResponsesApi",
+						configIndex,
+						"true",
+						variant,
+					);
 
 				if (model && useResponsesApiEnv !== "false") {
 					const modelDef = models.find((m) => m.id === (modelId ?? model));
@@ -713,6 +760,7 @@ export function getProviderEndpoint(
 		case "azure-ai-foundry": {
 			const apiVersion =
 				providerKeyOptions?.azure_ai_foundry_api_version ??
+				credentialConfig?.apiVersion ??
 				getProviderEnvValue(
 					"azure-ai-foundry",
 					"apiVersion",
@@ -818,6 +866,7 @@ export function getProviderEndpoint(
 		case "tundra":
 		case "scx-ai":
 		case "scx-ai-gp":
+		case "ranoai":
 		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;

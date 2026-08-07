@@ -43,7 +43,8 @@ urls:
 auth:
   # -- (required) Secret used for signing auth tokens (32+ characters)
   authSecret: "change-me-to-a-random-32-char-secret"
-  # -- (required) HMAC secret for hashing API keys
+  # -- (required) HMAC secret for hashing API keys and deriving the BYOK
+  # encryption-at-rest data key
   gatewayApiKeyHashSecret: "change-me-to-a-random-secret"
   # -- Cookie domain for session cookies
   cookieDomain: ""
@@ -459,6 +460,7 @@ llmProviders:
   # LLM_PERPLEXITY_API_KEY: ""
   # LLM_TOGETHER_AI_API_KEY: ""
   # LLM_SCX_AI_API_KEY: ""
+  # LLM_RANOAI_API_KEY: ""
   # LLM_ALIBABA_API_KEY: ""
   # LLM_NEBIUS_API_KEY: ""
   # LLM_CEREBRAS_API_KEY: ""

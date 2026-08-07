@@ -13,6 +13,10 @@ import {
 import { currencyFormatter } from "@/components/analytics/chart-helpers";
 import { CostByModelCard } from "@/components/analytics/cost-by-model-card";
 import { CostByModelOverTimeCard } from "@/components/analytics/cost-by-model-over-time-card";
+import {
+	UsageModeSelector,
+	useUsageMode,
+} from "@/components/shared/usage-mode-selector";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import {
 	Card,
@@ -22,8 +26,8 @@ import {
 } from "@/lib/components/card";
 import { useApi } from "@/lib/fetch-client";
 import { getBrowserTimeZone } from "@/lib/timezone";
+import { applyUsageModeToDaily } from "@/lib/usage-mode";
 
-import type { ActivityRow } from "@/components/analytics/chart-helpers";
 import type { Route } from "next";
 
 interface ApiKeyStatsClientProps {
@@ -39,6 +43,7 @@ export function ApiKeyStatsClient({
 	const searchParams = useSearchParams();
 	const { buildUrl, selectedOrganization } = useDashboardNavigation();
 	const api = useApi();
+	const usageMode = useUsageMode();
 	const isEnterprise = selectedOrganization?.plan === "enterprise";
 
 	useEffect(() => {
@@ -92,11 +97,16 @@ export function ApiKeyStatsClient({
 		},
 	);
 
-	const activity = (data?.activity ?? []) as ActivityRow[];
+	const activity = useMemo(
+		() =>
+			(data?.activity ?? []).map((day) =>
+				applyUsageModeToDaily(day, usageMode),
+			),
+		[data, usageMode],
+	);
 
 	const summary = useMemo(() => {
-		const rows = data?.activity ?? [];
-		return rows.reduce(
+		return activity.reduce(
 			(acc, row) => {
 				acc.cost += row.cost;
 				acc.totalTokens += row.totalTokens;
@@ -106,11 +116,19 @@ export function ApiKeyStatsClient({
 			},
 			{ cost: 0, totalTokens: 0, requestCount: 0, errorCount: 0 },
 		);
-	}, [data]);
+	}, [activity]);
+
+	// Errors are only tracked blended, so the rate is computed against all
+	// traffic regardless of the selected usage mode.
+	const blendedRequestCount = useMemo(
+		() =>
+			(data?.activity ?? []).reduce((sum, row) => sum + row.requestCount, 0),
+		[data],
+	);
 
 	const errorRate =
-		summary.requestCount > 0
-			? (summary.errorCount / summary.requestCount) * 100
+		blendedRequestCount > 0
+			? (summary.errorCount / blendedRequestCount) * 100
 			: 0;
 
 	const stats = [
@@ -141,11 +159,14 @@ export function ApiKeyStatsClient({
 							{apiKey?.maskedToken ?? keyId}
 						</p>
 					</div>
-					<AnalyticsDateRange
-						isEnterprise={isEnterprise}
-						buildUrl={buildUrl}
-						path={`api-keys/${keyId}`}
-					/>
+					<div className="flex flex-wrap items-center gap-2">
+						<UsageModeSelector />
+						<AnalyticsDateRange
+							isEnterprise={isEnterprise}
+							buildUrl={buildUrl}
+							path={`api-keys/${keyId}`}
+						/>
+					</div>
 				</div>
 
 				<div className="grid grid-cols-2 gap-4 lg:grid-cols-4">

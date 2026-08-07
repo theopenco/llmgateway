@@ -6,7 +6,14 @@ import {
 
 export type ProjectMode = "api-keys" | "credits" | "hybrid";
 
-export function getEnvironmentBackedProviders(
+/**
+ * Providers LLM Gateway can serve itself, i.e. the ones it holds a credential
+ * for. A credential is either a managed provider-key row (the database-backed
+ * configuration) or the provider's `LLM_*` environment variable, so a provider
+ * migrated into the database stays routable once its env var is removed.
+ */
+export function getPlatformBackedProviders(
+	managedProviderIds: ReadonlySet<string> = new Set(),
 	providerIds?: string[],
 ): string[] {
 	const candidateProviders = providerIds
@@ -15,7 +22,11 @@ export function getEnvironmentBackedProviders(
 
 	return candidateProviders
 		.filter((provider) => provider.id !== "llmgateway")
-		.filter((provider) => hasProviderEnvironmentToken(provider.id as Provider))
+		.filter(
+			(provider) =>
+				managedProviderIds.has(provider.id) ||
+				hasProviderEnvironmentToken(provider.id as Provider),
+		)
 		.map((provider) => provider.id);
 }
 
@@ -23,6 +34,7 @@ export function getAvailableProvidersForProjectMode(
 	projectMode: ProjectMode,
 	providerKeys: Array<{ provider: string }>,
 	providerIds?: string[],
+	managedProviderIds?: ReadonlySet<string>,
 ): {
 	availableProviders: string[];
 	providersWithKeys: Set<string>;
@@ -36,18 +48,21 @@ export function getAvailableProvidersForProjectMode(
 		};
 	}
 
-	const envProviders = getEnvironmentBackedProviders(providerIds);
+	const platformProviders = getPlatformBackedProviders(
+		managedProviderIds,
+		providerIds,
+	);
 
 	if (projectMode === "credits") {
 		return {
-			availableProviders: envProviders,
+			availableProviders: platformProviders,
 			providersWithKeys,
 		};
 	}
 
 	return {
 		availableProviders: Array.from(
-			new Set([...providersWithKeys, ...envProviders]),
+			new Set([...providersWithKeys, ...platformProviders]),
 		),
 		providersWithKeys,
 	};

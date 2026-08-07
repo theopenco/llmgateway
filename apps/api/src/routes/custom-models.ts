@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { assertOrganizationProviderKey } from "@/lib/organization-provider-key.js";
 import {
 	getActiveUserOrganizationIds,
 	getAdminOrganizationIds,
@@ -254,6 +255,8 @@ async function getManageableProviderKey(userId: string, providerKeyId: string) {
 			message: "Provider key not found",
 		});
 	}
+
+	assertOrganizationProviderKey(providerKey);
 
 	if (providerKey.provider !== "custom") {
 		throw new HTTPException(400, {

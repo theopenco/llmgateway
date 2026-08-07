@@ -100,3 +100,4 @@ The ones that route their full agent loop through your endpoint: Claude Code, Cl
 - **[Get DevPass](https://devpass.llmgateway.io)** — flat-rate Kimi K3 in your coding agent from $29/mo
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** — one key for K3 and 200+ models
 - New to K3? Start with [Kimi K3 and China's Open-Weight Model Wave](/blog/kimi-k3), or see how it stacks up in [Kimi K3 vs Claude Opus 4.8](/blog/kimi-k3-vs-claude-opus)
+- Requests failing? Check the live [Kimi K3 status page](/models/kimi-k3/uptime) for per-provider uptime before you debug your setup

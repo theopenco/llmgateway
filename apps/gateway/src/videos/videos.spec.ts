@@ -8,17 +8,23 @@ import {
 	setMockVideoStatus,
 } from "@/test-utils/mock-openai-server.js";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 
 describe("videos", () => {
 	const harness = createGatewayApiTestHarness();
 	let mockServerUrl: string;
 	let originalGoogleVertexBaseUrl: string | undefined;
+	let originalAvalancheApiKey: string | undefined;
+	let originalAvalancheBaseUrl: string | undefined;
 
 	beforeAll(() => {
 		mockServerUrl = harness.mockServerUrl;
 		originalGoogleVertexBaseUrl = process.env.LLM_GOOGLE_VERTEX_BASE_URL;
+		originalAvalancheApiKey = process.env.LLM_AVALANCHE_API_KEY;
+		originalAvalancheBaseUrl = process.env.LLM_AVALANCHE_BASE_URL;
 		process.env.LLM_GOOGLE_VERTEX_BASE_URL = mockServerUrl;
+		process.env.LLM_AVALANCHE_API_KEY = "avalanche-env-key";
+		process.env.LLM_AVALANCHE_BASE_URL = mockServerUrl;
 	});
 
 	afterAll(() => {
@@ -26,6 +32,16 @@ describe("videos", () => {
 			process.env.LLM_GOOGLE_VERTEX_BASE_URL = originalGoogleVertexBaseUrl;
 		} else {
 			delete process.env.LLM_GOOGLE_VERTEX_BASE_URL;
+		}
+		if (originalAvalancheApiKey !== undefined) {
+			process.env.LLM_AVALANCHE_API_KEY = originalAvalancheApiKey;
+		} else {
+			delete process.env.LLM_AVALANCHE_API_KEY;
+		}
+		if (originalAvalancheBaseUrl !== undefined) {
+			process.env.LLM_AVALANCHE_BASE_URL = originalAvalancheBaseUrl;
+		} else {
+			delete process.env.LLM_AVALANCHE_BASE_URL;
 		}
 	});
 
@@ -83,6 +99,84 @@ describe("videos", () => {
 		expect(JSON.stringify(json)).toContain("duration 6s");
 		expect(JSON.stringify(json)).toContain("aspect_ratio");
 		expect(JSON.stringify(json)).toContain("fixed 8s clips");
+	});
+
+	test("/v1/videos redacts stealth-provider errors persisted by the worker", async () => {
+		const secret =
+			"SecretVendor SensitiveContentDetected at https://api.secretvendor.com";
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-avalanche-key",
+			provider: "avalanche",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "avalanche/veo-3.1-generate-preview",
+				prompt: "A mountain range at sunrise",
+				size: "1920x1080",
+				seconds: 8,
+			}),
+		});
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		const job = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(job).toBeTruthy();
+		setMockVideoStatus(job!.upstreamId, "failed", {
+			error: { message: secret },
+		});
+
+		await processPendingVideoJobs();
+
+		const persistedJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		const log = await db.query.log.findFirst({
+			where: { requestId: { eq: job!.requestId } },
+		});
+		expect(persistedJob).toBeTruthy();
+		expect(log).toBeTruthy();
+		expect(JSON.stringify(persistedJob!.upstreamStatusResponse)).toContain(
+			secret,
+		);
+		expect(log!.finishReason).toBe("content_filter");
+		expect(log!.upstreamResponse).toBeNull();
+		expect(log!.internalErrorDetails).toMatchObject({ responseText: secret });
+		expect(log!.errorDetails).toEqual({
+			statusCode: 502,
+			statusText: "Bad Gateway",
+			responseText: "Upstream provider error (502 Bad Gateway)",
+		});
+		const { internalErrorDetails: _internalErrorDetails, ...publicLog } = log!;
+		expect(JSON.stringify(publicLog)).not.toContain("SecretVendor");
+		expect(JSON.stringify(publicLog)).not.toContain("secretvendor.com");
+
+		const statusRes = await app.request(`/v1/videos/${created.id}`, {
+			headers: { Authorization: "Bearer real-token" },
+		});
+		expect(statusRes.status).toBe(200);
+		const responseText = await statusRes.text();
+		expect(responseText).not.toContain("SecretVendor");
+		expect(responseText).not.toContain("secretvendor.com");
+		expect(JSON.parse(responseText).error).toEqual({
+			message: "Upstream provider error (502 Bad Gateway)",
+		});
 	});
 
 	test("/v1/videos rejects dev-plan personal orgs with 403", async () => {
@@ -1020,6 +1114,104 @@ describe("videos", () => {
 					originalGoogleVertexVideoOutputBucket;
 			} else {
 				delete process.env.LLM_GOOGLE_VERTEX_VIDEO_OUTPUT_BUCKET;
+			}
+		}
+	});
+
+	test("/v1/videos serves credits mode from a managed credential and pins it to the job", async () => {
+		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		const originalRuntimeGoogleCloudProject = process.env.GOOGLE_CLOUD_PROJECT;
+		const originalGoogleVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
+		const originalGoogleVertexApiKey = process.env.LLM_GOOGLE_VERTEX_API_KEY;
+		// No LLM_* credential for the provider: the managed credential alone must
+		// make it routable and carry every setting video generation needs.
+		delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		delete process.env.LLM_GOOGLE_VERTEX_API_KEY;
+		process.env.GOOGLE_CLOUD_PROJECT = "managed-video-project";
+		process.env.LLM_GOOGLE_VERTEX_REGION = "us-central1";
+
+		try {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await harness.setProjectMode("credits");
+
+			await cdb.insert(tables.providerKey).values({
+				id: "managed-vertex-video",
+				provider: "google-vertex",
+				token: "vertex-test-token",
+				managed: true,
+				organizationId: null,
+				config: {
+					baseUrl: mockServerUrl,
+					project: "managed-video-project",
+					region: "us-central1",
+				},
+			});
+
+			const res = await app.request("/v1/videos", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "google-vertex/veo-3.1-generate-preview",
+					prompt: "A managed credential rendering a sunrise",
+					size: "1920x1080",
+					seconds: 8,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const json = await res.json();
+			const videoJob = await db.query.videoJob.findFirst({
+				where: { id: { eq: json.id } },
+			});
+			expect(videoJob?.usedProvider).toBe("google-vertex");
+			expect(videoJob?.usedMode).toBe("credits");
+			// Polling happens later, possibly from the worker, so the exact
+			// credential that created the job is recorded on it.
+			expect(videoJob?.managedProviderKeyId).toBe("managed-vertex-video");
+
+			// And the job stays pollable through that same credential — both from
+			// the gateway and from the worker, which runs long after the request
+			// with no env var to fall back on.
+			const statusRes = await app.request(`/v1/videos/${json.id}`, {
+				headers: { Authorization: "Bearer real-token" },
+			});
+			expect(statusRes.status).toBe(200);
+
+			setMockVideoStatus(videoJob!.upstreamId, "completed");
+			await processPendingVideoJobs();
+
+			const completedRes = await app.request(`/v1/videos/${json.id}`, {
+				headers: { Authorization: "Bearer real-token" },
+			});
+			expect(completedRes.status).toBe(200);
+			expect((await completedRes.json()).status).toBe("completed");
+		} finally {
+			await harness.setProjectMode("api-keys");
+			if (originalGoogleCloudProject !== undefined) {
+				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
+			}
+			if (originalRuntimeGoogleCloudProject !== undefined) {
+				process.env.GOOGLE_CLOUD_PROJECT = originalRuntimeGoogleCloudProject;
+			} else {
+				delete process.env.GOOGLE_CLOUD_PROJECT;
+			}
+			if (originalGoogleVertexRegion !== undefined) {
+				process.env.LLM_GOOGLE_VERTEX_REGION = originalGoogleVertexRegion;
+			} else {
+				delete process.env.LLM_GOOGLE_VERTEX_REGION;
+			}
+			if (originalGoogleVertexApiKey !== undefined) {
+				process.env.LLM_GOOGLE_VERTEX_API_KEY = originalGoogleVertexApiKey;
 			}
 		}
 	});

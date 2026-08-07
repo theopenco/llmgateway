@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { logger } from "@llmgateway/logger";
 import { models } from "@llmgateway/models";
 
 import {
@@ -151,5 +152,95 @@ describe("validateProviderKey error reporting", () => {
 
 		expect(result.valid).toBe(false);
 		expect(result.error).toBe("401 Unauthorized");
+	});
+});
+
+describe("validateProviderKey region resolution", () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	// Covers the whole BYOK chain rather than just the endpoint helper: the
+	// region stored on the provider key must reach the Mantle URL. Region-aware
+	// providers resolve it from regionConfig.optionsKey, so a break anywhere
+	// between the stored option and the request would silently send traffic to
+	// the default region.
+	it.each([
+		{ region: "us-east-1" as const },
+		{ region: "us-east-2" as const },
+		{ region: "us-west-2" as const },
+	])(
+		"sends validation to $region when the provider key selects it",
+		async ({ region }) => {
+			const fetchMock = vi
+				.spyOn(globalThis, "fetch")
+				.mockResolvedValue(new Response("{}", { status: 200 }));
+
+			const result = await validateProviderKey(
+				"aws-mantle",
+				"ABSKtest",
+				undefined,
+				false,
+				{ aws_mantle_region: region },
+			);
+
+			expect(result.valid).toBe(true);
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+			expect(fetchMock.mock.calls[0][0]).toBe(
+				`https://bedrock-mantle.${region}.api.aws/openai/v1/responses`,
+			);
+		},
+	);
+
+	// Sol is not deployed to us-west-2, so a key pinned there must validate
+	// against a model that actually exists in the region.
+	it("picks a us-west-2 model when the key is pinned to us-west-2", async () => {
+		const fetchMock = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(new Response("{}", { status: 200 }));
+
+		const result = await validateProviderKey(
+			"aws-mantle",
+			"ABSKtest",
+			undefined,
+			false,
+			{ aws_mantle_region: "us-west-2" },
+		);
+
+		expect(result.model).not.toBe("gpt-5.6-sol");
+		const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+		expect(body.model).not.toBe("openai.gpt-5.6-sol");
+	});
+});
+
+describe("validateProviderKey credential hygiene", () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	// Google AI Studio and Vertex in api-key mode carry the credential in the
+	// query string (`?key=<token>`), so the endpoint string is not safe to log
+	// verbatim. The warn/error sites in the same function already run it through
+	// redactToken; the debug line did not.
+	//
+	// Production defaults to `info`, so this did not leak there by default — but
+	// development defaults to `debug`, and turning debug on to troubleshoot a
+	// failing provider key is exactly when it would have fired.
+	it("keeps the api key out of the debug log for google-ai-studio", async () => {
+		const token = "AIzaSyTESTKEYdoNotUse0123456789abcdefg";
+		const debugSpy = vi.spyOn(logger, "debug").mockImplementation(() => {});
+		const fetchMock = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(new Response("{}", { status: 200 }));
+
+		await validateProviderKey("google-ai-studio", token);
+
+		// The key really is in the URL — without this the test would pass
+		// vacuously if the endpoint ever stopped carrying it.
+		expect(String(fetchMock.mock.calls[0][0])).toContain(`key=${token}`);
+
+		const logged = JSON.stringify(debugSpy.mock.calls);
+		expect(logged).not.toContain(token);
+		expect(logged).toContain("[REDACTED_TOKEN]");
 	});
 });
