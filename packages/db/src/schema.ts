@@ -1943,6 +1943,10 @@ export const log = pgTable(
 				providerId: string;
 				reasons: string[];
 			}>;
+			// Where the requested service tier came from: the request body, or a
+			// dev-plan (DevPass) org's configured default tier. Only set when a
+			// premium tier was in play.
+			serviceTierSource?: "request" | "coding-plan-default";
 			strippedParameters?: string[];
 		}>(),
 		processedAt: timestamp(),
