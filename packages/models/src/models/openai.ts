@@ -1115,6 +1115,10 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5-chat-latest",
+				// Shut down by OpenAI on 2026-07-23 (announced 2026-04-22);
+				// requests now 404 with "has been deprecated". Replacement is
+				// gpt-5.6-sol.
+				deactivatedAt: new Date("2026-07-23"),
 				inputPrice: "1.25e-6",
 				outputPrice: "10.0e-6",
 				cachedInputPrice: "0.125e-6",
@@ -1248,6 +1252,11 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.1-codex",
+				// Shut down by OpenAI on 2026-07-23 (announced 2026-04-22);
+				// requests now 404 with "has been deprecated". Replacement is
+				// gpt-5.6-sol. The azure mapping below stays active — Azure runs
+				// its own schedule and does not retire this until 2027-05-15.
+				deactivatedAt: new Date("2026-07-23"),
 				serviceTiers: ["priority"],
 				serviceTierMultipliers: { priority: 2 },
 				inputPrice: "1.25e-6",
@@ -1296,6 +1305,11 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.1-codex-mini",
+				// Shut down by OpenAI on 2026-07-23 (announced 2026-04-22);
+				// requests now 404 with "has been deprecated". Replacement is
+				// gpt-5.6-terra. The azure mapping below stays active — Azure runs
+				// its own schedule and does not retire this until 2027-05-15.
+				deactivatedAt: new Date("2026-07-23"),
 				inputPrice: "0.25e-6",
 				outputPrice: "2e-6",
 				cachedInputPrice: "0.025e-6",
@@ -2334,6 +2348,11 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-5.2-codex",
+				// Shut down by OpenAI on 2026-07-23 (announced 2026-04-22);
+				// requests now 404 with "has been deprecated". Replacement is
+				// gpt-5.6-sol. The azure mapping below stays active — Azure runs
+				// its own schedule and does not retire this until 2027-07-13.
+				deactivatedAt: new Date("2026-07-23"),
 				inputPrice: "1.75e-6",
 				outputPrice: "14.0e-6",
 				cachedInputPrice: "0.175e-6",
