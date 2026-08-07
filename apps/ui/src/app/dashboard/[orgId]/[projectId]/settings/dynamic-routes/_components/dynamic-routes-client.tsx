@@ -2,6 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { CheckCircle, Mail, Plus, Trash2 } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useState } from "react";
 
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
@@ -19,9 +20,50 @@ import {
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
 import { Switch } from "@/lib/components/switch";
+import {
+	Tabs,
+	TabsContent,
+	TabsList,
+	TabsTrigger,
+} from "@/lib/components/tabs";
 import { Textarea } from "@/lib/components/textarea";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
+
+import { validateGraphText } from "./flow-graph";
+
+import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
+
+const RouteFlowEditor = dynamic(
+	() => import("./route-flow-editor").then((m) => m.RouteFlowEditor),
+	{
+		ssr: false,
+		loading: () => (
+			<div className="flex h-[480px] items-center justify-center rounded-md border text-sm text-muted-foreground">
+				Loading editor…
+			</div>
+		),
+	},
+);
+
+/** Loose shape check so the visual editor can initialize from a draft that
+ * parses as JSON even when it is not (yet) schema-valid. */
+function asEditableGraph(text: string): DynamicRouteGraph | null {
+	try {
+		const raw = JSON.parse(text) as DynamicRouteGraph;
+		if (
+			raw &&
+			typeof raw === "object" &&
+			typeof raw.entry === "string" &&
+			Array.isArray(raw.nodes)
+		) {
+			return raw;
+		}
+		return null;
+	} catch {
+		return null;
+	}
+}
 
 const STARTER_GRAPH = {
 	entry: "split",
@@ -107,6 +149,11 @@ export function DynamicRoutesClient({ projectId }: { projectId: string }) {
 	const [newName, setNewName] = useState("");
 	const [draftText, setDraftText] = useState<string | null>(null);
 	const [draftError, setDraftError] = useState<string | null>(null);
+	const [activeTab, setActiveTab] = useState<"visual" | "json">("visual");
+	const [visualErrors, setVisualErrors] = useState<string[]>([]);
+	// Bumped whenever the visual tab (re)opens so the flow editor remounts and
+	// re-reads the latest draft text (which the JSON tab may have changed).
+	const [visualSession, setVisualSession] = useState(0);
 
 	const listQuery = api.useQuery(
 		"get",
@@ -309,9 +356,14 @@ export function DynamicRoutesClient({ projectId }: { projectId: string }) {
 		detail?.draftGraph ?? detail?.publishedVersion?.graph ?? STARTER_GRAPH;
 	const effectiveDraftText =
 		draftText ?? JSON.stringify(fallbackGraph, null, 2);
+	// Same validation the API applies on save/publish; saving is blocked until
+	// the draft passes so an invalid graph can never be stored.
+	const jsonErrors = selectedName ? validateGraphText(effectiveDraftText) : [];
+	const draftErrors = activeTab === "visual" ? visualErrors : jsonErrors;
+	const editableGraph = asEditableGraph(effectiveDraftText);
 
 	const handleSaveDraft = () => {
-		if (!selectedName) {
+		if (!selectedName || draftErrors.length > 0) {
 			return;
 		}
 		let graph: unknown;
@@ -488,25 +540,85 @@ export function DynamicRoutesClient({ projectId }: { projectId: string }) {
 										</div>
 									</CardHeader>
 									<CardContent className="space-y-3">
-										<div className="space-y-1">
-											<Label htmlFor="draft-graph">Draft graph (JSON)</Label>
-											<Textarea
-												id="draft-graph"
-												className="min-h-[360px] font-mono text-xs"
-												value={effectiveDraftText}
-												onChange={(e) => {
-													setDraftText(e.target.value);
-													setDraftError(null);
-												}}
-											/>
-											{draftError ? (
-												<p className="text-xs text-destructive">{draftError}</p>
-											) : null}
-										</div>
+										<Tabs
+											value={activeTab}
+											onValueChange={(value) => {
+												if (value === "visual") {
+													if (!editableGraph) {
+														setDraftError(
+															"Fix the JSON before switching to the visual editor",
+														);
+														return;
+													}
+													setVisualSession((s) => s + 1);
+												}
+												setDraftError(null);
+												setActiveTab(value as "visual" | "json");
+											}}
+										>
+											<TabsList>
+												<TabsTrigger value="visual">Visual</TabsTrigger>
+												<TabsTrigger value="json">JSON</TabsTrigger>
+											</TabsList>
+											<TabsContent value="visual" className="mt-3">
+												{editableGraph ? (
+													<RouteFlowEditor
+														key={`${detail.id}:${visualSession}`}
+														initialGraph={editableGraph}
+														onGraphChange={(graph) => {
+															setDraftText(JSON.stringify(graph, null, 2));
+															setDraftError(null);
+														}}
+														onValidationChange={setVisualErrors}
+													/>
+												) : (
+													<p className="text-sm text-muted-foreground">
+														The draft JSON is invalid — fix it in the JSON tab
+														first.
+													</p>
+												)}
+											</TabsContent>
+											<TabsContent value="json" className="mt-3">
+												<div className="space-y-1">
+													<Label htmlFor="draft-graph">
+														Draft graph (JSON)
+													</Label>
+													<Textarea
+														id="draft-graph"
+														className="min-h-[360px] font-mono text-xs"
+														value={effectiveDraftText}
+														onChange={(e) => {
+															setDraftText(e.target.value);
+															setDraftError(null);
+														}}
+													/>
+												</div>
+											</TabsContent>
+										</Tabs>
+										{draftError ? (
+											<p className="text-xs text-destructive">{draftError}</p>
+										) : null}
+										{draftErrors.length > 0 && (
+											<div className="rounded-md border border-destructive/40 bg-destructive/5 p-2">
+												<p className="mb-1 text-xs font-medium text-destructive">
+													Fix before saving:
+												</p>
+												<ul className="list-disc space-y-0.5 pl-4 text-xs text-destructive">
+													{draftErrors.slice(0, 8).map((error, index) => (
+														<li key={index}>{error}</li>
+													))}
+													{draftErrors.length > 8 && (
+														<li>…and {draftErrors.length - 8} more</li>
+													)}
+												</ul>
+											</div>
+										)}
 										<div className="flex gap-2">
 											<Button
 												variant="outline"
-												disabled={draftMutation.isPending}
+												disabled={
+													draftMutation.isPending || draftErrors.length > 0
+												}
 												onClick={handleSaveDraft}
 											>
 												Save draft
@@ -575,6 +687,8 @@ export function DynamicRoutesClient({ projectId }: { projectId: string }) {
 																	JSON.stringify(version.graph, null, 2),
 																);
 																setDraftError(null);
+																// Remount the visual editor so it picks up the loaded version
+																setVisualSession((s) => s + 1);
 															}}
 														>
 															Load into draft
