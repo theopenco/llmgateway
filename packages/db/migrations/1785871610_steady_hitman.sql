@@ -1,1 +1,0 @@
-ALTER TABLE "provider_key" ADD COLUMN "allowed_models" text[];

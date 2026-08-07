@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "bfd141e9-16c0-498f-8dfb-5ebc1ce17a88",
+  "id": "419e3dc0-bf89-452b-9c09-9d89002dae48",
   "prevId": "8e06be17-0e94-438d-995a-23e11b36ff6d",
   "ddl": [
     {
@@ -12873,6 +12873,22 @@
       "table": "organization"
     },
     {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "false",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "dev_plan_payg_enabled",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
       "type": "numeric",
       "typeSchema": null,
       "notNull": true,
@@ -17691,19 +17707,6 @@
       "generated": null,
       "identity": null,
       "name": "usage",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_key"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 1,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "allowed_models",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_key"
