@@ -5,6 +5,21 @@ import { parseDataUrl } from "./parse-data-url.js";
 import { RequestError } from "./request-error.js";
 
 /**
+ * Thrown when an image exceeds the caller's size limit. Typed so the catch
+ * block in `processImageUrl` can re-throw it as-is: the previous check sniffed
+ * the message for "Image size exceeds", which never matched the generated text
+ * ("Image size (32.0MB) exceeds your current limit of 1MB."), so every remote
+ * URL size rejection was flattened into the generic "Failed to process image
+ * from URL" and users were never told their image was too big.
+ */
+export class ImageSizeLimitError extends Error {
+	public constructor(message: string) {
+		super(message);
+		this.name = "ImageSizeLimitError";
+	}
+}
+
+/**
  * Generates a user-friendly error message for image size limits
  */
 function getImageSizeErrorMessage(
@@ -74,7 +89,7 @@ export async function processImageUrl(
 				maxSizeMB,
 				actualSizeMB,
 			});
-			throw new Error(
+			throw new ImageSizeLimitError(
 				getImageSizeErrorMessage(maxSizeMB, actualSizeMB, userPlan),
 			);
 		}
@@ -126,7 +141,7 @@ export async function processImageUrl(
 				maxSizeMB,
 				actualSizeMB,
 			});
-			throw new Error(
+			throw new ImageSizeLimitError(
 				getImageSizeErrorMessage(maxSizeMB, actualSizeMB, userPlan),
 			);
 		}
@@ -150,7 +165,7 @@ export async function processImageUrl(
 				maxSizeMB,
 				actualSizeMB,
 			});
-			throw new Error(
+			throw new ImageSizeLimitError(
 				getImageSizeErrorMessage(maxSizeMB, actualSizeMB, userPlan),
 			);
 		}
@@ -173,10 +188,7 @@ export async function processImageUrl(
 			url: url.substring(0, 50) + "...",
 		});
 
-		if (
-			error instanceof Error &&
-			error.message.includes("Image size exceeds")
-		) {
+		if (error instanceof ImageSizeLimitError) {
 			throw error; // Re-throw size limit errors as-is
 		}
 		if (
