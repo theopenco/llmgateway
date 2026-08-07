@@ -2049,6 +2049,13 @@ describe("api", () => {
 		expect(logs[0].routingMetadata?.selectionReason).toBe(
 			"single-candidate-after-filtering",
 		);
+		// availableProviders stays the candidate set — the providers that dropped
+		// out are listed separately, with the reason, rather than being silently
+		// missing from both lists.
+		expect(logs[0].routingMetadata?.availableProviders).toEqual(["openai"]);
+		expect(logs[0].routingMetadata?.serviceTierSource).toBe(
+			"coding-plan-default",
+		);
 		const filtered = logs[0].routingMetadata?.filteredProviders ?? [];
 		expect(filtered.map((f) => f.providerId).sort()).toEqual([
 			"aws-mantle",
