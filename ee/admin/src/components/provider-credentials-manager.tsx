@@ -1178,6 +1178,36 @@ function CredentialDialog({
 		catalogEntry ?? catalog.find((entry) => entry.id === provider);
 	const isRegionScoped = (selectedEntry?.regions.length ?? 0) > 0;
 
+	// Settings where exactly one member may be filled (e.g. Azure's resource vs
+	// base URL). Filling one disables its siblings, so the invalid combination
+	// cannot be entered rather than only being rejected on save.
+	const exclusiveGroups = useMemo(
+		() => selectedEntry?.exclusiveConfigGroups ?? [],
+		[selectedEntry],
+	);
+	const filledExclusiveKeys = useCallback(
+		(keys: string[]) => keys.filter((key) => config[key]?.trim()),
+		[config],
+	);
+	const exclusiveGroupOf = useCallback(
+		(key: string) => exclusiveGroups.find((group) => group.keys.includes(key)),
+		[exclusiveGroups],
+	);
+	const isSupersededExclusiveKey = useCallback(
+		(key: string) => {
+			const group = exclusiveGroupOf(key);
+			if (!group) {
+				return false;
+			}
+			const filled = filledExclusiveKeys(group.keys);
+			return filled.length > 0 && !filled.includes(key);
+		},
+		[exclusiveGroupOf, filledExclusiveKeys],
+	);
+	const hasUnsatisfiedExclusiveGroup = exclusiveGroups.some(
+		(group) => filledExclusiveKeys(group.keys).length !== 1,
+	);
+
 	const providerOptions = useMemo(
 		() =>
 			catalog.map((entry) => {
@@ -1374,28 +1404,76 @@ function CredentialDialog({
 							<p className="text-sm font-medium">
 								{selectedEntry.name} settings
 							</p>
-							{selectedEntry.configKeys.map((entry) => (
-								<div key={entry.key} className="flex flex-col gap-1">
-									<Label htmlFor={`config-${entry.key}`}>
-										{entry.key}
-										{entry.required ? (
-											<span className="ml-1 text-destructive">*</span>
-										) : null}
-									</Label>
-									<Input
-										id={`config-${entry.key}`}
-										value={config[entry.key] ?? ""}
-										onChange={(event) => {
-											setConfig((current) => ({
-												...current,
-												[entry.key]: event.target.value,
-											}));
-											clearProbeResults();
-										}}
-										placeholder={entry.envVar}
-									/>
-								</div>
-							))}
+							{exclusiveGroups.map((group) => {
+								const filled = filledExclusiveKeys(group.keys);
+								const alternatives = group.keys.filter(
+									(key) => key !== filled[0],
+								);
+								return (
+									<p
+										key={group.keys.join("|")}
+										className={
+											filled.length > 1
+												? "text-xs text-destructive"
+												: "text-xs text-muted-foreground"
+										}
+									>
+										{filled.length === 0 ? (
+											<>
+												Set exactly one of{" "}
+												<span className="font-medium">
+													{group.keys.join(" or ")}
+												</span>
+												. {group.description}
+											</>
+										) : filled.length === 1 ? (
+											<>
+												Using <span className="font-medium">{filled[0]}</span>.
+												Clear it to use {alternatives.join(" or ")} instead.
+											</>
+										) : (
+											<>
+												Only one of {group.keys.join(" or ")} may be set — clear
+												all but one to save.
+											</>
+										)}
+									</p>
+								);
+							})}
+							{selectedEntry.configKeys.map((entry) => {
+								const superseded = isSupersededExclusiveKey(entry.key);
+								const group = exclusiveGroupOf(entry.key);
+								return (
+									<div key={entry.key} className="flex flex-col gap-1">
+										<Label htmlFor={`config-${entry.key}`}>
+											{entry.key}
+											{entry.required ? (
+												<span className="ml-1 text-destructive">*</span>
+											) : null}
+											{group && !entry.required ? (
+												<span className="ml-1 text-xs font-normal text-muted-foreground">
+													(or{" "}
+													{group.keys.filter((k) => k !== entry.key).join(", ")}
+													)
+												</span>
+											) : null}
+										</Label>
+										<Input
+											id={`config-${entry.key}`}
+											value={config[entry.key] ?? ""}
+											disabled={superseded}
+											onChange={(event) => {
+												setConfig((current) => ({
+													...current,
+													[entry.key]: event.target.value,
+												}));
+												clearProbeResults();
+											}}
+											placeholder={entry.envVar}
+										/>
+									</div>
+								);
+							})}
 						</div>
 					) : null}
 
@@ -1683,7 +1761,11 @@ function CredentialDialog({
 					</Button>
 					<Button
 						onClick={handleSubmit}
-						disabled={loading || (!isEdit && (!provider || !token))}
+						disabled={
+							loading ||
+							(!isEdit && (!provider || !token)) ||
+							hasUnsatisfiedExclusiveGroup
+						}
 					>
 						{loading ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
 						{isEdit ? "Save" : "Create"}

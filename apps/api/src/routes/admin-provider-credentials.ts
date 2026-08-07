@@ -46,7 +46,12 @@ import {
 	tables,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { getProviderEnvKeys, providers } from "@llmgateway/models";
+import {
+	getProviderEnvExclusiveGroups,
+	getProviderEnvExclusiveViolations,
+	getProviderEnvKeys,
+	providers,
+} from "@llmgateway/models";
 import { getModelIdsByProvider } from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 import { maskToken } from "@llmgateway/shared/mask-token";
@@ -158,6 +163,14 @@ const catalogEntrySchema = z.object({
 	defaultRegion: z.string().nullable(),
 	configKeys: z.array(configKeySchema),
 	/**
+	 * Groups of settings where exactly one member must be supplied. The form
+	 * uses these to explain the choice and to keep the operator from filling
+	 * more than one.
+	 */
+	exclusiveConfigGroups: z.array(
+		z.object({ keys: z.array(z.string()), description: z.string() }),
+	),
+	/**
 	 * Canonical model ids the catalogue currently maps to this provider
 	 * (deactivated mappings excluded), for the allowed-models picker.
 	 */
@@ -243,6 +256,16 @@ async function validateConfig(
 	if (missing.length > 0) {
 		throw new HTTPException(400, {
 			message: `Missing required setting(s) for ${provider}: ${missing.join(", ")}`,
+		});
+	}
+
+	const exclusiveViolations = getProviderEnvExclusiveViolations(
+		provider,
+		config,
+	);
+	if (exclusiveViolations.length > 0) {
+		throw new HTTPException(400, {
+			message: `Invalid setting(s) for ${provider}: ${exclusiveViolations.join(" ")}`,
 		});
 	}
 
@@ -438,6 +461,7 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 				apiKeyEnvCounts,
 				envCredentials,
 				configKeys: getManagedCredentialConfigKeys(provider.id),
+				exclusiveConfigGroups: getProviderEnvExclusiveGroups(provider.id),
 				models: modelsByProvider.get(provider.id) ?? [],
 			};
 		});

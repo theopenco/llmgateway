@@ -87,6 +87,38 @@ the exact tiers exposed by each provider card.
 	default) are always eligible.
 </Callout>
 
+## Retries and fallback never downgrade the tier
+
+A request can change provider or credential mid-flight: LLM Gateway falls back
+to another provider when one fails, and rotates to another key for the same
+provider when a credential returns a 429 or an auth error. A requested tier is
+carried through all of it.
+
+- Provider routing is narrowed to mappings that support the requested tier
+  **before** a provider is picked, so no fallback candidate can be one that
+  would serve the request as standard.
+- Key selection — BYOK keys, platform-managed credentials, and env credentials
+  alike — skips any credential that cannot carry the tier (a proxy base URL, or
+  a Vertex credential pinned to a regional endpoint), on the first attempt and
+  on every retry.
+- Every attempt re-resolves the tier against the provider, region and
+  credential it actually resolved to, and fails rather than sending at a lower
+  tier. If no eligible candidate is left, you get the upstream error instead of
+  a silently downgraded response.
+
+This applies to a tier you requested yourself. The optional coding-plan default
+tier is a cost preference rather than a requirement, so a request that cannot be
+served at that tier runs at standard instead of failing; `used_service_tier` in
+the response metadata always reports what was actually served.
+
+<Callout type="info">
+	Rotating to another key for the same provider is a separate upstream account
+	as far as prompt caching is concerned, so a retried request re-writes its
+	cached prefix rather than reading the original one. Send `x-no-fallback: true`
+	to have the original upstream error returned to you — note that this disables
+	cross-provider fallback, not key rotation within a provider.
+</Callout>
+
 ## Pricing uses multipliers
 
 Service tiers do not define separate model prices in LLM Gateway. They multiply

@@ -1,9 +1,6 @@
 import { findManagedProviderKey } from "@/lib/cached-queries.js";
 
-import {
-	providerKeyBaseUrlSupportsServiceTier,
-	readProviderKey,
-} from "@llmgateway/actions";
+import { readProviderKey } from "@llmgateway/actions";
 import { providerKeyAllowsModel } from "@llmgateway/db";
 import { getProviderEnvValue } from "@llmgateway/models";
 
@@ -11,6 +8,7 @@ import {
 	getProviderEnv,
 	getServiceTierIneligibleEnvIndices,
 } from "./get-provider-env.js";
+import { providerKeySupportsServiceTier } from "./service-tier.js";
 
 import type { InferSelectModel, tables } from "@llmgateway/db";
 import type { EnvVarVariant, Provider } from "@llmgateway/models";
@@ -30,36 +28,6 @@ export interface PlatformCredential {
 	token: string;
 	configIndex: number;
 	envVarName: string | undefined;
-}
-
-/**
- * Base URL a managed credential routes through, which lives in its `config`
- * (the env-var replacement) rather than the `baseUrl` column BYOK keys use.
- */
-function managedBaseUrl(key: ProviderKeyRow): string | undefined {
-	return key.config?.baseUrl ?? key.baseUrl ?? undefined;
-}
-
-/**
- * Flex/Priority is only honored when the request reaches the provider's real
- * upstream endpoint, so managed credentials pointed at a proxy — and, for
- * Google Vertex, credentials pinned to a non-global region — are skipped for
- * premium service-tier requests. Mirrors the env-credential filtering in
- * getServiceTierIneligibleEnvIndices.
- */
-function supportsServiceTier(key: ProviderKeyRow): boolean {
-	if (
-		!providerKeyBaseUrlSupportsServiceTier(
-			key.provider as Provider,
-			managedBaseUrl(key) ?? null,
-		)
-	) {
-		return false;
-	}
-	if (key.provider === "google-vertex") {
-		return (key.config?.region ?? key.region ?? "global") === "global";
-	}
-	return true;
 }
 
 function combineFilters(
@@ -122,7 +90,7 @@ export async function resolvePlatformCredential(
 		excludedKeyIds: options.excludedProviderKeyIds,
 		filter: combineFilters(
 			options.filter,
-			options.requiresServiceTier ? supportsServiceTier : undefined,
+			options.requiresServiceTier ? providerKeySupportsServiceTier : undefined,
 			restrictedToModel !== undefined
 				? (key) => providerKeyAllowsModel(key.allowedModels, restrictedToModel)
 				: undefined,

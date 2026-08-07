@@ -21,6 +21,8 @@ import {
 	getEffectiveDiscount,
 	gte,
 	modelProviderMappingHistoryHourly,
+	routingElectionHourly,
+	routingExclusionHourly,
 } from "@llmgateway/db";
 import {
 	getProviderDefinition,
@@ -28,6 +30,7 @@ import {
 	type ProviderModelMapping,
 } from "@llmgateway/models";
 import { getDefaultRoutingConfig } from "@llmgateway/shared/routing-config";
+import { routingSelectionKind } from "@llmgateway/shared/routing-telemetry";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -77,10 +80,18 @@ const providerHourEntrySchema = z
 	})
 	.openapi({});
 
+const electionKindEntrySchema = z
+	.object({
+		kind: z.string(),
+		requestCount: z.number(),
+	})
+	.openapi({});
+
 const routingHourSchema = z
 	.object({
 		hour: z.string(),
 		providers: z.array(providerHourEntrySchema),
+		elections: z.array(electionKindEntrySchema),
 	})
 	.openapi({});
 
@@ -97,6 +108,62 @@ const routingMappingSchema = z
 		cacheSupported: z.boolean(),
 		routable: z.boolean(),
 		excludedReasons: z.array(z.string()),
+	})
+	.openapi({});
+
+const serviceTierCountsSchema = z
+	.object({
+		requestCount: z.number(),
+		explicit: z.number(),
+		implicit: z.number(),
+		served: z.number(),
+		unconfirmed: z.number(),
+	})
+	.openapi({});
+
+const exclusionEntrySchema = z
+	.object({
+		reason: z.string(),
+		excludedCount: z.number(),
+	})
+	.openapi({});
+
+/**
+ * Runtime eligibility for one mapping: how often it was actually a candidate,
+ * how often it was dropped, and which constraint dropped it most. This is what
+ * distinguishes "the score lost" from "the score was never consulted" — the
+ * static `excludedReasons` above only knows catalogue state.
+ */
+const mappingEligibilitySchema = z
+	.object({
+		providerId: z.string(),
+		candidateCount: z.number(),
+		excludedCount: z.number(),
+		/** excluded / candidate, or null when the mapping saw no routing decisions. */
+		exclusionRate: z.number().nullable(),
+		topReason: z.string().nullable(),
+		exclusions: z.array(exclusionEntrySchema),
+		serviceTier: serviceTierCountsSchema,
+	})
+	.openapi({});
+
+const electionReasonEntrySchema = z
+	.object({
+		selectionReason: z.string(),
+		kind: z.string(),
+		requestCount: z.number(),
+	})
+	.openapi({});
+
+const routingElectionsSchema = z
+	.object({
+		requestCount: z.number(),
+		/** Requests whose provider was decided by the weighted score. */
+		scoredCount: z.number(),
+		/** Mean candidate-set size the router chose between, null without traffic. */
+		averageCandidateCount: z.number().nullable(),
+		byKind: z.array(electionKindEntrySchema),
+		byReason: z.array(electionReasonEntrySchema),
 	})
 	.openapi({});
 
@@ -161,6 +228,12 @@ const routingAnalyticsResponseSchema = z
 		mappings: z.array(routingMappingSchema),
 		summary: z.array(routingSummaryEntrySchema),
 		hourly: z.array(routingHourSchema),
+		elections: routingElectionsSchema,
+		eligibility: z.array(mappingEligibilitySchema),
+		/** Model-wide exclusion totals, for the reason breakdown. */
+		exclusions: z.array(exclusionEntrySchema),
+		/** Model-wide service-tier coverage. */
+		serviceTier: serviceTierCountsSchema,
 	})
 	.openapi({});
 
@@ -174,6 +247,10 @@ interface HourlyTotals {
 	timeToFirstTokenCount: number;
 	totalTimeToFirstReasoningToken: number;
 	timeToFirstReasoningTokenCount: number;
+	serviceTierExplicitCount: number;
+	serviceTierImplicitCount: number;
+	serviceTierServedCount: number;
+	serviceTierUnconfirmedCount: number;
 }
 
 function emptyTotals(): HourlyTotals {
@@ -187,6 +264,10 @@ function emptyTotals(): HourlyTotals {
 		timeToFirstTokenCount: 0,
 		totalTimeToFirstReasoningToken: 0,
 		timeToFirstReasoningTokenCount: 0,
+		serviceTierExplicitCount: 0,
+		serviceTierImplicitCount: 0,
+		serviceTierServedCount: 0,
+		serviceTierUnconfirmedCount: 0,
 	};
 }
 
@@ -203,6 +284,22 @@ function addRow(
 	totals.timeToFirstTokenCount += row.timeToFirstTokenCount;
 	totals.totalTimeToFirstReasoningToken += row.totalTimeToFirstReasoningToken;
 	totals.timeToFirstReasoningTokenCount += row.timeToFirstReasoningTokenCount;
+	totals.serviceTierExplicitCount += row.serviceTierExplicitCount;
+	totals.serviceTierImplicitCount += row.serviceTierImplicitCount;
+	totals.serviceTierServedCount += row.serviceTierServedCount;
+	totals.serviceTierUnconfirmedCount += row.serviceTierUnconfirmedCount;
+}
+
+function serviceTierCounts(
+	totals: HourlyTotals,
+): z.infer<typeof serviceTierCountsSchema> {
+	return {
+		requestCount: totals.requestCount,
+		explicit: totals.serviceTierExplicitCount,
+		implicit: totals.serviceTierImplicitCount,
+		served: totals.serviceTierServedCount,
+		unconfirmed: totals.serviceTierUnconfirmedCount,
+	};
 }
 
 interface DerivedMetrics {
@@ -421,15 +518,35 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 	const windowMs = (hours - 1) * 3_600_000;
 	const windowStart = new Date(hourEnd.getTime() - windowMs);
 
-	const rows = await db
-		.select()
-		.from(modelProviderMappingHistoryHourly)
-		.where(
-			and(
-				eq(modelProviderMappingHistoryHourly.modelId, model.id),
-				gte(modelProviderMappingHistoryHourly.hourTimestamp, windowStart),
+	const [rows, electionRows, exclusionRows] = await Promise.all([
+		db
+			.select()
+			.from(modelProviderMappingHistoryHourly)
+			.where(
+				and(
+					eq(modelProviderMappingHistoryHourly.modelId, model.id),
+					gte(modelProviderMappingHistoryHourly.hourTimestamp, windowStart),
+				),
 			),
-		);
+		db
+			.select()
+			.from(routingElectionHourly)
+			.where(
+				and(
+					eq(routingElectionHourly.modelId, model.id),
+					gte(routingElectionHourly.hourTimestamp, windowStart),
+				),
+			),
+		db
+			.select()
+			.from(routingExclusionHourly)
+			.where(
+				and(
+					eq(routingExclusionHourly.modelId, model.id),
+					gte(routingExclusionHourly.hourTimestamp, windowStart),
+				),
+			),
+	]);
 
 	// Sum rows into per-(hour, provider) and per-provider window totals. The
 	// unique key is (mappingId, hour), so a provider whose mapping id changed
@@ -455,6 +572,63 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 			windowTotals.set(row.providerId, windowBucket);
 		}
 		addRow(windowBucket, row);
+	}
+
+	// Election rows: window totals per selection reason, plus a per-hour breakdown
+	// by kind for the stacked view over time.
+	const electionsByReason = new Map<string, number>();
+	const electionsByKindPerHour = new Map<number, Map<string, number>>();
+	let electionRequestCount = 0;
+	let electionCandidateTotal = 0;
+	for (const row of electionRows) {
+		electionRequestCount += row.requestCount;
+		electionCandidateTotal += row.candidateCount;
+		electionsByReason.set(
+			row.selectionReason,
+			(electionsByReason.get(row.selectionReason) ?? 0) + row.requestCount,
+		);
+		const hourMs = row.hourTimestamp.getTime();
+		let kindMap = electionsByKindPerHour.get(hourMs);
+		if (!kindMap) {
+			kindMap = new Map();
+			electionsByKindPerHour.set(hourMs, kindMap);
+		}
+		const kind = routingSelectionKind(row.selectionReason);
+		kindMap.set(kind, (kindMap.get(kind) ?? 0) + row.requestCount);
+	}
+
+	const electionsByKind = new Map<string, number>();
+	for (const [selectionReason, requestCount] of electionsByReason) {
+		const kind = routingSelectionKind(selectionReason);
+		electionsByKind.set(kind, (electionsByKind.get(kind) ?? 0) + requestCount);
+	}
+
+	// Exclusion rows: per-provider reason totals. candidateCount is repeated on
+	// every reason row for a mapping-hour, so it is summed per (hour, provider)
+	// once rather than across reasons — summing it with the reasons would multiply
+	// the denominator by the number of reasons that fired.
+	const exclusionsByProvider = new Map<string, Map<string, number>>();
+	const candidateCountByProvider = new Map<string, number>();
+	const seenCandidateBuckets = new Set<string>();
+	for (const row of exclusionRows) {
+		let reasonMap = exclusionsByProvider.get(row.providerId);
+		if (!reasonMap) {
+			reasonMap = new Map();
+			exclusionsByProvider.set(row.providerId, reasonMap);
+		}
+		reasonMap.set(
+			row.reason,
+			(reasonMap.get(row.reason) ?? 0) + row.excludedCount,
+		);
+		const bucketKey = `${row.hourTimestamp.getTime()}:${row.providerId}`;
+		if (!seenCandidateBuckets.has(bucketKey)) {
+			seenCandidateBuckets.add(bucketKey);
+			candidateCountByProvider.set(
+				row.providerId,
+				(candidateCountByProvider.get(row.providerId) ?? 0) +
+					row.candidateCount,
+			);
+		}
 	}
 
 	const hourly: z.infer<typeof routingHourSchema>[] = [];
@@ -494,6 +668,10 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 					breakdown: scored?.breakdown ?? null,
 				};
 			}),
+			elections: Array.from(
+				electionsByKindPerHour.get(hour.getTime()) ?? [],
+				([kind, requestCount]) => ({ kind, requestCount }),
+			).sort((a, b) => b.requestCount - a.requestCount),
 		});
 	}
 
@@ -533,6 +711,63 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 		cacheRelevant: false,
 	});
 
+	const eligibility = mappings.map((mapping) => {
+		const reasonMap = exclusionsByProvider.get(mapping.providerId);
+		const exclusions = Array.from(
+			reasonMap ?? [],
+			([reason, excludedCount]) => ({
+				reason,
+				excludedCount,
+			}),
+		).sort((a, b) => b.excludedCount - a.excludedCount);
+		const excludedCount = exclusions.reduce(
+			(sum, entry) => sum + entry.excludedCount,
+			0,
+		);
+		// A mapping can be dropped for several reasons in one request, so the
+		// exclusion count can exceed the number of requests it was excluded from.
+		// Cap the rate at 1 rather than reporting an impossible 130%.
+		const candidateCount =
+			candidateCountByProvider.get(mapping.providerId) ?? 0;
+		return {
+			providerId: mapping.providerId,
+			candidateCount,
+			excludedCount,
+			exclusionRate:
+				candidateCount > 0
+					? round(Math.min(excludedCount / candidateCount, 1), 4)
+					: null,
+			topReason: exclusions[0]?.reason ?? null,
+			exclusions,
+			serviceTier: serviceTierCounts(
+				windowTotals.get(mapping.providerId) ?? emptyTotals(),
+			),
+		};
+	});
+
+	const modelExclusionTotals = new Map<string, number>();
+	for (const reasonMap of exclusionsByProvider.values()) {
+		for (const [reason, excludedCount] of reasonMap) {
+			modelExclusionTotals.set(
+				reason,
+				(modelExclusionTotals.get(reason) ?? 0) + excludedCount,
+			);
+		}
+	}
+
+	const modelServiceTierTotals = emptyTotals();
+	for (const totals of windowTotals.values()) {
+		modelServiceTierTotals.requestCount += totals.requestCount;
+		modelServiceTierTotals.serviceTierExplicitCount +=
+			totals.serviceTierExplicitCount;
+		modelServiceTierTotals.serviceTierImplicitCount +=
+			totals.serviceTierImplicitCount;
+		modelServiceTierTotals.serviceTierServedCount +=
+			totals.serviceTierServedCount;
+		modelServiceTierTotals.serviceTierUnconfirmedCount +=
+			totals.serviceTierUnconfirmedCount;
+	}
+
 	return c.json({
 		model: {
 			id: model.id,
@@ -550,5 +785,31 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 		mappings,
 		summary,
 		hourly,
+		elections: {
+			requestCount: electionRequestCount,
+			scoredCount: electionsByKind.get("scored") ?? 0,
+			averageCandidateCount:
+				electionRequestCount > 0
+					? round(electionCandidateTotal / electionRequestCount, 2)
+					: null,
+			byKind: Array.from(electionsByKind, ([kind, requestCount]) => ({
+				kind,
+				requestCount,
+			})).sort((a, b) => b.requestCount - a.requestCount),
+			byReason: Array.from(
+				electionsByReason,
+				([selectionReason, requestCount]) => ({
+					selectionReason,
+					kind: routingSelectionKind(selectionReason),
+					requestCount,
+				}),
+			).sort((a, b) => b.requestCount - a.requestCount),
+		},
+		eligibility,
+		exclusions: Array.from(modelExclusionTotals, ([reason, excludedCount]) => ({
+			reason,
+			excludedCount,
+		})).sort((a, b) => b.excludedCount - a.excludedCount),
+		serviceTier: serviceTierCounts(modelServiceTierTotals),
 	});
 });

@@ -46,8 +46,18 @@ import {
 	ModelMappingSelector,
 	parseMappingValue,
 } from "@llmgateway/shared/components";
+import {
+	ROUTING_EXCLUSION_REASON_LABELS,
+	ROUTING_SELECTION_KIND_LABELS,
+	ROUTING_SELECTION_REASON_LABELS,
+} from "@llmgateway/shared/routing-telemetry";
 
 import type { ChartConfig } from "@/components/ui/chart";
+import type {
+	RoutingExclusionReason,
+	RoutingSelectionKind,
+	RoutingSelectionReason,
+} from "@llmgateway/shared/routing-telemetry";
 
 type RoutingWindow = "24h" | "3d" | "7d";
 
@@ -88,6 +98,20 @@ const METRIC_OPTIONS: {
 		description: "Output tokens per second across the hourly bucket.",
 	},
 ];
+
+// Fixed hues per election kind so the proportion bar, the per-hour chart and the
+// legend all agree. `scored` is the only kind where the score decided anything,
+// so it gets the one calm color and everything else reads as a deviation.
+const ELECTION_KIND_COLORS: Record<string, string> = {
+	scored: "hsl(142 71% 45%)",
+	pinned: "hsl(221 83% 53%)",
+	narrowed: "hsl(32 95% 44%)",
+	"single-candidate": "hsl(215 16% 47%)",
+	sticky: "hsl(280 65% 60%)",
+	fallback: "hsl(0 72% 51%)",
+	exploration: "hsl(189 94% 43%)",
+	unknown: "hsl(215 16% 47%)",
+};
 
 // Distinct, color-blind-friendly hues. Repeat for >12 series.
 const SERIES_COLORS = [
@@ -188,6 +212,82 @@ function EmptyState({ children }: { children: React.ReactNode }) {
 	return (
 		<div className="flex h-[240px] items-center justify-center rounded-lg border border-dashed border-border/60 bg-card text-sm text-muted-foreground">
 			{children}
+		</div>
+	);
+}
+
+function formatPercent(value: number, total: number): string {
+	if (total <= 0) {
+		return "—";
+	}
+	return `${((value / total) * 100).toFixed(1)}%`;
+}
+
+function electionKindLabel(kind: string): string {
+	return ROUTING_SELECTION_KIND_LABELS[kind as RoutingSelectionKind] ?? kind;
+}
+
+function electionKindColor(kind: string): string {
+	return ELECTION_KIND_COLORS[kind] ?? ELECTION_KIND_COLORS.unknown;
+}
+
+function exclusionReasonLabel(reason: string): string {
+	return (
+		ROUTING_EXCLUSION_REASON_LABELS[reason as RoutingExclusionReason] ?? reason
+	);
+}
+
+/**
+ * Single-row stacked proportion bar. Used for the election-path and service-tier
+ * splits, where the shares matter more than absolute counts and a full chart
+ * would bury a three-segment comparison.
+ */
+function ProportionBar({
+	segments,
+	total,
+}: {
+	segments: { key: string; label: string; value: number; color: string }[];
+	total: number;
+}) {
+	if (total <= 0) {
+		return (
+			<p className="text-sm text-muted-foreground">
+				No routed requests in this window.
+			</p>
+		);
+	}
+	const visible = segments.filter((segment) => segment.value > 0);
+	return (
+		<div className="space-y-3">
+			<div className="flex h-3 w-full overflow-hidden rounded-full bg-muted">
+				{visible.map((segment) => (
+					<div
+						key={segment.key}
+						style={{
+							width: `${(segment.value / total) * 100}%`,
+							backgroundColor: segment.color,
+						}}
+						title={`${segment.label}: ${numberFormatter.format(segment.value)}`}
+					/>
+				))}
+			</div>
+			<div className="flex flex-wrap gap-x-4 gap-y-1.5">
+				{visible.map((segment) => (
+					<div key={segment.key} className="flex items-center gap-1.5 text-xs">
+						<span
+							className="h-2.5 w-2.5 shrink-0 rounded-full"
+							style={{ backgroundColor: segment.color }}
+						/>
+						<span>{segment.label}</span>
+						<span className="font-mono text-muted-foreground">
+							{formatPercent(segment.value, total)}
+						</span>
+						<span className="font-mono text-muted-foreground">
+							({numberFormatter.format(segment.value)})
+						</span>
+					</div>
+				))}
+			</div>
 		</div>
 	);
 }
@@ -337,6 +437,56 @@ export function RoutingAnalyticsClient() {
 	const routableCount =
 		data?.mappings.filter((mapping) => mapping.routable).length ?? 0;
 
+	// Only chart kinds that actually occurred, so an untouched path doesn't add an
+	// empty legend entry to every model.
+	const electionKinds = useMemo(
+		() =>
+			data?.elections.byKind
+				.filter((entry) => entry.requestCount > 0)
+				.map((entry) => entry.kind) ?? [],
+		[data],
+	);
+
+	const electionChartConfig = useMemo(() => {
+		const config: ChartConfig = {};
+		for (const kind of electionKinds) {
+			config[kind] = {
+				label: electionKindLabel(kind),
+				color: electionKindColor(kind),
+			};
+		}
+		return config;
+	}, [electionKinds]);
+
+	const electionChartData = useMemo(() => {
+		if (!data) {
+			return [];
+		}
+		return data.hourly.map((hour) => {
+			const row: Record<string, string | number> = { hour: hour.hour };
+			for (const kind of electionKinds) {
+				row[kind] =
+					hour.elections.find((entry) => entry.kind === kind)?.requestCount ??
+					0;
+			}
+			return row;
+		});
+	}, [data, electionKinds]);
+
+	const maxExclusionCount = useMemo(
+		() => Math.max(1, ...(data?.exclusions.map((e) => e.excludedCount) ?? [1])),
+		[data],
+	);
+
+	const untieredRequests = data
+		? Math.max(
+				data.serviceTier.requestCount -
+					data.serviceTier.explicit -
+					data.serviceTier.implicit,
+				0,
+			)
+		: 0;
+
 	const metricOption = METRIC_OPTIONS.find((o) => o.value === metric)!;
 
 	const providerName = (providerId: string) =>
@@ -438,7 +588,169 @@ export function RoutingAnalyticsClient() {
 								)
 							}
 						/>
+						<StatCard
+							label="Score-decided"
+							value={
+								<span>
+									{formatPercent(
+										data.elections.scoredCount,
+										data.elections.requestCount,
+									)}
+									<span className="ml-2 text-sm font-normal text-muted-foreground">
+										of {numberFormatter.format(data.elections.requestCount)}{" "}
+										routed
+									</span>
+								</span>
+							}
+						/>
+						<StatCard
+							label="Avg. candidates"
+							value={
+								data.elections.averageCandidateCount !== null
+									? data.elections.averageCandidateCount.toFixed(2)
+									: "—"
+							}
+						/>
+						<StatCard
+							label="Tiered requests"
+							value={
+								<span>
+									{formatPercent(
+										data.serviceTier.explicit + data.serviceTier.implicit,
+										data.serviceTier.requestCount,
+									)}
+									<span className="ml-2 text-sm font-normal text-muted-foreground">
+										{numberFormatter.format(data.serviceTier.implicit)} implicit
+									</span>
+								</span>
+							}
+						/>
+						<StatCard
+							label="Excluded from elections"
+							value={
+								data.exclusions.length > 0 ? (
+									<span>
+										{numberFormatter.format(
+											data.exclusions.reduce(
+												(sum, entry) => sum + entry.excludedCount,
+												0,
+											),
+										)}
+										<span className="ml-2 text-sm font-normal text-muted-foreground">
+											{exclusionReasonLabel(data.exclusions[0].reason)} leads
+										</span>
+									</span>
+								) : (
+									<span className="text-muted-foreground">none</span>
+								)
+							}
+						/>
 					</section>
+
+					<Card>
+						<CardHeader className="border-b p-4 sm:p-6">
+							<CardTitle>How routing was decided</CardTitle>
+							<CardDescription className="max-w-3xl">
+								Which mechanism picked the provider for each request. Only{" "}
+								<strong>{electionKindLabel("scored")}</strong> means the
+								weighted score below decided the outcome — every other path
+								either bypasses the score (a pinned{" "}
+								<span className="font-mono">provider/model</span> string, a
+								candidate set narrowed to one) or overrides it (sticky sessions,
+								fallbacks, exploration). A mapping with the best score can still
+								see almost no traffic if this bar is mostly not green.
+							</CardDescription>
+						</CardHeader>
+						<CardContent className="space-y-4 p-4 sm:p-6">
+							<ProportionBar
+								segments={data.elections.byKind.map((entry) => ({
+									key: entry.kind,
+									label: electionKindLabel(entry.kind),
+									value: entry.requestCount,
+									color: electionKindColor(entry.kind),
+								}))}
+								total={data.elections.requestCount}
+							/>
+							{data.elections.byReason.length > 0 ? (
+								<div className="flex flex-wrap gap-1.5">
+									{data.elections.byReason.map((entry) => (
+										<Badge
+											key={entry.selectionReason}
+											variant="outline"
+											className="text-xs font-normal"
+										>
+											{ROUTING_SELECTION_REASON_LABELS[
+												entry.selectionReason as RoutingSelectionReason
+											] ?? entry.selectionReason}
+											<span className="ml-1.5 font-mono text-muted-foreground">
+												{formatPercent(
+													entry.requestCount,
+													data.elections.requestCount,
+												)}
+											</span>
+										</Badge>
+									))}
+								</div>
+							) : null}
+						</CardContent>
+					</Card>
+
+					<Card>
+						<CardHeader className="border-b p-4 sm:p-6">
+							<CardTitle>Service tier coverage</CardTitle>
+							<CardDescription className="max-w-3xl">
+								A premium tier narrows routing to mappings that support it,
+								before any score is computed. <strong>Implicit</strong> is the
+								coding-plan default applied on the organization&apos;s behalf —
+								the client never asked for a tier, but the narrowing happens
+								anyway, which is why it is counted separately.{" "}
+								<strong>Unconfirmed</strong> means the response never confirmed
+								the tier: either the provider downgraded to standard or it
+								reports no tier at all. Both are billed at the standard rate.
+							</CardDescription>
+						</CardHeader>
+						<CardContent className="space-y-4 p-4 sm:p-6">
+							<ProportionBar
+								segments={[
+									{
+										key: "explicit",
+										label: "Explicitly requested",
+										value: data.serviceTier.explicit,
+										color: "hsl(221 83% 53%)",
+									},
+									{
+										key: "implicit",
+										label: "Implicit (coding-plan default)",
+										value: data.serviceTier.implicit,
+										color: "hsl(32 95% 44%)",
+									},
+									{
+										key: "none",
+										label: "No tier (standard)",
+										value: untieredRequests,
+										color: "hsl(215 16% 47%)",
+									},
+								]}
+								total={data.serviceTier.requestCount}
+							/>
+							{data.serviceTier.explicit + data.serviceTier.implicit > 0 ? (
+								<div className="flex flex-wrap gap-x-6 gap-y-2 text-xs">
+									<span>
+										Confirmed at a premium tier{" "}
+										<span className="font-mono">
+											{numberFormatter.format(data.serviceTier.served)}
+										</span>
+									</span>
+									<span>
+										Sent at a tier, unconfirmed{" "}
+										<span className="font-mono">
+											{numberFormatter.format(data.serviceTier.unconfirmed)}
+										</span>
+									</span>
+								</div>
+							) : null}
+						</CardContent>
+					</Card>
 
 					<Card>
 						<CardHeader className="flex flex-col items-stretch space-y-2 border-b p-4 sm:flex-row sm:items-start sm:justify-between sm:space-y-0 sm:p-6">
@@ -490,6 +802,7 @@ export function RoutingAnalyticsClient() {
 											<TableHead className="text-right">Throughput</TableHead>
 											<TableHead className="text-right">Requests</TableHead>
 											<TableHead className="text-right">Share</TableHead>
+											<TableHead className="text-right">Eligible</TableHead>
 											<TableHead className="text-right">Score</TableHead>
 										</TableRow>
 									</TableHeader>
@@ -498,6 +811,9 @@ export function RoutingAnalyticsClient() {
 											const mapping = data.mappings.find(
 												(m) => m.providerId === summary.providerId,
 											)!;
+											const eligibility = data.eligibility.find(
+												(e) => e.providerId === summary.providerId,
+											);
 											return (
 												<TableRow
 													key={summary.providerId}
@@ -587,6 +903,47 @@ export function RoutingAnalyticsClient() {
 														{totalRequests > 0
 															? `${((summary.requestCount / totalRequests) * 100).toFixed(1)}%`
 															: "—"}
+													</TableCell>
+													{/* Eligibility and its dominant cause share one column:
+													    as two they pushed Score past the visible width. */}
+													<TableCell className="text-right font-mono text-xs">
+														{eligibility?.exclusionRate !== null &&
+														eligibility?.exclusionRate !== undefined ? (
+															<>
+																<span
+																	className={cn(
+																		eligibility.exclusionRate > 0.5 &&
+																			"font-semibold text-amber-600",
+																	)}
+																>
+																	{(
+																		(1 - eligibility.exclusionRate) *
+																		100
+																	).toFixed(0)}
+																	%
+																</span>
+																{eligibility.topReason ? (
+																	<div
+																		className="font-sans text-[11px] text-muted-foreground"
+																		title={eligibility.exclusions
+																			.map(
+																				(entry) =>
+																					`${exclusionReasonLabel(entry.reason)}: ${numberFormatter.format(entry.excludedCount)}`,
+																			)
+																			.join("\n")}
+																	>
+																		{exclusionReasonLabel(
+																			eligibility.topReason,
+																		)}
+																		{eligibility.exclusions.length > 1
+																			? ` +${eligibility.exclusions.length - 1}`
+																			: ""}
+																	</div>
+																) : null}
+															</>
+														) : (
+															"—"
+														)}
 													</TableCell>
 													<TableCell className="text-right font-mono text-xs font-semibold">
 														{summary.score !== null
@@ -760,6 +1117,96 @@ export function RoutingAnalyticsClient() {
 									))}
 								</BarChart>
 							</ChartContainer>
+						</CardContent>
+					</Card>
+
+					<Card>
+						<CardHeader className="border-b p-4 sm:p-6">
+							<CardTitle>Election path per hour</CardTitle>
+							<CardDescription className="max-w-3xl">
+								The same split as the bar above, over time. A collapse in the
+								score-decided share is what to look for when a mapping stops
+								receiving traffic without its score changing.
+							</CardDescription>
+						</CardHeader>
+						<CardContent className="px-2 pb-4 sm:p-6">
+							<ChartContainer
+								config={electionChartConfig}
+								className="aspect-auto h-[260px] w-full"
+							>
+								<BarChart
+									data={electionChartData}
+									margin={{ left: 12, right: 12 }}
+								>
+									<CartesianGrid vertical={false} />
+									<XAxis
+										dataKey="hour"
+										tickLine={false}
+										axisLine={false}
+										tickMargin={8}
+										minTickGap={48}
+										tickFormatter={formatAxisHour}
+									/>
+									<YAxis tickLine={false} axisLine={false} width={50} />
+									<ChartTooltip
+										content={
+											<ChartTooltipContent labelFormatter={formatTooltipHour} />
+										}
+									/>
+									<ChartLegend content={<ChartLegendContent />} />
+									{electionKinds.map((kind) => (
+										<Bar
+											key={kind}
+											dataKey={kind}
+											stackId="elections"
+											fill={`var(--color-${kind})`}
+										/>
+									))}
+								</BarChart>
+							</ChartContainer>
+						</CardContent>
+					</Card>
+
+					<Card>
+						<CardHeader className="border-b p-4 sm:p-6">
+							<CardTitle>Why mappings were excluded</CardTitle>
+							<CardDescription className="max-w-3xl">
+								Every constraint that dropped a mapping from an election in this
+								window, across all providers. One request can exclude a mapping
+								for several reasons, so these do not sum to a request count —
+								read them as relative pressure on routing freedom.
+							</CardDescription>
+						</CardHeader>
+						<CardContent className="p-4 sm:p-6">
+							{data.exclusions.length === 0 ? (
+								<p className="text-sm text-muted-foreground">
+									No mapping was filtered out of an election in this window.
+								</p>
+							) : (
+								<div className="space-y-2">
+									{data.exclusions.map((entry) => (
+										<div
+											key={entry.reason}
+											className="flex items-center gap-3 text-xs"
+										>
+											<span className="w-44 shrink-0 truncate">
+												{exclusionReasonLabel(entry.reason)}
+											</span>
+											<div className="h-3 flex-1 overflow-hidden rounded-full bg-muted">
+												<div
+													className="h-full rounded-full bg-amber-500"
+													style={{
+														width: `${(entry.excludedCount / maxExclusionCount) * 100}%`,
+													}}
+												/>
+											</div>
+											<span className="w-20 shrink-0 text-right font-mono text-muted-foreground">
+												{numberFormatter.format(entry.excludedCount)}
+											</span>
+										</div>
+									))}
+								</div>
+							)}
 						</CardContent>
 					</Card>
 
