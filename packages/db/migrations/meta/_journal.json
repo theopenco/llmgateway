@@ -1555,20 +1555,6 @@
       "when": 1786115489851,
       "tag": "1786115489_motionless_fallen_one",
       "breakpoints": true
-    },
-    {
-      "idx": 222,
-      "version": "8",
-      "when": 1786133228984,
-      "tag": "1786133228_lowly_rage",
-      "breakpoints": true
-    },
-    {
-      "idx": 223,
-      "version": "8",
-      "when": 1786133241360,
-      "tag": "1786133241_tiny_bishop",
-      "breakpoints": true
     }
   ]
 }
