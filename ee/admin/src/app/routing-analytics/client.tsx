@@ -42,6 +42,7 @@ import { cn } from "@/lib/utils";
 
 import { models, providers } from "@llmgateway/models";
 import {
+	formatMappingValue,
 	ModelMappingSelector,
 	parseMappingValue,
 } from "@llmgateway/shared/components";
@@ -219,7 +220,7 @@ export function RoutingAnalyticsClient() {
 
 	const selectorValue = modelId
 		? selectedProviderId
-			? `${selectedProviderId}/${modelId}`
+			? formatMappingValue(selectedProviderId, modelId)
 			: modelId
 		: null;
 
@@ -432,7 +433,7 @@ export function RoutingAnalyticsClient() {
 									</span>
 								) : (
 									<span className="text-xl text-muted-foreground">
-										not scored
+										{selectedProviderId ? "not scored" : "none selected"}
 									</span>
 								)
 							}
@@ -580,7 +581,7 @@ export function RoutingAnalyticsClient() {
 															: "—"}
 													</TableCell>
 													<TableCell className="text-right font-mono text-xs">
-														{summary.requestCount.toLocaleString()}
+														{numberFormatter.format(summary.requestCount)}
 													</TableCell>
 													<TableCell className="text-right font-mono text-xs">
 														{totalRequests > 0

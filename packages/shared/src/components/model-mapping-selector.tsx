@@ -18,7 +18,6 @@ import { getProviderIcon } from "./provider-icons";
 import { Button } from "./ui/button";
 import {
 	Command,
-	CommandEmpty,
 	CommandGroup,
 	CommandInput,
 	CommandItem,
@@ -114,6 +113,9 @@ export function ModelMappingSelector({
 	const entries = React.useMemo(() => {
 		const now = new Date();
 		const out: MappingEntry[] = [];
+		// The catalogue holds thousands of mappings, so resolve providers through
+		// a lookup instead of scanning the provider list per mapping.
+		const providerById = new Map(providers.map((p) => [p.id, p]));
 
 		for (const model of [...models].sort((a, b) => a.id.localeCompare(b.id))) {
 			const modelName = getModelName(model);
@@ -133,7 +135,7 @@ export function ModelMappingSelector({
 				if (filter && !filter({ model, mapping })) {
 					continue;
 				}
-				const provider = providers.find((p) => p.id === mapping.providerId);
+				const provider = providerById.get(mapping.providerId);
 				out.push({
 					value: formatMappingValue(
 						mapping.providerId,
@@ -256,7 +258,13 @@ export function ModelMappingSelector({
 						onValueChange={setSearch}
 					/>
 					<CommandList>
-						<CommandEmpty>No mappings found.</CommandEmpty>
+						{/* Searching happens here, not in cmdk (shouldFilter={false}), so
+						    cmdk's own CommandEmpty would never see an empty result set. */}
+						{visibleEntries.length === 0 ? (
+							<div className="py-6 text-center text-sm text-muted-foreground">
+								No mappings found.
+							</div>
+						) : null}
 						<CommandGroup>
 							{visibleEntries.map((entry) => {
 								const unstable =
