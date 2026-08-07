@@ -23,7 +23,7 @@ export default function AllowanceExhaustedCard({
 	tier,
 	organizationId,
 }: AllowanceExhaustedCardProps) {
-	const { uiUrl, posthogKey } = useAppConfig();
+	const { posthogKey } = useAppConfig();
 	const posthog = usePostHog();
 
 	const serial = (organizationId ?? "GATEWAY").slice(-6).toUpperCase();
@@ -80,21 +80,23 @@ export default function AllowanceExhaustedCard({
 					<>
 						<p className="mt-2 max-w-md text-sm text-muted-foreground">
 							You&apos;re on the biggest DevPass plan and this cycle&apos;s
-							allowance is fully used. Keep coding with pay-as-you-go credits on
-							LLM Gateway — it works with the same coding agents you&apos;ve
-							been using. All it takes is swapping in a Gateway API key and
-							buying credits: no weekly caps, pay only for what you use.
+							allowance is fully used. Enable pay-as-you-go overflow below to
+							keep coding with the same API key and agents — extra usage bills a
+							credits balance at provider rates, only until your allowance
+							renews.
 						</p>
 						<div className="mt-3">
-							<Button size="sm" asChild onClick={trackClick}>
-								<a
-									href={`${uiUrl}/dashboard?from=devpass-payg`}
-									target="_blank"
-									rel="noopener noreferrer"
-								>
-									Get PAYG credits on llmgateway.io
-									<ArrowUpRight className="ml-1.5 h-4 w-4" />
-								</a>
+							<Button
+								size="sm"
+								onClick={() => {
+									trackClick();
+									document
+										.getElementById("payg-card")
+										?.scrollIntoView({ behavior: "smooth", block: "center" });
+								}}
+							>
+								<ArrowUpRight className="mr-1.5 h-4 w-4" />
+								Set up pay-as-you-go below
 							</Button>
 						</div>
 					</>

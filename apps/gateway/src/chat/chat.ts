@@ -259,7 +259,9 @@ import { resolveModelInfo } from "./tools/resolve-model-info.js";
 import { resolvePlatformCredential } from "./tools/resolve-platform-credential.js";
 import {
 	assertDevPlanPremiumCapNotExceeded,
+	buildDevPlanCreditLimitError,
 	formatUsedModelForDisplay,
+	getAvailableCredits,
 	resolveProviderContext,
 } from "./tools/resolve-provider-context.js";
 import { resolveReasoningTokens } from "./tools/resolve-reasoning-tokens.js";
@@ -2338,6 +2340,7 @@ chat.openapi(completions, async (c) => {
 		plan: organization.plan,
 		kind: organization.kind,
 		devPlan: organization.devPlan,
+		devPlanPaygEnabled: organization.devPlanPaygEnabled,
 		devPlanCreditsLimit: organization.devPlanCreditsLimit,
 		devPlanCreditsUsed: organization.devPlanCreditsUsed,
 		devPlanPremiumCreditsUsed: organization.devPlanPremiumCreditsUsed,
@@ -4842,19 +4845,11 @@ chat.openapi(completions, async (c) => {
 			(finalModelInfo ?? modelInfo) as ModelDefinition,
 			true,
 		);
-		const regularCredits = parseFloat(organization.credits ?? "0");
-		const devPlanCreditsRemaining =
-			organization.devPlan !== "none"
-				? parseFloat(organization.devPlanCreditsLimit ?? "0") -
-					parseFloat(organization.devPlanCreditsUsed ?? "0")
-				: 0;
-		const chatPlanCreditsRemaining =
-			organization.chatPlan !== "none"
-				? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
-					parseFloat(organization.chatPlanCreditsUsed ?? "0")
-				: 0;
-		const totalAvailableCredits =
-			regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
+		const {
+			devPlanCreditsRemaining,
+			chatPlanCreditsRemaining,
+			totalAvailableCredits,
+		} = getAvailableCredits(organization);
 
 		// We trust the bare `modelInfo.free` flag here: free models are always
 		// marked explicitly in the catalog, so a `free: true` model is intended
@@ -4876,12 +4871,7 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 			if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
-				const renewalDate = organization.devPlanExpiresAt
-					? new Date(organization.devPlanExpiresAt).toLocaleDateString()
-					: "your next billing date";
-				throw new HTTPException(402, {
-					message: `Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
-				});
+				throw buildDevPlanCreditLimitError(organization);
 			}
 			throw new HTTPException(402, {
 				message: `Organization ${organization.id} has insufficient credits`,
@@ -4981,19 +4971,11 @@ chat.openapi(completions, async (c) => {
 				(finalModelInfo ?? modelInfo) as ModelDefinition,
 				true,
 			);
-			const regularCredits = parseFloat(organization.credits ?? "0");
-			const devPlanCreditsRemaining =
-				organization.devPlan !== "none"
-					? parseFloat(organization.devPlanCreditsLimit ?? "0") -
-						parseFloat(organization.devPlanCreditsUsed ?? "0")
-					: 0;
-			const chatPlanCreditsRemaining =
-				organization.chatPlan !== "none"
-					? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
-						parseFloat(organization.chatPlanCreditsUsed ?? "0")
-					: 0;
-			const totalAvailableCredits =
-				regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
+			const {
+				devPlanCreditsRemaining,
+				chatPlanCreditsRemaining,
+				totalAvailableCredits,
+			} = getAvailableCredits(organization);
 
 			if (
 				totalAvailableCredits <= 0 &&
@@ -5012,12 +4994,10 @@ chat.openapi(completions, async (c) => {
 					});
 				}
 				if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
-					const renewalDate = organization.devPlanExpiresAt
-						? new Date(organization.devPlanExpiresAt).toLocaleDateString()
-						: "your next billing date";
-					throw new HTTPException(402, {
-						message: `No API key set for provider. Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
-					});
+					throw buildDevPlanCreditLimitError(
+						organization,
+						"No API key set for provider. ",
+					);
 				}
 				throw new HTTPException(402, {
 					message:
@@ -5186,19 +5166,7 @@ chat.openapi(completions, async (c) => {
 	// Check if organization has credits for data retention costs
 	// Data storage is billed at $0.01 per 1M tokens, so we need credits when retention is enabled
 	if (organization && organization.retentionLevel === "retain") {
-		const regularCredits = parseFloat(organization.credits ?? "0");
-		const devPlanCreditsRemaining =
-			organization.devPlan !== "none"
-				? parseFloat(organization.devPlanCreditsLimit ?? "0") -
-					parseFloat(organization.devPlanCreditsUsed ?? "0")
-				: 0;
-		const chatPlanCreditsRemaining =
-			organization.chatPlan !== "none"
-				? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
-					parseFloat(organization.chatPlanCreditsUsed ?? "0")
-				: 0;
-		const totalAvailableCredits =
-			regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
+		const { totalAvailableCredits } = getAvailableCredits(organization);
 
 		if (totalAvailableCredits <= 0) {
 			throw new HTTPException(402, {

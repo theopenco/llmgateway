@@ -264,6 +264,11 @@ export const organization = pgTable(
 			.default("none"),
 		devPlanCreditsUsed: decimal().notNull().default("0"),
 		devPlanCreditsLimit: decimal().notNull().default("0"),
+		// Opt-in pay-as-you-go overflow: when true and the monthly dev-plan
+		// allowance is exhausted, requests keep flowing and bill against the
+		// org's regular `credits` balance instead of being rejected. Off by
+		// default so a plan's allowance stays a hard cap unless the user asks.
+		devPlanPaygEnabled: boolean().notNull().default(false),
 		devPlanPremiumCreditsUsed: decimal().notNull().default("0"),
 		devPlanPremiumWeekStart: timestamp(),
 		// Purchased Reset Passes still unredeemed, tracked per tier bought.
