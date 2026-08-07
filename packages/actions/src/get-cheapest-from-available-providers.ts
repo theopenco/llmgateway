@@ -299,7 +299,11 @@ export function getProviderSelectionPrice(
 	providerInfo:
 		| Pick<
 				ProviderModelMapping,
-				"inputPrice" | "outputPrice" | "perSecondPrice" | "requestPrice"
+				| "inputPrice"
+				| "outputPrice"
+				| "perSecondPrice"
+				| "perImagePrice"
+				| "requestPrice"
 		  >
 		| undefined,
 	videoPricing?: VideoPricingContext,
@@ -326,6 +330,20 @@ export function getProviderSelectionPrice(
 		return new Decimal(inputPrice ?? "0").plus(outputPrice ?? "0").div(2);
 	}
 
+	if (providerInfo?.perImagePrice) {
+		// Represent the mapping by its cheapest obtainable tier, matching how
+		// every other branch (and the gateway's pricingScore) ranks mappings.
+		const values = Object.values(providerInfo.perImagePrice).filter(
+			(v) => v !== undefined,
+		);
+		if (values.length > 0) {
+			return values.reduce(
+				(min, v) => (new Decimal(v).lt(min) ? new Decimal(v) : min),
+				new Decimal(values[0]),
+			);
+		}
+	}
+
 	if (requestPrice !== undefined && !hasPositiveTokenPrice) {
 		return new Decimal(requestPrice);
 	}
@@ -340,7 +358,11 @@ export function getProviderSelectionPrice(
 type ProviderSelectionPriceInfo = AvailableModelProvider &
 	Pick<
 		ProviderModelMapping,
-		"inputPrice" | "outputPrice" | "perSecondPrice" | "requestPrice"
+		| "inputPrice"
+		| "outputPrice"
+		| "perSecondPrice"
+		| "perImagePrice"
+		| "requestPrice"
 	>;
 
 export async function getDiscountedProviderSelectionPrice(

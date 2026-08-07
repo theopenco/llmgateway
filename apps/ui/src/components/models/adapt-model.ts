@@ -85,6 +85,7 @@ export function adaptProviderMapping(
 			supportsVideoAudio: p.supportsVideoAudio ?? null,
 			supportsVideoWithoutAudio: p.supportsVideoWithoutAudio ?? null,
 			perSecondPrice: toStrRecord(p.perSecondPrice),
+			perImagePrice: toStrRecord(p.perImagePrice),
 			pricingTiers: p.pricingTiers
 				? p.pricingTiers.map((t) => ({
 						name: t.name,

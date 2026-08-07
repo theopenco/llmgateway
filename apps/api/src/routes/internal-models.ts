@@ -107,6 +107,7 @@ const modelProviderMappingSchema = z.object({
 	supportsVideoAudio: z.boolean().nullable(),
 	supportsVideoWithoutAudio: z.boolean().nullable(),
 	perSecondPrice: z.record(z.string()).nullable(),
+	perImagePrice: z.record(z.string()).nullable(),
 	pricingTiers: z.array(pricingTierSchema).nullable(),
 	serviceTiers: z.array(z.string()).nullable(),
 	deprecatedAt: z.coerce.date().nullable(),
@@ -296,6 +297,13 @@ internalModels.openapi(getModelsRoute, async (c) => {
 				perSecondPrice: sharedMapping?.perSecondPrice
 					? Object.fromEntries(
 							Object.entries(sharedMapping.perSecondPrice).map(
+								([key, price]) => [key, price.toString()],
+							),
+						)
+					: null,
+				perImagePrice: sharedMapping?.perImagePrice
+					? Object.fromEntries(
+							Object.entries(sharedMapping.perImagePrice).map(
 								([key, price]) => [key, price.toString()],
 							),
 						)
