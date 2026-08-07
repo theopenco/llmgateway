@@ -1355,7 +1355,7 @@ export async function batchProcessLogs(): Promise<number> {
 					premiumCost: Decimal,
 					preferred: PlanPool | null,
 					fallback: PlanPool | null,
-				): Promise<Decimal> => {
+				): Promise<{ remaining: Decimal; remainingPremium: Decimal }> => {
 					let remaining = bucketCost;
 					let remainingPremium = premiumCost;
 					for (const pool of [preferred, fallback]) {
@@ -1374,30 +1374,54 @@ export async function batchProcessLogs(): Promise<number> {
 						remaining = remaining.minus(take);
 						remainingPremium = remainingPremium.minus(premiumTake);
 					}
-					return remaining;
+					return { remaining, remainingPremium };
 				};
 
-				const remainingFromChat = buckets.chat.greaterThan(0)
+				const fromChat = buckets.chat.greaterThan(0)
 					? await drainBucket(
 							buckets.chat,
 							buckets.chatPremium,
 							chatPool,
 							devPool,
 						)
-					: new Decimal(0);
+					: { remaining: new Decimal(0), remainingPremium: new Decimal(0) };
 
-				const remainingFromOther = buckets.other.greaterThan(0)
+				const fromOther = buckets.other.greaterThan(0)
 					? await drainBucket(
 							buckets.other,
 							buckets.otherPremium,
 							devPool,
 							chatPool,
 						)
-					: new Decimal(0);
+					: { remaining: new Decimal(0), remainingPremium: new Decimal(0) };
 
-				const remainingCost = remainingFromChat.plus(remainingFromOther);
+				const remainingCost = fromChat.remaining.plus(fromOther.remaining);
 
-				if (remainingCost.greaterThan(0)) {
+				// A dev-plan org that has not opted into pay-as-you-go overflow
+				// cannot spend its `credits` balance: getAvailableCredits zeroes
+				// that pool, so the gateway rejects the request rather than
+				// billing it. Draining `credits` here would therefore charge a
+				// balance the org was never allowed to use — silently eating an
+				// admin gift, or pushing an empty balance negative so a later
+				// top-up first pays off phantom debt. The overshoot exists
+				// because requests admitted while the pool still had room can
+				// collectively cost more than was left, so keep it on the plan
+				// pool: usage stays accounted for and the allowance stays the
+				// hard cap the plan promises.
+				const plannedOverflowOnly =
+					org && org.devPlan !== "none" && !org.devPlanPaygEnabled;
+
+				if (remainingCost.greaterThan(0) && plannedOverflowOnly && devPool) {
+					await deductFromPlanPool(
+						orgId,
+						devPool,
+						remainingCost,
+						fromChat.remainingPremium.plus(fromOther.remainingPremium),
+					);
+					logger.debug(
+						`Kept ${remainingCost.toString()} on the dev plan pool for organization ${orgId} (pay-as-you-go overflow disabled)`,
+					);
+				} else if (remainingCost.greaterThan(0)) {
 					const costStr = remainingCost.toString();
 					await tx
 						.update(organization)
