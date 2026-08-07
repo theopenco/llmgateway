@@ -42,6 +42,7 @@ import {
 	CursorIcon,
 	DevPassCodeIcon,
 	EmpryoIcon,
+	GitHubCopilotIcon,
 	N8nIcon,
 	OpenClawIcon,
 	OpenCodeIcon,
@@ -76,6 +77,7 @@ const AGENT_ICONS: Record<string, IconComponent> = {
 	cline: ClineIcon,
 	"roo-code": ClineIcon,
 	codex: CodexIcon,
+	"github-copilot": GitHubCopilotIcon,
 	n8n: N8nIcon,
 	openclaw: OpenClawIcon,
 };

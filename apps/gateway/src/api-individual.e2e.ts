@@ -729,16 +729,22 @@ describe("e2e individual tests", () => {
 			expect(log.requestedModel).toBe("auto");
 
 			// Verify a reasoning model was selected
-			const usedModel = log.usedModelMapping;
-			expect(usedModel).toBeDefined();
+			expect(log.usedModelMapping).toBeDefined();
 
-			const reasoningAutoRoutingModelIds = new Set([
-				"claude-opus-4-6",
-				"claude-sonnet-4-6",
-			]);
+			// `usedModel` is "<provider>/<model>[:<region>]"; the auto-routing
+			// decision is made on the internal model id, so strip both affixes.
+			// `usedModelMapping` holds the upstream external id (e.g. a dated
+			// Anthropic snapshot or a Bedrock ARN-style id) and never matches an
+			// internal id, so it cannot be used for this check.
+			const usedModelId = log.usedModel?.split("/").pop()?.split(":")[0];
+			const usedModelDefinition = models.find((m) => m.id === usedModelId);
 
-			// Verify reasoningEffort is only auto-set for reasoning-capable Claude models
-			if (usedModel && reasoningAutoRoutingModelIds.has(usedModel)) {
+			// Verify reasoningEffort is only auto-set for reasoning-capable models
+			if (
+				usedModelDefinition?.providers.some(
+					(p) => "reasoning" in p && p.reasoning === true,
+				)
+			) {
 				expect(log.reasoningEffort).toEqual("low");
 			} else {
 				expect(log.reasoningEffort).toBeNull();

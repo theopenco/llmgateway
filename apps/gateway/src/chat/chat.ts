@@ -258,7 +258,9 @@ import { resolveModelInfo } from "./tools/resolve-model-info.js";
 import { resolvePlatformCredential } from "./tools/resolve-platform-credential.js";
 import {
 	assertDevPlanPremiumCapNotExceeded,
+	buildDevPlanCreditLimitError,
 	formatUsedModelForDisplay,
+	getAvailableCredits,
 	resolveProviderContext,
 } from "./tools/resolve-provider-context.js";
 import { resolveReasoningTokens } from "./tools/resolve-reasoning-tokens.js";
@@ -2343,6 +2345,7 @@ chat.openapi(completions, async (c) => {
 		plan: organization.plan,
 		kind: organization.kind,
 		devPlan: organization.devPlan,
+		devPlanPaygEnabled: organization.devPlanPaygEnabled,
 		devPlanCreditsLimit: organization.devPlanCreditsLimit,
 		devPlanCreditsUsed: organization.devPlanCreditsUsed,
 		devPlanPremiumCreditsUsed: organization.devPlanPremiumCreditsUsed,
@@ -4832,20 +4835,13 @@ chat.openapi(completions, async (c) => {
 		assertDevPlanPremiumCapNotExceeded(
 			organization,
 			(finalModelInfo ?? modelInfo) as ModelDefinition,
+			true,
 		);
-		const regularCredits = parseFloat(organization.credits ?? "0");
-		const devPlanCreditsRemaining =
-			organization.devPlan !== "none"
-				? parseFloat(organization.devPlanCreditsLimit ?? "0") -
-					parseFloat(organization.devPlanCreditsUsed ?? "0")
-				: 0;
-		const chatPlanCreditsRemaining =
-			organization.chatPlan !== "none"
-				? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
-					parseFloat(organization.chatPlanCreditsUsed ?? "0")
-				: 0;
-		const totalAvailableCredits =
-			regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
+		const {
+			devPlanCreditsRemaining,
+			chatPlanCreditsRemaining,
+			totalAvailableCredits,
+		} = getAvailableCredits(organization);
 
 		// We trust the bare `modelInfo.free` flag here: free models are always
 		// marked explicitly in the catalog, so a `free: true` model is intended
@@ -4867,12 +4863,7 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 			if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
-				const renewalDate = organization.devPlanExpiresAt
-					? new Date(organization.devPlanExpiresAt).toLocaleDateString()
-					: "your next billing date";
-				throw new HTTPException(402, {
-					message: `Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
-				});
+				throw buildDevPlanCreditLimitError(organization);
 			}
 			throw new HTTPException(402, {
 				message: `Organization ${organization.id} has insufficient credits`,
@@ -4969,20 +4960,13 @@ chat.openapi(completions, async (c) => {
 			assertDevPlanPremiumCapNotExceeded(
 				organization,
 				(finalModelInfo ?? modelInfo) as ModelDefinition,
+				true,
 			);
-			const regularCredits = parseFloat(organization.credits ?? "0");
-			const devPlanCreditsRemaining =
-				organization.devPlan !== "none"
-					? parseFloat(organization.devPlanCreditsLimit ?? "0") -
-						parseFloat(organization.devPlanCreditsUsed ?? "0")
-					: 0;
-			const chatPlanCreditsRemaining =
-				organization.chatPlan !== "none"
-					? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
-						parseFloat(organization.chatPlanCreditsUsed ?? "0")
-					: 0;
-			const totalAvailableCredits =
-				regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
+			const {
+				devPlanCreditsRemaining,
+				chatPlanCreditsRemaining,
+				totalAvailableCredits,
+			} = getAvailableCredits(organization);
 
 			if (
 				totalAvailableCredits <= 0 &&
@@ -5001,12 +4985,10 @@ chat.openapi(completions, async (c) => {
 					});
 				}
 				if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
-					const renewalDate = organization.devPlanExpiresAt
-						? new Date(organization.devPlanExpiresAt).toLocaleDateString()
-						: "your next billing date";
-					throw new HTTPException(402, {
-						message: `No API key set for provider. Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
-					});
+					throw buildDevPlanCreditLimitError(
+						organization,
+						"No API key set for provider. ",
+					);
 				}
 				throw new HTTPException(402, {
 					message:
@@ -5174,19 +5156,7 @@ chat.openapi(completions, async (c) => {
 	// Check if organization has credits for data retention costs
 	// Data storage is billed at $0.01 per 1M tokens, so we need credits when retention is enabled
 	if (organization && organization.retentionLevel === "retain") {
-		const regularCredits = parseFloat(organization.credits ?? "0");
-		const devPlanCreditsRemaining =
-			organization.devPlan !== "none"
-				? parseFloat(organization.devPlanCreditsLimit ?? "0") -
-					parseFloat(organization.devPlanCreditsUsed ?? "0")
-				: 0;
-		const chatPlanCreditsRemaining =
-			organization.chatPlan !== "none"
-				? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
-					parseFloat(organization.chatPlanCreditsUsed ?? "0")
-				: 0;
-		const totalAvailableCredits =
-			regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
+		const { totalAvailableCredits } = getAvailableCredits(organization);
 
 		if (totalAvailableCredits <= 0) {
 			throw new HTTPException(402, {
@@ -13079,6 +13049,16 @@ chat.openapi(completions, async (c) => {
 		reasoningTokens,
 		reasoningContent,
 	);
+	// Alibaba's per-image models bill by the served resolution tier, which
+	// DashScope reports in usage.output_image_type (e.g. "qima_output_2k").
+	// Bill on that tier rather than the requested size: the model auto-picks
+	// the final resolution when no size is given, and perImagePrice keys on
+	// tier names ("1K"/"2K"), not on pixel-dimension size strings.
+	const alibabaServedImageTier =
+		usedProvider === "alibaba" &&
+		typeof json?.usage?.output_image_type === "string"
+			? json.usage.output_image_type.match(/_(\d+k)$/i)?.[1]?.toUpperCase()
+			: undefined;
 	const costs = await calculateCosts(
 		usedInternalModel,
 		usedProvider,
@@ -13093,7 +13073,7 @@ chat.openapi(completions, async (c) => {
 		},
 		reasoningTokens,
 		convertedImages?.length || 0,
-		image_config?.image_size,
+		alibabaServedImageTier ?? image_config?.image_size,
 		inputImageCount,
 		webSearchCount,
 		project.organizationId,

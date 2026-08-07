@@ -152,6 +152,14 @@ const convertToApiModel = (
 								]),
 							)
 						: null,
+					perImagePrice: map.perImagePrice
+						? Object.fromEntries(
+								Object.entries(map.perImagePrice).map(([k, v]) => [
+									k,
+									v.toString(),
+								]),
+							)
+						: null,
 					pricingTiers: map.pricingTiers
 						? map.pricingTiers.map((t) => ({
 								name: t.name,

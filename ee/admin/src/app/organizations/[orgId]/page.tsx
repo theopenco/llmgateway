@@ -6,7 +6,11 @@ import {
 	FolderOpen,
 	Key,
 	KeyRound,
+	Lock,
 	Receipt,
+	ScrollText,
+	Settings,
+	Shield,
 	Users,
 } from "lucide-react";
 import Link from "next/link";
@@ -35,14 +39,18 @@ import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 
 import { ApiKeysTable } from "./api-keys-table";
+import { AuditLogsTab } from "./audit-logs-tab";
 import { GiftCreditsDialog } from "./gift-credits-dialog";
+import { GuardrailsTab } from "./guardrails-tab";
 import { ManageOrgDialog } from "./manage-org-dialog";
 import { OrgCostByModel } from "./org-cost-by-model";
 import { OrgCostByModelTimeseries } from "./org-cost-by-model-timeseries";
 import { OrgMetricsSection } from "./org-metrics";
+import { OrgSettingsTab } from "./org-settings-tab";
 import { ProviderKeysTable } from "./provider-keys-table";
 import { ReferralBonusDialog } from "./referral-bonus-dialog";
 import { SendEmailDialog } from "./send-email-dialog";
+import { SsoTab } from "./sso-tab";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
 	style: "currency",
@@ -55,6 +63,11 @@ const creditsFormatter = new Intl.NumberFormat("en-US", {
 	currency: "USD",
 	maximumFractionDigits: 2,
 });
+
+function parsePage(value: string | undefined) {
+	const parsed = parseInt(value ?? "1", 10);
+	return Number.isNaN(parsed) ? 1 : Math.max(1, parsed);
+}
 
 function formatDate(dateString: string) {
 	return new Date(dateString).toLocaleDateString("en-US", {
@@ -137,6 +150,9 @@ export default async function OrganizationPage({
 	searchParams?: Promise<{
 		txPage?: string;
 		akPage?: string;
+		alPage?: string;
+		alAction?: string;
+		alResource?: string;
 		tab?: string;
 	}>;
 }) {
@@ -144,13 +160,18 @@ export default async function OrganizationPage({
 
 	const { orgId } = await params;
 	const searchParamsData = await searchParams;
-	const txPage = Math.max(1, parseInt(searchParamsData?.txPage ?? "1", 10));
-	const akPage = Math.max(1, parseInt(searchParamsData?.akPage ?? "1", 10));
+	const txPage = parsePage(searchParamsData?.txPage);
+	const akPage = parsePage(searchParamsData?.akPage);
+	const alPage = parsePage(searchParamsData?.alPage);
+	const alAction = searchParamsData?.alAction ?? "";
+	const alResource = searchParamsData?.alResource ?? "";
 	const activeTab = searchParamsData?.tab ?? "transactions";
 	const txLimit = 25;
 	const txOffset = (txPage - 1) * txLimit;
 	const akLimit = 25;
 	const akOffset = (akPage - 1) * akLimit;
+	const alLimit = 25;
+	const alOffset = (alPage - 1) * alLimit;
 
 	const $api = await createServerApiClient();
 	const [
@@ -159,6 +180,10 @@ export default async function OrganizationPage({
 		apiKeysRes,
 		providerKeysRes,
 		membersRes,
+		auditLogsRes,
+		settingsRes,
+		guardrailsRes,
+		ssoRes,
 	] = await Promise.all([
 		$api.GET("/admin/organizations/{orgId}/transactions", {
 			params: {
@@ -181,12 +206,36 @@ export default async function OrganizationPage({
 		$api.GET("/admin/organizations/{orgId}/members", {
 			params: { path: { orgId } },
 		}),
+		$api.GET("/admin/organizations/{orgId}/audit-logs", {
+			params: {
+				path: { orgId },
+				query: {
+					limit: alLimit,
+					offset: alOffset,
+					action: alAction || undefined,
+					resourceType: alResource || undefined,
+				},
+			},
+		}),
+		$api.GET("/admin/organizations/{orgId}/settings", {
+			params: { path: { orgId } },
+		}),
+		$api.GET("/admin/organizations/{orgId}/guardrails", {
+			params: { path: { orgId } },
+		}),
+		$api.GET("/admin/organizations/{orgId}/sso", {
+			params: { path: { orgId } },
+		}),
 	]);
 	const transactionsData = transactionsRes.data;
 	const projectsData = projectsRes.data;
 	const apiKeysData = apiKeysRes.data;
 	const providerKeysData = providerKeysRes.data;
 	const membersData = membersRes.data;
+	const auditLogsData = auditLogsRes.data;
+	const settingsData = settingsRes.data;
+	const guardrailsData = guardrailsRes.data;
+	const ssoData = ssoRes.data;
 
 	if (transactionsData === null) {
 		return <SignInPrompt />;
@@ -384,6 +433,22 @@ export default async function OrganizationPage({
 					<TabsTrigger value="members">
 						<Users className="mr-1.5 h-4 w-4" />
 						Members ({membersTotal})
+					</TabsTrigger>
+					<TabsTrigger value="audit-logs">
+						<ScrollText className="mr-1.5 h-4 w-4" />
+						Audit Logs ({auditLogsData?.total ?? 0})
+					</TabsTrigger>
+					<TabsTrigger value="settings">
+						<Settings className="mr-1.5 h-4 w-4" />
+						Settings
+					</TabsTrigger>
+					<TabsTrigger value="guardrails">
+						<Shield className="mr-1.5 h-4 w-4" />
+						Guardrails
+					</TabsTrigger>
+					<TabsTrigger value="sso">
+						<Lock className="mr-1.5 h-4 w-4" />
+						SSO
 					</TabsTrigger>
 				</TabsList>
 
@@ -607,6 +672,53 @@ export default async function OrganizationPage({
 							</Table>
 						</div>
 					</div>
+				</TabsContent>
+
+				<TabsContent value="audit-logs">
+					{auditLogsData ? (
+						<AuditLogsTab
+							data={auditLogsData}
+							orgId={orgId}
+							page={alPage}
+							limit={alLimit}
+							action={alAction}
+							resourceType={alResource}
+						/>
+					) : (
+						<p className="py-8 text-center text-sm text-muted-foreground">
+							Failed to load audit logs
+						</p>
+					)}
+				</TabsContent>
+
+				<TabsContent value="settings">
+					{settingsData ? (
+						<OrgSettingsTab settings={settingsData} />
+					) : (
+						<p className="py-8 text-center text-sm text-muted-foreground">
+							Failed to load organization settings
+						</p>
+					)}
+				</TabsContent>
+
+				<TabsContent value="guardrails">
+					{guardrailsData ? (
+						<GuardrailsTab data={guardrailsData} />
+					) : (
+						<p className="py-8 text-center text-sm text-muted-foreground">
+							Failed to load guardrails
+						</p>
+					)}
+				</TabsContent>
+
+				<TabsContent value="sso">
+					{ssoData ? (
+						<SsoTab data={ssoData} />
+					) : (
+						<p className="py-8 text-center text-sm text-muted-foreground">
+							Failed to load SSO settings
+						</p>
+					)}
 				</TabsContent>
 			</Tabs>
 		</div>

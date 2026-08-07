@@ -1781,6 +1781,32 @@ export const providers: ProviderDefinition[] = [
 			gdpr: true,
 		},
 	},
+	{
+		id: "ranoai",
+		name: "RanoAI",
+		description:
+			"RanoAI serves open-weight large language models on Furiosa RNGD NPU hardware via an OpenAI-compatible inference API.",
+		env: {
+			required: {
+				apiKey: "LLM_RANOAI_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#000000",
+		website: "https://ranoai.com",
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: "https://ranoai.com/terms",
+		privacyPolicyUrl: "https://ranoai.com/privacy",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			consumerTraining: false,
+			promptLogging: false,
+			retentionPeriod: "0 days",
+		},
+	},
 ] as const satisfies ProviderDefinition[];
 
 export type ProviderId = (typeof providers)[number]["id"];

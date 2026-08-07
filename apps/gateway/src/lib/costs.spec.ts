@@ -692,6 +692,47 @@ describe("calculateCosts", () => {
 		expect(result.estimatedCost).toBe(false);
 	});
 
+	it("should bill RanoAI cached tokens at the cache-read rate", async () => {
+		// RanoAI does automatic prefix caching and charges input_cache_read
+		// (0.05/M), half the input rate. Without cachedInputPrice the engine
+		// falls back to inputPrice and would bill cached tokens at 2x.
+		const result = await calculateCosts(
+			"gemma-4-31b-it",
+			"ranoai",
+			null,
+			2521,
+			10,
+			2496, // cachedTokens
+		);
+
+		// 25 uncached * 0.1e-6 + 2496 cached * 0.05e-6
+		expect(result.inputCost).toBeCloseTo(0.0000025, 10);
+		expect(result.cachedInputCost).toBeCloseTo(0.0001248, 10);
+	});
+
+	it("should not double-bill RanoAI reasoning tokens", async () => {
+		// RanoAI reports reasoning in completion_tokens_details (hoisted to a
+		// top-level reasoning_tokens by the streaming transform) while already
+		// counting it inside completion_tokens, so it must not be added again.
+		const result = await calculateCosts(
+			"gemma-4-31b-it",
+			"ranoai",
+			null,
+			1000,
+			330, // completionTokens already includes the 267 reasoning tokens
+			null,
+			undefined,
+			267,
+		);
+
+		// inputPrice 0.1e-6, outputPrice 0.3e-6. Precision matters here: billing
+		// 330 vs 597 output tokens differs by only 8e-5, which the default
+		// two-decimal toBeCloseTo would not catch.
+		expect(result.inputCost).toBeCloseTo(0.0001, 10);
+		expect(result.outputCost).toBeCloseTo(0.000099, 10); // 330 * 0.3e-6, not 597
+		expect(result.completionTokens).toBe(330);
+	});
+
 	it("should handle null reasoning tokens gracefully", async () => {
 		const result = await calculateCosts(
 			"gemini-2.5-pro",
@@ -1406,6 +1447,134 @@ describe("calculateCosts", () => {
 
 		expect(result.imageOutputTokens).toBe(1120); // default = 1K
 		expect(result.imageOutputCost).toBeCloseTo(1120 * (60 / 1e6));
+	});
+
+	it("bills perImagePrice by the served resolution tier for qwen-image-3.0-pro", async () => {
+		// qwen-image-3.0-pro: $0.04/image at 1K, $0.075/image at 2K
+		const at1k = await calculateCosts(
+			"qwen-image-3.0-pro",
+			"alibaba",
+			null,
+			100,
+			0,
+			null,
+			undefined,
+			null,
+			1, // outputImageCount
+			"1K",
+			0,
+		);
+		expect(at1k.imageOutputCost).toBeCloseTo(0.04);
+		expect(at1k.outputCost).toBeCloseTo(0.04);
+
+		const at2k = await calculateCosts(
+			"qwen-image-3.0-pro",
+			"alibaba",
+			null,
+			100,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			"2K",
+			0,
+		);
+		expect(at2k.imageOutputCost).toBeCloseTo(0.075);
+		expect(at2k.outputCost).toBeCloseTo(0.075);
+	});
+
+	it("falls back to the default perImagePrice tier for unknown or missing sizes", async () => {
+		// A raw pixel size that is not a tier key must not undercharge: it falls
+		// back to "default" ($0.075 for the pro model, the no-size 2K case).
+		const unknownSize = await calculateCosts(
+			"qwen-image-3.0-pro",
+			"alibaba",
+			null,
+			100,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			"1024x1024",
+			0,
+		);
+		expect(unknownSize.imageOutputCost).toBeCloseTo(0.075);
+
+		const noSize = await calculateCosts(
+			"qwen-image-3.0-pro",
+			"alibaba",
+			null,
+			100,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			undefined,
+			0,
+		);
+		expect(noSize.imageOutputCost).toBeCloseTo(0.075);
+	});
+
+	it("multiplies perImagePrice by the output image count", async () => {
+		// qwen-image-3.0 is $0.03/image at every tier; n=3 bills 3 images.
+		const result = await calculateCosts(
+			"qwen-image-3.0",
+			"alibaba",
+			null,
+			100,
+			0,
+			null,
+			undefined,
+			null,
+			3,
+			"1K",
+			0,
+		);
+		expect(result.imageOutputCost).toBeCloseTo(0.09);
+		expect(result.outputCost).toBeCloseTo(0.09);
+		expect(result.totalCost).toBeCloseTo(
+			(result.inputCost ?? 0) + 0.09 + (result.requestCost ?? 0),
+		);
+	});
+
+	it("bills perImagePrice even when prompt usage is absent or zero", async () => {
+		// An upstream response that omits prompt usage must still charge for the
+		// generated images instead of bailing out of cost calculation entirely.
+		const noPromptTokens = await calculateCosts(
+			"qwen-image-3.0",
+			"alibaba",
+			null,
+			null,
+			null,
+			null,
+			undefined,
+			null,
+			1,
+			"1K",
+			0,
+		);
+		expect(noPromptTokens.imageOutputCost).toBeCloseTo(0.03);
+		expect(noPromptTokens.outputCost).toBeCloseTo(0.03);
+		expect(noPromptTokens.totalCost).toBeCloseTo(0.03);
+
+		const zeroPromptTokens = await calculateCosts(
+			"qwen-image-3.0",
+			"alibaba",
+			null,
+			0,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			"1K",
+			0,
+		);
+		expect(zeroPromptTokens.imageOutputCost).toBeCloseTo(0.03);
+		expect(zeroPromptTokens.totalCost).toBeCloseTo(0.03);
 	});
 
 	it("should include image costs in totalCost sum", async () => {

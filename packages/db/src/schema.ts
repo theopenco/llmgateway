@@ -186,6 +186,10 @@ export const organization = pgTable(
 			.defaultNow()
 			.$onUpdate(() => new Date()),
 		name: text().notNull(),
+		// Organization logo shown in the dashboard org switcher, stored as a
+		// small base64 data URL (raster image only, resized client-side) so no
+		// object storage is needed. Null = no logo, UI falls back to initials.
+		logo: text(),
 		billingEmail: text().notNull(),
 		billingCompany: text(),
 		billingAddress: text(),
@@ -260,6 +264,11 @@ export const organization = pgTable(
 			.default("none"),
 		devPlanCreditsUsed: decimal().notNull().default("0"),
 		devPlanCreditsLimit: decimal().notNull().default("0"),
+		// Opt-in pay-as-you-go overflow: when true and the monthly dev-plan
+		// allowance is exhausted, requests keep flowing and bill against the
+		// org's regular `credits` balance instead of being rejected. Off by
+		// default so a plan's allowance stays a hard cap unless the user asks.
+		devPlanPaygEnabled: boolean().notNull().default(false),
 		devPlanPremiumCreditsUsed: decimal().notNull().default("0"),
 		devPlanPremiumWeekStart: timestamp(),
 		// Purchased Reset Passes still unredeemed, tracked per tier bought.
@@ -1663,6 +1672,15 @@ export const providerKey = pgTable(
 			.on(table.organizationId, table.name)
 			.where(sql`status <> 'deleted'`),
 		index("provider_key_organization_id_idx").on(table.organizationId),
+		index("provider_key_sort_order_idx").on(
+			table.organizationId,
+			table.provider,
+			table.sortOrder,
+		),
+		index("provider_key_managed_provider_idx").on(
+			table.managed,
+			table.provider,
+		),
 		// Exactly one storage form per row: a legacy plaintext token XOR an
 		// encrypted one. Also rejects rows with neither, which readProviderKey
 		// could never resolve into a credential.
@@ -1996,6 +2014,13 @@ export const log = pgTable(
 		index("log_end_customer_wallet_id_created_at_idx")
 			.on(table.endCustomerWalletId, table.createdAt)
 			.where(sql`end_customer_wallet_id IS NOT NULL`),
+		// Added in its own migration, after the one that creates
+		// log.provider_key_id: on a production-sized "log" this must be built
+		// out of band with CREATE INDEX CONCURRENTLY, which is only possible once
+		// the column exists.
+		index("log_provider_key_id_created_at_idx")
+			.on(table.providerKeyId, table.createdAt)
+			.where(sql`provider_key_id IS NOT NULL`),
 		index("log_end_user_session_id_created_at_idx")
 			.on(table.endUserSessionId, table.createdAt)
 			.where(sql`end_user_session_id IS NOT NULL`),
@@ -4183,6 +4208,19 @@ export const providerKeyHourlyStats = pgTable(
 		unique("provider_key_hourly_stats_key_project_hour_unique").on(
 			table.providerKeyId,
 			table.projectId,
+			table.hourTimestamp,
+		),
+		// Dashboard queries: one credential over a time range.
+		index("provider_key_hourly_stats_key_id_hour_timestamp_idx").on(
+			table.providerKeyId,
+			table.hourTimestamp,
+		),
+		// Reverse lookup: every credential a project's traffic touched.
+		index("provider_key_hourly_stats_project_id_hour_timestamp_idx").on(
+			table.projectId,
+			table.hourTimestamp,
+		),
+		index("provider_key_hourly_stats_hour_timestamp_idx").on(
 			table.hourTimestamp,
 		),
 	],

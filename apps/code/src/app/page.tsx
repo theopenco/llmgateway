@@ -435,6 +435,18 @@ export default function LandingPage() {
 								Claude Opus 4.8, Gemini 3.1 Pro, GPT-5.5, plus the strongest
 								open-weight Chinese coders — included on every tier.
 							</p>
+							<p className="mt-3 text-sm text-muted-foreground">
+								Every request is smart-routed to the best provider in real time
+								— picking a specific provider isn&apos;t possible on DevPass. If
+								you need provider pinning, use{" "}
+								<Link
+									href="https://llmgateway.io"
+									className="underline underline-offset-2 hover:text-foreground"
+								>
+									LLM Gateway&apos;s pay-as-you-go API
+								</Link>{" "}
+								instead.
+							</p>
 						</div>
 						<CodingModelsShowcase />
 					</div>
