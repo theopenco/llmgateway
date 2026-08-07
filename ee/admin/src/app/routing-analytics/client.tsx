@@ -1,8 +1,7 @@
 "use client";
 
-import { Check, ChevronsUpDown, Route } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import {
 	Bar,
 	BarChart,
@@ -13,6 +12,7 @@ import {
 	YAxis,
 } from "recharts";
 
+import { StatCard } from "@/components/detail-stat-cards";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -30,19 +30,6 @@ import {
 	ChartTooltipContent,
 } from "@/components/ui/chart";
 import {
-	Command,
-	CommandEmpty,
-	CommandGroup,
-	CommandInput,
-	CommandItem,
-	CommandList,
-} from "@/components/ui/command";
-import {
-	Popover,
-	PopoverContent,
-	PopoverTrigger,
-} from "@/components/ui/popover";
-import {
 	Table,
 	TableBody,
 	TableCell,
@@ -52,6 +39,13 @@ import {
 } from "@/components/ui/table";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
+
+import { models, providers } from "@llmgateway/models";
+import {
+	formatMappingValue,
+	ModelMappingSelector,
+	parseMappingValue,
+} from "@llmgateway/shared/components";
 
 import type { ChartConfig } from "@/components/ui/chart";
 
@@ -133,6 +127,10 @@ const TOOLTIP_HOUR_FORMATTER = new Intl.DateTimeFormat("en-US", {
 	hour12: false,
 });
 
+const numberFormatter = new Intl.NumberFormat("en-US", {
+	maximumFractionDigits: 0,
+});
+
 function formatAxisHour(value: string): string {
 	return AXIS_HOUR_FORMATTER.format(new Date(value));
 }
@@ -183,79 +181,14 @@ function formatContribution(value: number): string {
 	return value > 0 ? `+${value.toFixed(3)}` : value.toFixed(3);
 }
 
-function ModelCombobox({
-	modelId,
-	onSelect,
-}: {
-	modelId: string | null;
-	onSelect: (id: string) => void;
-}) {
-	const $api = useApi();
-	const [open, setOpen] = useState(false);
-	const [search, setSearch] = useState("");
+// Pseudo entries that are never routed across providers.
+const EXCLUDED_MODEL_IDS = new Set(["auto", "custom"]);
 
-	const { data, isLoading } = $api.useQuery("get", "/admin/models", {
-		params: {
-			query: {
-				search: search || undefined,
-				limit: 50,
-				sortBy: "logsCount",
-				sortOrder: "desc",
-			},
-		},
-	});
-
+function EmptyState({ children }: { children: React.ReactNode }) {
 	return (
-		<Popover open={open} onOpenChange={setOpen}>
-			<PopoverTrigger asChild>
-				<Button
-					variant="outline"
-					role="combobox"
-					aria-expanded={open}
-					className="w-[320px] justify-between font-mono text-xs"
-				>
-					{modelId ?? "Select a model…"}
-					<ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-				</Button>
-			</PopoverTrigger>
-			<PopoverContent className="w-[320px] p-0" align="start">
-				<Command shouldFilter={false}>
-					<CommandInput
-						placeholder="Search models…"
-						value={search}
-						onValueChange={setSearch}
-					/>
-					<CommandList>
-						<CommandEmpty>
-							{isLoading ? "Loading…" : "No models found."}
-						</CommandEmpty>
-						<CommandGroup>
-							{(data?.models ?? []).map((model) => (
-								<CommandItem
-									key={model.id}
-									value={model.id}
-									onSelect={(value) => {
-										onSelect(value);
-										setOpen(false);
-									}}
-								>
-									<Check
-										className={cn(
-											"mr-2 h-4 w-4",
-											modelId === model.id ? "opacity-100" : "opacity-0",
-										)}
-									/>
-									<span className="truncate font-mono text-xs">{model.id}</span>
-									<span className="ml-auto pl-2 text-xs text-muted-foreground">
-										{model.providerCount}p
-									</span>
-								</CommandItem>
-							))}
-						</CommandGroup>
-					</CommandList>
-				</Command>
-			</PopoverContent>
-		</Popover>
+		<div className="flex h-[240px] items-center justify-center rounded-lg border border-dashed border-border/60 bg-card text-sm text-muted-foreground">
+			{children}
+		</div>
 	);
 }
 
@@ -266,16 +199,45 @@ export function RoutingAnalyticsClient() {
 	const searchParams = useSearchParams();
 
 	const modelId = searchParams.get("modelId");
+	const selectedProviderId = searchParams.get("providerId");
 	const window = parseWindow(searchParams.get("window"));
 	const metric = parseMetric(searchParams.get("metric"));
 
-	const updateParam = useCallback(
-		(key: string, value: string) => {
+	const updateParams = useCallback(
+		(values: Record<string, string | null>) => {
 			const params = new URLSearchParams(searchParams.toString());
-			params.set(key, value);
+			for (const [key, value] of Object.entries(values)) {
+				if (value === null) {
+					params.delete(key);
+				} else {
+					params.set(key, value);
+				}
+			}
 			router.replace(`${pathname}?${params.toString()}`, { scroll: false });
 		},
 		[searchParams, router, pathname],
+	);
+
+	const selectorValue = modelId
+		? selectedProviderId
+			? formatMappingValue(selectedProviderId, modelId)
+			: modelId
+		: null;
+
+	const handleMappingChange = useCallback(
+		(value: string) => {
+			const parsed = parseMappingValue(value);
+			updateParams({
+				modelId: parsed.modelId,
+				providerId: parsed.providerId,
+			});
+		},
+		[updateParams],
+	);
+
+	const selectableModels = useMemo(
+		() => models.filter((model) => !EXCLUDED_MODEL_IDS.has(model.id)),
+		[],
 	);
 
 	const { data, isLoading, isError } = $api.useQuery(
@@ -361,17 +323,41 @@ export function RoutingAnalyticsClient() {
 		});
 	}, [data]);
 
+	const scoredSummary = useMemo(
+		() => sortedSummary.filter((summary) => summary.score !== null),
+		[sortedSummary],
+	);
+
+	const electedProviderId = scoredSummary[0]?.providerId ?? null;
+	const selectedRank = selectedProviderId
+		? scoredSummary.findIndex((s) => s.providerId === selectedProviderId)
+		: -1;
+	const selectedSummary =
+		selectedRank >= 0 ? scoredSummary[selectedRank] : undefined;
+	const routableCount =
+		data?.mappings.filter((mapping) => mapping.routable).length ?? 0;
+
 	const metricOption = METRIC_OPTIONS.find((o) => o.value === metric)!;
 
+	const providerName = (providerId: string) =>
+		data?.mappings.find((m) => m.providerId === providerId)?.providerName ??
+		providerId;
+
+	const seriesEmphasis = (providerId: string) => {
+		if (!selectedProviderId || selectedProviderId === providerId) {
+			return { strokeWidth: 2, opacity: 1 };
+		}
+		return { strokeWidth: 1.5, opacity: 0.35 };
+	};
+
 	return (
-		<div className="space-y-6">
-			<div className="flex flex-wrap items-start justify-between gap-4">
+		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
+			<header className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
 				<div>
-					<h1 className="flex items-center gap-2 text-2xl font-semibold">
-						<Route className="h-6 w-6" />
+					<h1 className="text-3xl font-semibold tracking-tight">
 						Routing Analytics
 					</h1>
-					<p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+					<p className="mt-1 max-w-3xl text-sm text-muted-foreground">
 						Why the gateway elects a specific provider mapping for a routed
 						model id: hourly-averaged routing inputs (uptime, latency,
 						throughput), static factors (price, priority, cache support), and
@@ -380,239 +366,275 @@ export function RoutingAnalyticsClient() {
 						shown here to smooth out fluctuations.
 					</p>
 				</div>
-				<div className="flex flex-wrap items-center gap-2">
-					<ModelCombobox
-						modelId={modelId}
-						onSelect={(id) => updateParam("modelId", id)}
+				<div className="flex flex-wrap items-center gap-3">
+					<ModelMappingSelector
+						models={selectableModels}
+						providers={providers}
+						value={selectorValue}
+						onValueChange={handleMappingChange}
+						placeholder="Select a mapping…"
 					/>
-					<div className="flex items-center rounded-md border p-0.5">
+					<div className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-1">
 						{WINDOW_OPTIONS.map((option) => (
 							<Button
 								key={option.value}
-								variant={window === option.value ? "secondary" : "ghost"}
+								variant={window === option.value ? "default" : "ghost"}
 								size="sm"
-								className="h-8 text-xs"
-								onClick={() => updateParam("window", option.value)}
+								className="h-7 px-3 text-xs"
+								onClick={() => updateParams({ window: option.value })}
 							>
 								{option.label}
 							</Button>
 						))}
 					</div>
 				</div>
-			</div>
+			</header>
 
 			{!modelId ? (
-				<Card>
-					<CardContent className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">
-						Select a model to inspect its provider routing.
-					</CardContent>
-				</Card>
+				<EmptyState>
+					Select a provider mapping to inspect how its model is routed.
+				</EmptyState>
 			) : isError ? (
-				<Card>
-					<CardContent className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">
-						Failed to load routing analytics for {modelId}.
-					</CardContent>
-				</Card>
+				<EmptyState>Failed to load routing analytics for {modelId}.</EmptyState>
 			) : isLoading || !data ? (
-				<Card>
-					<CardContent className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">
-						Loading…
-					</CardContent>
-				</Card>
+				<EmptyState>Loading…</EmptyState>
 			) : (
 				<>
+					<section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+						<StatCard
+							label="Requests"
+							value={numberFormatter.format(totalRequests)}
+						/>
+						<StatCard
+							label="Elected mapping"
+							value={
+								electedProviderId ? (
+									<span className="text-xl">
+										{providerName(electedProviderId)}
+									</span>
+								) : (
+									"—"
+								)
+							}
+						/>
+						<StatCard
+							label="Routable mappings"
+							value={`${routableCount} / ${data.mappings.length}`}
+						/>
+						<StatCard
+							label="Selected mapping"
+							value={
+								selectedSummary ? (
+									<span className="text-xl">
+										#{selectedRank + 1} of {scoredSummary.length}
+										<span className="ml-2 text-sm font-normal text-muted-foreground">
+											score {selectedSummary.score?.toFixed(3)}
+										</span>
+									</span>
+								) : (
+									<span className="text-xl text-muted-foreground">
+										{selectedProviderId ? "not scored" : "none selected"}
+									</span>
+								)
+							}
+						/>
+					</section>
+
 					<Card>
-						<CardHeader>
-							<CardTitle>Scoring weights</CardTitle>
-							<CardDescription>
-								Default weights applied to a streaming text request (short
-								prompt). Score = weighted factor scores + priority penalty +
-								exponential uptime penalty (below{" "}
-								{data.config.thresholds.uptimePenalty}% uptime). Lowest score
-								wins. Missing metrics fall back to{" "}
+						<CardHeader className="flex flex-col items-stretch space-y-2 border-b p-4 sm:flex-row sm:items-start sm:justify-between sm:space-y-0 sm:p-6">
+							<div>
+								<CardTitle>
+									Mappings for{" "}
+									<span className="font-mono">{data.model.id}</span>
+								</CardTitle>
+								<CardDescription className="max-w-3xl">
+									Window averages with every factor the router considers. Sorted
+									by score (lowest routes first). Prices include platform-wide
+									discounts; an organization-specific discount can lower its own
+									price further and shift that organization&apos;s election.
+								</CardDescription>
+							</div>
+							<div className="flex flex-wrap gap-1.5 sm:justify-end">
+								{(
+									[
+										["Price", data.config.effectiveWeights.price],
+										["Uptime", data.config.effectiveWeights.uptime],
+										["Throughput", data.config.effectiveWeights.throughput],
+										["Latency", data.config.effectiveWeights.latency],
+										["Cache", data.config.effectiveWeights.cache],
+									] as const
+								).map(([label, weight]) => (
+									<Badge key={label} variant="secondary" className="text-xs">
+										{label}:{" "}
+										{(
+											(weight / data.config.effectiveWeights.total) *
+											100
+										).toFixed(1)}
+										%
+									</Badge>
+								))}
+							</div>
+						</CardHeader>
+						<CardContent className="p-0">
+							<div className="overflow-x-auto">
+								<Table>
+									<TableHeader>
+										<TableRow className="[&>th]:whitespace-nowrap">
+											<TableHead>Provider</TableHead>
+											<TableHead>Status</TableHead>
+											<TableHead className="text-right">Price</TableHead>
+											<TableHead className="text-right">Priority</TableHead>
+											<TableHead className="text-center">Cache</TableHead>
+											<TableHead className="text-right">Uptime</TableHead>
+											<TableHead className="text-right">TTFT</TableHead>
+											<TableHead className="text-right">Throughput</TableHead>
+											<TableHead className="text-right">Requests</TableHead>
+											<TableHead className="text-right">Share</TableHead>
+											<TableHead className="text-right">Score</TableHead>
+										</TableRow>
+									</TableHeader>
+									<TableBody>
+										{sortedSummary.map((summary) => {
+											const mapping = data.mappings.find(
+												(m) => m.providerId === summary.providerId,
+											)!;
+											return (
+												<TableRow
+													key={summary.providerId}
+													className={cn(
+														selectedProviderId === summary.providerId &&
+															"bg-muted/60",
+													)}
+												>
+													<TableCell>
+														<div className="flex items-center gap-2">
+															<span
+																className="h-2.5 w-2.5 shrink-0 rounded-full"
+																style={{
+																	backgroundColor:
+																		chartConfig[summary.providerId]?.color,
+																}}
+															/>
+															<span className="font-medium">
+																{mapping.providerName}
+															</span>
+															<span className="font-mono text-xs text-muted-foreground">
+																{mapping.providerId}
+															</span>
+														</div>
+													</TableCell>
+													<TableCell>
+														{mapping.routable ? (
+															<Badge variant="outline" className="text-xs">
+																{mapping.stability}
+															</Badge>
+														) : (
+															<div className="flex flex-wrap gap-1">
+																{mapping.excludedReasons.map((reason) => (
+																	<Badge
+																		key={reason}
+																		variant="destructive"
+																		className="text-xs"
+																	>
+																		{reason}
+																	</Badge>
+																))}
+															</div>
+														)}
+													</TableCell>
+													<TableCell className="text-right font-mono text-xs">
+														{formatSelectionPrice(
+															mapping.price,
+															data.model.isImageModel,
+														)}
+														{mapping.discount > 0 ? (
+															<div className="text-[11px] text-muted-foreground">
+																<span className="line-through">
+																	{formatSelectionPrice(
+																		mapping.listPrice,
+																		data.model.isImageModel,
+																	)}
+																</span>{" "}
+																−{(mapping.discount * 100).toFixed(0)}%
+															</div>
+														) : null}
+													</TableCell>
+													<TableCell className="text-right font-mono text-xs">
+														{mapping.priority}
+													</TableCell>
+													<TableCell className="text-center">
+														{mapping.cacheSupported ? "✓" : "—"}
+													</TableCell>
+													<TableCell className="text-right font-mono text-xs">
+														{summary.uptime !== null
+															? `${summary.uptime.toFixed(1)}%`
+															: "—"}
+													</TableCell>
+													<TableCell className="text-right font-mono text-xs">
+														{summary.latency !== null
+															? `${Math.round(summary.latency)} ms`
+															: "—"}
+													</TableCell>
+													<TableCell className="text-right font-mono text-xs">
+														{summary.throughput !== null
+															? `${summary.throughput.toFixed(1)} tok/s`
+															: "—"}
+													</TableCell>
+													<TableCell className="text-right font-mono text-xs">
+														{numberFormatter.format(summary.requestCount)}
+													</TableCell>
+													<TableCell className="text-right font-mono text-xs">
+														{totalRequests > 0
+															? `${((summary.requestCount / totalRequests) * 100).toFixed(1)}%`
+															: "—"}
+													</TableCell>
+													<TableCell className="text-right font-mono text-xs font-semibold">
+														{summary.score !== null
+															? summary.score.toFixed(3)
+															: "—"}
+													</TableCell>
+												</TableRow>
+											);
+										})}
+									</TableBody>
+								</Table>
+							</div>
+							<p className="border-t p-4 text-xs text-muted-foreground sm:px-6">
+								Score = weighted factor scores + priority penalty + exponential
+								uptime penalty (below {data.config.thresholds.uptimePenalty}%
+								uptime). Lowest score wins. Missing metrics fall back to{" "}
 								{data.config.thresholds.defaultUptime}% uptime,{" "}
 								{data.config.thresholds.defaultLatency} ms latency and{" "}
 								{data.config.thresholds.defaultThroughput} tok/s.{" "}
 								{Math.round(data.config.thresholds.explorationRate * 100)}% of
 								requests are routed randomly for exploration.
-							</CardDescription>
-						</CardHeader>
-						<CardContent className="flex flex-wrap gap-2">
-							{(
-								[
-									["Price", data.config.effectiveWeights.price],
-									["Uptime", data.config.effectiveWeights.uptime],
-									["Throughput", data.config.effectiveWeights.throughput],
-									["Latency", data.config.effectiveWeights.latency],
-									["Cache", data.config.effectiveWeights.cache],
-								] as const
-							).map(([label, weight]) => (
-								<Badge key={label} variant="secondary" className="text-xs">
-									{label}:{" "}
-									{(
-										(weight / data.config.effectiveWeights.total) *
-										100
-									).toFixed(1)}
-									%
-								</Badge>
-							))}
+							</p>
 						</CardContent>
 					</Card>
 
 					<Card>
-						<CardHeader>
-							<CardTitle>
-								Mappings for <span className="font-mono">{data.model.id}</span>
-							</CardTitle>
-							<CardDescription>
-								Window averages with every factor the router considers. Sorted
-								by score (lowest routes first). Prices include platform-wide
-								discounts; an organization-specific discount can lower its own
-								price further and shift that organization&apos;s election.
-							</CardDescription>
-						</CardHeader>
-						<CardContent className="overflow-x-auto">
-							<Table>
-								<TableHeader>
-									<TableRow>
-										<TableHead>Provider</TableHead>
-										<TableHead>Status</TableHead>
-										<TableHead className="text-right">Price</TableHead>
-										<TableHead className="text-right">Priority</TableHead>
-										<TableHead className="text-center">Cache</TableHead>
-										<TableHead className="text-right">Uptime</TableHead>
-										<TableHead className="text-right">TTFT</TableHead>
-										<TableHead className="text-right">Throughput</TableHead>
-										<TableHead className="text-right">Requests</TableHead>
-										<TableHead className="text-right">Share</TableHead>
-										<TableHead className="text-right">Score</TableHead>
-									</TableRow>
-								</TableHeader>
-								<TableBody>
-									{sortedSummary.map((summary) => {
-										const mapping = data.mappings.find(
-											(m) => m.providerId === summary.providerId,
-										)!;
-										return (
-											<TableRow key={summary.providerId}>
-												<TableCell>
-													<div className="flex items-center gap-2">
-														<span
-															className="h-2.5 w-2.5 shrink-0 rounded-full"
-															style={{
-																backgroundColor:
-																	chartConfig[summary.providerId]?.color,
-															}}
-														/>
-														<span className="font-medium">
-															{mapping.providerName}
-														</span>
-														<span className="font-mono text-xs text-muted-foreground">
-															{mapping.providerId}
-														</span>
-													</div>
-												</TableCell>
-												<TableCell>
-													{mapping.routable ? (
-														<Badge variant="outline" className="text-xs">
-															{mapping.stability}
-														</Badge>
-													) : (
-														<div className="flex flex-wrap gap-1">
-															{mapping.excludedReasons.map((reason) => (
-																<Badge
-																	key={reason}
-																	variant="destructive"
-																	className="text-xs"
-																>
-																	{reason}
-																</Badge>
-															))}
-														</div>
-													)}
-												</TableCell>
-												<TableCell className="text-right font-mono text-xs">
-													{formatSelectionPrice(
-														mapping.price,
-														data.model.isImageModel,
-													)}
-													{mapping.discount > 0 ? (
-														<div className="text-[11px] text-muted-foreground">
-															<span className="line-through">
-																{formatSelectionPrice(
-																	mapping.listPrice,
-																	data.model.isImageModel,
-																)}
-															</span>{" "}
-															−{(mapping.discount * 100).toFixed(0)}%
-														</div>
-													) : null}
-												</TableCell>
-												<TableCell className="text-right font-mono text-xs">
-													{mapping.priority}
-												</TableCell>
-												<TableCell className="text-center">
-													{mapping.cacheSupported ? "✓" : "—"}
-												</TableCell>
-												<TableCell className="text-right font-mono text-xs">
-													{summary.uptime !== null
-														? `${summary.uptime.toFixed(1)}%`
-														: "—"}
-												</TableCell>
-												<TableCell className="text-right font-mono text-xs">
-													{summary.latency !== null
-														? `${Math.round(summary.latency)} ms`
-														: "—"}
-												</TableCell>
-												<TableCell className="text-right font-mono text-xs">
-													{summary.throughput !== null
-														? `${summary.throughput.toFixed(1)} tok/s`
-														: "—"}
-												</TableCell>
-												<TableCell className="text-right font-mono text-xs">
-													{summary.requestCount.toLocaleString()}
-												</TableCell>
-												<TableCell className="text-right font-mono text-xs">
-													{totalRequests > 0
-														? `${((summary.requestCount / totalRequests) * 100).toFixed(1)}%`
-														: "—"}
-												</TableCell>
-												<TableCell className="text-right font-mono text-xs font-semibold">
-													{summary.score !== null
-														? summary.score.toFixed(3)
-														: "—"}
-												</TableCell>
-											</TableRow>
-										);
-									})}
-								</TableBody>
-							</Table>
-						</CardContent>
-					</Card>
-
-					<Card>
-						<CardHeader>
-							<div className="flex flex-wrap items-start justify-between gap-3">
-								<div>
-									<CardTitle>{metricOption.label} over time</CardTitle>
-									<CardDescription>{metricOption.description}</CardDescription>
-								</div>
-								<div className="flex items-center rounded-md border p-0.5">
-									{METRIC_OPTIONS.map((option) => (
-										<Button
-											key={option.value}
-											variant={metric === option.value ? "secondary" : "ghost"}
-											size="sm"
-											className="h-8 text-xs"
-											onClick={() => updateParam("metric", option.value)}
-										>
-											{option.label}
-										</Button>
-									))}
-								</div>
+						<CardHeader className="flex flex-col items-stretch space-y-2 border-b p-4 sm:flex-row sm:items-center sm:justify-between sm:space-y-0 sm:p-6">
+							<div>
+								<CardTitle>{metricOption.label} over time</CardTitle>
+								<CardDescription className="max-w-3xl">
+									{metricOption.description}
+								</CardDescription>
+							</div>
+							<div className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-1">
+								{METRIC_OPTIONS.map((option) => (
+									<Button
+										key={option.value}
+										variant={metric === option.value ? "default" : "ghost"}
+										size="sm"
+										className="h-7 px-3 text-xs"
+										onClick={() => updateParams({ metric: option.value })}
+									>
+										{option.label}
+									</Button>
+								))}
 							</div>
 						</CardHeader>
-						<CardContent>
+						<CardContent className="px-2 pb-4 sm:p-6">
 							<ChartContainer
 								config={chartConfig}
 								className="aspect-auto h-[320px] w-full"
@@ -621,7 +643,7 @@ export function RoutingAnalyticsClient() {
 									data={metricChartData}
 									margin={{ left: 12, right: 12 }}
 								>
-									<CartesianGrid vertical={false} />
+									<CartesianGrid vertical={false} strokeDasharray="3 3" />
 									<XAxis
 										dataKey="hour"
 										tickLine={false}
@@ -642,40 +664,45 @@ export function RoutingAnalyticsClient() {
 									<ChartTooltip
 										content={
 											<ChartTooltipContent
+												className="w-[220px]"
 												labelFormatter={formatTooltipHour}
 												formatter={(value, name, item) => (
-													<>
+													<div className="flex w-full items-center gap-2">
 														<span
-															className="size-2 shrink-0 rounded-[2px]"
+															className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
 															style={{ backgroundColor: item.color }}
 														/>
-														<span className="text-muted-foreground">
+														<span className="flex-1 text-muted-foreground">
 															{chartConfig[name as string]?.label ?? name}
 														</span>
-														<span className="ml-auto font-mono font-medium tabular-nums text-foreground">
+														<span className="font-mono font-medium tabular-nums text-foreground">
 															{formatMetricValue(metric, Number(value))}
 														</span>
-													</>
+													</div>
 												)}
 											/>
 										}
 									/>
 									<ChartLegend content={<ChartLegendContent />} />
-									{chartedProviders.map((mapping) => (
-										<Line
-											key={mapping.providerId}
-											dataKey={mapping.providerId}
-											type="monotone"
-											stroke={`var(--color-${mapping.providerId})`}
-											strokeWidth={2}
-											dot={false}
-											connectNulls={false}
-										/>
-									))}
+									{chartedProviders.map((mapping) => {
+										const emphasis = seriesEmphasis(mapping.providerId);
+										return (
+											<Line
+												key={mapping.providerId}
+												dataKey={mapping.providerId}
+												type="monotone"
+												stroke={`var(--color-${mapping.providerId})`}
+												strokeWidth={emphasis.strokeWidth}
+												strokeOpacity={emphasis.opacity}
+												dot={false}
+												connectNulls={false}
+											/>
+										);
+									})}
 								</LineChart>
 							</ChartContainer>
 							{metric === "score" ? (
-								<p className="mt-2 text-xs text-muted-foreground">
+								<p className="mt-2 px-2 text-xs text-muted-foreground sm:px-0">
 									Lower is better — the mapping with the lowest score wins the
 									election. Hours without traffic are scored with the default
 									metric fallbacks.
@@ -685,15 +712,15 @@ export function RoutingAnalyticsClient() {
 					</Card>
 
 					<Card>
-						<CardHeader>
+						<CardHeader className="border-b p-4 sm:p-6">
 							<CardTitle>Requests per hour</CardTitle>
-							<CardDescription>
+							<CardDescription className="max-w-3xl">
 								Where traffic actually went — the outcome of the elections above
 								(including pinned providers, sticky sessions, fallbacks and
 								exploration).
 							</CardDescription>
 						</CardHeader>
-						<CardContent>
+						<CardContent className="px-2 pb-4 sm:p-6">
 							<ChartContainer
 								config={chartConfig}
 								className="aspect-auto h-[260px] w-full"
@@ -702,7 +729,7 @@ export function RoutingAnalyticsClient() {
 									data={trafficChartData}
 									margin={{ left: 12, right: 12 }}
 								>
-									<CartesianGrid vertical={false} />
+									<CartesianGrid vertical={false} strokeDasharray="3 3" />
 									<XAxis
 										dataKey="hour"
 										tickLine={false}
@@ -714,7 +741,11 @@ export function RoutingAnalyticsClient() {
 									<YAxis tickLine={false} axisLine={false} width={50} />
 									<ChartTooltip
 										content={
-											<ChartTooltipContent labelFormatter={formatTooltipHour} />
+											<ChartTooltipContent
+												className="w-[220px]"
+												sortByValue
+												labelFormatter={formatTooltipHour}
+											/>
 										}
 									/>
 									<ChartLegend content={<ChartLegendContent />} />
@@ -724,6 +755,7 @@ export function RoutingAnalyticsClient() {
 											dataKey={mapping.providerId}
 											stackId="requests"
 											fill={`var(--color-${mapping.providerId})`}
+											fillOpacity={seriesEmphasis(mapping.providerId).opacity}
 										/>
 									))}
 								</BarChart>
@@ -732,86 +764,98 @@ export function RoutingAnalyticsClient() {
 					</Card>
 
 					<Card>
-						<CardHeader>
+						<CardHeader className="border-b p-4 sm:p-6">
 							<CardTitle>Score composition (window average)</CardTitle>
-							<CardDescription>
+							<CardDescription className="max-w-3xl">
 								How each factor contributes to the final score. Factor
 								contributions are the weighted ratio against the best mapping (0
 								= best); penalties are added on top.
 							</CardDescription>
 						</CardHeader>
-						<CardContent className="overflow-x-auto">
-							<Table>
-								<TableHeader>
-									<TableRow>
-										<TableHead>Provider</TableHead>
-										<TableHead className="text-right">Price</TableHead>
-										<TableHead className="text-right">Uptime</TableHead>
-										<TableHead className="text-right">Throughput</TableHead>
-										<TableHead className="text-right">Latency</TableHead>
-										<TableHead className="text-right">Cache</TableHead>
-										<TableHead className="text-right">
-											Priority penalty
-										</TableHead>
-										<TableHead className="text-right">Uptime penalty</TableHead>
-										<TableHead className="text-right">= Score</TableHead>
-									</TableRow>
-								</TableHeader>
-								<TableBody>
-									{sortedSummary
-										.filter((summary) => summary.breakdown !== null)
-										.map((summary) => {
-											const breakdown = summary.breakdown!;
-											const mapping = data.mappings.find(
-												(m) => m.providerId === summary.providerId,
-											)!;
-											return (
-												<TableRow key={summary.providerId}>
-													<TableCell>
-														<div className="flex items-center gap-2">
-															<span
-																className="h-2.5 w-2.5 shrink-0 rounded-full"
-																style={{
-																	backgroundColor:
-																		chartConfig[summary.providerId]?.color,
-																}}
-															/>
-															{mapping.providerName}
-														</div>
-													</TableCell>
-													<TableCell className="text-right font-mono text-xs">
-														{formatContribution(breakdown.priceContribution)}
-													</TableCell>
-													<TableCell className="text-right font-mono text-xs">
-														{formatContribution(breakdown.uptimeContribution)}
-													</TableCell>
-													<TableCell className="text-right font-mono text-xs">
-														{formatContribution(
-															breakdown.throughputContribution,
+						<CardContent className="p-0">
+							<div className="overflow-x-auto">
+								<Table>
+									<TableHeader>
+										<TableRow className="[&>th]:whitespace-nowrap">
+											<TableHead>Provider</TableHead>
+											<TableHead className="text-right">Price</TableHead>
+											<TableHead className="text-right">Uptime</TableHead>
+											<TableHead className="text-right">Throughput</TableHead>
+											<TableHead className="text-right">Latency</TableHead>
+											<TableHead className="text-right">Cache</TableHead>
+											<TableHead className="text-right">
+												Priority penalty
+											</TableHead>
+											<TableHead className="text-right">
+												Uptime penalty
+											</TableHead>
+											<TableHead className="text-right">= Score</TableHead>
+										</TableRow>
+									</TableHeader>
+									<TableBody>
+										{sortedSummary
+											.filter((summary) => summary.breakdown !== null)
+											.map((summary) => {
+												const breakdown = summary.breakdown!;
+												const mapping = data.mappings.find(
+													(m) => m.providerId === summary.providerId,
+												)!;
+												return (
+													<TableRow
+														key={summary.providerId}
+														className={cn(
+															selectedProviderId === summary.providerId &&
+																"bg-muted/60",
 														)}
-													</TableCell>
-													<TableCell className="text-right font-mono text-xs">
-														{formatContribution(breakdown.latencyContribution)}
-													</TableCell>
-													<TableCell className="text-right font-mono text-xs">
-														{formatContribution(breakdown.cacheContribution)}
-													</TableCell>
-													<TableCell className="text-right font-mono text-xs">
-														{formatContribution(breakdown.priorityPenalty)}
-													</TableCell>
-													<TableCell className="text-right font-mono text-xs">
-														{formatContribution(breakdown.uptimePenalty)}
-													</TableCell>
-													<TableCell className="text-right font-mono text-xs font-semibold">
-														{summary.score !== null
-															? summary.score.toFixed(3)
-															: "—"}
-													</TableCell>
-												</TableRow>
-											);
-										})}
-								</TableBody>
-							</Table>
+													>
+														<TableCell>
+															<div className="flex items-center gap-2">
+																<span
+																	className="h-2.5 w-2.5 shrink-0 rounded-full"
+																	style={{
+																		backgroundColor:
+																			chartConfig[summary.providerId]?.color,
+																	}}
+																/>
+																{mapping.providerName}
+															</div>
+														</TableCell>
+														<TableCell className="text-right font-mono text-xs">
+															{formatContribution(breakdown.priceContribution)}
+														</TableCell>
+														<TableCell className="text-right font-mono text-xs">
+															{formatContribution(breakdown.uptimeContribution)}
+														</TableCell>
+														<TableCell className="text-right font-mono text-xs">
+															{formatContribution(
+																breakdown.throughputContribution,
+															)}
+														</TableCell>
+														<TableCell className="text-right font-mono text-xs">
+															{formatContribution(
+																breakdown.latencyContribution,
+															)}
+														</TableCell>
+														<TableCell className="text-right font-mono text-xs">
+															{formatContribution(breakdown.cacheContribution)}
+														</TableCell>
+														<TableCell className="text-right font-mono text-xs">
+															{formatContribution(breakdown.priorityPenalty)}
+														</TableCell>
+														<TableCell className="text-right font-mono text-xs">
+															{formatContribution(breakdown.uptimePenalty)}
+														</TableCell>
+														<TableCell className="text-right font-mono text-xs font-semibold">
+															{summary.score !== null
+																? summary.score.toFixed(3)
+																: "—"}
+														</TableCell>
+													</TableRow>
+												);
+											})}
+									</TableBody>
+								</Table>
+							</div>
 						</CardContent>
 					</Card>
 				</>
