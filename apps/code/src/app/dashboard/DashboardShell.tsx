@@ -6,6 +6,7 @@ import {
 	Code,
 	CreditCard,
 	ExternalLink,
+	LayoutDashboard,
 	Loader2,
 	LogOut,
 	Settings,
@@ -60,7 +61,12 @@ const InactivePlanChooser = dynamic(
 
 const navItems: Array<{ label: string; href: Route; icon: typeof BarChart3 }> =
 	[
-		{ label: "Usage", href: "/dashboard" as Route, icon: BarChart3 },
+		{
+			label: "Overview",
+			href: "/dashboard" as Route,
+			icon: LayoutDashboard,
+		},
+		{ label: "Usage", href: "/dashboard/usage" as Route, icon: BarChart3 },
 		{ label: "Billing", href: "/dashboard/billing" as Route, icon: CreditCard },
 		{ label: "Profile", href: "/dashboard/profile" as Route, icon: UserRound },
 		{ label: "Settings", href: "/dashboard/settings" as Route, icon: Settings },
