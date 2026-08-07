@@ -346,6 +346,15 @@ export function GlobalStatsClient() {
 
 	const composition = data?.composition;
 
+	// Each composition slice deliberately ignores its own filter server-side, so
+	// it still sums to the un-narrowed total. That makes it wrong to show under a
+	// headline the same filter narrowed: "DevPass cost $257" over a list naming
+	// every kind reads as if those were the parts of $257. Only offer the split
+	// while the corresponding dimension is unfiltered.
+	const modeComposition =
+		usageMode === "total" ? composition?.byMode : undefined;
+	const kindComposition = orgKind === "all" ? composition?.byKind : undefined;
+
 	// Rows aggregated before mode/kind attribution existed. A filter silently
 	// excludes them, so say so rather than letting the totals quietly shrink.
 	const unattributedNote = useMemo(() => {
@@ -563,7 +572,7 @@ export function GlobalStatsClient() {
 					subtitle={
 						isLoading
 							? "Loading…"
-							: (compositionSubtitle(composition?.byMode, (item) =>
+							: (compositionSubtitle(modeComposition, (item) =>
 									numberFormatter.format(item.requestCount),
 								) ?? undefined)
 					}
@@ -576,7 +585,7 @@ export function GlobalStatsClient() {
 					subtitle={
 						!totals
 							? undefined
-							: (compositionSubtitle(composition?.byKind, (item) =>
+							: (compositionSubtitle(kindComposition, (item) =>
 									currencyFormatter.format(item.cost),
 								) ??
 								`Input: ${currencyFormatter.format(totals.inputCost)} · Output: ${currencyFormatter.format(totals.outputCost)}`)
