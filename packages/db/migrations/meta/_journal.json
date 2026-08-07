@@ -1555,6 +1555,13 @@
       "when": 1786115489851,
       "tag": "1786115489_motionless_fallen_one",
       "breakpoints": true
+    },
+    {
+      "idx": 222,
+      "version": "8",
+      "when": 1786132216713,
+      "tag": "1786132216_violet_klaw",
+      "breakpoints": true
     }
   ]
 }
