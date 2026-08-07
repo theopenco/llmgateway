@@ -37,6 +37,8 @@ export const ROUTING_EXCLUSION_REASON_MESSAGES = {
 	context_size: "context_size too small",
 	// Request-shape constraints that are not per-mapping capabilities.
 	service_tier: "service tier not supported by this mapping",
+	service_tier_key: "no service-tier-eligible credential for this provider",
+	coding_plan_cache: "no cached input pricing (coding plan)",
 	// Credential / configuration reachability.
 	no_provider_key: "no provider key or managed credential available",
 	locked_region: "provider key is locked to a different region",
@@ -84,6 +86,8 @@ export const ROUTING_EXCLUSION_REASON_LABELS: Record<
 	max_tokens: "max_tokens",
 	context_size: "Context size",
 	service_tier: "Service tier",
+	service_tier_key: "Service-tier key",
+	coding_plan_cache: "Coding plan caching",
 	no_provider_key: "No key",
 	locked_region: "Locked region",
 	deprecated: "Deprecated",
@@ -126,6 +130,7 @@ export const ROUTING_SELECTION_REASONS = [
 	"rate-limit-fallback",
 	"direct-provider-specified",
 	"single-provider-available",
+	"single-candidate-after-filtering",
 	"fallback-first-available",
 	"unknown",
 ] as const;
@@ -155,6 +160,7 @@ export type RoutingSelectionKind =
 	| "scored"
 	| "pinned"
 	| "single-candidate"
+	| "narrowed"
 	| "sticky"
 	| "fallback"
 	| "exploration"
@@ -174,6 +180,11 @@ const SELECTION_KIND_BY_REASON: Record<
 	"rate-limit-fallback": "fallback",
 	"direct-provider-specified": "pinned",
 	"single-provider-available": "single-candidate",
+	// The catalogue offers more than one provider but request-scoped filters left
+	// exactly one, so no election happened. Grouped as "narrowed" rather than
+	// "single-candidate": the distinction is the whole point of the exclusion
+	// tables, since this is the shape a filtered-out mapping produces.
+	"single-candidate-after-filtering": "narrowed",
 	"fallback-first-available": "single-candidate",
 	unknown: "unknown",
 };
@@ -182,6 +193,7 @@ export const ROUTING_SELECTION_KINDS = [
 	"scored",
 	"pinned",
 	"single-candidate",
+	"narrowed",
 	"sticky",
 	"fallback",
 	"exploration",
@@ -208,6 +220,7 @@ export const ROUTING_SELECTION_REASON_LABELS: Record<
 	"rate-limit-fallback": "Rate-limit fallback",
 	"direct-provider-specified": "Provider pinned",
 	"single-provider-available": "Single candidate",
+	"single-candidate-after-filtering": "Narrowed to one",
 	"fallback-first-available": "First available",
 	unknown: "Unknown",
 };
@@ -219,6 +232,7 @@ export const ROUTING_SELECTION_KIND_LABELS: Record<
 	scored: "Scored election",
 	pinned: "Provider pinned",
 	"single-candidate": "Single candidate",
+	narrowed: "Narrowed to one",
 	sticky: "Sticky / hysteresis",
 	fallback: "Fallback",
 	exploration: "Exploration",

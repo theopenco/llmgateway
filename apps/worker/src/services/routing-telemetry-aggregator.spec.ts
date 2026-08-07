@@ -138,14 +138,26 @@ describe("routing telemetry aggregator", () => {
 
 	it("separates an implicitly applied tier from an explicitly requested one", async () => {
 		await db.insert(log).values([
-			// Dev-plan default: routing applied flex, the client never asked.
+			// Coding-plan default: the gateway asked for flex, the client never did.
+			// Only serviceTierSource separates this from an explicit request.
 			withMetadata(
-				{ selectionReason: "single-provider-available" },
-				{ appliedServiceTier: "flex" },
+				{
+					selectionReason: "single-provider-available",
+					serviceTierSource: "coding-plan-default",
+				},
+				{ requestedServiceTier: "flex" },
 			),
 			withMetadata(
+				{
+					selectionReason: "single-provider-available",
+					serviceTierSource: "request",
+				},
+				{ requestedServiceTier: "priority" },
+			),
+			// Pre-serviceTierSource row: a tier with no source counts as explicit.
+			withMetadata(
 				{ selectionReason: "single-provider-available" },
-				{ requestedServiceTier: "priority", appliedServiceTier: "priority" },
+				{ requestedServiceTier: "flex" },
 			),
 			withMetadata({ selectionReason: "single-provider-available" }),
 		]);
@@ -153,7 +165,7 @@ describe("routing telemetry aggregator", () => {
 		await calculateRoutingTelemetryForHour(HOUR);
 
 		expect(await elections()).toEqual([
-			expect.objectContaining({ requestCount: 3, explicit: 1, implicit: 1 }),
+			expect.objectContaining({ requestCount: 4, explicit: 2, implicit: 1 }),
 		]);
 	});
 

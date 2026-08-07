@@ -140,6 +140,10 @@ export interface RoutingMetadata {
 		// per hour into routing_exclusion_hourly.
 		codes?: RoutingExclusionReason[];
 	}>;
+	// Where the requested service tier came from: the request body, or a dev-plan
+	// (DevPass) org's configured default tier. Only set when a premium tier was in
+	// play — a defaulted tier narrows routing without appearing in the request.
+	serviceTierSource?: "request" | "coding-plan-default";
 	// Parameters that were stripped from the request because the selected provider doesn't support them
 	strippedParameters?: string[];
 }

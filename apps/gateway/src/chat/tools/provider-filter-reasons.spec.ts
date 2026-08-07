@@ -6,13 +6,14 @@ import {
 } from "@llmgateway/shared";
 
 import {
+	exclusionReason,
 	getProviderFilterReasons,
+	mergeFilteredProvider,
 	recordFilteredProvider,
 	type FilteredProvider,
 } from "./provider-filter-reasons.js";
 
 import type { ProviderModelMapping } from "@llmgateway/models";
-import type { RoutingExclusionReason } from "@llmgateway/shared";
 
 function mapping(overrides: Partial<ProviderModelMapping> = {}) {
 	return {
@@ -63,13 +64,13 @@ describe("getProviderFilterReasons", () => {
 			getProviderFilterReasons(mapping({ reasoning: true }), {
 				noReasoning: true,
 			}),
-		).toEqual(["no_reasoning_variant"]);
+		).toEqual([exclusionReason("no_reasoning_variant")]);
 		expect(
 			getProviderFilterReasons(mapping(), { reasoningEffort: "high" }),
-		).toEqual(["reasoning_effort"]);
+		).toEqual([exclusionReason("reasoning_effort")]);
 		expect(
 			getProviderFilterReasons(mapping(), { reasoningMaxTokens: 512 }),
-		).toEqual(["reasoning_max_tokens"]);
+		).toEqual([exclusionReason("reasoning_max_tokens")]);
 	});
 
 	it('treats reasoning_effort "none" as not requiring reasoning support', () => {
@@ -80,29 +81,29 @@ describe("getProviderFilterReasons", () => {
 
 	it("flags unsupported tools and web search", () => {
 		expect(getProviderFilterReasons(mapping(), { hasTools: true })).toEqual([
-			"tools",
+			exclusionReason("tools"),
 		]);
 		expect(
 			getProviderFilterReasons(mapping({ tools: true }), {
 				hasTools: true,
 				webSearchTool: true,
 			}),
-		).toEqual(["web_search"]);
+		).toEqual([exclusionReason("web_search")]);
 	});
 
 	it("flags n > 1 constraints", () => {
 		expect(getProviderFilterReasons(mapping(), { n: 2 })).toEqual([
-			"n_unsupported",
+			exclusionReason("n_unsupported"),
 		]);
 		expect(
 			getProviderFilterReasons(mapping({ supportsN: true, maxN: 2 }), { n: 4 }),
-		).toEqual(["n_limit"]);
+		).toEqual([exclusionReason("n_limit")]);
 		expect(
 			getProviderFilterReasons(
 				mapping({ supportsN: true, supportsNStreaming: false }),
 				{ n: 2, stream: true },
 			),
-		).toEqual(["n_streaming"]);
+		).toEqual([exclusionReason("n_streaming")]);
 		expect(getProviderFilterReasons(mapping(), { n: 1 })).toEqual([]);
 	});
 
@@ -111,23 +112,23 @@ describe("getProviderFilterReasons", () => {
 			getProviderFilterReasons(mapping(), {
 				responseFormatType: "json_object",
 			}),
-		).toEqual(["json_output"]);
+		).toEqual([exclusionReason("json_output")]);
 		expect(
 			getProviderFilterReasons(mapping({ jsonOutput: true }), {
 				responseFormatType: "json_schema",
 			}),
-		).toEqual(["json_schema"]);
+		).toEqual([exclusionReason("json_schema")]);
 	});
 
 	it("flags unsupported modalities", () => {
 		expect(getProviderFilterReasons(mapping(), { hasImages: true })).toEqual([
-			"vision",
+			exclusionReason("vision"),
 		]);
 		expect(getProviderFilterReasons(mapping(), { hasAudio: true })).toEqual([
-			"audio",
+			exclusionReason("audio"),
 		]);
 		expect(getProviderFilterReasons(mapping(), { hasDocuments: true })).toEqual(
-			["documents"],
+			[exclusionReason("documents")],
 		);
 	});
 
@@ -136,7 +137,7 @@ describe("getProviderFilterReasons", () => {
 			getProviderFilterReasons(mapping({ supportsAssistantPrefill: false }), {
 				hasAssistantPrefill: true,
 			}),
-		).toEqual(["assistant_prefill"]);
+		).toEqual([exclusionReason("assistant_prefill")]);
 		expect(
 			getProviderFilterReasons(mapping(), { hasAssistantPrefill: true }),
 		).toEqual([]);
@@ -153,7 +154,7 @@ describe("getProviderFilterReasons", () => {
 			getProviderFilterReasons(mapping({ maxOutput: 4096 }), {
 				maxTokens: 8192,
 			}),
-		).toEqual(["max_tokens"]);
+		).toEqual([exclusionReason("max_tokens")]);
 		expect(
 			getProviderFilterReasons(mapping({ maxOutput: 4096 }), {
 				maxTokens: 1024,
@@ -171,15 +172,19 @@ describe("getProviderFilterReasons", () => {
 				hasImages: true,
 				responseFormatType: "json_object",
 			}),
-		).toEqual(["tools", "json_output", "vision"]);
+		).toEqual([
+			exclusionReason("tools"),
+			exclusionReason("json_output"),
+			exclusionReason("vision"),
+		]);
 	});
 });
 
 describe("recordFilteredProvider", () => {
 	it("adds a new entry per provider id with codes and messages", () => {
 		const list: FilteredProvider[] = [];
-		recordFilteredProvider(list, "openai", ["tools"]);
-		recordFilteredProvider(list, "anthropic", ["vision"]);
+		recordFilteredProvider(list, "openai", [exclusionReason("tools")]);
+		recordFilteredProvider(list, "anthropic", [exclusionReason("vision")]);
 		expect(list).toEqual([
 			{
 				providerId: "openai",
@@ -196,8 +201,11 @@ describe("recordFilteredProvider", () => {
 
 	it("merges reasons for repeated provider ids without duplicates", () => {
 		const list: FilteredProvider[] = [];
-		recordFilteredProvider(list, "openai", ["tools"]);
-		recordFilteredProvider(list, "openai", ["tools", "vision"]);
+		recordFilteredProvider(list, "openai", [exclusionReason("tools")]);
+		recordFilteredProvider(list, "openai", [
+			exclusionReason("tools"),
+			exclusionReason("vision"),
+		]);
 		expect(list).toEqual([
 			{
 				providerId: "openai",
@@ -207,18 +215,79 @@ describe("recordFilteredProvider", () => {
 		]);
 	});
 
-	it("copies the codes array instead of aliasing it", () => {
-		const codes: RoutingExclusionReason[] = ["tools"];
+	it("keeps a caller's custom message while still recording the code", () => {
 		const list: FilteredProvider[] = [];
-		recordFilteredProvider(list, "openai", codes);
-		codes.push("vision");
-		expect(list[0].codes).toEqual(["tools"]);
-		expect(list[0].reasons).toEqual(["tools not supported"]);
+		recordFilteredProvider(list, "azure", [
+			exclusionReason("service_tier", "service tier 'flex' not supported"),
+		]);
+		expect(list).toEqual([
+			{
+				providerId: "azure",
+				reasons: ["service tier 'flex' not supported"],
+				codes: ["service_tier"],
+			},
+		]);
+	});
+
+	it("dedupes a code recorded twice under different prose", () => {
+		// Two call sites can describe the same drop differently (the service-tier
+		// filter varies its wording by source). Both messages are worth showing,
+		// but the aggregation key must appear once.
+		const list: FilteredProvider[] = [];
+		recordFilteredProvider(list, "azure", [
+			exclusionReason("service_tier", "service tier 'flex' not supported"),
+		]);
+		recordFilteredProvider(list, "azure", [
+			exclusionReason(
+				"service_tier",
+				"service tier 'flex' (coding plan default) not supported",
+			),
+		]);
+		expect(list[0].codes).toEqual(["service_tier"]);
+		expect(list[0].reasons).toHaveLength(2);
 	});
 
 	it("keeps every exclusion code mapped to a message", () => {
 		for (const code of ROUTING_EXCLUSION_REASONS) {
 			expect(routingExclusionReasonMessage(code)).toBeTruthy();
 		}
+	});
+});
+
+describe("mergeFilteredProvider", () => {
+	it("carries both prose and codes across lists", () => {
+		const source: FilteredProvider[] = [];
+		recordFilteredProvider(source, "azure", [exclusionReason("service_tier")]);
+		const target: FilteredProvider[] = [];
+		recordFilteredProvider(target, "azure", [exclusionReason("vision")]);
+
+		mergeFilteredProvider(target, source[0]);
+
+		expect(target).toEqual([
+			{
+				providerId: "azure",
+				reasons: [
+					"vision not supported",
+					"service tier not supported by this mapping",
+				],
+				codes: ["vision", "service_tier"],
+			},
+		]);
+	});
+
+	it("adds a provider the target list has never seen", () => {
+		const target: FilteredProvider[] = [];
+		mergeFilteredProvider(target, {
+			providerId: "aws-mantle",
+			reasons: ["max_tokens exceeds provider limit"],
+			codes: ["max_tokens"],
+		});
+		expect(target).toEqual([
+			{
+				providerId: "aws-mantle",
+				reasons: ["max_tokens exceeds provider limit"],
+				codes: ["max_tokens"],
+			},
+		]);
 	});
 });

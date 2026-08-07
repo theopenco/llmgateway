@@ -44,11 +44,16 @@ const selectionReasonSql = sql<string>`coalesce(
 	'unknown'
 )`;
 
-// Only premium tiers are stored, so a non-null column already means "a tier
-// applied". `implicit` is the dev-plan default: routing applied a tier the
-// client never asked for.
-const explicitTierSql = sql<number>`sum(case when ${log.requestedServiceTier} is not null then 1 else 0 end)::int`;
-const implicitTierSql = sql<number>`sum(case when ${log.appliedServiceTier} is not null and ${log.requestedServiceTier} is null then 1 else 0 end)::int`;
+// `requestedServiceTier` holds the tier the gateway actually requested upstream,
+// which for a coding-plan org may be a default the client never sent.
+// `routingMetadata.serviceTierSource` is the only thing that separates the two,
+// so the implicit count reads it; a row without the field predates it and counts
+// as an explicit request.
+const serviceTierSourceSql = sql<
+	string | null
+>`(${routingMetadataJsonb} ->> 'serviceTierSource')`;
+const explicitTierSql = sql<number>`sum(case when ${log.requestedServiceTier} is not null and coalesce(${serviceTierSourceSql}, 'request') = 'request' then 1 else 0 end)::int`;
+const implicitTierSql = sql<number>`sum(case when ${log.requestedServiceTier} is not null and ${serviceTierSourceSql} = 'coding-plan-default' then 1 else 0 end)::int`;
 
 function hourWindow(targetHour: Date) {
 	const start = new Date(targetHour);

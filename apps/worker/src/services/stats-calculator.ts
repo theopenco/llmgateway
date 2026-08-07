@@ -36,6 +36,12 @@ const usedBaseModelSql = sql<string>`split_part(${usedModelWithRegionSql}, ':', 
 const usedRegionSql = sql<
 	string | null
 >`nullif(split_part(${usedModelWithRegionSql}, ':', 2), '')`;
+// Where the requested tier came from. routingMetadata is a `json` column, so it
+// needs an explicit jsonb cast before `->>`. Absent on rows written before the
+// field existed, which `coalesce` treats as an explicit request.
+const serviceTierSourceSql = sql<
+	string | null
+>`(${log.routingMetadata}::jsonb ->> 'serviceTierSource')`;
 
 function excludeRecoveredSameProviderRegionRetry() {
 	return sql<boolean>`not (
@@ -403,18 +409,20 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 				sql<number>`coalesce(sum(${log.cachedInputCost}), 0)`.as(
 					"totalCachedInputCost",
 				),
-			// Service-tier coverage. `implicit` isolates the dev-plan default the
-			// gateway applies itself, which narrows routing without the client ever
-			// asking for a tier. `unconfirmed` counts premium-tier requests the
-			// response never confirmed — a Google downgrade to standard and a
-			// provider that reports no tier at all look identical here, and both are
-			// billed at the standard rate, so the count is not called a downgrade.
+			// Service-tier coverage. `requestedServiceTier` holds the tier the gateway
+			// actually asked for, which for a coding-plan org may be a default the
+			// client never sent — `routingMetadata.serviceTierSource` is the only
+			// thing that separates the two, so `implicit` reads it. `unconfirmed`
+			// counts premium-tier requests the response never confirmed: a Google
+			// downgrade to standard and a provider that reports no tier at all look
+			// identical here, and both bill at the standard rate, so it is
+			// deliberately not called a downgrade.
 			serviceTierExplicitCount:
-				sql<number>`sum(case when ${log.requestedServiceTier} is not null then 1 else 0 end)::int`.as(
+				sql<number>`sum(case when ${log.requestedServiceTier} is not null and coalesce(${serviceTierSourceSql}, 'request') = 'request' then 1 else 0 end)::int`.as(
 					"serviceTierExplicitCount",
 				),
 			serviceTierImplicitCount:
-				sql<number>`sum(case when ${log.appliedServiceTier} is not null and ${log.requestedServiceTier} is null then 1 else 0 end)::int`.as(
+				sql<number>`sum(case when ${log.requestedServiceTier} is not null and ${serviceTierSourceSql} = 'coding-plan-default' then 1 else 0 end)::int`.as(
 					"serviceTierImplicitCount",
 				),
 			serviceTierServedCount:
@@ -422,7 +430,7 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 					"serviceTierServedCount",
 				),
 			serviceTierUnconfirmedCount:
-				sql<number>`sum(case when ${log.appliedServiceTier} is not null and ${log.usedServiceTier} is null then 1 else 0 end)::int`.as(
+				sql<number>`sum(case when ${log.requestedServiceTier} is not null and ${log.usedServiceTier} is null then 1 else 0 end)::int`.as(
 					"serviceTierUnconfirmedCount",
 				),
 		})
@@ -675,18 +683,20 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 				sql<number>`coalesce(sum(${log.cachedInputCost}), 0)`.as(
 					"totalCachedInputCost",
 				),
-			// Service-tier coverage. `implicit` isolates the dev-plan default the
-			// gateway applies itself, which narrows routing without the client ever
-			// asking for a tier. `unconfirmed` counts premium-tier requests the
-			// response never confirmed — a Google downgrade to standard and a
-			// provider that reports no tier at all look identical here, and both are
-			// billed at the standard rate, so the count is not called a downgrade.
+			// Service-tier coverage. `requestedServiceTier` holds the tier the gateway
+			// actually asked for, which for a coding-plan org may be a default the
+			// client never sent — `routingMetadata.serviceTierSource` is the only
+			// thing that separates the two, so `implicit` reads it. `unconfirmed`
+			// counts premium-tier requests the response never confirmed: a Google
+			// downgrade to standard and a provider that reports no tier at all look
+			// identical here, and both bill at the standard rate, so it is
+			// deliberately not called a downgrade.
 			serviceTierExplicitCount:
-				sql<number>`sum(case when ${log.requestedServiceTier} is not null then 1 else 0 end)::int`.as(
+				sql<number>`sum(case when ${log.requestedServiceTier} is not null and coalesce(${serviceTierSourceSql}, 'request') = 'request' then 1 else 0 end)::int`.as(
 					"serviceTierExplicitCount",
 				),
 			serviceTierImplicitCount:
-				sql<number>`sum(case when ${log.appliedServiceTier} is not null and ${log.requestedServiceTier} is null then 1 else 0 end)::int`.as(
+				sql<number>`sum(case when ${log.requestedServiceTier} is not null and ${serviceTierSourceSql} = 'coding-plan-default' then 1 else 0 end)::int`.as(
 					"serviceTierImplicitCount",
 				),
 			serviceTierServedCount:
@@ -694,7 +704,7 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 					"serviceTierServedCount",
 				),
 			serviceTierUnconfirmedCount:
-				sql<number>`sum(case when ${log.appliedServiceTier} is not null and ${log.usedServiceTier} is null then 1 else 0 end)::int`.as(
+				sql<number>`sum(case when ${log.requestedServiceTier} is not null and ${log.usedServiceTier} is null then 1 else 0 end)::int`.as(
 					"serviceTierUnconfirmedCount",
 				),
 		})

@@ -25,13 +25,41 @@ export interface ProviderFilterOptions {
 
 export interface FilteredProvider {
 	providerId: string;
-	/** Human-readable messages, derived from `codes`. Rendered in the log detail view. */
+	/**
+	 * Human-readable messages shown in the log detail view. Free-form on purpose:
+	 * several callers interpolate request detail into them (which service tier,
+	 * whether it came from a coding-plan default).
+	 */
 	reasons: string[];
 	/**
-	 * Stable codes for the same exclusions. Aggregated per hour into
-	 * `routing_exclusion_hourly`; absent on rows written before codes existed.
+	 * Stable codes for the same exclusions, deduplicated independently of
+	 * `reasons` — the two are sets describing the same drop, not positionally
+	 * paired. Aggregated per hour into `routing_exclusion_hourly`; absent on rows
+	 * written before codes existed.
 	 */
 	codes?: RoutingExclusionReason[];
+}
+
+/**
+ * One exclusion: the stable aggregation key plus the prose users read. Kept
+ * together so a call site cannot record a message without a code, which would
+ * make the exclusion invisible to the hourly rollup.
+ */
+export interface ProviderFilterReason {
+	code: RoutingExclusionReason;
+	message: string;
+}
+
+/**
+ * Build an exclusion reason, defaulting the prose to the code's canonical
+ * message. Pass `message` when the caller has request-specific detail worth
+ * showing (e.g. which tier was requested).
+ */
+export function exclusionReason(
+	code: RoutingExclusionReason,
+	message?: string,
+): ProviderFilterReason {
+	return { code, message: message ?? routingExclusionReasonMessage(code) };
 }
 
 /**
@@ -41,11 +69,11 @@ export interface FilteredProvider {
 export function getProviderFilterReasons(
 	provider: ProviderModelMapping,
 	options: ProviderFilterOptions,
-): RoutingExclusionReason[] {
-	const reasons: RoutingExclusionReason[] = [];
+): ProviderFilterReason[] {
+	const reasons: ProviderFilterReason[] = [];
 
 	if (options.noReasoning && provider.reasoning === true) {
-		reasons.push("no_reasoning_variant");
+		reasons.push(exclusionReason("no_reasoning_variant"));
 	}
 	// "none" means "no reasoning", so it doesn't require a reasoning-capable
 	// provider.
@@ -54,27 +82,27 @@ export function getProviderFilterReasons(
 		options.reasoningEffort !== "none" &&
 		provider.reasoning !== true
 	) {
-		reasons.push("reasoning_effort");
+		reasons.push(exclusionReason("reasoning_effort"));
 	}
 	if (
 		options.reasoningMaxTokens !== undefined &&
 		provider.reasoningMaxTokens !== true
 	) {
-		reasons.push("reasoning_max_tokens");
+		reasons.push(exclusionReason("reasoning_max_tokens"));
 	}
 	if (options.hasTools && provider.tools !== true) {
-		reasons.push("tools");
+		reasons.push(exclusionReason("tools"));
 	}
 	if (options.webSearchTool && provider.webSearch !== true) {
-		reasons.push("web_search");
+		reasons.push(exclusionReason("web_search"));
 	}
 	if (options.n !== undefined && options.n > 1) {
 		if (provider.supportsN !== true) {
-			reasons.push("n_unsupported");
+			reasons.push(exclusionReason("n_unsupported"));
 		} else if (provider.maxN !== undefined && options.n > provider.maxN) {
-			reasons.push("n_limit");
+			reasons.push(exclusionReason("n_limit"));
 		} else if (options.stream && provider.supportsNStreaming === false) {
-			reasons.push("n_streaming");
+			reasons.push(exclusionReason("n_streaming"));
 		}
 	}
 	if (
@@ -82,19 +110,19 @@ export function getProviderFilterReasons(
 			options.responseFormatType === "json_schema") &&
 		provider.jsonOutput !== true
 	) {
-		reasons.push("json_output");
+		reasons.push(exclusionReason("json_output"));
 	}
 	if (
 		options.responseFormatType === "json_schema" &&
 		provider.jsonOutputSchema !== true
 	) {
-		reasons.push("json_schema");
+		reasons.push(exclusionReason("json_schema"));
 	}
 	if (options.hasImages && provider.vision !== true) {
-		reasons.push("vision");
+		reasons.push(exclusionReason("vision"));
 	}
 	if (options.hasAudio && provider.audio !== true) {
-		reasons.push("audio");
+		reasons.push(exclusionReason("audio"));
 	}
 	if (
 		options.hasAudio &&
@@ -104,23 +132,23 @@ export function getProviderFilterReasons(
 			googleProviderSupportsAudioFormat(provider.providerId, fmt),
 		)
 	) {
-		reasons.push("audio_format");
+		reasons.push(exclusionReason("audio_format"));
 	}
 	if (options.hasDocuments && provider.document !== true) {
-		reasons.push("documents");
+		reasons.push(exclusionReason("documents"));
 	}
 	if (
 		options.hasAssistantPrefill &&
 		provider.supportsAssistantPrefill === false
 	) {
-		reasons.push("assistant_prefill");
+		reasons.push(exclusionReason("assistant_prefill"));
 	}
 	if (
 		options.maxTokens !== undefined &&
 		provider.maxOutput !== undefined &&
 		options.maxTokens > provider.maxOutput
 	) {
-		reasons.push("max_tokens");
+		reasons.push(exclusionReason("max_tokens"));
 	}
 
 	return reasons;
@@ -134,25 +162,47 @@ export function getProviderFilterReasons(
 export function recordFilteredProvider(
 	list: FilteredProvider[],
 	providerId: string,
-	codes: RoutingExclusionReason[],
+	reasons: ProviderFilterReason[],
 ): void {
-	const existing = list.find((f) => f.providerId === providerId);
+	let existing = list.find((f) => f.providerId === providerId);
 	if (!existing) {
-		list.push({
-			providerId,
-			reasons: codes.map(routingExclusionReasonMessage),
-			codes: [...codes],
-		});
-		return;
+		existing = { providerId, reasons: [], codes: [] };
+		list.push(existing);
 	}
-	for (const code of codes) {
-		if (!existing.codes) {
-			existing.codes = [];
+	for (const reason of reasons) {
+		if (!existing.reasons.includes(reason.message)) {
+			existing.reasons.push(reason.message);
 		}
-		if (existing.codes.includes(code)) {
-			continue;
+		existing.codes ??= [];
+		if (!existing.codes.includes(reason.code)) {
+			existing.codes.push(reason.code);
 		}
-		existing.codes.push(code);
-		existing.reasons.push(routingExclusionReasonMessage(code));
+	}
+}
+
+/**
+ * Merge an already-recorded entry into another list, preserving both the prose
+ * and the codes. Used where routing folds its pre-routing drops together with
+ * what the routing-time filter recorded.
+ */
+export function mergeFilteredProvider(
+	list: FilteredProvider[],
+	entry: FilteredProvider,
+): void {
+	let existing = list.find((f) => f.providerId === entry.providerId);
+	if (!existing) {
+		existing = { providerId: entry.providerId, reasons: [], codes: [] };
+		list.push(existing);
+	}
+	for (const message of entry.reasons) {
+		if (!existing.reasons.includes(message)) {
+			existing.reasons.push(message);
+		}
+	}
+	existing.codes ??= [];
+	for (const code of entry.codes ?? []) {
+		if (!existing.codes.includes(code)) {
+			existing.codes.push(code);
+		}
 	}
 }

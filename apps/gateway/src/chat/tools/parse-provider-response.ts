@@ -391,7 +391,7 @@ export function parseProviderResponse(
 			toolResults =
 				parts
 					.filter((part: any) => part.functionCall)
-					.map((part: any, index: number) => {
+					.map((part: any) => {
 						const toolCall: any = {
 							// Google doesn't provide an id, so generate one. It MUST be
 							// globally unique: the id is the `thought_signature:<id>` Redis
