@@ -296,7 +296,11 @@ export async function validateProviderKey(
 		logger.debug("Sending provider key validation request", {
 			provider,
 			model: validationModel?.modelId,
-			endpoint,
+			// Google AI Studio and Vertex in api-key mode carry the credential in
+			// the query string (`?key=<token>`, get-provider-endpoint.ts), so the
+			// endpoint is not safe to log verbatim. The warn/error sites below
+			// already redact; this one was the gap.
+			endpoint: redactToken(endpoint, token),
 		});
 
 		const response = await fetch(endpoint, {
