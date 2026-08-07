@@ -264,6 +264,11 @@ export const organization = pgTable(
 			.default("none"),
 		devPlanCreditsUsed: decimal().notNull().default("0"),
 		devPlanCreditsLimit: decimal().notNull().default("0"),
+		// Opt-in pay-as-you-go overflow: when true and the monthly dev-plan
+		// allowance is exhausted, requests keep flowing and bill against the
+		// org's regular `credits` balance instead of being rejected. Off by
+		// default so a plan's allowance stays a hard cap unless the user asks.
+		devPlanPaygEnabled: boolean().notNull().default(false),
 		devPlanPremiumCreditsUsed: decimal().notNull().default("0"),
 		devPlanPremiumWeekStart: timestamp(),
 		// Purchased Reset Passes still unredeemed, tracked per tier bought.
@@ -1645,6 +1650,12 @@ export const providerKey = pgTable(
 		// Cumulative upstream provider cost (log.cost) attributed to this key by
 		// the billing worker. Lifetime counter; never reset automatically.
 		usage: decimal().notNull().default("0"),
+		// Canonical LLM Gateway model ids this credential may serve, for accounts
+		// that only have a subset of the provider's catalogue enabled upstream.
+		// Routing and credential selection skip the key for any model not listed,
+		// instead of picking it and failing upstream. NULL (or empty) means the
+		// key serves every model of its provider.
+		allowedModels: text().array(),
 		// Explicit position among a provider's keys, lowest first. The gateway
 		// treats the first key as primary and only falls back when one is
 		// unhealthy, so this is how an operator promotes a key.
@@ -1932,6 +1943,10 @@ export const log = pgTable(
 				providerId: string;
 				reasons: string[];
 			}>;
+			// Where the requested service tier came from: the request body, or a
+			// dev-plan (DevPass) org's configured default tier. Only set when a
+			// premium tier was in play.
+			serviceTierSource?: "request" | "coding-plan-default";
 			strippedParameters?: string[];
 		}>(),
 		processedAt: timestamp(),

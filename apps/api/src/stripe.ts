@@ -2752,10 +2752,15 @@ async function handlePaymentIntentSucceeded(
 	const transactionId = metadata?.transactionId;
 
 	const bonusLabel = getBonusLabel(bonusType);
+	// DevPass orgs buy credits as PAYG overflow — name the billing event
+	// accordingly so the dashboard history, invoices and admin transaction
+	// lists read unambiguously next to plan payments.
+	const isDevpassTopup = organization.kind === "devpass";
+	const topupNoun = isDevpassTopup ? "DevPass credits top-up" : "Credit top-up";
 	const transactionDescription =
 		bonusAmount > 0
-			? `Credit top-up via Stripe (+$${bonusAmount.toFixed(2)} ${bonusLabel})`
-			: "Credit top-up via Stripe";
+			? `${topupNoun} via Stripe (+$${bonusAmount.toFixed(2)} ${bonusLabel})`
+			: `${topupNoun} via Stripe`;
 
 	if (transactionId) {
 		await db
@@ -2789,8 +2794,8 @@ async function handlePaymentIntentSucceeded(
 				stripePaymentIntentId: paymentIntent.id,
 				description:
 					bonusAmount > 0
-						? `Auto top-up completed via Stripe webhook (+$${bonusAmount.toFixed(2)} ${bonusLabel})`
-						: "Auto top-up completed via Stripe webhook",
+						? `${isDevpassTopup ? "DevPass credits auto top-up" : "Auto top-up completed"} via Stripe webhook (+$${bonusAmount.toFixed(2)} ${bonusLabel})`
+						: `${isDevpassTopup ? "DevPass credits auto top-up" : "Auto top-up completed"} via Stripe webhook`,
 				creditAmount: finalCreditAmount.toString(),
 				amount: totalAmountInDollars.toString(),
 			})

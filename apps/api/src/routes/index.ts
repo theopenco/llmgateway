@@ -5,6 +5,7 @@ import { apiAuth as auth } from "@/auth/config.js";
 import { activity } from "./activity.js";
 import { adminOrgDetails } from "./admin-org-details.js";
 import adminProviderCredentials from "./admin-provider-credentials.js";
+import { adminRoutingAnalytics } from "./admin-routing-analytics.js";
 import admin from "./admin.js";
 import { analytics } from "./analytics.js";
 import { auditLogs } from "./audit-logs.js";
@@ -62,6 +63,7 @@ routes.route("/activity", activity);
 routes.route("/admin", admin);
 routes.route("/admin", adminProviderCredentials);
 routes.route("/admin", adminOrgDetails);
+routes.route("/admin", adminRoutingAnalytics);
 
 routes.route("/analytics", analytics);
 
