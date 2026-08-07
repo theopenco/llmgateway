@@ -1878,8 +1878,13 @@ export const log = pgTable(
 		estimatedCost: boolean().default(false),
 		discount: real(),
 		pricingTier: text(),
-		// The processing tier the client explicitly requested (e.g. "flex" /
-		// "priority"). Null when no premium tier was requested.
+		// The processing tier the gateway requested upstream (e.g. "flex" /
+		// "priority"), which is also the tier that narrows routing to tier-capable
+		// mappings. Null when the request ran on the standard tier. This is NOT
+		// necessarily what the client typed: a dev-plan org's configured default
+		// tier is recorded here too, and only
+		// `routingMetadata.serviceTierSource` distinguishes the two — which is why
+		// the service-tier coverage counters read both.
 		requestedServiceTier: text(),
 		// The processing tier the provider actually served (e.g. "flex" /
 		// "priority"), resolved from the upstream response. Null for the standard
@@ -1942,6 +1947,10 @@ export const log = pgTable(
 			filteredProviders?: Array<{
 				providerId: string;
 				reasons: string[];
+				// Stable RoutingExclusionReason codes for the same exclusions, used as
+				// the aggregation key for routing_exclusion_hourly. Absent on rows
+				// written before codes existed.
+				codes?: string[];
 			}>;
 			// Where the requested service tier came from: the request body, or a
 			// dev-plan (DevPass) org's configured default tier. Only set when a
@@ -3076,6 +3085,23 @@ export const modelProviderMappingHistory = pgTable(
 		totalInputCost: real().notNull().default(0),
 		totalOutputCost: real().notNull().default(0),
 		totalCachedInputCost: real().notNull().default(0),
+		// Service-tier coverage. `explicit` counts requests that asked for a
+		// premium tier themselves; `implicit` counts the dev-plan default the
+		// gateway applies on the org's behalf, which still narrows routing to
+		// tier-capable mappings even though the client never asked for it — the
+		// two must stay separate or that narrowing is invisible. `served` counts
+		// requests the provider confirmed it processed at a premium tier.
+		//
+		// `unconfirmed` counts requests sent at a tier the response never
+		// confirmed. It deliberately does NOT claim a downgrade: a null
+		// usedServiceTier means either Google downgraded to standard, or the
+		// provider reports no tier at all (Fireworks). Both are billed at the
+		// standard rate because billing follows the served tier, which is what
+		// makes the count worth watching either way.
+		serviceTierExplicitCount: integer().notNull().default(0),
+		serviceTierImplicitCount: integer().notNull().default(0),
+		serviceTierServedCount: integer().notNull().default(0),
+		serviceTierUnconfirmedCount: integer().notNull().default(0),
 	},
 	(table) => [
 		// Unique constraint ensures one record per mapping-minute combination
@@ -3168,6 +3194,13 @@ export const modelHistory = pgTable(
 		totalInputCost: real().notNull().default(0),
 		totalOutputCost: real().notNull().default(0),
 		totalCachedInputCost: real().notNull().default(0),
+		// See model_provider_mapping_history: service-tier coverage counters. These
+		// are the model-level totals, i.e. the denominator for "what share of this
+		// model's traffic carries a service tier".
+		serviceTierExplicitCount: integer().notNull().default(0),
+		serviceTierImplicitCount: integer().notNull().default(0),
+		serviceTierServedCount: integer().notNull().default(0),
+		serviceTierUnconfirmedCount: integer().notNull().default(0),
 	},
 	(table) => [
 		// Unique constraint ensures one record per model-minute combination
@@ -3230,6 +3263,11 @@ export const modelProviderMappingHistoryHourly = pgTable(
 		totalInputCost: real().notNull().default(0),
 		totalOutputCost: real().notNull().default(0),
 		totalCachedInputCost: real().notNull().default(0),
+		// See model_provider_mapping_history: service-tier coverage counters.
+		serviceTierExplicitCount: integer().notNull().default(0),
+		serviceTierImplicitCount: integer().notNull().default(0),
+		serviceTierServedCount: integer().notNull().default(0),
+		serviceTierUnconfirmedCount: integer().notNull().default(0),
 	},
 	(table) => [
 		// Unique constraint ensures one record per mapping-hour combination
@@ -3314,6 +3352,11 @@ export const modelHistoryHourly = pgTable(
 		totalInputCost: real().notNull().default(0),
 		totalOutputCost: real().notNull().default(0),
 		totalCachedInputCost: real().notNull().default(0),
+		// See model_provider_mapping_history: service-tier coverage counters.
+		serviceTierExplicitCount: integer().notNull().default(0),
+		serviceTierImplicitCount: integer().notNull().default(0),
+		serviceTierServedCount: integer().notNull().default(0),
+		serviceTierUnconfirmedCount: integer().notNull().default(0),
 	},
 	(table) => [
 		// Unique constraint ensures one record per model-hour combination
@@ -3324,6 +3367,108 @@ export const modelHistoryHourly = pgTable(
 		index("model_history_hourly_model_ts_idx").on(
 			table.modelId,
 			table.hourTimestamp,
+		),
+	],
+);
+
+// Hourly rollup of how routing decided which provider serves a model, derived
+// from log.routingMetadata.selectionReason.
+//
+// The mapping history tables only record where traffic *landed*, so a mapping
+// with the best score can look like it lost when in truth no election ever ran
+// (the request pinned a provider, only one candidate survived filtering, a
+// session was sticky, …). This table is that missing denominator: comparing
+// `scored` request counts against the rest of the model's traffic is what
+// distinguishes "the score was wrong" from "the score was never consulted".
+export const routingElectionHourly = pgTable(
+	"routing_election_hourly",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		// Start of the hour bucket
+		hourTimestamp: timestamp().notNull(),
+		modelId: text().notNull(),
+		// Provider that ended up serving the request.
+		providerId: text().notNull(),
+		// One of ROUTING_SELECTION_REASONS; unrecognized values roll up to "unknown"
+		// so a future gateway build can never expand this table's cardinality.
+		selectionReason: text().notNull(),
+		requestCount: integer().notNull().default(0),
+		// How many candidate mappings the election chose between, summed over
+		// requests. Divided by requestCount it gives the average candidate-set size,
+		// which is how a collapsing candidate set shows up over time.
+		candidateCount: integer().notNull().default(0),
+		// Service-tier split for this (model, provider, selection reason) slice, so
+		// the tier that caused a narrowing is visible next to its effect.
+		serviceTierExplicitCount: integer().notNull().default(0),
+		serviceTierImplicitCount: integer().notNull().default(0),
+	},
+	(table) => [
+		unique().on(
+			table.hourTimestamp,
+			table.modelId,
+			table.providerId,
+			table.selectionReason,
+		),
+		// Admin routing analytics filters by model over a time range.
+		index("routing_election_hourly_model_ts_idx").on(
+			table.modelId,
+			table.hourTimestamp,
+		),
+		index("routing_election_hourly_ts_idx").on(table.hourTimestamp),
+	],
+);
+
+// Hourly rollup of provider mappings that were dropped from an election, and
+// why, derived from log.routingMetadata.filteredProviders[].codes.
+//
+// `excludedCount / candidateCount` answers the question the score table cannot:
+// for this mapping, what share of the requests it could have served was it not
+// even eligible for, and which constraint was responsible.
+export const routingExclusionHourly = pgTable(
+	"routing_exclusion_hourly",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		// Start of the hour bucket
+		hourTimestamp: timestamp().notNull(),
+		modelId: text().notNull(),
+		providerId: text().notNull(),
+		// One of ROUTING_EXCLUSION_REASONS; unrecognized values roll up to "other".
+		// No region column: recordFilteredProvider deliberately merges a provider's
+		// regional variants into one entry, so per-region attribution would be
+		// fabricated here.
+		reason: text().notNull(),
+		excludedCount: integer().notNull().default(0),
+		// Requests where this mapping was in the candidate set before filtering —
+		// the denominator for the exclusion rate. Recorded on every reason row for
+		// the mapping, so read it with max() rather than sum() when grouping across
+		// reasons.
+		candidateCount: integer().notNull().default(0),
+	},
+	(table) => [
+		unique().on(
+			table.hourTimestamp,
+			table.modelId,
+			table.providerId,
+			table.reason,
+		),
+		index("routing_exclusion_hourly_model_ts_idx").on(
+			table.modelId,
+			table.hourTimestamp,
+		),
+		// Cross-model "which constraint costs us the most routing freedom" queries.
+		index("routing_exclusion_hourly_ts_reason_idx").on(
+			table.hourTimestamp,
+			table.reason,
 		),
 	],
 );

@@ -243,7 +243,9 @@ import { convertAwsEventStreamToSSE } from "./tools/parse-aws-eventstream.js";
 import { parseModelInput } from "./tools/parse-model-input.js";
 import { parseProviderResponse } from "./tools/parse-provider-response.js";
 import {
+	exclusionReason,
 	getProviderFilterReasons,
+	mergeFilteredProvider,
 	recordFilteredProvider,
 } from "./tools/provider-filter-reasons.js";
 import {
@@ -295,7 +297,10 @@ import { transformStreamingToOpenai } from "./tools/transform-streaming-to-opena
 import { validateFreeModelUsage } from "./tools/validate-free-model-usage.js";
 import { validateModelCapabilities } from "./tools/validate-model-capabilities.js";
 
-import type { FilteredProvider } from "./tools/provider-filter-reasons.js";
+import type {
+	FilteredProvider,
+	ProviderFilterReason,
+} from "./tools/provider-filter-reasons.js";
 import type { OriginalRequestParams } from "./tools/resolve-provider-context.js";
 import type { ServerTypes } from "@/vars.js";
 
@@ -586,6 +591,11 @@ function filterEligibleModelProviders(
 			options.availableProviders &&
 			!options.availableProviders.includes(provider.providerId)
 		) {
+			if (filteredOut) {
+				recordFilteredProvider(filteredOut, provider.providerId, [
+					exclusionReason("no_provider_key"),
+				]);
+			}
 			return false;
 		}
 
@@ -593,6 +603,11 @@ function filterEligibleModelProviders(
 			provider.providerId,
 		);
 		if (lockedRegion && provider.region && provider.region !== lockedRegion) {
+			if (filteredOut) {
+				recordFilteredProvider(filteredOut, provider.providerId, [
+					exclusionReason("locked_region"),
+				]);
+			}
 			return false;
 		}
 
@@ -615,6 +630,10 @@ function filterEligibleModelProviders(
 			);
 
 			if (hasNonReasoningAlternative && provider.reasoning === true) {
+				// The provider itself still routes, via its non-reasoning variant, so
+				// this is not recorded as an exclusion — doing so would make the
+				// provider look ineligible in the exclusion rollup while it is in fact
+				// serving the request.
 				return false;
 			}
 		}
@@ -1440,6 +1459,7 @@ chat.openapi(completions, async (c) => {
 		before: readonly ProviderModelMapping[],
 		after: readonly ProviderModelMapping[],
 		reason: string,
+		code: ProviderFilterReason["code"],
 	) => {
 		// Provider-level, not mapping-level: with regional expansion a provider is
 		// only "filtered out" once none of its mappings survived.
@@ -1449,7 +1469,7 @@ chat.openapi(completions, async (c) => {
 				recordFilteredProvider(
 					preRoutingFilteredProviders,
 					mapping.providerId,
-					[reason],
+					[{ code, message: reason }],
 				);
 			}
 		}
@@ -1459,7 +1479,7 @@ chat.openapi(completions, async (c) => {
 	): { filteredProviders?: FilteredProvider[] } => {
 		const merged: FilteredProvider[] = [];
 		for (const entry of [...preRoutingFilteredProviders, ...filtered]) {
-			recordFilteredProvider(merged, entry.providerId, entry.reasons);
+			mergeFilteredProvider(merged, entry);
 		}
 		return merged.length > 0 ? { filteredProviders: merged } : {};
 	};
@@ -2267,12 +2287,15 @@ chat.openapi(completions, async (c) => {
 				configIndex,
 				envVariant,
 			);
+		// This narrowing happens long before any score is computed, so a mapping
+		// dropped here never appears in the election at all.
 		recordPreRoutingDrops(
 			serviceTierCandidateProviders,
 			serviceTierSupportedProviders,
 			serviceTierSource === "coding-plan-default"
 				? `service tier '${service_tier}' (coding plan default) not supported`
 				: `service tier '${service_tier}' not supported`,
+			"service_tier",
 		);
 		modelInfo = {
 			...modelInfo,
@@ -2833,6 +2856,7 @@ chat.openapi(completions, async (c) => {
 			iamFilteredModelProviders,
 			compliantProviders,
 			"excluded by compliance policy",
+			"compliance",
 		);
 		iamFilteredModelProviders = compliantProviders;
 		expandedIamFilteredModelProviders = applyCompliancePolicy(
@@ -2877,6 +2901,7 @@ chat.openapi(completions, async (c) => {
 			iamFilteredModelProviders,
 			cachedInputProviders,
 			CODING_PLAN_CACHED_INPUT_FILTER_REASON,
+			"coding_plan_cache",
 		);
 		iamFilteredModelProviders = cachedInputProviders;
 		expandedIamFilteredModelProviders =
@@ -2929,6 +2954,7 @@ chat.openapi(completions, async (c) => {
 			iamFilteredModelProviders,
 			tierEligibleProviders,
 			`no service-tier-eligible key for '${service_tier}'`,
+			"service_tier_key",
 		);
 		iamFilteredModelProviders = tierEligibleProviders;
 		expandedIamFilteredModelProviders =
@@ -3277,14 +3303,24 @@ chat.openapi(completions, async (c) => {
 				}
 			}
 			// Filter by context size requirement, reasoning capability, and deprecation status
-			const filteredOutForModel: Array<{
-				providerId: string;
-				reasons: string[];
-			}> = [];
+			const filteredOutForModel: FilteredProvider[] = [];
+			const compliantProviderIds = new Set(
+				complianceFilteredProviders.map((provider) => provider.providerId),
+			);
+			for (const provider of cachedFilteredProviders) {
+				if (!compliantProviderIds.has(provider.providerId)) {
+					recordFilteredProvider(filteredOutForModel, provider.providerId, [
+						exclusionReason("compliance"),
+					]);
+				}
+			}
 			const suitableProviders = complianceFilteredProviders.filter(
 				(provider) => {
 					// Skip deprecated provider mappings
 					if (provider.deprecatedAt && now > provider.deprecatedAt!) {
+						recordFilteredProvider(filteredOutForModel, provider.providerId, [
+							exclusionReason("deprecated"),
+						]);
 						return false;
 					}
 
@@ -3292,7 +3328,7 @@ chat.openapi(completions, async (c) => {
 					const modelContextSize = provider.contextSize ?? 8192;
 					if (modelContextSize < requiredContextSize) {
 						recordFilteredProvider(filteredOutForModel, provider.providerId, [
-							"context_size too small",
+							exclusionReason("context_size"),
 						]);
 						return false;
 					}
@@ -3487,6 +3523,7 @@ chat.openapi(completions, async (c) => {
 				iamFilteredModelProviders,
 				cachedInputProviders,
 				CODING_PLAN_CACHED_INPUT_FILTER_REASON,
+				"coding_plan_cache",
 			);
 			iamFilteredModelProviders = cachedInputProviders;
 			expandedIamFilteredModelProviders =
@@ -4227,10 +4264,7 @@ chat.openapi(completions, async (c) => {
 				maxTokens: max_tokens,
 				reasoningEffort: reasoning_effort,
 			};
-			const filteredOutProvidersDirect: Array<{
-				providerId: string;
-				reasons: string[];
-			}> = [];
+			const filteredOutProvidersDirect: FilteredProvider[] = [];
 			const availableModelProviders = filterEligibleModelProviders(
 				preparedModelProviders,
 				{ ...eligibilityOptions, n, stream },
