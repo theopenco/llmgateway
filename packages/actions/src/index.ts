@@ -8,6 +8,7 @@ export * from "./get-provider-headers.js";
 export * from "./apply-google-service-tier.js";
 export * from "./prepare-request-body.js";
 export * from "./get-provider-endpoint.js";
+export * from "./compute-provider-scores.js";
 export * from "./get-cheapest-from-available-providers.js";
 export * from "./validate-provider-key.js";
 export * from "./get-cheapest-model-for-provider.js";
