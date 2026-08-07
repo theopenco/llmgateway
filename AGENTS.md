@@ -289,6 +289,7 @@ When creating a new package in `packages/`, include these config files. Copy the
 - When writing pull request titles, use the conventional commit message format and limit to max 50 characters
 - Always open pull requests as normal ready-for-review PRs, not draft PRs, unless the user explicitly asks for a draft PR
 - When creating a pull request, always write/update both the PR title and description; if the PR's scope changes in later commits, update the title and description to reflect the final scope before handing it off
+- For UI-related changes (`apps/ui`, `apps/playground`, `apps/code`, `apps/docs`, `ee/admin`, or any other user-facing surface), always embed screenshots of the affected screens in the PR description — run the app locally, capture the new/changed state, and use the `pull-request` skill's screenshot workflow to attach them. For changes to an existing screen, show a before/after pair; for anything with light and dark styling, include both themes
 - Always use pnpm for package management
 - Use cookies for user-settings which are not saved in the database to ensure SSR works
 - Apply DRY principles for code reuse
