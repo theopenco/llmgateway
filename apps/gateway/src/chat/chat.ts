@@ -141,6 +141,7 @@ import {
 	isCachingEnabled,
 	metricsKey,
 	type LogInsertData,
+	providerKeyAllowsModel,
 	shortid,
 	type tables,
 	type ProviderMetrics,
@@ -2070,12 +2071,6 @@ chat.openapi(completions, async (c) => {
 	// this org's env-credential reads. Undefined = base vars only.
 	const envVariant = getOrganizationEnvVariant(organization);
 
-	// Providers LLM Gateway holds a managed credential for that this org can
-	// actually use. Routing treats these as available in credits mode even when
-	// the provider's LLM_* env var is unset, which is what lets a deployment
-	// drop the env vars entirely.
-	const managedProviderIds = await findManagedProviderIds(envVariant);
-
 	// Dev-plan (DevPass) orgs can default routing to cheaper flex processing via
 	// their dashboard settings to save on plan credits. Applied softly, and only
 	// when the request itself doesn't specify a service_tier: the tier kicks in
@@ -3077,18 +3072,14 @@ chat.openapi(completions, async (c) => {
 			requiredContextSize += 4096;
 		}
 
-		// Get available providers based on project mode
+		// Get available providers based on project mode. The availability set is
+		// computed per candidate model inside the loop below, because a provider
+		// key or managed credential restricted via allowedModels only counts as
+		// available for the models it lists.
 		const providerKeys = await findActiveProviderKeys(project.organizationId);
 		const supportedProviderIds = providers
 			.filter((provider) => provider.id !== "llmgateway")
 			.map((provider) => provider.id);
-		const { availableProviders, providersWithKeys } =
-			getAvailableProvidersForProjectMode(
-				project.mode,
-				providerKeys,
-				supportedProviderIds,
-				managedProviderIds,
-			);
 		// Region locks from DB provider keys, so auto-routing honors an org's
 		// configured region (e.g. aws_bedrock_region: "eu") instead of being
 		// collapsed to the pinned default by applyPinnedDefaultRegions.
@@ -3196,6 +3187,16 @@ chat.openapi(completions, async (c) => {
 				continue;
 			}
 			const candidateAllowedProviders = candidateIam.allowedProviders;
+
+			const { availableProviders, providersWithKeys } =
+				getAvailableProvidersForProjectMode(
+					project.mode,
+					providerKeys.filter((key) =>
+						providerKeyAllowsModel(key.allowedModels, modelDef.id),
+					),
+					supportedProviderIds,
+					await findManagedProviderIds(envVariant, modelDef.id),
+				);
 
 			const candidateProviders = preferConcreteRegionalMappings(
 				applyPinnedDefaultRegions(
@@ -3702,9 +3703,11 @@ chat.openapi(completions, async (c) => {
 				const { availableProviders, providersWithKeys } =
 					getAvailableProvidersForProjectMode(
 						project.mode,
-						providerKeys,
+						providerKeys.filter((key) =>
+							providerKeyAllowsModel(key.allowedModels, baseModelId),
+						),
 						providerIds,
-						managedProviderIds,
+						await findManagedProviderIds(envVariant, baseModelId),
 					);
 
 				const availableModelProviders = preferConcreteRegionalMappings(
@@ -3921,9 +3924,11 @@ chat.openapi(completions, async (c) => {
 				const { availableProviders, providersWithKeys } =
 					getAvailableProvidersForProjectMode(
 						project.mode,
-						providerKeys,
+						providerKeys.filter((key) =>
+							providerKeyAllowsModel(key.allowedModels, baseModelId),
+						),
 						providerIds,
-						managedProviderIds,
+						await findManagedProviderIds(envVariant, baseModelId),
 					);
 
 				// Filter model providers to only those available (excluding the low-uptime one)
@@ -4145,12 +4150,15 @@ chat.openapi(completions, async (c) => {
 				project.organizationId,
 				providerIds,
 			);
+			const routedModelId = (modelInfo as ModelDefinition).id;
 			const { availableProviders, providersWithKeys } =
 				getAvailableProvidersForProjectMode(
 					project.mode,
-					providerKeys,
+					providerKeys.filter((key) =>
+						providerKeyAllowsModel(key.allowedModels, routedModelId),
+					),
 					providerIds,
-					managedProviderIds,
+					await findManagedProviderIds(envVariant, routedModelId),
 				);
 
 			// Build a map of provider → locked region from DB provider keys.
@@ -4879,6 +4887,7 @@ chat.openapi(completions, async (c) => {
 
 		const platformCredential = await resolvePlatformCredential(usedProvider, {
 			selectionScope: usedInternalModel,
+			model: usedInternalModel,
 			variant: envVariant,
 			region: usedRegion,
 			requiresServiceTier: isRequestedServiceTier(service_tier),
@@ -5005,6 +5014,7 @@ chat.openapi(completions, async (c) => {
 
 			const platformCredential = await resolvePlatformCredential(usedProvider, {
 				selectionScope: usedInternalModel,
+				model: usedInternalModel,
 				variant: envVariant,
 				region: usedRegion,
 				requiresServiceTier: isRequestedServiceTier(service_tier),
