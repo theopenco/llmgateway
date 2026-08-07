@@ -1,10 +1,13 @@
 /**
  * Billing-mode view for usage reporting: "total" blends credits and BYOK
- * ("api-keys") traffic, the other two narrow spend and request counts to the
- * selected mode. Tokens, errors and cache metrics are only tracked blended in
- * the rollups, so they always reflect all traffic.
+ * ("api-keys") traffic, the other two narrow to the selected mode.
+ *
+ * On the global stats page the narrowing happens in SQL — `used_mode` is part
+ * of the aggregation key — so every metric reflects the selected mode. Other
+ * admin views still read the project hourly tables, where only spend and
+ * request counts carry the split.
  */
-export type UsageMode = "total" | "credits" | "api-keys";
+export type UsageMode = "total" | "credits" | "api-keys" | "unknown";
 
 export const USAGE_MODE_OPTIONS: { value: UsageMode; label: string }[] = [
 	{ value: "total", label: "All" },
@@ -12,14 +15,23 @@ export const USAGE_MODE_OPTIONS: { value: UsageMode; label: string }[] = [
 	{ value: "api-keys", label: "BYOK" },
 ];
 
+/**
+ * Only the project hourly tables blend these; kept for the org/project views
+ * that still read denormalized per-mode columns.
+ */
 export const USAGE_MODE_ALL_TRAFFIC_NOTE =
 	"Tokens, errors and cache metrics always include all traffic — per-mode history is only tracked for spend and request counts.";
 
 export function parseUsageMode(value: string | null | undefined): UsageMode {
-	return value === "credits" || value === "api-keys" ? value : "total";
+	return value === "credits" || value === "api-keys" || value === "unknown"
+		? value
+		: "total";
 }
 
 export function usageModeLabel(mode: UsageMode): string {
+	if (mode === "unknown") {
+		return "Unattributed";
+	}
 	return USAGE_MODE_OPTIONS.find((o) => o.value === mode)?.label ?? "All";
 }
 
@@ -29,6 +41,9 @@ export function usageModeDescription(mode: UsageMode): string | null {
 	}
 	if (mode === "api-keys") {
 		return "BYOK traffic only — served by the organizations' own provider keys.";
+	}
+	if (mode === "unknown") {
+		return "Traffic aggregated before per-mode attribution existed.";
 	}
 	return null;
 }
@@ -61,32 +76,4 @@ export function pickRequests(
 		return row.apiKeysRequestCount;
 	}
 	return row.requestCount;
-}
-
-interface ModeSplitRow {
-	cost: number;
-	requestCount: number;
-	creditsCost: number;
-	apiKeysCost: number;
-	creditsRequestCount: number;
-	apiKeysRequestCount: number;
-}
-
-/**
- * Returns a copy of the row with `cost` and `requestCount` replaced by the
- * selected mode's split values, so downstream charts and reducers keep working
- * unchanged. All other measures stay blended (see USAGE_MODE_ALL_TRAFFIC_NOTE).
- */
-export function applyUsageMode<T extends ModeSplitRow>(
-	row: T,
-	mode: UsageMode,
-): T {
-	if (mode === "total") {
-		return row;
-	}
-	return {
-		...row,
-		cost: pickCost(row, mode),
-		requestCount: pickRequests(row, mode),
-	};
 }

@@ -16,6 +16,7 @@
 		"dist/"
 	],
 	"scripts": {
+		"backfill:global-stats": "node --enable-source-maps --env-file=../../.env dist/scripts/backfill-global-stats-dimensions.js",
 		"build": "tsc && resolve-tspaths",
 		"dev": "concurrently \"tsc-watch --onSuccess 'resolve-tspaths'\" \"nodemon --exec node --enable-source-maps --env-file=../../.env dist/index.js\"",
 		"format": "eslint --fix . && prettier --write .",

@@ -1,7 +1,15 @@
 "use client";
 
 import { format, parseISO } from "date-fns";
-import { BarChart3, Coins, Cpu, Layers, Server } from "lucide-react";
+import {
+	BarChart3,
+	Building2,
+	Coins,
+	Cpu,
+	Layers,
+	Server,
+	Wallet,
+} from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import {
@@ -20,6 +28,7 @@ import {
 	GlobalStatsRangePicker,
 	resolveGlobalStatsRange,
 } from "@/components/global-stats-range-picker";
+import { OrgKindSelector, useOrgKind } from "@/components/org-kind-selector";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -40,24 +49,28 @@ import {
 	useUsageMode,
 } from "@/components/usage-mode-selector";
 import { useApi } from "@/lib/fetch-client";
-import {
-	applyUsageMode,
-	pickCost,
-	pickRequests,
-	USAGE_MODE_ALL_TRAFFIC_NOTE,
-	usageModeDescription,
-	usageModeLabel,
-} from "@/lib/usage-mode";
+import { orgKindDescription, orgKindLabel } from "@/lib/org-kind";
+import { usageModeDescription, usageModeLabel } from "@/lib/usage-mode";
 import { cn } from "@/lib/utils";
 
 import type { ChartConfig } from "@/components/ui/chart";
 
-type GroupBy = "model" | "source";
+type GroupBy = "model" | "source" | "mode" | "kind";
 type ModelView = "mapping" | "canonical" | "provider";
+
+interface CompositionItem {
+	key: string;
+	label: string;
+	requestCount: number;
+	cost: number;
+	totalTokens: number;
+}
 
 const GROUP_OPTIONS: { value: GroupBy; label: string; icon: typeof Cpu }[] = [
 	{ value: "model", label: "By model", icon: Cpu },
 	{ value: "source", label: "By x-source", icon: Layers },
+	{ value: "mode", label: "By mode", icon: Wallet },
+	{ value: "kind", label: "By org kind", icon: Building2 },
 ];
 
 const MODEL_VIEW_OPTIONS: {
@@ -118,7 +131,7 @@ const timeseriesChartConfig = {
 
 type TimeseriesMetric = keyof typeof timeseriesChartConfig;
 
-const VALID_GROUPS: GroupBy[] = ["model", "source"];
+const VALID_GROUPS: GroupBy[] = ["model", "source", "mode", "kind"];
 const VALID_METRICS: TimeseriesMetric[] = [
 	"requestCount",
 	"cost",
@@ -202,6 +215,22 @@ function StatCard({
 	);
 }
 
+/**
+ * "PAYG: $12.30 · DevPass: $4.10" from a composition slice, skipping empty
+ * buckets. Null when there is nothing to compare against, so the caller can
+ * fall back to a different subtitle.
+ */
+function compositionSubtitle(
+	items: CompositionItem[] | undefined,
+	format: (item: CompositionItem) => string,
+): string | null {
+	const populated = (items ?? []).filter((item) => item.requestCount > 0);
+	if (populated.length < 2) {
+		return null;
+	}
+	return populated.map((item) => `${item.label}: ${format(item)}`).join(" · ");
+}
+
 function metricFormatter(metric: TimeseriesMetric) {
 	switch (metric) {
 		case "cost":
@@ -232,6 +261,7 @@ export function GlobalStatsClient() {
 
 	const { from, to } = resolveGlobalStatsRange(searchParams);
 	const usageMode = useUsageMode();
+	const orgKind = useOrgKind();
 	const groupBy = parseGroupBy(searchParams.get("groupBy"));
 	const chartMetric = parseMetric(searchParams.get("metric"));
 	const modelView = parseModelView(searchParams.get("modelView"));
@@ -257,10 +287,10 @@ export function GlobalStatsClient() {
 
 	const [breakdownPage, setBreakdownPage] = useState(1);
 
-	// The range picker and the billing-mode selector write to the URL directly,
-	// so reset pagination during render when either changes (the mode also
+	// The range picker and the mode/kind selectors write to the URL directly, so
+	// reset pagination during render when any of them changes (each also
 	// re-sorts the breakdown).
-	const viewKey = `${from}|${to}|${usageMode}`;
+	const viewKey = `${from}|${to}|${usageMode}|${orgKind}`;
 	const [lastViewKey, setLastViewKey] = useState(viewKey);
 	if (viewKey !== lastViewKey) {
 		setLastViewKey(viewKey);
@@ -293,39 +323,55 @@ export function GlobalStatsClient() {
 	}, [updateParam, showTimeseriesBreakdown]);
 
 	const $api = useApi();
+	// mode/kind are applied server-side (both are part of the aggregation key),
+	// so every metric below is already narrowed to the selected slice and the
+	// filters take part in the query key.
 	const { data, isLoading, isError } = $api.useQuery(
 		"get",
 		"/admin/global-stats",
 		{
-			params: { query: { from, to, groupBy, modelView } },
+			params: {
+				query: { from, to, groupBy, modelView, mode: usageMode, kind: orgKind },
+			},
 		},
 	);
 
-	// `cost`/`requestCount` are narrowed to the selected billing mode so every
-	// chart, table and reducer below keeps working unchanged; the remaining
-	// measures stay blended (see USAGE_MODE_ALL_TRAFFIC_NOTE).
 	const totals = data?.totals;
-	const timeseries = useMemo(
-		() => (data?.timeseries ?? []).map((p) => applyUsageMode(p, usageMode)),
-		[data?.timeseries, usageMode],
-	);
+	const timeseries = useMemo(() => data?.timeseries ?? [], [data?.timeseries]);
 	const timeseriesBreakdown = useMemo(
-		() =>
-			(data?.timeseriesBreakdown ?? []).map((p) =>
-				applyUsageMode(p, usageMode),
-			),
-		[data?.timeseriesBreakdown, usageMode],
+		() => data?.timeseriesBreakdown ?? [],
+		[data?.timeseriesBreakdown],
 	);
-	// Dimensions with no traffic in the selected mode are dropped entirely, so
-	// e.g. the BYOK view doesn't page through credits-only models.
-	const breakdown = useMemo(() => {
-		const rows = (data?.breakdown ?? []).map((b) =>
-			applyUsageMode(b, usageMode),
-		);
-		return usageMode === "total"
-			? rows
-			: rows.filter((b) => b.requestCount > 0);
-	}, [data?.breakdown, usageMode]);
+	const breakdown = useMemo(() => data?.breakdown ?? [], [data?.breakdown]);
+
+	const composition = data?.composition;
+
+	// Rows aggregated before mode/kind attribution existed. A filter silently
+	// excludes them, so say so rather than letting the totals quietly shrink.
+	const unattributedNote = useMemo(() => {
+		const unknownIn = (items: { key: string; requestCount: number }[] = []) =>
+			items.find((item) => item.key === "unknown")?.requestCount ?? 0;
+		const parts: string[] = [];
+		if (usageMode !== "total") {
+			const count = unknownIn(composition?.byMode);
+			if (count > 0) {
+				parts.push(
+					`${numberFormatter.format(count)} requests predate billing-mode attribution`,
+				);
+			}
+		}
+		if (orgKind !== "all") {
+			const count = unknownIn(composition?.byKind);
+			if (count > 0) {
+				parts.push(
+					`${numberFormatter.format(count)} requests predate organization-kind attribution`,
+				);
+			}
+		}
+		return parts.length > 0
+			? `${parts.join(" and ")} — they are excluded from this view.`
+			: null;
+	}, [composition, usageMode, orgKind]);
 
 	// Pie data: top 10 by the selected metric, the rest collapsed into "Other".
 	const pieData = useMemo(() => {
@@ -424,17 +470,32 @@ export function GlobalStatsClient() {
 			? modelView === "provider"
 				? "providers"
 				: "models"
-			: "sources";
+			: groupBy === "mode"
+				? "billing modes"
+				: groupBy === "kind"
+					? "org kinds"
+					: "sources";
 	const breakdownNounSingular =
 		groupBy === "model"
 			? modelView === "provider"
 				? "Provider"
 				: "Model"
-			: "Source";
+			: groupBy === "mode"
+				? "Billing mode"
+				: groupBy === "kind"
+					? "Org kind"
+					: "Source";
 
-	const modeNote = usageModeDescription(usageMode);
-	const modeSuffix =
-		usageMode === "total" ? "" : ` · ${usageModeLabel(usageMode)}`;
+	const scopeNotes = [
+		usageModeDescription(usageMode),
+		orgKindDescription(orgKind),
+	].filter(Boolean);
+	const scopeParts = [
+		orgKind === "all" ? null : orgKindLabel(orgKind),
+		usageMode === "total" ? null : usageModeLabel(usageMode),
+	].filter((part): part is string => part !== null);
+	const scopeSuffix = scopeParts.map((label) => ` · ${label}`).join("");
+	const scopeLabel = scopeParts.length > 0 ? scopeParts.join(" · ") : "Total";
 
 	const breakdownTotalPages = Math.max(
 		1,
@@ -455,13 +516,19 @@ export function GlobalStatsClient() {
 						Global Stats
 					</h1>
 					<p className="mt-1 text-sm text-muted-foreground">
-						Cross-organization usage aggregated by day, grouped by model or
-						x-source header.
-						{modeNote ? ` ${modeNote}` : ""}
+						Cross-organization usage aggregated by day, grouped by model,
+						x-source header, billing mode or organization kind.
+						{scopeNotes.length > 0 ? ` ${scopeNotes.join(" ")}` : ""}
 					</p>
+					{unattributedNote ? (
+						<p className="mt-1 text-xs text-muted-foreground">
+							{unattributedNote}
+						</p>
+					) : null}
 				</div>
 				<div className="flex flex-wrap items-center gap-3">
 					<UsageModeSelector compact />
+					<OrgKindSelector compact />
 					<div className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-1">
 						{GROUP_OPTIONS.map((opt) => {
 							const Icon = opt.icon;
@@ -491,49 +558,28 @@ export function GlobalStatsClient() {
 
 			<section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
 				<StatCard
-					label={
-						usageMode === "credits"
-							? "Credits requests"
-							: usageMode === "api-keys"
-								? "BYOK requests"
-								: "Total requests"
-					}
-					value={
-						totals
-							? numberFormatter.format(pickRequests(totals, usageMode))
-							: "—"
-					}
+					label={`${scopeLabel} requests`}
+					value={totals ? numberFormatter.format(totals.requestCount) : "—"}
 					subtitle={
 						isLoading
 							? "Loading…"
-							: totals && usageMode === "total"
-								? `Credits: ${numberFormatter.format(totals.creditsRequestCount)} · BYOK: ${numberFormatter.format(totals.apiKeysRequestCount)}`
-								: undefined
+							: (compositionSubtitle(composition?.byMode, (item) =>
+									numberFormatter.format(item.requestCount),
+								) ?? undefined)
 					}
 					icon={<BarChart3 className="h-4 w-4" />}
 					accent="blue"
 				/>
 				<StatCard
-					label={
-						usageMode === "credits"
-							? "Credits cost"
-							: usageMode === "api-keys"
-								? "BYOK cost"
-								: "Total cost"
-					}
-					value={
-						totals ? currencyFormatter.format(pickCost(totals, usageMode)) : "—"
-					}
+					label={`${scopeLabel} cost`}
+					value={totals ? currencyFormatter.format(totals.cost) : "—"}
 					subtitle={
 						!totals
 							? undefined
-							: usageMode === "credits"
-								? "Billed against organization credits"
-								: usageMode === "api-keys"
-									? "Served by the organizations' own provider keys — not billed"
-									: totals.apiKeysCost > 0
-										? `Credits: ${currencyFormatter.format(totals.creditsCost)} · BYOK: ${currencyFormatter.format(totals.apiKeysCost)}`
-										: `Input: ${currencyFormatter.format(totals.inputCost)} · Output: ${currencyFormatter.format(totals.outputCost)}`
+							: (compositionSubtitle(composition?.byKind, (item) =>
+									currencyFormatter.format(item.cost),
+								) ??
+								`Input: ${currencyFormatter.format(totals.inputCost)} · Output: ${currencyFormatter.format(totals.outputCost)}`)
 					}
 					icon={<Coins className="h-4 w-4" />}
 					accent="green"
@@ -543,7 +589,7 @@ export function GlobalStatsClient() {
 					value={totals ? numberFormatter.format(totals.totalTokens) : "—"}
 					subtitle={
 						totals
-							? `In: ${compactNumberFormatter.format(totals.inputTokens)} · Cached: ${compactNumberFormatter.format(totals.cachedTokens)} · Out: ${compactNumberFormatter.format(totals.outputTokens)}${usageMode === "total" ? "" : " · all traffic"}`
+							? `In: ${compactNumberFormatter.format(totals.inputTokens)} · Cached: ${compactNumberFormatter.format(totals.cachedTokens)} · Out: ${compactNumberFormatter.format(totals.outputTokens)}`
 							: undefined
 					}
 					icon={<Layers className="h-4 w-4" />}
@@ -554,7 +600,7 @@ export function GlobalStatsClient() {
 					value={numberFormatter.format(breakdown.length)}
 					subtitle={
 						totals
-							? `Errors: ${numberFormatter.format(totals.errorCount)} · Cached: ${numberFormatter.format(totals.cacheCount)}${usageMode === "total" ? "" : " · all traffic"}`
+							? `Errors: ${numberFormatter.format(totals.errorCount)} · Cached: ${numberFormatter.format(totals.cacheCount)}`
 							: undefined
 					}
 					icon={
@@ -564,6 +610,10 @@ export function GlobalStatsClient() {
 							) : (
 								<Cpu className="h-4 w-4" />
 							)
+						) : groupBy === "mode" ? (
+							<Wallet className="h-4 w-4" />
+						) : groupBy === "kind" ? (
+							<Building2 className="h-4 w-4" />
 						) : (
 							<Layers className="h-4 w-4" />
 						)
@@ -592,15 +642,10 @@ export function GlobalStatsClient() {
 												: modelView === "canonical"
 													? "canonical model"
 													: "mapping"
-											: "source"
+											: breakdownNounSingular.toLowerCase()
 									}`
-								: ` across all ${groupBy === "model" ? "models" : "sources"}`}
-							.
-							{usageMode === "total"
-								? ""
-								: chartMetric === "totalTokens"
-									? ` ${USAGE_MODE_ALL_TRAFFIC_NOTE}`
-									: ` ${usageModeLabel(usageMode)} traffic only.`}
+								: ` across all ${breakdownNoun}`}
+							.{scopeParts.length > 0 ? ` ${scopeLabel} traffic only.` : ""}
 						</CardDescription>
 					</div>
 					<div className="flex flex-wrap items-center gap-2">
@@ -612,6 +657,10 @@ export function GlobalStatsClient() {
 						>
 							{groupBy === "model" ? (
 								<Cpu className="h-3.5 w-3.5" />
+							) : groupBy === "mode" ? (
+								<Wallet className="h-3.5 w-3.5" />
+							) : groupBy === "kind" ? (
+								<Building2 className="h-3.5 w-3.5" />
 							) : (
 								<Layers className="h-3.5 w-3.5" />
 							)}
@@ -770,17 +819,13 @@ export function GlobalStatsClient() {
 						<CardTitle>
 							{timeseriesChartConfig[chartMetric].label as string} share —{" "}
 							{breakdownNoun}
-							{modeSuffix}
+							{scopeSuffix}
 						</CardTitle>
 						<CardDescription>
 							{breakdown.length > 10
 								? `Top 10 + Other across ${rangeLabel}.`
 								: `All ${breakdown.length} ${breakdownNoun} across ${rangeLabel}.`}
-							{usageMode === "total"
-								? ""
-								: chartMetric === "totalTokens"
-									? ` ${USAGE_MODE_ALL_TRAFFIC_NOTE}`
-									: ` ${usageModeLabel(usageMode)} traffic only.`}
+							{scopeParts.length > 0 ? ` ${scopeLabel} traffic only.` : ""}
 						</CardDescription>
 					</div>
 					<div className="flex flex-wrap items-center gap-3">
