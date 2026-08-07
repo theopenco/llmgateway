@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 
 const MODEL = "openai/global-stats-model";
 const SOURCE = "global-stats-source";
@@ -92,12 +92,26 @@ async function fetchStats(
 	return (await res.json()) as GlobalStatsResponse;
 }
 
+// `deleteAll()` does not cover the global stats tables, so this suite owns its
+// own cleanup — scoped to its MODEL/SOURCE so it can never take out rows another
+// suite inserted. Also runs before inserting, so a crashed run's leftovers do
+// not collide with the unique key.
+const clearFixtures = async () => {
+	await db
+		.delete(tables.globalModelStats)
+		.where(eq(tables.globalModelStats.usedModel, MODEL));
+	await db
+		.delete(tables.globalSourceStats)
+		.where(eq(tables.globalSourceStats.source, SOURCE));
+};
+
 describe("admin — global stats mode/kind dimensions", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
 		process.env.ADMIN_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
+		await clearFixtures();
 
 		await db.insert(tables.globalModelStats).values(
 			BUCKETS.map((bucket) => ({
@@ -131,8 +145,7 @@ describe("admin — global stats mode/kind dimensions", () => {
 	});
 
 	afterEach(async () => {
-		await db.delete(tables.globalModelStats);
-		await db.delete(tables.globalSourceStats);
+		await clearFixtures();
 		await deleteAll();
 	});
 
@@ -171,12 +184,10 @@ describe("admin — global stats mode/kind dimensions", () => {
 	});
 
 	test("the modes partition the blended total exactly", async () => {
-		const [all, credits, byok, unknown] = await Promise.all([
-			fetchStats(cookie),
-			fetchStats(cookie, { mode: "credits" }),
-			fetchStats(cookie, { mode: "api-keys" }),
-			fetchStats(cookie, { mode: "unknown" }),
-		]);
+		const all = await fetchStats(cookie);
+		const credits = await fetchStats(cookie, { mode: "credits" });
+		const byok = await fetchStats(cookie, { mode: "api-keys" });
+		const unknown = await fetchStats(cookie, { mode: "unknown" });
 		expect(
 			credits.totals.requestCount +
 				byok.totals.requestCount +

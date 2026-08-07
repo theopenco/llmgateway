@@ -9,31 +9,24 @@
  */
 export type OrgKind = "all" | "default" | "devpass" | "chat" | "unknown";
 
+// "Unattributed" is a selectable option, not just a URL value: rows aggregated
+// before this dimension existed keep that kind permanently (no backfill ships),
+// so drilling into them is the only way to see what they contain.
 export const ORG_KIND_OPTIONS: { value: OrgKind; label: string }[] = [
 	{ value: "all", label: "All orgs" },
 	{ value: "default", label: "PAYG" },
 	{ value: "devpass", label: "DevPass" },
 	{ value: "chat", label: "Chat" },
-];
-
-const VALID_ORG_KINDS: OrgKind[] = [
-	"all",
-	"default",
-	"devpass",
-	"chat",
-	"unknown",
+	{ value: "unknown", label: "Unattributed" },
 ];
 
 export function parseOrgKind(value: string | null | undefined): OrgKind {
-	return VALID_ORG_KINDS.includes(value as OrgKind)
+	return ORG_KIND_OPTIONS.some((o) => o.value === value)
 		? (value as OrgKind)
 		: "all";
 }
 
 export function orgKindLabel(kind: OrgKind): string {
-	if (kind === "unknown") {
-		return "Unattributed";
-	}
 	return ORG_KIND_OPTIONS.find((o) => o.value === kind)?.label ?? "All orgs";
 }
 

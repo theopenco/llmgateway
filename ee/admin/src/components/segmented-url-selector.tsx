@@ -41,7 +41,13 @@ export function SegmentedUrlSelector<T extends string>({
 				params.set(param, next);
 			}
 			const query = params.toString();
-			router.push(query ? `${pathname}?${query}` : pathname);
+			// replace + scroll:false to match the other filters on these pages:
+			// push would make Back walk every toggle instead of leaving the page,
+			// and the default scroll restoration jumps to the top of the document
+			// when a selector below the fold is used.
+			router.replace(query ? `${pathname}?${query}` : pathname, {
+				scroll: false,
+			});
 		},
 		[searchParams, router, pathname, param, defaultValue],
 	);
