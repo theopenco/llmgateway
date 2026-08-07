@@ -50,13 +50,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { formatUsd, isInRotation } from "@/lib/provider-key-spend";
 import { cn } from "@/lib/utils";
 
-import {
-	models as catalogModels,
-	providers as catalogProviders,
-} from "@llmgateway/models";
 import { getProviderIcon } from "@llmgateway/shared";
 import {
-	MultiModelSelector,
+	MultiModelIdSelector,
 	ReorderableItem,
 	ReorderableList,
 	SearchableSelect,
@@ -1182,13 +1178,6 @@ function CredentialDialog({
 		catalogEntry ?? catalog.find((entry) => entry.id === provider);
 	const isRegionScoped = (selectedEntry?.regions.length ?? 0) > 0;
 
-	// Catalogue definitions for the models the catalog endpoint reports live on
-	// this provider, so the selector offers exactly what the server will accept.
-	const selectableModels = useMemo(() => {
-		const liveIds = new Set(selectedEntry?.models ?? []);
-		return catalogModels.filter((model) => liveIds.has(model.id));
-	}, [selectedEntry]);
-
 	const providerOptions = useMemo(
 		() =>
 			catalog.map((entry) => {
@@ -1533,11 +1522,10 @@ function CredentialDialog({
 								</Button>
 							</div>
 						</div>
-						<MultiModelSelector
-							models={selectableModels}
-							providers={catalogProviders}
-							selectedModels={allowedModels}
-							onModelsChange={(next) => {
+						<MultiModelIdSelector
+							availableIds={selectedEntry?.models ?? []}
+							value={allowedModels}
+							onChange={(next) => {
 								setAllowedModels(next);
 								// A changed list invalidates the last verification report.
 								setVerifyOutcome(undefined);
