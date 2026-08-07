@@ -1186,4 +1186,36 @@ describe("dev plan status billing history", () => {
 
 		expect(await getStatus()).toMatchObject({ hasBillingHistory: false });
 	});
+
+	it("counts legacy pre-rename subscription rows", async () => {
+		// Dev plans were billed as `subscription_*` before the DevPass rename; on
+		// a devpass-kind org those rows are a past DevPass subscriber.
+		await db.insert(tables.transaction).values({
+			organizationId: ORG_ID,
+			type: "subscription_start",
+			amount: "50",
+			currency: "USD",
+			status: "completed",
+		});
+		await db
+			.update(tables.organization)
+			.set({ devPlan: "none", devPlanStripeSubscriptionId: null })
+			.where(eq(tables.organization.id, ORG_ID));
+
+		expect(await getStatus()).toMatchObject({ hasBillingHistory: true });
+	});
+
+	it("counts an unsettled charge, matching the invoice list", async () => {
+		// The invoices endpoint renders pending and failed charges too (with a
+		// status badge), so the page has content to show and must stay reachable.
+		await db.insert(tables.transaction).values({
+			organizationId: ORG_ID,
+			type: "dev_plan_start",
+			amount: "29",
+			currency: "USD",
+			status: "failed",
+		});
+
+		expect(await getStatus()).toMatchObject({ hasBillingHistory: true });
+	});
 });

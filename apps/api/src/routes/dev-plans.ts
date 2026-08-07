@@ -19,6 +19,7 @@ import {
 	isDevPlanCardDedupeEnforced,
 } from "@/stripe.js";
 import { findDefaultOrganization } from "@/utils/default-org.js";
+import { LEGACY_DEV_PLAN_TX_TYPES } from "@/utils/devpass-filter.js";
 import {
 	buildInvoiceDataForTransaction,
 	generateAndEmailInvoice,
@@ -1818,10 +1819,14 @@ devPlans.openapi(getStatus, async (c) => {
 	// Ending a dev plan clears every devPlan* column on the org, so the billing
 	// transactions are the only lasting record that the user was ever a
 	// subscriber — and the dashboard needs it to keep the billing page reachable.
+	// The legacy `subscription_*` rows predate the DevPass rename and mean a dev
+	// plan only on a devpass-kind org, which `personalOrg` always is. Status is
+	// deliberately not filtered: this mirrors the invoice list, which also
+	// renders pending and failed charges.
 	const billingTransaction = await db.query.transaction.findFirst({
 		where: {
 			organizationId: { eq: personalOrg.id },
-			type: { in: [...DEV_PLAN_INVOICE_TYPES] },
+			type: { in: [...DEV_PLAN_INVOICE_TYPES, ...LEGACY_DEV_PLAN_TX_TYPES] },
 		},
 		columns: { id: true },
 	});
