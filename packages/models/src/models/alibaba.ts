@@ -2043,6 +2043,69 @@ export const alibabaModels = [
 		],
 	},
 	{
+		id: "qwen-image-3.0",
+		name: "Qwen Image 3.0",
+		description:
+			"Alibaba's third-generation Qwen image model for text-to-image generation and image editing with strong text rendering.",
+		family: "alibaba",
+		output: ["text", "image"],
+		releasedAt: new Date("2026-08-05"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "alibaba",
+				externalId: "qwen-image-3.0",
+				inputPrice: "0",
+				outputPrice: "0",
+				// Every resolution bills the same rate, so a single "default" tier
+				// covers all sizes; add explicit tier keys only if pricing splits.
+				perImagePrice: {
+					default: "0.03",
+				},
+				contextSize: 4500,
+				maxOutput: 4096,
+				streaming: false,
+				vision: true,
+				tools: false,
+				jsonOutput: false,
+				imageGenerations: true,
+			},
+		],
+	},
+	{
+		id: "qwen-image-3.0-pro",
+		name: "Qwen Image 3.0 Pro",
+		description:
+			"Alibaba's flagship third-generation Qwen image model for highest quality text-to-image generation and image editing.",
+		family: "alibaba",
+		output: ["text", "image"],
+		releasedAt: new Date("2026-08-05"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "alibaba",
+				externalId: "qwen-image-3.0-pro",
+				inputPrice: "0",
+				outputPrice: "0",
+				// The tier is billed on the served resolution DashScope reports in
+				// usage.output_image_type; "default" covers requests without a size,
+				// where the model auto-picks a resolution and serves 2K.
+				perImagePrice: {
+					"1K": "0.04",
+					"2K": "0.075",
+					default: "0.075",
+				},
+				contextSize: 4500,
+				maxOutput: 4096,
+				streaming: false,
+				vision: true,
+				tools: false,
+				jsonOutput: false,
+				imageGenerations: true,
+			},
+		],
+	},
+	{
 		id: "qwen-image-plus",
 		name: "Qwen Image Plus",
 		description:
