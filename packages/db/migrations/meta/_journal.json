@@ -1541,6 +1541,13 @@
       "when": 1785864734403,
       "tag": "1785864734_aberrant_iron_fist",
       "breakpoints": true
+    },
+    {
+      "idx": 220,
+      "version": "8",
+      "when": 1786112381990,
+      "tag": "1786112381_yielding_hydra",
+      "breakpoints": true
     }
   ]
 }

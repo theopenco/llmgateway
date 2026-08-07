@@ -1,4 +1,8 @@
 import { googleProviderSupportsAudioFormat } from "@llmgateway/actions";
+import {
+	routingExclusionReasonMessage,
+	type RoutingExclusionReason,
+} from "@llmgateway/shared";
 
 import type { ProviderModelMapping, WebSearchTool } from "@llmgateway/models";
 
@@ -21,7 +25,13 @@ export interface ProviderFilterOptions {
 
 export interface FilteredProvider {
 	providerId: string;
+	/** Human-readable messages, derived from `codes`. Rendered in the log detail view. */
 	reasons: string[];
+	/**
+	 * Stable codes for the same exclusions. Aggregated per hour into
+	 * `routing_exclusion_hourly`; absent on rows written before codes existed.
+	 */
+	codes?: RoutingExclusionReason[];
 }
 
 /**
@@ -31,11 +41,11 @@ export interface FilteredProvider {
 export function getProviderFilterReasons(
 	provider: ProviderModelMapping,
 	options: ProviderFilterOptions,
-): string[] {
-	const reasons: string[] = [];
+): RoutingExclusionReason[] {
+	const reasons: RoutingExclusionReason[] = [];
 
 	if (options.noReasoning && provider.reasoning === true) {
-		reasons.push("no_reasoning requested but provider has reasoning");
+		reasons.push("no_reasoning_variant");
 	}
 	// "none" means "no reasoning", so it doesn't require a reasoning-capable
 	// provider.
@@ -44,27 +54,27 @@ export function getProviderFilterReasons(
 		options.reasoningEffort !== "none" &&
 		provider.reasoning !== true
 	) {
-		reasons.push("reasoning_effort not supported");
+		reasons.push("reasoning_effort");
 	}
 	if (
 		options.reasoningMaxTokens !== undefined &&
 		provider.reasoningMaxTokens !== true
 	) {
-		reasons.push("reasoning_max_tokens not supported");
+		reasons.push("reasoning_max_tokens");
 	}
 	if (options.hasTools && provider.tools !== true) {
-		reasons.push("tools not supported");
+		reasons.push("tools");
 	}
 	if (options.webSearchTool && provider.webSearch !== true) {
-		reasons.push("web_search not supported");
+		reasons.push("web_search");
 	}
 	if (options.n !== undefined && options.n > 1) {
 		if (provider.supportsN !== true) {
-			reasons.push("n > 1 not supported");
+			reasons.push("n_unsupported");
 		} else if (provider.maxN !== undefined && options.n > provider.maxN) {
-			reasons.push("n exceeds provider limit");
+			reasons.push("n_limit");
 		} else if (options.stream && provider.supportsNStreaming === false) {
-			reasons.push("n > 1 not supported when streaming");
+			reasons.push("n_streaming");
 		}
 	}
 	if (
@@ -72,19 +82,19 @@ export function getProviderFilterReasons(
 			options.responseFormatType === "json_schema") &&
 		provider.jsonOutput !== true
 	) {
-		reasons.push("json_output not supported");
+		reasons.push("json_output");
 	}
 	if (
 		options.responseFormatType === "json_schema" &&
 		provider.jsonOutputSchema !== true
 	) {
-		reasons.push("json_schema not supported");
+		reasons.push("json_schema");
 	}
 	if (options.hasImages && provider.vision !== true) {
-		reasons.push("vision not supported");
+		reasons.push("vision");
 	}
 	if (options.hasAudio && provider.audio !== true) {
-		reasons.push("audio not supported");
+		reasons.push("audio");
 	}
 	if (
 		options.hasAudio &&
@@ -94,23 +104,23 @@ export function getProviderFilterReasons(
 			googleProviderSupportsAudioFormat(provider.providerId, fmt),
 		)
 	) {
-		reasons.push("audio format not supported");
+		reasons.push("audio_format");
 	}
 	if (options.hasDocuments && provider.document !== true) {
-		reasons.push("documents not supported");
+		reasons.push("documents");
 	}
 	if (
 		options.hasAssistantPrefill &&
 		provider.supportsAssistantPrefill === false
 	) {
-		reasons.push("assistant prefill not supported");
+		reasons.push("assistant_prefill");
 	}
 	if (
 		options.maxTokens !== undefined &&
 		provider.maxOutput !== undefined &&
 		options.maxTokens > provider.maxOutput
 	) {
-		reasons.push("max_tokens exceeds provider limit");
+		reasons.push("max_tokens");
 	}
 
 	return reasons;
@@ -124,16 +134,25 @@ export function getProviderFilterReasons(
 export function recordFilteredProvider(
 	list: FilteredProvider[],
 	providerId: string,
-	reasons: string[],
+	codes: RoutingExclusionReason[],
 ): void {
 	const existing = list.find((f) => f.providerId === providerId);
 	if (!existing) {
-		list.push({ providerId, reasons: [...reasons] });
+		list.push({
+			providerId,
+			reasons: codes.map(routingExclusionReasonMessage),
+			codes: [...codes],
+		});
 		return;
 	}
-	for (const reason of reasons) {
-		if (!existing.reasons.includes(reason)) {
-			existing.reasons.push(reason);
+	for (const code of codes) {
+		if (!existing.codes) {
+			existing.codes = [];
 		}
+		if (existing.codes.includes(code)) {
+			continue;
+		}
+		existing.codes.push(code);
+		existing.reasons.push(routingExclusionReasonMessage(code));
 	}
 }

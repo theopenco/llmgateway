@@ -22,6 +22,8 @@ import {
 	getEffectiveScoringWeights,
 } from "./compute-provider-scores.js";
 
+import type { RoutingExclusionReason } from "@llmgateway/shared/routing-telemetry";
+
 interface ProviderScore<T extends AvailableModelProvider> {
 	provider: T;
 	score: Decimal;
@@ -134,6 +136,9 @@ export interface RoutingMetadata {
 	filteredProviders?: Array<{
 		providerId: string;
 		reasons: string[];
+		// Stable RoutingExclusionReason codes for the same exclusions; aggregated
+		// per hour into routing_exclusion_hourly.
+		codes?: RoutingExclusionReason[];
 	}>;
 	// Parameters that were stripped from the request because the selected provider doesn't support them
 	strippedParameters?: string[];

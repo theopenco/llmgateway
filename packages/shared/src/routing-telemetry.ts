@@ -1,0 +1,234 @@
+/**
+ * Stable vocabularies for routing telemetry.
+ *
+ * Both taxonomies are closed sets on purpose: they are used as aggregation keys
+ * in `routing_exclusion_hourly` / `routing_election_hourly`, so an open-ended
+ * value would let a single code path explode the row count of those tables.
+ * Anything unrecognized is folded into `other` / `unknown` at aggregation time
+ * rather than inserted verbatim.
+ */
+
+/**
+ * Why a provider mapping was dropped from an election, keyed by a stable code.
+ *
+ * The messages are the human-readable strings persisted in
+ * `log.routingMetadata.filteredProviders[].reasons` and rendered in the log
+ * detail view. They are derived from the code so the prose stays in one place
+ * and the aggregation key can never drift from what users are shown.
+ */
+export const ROUTING_EXCLUSION_REASON_MESSAGES = {
+	// Capability mismatches between the request and the mapping.
+	no_reasoning_variant: "no_reasoning requested but provider has reasoning",
+	reasoning_effort: "reasoning_effort not supported",
+	reasoning_max_tokens: "reasoning_max_tokens not supported",
+	tools: "tools not supported",
+	web_search: "web_search not supported",
+	n_unsupported: "n > 1 not supported",
+	n_limit: "n exceeds provider limit",
+	n_streaming: "n > 1 not supported when streaming",
+	json_output: "json_output not supported",
+	json_schema: "json_schema not supported",
+	vision: "vision not supported",
+	audio: "audio not supported",
+	audio_format: "audio format not supported",
+	documents: "documents not supported",
+	assistant_prefill: "assistant prefill not supported",
+	max_tokens: "max_tokens exceeds provider limit",
+	context_size: "context_size too small",
+	// Request-shape constraints that are not per-mapping capabilities.
+	service_tier: "service tier not supported by this mapping",
+	// Credential / configuration reachability.
+	no_provider_key: "no provider key or managed credential available",
+	locked_region: "provider key is locked to a different region",
+	// Catalogue state.
+	deprecated: "mapping is deprecated",
+	// Runtime state. `rate_limited` and `content_filter` are not emitted by
+	// recordFilteredProvider — routing already records them in their own metadata
+	// fields (providerScores[].rate_limited and contentFilterExcludedProviders),
+	// and the hourly rollup maps those onto these codes so every exclusion shows
+	// up in one place.
+	rate_limited: "provider is rate limited",
+	content_filter: "excluded by content-filter routing",
+	compliance: "excluded by the organization's compliance policy",
+	// Catch-all for values written by an older gateway build.
+	other: "other",
+} as const;
+
+export type RoutingExclusionReason =
+	keyof typeof ROUTING_EXCLUSION_REASON_MESSAGES;
+
+export const ROUTING_EXCLUSION_REASONS = Object.keys(
+	ROUTING_EXCLUSION_REASON_MESSAGES,
+) as RoutingExclusionReason[];
+
+/** Compact labels for dashboard axes and badges, where the full message is too long. */
+export const ROUTING_EXCLUSION_REASON_LABELS: Record<
+	RoutingExclusionReason,
+	string
+> = {
+	no_reasoning_variant: "No-reasoning requested",
+	reasoning_effort: "Reasoning effort",
+	reasoning_max_tokens: "Reasoning max tokens",
+	tools: "Tools",
+	web_search: "Web search",
+	n_unsupported: "n > 1",
+	n_limit: "n limit",
+	n_streaming: "n > 1 streaming",
+	json_output: "JSON output",
+	json_schema: "JSON schema",
+	vision: "Vision",
+	audio: "Audio",
+	audio_format: "Audio format",
+	documents: "Documents",
+	assistant_prefill: "Assistant prefill",
+	max_tokens: "max_tokens",
+	context_size: "Context size",
+	service_tier: "Service tier",
+	no_provider_key: "No key",
+	locked_region: "Locked region",
+	deprecated: "Deprecated",
+	rate_limited: "Rate limited",
+	content_filter: "Content filter",
+	compliance: "Compliance",
+	other: "Other",
+};
+
+export function isRoutingExclusionReason(
+	value: string,
+): value is RoutingExclusionReason {
+	return Object.hasOwn(ROUTING_EXCLUSION_REASON_MESSAGES, value);
+}
+
+export function toRoutingExclusionReason(
+	value: string | null | undefined,
+): RoutingExclusionReason {
+	return value && isRoutingExclusionReason(value) ? value : "other";
+}
+
+export function routingExclusionReasonMessage(
+	reason: RoutingExclusionReason,
+): string {
+	return ROUTING_EXCLUSION_REASON_MESSAGES[reason];
+}
+
+/**
+ * How the gateway arrived at the provider it used. Written to
+ * `log.routingMetadata.selectionReason`.
+ */
+export const ROUTING_SELECTION_REASONS = [
+	"weighted-score",
+	"price-only",
+	"price-only-no-metrics",
+	"session-sticky",
+	"stable-preferred",
+	"random-exploration",
+	"low-uptime-fallback",
+	"rate-limit-fallback",
+	"direct-provider-specified",
+	"single-provider-available",
+	"fallback-first-available",
+	"unknown",
+] as const;
+
+export type RoutingSelectionReason = (typeof ROUTING_SELECTION_REASONS)[number];
+
+export function isRoutingSelectionReason(
+	value: string,
+): value is RoutingSelectionReason {
+	return (ROUTING_SELECTION_REASONS as readonly string[]).includes(value);
+}
+
+export function toRoutingSelectionReason(
+	value: string | null | undefined,
+): RoutingSelectionReason {
+	return value && isRoutingSelectionReason(value) ? value : "unknown";
+}
+
+/**
+ * Coarse grouping of selection reasons, used for the "how did traffic get
+ * routed" breakdown. `scored` is the only kind where the weighted score
+ * actually decided the outcome — every other kind means the score was either
+ * bypassed or overridden, which is what makes a low-scoring provider able to
+ * take the majority of a model's traffic.
+ */
+export type RoutingSelectionKind =
+	| "scored"
+	| "pinned"
+	| "single-candidate"
+	| "sticky"
+	| "fallback"
+	| "exploration"
+	| "unknown";
+
+const SELECTION_KIND_BY_REASON: Record<
+	RoutingSelectionReason,
+	RoutingSelectionKind
+> = {
+	"weighted-score": "scored",
+	"price-only": "scored",
+	"price-only-no-metrics": "scored",
+	"session-sticky": "sticky",
+	"stable-preferred": "sticky",
+	"random-exploration": "exploration",
+	"low-uptime-fallback": "fallback",
+	"rate-limit-fallback": "fallback",
+	"direct-provider-specified": "pinned",
+	"single-provider-available": "single-candidate",
+	"fallback-first-available": "single-candidate",
+	unknown: "unknown",
+};
+
+export const ROUTING_SELECTION_KINDS = [
+	"scored",
+	"pinned",
+	"single-candidate",
+	"sticky",
+	"fallback",
+	"exploration",
+	"unknown",
+] as const satisfies readonly RoutingSelectionKind[];
+
+export function routingSelectionKind(
+	reason: string | null | undefined,
+): RoutingSelectionKind {
+	return SELECTION_KIND_BY_REASON[toRoutingSelectionReason(reason)];
+}
+
+export const ROUTING_SELECTION_REASON_LABELS: Record<
+	RoutingSelectionReason,
+	string
+> = {
+	"weighted-score": "Weighted score",
+	"price-only": "Price only",
+	"price-only-no-metrics": "Price only (no metrics)",
+	"session-sticky": "Session sticky",
+	"stable-preferred": "Hysteresis",
+	"random-exploration": "Exploration",
+	"low-uptime-fallback": "Low-uptime fallback",
+	"rate-limit-fallback": "Rate-limit fallback",
+	"direct-provider-specified": "Provider pinned",
+	"single-provider-available": "Single candidate",
+	"fallback-first-available": "First available",
+	unknown: "Unknown",
+};
+
+export const ROUTING_SELECTION_KIND_LABELS: Record<
+	RoutingSelectionKind,
+	string
+> = {
+	scored: "Scored election",
+	pinned: "Provider pinned",
+	"single-candidate": "Single candidate",
+	sticky: "Sticky / hysteresis",
+	fallback: "Fallback",
+	exploration: "Exploration",
+	unknown: "Unknown",
+};
+
+/**
+ * Which service tier applied to a request. `implicit` covers the dev-plan
+ * default (`organization.devPlanServiceTier`), which the client never asked for
+ * but which still narrows routing to mappings that support the tier — the case
+ * that is invisible if you only look at the explicitly requested tier.
+ */
+export type ServiceTierMode = "none" | "explicit" | "implicit";

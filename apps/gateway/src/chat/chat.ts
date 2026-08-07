@@ -248,6 +248,7 @@ import { parseProviderResponse } from "./tools/parse-provider-response.js";
 import {
 	getProviderFilterReasons,
 	recordFilteredProvider,
+	type FilteredProvider,
 } from "./tools/provider-filter-reasons.js";
 import {
 	flushTaggedStreamingRemainder,
@@ -580,6 +581,11 @@ function filterEligibleModelProviders(
 			options.availableProviders &&
 			!options.availableProviders.includes(provider.providerId)
 		) {
+			if (filteredOut) {
+				recordFilteredProvider(filteredOut, provider.providerId, [
+					"no_provider_key",
+				]);
+			}
 			return false;
 		}
 
@@ -587,6 +593,11 @@ function filterEligibleModelProviders(
 			provider.providerId,
 		);
 		if (lockedRegion && provider.region && provider.region !== lockedRegion) {
+			if (filteredOut) {
+				recordFilteredProvider(filteredOut, provider.providerId, [
+					"locked_region",
+				]);
+			}
 			return false;
 		}
 
@@ -609,6 +620,10 @@ function filterEligibleModelProviders(
 			);
 
 			if (hasNonReasoningAlternative && provider.reasoning === true) {
+				// The provider itself still routes, via its non-reasoning variant, so
+				// this is not recorded as an exclusion — doing so would make the
+				// provider look ineligible in the exclusion rollup while it is in fact
+				// serving the request.
 				return false;
 			}
 		}
@@ -905,6 +920,32 @@ function isRequestedServiceTier(
 	serviceTier: "auto" | "default" | "flex" | "priority" | undefined,
 ): serviceTier is "flex" | "priority" {
 	return isPremiumServiceTier(serviceTier);
+}
+
+/**
+ * Fold extra filtered-provider entries into routing metadata without dropping
+ * what routing already recorded. The existing entries are copied rather than
+ * mutated in place because they are shared with the metadata object routing
+ * returned.
+ */
+function mergeFilteredProviders(
+	metadata: RoutingMetadata,
+	extra: FilteredProvider[],
+): void {
+	if (extra.length === 0) {
+		return;
+	}
+	const merged: FilteredProvider[] = (metadata.filteredProviders ?? []).map(
+		(entry) => ({
+			providerId: entry.providerId,
+			reasons: [...entry.reasons],
+			codes: entry.codes ? [...entry.codes] : undefined,
+		}),
+	);
+	for (const entry of extra) {
+		recordFilteredProvider(merged, entry.providerId, entry.codes ?? []);
+	}
+	metadata.filteredProviders = merged;
 }
 
 function providerMatchesRequestedProvider(
@@ -1435,6 +1476,18 @@ chat.openapi(completions, async (c) => {
 	const requestedServiceTier = isRequestedServiceTier(service_tier)
 		? service_tier
 		: null;
+	// The processing tier routing actually applied. Starts as the explicitly
+	// requested tier and is re-read after the dev-plan default below may have set
+	// one the client never asked for. This — not requestedServiceTier — is the
+	// tier that narrows routing to tier-capable mappings, so it is what the
+	// service-tier coverage aggregates count. Mutable and read at log-insert time
+	// so every log path records the final value.
+	let appliedServiceTier: "flex" | "priority" | null = requestedServiceTier;
+	// Mappings dropped before the routing block builds its own filtered-provider
+	// list (today: the service-tier narrowing). Merged into routingMetadata once
+	// routing has finished, so it lands in the same place regardless of which
+	// routing branch ran.
+	const preRoutingExclusions: FilteredProvider[] = [];
 	// The processing tier the provider actually served (Flex / Priority),
 	// resolved from the upstream response — Vertex's usageMetadata.trafficType or
 	// AI Studio's x-gemini-service-tier header. Billing scales token costs by
@@ -1699,11 +1752,12 @@ chat.openapi(completions, async (c) => {
 	// providers.
 	const insertLogEntry = (logData: LogInsertData) =>
 		insertLog({
-			// Service tiers default from the request-level requested tier and the
-			// served tier resolved so far, so every log path (guardrail/validation
-			// rejections, cache hits, streaming/upstream errors, fetch errors)
-			// records them. Explicit values in logData still win.
+			// Service tiers default from the request-level requested tier, the tier
+			// routing applied, and the served tier resolved so far, so every log path
+			// (guardrail/validation rejections, cache hits, streaming/upstream errors,
+			// fetch errors) records them. Explicit values in logData still win.
 			requestedServiceTier,
+			appliedServiceTier,
 			usedServiceTier: servedServiceTier,
 			...logData,
 			...(logIdOverride && !logData.retried ? { id: logIdOverride } : {}),
@@ -2124,6 +2178,12 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Re-read after the dev-plan default: from here on this is the tier routing
+	// works with, whether or not the client asked for it.
+	appliedServiceTier = isRequestedServiceTier(service_tier)
+		? service_tier
+		: null;
+
 	if (isRequestedServiceTier(service_tier)) {
 		const serviceTierCandidateProviders = modelInfo.providers.filter(
 			(mapping) => providerMatchesRequestedProvider(mapping, requestedProvider),
@@ -2218,6 +2278,7 @@ chat.openapi(completions, async (c) => {
 						discount: null,
 						pricingTier: null,
 						requestedServiceTier,
+						appliedServiceTier,
 						usedServiceTier: null,
 						dataStorageCost: "0",
 					},
@@ -2251,6 +2312,20 @@ chat.openapi(completions, async (c) => {
 				configIndex,
 				envVariant,
 			);
+		// This narrowing happens long before any score is computed, so a mapping
+		// dropped here never appears in the election at all. Record it, or a model
+		// whose tier support is uneven across providers looks like the router simply
+		// preferred one provider.
+		for (const mapping of modelInfo.providers) {
+			if (
+				providerMatchesRequestedProvider(mapping, requestedProvider) &&
+				!supportsRequestedTier(mapping)
+			) {
+				recordFilteredProvider(preRoutingExclusions, mapping.providerId, [
+					"service_tier",
+				]);
+			}
+		}
 		modelInfo = {
 			...modelInfo,
 			providers: modelInfo.providers.filter(supportsRequestedTier),
@@ -2694,6 +2769,7 @@ chat.openapi(completions, async (c) => {
 						discount: null,
 						pricingTier: null,
 						requestedServiceTier,
+						appliedServiceTier,
 						usedServiceTier: null,
 						dataStorageCost: "0",
 					},
@@ -3236,14 +3312,24 @@ chat.openapi(completions, async (c) => {
 				}
 			}
 			// Filter by context size requirement, reasoning capability, and deprecation status
-			const filteredOutForModel: Array<{
-				providerId: string;
-				reasons: string[];
-			}> = [];
+			const filteredOutForModel: FilteredProvider[] = [];
+			const compliantProviderIds = new Set(
+				complianceFilteredProviders.map((provider) => provider.providerId),
+			);
+			for (const provider of cachedFilteredProviders) {
+				if (!compliantProviderIds.has(provider.providerId)) {
+					recordFilteredProvider(filteredOutForModel, provider.providerId, [
+						"compliance",
+					]);
+				}
+			}
 			const suitableProviders = complianceFilteredProviders.filter(
 				(provider) => {
 					// Skip deprecated provider mappings
 					if (provider.deprecatedAt && now > provider.deprecatedAt!) {
+						recordFilteredProvider(filteredOutForModel, provider.providerId, [
+							"deprecated",
+						]);
 						return false;
 					}
 
@@ -3251,7 +3337,7 @@ chat.openapi(completions, async (c) => {
 					const modelContextSize = provider.contextSize ?? 8192;
 					if (modelContextSize < requiredContextSize) {
 						recordFilteredProvider(filteredOutForModel, provider.providerId, [
-							"context_size too small",
+							"context_size",
 						]);
 						return false;
 					}
@@ -4176,10 +4262,7 @@ chat.openapi(completions, async (c) => {
 				maxTokens: max_tokens,
 				reasoningEffort: reasoning_effort,
 			};
-			const filteredOutProvidersDirect: Array<{
-				providerId: string;
-				reasons: string[];
-			}> = [];
+			const filteredOutProvidersDirect: FilteredProvider[] = [];
 			const availableModelProviders = filterEligibleModelProviders(
 				preparedModelProviders,
 				{ ...eligibilityOptions, n, stream },
@@ -4642,6 +4725,13 @@ chat.openapi(completions, async (c) => {
 			project.organizationId,
 			providerDiscountResolver,
 		);
+	}
+
+	// Every routing branch has produced its metadata by now, so fold in the
+	// exclusions recorded before routing started in one place instead of at each
+	// branch's assembly site.
+	if (routingMetadata) {
+		mergeFilteredProviders(routingMetadata, preRoutingExclusions);
 	}
 
 	// Re-resolve the model definition for the routed provider so we have the
