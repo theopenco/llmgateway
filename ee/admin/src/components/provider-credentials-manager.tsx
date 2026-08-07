@@ -1,16 +1,12 @@
 "use client";
 
 import {
-	AlertTriangle,
-	Check,
 	CheckCircle2,
-	ChevronDown,
 	Loader2,
 	MinusCircle,
 	Pencil,
 	Plus,
 	Trash2,
-	X,
 	XCircle,
 } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -25,13 +21,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
-	Command,
-	CommandEmpty,
-	CommandInput,
-	CommandItem,
-	CommandList,
-} from "@/components/ui/command";
-import {
 	Dialog,
 	DialogContent,
 	DialogDescription,
@@ -41,11 +30,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-	Popover,
-	PopoverContent,
-	PopoverTrigger,
-} from "@/components/ui/popover";
 import {
 	Select,
 	SelectContent,
@@ -66,8 +50,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { formatUsd, isInRotation } from "@/lib/provider-key-spend";
 import { cn } from "@/lib/utils";
 
+import {
+	models as catalogModels,
+	providers as catalogProviders,
+} from "@llmgateway/models";
 import { getProviderIcon } from "@llmgateway/shared";
 import {
+	MultiModelSelector,
 	ReorderableItem,
 	ReorderableList,
 	SearchableSelect,
@@ -1189,17 +1178,16 @@ function CredentialDialog({
 		}
 	}
 
-	const verificationByModel = useMemo(() => {
-		const map = new Map<string, ModelVerificationEntry>();
-		for (const entry of verifyOutcome?.result?.results ?? []) {
-			map.set(entry.model, entry);
-		}
-		return map;
-	}, [verifyOutcome]);
-
 	const selectedEntry =
 		catalogEntry ?? catalog.find((entry) => entry.id === provider);
 	const isRegionScoped = (selectedEntry?.regions.length ?? 0) > 0;
+
+	// Catalogue definitions for the models the catalog endpoint reports live on
+	// this provider, so the selector offers exactly what the server will accept.
+	const selectableModels = useMemo(() => {
+		const liveIds = new Set(selectedEntry?.models ?? []);
+		return catalogModels.filter((model) => liveIds.has(model.id));
+	}, [selectedEntry]);
 
 	const providerOptions = useMemo(
 		() =>
@@ -1545,15 +1533,16 @@ function CredentialDialog({
 								</Button>
 							</div>
 						</div>
-						<AllowedModelsPicker
-							availableModels={selectedEntry?.models ?? []}
-							value={allowedModels}
-							onChange={(next) => {
+						<MultiModelSelector
+							models={selectableModels}
+							providers={catalogProviders}
+							selectedModels={allowedModels}
+							onModelsChange={(next) => {
 								setAllowedModels(next);
 								// A changed list invalidates the last verification report.
 								setVerifyOutcome(undefined);
 							}}
-							verificationByModel={verificationByModel}
+							placeholder="All models (no restriction)"
 						/>
 						<p className="text-xs text-muted-foreground">
 							{allowedModels.length === 0
@@ -1718,10 +1707,9 @@ function CredentialDialog({
 }
 
 /**
- * Status icon for one row of the verify-models report, mirroring the badge
- * icons in the picker: green = probed and served, red = probed and rejected
- * (or unknown to the catalogue), gray = listed but not probeable (image,
- * embedding and other non-chat models).
+ * Status icon for one row of the verify-models report: green = probed and
+ * served, red = probed and rejected (or unknown to the catalogue), gray =
+ * listed but not probeable (image, embedding and other non-chat models).
  */
 function ModelVerificationIcon({ entry }: { entry: ModelVerificationEntry }) {
 	if (entry.valid === true) {
@@ -1734,157 +1722,5 @@ function ModelVerificationIcon({ entry }: { entry: ModelVerificationEntry }) {
 	}
 	return (
 		<MinusCircle className="mt-px h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-	);
-}
-
-/**
- * Multi-select over the provider's catalogue models, with paste support:
- * pasting a comma/whitespace-separated list into the search box adds every
- * entry at once (accepting `provider/model` ids by stripping the prefix).
- * Entries the catalogue does not know stay visible, flagged, so a typo is
- * seen here rather than only as a rejected save.
- */
-function AllowedModelsPicker({
-	availableModels,
-	value,
-	onChange,
-	verificationByModel,
-}: {
-	availableModels: string[];
-	value: string[];
-	onChange: (models: string[]) => void;
-	verificationByModel: Map<string, ModelVerificationEntry>;
-}) {
-	const [open, setOpen] = useState(false);
-	const [search, setSearch] = useState("");
-
-	const toggleModel = (modelId: string) => {
-		onChange(
-			value.includes(modelId)
-				? value.filter((id) => id !== modelId)
-				: [...value, modelId],
-		);
-	};
-
-	const addPastedList = (text: string) => {
-		const entries = text
-			.split(/[\s,]+/)
-			.map((entry) => entry.trim())
-			.filter(Boolean)
-			.map((entry) => {
-				if (availableModels.includes(entry)) {
-					return entry;
-				}
-				// Accept provider-prefixed ids ("openai/gpt-5.2") the way the
-				// gateway's model strings carry them.
-				const slash = entry.indexOf("/");
-				const suffix = slash >= 0 ? entry.slice(slash + 1) : entry;
-				return availableModels.includes(suffix) ? suffix : entry;
-			});
-		onChange(Array.from(new Set([...value, ...entries])));
-	};
-
-	return (
-		<div className="flex flex-col gap-2">
-			{value.length > 0 ? (
-				<div className="flex flex-wrap gap-1">
-					{value.map((modelId) => {
-						const verification = verificationByModel.get(modelId);
-						const unknown = !availableModels.includes(modelId);
-						return (
-							<Badge
-								key={modelId}
-								variant={
-									unknown || verification?.valid === false
-										? "destructive"
-										: "secondary"
-								}
-								className="flex items-center gap-1 font-mono text-[11px]"
-								title={
-									unknown
-										? "Not in the catalogue for this provider — saving will be rejected."
-										: (verification?.error ?? undefined)
-								}
-							>
-								{verification?.valid === true ? (
-									<CheckCircle2 className="h-3 w-3 text-green-600" />
-								) : null}
-								{verification?.valid === false ? (
-									<XCircle className="h-3 w-3" />
-								) : null}
-								{unknown ? <AlertTriangle className="h-3 w-3" /> : null}
-								{modelId}
-								<button
-									type="button"
-									aria-label={`Remove ${modelId}`}
-									className="ml-0.5 rounded-sm opacity-70 hover:opacity-100"
-									onClick={() => toggleModel(modelId)}
-								>
-									<X className="h-3 w-3" />
-								</button>
-							</Badge>
-						);
-					})}
-				</div>
-			) : null}
-
-			<Popover open={open} onOpenChange={setOpen}>
-				<PopoverTrigger asChild>
-					<Button
-						type="button"
-						variant="outline"
-						role="combobox"
-						aria-expanded={open}
-						className="w-full justify-between font-normal"
-					>
-						<span className="truncate text-left">
-							{value.length === 0
-								? "All models (no restriction)"
-								: `${value.length} model${value.length === 1 ? "" : "s"} selected`}
-						</span>
-						<ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-					</Button>
-				</PopoverTrigger>
-				<PopoverContent className="w-[420px] p-0" align="start">
-					<Command>
-						<CommandInput
-							placeholder="Search models, or paste a comma-separated list..."
-							value={search}
-							onValueChange={setSearch}
-							onPaste={(event) => {
-								const text = event.clipboardData.getData("text");
-								// A single id pastes into the search like any text; only a
-								// list is intercepted and added wholesale.
-								if (!/[\s,]/.test(text.trim())) {
-									return;
-								}
-								event.preventDefault();
-								addPastedList(text);
-								setSearch("");
-							}}
-						/>
-						<CommandList className="max-h-[280px]">
-							<CommandEmpty>No models found.</CommandEmpty>
-							{availableModels.map((modelId) => {
-								const isSelected = value.includes(modelId);
-								return (
-									<CommandItem
-										key={modelId}
-										value={modelId}
-										onSelect={() => toggleModel(modelId)}
-										className="flex items-center justify-between"
-									>
-										<span className="font-mono text-xs">{modelId}</span>
-										{isSelected ? (
-											<Check className="h-4 w-4 text-green-600" />
-										) : null}
-									</CommandItem>
-								);
-							})}
-						</CommandList>
-					</Command>
-				</PopoverContent>
-			</Popover>
-		</div>
 	);
 }

@@ -282,7 +282,36 @@ export function MultiModelSelector({
 				</PopoverTrigger>
 				<PopoverContent className="w-80 p-0 max-h-[400px]" align="start">
 					<Command className="flex flex-col">
-						<CommandInput placeholder="Search models..." />
+						<CommandInput
+							placeholder="Search models, or paste a comma-separated list..."
+							onPaste={(event) => {
+								// Pasting a list selects every entry at once instead of
+								// searching for the blob. Accepts `provider/model` ids by
+								// stripping the prefix when the bare id is selectable; a
+								// single id pastes into the search like any text.
+								const text = event.clipboardData.getData("text");
+								if (!/[\s,]/.test(text.trim())) {
+									return;
+								}
+								event.preventDefault();
+								const selectableIds = new Set(models.map((model) => model.id));
+								const entries = text
+									.split(/[\s,]+/)
+									.map((entry) => entry.trim())
+									.filter(Boolean)
+									.map((entry) => {
+										if (selectableIds.has(entry)) {
+											return entry;
+										}
+										const slash = entry.indexOf("/");
+										const suffix = slash >= 0 ? entry.slice(slash + 1) : entry;
+										return selectableIds.has(suffix) ? suffix : entry;
+									});
+								onModelsChange(
+									Array.from(new Set([...selectedModels, ...entries])),
+								);
+							}}
+						/>
 						<div className="max-h-[300px] overflow-y-auto">
 							<CommandList className="overflow-y-scroll">
 								<CommandEmpty>No models found.</CommandEmpty>
