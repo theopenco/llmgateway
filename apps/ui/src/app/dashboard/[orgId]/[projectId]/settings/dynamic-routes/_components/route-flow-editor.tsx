@@ -11,6 +11,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { Trash2 } from "lucide-react";
+import { useTheme } from "next-themes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/lib/components/button";
@@ -288,6 +289,9 @@ function RouteFlowEditorInner({
 	);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const { screenToFlowPosition } = useReactFlow();
+	// Follow the app's theme (next-themes class strategy), not the OS setting —
+	// colorMode="system" would leave React Flow's chrome light in app dark mode.
+	const { resolvedTheme } = useTheme();
 	const wrapperRef = useRef<HTMLDivElement>(null);
 	const initialSerialized = useRef(JSON.stringify(initialGraph));
 
@@ -539,7 +543,7 @@ function RouteFlowEditorInner({
 					}}
 					deleteKeyCode={["Backspace", "Delete"]}
 					fitView
-					colorMode="system"
+					colorMode={resolvedTheme === "dark" ? "dark" : "light"}
 					proOptions={{ hideAttribution: true }}
 				>
 					<Background />

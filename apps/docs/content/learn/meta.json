@@ -12,6 +12,7 @@
 		"guardrails",
 		"security-events",
 		"sdk-settings",
+		"dynamic-routes",
 		"master-keys",
 		"---Observability---",
 		"dashboard",
