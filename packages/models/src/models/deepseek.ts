@@ -575,6 +575,48 @@ export const deepseekModels = [
 				jsonOutput: true,
 				jsonOutputSchema: true,
 			},
+			{
+				// RanoAI serves DeepSeek V4 Flash on Furiosa RNGD NPUs. The NPU
+				// deployment enforces a 128000-token window shared between the prompt
+				// and max_tokens, so a request 400s once the two together exceed it.
+				// Reasoning arrives as `reasoning_content` (streamed as deltas) only
+				// when `reasoning_effort` is passed explicitly — a request without it
+				// returns no reasoning at all, and "none" suppresses it.
+				// `reasoning_tokens` is reported inside completion_tokens, so costs.ts
+				// lists this provider in completionIncludesReasoning.
+				//
+				// All four tool_choice modes are honoured, so none are declared here.
+				// Prompt caching is automatic prefix caching — the first request
+				// misses and later ones report `cached_tokens` — priced at the
+				// `input_cache_read` rate /v1/models advertises.
+				providerId: "ranoai",
+				externalId: "deepseek-v4-flash",
+				inputPrice: "0.15e-6",
+				outputPrice: "0.35e-6",
+				cachedInputPrice: "0.05e-6",
+				requestPrice: "0",
+				contextSize: 128000,
+				maxOutput: 128000,
+				// RanoAI serves NVFP4 weights; the catalogue's quantization union only
+				// carries the generic 4-bit float value.
+				quantization: "fp4",
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				supportsN: true,
+			},
 		],
 	},
 ] as const satisfies ModelDefinition[];
