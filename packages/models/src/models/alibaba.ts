@@ -1684,7 +1684,6 @@ export const alibabaModels = [
 			{
 				providerId: "scx-ai-gp",
 				externalId: "qwen3.8-max",
-				test: "skip",
 				inputPrice: "1.815e-6",
 				cachedInputPrice: "0.21e-6",
 				cacheReadInputPrice: "0.17e-6",

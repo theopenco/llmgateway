@@ -14,7 +14,6 @@ import {
 	isPremiumServiceTier,
 	managedCredentialOptions,
 	prepareRequestBody,
-	providerKeyBaseUrlSupportsServiceTier,
 	readProviderKey,
 	selectProviderMapping,
 } from "@llmgateway/actions";
@@ -47,6 +46,11 @@ import {
 
 import { clampTemperature } from "./clamp-temperature.js";
 import { resolvePlatformCredential } from "./resolve-platform-credential.js";
+import {
+	assertServiceTierHonored,
+	getForwardedServiceTier,
+	providerKeySupportsServiceTier,
+} from "./service-tier.js";
 
 import type { InferSelectModel, tables } from "@llmgateway/db";
 
@@ -158,6 +162,13 @@ export interface ProviderContextOptions {
 	n?: number;
 	providerCacheControlEnabled: boolean;
 	service_tier?: "auto" | "default" | "flex" | "priority";
+	/**
+	 * The premium tier the client asked for itself, or null when `service_tier`
+	 * only carries an org-level default. A client-requested tier is strict: a
+	 * candidate that cannot serve it is rejected rather than downgraded, so the
+	 * retry loop moves on instead of quietly serving standard.
+	 */
+	clientRequestedServiceTier?: "flex" | "priority" | null;
 	verbosity?: "low" | "medium" | "high";
 }
 
@@ -470,15 +481,13 @@ export async function resolveProviderContext(
 	const envVariant = getOrganizationEnvVariant(organization);
 
 	// Flex/Priority is only honored when the request reaches the provider's real
-	// upstream endpoint. Skip provider keys whose custom base URL (proxy) may
-	// silently drop the tier, so a compliant key (or the managed env credential)
-	// is used instead.
+	// upstream endpoint on a tier-capable location. Skip provider keys whose
+	// custom base URL (proxy) may silently drop the tier, and Vertex keys pinned
+	// to a regional endpoint, so a compliant key (or the managed env credential)
+	// is used instead. This is what keeps an alternate-key retry from rotating a
+	// Flex request onto a credential that would serve it as standard.
 	const serviceTierKeyFilter = isPremiumServiceTier(options.service_tier)
-		? (key: InferSelectModel<typeof tables.providerKey>) =>
-				providerKeyBaseUrlSupportsServiceTier(
-					key.provider as Provider,
-					key.baseUrl,
-				)
+		? providerKeySupportsServiceTier
 		: undefined;
 
 	// Skip BYOK keys whose allowedModels restriction excludes the model being
@@ -626,6 +635,28 @@ export async function resolveProviderContext(
 			}
 		}
 	}
+
+	// The tier this attempt will actually be sent at. Resolved here — after the
+	// provider, region and credential are known — because a fallback attempt
+	// picks its own, and a mapping/credential that cannot carry the tier would
+	// otherwise be served (and billed) as standard without the caller knowing.
+	// Throwing rejects this candidate: the retry loop treats a context-resolution
+	// failure as "try the next provider/key".
+	const forwardedServiceTier = getForwardedServiceTier(
+		usedInternalModel,
+		usedProvider,
+		usedRegion,
+		options.service_tier,
+		configIndex,
+		envVariant,
+	);
+	assertServiceTierHonored({
+		clientRequestedServiceTier: options.clientRequestedServiceTier ?? null,
+		forwardedServiceTier,
+		provider: usedProvider,
+		model: usedInternalModel,
+		region: usedRegion,
+	});
 
 	const usedApiKeyHash = getApiKeyFingerprint(usedToken);
 
@@ -836,7 +867,7 @@ export async function resolveProviderContext(
 		options.prompt_cache_retention,
 		options.providerCacheControlEnabled,
 		options.n,
-		options.service_tier,
+		forwardedServiceTier,
 		options.verbosity,
 		options.prompt_cache_options,
 		options.session_id,

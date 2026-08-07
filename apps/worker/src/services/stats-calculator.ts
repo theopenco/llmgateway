@@ -18,6 +18,8 @@ import {
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
+import { calculateRoutingTelemetryForHour } from "./routing-telemetry-aggregator.js";
+
 // Environment variable for backfill duration in seconds (defaults to 300 seconds = 5 minutes)
 const BACKFILL_DURATION_SECONDS =
 	Number(process.env.BACKFILL_DURATION_SECONDS) || 300;
@@ -34,6 +36,12 @@ const usedBaseModelSql = sql<string>`split_part(${usedModelWithRegionSql}, ':', 
 const usedRegionSql = sql<
 	string | null
 >`nullif(split_part(${usedModelWithRegionSql}, ':', 2), '')`;
+// Where the requested tier came from. routingMetadata is a `json` column, so it
+// needs an explicit jsonb cast before `->>`. Absent on rows written before the
+// field existed, which `coalesce` treats as an explicit request.
+const serviceTierSourceSql = sql<
+	string | null
+>`(${log.routingMetadata}::jsonb ->> 'serviceTierSource')`;
 
 function excludeRecoveredSameProviderRegionRetry() {
 	return sql<boolean>`not (
@@ -83,6 +91,10 @@ interface MappingMinuteStats {
 	totalInputCost: number;
 	totalOutputCost: number;
 	totalCachedInputCost: number;
+	serviceTierExplicitCount: number;
+	serviceTierImplicitCount: number;
+	serviceTierServedCount: number;
+	serviceTierUnconfirmedCount: number;
 }
 
 function createEmptyMappingMinuteStats(
@@ -119,6 +131,10 @@ function createEmptyMappingMinuteStats(
 		totalInputCost: 0,
 		totalOutputCost: 0,
 		totalCachedInputCost: 0,
+		serviceTierExplicitCount: 0,
+		serviceTierImplicitCount: 0,
+		serviceTierServedCount: 0,
+		serviceTierUnconfirmedCount: 0,
 	};
 }
 
@@ -154,6 +170,10 @@ function mergeMappingMinuteStats(
 	target.totalInputCost += source.totalInputCost;
 	target.totalOutputCost += source.totalOutputCost;
 	target.totalCachedInputCost += source.totalCachedInputCost;
+	target.serviceTierExplicitCount += source.serviceTierExplicitCount;
+	target.serviceTierImplicitCount += source.serviceTierImplicitCount;
+	target.serviceTierServedCount += source.serviceTierServedCount;
+	target.serviceTierUnconfirmedCount += source.serviceTierUnconfirmedCount;
 	return target;
 }
 
@@ -188,6 +208,10 @@ const HISTORY_METRIC_COLUMNS = [
 	"totalInputCost",
 	"totalOutputCost",
 	"totalCachedInputCost",
+	"serviceTierExplicitCount",
+	"serviceTierImplicitCount",
+	"serviceTierServedCount",
+	"serviceTierUnconfirmedCount",
 ] as const;
 
 // Chunk size for bulk upserts. Postgres caps a statement at 65535 bind
@@ -385,6 +409,30 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 				sql<number>`coalesce(sum(${log.cachedInputCost}), 0)`.as(
 					"totalCachedInputCost",
 				),
+			// Service-tier coverage. `requestedServiceTier` holds the tier the gateway
+			// actually asked for, which for a coding-plan org may be a default the
+			// client never sent — `routingMetadata.serviceTierSource` is the only
+			// thing that separates the two, so `implicit` reads it. `unconfirmed`
+			// counts premium-tier requests the response never confirmed: a Google
+			// downgrade to standard and a provider that reports no tier at all look
+			// identical here, and both bill at the standard rate, so it is
+			// deliberately not called a downgrade.
+			serviceTierExplicitCount:
+				sql<number>`sum(case when ${log.requestedServiceTier} is not null and coalesce(${serviceTierSourceSql}, 'request') = 'request' then 1 else 0 end)::int`.as(
+					"serviceTierExplicitCount",
+				),
+			serviceTierImplicitCount:
+				sql<number>`sum(case when ${log.requestedServiceTier} is not null and ${serviceTierSourceSql} = 'coding-plan-default' then 1 else 0 end)::int`.as(
+					"serviceTierImplicitCount",
+				),
+			serviceTierServedCount:
+				sql<number>`sum(case when ${log.usedServiceTier} is not null then 1 else 0 end)::int`.as(
+					"serviceTierServedCount",
+				),
+			serviceTierUnconfirmedCount:
+				sql<number>`sum(case when ${log.requestedServiceTier} is not null and ${log.usedServiceTier} is null then 1 else 0 end)::int`.as(
+					"serviceTierUnconfirmedCount",
+				),
 		})
 		.from(log)
 		.where(
@@ -453,6 +501,10 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 		const totalInputCost = stat?.totalInputCost ?? 0;
 		const totalOutputCost = stat?.totalOutputCost ?? 0;
 		const totalCachedInputCost = stat?.totalCachedInputCost ?? 0;
+		const serviceTierExplicitCount = stat?.serviceTierExplicitCount ?? 0;
+		const serviceTierImplicitCount = stat?.serviceTierImplicitCount ?? 0;
+		const serviceTierServedCount = stat?.serviceTierServedCount ?? 0;
+		const serviceTierUnconfirmedCount = stat?.serviceTierUnconfirmedCount ?? 0;
 
 		// Collect the history record for this minute; written in one bulk upsert
 		// below instead of a per-model round-trip.
@@ -485,6 +537,10 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 			totalInputCost,
 			totalOutputCost,
 			totalCachedInputCost,
+			serviceTierExplicitCount,
+			serviceTierImplicitCount,
+			serviceTierServedCount,
+			serviceTierUnconfirmedCount,
 		});
 	}
 
@@ -627,6 +683,30 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 				sql<number>`coalesce(sum(${log.cachedInputCost}), 0)`.as(
 					"totalCachedInputCost",
 				),
+			// Service-tier coverage. `requestedServiceTier` holds the tier the gateway
+			// actually asked for, which for a coding-plan org may be a default the
+			// client never sent — `routingMetadata.serviceTierSource` is the only
+			// thing that separates the two, so `implicit` reads it. `unconfirmed`
+			// counts premium-tier requests the response never confirmed: a Google
+			// downgrade to standard and a provider that reports no tier at all look
+			// identical here, and both bill at the standard rate, so it is
+			// deliberately not called a downgrade.
+			serviceTierExplicitCount:
+				sql<number>`sum(case when ${log.requestedServiceTier} is not null and coalesce(${serviceTierSourceSql}, 'request') = 'request' then 1 else 0 end)::int`.as(
+					"serviceTierExplicitCount",
+				),
+			serviceTierImplicitCount:
+				sql<number>`sum(case when ${log.requestedServiceTier} is not null and ${serviceTierSourceSql} = 'coding-plan-default' then 1 else 0 end)::int`.as(
+					"serviceTierImplicitCount",
+				),
+			serviceTierServedCount:
+				sql<number>`sum(case when ${log.usedServiceTier} is not null then 1 else 0 end)::int`.as(
+					"serviceTierServedCount",
+				),
+			serviceTierUnconfirmedCount:
+				sql<number>`sum(case when ${log.requestedServiceTier} is not null and ${log.usedServiceTier} is null then 1 else 0 end)::int`.as(
+					"serviceTierUnconfirmedCount",
+				),
 		})
 		.from(log)
 		.where(
@@ -756,6 +836,10 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 		const totalInputCost = stat?.totalInputCost ?? 0;
 		const totalOutputCost = stat?.totalOutputCost ?? 0;
 		const totalCachedInputCost = stat?.totalCachedInputCost ?? 0;
+		const serviceTierExplicitCount = stat?.serviceTierExplicitCount ?? 0;
+		const serviceTierImplicitCount = stat?.serviceTierImplicitCount ?? 0;
+		const serviceTierServedCount = stat?.serviceTierServedCount ?? 0;
+		const serviceTierUnconfirmedCount = stat?.serviceTierUnconfirmedCount ?? 0;
 
 		if (logsCount > 0) {
 			activeMappingsCount++;
@@ -794,6 +878,10 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 			totalInputCost,
 			totalOutputCost,
 			totalCachedInputCost,
+			serviceTierExplicitCount,
+			serviceTierImplicitCount,
+			serviceTierServedCount,
+			serviceTierUnconfirmedCount,
 		});
 	}
 
@@ -1050,6 +1138,10 @@ async function calculateModelHistoryForHour(targetHour: Date) {
 			totalInputCost: sql<number>`coalesce(sum(${modelHistory.totalInputCost}), 0)`,
 			totalOutputCost: sql<number>`coalesce(sum(${modelHistory.totalOutputCost}), 0)`,
 			totalCachedInputCost: sql<number>`coalesce(sum(${modelHistory.totalCachedInputCost}), 0)`,
+			serviceTierExplicitCount: sql<number>`coalesce(sum(${modelHistory.serviceTierExplicitCount}), 0)::int`,
+			serviceTierImplicitCount: sql<number>`coalesce(sum(${modelHistory.serviceTierImplicitCount}), 0)::int`,
+			serviceTierServedCount: sql<number>`coalesce(sum(${modelHistory.serviceTierServedCount}), 0)::int`,
+			serviceTierUnconfirmedCount: sql<number>`coalesce(sum(${modelHistory.serviceTierUnconfirmedCount}), 0)::int`,
 		})
 		.from(modelHistory)
 		.where(
@@ -1116,6 +1208,10 @@ async function calculateMappingHistoryForHour(targetHour: Date) {
 			totalInputCost: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalInputCost}), 0)`,
 			totalOutputCost: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalOutputCost}), 0)`,
 			totalCachedInputCost: sql<number>`coalesce(sum(${modelProviderMappingHistory.totalCachedInputCost}), 0)`,
+			serviceTierExplicitCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.serviceTierExplicitCount}), 0)::int`,
+			serviceTierImplicitCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.serviceTierImplicitCount}), 0)::int`,
+			serviceTierServedCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.serviceTierServedCount}), 0)::int`,
+			serviceTierUnconfirmedCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.serviceTierUnconfirmedCount}), 0)::int`,
 		})
 		.from(modelProviderMappingHistory)
 		.where(
@@ -1154,12 +1250,15 @@ async function calculateMappingHistoryForHour(targetHour: Date) {
 }
 
 /**
- * Roll up a single hour of minute history into the hourly summary tables.
+ * Roll up a single hour of minute history into the hourly summary tables, plus
+ * the routing telemetry for that hour. Routing telemetry rides along here rather
+ * than on its own schedule so it is covered by the same backfill pass.
  */
 async function calculateHistoryForHour(targetHour: Date) {
 	const mappingResult = await calculateMappingHistoryForHour(targetHour);
 	const modelResult = await calculateModelHistoryForHour(targetHour);
-	return { mappingResult, modelResult };
+	const routingResult = await calculateRoutingTelemetryForHour(targetHour);
+	return { mappingResult, modelResult, routingResult };
 }
 
 /**
