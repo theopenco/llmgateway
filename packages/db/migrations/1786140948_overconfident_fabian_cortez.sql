@@ -1,0 +1,1 @@
+ALTER TABLE "routing_exclusion_hourly" ADD COLUMN "excluded_decision_count" integer DEFAULT 0 NOT NULL;
