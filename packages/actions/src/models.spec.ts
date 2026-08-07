@@ -76,7 +76,7 @@ describe("Models", () => {
 		const isZero = (p: string | undefined) =>
 			p !== undefined && Number(p) === 0;
 
-		// Filter models that have zero input/output pricing AND no request or per-second price
+		// Filter models that have zero input/output pricing AND no request, per-second, or per-image price
 		const modelsWithZeroPricing = models.filter((model) =>
 			model.providers.some(
 				(provider) =>
@@ -84,6 +84,9 @@ describe("Models", () => {
 					!(provider as ProviderModelMapping).requestPrice &&
 					!Object.values(
 						(provider as ProviderModelMapping).perSecondPrice ?? {},
+					).some((price) => Number(price) > 0) &&
+					!Object.values(
+						(provider as ProviderModelMapping).perImagePrice ?? {},
 					).some((price) => Number(price) > 0) &&
 					!hasImagePricing(provider as ProviderModelMapping) &&
 					!isEmbeddingProvider(provider as ProviderModelMapping),
@@ -102,6 +105,9 @@ describe("Models", () => {
 						!(p as ProviderModelMapping).requestPrice &&
 						!Object.values(
 							(p as ProviderModelMapping).perSecondPrice ?? {},
+						).some((price) => Number(price) > 0) &&
+						!Object.values(
+							(p as ProviderModelMapping).perImagePrice ?? {},
 						).some((price) => Number(price) > 0) &&
 						!hasImagePricing(p as ProviderModelMapping) &&
 						!isEmbeddingProvider(p as ProviderModelMapping),

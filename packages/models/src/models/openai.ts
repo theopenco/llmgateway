@@ -690,6 +690,7 @@ export const openaiModels = [
 				vision: false,
 				tools: true,
 				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high"],
 				jsonOutput: true,
 			},
 			{
@@ -853,6 +854,7 @@ export const openaiModels = [
 				vision: false,
 				tools: true,
 				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high"],
 				jsonOutput: true,
 			},
 			{

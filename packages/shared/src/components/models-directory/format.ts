@@ -44,3 +44,29 @@ export function formatDeprecationDate(
 		? `Deactivated since ${formatted}`
 		: `Deactivating on ${formatted}`;
 }
+
+/**
+ * Formats a perImagePrice resolution-tier map as a discounted price range,
+ * e.g. "$0.04 – $0.075" (or "$0.03" when every tier costs the same).
+ * Callers append their own unit suffix (e.g. "/image").
+ * @param perImagePrice - Resolution tier → USD-per-image price map
+ * @param discount - Provider discount fraction as a string (e.g. "0.3")
+ * @returns The formatted range, or null when the map has no finite prices
+ */
+export function formatPerImagePriceRange(
+	perImagePrice: Record<string, string | number>,
+	discount?: string | null,
+): string | null {
+	const discountNum = discount ? parseFloat(discount) : 0;
+	const values = Object.values(perImagePrice)
+		.map(Number)
+		.filter(Number.isFinite)
+		.map((v) => (discountNum > 0 ? v * (1 - discountNum) : v));
+	if (values.length === 0) {
+		return null;
+	}
+	const fmt = (n: number) => `$${parseFloat(n.toFixed(4))}`;
+	const min = Math.min(...values);
+	const max = Math.max(...values);
+	return min === max ? fmt(min) : `${fmt(min)} – ${fmt(max)}`;
+}

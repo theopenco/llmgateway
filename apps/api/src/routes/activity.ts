@@ -3,6 +3,11 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { apiKeyScopeFilter } from "@/lib/api-key-scope-filter.js";
+import {
+	mapModeSplit,
+	modeSplitFields,
+	modeSplitSchema,
+} from "@/lib/mode-split.js";
 import { requireEnterpriseAdmin } from "@/lib/require-enterprise-admin.js";
 import { getUserUsageBreakdown } from "@/lib/user-usage-breakdown.js";
 import {
@@ -49,6 +54,7 @@ const modelUsageSchema = z.object({
 	outputTokens: z.number(),
 	totalTokens: z.number(),
 	cost: z.number(),
+	...modeSplitSchema,
 });
 
 // Define the response schema for api-key-specific usage
@@ -60,6 +66,7 @@ const apiKeyUsageSchema = z.object({
 	outputTokens: z.number(),
 	totalTokens: z.number(),
 	cost: z.number(),
+	...modeSplitSchema,
 });
 
 // Define the response schema for per-member usage. Requests are attributed to
@@ -73,6 +80,7 @@ const userUsageSchema = z.object({
 	outputTokens: z.number(),
 	totalTokens: z.number(),
 	cost: z.number(),
+	...modeSplitSchema,
 });
 
 // Define the response schema for daily activity
@@ -496,6 +504,7 @@ activity.openapi(getActivity, async (c) => {
 				cost: sql<number>`COALESCE(SUM(${apiKeyHourlyModelStats.cost}), 0)`.as(
 					"cost",
 				),
+				...modeSplitFields(apiKeyHourlyModelStats),
 			})
 			.from(apiKeyHourlyModelStats)
 			.where(
@@ -531,6 +540,7 @@ activity.openapi(getActivity, async (c) => {
 				outputTokens: Number(breakdown.outputTokens),
 				totalTokens: Number(breakdown.totalTokens),
 				cost: Number(breakdown.cost),
+				...mapModeSplit(breakdown),
 			});
 		}
 
@@ -569,6 +579,7 @@ activity.openapi(getActivity, async (c) => {
 					cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as(
 						"cost",
 					),
+					...modeSplitFields(apiKeyHourlyStats),
 				})
 				.from(apiKeyHourlyStats)
 				.leftJoin(apiKey, eq(apiKey.id, apiKeyHourlyStats.apiKeyId))
@@ -600,6 +611,7 @@ activity.openapi(getActivity, async (c) => {
 					outputTokens: Number(breakdown.outputTokens),
 					totalTokens: Number(breakdown.totalTokens),
 					cost: Number(breakdown.cost),
+					...mapModeSplit(breakdown),
 				});
 			}
 		}
@@ -854,6 +866,7 @@ activity.openapi(getActivity, async (c) => {
 				cost: sql<number>`COALESCE(SUM(${projectHourlyModelStats.cost}), 0)`.as(
 					"cost",
 				),
+				...modeSplitFields(projectHourlyModelStats),
 			})
 			.from(projectHourlyModelStats)
 			.where(
@@ -880,6 +893,7 @@ activity.openapi(getActivity, async (c) => {
 				outputTokens: Number(breakdown.outputTokens),
 				totalTokens: Number(breakdown.totalTokens),
 				cost: Number(breakdown.cost),
+				...mapModeSplit(breakdown),
 			});
 		}
 	}
@@ -918,6 +932,7 @@ activity.openapi(getActivity, async (c) => {
 				cost: sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cost}), 0)`.as(
 					"cost",
 				),
+				...modeSplitFields(apiKeyHourlyStats),
 			})
 			.from(apiKeyHourlyStats)
 			.leftJoin(apiKey, eq(apiKey.id, apiKeyHourlyStats.apiKeyId))
@@ -944,6 +959,7 @@ activity.openapi(getActivity, async (c) => {
 				outputTokens: Number(breakdown.outputTokens),
 				totalTokens: Number(breakdown.totalTokens),
 				cost: Number(breakdown.cost),
+				...mapModeSplit(breakdown),
 			});
 		}
 	}
@@ -974,6 +990,10 @@ activity.openapi(getActivity, async (c) => {
 				outputTokens: breakdown.outputTokens,
 				totalTokens: breakdown.totalTokens,
 				cost: breakdown.cost,
+				creditsRequestCount: breakdown.creditsRequestCount,
+				apiKeysRequestCount: breakdown.apiKeysRequestCount,
+				creditsCost: breakdown.creditsCost,
+				apiKeysCost: breakdown.apiKeysCost,
 			});
 		}
 	}
@@ -1069,6 +1089,7 @@ const sourceUsageSchema = z.object({
 	outputTokens: z.number(),
 	totalTokens: z.number(),
 	cost: z.number(),
+	...modeSplitSchema,
 	lastUsedAt: z.string().nullable(),
 });
 
@@ -1183,6 +1204,7 @@ activity.openapi(getSourceActivity, async (c) => {
 			cost: sql<number>`COALESCE(SUM(${projectHourlySourceStats.cost}), 0)`.as(
 				"cost",
 			),
+			...modeSplitFields(projectHourlySourceStats),
 			lastUsedAt: sql<
 				string | null
 			>`to_char(MAX(${projectHourlySourceStats.hourTimestamp}), 'YYYY-MM-DD"T"HH24:MI:SS')`.as(
@@ -1208,6 +1230,7 @@ activity.openapi(getSourceActivity, async (c) => {
 			outputTokens: Number(r.outputTokens),
 			totalTokens: Number(r.totalTokens),
 			cost: Number(r.cost),
+			...mapModeSplit(r),
 			lastUsedAt: r.lastUsedAt
 				? new Date(r.lastUsedAt + "Z").toISOString()
 				: null,

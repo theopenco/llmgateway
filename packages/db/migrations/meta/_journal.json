@@ -1520,6 +1520,27 @@
       "when": 1785606001120,
       "tag": "1785606001_bright_blackheart",
       "breakpoints": true
+    },
+    {
+      "idx": 217,
+      "version": "8",
+      "when": 1785772888868,
+      "tag": "1785772888_public_dreadnoughts",
+      "breakpoints": true
+    },
+    {
+      "idx": 218,
+      "version": "8",
+      "when": 1785862192235,
+      "tag": "1785862192_petite_apocalypse",
+      "breakpoints": true
+    },
+    {
+      "idx": 219,
+      "version": "8",
+      "when": 1785864734403,
+      "tag": "1785864734_aberrant_iron_fist",
+      "breakpoints": true
     }
   ]
 }

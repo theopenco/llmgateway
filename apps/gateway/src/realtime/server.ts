@@ -447,9 +447,9 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 						preflight.match.modelId,
 					);
 				}
-				if (preflight.providerKey?.id) {
+				if (preflight.trackedKeyHealthId) {
 					reportTrackedKeyError(
-						preflight.providerKey.id,
+						preflight.trackedKeyHealthId,
 						0,
 						undefined,
 						preflight.match.modelId,
@@ -476,9 +476,9 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 					preflight.match.modelId,
 				);
 			}
-			if (preflight.providerKey?.id) {
+			if (preflight.trackedKeyHealthId) {
 				reportTrackedKeySuccess(
-					preflight.providerKey.id,
+					preflight.trackedKeyHealthId,
 					preflight.match.modelId,
 				);
 			}

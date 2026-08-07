@@ -2,6 +2,11 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import {
+	mapModeSplit,
+	modeSplitFields,
+	modeSplitSchema,
+} from "@/lib/mode-split.js";
 import { requireEnterpriseAdmin } from "@/lib/require-enterprise-admin.js";
 import { getUserUsageBreakdown } from "@/lib/user-usage-breakdown.js";
 import { userHasProjectAccess } from "@/utils/authorization.js";
@@ -104,6 +109,7 @@ const memberUsageSchema = z.object({
 	totalTokens: z.number(),
 	requestCount: z.number(),
 	errorCount: z.number(),
+	...modeSplitSchema,
 });
 
 const getMembersUsage = createRoute({
@@ -161,6 +167,10 @@ analytics.openapi(getMembersUsage, async (c) => {
 				totalTokens: 0,
 				requestCount: 0,
 				errorCount: 0,
+				creditsRequestCount: 0,
+				apiKeysRequestCount: 0,
+				creditsCost: 0,
+				apiKeysCost: 0,
 			})),
 			plan: "enterprise",
 		});
@@ -198,6 +208,7 @@ analytics.openapi(getMembersUsage, async (c) => {
 			errorCount: sql<number>`SUM(${apiKeyHourlyStats.errorCount})`.as(
 				"error_count",
 			),
+			...modeSplitFields(apiKeyHourlyStats),
 		})
 		.from(apiKeyHourlyStats)
 		.where(
@@ -216,6 +227,10 @@ analytics.openapi(getMembersUsage, async (c) => {
 			totalTokens: number;
 			requestCount: number;
 			errorCount: number;
+			creditsRequestCount: number;
+			apiKeysRequestCount: number;
+			creditsCost: number;
+			apiKeysCost: number;
 		}
 	>();
 	for (const row of usageRows) {
@@ -228,11 +243,19 @@ analytics.openapi(getMembersUsage, async (c) => {
 			totalTokens: 0,
 			requestCount: 0,
 			errorCount: 0,
+			creditsRequestCount: 0,
+			apiKeysRequestCount: 0,
+			creditsCost: 0,
+			apiKeysCost: 0,
 		};
 		agg.cost += Number(row.cost ?? 0);
 		agg.totalTokens += Number(row.totalTokens ?? 0);
 		agg.requestCount += Number(row.requestCount ?? 0);
 		agg.errorCount += Number(row.errorCount ?? 0);
+		agg.creditsRequestCount += Number(row.creditsRequestCount ?? 0);
+		agg.apiKeysRequestCount += Number(row.apiKeysRequestCount ?? 0);
+		agg.creditsCost += Number(row.creditsCost ?? 0);
+		agg.apiKeysCost += Number(row.apiKeysCost ?? 0);
 		usageByCreator.set(creator, agg);
 	}
 
@@ -249,6 +272,10 @@ analytics.openapi(getMembersUsage, async (c) => {
 				totalTokens: agg?.totalTokens ?? 0,
 				requestCount: agg?.requestCount ?? 0,
 				errorCount: agg?.errorCount ?? 0,
+				creditsRequestCount: agg?.creditsRequestCount ?? 0,
+				apiKeysRequestCount: agg?.apiKeysRequestCount ?? 0,
+				creditsCost: agg?.creditsCost ?? 0,
+				apiKeysCost: agg?.apiKeysCost ?? 0,
 			};
 		})
 		.sort((a, b) => b.cost - a.cost);
@@ -261,6 +288,7 @@ const breakdownEntrySchema = z.object({
 	cost: z.number(),
 	requestCount: z.number(),
 	totalTokens: z.number(),
+	...modeSplitSchema,
 });
 
 const memberActivityModelSchema = z.object({
@@ -271,6 +299,7 @@ const memberActivityModelSchema = z.object({
 	outputTokens: z.number(),
 	totalTokens: z.number(),
 	cost: z.number(),
+	...modeSplitSchema,
 });
 
 const memberActivityRowSchema = z.object({
@@ -294,6 +323,7 @@ const memberDetailSchema = z.object({
 		errorCount: z.number(),
 		cacheCount: z.number(),
 		apiKeyCount: z.number(),
+		...modeSplitSchema,
 	}),
 	topModels: z.array(breakdownEntrySchema),
 	topProviders: z.array(breakdownEntrySchema),
@@ -382,6 +412,10 @@ analytics.openapi(getMemberDetail, async (c) => {
 		errorCount: 0,
 		cacheCount: 0,
 		apiKeyCount: 0,
+		creditsRequestCount: 0,
+		apiKeysRequestCount: 0,
+		creditsCost: 0,
+		apiKeysCost: 0,
 	};
 
 	if (projectIds.length === 0) {
@@ -444,6 +478,7 @@ analytics.openapi(getMemberDetail, async (c) => {
 				sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cacheCount}), 0)`.as(
 					"cache_count",
 				),
+			...modeSplitFields(apiKeyHourlyStats),
 		})
 		.from(apiKeyHourlyStats)
 		.where(
@@ -464,6 +499,10 @@ analytics.openapi(getMemberDetail, async (c) => {
 		errorCount: Number(summaryRow?.errorCount ?? 0),
 		cacheCount: Number(summaryRow?.cacheCount ?? 0),
 		apiKeyCount: keyIds.length,
+		creditsRequestCount: Number(summaryRow?.creditsRequestCount ?? 0),
+		apiKeysRequestCount: Number(summaryRow?.apiKeysRequestCount ?? 0),
+		creditsCost: Number(summaryRow?.creditsCost ?? 0),
+		apiKeysCost: Number(summaryRow?.apiKeysCost ?? 0),
 	};
 
 	const modelRows = await db
@@ -478,6 +517,7 @@ analytics.openapi(getMemberDetail, async (c) => {
 				sql<number>`SUM(CAST(${apiKeyHourlyModelStats.totalTokens} AS NUMERIC))`.as(
 					"total_tokens",
 				),
+			...modeSplitFields(apiKeyHourlyModelStats),
 		})
 		.from(apiKeyHourlyModelStats)
 		.where(
@@ -499,22 +539,39 @@ analytics.openapi(getMemberDetail, async (c) => {
 			cost: Number(r.cost ?? 0),
 			requestCount: Number(r.requestCount ?? 0),
 			totalTokens: Number(r.totalTokens ?? 0),
+			...mapModeSplit(r),
 		}))
 		.slice(0, 20);
 
 	const providerMap = new Map<
 		string,
-		{ cost: number; requestCount: number; totalTokens: number }
+		{
+			cost: number;
+			requestCount: number;
+			totalTokens: number;
+			creditsRequestCount: number;
+			apiKeysRequestCount: number;
+			creditsCost: number;
+			apiKeysCost: number;
+		}
 	>();
 	for (const r of modelRows) {
 		const agg = providerMap.get(r.usedProvider) ?? {
 			cost: 0,
 			requestCount: 0,
 			totalTokens: 0,
+			creditsRequestCount: 0,
+			apiKeysRequestCount: 0,
+			creditsCost: 0,
+			apiKeysCost: 0,
 		};
 		agg.cost += Number(r.cost ?? 0);
 		agg.requestCount += Number(r.requestCount ?? 0);
 		agg.totalTokens += Number(r.totalTokens ?? 0);
+		agg.creditsRequestCount += Number(r.creditsRequestCount ?? 0);
+		agg.apiKeysRequestCount += Number(r.apiKeysRequestCount ?? 0);
+		agg.creditsCost += Number(r.creditsCost ?? 0);
+		agg.apiKeysCost += Number(r.apiKeysCost ?? 0);
 		providerMap.set(r.usedProvider, agg);
 	}
 	const topProviders = [...providerMap.entries()]
@@ -552,6 +609,7 @@ analytics.openapi(getMemberDetail, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
 					"total_tokens",
 				),
+			...modeSplitFields(apiKeyHourlyModelStats),
 		})
 		.from(apiKeyHourlyModelStats)
 		.where(
@@ -581,6 +639,7 @@ analytics.openapi(getMemberDetail, async (c) => {
 			inputTokens: Number(row.inputTokens ?? 0),
 			outputTokens: Number(row.outputTokens ?? 0),
 			totalTokens: Number(row.totalTokens ?? 0),
+			...mapModeSplit(row),
 		});
 		breakdownByDate.set(date, list);
 	}
@@ -609,6 +668,7 @@ const selfUsageSchema = z.object({
 		requestCount: z.number(),
 		errorCount: z.number(),
 		apiKeyCount: z.number(),
+		...modeSplitSchema,
 	}),
 	activity: z.array(
 		z.object({
@@ -616,6 +676,7 @@ const selfUsageSchema = z.object({
 			cost: z.number(),
 			requestCount: z.number(),
 			totalTokens: z.number(),
+			...modeSplitSchema,
 		}),
 	),
 	topModels: z.array(breakdownEntrySchema),
@@ -684,12 +745,20 @@ analytics.openapi(getSelfUsage, async (c) => {
 		requestCount: 0,
 		errorCount: 0,
 		apiKeyCount: 0,
+		creditsRequestCount: 0,
+		apiKeysRequestCount: 0,
+		creditsCost: 0,
+		apiKeysCost: 0,
 	};
 	const emptyActivity = eachDay(fromStr, toStr).map((date) => ({
 		date,
 		cost: 0,
 		requestCount: 0,
 		totalTokens: 0,
+		creditsRequestCount: 0,
+		apiKeysRequestCount: 0,
+		creditsCost: 0,
+		apiKeysCost: 0,
 	}));
 
 	const myKeys = await db
@@ -734,6 +803,7 @@ analytics.openapi(getSelfUsage, async (c) => {
 				sql<number>`COALESCE(SUM(${apiKeyHourlyStats.errorCount}), 0)`.as(
 					"error_count",
 				),
+			...modeSplitFields(apiKeyHourlyStats),
 		})
 		.from(apiKeyHourlyStats)
 		.where(
@@ -752,6 +822,10 @@ analytics.openapi(getSelfUsage, async (c) => {
 		requestCount: Number(s?.requestCount ?? 0),
 		errorCount: Number(s?.errorCount ?? 0),
 		apiKeyCount: keyIds.length,
+		creditsRequestCount: Number(s?.creditsRequestCount ?? 0),
+		apiKeysRequestCount: Number(s?.apiKeysRequestCount ?? 0),
+		creditsCost: Number(s?.creditsCost ?? 0),
+		apiKeysCost: Number(s?.apiKeysCost ?? 0),
 	};
 
 	const activityRows = await db
@@ -768,6 +842,7 @@ analytics.openapi(getSelfUsage, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
 					"total_tokens",
 				),
+			...modeSplitFields(apiKeyHourlyStats),
 		})
 		.from(apiKeyHourlyStats)
 		.where(
@@ -789,6 +864,10 @@ analytics.openapi(getSelfUsage, async (c) => {
 			cost: Number(r?.cost ?? 0),
 			requestCount: Number(r?.requestCount ?? 0),
 			totalTokens: Number(r?.totalTokens ?? 0),
+			creditsRequestCount: Number(r?.creditsRequestCount ?? 0),
+			apiKeysRequestCount: Number(r?.apiKeysRequestCount ?? 0),
+			creditsCost: Number(r?.creditsCost ?? 0),
+			apiKeysCost: Number(r?.apiKeysCost ?? 0),
 		};
 	});
 
@@ -803,6 +882,7 @@ analytics.openapi(getSelfUsage, async (c) => {
 				sql<number>`SUM(CAST(${apiKeyHourlyModelStats.totalTokens} AS NUMERIC))`.as(
 					"total_tokens",
 				),
+			...modeSplitFields(apiKeyHourlyModelStats),
 		})
 		.from(apiKeyHourlyModelStats)
 		.where(
@@ -819,6 +899,7 @@ analytics.openapi(getSelfUsage, async (c) => {
 		cost: Number(r.cost ?? 0),
 		requestCount: Number(r.requestCount ?? 0),
 		totalTokens: Number(r.totalTokens ?? 0),
+		...mapModeSplit(r),
 	}));
 
 	return c.json({ summary, activity, topModels });
@@ -873,6 +954,7 @@ const orgActivityBreakdownSchema = z.object({
 	cost: z.number(),
 	requestCount: z.number(),
 	totalTokens: z.number(),
+	...modeSplitSchema,
 });
 
 const orgActivityRowSchema = z.object({
@@ -880,6 +962,7 @@ const orgActivityRowSchema = z.object({
 	cost: z.number(),
 	requestCount: z.number(),
 	totalTokens: z.number(),
+	...modeSplitSchema,
 	breakdown: z.array(orgActivityBreakdownSchema),
 });
 
@@ -945,6 +1028,10 @@ analytics.openapi(getOrgActivity, async (c) => {
 				cost: 0,
 				requestCount: 0,
 				totalTokens: 0,
+				creditsRequestCount: 0,
+				apiKeysRequestCount: 0,
+				creditsCost: 0,
+				apiKeysCost: 0,
 				breakdown: [],
 			})),
 			groupBy,
@@ -969,6 +1056,7 @@ analytics.openapi(getOrgActivity, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
 					"total_tokens",
 				),
+			...modeSplitFields(projectHourlyStats),
 		})
 		.from(projectHourlyStats)
 		.where(
@@ -990,6 +1078,10 @@ analytics.openapi(getOrgActivity, async (c) => {
 		cost: number;
 		requestCount: number;
 		totalTokens: number;
+		creditsRequestCount: number;
+		apiKeysRequestCount: number;
+		creditsCost: number;
+		apiKeysCost: number;
 	}
 	const breakdownByDate = new Map<string, Map<string, BreakdownAgg>>();
 
@@ -997,9 +1089,7 @@ analytics.openapi(getOrgActivity, async (c) => {
 		date: string,
 		key: string,
 		label: string,
-		cost: number,
-		requestCount: number,
-		totalTokens: number,
+		values: Omit<BreakdownAgg, "label">,
 	) => {
 		let dayMap = breakdownByDate.get(date);
 		if (!dayMap) {
@@ -1008,11 +1098,15 @@ analytics.openapi(getOrgActivity, async (c) => {
 		}
 		const existing = dayMap.get(key);
 		if (existing) {
-			existing.cost += cost;
-			existing.requestCount += requestCount;
-			existing.totalTokens += totalTokens;
+			existing.cost += values.cost;
+			existing.requestCount += values.requestCount;
+			existing.totalTokens += values.totalTokens;
+			existing.creditsRequestCount += values.creditsRequestCount;
+			existing.apiKeysRequestCount += values.apiKeysRequestCount;
+			existing.creditsCost += values.creditsCost;
+			existing.apiKeysCost += values.apiKeysCost;
 		} else {
-			dayMap.set(key, { label, cost, requestCount, totalTokens });
+			dayMap.set(key, { label, ...values });
 		}
 	};
 
@@ -1036,6 +1130,7 @@ analytics.openapi(getOrgActivity, async (c) => {
 					sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
 						"total_tokens",
 					),
+				...modeSplitFields(projectHourlyModelStats),
 			})
 			.from(projectHourlyModelStats)
 			.where(
@@ -1053,14 +1148,12 @@ analytics.openapi(getOrgActivity, async (c) => {
 			const usedModel = row.usedModel || "unknown";
 			const key = canonicalModelId(usedModel);
 			const label = modelNameById.get(key) ?? key;
-			addBreakdown(
-				date,
-				key,
-				label,
-				Number(row.cost),
-				Number(row.requestCount),
-				Number(row.totalTokens),
-			);
+			addBreakdown(date, key, label, {
+				cost: Number(row.cost),
+				requestCount: Number(row.requestCount),
+				totalTokens: Number(row.totalTokens),
+				...mapModeSplit(row),
+			});
 		}
 	} else if (groupBy === "project") {
 		const projectNames = new Map(
@@ -1089,6 +1182,7 @@ analytics.openapi(getOrgActivity, async (c) => {
 					sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
 						"total_tokens",
 					),
+				...modeSplitFields(projectHourlyStats),
 			})
 			.from(projectHourlyStats)
 			.where(
@@ -1107,9 +1201,12 @@ analytics.openapi(getOrgActivity, async (c) => {
 				date,
 				row.projectId,
 				projectNames.get(row.projectId) ?? "Unknown project",
-				Number(row.cost),
-				Number(row.requestCount),
-				Number(row.totalTokens),
+				{
+					cost: Number(row.cost),
+					requestCount: Number(row.requestCount),
+					totalTokens: Number(row.totalTokens),
+					...mapModeSplit(row),
+				},
 			);
 		}
 	} else if (groupBy === "user") {
@@ -1121,14 +1218,15 @@ analytics.openapi(getOrgActivity, async (c) => {
 		});
 
 		for (const row of rows) {
-			addBreakdown(
-				row.date.slice(0, 10),
-				row.userId,
-				row.name,
-				row.cost,
-				row.requestCount,
-				row.totalTokens,
-			);
+			addBreakdown(row.date.slice(0, 10), row.userId, row.name, {
+				cost: row.cost,
+				requestCount: row.requestCount,
+				totalTokens: row.totalTokens,
+				creditsRequestCount: row.creditsRequestCount,
+				apiKeysRequestCount: row.apiKeysRequestCount,
+				creditsCost: row.creditsCost,
+				apiKeysCost: row.apiKeysCost,
+			});
 		}
 	} else {
 		const rows = await db
@@ -1149,6 +1247,7 @@ analytics.openapi(getOrgActivity, async (c) => {
 					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
 						"total_tokens",
 					),
+				...modeSplitFields(apiKeyHourlyStats),
 			})
 			.from(apiKeyHourlyStats)
 			.leftJoin(tables.apiKey, eq(tables.apiKey.id, apiKeyHourlyStats.apiKeyId))
@@ -1167,14 +1266,12 @@ analytics.openapi(getOrgActivity, async (c) => {
 
 		for (const row of rows) {
 			const date = String(row.date).slice(0, 10);
-			addBreakdown(
-				date,
-				row.apiKeyId,
-				row.description ?? "Deleted key",
-				Number(row.cost),
-				Number(row.requestCount),
-				Number(row.totalTokens),
-			);
+			addBreakdown(date, row.apiKeyId, row.description ?? "Deleted key", {
+				cost: Number(row.cost),
+				requestCount: Number(row.requestCount),
+				totalTokens: Number(row.totalTokens),
+				...mapModeSplit(row),
+			});
 		}
 	}
 
@@ -1186,6 +1283,10 @@ analytics.openapi(getOrgActivity, async (c) => {
 			cost: Number(totals?.cost ?? 0),
 			requestCount: Number(totals?.requestCount ?? 0),
 			totalTokens: Number(totals?.totalTokens ?? 0),
+			creditsRequestCount: Number(totals?.creditsRequestCount ?? 0),
+			apiKeysRequestCount: Number(totals?.apiKeysRequestCount ?? 0),
+			creditsCost: Number(totals?.creditsCost ?? 0),
+			apiKeysCost: Number(totals?.apiKeysCost ?? 0),
 			breakdown: dayMap
 				? Array.from(dayMap.entries()).map(([key, v]) => ({
 						key,
@@ -1193,6 +1294,10 @@ analytics.openapi(getOrgActivity, async (c) => {
 						cost: v.cost,
 						requestCount: v.requestCount,
 						totalTokens: v.totalTokens,
+						creditsRequestCount: v.creditsRequestCount,
+						apiKeysRequestCount: v.apiKeysRequestCount,
+						creditsCost: v.creditsCost,
+						apiKeysCost: v.apiKeysCost,
 					}))
 				: [],
 		};

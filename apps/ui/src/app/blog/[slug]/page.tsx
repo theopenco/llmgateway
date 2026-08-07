@@ -34,7 +34,7 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 		headline: entry.title,
 		description: entry.summary ?? "LLM Gateway blog post",
 		datePublished: entry.date,
-		dateModified: entry.date,
+		dateModified: entry.updatedAt ?? entry.date,
 		author: {
 			"@type": "Organization",
 			name: "LLM Gateway",
@@ -64,6 +64,18 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 			},
 		}),
 	};
+
+	const faqSchema = entry.faqs.length
+		? {
+				"@context": "https://schema.org",
+				"@type": "FAQPage",
+				mainEntity: entry.faqs.map((faq) => ({
+					"@type": "Question",
+					name: faq.question,
+					acceptedAnswer: { "@type": "Answer", text: faq.answer },
+				})),
+			}
+		: null;
 
 	const breadcrumbSchema = {
 		"@context": "https://schema.org",
@@ -106,6 +118,15 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 					__html: JSON.stringify(breadcrumbSchema),
 				}}
 			/>
+			{faqSchema ? (
+				<script
+					type="application/ld+json"
+					// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
+					dangerouslySetInnerHTML={{
+						__html: JSON.stringify(faqSchema),
+					}}
+				/>
+			) : null}
 			<HeroRSC navbarOnly />
 			<div className="min-h-screen bg-white text-black dark:bg-black dark:text-white pt-30">
 				<main className="container mx-auto px-4 py-8">
@@ -135,6 +156,18 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 											day: "numeric",
 										})}
 									</time>
+									{entry.updatedAt && (
+										<span className="text-sm italic">
+											{" · Updated "}
+											<time dateTime={entry.updatedAt}>
+												{new Date(entry.updatedAt).toLocaleDateString("en-US", {
+													year: "numeric",
+													month: "long",
+													day: "numeric",
+												})}
+											</time>
+										</span>
+									)}
 								</div>
 							</header>
 
@@ -157,6 +190,29 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 									{entry.content}
 								</Markdown>
 							</div>
+
+							{entry.faqs.length ? (
+								<section
+									aria-labelledby="blog-faq-heading"
+									className="mt-12 border-t border-border pt-8"
+								>
+									<h2 id="blog-faq-heading" className="text-2xl font-bold mb-6">
+										Frequently asked questions
+									</h2>
+									<dl className="divide-y divide-border">
+										{entry.faqs.map((faq) => (
+											<div key={faq.question} className="py-5">
+												<dt className="text-lg font-semibold">
+													{faq.question}
+												</dt>
+												<dd className="mt-2 leading-relaxed text-muted-foreground">
+													{faq.answer}
+												</dd>
+											</div>
+										))}
+									</dl>
+								</section>
+							) : null}
 						</article>
 					</div>
 				</main>

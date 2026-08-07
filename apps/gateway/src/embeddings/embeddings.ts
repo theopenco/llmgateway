@@ -5,7 +5,10 @@ import { buildRoutingAttempt } from "@/chat/tools/build-routing-attempt.js";
 import { createLogEntry } from "@/chat/tools/create-log-entry.js";
 import { extractCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
 import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
-import { getProviderEnv } from "@/chat/tools/get-provider-env.js";
+import {
+	getCredentialSetting,
+	resolvePlatformCredential,
+} from "@/chat/tools/resolve-platform-credential.js";
 import {
 	getErrorType,
 	isRetryableErrorType,
@@ -50,12 +53,13 @@ import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 import {
 	getProviderDefaultBaseUrl,
 	getProviderHeaders,
+	managedCredentialOptions,
+	readProviderKey,
 } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	getOrganizationEnvVariant,
-	getProviderEnvValue,
 	models as modelDefinitions,
 	resolveVertexTokenType,
 	type VertexTokenType,
@@ -684,6 +688,8 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 
 	interface EmbeddingAttempt {
 		providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
+		/** Platform-managed credential when one served this attempt. */
+		managedKey: InferSelectModel<typeof tables.providerKey> | undefined;
 		usedToken: string;
 		configIndex: number;
 		envVarName: string | undefined;
@@ -706,6 +712,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 	// id, batch_not_supported) return as `json_error` for direct `c.json`.
 	async function resolveAttempt(): Promise<ResolveResult> {
 		let providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
+		let managedKey: InferSelectModel<typeof tables.providerKey> | undefined;
 		let usedToken: string | undefined;
 		let configIndex = 0;
 		let envVarName: string | undefined;
@@ -731,7 +738,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 					message: `No API key set for provider: ${providerId}. Please add a provider key in your settings or add credits and switch to credits or hybrid mode.`,
 				});
 			}
-			usedToken = providerKey.token;
+			usedToken = readProviderKey(providerKey);
 		} else if (retryProject.mode === "credits") {
 			assertCreditsAvailableForEmbedding(
 				retryOrganization,
@@ -741,14 +748,18 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 					`Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
 			);
 
-			const envResult = getProviderEnv(providerId, {
+			const platformCredential = await resolvePlatformCredential(providerId, {
 				selectionScope: upstreamModel,
-				excludedIndices: excludedEnvKeyIndices,
 				variant: envVariant,
+				region: undefined,
+				requiresServiceTier: false,
+				excludedEnvIndices: excludedEnvKeyIndices,
+				excludedProviderKeyIds,
 			});
-			usedToken = envResult.token;
-			configIndex = envResult.configIndex;
-			envVarName = envResult.envVarName;
+			managedKey = platformCredential.managedKey;
+			usedToken = platformCredential.token;
+			configIndex = platformCredential.configIndex;
+			envVarName = platformCredential.envVarName;
 		} else if (retryProject.mode === "hybrid") {
 			providerKey = await findProviderKey(
 				retryProject.organizationId,
@@ -757,7 +768,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				excludedProviderKeyIds,
 			);
 			if (providerKey) {
-				usedToken = providerKey.token;
+				usedToken = readProviderKey(providerKey);
 			} else {
 				assertCreditsAvailableForEmbedding(
 					retryOrganization,
@@ -767,14 +778,18 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 						`No API key set for provider. Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
 				);
 
-				const envResult = getProviderEnv(providerId, {
+				const platformCredential = await resolvePlatformCredential(providerId, {
 					selectionScope: upstreamModel,
-					excludedIndices: excludedEnvKeyIndices,
 					variant: envVariant,
+					region: undefined,
+					requiresServiceTier: false,
+					excludedEnvIndices: excludedEnvKeyIndices,
+					excludedProviderKeyIds,
 				});
-				usedToken = envResult.token;
-				configIndex = envResult.configIndex;
-				envVarName = envResult.envVarName;
+				managedKey = platformCredential.managedKey;
+				usedToken = platformCredential.token;
+				configIndex = platformCredential.configIndex;
+				envVarName = platformCredential.envVarName;
 			}
 		} else {
 			throw new HTTPException(400, {
@@ -805,13 +820,10 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		// that don't declare a baseUrl env in packages/models/src/providers.ts,
 		// so the ?? chain falls through safely. providerKey.baseUrl still wins
 		// when set, so BYOK callers can opt out by configuring their own.
-		const envBaseUrl = getProviderEnvValue(
-			providerId,
-			"baseUrl",
+		const envBaseUrl = getCredentialSetting(providerId, "baseUrl", managedKey, {
 			configIndex,
-			undefined,
-			envVariant,
-		);
+			variant: envVariant,
+		});
 		const resolvedBaseUrl =
 			providerKey?.baseUrl ??
 			envBaseUrl ??
@@ -870,13 +882,10 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			}
 			const vertexProjectId =
 				providerKey?.options?.google_vertex_project_id ??
-				getProviderEnvValue(
-					"google-vertex",
-					"project",
+				getCredentialSetting("google-vertex", "project", managedKey, {
 					configIndex,
-					undefined,
-					envVariant,
-				);
+					variant: envVariant,
+				});
 			if (!vertexProjectId) {
 				return {
 					kind: "json_error",
@@ -893,13 +902,11 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				};
 			}
 			const vertexRegion =
-				getProviderEnvValue(
-					"google-vertex",
-					"region",
+				getCredentialSetting("google-vertex", "region", managedKey, {
 					configIndex,
-					"global",
-					envVariant,
-				) ?? "global";
+					defaultValue: "global",
+					variant: envVariant,
+				}) ?? "global";
 
 			// OAuth tokens are sent via the Authorization header (below); only API
 			// keys go in the `?key=` query param. Resolve once so the header and
@@ -907,9 +914,11 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			// presence is an accurate BYOK signal.
 			vertexTokenType = resolveVertexTokenType(
 				"google-vertex",
-				providerKey?.options ?? undefined,
+				providerKey
+					? (providerKey.options ?? undefined)
+					: managedCredentialOptions(managedKey),
 				configIndex,
-				providerKey !== undefined,
+				providerKey !== undefined || managedKey !== undefined,
 				envVariant,
 			);
 			const vertexAuthQuery =
@@ -962,6 +971,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			kind: "ok",
 			attempt: {
 				providerKey,
+				managedKey,
 				usedToken,
 				configIndex,
 				envVarName,
@@ -982,7 +992,8 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		failedKeys.remember(providerId, undefined, {
 			envVarName: failedAttempt.envVarName,
 			configIndex: failedAttempt.configIndex,
-			providerKeyId: failedAttempt.providerKey?.id,
+			providerKeyId:
+				failedAttempt.providerKey?.id ?? failedAttempt.managedKey?.id,
 		});
 		try {
 			const next = await resolveAttempt();
@@ -1024,7 +1035,10 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				requestId,
 				project,
 				apiKey,
-				providerKeyId: attempt.providerKey?.id,
+				// BYOK only: a managed credential is the platform's own key and its
+				// traffic must still bill as credits.
+				organizationProviderKeyId: attempt.providerKey?.id,
+				usedProviderKeyId: attempt.providerKey?.id ?? attempt.managedKey?.id,
 				usedModel: `${providerId}/${modelDefId}`,
 				usedModelMapping: upstreamModel,
 				usedProvider: providerId,
@@ -1101,9 +1115,11 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 						upstreamModel,
 					);
 				}
-				if (attempt.providerKey?.id) {
+				const trackedKeyHealthId =
+					attempt.providerKey?.id ?? attempt.managedKey?.id;
+				if (trackedKeyHealthId) {
 					reportTrackedKeyError(
-						attempt.providerKey.id,
+						trackedKeyHealthId,
 						0,
 						undefined,
 						upstreamModel,
@@ -1251,9 +1267,11 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 						upstreamModel,
 					);
 				}
-				if (attempt.providerKey?.id) {
+				const trackedKeyHealthId =
+					attempt.providerKey?.id ?? attempt.managedKey?.id;
+				if (trackedKeyHealthId) {
 					reportTrackedKeyError(
-						attempt.providerKey.id,
+						trackedKeyHealthId,
 						status,
 						upstreamText,
 						upstreamModel,
@@ -1385,8 +1403,10 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 					upstreamModel,
 				);
 			}
-			if (attempt.providerKey?.id) {
-				reportTrackedKeySuccess(attempt.providerKey.id, upstreamModel);
+			const trackedKeyHealthId =
+				attempt.providerKey?.id ?? attempt.managedKey?.id;
+			if (trackedKeyHealthId) {
+				reportTrackedKeySuccess(trackedKeyHealthId, upstreamModel);
 			}
 
 			let normalizedResponse: Record<string, unknown> = (upstreamJson ??

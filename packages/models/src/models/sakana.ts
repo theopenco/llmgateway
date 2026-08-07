@@ -11,6 +11,7 @@ export const sakanaModels = [
 		providers: [
 			{
 				providerId: "sakana" as const,
+				// Unpinned alias; Sakana currently resolves it to fugu-ultra-v1.1.
 				externalId: "fugu-ultra",
 				// Multi-agent orchestration is far too slow for e2e (reasoning
 				// prompts exceed the test timeout); excluded from the suite
@@ -39,7 +40,10 @@ export const sakanaModels = [
 				contextSize: 1000000,
 				streaming: true,
 				reasoning: true,
-				reasoningEfforts: ["high", "xhigh"],
+				// Fugu has no off switch and rejects none/minimal/low/medium. "max" is
+				// a distinct top tier on fugu-ultra-v1.1; the older fugu-ultra-v1.0
+				// deployment still accepts it as an alias of "xhigh".
+				reasoningEfforts: ["high", "xhigh", "max"],
 				// Fugu reasoning summaries are only exposed via the OpenAI Responses
 				// API, so route through it. Summaries are adaptive (omitted for
 				// simpler prompts), hence reasoningOutput is "omit".

@@ -1,12 +1,18 @@
-import { eq, getTableName } from "drizzle-orm";
+import { and, eq, getTableName } from "drizzle-orm";
 
 import { swrWrap } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
 
 import { cdb } from "./cdb.js";
-import { project as projectTable } from "./schema.js";
+import {
+	project as projectTable,
+	providerKey as providerKeyTable,
+} from "./schema.js";
+
+import type { InferSelectModel } from "drizzle-orm";
 
 const projectTableName = getTableName(projectTable);
+const providerKeyTableName = getTableName(providerKeyTable);
 
 /**
  * Look up project caching settings.
@@ -62,6 +68,39 @@ export async function isCachingEnabled(projectId: string): Promise<{
 		logger.error("Error checking if caching is enabled:", error as Error);
 		throw error;
 	}
+}
+
+/**
+ * Find a specific managed credential by id (cacheable).
+ *
+ * Used by long-running work that pinned a credential at creation time — video
+ * jobs poll for their result minutes to hours later and some providers scope
+ * job visibility to the creating credential, so the exact row must come back
+ * rather than a freshly selected one.
+ *
+ * Lives here rather than in the gateway so the worker, which polls those same
+ * jobs, resolves the credential through the same cached path instead of its
+ * own uncached read.
+ *
+ * Deliberately does not filter on status: a credential deactivated after a job
+ * started must still be able to finish that job.
+ */
+export async function findManagedProviderKeyById(
+	id: string,
+): Promise<InferSelectModel<typeof providerKeyTable> | undefined> {
+	const results = await swrWrap(
+		`providerKey:managedById:${id}`,
+		[providerKeyTableName],
+		async () =>
+			await cdb
+				.select()
+				.from(providerKeyTable)
+				.where(
+					and(eq(providerKeyTable.id, id), eq(providerKeyTable.managed, true)),
+				)
+				.limit(1),
+	);
+	return results[0];
 }
 
 // Re-export cache functions for convenience

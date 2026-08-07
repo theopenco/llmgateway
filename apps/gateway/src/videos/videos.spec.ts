@@ -8,7 +8,7 @@ import {
 	setMockVideoStatus,
 } from "@/test-utils/mock-openai-server.js";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 
 describe("videos", () => {
 	const harness = createGatewayApiTestHarness();
@@ -1114,6 +1114,104 @@ describe("videos", () => {
 					originalGoogleVertexVideoOutputBucket;
 			} else {
 				delete process.env.LLM_GOOGLE_VERTEX_VIDEO_OUTPUT_BUCKET;
+			}
+		}
+	});
+
+	test("/v1/videos serves credits mode from a managed credential and pins it to the job", async () => {
+		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		const originalRuntimeGoogleCloudProject = process.env.GOOGLE_CLOUD_PROJECT;
+		const originalGoogleVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
+		const originalGoogleVertexApiKey = process.env.LLM_GOOGLE_VERTEX_API_KEY;
+		// No LLM_* credential for the provider: the managed credential alone must
+		// make it routable and carry every setting video generation needs.
+		delete process.env.LLM_GOOGLE_CLOUD_PROJECT;
+		delete process.env.LLM_GOOGLE_VERTEX_API_KEY;
+		process.env.GOOGLE_CLOUD_PROJECT = "managed-video-project";
+		process.env.LLM_GOOGLE_VERTEX_REGION = "us-central1";
+
+		try {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await harness.setProjectMode("credits");
+
+			await cdb.insert(tables.providerKey).values({
+				id: "managed-vertex-video",
+				provider: "google-vertex",
+				token: "vertex-test-token",
+				managed: true,
+				organizationId: null,
+				config: {
+					baseUrl: mockServerUrl,
+					project: "managed-video-project",
+					region: "us-central1",
+				},
+			});
+
+			const res = await app.request("/v1/videos", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "google-vertex/veo-3.1-generate-preview",
+					prompt: "A managed credential rendering a sunrise",
+					size: "1920x1080",
+					seconds: 8,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const json = await res.json();
+			const videoJob = await db.query.videoJob.findFirst({
+				where: { id: { eq: json.id } },
+			});
+			expect(videoJob?.usedProvider).toBe("google-vertex");
+			expect(videoJob?.usedMode).toBe("credits");
+			// Polling happens later, possibly from the worker, so the exact
+			// credential that created the job is recorded on it.
+			expect(videoJob?.managedProviderKeyId).toBe("managed-vertex-video");
+
+			// And the job stays pollable through that same credential — both from
+			// the gateway and from the worker, which runs long after the request
+			// with no env var to fall back on.
+			const statusRes = await app.request(`/v1/videos/${json.id}`, {
+				headers: { Authorization: "Bearer real-token" },
+			});
+			expect(statusRes.status).toBe(200);
+
+			setMockVideoStatus(videoJob!.upstreamId, "completed");
+			await processPendingVideoJobs();
+
+			const completedRes = await app.request(`/v1/videos/${json.id}`, {
+				headers: { Authorization: "Bearer real-token" },
+			});
+			expect(completedRes.status).toBe(200);
+			expect((await completedRes.json()).status).toBe("completed");
+		} finally {
+			await harness.setProjectMode("api-keys");
+			if (originalGoogleCloudProject !== undefined) {
+				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
+			}
+			if (originalRuntimeGoogleCloudProject !== undefined) {
+				process.env.GOOGLE_CLOUD_PROJECT = originalRuntimeGoogleCloudProject;
+			} else {
+				delete process.env.GOOGLE_CLOUD_PROJECT;
+			}
+			if (originalGoogleVertexRegion !== undefined) {
+				process.env.LLM_GOOGLE_VERTEX_REGION = originalGoogleVertexRegion;
+			} else {
+				delete process.env.LLM_GOOGLE_VERTEX_REGION;
+			}
+			if (originalGoogleVertexApiKey !== undefined) {
+				process.env.LLM_GOOGLE_VERTEX_API_KEY = originalGoogleVertexApiKey;
 			}
 		}
 	});

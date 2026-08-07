@@ -464,7 +464,9 @@ export function GlobalStatsClient() {
 					value={totals ? currencyFormatter.format(totals.cost) : "—"}
 					subtitle={
 						totals
-							? `Input: ${currencyFormatter.format(totals.inputCost)} · Output: ${currencyFormatter.format(totals.outputCost)}`
+							? totals.apiKeysCost > 0
+								? `Credits: ${currencyFormatter.format(totals.creditsCost)} · BYOK: ${currencyFormatter.format(totals.apiKeysCost)}`
+								: `Input: ${currencyFormatter.format(totals.inputCost)} · Output: ${currencyFormatter.format(totals.outputCost)}`
 							: undefined
 					}
 					icon={<Coins className="h-4 w-4" />}

@@ -42,6 +42,25 @@ describe("hybrid-provider-routing", () => {
 		]);
 	});
 
+	it("treats a managed credential as backing the provider in credits mode", () => {
+		delete process.env.LLM_GOOGLE_VERTEX_API_KEY;
+
+		const withoutManaged = getAvailableProvidersForProjectMode(
+			"credits",
+			[],
+			["google-vertex"],
+		);
+		expect(withoutManaged.availableProviders).toEqual([]);
+
+		const withManaged = getAvailableProvidersForProjectMode(
+			"credits",
+			[],
+			["google-vertex"],
+			new Set(["google-vertex"]),
+		);
+		expect(withManaged.availableProviders).toEqual(["google-vertex"]);
+	});
+
 	it("prefers keyed providers over credits-backed providers in hybrid mode", () => {
 		process.env.LLM_GOOGLE_VERTEX_API_KEY = "vertex-env-key";
 

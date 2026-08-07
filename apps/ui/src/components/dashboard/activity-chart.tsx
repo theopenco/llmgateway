@@ -14,6 +14,7 @@ import {
 } from "recharts";
 
 import { getDateRangeFromParams } from "@/components/date-range-picker";
+import { useUsageMode } from "@/components/shared/usage-mode-selector";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import {
 	Card,
@@ -31,6 +32,7 @@ import {
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
 import { getBrowserTimeZone } from "@/lib/timezone";
+import { applyUsageModeToDaily } from "@/lib/usage-mode";
 
 import type { TimeRangeValue } from "@/components/time-range-picker";
 import type { GroupBy } from "@/components/usage/group-by";
@@ -306,7 +308,11 @@ export function ActivityChart({
 		};
 	}, [timeRange, searchParams, selectedProject?.id, apiKeyId, groupBy]);
 
-	const { data, isLoading, error } = api.useQuery(
+	const {
+		data: rawData,
+		isLoading,
+		error,
+	} = api.useQuery(
 		"get",
 		"/activity",
 		{
@@ -318,6 +324,20 @@ export function ActivityChart({
 			enabled: !!selectedProject?.id,
 			initialData: timeRange ? undefined : initialData,
 		},
+	);
+
+	const usageMode = useUsageMode();
+	const data = useMemo(
+		() =>
+			rawData
+				? {
+						...rawData,
+						activity: rawData.activity.map((day) =>
+							applyUsageModeToDaily(day, usageMode),
+						),
+					}
+				: rawData,
+		[rawData, usageMode],
 	);
 
 	const periodLabel = useMemo(() => {

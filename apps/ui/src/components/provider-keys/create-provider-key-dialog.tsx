@@ -69,6 +69,7 @@ export function CreateProviderKeyDialog({
 	const [vertexTokenType, setVertexTokenType] = useState<"api-key" | "oauth">(
 		"api-key",
 	);
+	const [usageLimit, setUsageLimit] = useState("");
 	const [isValidating, setIsValidating] = useState(false);
 
 	const api = useApi();
@@ -164,6 +165,16 @@ export function CreateProviderKeyDialog({
 			return;
 		}
 
+		const trimmedUsageLimit = usageLimit.trim();
+		if (trimmedUsageLimit && !/^\d+(?:\.\d+)?$/.test(trimmedUsageLimit)) {
+			toast({
+				title: "Error",
+				description: "Max spend must be a non-negative number",
+				variant: "destructive",
+			});
+			return;
+		}
+
 		const payload: {
 			provider: string;
 			token: string;
@@ -171,6 +182,7 @@ export function CreateProviderKeyDialog({
 			baseUrl?: string;
 			options?: Record<string, string | undefined>;
 			organizationId: string;
+			usageLimit?: string;
 		} = {
 			provider: selectedProvider,
 			token: trimmedToken,
@@ -178,6 +190,9 @@ export function CreateProviderKeyDialog({
 		};
 		if (baseUrl) {
 			payload.baseUrl = baseUrl;
+		}
+		if (trimmedUsageLimit) {
+			payload.usageLimit = trimmedUsageLimit;
 		}
 		if (selectedProvider === "custom" && customName) {
 			payload.name = customName;
@@ -319,6 +334,7 @@ export function CreateProviderKeyDialog({
 			setSelectedRegion("");
 			setGoogleVertexProjectId("");
 			setVertexTokenType("api-key");
+			setUsageLimit("");
 		}, 300);
 	};
 
@@ -619,6 +635,29 @@ export function CreateProviderKeyDialog({
 							</div>
 						</>
 					)}
+
+					<div className="space-y-2">
+						<Label htmlFor="provider-key-usage-limit">Max spend (USD)</Label>
+						<div className="relative">
+							<span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+								$
+							</span>
+							<Input
+								id="provider-key-usage-limit"
+								className="pl-6"
+								type="number"
+								min={0}
+								step="0.01"
+								placeholder="No limit"
+								value={usageLimit}
+								onChange={(e) => setUsageLimit(e.target.value)}
+							/>
+						</div>
+						<p className="text-sm text-muted-foreground">
+							Optional security fuse: the key is automatically disabled once the
+							spend attributed to it reaches this amount.
+						</p>
+					</div>
 
 					<DialogFooter>
 						<Button type="button" variant="outline" onClick={handleClose}>

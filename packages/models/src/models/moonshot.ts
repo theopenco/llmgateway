@@ -484,6 +484,12 @@ export const moonshotModels = [
 				vision: true,
 				tools: false,
 				jsonOutput: false,
+				// Together AI removes this model from its serverless API on
+				// 2026-08-19 and warns that capacity may already be reduced before
+				// then, so stop selecting it now and fail requests after the cutoff.
+				// Their recommended replacement, Kimi K3, is already mapped.
+				deprecatedAt: new Date("2026-08-07"),
+				deactivatedAt: new Date("2026-08-19"),
 			},
 			{
 				providerId: "gonka24",
