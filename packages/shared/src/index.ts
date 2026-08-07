@@ -151,6 +151,8 @@ export { MARKETING_STATS, RUNWARE_PROMO } from "./marketing.js";
 
 export { isContentFilterErrorText } from "./content-filter.js";
 
+export { FAILURE_LABELS, failureLabel } from "./compliance-failure-labels.js";
+
 export {
 	MAX_BULK_BLOCK_ORGANIZATIONS,
 	MIN_BULK_BLOCK_SEARCH_LENGTH,

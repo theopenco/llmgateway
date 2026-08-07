@@ -1438,6 +1438,7 @@ export function transformStreamingToOpenai(
 		case "embercloud":
 		case "runware":
 		case "gonka24":
+		case "ranoai":
 		case "granite":
 		case "tundra":
 		case "xiaomi":

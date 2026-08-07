@@ -17,6 +17,7 @@ import {
 	MessageCircle,
 	MessageSquare,
 	Percent,
+	Route,
 	Server,
 	Sparkles,
 } from "lucide-react";
@@ -99,6 +100,7 @@ export function AdminShell({ children }: AdminShellProps) {
 	const isProviderCredentials = pathname.startsWith("/provider-credentials");
 	const isModels = pathname === "/models";
 	const isModelProviderMappings = pathname === "/model-provider-mappings";
+	const isRoutingAnalytics = pathname.startsWith("/routing-analytics");
 	const isUnstableMappings = pathname.startsWith("/unstable-mappings");
 	const isContactSubmissions = pathname.startsWith("/contact-submissions");
 	const isProviderListingRequests = pathname.startsWith(
@@ -231,6 +233,14 @@ export function AdminShell({ children }: AdminShellProps) {
 									>
 										<GitMerge className="h-4 w-4" />
 										<span>Model Mappings</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<Link href="/routing-analytics" className="block">
+									<SidebarMenuButton isActive={isRoutingAnalytics} size="lg">
+										<Route className="h-4 w-4" />
+										<span>Routing Analytics</span>
 									</SidebarMenuButton>
 								</Link>
 							</SidebarMenuItem>
