@@ -95,6 +95,31 @@ export function providerKeyBaseUrlSupportsServiceTier(
 }
 
 /**
+ * Whether a credential (BYOK key, platform-managed key, or env-var index) can
+ * carry a Flex/Priority request, given the upstream it targets.
+ *
+ * Extends the base-URL rule with Google Vertex's endpoint constraint: Flex and
+ * Priority PayGo are only served on the `global` location, so a credential
+ * pinned to a regional endpoint would have its tier header dropped upstream and
+ * be served — and billed — as standard. Every credential-selection path (BYOK
+ * key filtering, managed-credential filtering, env round-robin) shares this
+ * predicate so a service-tier request can never rotate onto a credential that
+ * silently downgrades it.
+ */
+export function providerCredentialSupportsServiceTier(
+	provider: ProviderId,
+	credential: { baseUrl?: string | null; region?: string | null },
+): boolean {
+	if (!providerKeyBaseUrlSupportsServiceTier(provider, credential.baseUrl)) {
+		return false;
+	}
+	if (provider === "google-vertex") {
+		return (credential.region ?? "global") === "global";
+	}
+	return true;
+}
+
+/**
  * Resolve the processing tier the provider actually served from the upstream
  * response signals. Returns "flex" / "priority", or null for the standard tier
  * (including when Google downgraded an unsupported tier to standard).

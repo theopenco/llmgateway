@@ -4,6 +4,7 @@ import {
 	applyGoogleServiceTier,
 	assumeServedServiceTier,
 	isPremiumServiceTier,
+	providerCredentialSupportsServiceTier,
 	providerKeyBaseUrlSupportsServiceTier,
 	resolveServedServiceTier,
 } from "./apply-google-service-tier.js";
@@ -228,5 +229,38 @@ describe("assumeServedServiceTier", () => {
 	it("returns null for providers that report their served tier", () => {
 		expect(assumeServedServiceTier("openai", "priority", true)).toBeNull();
 		expect(assumeServedServiceTier("google-vertex", "flex", true)).toBeNull();
+	});
+});
+
+describe("providerCredentialSupportsServiceTier", () => {
+	it("requires the global endpoint for google-vertex credentials", () => {
+		expect(
+			providerCredentialSupportsServiceTier("google-vertex", {
+				region: "global",
+			}),
+		).toBe(true);
+		expect(providerCredentialSupportsServiceTier("google-vertex", {})).toBe(
+			true,
+		);
+		expect(
+			providerCredentialSupportsServiceTier("google-vertex", {
+				region: "us-central1",
+			}),
+		).toBe(false);
+	});
+
+	it("still rejects a proxied base URL regardless of region", () => {
+		expect(
+			providerCredentialSupportsServiceTier("google-vertex", {
+				baseUrl: "https://my-proxy.example.com",
+				region: "global",
+			}),
+		).toBe(false);
+	});
+
+	it("ignores region for providers without an endpoint constraint", () => {
+		expect(
+			providerCredentialSupportsServiceTier("openai", { region: "us-east1" }),
+		).toBe(true);
 	});
 });

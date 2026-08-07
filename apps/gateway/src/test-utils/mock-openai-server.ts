@@ -637,6 +637,26 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 		c.status(500);
 		return c.json(sampleErrorResponse);
 	}
+
+	// Mirrors the chat-completions handler so retry/fallback behaviour can be
+	// exercised on the Responses API too (the surface OpenAI's newer models are
+	// served on). Shares the same module-level counter, so a test using it must
+	// call resetFailOnceCounter() first.
+	if (userMessage.includes("TRIGGER_FAIL_ONCE")) {
+		failOnceCounter++;
+		if (failOnceCounter === 1) {
+			c.status(500);
+			return c.json({
+				error: {
+					message: "Temporary server error (will succeed on retry)",
+					type: "server_error",
+					param: null,
+					code: "internal_server_error",
+				},
+			});
+		}
+	}
+
 	const shouldEndAfterDoneEvent = userMessage.includes(
 		"TRIGGER_RESPONSES_DONE_WITHOUT_COMPLETED",
 	);

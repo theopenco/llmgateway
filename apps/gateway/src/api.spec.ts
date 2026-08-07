@@ -12,6 +12,7 @@ import {
 	resetKeyHealth,
 } from "./lib/api-key-health.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
+import { resetFailOnceCounter } from "./test-utils/mock-openai-server.js";
 import {
 	readAll,
 	waitForLogByRequestId,
@@ -2356,6 +2357,188 @@ describe("api", () => {
 		expect(logs.length).toBe(1);
 		expect(logs[0].requestedServiceTier).toBe("priority");
 		expect(logs[0].usedServiceTier).toBe("priority");
+	});
+
+	test("/v1/chat/completions keeps the service tier when a retry rotates keys", async () => {
+		// The customer-visible failure this guards against: an upstream 429 on
+		// one key rotates the request onto another key for the same provider, and
+		// the second attempt is served (and billed) at the standard tier because
+		// the requested tier was rebuilt from the fallback context.
+		await db.insert(tables.apiKey).values({
+			id: "token-id-tier-key-rotation",
+			token: "real-token-tier-key-rotation",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values([
+			{
+				id: "provider-key-tier-rotation-primary",
+				token: "sk-primary-key",
+				provider: "openai",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			},
+			{
+				id: "provider-key-tier-rotation-secondary",
+				token: "sk-secondary-key",
+				provider: "openai",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			},
+		]);
+
+		resetFailOnceCounter();
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-tier-key-rotation",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-5.6-sol",
+				service_tier: "flex",
+				messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE hello" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		// Two attempts on the same provider with two different credentials.
+		expect(json.metadata.routing).toHaveLength(2);
+		expect(json.metadata.routing[0]).toMatchObject({
+			provider: "openai",
+			succeeded: false,
+		});
+		expect(json.metadata.routing[1]).toMatchObject({
+			provider: "openai",
+			succeeded: true,
+		});
+		expect(json.metadata.routing[0].apiKeyHash).not.toBe(
+			json.metadata.routing[1].apiKeyHash,
+		);
+		// The tier survived the rotation: the mock echoes back the tier it was
+		// sent, so a dropped `service_tier` would surface as a standard-tier
+		// response and a null usedServiceTier on the log.
+		expect(json.service_tier).toBe("flex");
+		expect(json.metadata?.used_service_tier).toBe("flex");
+
+		const logs = await waitForLogs(2);
+		const successLog = logs.find((log) => !log.hasError);
+		expect(successLog?.requestedServiceTier).toBe("flex");
+		expect(successLog?.usedServiceTier).toBe("flex");
+	});
+
+	test("/v1/chat/completions never routes a tier request to a provider without it", async () => {
+		// gpt-5.6-sol is served by openai (flex/priority), azure and aws-mantle.
+		// A flex request must stay on openai for every attempt — falling back to a
+		// provider with no premium tier would serve, and bill, standard silently.
+		await db.insert(tables.apiKey).values({
+			id: "token-id-tier-no-downgrade-fallback",
+			token: "real-token-tier-no-downgrade-fallback",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values([
+			{
+				id: "provider-key-tier-fallback-openai",
+				token: "sk-openai-test-key",
+				provider: "openai",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			},
+			{
+				id: "provider-key-tier-fallback-azure",
+				token: "azure-test-key",
+				provider: "azure",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			},
+		]);
+
+		resetFailOnceCounter();
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-tier-no-downgrade-fallback",
+			},
+			body: JSON.stringify({
+				// No provider prefix: routing is free to pick any mapping.
+				model: "gpt-5.6-sol",
+				service_tier: "flex",
+				messages: [{ role: "user", content: "TRIGGER_ERROR" }],
+			}),
+		});
+
+		// openai is the only flex-capable mapping, so the upstream failure is
+		// returned instead of being retried on azure at the standard tier.
+		expect(res.status).not.toBe(200);
+
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBeGreaterThanOrEqual(1);
+		for (const log of logs) {
+			expect(log.usedProvider).toBe("openai");
+			expect(log.requestedServiceTier).toBe("flex");
+			expect(log.usedServiceTier).toBeNull();
+		}
+	});
+
+	test("/v1/chat/completions still falls back across providers without a tier", async () => {
+		// The control for the test above: the same failure without service_tier
+		// does reach azure, so the tier — not some unrelated routing constraint —
+		// is what keeps the request on openai.
+		await db.insert(tables.apiKey).values({
+			id: "token-id-tier-fallback-control",
+			token: "real-token-tier-fallback-control",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values([
+			{
+				id: "provider-key-tier-control-openai",
+				token: "sk-openai-test-key",
+				provider: "openai",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			},
+			{
+				id: "provider-key-tier-control-azure",
+				token: "azure-test-key",
+				provider: "azure",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			},
+		]);
+
+		resetFailOnceCounter();
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-tier-fallback-control",
+			},
+			body: JSON.stringify({
+				model: "gpt-5.6-sol",
+				messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE hello" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(
+			json.metadata.routing.map(
+				(attempt: { provider: string }) => attempt.provider,
+			),
+		).toContain("azure");
 	});
 
 	test("/v1/chat/completions forwards generated request id upstream", async () => {
@@ -7734,6 +7917,8 @@ describe("api", () => {
 					baseUrl: mockServerUrl,
 				},
 			]);
+
+			resetFailOnceCounter();
 
 			const res = await app.request("/v1/chat/completions", {
 				method: "POST",
