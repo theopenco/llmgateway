@@ -1562,6 +1562,13 @@
       "when": 1786134931147,
       "tag": "1786134931_third_squadron_supreme",
       "breakpoints": true
+    },
+    {
+      "idx": 223,
+      "version": "8",
+      "when": 1786137782331,
+      "tag": "1786137782_good_gamora",
+      "breakpoints": true
     }
   ]
 }
