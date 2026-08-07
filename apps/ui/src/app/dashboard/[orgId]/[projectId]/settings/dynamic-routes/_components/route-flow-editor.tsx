@@ -429,9 +429,13 @@ function RouteFlowEditorInner({
 			let next = prev;
 			for (const change of changes) {
 				if (change.type === "remove") {
-					const [source, handle] = change.id.includes(":")
-						? change.id.split(":")
-						: [START_NODE_ID, "entry"];
+					// Edge ids are `<nodeId>:<handle>`; split on the LAST colon —
+					// handles never contain one (schema also restricts node ids).
+					const separator = change.id.lastIndexOf(":");
+					const [source, handle] =
+						separator > -1
+							? [change.id.slice(0, separator), change.id.slice(separator + 1)]
+							: [START_NODE_ID, "entry"];
 					next = setBranchTarget(next, source, handle, "");
 				}
 			}
@@ -487,14 +491,14 @@ function RouteFlowEditorInner({
 	const onDrop = useCallback(
 		(event: React.DragEvent) => {
 			event.preventDefault();
-			const type = event.dataTransfer.getData(
-				DND_MIME,
-			) as DynamicRouteNode["type"];
-			if (!type) {
+			const type = event.dataTransfer.getData(DND_MIME);
+			// Only accept payloads we set ourselves; anything else dropped onto
+			// the canvas must not create a broken node.
+			if (!(type in NODE_TYPE_LABELS)) {
 				return;
 			}
 			addNode(
-				type,
+				type as DynamicRouteNode["type"],
 				screenToFlowPosition({ x: event.clientX, y: event.clientY }),
 			);
 		},

@@ -389,6 +389,14 @@ dynamicRoutes.openapi(publishRoute, async (c) => {
 	// version rows), and the next version number is derived inside the
 	// database so concurrent publishes can't both read the same stale max.
 	await cdb.transaction(async (tx) => {
+		// Lock the route row so concurrent publishes serialize: without it two
+		// transactions can derive the same max(version)+1 and one dies on the
+		// unique (routeId, version) constraint.
+		await tx
+			.select({ id: tables.dynamicRoute.id })
+			.from(tables.dynamicRoute)
+			.where(eq(tables.dynamicRoute.id, route.id))
+			.for("update");
 		const [versionRow] = await tx
 			.insert(tables.dynamicRouteVersion)
 			.values({

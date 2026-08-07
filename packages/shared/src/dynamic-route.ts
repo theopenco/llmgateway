@@ -22,7 +22,16 @@ export const DYNAMIC_ROUTE_MAX_HOPS = 50;
 
 export const DYNAMIC_ROUTE_MAX_NODES = 100;
 
-const nodeIdSchema = z.string().min(1).max(64);
+// Restricted so ids stay safe to embed in composite identifiers (the visual
+// editor derives edge ids as `<nodeId>:<handle>`).
+const nodeIdSchema = z
+	.string()
+	.min(1)
+	.max(64)
+	.regex(
+		/^[a-zA-Z0-9_-]+$/,
+		"Node ids may only contain letters, digits, hyphens and underscores",
+	);
 
 /**
  * A model node resolves the route to a single catalog model. When `providers`

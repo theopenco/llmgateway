@@ -514,6 +514,15 @@ describe("dynamicRouteGraphSchema review-hardening rules", () => {
 		expect(JSON.stringify(result.error?.issues)).toMatch(/cycle/);
 	});
 
+	it("rejects node ids with unsafe characters", () => {
+		expect(
+			dynamicRouteGraphSchema.safeParse({
+				entry: "a:b",
+				nodes: [{ id: "a:b", type: "model", model: "gpt-5-nano" }],
+			}).success,
+		).toBe(false);
+	});
+
 	it("rejects unknown metadata paths", () => {
 		expect(
 			dynamicRouteGraphSchema.safeParse({
