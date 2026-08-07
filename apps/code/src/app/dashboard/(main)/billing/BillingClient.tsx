@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { format, formatDistanceToNowStrict } from "date-fns";
 import { Info, Loader2 } from "lucide-react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { usePostHog } from "posthog-js/react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -262,7 +263,43 @@ export default function BillingClient({
 	}
 
 	const currentPlan = devPlanStatus.devPlan ?? null;
+	const hasActivePlan = currentPlan !== null && currentPlan !== "none";
 	const currentPlanData = plans.find((p) => p.tier === currentPlan);
+	// A plan that ended — or was refunded, which cancels immediately — clears the
+	// tier, but this page stays useful: invoices and receipts remain
+	// downloadable and an unused Reset Pass is still refundable. Everything that
+	// acts on a live subscription (payment method, tier changes, cancel/resume)
+	// is dropped, since those endpoints require one.
+	if (!hasActivePlan) {
+		return (
+			<div className="space-y-10">
+				<BillingHeader />
+
+				<div className="rounded-xl border bg-card p-6">
+					<div className="flex flex-wrap items-start justify-between gap-4">
+						<div>
+							<h2 className="font-semibold">No active plan</h2>
+							<p className="mt-1 text-sm text-muted-foreground">
+								{devPlanStatus.hasBillingHistory
+									? "Your DevPass subscription has ended. Your invoices and receipts stay available here."
+									: "You don't have a DevPass plan yet."}
+							</p>
+						</div>
+						<Button asChild size="sm">
+							<Link href="/dashboard">Choose a plan</Link>
+						</Button>
+					</div>
+				</div>
+
+				{/* Past invoices */}
+				<DevPassInvoices />
+
+				{/* Billing details (invoice details) */}
+				<DevPassBillingDetails />
+			</div>
+		);
+	}
+
 	const pendingTier = devPlanStatus.devPlanPendingTier ?? null;
 	const pendingPlanData = plans.find((p) => p.tier === pendingTier);
 	const cycle = devPlanStatus.devPlanCycle ?? "monthly";
@@ -314,12 +351,7 @@ export default function BillingClient({
 
 	return (
 		<div className="space-y-10">
-			<div>
-				<h1 className="text-lg font-semibold tracking-tight">Billing</h1>
-				<p className="mt-0.5 text-sm text-muted-foreground">
-					Manage your DevPass subscription and plan.
-				</p>
-			</div>
+			<BillingHeader />
 
 			{/* Current subscription summary */}
 			<div className="rounded-xl border bg-card p-6">
@@ -451,6 +483,17 @@ export default function BillingClient({
 
 			{/* Billing details (invoice details) */}
 			<DevPassBillingDetails />
+		</div>
+	);
+}
+
+function BillingHeader() {
+	return (
+		<div>
+			<h1 className="text-lg font-semibold tracking-tight">Billing</h1>
+			<p className="mt-0.5 text-sm text-muted-foreground">
+				Manage your DevPass subscription and plan.
+			</p>
 		</div>
 	);
 }

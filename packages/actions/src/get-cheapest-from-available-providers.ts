@@ -17,6 +17,11 @@ import {
 	type ResolvedRoutingConfig,
 } from "@llmgateway/shared/routing-config";
 
+import {
+	computeWeightedProviderScores,
+	getEffectiveScoringWeights,
+} from "./compute-provider-scores.js";
+
 interface ProviderScore<T extends AvailableModelProvider> {
 	provider: T;
 	score: Decimal;
@@ -26,14 +31,6 @@ interface ProviderScore<T extends AvailableModelProvider> {
 	throughput?: number;
 	cacheSupported?: boolean;
 	discount?: Decimal;
-}
-
-function calculateUptimePenalty(uptime: number, threshold: number): number {
-	if (uptime >= threshold) {
-		return 0;
-	}
-	const deficit = (threshold - uptime) / threshold;
-	return Math.pow(deficit * 5, 2);
 }
 
 function getExplorationRate(cfg: ResolvedRoutingConfig): number {
@@ -525,14 +522,16 @@ export async function getCheapestFromAvailableProviders<
 	const videoPricing = options?.videoPricing;
 	const promptTokens = options?.promptTokens;
 	const cfg = options?.routingConfig ?? getDefaultRoutingConfig();
-	const { weights, thresholds } = cfg;
+	const { thresholds } = cfg;
 	// Use higher price weight for image generation models
 	const isImageModel = modelWithPricing.output?.includes("image") ?? false;
-	const effectivePriceWeight = isImageModel
-		? weights.imagePrice
-		: weights.price;
 	const cacheSupportRelevant =
 		promptTokens !== undefined && promptTokens >= thresholds.cachePromptTokens;
+	const scoringFlags = {
+		isStreaming,
+		isImageModel,
+		cacheRelevant: cacheSupportRelevant,
+	};
 	if (availableModelProviders.length === 0) {
 		return null;
 	}
@@ -656,14 +655,7 @@ export async function getCheapestFromAvailableProviders<
 	// If the project zeroed out every scoring weight, the weighted-score path
 	// would divide by zero. Fall back to price-only selection (still honoring
 	// per-provider priority overrides and the priority-0 disable).
-	const effectiveLatencyWeight = isStreaming ? weights.latency : 0;
-	const effectiveCacheWeight = cacheSupportRelevant ? weights.cache : 0;
-	const totalWeight =
-		effectivePriceWeight +
-		weights.uptime +
-		weights.throughput +
-		effectiveLatencyWeight +
-		effectiveCacheWeight;
+	const totalWeight = getEffectiveScoringWeights(cfg, scoringFlags).total;
 	if (totalWeight <= 0) {
 		const priceOnlyResult = selectByPriceOnly(
 			stableProviders,
@@ -720,118 +712,24 @@ export async function getCheapestFromAvailableProviders<
 		});
 	}
 
-	// Find best values for ratio-based scoring
-	// Instead of min-max normalization (which loses magnitude of differences),
-	// we use ratios against the best value so actual proportional differences
-	// are preserved. e.g., a provider 50% cheaper scores much better than one 5% cheaper.
-	const minPrice = providerScores.reduce(
-		(min, p) => (p.price.lt(min) ? p.price : min),
-		providerScores[0].price,
+	// Score all candidates with the shared weighted-score core (ratio-based
+	// sub-scores, priority penalty, exponential uptime penalty — lower wins).
+	// totalWeight is guaranteed > 0 above (zero-total falls back to price-only
+	// selection earlier in this function).
+	const breakdowns = computeWeightedProviderScores(
+		providerScores.map((p) => ({
+			price: p.price,
+			uptime: p.uptime,
+			latency: p.latency,
+			throughput: p.throughput,
+			cacheSupported: p.cacheSupported ?? false,
+			priority: getEffectivePriority(p.provider.providerId, cfg),
+		})),
+		cfg,
+		scoringFlags,
 	);
-
-	// When the cheapest provider is free (minPrice == 0), the price/minPrice ratio
-	// is undefined, so without this a free and a paid provider would both score 0
-	// on price and the decision would fall to uptime/throughput — letting a paid
-	// provider beat a free one even under `routing: "price"`. Rank paid providers
-	// against the cheapest *positive* price instead, so a free provider always
-	// scores best (0) while paid providers stay ordered among themselves.
-	const minPositivePrice = providerScores.reduce<Decimal | null>((min, p) => {
-		if (p.price.gt(0) && (min === null || p.price.lt(min))) {
-			return p.price;
-		}
-		return min;
-	}, null);
-
-	const uptimes = providerScores.map(
-		(p) => p.uptime ?? thresholds.defaultUptime,
-	);
-	const maxUptime = Math.max(...uptimes);
-
-	const throughputs = providerScores.map(
-		(p) => p.throughput ?? thresholds.defaultThroughput,
-	);
-	const maxThroughput = Math.max(...throughputs);
-
-	const latencies = providerScores.map(
-		(p) => p.latency ?? thresholds.defaultLatency,
-	);
-	const minLatency = Math.min(...latencies);
-
-	// Calculate ratio-based scores
-	for (const providerScore of providerScores) {
-		// Price ratio: 0 = cheapest, 0.5 = 50% more expensive, 1.0 = 2x more expensive
-		// This preserves the actual magnitude of price differences
-		const priceScore = minPrice.gt(0)
-			? providerScore.price.div(minPrice).minus(1)
-			: providerScore.price.gt(0) && minPositivePrice
-				? providerScore.price.div(minPositivePrice)
-				: new Decimal(0);
-
-		// Uptime ratio: 0 = best uptime, proportional penalty for worse uptime
-		const uptime = providerScore.uptime ?? thresholds.defaultUptime;
-		const uptimeScore =
-			uptime > 0 ? new Decimal(maxUptime).div(uptime).minus(1) : new Decimal(1);
-
-		// Calculate exponential penalty for truly unstable providers
-		const uptimePenalty = new Decimal(
-			calculateUptimePenalty(uptime, thresholds.uptimePenalty),
-		);
-
-		// Throughput ratio: 0 = fastest, 0.5 = 50% slower, 1.0 = 2x slower
-		// This preserves the actual magnitude of throughput differences
-		const throughput = providerScore.throughput ?? thresholds.defaultThroughput;
-		const throughputScore =
-			throughput > 0
-				? new Decimal(maxThroughput).div(throughput).minus(1)
-				: new Decimal(1);
-
-		// Latency ratio: 0 = fastest, proportional penalty for slower
-		// Only consider latency for streaming requests since it's only measured there
-		let latencyScore = new Decimal(0);
-		if (isStreaming) {
-			const latency = providerScore.latency ?? thresholds.defaultLatency;
-			latencyScore =
-				minLatency > 0
-					? new Decimal(latency).div(minLatency).minus(1)
-					: new Decimal(0);
-		}
-
-		// Cache score: 0 when this provider supports prompt caching, 1 otherwise.
-		// Only weighted in when the prompt is large enough for caching to matter.
-		const cacheScore = providerScore.cacheSupported
-			? new Decimal(0)
-			: new Decimal(1);
-
-		// Calculate base weighted score (lower is better)
-		// When not streaming, latency weight is redistributed to other factors
-		// Image generation models use a higher price weight, and cache weight is
-		// dropped for short prompts where caching has no measurable effect.
-		// totalWeight is guaranteed > 0 above (zero-total falls back to
-		// price-only selection earlier in this function).
-		const weightSum = new Decimal(totalWeight);
-		const baseScore = new Decimal(effectivePriceWeight)
-			.div(weightSum)
-			.times(priceScore)
-			.plus(new Decimal(weights.uptime).div(weightSum).times(uptimeScore))
-			.plus(
-				new Decimal(weights.throughput).div(weightSum).times(throughputScore),
-			)
-			.plus(
-				new Decimal(effectiveLatencyWeight).div(weightSum).times(latencyScore),
-			)
-			.plus(new Decimal(effectiveCacheWeight).div(weightSum).times(cacheScore));
-
-		// Apply provider priority: lower priority = higher score (less preferred)
-		// Priority defaults to 1. We add (1 - priority) as a penalty.
-		const priority = getEffectivePriority(
-			providerScore.provider.providerId,
-			cfg,
-		);
-		const priorityPenalty = new Decimal(1).minus(priority);
-
-		// Final score = base weighted score + priority penalty + exponential uptime penalty
-		// The uptime penalty heavily penalizes providers with <95% uptime
-		providerScore.score = baseScore.plus(priorityPenalty).plus(uptimePenalty);
+	for (const [index, providerScore] of providerScores.entries()) {
+		providerScore.score = breakdowns[index].score;
 	}
 
 	// Select provider with lowest score

@@ -655,8 +655,12 @@ export async function calculateCosts(
 	// For Google models, completionTokens already includes reasoning tokens
 	// (merged during extraction). The same holds for OpenAI-style Responses API
 	// providers (OpenAI, Azure, Sakana, Meta), whose `output_tokens` counts
-	// reasoning — their `reasoning_tokens` detail is informational only. For
-	// remaining providers, add reasoning separately.
+	// reasoning — their `reasoning_tokens` detail is informational only. RanoAI
+	// reports reasoning in `completion_tokens_details` (which the streaming
+	// transform hoists to a top-level `reasoning_tokens`) while already counting
+	// it inside `completion_tokens`, so adding it again would roughly double the
+	// billed output on reasoning requests. For remaining providers, add
+	// reasoning separately.
 	const completionIncludesReasoning =
 		provider === "google-ai-studio" ||
 		provider === "glacier" ||
@@ -667,6 +671,7 @@ export async function calculateCosts(
 		provider === "azure" ||
 		provider === "sakana" ||
 		provider === "meta" ||
+		provider === "ranoai" ||
 		provider === "aws-mantle";
 	const totalOutputTokens = completionIncludesReasoning
 		? calculatedCompletionTokens

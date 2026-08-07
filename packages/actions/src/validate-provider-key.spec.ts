@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { logger } from "@llmgateway/logger";
 import { models } from "@llmgateway/models";
 
 import {
@@ -209,5 +210,37 @@ describe("validateProviderKey region resolution", () => {
 		expect(result.model).not.toBe("gpt-5.6-sol");
 		const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
 		expect(body.model).not.toBe("openai.gpt-5.6-sol");
+	});
+});
+
+describe("validateProviderKey credential hygiene", () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	// Google AI Studio and Vertex in api-key mode carry the credential in the
+	// query string (`?key=<token>`), so the endpoint string is not safe to log
+	// verbatim. The warn/error sites in the same function already run it through
+	// redactToken; the debug line did not.
+	//
+	// Production defaults to `info`, so this did not leak there by default — but
+	// development defaults to `debug`, and turning debug on to troubleshoot a
+	// failing provider key is exactly when it would have fired.
+	it("keeps the api key out of the debug log for google-ai-studio", async () => {
+		const token = "AIzaSyTESTKEYdoNotUse0123456789abcdefg";
+		const debugSpy = vi.spyOn(logger, "debug").mockImplementation(() => {});
+		const fetchMock = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(new Response("{}", { status: 200 }));
+
+		await validateProviderKey("google-ai-studio", token);
+
+		// The key really is in the URL — without this the test would pass
+		// vacuously if the endpoint ever stopped carrying it.
+		expect(String(fetchMock.mock.calls[0][0])).toContain(`key=${token}`);
+
+		const logged = JSON.stringify(debugSpy.mock.calls);
+		expect(logged).not.toContain(token);
+		expect(logged).toContain("[REDACTED_TOKEN]");
 	});
 });

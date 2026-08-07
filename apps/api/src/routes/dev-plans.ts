@@ -19,6 +19,7 @@ import {
 	isDevPlanCardDedupeEnforced,
 } from "@/stripe.js";
 import { findDefaultOrganization } from "@/utils/default-org.js";
+import { LEGACY_DEV_PLAN_TX_TYPES } from "@/utils/devpass-filter.js";
 import {
 	buildInvoiceDataForTransaction,
 	generateAndEmailInvoice,
@@ -76,6 +77,14 @@ export const devPlans = new OpenAPIHono<ServerTypes>();
 // it over. Well above the Stripe SDK's request timeout (80s per attempt), so a
 // lease this old cannot still have an upgrade charge in flight.
 const STALE_TIER_CHANGE_CLAIM_MS = 15 * 60 * 1000;
+
+// Transaction types that surface as invoices on the DevPass billing page.
+const DEV_PLAN_INVOICE_TYPES = [
+	"dev_plan_start",
+	"dev_plan_renewal",
+	"dev_plan_upgrade",
+	"dev_plan_reset_pass",
+] as const;
 
 // A failed release is swallowed: the lease then simply expires via the
 // staleness window instead of blocking upgrades until renewal.
@@ -1711,6 +1720,10 @@ const getStatus = createRoute({
 				"application/json": {
 					schema: z.object({
 						hasPersonalOrg: z.boolean(),
+						// Whether the org ever produced a DevPass invoice. Stays true
+						// after a plan ends, so the dashboard keeps showing billing to
+						// past subscribers (invoices, receipts, Reset Pass refunds).
+						hasBillingHistory: z.boolean(),
 						devPlan: z.enum(["none", "lite", "pro", "max"]),
 						devPlanPendingTier: z.enum(["lite", "pro", "max"]).nullable(),
 						devPlanCycle: z.enum(["monthly", "annual"]),
@@ -1784,6 +1797,7 @@ devPlans.openapi(getStatus, async (c) => {
 	if (!personalOrg) {
 		return c.json({
 			hasPersonalOrg: false,
+			hasBillingHistory: false,
 			devPlan: "none" as const,
 			devPlanPendingTier: null,
 			devPlanCycle: "monthly" as const,
@@ -1816,6 +1830,21 @@ devPlans.openapi(getStatus, async (c) => {
 	const creditsUsed = parseFloat(personalOrg.devPlanCreditsUsed);
 	const creditsLimit = parseFloat(personalOrg.devPlanCreditsLimit);
 	const creditsRemaining = Math.max(0, creditsLimit - creditsUsed);
+
+	// Ending a dev plan clears every devPlan* column on the org, so the billing
+	// transactions are the only lasting record that the user was ever a
+	// subscriber — and the dashboard needs it to keep the billing page reachable.
+	// The legacy `subscription_*` rows predate the DevPass rename and mean a dev
+	// plan only on a devpass-kind org, which `personalOrg` always is. Status is
+	// deliberately not filtered: this mirrors the invoice list, which also
+	// renders pending and failed charges.
+	const billingTransaction = await db.query.transaction.findFirst({
+		where: {
+			organizationId: { eq: personalOrg.id },
+			type: { in: [...DEV_PLAN_INVOICE_TYPES, ...LEGACY_DEV_PLAN_TX_TYPES] },
+		},
+		columns: { id: true },
+	});
 
 	// Weekly premium fair-use allowance, computed with the same helpers the
 	// gateway uses for enforcement. An expired window reports zero usage and no
@@ -1871,6 +1900,7 @@ devPlans.openapi(getStatus, async (c) => {
 
 	return c.json({
 		hasPersonalOrg: true,
+		hasBillingHistory: Boolean(billingTransaction),
 		devPlan: personalOrg.devPlan,
 		devPlanPendingTier: personalOrg.devPlanPendingTier,
 		devPlanCycle: personalOrg.devPlanCycle,
@@ -2447,12 +2477,7 @@ devPlans.openapi(getInvoices, async (c) => {
 	const invoices = transactions
 		.filter(
 			(t) =>
-				[
-					"dev_plan_start",
-					"dev_plan_renewal",
-					"dev_plan_upgrade",
-					"dev_plan_reset_pass",
-				].includes(t.type) ||
+				(DEV_PLAN_INVOICE_TYPES as readonly string[]).includes(t.type) ||
 				// PAYG overflow top-ups (manual + auto-reload) are DevPass charges
 				// too. Positive amounts only: reversal rows are bookkeeping, not a
 				// billing event the user should see.
