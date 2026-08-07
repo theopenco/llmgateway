@@ -2057,9 +2057,9 @@ export const alibabaModels = [
 				externalId: "qwen-image-3.0",
 				inputPrice: "0",
 				outputPrice: "0",
+				// Every resolution bills the same rate, so a single "default" tier
+				// covers all sizes; add explicit tier keys only if pricing splits.
 				perImagePrice: {
-					"1K": "0.03",
-					"2K": "0.03",
 					default: "0.03",
 				},
 				contextSize: 4500,

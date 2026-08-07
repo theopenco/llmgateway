@@ -621,22 +621,37 @@ export function ModelProviderCard({
 									Image Pricing (per image, by output resolution)
 								</div>
 								<div className="space-y-1">
-									{Object.entries(provider.perImagePrice).map(
-										([key, price]) => (
-											<div
-												key={key}
-												className="flex justify-between items-center text-xs py-0.5"
-											>
-												<span className="text-muted-foreground">
-													{key.replace(/_/g, " ")}
-												</span>
-												<span className="font-mono">
-													${Number(price).toFixed(4)}
-													/image
-												</span>
-											</div>
-										),
-									)}
+									{(() => {
+										const allEntries = Object.entries(provider.perImagePrice);
+										const tierEntries = allEntries.filter(
+											([key]) => key !== "default",
+										);
+										const entries =
+											tierEntries.length > 0 ? tierEntries : allEntries;
+										const discount = Number(provider.discount ?? "0");
+										return entries.map(([key, price]) => {
+											const effective =
+												discount > 0
+													? Number(price) * (1 - discount)
+													: Number(price);
+											return (
+												<div
+													key={key}
+													className="flex justify-between items-center text-xs py-0.5"
+												>
+													<span className="text-muted-foreground">
+														{key === "default"
+															? "per image"
+															: key.replace(/_/g, " ")}
+													</span>
+													<span className="font-mono">
+														${effective.toFixed(4)}
+														/image
+													</span>
+												</div>
+											);
+										});
+									})()}
 								</div>
 							</div>
 						)}

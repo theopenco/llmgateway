@@ -1499,6 +1499,43 @@ describe("calculateCosts", () => {
 		);
 	});
 
+	it("bills perImagePrice even when prompt usage is absent or zero", async () => {
+		// An upstream response that omits prompt usage must still charge for the
+		// generated images instead of bailing out of cost calculation entirely.
+		const noPromptTokens = await calculateCosts(
+			"qwen-image-3.0",
+			"alibaba",
+			null,
+			null,
+			null,
+			null,
+			undefined,
+			null,
+			1,
+			"1K",
+			0,
+		);
+		expect(noPromptTokens.imageOutputCost).toBeCloseTo(0.03);
+		expect(noPromptTokens.outputCost).toBeCloseTo(0.03);
+		expect(noPromptTokens.totalCost).toBeCloseTo(0.03);
+
+		const zeroPromptTokens = await calculateCosts(
+			"qwen-image-3.0",
+			"alibaba",
+			null,
+			0,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			"1K",
+			0,
+		);
+		expect(zeroPromptTokens.imageOutputCost).toBeCloseTo(0.03);
+		expect(zeroPromptTokens.totalCost).toBeCloseTo(0.03);
+	});
+
 	it("should include image costs in totalCost sum", async () => {
 		// totalCost = inputCost + outputCost + cachedInputCost + requestCost + webSearchCost
 		// (inputCost already includes imageInputCost, outputCost already includes imageOutputCost)

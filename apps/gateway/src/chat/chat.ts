@@ -13089,7 +13089,7 @@ chat.openapi(completions, async (c) => {
 	const alibabaServedImageTier =
 		usedProvider === "alibaba" &&
 		typeof json?.usage?.output_image_type === "string"
-			? json.usage.output_image_type.match(/_(\d+k)$/)?.[1]?.toUpperCase()
+			? json.usage.output_image_type.match(/_(\d+k)$/i)?.[1]?.toUpperCase()
 			: undefined;
 	const costs = await calculateCosts(
 		usedInternalModel,

@@ -570,8 +570,15 @@ function pricingScore(p: ProviderModelMapping): number {
 	const input = p.inputPrice !== undefined ? Number(p.inputPrice) : undefined;
 	const output =
 		p.outputPrice !== undefined ? Number(p.outputPrice) : undefined;
-	if (input !== undefined || output !== undefined) {
-		return (input ?? 0) + (output ?? 0);
+	const tokenScore =
+		input !== undefined || output !== undefined
+			? (input ?? 0) + (output ?? 0)
+			: undefined;
+	// Only a positive token price is authoritative: per-unit-priced mappings
+	// (image, video, OCR, request) declare token prices as "0", so a zero
+	// token score must fall through to the per-unit branches below.
+	if (tokenScore !== undefined && tokenScore > 0) {
+		return tokenScore;
 	}
 	if (p.ocrPagePrice !== undefined) {
 		return Number(p.ocrPagePrice);
@@ -593,7 +600,7 @@ function pricingScore(p: ProviderModelMapping): number {
 	if (p.imageInputPrice !== undefined) {
 		return Number(p.imageInputPrice);
 	}
-	return Infinity;
+	return tokenScore ?? Infinity;
 }
 
 // Pick the provider mapping that represents the model-level pricing: the

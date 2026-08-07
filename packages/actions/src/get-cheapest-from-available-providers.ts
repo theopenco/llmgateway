@@ -331,11 +331,16 @@ export function getProviderSelectionPrice(
 	}
 
 	if (providerInfo?.perImagePrice) {
-		const perImagePrice =
-			providerInfo.perImagePrice["default"] ??
-			Object.values(providerInfo.perImagePrice)[0];
-		if (perImagePrice !== undefined) {
-			return new Decimal(perImagePrice);
+		// Represent the mapping by its cheapest obtainable tier, matching how
+		// every other branch (and the gateway's pricingScore) ranks mappings.
+		const values = Object.values(providerInfo.perImagePrice).filter(
+			(v) => v !== undefined,
+		);
+		if (values.length > 0) {
+			return values.reduce(
+				(min, v) => (new Decimal(v).lt(min) ? new Decimal(v) : min),
+				new Decimal(values[0]),
+			);
 		}
 	}
 

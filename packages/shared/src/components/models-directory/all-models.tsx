@@ -77,7 +77,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { isMappingDeactivated } from "./deactivation";
-import { formatDeprecationDate } from "./format";
+import { formatDeprecationDate, formatPerImagePriceRange } from "./format";
 import { ModelCard } from "./model-card";
 import { applyCategoryFilter } from "./model-category-filters";
 import { useIsMobile } from "./use-mobile";
@@ -547,17 +547,11 @@ const ModelTableRow = React.memo(
 								<TooltipTrigger asChild>
 									<span className="text-amber-500 cursor-help">
 										{(() => {
-											const values = Object.values(row.provider.perImagePrice)
-												.map(Number)
-												.filter(Number.isFinite);
-											if (values.length === 0) {
-												return "—";
-											}
-											const min = Math.min(...values);
-											const max = Math.max(...values);
-											return min === max
-												? `$${min}/image`
-												: `$${min} – $${max}/image`;
+											const range = formatPerImagePriceRange(
+												row.provider.perImagePrice,
+												row.provider.discount,
+											);
+											return range ? `${range}/image` : "—";
 										})()}
 									</span>
 								</TooltipTrigger>
@@ -690,21 +684,10 @@ const ModelTableRow = React.memo(
 												className="text-sm px-3 py-1.5 bg-background"
 											>
 												Per Image{" "}
-												{(() => {
-													const values = Object.values(
-														row.provider.perImagePrice!,
-													)
-														.map(Number)
-														.filter(Number.isFinite);
-													if (values.length === 0) {
-														return "";
-													}
-													const min = Math.min(...values);
-													const max = Math.max(...values);
-													return min === max
-														? `$${min}`
-														: `$${min} – $${max} by resolution`;
-												})()}
+												{formatPerImagePriceRange(
+													row.provider.perImagePrice!,
+													row.provider.discount,
+												) ?? ""}
 											</Badge>
 										)}
 								</div>
@@ -1113,12 +1096,19 @@ export function AllModels({
 				return false;
 			}
 			if (filters.capabilities.free) {
-				// A model is only considered free if it has the free flag AND no provider has a per-request cost
-				const hasRequestPrice = model.providerDetails.some(
+				// A model is only considered free if it has the free flag AND no
+				// provider bills per request, per generated image, or per second
+				// (mirrors the gateway's isModelTrulyFree definition).
+				const hasNonTokenPrice = model.providerDetails.some(
 					(p) =>
-						p.provider.requestPrice && parseFloat(p.provider.requestPrice) > 0,
+						(p.provider.requestPrice &&
+							parseFloat(p.provider.requestPrice) > 0) ||
+						(p.provider.perImagePrice &&
+							Object.keys(p.provider.perImagePrice).length > 0) ||
+						(p.provider.perSecondPrice &&
+							Object.keys(p.provider.perSecondPrice).length > 0),
 				);
-				if (!model.free || hasRequestPrice) {
+				if (!model.free || hasNonTokenPrice) {
 					return false;
 				}
 			}

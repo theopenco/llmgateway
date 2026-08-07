@@ -452,18 +452,19 @@ export default async function ModelPage({ params }: PageProps) {
 												continue;
 											}
 											for (const v of Object.values(p.perImagePrice)) {
-												const n =
+												const raw =
 													typeof v === "number" ? v : parseFloat(String(v));
-												if (
-													Number.isFinite(n) &&
-													(minPrice === undefined || n < minPrice)
-												) {
+												if (!Number.isFinite(raw)) {
+													continue;
+												}
+												const n = applyDiscount(raw, p.discount);
+												if (minPrice === undefined || n < minPrice) {
 													minPrice = n;
 												}
 											}
 										}
 										return minPrice !== undefined
-											? `$${minPrice}/image`
+											? `$${parseFloat(minPrice.toFixed(4))}/image`
 											: "Unknown";
 									})()}{" "}
 									image generation
