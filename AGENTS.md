@@ -9,6 +9,7 @@ This file provides guidance to AI agents when working with code in this reposito
 - `pnpm install` - Install all dependencies
 - `pnpm setup` - Full development environment setup (starts Docker, syncs DB, seeds data)
 - `docker compose up -d` - Start PostgreSQL and Redis services
+- `pnpm wait-for-services` - Block until Postgres (including the `test` database) and both Redis instances actually accept connections. `docker compose up -d` returns long before Postgres finishes initdb, so run this before `pnpm push`/`pnpm seed` in any script that just started the stack. Waits up to 3 minutes (`WAIT_TIMEOUT`), retrying every 2 seconds (`WAIT_INTERVAL`), and respects the per-worktree port/`STACK_SUFFIX` env vars.
 
 ### Development
 
@@ -136,7 +137,7 @@ Then the normal commands just work, scoped to this worktree:
 
 ```bash
 docker compose up -d          # project llmgateway-tel-aviv, containers postgres-tel-aviv, redis-tel-aviv, …
-pnpm setup                    # down -v + up + push-test + push-dev + seed — only your own stack
+pnpm setup                    # down -v + up + wait-for-services + push-test + push-dev + seed — only your own stack
 pnpm dev                      # every app on its offset port
 curl http://localhost:4101/v1/chat/completions -H "Authorization: Bearer test-token" ...
 ```
