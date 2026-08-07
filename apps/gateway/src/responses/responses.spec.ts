@@ -91,6 +91,25 @@ describe("responsesRequestSchema", () => {
 		expect(result.success).toBe(true);
 	});
 
+	it("accepts both the Responses and Chat Completions tool_choice shapes", () => {
+		// The Responses API nests nothing: `{type:"function",name}`. Clients that
+		// port a chat-completions payload over send the nested form instead, and
+		// both have to get through.
+		const responsesShape = responsesRequestSchema.safeParse({
+			model: "gpt-5.6-sol",
+			input: "hi",
+			tool_choice: { type: "function", name: "get_weather" },
+		});
+		expect(responsesShape.success).toBe(true);
+
+		const chatShape = responsesRequestSchema.safeParse({
+			model: "gpt-5.6-sol",
+			input: "hi",
+			tool_choice: { type: "function", function: { name: "get_weather" } },
+		});
+		expect(chatShape.success).toBe(true);
+	});
+
 	it("accepts reasoning items whose optional fields are explicit nulls", () => {
 		// Codex replays the whole prior output as `input` and serializes its
 		// absent optionals as nulls, so a reasoning item the gateway itself

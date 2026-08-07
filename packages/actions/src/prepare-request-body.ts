@@ -18,6 +18,7 @@ import {
 	type PromptCacheRetention,
 	type ProviderRequestBody,
 	type ReasoningDetail,
+	type ResponsesToolChoice,
 	supportsOpenAIExplicitPromptCache,
 	supportsOpenAIExtendedPromptCache,
 	supportsServiceTier,
@@ -112,6 +113,23 @@ function toolChoiceModeOf(
 		return "function";
 	}
 	return undefined;
+}
+
+/**
+ * Translate a Chat Completions `tool_choice` into the Responses API shape. A
+ * named function choice nests the name under `function` in Chat Completions
+ * but is flat (`{type:"function",name}`) in the Responses API, and upstreams
+ * reject the nested form outright (Bedrock Mantle answers with
+ * `Invalid 'tool_choice': value did not match any expected variant`). The
+ * string modes are identical in both APIs.
+ */
+function toResponsesToolChoice(
+	toolChoice: ToolChoiceType,
+): ResponsesToolChoice {
+	if (typeof toolChoice === "object") {
+		return { type: "function", name: toolChoice.function.name };
+	}
+	return toolChoice;
 }
 
 /**
@@ -2057,7 +2075,7 @@ export async function prepareRequestBody(
 					responsesBody.tools.push(webSearch);
 				}
 				if (resolvedToolChoice) {
-					responsesBody.tool_choice = resolvedToolChoice;
+					responsesBody.tool_choice = toResponsesToolChoice(resolvedToolChoice);
 				}
 
 				// Add optional parameters if they are provided
