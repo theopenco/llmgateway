@@ -78,6 +78,12 @@ export interface ResolvePlatformCredentialOptions {
 	 * Canonical model id the credential will serve. Managed credentials
 	 * restricted via `allowedModels` are skipped when they exclude it, falling
 	 * through to the next credential or the env vars.
+	 *
+	 * Optional because several endpoints (embeddings, speech, OCR, …) only hold
+	 * the upstream model id here — comparing that against the canonical ids in
+	 * `allowedModels` would silently never match, which is worse than not
+	 * filtering. Every chat-path caller passes it; a caller that omits it
+	 * bypasses the restriction.
 	 */
 	model?: string;
 	variant: EnvVarVariant | undefined;
@@ -108,6 +114,7 @@ export async function resolvePlatformCredential(
 	provider: Provider,
 	options: ResolvePlatformCredentialOptions,
 ): Promise<PlatformCredential> {
+	const restrictedToModel = options.model;
 	const managedKey = await findManagedProviderKey(provider, {
 		variant: options.variant,
 		region: options.region,
@@ -116,8 +123,8 @@ export async function resolvePlatformCredential(
 		filter: combineFilters(
 			options.filter,
 			options.requiresServiceTier ? supportsServiceTier : undefined,
-			options.model !== undefined
-				? (key) => providerKeyAllowsModel(key.allowedModels, options.model!)
+			restrictedToModel !== undefined
+				? (key) => providerKeyAllowsModel(key.allowedModels, restrictedToModel)
 				: undefined,
 		),
 	});

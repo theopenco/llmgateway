@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { resolvePlatformCredential } from "@/chat/tools/resolve-platform-credential.js";
+
 import { redisClient, waitForSwrMirrorWrites } from "@llmgateway/cache";
 import {
 	cdb,
@@ -8,6 +10,7 @@ import {
 	findManagedProviderKeyById,
 	organization,
 	providerKey,
+	providerKeyAllowsModel,
 	type InferInsertModel,
 } from "@llmgateway/db";
 
@@ -355,8 +358,6 @@ describe("allowedModels restriction", () => {
 	});
 
 	it("selection skips a credential whose allowedModels exclude the model", async () => {
-		const { resolvePlatformCredential } =
-			await import("../chat/tools/resolve-platform-credential.js");
 		await insertManaged({
 			id: "restricted-key",
 			allowedModels: ["gpt-5.2"],
@@ -383,8 +384,6 @@ describe("allowedModels restriction", () => {
 	});
 
 	it("falls through to the env credential when every managed key excludes the model", async () => {
-		const { resolvePlatformCredential } =
-			await import("../chat/tools/resolve-platform-credential.js");
 		await insertManaged({
 			id: "restricted-key",
 			allowedModels: ["gpt-5.2"],
@@ -419,7 +418,6 @@ describe("allowedModels restriction", () => {
 		});
 
 		// resolveProviderContext passes this exact filter shape.
-		const { providerKeyAllowsModel } = await import("@llmgateway/db");
 		expect(
 			(
 				await findProviderKey(

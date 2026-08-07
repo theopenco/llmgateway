@@ -1155,28 +1155,38 @@ function CredentialDialog({
 	async function handleSelfTest() {
 		setSelfTestLoading(true);
 		setSelfTestOutcome(undefined);
-		const outcome = await onSelfTest(credentialUnderTest());
-		setSelfTestLoading(false);
-		setSelfTestOutcome(
-			outcome.success
-				? { result: outcome.result }
-				: { error: outcome.error ?? "Failed to test credential" },
-		);
+		try {
+			const outcome = await onSelfTest(credentialUnderTest());
+			setSelfTestOutcome(
+				outcome.success
+					? { result: outcome.result }
+					: { error: outcome.error ?? "Failed to test credential" },
+			);
+		} catch {
+			setSelfTestOutcome({ error: "Failed to test credential" });
+		} finally {
+			setSelfTestLoading(false);
+		}
 	}
 
 	async function handleVerifyModels() {
 		setVerifyLoading(true);
 		setVerifyOutcome(undefined);
-		const outcome = await onVerifyModels({
-			...credentialUnderTest(),
-			models: allowedModels,
-		});
-		setVerifyLoading(false);
-		setVerifyOutcome(
-			outcome.success
-				? { result: outcome.result }
-				: { error: outcome.error ?? "Failed to verify models" },
-		);
+		try {
+			const outcome = await onVerifyModels({
+				...credentialUnderTest(),
+				models: allowedModels,
+			});
+			setVerifyOutcome(
+				outcome.success
+					? { result: outcome.result }
+					: { error: outcome.error ?? "Failed to verify models" },
+			);
+		} catch {
+			setVerifyOutcome({ error: "Failed to verify models" });
+		} finally {
+			setVerifyLoading(false);
+		}
 	}
 
 	const verificationByModel = useMemo(() => {
@@ -1506,6 +1516,7 @@ function CredentialDialog({
 										(!isEdit && !token)
 									}
 									title="Sends one minimal request through the key using the provider's default validation model, without saving anything."
+									aria-busy={selfTestLoading}
 								>
 									{selfTestLoading ? (
 										<Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
@@ -1525,6 +1536,7 @@ function CredentialDialog({
 										(!isEdit && !token)
 									}
 									title="Probes every listed model through the key and reports which ones the account can actually serve."
+									aria-busy={verifyLoading}
 								>
 									{verifyLoading ? (
 										<Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
@@ -1548,64 +1560,74 @@ function CredentialDialog({
 								? "Empty means the key serves every model of the provider. Restrict it when the upstream account only has some models enabled, so routing never picks this key for a model it cannot serve. Paste a comma-separated list to fill it quickly."
 								: `Routing will only use this credential for the ${allowedModels.length === 1 ? "listed model" : `${allowedModels.length} listed models`}.`}
 						</p>
-						{selfTestOutcome ? (
-							selfTestOutcome.error || !selfTestOutcome.result?.valid ? (
+						{/* Live region so the async probe results are announced to
+						    assistive technology when they arrive. empty:hidden keeps the
+						    parent's gap from rendering around it before any result. */}
+						<div
+							aria-live="polite"
+							className="flex flex-col gap-3 empty:hidden"
+						>
+							{selfTestOutcome ? (
+								selfTestOutcome.error || !selfTestOutcome.result?.valid ? (
+									<p className="text-sm text-destructive">
+										Self-test failed
+										{selfTestOutcome.result?.model
+											? ` (probed ${selfTestOutcome.result.model})`
+											: ""}
+										:{" "}
+										{selfTestOutcome.error ??
+											selfTestOutcome.result?.error ??
+											"the provider rejected the request"}
+									</p>
+								) : (
+									<p className="flex items-center gap-1 text-sm text-green-600">
+										<CheckCircle2 className="h-4 w-4" />
+										Key works
+										{selfTestOutcome.result?.model
+											? ` — probed ${selfTestOutcome.result.model}`
+											: ""}
+										.
+									</p>
+								)
+							) : null}
+							{verifyOutcome?.error ? (
 								<p className="text-sm text-destructive">
-									Self-test failed
-									{selfTestOutcome.result?.model
-										? ` (probed ${selfTestOutcome.result.model})`
-										: ""}
-									:{" "}
-									{selfTestOutcome.error ??
-										selfTestOutcome.result?.error ??
-										"the provider rejected the request"}
+									{verifyOutcome.error}
 								</p>
-							) : (
-								<p className="flex items-center gap-1 text-sm text-green-600">
-									<CheckCircle2 className="h-4 w-4" />
-									Key works
-									{selfTestOutcome.result?.model
-										? ` — probed ${selfTestOutcome.result.model}`
-										: ""}
-									.
-								</p>
-							)
-						) : null}
-						{verifyOutcome?.error ? (
-							<p className="text-sm text-destructive">{verifyOutcome.error}</p>
-						) : null}
-						{verifyOutcome?.result ? (
-							<div className="flex flex-col gap-1 rounded-md bg-muted/40 p-2">
-								<p
-									className={cn(
-										"text-xs font-medium",
-										verifyOutcome.result.allValid
-											? "text-green-600"
-											: "text-destructive",
-									)}
-								>
-									{verifyOutcome.result.allValid
-										? "All listed models verified."
-										: "Some models failed verification — save anyway if you know better, or remove them."}
-								</p>
-								<ul className="flex flex-col gap-1">
-									{verifyOutcome.result.results.map((entry) => (
-										<li
-											key={entry.model}
-											className="flex items-start gap-1.5 text-xs"
-										>
-											<ModelVerificationIcon entry={entry} />
-											<span className="font-mono">{entry.model}</span>
-											{entry.error ? (
-												<span className="text-muted-foreground">
-													— {entry.error}
-												</span>
-											) : null}
-										</li>
-									))}
-								</ul>
-							</div>
-						) : null}
+							) : null}
+							{verifyOutcome?.result ? (
+								<div className="flex flex-col gap-1 rounded-md bg-muted/40 p-2">
+									<p
+										className={cn(
+											"text-xs font-medium",
+											verifyOutcome.result.allValid
+												? "text-green-600"
+												: "text-destructive",
+										)}
+									>
+										{verifyOutcome.result.allValid
+											? "All listed models verified."
+											: "Some models failed verification — save anyway if you know better, or remove them."}
+									</p>
+									<ul className="flex flex-col gap-1">
+										{verifyOutcome.result.results.map((entry) => (
+											<li
+												key={entry.model}
+												className="flex items-start gap-1.5 text-xs"
+											>
+												<ModelVerificationIcon entry={entry} />
+												<span className="font-mono">{entry.model}</span>
+												{entry.error ? (
+													<span className="text-muted-foreground">
+														— {entry.error}
+													</span>
+												) : null}
+											</li>
+										))}
+									</ul>
+								</div>
+							) : null}
+						</div>
 					</div>
 
 					<div className="flex flex-col gap-2">

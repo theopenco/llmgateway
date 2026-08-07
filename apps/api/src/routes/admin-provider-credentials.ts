@@ -46,7 +46,7 @@ import { maskToken } from "@llmgateway/shared/mask-token";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import type { ServerTypes } from "@/vars.js";
-import type { ProviderKeyVariant } from "@llmgateway/db";
+import type { ProviderKeyOptions, ProviderKeyVariant } from "@llmgateway/db";
 import type {
 	ProviderDefinition,
 	ProviderId,
@@ -276,17 +276,25 @@ function normalizeAllowedModels(
  * Every allowed model must be a catalogue model with a live mapping for this
  * provider — the restriction narrows routing, so an id the provider could
  * never serve anyway is a typo, and storing it would silently do nothing.
+ * The credential's config/region travel in `validationOptions` so a
+ * region-scoped credential is checked against the mapping it will actually
+ * use, the same way the save-time probe resolves it.
  */
 function validateAllowedModels(
 	provider: string,
 	allowedModels: string[] | null,
+	validationOptions: ProviderKeyOptions,
 ): void {
 	if (!allowedModels) {
 		return;
 	}
 	const unknown = allowedModels.filter(
 		(modelId) =>
-			getPinnedValidationModel(provider as ProviderId, modelId) === null,
+			getPinnedValidationModel(
+				provider as ProviderId,
+				modelId,
+				validationOptions,
+			) === null,
 	);
 	if (unknown.length > 0) {
 		throw new HTTPException(400, {
@@ -953,7 +961,11 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 
 	await validateConfig(body.provider, config);
 	validateRegion(body.provider, body.region?.trim() || null);
-	validateAllowedModels(body.provider, allowedModels);
+	validateAllowedModels(
+		body.provider,
+		allowedModels,
+		managedCredentialValidationOptions(body.provider, config, body.region),
+	);
 
 	if (!body.skipValidation) {
 		await validateCredentialToken(
@@ -1073,7 +1085,17 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 
 	if (body.allowedModels !== undefined) {
 		const allowedModels = normalizeAllowedModels(body.allowedModels);
-		validateAllowedModels(existing.provider, allowedModels);
+		// Checked against the config/region this PATCH leaves in effect, so an
+		// edit that also moves the region validates against the right mapping.
+		validateAllowedModels(
+			existing.provider,
+			allowedModels,
+			managedCredentialValidationOptions(
+				existing.provider,
+				updates.config ?? existing.config ?? {},
+				body.region !== undefined ? body.region : existing.region,
+			),
+		);
 		updates.allowedModels = allowedModels;
 	}
 
@@ -1234,8 +1256,11 @@ async function resolveCredentialUnderTest(
 		});
 	}
 
-	const token = body.token?.trim()
-		? body.token
+	// Trimmed both for the presence check and for use, so the probe and the
+	// error redaction see the same value the check accepted.
+	const explicitToken = body.token?.trim();
+	const token = explicitToken
+		? explicitToken
 		: credential
 			? readProviderKey(credential)
 			: undefined;
@@ -1382,6 +1407,14 @@ adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
 	const body = c.req.valid("json");
 	const target = await resolveCredentialUnderTest(body);
 	const modelIds = normalizeAllowedModels(body.models) ?? [];
+	// Whitespace-only entries survive the zod min-length check but normalize
+	// away; an empty run would report allValid: true for a verification that
+	// never happened.
+	if (modelIds.length === 0) {
+		throw new HTTPException(400, {
+			message: "models must contain at least one non-blank model id",
+		});
+	}
 
 	const validationOptions = managedCredentialValidationOptions(
 		target.provider,

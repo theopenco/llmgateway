@@ -10,6 +10,7 @@ import {
 import {
 	decryptProviderKey,
 	deleteProviderEnvInventory,
+	getPinnedValidationModel,
 	publishProviderEnvInventory,
 } from "@llmgateway/actions";
 import {
@@ -19,6 +20,19 @@ import {
 } from "@llmgateway/cache";
 import { and, asc, cdb, db, eq, getTableName, tables } from "@llmgateway/db";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
+
+import type * as LlmGatewayActions from "@llmgateway/actions";
+
+// Spy on the live probe so the pinned-model selection in
+// validateCredentialToken can be asserted without real upstream calls. The
+// default implementation stays the real one; tests that exercise the live
+// path queue a one-shot resolved value instead.
+const validateProviderKeyMock = vi.hoisted(() => vi.fn());
+vi.mock("@llmgateway/actions", async (importOriginal) => {
+	const actual = await importOriginal<typeof LlmGatewayActions>();
+	validateProviderKeyMock.mockImplementation(actual.validateProviderKey);
+	return { ...actual, validateProviderKey: validateProviderKeyMock };
+});
 
 interface Credential {
 	id: string;
@@ -1381,6 +1395,8 @@ describe("managed credential allowed models", () => {
 	});
 
 	afterEach(async () => {
+		vi.unstubAllEnvs();
+		validateProviderKeyMock.mockClear();
 		await deleteAll();
 	});
 
@@ -1488,6 +1504,48 @@ describe("managed credential allowed models", () => {
 				}
 			).credential.allowedModels,
 		).toBeNull();
+	});
+
+	test("save-time validation probes an allowed model, not the default", async () => {
+		// E2E_TEST re-enables the live path that unit tests otherwise skip; the
+		// probe itself is stubbed so nothing reaches a real upstream.
+		vi.stubEnv("E2E_TEST", "true");
+		validateProviderKeyMock.mockResolvedValueOnce({ valid: true });
+
+		const chatModel = (await catalogModels("openai")).find(
+			(modelId) =>
+				getPinnedValidationModel("openai", modelId)?.chatCapable === true,
+		);
+		expect(chatModel).toBeDefined();
+
+		const res = await create({
+			provider: "openai",
+			token: "sk-pinned-probe",
+			allowedModels: [chatModel],
+		});
+		expect(res.status).toBe(201);
+
+		expect(validateProviderKeyMock).toHaveBeenCalledTimes(1);
+		// (provider, token, baseUrl, skipValidation, options, pinnedModelId)
+		expect(validateProviderKeyMock.mock.calls[0][5]).toBe(chatModel);
+	});
+
+	test("save-time validation skips the probe when no allowed model can chat", async () => {
+		vi.stubEnv("E2E_TEST", "true");
+
+		const nonChatModel = (await catalogModels("openai")).find(
+			(modelId) =>
+				getPinnedValidationModel("openai", modelId)?.chatCapable === false,
+		);
+		expect(nonChatModel).toBeDefined();
+
+		const res = await create({
+			provider: "openai",
+			token: "sk-no-chat-probe",
+			allowedModels: [nonChatModel],
+		});
+		expect(res.status).toBe(201);
+		expect(validateProviderKeyMock).not.toHaveBeenCalled();
 	});
 
 	test("self-test probes a stored credential", async () => {

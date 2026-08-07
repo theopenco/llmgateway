@@ -4897,6 +4897,7 @@ chat.openapi(completions, async (c) => {
 
 		const platformCredential = await resolvePlatformCredential(usedProvider, {
 			selectionScope: usedInternalModel,
+			model: usedInternalModel,
 			variant: envVariant,
 			region: usedRegion,
 			requiresServiceTier: isRequestedServiceTier(service_tier),
@@ -5033,6 +5034,7 @@ chat.openapi(completions, async (c) => {
 
 			const platformCredential = await resolvePlatformCredential(usedProvider, {
 				selectionScope: usedInternalModel,
+				model: usedInternalModel,
 				variant: envVariant,
 				region: usedRegion,
 				requiresServiceTier: isRequestedServiceTier(service_tier),

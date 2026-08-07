@@ -40,6 +40,43 @@ export function pickCheapestRecentModel<
 	return dated.find((c) => c.releasedAt!.getTime() >= medianReleaseTime);
 }
 
+/**
+ * Region the provider key's options select, falling back to the provider's
+ * default region. Undefined for providers that are not region-scoped.
+ */
+function resolveSelectedRegion(
+	provider: ProviderId,
+	providerKeyOptions?: ProviderKeyOptions,
+): string | undefined {
+	const providerDef = providers.find((p) => p.id === provider) as
+		ProviderDefinition | undefined;
+	const regionKey = providerDef?.regionConfig?.optionsKey;
+	return regionKey
+		? ((providerKeyOptions as Record<string, string | undefined> | undefined)?.[
+				regionKey
+			] ?? providerDef?.regionConfig?.defaultRegion)
+		: undefined;
+}
+
+/**
+ * The model's mapping for a provider, identified by (providerId, region) with
+ * a fallback to the provider's region-agnostic mapping — `externalId` is
+ * reserved for the upstream call and never used for the lookup.
+ */
+function findRegionAwareMapping(
+	modelDef: { providers: readonly { providerId: string }[] },
+	provider: ProviderId,
+	region: string | undefined,
+): ProviderModelMapping | undefined {
+	const mappings = modelDef.providers as readonly ProviderModelMapping[];
+	return (
+		mappings.find(
+			(p) =>
+				p.providerId === provider && (p.region ?? null) === (region ?? null),
+		) ?? mappings.find((p) => p.providerId === provider)
+	);
+}
+
 export function getValidationModel(
 	provider: ProviderId,
 	providerKeyOptions?: ProviderKeyOptions,
@@ -49,15 +86,7 @@ export function getValidationModel(
 		return { modelId: azureModel, externalId: azureModel };
 	}
 
-	// Resolve the selected region from provider key options
-	const providerDef = providers.find((p) => p.id === provider) as
-		ProviderDefinition | undefined;
-	const regionKey = providerDef?.regionConfig?.optionsKey;
-	const selectedRegion = regionKey
-		? ((providerKeyOptions as Record<string, string | undefined> | undefined)?.[
-				regionKey
-			] ?? providerDef?.regionConfig?.defaultRegion)
-		: undefined;
+	const selectedRegion = resolveSelectedRegion(provider, providerKeyOptions);
 
 	const currentDate = new Date();
 	const collectModels = (restrictToRegion: boolean) =>
@@ -173,21 +202,8 @@ export function getPinnedValidationModel(
 		return null;
 	}
 
-	const providerDef = providers.find((p) => p.id === provider) as
-		ProviderDefinition | undefined;
-	const regionKey = providerDef?.regionConfig?.optionsKey;
-	const selectedRegion = regionKey
-		? ((providerKeyOptions as Record<string, string | undefined> | undefined)?.[
-				regionKey
-			] ?? providerDef?.regionConfig?.defaultRegion)
-		: undefined;
-
-	const mapping = (modelDef.providers.find(
-		(p) =>
-			p.providerId === provider &&
-			((p as ProviderModelMapping).region ?? null) === (selectedRegion ?? null),
-	) ?? modelDef.providers.find((p) => p.providerId === provider)) as
-		ProviderModelMapping | undefined;
+	const selectedRegion = resolveSelectedRegion(provider, providerKeyOptions);
+	const mapping = findRegionAwareMapping(modelDef, provider, selectedRegion);
 	if (!mapping) {
 		return null;
 	}
@@ -295,14 +311,10 @@ export async function validateProviderKey(
 				: validationModel.modelId;
 
 		// Resolve region from provider key options for region-aware providers
-		const providerDef = providers.find((p) => p.id === provider) as
-			ProviderDefinition | undefined;
-		const regionOptionsKey = providerDef?.regionConfig?.optionsKey;
-		const validationRegion = regionOptionsKey
-			? ((
-					providerKeyOptions as Record<string, string | undefined> | undefined
-				)?.[regionOptionsKey] ?? providerDef?.regionConfig?.defaultRegion)
-			: undefined;
+		const validationRegion = resolveSelectedRegion(
+			provider,
+			providerKeyOptions,
+		);
 
 		const endpoint = getProviderEndpoint(
 			provider,
@@ -326,18 +338,11 @@ export async function validateProviderKey(
 			true, // skipEnvVars - provider key validation is always BYOK context
 		);
 
-		// Check if max_tokens is supported. The mapping is identified by
-		// (providerId, region) — externalId is reserved for the upstream call.
-		const providerMapping =
-			modelDef?.providers.find(
-				(p) =>
-					p.providerId === provider &&
-					((p as ProviderModelMapping).region ?? null) ===
-						(validationRegion ?? null),
-			) ?? modelDef?.providers.find((p) => p.providerId === provider);
-		const supportedParameters = (
-			providerMapping as ProviderModelMapping | undefined
-		)?.supportedParameters;
+		// Check if max_tokens is supported.
+		const providerMapping = modelDef
+			? findRegionAwareMapping(modelDef, provider, validationRegion)
+			: undefined;
+		const supportedParameters = providerMapping?.supportedParameters;
 		const supportsMaxTokens =
 			supportedParameters?.includes("max_tokens") &&
 			providerMapping?.providerId !== "azure";
