@@ -58,6 +58,12 @@ Do not run test files or suites in parallel unless the repository instructions f
 - `pnpm test:unit` - Run unit tests (\*.spec.ts files)
 - `pnpm test:e2e` - Run end-to-end tests (\*.e2e.ts files)
 
+ALWAYS bring up an isolated database for the current worktree before running unit tests, and point the tests at it. Several workspaces on this machine share the default Postgres/Redis ports, so a run against the shared stack will race another workspace's schema push and seed data and produce shifting, false failures. Concretely:
+
+1. Give the worktree its own compose stack and `TEST_DATABASE_URL` — see "Running an isolated stack per worktree" below for the `STACK_SUFFIX` / port block to put in `.envrc`.
+2. `docker compose up -d && pnpm wait-for-services && pnpm push-test` (or just `pnpm setup`) so your own `test` database exists and has the current schema.
+3. Run `pnpm test:unit` with `TEST_DATABASE_URL` exported so it targets that isolated database and never the shared one.
+
 When running curl commands against the local API, you can use `test-token` as authentication. To exercise retention-off behavior, use `test-token-no-retention` instead — it belongs to a seeded sibling org with `retentionLevel: "none"` (the default `test-token` org retains all data for easier debugging).
 
 Every seeded account's password is its own email address (password == email). For example, log into the dashboard as `admin@example.com` with the password `admin@example.com`. This applies to all users created by `packages/db/src/seed.ts`, including:

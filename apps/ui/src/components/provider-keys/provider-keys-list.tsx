@@ -41,6 +41,7 @@ import {
 
 import { CreateProviderKeyDialog } from "./create-provider-key-dialog";
 import { ProviderKeyLimitDialog } from "./provider-key-limit-dialog";
+import { ProviderKeyModelsDialog } from "./provider-key-models-dialog";
 import { RenameProviderKeyDialog } from "./rename-provider-key-dialog";
 import { reorderProviderKeys } from "./reorder-provider-keys";
 
@@ -438,6 +439,19 @@ export function ProviderKeysList({
 																	<span className="max-w-[200px] truncate font-mono text-xs text-muted-foreground">
 																		{providerKey.maskedToken}
 																	</span>
+																	{providerKey.allowedModels &&
+																		providerKey.allowedModels.length > 0 && (
+																			<Badge
+																				variant="outline"
+																				className="text-xs"
+																				title={`Only used for: ${providerKey.allowedModels.join(", ")}`}
+																			>
+																				{providerKey.allowedModels.length} model
+																				{providerKey.allowedModels.length === 1
+																					? ""
+																					: "s"}
+																			</Badge>
+																		)}
 																	{providerKey.usageLimit !== null && (
 																		<Badge
 																			variant="outline"
@@ -511,6 +525,24 @@ export function ProviderKeysList({
 																					</Link>
 																				</DropdownMenuItem>
 																			</>
+																		)}
+																		{provider.id !== "custom" && (
+																			<ProviderKeyModelsDialog
+																				providerKeyId={providerKey.id}
+																				provider={provider.id}
+																				currentAllowedModels={
+																					providerKey.allowedModels
+																				}
+																			>
+																				<DropdownMenuItem
+																					onSelect={(e) => e.preventDefault()}
+																				>
+																					{providerKey.allowedModels &&
+																					providerKey.allowedModels.length > 0
+																						? "Edit allowed models"
+																						: "Restrict models"}
+																				</DropdownMenuItem>
+																			</ProviderKeyModelsDialog>
 																		)}
 																		<ProviderKeyLimitDialog
 																			providerKeyId={providerKey.id}

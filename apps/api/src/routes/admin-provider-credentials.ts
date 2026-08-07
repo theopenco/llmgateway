@@ -4,6 +4,12 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import {
+	allowedModelsSchema,
+	normalizeAllowedModels,
+	pickAllowedValidationModel,
+	validateAllowedModels,
+} from "@/lib/provider-key-allowed-models.js";
+import {
 	getBucketUnitForWindow,
 	getTokenWindowStartDate,
 	tokenWindowSchema,
@@ -40,18 +46,15 @@ import {
 	tables,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { getProviderEnvKeys, models, providers } from "@llmgateway/models";
+import { getProviderEnvKeys, providers } from "@llmgateway/models";
+import { getModelIdsByProvider } from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 import { maskToken } from "@llmgateway/shared/mask-token";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import type { ServerTypes } from "@/vars.js";
-import type { ProviderKeyOptions, ProviderKeyVariant } from "@llmgateway/db";
-import type {
-	ProviderDefinition,
-	ProviderId,
-	ProviderModelMapping,
-} from "@llmgateway/models";
+import type { ProviderKeyVariant } from "@llmgateway/db";
+import type { ProviderDefinition, ProviderId } from "@llmgateway/models";
 
 export const adminProviderCredentials = new OpenAPIHono<ServerTypes>();
 
@@ -251,59 +254,6 @@ async function validateConfig(
 }
 
 /**
- * Trims, deduplicates and drops blank entries so the stored list is exactly
- * what routing compares model ids against. An emptied list becomes NULL — the
- * canonical "no restriction" — because a credential that can serve no model at
- * all is only ever a misconfiguration.
- */
-function normalizeAllowedModels(
-	allowedModels: string[] | null | undefined,
-): string[] | null {
-	if (!allowedModels) {
-		return null;
-	}
-	const normalized = Array.from(
-		new Set(
-			allowedModels
-				.map((entry) => entry.trim())
-				.filter((entry) => entry !== ""),
-		),
-	);
-	return normalized.length > 0 ? normalized : null;
-}
-
-/**
- * Every allowed model must be a catalogue model with a live mapping for this
- * provider — the restriction narrows routing, so an id the provider could
- * never serve anyway is a typo, and storing it would silently do nothing.
- * The credential's config/region travel in `validationOptions` so a
- * region-scoped credential is checked against the mapping it will actually
- * use, the same way the save-time probe resolves it.
- */
-function validateAllowedModels(
-	provider: string,
-	allowedModels: string[] | null,
-	validationOptions: ProviderKeyOptions,
-): void {
-	if (!allowedModels) {
-		return;
-	}
-	const unknown = allowedModels.filter(
-		(modelId) =>
-			getPinnedValidationModel(
-				provider as ProviderId,
-				modelId,
-				validationOptions,
-			) === null,
-	);
-	if (unknown.length > 0) {
-		throw new HTTPException(400, {
-			message: `Not available from ${provider} per the catalogue: ${unknown.join(", ")}`,
-		});
-	}
-}
-
-/**
  * A credential's region selects which region's traffic it serves, so it only
  * means anything for a provider whose catalogue declares regions, and only for
  * a region that catalogue actually lists. Anything else would produce a
@@ -379,19 +329,13 @@ async function validateCredentialToken(
 		region,
 	);
 
-	let pinnedModelId: string | undefined;
-	if (allowedModels && allowedModels.length > 0) {
-		pinnedModelId = allowedModels.find(
-			(modelId) =>
-				getPinnedValidationModel(
-					provider as ProviderId,
-					modelId,
-					validationOptions,
-				)?.chatCapable === true,
-		);
-		if (!pinnedModelId) {
-			return;
-		}
+	const pinnedModelId = pickAllowedValidationModel(
+		provider,
+		allowedModels ?? null,
+		validationOptions,
+	);
+	if (allowedModels?.length && !pinnedModelId) {
+		return;
 	}
 
 	const result = await validateProviderKey(
@@ -462,21 +406,7 @@ const getCatalog = createRoute({
 
 adminProviderCredentials.openapi(getCatalog, async (c) => {
 	// Live catalogue models per provider, for the allowed-models picker.
-	const now = new Date();
-	const modelsByProvider = new Map<string, string[]>();
-	for (const model of models) {
-		for (const mapping of model.providers as readonly ProviderModelMapping[]) {
-			if (mapping.deactivatedAt && now >= mapping.deactivatedAt) {
-				continue;
-			}
-			const list = modelsByProvider.get(mapping.providerId);
-			if (!list) {
-				modelsByProvider.set(mapping.providerId, [model.id]);
-			} else if (!list.includes(model.id)) {
-				list.push(model.id);
-			}
-		}
-	}
+	const modelsByProvider = getModelIdsByProvider();
 
 	// Provider keys live on the gateway, which is a separate deployment: reading
 	// this process's own environment would report nothing at all in a split
@@ -930,11 +860,7 @@ const createCredential = createRoute({
 						region: z.string().max(64).optional(),
 						config: z.record(z.string(), z.string()).optional(),
 						usageLimit: createNullableLimitSchema("Usage limit").optional(),
-						allowedModels: z
-							.array(z.string().max(200))
-							.max(200)
-							.nullable()
-							.optional(),
+						allowedModels: allowedModelsSchema,
 						skipValidation: z.boolean().optional(),
 					}),
 				},
@@ -1031,11 +957,7 @@ const updateCredential = createRoute({
 						status: statusSchema.optional(),
 						config: z.record(z.string(), z.string()).optional(),
 						usageLimit: createNullableLimitSchema("Usage limit").optional(),
-						allowedModels: z
-							.array(z.string().max(200))
-							.max(200)
-							.nullable()
-							.optional(),
+						allowedModels: allowedModelsSchema,
 						skipValidation: z.boolean().optional(),
 					}),
 				},

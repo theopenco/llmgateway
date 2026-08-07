@@ -168,7 +168,7 @@ export interface ProviderContextOptions {
 	 * candidate that cannot serve it is rejected rather than downgraded, so the
 	 * retry loop moves on instead of quietly serving standard.
 	 */
-	requestedServiceTier?: "flex" | "priority" | null;
+	clientRequestedServiceTier?: "flex" | "priority" | null;
 	verbosity?: "low" | "medium" | "high";
 }
 
@@ -651,7 +651,7 @@ export async function resolveProviderContext(
 		envVariant,
 	);
 	assertServiceTierHonored({
-		requestedServiceTier: options.requestedServiceTier ?? null,
+		clientRequestedServiceTier: options.clientRequestedServiceTier ?? null,
 		forwardedServiceTier,
 		provider: usedProvider,
 		model: usedInternalModel,

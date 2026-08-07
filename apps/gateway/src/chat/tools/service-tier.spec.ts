@@ -169,7 +169,7 @@ describe("assertServiceTierHonored", () => {
 		try {
 			assertServiceTierHonored({
 				...base,
-				requestedServiceTier: "flex",
+				clientRequestedServiceTier: "flex",
 				forwardedServiceTier: undefined,
 			});
 		} catch (error) {
@@ -186,7 +186,7 @@ describe("assertServiceTierHonored", () => {
 		expect(() =>
 			assertServiceTierHonored({
 				...base,
-				requestedServiceTier: "flex",
+				clientRequestedServiceTier: "flex",
 				forwardedServiceTier: "flex",
 			}),
 		).not.toThrow();
@@ -196,7 +196,7 @@ describe("assertServiceTierHonored", () => {
 		expect(() =>
 			assertServiceTierHonored({
 				...base,
-				requestedServiceTier: null,
+				clientRequestedServiceTier: null,
 				forwardedServiceTier: undefined,
 			}),
 		).not.toThrow();

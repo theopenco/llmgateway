@@ -222,6 +222,16 @@ const logSchema = z.object({
 					}),
 				)
 				.optional(),
+			filteredProviders: z
+				.array(
+					z.object({
+						providerId: z.string(),
+						reasons: z.array(z.string()),
+					}),
+				)
+				.optional(),
+			strippedParameters: z.array(z.string()).optional(),
+			serviceTierSource: z.enum(["request", "coding-plan-default"]).optional(),
 		})
 		.nullable()
 		.optional(),

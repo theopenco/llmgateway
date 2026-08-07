@@ -120,6 +120,11 @@ export const deepseekModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				// DeepSeek's API 400s on the OpenAI-only `developer` role
+				// ("unknown variant `developer`, expected one of `system`, `user`,
+				// `assistant`, `tool`, `latest_reminder`"), so it gets rewritten to
+				// `system` before the request goes out.
+				supportsDeveloperRole: false,
 				deactivatedAt: new Date("2026-05-01"),
 			},
 			{
@@ -268,6 +273,11 @@ export const deepseekModels = [
 				reasoningEfforts: ["none", "high", "max"],
 				vision: false,
 				tools: true,
+				// DeepSeek's API 400s on the OpenAI-only `developer` role
+				// ("unknown variant `developer`, expected one of `system`, `user`,
+				// `assistant`, `tool`, `latest_reminder`"), so it gets rewritten to
+				// `system` before the request goes out.
+				supportsDeveloperRole: false,
 				supportedParameters: [
 					"temperature",
 					"max_tokens",
@@ -433,6 +443,11 @@ export const deepseekModels = [
 				reasoningEfforts: ["none", "high", "max"],
 				vision: false,
 				tools: true,
+				// DeepSeek's API 400s on the OpenAI-only `developer` role
+				// ("unknown variant `developer`, expected one of `system`, `user`,
+				// `assistant`, `tool`, `latest_reminder`"), so it gets rewritten to
+				// `system` before the request goes out.
+				supportsDeveloperRole: false,
 				supportedParameters: [
 					"temperature",
 					"max_tokens",

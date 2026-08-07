@@ -126,20 +126,20 @@ export function mappingSupportsRequestedServiceTier(
  * failing.
  */
 export function assertServiceTierHonored(options: {
-	requestedServiceTier: "flex" | "priority" | null;
+	clientRequestedServiceTier: "flex" | "priority" | null;
 	forwardedServiceTier: "flex" | "priority" | undefined;
 	provider: string;
 	model: string;
 	region: string | undefined;
 }): void {
-	if (!options.requestedServiceTier || options.forwardedServiceTier) {
+	if (!options.clientRequestedServiceTier || options.forwardedServiceTier) {
 		return;
 	}
 	const target = options.region
 		? `${options.provider}/${options.model}:${options.region}`
 		: `${options.provider}/${options.model}`;
 	throw new HTTPException(400, {
-		message: `Service tier '${options.requestedServiceTier}' is not available for ${target}.`,
+		message: `Service tier '${options.clientRequestedServiceTier}' is not available for ${target}.`,
 		cause: "unsupported_service_tier",
 	});
 }

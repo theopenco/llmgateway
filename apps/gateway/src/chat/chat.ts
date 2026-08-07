@@ -295,6 +295,7 @@ import { transformStreamingToOpenai } from "./tools/transform-streaming-to-opena
 import { validateFreeModelUsage } from "./tools/validate-free-model-usage.js";
 import { validateModelCapabilities } from "./tools/validate-model-capabilities.js";
 
+import type { FilteredProvider } from "./tools/provider-filter-reasons.js";
 import type { OriginalRequestParams } from "./tools/resolve-provider-context.js";
 import type { ServerTypes } from "@/vars.js";
 
@@ -890,6 +891,30 @@ function providerMatchesRequestedProvider(
 	);
 }
 
+// Distinct providers the catalog still offers for a model, ignoring every
+// request-scoped filter. Used to tell "this model only has one provider" apart
+// from "this request was narrowed down to one provider".
+function countActiveCatalogueProviders(modelId: string): number {
+	const definition = models.find((m) => m.id === modelId);
+	if (!definition) {
+		return 0;
+	}
+	const now = new Date();
+	return new Set(
+		(definition.providers as ProviderModelMapping[])
+			.filter(
+				(mapping) => !(mapping.deactivatedAt && now > mapping.deactivatedAt),
+			)
+			.map((mapping) => mapping.providerId),
+	).size;
+}
+
+// Coding plans only route to mappings that price cached input, so a provider
+// without prompt caching is dropped before selection. Shared by the direct and
+// auto-routing paths so both log the exclusion identically.
+const CODING_PLAN_CACHED_INPUT_FILTER_REASON =
+	"no cached input pricing (coding plan)";
+
 // Pre-compiled regex pattern to avoid recompilation per request
 const SSE_FIELD_PATTERN = /^[a-zA-Z_-]+:\s*/;
 const IMMEDIATE_STREAM_ERROR_PEEK_LIMIT = 64 * 1024;
@@ -1374,12 +1399,27 @@ chat.openapi(completions, async (c) => {
 	// doesn't specify one.
 	let service_tier = validationResult.data.service_tier;
 
-	// The processing tier the client explicitly requested (flex / priority).
-	// Null when no premium tier was requested. Stored on every log alongside the
-	// tier the provider actually served (usedServiceTier).
-	const requestedServiceTier = isRequestedServiceTier(service_tier)
+	// The processing tier the gateway ends up requesting upstream (flex /
+	// priority). Null when no premium tier is in play. Stored on every log
+	// alongside the tier the provider actually served (usedServiceTier).
+	// Mutable for the same reason `service_tier` is: a dev-plan (DevPass) org's
+	// default tier is resolved further below, and it narrows provider routing
+	// exactly like an explicit tier does — recording only the client-supplied
+	// value would leave those logs with no trace of why routing was narrowed.
+	// `serviceTierSource` keeps the two apart.
+	let requestedServiceTier = isRequestedServiceTier(service_tier)
 		? service_tier
 		: null;
+	let serviceTierSource: "request" | "coding-plan-default" | null =
+		requestedServiceTier ? "request" : null;
+	// Strict enforcement applies only to a tier the client asked for itself: a
+	// resolved attempt that cannot carry it fails instead of quietly running at
+	// standard. The coding-plan default is a cost preference rather than a
+	// requirement, so it stays soft — see assertServiceTierHonored. Read as a
+	// function because `serviceTierSource` is resolved further below, after the
+	// dev-plan default block.
+	const clientRequestedServiceTier = () =>
+		serviceTierSource === "request" ? requestedServiceTier : null;
 	// The processing tier the provider actually served (Flex / Priority),
 	// resolved from the upstream response — Vertex's usageMetadata.trafficType or
 	// AI Studio's x-gemini-service-tier header. Billing scales token costs by
@@ -1387,6 +1427,42 @@ chat.openapi(completions, async (c) => {
 	// unsupported tiers to standard. Null = standard / no tier. Declared here
 	// (ahead of the insertLogEntry wrapper) so every log path can record it.
 	let servedServiceTier: "flex" | "priority" | null = null;
+
+	// Providers dropped *before* provider selection runs — by the service-tier
+	// filter, the coding-plan prompt-caching requirement, the service-tier key
+	// eligibility check or the compliance policy. Routing metadata otherwise only
+	// records what the routing-time eligibility filter dropped, so a request whose
+	// candidates were narrowed earlier looks like the model simply has one
+	// provider mapping. Merged into routingMetadata.filteredProviders on every
+	// path below.
+	const preRoutingFilteredProviders: FilteredProvider[] = [];
+	const recordPreRoutingDrops = (
+		before: readonly ProviderModelMapping[],
+		after: readonly ProviderModelMapping[],
+		reason: string,
+	) => {
+		// Provider-level, not mapping-level: with regional expansion a provider is
+		// only "filtered out" once none of its mappings survived.
+		const kept = new Set(after.map((mapping) => mapping.providerId));
+		for (const mapping of before) {
+			if (!kept.has(mapping.providerId)) {
+				recordFilteredProvider(
+					preRoutingFilteredProviders,
+					mapping.providerId,
+					[reason],
+				);
+			}
+		}
+	};
+	const filteredProvidersMetadata = (
+		filtered: FilteredProvider[] = [],
+	): { filteredProviders?: FilteredProvider[] } => {
+		const merged: FilteredProvider[] = [];
+		for (const entry of [...preRoutingFilteredProviders, ...filtered]) {
+			recordFilteredProvider(merged, entry.providerId, entry.reasons);
+		}
+		return merged.length > 0 ? { filteredProviders: merged } : {};
+	};
 
 	// Sticky-routing session key, in priority order: the explicit x-session-id
 	// header, then the session-affinity/session-id headers coding agents attach
@@ -2056,6 +2132,11 @@ chat.openapi(completions, async (c) => {
 		);
 		if (supportsDefaultFlex) {
 			service_tier = "flex";
+			// Record the defaulted tier so the log and the response metadata show
+			// the tier the request was actually routed and processed under, not
+			// just what the client typed.
+			requestedServiceTier = "flex";
+			serviceTierSource = "coding-plan-default";
 		}
 	}
 
@@ -2186,6 +2267,13 @@ chat.openapi(completions, async (c) => {
 				configIndex,
 				envVariant,
 			);
+		recordPreRoutingDrops(
+			serviceTierCandidateProviders,
+			serviceTierSupportedProviders,
+			serviceTierSource === "coding-plan-default"
+				? `service tier '${service_tier}' (coding plan default) not supported`
+				: `service tier '${service_tier}' not supported`,
+		);
 		modelInfo = {
 			...modelInfo,
 			providers: modelInfo.providers.filter(supportsRequestedTier),
@@ -2740,9 +2828,13 @@ chat.openapi(completions, async (c) => {
 		if (!compliancePolicy) {
 			return;
 		}
-		iamFilteredModelProviders = applyCompliancePolicy(
+		const compliantProviders = applyCompliancePolicy(iamFilteredModelProviders);
+		recordPreRoutingDrops(
 			iamFilteredModelProviders,
+			compliantProviders,
+			"excluded by compliance policy",
 		);
+		iamFilteredModelProviders = compliantProviders;
 		expandedIamFilteredModelProviders = applyCompliancePolicy(
 			expandedIamFilteredModelProviders,
 		);
@@ -2778,9 +2870,15 @@ chat.openapi(completions, async (c) => {
 	};
 
 	if (isDevPlan) {
-		iamFilteredModelProviders = iamFilteredModelProviders.filter(
+		const cachedInputProviders = iamFilteredModelProviders.filter(
 			providerSupportsCachedInput,
 		);
+		recordPreRoutingDrops(
+			iamFilteredModelProviders,
+			cachedInputProviders,
+			CODING_PLAN_CACHED_INPUT_FILTER_REASON,
+		);
+		iamFilteredModelProviders = cachedInputProviders;
 		expandedIamFilteredModelProviders =
 			expandedIamFilteredModelProviders.filter(providerSupportsCachedInput);
 		if (iamFilteredModelProviders.length === 0) {
@@ -2824,9 +2922,15 @@ chat.openapi(completions, async (c) => {
 		if (serviceTierOrgKeys === undefined) {
 			serviceTierOrgKeys = await findActiveProviderKeys(project.organizationId);
 		}
-		iamFilteredModelProviders = iamFilteredModelProviders.filter((provider) =>
+		const tierEligibleProviders = iamFilteredModelProviders.filter((provider) =>
 			isProviderServiceTierEligible(provider.providerId),
 		);
+		recordPreRoutingDrops(
+			iamFilteredModelProviders,
+			tierEligibleProviders,
+			`no service-tier-eligible key for '${service_tier}'`,
+		);
+		iamFilteredModelProviders = tierEligibleProviders;
 		expandedIamFilteredModelProviders =
 			expandedIamFilteredModelProviders.filter((provider) =>
 				isProviderServiceTierEligible(provider.providerId),
@@ -3284,9 +3388,7 @@ chat.openapi(completions, async (c) => {
 				routingMetadata = {
 					...cheapestResult.metadata,
 					...getNoFallbackRoutingMetadata(noFallback, xNoFallbackHeaderSet),
-					...(selectedFilteredProviders.length > 0
-						? { filteredProviders: selectedFilteredProviders }
-						: {}),
+					...filteredProvidersMetadata(selectedFilteredProviders),
 				};
 			} else {
 				// Fallback to first available provider if price comparison fails
@@ -3378,9 +3480,15 @@ chat.openapi(completions, async (c) => {
 				)
 			: expandAllProviderRegions(modelInfo.providers);
 		if (isDevPlan) {
-			iamFilteredModelProviders = iamFilteredModelProviders.filter(
+			const cachedInputProviders = iamFilteredModelProviders.filter(
 				providerSupportsCachedInput,
 			);
+			recordPreRoutingDrops(
+				iamFilteredModelProviders,
+				cachedInputProviders,
+				CODING_PLAN_CACHED_INPUT_FILTER_REASON,
+			);
+			iamFilteredModelProviders = cachedInputProviders;
 			expandedIamFilteredModelProviders =
 				expandedIamFilteredModelProviders.filter(providerSupportsCachedInput);
 		}
@@ -3786,6 +3894,7 @@ chat.openapi(completions, async (c) => {
 									noFallback,
 									xNoFallbackHeaderSet,
 								),
+								...filteredProvidersMetadata(),
 							};
 							const preferredCandidateSet = new Set(
 								preferredCandidatesForRouting,
@@ -4031,9 +4140,7 @@ chat.openapi(completions, async (c) => {
 										noFallback,
 										xNoFallbackHeaderSet,
 									),
-									...(filteredOutProvidersFallback.length > 0
-										? { filteredProviders: filteredOutProvidersFallback }
-										: {}),
+									...filteredProvidersMetadata(filteredOutProvidersFallback),
 								};
 								const preferredBetterUptimeSet = new Set(
 									preferredBetterUptimeProviders,
@@ -4334,9 +4441,7 @@ chat.openapi(completions, async (c) => {
 							selectedProvider: usedProvider,
 							selectionReason: hysteresisSelectionReason,
 							...getNoFallbackRoutingMetadata(noFallback, xNoFallbackHeaderSet),
-							...(filteredOutProvidersDirect.length > 0
-								? { filteredProviders: filteredOutProvidersDirect }
-								: {}),
+							...filteredProvidersMetadata(filteredOutProvidersDirect),
 						},
 						contentFilterMatched,
 						contentFilterRoutingExcludedProviders,
@@ -4417,8 +4522,16 @@ chat.openapi(completions, async (c) => {
 		let selectionReason: string;
 		if (requestedProvider && requestedProvider !== "llmgateway") {
 			selectionReason = "direct-provider-specified";
-		} else if (modelInfo.providers.length === 1) {
-			selectionReason = "single-provider-available";
+		} else if (iamFilteredModelProviders.length === 1) {
+			// The single-candidate shortcut above skipped provider selection. Only
+			// claim the model has a single provider when the catalog says so:
+			// otherwise the candidates were narrowed to one by request-scoped
+			// filters (service tier, coding-plan prompt caching, IAM, compliance),
+			// and `filteredProviders` explains which ones dropped out.
+			selectionReason =
+				countActiveCatalogueProviders(modelInfo.id) > 1
+					? "single-candidate-after-filtering"
+					: "single-provider-available";
 		} else {
 			selectionReason = "fallback-first-available";
 		}
@@ -4578,6 +4691,7 @@ chat.openapi(completions, async (c) => {
 				selectionReason,
 				providerScores: allProviderScores,
 				...getNoFallbackRoutingMetadata(noFallback, xNoFallbackHeaderSet),
+				...filteredProvidersMetadata(),
 			},
 			contentFilterMatched,
 			contentFilterRoutingExcludedProviders,
@@ -4586,6 +4700,17 @@ chat.openapi(completions, async (c) => {
 			project.organizationId,
 			providerDiscountResolver,
 		);
+	}
+
+	// Record where the processing tier came from. A dev-plan (DevPass) org's
+	// default tier narrows routing exactly like an explicit one, so without this
+	// the log shows a tier the caller never asked for and no reason for the
+	// narrowed candidate list.
+	if (routingMetadata && serviceTierSource) {
+		routingMetadata = {
+			...routingMetadata,
+			serviceTierSource,
+		};
 	}
 
 	// Re-resolve the model definition for the routed provider so we have the
@@ -6235,7 +6360,7 @@ chat.openapi(completions, async (c) => {
 		envVariant,
 	);
 	assertServiceTierHonored({
-		requestedServiceTier,
+		clientRequestedServiceTier: clientRequestedServiceTier(),
 		forwardedServiceTier: initialForwardedServiceTier,
 		provider: usedProvider,
 		model: usedInternalModel,
@@ -6489,7 +6614,7 @@ chat.openapi(completions, async (c) => {
 				n,
 				providerCacheControlEnabled,
 				service_tier,
-				requestedServiceTier,
+				clientRequestedServiceTier: clientRequestedServiceTier(),
 				verbosity,
 			},
 		);
@@ -7105,7 +7230,7 @@ chat.openapi(completions, async (c) => {
 						envVariant,
 					);
 					assertServiceTierHonored({
-						requestedServiceTier,
+						clientRequestedServiceTier: clientRequestedServiceTier(),
 						forwardedServiceTier,
 						provider: usedProvider,
 						model: usedInternalModel,
@@ -11382,7 +11507,7 @@ chat.openapi(completions, async (c) => {
 			envVariant,
 		);
 		assertServiceTierHonored({
-			requestedServiceTier,
+			clientRequestedServiceTier: clientRequestedServiceTier(),
 			forwardedServiceTier,
 			provider: usedProvider,
 			model: usedInternalModel,
