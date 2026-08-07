@@ -226,6 +226,7 @@ describe("admin routing analytics endpoint", () => {
 				reason: "service_tier",
 				excludedCount: 6,
 				candidateCount: 10,
+				excludedDecisionCount: 7,
 			},
 			{
 				id: "routing-exclusion-vision",
@@ -235,6 +236,7 @@ describe("admin routing analytics endpoint", () => {
 				reason: "vision",
 				excludedCount: 1,
 				candidateCount: 10,
+				excludedDecisionCount: 7,
 			},
 		]);
 
@@ -262,7 +264,7 @@ describe("admin routing analytics endpoint", () => {
 		const eligibilityB = body.eligibility.find(
 			(e: { providerId: string }) => e.providerId === providerB,
 		);
-		// 7 exclusions across 2 reasons against a candidate count of 10
+		// 7 of the 10 decisions dropped the mapping, across 2 reasons
 		expect(eligibilityB.excludedCount).toBe(7);
 		expect(eligibilityB.candidateCount).toBe(10);
 		expect(eligibilityB.exclusionRate).toBe(0.7);
@@ -295,10 +297,11 @@ describe("admin routing analytics endpoint", () => {
 		});
 	});
 
-	it("caps the exclusion rate when one request fires several reasons", async () => {
+	it("rates eligibility per decision, not per exclusion reason", async () => {
 		const hour = currentHourStart();
-		// Two reasons on every one of the 4 requests the mapping was a candidate
-		// in: 8 exclusions against 4 candidates would read as 200% ineligible.
+		// The mapping was a candidate in 10 decisions and dropped in 5 of them,
+		// each time for two reasons at once. Summing the reasons gives 10 and
+		// would report the mapping as never once eligible; it served 5 requests.
 		await db.insert(tables.routingExclusionHourly).values([
 			{
 				id: "routing-exclusion-multi-a",
@@ -306,8 +309,9 @@ describe("admin routing analytics endpoint", () => {
 				modelId: testModel.id,
 				providerId: providerB,
 				reason: "service_tier",
-				excludedCount: 4,
-				candidateCount: 4,
+				excludedCount: 5,
+				candidateCount: 10,
+				excludedDecisionCount: 5,
 			},
 			{
 				id: "routing-exclusion-multi-b",
@@ -315,8 +319,9 @@ describe("admin routing analytics endpoint", () => {
 				modelId: testModel.id,
 				providerId: providerB,
 				reason: "vision",
-				excludedCount: 4,
-				candidateCount: 4,
+				excludedCount: 5,
+				candidateCount: 10,
+				excludedDecisionCount: 5,
 			},
 		]);
 
@@ -325,7 +330,52 @@ describe("admin routing analytics endpoint", () => {
 		const eligibilityB = body.eligibility.find(
 			(e: { providerId: string }) => e.providerId === providerB,
 		);
-		expect(eligibilityB.exclusionRate).toBe(1);
+		expect(eligibilityB.excludedCount).toBe(5);
+		expect(eligibilityB.candidateCount).toBe(10);
+		expect(eligibilityB.exclusionRate).toBe(0.5);
+		// The per-reason breakdown still reports both, and still sums past the
+		// decision count — that is the point of keeping the two separate.
+		expect(eligibilityB.exclusions).toEqual([
+			{ reason: "service_tier", excludedCount: 5 },
+			{ reason: "vision", excludedCount: 5 },
+		]);
+	});
+
+	it("takes the largest candidate count when a bucket disagrees", async () => {
+		const hour = currentHourStart();
+		// A partially rerun aggregation can leave two reason rows of one
+		// mapping-hour carrying different denominators. The query has no ORDER BY,
+		// so reading whichever arrives first is non-deterministic.
+		await db.insert(tables.routingExclusionHourly).values([
+			{
+				id: "routing-exclusion-stale",
+				hourTimestamp: hour,
+				modelId: testModel.id,
+				providerId: providerB,
+				reason: "service_tier",
+				excludedCount: 2,
+				candidateCount: 4,
+				excludedDecisionCount: 2,
+			},
+			{
+				id: "routing-exclusion-fresh",
+				hourTimestamp: hour,
+				modelId: testModel.id,
+				providerId: providerB,
+				reason: "vision",
+				excludedCount: 1,
+				candidateCount: 8,
+				excludedDecisionCount: 3,
+			},
+		]);
+
+		const res = await get(`?modelId=${testModel.id}&window=24h`, cookie);
+		const body = await res.json();
+		const eligibilityB = body.eligibility.find(
+			(e: { providerId: string }) => e.providerId === providerB,
+		);
+		expect(eligibilityB.candidateCount).toBe(8);
+		expect(eligibilityB.excludedCount).toBe(3);
 	});
 
 	it("scores the discounted selection price", async () => {

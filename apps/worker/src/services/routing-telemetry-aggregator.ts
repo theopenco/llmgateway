@@ -14,6 +14,7 @@ import {
 	ROUTING_SELECTION_REASONS,
 } from "@llmgateway/shared/routing-telemetry";
 
+import { excludeRecoveredSameProviderRegionRetry } from "./log-filters.js";
 import { formatUTCTimestamp } from "./project-stats-aggregator.js";
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
@@ -97,7 +98,15 @@ async function aggregateElections(targetHour: Date) {
 			serviceTierImplicitCount: implicitTierSql.as("serviceTierImplicitCount"),
 		})
 		.from(log)
-		.where(and(gte(log.createdAt, start), lt(log.createdAt, end)))
+		.where(
+			and(
+				gte(log.createdAt, start),
+				lt(log.createdAt, end),
+				// Same predicate the mapping and model rollups apply, so a request
+				// retried onto the same provider counts as one election here too.
+				excludeRecoveredSameProviderRegionRetry(),
+			),
+		)
 		.groupBy(usedBaseModelSql, log.usedProvider, selectionReasonSql);
 
 	const values = rows
@@ -140,6 +149,12 @@ async function aggregateElections(targetHour: Date) {
  * The last two already existed in routing metadata, so they are mapped onto
  * exclusion codes here rather than duplicated into filteredProviders by the
  * gateway.
+ *
+ * Two counts come out of this, and they answer different questions.
+ * `excludedCount` is per reason — "how often did this constraint fire" — and
+ * the reasons sum to more than the requests when several fire at once.
+ * `excludedDecisionCount` counts each request once no matter how many reasons
+ * it tripped, and is the only one that can be turned into an eligibility rate.
  */
 async function aggregateExclusions(targetHour: Date) {
 	const { start, startUtc } = hourWindow(targetHour);
@@ -157,19 +172,23 @@ async function aggregateExclusions(targetHour: Date) {
 		reason: string;
 		excluded_count: number;
 		candidate_count: number;
+		excluded_decision_count: number;
 	}>(sql`
 			with hour_logs as (
 				select
+					${log.id} as log_id,
 					split_part(split_part(${log.usedModel}, '/', 2), ':', 1) as model_id,
 					${log.routingMetadata}::jsonb as metadata
 				from ${log}
 				where ${log.createdAt} >= ${startUtc}::timestamp
 					and ${log.createdAt} < ${startUtc}::timestamp + interval '1 hour'
 					and ${log.routingMetadata} is not null
+					and ${excludeRecoveredSameProviderRegionRetry()}
 			),
 			exclusions as (
 				-- filteredProviders[].codes: the gateway's own exclusion record
 				select
+					hour_logs.log_id,
 					hour_logs.model_id,
 					entry ->> 'providerId' as provider_id,
 					case when code = any(${reasonAllowlist}) then code else 'other' end as reason
@@ -183,6 +202,7 @@ async function aggregateExclusions(targetHour: Date) {
 				union all
 				-- content-filter rerouting, recorded in its own metadata field
 				select
+					hour_logs.log_id,
 					hour_logs.model_id,
 					provider_id,
 					'content_filter' as reason
@@ -193,6 +213,7 @@ async function aggregateExclusions(targetHour: Date) {
 				union all
 				-- rate-limited mappings, annotated on the score entries
 				select
+					hour_logs.log_id,
 					hour_logs.model_id,
 					score ->> 'providerId' as provider_id,
 					'rate_limited' as reason
@@ -205,24 +226,41 @@ async function aggregateExclusions(targetHour: Date) {
 			-- Every provider this model saw in a routing decision, whether it was
 			-- kept or dropped. This is the denominator: without it an exclusion count
 			-- cannot be turned into a rate.
+			--
+			-- Deduplicated per decision, because the branches below overlap: a
+			-- rate-limited mapping is annotated on providerScores *and* may still be
+			-- listed in availableProviders, and counting it twice would halve its
+			-- exclusion rate. providerScores is unioned in because a mapping dropped
+			-- for rate limiting is sometimes only ever recorded there — without this
+			-- branch it has no denominator at all and every such mapping reports a
+			-- flat 100% exclusion rate.
 			candidates as (
-				select hour_logs.model_id, provider_id
-				from hour_logs
-				cross join lateral jsonb_array_elements_text(
-					coalesce(hour_logs.metadata -> 'availableProviders', '[]'::jsonb)
-				) as provider_id
-				union all
-				select hour_logs.model_id, entry ->> 'providerId' as provider_id
-				from hour_logs
-				cross join lateral jsonb_array_elements(
-					coalesce(hour_logs.metadata -> 'filteredProviders', '[]'::jsonb)
-				) as entry
-				union all
-				select hour_logs.model_id, provider_id
-				from hour_logs
-				cross join lateral jsonb_array_elements_text(
-					coalesce(hour_logs.metadata -> 'contentFilterExcludedProviders', '[]'::jsonb)
-				) as provider_id
+				select distinct log_id, model_id, provider_id
+				from (
+					select hour_logs.log_id, hour_logs.model_id, provider_id
+					from hour_logs
+					cross join lateral jsonb_array_elements_text(
+						coalesce(hour_logs.metadata -> 'availableProviders', '[]'::jsonb)
+					) as provider_id
+					union all
+					select hour_logs.log_id, hour_logs.model_id, entry ->> 'providerId' as provider_id
+					from hour_logs
+					cross join lateral jsonb_array_elements(
+						coalesce(hour_logs.metadata -> 'filteredProviders', '[]'::jsonb)
+					) as entry
+					union all
+					select hour_logs.log_id, hour_logs.model_id, provider_id
+					from hour_logs
+					cross join lateral jsonb_array_elements_text(
+						coalesce(hour_logs.metadata -> 'contentFilterExcludedProviders', '[]'::jsonb)
+					) as provider_id
+					union all
+					select hour_logs.log_id, hour_logs.model_id, score ->> 'providerId' as provider_id
+					from hour_logs
+					cross join lateral jsonb_array_elements(
+						coalesce(hour_logs.metadata -> 'providerScores', '[]'::jsonb)
+					) as score
+				) as all_candidates
 			),
 			candidate_counts as (
 				select model_id, provider_id, count(*)::int as candidate_count
@@ -231,18 +269,37 @@ async function aggregateExclusions(targetHour: Date) {
 				group by model_id, provider_id
 			),
 			exclusion_counts as (
-				select model_id, provider_id, reason, count(*)::int as excluded_count
+				-- distinct log_id per reason: a mapping listed twice for the same
+				-- reason in one decision was still only excluded once.
+				select model_id, provider_id, reason, count(distinct log_id)::int as excluded_count
 				from exclusions
 				where provider_id is not null
 				group by model_id, provider_id, reason
+			),
+			-- Decisions the mapping was dropped from for any reason, counted once
+			-- each. This is the eligibility numerator: summing the per-reason counts
+			-- above double-counts a decision that fired several reasons at once, and
+			-- would report a mapping as never eligible when it in fact served.
+			excluded_decision_counts as (
+				select model_id, provider_id, count(distinct log_id)::int as excluded_decision_count
+				from exclusions
+				where provider_id is not null
+				group by model_id, provider_id
 			)
 			select
 				exclusion_counts.model_id,
 				exclusion_counts.provider_id,
 				exclusion_counts.reason,
 				exclusion_counts.excluded_count,
-				coalesce(candidate_counts.candidate_count, exclusion_counts.excluded_count) as candidate_count
+				coalesce(
+					candidate_counts.candidate_count,
+					excluded_decision_counts.excluded_decision_count
+				) as candidate_count,
+				excluded_decision_counts.excluded_decision_count
 			from exclusion_counts
+			join excluded_decision_counts
+				on excluded_decision_counts.model_id = exclusion_counts.model_id
+				and excluded_decision_counts.provider_id = exclusion_counts.provider_id
 			left join candidate_counts
 				on candidate_counts.model_id = exclusion_counts.model_id
 				and candidate_counts.provider_id = exclusion_counts.provider_id
@@ -257,6 +314,7 @@ async function aggregateExclusions(targetHour: Date) {
 			reason: row.reason,
 			excludedCount: Number(row.excluded_count),
 			candidateCount: Number(row.candidate_count),
+			excludedDecisionCount: Number(row.excluded_decision_count),
 		}));
 
 	for (let i = 0; i < values.length; i += UPSERT_CHUNK_SIZE) {
@@ -274,6 +332,7 @@ async function aggregateExclusions(targetHour: Date) {
 				set: {
 					excludedCount: sql`excluded.excluded_count`,
 					candidateCount: sql`excluded.candidate_count`,
+					excludedDecisionCount: sql`excluded.excluded_decision_count`,
 					updatedAt: new Date(),
 				},
 			});

@@ -3453,6 +3453,13 @@ export const routingExclusionHourly = pgTable(
 		// the mapping, so read it with max() rather than sum() when grouping across
 		// reasons.
 		candidateCount: integer().notNull().default(0),
+		// Requests where this mapping was dropped for ANY reason, counted once per
+		// request. `excludedCount` counts reasons, and one request can fire several
+		// on the same mapping, so summing reasons overstates how often the mapping
+		// was actually unavailable — eligibility must be derived from this instead.
+		// Like candidateCount it is repeated on every reason row, so read it with
+		// max() when grouping across reasons.
+		excludedDecisionCount: integer().notNull().default(0),
 	},
 	(table) => [
 		unique().on(

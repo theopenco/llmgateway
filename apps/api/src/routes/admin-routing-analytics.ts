@@ -138,10 +138,15 @@ const mappingEligibilitySchema = z
 	.object({
 		providerId: z.string(),
 		candidateCount: z.number(),
+		/** Routing decisions the mapping was dropped from, counted once each. */
 		excludedCount: z.number(),
 		/** excluded / candidate, or null when the mapping saw no routing decisions. */
 		exclusionRate: z.number().nullable(),
 		topReason: z.string().nullable(),
+		/**
+		 * Per-reason counts. These sum to at least `excludedCount` and often more,
+		 * because one decision can trip several constraints on the same mapping.
+		 */
 		exclusions: z.array(exclusionEntrySchema),
 		serviceTier: serviceTierCountsSchema,
 	})
@@ -603,13 +608,18 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 		electionsByKind.set(kind, (electionsByKind.get(kind) ?? 0) + requestCount);
 	}
 
-	// Exclusion rows: per-provider reason totals. candidateCount is repeated on
-	// every reason row for a mapping-hour, so it is summed per (hour, provider)
-	// once rather than across reasons — summing it with the reasons would multiply
-	// the denominator by the number of reasons that fired.
+	// Exclusion rows: per-provider reason totals. `candidateCount` and
+	// `excludedDecisionCount` are repeated on every reason row for a mapping-hour,
+	// so both are reduced per (hour, provider) with max() before being summed
+	// across hours — summing them alongside the reasons would multiply them by the
+	// number of reasons that fired. max() rather than "first row wins" because the
+	// query has no ORDER BY, and a partially rerun aggregation can leave two rows
+	// of one bucket disagreeing; taking the largest keeps the denominator
+	// deterministic either way.
 	const exclusionsByProvider = new Map<string, Map<string, number>>();
-	const candidateCountByProvider = new Map<string, number>();
-	const seenCandidateBuckets = new Set<string>();
+	const candidateCountByBucket = new Map<string, number>();
+	const excludedDecisionsByBucket = new Map<string, number>();
+	const providerByBucket = new Map<string, string>();
 	for (const row of exclusionRows) {
 		let reasonMap = exclusionsByProvider.get(row.providerId);
 		if (!reasonMap) {
@@ -621,14 +631,33 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 			(reasonMap.get(row.reason) ?? 0) + row.excludedCount,
 		);
 		const bucketKey = `${row.hourTimestamp.getTime()}:${row.providerId}`;
-		if (!seenCandidateBuckets.has(bucketKey)) {
-			seenCandidateBuckets.add(bucketKey);
-			candidateCountByProvider.set(
-				row.providerId,
-				(candidateCountByProvider.get(row.providerId) ?? 0) +
-					row.candidateCount,
-			);
-		}
+		providerByBucket.set(bucketKey, row.providerId);
+		candidateCountByBucket.set(
+			bucketKey,
+			Math.max(candidateCountByBucket.get(bucketKey) ?? 0, row.candidateCount),
+		);
+		excludedDecisionsByBucket.set(
+			bucketKey,
+			Math.max(
+				excludedDecisionsByBucket.get(bucketKey) ?? 0,
+				row.excludedDecisionCount,
+			),
+		);
+	}
+
+	const candidateCountByProvider = new Map<string, number>();
+	const excludedDecisionsByProvider = new Map<string, number>();
+	for (const [bucketKey, providerId] of providerByBucket) {
+		candidateCountByProvider.set(
+			providerId,
+			(candidateCountByProvider.get(providerId) ?? 0) +
+				(candidateCountByBucket.get(bucketKey) ?? 0),
+		);
+		excludedDecisionsByProvider.set(
+			providerId,
+			(excludedDecisionsByProvider.get(providerId) ?? 0) +
+				(excludedDecisionsByBucket.get(bucketKey) ?? 0),
+		);
 	}
 
 	const hourly: z.infer<typeof routingHourSchema>[] = [];
@@ -720,13 +749,14 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 				excludedCount,
 			}),
 		).sort((a, b) => b.excludedCount - a.excludedCount);
-		const excludedCount = exclusions.reduce(
-			(sum, entry) => sum + entry.excludedCount,
-			0,
-		);
-		// A mapping can be dropped for several reasons in one request, so the
-		// exclusion count can exceed the number of requests it was excluded from.
-		// Cap the rate at 1 rather than reporting an impossible 130%.
+		// One request can drop a mapping for several reasons at once, so the
+		// per-reason counts in `exclusions` sum to more than the requests the
+		// mapping was actually unavailable for. `excludedCount` is the decision
+		// count the aggregator recorded separately: each request counted once,
+		// whatever it tripped. Deriving the rate from the reason sum instead would
+		// report a mapping that served most of its requests as 0% eligible.
+		const excludedCount =
+			excludedDecisionsByProvider.get(mapping.providerId) ?? 0;
 		const candidateCount =
 			candidateCountByProvider.get(mapping.providerId) ?? 0;
 		return {
