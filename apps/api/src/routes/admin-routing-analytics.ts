@@ -6,6 +6,7 @@ import { z } from "zod";
 import { adminMiddleware } from "@/middleware/admin.js";
 
 import {
+	getDiscountedProviderSelectionPrice,
 	getProviderSelectionPrice,
 	providerSupportsCaching,
 	computeWeightedProviderScores,
@@ -17,6 +18,7 @@ import {
 	db,
 	effectiveTtftTotals,
 	eq,
+	getEffectiveDiscount,
 	gte,
 	modelProviderMappingHistoryHourly,
 } from "@llmgateway/db";
@@ -89,6 +91,8 @@ const routingMappingSchema = z
 		stability: z.string(),
 		deactivatedAt: z.string().nullable(),
 		priority: z.number(),
+		listPrice: z.number(),
+		discount: z.number(),
 		price: z.number(),
 		cacheSupported: z.boolean(),
 		routable: z.boolean(),
@@ -246,45 +250,70 @@ interface MappingInfo {
 	stability: string;
 	deactivatedAt: string | null;
 	priority: number;
+	/** Catalogue selection price, before any discount. */
+	listPrice: number;
+	/** Platform-wide discount fraction applied to listPrice (0 when none). */
+	discount: number;
+	/** Selection price the score is computed from: listPrice * (1 - discount). */
 	price: number;
 	cacheSupported: boolean;
 	routable: boolean;
 	excludedReasons: string[];
 }
 
-function buildMappingInfos(model: (typeof models)[number]): MappingInfo[] {
-	return model.providers.map((mapping: ProviderModelMapping) => {
-		const providerDef = getProviderDefinition(mapping.providerId);
-		const modelStability =
-			"stability" in model
-				? (model.stability as string | undefined)
-				: undefined;
-		const stability = mapping.stability ?? modelStability ?? "stable";
-		const priority = providerDef?.priority ?? 1;
-		const excludedReasons: string[] = [];
-		if (mapping.deactivatedAt) {
-			excludedReasons.push("deactivated");
-		}
-		if (stability === "unstable" || stability === "experimental") {
-			excludedReasons.push(`stability: ${stability}`);
-		}
-		if (priority <= 0) {
-			excludedReasons.push("priority disabled");
-		}
-		return {
-			providerId: mapping.providerId,
-			providerName: providerDef?.name ?? mapping.providerId,
-			stability,
-			deactivatedAt: mapping.deactivatedAt
-				? mapping.deactivatedAt.toISOString()
-				: null,
-			priority,
-			price: getProviderSelectionPrice(mapping).toNumber(),
-			cacheSupported: providerSupportsCaching(mapping),
-			routable: excludedReasons.length === 0,
-			excludedReasons,
-		};
-	});
+async function buildMappingInfos(
+	model: (typeof models)[number],
+): Promise<MappingInfo[]> {
+	return await Promise.all(
+		model.providers.map(async (mapping: ProviderModelMapping) => {
+			const providerDef = getProviderDefinition(mapping.providerId);
+			const modelStability =
+				"stability" in model
+					? (model.stability as string | undefined)
+					: undefined;
+			const stability = mapping.stability ?? modelStability ?? "stable";
+			const priority = providerDef?.priority ?? 1;
+			const excludedReasons: string[] = [];
+			if (mapping.deactivatedAt) {
+				excludedReasons.push("deactivated");
+			}
+			if (stability === "unstable" || stability === "experimental") {
+				excludedReasons.push(`stability: ${stability}`);
+			}
+			if (priority <= 0) {
+				excludedReasons.push("priority disabled");
+			}
+			// Routing scores the discounted price, so this page has to as well or
+			// the score it shows would not be the score that elected the provider.
+			// This view is not scoped to an organization, so only platform-wide
+			// (global) discounts are resolved — an org-specific discount can still
+			// shift that org's price below what is shown here.
+			const { price, discount } = await getDiscountedProviderSelectionPrice(
+				mapping,
+				model.id,
+				{
+					providerDiscountResolver: async (provider, modelId) =>
+						(await getEffectiveDiscount(null, provider.providerId, modelId))
+							.discount,
+				},
+			);
+			return {
+				providerId: mapping.providerId,
+				providerName: providerDef?.name ?? mapping.providerId,
+				stability,
+				deactivatedAt: mapping.deactivatedAt
+					? mapping.deactivatedAt.toISOString()
+					: null,
+				priority,
+				listPrice: getProviderSelectionPrice(mapping).toNumber(),
+				discount: discount.toNumber(),
+				price: price.toNumber(),
+				cacheSupported: providerSupportsCaching(mapping),
+				routable: excludedReasons.length === 0,
+				excludedReasons,
+			};
+		}),
+	);
 }
 
 function scoreEntries(
@@ -384,7 +413,7 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 		"output" in model
 			? ((model.output as string[] | undefined)?.includes("image") ?? false)
 			: false;
-	const mappings = buildMappingInfos(model);
+	const mappings = await buildMappingInfos(model);
 	const routableMappings = mappings.filter((m) => m.routable);
 
 	const hourEnd = new Date();

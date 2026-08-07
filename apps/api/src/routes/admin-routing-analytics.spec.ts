@@ -3,16 +3,20 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db, tables } from "@llmgateway/db";
+import { cdb, db, tables } from "@llmgateway/db";
 import { models, type ProviderModelMapping } from "@llmgateway/models";
 
 const originalAdminEmails = process.env.ADMIN_EMAILS;
 
+// Routable *and* paid, so the price factor and the discount assertions below
+// operate on a non-zero selection price.
 function isRoutableMapping(mapping: ProviderModelMapping): boolean {
 	return (
 		!mapping.deactivatedAt &&
 		mapping.stability !== "unstable" &&
-		mapping.stability !== "experimental"
+		mapping.stability !== "experimental" &&
+		(Number(mapping.inputPrice ?? 0) > 0 ||
+			Number(mapping.outputPrice ?? 0) > 0)
 	);
 }
 
@@ -22,7 +26,12 @@ const testModel = models.find(
 	(m) =>
 		!("stability" in m && (m.stability as string) !== "stable") &&
 		m.providers.filter(isRoutableMapping).length >= 2,
-)!;
+);
+if (!testModel) {
+	throw new Error(
+		"No stable catalogue model with at least two paid, routable provider mappings; update this fixture.",
+	);
+}
 const [providerA, providerB] = testModel.providers
 	.filter(isRoutableMapping)
 	.map((p) => p.providerId);
@@ -53,6 +62,12 @@ describe("admin routing analytics endpoint", () => {
 		} else {
 			process.env.ADMIN_EMAILS = originalAdminEmails;
 		}
+		// Neither table hangs off a cascade root that deleteAll() clears, so the
+		// fixtures inserted here have to be removed explicitly or the next run
+		// collides on their fixed ids. Discounts go through the cached client so
+		// the cached lookup is dropped with them.
+		await db.delete(tables.modelProviderMappingHistoryHourly);
+		await cdb.delete(tables.discount);
 		await deleteAll();
 	});
 
@@ -115,11 +130,19 @@ describe("admin routing analytics endpoint", () => {
 		);
 		expect(mappingA.routable).toBe(true);
 		expect(mappingA.price).toBeGreaterThanOrEqual(0);
+		expect(mappingA.discount).toBe(0);
+		expect(mappingA.price).toBe(mappingA.listPrice);
 
-		const lastHour = body.hourly[body.hourly.length - 1];
-		expect(lastHour.hour).toBe(hour.toISOString());
+		// Look the bucket up by timestamp rather than taking the last one: the
+		// handler derives its own window end, so crossing an hour boundary between
+		// the insert and the request would otherwise shift the inserted row into
+		// the second-to-last bucket.
+		const trafficHour = body.hourly.find(
+			(h: { hour: string }) => h.hour === hour.toISOString(),
+		);
+		expect(trafficHour).toBeDefined();
 
-		const entryA = lastHour.providers.find(
+		const entryA = trafficHour.providers.find(
 			(p: { providerId: string }) => p.providerId === providerA,
 		);
 		// errors 3 minus client errors 1 = 2 routing errors out of 10 requests
@@ -132,7 +155,7 @@ describe("admin routing analytics endpoint", () => {
 		// penalty applies: ((95-80)/95*5)^2
 		expect(entryA.breakdown.uptimePenalty).toBeCloseTo(0.6233, 3);
 
-		const entryB = lastHour.providers.find(
+		const entryB = trafficHour.providers.find(
 			(p: { providerId: string }) => p.providerId === providerB,
 		);
 		expect(entryB.uptime).toBe(100);
@@ -154,5 +177,46 @@ describe("admin routing analytics endpoint", () => {
 		);
 		expect(summaryA.requestCount).toBe(10);
 		expect(summaryA.uptime).toBe(80);
+	});
+
+	it("scores the discounted selection price", async () => {
+		const before = await get(`?modelId=${testModel.id}&window=24h`, cookie);
+		const baseline = await before.json();
+		const baselineA = baseline.mappings.find(
+			(m: { providerId: string }) => m.providerId === providerA,
+		);
+
+		// Insert through the cached client so its onMutate hook drops the cached
+		// discount lookup the baseline request above just populated.
+		await cdb.insert(tables.discount).values({
+			id: "routing-analytics-discount",
+			organizationId: null,
+			provider: providerA,
+			model: testModel.id,
+			discountPercent: "0.25",
+		});
+
+		const res = await get(`?modelId=${testModel.id}&window=24h`, cookie);
+		const body = await res.json();
+		const mappingA = body.mappings.find(
+			(m: { providerId: string }) => m.providerId === providerA,
+		);
+
+		expect(mappingA.discount).toBe(0.25);
+		expect(mappingA.listPrice).toBe(baselineA.listPrice);
+		expect(mappingA.price).toBeCloseTo(baselineA.listPrice * 0.75, 12);
+
+		// The cheaper price has to move the score the page reports, otherwise it
+		// would not be the score that actually elected the provider.
+		const summaryA = body.summary.find(
+			(s: { providerId: string }) => s.providerId === providerA,
+		);
+		const baselineSummaryA = baseline.summary.find(
+			(s: { providerId: string }) => s.providerId === providerA,
+		);
+		expect(summaryA.score).toBeLessThanOrEqual(baselineSummaryA.score);
+		expect(summaryA.breakdown.priceContribution).toBeLessThanOrEqual(
+			baselineSummaryA.breakdown.priceContribution,
+		);
 	});
 });

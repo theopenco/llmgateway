@@ -1,6 +1,5 @@
 "use client";
 
-import { format, parseISO } from "date-fns";
 import { Check, ChevronsUpDown, Route } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
@@ -111,6 +110,36 @@ const SERIES_COLORS = [
 	"hsl(15 86% 55%)",
 	"hsl(200 60% 40%)",
 ];
+
+// Buckets are UTC hour boundaries, so they are rendered in UTC too — a
+// browser-local render would put the labels off the hour and disagree with the
+// "UTC" suffix on the tooltips.
+const AXIS_HOUR_FORMATTER = new Intl.DateTimeFormat("en-US", {
+	timeZone: "UTC",
+	month: "short",
+	day: "numeric",
+	hour: "2-digit",
+	minute: "2-digit",
+	hour12: false,
+});
+
+const TOOLTIP_HOUR_FORMATTER = new Intl.DateTimeFormat("en-US", {
+	timeZone: "UTC",
+	year: "numeric",
+	month: "short",
+	day: "numeric",
+	hour: "2-digit",
+	minute: "2-digit",
+	hour12: false,
+});
+
+function formatAxisHour(value: string): string {
+	return AXIS_HOUR_FORMATTER.format(new Date(value));
+}
+
+function formatTooltipHour(value: string): string {
+	return `${TOOLTIP_HOUR_FORMATTER.format(new Date(value))} UTC`;
+}
 
 function parseWindow(value: string | null): RoutingWindow {
 	return WINDOW_OPTIONS.some((o) => o.value === value)
@@ -437,7 +466,9 @@ export function RoutingAnalyticsClient() {
 							</CardTitle>
 							<CardDescription>
 								Window averages with every factor the router considers. Sorted
-								by score (lowest routes first).
+								by score (lowest routes first). Prices include platform-wide
+								discounts; an organization-specific discount can lower its own
+								price further and shift that organization&apos;s election.
 							</CardDescription>
 						</CardHeader>
 						<CardContent className="overflow-x-auto">
@@ -505,6 +536,17 @@ export function RoutingAnalyticsClient() {
 														mapping.price,
 														data.model.isImageModel,
 													)}
+													{mapping.discount > 0 ? (
+														<div className="text-[11px] text-muted-foreground">
+															<span className="line-through">
+																{formatSelectionPrice(
+																	mapping.listPrice,
+																	data.model.isImageModel,
+																)}
+															</span>{" "}
+															−{(mapping.discount * 100).toFixed(0)}%
+														</div>
+													) : null}
 												</TableCell>
 												<TableCell className="text-right font-mono text-xs">
 													{mapping.priority}
@@ -586,9 +628,7 @@ export function RoutingAnalyticsClient() {
 										axisLine={false}
 										tickMargin={8}
 										minTickGap={48}
-										tickFormatter={(value: string) =>
-											format(parseISO(value), "MMM d HH:mm")
-										}
+										tickFormatter={formatAxisHour}
 									/>
 									<YAxis
 										tickLine={false}
@@ -602,9 +642,7 @@ export function RoutingAnalyticsClient() {
 									<ChartTooltip
 										content={
 											<ChartTooltipContent
-												labelFormatter={(value: string) =>
-													format(parseISO(value), "MMM d, yyyy HH:mm 'UTC'")
-												}
+												labelFormatter={formatTooltipHour}
 												formatter={(value, name, item) => (
 													<>
 														<span
@@ -671,18 +709,12 @@ export function RoutingAnalyticsClient() {
 										axisLine={false}
 										tickMargin={8}
 										minTickGap={48}
-										tickFormatter={(value: string) =>
-											format(parseISO(value), "MMM d HH:mm")
-										}
+										tickFormatter={formatAxisHour}
 									/>
 									<YAxis tickLine={false} axisLine={false} width={50} />
 									<ChartTooltip
 										content={
-											<ChartTooltipContent
-												labelFormatter={(value: string) =>
-													format(parseISO(value), "MMM d, yyyy HH:mm 'UTC'")
-												}
-											/>
+											<ChartTooltipContent labelFormatter={formatTooltipHour} />
 										}
 									/>
 									<ChartLegend content={<ChartLegendContent />} />

@@ -102,6 +102,14 @@ export function computeWeightedProviderScores(
 	}
 	const { thresholds } = cfg;
 	const weights = getEffectiveScoringWeights(cfg, flags);
+	if (weights.total <= 0) {
+		// Every contribution would divide by zero and decimal.js yields NaN
+		// silently, so surface the caller's mistake instead of returning scores
+		// that quietly compare as equal.
+		throw new Error(
+			"computeWeightedProviderScores requires weights.total > 0; fall back to price-only selection when every weight is zeroed",
+		);
+	}
 	const weightSum = new Decimal(weights.total);
 
 	const minPrice = candidates.reduce(
