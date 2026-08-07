@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "e16e6124-26ce-41b5-abce-23d2dff5b440",
+  "id": "2260b4f0-bcab-4e85-b8d9-4947afb92628",
   "prevId": "e15ffaeb-ad71-4218-a05a-6c7845c9cac7",
   "ddl": [
     {
@@ -409,6 +409,18 @@
     {
       "isRlsEnabled": false,
       "name": "routing_config",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "routing_election_hourly",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "routing_exclusion_hourly",
       "entityType": "tables",
       "schema": "public"
     },
@@ -9907,6 +9919,70 @@
       "table": "model_history"
     },
     {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "service_tier_explicit_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_history"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "service_tier_implicit_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_history"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "service_tier_served_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_history"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "service_tier_unconfirmed_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_history"
+    },
+    {
       "type": "text",
       "typeSchema": null,
       "notNull": true,
@@ -10389,6 +10465,70 @@
       "generated": null,
       "identity": null,
       "name": "total_cached_input_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_history_hourly"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "service_tier_explicit_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_history_hourly"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "service_tier_implicit_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_history_hourly"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "service_tier_served_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_history_hourly"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "service_tier_unconfirmed_count",
       "entityType": "columns",
       "schema": "public",
       "table": "model_history_hourly"
@@ -11485,6 +11625,70 @@
       "table": "model_provider_mapping_history"
     },
     {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "service_tier_explicit_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping_history"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "service_tier_implicit_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping_history"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "service_tier_served_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping_history"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "service_tier_unconfirmed_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping_history"
+    },
+    {
       "type": "text",
       "typeSchema": null,
       "notNull": true,
@@ -11993,6 +12197,70 @@
       "generated": null,
       "identity": null,
       "name": "total_cached_input_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping_history_hourly"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "service_tier_explicit_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping_history_hourly"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "service_tier_implicit_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping_history_hourly"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "service_tier_served_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping_history_hourly"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "service_tier_unconfirmed_count",
       "entityType": "columns",
       "schema": "public",
       "table": "model_provider_mapping_history_hourly"
@@ -12572,19 +12840,6 @@
       "generated": null,
       "identity": null,
       "name": "plan_expires_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "plan_started_at",
       "entityType": "columns",
       "schema": "public",
       "table": "organization"
@@ -19141,6 +19396,296 @@
       "entityType": "columns",
       "schema": "public",
       "table": "routing_config"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_election_hourly"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_election_hourly"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_election_hourly"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "hour_timestamp",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_election_hourly"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "model_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_election_hourly"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "provider_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_election_hourly"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "selection_reason",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_election_hourly"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "request_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_election_hourly"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "candidate_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_election_hourly"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "service_tier_explicit_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_election_hourly"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "service_tier_implicit_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_election_hourly"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_exclusion_hourly"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_exclusion_hourly"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_exclusion_hourly"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "hour_timestamp",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_exclusion_hourly"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "model_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_exclusion_hourly"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "provider_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_exclusion_hourly"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "reason",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_exclusion_hourly"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "excluded_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_exclusion_hourly"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "candidate_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "routing_exclusion_hourly"
     },
     {
       "type": "text",
@@ -26179,6 +26724,111 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "model_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "hour_timestamp",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "routing_election_hourly_model_ts_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "routing_election_hourly"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "hour_timestamp",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "routing_election_hourly_ts_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "routing_election_hourly"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "model_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "hour_timestamp",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "routing_exclusion_hourly_model_ts_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "routing_exclusion_hourly"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "hour_timestamp",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "reason",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "routing_exclusion_hourly_ts_reason_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "routing_exclusion_hourly"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "organization_id",
           "isExpression": false,
           "asc": true,
@@ -29757,6 +30407,26 @@
         "id"
       ],
       "nameExplicit": false,
+      "name": "routing_election_hourly_pkey",
+      "schema": "public",
+      "table": "routing_election_hourly",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "routing_exclusion_hourly_pkey",
+      "schema": "public",
+      "table": "routing_exclusion_hourly",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
       "name": "scim_group_pkey",
       "schema": "public",
       "table": "scim_group",
@@ -30151,6 +30821,34 @@
       "entityType": "uniques",
       "schema": "public",
       "table": "provider_key_hourly_stats"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "hour_timestamp",
+        "model_id",
+        "provider_id",
+        "selection_reason"
+      ],
+      "nullsNotDistinct": false,
+      "name": "routing_election_hourly_hour_timestamp_model_id_provider_id_selection_reason_unique",
+      "entityType": "uniques",
+      "schema": "public",
+      "table": "routing_election_hourly"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "hour_timestamp",
+        "model_id",
+        "provider_id",
+        "reason"
+      ],
+      "nullsNotDistinct": false,
+      "name": "routing_exclusion_hourly_hour_timestamp_model_id_provider_id_reason_unique",
+      "entityType": "uniques",
+      "schema": "public",
+      "table": "routing_exclusion_hourly"
     },
     {
       "nameExplicit": false,
