@@ -4,6 +4,20 @@ export interface ProviderEnvConfig {
 		[key: string]: string | undefined;
 	};
 	optional?: Record<string, string>;
+	/**
+	 * Groups of optional settings where exactly one member must be supplied.
+	 * Neither is required on its own, so they cannot live in `required`, but a
+	 * credential supplying none or more than one of them is misconfigured.
+	 * Validated when a credential is saved and surfaced in the admin form.
+	 */
+	exclusive?: ProviderEnvExclusiveGroup[];
+}
+
+export interface ProviderEnvExclusiveGroup {
+	/** Logical env keys, exactly one of which must carry a value. */
+	keys: string[];
+	/** Explains the choice in the credential form. */
+	description: string;
 }
 
 /**
@@ -1013,14 +1027,21 @@ export const providers: ProviderDefinition[] = [
 				// https://<resource>.openai.azure.com host, or an explicit base URL
 				// for a deployment that speaks the Azure surface from somewhere else
 				// (a gateway, a proxy, a private endpoint). Neither is required on
-				// its own, so both are optional here and endpoint resolution rejects
-				// a credential carrying neither.
+				// its own, so both are optional here and the exclusive group below
+				// makes supplying exactly one of them the rule.
 				resource: "LLM_AZURE_RESOURCE",
 				baseUrl: "LLM_AZURE_BASE_URL",
 				deploymentType: "LLM_AZURE_DEPLOYMENT_TYPE",
 				apiVersion: "LLM_AZURE_API_VERSION",
 				useResponsesApi: "LLM_AZURE_USE_RESPONSES_API",
 			},
+			exclusive: [
+				{
+					keys: ["resource", "baseUrl"],
+					description:
+						"A resource builds the https://<resource>.openai.azure.com host; a base URL points at a deployment serving the Azure surface from anywhere else.",
+				},
+			],
 		},
 		streaming: true,
 		cancellation: true,

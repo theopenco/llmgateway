@@ -1,12 +1,13 @@
 import {
 	providers,
 	type ProviderEnvConfig,
+	type ProviderEnvExclusiveGroup,
 	getProviderDefinition,
 } from "./providers.js";
 
 import type { Provider } from "./index.js";
 
-export type { ProviderEnvConfig };
+export type { ProviderEnvConfig, ProviderEnvExclusiveGroup };
 
 export const providerEnvVarMap: Record<Provider, string | undefined> =
 	Object.fromEntries(
@@ -147,6 +148,52 @@ export function getProviderEnvKeys(
 		}
 	}
 	return keys;
+}
+
+/**
+ * Groups of settings where exactly one member must be supplied (e.g. Azure's
+ * resource vs base URL). Drives the credential form's hint and the save-time
+ * check, so neither has to name the providers involved.
+ */
+export function getProviderEnvExclusiveGroups(
+	provider: Provider | string,
+): ProviderEnvExclusiveGroup[] {
+	return getProviderEnvConfig(provider)?.exclusive ?? [];
+}
+
+/**
+ * Human-readable complaints about a credential's settings: one per exclusive
+ * group that is unsatisfied, naming what was supplied and what was expected.
+ * Empty when every group holds exactly one value.
+ */
+export function getProviderEnvExclusiveViolations(
+	provider: Provider | string,
+	config: Record<string, string | undefined> | null | undefined,
+): string[] {
+	const violations: string[] = [];
+
+	for (const group of getProviderEnvExclusiveGroups(provider)) {
+		const supplied = group.keys.filter((key) => config?.[key]?.trim());
+
+		if (supplied.length === 1) {
+			continue;
+		}
+
+		violations.push(
+			supplied.length === 0
+				? `Set one of ${formatKeyList(group.keys, "or")}.`
+				: `Set only one of ${formatKeyList(group.keys, "or")} — ${formatKeyList(supplied, "and")} were both supplied.`,
+		);
+	}
+
+	return violations;
+}
+
+function formatKeyList(keys: string[], conjunction: "and" | "or"): string {
+	if (keys.length <= 1) {
+		return keys.join("");
+	}
+	return `${keys.slice(0, -1).join(", ")} ${conjunction} ${keys[keys.length - 1]}`;
 }
 
 export function hasProviderEnvironmentToken(
