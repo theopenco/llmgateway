@@ -152,6 +152,25 @@ export {
 	getProviderModelIds,
 } from "./provider-model-ids.js";
 
+export {
+	addCalendarDays,
+	ENTERPRISE_TRIAL_DAY_PRESETS,
+	ENTERPRISE_TRIAL_DAYS,
+	extendTrialEnd,
+	formatPlanTermBadge,
+	formatPlanTermLabel,
+	getOrganizationTerm,
+	getPlanTerm,
+	PLAN_TERM_CRITICAL_DAYS,
+	PLAN_TERM_EXPIRING_DAYS,
+	TRIAL_EXTENSION_DAY_PRESETS,
+	TRIAL_TERM_CRITICAL_DAYS,
+	TRIAL_TERM_EXPIRING_DAYS,
+	type PlanTerm,
+	type PlanTermStatus,
+	type PlanTermThresholds,
+} from "./plan-term.js";
+
 export { MARKETING_STATS, RUNWARE_PROMO } from "./marketing.js";
 
 export { isContentFilterErrorText } from "./content-filter.js";

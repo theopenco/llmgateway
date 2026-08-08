@@ -208,6 +208,12 @@ export const organization = pgTable(
 			.notNull()
 			.default("free"),
 		planExpiresAt: timestamp(),
+		// Start of the current plan term, set by admins alongside `planExpiresAt`
+		// when an enterprise agreement is booked. The pair is what marks a plan
+		// term as deliberately booked: `planExpiresAt` alone is also written by
+		// Stripe as a legacy Pro renewal date, so a term countdown is only ever
+		// rendered when both dates are present (see `getOrganizationTerm`).
+		planStartedAt: timestamp(),
 		// Manual seat-limit override set by admins. Null = use the plan default
 		// (free/pro = 5, enterprise = 100). When set, this takes precedence for
 		// both display and enforcement of the team-member cap.

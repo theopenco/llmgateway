@@ -18,6 +18,7 @@ import { notFound } from "next/navigation";
 
 import { BlockOrgButton } from "@/components/block-org-button";
 import { GiftCreditsDialog } from "@/components/gift-credits-dialog";
+import { PlanTermBadge } from "@/components/plan-term-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -290,6 +291,13 @@ export default async function OrganizationPage({
 					</div>
 					<div className="flex flex-wrap items-center gap-2">
 						<Badge variant={getPlanBadgeVariant(org.plan)}>{org.plan}</Badge>
+						<PlanTermBadge
+							planExpiresAt={org.planExpiresAt}
+							planStartedAt={org.planStartedAt}
+							isTrialActive={org.isTrialActive}
+							trialStartDate={org.trialStartDate}
+							trialEndDate={org.trialEndDate}
+						/>
 						{org.devPlan !== "none" && (
 							<Badge variant={getDevPlanBadgeVariant(org.devPlan)}>
 								Dev: {org.devPlan}
@@ -315,6 +323,11 @@ export default async function OrganizationPage({
 						plan={org.plan}
 						seats={org.seats ?? null}
 						apiKeyLimit={org.apiKeyLimit ?? null}
+						planExpiresAt={org.planExpiresAt ?? null}
+						planStartedAt={org.planStartedAt ?? null}
+						isTrialActive={org.isTrialActive ?? false}
+						trialStartDate={org.trialStartDate ?? null}
+						trialEndDate={org.trialEndDate ?? null}
 						onSave={async (data) => {
 							"use server";
 							return await manageOrganization(orgId, data);
