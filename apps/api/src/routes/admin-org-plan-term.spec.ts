@@ -168,6 +168,60 @@ describe("admin organization plan term", () => {
 		expect(res.status).toBe(400);
 	});
 
+	it("stores a trial of any length, not just the default 30 days", async () => {
+		const res = await manage(cookie, {
+			isTrialActive: true,
+			trialStartDate: "2026-08-01",
+			trialEndDate: "2026-10-30",
+		});
+
+		expect(res.status).toBe(200);
+
+		const org = await readOrg();
+		expect(org?.trialEndDate?.toISOString()).toBe("2026-10-30T00:00:00.000Z");
+	});
+
+	it("extends a trial by moving the end date out", async () => {
+		await manage(cookie, {
+			isTrialActive: true,
+			trialStartDate: "2026-08-01",
+			trialEndDate: "2026-08-31",
+		});
+
+		const res = await manage(cookie, {
+			isTrialActive: true,
+			trialStartDate: "2026-08-01",
+			trialEndDate: "2026-09-30",
+		});
+
+		expect(res.status).toBe(200);
+
+		const org = await readOrg();
+		expect(org?.isTrialActive).toBe(true);
+		expect(org?.trialStartDate?.toISOString()).toBe("2026-08-01T00:00:00.000Z");
+		expect(org?.trialEndDate?.toISOString()).toBe("2026-09-30T00:00:00.000Z");
+	});
+
+	it("revives an ended trial when it is extended", async () => {
+		await manage(cookie, {
+			isTrialActive: false,
+			trialStartDate: "2026-06-01",
+			trialEndDate: "2026-07-01",
+		});
+
+		const res = await manage(cookie, {
+			isTrialActive: true,
+			trialStartDate: "2026-06-01",
+			trialEndDate: "2026-09-15",
+		});
+
+		expect(res.status).toBe(200);
+
+		const org = await readOrg();
+		expect(org?.isTrialActive).toBe(true);
+		expect(org?.trialEndDate?.toISOString()).toBe("2026-09-15T00:00:00.000Z");
+	});
+
 	it("keeps the trial dates on record when the trial is ended", async () => {
 		await manage(cookie, {
 			isTrialActive: true,

@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 
 import {
+	addCalendarDays,
+	extendTrialEnd,
 	formatPlanTermBadge,
 	formatPlanTermLabel,
 	getOrganizationTerm,
@@ -170,5 +172,38 @@ describe("getOrganizationTerm", () => {
 
 		expect(resolved?.kind).toBe("trial");
 		expect(resolved?.term.status).toBe("expired");
+	});
+});
+
+describe("addCalendarDays", () => {
+	test("adds days across month and year boundaries", () => {
+		expect(addCalendarDays("2026-08-07", 30)).toBe("2026-09-06");
+		expect(addCalendarDays("2026-12-20", 14)).toBe("2027-01-03");
+		expect(addCalendarDays("2028-02-28", 1)).toBe("2028-02-29");
+		expect(addCalendarDays("2026-08-07", 0)).toBe("2026-08-07");
+	});
+});
+
+describe("extendTrialEnd", () => {
+	const today = "2026-08-07";
+
+	test("extends a running trial from its own end date", () => {
+		// 10 days left plus a 7-day extension leaves 17, not 7.
+		expect(extendTrialEnd("2026-08-17", 7, today)).toBe("2026-08-24");
+	});
+
+	test("extends a lapsed trial from today", () => {
+		// Extending from the old end date would land in the past and read as a
+		// no-op, so a lapsed trial gets the full extension as runway.
+		expect(extendTrialEnd("2026-07-01", 14, today)).toBe("2026-08-21");
+	});
+
+	test("extends a trial that ends today from today", () => {
+		expect(extendTrialEnd(today, 7, today)).toBe("2026-08-14");
+	});
+
+	test("starts the window from today when there is no end date yet", () => {
+		expect(extendTrialEnd(null, 30, today)).toBe("2026-09-06");
+		expect(extendTrialEnd(undefined, 30, today)).toBe("2026-09-06");
 	});
 });

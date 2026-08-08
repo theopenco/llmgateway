@@ -179,7 +179,9 @@ export function EnterprisePlanTerm({
 						<span className="text-muted-foreground">
 							{trial
 								? expired
-									? "Talk to sales to keep your enterprise features."
+									? // A lapsed trial does not switch anything off by itself, so
+										// the copy says so rather than implying access is gone.
+										"Your enterprise access is unchanged — talk to sales to keep it that way."
 									: "Talk to sales to continue on Enterprise when your trial ends."
 								: expired
 									? "Reach out to renew and keep your enterprise features."

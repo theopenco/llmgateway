@@ -20,8 +20,14 @@ export const PLAN_TERM_CRITICAL_DAYS = 7;
 export const TRIAL_TERM_EXPIRING_DAYS = 7;
 export const TRIAL_TERM_CRITICAL_DAYS = 3;
 
-/** Length of an enterprise trial, in days. */
+/** Default length of an enterprise trial, in days, when no other is chosen. */
 export const ENTERPRISE_TRIAL_DAYS = 30;
+
+/** Trial lengths offered as one-click choices when booking a trial. */
+export const ENTERPRISE_TRIAL_DAY_PRESETS = [7, 14, 30, 60, 90];
+
+/** Increments offered for extending a trial that is already running. */
+export const TRIAL_EXTENSION_DAY_PRESETS = [7, 14, 30];
 
 export type PlanTermStatus = "active" | "expiring" | "critical" | "expired";
 
@@ -60,6 +66,31 @@ function toDate(value: Date | string | null | undefined): Date | null {
  */
 function utcMidnight(date: Date): number {
 	return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+}
+
+/** Adds whole days to a YYYY-MM-DD calendar date, staying in UTC. */
+export function addCalendarDays(date: string, days: number): string {
+	const [year, month, day] = date.split("-").map(Number);
+	return new Date(Date.UTC(year, month - 1, day + days))
+		.toISOString()
+		.slice(0, 10);
+}
+
+/**
+ * The new end date for a trial being extended by `days`.
+ *
+ * A running trial is extended from its own end date, so "+7 days" on a trial
+ * with 10 days left leaves 17. A trial that has already lapsed is extended from
+ * today instead: extending one that ended a month ago by a week would otherwise
+ * still land in the past and look like the button did nothing.
+ */
+export function extendTrialEnd(
+	currentEnd: string | null | undefined,
+	days: number,
+	today: string,
+): string {
+	const base = currentEnd && currentEnd > today ? currentEnd : today;
+	return addCalendarDays(base, days);
 }
 
 export function getPlanTerm(input: {

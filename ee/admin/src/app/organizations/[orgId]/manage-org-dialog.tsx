@@ -26,10 +26,15 @@ import {
 import { Switch } from "@/components/ui/switch";
 
 import {
+	addCalendarDays,
+	ENTERPRISE_TRIAL_DAY_PRESETS,
 	ENTERPRISE_TRIAL_DAYS,
+	extendTrialEnd,
 	formatPlanTermLabel,
-	getOrganizationTerm,
 	getPlanTerm,
+	TRIAL_EXTENSION_DAY_PRESETS,
+	TRIAL_TERM_CRITICAL_DAYS,
+	TRIAL_TERM_EXPIRING_DAYS,
 } from "@llmgateway/shared";
 
 type Plan = "free" | "pro" | "enterprise";
@@ -87,13 +92,6 @@ function todayInputValue(): string {
 	return new Date().toISOString().slice(0, 10);
 }
 
-/** Adds whole days in UTC to a YYYY-MM-DD input value. */
-function addDays(dateInput: string, days: number): string {
-	const [year, month, day] = dateInput.split("-").map(Number);
-	const target = new Date(Date.UTC(year, month - 1, day + days));
-	return target.toISOString().slice(0, 10);
-}
-
 /** Adds whole months in UTC, clamping to the last day of a shorter month. */
 function addMonths(dateInput: string, months: number): string {
 	const [year, month, day] = dateInput.split("-").map(Number);
@@ -145,26 +143,59 @@ export function ManageOrgDialog({
 	const [trialEndValue, setTrialEndValue] = useState(
 		toDateInputValue(trialEndDate),
 	);
+	const [trialDaysValue, setTrialDaysValue] = useState(
+		String(ENTERPRISE_TRIAL_DAYS),
+	);
 
 	const previewTerm = getPlanTerm({
 		expiresAt: expiresAtValue || null,
 		startedAt: startedAtValue || null,
 	});
 
-	// Mirrors what the customer will see: an active trial wins over the contract.
-	const previewLive = getOrganizationTerm({
-		isTrialActive: trialActiveValue,
-		trialStartDate: trialStartValue || null,
-		trialEndDate: trialEndValue || null,
-		planStartedAt: startedAtValue || null,
-		planExpiresAt: expiresAtValue || null,
+	// Previewed from the dates alone rather than from `getOrganizationTerm`, so
+	// the countdown stays visible while a lapsed trial is being extended — that
+	// is exactly when the admin needs to see how far in the past it sits.
+	const trialPreview = getPlanTerm({
+		expiresAt: trialEndValue || null,
+		startedAt: trialStartValue || null,
+		thresholds: {
+			expiring: TRIAL_TERM_EXPIRING_DAYS,
+			critical: TRIAL_TERM_CRITICAL_DAYS,
+		},
 	});
 
+	const parsedTrialDays = Number(trialDaysValue.trim());
+	const trialDaysValid =
+		Number.isInteger(parsedTrialDays) &&
+		parsedTrialDays > 0 &&
+		parsedTrialDays <= 3650;
+
+	const hasTrialDates = trialStartValue !== "" || trialEndValue !== "";
+
 	const startTrial = () => {
+		if (!trialDaysValid) {
+			setError("Trial length must be a whole number of days");
+			return;
+		}
 		const start = todayInputValue();
+		setError(null);
 		setTrialActiveValue(true);
 		setTrialStartValue(start);
-		setTrialEndValue(addDays(start, ENTERPRISE_TRIAL_DAYS));
+		setTrialEndValue(addCalendarDays(start, parsedTrialDays));
+	};
+
+	// Extending revives an ended trial as well as pushing a running one out: an
+	// admin buying a customer more time means the trial is on again, whatever
+	// state the toggle was left in.
+	const extendTrial = (days: number) => {
+		setError(null);
+		setTrialActiveValue(true);
+		setTrialEndValue(
+			extendTrialEnd(trialEndValue || null, days, todayInputValue()),
+		);
+		if (trialStartValue === "") {
+			setTrialStartValue(todayInputValue());
+		}
 	};
 
 	// A preset books a fresh term starting today rather than extending from the
@@ -270,8 +301,8 @@ export function ManageOrgDialog({
 				<DialogHeader>
 					<DialogTitle>Manage {orgName}</DialogTitle>
 					<DialogDescription>
-						Change the plan tier, set the plan term, and override the
-						team-member seat limit and API-key limit.
+						Change the plan tier, set the plan term or trial window, and
+						override the team-member seat limit and API-key limit.
 					</DialogDescription>
 				</DialogHeader>
 
@@ -391,9 +422,13 @@ export function ManageOrgDialog({
 						<div className="flex items-center justify-between gap-2">
 							<Label htmlFor="manageTrialActive">Enterprise trial</Label>
 							<div className="flex items-center gap-2">
-								{trialActiveValue && previewLive?.kind === "trial" ? (
+								{trialPreview ? (
 									<span className="text-muted-foreground text-xs tabular-nums">
-										{formatPlanTermLabel(previewLive.term)}
+										{formatPlanTermLabel(trialPreview)}
+										{trialPreview.totalDays !== null
+											? ` · ${trialPreview.totalDays}-day trial`
+											: ""}
+										{trialActiveValue ? "" : " · inactive"}
 									</span>
 								) : null}
 								<Switch
@@ -404,7 +439,7 @@ export function ManageOrgDialog({
 							</div>
 						</div>
 
-						{trialActiveValue && (
+						{(trialActiveValue || hasTrialDates) && (
 							<div className="grid grid-cols-2 gap-3">
 								<div className="space-y-1.5">
 									<Label
@@ -437,32 +472,87 @@ export function ManageOrgDialog({
 							</div>
 						)}
 
-						<div className="flex flex-wrap items-center gap-1.5">
-							<Button
-								type="button"
-								variant="outline"
-								size="sm"
-								className="h-7 px-2 text-xs"
-								onClick={startTrial}
-							>
-								Start {ENTERPRISE_TRIAL_DAYS}-day trial
-							</Button>
-							{trialActiveValue && (
+						<div className="flex flex-wrap items-end gap-1.5">
+							<div className="space-y-1.5">
+								<Label
+									htmlFor="manageTrialDays"
+									className="text-muted-foreground text-xs font-normal"
+								>
+									Trial length (days)
+								</Label>
+								<Input
+									id="manageTrialDays"
+									type="number"
+									min="1"
+									step="1"
+									className="h-7 w-24 text-xs"
+									value={trialDaysValue}
+									onChange={(e) => setTrialDaysValue(e.target.value)}
+								/>
+							</div>
+							{ENTERPRISE_TRIAL_DAY_PRESETS.map((days) => (
 								<Button
+									key={days}
 									type="button"
 									variant="ghost"
 									size="sm"
 									className="text-muted-foreground h-7 px-2 text-xs"
-									onClick={() => setTrialActiveValue(false)}
+									onClick={() => setTrialDaysValue(String(days))}
 								>
-									End trial
+									{days}d
 								</Button>
-							)}
+							))}
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								className="ml-auto h-7 px-2 text-xs"
+								onClick={startTrial}
+							>
+								Start trial
+							</Button>
 						</div>
+
+						{trialEndValue !== "" && (
+							<div className="flex flex-wrap items-center gap-1.5">
+								<span className="text-muted-foreground text-xs">Extend by</span>
+								{TRIAL_EXTENSION_DAY_PRESETS.map((days) => (
+									<Button
+										key={days}
+										type="button"
+										variant="outline"
+										size="sm"
+										className="h-7 px-2 text-xs"
+										onClick={() => extendTrial(days)}
+									>
+										+{days}d
+									</Button>
+								))}
+								{trialActiveValue && (
+									<Button
+										type="button"
+										variant="ghost"
+										size="sm"
+										className="text-muted-foreground ml-auto h-7 px-2 text-xs"
+										onClick={() => setTrialActiveValue(false)}
+									>
+										End trial
+									</Button>
+								)}
+							</div>
+						)}
 
 						<p className="text-muted-foreground text-xs">
 							While a trial runs it is the countdown the customer sees, ahead of
-							the plan term. Ending one keeps the dates on record as history.
+							the plan term. Extend it at any time — a lapsed trial is extended
+							from today, so the customer gets the full extension. Ending one
+							keeps the dates on record as history.
+						</p>
+
+						<p className="text-muted-foreground text-xs">
+							The end date is indicative: nothing is revoked when a trial
+							expires. The plan tier above decides what the customer can use,
+							and only ever changes by hand.
 						</p>
 					</div>
 
