@@ -34,7 +34,12 @@ import {
 	tables,
 	projectHourlyStats,
 } from "@llmgateway/db";
-import { getProviderCountries, models, providers } from "@llmgateway/models";
+import {
+	DATA_PROTECTION_POLICY_KEYS,
+	getProviderCountries,
+	models,
+	providers,
+} from "@llmgateway/models";
 import {
 	CREDIT_TOP_UP_MAX_AMOUNT,
 	CUSTOM_PROVIDER_NAME_REGEX,
@@ -673,14 +678,16 @@ organization.openapi(updateOrganization, async (c) => {
 		});
 	}
 
-	// Provider compliance policies are an enterprise feature managed by owners
-	// and admins (matching the Guardrails settings page).
+	// Compliance policies are managed by owners and admins (matching the
+	// Guardrails settings page). The certification requirements and fine-grained
+	// allow/block lists are an enterprise feature; the data-protection controls
+	// are not, because they are the customer's only means of constraining where
+	// their personal data is transferred, and they are the controller for it.
+	// Non-enterprise orgs may therefore save the narrowed policy, and anything
+	// outside that subset is rejected rather than silently dropped — a policy
+	// that appears to require SOC 2 but does not enforce it is worse than one
+	// that refuses to be saved.
 	if (providerCompliancePolicy !== undefined) {
-		if (userOrganization.organization?.plan !== "enterprise") {
-			throw new HTTPException(403, {
-				message: "Provider compliance policies require an enterprise plan",
-			});
-		}
 		if (
 			userOrganization.role !== "owner" &&
 			userOrganization.role !== "admin"
@@ -688,6 +695,30 @@ organization.openapi(updateOrganization, async (c) => {
 			throw new HTTPException(403, {
 				message: "Only owners and admins can manage compliance policies",
 			});
+		}
+		if (
+			userOrganization.organization?.plan !== "enterprise" &&
+			providerCompliancePolicy !== null
+		) {
+			const enterpriseOnlyKeys = Object.entries(providerCompliancePolicy)
+				.filter(([key, value]) => {
+					if (key === "enabled") {
+						return false;
+					}
+					if (
+						(DATA_PROTECTION_POLICY_KEYS as readonly string[]).includes(key)
+					) {
+						return false;
+					}
+					return Array.isArray(value) ? value.length > 0 : Boolean(value);
+				})
+				.map(([key]) => key);
+
+			if (enterpriseOnlyKeys.length > 0) {
+				throw new HTTPException(403, {
+					message: `These compliance settings require an enterprise plan: ${enterpriseOnlyKeys.join(", ")}. Data-protection controls (${DATA_PROTECTION_POLICY_KEYS.join(", ")}) are available on every plan.`,
+				});
+			}
 		}
 	}
 

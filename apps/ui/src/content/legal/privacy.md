@@ -198,7 +198,9 @@ If you do not want your requests routed through stealth or undisclosed providers
 
 Data may be processed and stored on servers located in the **European Union or the United States**, and may be transferred to AI providers and sub-processors in other countries. Where we transfer personal data internationally, we use appropriate safeguards required by applicable law, such as the **Standard Contractual Clauses (SCCs)** or equivalent mechanisms, to protect your data.
 
-Not every AI provider you can route to is covered by an adequacy decision or by SCCs executed with us — several are headquartered in countries without an EU adequacy decision. Each provider's headquarters and GDPR posture is shown on our [Providers page](https://llmgateway.io/providers), and our [Sub-processor page](https://llmgateway.io/legal/sub-processors) explains how to constrain routing with provider pinning or a compliance policy. **If you submit personal data of EU/UK data subjects, review the provider's entry before routing to it.**
+Not every AI provider you can route to is covered by an adequacy decision or by SCCs executed with us — several are headquartered in countries without an EU adequacy decision. Each provider's headquarters and GDPR posture is shown on our [Providers page](https://llmgateway.io/providers).
+
+You can restrict where your requests are allowed to go under **Compliance** in your organization dashboard: require GDPR-compliant providers, block providers that train on or log prompts, block undisclosed providers, and limit routing to chosen provider headquarters. Requests that no compliant provider can serve are rejected rather than routed elsewhere. **These controls are available on every plan**, and they are off until you enable them. **If you submit personal data of EU/UK data subjects, review the provider's entry before routing to it, or set a compliance policy.**
 
 ---
 

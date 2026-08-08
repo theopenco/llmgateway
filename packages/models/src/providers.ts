@@ -165,6 +165,58 @@ export interface ProviderCompliancePolicy {
 	allowedModels?: string[];
 }
 
+/**
+ * The subset of {@link ProviderCompliancePolicy} that decides **where personal
+ * data may be transferred**, as opposed to the certification and procurement
+ * governance the rest of the policy expresses.
+ *
+ * This split exists for a legal reason, not a commercial one. For the prompts a
+ * customer routes through us they are the controller, so they — not us — carry
+ * the Art. 44-49 obligation for a transfer to a provider in a country with no
+ * adequacy decision. A control that is the customer's only means of discharging
+ * that obligation cannot sit behind a plan upgrade, so these four are honoured
+ * on every plan (see `narrowPolicyToDataProtection`). Certification
+ * requirements and the fine-grained allow/block lists stay an enterprise
+ * feature: they are governance tooling, not a lawful-basis mechanism.
+ */
+export const DATA_PROTECTION_POLICY_KEYS = [
+	"requireGdpr",
+	"blockApiTraining",
+	"blockPromptLogging",
+	"blockStealthProviders",
+	"allowedCountries",
+] as const satisfies readonly (keyof ProviderCompliancePolicy)[];
+
+/**
+ * Strips a policy down to the data-protection controls in
+ * {@link DATA_PROTECTION_POLICY_KEYS}.
+ *
+ * Returns `undefined` when nothing is left to enforce, so callers keep hitting
+ * the cheap "no policy" path rather than filtering every provider against an
+ * empty policy that can never reject anything.
+ */
+export function narrowPolicyToDataProtection(
+	policy: ProviderCompliancePolicy,
+): ProviderCompliancePolicy | undefined {
+	const narrowed: ProviderCompliancePolicy = {
+		enabled: true,
+		requireGdpr: policy.requireGdpr,
+		blockApiTraining: policy.blockApiTraining,
+		blockPromptLogging: policy.blockPromptLogging,
+		blockStealthProviders: policy.blockStealthProviders,
+		allowedCountries: policy.allowedCountries,
+	};
+
+	const hasRequirement =
+		Boolean(narrowed.requireGdpr) ||
+		Boolean(narrowed.blockApiTraining) ||
+		Boolean(narrowed.blockPromptLogging) ||
+		Boolean(narrowed.blockStealthProviders) ||
+		(narrowed.allowedCountries?.length ?? 0) > 0;
+
+	return hasRequirement ? narrowed : undefined;
+}
+
 export interface ProviderDefinition {
 	id: string;
 	name: string;

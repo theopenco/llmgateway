@@ -10,6 +10,7 @@ import {
 	isModelAllowedByPolicy,
 	isProviderCompliant,
 	isProviderRefAllowedByPolicy,
+	narrowPolicyToDataProtection,
 	type ProviderComplianceAttestation,
 	type ProviderCompliancePolicy,
 } from "@llmgateway/models";
@@ -21,16 +22,28 @@ interface OrganizationLike {
 
 /**
  * The active provider compliance policy for an organization, or `undefined`
- * when none should be enforced. Compliance is an enterprise feature, so the
- * policy only applies to enterprise orgs that have explicitly enabled it.
+ * when none should be enforced.
+ *
+ * Enterprise orgs get the policy they configured, in full. Every other plan
+ * gets the data-protection subset (see `DATA_PROTECTION_POLICY_KEYS`) — the
+ * controls that decide whether personal data may be transferred to a given
+ * provider at all. Those cannot be paywalled: for the prompts they route, the
+ * customer is the controller and carries the Art. 44-49 transfer obligation, so
+ * gating their only means of discharging it behind a plan upgrade would leave
+ * non-enterprise customers with no lawful way to use the Service for personal
+ * data. Certifications and the fine-grained allow/block lists remain enterprise
+ * governance tooling.
  */
 export function getActiveCompliancePolicy(
 	organization: OrganizationLike,
 ): ProviderCompliancePolicy | undefined {
-	return organization.plan === "enterprise" &&
-		organization.providerCompliancePolicy?.enabled
-		? organization.providerCompliancePolicy
-		: undefined;
+	const policy = organization.providerCompliancePolicy;
+	if (!policy?.enabled) {
+		return undefined;
+	}
+	return organization.plan === "enterprise"
+		? policy
+		: narrowPolicyToDataProtection(policy);
 }
 
 /** Request-scoped facts the policy needs beyond the catalogue. */

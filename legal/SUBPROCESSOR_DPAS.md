@@ -14,22 +14,43 @@ list is the Sub-processor page.
 
 | Status | Meaning |
 | --- | --- |
-| `in force` | DPA executed or self-serve DPA accepted; a copy is filed and the date below is accurate |
-| `pending` | Identified and available, not yet executed or filed |
-| `unknown` | Not yet checked — treat as **not in place** |
+| `incorporated` | The vendor's DPA takes effect automatically on accepting their main service agreement — no separate signature exists to chase. Using the service means it is in force. |
+| `action required` | The DPA only binds once someone actively generates, signs or accepts it. **Not in place until that is done.** |
+| `unknown` | Not yet checked — treat as **not in place**. |
 
 ## Operational sub-processors
 
-| Sub-processor | Purpose | DPA status | SCCs | Executed | Copy filed | Notes |
-| --- | --- | --- | --- | --- | --- | --- |
-| Stripe, Inc. | Payments, subscriptions, invoicing | `unknown` | `unknown` | — | — | Stripe publishes a standard DPA incorporating SCCs; confirm which version applies to our account and file it |
-| Google Cloud | Hosting, PostgreSQL, Redis, object storage, tracing | `unknown` | `unknown` | — | — | Google's Cloud Data Processing Addendum is self-serve; confirm it is accepted on the billing account actually serving production |
-| Resend (Plus Five Five, Inc.) | Transactional and product email | `unknown` | `unknown` | — | — | Confirm a DPA exists and covers the contact data we sync (`deleteResendContact` / `updateResendContact`) |
-| PostHog, Inc. | Product analytics, feature flags | `unknown` | `unknown` | — | — | Newly disclosed in the Privacy Policy on 2026-08-08; DPA has never been checked |
+| Sub-processor | Purpose | DPA status | SCCs | Source |
+| --- | --- | --- | --- | --- |
+| Stripe, Inc. | Payments, subscriptions, invoicing | `incorporated` | Yes — EEA SCCs (Modules 1 and 2, EU 2021/914) via the Data Transfers Addendum | [stripe.com/legal/dpa](https://stripe.com/legal/dpa) |
+| Resend (Plus Five Five, Inc.) | Transactional and product email | `incorporated` | Yes — EU SCCs "deemed entered into", plus UK Addendum and Swiss modifications | [resend.com/legal/dpa](https://resend.com/legal/dpa) |
+| Google Cloud | Hosting, PostgreSQL, Redis, object storage, tracing | `incorporated` (**verify**) | Yes — in Appendix 3 (Specific Privacy Laws) | [cloud.google.com/terms/data-processing-addendum](https://cloud.google.com/terms/data-processing-addendum) |
+| PostHog, Inc. | Product analytics, feature flags | **`action required`** | Yes — EU + UK SCCs and Swiss FADP adaptations, but only in the countersigned copy | [posthog.com/dpa](https://posthog.com/dpa) |
 
-Every row is `unknown` because no signed copy or acceptance record has been
-located. **`unknown` must be read as "not in place"** — it is not a neutral
-state. Closing these is item 1 in `docs/gdpr-compliance-plan.md` §4.
+### What each row still needs
+
+- **Stripe** — the DPA "forms part of the Agreement", so it is in force by virtue
+  of our Stripe account existing. Nothing to sign. Save a dated PDF copy of the
+  version in force to the compliance folder so the Art. 30 record has an artifact.
+- **Resend** — "becomes legally binding upon Customer's acceptance of the
+  Agreement". Same as Stripe: nothing to sign, save a dated copy.
+- **Google Cloud** — the Cloud DPA is incorporated into the Cloud agreement, but
+  its effective date is "the date on which Customer accepted, or the parties
+  otherwise agreed to, this Addendum". **Confirm it is accepted on the billing
+  account actually serving production**, then save a dated copy. This is the one
+  row where incorporation is conditional on our own account state.
+- **PostHog** — *the only row requiring real action.* The published page is
+  explicitly non-binding: "It's not binding on its own — only the one you
+  generate and countersign through the app counts." Someone with access must go
+  to **app.posthog.com/legal**, generate and sign the DPA, and file the
+  countersigned copy. It takes minutes. Until then there is **no DPA with
+  PostHog**, and PostHog receives account identifiers, email addresses and IP
+  addresses.
+
+> These findings are read from each vendor's published DPA terms on the date
+> above. They establish what the vendor offers and how it takes effect — they do
+> **not** confirm the state of our own accounts. The "verify"/"action required"
+> notes above are exactly the gaps that account-level confirmation must close.
 
 ## AI provider sub-processors
 
@@ -47,8 +68,9 @@ tracked as item 2 in `docs/gdpr-compliance-plan.md` §4 and discussed in §5 the
 
 ## Procedure when adding an operational sub-processor
 
-1. Obtain and file the sub-processor's DPA **before** it processes any personal
-   data, and add its row here with a real status.
+1. Establish how the vendor's DPA takes effect and record it here with a real
+   status **before** it processes any personal data. If it is `action required`,
+   do the action first.
 2. Add it to `apps/ui/src/content/legal/sub-processors.md` §1 and bump the
    version date at the top of that page.
 3. Add it to the Privacy Policy §5 sub-processor list.

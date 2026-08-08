@@ -108,7 +108,7 @@ rest are commercial/legal work that cannot be closed in this repository.
 
 | # | Item | Owner | Status |
 | --- | --- | --- | --- |
-| 1 | Execute and file DPAs for Stripe, PostHog, Resend, Google Cloud | legal | Open — tracked in `legal/SUBPROCESSOR_DPAS.md` |
+| 1 | Execute and file DPAs for Stripe, PostHog, Resend, Google Cloud | legal | **Mostly resolved** — Stripe and Resend incorporate their DPAs (with SCCs) automatically on accepting their service agreement, so those are in force; Google Cloud's is incorporated but needs account-level confirmation. **PostHog is the one real gap**: its DPA only binds once generated and countersigned at app.posthog.com/legal, which takes minutes. See `legal/SUBPROCESSOR_DPAS.md` |
 | 2 | Document the Art. 46 transfer mechanism for providers headquartered in countries without an adequacy decision, or restrict EU personal data from reaching them | legal | Open — see §5 |
 | 3 | Publish a versioned sub-processor list with 30-day change notice | engineering | **Done** — `apps/ui/src/content/legal/sub-processors.md` |
 | 4 | Disclose PostHog as a sub-processor | engineering | **Done** — Privacy Policy §5 |
@@ -143,11 +143,21 @@ set, read that file's provider entries rather than trusting a list in a document
 
 Current mitigations, in order of strength:
 
-1. **Enterprise compliance policies** — an organization can restrict routing by
-   provider headquarters, certifications, retention posture, and whether the
-   provider trains on API inputs. Non-compliant requests are rejected, not
-   silently rerouted. Enforced server-side in the gateway
+1. **Compliance policies, on every plan** — an organization can restrict routing
+   by GDPR posture, prompt training, prompt logging, undisclosed identity and
+   provider headquarters. Non-compliant requests are rejected, not silently
+   rerouted. Enforced server-side in the gateway
    (`apps/gateway/src/chat/chat.ts`, `filterCompliantProviders`), not in the UI.
+
+   These five controls are deliberately **not** gated on plan
+   (`DATA_PROTECTION_POLICY_KEYS`, `narrowPolicyToDataProtection`). They used to
+   be Enterprise-only, which meant a free or pro customer had no way to stop
+   their EU personal data reaching a provider with no adequacy decision — while
+   still carrying the Art. 44-49 obligation for that transfer as the controller.
+   Paywalling a customer's only means of discharging a legal obligation is not
+   defensible, so the data-protection subset is honoured on every plan.
+   Certification requirements and the fine-grained allow/block lists remain
+   Enterprise: those are governance tooling, not a lawful-basis mechanism.
 2. **Provider pinning** — `provider/model` plus `x-no-fallback: true` sends a
    request to exactly one provider and fails rather than falling back.
 3. **Disclosure** — the Privacy Policy §11 and the Sub-processor page §4 both
@@ -155,10 +165,17 @@ Current mitigations, in order of strength:
    SCCs executed with us, and tell customers to check before routing.
 
 Mitigations 1 and 2 place the transfer decision with the customer, who is the
-controller for Customer Data. That is a defensible allocation of responsibility
-for a routing service, but it is **not a substitute** for executing SCCs with the
-providers we ourselves engage. Item 2 in §4 stays open until either SCCs are on
-file or those providers are excluded from default routing.
+controller for Customer Data, and — since the data-protection controls were
+ungated — every customer can now actually exercise it. That is a defensible
+allocation of responsibility for a routing service, but it is **not a
+substitute** for executing SCCs with the providers we ourselves engage. Item 2 in
+§4 stays open until either SCCs are on file or those providers are excluded from
+default routing.
+
+Note that these controls are **opt-in**: an organization that never opens the
+Compliance page still routes to every provider. Making the restriction the
+default would break every customer currently using a provider in a non-adequacy
+country, so it is a product decision rather than something to change silently.
 
 ## 6. Review cadence
 

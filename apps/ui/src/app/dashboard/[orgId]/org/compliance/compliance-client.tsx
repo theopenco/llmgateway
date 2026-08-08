@@ -10,6 +10,7 @@ import { useCustomProviderSelection } from "@/hooks/useCustomProviders";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useTeamMembers } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
+import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
@@ -32,6 +33,7 @@ import { cn } from "@/lib/utils";
 
 import {
 	customProviderRef,
+	DATA_PROTECTION_POLICY_KEYS,
 	getAttestationComplianceFailures,
 	getProviderComplianceFailures,
 	getProviderCountries,
@@ -51,7 +53,7 @@ import {
 	type SelectableProviderOption,
 } from "@llmgateway/shared/components";
 
-import { ContactSalesCard } from "./contact-sales-card";
+import { ContactSalesLink } from "./contact-sales-card";
 
 import type { ReactElement } from "react";
 
@@ -211,6 +213,10 @@ const REQUIREMENTS: {
 			"Block stealth providers — undisclosed platforms whose data policy and headquarters are unknown.",
 	},
 ];
+
+function isDataProtectionRequirement(key: RequirementKey): boolean {
+	return (DATA_PROTECTION_POLICY_KEYS as readonly string[]).includes(key);
+}
 
 const DEFAULT_POLICY: ProviderCompliancePolicy = { enabled: false };
 
@@ -376,9 +382,8 @@ export function ComplianceClient() {
 		}));
 	};
 
-	const canManage =
-		selectedOrganization?.plan === "enterprise" &&
-		(currentUserRole === "owner" || currentUserRole === "admin");
+	const isEnterprise = selectedOrganization?.plan === "enterprise";
+	const canManage = currentUserRole === "owner" || currentUserRole === "admin";
 
 	const toggleCountry = (code: string) => {
 		setPolicy((p) => {
@@ -392,9 +397,25 @@ export function ComplianceClient() {
 
 	const handleSave = async () => {
 		try {
+			// An org that downgraded from enterprise can still hold stored
+			// certification requirements and restriction lists. The switches for
+			// those are locked above, but they are still in `policy`, and the API
+			// rejects them on a non-enterprise plan — so drop them here rather than
+			// surfacing a 403 the user cannot act on.
+			const body = isEnterprise
+				? policy
+				: {
+						enabled: policy.enabled,
+						requireGdpr: policy.requireGdpr,
+						blockApiTraining: policy.blockApiTraining,
+						blockPromptLogging: policy.blockPromptLogging,
+						blockStealthProviders: policy.blockStealthProviders,
+						allowedCountries: policy.allowedCountries,
+					};
+
 			await updateOrganization.mutateAsync({
 				params: { path: { id: organizationId } },
-				body: { providerCompliancePolicy: policy },
+				body: { providerCompliancePolicy: body },
 			});
 			toast({
 				title: "Settings saved",
@@ -408,10 +429,6 @@ export function ComplianceClient() {
 			});
 		}
 	};
-
-	if (selectedOrganization?.plan !== "enterprise") {
-		return <ContactSalesCard />;
-	}
 
 	if (isLoadingTeam) {
 		return (
@@ -447,6 +464,24 @@ export function ComplianceClient() {
 						Compliance
 					</h2>
 				</div>
+
+				{!isEnterprise && (
+					<Card className="border-primary/30 bg-primary/5">
+						<CardHeader>
+							<CardTitle className="text-base">
+								Data-protection controls are available on your plan
+							</CardTitle>
+							<CardDescription>
+								You can restrict routing by GDPR compliance, prompt training,
+								prompt logging, stealth providers and provider headquarters on
+								every plan — these decide where your data is allowed to go, and
+								you are the controller for it. Certification requirements
+								(SOC&nbsp;2, ISO&nbsp;27001) and the per-provider and per-model
+								allow/block lists are part of Enterprise. <ContactSalesLink />
+							</CardDescription>
+						</CardHeader>
+					</Card>
+				)}
 
 				<Card>
 					<CardHeader>
@@ -486,28 +521,47 @@ export function ComplianceClient() {
 								: "space-y-4 opacity-60 pointer-events-none select-none"
 						}
 					>
-						{REQUIREMENTS.map((requirement) => (
-							<div
-								key={requirement.key}
-								className="flex items-center justify-between p-4 border rounded-lg"
-							>
-								<div className="flex items-center gap-4">
-									<Switch
-										checked={policy[requirement.key] ?? false}
-										disabled={!policy.enabled}
-										onCheckedChange={(value) =>
-											setPolicy((p) => ({ ...p, [requirement.key]: value }))
-										}
-									/>
-									<div>
-										<div className="font-medium">{requirement.name}</div>
-										<div className="text-sm text-muted-foreground">
-											{requirement.description}
+						{REQUIREMENTS.map((requirement) => {
+							// Certification requirements are enterprise governance tooling.
+							// The data-protection controls are not gated — they are how a
+							// customer constrains where their personal data is transferred,
+							// and they are the controller for it.
+							const enterpriseOnly = !isDataProtectionRequirement(
+								requirement.key,
+							);
+							const locked = enterpriseOnly && !isEnterprise;
+							return (
+								<div
+									key={requirement.key}
+									className="flex items-center justify-between p-4 border rounded-lg"
+								>
+									<div className="flex items-center gap-4">
+										<Switch
+											checked={
+												locked ? false : (policy[requirement.key] ?? false)
+											}
+											disabled={!policy.enabled || locked}
+											onCheckedChange={(value) =>
+												setPolicy((p) => ({ ...p, [requirement.key]: value }))
+											}
+										/>
+										<div>
+											<div className="font-medium flex items-center gap-2">
+												{requirement.name}
+												{locked && (
+													<Badge variant="secondary" className="text-xs">
+														Enterprise
+													</Badge>
+												)}
+											</div>
+											<div className="text-sm text-muted-foreground">
+												{requirement.description}
+											</div>
 										</div>
 									</div>
 								</div>
-							</div>
-						))}
+							);
+						})}
 					</CardContent>
 				</Card>
 
@@ -560,7 +614,14 @@ export function ComplianceClient() {
 
 				<Card>
 					<CardHeader>
-						<CardTitle>Provider &amp; Model Restrictions</CardTitle>
+						<CardTitle className="flex items-center gap-2">
+							Provider &amp; Model Restrictions
+							{!isEnterprise && (
+								<Badge variant="secondary" className="text-xs">
+									Enterprise
+								</Badge>
+							)}
+						</CardTitle>
 						<CardDescription>
 							Block or allow individual providers and models — including your
 							own custom providers. These organization-wide lists are enforced
@@ -573,7 +634,7 @@ export function ComplianceClient() {
 					</CardHeader>
 					<CardContent
 						className={
-							policy.enabled
+							policy.enabled && isEnterprise
 								? undefined
 								: "opacity-60 pointer-events-none select-none"
 						}

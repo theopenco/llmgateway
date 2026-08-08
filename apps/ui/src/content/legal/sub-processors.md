@@ -64,11 +64,17 @@ routing. Two controls let you constrain this:
 - **Provider pinning** — address a model as `provider/model` to send it to
   exactly one provider, and send the `x-no-fallback: true` header to prevent
   failover to any other.
-- **Compliance policies** (Enterprise) — restrict routing by provider
-  headquarters, required certifications, data-retention posture, and whether the
-  provider trains on API inputs. Requests that cannot be served by a compliant
-  provider are rejected rather than silently routed elsewhere. Configure this
-  under **Compliance** in your organization dashboard.
+- **Compliance policies** — restrict routing by whether the provider is GDPR
+  compliant, whether it trains on or logs prompts, whether its identity is
+  undisclosed, and where it is headquartered. Requests that cannot be served by a
+  compliant provider are rejected rather than silently routed elsewhere.
+  Configure this under **Compliance** in your organization dashboard.
+
+  **These controls are available on every plan**, including the free one. They
+  decide where your data may be sent, and you are the controller for it, so they
+  are not a paid feature. Requiring specific certifications (SOC 2, ISO 27001)
+  and maintaining per-provider or per-model allow and block lists are part of
+  Enterprise.
 
 ### Undisclosed ("stealth") providers
 
