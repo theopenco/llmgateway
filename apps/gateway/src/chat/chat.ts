@@ -111,6 +111,7 @@ import {
 	getCheapestFromAvailableProviders,
 	getDiscountedProviderSelectionPrice,
 	getGcpServiceAccountAccessToken,
+	getPlanImageSizeLimitMB,
 	getProviderEndpoint,
 	getProviderHeaders,
 	isPremiumServiceTier,
@@ -2793,13 +2794,9 @@ chat.openapi(completions, async (c) => {
 	let usedRegion: string | undefined = requestedRegion;
 	let routingMetadata: RoutingMetadata | undefined;
 
-	// Get image size limits from environment variables or use defaults
-	const freeLimitMB = Number(process.env.IMAGE_SIZE_LIMIT_FREE_MB) || 50;
-	const proLimitMB = Number(process.env.IMAGE_SIZE_LIMIT_PRO_MB) || 100;
-
 	// Determine max image size based on plan
 	const userPlan = organization?.plan ?? "free";
-	const maxImageSizeMB = userPlan === "pro" ? proLimitMB : freeLimitMB;
+	const maxImageSizeMB = getPlanImageSizeLimitMB(userPlan);
 
 	// Validate IAM rules for model access
 	// Pass modelInfo (with deactivated providers already filtered) so IAM validation

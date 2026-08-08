@@ -1,14 +1,18 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ImageSizeLimitError, processImageUrl } from "./process-image-url.js";
 
+const MB = 1024 * 1024;
 const MAX_SIZE_MB = 1;
 const REMOTE_URL = "https://example.com/huge.png";
 
-function imageResponseWithContentLength(bytes: number): Response {
+function responseWithContentLength(
+	bytes: number,
+	contentType = "image/png",
+): Response {
 	return new Response(new Uint8Array(0), {
 		headers: {
-			"content-type": "image/png",
+			"content-type": contentType,
 			"content-length": String(bytes),
 		},
 	});
@@ -26,79 +30,110 @@ function imageResponseWithBody(bytes: number): Response {
 	return new Response(stream, { headers: { "content-type": "image/png" } });
 }
 
+async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
+	return await promise.then(
+		() => null,
+		(err: unknown) => err,
+	);
+}
+
 // The SSRF guard is a no-op under vitest (the global setup sets
 // ALLOW_INSECURE_PROVIDER_URLS), so these exercise the default validateSsrf
 // path without DNS or network access.
 describe("processImageUrl size limits", () => {
+	beforeEach(() => {
+		// getImageSizeErrorMessage appends an upsell sentence when HOSTED and
+		// PAID_MODE are both "true"; pin them so exact-message assertions do
+		// not depend on ambient env.
+		vi.stubEnv("HOSTED", "false");
+		vi.stubEnv("PAID_MODE", "false");
+	});
+
 	afterEach(() => {
+		vi.unstubAllEnvs();
 		vi.restoreAllMocks();
 	});
 
-	// The catch block used to sniff for "Image size exceeds", which the generated
-	// message ("Image size (32.0MB) exceeds your current limit of 1MB.") never
-	// contains, so every remote-URL size rejection surfaced as the generic
-	// "Failed to process image from URL" and users were never told why.
-	it("surfaces the size message when Content-Length exceeds the limit", async () => {
+	it("surfaces a 400 size error when Content-Length exceeds the limit", async () => {
 		vi.spyOn(globalThis, "fetch").mockResolvedValue(
-			imageResponseWithContentLength(32 * 1024 * 1024),
+			responseWithContentLength(32 * MB),
 		);
 
-		try {
-			await processImageUrl(REMOTE_URL, false, MAX_SIZE_MB);
-			throw new Error("expected throw");
-		} catch (err) {
-			// The message is asserted before the type on purpose: this is the line
-			// that fails on the unfixed code, and it fails for the reason the user
-			// experiences ("Failed to process image from URL") rather than because
-			// a new export is missing.
-			expect((err as Error).message).toContain(
-				"Image size (32.0MB) exceeds your current limit of 1MB.",
-			);
-			expect(err).toBeInstanceOf(ImageSizeLimitError);
-		}
-	});
-
-	it("surfaces the size message when the downloaded body exceeds the limit", async () => {
-		vi.spyOn(globalThis, "fetch").mockResolvedValue(
-			imageResponseWithBody(2 * 1024 * 1024),
+		const err = await rejectionOf(
+			processImageUrl(REMOTE_URL, false, MAX_SIZE_MB),
 		);
 
-		try {
-			await processImageUrl(REMOTE_URL, false, MAX_SIZE_MB);
-			throw new Error("expected throw");
-		} catch (err) {
-			expect((err as Error).message).toContain(
-				"Image size (2.0MB) exceeds your current limit of 1MB.",
-			);
-			expect(err).toBeInstanceOf(ImageSizeLimitError);
-		}
+		expect(err).toBeInstanceOf(ImageSizeLimitError);
+		expect((err as ImageSizeLimitError).statusCode).toBe(400);
+		// No plan passed: the limit is a fixed cap, so the message must not
+		// present it as a plan entitlement.
+		expect((err as Error).message).toBe(
+			"Image size (32.0MB) exceeds the maximum allowed size of 1MB.",
+		);
 	});
 
-	// The data URL branch throws from outside the try block, so it always
-	// surfaced the real message. Remote URLs must report the same way.
+	it("surfaces the plan limit message when the downloaded body exceeds it", async () => {
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			imageResponseWithBody(2 * MB),
+		);
+
+		const err = await rejectionOf(
+			processImageUrl(REMOTE_URL, false, MAX_SIZE_MB, "free"),
+		);
+
+		expect(err).toBeInstanceOf(ImageSizeLimitError);
+		expect((err as Error).message).toBe(
+			"Image size (2.0MB) exceeds your current limit of 1MB.",
+		);
+	});
+
 	it("reports data URL and remote URL rejections the same way", async () => {
 		vi.spyOn(globalThis, "fetch").mockResolvedValue(
-			imageResponseWithContentLength(2 * 1024 * 1024),
+			responseWithContentLength(2 * MB),
 		);
 
-		const remote = await processImageUrl(REMOTE_URL, false, MAX_SIZE_MB).catch(
-			(err: unknown) => err,
+		const remote = await rejectionOf(
+			processImageUrl(REMOTE_URL, false, MAX_SIZE_MB, "pro"),
 		);
-		const dataUrl = await processImageUrl(
-			`data:image/png;base64,${"A".repeat(2 * 1024 * 1024)}`,
-			false,
-			MAX_SIZE_MB,
-		).catch((err: unknown) => err);
+		const dataUrl = await rejectionOf(
+			processImageUrl(
+				`data:image/png;base64,${"A".repeat(2 * MB)}`,
+				false,
+				MAX_SIZE_MB,
+				"pro",
+			),
+		);
 
 		const sizeMessage =
 			/^Image size \(\d+\.\d+MB\) exceeds your current limit of 1MB\.$/;
-		// Data URLs already reported correctly (they throw outside the try), so
-		// this asymmetry is the whole bug: same rejection, two different answers
-		// depending on how the image arrived.
-		expect((dataUrl as Error).message).toMatch(sizeMessage);
-		expect((remote as Error).message).toMatch(sizeMessage);
 		expect(remote).toBeInstanceOf(ImageSizeLimitError);
 		expect(dataUrl).toBeInstanceOf(ImageSizeLimitError);
+		expect((remote as Error).message).toMatch(sizeMessage);
+		expect((dataUrl as Error).message).toMatch(sizeMessage);
+	});
+
+	it("rounds the reported size up so it never equals the limit", async () => {
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			responseWithContentLength(MB + 1),
+		);
+
+		const err = await rejectionOf(
+			processImageUrl(REMOTE_URL, false, MAX_SIZE_MB, "free"),
+		);
+
+		expect((err as Error).message).toBe(
+			"Image size (1.1MB) exceeds your current limit of 1MB.",
+		);
+	});
+
+	it("reports an oversized non-image as invalid, not as a size rejection", async () => {
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			responseWithContentLength(32 * MB, "application/pdf"),
+		);
+
+		await expect(
+			processImageUrl(REMOTE_URL, false, MAX_SIZE_MB),
+		).rejects.toThrow("URL does not point to a valid image");
 	});
 
 	// The passthrough must stay narrow: anything that is not a size rejection is

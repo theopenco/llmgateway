@@ -4271,6 +4271,11 @@ async function processVideoImageInput(
 	}
 
 	try {
+		// Fixed cap for video image inputs, not the plan-based chat limit: the
+		// same inputs are re-processed by provider upload helpers that carry no
+		// org context, so the limit must be identical everywhere in the video
+		// flow. The null plan keeps the size error message neutral instead of
+		// presenting this cap as the caller's plan limit.
 		const { data, mimeType } = await processImageUrl(
 			imageUrl,
 			process.env.NODE_ENV === "production",

@@ -3265,6 +3265,13 @@ export async function prepareRequestBody(
 									},
 								});
 							} catch (error) {
+								// A typed client error (e.g. image over the plan size
+								// limit) must fail the request instead of degrading to a
+								// placeholder, which would silently drop the image while
+								// still billing the request.
+								if (error instanceof RequestError) {
+									throw error;
+								}
 								logger.error("Failed to process image for Bedrock", {
 									err:
 										error instanceof Error ? error : new Error(String(error)),

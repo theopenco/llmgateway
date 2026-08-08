@@ -12,6 +12,7 @@ import {
 
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
 import { processImageUrl } from "./process-image-url.js";
+import { RequestError } from "./request-error.js";
 
 /**
  * Transforms Anthropic messages
@@ -116,6 +117,13 @@ export async function transformAnthropicMessages(
 								},
 							};
 						} catch (error) {
+							// A typed client error (e.g. image over the plan size limit)
+							// must fail the request: degrading it to placeholder text
+							// would return a 200 with the image silently dropped and the
+							// user billed without ever learning why it was ignored.
+							if (error instanceof RequestError) {
+								throw error;
+							}
 							logger.error(`Failed to fetch image ${part.image_url.url}`, {
 								err: error instanceof Error ? error : new Error(String(error)),
 							});

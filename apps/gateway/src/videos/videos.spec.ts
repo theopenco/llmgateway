@@ -407,7 +407,9 @@ describe("videos", () => {
 		const json = await res.json();
 		expect(json.error.message).toContain("Invalid image input");
 		expect(json.error.message).toContain("Image size");
-		expect(json.error.message).toContain("exceeds your current limit");
+		// Video image inputs use a fixed cap rather than a plan limit, so the
+		// message must not present it as a plan entitlement.
+		expect(json.error.message).toContain("exceeds the maximum allowed size");
 
 		const logs = await db.query.log.findMany({
 			where: { requestId: { eq: requestId } },

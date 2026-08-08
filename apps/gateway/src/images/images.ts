@@ -14,7 +14,11 @@ import { parseApiToken } from "@/lib/extract-api-token.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { validateModelOutput } from "@/lib/validate-model-output.js";
 
-import { parseDataUrl, processImageUrl } from "@llmgateway/actions";
+import {
+	getPlanImageSizeLimitMB,
+	parseDataUrl,
+	processImageUrl,
+} from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
 import { models } from "@llmgateway/models";
@@ -87,6 +91,7 @@ interface ImageClientErrorLogContext {
 	project: NonNullable<Awaited<ReturnType<typeof findProjectById>>>;
 	requestId: string;
 	retentionLevel: "retain" | "none";
+	organizationPlan: "free" | "pro" | "enterprise" | null;
 }
 
 const imageGenerationsResponseSchema = z.object({
@@ -462,6 +467,7 @@ async function resolveImageClientErrorLogContext(
 		project,
 		requestId,
 		retentionLevel: organization?.retentionLevel ?? "none",
+		organizationPlan: organization?.plan ?? null,
 	};
 }
 
@@ -1066,10 +1072,20 @@ async function processImageEdit(
 			}
 
 			const isProd = process.env.NODE_ENV === "production";
+			// Use the caller's plan-based limit so the pre-check here matches the
+			// limit the forwarded chat-completions request will enforce, and the
+			// surfaced size message states the caller's actual limit. Without a
+			// resolvable key context the request will fail auth downstream, so
+			// the conservative default cap is fine.
+			const logContext = await getLogContext();
+			const userPlan = logContext?.organizationPlan ?? null;
+			const maxImageSizeMB = logContext
+				? getPlanImageSizeLimitMB(userPlan)
+				: undefined;
 			const imageResults = await Promise.all(
 				imageUrls.map(async (url, index) => {
 					try {
-						return await processImageUrl(url, isProd);
+						return await processImageUrl(url, isProd, maxImageSizeMB, userPlan);
 					} catch (error) {
 						const errorMessage =
 							error instanceof Error

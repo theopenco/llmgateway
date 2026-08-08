@@ -5,18 +5,30 @@ import { parseDataUrl } from "./parse-data-url.js";
 import { RequestError } from "./request-error.js";
 
 /**
- * Thrown when an image exceeds the caller's size limit. Typed so the catch
- * block in `processImageUrl` can re-throw it as-is: the previous check sniffed
- * the message for "Image size exceeds", which never matched the generated text
- * ("Image size (32.0MB) exceeds your current limit of 1MB."), so every remote
- * URL size rejection was flattened into the generic "Failed to process image
- * from URL" and users were never told their image was too big.
+ * Extends RequestError so the gateway maps an oversized image to a 400 with
+ * the size message and a client_error log row instead of an unhandled 500.
+ * The distinct type also lets the catch block in `processImageUrl` re-throw
+ * size rejections past the generic sanitization without message sniffing.
  */
-export class ImageSizeLimitError extends Error {
+export class ImageSizeLimitError extends RequestError {
 	public constructor(message: string) {
-		super(message);
+		super(message, 400);
 		this.name = "ImageSizeLimitError";
 	}
+}
+
+/**
+ * Resolves the plan-based max image size. Enterprise plans get at least the
+ * pro limit so they are not bucketed into the free cap.
+ */
+export function getPlanImageSizeLimitMB(
+	userPlan: "free" | "pro" | "enterprise" | null,
+): number {
+	const freeLimitMB = Number(process.env.IMAGE_SIZE_LIMIT_FREE_MB) || 50;
+	const proLimitMB = Number(process.env.IMAGE_SIZE_LIMIT_PRO_MB) || 100;
+	return userPlan === "pro" || userPlan === "enterprise"
+		? proLimitMB
+		: freeLimitMB;
 }
 
 /**
@@ -30,7 +42,18 @@ function getImageSizeErrorMessage(
 	const isHosted = process.env.HOSTED === "true";
 	const isPaidMode = process.env.PAID_MODE === "true";
 
-	let message = `Image size (${actualSizeMB.toFixed(1)}MB) exceeds your current limit of ${maxSizeMB}MB.`;
+	// Round the reported size up so a value just over the threshold cannot
+	// print as equal to the limit ("Image size (1.0MB) exceeds ... 1MB.").
+	const displaySizeMB = (Math.ceil(actualSizeMB * 10) / 10).toFixed(1);
+
+	// A null plan means the limit is a fixed endpoint cap rather than a plan
+	// entitlement, so don't present it as the caller's "current limit" or
+	// upsell a plan change.
+	if (userPlan === null) {
+		return `Image size (${displaySizeMB}MB) exceeds the maximum allowed size of ${maxSizeMB}MB.`;
+	}
+
+	let message = `Image size (${displaySizeMB}MB) exceeds your current limit of ${maxSizeMB}MB.`;
 
 	if (isHosted && isPaidMode) {
 		if (userPlan === "enterprise") {
@@ -129,6 +152,18 @@ export async function processImageUrl(
 			throw new Error(`Failed to fetch image: HTTP ${response.status}`);
 		}
 
+		// Check content type before size so an oversized non-image is reported
+		// as "not an image" rather than sent away to shrink a file that would
+		// be rejected anyway.
+		const contentType = response.headers.get("content-type");
+		if (!contentType || !contentType.startsWith("image/")) {
+			logger.warn("Invalid content type for image URL", {
+				contentType,
+				url: url.substring(0, 50) + "...",
+			});
+			throw new Error("URL does not point to a valid image");
+		}
+
 		// Calculate max size in bytes once
 		const maxSizeBytes = maxSizeMB * 1024 * 1024;
 
@@ -144,15 +179,6 @@ export async function processImageUrl(
 			throw new ImageSizeLimitError(
 				getImageSizeErrorMessage(maxSizeMB, actualSizeMB, userPlan),
 			);
-		}
-
-		const contentType = response.headers.get("content-type");
-		if (!contentType || !contentType.startsWith("image/")) {
-			logger.warn("Invalid content type for image URL", {
-				contentType,
-				url: url.substring(0, 50) + "...",
-			});
-			throw new Error("URL does not point to a valid image");
 		}
 
 		const arrayBuffer = await response.arrayBuffer();
@@ -182,12 +208,6 @@ export async function processImageUrl(
 			mimeType: contentType,
 		};
 	} catch (error) {
-		// Log the full error internally but sanitize the thrown error
-		logger.error("Error processing image URL", {
-			err: error instanceof Error ? error : new Error(String(error)),
-			url: url.substring(0, 50) + "...",
-		});
-
 		if (error instanceof ImageSizeLimitError) {
 			throw error; // Re-throw size limit errors as-is
 		}
@@ -203,6 +223,15 @@ export async function processImageUrl(
 		) {
 			throw error; // Re-throw content type errors as-is
 		}
+
+		// Log the full error internally but sanitize the thrown error. The
+		// re-thrown cases above are ordinary client rejections and already
+		// logged at warn where they throw, so only unexpected failures land
+		// in the error log.
+		logger.error("Error processing image URL", {
+			err: error instanceof Error ? error : new Error(String(error)),
+			url: url.substring(0, 50) + "...",
+		});
 
 		// Generic error for all other cases
 		throw new Error("Failed to process image from URL");

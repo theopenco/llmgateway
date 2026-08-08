@@ -4135,31 +4135,40 @@ describe("api", () => {
 		const requestId = "image-edit-oversized-request";
 		const oversizedImageDataUrl = `data:image/png;base64,${"A".repeat(28 * 1024 * 1024)}`;
 
-		const res = await app.request("/v1/images/edits", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer real-token-image-edit-oversized",
-				"x-request-id": requestId,
-			},
-			body: JSON.stringify({
-				model: "gemini-3-pro-image-preview",
-				prompt: "Add a neon city reflection to this image",
-				images: [
-					{
-						image_url: oversizedImageDataUrl,
-					},
-					{
-						image_url: oversizedImageDataUrl,
-					},
-				],
-			}),
-		});
+		// Image edits use the caller's plan-based limit (the harness org is
+		// "pro"); lower it so this payload exceeds it without building a
+		// >100MB request body.
+		vi.stubEnv("IMAGE_SIZE_LIMIT_PRO_MB", "20");
+		let res: Response;
+		try {
+			res = await app.request("/v1/images/edits", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-image-edit-oversized",
+					"x-request-id": requestId,
+				},
+				body: JSON.stringify({
+					model: "gemini-3-pro-image-preview",
+					prompt: "Add a neon city reflection to this image",
+					images: [
+						{
+							image_url: oversizedImageDataUrl,
+						},
+						{
+							image_url: oversizedImageDataUrl,
+						},
+					],
+				}),
+			});
+		} finally {
+			vi.unstubAllEnvs();
+		}
 
 		expect(res.status).toBe(400);
 		const json = await res.json();
 		expect(json.error.message).toContain("Image size");
-		expect(json.error.message).toContain("exceeds your current limit");
+		expect(json.error.message).toContain("exceeds your current limit of 20MB");
 
 		const log = await waitForLogByRequestId(requestId);
 		expect(log.finishReason).toBe("client_error");
@@ -4192,19 +4201,27 @@ describe("api", () => {
 		const requestId = "image-edit-retention-none-request";
 		const oversizedImageDataUrl = `data:image/png;base64,${"A".repeat(28 * 1024 * 1024)}`;
 
-		const res = await app.request("/v1/images/edits", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer real-token-image-edit-retention-none",
-				"x-request-id": requestId,
-			},
-			body: JSON.stringify({
-				model: "gemini-3-pro-image-preview",
-				prompt: "secret retention payload",
-				images: [{ image_url: oversizedImageDataUrl }],
-			}),
-		});
+		// See the oversized-input test above: shrink the pro plan limit so
+		// this payload is rejected as oversized.
+		vi.stubEnv("IMAGE_SIZE_LIMIT_PRO_MB", "20");
+		let res: Response;
+		try {
+			res = await app.request("/v1/images/edits", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-image-edit-retention-none",
+					"x-request-id": requestId,
+				},
+				body: JSON.stringify({
+					model: "gemini-3-pro-image-preview",
+					prompt: "secret retention payload",
+					images: [{ image_url: oversizedImageDataUrl }],
+				}),
+			});
+		} finally {
+			vi.unstubAllEnvs();
+		}
 
 		expect(res.status).toBe(400);
 
