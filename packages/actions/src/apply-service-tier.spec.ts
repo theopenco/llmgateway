@@ -7,7 +7,7 @@ import {
 	providerCredentialSupportsServiceTier,
 	providerKeyBaseUrlSupportsServiceTier,
 	resolveServedServiceTier,
-} from "./apply-google-service-tier.js";
+} from "./apply-service-tier.js";
 
 import type { GoogleRequestBody } from "@llmgateway/models";
 

@@ -1,3 +1,13 @@
+/**
+ * Provider-agnostic service-tier primitives: which credentials may carry a
+ * premium tier, and which tier a provider actually served. Shared by every
+ * code path that requests, routes, or bills a Flex/Priority request.
+ *
+ * The one provider-specific piece left is applyGoogleServiceTier, for the
+ * Gemini Developer API's body field. Where the tier travels differs per
+ * provider — an OpenAI-compatible body field, a Vertex request header (see
+ * getProviderHeaders) — but the eligibility and served-tier rules do not.
+ */
 import { getProviderDefinition } from "@llmgateway/models";
 
 import { getProviderDefaultBaseUrl } from "./get-provider-endpoint.js";
