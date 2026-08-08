@@ -18,6 +18,9 @@ Related internal records:
 
 - `legal/DATA_RETENTION_POLICY.md` — what survives erasure, why, and for how long
 - `legal/SUBPROCESSOR_DPAS.md` — DPA status per sub-processor
+- `legal/TRANSFER_MECHANISM_ACTIONS.md` — the open legal items as executable
+  steps, with a command that prints the currently-exposed providers rather than
+  a list that rots
 
 **Last reviewed:** August 8, 2026
 
@@ -177,7 +180,19 @@ Compliance page still routes to every provider. Making the restriction the
 default would break every customer currently using a provider in a non-adequacy
 country, so it is a product decision rather than something to change silently.
 
-## 6. Review cadence
+## 6. Guard against the exposure growing
+
+`packages/models/src/data-protection-baseline.spec.ts` fails the build when a
+provider is added without a `dataPolicy`, without a stated `gdpr` position, or
+without disclosed `headquarters`. The providers that are undocumented today are
+listed as an explicit baseline and tolerated; anything new is not.
+
+This exists because the Q3 2026 audit found a provider had been added
+mid-quarter with none of that information and nobody noticed until the quarterly
+review. The baselines are expected to shrink — a fourth test fails if an entry
+becomes stale, so they cannot silently loosen as providers get documented.
+
+## 7. Review cadence
 
 - **Quarterly** — the sub-processor audit routine files an issue enumerating the
   catalogue, the changes since the last quarter, and the open gaps. Reconcile this
