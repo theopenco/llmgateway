@@ -934,6 +934,14 @@ function providerMatchesRequestedProvider(
 	);
 }
 
+// An operator-supplied image cap has to be a positive finite number of
+// megabytes. `Number(...) || fallback` alone lets "-5" through (rejecting every
+// image) and "Infinity" through (removing the cap), since both are truthy.
+function imageSizeLimitMB(value: string | undefined, fallback: number): number {
+	const parsed = Number(value);
+	return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 // Distinct providers the catalog still offers for a model, ignoring every
 // request-scoped filter. Used to tell "this model only has one provider" apart
 // from "this request was narrowed down to one provider".
@@ -2794,10 +2802,15 @@ chat.openapi(completions, async (c) => {
 	let routingMetadata: RoutingMetadata | undefined;
 
 	// Get image size limits from environment variables or use defaults
-	const freeLimitMB = Number(process.env.IMAGE_SIZE_LIMIT_FREE_MB) || 50;
-	const proLimitMB = Number(process.env.IMAGE_SIZE_LIMIT_PRO_MB) || 100;
-	const enterpriseLimitMB =
-		Number(process.env.IMAGE_SIZE_LIMIT_ENTERPRISE_MB) || proLimitMB;
+	const freeLimitMB = imageSizeLimitMB(
+		process.env.IMAGE_SIZE_LIMIT_FREE_MB,
+		50,
+	);
+	const proLimitMB = imageSizeLimitMB(process.env.IMAGE_SIZE_LIMIT_PRO_MB, 100);
+	const enterpriseLimitMB = imageSizeLimitMB(
+		process.env.IMAGE_SIZE_LIMIT_ENTERPRISE_MB,
+		proLimitMB,
+	);
 
 	// Determine max image size based on plan. Enterprise is never capped below
 	// Pro — bucketing it with free rejected enterprise uploads at the free limit

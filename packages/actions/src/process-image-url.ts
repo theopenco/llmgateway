@@ -154,8 +154,16 @@ export async function processImageUrl(
 			}
 		}
 
-		// Validate size (estimate: base64 adds ~33% overhead)
-		const estimatedSize = (base64Data.length * 3) / 4;
+		// Validate size. Base64 encodes 3 bytes per 4 characters, minus one byte
+		// per `=` of padding — without that subtraction an image sitting exactly on
+		// the cap is over-measured by up to 2 bytes and rejected.
+		const padding = base64Data.endsWith("==")
+			? 2
+			: base64Data.endsWith("=")
+				? 1
+				: 0;
+		const encodedBytes = (base64Data.length * 3) / 4;
+		const estimatedSize = encodedBytes - padding;
 		const maxSizeBytes = maxSizeMB * 1024 * 1024;
 		if (estimatedSize > maxSizeBytes) {
 			const actualSizeMB = estimatedSize / (1024 * 1024);
@@ -248,9 +256,11 @@ export async function processImageUrl(
 			mimeType: contentType,
 		};
 	} catch (error) {
-		// Size rejections are an expected client outcome, not a server failure —
-		// they are already logged at warn where they are thrown.
-		if (error instanceof ImageSizeLimitError) {
+		// Typed client errors (bad status, wrong content type, size rejections)
+		// carry a message the caller is meant to see, and every one of them is
+		// already logged at warn where it is thrown — re-logging them here would
+		// raise an expected client outcome to error level twice over.
+		if (error instanceof RequestError) {
 			throw error;
 		}
 
@@ -259,12 +269,6 @@ export async function processImageUrl(
 			err: error instanceof Error ? error : new Error(String(error)),
 			url: url.substring(0, 50) + "...",
 		});
-
-		// Typed client errors (bad status, wrong content type) carry a message the
-		// caller is meant to see; everything else is sanitized.
-		if (error instanceof RequestError) {
-			throw error;
-		}
 
 		// Generic error for all other cases
 		throw new Error("Failed to process image from URL");

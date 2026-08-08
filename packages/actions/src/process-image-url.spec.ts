@@ -234,4 +234,24 @@ describe("processImageUrl data URLs", () => {
 		expect(error).toBeInstanceOf(RequestError);
 		expect((error as Error).message).toBe("Invalid image data URL format");
 	});
+
+	it("accepts a data URL decoding to exactly the limit", async () => {
+		// 1MB encodes to a padded string, so measuring the base64 length without
+		// subtracting the padding puts this image 2 bytes over its own cap.
+		const exactLimit = Buffer.alloc(MAX_SIZE_MB * 1024 * 1024).toString(
+			"base64",
+		);
+
+		const { data } = await processImageUrl(
+			`data:image/png;base64,${exactLimit}`,
+			false,
+			MAX_SIZE_MB,
+			"free",
+			NO_SSRF,
+		);
+
+		expect(Buffer.from(data, "base64").byteLength).toBe(
+			MAX_SIZE_MB * 1024 * 1024,
+		);
+	});
 });
