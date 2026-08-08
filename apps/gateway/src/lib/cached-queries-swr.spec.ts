@@ -15,6 +15,7 @@ import {
 	organization,
 	project,
 	providerKey,
+	providerKeyAllowsModel,
 	user,
 	userOrganization,
 } from "@llmgateway/db";
@@ -25,6 +26,7 @@ import {
 	findActiveProviderKeys,
 	findApiKeyByToken,
 	findEffectiveDiscount,
+	findManagedProviderAvailability,
 	findOrganizationById,
 	findProjectById,
 	findProviderKey,
@@ -314,6 +316,110 @@ describe("cached-queries SWR integration", () => {
 
 			const result = await findApiKeyByToken(testApiKeyToken);
 			expect(result?.id).toBe(testApiKeyId);
+
+			selectSpy.mockRestore();
+		});
+
+		it("model-restricted managed scopes survive a DB outage via SWR", async () => {
+			await db.insert(providerKey).values({
+				id: "swr-managed-restricted",
+				token: "swr-managed-restricted-token",
+				provider: "openai",
+				managed: true,
+				organizationId: null,
+				status: "active",
+				allowedModels: ["special-model"],
+			});
+
+			// Prime once — the per-model narrowing happens in memory after the
+			// cached row fetch, so every model shares the same mirror entry.
+			expect(
+				(await findManagedProviderAvailability(undefined, "special-model"))
+					.usable,
+			).toContain("openai");
+			await waitForSwrMirrorWrites();
+			await flushDrizzleCache();
+
+			const selectSpy = vi.spyOn(cdb, "select").mockImplementation(() => {
+				throw new Error("postgres unavailable");
+			});
+
+			// The mirrored rows carry allowedModels (a text[] round-tripped through
+			// JSON), so the restriction keeps filtering during the outage instead
+			// of failing open or erroring.
+			expect(
+				(await findManagedProviderAvailability(undefined, "special-model"))
+					.usable,
+			).toContain("openai");
+			expect(
+				(await findManagedProviderAvailability(undefined, "some-other-model"))
+					.usable,
+			).not.toContain("openai");
+
+			selectSpy.mockRestore();
+		});
+
+		it("model-restricted BYOK selection survives a DB outage via SWR", async () => {
+			// Restrict the primary key and add an unrestricted sibling, mirroring
+			// an org whose first account only has one model enabled upstream.
+			await db
+				.update(providerKey)
+				.set({ allowedModels: ["special-model"] })
+				.where(eq(providerKey.id, testProviderKeyOpenAi));
+			await db.insert(providerKey).values({
+				id: "swr-openai-unrestricted",
+				token: "swr-openai-unrestricted-token",
+				provider: "openai",
+				organizationId: testOrgId,
+				status: "active",
+			});
+			const filterFor =
+				(modelId: string) =>
+				(key: { allowedModels: string[] | null }): boolean =>
+					providerKeyAllowsModel(key.allowedModels, modelId);
+
+			expect(
+				(
+					await findProviderKey(
+						testOrgId,
+						"openai",
+						"special-model",
+						undefined,
+						filterFor("special-model"),
+					)
+				)?.id,
+			).toBe(testProviderKeyOpenAi);
+			await waitForSwrMirrorWrites();
+			await flushDrizzleCache();
+
+			const selectSpy = vi.spyOn(cdb, "select").mockImplementation(() => {
+				throw new Error("postgres unavailable");
+			});
+
+			// The filter runs on the mirrored rows, so selection keeps honoring
+			// the restriction — restricted key for its model, sibling otherwise.
+			expect(
+				(
+					await findProviderKey(
+						testOrgId,
+						"openai",
+						"special-model",
+						undefined,
+						filterFor("special-model"),
+					)
+				)?.id,
+			).toBe(testProviderKeyOpenAi);
+			expect(
+				(
+					await findProviderKey(
+						testOrgId,
+						"openai",
+						"some-other-model",
+						undefined,
+						filterFor("some-other-model"),
+					)
+				)?.id,
+			).toBe("swr-openai-unrestricted");
 
 			selectSpy.mockRestore();
 		});

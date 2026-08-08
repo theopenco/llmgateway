@@ -41,6 +41,14 @@
 			"types": "./dist/routing-config.d.ts",
 			"import": "./dist/routing-config.js"
 		},
+		"./dynamic-route": {
+			"types": "./dist/dynamic-route.d.ts",
+			"import": "./dist/dynamic-route.js"
+		},
+		"./routing-telemetry": {
+			"types": "./dist/routing-telemetry.d.ts",
+			"import": "./dist/routing-telemetry.js"
+		},
 		"./url-safety-node": {
 			"types": "./dist/url-safety-node.d.ts",
 			"import": "./dist/url-safety-node.js"

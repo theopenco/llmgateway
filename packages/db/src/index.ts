@@ -14,6 +14,7 @@ export * from "./log-retention.js";
 export * from "./types.js";
 export * from "./migrate.js";
 export * from "./relations.js";
+export * from "./provider-key-allowed-models.js";
 export * from "./provider-metrics.js";
 export * from "./provider-metrics-history.js";
 export * from "./query-tags.js";

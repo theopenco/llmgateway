@@ -43,10 +43,16 @@ export default function SettingsPage() {
 				</div>
 			</div>
 
-			<DevPlanSettings
-				devPlanServiceTier={devPlanStatus.devPlanServiceTier ?? "default"}
-				defaultRoutingStrategy={devPlanStatus.defaultRoutingStrategy ?? "auto"}
-			/>
+			{/* Routing and service-tier settings apply to the live plan only — the
+			    endpoint rejects updates once the subscription has ended. */}
+			{devPlanStatus.devPlan !== "none" && (
+				<DevPlanSettings
+					devPlanServiceTier={devPlanStatus.devPlanServiceTier ?? "default"}
+					defaultRoutingStrategy={
+						devPlanStatus.defaultRoutingStrategy ?? "auto"
+					}
+				/>
+			)}
 
 			<DeleteAccount />
 		</div>

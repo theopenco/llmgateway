@@ -61,6 +61,7 @@ const modelSchema = z.object({
 					input_audio_cache_read: z.string().optional(),
 					output_audio: z.string().optional(),
 					per_second: z.record(z.string()).optional(),
+					per_image: z.record(z.string()).optional(),
 					request: z.string().optional(),
 					input_cache_read: z.string().optional(),
 					input_cache_write: z.string().optional(),
@@ -109,6 +110,7 @@ const modelSchema = z.object({
 		input_audio_cache_read: z.string().optional(),
 		output_audio: z.string().optional(),
 		per_second: z.record(z.string()).optional(),
+		per_image: z.record(z.string()).optional(),
 		request: z.string().optional(),
 		input_cache_read: z.string().optional(),
 		input_cache_write: z.string().optional(),
@@ -517,6 +519,7 @@ function hasPricing(p: ProviderModelMapping): boolean {
 		p.outputPrice !== undefined ||
 		p.imageInputPrice !== undefined ||
 		p.perSecondPrice !== undefined ||
+		p.perImagePrice !== undefined ||
 		p.ocrPagePrice !== undefined ||
 		p.inputAudioHourPrice !== undefined
 	);
@@ -542,6 +545,14 @@ function buildPricingFields(p: ProviderModelMapping | undefined) {
 					]),
 				)
 			: undefined,
+		per_image: p?.perImagePrice
+			? Object.fromEntries(
+					Object.entries(p.perImagePrice).map(([resolution, price]) => [
+						resolution,
+						price.toString(),
+					]),
+				)
+			: undefined,
 		request: p?.requestPrice?.toString() ?? "0",
 		input_cache_read: p?.cachedInputPrice?.toString() ?? "0",
 		input_cache_write: p?.cacheWriteInputPrice?.toString() ?? "0",
@@ -559,8 +570,15 @@ function pricingScore(p: ProviderModelMapping): number {
 	const input = p.inputPrice !== undefined ? Number(p.inputPrice) : undefined;
 	const output =
 		p.outputPrice !== undefined ? Number(p.outputPrice) : undefined;
-	if (input !== undefined || output !== undefined) {
-		return (input ?? 0) + (output ?? 0);
+	const tokenScore =
+		input !== undefined || output !== undefined
+			? (input ?? 0) + (output ?? 0)
+			: undefined;
+	// Only a positive token price is authoritative: per-unit-priced mappings
+	// (image, video, OCR, request) declare token prices as "0", so a zero
+	// token score must fall through to the per-unit branches below.
+	if (tokenScore !== undefined && tokenScore > 0) {
+		return tokenScore;
 	}
 	if (p.ocrPagePrice !== undefined) {
 		return Number(p.ocrPagePrice);
@@ -572,13 +590,17 @@ function pricingScore(p: ProviderModelMapping): number {
 		const values = Object.values(p.perSecondPrice).map(Number);
 		return values.length > 0 ? Math.min(...values) : Infinity;
 	}
+	if (p.perImagePrice) {
+		const values = Object.values(p.perImagePrice).map(Number);
+		return values.length > 0 ? Math.min(...values) : Infinity;
+	}
 	if (p.requestPrice !== undefined) {
 		return Number(p.requestPrice);
 	}
 	if (p.imageInputPrice !== undefined) {
 		return Number(p.imageInputPrice);
 	}
-	return Infinity;
+	return tokenScore ?? Infinity;
 }
 
 // Pick the provider mapping that represents the model-level pricing: the

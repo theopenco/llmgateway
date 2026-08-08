@@ -1,9 +1,8 @@
 "use client";
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 
-import { Button } from "@/components/ui/button";
+import { SegmentedUrlSelector } from "@/components/segmented-url-selector";
 import {
 	parseUsageMode,
 	USAGE_MODE_OPTIONS,
@@ -21,38 +20,21 @@ export function useUsageMode(): UsageMode {
  * URL search param. Credits = billed against the org balance; BYOK = served by
  * the org's own provider keys (not billed).
  */
-export function UsageModeSelector() {
-	const searchParams = useSearchParams();
-	const router = useRouter();
-	const pathname = usePathname();
-	const mode = parseUsageMode(searchParams.get("mode"));
-
-	const setMode = useCallback(
-		(next: UsageMode) => {
-			const params = new URLSearchParams(searchParams.toString());
-			if (next === "total") {
-				params.delete("mode");
-			} else {
-				params.set("mode", next);
-			}
-			const query = params.toString();
-			router.push(query ? `${pathname}?${query}` : pathname);
-		},
-		[searchParams, router, pathname],
-	);
-
+export function UsageModeSelector({
+	className,
+	compact = false,
+}: {
+	className?: string;
+	compact?: boolean;
+} = {}) {
 	return (
-		<div className="flex items-center gap-1">
-			{USAGE_MODE_OPTIONS.map((option) => (
-				<Button
-					key={option.value}
-					variant={mode === option.value ? "default" : "outline"}
-					size="sm"
-					onClick={() => setMode(option.value)}
-				>
-					{option.label}
-				</Button>
-			))}
-		</div>
+		<SegmentedUrlSelector
+			param="mode"
+			value={useUsageMode()}
+			defaultValue="total"
+			options={USAGE_MODE_OPTIONS}
+			className={className}
+			compact={compact}
+		/>
 	);
 }

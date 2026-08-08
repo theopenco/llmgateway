@@ -360,37 +360,6 @@ export async function calculateCosts(
 		}
 	}
 
-	// If we don't have prompt tokens, we can't calculate any costs
-	if (!calculatedPromptTokens) {
-		return {
-			inputCost: null,
-			outputCost: null,
-			cachedInputCost: null,
-			cacheWriteInputCost: null,
-			requestCost: null,
-			webSearchCost: null,
-			contentFilterCost: null,
-			imageInputTokens: null,
-			imageOutputTokens: null,
-			imageInputCost: null,
-			imageOutputCost: null,
-			audioInputTokens: null,
-			audioInputCost: null,
-			totalCost: null,
-			dataStorageCost: null as number | null,
-			promptTokens: calculatedPromptTokens,
-			completionTokens: calculatedCompletionTokens,
-			cachedTokens,
-			cacheWriteTokens,
-			estimatedCost: isEstimated,
-			discount: undefined,
-			pricingTier: undefined,
-		};
-	}
-
-	// Set completion tokens to 0 if not available (but still calculate input costs)
-	calculatedCompletionTokens ??= 0;
-
 	// Find the provider-specific pricing, keyed by providerId + region.
 	// Region matters when a single root model id has multiple per-region
 	// entries with different prices (see `regions:` on ProviderModelMapping);
@@ -440,6 +409,41 @@ export async function calculateCosts(
 			totalCost: null,
 			dataStorageCost: null as number | null,
 			promptTokens: calculatedPromptTokens,
+			completionTokens: calculatedCompletionTokens ?? 0,
+			cachedTokens,
+			cacheWriteTokens,
+			estimatedCost: isEstimated,
+			discount: undefined,
+			pricingTier: undefined,
+		};
+	}
+
+	// Without prompt tokens we can't calculate token costs — except for
+	// mappings that bill independently of token usage (per generated image via
+	// perImagePrice, or a flat positive requestPrice), which must still charge
+	// when the upstream response omits prompt usage. Those fall through with
+	// prompt tokens normalized to zero.
+	const billsWithoutTokenUsage =
+		(providerInfo.perImagePrice && outputImageCount > 0) ||
+		parseFloat(providerInfo.requestPrice ?? "0") > 0;
+	if (!calculatedPromptTokens && !billsWithoutTokenUsage) {
+		return {
+			inputCost: null,
+			outputCost: null,
+			cachedInputCost: null,
+			cacheWriteInputCost: null,
+			requestCost: null,
+			webSearchCost: null,
+			contentFilterCost: null,
+			imageInputTokens: null,
+			imageOutputTokens: null,
+			imageInputCost: null,
+			imageOutputCost: null,
+			audioInputTokens: null,
+			audioInputCost: null,
+			totalCost: null,
+			dataStorageCost: null as number | null,
+			promptTokens: calculatedPromptTokens,
 			completionTokens: calculatedCompletionTokens,
 			cachedTokens,
 			cacheWriteTokens,
@@ -448,6 +452,9 @@ export async function calculateCosts(
 			pricingTier: undefined,
 		};
 	}
+	calculatedPromptTokens = calculatedPromptTokens || 0;
+	// Set completion tokens to 0 if not available (but still calculate input costs)
+	calculatedCompletionTokens ??= 0;
 
 	// Get pricing based on token count (supports tiered pricing)
 	const pricing = getPricingForTokenCount(
@@ -511,15 +518,20 @@ export async function calculateCosts(
 		serviceTierMultiplier,
 	);
 
-	// Resolve the tokens-per-image for the given imageSize from a resolution map.
-	function resolveTokensPerImage(
-		byResolution: Record<string, number> | undefined,
+	// Resolve the value for the given imageSize from a resolution-keyed map,
+	// falling back to the "default" key. Own-property lookups only: imageSize
+	// is caller-controlled, so keys like "constructor" must not resolve to
+	// inherited Object.prototype members.
+	function resolveByResolution<T>(
+		byResolution: Record<string, T> | undefined,
 		size: string | undefined,
-	): number | undefined {
+	): T | undefined {
 		if (!byResolution) {
 			return undefined;
 		}
-		return byResolution[size ?? "default"] ?? byResolution["default"];
+		const own = (key: string) =>
+			Object.hasOwn(byResolution, key) ? byResolution[key] : undefined;
+		return own(size ?? "default") ?? own("default");
 	}
 
 	// Track image input tokens separately. For image-output models (e.g.
@@ -527,7 +539,7 @@ export async function calculateCosts(
 	// the provider tokenises the input image and bills against it directly.
 	// For Google image-generation models we fall back to inputImageCount *
 	// imageInputTokensByResolution[size] (or 560/image legacy default).
-	const imageInputTokensPerImage = resolveTokensPerImage(
+	const imageInputTokensPerImage = resolveByResolution(
 		providerInfo.imageInputTokensByResolution,
 		imageSize,
 	);
@@ -643,8 +655,12 @@ export async function calculateCosts(
 	// For Google models, completionTokens already includes reasoning tokens
 	// (merged during extraction). The same holds for OpenAI-style Responses API
 	// providers (OpenAI, Azure, Sakana, Meta), whose `output_tokens` counts
-	// reasoning — their `reasoning_tokens` detail is informational only. For
-	// remaining providers, add reasoning separately.
+	// reasoning — their `reasoning_tokens` detail is informational only. RanoAI
+	// reports reasoning in `completion_tokens_details` (which the streaming
+	// transform hoists to a top-level `reasoning_tokens`) while already counting
+	// it inside `completion_tokens`, so adding it again would roughly double the
+	// billed output on reasoning requests. For remaining providers, add
+	// reasoning separately.
 	const completionIncludesReasoning =
 		provider === "google-ai-studio" ||
 		provider === "glacier" ||
@@ -655,6 +671,7 @@ export async function calculateCosts(
 		provider === "azure" ||
 		provider === "sakana" ||
 		provider === "meta" ||
+		provider === "ranoai" ||
 		provider === "aws-mantle";
 	const totalOutputTokens = completionIncludesReasoning
 		? calculatedCompletionTokens
@@ -663,15 +680,35 @@ export async function calculateCosts(
 	// Calculate output cost, handling separate image output pricing if applicable.
 	// Models with token-based image pricing use imageOutputTokensByResolution
 	// for per-resolution token counts and imageOutputPrice for the per-token price.
+	// Models with flat per-image pricing use perImagePrice, keyed by resolution
+	// tier (imageSize) with a "default" fallback.
 	let outputCost: Decimal;
 	let imageOutputTokens: number | null = null;
 	let imageOutputCost: Decimal | null = null;
-	const imageOutputTokensPerImage = resolveTokensPerImage(
+	const imageOutputTokensPerImage = resolveByResolution(
 		providerInfo.imageOutputTokensByResolution,
 		imageSize,
 	);
 	const imageOutputPricePerToken = providerInfo.imageOutputPrice;
-	if (imageOutputPricePerToken && outputImageCount > 0) {
+	const perImagePriceMap = providerInfo.perImagePrice;
+	if (perImagePriceMap && outputImageCount > 0) {
+		// A map without a "default" key falls back to its most expensive tier so
+		// a lookup miss can only overcharge, never bill a generated image at $0
+		// (same stance as the unknown-size → "default" fallback).
+		const perImagePrice =
+			resolveByResolution(perImagePriceMap, imageSize) ??
+			Object.values(perImagePriceMap).reduce(
+				(max, v) => (new Decimal(v).gt(max) ? v : max),
+				"0",
+			);
+		imageOutputCost = new Decimal(perImagePrice)
+			.times(outputImageCount)
+			.times(discountMultiplier);
+		outputCost = new Decimal(totalOutputTokens)
+			.times(outputPrice)
+			.times(tokenDiscountMultiplier)
+			.plus(imageOutputCost);
+	} else if (imageOutputPricePerToken && outputImageCount > 0) {
 		const LEGACY_DEFAULT_TOKENS_PER_IMAGE = 1120;
 		imageOutputTokens =
 			isImageOutputModel &&

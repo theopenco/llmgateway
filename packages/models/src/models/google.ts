@@ -2450,6 +2450,45 @@ export const googleModels = [
 				tools: true,
 				jsonOutput: true,
 			},
+			{
+				// RanoAI serves Gemma 4 on Furiosa RNGD NPUs. The NPU deployment
+				// enforces a 20480-token window (prompt + max_tokens). Reasoning
+				// arrives as `reasoning_content` (streamed as deltas) only when
+				// `reasoning_effort` is passed explicitly — a request without it
+				// returns no reasoning at all, and "none" suppresses it.
+				// `reasoning_tokens` is reported inside completion_tokens, so
+				// costs.ts lists this provider in completionIncludesReasoning.
+				//
+				// All four tool_choice modes are honoured, so none are declared
+				// here. Prompt caching is automatic prefix caching — the first
+				// request misses and later ones report `cached_tokens` — priced
+				// at the `input_cache_read` rate /v1/models advertises, half the
+				// input rate (verified 2026-08-05).
+				providerId: "ranoai",
+				externalId: "gemma-4-31b",
+				inputPrice: "0.1e-6",
+				outputPrice: "0.3e-6",
+				cachedInputPrice: "0.05e-6",
+				requestPrice: "0",
+				contextSize: 20480,
+				maxOutput: 20480,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				supportsN: true,
+			},
 		],
 	},
 	{

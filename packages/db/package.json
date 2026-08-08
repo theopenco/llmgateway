@@ -33,7 +33,7 @@
 		"@llmgateway/shared": "workspace:*",
 		"@opentelemetry/api": "1.9.0",
 		"drizzle-orm": "1.0.0-beta.1",
-		"nanoid": "5.1.5",
+		"nanoid": "5.1.16",
 		"pg": "^8.16.3",
 		"zod": "3.25.75"
 	},

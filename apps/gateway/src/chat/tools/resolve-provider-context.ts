@@ -14,10 +14,10 @@ import {
 	isPremiumServiceTier,
 	managedCredentialOptions,
 	prepareRequestBody,
-	providerKeyBaseUrlSupportsServiceTier,
 	readProviderKey,
 	selectProviderMapping,
 } from "@llmgateway/actions";
+import { providerKeyAllowsModel } from "@llmgateway/db";
 import {
 	type BaseMessage,
 	getOrganizationEnvVariant,
@@ -46,6 +46,11 @@ import {
 
 import { clampTemperature } from "./clamp-temperature.js";
 import { resolvePlatformCredential } from "./resolve-platform-credential.js";
+import {
+	assertServiceTierHonored,
+	getForwardedServiceTier,
+	providerKeySupportsServiceTier,
+} from "./service-tier.js";
 
 import type { InferSelectModel, tables } from "@llmgateway/db";
 
@@ -157,6 +162,13 @@ export interface ProviderContextOptions {
 	n?: number;
 	providerCacheControlEnabled: boolean;
 	service_tier?: "auto" | "default" | "flex" | "priority";
+	/**
+	 * The premium tier the client asked for itself, or null when `service_tier`
+	 * only carries an org-level default. A client-requested tier is strict: a
+	 * candidate that cannot serve it is rejected rather than downgraded, so the
+	 * retry loop moves on instead of quietly serving standard.
+	 */
+	clientRequestedServiceTier?: "flex" | "priority" | null;
 	verbosity?: "low" | "medium" | "high";
 }
 
@@ -171,6 +183,7 @@ interface OrgInfo {
 	plan: string;
 	kind: string;
 	devPlan: string;
+	devPlanPaygEnabled: boolean;
 	devPlanCreditsLimit: string | null;
 	devPlanCreditsUsed: string | null;
 	devPlanPremiumCreditsUsed: string | null;
@@ -180,6 +193,90 @@ interface OrgInfo {
 	chatPlanCreditsLimit: string | null;
 	chatPlanCreditsUsed: string | null;
 	chatPlanExpiresAt: Date | null;
+}
+
+export interface AvailableCredits {
+	regularCredits: number;
+	devPlanCreditsRemaining: number;
+	chatPlanCreditsRemaining: number;
+	totalAvailableCredits: number;
+}
+
+/**
+ * Computes the credit pools a request may draw on. For dev-plan (DevPass)
+ * orgs the regular PAYG `credits` balance only counts once the org has
+ * opted into pay-as-you-go overflow (devPlanPaygEnabled); without the
+ * opt-in the plan allowance is a hard cap, even if the org somehow holds
+ * a credits balance (e.g. an admin gift).
+ */
+export function getAvailableCredits(
+	organization: Pick<
+		OrgInfo,
+		| "credits"
+		| "devPlan"
+		| "devPlanPaygEnabled"
+		| "devPlanCreditsLimit"
+		| "devPlanCreditsUsed"
+		| "chatPlan"
+		| "chatPlanCreditsLimit"
+		| "chatPlanCreditsUsed"
+	>,
+): AvailableCredits {
+	const paygBalance = parseFloat(organization.credits ?? "0");
+	const regularCredits =
+		organization.devPlan === "none" || organization.devPlanPaygEnabled
+			? paygBalance
+			: 0;
+	const devPlanCreditsRemaining =
+		organization.devPlan !== "none"
+			? parseFloat(organization.devPlanCreditsLimit ?? "0") -
+				parseFloat(organization.devPlanCreditsUsed ?? "0")
+			: 0;
+	const chatPlanCreditsRemaining =
+		organization.chatPlan !== "none"
+			? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
+				parseFloat(organization.chatPlanCreditsUsed ?? "0")
+			: 0;
+	return {
+		regularCredits,
+		devPlanCreditsRemaining,
+		chatPlanCreditsRemaining,
+		totalAvailableCredits:
+			regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining,
+	};
+}
+
+/**
+ * The 402 thrown when a dev-plan org exhausts its monthly allowance. The
+ * hint tells opted-in orgs their PAYG balance is empty and everyone else
+ * that overflow exists — the moment this error fires is the moment that
+ * information is actionable.
+ *
+ * An org that already holds a balance it cannot spend (an admin credit gift,
+ * a referral bonus, credits left over from before it subscribed) is told the
+ * amount: without it the generic "enable overflow" nudge reads as "go spend
+ * more money" and the credits sit unused, which is exactly the case gifting
+ * credits to a maxed-out subscriber is meant to solve.
+ */
+export function buildDevPlanCreditLimitError(
+	organization: Pick<
+		OrgInfo,
+		"credits" | "devPlanPaygEnabled" | "devPlanExpiresAt"
+	>,
+	messagePrefix = "",
+): HTTPException {
+	const renewalDate = organization.devPlanExpiresAt
+		? new Date(organization.devPlanExpiresAt).toLocaleDateString()
+		: "your next billing date";
+	const waitingBalance = parseFloat(organization.credits ?? "0");
+	const paygHint = organization.devPlanPaygEnabled
+		? " Your pay-as-you-go balance is empty — top up credits from your DevPass dashboard to keep going."
+		: waitingBalance > 0
+			? ` You have $${waitingBalance.toFixed(2)} in credits waiting — enable pay-as-you-go overflow in your DevPass dashboard to spend them.`
+			: " Or enable pay-as-you-go overflow in your DevPass dashboard to keep going past your allowance.";
+	return new HTTPException(402, {
+		message: `${messagePrefix}Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.${paygHint}`,
+	});
 }
 
 /**
@@ -196,7 +293,17 @@ interface OrgInfo {
 export function assertDevPlanPremiumCapNotExceeded(
 	organization: Pick<
 		OrgInfo,
-		"id" | "devPlan" | "devPlanPremiumCreditsUsed" | "devPlanPremiumWeekStart"
+		| "id"
+		| "credits"
+		| "devPlan"
+		| "devPlanPaygEnabled"
+		| "devPlanCreditsLimit"
+		| "devPlanCreditsUsed"
+		| "devPlanPremiumCreditsUsed"
+		| "devPlanPremiumWeekStart"
+		| "chatPlan"
+		| "chatPlanCreditsLimit"
+		| "chatPlanCreditsUsed"
 	>,
 	modelInfo: Pick<ModelDefinition, "id">,
 	trackRejection = false,
@@ -215,6 +322,18 @@ export function assertDevPlanPremiumCapNotExceeded(
 	);
 	if (remaining > 0) {
 		return;
+	}
+	// PAYG overflow: once the monthly pool is exhausted, an opted-in org is
+	// paying provider rates from its own credits, so the weekly premium cap
+	// (a fair-use limiter on the plan allowance) no longer applies — the
+	// regular credit gate downstream takes over. Mid-cycle, with monthly
+	// allowance remaining, the cap still bites so Reset Passes remain the
+	// path to more premium usage within the plan.
+	if (organization.devPlanPaygEnabled) {
+		const { devPlanCreditsRemaining } = getAvailableCredits(organization);
+		if (devPlanCreditsRemaining <= 0) {
+			return;
+		}
 	}
 	const weekStart = organization.devPlanPremiumWeekStart
 		? new Date(organization.devPlanPremiumWeekStart)
@@ -286,19 +405,11 @@ function assertOrganizationHasCreditsForEnvFallback(
 		return;
 	}
 	assertDevPlanPremiumCapNotExceeded(organization, modelInfo);
-	const regularCredits = parseFloat(organization.credits ?? "0");
-	const devPlanCreditsRemaining =
-		organization.devPlan !== "none"
-			? parseFloat(organization.devPlanCreditsLimit ?? "0") -
-				parseFloat(organization.devPlanCreditsUsed ?? "0")
-			: 0;
-	const chatPlanCreditsRemaining =
-		organization.chatPlan !== "none"
-			? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
-				parseFloat(organization.chatPlanCreditsUsed ?? "0")
-			: 0;
-	const totalAvailableCredits =
-		regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
+	const {
+		devPlanCreditsRemaining,
+		chatPlanCreditsRemaining,
+		totalAvailableCredits,
+	} = getAvailableCredits(organization);
 	if (totalAvailableCredits > 0) {
 		return;
 	}
@@ -315,12 +426,7 @@ function assertOrganizationHasCreditsForEnvFallback(
 		});
 	}
 	if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
-		const renewalDate = organization.devPlanExpiresAt
-			? new Date(organization.devPlanExpiresAt).toLocaleDateString()
-			: "your next billing date";
-		throw new HTTPException(402, {
-			message: `Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
-		});
+		throw buildDevPlanCreditLimitError(organization);
 	}
 	throw new HTTPException(402, {
 		message: `Organization ${organization.id} has insufficient credits`,
@@ -387,16 +493,24 @@ export async function resolveProviderContext(
 	const envVariant = getOrganizationEnvVariant(organization);
 
 	// Flex/Priority is only honored when the request reaches the provider's real
-	// upstream endpoint. Skip provider keys whose custom base URL (proxy) may
-	// silently drop the tier, so a compliant key (or the managed env credential)
-	// is used instead.
+	// upstream endpoint on a tier-capable location. Skip provider keys whose
+	// custom base URL (proxy) may silently drop the tier, and Vertex keys pinned
+	// to a regional endpoint, so a compliant key (or the managed env credential)
+	// is used instead. This is what keeps an alternate-key retry from rotating a
+	// Flex request onto a credential that would serve it as standard.
 	const serviceTierKeyFilter = isPremiumServiceTier(options.service_tier)
-		? (key: InferSelectModel<typeof tables.providerKey>) =>
-				providerKeyBaseUrlSupportsServiceTier(
-					key.provider as Provider,
-					key.baseUrl,
-				)
+		? providerKeySupportsServiceTier
 		: undefined;
+
+	// Skip BYOK keys whose allowedModels restriction excludes the model being
+	// served, so a key that cannot satisfy the request upstream is never picked
+	// over a sibling key (or the credits fallback in hybrid mode) that can.
+	// Custom provider keys are exempt: their catalog already scopes them.
+	const byokKeyFilter = (
+		key: InferSelectModel<typeof tables.providerKey>,
+	): boolean =>
+		providerKeyAllowsModel(key.allowedModels, usedInternalModel) &&
+		(serviceTierKeyFilter ? serviceTierKeyFilter(key) : true);
 
 	if (project.mode === "api-keys") {
 		if (usedProvider === "custom" && options.customProviderName) {
@@ -412,7 +526,7 @@ export async function resolveProviderContext(
 				usedProvider,
 				usedInternalModel,
 				options.excludedProviderKeyIds,
-				serviceTierKeyFilter,
+				byokKeyFilter,
 			);
 		}
 
@@ -429,6 +543,7 @@ export async function resolveProviderContext(
 			usedProvider as Provider,
 			{
 				selectionScope: usedInternalModel,
+				model: usedInternalModel,
 				variant: envVariant,
 				region: providerMapping.region,
 				requiresServiceTier: serviceTierKeyFilter !== undefined,
@@ -454,7 +569,7 @@ export async function resolveProviderContext(
 				usedProvider,
 				usedInternalModel,
 				options.excludedProviderKeyIds,
-				serviceTierKeyFilter,
+				byokKeyFilter,
 			);
 		}
 
@@ -466,6 +581,7 @@ export async function resolveProviderContext(
 				usedProvider as Provider,
 				{
 					selectionScope: usedInternalModel,
+					model: usedInternalModel,
 					variant: envVariant,
 					region: providerMapping.region,
 					requiresServiceTier: serviceTierKeyFilter !== undefined,
@@ -531,6 +647,28 @@ export async function resolveProviderContext(
 			}
 		}
 	}
+
+	// The tier this attempt will actually be sent at. Resolved here — after the
+	// provider, region and credential are known — because a fallback attempt
+	// picks its own, and a mapping/credential that cannot carry the tier would
+	// otherwise be served (and billed) as standard without the caller knowing.
+	// Throwing rejects this candidate: the retry loop treats a context-resolution
+	// failure as "try the next provider/key".
+	const forwardedServiceTier = getForwardedServiceTier(
+		usedInternalModel,
+		usedProvider,
+		usedRegion,
+		options.service_tier,
+		configIndex,
+		envVariant,
+	);
+	assertServiceTierHonored({
+		clientRequestedServiceTier: options.clientRequestedServiceTier ?? null,
+		forwardedServiceTier,
+		provider: usedProvider,
+		model: usedInternalModel,
+		region: usedRegion,
+	});
 
 	const usedApiKeyHash = getApiKeyFingerprint(usedToken);
 
@@ -741,7 +879,7 @@ export async function resolveProviderContext(
 		options.prompt_cache_retention,
 		options.providerCacheControlEnabled,
 		options.n,
-		options.service_tier,
+		forwardedServiceTier,
 		options.verbosity,
 		options.prompt_cache_options,
 		options.session_id,

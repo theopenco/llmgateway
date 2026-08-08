@@ -1,4 +1,4 @@
-import { sql, tables } from "@llmgateway/db";
+import { and, eq, sql, tables } from "@llmgateway/db";
 
 // All plan/subscription transaction types (DevPass dev plans, legacy
 // subscriptions, Chat Plans). These are excluded from the credits-economy
@@ -76,6 +76,25 @@ export const CHAT_PLAN_TX_TYPES = [
 	"chat_plan_downgrade",
 	"chat_plan_renewal",
 ] as const;
+
+// Matches `credit_refund` rows that reverse a top-up the gross top-up sums
+// actually counted: a completed, positive-`amount` `credit_topup` booked on the
+// same organization as the refund. Every gross top-up figure filters on exactly
+// those three things, so matching refunds on the original's type alone lets a
+// refund be subtracted from a base it was never part of — which can push a
+// reported net below zero. Always pair this with the refund-side filters
+// (`type = 'credit_refund'`, `status = 'completed'`, the org scope).
+export function refundsCountedTopupFilter(
+	refund: typeof tables.transaction,
+	original: typeof tables.transaction,
+) {
+	return and(
+		eq(original.type, "credit_topup"),
+		eq(original.status, "completed"),
+		sql`CAST(${original.amount} AS NUMERIC) > 0`,
+		eq(original.organizationId, refund.organizationId),
+	)!;
+}
 
 // Keeps exactly one transaction per (stripe_invoice_id, organization_id): the
 // FIRST invoice of a subscription triggers BOTH `checkout.session.completed`

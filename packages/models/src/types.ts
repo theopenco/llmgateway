@@ -236,6 +236,22 @@ export type ToolChoiceType =
 			};
 	  };
 
+/**
+ * `tool_choice` as the OpenAI Responses API expects it. A named function
+ * choice is flat here, while Chat Completions nests the name under
+ * `function` — sending the nested form to a Responses upstream is rejected
+ * (Bedrock Mantle answers `Invalid 'tool_choice': value did not match any
+ * expected variant`).
+ */
+export type ResponsesToolChoice =
+	| "auto"
+	| "none"
+	| "required"
+	| {
+			type: "function";
+			name: string;
+	  };
+
 export type PromptCacheRetention = "in_memory" | "24h";
 
 /**
@@ -353,7 +369,7 @@ export interface OpenAIResponsesRequestBody {
 		description?: string;
 		parameters: FunctionParameter;
 	}>;
-	tool_choice?: ToolChoiceType;
+	tool_choice?: ResponsesToolChoice;
 	stream?: boolean;
 	temperature?: number;
 	max_output_tokens?: number;
@@ -453,6 +469,7 @@ export interface ModelWithPricing {
 		inputPrice?: string;
 		outputPrice?: string;
 		perSecondPrice?: Record<string, string>;
+		perImagePrice?: Record<string, string>;
 		supportedParameters?: string[];
 		externalId: string;
 		region?: string;

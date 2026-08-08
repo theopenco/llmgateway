@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
 	getOrganizationEnvVariant,
+	getProviderEnvExclusiveGroups,
+	getProviderEnvExclusiveViolations,
 	getProviderEnvValue,
 	getRegionSpecificEnvVarName,
 	getVariantEnvVarName,
@@ -203,5 +205,58 @@ describe("variant env var helpers", () => {
 			expect(getOrganizationEnvVariant(null)).toBeUndefined();
 			expect(getOrganizationEnvVariant(undefined)).toBeUndefined();
 		});
+	});
+});
+
+describe("exclusive provider env groups", () => {
+	it("declares Azure's resource and base URL as mutually exclusive", () => {
+		const groups = getProviderEnvExclusiveGroups("azure");
+
+		expect(groups).toHaveLength(1);
+		expect(groups[0].keys).toEqual(["resource", "baseUrl"]);
+	});
+
+	it("accepts exactly one member of the group", () => {
+		expect(
+			getProviderEnvExclusiveViolations("azure", { resource: "my-resource" }),
+		).toEqual([]);
+		expect(
+			getProviderEnvExclusiveViolations("azure", {
+				baseUrl: "https://azure.example.internal",
+			}),
+		).toEqual([]);
+	});
+
+	it("rejects supplying neither", () => {
+		const violations = getProviderEnvExclusiveViolations("azure", {
+			apiVersion: "2025-01-01",
+		});
+
+		expect(violations).toHaveLength(1);
+		expect(violations[0]).toContain("Set one of resource or baseUrl");
+	});
+
+	it("rejects supplying both", () => {
+		const violations = getProviderEnvExclusiveViolations("azure", {
+			resource: "my-resource",
+			baseUrl: "https://azure.example.internal",
+		});
+
+		expect(violations).toHaveLength(1);
+		expect(violations[0]).toBe(
+			"Set only one of resource or baseUrl — resource and baseUrl were both supplied.",
+		);
+	});
+
+	it("treats blank and missing config alike", () => {
+		expect(
+			getProviderEnvExclusiveViolations("azure", { resource: "   " }),
+		).toHaveLength(1);
+		expect(getProviderEnvExclusiveViolations("azure", null)).toHaveLength(1);
+	});
+
+	it("leaves providers without exclusive groups unconstrained", () => {
+		expect(getProviderEnvExclusiveGroups("openai")).toEqual([]);
+		expect(getProviderEnvExclusiveViolations("openai", {})).toEqual([]);
 	});
 });

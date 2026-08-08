@@ -1,0 +1,136 @@
+---
+title: Dynamic Routes
+description: Define named, versioned routing flows with conditions, percentage splits, and model targets, and invoke them via dynamic/<name> in the model field.
+icon: Workflow
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+# Dynamic Routes
+
+Dynamic routes let you move routing logic out of your application code and into the gateway. Instead of hardcoding a model, you define a named decision graph — conditions on the request, percentage-based traffic splits, and model targets — and invoke it by putting `dynamic/<name>` in the `model` field of any OpenAI-compatible request:
+
+```bash
+curl https://api.llmgateway.io/v1/chat/completions \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "x-user-tier: paid" \
+  -d '{
+    "model": "dynamic/support",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+The graph is evaluated on every request. Once it resolves to a model, the request flows through the same [smart routing](/features/routing) as any other request: weighted provider scoring, sticky sessions, and automatic cross-provider fallback all apply to the resolved target.
+
+<Callout>
+	Dynamic routes are available on the <b>Enterprise plan</b>. Manage them under{" "}
+	<b>Project Settings → Dynamic Routes</b> in the dashboard, either in a visual
+	drag-and-drop editor or as raw JSON.
+</Callout>
+
+## The route graph
+
+A route is a JSON document with an `entry` node id and a list of nodes. Evaluation starts at `entry` and follows branches until it reaches a `model` node (route the request) or an `end` node (reject the request with a `400`).
+
+```json
+{
+	"entry": "tier",
+	"nodes": [
+		{
+			"id": "tier",
+			"type": "conditional",
+			"conditions": [
+				{
+					"field": { "source": "header", "path": "x-user-tier" },
+					"op": "eq",
+					"value": "paid",
+					"next": "premium"
+				}
+			],
+			"else": "split"
+		},
+		{ "id": "premium", "type": "model", "model": "claude-sonnet-4-6" },
+		{
+			"id": "split",
+			"type": "percentage",
+			"splits": [
+				{ "weight": 80, "next": "stable" },
+				{ "weight": 20, "next": "experiment" }
+			]
+		},
+		{
+			"id": "stable",
+			"type": "model",
+			"model": "gpt-5-nano",
+			"providers": ["openai"]
+		},
+		{ "id": "experiment", "type": "model", "model": "gemini-2.5-flash" }
+	]
+}
+```
+
+Node ids may contain letters, digits, hyphens, and underscores.
+
+## Node types
+
+### `conditional`
+
+Evaluates its conditions top to bottom; the first match wins and the request follows that condition's `next`. When nothing matches, the request follows `else`.
+
+Each condition reads one field from the request:
+
+| `field.source` | What `field.path` means                                                           |
+| -------------- | --------------------------------------------------------------------------------- |
+| `header`       | A request header name (case-insensitive), e.g. `x-user-tier`                      |
+| `body`         | A dot-path into the JSON request body, e.g. `metadata.segment` or `max_tokens`    |
+| `metadata`     | A gateway-provided request attribute: `orgId`, `projectId`, `apiKeyId`, or `plan` |
+
+Supported operators:
+
+| Operator   | Matches when                                                              | Value type                |
+| ---------- | ------------------------------------------------------------------------- | ------------------------- |
+| `eq`       | The field equals the value (compared as strings)                          | string / number / boolean |
+| `neq`      | The field differs from the value — also matches when the field is missing | string / number / boolean |
+| `in`       | The field equals any entry in the value array                             | array of strings          |
+| `contains` | The field's string form contains the value                                | string                    |
+| `gt`, `lt` | The field is numerically greater / less than the value                    | number                    |
+| `exists`   | The field is present (no value)                                           | —                         |
+
+### `percentage`
+
+Splits traffic across branches by relative weight. The draw is **deterministic per session**: the split key is the request's session id (`x-session-id` and the other [sticky session routing](/features/routing#sticky-session-routing) signals), so a conversation keeps its assignment across requests instead of flip-flopping between experiment arms. Requests without a session id get an independent draw per request.
+
+Weights are relative — `{ 80, 20 }` and `{ 4, 1 }` produce the same split.
+
+### `model`
+
+Terminates evaluation and routes the request to a catalog model (see the [models page](https://llmgateway.io/models) for available ids). Optional `providers` restricts routing to those providers and doubles as the ordered fallback preference; when omitted, every provider serving the model is a candidate and weighted smart routing picks the best one.
+
+### `end`
+
+Terminates evaluation and rejects the request with a `400`. Useful as an explicit deny branch — for example, refusing traffic that doesn't carry a required header.
+
+## Validation
+
+Graphs are validated when you save a draft and again when you publish:
+
+- every referenced node must exist and be reachable from `entry`
+- cycles are rejected — evaluation is deterministic per request, so a revisited node would loop forever
+- model ids and provider ids must exist in the catalog, and each listed provider must actually serve the model
+- operator/value mismatches (e.g. `gt` with a non-numeric value) are rejected
+
+An invalid graph can never be saved or published, and publishing re-validates against the live model catalog so a stale draft can't resurrect a removed model.
+
+## Versions and rollback
+
+Edits always go to the route's **draft**. Publishing snapshots the draft as an immutable, numbered version and points the route at it; the published version is what serves traffic. Rolling back re-points the route at any previous version instantly — no data migration, no re-deploy.
+
+A route only serves requests when it is **enabled** and has a **published version**; otherwise requests using it are rejected with a `404`.
+
+## Observability
+
+Each request served through a dynamic route records the route name, published version, and the node path the evaluation took in its routing metadata, alongside the usual provider scoring details — visible in the activity log detail view.
+
+## Reliability
+
+Published routes are cached in the gateway and carry a stale fallback: when the database is temporarily unreachable, recently used routes keep resolving from cache, the same way API keys and project settings do.
