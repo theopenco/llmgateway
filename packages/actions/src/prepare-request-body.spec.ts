@@ -1108,7 +1108,9 @@ describe("prepareRequestBody - embercloud reasoning shape", () => {
 	// (reasoning.enabled + reasoning.effort) — the flat OpenAI-style
 	// `reasoning_effort` field is not documented and is silently ignored
 	// (https://embercloud.ai/docs/request-body).
-	async function prepare(effort: string) {
+	async function prepare(
+		effort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max",
+	) {
 		return (await prepareRequestBody(
 			"embercloud",
 			"glm-5.2",
