@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "b98c9c46-f197-4c80-b01a-930703c86c64",
+  "id": "78c3e058-57ba-4e12-9dbf-872794d0487b",
   "prevId": "2260b4f0-bcab-4e85-b8d9-4947afb92628",
   "ddl": [
     {
@@ -5341,6 +5341,38 @@
       "table": "global_model_stats"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'unknown'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "used_mode",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "global_model_stats"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'unknown'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "org_kind",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "global_model_stats"
+    },
+    {
       "type": "integer",
       "typeSchema": null,
       "notNull": true,
@@ -5864,102 +5896,6 @@
       "generated": null,
       "identity": null,
       "name": "cache_write_input_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "global_model_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "credits_request_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "global_model_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "api_keys_request_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "global_model_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "credits_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "global_model_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "api_keys_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "global_model_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "credits_data_storage_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "global_model_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "api_keys_data_storage_cost",
       "entityType": "columns",
       "schema": "public",
       "table": "global_model_stats"
@@ -6036,6 +5972,38 @@
       "table": "global_source_stats"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'unknown'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "used_mode",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "global_source_stats"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'unknown'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "org_kind",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "global_source_stats"
+    },
+    {
       "type": "integer",
       "typeSchema": null,
       "notNull": true,
@@ -6559,102 +6527,6 @@
       "generated": null,
       "identity": null,
       "name": "cache_write_input_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "global_source_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "credits_request_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "global_source_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "api_keys_request_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "global_source_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "credits_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "global_source_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "api_keys_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "global_source_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "credits_data_storage_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "global_source_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "api_keys_data_storage_cost",
       "entityType": "columns",
       "schema": "public",
       "table": "global_source_stats"
@@ -12840,19 +12712,6 @@
       "generated": null,
       "identity": null,
       "name": "plan_expires_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "plan_started_at",
       "entityType": "columns",
       "schema": "public",
       "table": "organization"
@@ -30691,10 +30550,12 @@
       "columns": [
         "day_timestamp",
         "used_model",
-        "used_provider"
+        "used_provider",
+        "used_mode",
+        "org_kind"
       ],
       "nullsNotDistinct": false,
-      "name": "global_model_stats_day_timestamp_used_model_used_provider_unique",
+      "name": "global_model_stats_day_timestamp_used_model_used_provider_used_mode_org_kind_unique",
       "entityType": "uniques",
       "schema": "public",
       "table": "global_model_stats"
@@ -30703,10 +30564,12 @@
       "nameExplicit": false,
       "columns": [
         "day_timestamp",
-        "source"
+        "source",
+        "used_mode",
+        "org_kind"
       ],
       "nullsNotDistinct": false,
-      "name": "global_source_stats_day_timestamp_source_unique",
+      "name": "global_source_stats_day_timestamp_source_used_mode_org_kind_unique",
       "entityType": "uniques",
       "schema": "public",
       "table": "global_source_stats"

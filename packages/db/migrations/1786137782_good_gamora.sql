@@ -1,1 +1,0 @@
-ALTER TABLE "organization" ADD COLUMN "plan_started_at" timestamp;
