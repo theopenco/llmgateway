@@ -1,5 +1,11 @@
 import type { ModelDefinition } from "@/models.js";
 
+// `reasoning_effort` is deliberately absent: xAI accepts it only on some
+// deployments (grok-4.3 and grok-4.5 do, grok-4 does not), and the gateway
+// forwards it verbatim, so a mapping that advertises it on a deployment that
+// rejects it turns working requests into upstream 400s. A mapping only leaves
+// this list once its deployment is verified live, and then it also declares
+// `reasoningEfforts` so clients can discover the tiers it accepts.
 const xaiSupportedParamsNoFreqPresence = [
 	"temperature",
 	"max_tokens",
@@ -250,15 +256,7 @@ export const xaiModels = [
 				reasoning: true,
 				tools: true,
 				jsonOutput: true,
-				supportedParameters: [
-					"temperature",
-					"max_tokens",
-					"top_p",
-					"response_format",
-					"tools",
-					"tool_choice",
-					"reasoning_effort",
-				],
+				supportedParameters: xaiSupportedParamsNoFreqPresence,
 			},
 		],
 	},
@@ -433,15 +431,7 @@ export const xaiModels = [
 				reasoningOutput: "omit",
 				tools: true,
 				jsonOutput: true,
-				supportedParameters: [
-					"temperature",
-					"max_tokens",
-					"top_p",
-					"response_format",
-					"tools",
-					"tool_choice",
-					"reasoning_effort",
-				],
+				supportedParameters: xaiSupportedParamsNoFreqPresence,
 			},
 		],
 	},
@@ -589,15 +579,7 @@ export const xaiModels = [
 				reasoning: true,
 				tools: true,
 				jsonOutput: true,
-				supportedParameters: [
-					"temperature",
-					"max_tokens",
-					"top_p",
-					"response_format",
-					"tools",
-					"tool_choice",
-					"reasoning_effort",
-				],
+				supportedParameters: xaiSupportedParamsNoFreqPresence,
 			},
 		],
 	},
@@ -665,15 +647,7 @@ export const xaiModels = [
 				reasoningOutput: "omit",
 				tools: true,
 				jsonOutput: true,
-				supportedParameters: [
-					"temperature",
-					"max_tokens",
-					"top_p",
-					"response_format",
-					"tools",
-					"tool_choice",
-					"reasoning_effort",
-				],
+				supportedParameters: xaiSupportedParamsNoFreqPresence,
 			},
 		],
 	},
@@ -793,6 +767,7 @@ export const xaiModels = [
 				streaming: true,
 				vision: false,
 				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high"],
 				reasoningOutput: "omit",
 				tools: true,
 				jsonOutput: false,
@@ -1014,15 +989,7 @@ export const xaiModels = [
 				tools: true,
 				jsonOutput: true,
 				reasoning: true,
-				supportedParameters: [
-					"temperature",
-					"max_tokens",
-					"top_p",
-					"response_format",
-					"tools",
-					"tool_choice",
-					"reasoning_effort",
-				],
+				supportedParameters: xaiSupportedParamsNoFreqPresence,
 			},
 		],
 	},

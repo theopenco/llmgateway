@@ -79,4 +79,25 @@ describe("model metadata", () => {
 
 		expect(offenders).toEqual([]);
 	});
+
+	// xAI accepts `reasoning_effort` on some deployments and rejects it on
+	// others, and the gateway forwards the value verbatim. A mapping that
+	// advertises the parameter has therefore been verified against its
+	// deployment, and that verification is what `reasoningEfforts` records —
+	// without it neither the gateway nor a client knows which tiers are safe.
+	it("declares reasoningEfforts for every xAI mapping that accepts reasoning_effort", () => {
+		const offenders = (models as readonly ModelDefinition[])
+			.filter((model) => model.family === "xai")
+			.flatMap((model) =>
+				(model.providers as readonly ProviderModelMapping[])
+					.filter(
+						(provider) =>
+							provider.supportedParameters?.includes("reasoning_effort") &&
+							!provider.reasoningEfforts?.length,
+					)
+					.map((provider) => `${provider.providerId}/${model.id}`),
+			);
+
+		expect(offenders).toEqual([]);
+	});
 });
