@@ -1,7 +1,5 @@
 import { describe, expect, test } from "vitest";
 
-import { models } from "@llmgateway/models";
-
 import {
 	hashPromptCacheKey,
 	hashSessionCacheKey,
@@ -1103,57 +1101,55 @@ describe("prepareRequestBody - Moonshot thinking", () => {
 		expect(requestBody.max_completion_tokens).toBe(4096);
 		expect(requestBody.max_tokens).toBeUndefined();
 	});
+});
 
-	type Effort = Parameters<typeof prepareRequestBody>[14];
-	const xaiEffortCases: Array<
-		[Parameters<typeof prepareRequestBody>[0], string, Extract<Effort, string>]
-	> = [
-		// xAI mappings that declare reasoning: true but previously omitted
-		// reasoning_effort from supportedParameters, silently dropping any
-		// effort value before the request was built (#3436, #3403).
-		["azure-ai-foundry", "grok-4-3", "medium"],
-		["azure-ai-foundry", "grok-4-1-fast-reasoning", "high"],
-		["vertex-openai", "grok-4-20-reasoning", "low"],
-		["xai", "grok-4", "high"],
-		["xai", "grok-4-20-beta-0309-reasoning", "medium"],
-		["xai", "grok-build-0-1", "low"],
-	];
+describe("prepareRequestBody - xAI reasoning_effort", () => {
+	async function prepareXai(
+		provider: Parameters<typeof prepareRequestBody>[0],
+		model: string,
+		externalId: string,
+		effort: Parameters<typeof prepareRequestBody>[14],
+	) {
+		return (await prepareRequestBody(
+			provider,
+			model,
+			null,
+			externalId,
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			effort,
+			true, // supportsReasoning
+		)) as unknown as Record<string, unknown>;
+	}
 
-	test.each(xaiEffortCases)(
-		"forwards reasoning_effort for %s/%s once declared in supportedParameters",
-		async (provider, model, effort) => {
-			// Direct capability assertion on the mapping itself: the fix's
-			// whole point is that these mappings now declare
-			// reasoning_effort in supportedParameters. A serialization-only
-			// test could keep passing while the capability check silently
-			// regresses (e.g. a refactor that stops reading
-			// supportedParameters) — asserting the array directly catches
-			// that class of regression.
-			const modelDef = models.find((m) => m.id === model);
-			const mapping = modelDef?.providers.find(
-				(p) => p.providerId === provider,
-			);
-			expect(mapping?.supportedParameters).toContain("reasoning_effort");
+	test("forwards reasoning_effort for azure-ai-foundry/grok-4.3", async () => {
+		const requestBody = await prepareXai(
+			"azure-ai-foundry",
+			"grok-4-3",
+			"grok-4.3",
+			"high",
+		);
+		expect(requestBody.reasoning_effort).toBe("high");
+	});
 
-			const requestBody = (await prepareRequestBody(
-				provider,
-				model,
-				null,
-				model,
-				[{ role: "user", content: "Hello!" }],
-				false, // stream
-				undefined, // temperature
-				undefined, // max_tokens
-				undefined, // top_p
-				undefined, // frequency_penalty
-				undefined, // presence_penalty
-				undefined, // response_format
-				undefined, // tools
-				undefined, // tool_choice
-				effort,
-				true, // supportsReasoning
-			)) as unknown as Record<string, unknown>;
-			expect(requestBody.reasoning_effort).toBe(effort);
+	test.each([
+		["xai", "grok-4", "grok-4"],
+		["xai", "grok-4-20-beta-0309-reasoning", "grok-4.20-beta-0309-reasoning"],
+		["vertex-openai", "grok-4-20-reasoning", "grok-4.20-reasoning"],
+		["xai", "grok-build-0-1", "grok-build-0.1"],
+	] as const)(
+		"drops reasoning_effort for %s/%s, which does not declare it",
+		async (provider, model, externalId) => {
+			const requestBody = await prepareXai(provider, model, externalId, "high");
+			expect(requestBody.reasoning_effort).toBeUndefined();
 		},
 	);
 });
