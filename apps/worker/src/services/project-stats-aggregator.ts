@@ -51,9 +51,11 @@ function getCurrentHourStart(): string {
 }
 
 /**
- * Common aggregation select fields for all stats tables
+ * Aggregation select fields shared by every stats table, excluding the
+ * denormalized per-mode pairs. The global stats tables key on `used_mode`
+ * directly (see globalModelStats) and so only need these.
  */
-export function getCommonAggregationFields() {
+export function getBaseAggregationFields() {
 	return {
 		requestCount: sql<number>`count(*)::int`.as("requestCount"),
 		errorCount:
@@ -180,6 +182,16 @@ export function getCommonAggregationFields() {
 			sql<number>`coalesce(sum(${log.cacheWriteInputCost}), 0)`.as(
 				"cacheWriteInputCost",
 			),
+	};
+}
+
+/**
+ * Common aggregation select fields for the project/api-key hourly stats
+ * tables, which carry the credits/BYOK split as denormalized column pairs.
+ */
+export function getCommonAggregationFields() {
+	return {
+		...getBaseAggregationFields(),
 		// Per-mode breakdowns
 		creditsRequestCount:
 			sql<number>`sum(case when ${log.usedMode} = 'credits' then 1 else 0 end)::int`.as(
