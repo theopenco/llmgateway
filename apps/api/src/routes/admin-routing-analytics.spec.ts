@@ -62,11 +62,13 @@ describe("admin routing analytics endpoint", () => {
 		} else {
 			process.env.ADMIN_EMAILS = originalAdminEmails;
 		}
-		// Neither table hangs off a cascade root that deleteAll() clears, so the
-		// fixtures inserted here have to be removed explicitly or the next run
+		// None of these tables hang off a cascade root that deleteAll() clears, so
+		// the fixtures inserted here have to be removed explicitly or the next run
 		// collides on their fixed ids. Discounts go through the cached client so
 		// the cached lookup is dropped with them.
 		await db.delete(tables.modelProviderMappingHistoryHourly);
+		await db.delete(tables.routingElectionHourly);
+		await db.delete(tables.routingExclusionHourly);
 		await cdb.delete(tables.discount);
 		await deleteAll();
 	});
@@ -177,6 +179,204 @@ describe("admin routing analytics endpoint", () => {
 		);
 		expect(summaryA.requestCount).toBe(10);
 		expect(summaryA.uptime).toBe(80);
+	});
+
+	it("reports election paths, eligibility and service-tier coverage", async () => {
+		const hour = currentHourStart();
+		await db.insert(tables.modelProviderMappingHistoryHourly).values([
+			{
+				id: "routing-telemetry-a",
+				modelId: testModel.id,
+				providerId: providerA,
+				modelProviderMappingId: `${testModel.id}-${providerA}`,
+				hourTimestamp: hour,
+				logsCount: 10,
+				serviceTierExplicitCount: 2,
+				serviceTierImplicitCount: 6,
+				serviceTierServedCount: 5,
+				serviceTierUnconfirmedCount: 3,
+			},
+		]);
+		await db.insert(tables.routingElectionHourly).values([
+			{
+				id: "routing-election-scored",
+				hourTimestamp: hour,
+				modelId: testModel.id,
+				providerId: providerA,
+				selectionReason: "weighted-score",
+				requestCount: 2,
+				candidateCount: 6,
+			},
+			{
+				id: "routing-election-pinned",
+				hourTimestamp: hour,
+				modelId: testModel.id,
+				providerId: providerA,
+				selectionReason: "direct-provider-specified",
+				requestCount: 8,
+				candidateCount: 8,
+			},
+		]);
+		await db.insert(tables.routingExclusionHourly).values([
+			{
+				id: "routing-exclusion-tier",
+				hourTimestamp: hour,
+				modelId: testModel.id,
+				providerId: providerB,
+				reason: "service_tier",
+				excludedCount: 6,
+				candidateCount: 10,
+				excludedDecisionCount: 7,
+			},
+			{
+				id: "routing-exclusion-vision",
+				hourTimestamp: hour,
+				modelId: testModel.id,
+				providerId: providerB,
+				reason: "vision",
+				excludedCount: 1,
+				candidateCount: 10,
+				excludedDecisionCount: 7,
+			},
+		]);
+
+		const res = await get(`?modelId=${testModel.id}&window=24h`, cookie);
+		expect(res.status).toBe(200);
+		const body = await res.json();
+
+		expect(body.elections.requestCount).toBe(10);
+		expect(body.elections.scoredCount).toBe(2);
+		// (6 + 8) candidates over 10 requests
+		expect(body.elections.averageCandidateCount).toBe(1.4);
+		expect(body.elections.byKind).toEqual([
+			{ kind: "pinned", requestCount: 8 },
+			{ kind: "scored", requestCount: 2 },
+		]);
+
+		const telemetryHour = body.hourly.find(
+			(h: { hour: string }) => h.hour === hour.toISOString(),
+		);
+		expect(telemetryHour.elections).toEqual([
+			{ kind: "pinned", requestCount: 8 },
+			{ kind: "scored", requestCount: 2 },
+		]);
+
+		const eligibilityB = body.eligibility.find(
+			(e: { providerId: string }) => e.providerId === providerB,
+		);
+		// 7 of the 10 decisions dropped the mapping, across 2 reasons
+		expect(eligibilityB.excludedCount).toBe(7);
+		expect(eligibilityB.candidateCount).toBe(10);
+		expect(eligibilityB.exclusionRate).toBe(0.7);
+		expect(eligibilityB.topReason).toBe("service_tier");
+
+		// A mapping with no exclusion rows reports no rate rather than 0%. The
+		// table only carries rows for mappings that were excluded at least once,
+		// so this covers both "always eligible" and "no telemetry".
+		const eligibilityA = body.eligibility.find(
+			(e: { providerId: string }) => e.providerId === providerA,
+		);
+		expect(eligibilityA.exclusionRate).toBeNull();
+		expect(eligibilityA.serviceTier).toEqual({
+			requestCount: 10,
+			explicit: 2,
+			implicit: 6,
+			served: 5,
+			unconfirmed: 3,
+		});
+
+		expect(body.exclusions).toEqual([
+			{ reason: "service_tier", excludedCount: 6 },
+			{ reason: "vision", excludedCount: 1 },
+		]);
+		expect(body.serviceTier).toEqual({
+			requestCount: 10,
+			explicit: 2,
+			implicit: 6,
+			served: 5,
+			unconfirmed: 3,
+		});
+	});
+
+	it("rates eligibility per decision, not per exclusion reason", async () => {
+		const hour = currentHourStart();
+		// The mapping was a candidate in 10 decisions and dropped in 5 of them,
+		// each time for two reasons at once. Summing the reasons gives 10 and
+		// would report the mapping as never once eligible; it served 5 requests.
+		await db.insert(tables.routingExclusionHourly).values([
+			{
+				id: "routing-exclusion-multi-a",
+				hourTimestamp: hour,
+				modelId: testModel.id,
+				providerId: providerB,
+				reason: "service_tier",
+				excludedCount: 5,
+				candidateCount: 10,
+				excludedDecisionCount: 5,
+			},
+			{
+				id: "routing-exclusion-multi-b",
+				hourTimestamp: hour,
+				modelId: testModel.id,
+				providerId: providerB,
+				reason: "vision",
+				excludedCount: 5,
+				candidateCount: 10,
+				excludedDecisionCount: 5,
+			},
+		]);
+
+		const res = await get(`?modelId=${testModel.id}&window=24h`, cookie);
+		const body = await res.json();
+		const eligibilityB = body.eligibility.find(
+			(e: { providerId: string }) => e.providerId === providerB,
+		);
+		expect(eligibilityB.excludedCount).toBe(5);
+		expect(eligibilityB.candidateCount).toBe(10);
+		expect(eligibilityB.exclusionRate).toBe(0.5);
+		// The per-reason breakdown still reports both, and still sums past the
+		// decision count — that is the point of keeping the two separate.
+		expect(eligibilityB.exclusions).toEqual([
+			{ reason: "service_tier", excludedCount: 5 },
+			{ reason: "vision", excludedCount: 5 },
+		]);
+	});
+
+	it("takes the largest candidate count when a bucket disagrees", async () => {
+		const hour = currentHourStart();
+		// A partially rerun aggregation can leave two reason rows of one
+		// mapping-hour carrying different denominators. The query has no ORDER BY,
+		// so reading whichever arrives first is non-deterministic.
+		await db.insert(tables.routingExclusionHourly).values([
+			{
+				id: "routing-exclusion-stale",
+				hourTimestamp: hour,
+				modelId: testModel.id,
+				providerId: providerB,
+				reason: "service_tier",
+				excludedCount: 2,
+				candidateCount: 4,
+				excludedDecisionCount: 2,
+			},
+			{
+				id: "routing-exclusion-fresh",
+				hourTimestamp: hour,
+				modelId: testModel.id,
+				providerId: providerB,
+				reason: "vision",
+				excludedCount: 1,
+				candidateCount: 8,
+				excludedDecisionCount: 3,
+			},
+		]);
+
+		const res = await get(`?modelId=${testModel.id}&window=24h`, cookie);
+		const body = await res.json();
+		const eligibilityB = body.eligibility.find(
+			(e: { providerId: string }) => e.providerId === providerB,
+		);
+		expect(eligibilityB.candidateCount).toBe(8);
+		expect(eligibilityB.excludedCount).toBe(3);
 	});
 
 	it("scores the discounted selection price", async () => {

@@ -649,11 +649,13 @@ export async function processAutoTopUp(): Promise<void> {
 						off_session: true,
 						metadata: {
 							organizationId: org.id,
+							type: "credit_topup",
 							autoTopUp: "true",
 							transactionId: pendingTransaction.id,
 							baseAmount: feeBreakdown.baseAmount.toString(),
 							platformFee: feeBreakdown.platformFee.toString(),
 							internationalFee: feeBreakdown.internationalFee.toString(),
+							totalAmount: feeBreakdown.totalAmount.toString(),
 							isInternational: isInternational.toString(),
 							...(orgUser?.user?.email && { userEmail: orgUser.user.email }),
 						},
