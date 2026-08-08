@@ -2725,10 +2725,19 @@ chat.openapi(completions, async (c) => {
 	// Get image size limits from environment variables or use defaults
 	const freeLimitMB = Number(process.env.IMAGE_SIZE_LIMIT_FREE_MB) || 50;
 	const proLimitMB = Number(process.env.IMAGE_SIZE_LIMIT_PRO_MB) || 100;
+	const enterpriseLimitMB =
+		Number(process.env.IMAGE_SIZE_LIMIT_ENTERPRISE_MB) || proLimitMB;
 
-	// Determine max image size based on plan
+	// Determine max image size based on plan. Enterprise is never capped below
+	// Pro — bucketing it with free rejected enterprise uploads at the free limit
+	// and then told them to contact us about raising their Enterprise limits.
 	const userPlan = organization?.plan ?? "free";
-	const maxImageSizeMB = userPlan === "pro" ? proLimitMB : freeLimitMB;
+	const maxImageSizeMB =
+		userPlan === "enterprise"
+			? enterpriseLimitMB
+			: userPlan === "pro"
+				? proLimitMB
+				: freeLimitMB;
 
 	// Validate IAM rules for model access
 	// Pass modelInfo (with deactivated providers already filtered) so IAM validation
