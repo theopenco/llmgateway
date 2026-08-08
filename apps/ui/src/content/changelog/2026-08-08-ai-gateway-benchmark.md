@@ -60,17 +60,17 @@ The benchmark is open source and vendor-neutral. The harness, the scoring weight
 
 ```bash
 git clone https://github.com/computesdk/benchmarks
-cd benchmarks && git checkout 7548e7584940 && npm install
+cd benchmarks && git checkout 7548e7584940 && pnpm install
 
 export LLMGATEWAY_API_KEY=...   # from your dashboard
 export ANTHROPIC_API_KEY=...    # the no-gateway control
 
-npm run bench:ai-gateway -- --iterations 20
+pnpm bench:ai-gateway --iterations 20
 ```
 
 `7548e7584940` is the commit holding the August 7 results. `--iterations 20` matches that run's 20 cold and 20 warm probes per gateway — the default is 10. Any gateway whose API key isn't set is skipped, so the command above measures us against the direct-to-Anthropic control; add the other gateways' keys to reproduce the full leaderboard.
 
-Results land in `results/ai-gateway/`, and the composite weighting is in `src/ai-gateway/scoring.ts`. Our participation was added in [computesdk/benchmarks#215](https://github.com/computesdk/benchmarks/pull/215).
+Results land in `results/ai-gateway/`, and the composite weighting is in `benchmarks/ai-gateway/scoring.ts`. Our participation was added in [computesdk/benchmarks#215](https://github.com/computesdk/benchmarks/pull/215).
 
 ---
 
