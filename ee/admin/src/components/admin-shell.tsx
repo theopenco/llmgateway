@@ -9,6 +9,7 @@ import {
 	Cpu,
 	Gauge,
 	GitMerge,
+	KeyRound,
 	LayoutDashboard,
 	LogOut,
 	Mail,
@@ -16,6 +17,7 @@ import {
 	MessageCircle,
 	MessageSquare,
 	Percent,
+	Route,
 	Server,
 	Sparkles,
 } from "lucide-react";
@@ -95,8 +97,10 @@ export function AdminShell({ children }: AdminShellProps) {
 	const isDiscounts = pathname === "/discounts";
 	const isRateLimits = pathname === "/rate-limits";
 	const isProviders = pathname === "/providers";
+	const isProviderCredentials = pathname.startsWith("/provider-credentials");
 	const isModels = pathname === "/models";
 	const isModelProviderMappings = pathname === "/model-provider-mappings";
+	const isRoutingAnalytics = pathname.startsWith("/routing-analytics");
 	const isUnstableMappings = pathname.startsWith("/unstable-mappings");
 	const isContactSubmissions = pathname.startsWith("/contact-submissions");
 	const isProviderListingRequests = pathname.startsWith(
@@ -206,6 +210,14 @@ export function AdminShell({ children }: AdminShellProps) {
 								</Link>
 							</SidebarMenuItem>
 							<SidebarMenuItem>
+								<Link href="/provider-credentials" className="block">
+									<SidebarMenuButton isActive={isProviderCredentials} size="lg">
+										<KeyRound className="h-4 w-4" />
+										<span>Provider Credentials</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
 								<Link href="/models" className="block">
 									<SidebarMenuButton isActive={isModels} size="lg">
 										<Cpu className="h-4 w-4" />
@@ -221,6 +233,14 @@ export function AdminShell({ children }: AdminShellProps) {
 									>
 										<GitMerge className="h-4 w-4" />
 										<span>Model Mappings</span>
+									</SidebarMenuButton>
+								</Link>
+							</SidebarMenuItem>
+							<SidebarMenuItem>
+								<Link href="/routing-analytics" className="block">
+									<SidebarMenuButton isActive={isRoutingAnalytics} size="lg">
+										<Route className="h-4 w-4" />
+										<span>Routing Analytics</span>
 									</SidebarMenuButton>
 								</Link>
 							</SidebarMenuItem>

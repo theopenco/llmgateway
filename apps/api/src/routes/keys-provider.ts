@@ -1,22 +1,46 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { maskToken } from "@/lib/maskToken.js";
+import { assertOrganizationProviderKey } from "@/lib/organization-provider-key.js";
+import {
+	allowedModelsSchema,
+	normalizeAllowedModels,
+	pickAllowedValidationModel,
+	validateAllowedModels,
+} from "@/lib/provider-key-allowed-models.js";
+import { createNullableLimitSchema } from "@/routes/keys-api.js";
 import {
 	getActiveUserOrganizationIds,
 	getAdminOrganizationIds,
 } from "@/utils/authorization.js";
 
-import { validateProviderKey } from "@llmgateway/actions";
+import {
+	encryptProviderKey,
+	redactToken,
+	validateProviderKey,
+} from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
-import { cdb, db, eq, tables } from "@llmgateway/db";
+import {
+	and,
+	cdb,
+	db,
+	eq,
+	inArray,
+	ne,
+	shortid,
+	sql,
+	tables,
+} from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { isStealthProvider, providers } from "@llmgateway/models";
 import {
 	CUSTOM_PROVIDER_NAME_MESSAGE,
 	CUSTOM_PROVIDER_NAME_REGEX,
 } from "@llmgateway/shared";
+import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
+import { maskToken } from "@llmgateway/shared/mask-token";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import type { ServerTypes } from "@/vars.js";
@@ -104,18 +128,76 @@ export const providerKeySchema = z.object({
 	organizationId: z.string(),
 });
 
-// Provider keys are only ever returned with a masked token, never the plaintext.
-export const providerKeyResponseSchema = providerKeySchema
-	.omit({ token: true })
-	.extend({
-		maskedToken: z.string(),
-	});
+// Public response shape for provider key endpoints. Listed explicitly
+// (not via .omit) so that any future secret-bearing column added to
+// the provider_key table does not leak by default. Shared with the
+// master-key custom-provider API, which serves the same rows.
+export const providerKeyPublicSchema = z.object({
+	id: z.string(),
+	createdAt: z.date(),
+	updatedAt: z.date(),
+	provider: z.string(),
+	name: z.string().nullable(),
+	baseUrl: z.string().nullable(),
+	options: providerKeySchema.shape.options,
+	status: providerKeySchema.shape.status,
+	customModelsOnly: providerKeySchema.shape.customModelsOnly,
+	complianceAttestation: providerKeySchema.shape.complianceAttestation,
+	organizationId: z.string(),
+	/** USD spend cap; the key auto-deactivates when usage reaches it. */
+	usageLimit: z.string().nullable(),
+	/** Cumulative upstream spend (USD) attributed by the billing worker. */
+	usage: z.string(),
+	maskedToken: z.string(),
+	/**
+	 * Canonical model ids this key may serve; routing skips it for any other
+	 * model and (in hybrid mode) falls back to credits instead. Null means the
+	 * key serves the provider's full catalogue.
+	 */
+	allowedModels: z.array(z.string()).nullable(),
+});
 
-export function serializeProviderKey<T extends { token: string }>(
-	providerKey: T,
-) {
-	const { token, ...rest } = providerKey;
-	return { ...rest, maskedToken: maskToken(token) };
+type ProviderKeyRow = typeof tables.providerKey.$inferSelect;
+
+// Every row served by these routes is organization-owned: they all query by
+// organizationId. Platform-managed credentials (organizationId NULL) are
+// administered from the admin dashboard and never surface here.
+export function toPublicProviderKey(row: ProviderKeyRow) {
+	assertOrganizationProviderKey(row);
+	return {
+		id: row.id,
+		createdAt: row.createdAt,
+		updatedAt: row.updatedAt,
+		provider: row.provider,
+		name: row.name,
+		baseUrl: row.baseUrl,
+		options: row.options,
+		status: row.status,
+		customModelsOnly: row.customModelsOnly,
+		// The organization's own compliance attestation for its custom provider,
+		// shown back in the dashboard. Not secret-bearing.
+		complianceAttestation: row.complianceAttestation,
+		organizationId: row.organizationId,
+		usageLimit: row.usageLimit,
+		usage: row.usage,
+		maskedToken: row.tokenMasked ?? maskToken(row.token ?? ""),
+		allowedModels: row.allowedModels,
+	};
+}
+
+/**
+ * A custom provider serves models that exist only in the organization's own
+ * catalogue, so there is nothing for a canonical-model-id restriction to match
+ * against. Restricting which of a custom provider's models are served is what
+ * `customModelsOnly` plus the org's model list already does.
+ */
+function assertAllowedModelsSupported(provider: string) {
+	if (provider === "custom") {
+		throw new HTTPException(400, {
+			message:
+				"allowedModels cannot be set on custom provider keys. Manage a custom provider's models from its model list instead.",
+		});
+	}
 }
 
 // The custom provider name is the routing segment used in `custom/<name>/<model>`
@@ -255,12 +337,21 @@ const createProviderKeySchema = z.object({
 		})
 		.optional(),
 	organizationId: z.string().min(1, "Organization ID is required"),
+	// Optional USD spend cap; the key auto-deactivates when its cumulative
+	// attributed spend reaches it.
+	usageLimit: createNullableLimitSchema("Usage limit").optional(),
+	// Optional allowlist of canonical model ids this key may serve. Empty/null
+	// means the provider's full catalogue.
+	allowedModels: allowedModelsSchema,
 });
 
 // Schema for updating a provider key status / settings
 const updateProviderKeyStatusSchema = z
 	.object({
 		status: z.enum(["active", "inactive"]).optional(),
+		// Canonical model ids this key may serve; `null` (or an empty list)
+		// removes the restriction.
+		allowedModels: allowedModelsSchema,
 		// Custom providers only: renames the provider, which changes the model
 		// prefix used in requests (e.g. "myprovider/some-model").
 		name: customProviderNameSchema.optional(),
@@ -269,13 +360,17 @@ const updateProviderKeyStatusSchema = z
 		// Custom providers only: self-attested compliance posture. `null` clears
 		// the attestation (restoring the fail-closed blocked state).
 		complianceAttestation: complianceAttestationSchema.nullable().optional(),
+		// USD spend cap; `null` clears it.
+		usageLimit: createNullableLimitSchema("Usage limit").optional(),
 	})
 	.refine(
 		(v) =>
 			v.status !== undefined ||
 			v.name !== undefined ||
 			v.customModelsOnly !== undefined ||
-			v.complianceAttestation !== undefined,
+			v.complianceAttestation !== undefined ||
+			v.usageLimit !== undefined ||
+			v.allowedModels !== undefined,
 		{
 			message: "No updatable fields provided",
 		},
@@ -299,7 +394,7 @@ const create = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
-						providerKey: providerKeyResponseSchema.openapi({}),
+						providerKey: providerKeyPublicSchema.openapi({}),
 					}),
 				},
 			},
@@ -323,7 +418,11 @@ keysProvider.openapi(create, async (c) => {
 		baseUrl,
 		options,
 		organizationId,
+		usageLimit,
+		allowedModels: requestedAllowedModels,
 	} = c.req.valid("json");
+
+	const allowedModels = normalizeAllowedModels(requestedAllowedModels);
 
 	// Verify the user has access to this organization
 	const userOrgs = await db.query.userOrganization.findMany({
@@ -387,6 +486,24 @@ keysProvider.openapi(create, async (c) => {
 		await assertCustomProviderNameAvailable(organizationId, name);
 	}
 
+	if (allowedModels) {
+		assertAllowedModelsSupported(provider);
+		validateAllowedModels(provider, allowedModels, options);
+	}
+
+	// A restricted key is probed with one of its own allowed models instead of
+	// the provider's default validation model: users restrict a key precisely
+	// because the upstream account only has some models, so probing the default
+	// would reject exactly the keys the restriction exists for. When no allowed
+	// model can answer a chat completion (image/embedding-only lists) there is
+	// nothing to probe with, so the live check is skipped.
+	const pinnedValidationModel = pickAllowedValidationModel(
+		provider,
+		allowedModels,
+		options,
+	);
+	const skipLiveValidation = !!allowedModels && !pinnedValidationModel;
+
 	let validationResult;
 	try {
 		const isTestEnv =
@@ -397,7 +514,7 @@ keysProvider.openapi(create, async (c) => {
 		}
 
 		// Skip validation for custom providers as they don't have predefined models
-		if (provider === "custom") {
+		if (provider === "custom" || skipLiveValidation) {
 			validationResult = { valid: true };
 		} else {
 			validationResult = await validateProviderKey(
@@ -406,18 +523,26 @@ keysProvider.openapi(create, async (c) => {
 				baseUrl,
 				isTestEnv,
 				options,
+				pinnedValidationModel,
 			);
 		}
 	} catch (error) {
 		throw new HTTPException(500, {
-			message:
+			message: redactToken(
 				error instanceof Error ? error.message : "Failed to validate API key",
-			cause: error,
+				userToken,
+			),
 		});
 	}
 
 	if (validationResult.error) {
-		const errorMessage = validationResult.error ?? "Upstream server error";
+		// validateProviderKey already redacts but belt-and-suspenders: any
+		// future code path that populates validationResult.error must not be
+		// allowed to leak the plaintext token via logs or the 400 response body.
+		const errorMessage = redactToken(
+			validationResult.error ?? "Upstream server error",
+			userToken,
+		);
 		logger.warn("Provider key validation failed", {
 			provider,
 			model: validationResult.model ?? "unknown",
@@ -452,17 +577,32 @@ keysProvider.openapi(create, async (c) => {
 		});
 	}
 
-	// Use the user-provided token
-	// Create the provider key
+	// Encrypt the user-provided token at rest. Generate the id in application
+	// code so the AAD (which binds ciphertext to the row id + organization id)
+	// can be computed before the INSERT, keeping the write a single statement.
+	const providerKeyId = shortid();
+	const tokenCiphertext = encryptProviderKey(
+		userToken,
+		providerKeyId,
+		organizationId,
+	);
+	const tokenMasked = maskToken(userToken);
+
 	const [providerKey] = await cdb
 		.insert(tables.providerKey)
 		.values({
-			token: userToken,
+			id: providerKeyId,
+			token: null,
+			tokenCiphertext,
+			tokenMasked,
+			tokenHash: getApiKeyFingerprint(userToken),
 			organizationId,
 			provider,
 			name,
 			baseUrl,
 			options,
+			usageLimit: usageLimit ?? null,
+			allowedModels,
 		})
 		.returning();
 
@@ -475,10 +615,13 @@ keysProvider.openapi(create, async (c) => {
 		metadata: {
 			provider,
 			hasCustomBaseUrl: !!baseUrl,
+			allowedModels,
 		},
 	});
 
-	return c.json({ providerKey: serializeProviderKey(providerKey) });
+	return c.json({
+		providerKey: toPublicProviderKey(providerKey),
+	});
 });
 
 // List all provider keys
@@ -491,7 +634,7 @@ const list = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
-						providerKeys: z.array(providerKeyResponseSchema).openapi({}),
+						providerKeys: z.array(providerKeyPublicSchema).openapi({}),
 					}),
 				},
 			},
@@ -517,16 +660,26 @@ keysProvider.openapi(list, async (c) => {
 		return c.json({ providerKeys: [] });
 	}
 
-	// Get all provider keys for these organizations
+	// Get all provider keys for these organizations, in the order the gateway
+	// will try them: manual position first (NULLs last, so unpositioned keys
+	// keep their historical age order), then createdAt/id.
 	const providerKeys = await db.query.providerKey.findMany({
 		where: {
 			organizationId: {
 				in: organizationIds,
 			},
 		},
+		orderBy: {
+			provider: "asc",
+			sortOrder: "asc",
+			createdAt: "asc",
+			id: "asc",
+		},
 	});
 
-	return c.json({ providerKeys: providerKeys.map(serializeProviderKey) });
+	return c.json({
+		providerKeys: providerKeys.map(toPublicProviderKey),
+	});
 });
 
 // List provider keys with minimal fields (provider + status only)
@@ -662,6 +815,8 @@ keysProvider.openapi(deleteKey, async (c) => {
 		});
 	}
 
+	assertOrganizationProviderKey(providerKey);
+
 	await cdb
 		.update(tables.providerKey)
 		.set({
@@ -707,7 +862,7 @@ const updateStatus = createRoute({
 				"application/json": {
 					schema: z.object({
 						message: z.string(),
-						providerKey: providerKeyResponseSchema.openapi({}),
+						providerKey: providerKeyPublicSchema.openapi({}),
 					}),
 				},
 			},
@@ -745,8 +900,14 @@ keysProvider.openapi(updateStatus, async (c) => {
 	}
 
 	const { id } = c.req.param();
-	const { status, name, customModelsOnly, complianceAttestation } =
-		c.req.valid("json");
+	const {
+		status,
+		name,
+		customModelsOnly,
+		complianceAttestation,
+		usageLimit,
+		allowedModels: requestedAllowedModels,
+	} = c.req.valid("json");
 
 	// Get all active organization IDs the user has access to
 	const organizationIds = await getAdminOrganizationIds(user.id);
@@ -771,6 +932,8 @@ keysProvider.openapi(updateStatus, async (c) => {
 			message: "Provider key not found",
 		});
 	}
+
+	assertOrganizationProviderKey(providerKey);
 
 	if (name !== undefined) {
 		if (providerKey.provider !== "custom") {
@@ -798,6 +961,24 @@ keysProvider.openapi(updateStatus, async (c) => {
 		}
 	}
 
+	// Only the catalogue is checked here, not the key upstream: a PATCH cannot
+	// change the token, and narrowing which models a key serves never makes an
+	// already-working key fail. Blocking the edit on a live probe would also
+	// stand in the way of the case the restriction exists for — a key whose
+	// account lost access to some models, which the user is fixing right now.
+	const allowedModels =
+		requestedAllowedModels === undefined
+			? undefined
+			: normalizeAllowedModels(requestedAllowedModels);
+	if (allowedModels) {
+		assertAllowedModelsSupported(providerKey.provider);
+		validateAllowedModels(
+			providerKey.provider,
+			allowedModels,
+			providerKey.options ?? undefined,
+		);
+	}
+
 	if (complianceAttestation !== undefined) {
 		if (providerKey.provider !== "custom") {
 			throw new HTTPException(400, {
@@ -812,14 +993,39 @@ keysProvider.openapi(updateStatus, async (c) => {
 		}
 	}
 
+	// Re-enabling an over-limit key without raising or clearing the limit would
+	// just get it re-deactivated by the worker on its next attributed batch —
+	// reject it so the user sees why instead of watching it flip back.
+	if (status === "active") {
+		const effectiveLimit =
+			usageLimit !== undefined ? usageLimit : providerKey.usageLimit;
+		if (
+			effectiveLimit !== null &&
+			new Decimal(providerKey.usage).greaterThanOrEqualTo(effectiveLimit)
+		) {
+			throw new HTTPException(400, {
+				message:
+					"This provider key has reached its spend limit. Raise or clear the limit to re-enable it.",
+			});
+		}
+	}
+
 	const updates: {
 		status?: "active" | "inactive";
 		name?: string;
 		customModelsOnly?: boolean;
 		complianceAttestation?: ProviderKeyComplianceAttestation | null;
+		usageLimit?: string | null;
+		allowedModels?: string[] | null;
 	} = {};
 	if (status !== undefined) {
 		updates.status = status;
+	}
+	if (allowedModels !== undefined) {
+		updates.allowedModels = allowedModels;
+	}
+	if (usageLimit !== undefined) {
+		updates.usageLimit = usageLimit;
 	}
 	if (name !== undefined) {
 		updates.name = name;
@@ -863,6 +1069,19 @@ keysProvider.openapi(updateStatus, async (c) => {
 			new: updates.complianceAttestation ?? null,
 		};
 	}
+	if (usageLimit !== undefined && providerKey.usageLimit !== usageLimit) {
+		changes.usageLimit = { old: providerKey.usageLimit, new: usageLimit };
+	}
+	if (
+		allowedModels !== undefined &&
+		(providerKey.allowedModels ?? []).join(",") !==
+			(allowedModels ?? []).join(",")
+	) {
+		changes.allowedModels = {
+			old: providerKey.allowedModels,
+			new: allowedModels,
+		};
+	}
 
 	if (Object.keys(changes).length > 0) {
 		await logAuditEvent({
@@ -880,7 +1099,194 @@ keysProvider.openapi(updateStatus, async (c) => {
 
 	return c.json({
 		message: "Provider key updated",
-		providerKey: serializeProviderKey(updatedProviderKey),
+		providerKey: toPublicProviderKey(updatedProviderKey),
+	});
+});
+
+const reorderSchema = z.object({
+	organizationId: z.string(),
+	provider: z.string(),
+	/**
+	 * Complete ordered list of the scope's non-deleted provider-key ids, primary
+	 * first. Must match the scope's current membership exactly: a mismatch means
+	 * the client's list is stale (a key was added or removed while dragging), and
+	 * silently reshuffling around it would demote a key nobody chose to demote.
+	 */
+	providerKeyIds: z.array(z.string()).min(1).max(100),
+});
+
+const reorder = createRoute({
+	method: "put",
+	path: "/provider/order",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: reorderSchema,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						providerKeys: z.array(providerKeyPublicSchema).openapi({}),
+					}),
+				},
+			},
+			description: "Provider keys reordered.",
+		},
+		400: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "Duplicate ids.",
+		},
+		401: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "Unauthorized.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "Provider key not found.",
+		},
+		409: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: "The submitted order is out of date.",
+		},
+	},
+});
+
+/**
+ * Sets the order the gateway tries an organization's keys for one provider.
+ *
+ * The gateway treats the first key as primary and only moves off it when that
+ * key is excluded, unhealthy, or materially worse on uptime, so this is how an
+ * operator promotes a key.
+ *
+ * Note for `custom`: `unique(organizationId, name)` means each custom provider
+ * has exactly one key, so ordering there only affects how the dashboard lists
+ * them — it cannot change which key serves a request.
+ */
+keysProvider.openapi(reorder, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { organizationId, provider, providerKeyIds } = c.req.valid("json");
+
+	if (new Set(providerKeyIds).size !== providerKeyIds.length) {
+		throw new HTTPException(400, {
+			message: "providerKeyIds contains duplicate ids",
+		});
+	}
+
+	const organizationIds = await getAdminOrganizationIds(user.id);
+	if (!organizationIds.includes(organizationId)) {
+		// Same message as an unknown key: a non-member must not be able to tell
+		// "this organization exists" from "it does not".
+		throw new HTTPException(404, { message: "Provider key not found" });
+	}
+
+	// Authoritative membership, read uncached: a cached set could omit a key
+	// added moments ago and turn a valid request into a spurious 409.
+	const scopeKeys = await db.query.providerKey.findMany({
+		where: {
+			organizationId: { eq: organizationId },
+			provider: { eq: provider },
+			managed: { eq: false },
+			status: { ne: "deleted" },
+		},
+		columns: { id: true, sortOrder: true, createdAt: true },
+	});
+
+	const scopeIds = new Set(scopeKeys.map((key) => key.id));
+	if (providerKeyIds.some((id) => !scopeIds.has(id))) {
+		throw new HTTPException(404, { message: "Provider key not found" });
+	}
+	if (providerKeyIds.length !== scopeKeys.length) {
+		// A key was added or removed while the user was dragging. Reject rather
+		// than reshuffle around it: any rule for placing the missing key would
+		// silently demote something nobody chose to demote. The client refetches
+		// on error and the user retries against the real list.
+		throw new HTTPException(409, {
+			message: "Provider key order is out of date",
+		});
+	}
+
+	// One statement, deliberately not a transaction: Drizzle invalidates the
+	// cache before commit, so a transaction leaves a window where a gateway read
+	// can repopulate Redis with the pre-reorder rows. A single autocommit UPDATE
+	// closes that window and fires exactly one invalidation.
+	const updated = await cdb
+		.update(tables.providerKey)
+		.set({
+			sortOrder: sql`CASE ${tables.providerKey.id} ${sql.join(
+				providerKeyIds.map(
+					(id, index) => sql`WHEN ${id} THEN ${sql.raw(String(index))}`,
+				),
+				sql` `,
+			)} END`,
+		})
+		.where(
+			and(
+				inArray(tables.providerKey.id, providerKeyIds),
+				eq(tables.providerKey.organizationId, organizationId),
+				eq(tables.providerKey.provider, provider),
+				eq(tables.providerKey.managed, false),
+				ne(tables.providerKey.status, "deleted"),
+			),
+		)
+		.returning();
+
+	const previousOrder = [...scopeKeys]
+		.sort(
+			(a, b) =>
+				(a.sortOrder ?? Number.MAX_SAFE_INTEGER) -
+					(b.sortOrder ?? Number.MAX_SAFE_INTEGER) ||
+				a.createdAt.getTime() - b.createdAt.getTime() ||
+				a.id.localeCompare(b.id),
+		)
+		.map((key) => key.id);
+
+	if (previousOrder.join(",") !== providerKeyIds.join(",")) {
+		await logAuditEvent({
+			organizationId,
+			userId: user.id,
+			action: "provider_key.reorder",
+			resourceType: "provider_key",
+			metadata: {
+				provider,
+				changes: { order: { old: previousOrder, new: providerKeyIds } },
+			},
+		});
+	}
+
+	const byId = new Map(updated.map((row) => [row.id, row]));
+	return c.json({
+		message: "Provider key order updated",
+		providerKeys: providerKeyIds
+			.map((id) => byId.get(id))
+			.filter((row): row is (typeof updated)[number] => row !== undefined)
+			.map(toPublicProviderKey),
 	});
 });
 

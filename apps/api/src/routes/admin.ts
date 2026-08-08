@@ -1,13 +1,17 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
-import Stripe from "stripe";
 import { z } from "zod";
 
 import { deleteResendContact } from "@/auth/config.js";
-import { maskToken } from "@/lib/maskToken.js";
+import { cancelOrganizationSubscriptions } from "@/lib/account-deletion.js";
+import { modeSplitFields } from "@/lib/mode-split.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
+import {
+	getBucketUnitForWindow,
+	getTokenWindowStartDate,
+	tokenWindowSchema,
+} from "@/lib/stats-window.js";
 import { adminMiddleware } from "@/middleware/admin.js";
-import { getStripe } from "@/routes/payments.js";
 import {
 	CHAT_PLAN_TX_TYPES,
 	DEV_PLAN_SUBSCRIPTION_TX_TYPES,
@@ -18,6 +22,7 @@ import {
 	notEndUserWalletFilter,
 	notPlanFilter,
 	paidTransactionFilter,
+	refundsCountedTopupFilter,
 } from "@/utils/devpass-filter.js";
 import {
 	HOURLY_BUCKET_THRESHOLD_MINUTES,
@@ -77,6 +82,7 @@ import {
 	fromEmail,
 	replyToEmail,
 } from "@llmgateway/shared/email";
+import { maskToken } from "@llmgateway/shared/mask-token";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -283,6 +289,11 @@ const adminMetricsSchema = z.object({
 	totalOrganizations: z.number(),
 	totalToppedUp: z.number(),
 	totalSpent: z.number(),
+	// Credits-vs-BYOK split of totalSpent. totalSpent stays blended; BYOK
+	// ("api-keys") usage is provider list price paid by the customer's own key,
+	// not revenue-relevant spend.
+	totalCreditsSpent: z.number(),
+	totalApiKeysSpent: z.number(),
 	unusedCredits: z.number(),
 	overage: z.number(),
 	totalGiftedCredits: z.number(),
@@ -293,6 +304,10 @@ const adminMetricsSchema = z.object({
 	grossRevenue: z.number(),
 	grossCreditsRevenue: z.number(),
 	grossDevpassRevenue: z.number(),
+	// PAYG overflow top-ups purchased by DevPass orgs. Same `credit_topup`
+	// transaction type as the Credits split, attributed separately so DevPass
+	// overflow monetization is visible instead of blending into PAYG credits.
+	grossDevpassTopupsRevenue: z.number(),
 	grossResetPassRevenue: z.number(),
 	grossChatPlansRevenue: z.number(),
 	grossProSubscriptionsRevenue: z.number(),
@@ -337,17 +352,6 @@ const adminTimeseriesSchema = z.object({
 	}),
 });
 
-const tokenWindowSchema = z.enum([
-	"1h",
-	"4h",
-	"12h",
-	"1d",
-	"7d",
-	"30d",
-	"90d",
-	"365d",
-]);
-
 const organizationSchema = z.object({
 	id: z.string(),
 	name: z.string(),
@@ -362,6 +366,8 @@ const organizationSchema = z.object({
 	credits: z.string(),
 	totalCreditsAllTime: z.string().optional(),
 	totalSpent: z.string().optional(),
+	totalCreditsSpent: z.string().optional(),
+	totalApiKeysSpent: z.string().optional(),
 	createdAt: z.string(),
 	status: z.string().nullable(),
 	referralBonusEnabled: z.boolean().optional(),
@@ -387,6 +393,10 @@ const orgMetricsSchema = z.object({
 	totalRequests: z.number(),
 	totalTokens: z.number(),
 	totalCost: z.number(),
+	creditsRequestCount: z.number(),
+	apiKeysRequestCount: z.number(),
+	creditsCost: z.number(),
+	apiKeysCost: z.number(),
 	inputTokens: z.number(),
 	inputCost: z.number(),
 	outputTokens: z.number(),
@@ -482,11 +492,18 @@ const apiKeysListSchema = z.object({
 
 const providerKeyAdminSchema = z.object({
 	id: z.string(),
+	/** Masked token. The plaintext is never returned. */
 	token: z.string(),
+	/** HMAC fingerprint, matching `log.usedApiKeyHash` on requests this key served. */
+	tokenHash: z.string().nullable(),
 	provider: z.string(),
 	name: z.string().nullable(),
 	baseUrl: z.string().nullable(),
 	status: z.string().nullable(),
+	/** USD spend cap; the key auto-deactivates when usage reaches it. */
+	usageLimit: z.string().nullable(),
+	/** Cumulative upstream spend (USD) attributed by the billing worker. */
+	usage: z.string(),
 	createdAt: z.string(),
 	updatedAt: z.string(),
 });
@@ -899,6 +916,20 @@ admin.openapi(getMetrics, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`.as(
 					"value",
 				),
+			creditsValue:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`.as(
+					"creditsValue",
+				),
+			apiKeysValue:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.apiKeysCost} AS NUMERIC)), 0)`.as(
+					"apiKeysValue",
+				),
+			// What the worker actually debits from credit balances: credits-mode
+			// rows at full cost plus BYOK rows' data-storage cost.
+			debitedValue:
+				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0) + COALESCE(SUM(CAST(${projectHourlyStats.apiKeysDataStorageCost} AS NUMERIC)), 0)`.as(
+					"debitedValue",
+				),
 		})
 		.from(projectHourlyStats)
 		.innerJoin(
@@ -927,6 +958,9 @@ admin.openapi(getMetrics, async (c) => {
 		);
 
 	const totalSpent = Number(spentRow?.value ?? 0);
+	const totalCreditsSpent = Number(spentRow?.creditsValue ?? 0);
+	const totalApiKeysSpent = Number(spentRow?.apiKeysValue ?? 0);
+	const totalDebitedSpend = Number(spentRow?.debitedValue ?? 0);
 
 	// Total processed (gross Stripe amounts from completed non-gift, non-plan transactions)
 	const [processedRow] = await db
@@ -1016,6 +1050,9 @@ admin.openapi(getMetrics, async (c) => {
 	//
 	// Credits: org credit top-ups + end-user wallet top-ups. Refund reversals
 	// are negative same-type rows, so only positive amounts count as gross.
+	// DevPass orgs buy `credit_topup` rows too (PAYG overflow), but those are
+	// DevPass monetization, not PAYG-product revenue — they get their own
+	// split below instead of inflating this one.
 	const [grossCreditsRow] = await db
 		.select({
 			value:
@@ -1024,16 +1061,54 @@ admin.openapi(getMetrics, async (c) => {
 				),
 		})
 		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
 		.where(
 			and(
 				eq(tables.transaction.status, "completed"),
 				inArray(tables.transaction.type, ["credit_topup", "end_user_topup"]),
+				// Only devpass `credit_topup` rows move to the DevPass split
+				// below. An `end_user_topup` on a devpass org shouldn't exist
+				// (end-user wallets are backed by regular PAYG orgs), but that
+				// invariant isn't DB-enforced — if a row ever appears it must
+				// still count here exactly once, not vanish from gross revenue.
+				or(
+					ne(tables.organization.kind, "devpass"),
+					ne(tables.transaction.type, "credit_topup"),
+				),
 				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
 				transactionDateFilter,
 			),
 		);
 
 	const grossCreditsRevenue = Number(grossCreditsRow?.value ?? 0);
+
+	// DevPass PAYG overflow top-ups: `credit_topup` purchases on devpass orgs.
+	const [grossDevpassTopupsRow] = await db
+		.select({
+			value:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"value",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.transaction.type, "credit_topup"),
+				eq(tables.organization.kind, "devpass"),
+				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+				transactionDateFilter,
+			),
+		);
+
+	const grossDevpassTopupsRevenue = Number(grossDevpassTopupsRow?.value ?? 0);
 
 	// DevPass: dev plan subscription payments (+ legacy `subscription_*` rows on
 	// devpass orgs), deduplicated per Stripe invoice. Mirrors
@@ -1153,11 +1228,15 @@ admin.openapi(getMetrics, async (c) => {
 	const grossRevenue =
 		grossCreditsRevenue +
 		grossDevpassRevenue +
+		grossDevpassTopupsRevenue +
 		grossResetPassRevenue +
 		grossChatPlansRevenue +
 		grossProSubscriptionsRevenue;
 
-	const rawBalance = totalToppedUp - totalSpent;
+	// Balance derivation must use debited spend, not blended cost: BYOK usage
+	// never drains purchased credits, so subtracting it would understate
+	// unusedCredits (and overstate overage) for orgs with BYOK traffic.
+	const rawBalance = totalToppedUp - totalDebitedSpend;
 	const unusedCredits = Math.max(0, rawBalance);
 	const overage = Math.max(0, -rawBalance);
 
@@ -1170,6 +1249,8 @@ admin.openapi(getMetrics, async (c) => {
 		totalOrganizations,
 		totalToppedUp,
 		totalSpent,
+		totalCreditsSpent,
+		totalApiKeysSpent,
 		unusedCredits,
 		overage,
 		totalGiftedCredits,
@@ -1178,6 +1259,7 @@ admin.openapi(getMetrics, async (c) => {
 		grossRevenue,
 		grossCreditsRevenue,
 		grossDevpassRevenue,
+		grossDevpassTopupsRevenue,
 		grossResetPassRevenue,
 		grossChatPlansRevenue,
 		grossProSubscriptionsRevenue,
@@ -1687,10 +1769,27 @@ admin.openapi(getTimeseries, async (c) => {
 });
 
 const globalStatsRangeSchema = z.enum(["7d", "30d", "90d", "365d", "all"]);
-const globalStatsGroupBySchema = z.enum(["model", "source"]);
+const globalStatsGroupBySchema = z.enum(["model", "source", "mode", "kind"]);
 const globalStatsModelViewSchema = z.enum(["mapping", "canonical", "provider"]);
+// Billing mode filter. "total" blends every mode, including the "unknown"
+// rows that predate per-mode attribution.
+const globalStatsModeSchema = z.enum([
+	"total",
+	"credits",
+	"api-keys",
+	"unknown",
+]);
+const globalStatsKindSchema = z.enum([
+	"all",
+	"default",
+	"devpass",
+	"chat",
+	"unknown",
+]);
 const globalStatsDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
+// Every metric is scoped by the mode/kind filters, because both are part of
+// the aggregation key rather than denormalized column pairs.
 const globalStatsMetricsSchema = z.object({
 	requestCount: z.number(),
 	errorCount: z.number(),
@@ -1704,6 +1803,19 @@ const globalStatsMetricsSchema = z.object({
 	cachedInputCost: z.number(),
 	outputCost: z.number(),
 });
+
+// How the selected range splits across the *other* dimension, so the blended
+// view can show its composition without a second request. `byMode` honours the
+// kind filter and vice versa, so both always reconcile with `totals`.
+const globalStatsCompositionItemSchema = z
+	.object({
+		key: z.string(),
+		label: z.string(),
+		requestCount: z.number(),
+		cost: z.number(),
+		totalTokens: z.number(),
+	})
+	.openapi({});
 
 const globalStatsTimeseriesPointSchema = globalStatsMetricsSchema
 	.extend({
@@ -1737,7 +1849,13 @@ const globalStatsResponseSchema = z.object({
 	end: z.string(),
 	groupBy: globalStatsGroupBySchema,
 	modelView: globalStatsModelViewSchema,
+	mode: globalStatsModeSchema,
+	kind: globalStatsKindSchema,
 	totals: globalStatsMetricsSchema,
+	composition: z.object({
+		byMode: z.array(globalStatsCompositionItemSchema),
+		byKind: z.array(globalStatsCompositionItemSchema),
+	}),
 	timeseries: z.array(globalStatsTimeseriesPointSchema),
 	timeseriesBreakdown: z.array(globalStatsTimeseriesBreakdownPointSchema),
 	breakdown: z.array(globalStatsBreakdownItemSchema),
@@ -1753,6 +1871,8 @@ const getGlobalStats = createRoute({
 			to: globalStatsDateSchema.optional(),
 			groupBy: globalStatsGroupBySchema.default("model").optional(),
 			modelView: globalStatsModelViewSchema.default("mapping").optional(),
+			mode: globalStatsModeSchema.default("total").optional(),
+			kind: globalStatsKindSchema.default("all").optional(),
 		}),
 	},
 	responses: {
@@ -1771,12 +1891,22 @@ admin.openapi(getGlobalStats, async (c) => {
 	const query = c.req.valid("query");
 	const groupBy = query.groupBy ?? "model";
 	const modelView = query.modelView ?? "mapping";
+	const mode = query.mode ?? "total";
+	const kind = query.kind ?? "all";
 
 	const dayMs = 24 * 60 * 60 * 1000;
 	const MAX_GLOBAL_STATS_DAYS = 731;
 
+	// Only the model grouping needs the per-model table; source/mode/kind all
+	// read the (much smaller) source table, which covers the same requests.
 	const sourceTable =
 		groupBy === "model" ? globalModelStats : globalSourceStats;
+
+	// Narrowing happens in SQL, so every metric below — tokens, errors, cache,
+	// per-part costs — reflects exactly the selected slice.
+	const modeFilter = mode === "total" ? [] : [eq(sourceTable.usedMode, mode)];
+	const kindFilter = kind === "all" ? [] : [eq(sourceTable.orgKind, kind)];
+	const dimensionFilter = [...modeFilter, ...kindFilter];
 
 	// `all` means "all time": derive the span from the first/last recorded day
 	// so the card matches the dashboard's all-time totals instead of silently
@@ -1805,7 +1935,8 @@ admin.openapi(getGlobalStats, async (c) => {
 					string | null
 				>`to_char(MAX(${sourceTable.dayTimestamp}), 'YYYY-MM-DD')`.as("maxDay"),
 			})
-			.from(sourceTable);
+			.from(sourceTable)
+			.where(dimensionFilter.length ? and(...dimensionFilter) : undefined);
 		const minDay = bounds[0]?.minDay ?? null;
 		const maxDay = bounds[0]?.maxDay ?? null;
 		endDate = maxDay ? new Date(maxDay + "T00:00:00Z") : new Date();
@@ -1882,18 +2013,19 @@ admin.openapi(getGlobalStats, async (c) => {
 	const dateExpr =
 		sql<string>`to_char(${sourceTable.dayTimestamp}, 'YYYY-MM-DD')`.as("date");
 
+	const rangeFilter = and(
+		gte(sourceTable.dayTimestamp, startDate),
+		lte(sourceTable.dayTimestamp, endDate),
+	);
+	const scopeFilter = and(rangeFilter, ...dimensionFilter);
+
 	const timeseriesRows = await db
 		.select({
 			date: dateExpr,
 			...metricSums,
 		})
 		.from(sourceTable)
-		.where(
-			and(
-				gte(sourceTable.dayTimestamp, startDate),
-				lte(sourceTable.dayTimestamp, endDate),
-			),
-		)
+		.where(scopeFilter)
 		.groupBy(sourceTable.dayTimestamp)
 		.orderBy(asc(sourceTable.dayTimestamp));
 
@@ -1964,6 +2096,16 @@ admin.openapi(getGlobalStats, async (c) => {
 		totals.outputCost += point.outputCost;
 	}
 
+	// The dimension the breakdown groups on. `model` needs the per-model table
+	// (and its mapping/canonical/provider views); the rest are single columns
+	// on the source table.
+	const breakdownColumn =
+		groupBy === "mode"
+			? globalSourceStats.usedMode
+			: groupBy === "kind"
+				? globalSourceStats.orgKind
+				: globalSourceStats.source;
+
 	const breakdownRows =
 		groupBy === "model"
 			? await db
@@ -1973,64 +2115,41 @@ admin.openapi(getGlobalStats, async (c) => {
 						...metricSums,
 					})
 					.from(globalModelStats)
-					.where(
-						and(
-							gte(globalModelStats.dayTimestamp, startDate),
-							lte(globalModelStats.dayTimestamp, endDate),
-						),
-					)
+					.where(scopeFilter)
 					.groupBy(globalModelStats.usedModel, globalModelStats.usedProvider)
 					.orderBy(desc(metricSums.requestCount))
 			: await db
 					.select({
-						source: globalSourceStats.source,
+						dimension: breakdownColumn,
 						...metricSums,
 					})
 					.from(globalSourceStats)
-					.where(
-						and(
-							gte(globalSourceStats.dayTimestamp, startDate),
-							lte(globalSourceStats.dayTimestamp, endDate),
-						),
-					)
-					.groupBy(globalSourceStats.source)
+					.where(scopeFilter)
+					.groupBy(breakdownColumn)
 					.orderBy(desc(metricSums.requestCount));
 
 	const breakdown: z.infer<typeof globalStatsBreakdownItemSchema>[] =
 		groupBy === "model" && modelView === "canonical"
-			? aggregateModelRowsByCanonicalId(
+			? aggregateBreakdownRows(
 					breakdownRows as Array<
-						(typeof breakdownRows)[number] & {
-							usedModel: string;
-						}
+						(typeof breakdownRows)[number] & { usedModel: string }
 					>,
+					(row) => extractCanonicalModelId(row.usedModel),
 				)
 			: groupBy === "model" && modelView === "provider"
-				? aggregateModelRowsByProvider(
+				? aggregateBreakdownRows(
 						breakdownRows as Array<
-							(typeof breakdownRows)[number] & {
-								usedProvider: string;
-							}
+							(typeof breakdownRows)[number] & { usedProvider: string }
 						>,
+						(row) => row.usedProvider || "unknown",
 					)
 				: breakdownRows.map((row) => {
-						const isModel = "usedModel" in row;
-						const key = isModel ? row.usedModel : row.source;
-						const label = isModel ? row.usedModel : row.source;
+						const key =
+							"usedModel" in row ? row.usedModel : (row.dimension ?? "unknown");
 						return {
+							...toBreakdownMetrics(row),
 							key,
-							label,
-							requestCount: Number(row.requestCount),
-							errorCount: Number(row.errorCount),
-							cacheCount: Number(row.cacheCount),
-							inputTokens: Number(row.inputTokens),
-							cachedTokens: Number(row.cachedTokens),
-							outputTokens: Number(row.outputTokens),
-							totalTokens: Number(row.totalTokens),
-							cost: Number(row.cost),
-							inputCost: Number(row.inputCost),
-							cachedInputCost: Number(row.cachedInputCost),
-							outputCost: Number(row.outputCost),
+							label: globalStatsDimensionLabel(groupBy, key),
 						};
 					});
 
@@ -2044,12 +2163,7 @@ admin.openapi(getGlobalStats, async (c) => {
 						...metricSums,
 					})
 					.from(globalModelStats)
-					.where(
-						and(
-							gte(globalModelStats.dayTimestamp, startDate),
-							lte(globalModelStats.dayTimestamp, endDate),
-						),
-					)
+					.where(scopeFilter)
 					.groupBy(
 						globalModelStats.dayTimestamp,
 						globalModelStats.usedModel,
@@ -2058,17 +2172,12 @@ admin.openapi(getGlobalStats, async (c) => {
 			: await db
 					.select({
 						date: dateExpr,
-						source: globalSourceStats.source,
+						dimension: breakdownColumn,
 						...metricSums,
 					})
 					.from(globalSourceStats)
-					.where(
-						and(
-							gte(globalSourceStats.dayTimestamp, startDate),
-							lte(globalSourceStats.dayTimestamp, endDate),
-						),
-					)
-					.groupBy(globalSourceStats.dayTimestamp, globalSourceStats.source);
+					.where(scopeFilter)
+					.groupBy(globalSourceStats.dayTimestamp, breakdownColumn);
 
 	const timeseriesBreakdownMap = new Map<
 		string,
@@ -2088,9 +2197,12 @@ admin.openapi(getGlobalStats, async (c) => {
 						? modelRow.usedProvider || "unknown"
 						: modelRow.usedModel;
 		} else {
-			key = (
-				row as (typeof timeseriesBreakdownRows)[number] & { source: string }
-			).source;
+			key =
+				(
+					row as (typeof timeseriesBreakdownRows)[number] & {
+						dimension: string;
+					}
+				).dimension ?? "unknown";
 		}
 		const mapKey = `${row.date}:${key}`;
 		const existing = timeseriesBreakdownMap.get(mapKey);
@@ -2102,7 +2214,7 @@ admin.openapi(getGlobalStats, async (c) => {
 			timeseriesBreakdownMap.set(mapKey, {
 				date: row.date,
 				key,
-				label: key,
+				label: globalStatsDimensionLabel(groupBy, key),
 				requestCount: Number(row.requestCount),
 				cost: Number(row.cost),
 				totalTokens: Number(row.totalTokens),
@@ -2111,12 +2223,56 @@ admin.openapi(getGlobalStats, async (c) => {
 	}
 	const timeseriesBreakdown = Array.from(timeseriesBreakdownMap.values());
 
+	// Composition of the range along each dimension, each honouring the *other*
+	// filter so both always add up to `totals`.
+	const compositionSums = {
+		requestCount: metricSums.requestCount,
+		cost: metricSums.cost,
+		totalTokens: metricSums.totalTokens,
+	};
+	const [byModeRows, byKindRows] = await Promise.all([
+		db
+			.select({ dimension: sourceTable.usedMode, ...compositionSums })
+			.from(sourceTable)
+			.where(and(rangeFilter, ...kindFilter))
+			.groupBy(sourceTable.usedMode)
+			.orderBy(desc(compositionSums.requestCount)),
+		db
+			.select({ dimension: sourceTable.orgKind, ...compositionSums })
+			.from(sourceTable)
+			.where(and(rangeFilter, ...modeFilter))
+			.groupBy(sourceTable.orgKind)
+			.orderBy(desc(compositionSums.requestCount)),
+	]);
+
+	const toCompositionItem = (
+		dimension: "mode" | "kind",
+		row: {
+			dimension: string | null;
+			requestCount: number | string;
+			cost: number | string;
+			totalTokens: number | string;
+		},
+	) => ({
+		key: row.dimension ?? "unknown",
+		label: globalStatsDimensionLabel(dimension, row.dimension ?? "unknown"),
+		requestCount: Number(row.requestCount),
+		cost: Number(row.cost),
+		totalTokens: Number(row.totalTokens),
+	});
+
 	return c.json({
 		start: startDate.toISOString().split("T")[0],
 		end: endDate.toISOString().split("T")[0],
 		groupBy,
 		modelView,
+		mode,
+		kind,
 		totals,
+		composition: {
+			byMode: byModeRows.map((row) => toCompositionItem("mode", row)),
+			byKind: byKindRows.map((row) => toCompositionItem("kind", row)),
+		},
 		timeseries,
 		timeseriesBreakdown,
 		breakdown,
@@ -2134,115 +2290,73 @@ function extractCanonicalModelId(usedModel: string): string {
 	return colonIdx === -1 ? withoutProvider : withoutProvider.slice(0, colonIdx);
 }
 
-function aggregateModelRowsByCanonicalId(
-	rows: Array<{
-		usedModel: string;
-		requestCount: number;
-		errorCount: number;
-		cacheCount: number;
-		inputTokens: number;
-		cachedTokens: number;
-		outputTokens: number;
-		totalTokens: number;
-		cost: number;
-		inputCost: number;
-		cachedInputCost: number;
-		outputCost: number;
-	}>,
-): z.infer<typeof globalStatsBreakdownItemSchema>[] {
-	const aggregated = new Map<
-		string,
-		z.infer<typeof globalStatsBreakdownItemSchema>
-	>();
-	for (const row of rows) {
-		const canonical = extractCanonicalModelId(row.usedModel);
-		const existing = aggregated.get(canonical);
-		if (existing) {
-			existing.requestCount += Number(row.requestCount);
-			existing.errorCount += Number(row.errorCount);
-			existing.cacheCount += Number(row.cacheCount);
-			existing.inputTokens += Number(row.inputTokens);
-			existing.cachedTokens += Number(row.cachedTokens);
-			existing.outputTokens += Number(row.outputTokens);
-			existing.totalTokens += Number(row.totalTokens);
-			existing.cost += Number(row.cost);
-			existing.inputCost += Number(row.inputCost);
-			existing.cachedInputCost += Number(row.cachedInputCost);
-			existing.outputCost += Number(row.outputCost);
-		} else {
-			aggregated.set(canonical, {
-				key: canonical,
-				label: canonical,
-				requestCount: Number(row.requestCount),
-				errorCount: Number(row.errorCount),
-				cacheCount: Number(row.cacheCount),
-				inputTokens: Number(row.inputTokens),
-				cachedTokens: Number(row.cachedTokens),
-				outputTokens: Number(row.outputTokens),
-				totalTokens: Number(row.totalTokens),
-				cost: Number(row.cost),
-				inputCost: Number(row.inputCost),
-				cachedInputCost: Number(row.cachedInputCost),
-				outputCost: Number(row.outputCost),
-			});
-		}
+const GLOBAL_STATS_MODE_LABELS: Record<string, string> = {
+	credits: "Credits",
+	"api-keys": "BYOK",
+	unknown: "Unattributed",
+};
+
+// "default" is the plain pay-as-you-go org kind; it reads as PAYG everywhere
+// user-facing because "default" says nothing about how the traffic is paid for.
+const GLOBAL_STATS_KIND_LABELS: Record<string, string> = {
+	default: "PAYG",
+	devpass: "DevPass",
+	chat: "Chat",
+	unknown: "Unattributed",
+};
+
+function globalStatsDimensionLabel(dimension: string, key: string): string {
+	if (dimension === "mode") {
+		return GLOBAL_STATS_MODE_LABELS[key] ?? key;
 	}
-	return Array.from(aggregated.values()).sort(
-		(a, b) => b.requestCount - a.requestCount,
-	);
+	if (dimension === "kind") {
+		return GLOBAL_STATS_KIND_LABELS[key] ?? key;
+	}
+	return key;
 }
 
-function aggregateModelRowsByProvider(
-	rows: Array<{
-		usedProvider: string;
-		requestCount: number;
-		errorCount: number;
-		cacheCount: number;
-		inputTokens: number;
-		cachedTokens: number;
-		outputTokens: number;
-		totalTokens: number;
-		cost: number;
-		inputCost: number;
-		cachedInputCost: number;
-		outputCost: number;
-	}>,
+type GlobalStatsRowMetrics = z.infer<typeof globalStatsMetricsSchema>;
+
+function toBreakdownMetrics(
+	row: Record<keyof GlobalStatsRowMetrics, number | string>,
+): GlobalStatsRowMetrics {
+	return {
+		requestCount: Number(row.requestCount),
+		errorCount: Number(row.errorCount),
+		cacheCount: Number(row.cacheCount),
+		inputTokens: Number(row.inputTokens),
+		cachedTokens: Number(row.cachedTokens),
+		outputTokens: Number(row.outputTokens),
+		totalTokens: Number(row.totalTokens),
+		cost: Number(row.cost),
+		inputCost: Number(row.inputCost),
+		cachedInputCost: Number(row.cachedInputCost),
+		outputCost: Number(row.outputCost),
+	};
+}
+
+// Collapses per-mapping rows onto a coarser key (canonical model id, provider)
+// by summing every metric.
+function aggregateBreakdownRows<T extends GlobalStatsRowMetrics>(
+	rows: T[],
+	keyOf: (row: T) => string,
 ): z.infer<typeof globalStatsBreakdownItemSchema>[] {
 	const aggregated = new Map<
 		string,
 		z.infer<typeof globalStatsBreakdownItemSchema>
 	>();
 	for (const row of rows) {
-		const provider = row.usedProvider || "unknown";
-		const existing = aggregated.get(provider);
-		if (existing) {
-			existing.requestCount += Number(row.requestCount);
-			existing.errorCount += Number(row.errorCount);
-			existing.cacheCount += Number(row.cacheCount);
-			existing.inputTokens += Number(row.inputTokens);
-			existing.cachedTokens += Number(row.cachedTokens);
-			existing.outputTokens += Number(row.outputTokens);
-			existing.totalTokens += Number(row.totalTokens);
-			existing.cost += Number(row.cost);
-			existing.inputCost += Number(row.inputCost);
-			existing.cachedInputCost += Number(row.cachedInputCost);
-			existing.outputCost += Number(row.outputCost);
-		} else {
-			aggregated.set(provider, {
-				key: provider,
-				label: provider,
-				requestCount: Number(row.requestCount),
-				errorCount: Number(row.errorCount),
-				cacheCount: Number(row.cacheCount),
-				inputTokens: Number(row.inputTokens),
-				cachedTokens: Number(row.cachedTokens),
-				outputTokens: Number(row.outputTokens),
-				totalTokens: Number(row.totalTokens),
-				cost: Number(row.cost),
-				inputCost: Number(row.inputCost),
-				cachedInputCost: Number(row.cachedInputCost),
-				outputCost: Number(row.outputCost),
-			});
+		const key = keyOf(row);
+		const existing = aggregated.get(key);
+		const metrics = toBreakdownMetrics(row);
+		if (!existing) {
+			aggregated.set(key, { ...metrics, key, label: key });
+			continue;
+		}
+		for (const metric of Object.keys(
+			metrics,
+		) as (keyof GlobalStatsRowMetrics)[]) {
+			existing[metric] += metrics[metric];
 		}
 	}
 	return Array.from(aggregated.values()).sort(
@@ -2298,6 +2412,14 @@ admin.openapi(getOrganizations, async (c) => {
 				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`.as(
 					"total_spent",
 				),
+			creditsTotal:
+				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`.as(
+					"credits_spent",
+				),
+			apiKeysTotal:
+				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.apiKeysCost} AS NUMERIC)), 0)`.as(
+					"api_keys_spent",
+				),
 		})
 		.from(projectHourlyStats)
 		.innerJoin(
@@ -2352,6 +2474,14 @@ admin.openapi(getOrganizations, async (c) => {
 			totalSpent: sql<string>`COALESCE(${totalSpentSub.total}, '0')`.as(
 				"totalSpent",
 			),
+			totalCreditsSpent:
+				sql<string>`COALESCE(${totalSpentSub.creditsTotal}, '0')`.as(
+					"totalCreditsSpent",
+				),
+			totalApiKeysSpent:
+				sql<string>`COALESCE(${totalSpentSub.apiKeysTotal}, '0')`.as(
+					"totalApiKeysSpent",
+				),
 			ownerUserId: ownerSub.userId,
 			ownerName: ownerSub.userName,
 			ownerEmail: ownerSub.userEmail,
@@ -2382,6 +2512,8 @@ admin.openapi(getOrganizations, async (c) => {
 			credits: String(org.credits),
 			totalCreditsAllTime: String(org.totalCreditsAllTime ?? "0"),
 			totalSpent: String(org.totalSpent ?? "0"),
+			totalCreditsSpent: String(org.totalCreditsSpent ?? "0"),
+			totalApiKeysSpent: String(org.totalApiKeysSpent ?? "0"),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
 			ownerUserId: org.ownerUserId ?? null,
@@ -2439,6 +2571,10 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 	let totalRequests = 0;
 	let totalTokens = 0;
 	let totalCost = 0;
+	let creditsRequestCount = 0;
+	let apiKeysRequestCount = 0;
+	let creditsCost = 0;
+	let apiKeysCost = 0;
 	let inputTokens = 0;
 	let inputCost = 0;
 	let outputTokens = 0;
@@ -2460,6 +2596,7 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 					sql<number>`COALESCE(SUM(${projectHourlyStats.requestCount}), 0)`.as(
 						"totalRequests",
 					),
+				...modeSplitFields(projectHourlyStats),
 				inputTokens:
 					sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.inputTokens} AS INTEGER)), 0)`.as(
 						"inputTokens",
@@ -2517,6 +2654,10 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 			totalRequests = Number(totals.totalRequests) || 0;
 			totalTokens = Number(totals.totalTokens) || 0;
 			totalCost = Number(totals.totalCost) || 0;
+			creditsRequestCount = Number(totals.creditsRequestCount) || 0;
+			apiKeysRequestCount = Number(totals.apiKeysRequestCount) || 0;
+			creditsCost = Number(totals.creditsCost) || 0;
+			apiKeysCost = Number(totals.apiKeysCost) || 0;
 			inputTokens = Number(totals.inputTokens) || 0;
 			inputCost = Number(totals.inputCost) || 0;
 			outputTokens = Number(totals.outputTokens) || 0;
@@ -2581,6 +2722,10 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 		totalRequests,
 		totalTokens,
 		totalCost,
+		creditsRequestCount,
+		apiKeysRequestCount,
+		creditsCost,
+		apiKeysCost,
 		inputTokens,
 		inputCost,
 		outputTokens,
@@ -2830,11 +2975,17 @@ admin.openapi(getOrganizationProviderKeys, async (c) => {
 	const providerKeys = await db
 		.select({
 			id: tables.providerKey.id,
-			token: tables.providerKey.token,
+			// Legacy pre-encryption rows still carry plaintext here; it is selected
+			// only to compute the mask below and must never reach the response.
+			legacyToken: tables.providerKey.token,
+			tokenMasked: tables.providerKey.tokenMasked,
+			tokenHash: tables.providerKey.tokenHash,
 			provider: tables.providerKey.provider,
 			name: tables.providerKey.name,
 			baseUrl: tables.providerKey.baseUrl,
 			status: tables.providerKey.status,
+			usageLimit: tables.providerKey.usageLimit,
+			usage: tables.providerKey.usage,
 			createdAt: tables.providerKey.createdAt,
 			updatedAt: tables.providerKey.updatedAt,
 		})
@@ -2843,9 +2994,19 @@ admin.openapi(getOrganizationProviderKeys, async (c) => {
 		.orderBy(desc(tables.providerKey.createdAt));
 
 	return c.json({
+		// Explicit allowlist, never a spread of the row: a provider token is
+		// write-only once stored, and an admin identifies a key by its mask and
+		// its `tokenHash` (which matches `log.usedApiKeyHash`).
 		providerKeys: providerKeys.map((k) => ({
-			...k,
-			token: maskToken(k.token, 6),
+			id: k.id,
+			token: k.tokenMasked ?? maskToken(k.legacyToken ?? "", 6),
+			tokenHash: k.tokenHash,
+			provider: k.provider,
+			name: k.name,
+			baseUrl: k.baseUrl,
+			status: k.status,
+			usageLimit: k.usageLimit,
+			usage: k.usage,
 			createdAt: k.createdAt.toISOString(),
 			updatedAt: k.updatedAt.toISOString(),
 		})),
@@ -2910,6 +3071,10 @@ const projectMetricsSchema = z.object({
 	totalRequests: z.number(),
 	totalTokens: z.number(),
 	totalCost: z.number(),
+	creditsRequestCount: z.number(),
+	apiKeysRequestCount: z.number(),
+	creditsCost: z.number(),
+	apiKeysCost: z.number(),
 	inputTokens: z.number(),
 	inputCost: z.number(),
 	outputTokens: z.number(),
@@ -2988,6 +3153,10 @@ admin.openapi(getProjectMetrics, async (c) => {
 	let totalRequests = 0;
 	let totalTokens = 0;
 	let totalCost = 0;
+	let creditsRequestCount = 0;
+	let apiKeysRequestCount = 0;
+	let creditsCost = 0;
+	let apiKeysCost = 0;
 	let inputTokens = 0;
 	let inputCost = 0;
 	let outputTokens = 0;
@@ -3007,6 +3176,7 @@ admin.openapi(getProjectMetrics, async (c) => {
 				sql<number>`COALESCE(SUM(${projectHourlyStats.requestCount}), 0)`.as(
 					"totalRequests",
 				),
+			...modeSplitFields(projectHourlyStats),
 			inputTokens:
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyStats.inputTokens} AS INTEGER)), 0)`.as(
 					"inputTokens",
@@ -3064,6 +3234,10 @@ admin.openapi(getProjectMetrics, async (c) => {
 		totalRequests = Number(totals.totalRequests) || 0;
 		totalTokens = Number(totals.totalTokens) || 0;
 		totalCost = Number(totals.totalCost) || 0;
+		creditsRequestCount = Number(totals.creditsRequestCount) || 0;
+		apiKeysRequestCount = Number(totals.apiKeysRequestCount) || 0;
+		creditsCost = Number(totals.creditsCost) || 0;
+		apiKeysCost = Number(totals.apiKeysCost) || 0;
 		inputTokens = Number(totals.inputTokens) || 0;
 		inputCost = Number(totals.inputCost) || 0;
 		outputTokens = Number(totals.outputTokens) || 0;
@@ -3122,6 +3296,10 @@ admin.openapi(getProjectMetrics, async (c) => {
 		totalRequests,
 		totalTokens,
 		totalCost,
+		creditsRequestCount,
+		apiKeysRequestCount,
+		creditsCost,
+		apiKeysCost,
 		inputTokens,
 		inputCost,
 		outputTokens,
@@ -6364,40 +6542,9 @@ async function blockOrganizationById(
 	// its subscriptions being cancelled first.
 	assertOrganizationDeletable(org);
 
-	const subscriptionIds = [
-		org.stripeSubscriptionId,
-		org.devPlanStripeSubscriptionId,
-	].filter((id): id is string => Boolean(id));
-
-	// Cancel every Stripe subscription before mutating local state. Treat
-	// already-cancelled or missing subscriptions as success (their terminal
-	// state matches what we want anyway); re-throw other Stripe errors so the
-	// admin can retry once Stripe is healthy.
-	const cancelledSubscriptionIds: string[] = [];
-	for (const subscriptionId of subscriptionIds) {
-		try {
-			await getStripe().subscriptions.cancel(subscriptionId, {
-				invoice_now: false,
-				prorate: false,
-			});
-			cancelledSubscriptionIds.push(subscriptionId);
-		} catch (error) {
-			if (
-				error instanceof Stripe.errors.StripeInvalidRequestError &&
-				(error.code === "resource_missing" ||
-					error.statusCode === 404 ||
-					error.message.includes("already been canceled") ||
-					error.message.includes("already canceled"))
-			) {
-				logger.info(
-					`Stripe subscription ${subscriptionId} already terminal, skipping cancel: ${error.message}`,
-				);
-				cancelledSubscriptionIds.push(subscriptionId);
-				continue;
-			}
-			throw error;
-		}
-	}
+	// Cancel every Stripe subscription the org holds (dashboard plan, DevPass and
+	// Chat plan alike) before mutating local state.
+	const cancelledSubscriptionIds = await cancelOrganizationSubscriptions(org);
 
 	const memberLinks = await db.query.userOrganization.findMany({
 		where: { organizationId: { eq: orgId } },
@@ -6443,6 +6590,10 @@ async function blockOrganizationById(
 				devPlanStripeSubscriptionId: null,
 				devPlanCancelled: true,
 				devPlanExpiresAt: new Date(),
+				chatPlan: "none",
+				chatPlanStripeSubscriptionId: null,
+				chatPlanCancelled: true,
+				chatPlanExpiresAt: new Date(),
 				subscriptionCancelled: true,
 			})
 			.where(eq(tables.organization.id, orgId));
@@ -8142,6 +8293,10 @@ const costByModelEntrySchema = z.object({
 	cost: z.number(),
 	requestCount: z.number(),
 	totalTokens: z.number(),
+	creditsRequestCount: z.number(),
+	apiKeysRequestCount: z.number(),
+	creditsCost: z.number(),
+	apiKeysCost: z.number(),
 });
 
 const costByModelResponseSchema = z.object({
@@ -8149,22 +8304,9 @@ const costByModelResponseSchema = z.object({
 	models: z.array(costByModelEntrySchema),
 	totalCost: z.number(),
 	totalRequests: z.number(),
+	totalCreditsCost: z.number(),
+	totalApiKeysCost: z.number(),
 });
-
-function getTokenWindowStartDate(window: string): Date {
-	const windowMs: Record<string, number> = {
-		"1h": 60 * 60 * 1000,
-		"4h": 4 * 60 * 60 * 1000,
-		"12h": 12 * 60 * 60 * 1000,
-		"1d": 24 * 60 * 60 * 1000,
-		"7d": 7 * 24 * 60 * 60 * 1000,
-		"30d": 30 * 24 * 60 * 60 * 1000,
-		"90d": 90 * 24 * 60 * 60 * 1000,
-		"365d": 365 * 24 * 60 * 60 * 1000,
-	};
-	const ms = windowMs[window] ?? 7 * 24 * 60 * 60 * 1000;
-	return new Date(Date.now() - ms);
-}
 
 // Global cost by model
 const getGlobalCostByModel = createRoute({
@@ -8216,6 +8358,7 @@ admin.openapi(getGlobalCostByModel, async (c) => {
 				sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`.as(
 					"total_tokens",
 				),
+			...modeSplitFields(projectHourlyModelStats),
 		})
 		.from(projectHourlyModelStats)
 		.where(
@@ -8235,6 +8378,14 @@ admin.openapi(getGlobalCostByModel, async (c) => {
 		(sum, r) => sum + Number(r.requestCount),
 		0,
 	);
+	const totalCreditsCost = rows.reduce(
+		(sum, r) => sum + Number(r.creditsCost),
+		0,
+	);
+	const totalApiKeysCost = rows.reduce(
+		(sum, r) => sum + Number(r.apiKeysCost),
+		0,
+	);
 
 	return c.json({
 		window,
@@ -8243,9 +8394,15 @@ admin.openapi(getGlobalCostByModel, async (c) => {
 			cost: Number(r.cost),
 			requestCount: Number(r.requestCount),
 			totalTokens: Number(r.totalTokens),
+			creditsRequestCount: Number(r.creditsRequestCount),
+			apiKeysRequestCount: Number(r.apiKeysRequestCount),
+			creditsCost: Number(r.creditsCost),
+			apiKeysCost: Number(r.apiKeysCost),
 		})),
 		totalCost,
 		totalRequests,
+		totalCreditsCost,
+		totalApiKeysCost,
 	});
 });
 
@@ -8301,6 +8458,8 @@ admin.openapi(getOrgCostByModel, async (c) => {
 			models: [],
 			totalCost: 0,
 			totalRequests: 0,
+			totalCreditsCost: 0,
+			totalApiKeysCost: 0,
 		});
 	}
 
@@ -8316,6 +8475,7 @@ admin.openapi(getOrgCostByModel, async (c) => {
 				sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`.as(
 					"total_tokens",
 				),
+			...modeSplitFields(projectHourlyModelStats),
 		})
 		.from(projectHourlyModelStats)
 		.where(
@@ -8333,6 +8493,14 @@ admin.openapi(getOrgCostByModel, async (c) => {
 		(sum, r) => sum + Number(r.requestCount),
 		0,
 	);
+	const totalCreditsCost = rows.reduce(
+		(sum, r) => sum + Number(r.creditsCost),
+		0,
+	);
+	const totalApiKeysCost = rows.reduce(
+		(sum, r) => sum + Number(r.apiKeysCost),
+		0,
+	);
 
 	return c.json({
 		window,
@@ -8341,9 +8509,15 @@ admin.openapi(getOrgCostByModel, async (c) => {
 			cost: Number(r.cost),
 			requestCount: Number(r.requestCount),
 			totalTokens: Number(r.totalTokens),
+			creditsRequestCount: Number(r.creditsRequestCount),
+			apiKeysRequestCount: Number(r.apiKeysRequestCount),
+			creditsCost: Number(r.creditsCost),
+			apiKeysCost: Number(r.apiKeysCost),
 		})),
 		totalCost,
 		totalRequests,
+		totalCreditsCost,
+		totalApiKeysCost,
 	});
 });
 
@@ -8360,6 +8534,10 @@ const costByModelTimeseriesBucketSchema = z.object({
 	cost: z.number(),
 	requestCount: z.number(),
 	totalTokens: z.number(),
+	creditsRequestCount: z.number(),
+	apiKeysRequestCount: z.number(),
+	creditsCost: z.number(),
+	apiKeysCost: z.number(),
 });
 
 const costByModelTimeseriesPointSchema = z.object({
@@ -8375,18 +8553,6 @@ const costByModelTimeseriesResponseSchema = z.object({
 	models: z.array(z.string()),
 	data: z.array(costByModelTimeseriesPointSchema),
 });
-
-function getBucketUnitForWindow(window: string): "hour" | "day" {
-	if (
-		window === "1h" ||
-		window === "4h" ||
-		window === "12h" ||
-		window === "1d"
-	) {
-		return "hour";
-	}
-	return "day";
-}
 
 function formatBucketTimestamp(date: Date): string {
 	const pad = (n: number) => String(n).padStart(2, "0");
@@ -8647,6 +8813,7 @@ async function buildCostByModelTimeseries({
 				sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`.as(
 					"total_tokens",
 				),
+			...modeSplitFields(projectHourlyModelStats),
 		})
 		.from(projectHourlyModelStats)
 		.where(
@@ -8668,6 +8835,10 @@ async function buildCostByModelTimeseries({
 				cost: Number(row.cost),
 				requestCount: Number(row.requestCount),
 				totalTokens: Number(row.totalTokens),
+				creditsRequestCount: Number(row.creditsRequestCount),
+				apiKeysRequestCount: Number(row.apiKeysRequestCount),
+				creditsCost: Number(row.creditsCost),
+				apiKeysCost: Number(row.apiKeysCost),
 			})),
 		}),
 	};
@@ -8724,6 +8895,7 @@ async function buildCostBySourceTimeseries({
 				sql<number>`SUM(CAST(${projectHourlySourceStats.totalTokens} AS NUMERIC))`.as(
 					"total_tokens",
 				),
+			...modeSplitFields(projectHourlySourceStats),
 		})
 		.from(projectHourlySourceStats)
 		.where(and(baseFilter, inArray(projectHourlySourceStats.source, topKeys)))
@@ -8740,6 +8912,10 @@ async function buildCostBySourceTimeseries({
 				cost: Number(row.cost),
 				requestCount: Number(row.requestCount),
 				totalTokens: Number(row.totalTokens),
+				creditsRequestCount: Number(row.creditsRequestCount),
+				apiKeysRequestCount: Number(row.apiKeysRequestCount),
+				creditsCost: Number(row.creditsCost),
+				apiKeysCost: Number(row.apiKeysCost),
 			})),
 		}),
 	};
@@ -8756,11 +8932,26 @@ function assembleCostTimeseriesPoints({
 		cost: number;
 		requestCount: number;
 		totalTokens: number;
+		creditsRequestCount: number;
+		apiKeysRequestCount: number;
+		creditsCost: number;
+		apiKeysCost: number;
 	}[];
 }): z.infer<typeof costByModelTimeseriesPointSchema>[] {
 	const bucketMap = new Map<
 		string,
-		Map<string, { cost: number; requestCount: number; totalTokens: number }>
+		Map<
+			string,
+			{
+				cost: number;
+				requestCount: number;
+				totalTokens: number;
+				creditsRequestCount: number;
+				apiKeysRequestCount: number;
+				creditsCost: number;
+				apiKeysCost: number;
+			}
+		>
 	>();
 
 	for (const row of rows) {
@@ -8769,10 +8960,18 @@ function assembleCostTimeseriesPoints({
 			cost: 0,
 			requestCount: 0,
 			totalTokens: 0,
+			creditsRequestCount: 0,
+			apiKeysRequestCount: 0,
+			creditsCost: 0,
+			apiKeysCost: 0,
 		};
 		existing.cost += row.cost;
 		existing.requestCount += row.requestCount;
 		existing.totalTokens += row.totalTokens;
+		existing.creditsRequestCount += row.creditsRequestCount;
+		existing.apiKeysRequestCount += row.apiKeysRequestCount;
+		existing.creditsCost += row.creditsCost;
+		existing.apiKeysCost += row.apiKeysCost;
 		entry.set(row.key, existing);
 		bucketMap.set(row.bucket, entry);
 	}
@@ -8785,6 +8984,10 @@ function assembleCostTimeseriesPoints({
 				cost: v.cost,
 				requestCount: v.requestCount,
 				totalTokens: v.totalTokens,
+				creditsRequestCount: v.creditsRequestCount,
+				apiKeysRequestCount: v.apiKeysRequestCount,
+				creditsCost: v.creditsCost,
+				apiKeysCost: v.apiKeysCost,
 			}),
 		),
 	}));
@@ -8801,6 +9004,10 @@ const projectModelProviderStatsEntrySchema = z.object({
 	cachedCount: z.number(),
 	cost: z.number(),
 	totalTokens: z.number(),
+	creditsRequestCount: z.number(),
+	apiKeysRequestCount: z.number(),
+	creditsCost: z.number(),
+	apiKeysCost: z.number(),
 	...tokenBreakdownShape,
 });
 
@@ -8928,6 +9135,7 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 			cachedCount: cachedCountExpr,
 			cost: costExpr,
 			totalTokens: totalTokensExpr,
+			...modeSplitFields(projectHourlyModelStats),
 			inputTokens:
 				sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.inputTokens} AS NUMERIC)), 0)`.as(
 					"input_tokens",
@@ -8990,6 +9198,10 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 			cachedCount: Number(r.cachedCount),
 			cost: Number(r.cost),
 			totalTokens: Number(r.totalTokens),
+			creditsRequestCount: Number(r.creditsRequestCount),
+			apiKeysRequestCount: Number(r.apiKeysRequestCount),
+			creditsCost: Number(r.creditsCost),
+			apiKeysCost: Number(r.apiKeysCost),
 			...toTokenBreakdown(r),
 		})),
 		total: rows.length,
@@ -9462,6 +9674,16 @@ const unstableMappingEntrySchema = z.object({
 	usedModel: z.string(),
 	providerId: z.string(),
 	providerName: z.string(),
+	/**
+	 * Only populated when the ranking is split by provider key: the credential
+	 * (managed or BYOK) whose token served this row's traffic. Null with the
+	 * split on means the traffic ran on env-var keys, or failed before a
+	 * credential was resolved — there is no key row to attribute it to.
+	 */
+	providerKeyId: z.string().nullable(),
+	/** The key's note when set, its masked token otherwise. */
+	providerKeyLabel: z.string().nullable(),
+	providerKeyManaged: z.boolean().nullable(),
 	logsCount: z.number(),
 	errorsCount: z.number(),
 	errorRate: z.number(),
@@ -9474,6 +9696,7 @@ const unstableMappingsListSchema = z.object({
 	logLimit: z.number(),
 	includeRetried: z.boolean(),
 	ignoreExpected: z.boolean(),
+	splitByKey: z.boolean(),
 	// Number of ignore matchers applied to this ranking (0 when disabled).
 	ignoredMatcherCount: z.number(),
 });
@@ -9492,6 +9715,7 @@ const getUnstableMappings = createRoute({
 			includeRetried: z.enum(["true", "false"]).optional(),
 			window: unstableMappingsWindowSchema.optional(),
 			ignoreExpected: z.enum(["true", "false"]).optional(),
+			splitByKey: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
@@ -9516,8 +9740,15 @@ admin.openapi(getUnstableMappings, async (c) => {
 		? sql``
 		: unstableMappingsNotRetriedClause;
 	const ignoreExpected = query.ignoreExpected !== "false";
+	const splitByKey = query.splitByKey === "true";
 	const { interval: windowInterval, hours: windowHours } =
 		resolveUnstableMappingsWindow(query.window);
+
+	// With the split off every row carries a constant NULL key, so the extra
+	// GROUP BY column is a no-op and both modes share one query shape.
+	const providerKeyExpr = splitByKey
+		? sql`${tables.log.providerKeyId}`
+		: sql`NULL::text`;
 
 	// When ignore matchers apply, errors matching any matcher count as
 	// successes: the log stays in the sample (denominator) but no longer counts
@@ -9533,6 +9764,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 	const rows = await db.execute<{
 		used_model: string;
 		used_provider: string;
+		provider_key_id: string | null;
 		logs_count: string;
 		errors_count: string;
 		error_rate: string;
@@ -9541,6 +9773,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 		WITH recent_logs AS (
 			SELECT ${tables.log.usedModel} AS used_model,
 				${tables.log.usedProvider} AS used_provider,
+				${providerKeyExpr} AS provider_key_id,
 				${hasErrorExpr} AS has_error
 			FROM ${tables.log}
 			WHERE ${tables.log.createdAt} >= ${windowInterval}
@@ -9550,12 +9783,13 @@ admin.openapi(getUnstableMappings, async (c) => {
 		)
 		SELECT used_model,
 			used_provider,
+			provider_key_id,
 			COUNT(*) AS logs_count,
 			COUNT(*) FILTER (WHERE has_error) AS errors_count,
 			COUNT(*) FILTER (WHERE has_error)::float / COUNT(*) AS error_rate,
 			(SELECT COUNT(*) FROM recent_logs) AS sampled_logs
 		FROM recent_logs
-		GROUP BY used_model, used_provider
+		GROUP BY used_model, used_provider, provider_key_id
 		HAVING COUNT(*) FILTER (WHERE has_error) > 0
 		ORDER BY error_rate DESC, errors_count DESC
 		LIMIT ${limit}
@@ -9571,18 +9805,54 @@ admin.openapi(getUnstableMappings, async (c) => {
 			: [];
 	const providerNameMap = new Map(providerRows.map((p) => [p.id, p.name]));
 
+	// The key rows behind the split, for the label an operator can relate back
+	// to the credentials pages: the note when one is set, the mask otherwise.
+	const providerKeyIds = [
+		...new Set(
+			resultRows
+				.map((r) => r.provider_key_id)
+				.filter((id): id is string => id !== null),
+		),
+	];
+	const providerKeyRows =
+		providerKeyIds.length > 0
+			? await db
+					.select({
+						id: tables.providerKey.id,
+						comment: tables.providerKey.comment,
+						tokenMasked: tables.providerKey.tokenMasked,
+						// Legacy pre-encryption rows still carry plaintext here; it is
+						// selected only to compute the mask below and must never reach
+						// the response.
+						legacyToken: tables.providerKey.token,
+						managed: tables.providerKey.managed,
+					})
+					.from(tables.providerKey)
+					.where(inArray(tables.providerKey.id, providerKeyIds))
+			: [];
+	const providerKeyMap = new Map(providerKeyRows.map((k) => [k.id, k]));
+
 	const sampledLogs =
 		resultRows.length > 0 ? Number(resultRows[0].sampled_logs) : 0;
 
 	return c.json({
 		mappings: resultRows.map((r) => {
 			const { modelId, region } = parseUsedModel(r.used_model, r.used_provider);
+			const keyRow = r.provider_key_id
+				? providerKeyMap.get(r.provider_key_id)
+				: undefined;
 			return {
 				modelId,
 				region,
 				usedModel: r.used_model,
 				providerId: r.used_provider,
 				providerName: providerNameMap.get(r.used_provider) ?? r.used_provider,
+				providerKeyId: r.provider_key_id,
+				providerKeyLabel: keyRow
+					? keyRow.comment?.trim() ||
+						(keyRow.tokenMasked ?? maskToken(keyRow.legacyToken ?? "", 6))
+					: null,
+				providerKeyManaged: keyRow ? keyRow.managed : null,
 				logsCount: Number(r.logs_count),
 				errorsCount: Number(r.errors_count),
 				errorRate: Number(r.error_rate),
@@ -9593,6 +9863,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 		logLimit,
 		includeRetried,
 		ignoreExpected,
+		splitByKey,
 		ignoredMatcherCount: ignoredMatchers.length,
 	});
 });
@@ -9635,6 +9906,13 @@ const getUnstableMappingErrors = createRoute({
 				.max(UNSTABLE_MAPPINGS_MAX_LOG_LIMIT)
 				.optional(),
 			ignoreExpected: z.enum(["true", "false"]).optional(),
+			/**
+			 * Narrows the sample to one provider key, mirroring a row of the
+			 * key-split ranking. The literal `__unattributed__` selects logs with
+			 * no key at all (env-var credentials, or failures that never resolved
+			 * one).
+			 */
+			providerKeyId: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -9651,12 +9929,25 @@ const getUnstableMappingErrors = createRoute({
 });
 
 admin.openapi(getUnstableMappingErrors, async (c) => {
-	const { model, provider, includeRetried, window, logLimit, ignoreExpected } =
-		c.req.valid("query");
+	const {
+		model,
+		provider,
+		includeRetried,
+		window,
+		logLimit,
+		ignoreExpected,
+		providerKeyId,
+	} = c.req.valid("query");
 	const sampleLimit = logLimit ?? UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT;
 	const retriedClause =
 		includeRetried === "true" ? sql`` : unstableMappingsNotRetriedClause;
 	const { interval: windowInterval } = resolveUnstableMappingsWindow(window);
+	const providerKeyClause =
+		providerKeyId === undefined
+			? sql``
+			: providerKeyId === "__unattributed__"
+				? sql`AND ${tables.log.providerKeyId} IS NULL`
+				: sql`AND ${tables.log.providerKeyId} = ${providerKeyId}`;
 
 	// Mirror the ranking view: drop errors matching an ignore matcher so the
 	// drilldown shows the same errors that counted against the mapping.
@@ -9686,6 +9977,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 				AND ${tables.log.usedModel} = ${model}
 				AND ${tables.log.usedProvider} = ${provider}
 				AND ${tables.log.createdAt} >= ${windowInterval}
+				${providerKeyClause}
 				${retriedClause}
 				${ignoredClause}
 			ORDER BY ${tables.log.createdAt} DESC
@@ -11448,6 +11740,7 @@ const devpassSubscriberSchema = z.object({
 	ownerUserId: z.string().nullable(),
 	ownerName: z.string().nullable(),
 	ownerEmail: z.string().nullable(),
+	ownerUsername: z.string().nullable(),
 	tier: devpassTierSchema,
 	pendingTier: devpassTierSchema.nullable(),
 	status: devpassStatusSchema,
@@ -11464,6 +11757,18 @@ const devpassSubscriberSchema = z.object({
 	cancelled: z.boolean(),
 	mrr: z.number(),
 	realCost: z.number(),
+	// PAYG overflow state (opt-in): overflow usage is funded by the org's own
+	// credit top-ups, so it is split out of the plan-margin math below.
+	paygEnabled: z.boolean(),
+	paygBalance: z.string(),
+	autoTopUpEnabled: z.boolean(),
+	// All-time gross `credit_topup` dollars charged (Stripe amount incl fees).
+	allTimeTopUps: z.number(),
+	// Cycle cost paid from the org's own credits rather than the plan pool:
+	// realCost minus the pool draw (devPlanCreditsUsed), floored at 0.
+	cycleOverflowCost: z.number(),
+	// Plan economics only: tier price minus the pool-funded share of realCost;
+	// overflow cost is excluded because its funding (top-ups) is not plan revenue.
 	margin: z.number(),
 	marginPct: z.number().nullable(),
 	allTimeRevenue: z.number(),
@@ -11493,6 +11798,16 @@ const devpassKpisSchema = z.object({
 	refundedAmountThisMonth: z.number(),
 	resetPassesSold: z.number(),
 	resetPassRevenue: z.number(),
+	// PAYG overflow adoption + monetization across active subscribers.
+	paygOptedIn: z.number(),
+	// Sum of credits balances held by active subscribers (deferred revenue —
+	// top-ups charged but not yet spent on overflow usage).
+	paygBalanceHeld: z.number(),
+	topupRevenueThisMonth: z.number(),
+	topupRevenueAllTime: z.number(),
+	// Cycle cost across the universe that was paid from org credit balances
+	// (not the plan pools); already excluded from totalMargin.
+	totalOverflowCostCycle: z.number(),
 	weightedAvgUtilization: z.number(),
 	totalRealCostCycle: z.number(),
 	totalMrrCycle: z.number(),
@@ -11521,6 +11836,8 @@ const devpassSortBySchema = z.enum([
 	"margin",
 	"mrr",
 	"creditsUsed",
+	"paygBalance",
+	"allTimeTopUps",
 	"allTimeRevenue",
 	"allTimeCost",
 	"allTimeMargin",
@@ -11670,6 +11987,9 @@ const devpassTimeseriesPointSchema = z.object({
 	date: z.string(),
 	revenue: z.number(),
 	rawRevenue: z.number(),
+	// PAYG overflow top-ups that day (net of top-up refunds). Counted into
+	// margin because `cost` includes the overflow usage they fund.
+	topupRevenue: z.number(),
 	cost: z.number(),
 	margin: z.number(),
 });
@@ -11679,6 +11999,7 @@ const devpassTimeseriesSchema = z.object({
 	totals: z.object({
 		revenue: z.number(),
 		rawRevenue: z.number(),
+		topupRevenue: z.number(),
 		cost: z.number(),
 		margin: z.number(),
 	}),
@@ -11705,6 +12026,55 @@ const getDevpassTimeseries = createRoute({
 				},
 			},
 			description: "DevPass revenue/cost/margin per day.",
+		},
+	},
+});
+
+// Standalone PAYG overflow stats: answers "how much $ did DevPass top-ups
+// make" without paying for the full subscriber-list endpoint. Revenue is the
+// gross Stripe `amount` (incl processing fees) of `credit_topup` purchases on
+// devpass orgs; refunds are `credit_refund` rows whose original transaction is
+// such a top-up; net = gross − refunds.
+const devpassTopupWindowSchema = z.object({
+	gross: z.number(),
+	refunds: z.number(),
+	net: z.number(),
+});
+
+const devpassPaygStatsSchema = z.object({
+	// Active subscribers with the overflow opt-in.
+	paygOptedIn: z.number(),
+	// Credits balances held by active subscribers (deferred revenue).
+	paygBalanceHeld: z.number(),
+	// Cycle cost across active subscribers paid from org credits, not plans.
+	totalOverflowCostCycle: z.number(),
+	topups: z.object({
+		thisMonth: devpassTopupWindowSchema,
+		allTime: devpassTopupWindowSchema,
+		// Present when from/to was supplied.
+		range: devpassTopupWindowSchema
+			.extend({ from: z.string(), to: z.string() })
+			.nullable(),
+	}),
+});
+
+const getDevpassPaygStats = createRoute({
+	method: "get",
+	path: "/devpass/payg",
+	request: {
+		query: z.object({
+			from: z.string().optional(),
+			to: z.string().optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: devpassPaygStatsSchema.openapi({}),
+				},
+			},
+			description: "DevPass PAYG overflow adoption and top-up revenue.",
 		},
 	},
 });
@@ -11791,12 +12161,14 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
 	);
 
-	// Subquery: real provider cost in current cycle, per org
+	// Subquery: real provider cost in current cycle, per org. Credits-mode cost
+	// only: BYOK ("api-keys") usage is paid by the customer's own provider key,
+	// so it is not a cost we bear and must not depress the margin.
 	const realCostSub = db
 		.select({
 			organizationId: tables.project.organizationId,
 			realCost:
-				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`.as(
+				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`.as(
 					"real_cost",
 				),
 		})
@@ -11868,6 +12240,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			userId: tables.user.id,
 			userName: tables.user.name,
 			userEmail: tables.user.email,
+			userUsername: tables.user.username,
 		})
 		.from(tables.userOrganization)
 		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
@@ -11883,7 +12256,8 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 	const allTimeCostSub = db
 		.select({
 			organizationId: tables.project.organizationId,
-			cost: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`.as(
+			// Credits-mode cost only — BYOK usage is not a cost we bear.
+			cost: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`.as(
 				"all_time_cost",
 			),
 		})
@@ -11971,14 +12345,53 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			and(
 				eq(tables.transaction.type, "credit_refund"),
 				eq(tables.transaction.status, "completed"),
-				inArray(allTimeRefundOriginalTx.type, [
-					...DEV_PLAN_TX_TYPES,
-					...LEGACY_DEV_PLAN_TX_TYPES,
-				]),
+				or(
+					inArray(allTimeRefundOriginalTx.type, [
+						...DEV_PLAN_TX_TYPES,
+						...LEGACY_DEV_PLAN_TX_TYPES,
+					]),
+					// PAYG overflow top-up refunds net out of all-time revenue,
+					// mirroring the top-up subquery below on the revenue side —
+					// so they are restricted to the same rows that subquery sums.
+					refundsCountedTopupFilter(
+						tables.transaction,
+						allTimeRefundOriginalTx,
+					),
+				)!,
 			),
 		)
 		.groupBy(tables.transaction.organizationId)
 		.as("all_time_refund_sub");
+
+	// All-time PAYG overflow top-ups per org: gross `credit_topup` dollars
+	// charged (Stripe `amount`, incl processing fees). Cash basis like the
+	// other revenue splits — a top-up is revenue when charged, with the unspent
+	// remainder visible separately as the org's credits balance.
+	const allTimeTopupsSub = db
+		.select({
+			organizationId: tables.transaction.organizationId,
+			topups:
+				sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"all_time_topups",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			and(
+				eq(tables.transaction.organizationId, tables.organization.id),
+				eq(tables.organization.kind, "devpass"),
+			),
+		)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.transaction.type, "credit_topup"),
+				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+			),
+		)
+		.groupBy(tables.transaction.organizationId)
+		.as("all_time_topups_sub");
 
 	const tierPriceExpr = sql<number>`CASE
 		WHEN ${tables.organization.devPlan} = 'lite' THEN ${DEV_PLAN_PRICES.lite}
@@ -11995,10 +12408,22 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 	END`;
 
 	const realCostExpr = sql<number>`COALESCE(CAST(${realCostSub.realCost} AS NUMERIC), 0)`;
-	const marginExpr = sql<number>`(${tierPriceExpr}) - COALESCE(CAST(${realCostSub.realCost} AS NUMERIC), 0)`;
+	// Cycle cost paid from the org's own credits (PAYG overflow) rather than
+	// the plan pool. The pool draw this cycle IS devPlanCreditsUsed (the worker
+	// increments it only for pool-funded usage, and renewal resets it together
+	// with the cycle window realCost is scoped to), so anything above it hit
+	// the org's `credits` balance.
+	const overflowCostExpr = sql<number>`GREATEST((${realCostExpr}) - CAST(${tables.organization.devPlanCreditsUsed} AS NUMERIC), 0)`;
+	// Plan economics only: overflow cost is funded ~1:1 by the org's own
+	// top-ups, so counting it against the tier price would understate margin.
+	const marginExpr = sql<number>`(${tierPriceExpr}) - ((${realCostExpr}) - (${overflowCostExpr}))`;
 
 	const allTimeCostExpr = sql<number>`COALESCE(CAST(${allTimeCostSub.cost} AS NUMERIC), 0)`;
-	const allTimeRevenueExpr = sql<number>`(COALESCE(CAST(${allTimeRevenueSub.revenue} AS NUMERIC), 0) - COALESCE(CAST(${allTimeRefundSub.refund} AS NUMERIC), 0))`;
+	const allTimeTopupsExpr = sql<number>`COALESCE(CAST(${allTimeTopupsSub.topups} AS NUMERIC), 0)`;
+	// Plan payments + PAYG top-ups, net of refunds against either. allTimeCost
+	// includes overflow usage, so the top-ups that funded it must be counted
+	// here for allTimeMargin to reconcile.
+	const allTimeRevenueExpr = sql<number>`(COALESCE(CAST(${allTimeRevenueSub.revenue} AS NUMERIC), 0) + (${allTimeTopupsExpr}) - COALESCE(CAST(${allTimeRefundSub.refund} AS NUMERIC), 0))`;
 	const allTimeMarginExpr = sql<number>`(${allTimeRevenueExpr}) - (${allTimeCostExpr})`;
 
 	const conditions = [];
@@ -12072,6 +12497,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 				sql`LOWER(${tables.organization.billingEmail}) LIKE ${`%${searchLower}%`}`,
 				sql`${tables.organization.id} LIKE ${`%${search}%`}`,
 				sql`LOWER(${ownerSub.userEmail}) LIKE ${`%${searchLower}%`}`,
+				sql`LOWER(${ownerSub.userUsername}) LIKE ${`%${searchLower}%`}`,
 			)!,
 		);
 	}
@@ -12092,6 +12518,8 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		margin: sql`${marginExpr}`,
 		mrr: sql`${tierPriceExpr}`,
 		creditsUsed: sql`CAST(${tables.organization.devPlanCreditsUsed} AS NUMERIC)`,
+		paygBalance: sql`CAST(${tables.organization.credits} AS NUMERIC)`,
+		allTimeTopUps: sql`${allTimeTopupsExpr}`,
 		allTimeRevenue: sql`${allTimeRevenueExpr}`,
 		allTimeCost: sql`${allTimeCostExpr}`,
 		allTimeMargin: sql`${allTimeMarginExpr}`,
@@ -12117,6 +12545,11 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			utilizationPct: utilizationExpr,
 			mrr: tierPriceExpr,
 			realCost: realCostExpr,
+			paygEnabled: tables.organization.devPlanPaygEnabled,
+			paygBalance: tables.organization.credits,
+			autoTopUpEnabled: tables.organization.autoTopUpEnabled,
+			allTimeTopUps: allTimeTopupsExpr,
+			cycleOverflowCost: overflowCostExpr,
 			margin: marginExpr,
 			allTimeRevenue: allTimeRevenueExpr,
 			allTimeCost: allTimeCostExpr,
@@ -12127,6 +12560,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			ownerUserId: ownerSub.userId,
 			ownerName: ownerSub.userName,
 			ownerEmail: ownerSub.userEmail,
+			ownerUsername: ownerSub.userUsername,
 		})
 		.from(tables.organization)
 		.leftJoin(
@@ -12157,6 +12591,10 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		.leftJoin(
 			allTimeRefundSub,
 			eq(tables.organization.id, allTimeRefundSub.organizationId),
+		)
+		.leftJoin(
+			allTimeTopupsSub,
+			eq(tables.organization.id, allTimeTopupsSub.organizationId),
 		);
 
 	const rows = await baseSelect
@@ -12405,6 +12843,9 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		.select({
 			totalCost: sql<string>`COALESCE(SUM(CAST(${realCostSub.realCost} AS NUMERIC)), 0)`,
 			totalMrr: sql<string>`COALESCE(SUM(${tierPriceExpr}), 0)`,
+			totalOverflow: sql<string>`COALESCE(SUM(${overflowCostExpr}), 0)`,
+			paygOptedIn: sql<number>`COUNT(*) FILTER (WHERE ${tables.organization.devPlanPaygEnabled})`,
+			paygBalanceHeld: sql<string>`COALESCE(SUM(CAST(${tables.organization.credits} AS NUMERIC)), 0)`,
 		})
 		.from(tables.organization)
 		.leftJoin(
@@ -12423,7 +12864,35 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		);
 	const totalRealCostCycle = Number(universeRow?.totalCost ?? 0);
 	const totalMrrCycle = Number(universeRow?.totalMrr ?? 0);
-	const totalMargin = totalMrrCycle - totalRealCostCycle;
+	const totalOverflowCostCycle = Number(universeRow?.totalOverflow ?? 0);
+	const paygOptedIn = Number(universeRow?.paygOptedIn ?? 0);
+	const paygBalanceHeld = Number(universeRow?.paygBalanceHeld ?? 0);
+	// Plan economics: overflow cost is funded by the orgs' own top-ups, so it
+	// doesn't count against plan MRR.
+	const totalMargin =
+		totalMrrCycle - (totalRealCostCycle - totalOverflowCostCycle);
+
+	// PAYG overflow top-up revenue on devpass orgs (gross Stripe amount).
+	const [topupRevenueRow] = await db
+		.select({
+			allTime: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+			thisMonth: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)) FILTER (WHERE ${tables.transaction.createdAt} >= ${monthStart}), 0)`,
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.type, "credit_topup"),
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "devpass"),
+				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+			),
+		);
+	const topupRevenueAllTime = Number(topupRevenueRow?.allTime ?? 0);
+	const topupRevenueThisMonth = Number(topupRevenueRow?.thisMonth ?? 0);
 
 	const subscribers = rows.map((row) => {
 		const tier = row.tier;
@@ -12469,6 +12938,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			ownerUserId: row.ownerUserId ?? null,
 			ownerName: row.ownerName ?? null,
 			ownerEmail: row.ownerEmail ?? null,
+			ownerUsername: row.ownerUsername ?? null,
 			tier,
 			pendingTier: row.pendingTier ?? null,
 			status,
@@ -12485,6 +12955,11 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			cancelled,
 			mrr: mrrNum,
 			realCost: Number(row.realCost ?? 0),
+			paygEnabled: row.paygEnabled,
+			paygBalance: String(row.paygBalance ?? "0"),
+			autoTopUpEnabled: row.autoTopUpEnabled,
+			allTimeTopUps: Number(row.allTimeTopUps ?? 0),
+			cycleOverflowCost: Number(row.cycleOverflowCost ?? 0),
 			margin: marginNum,
 			marginPct,
 			allTimeRevenue: Number(row.allTimeRevenue ?? 0),
@@ -12519,6 +12994,11 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			refundedAmountThisMonth,
 			resetPassesSold,
 			resetPassRevenue,
+			paygOptedIn,
+			paygBalanceHeld,
+			topupRevenueThisMonth,
+			topupRevenueAllTime,
+			totalOverflowCostCycle,
 			weightedAvgUtilization,
 			totalRealCostCycle,
 			totalMrrCycle,
@@ -12665,6 +13145,67 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
 		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
 
+	// PAYG overflow top-ups per day (gross), net of top-up refunds below.
+	const topupsPerDay = await db
+		.select({
+			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
+			total:
+				sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.type, "credit_topup"),
+				eq(tables.transaction.status, "completed"),
+				gte(tables.transaction.createdAt, startDate),
+				lte(tables.transaction.createdAt, endDate),
+				eq(tables.organization.kind, "devpass"),
+				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+			),
+		)
+		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
+		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
+
+	const topupRefundOriginalTx = aliasedTable(
+		tables.transaction,
+		"topup_refund_original_tx",
+	);
+	const topupRefundsPerDay = await db
+		.select({
+			date: sql<string>`DATE(${tables.transaction.createdAt})`.as("date"),
+			total:
+				sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			topupRefundOriginalTx,
+			eq(tables.transaction.relatedTransactionId, topupRefundOriginalTx.id),
+		)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.type, "credit_refund"),
+				eq(tables.transaction.status, "completed"),
+				gte(tables.transaction.createdAt, startDate),
+				lte(tables.transaction.createdAt, endDate),
+				eq(tables.organization.kind, "devpass"),
+				refundsCountedTopupFilter(tables.transaction, topupRefundOriginalTx),
+			),
+		)
+		.groupBy(sql`DATE(${tables.transaction.createdAt})`)
+		.orderBy(asc(sql`DATE(${tables.transaction.createdAt})`));
+
 	// Provider cost per day for projects belonging to DevPass orgs
 	// (kind = 'devpass'), which is stable across the subscription lifecycle so
 	// churned orgs (devPlan = 'none') are still included without reconstructing
@@ -12672,8 +13213,9 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 	const costPerDay = await db
 		.select({
 			date: sql<string>`DATE(${projectHourlyStats.hourTimestamp})`.as("date"),
+			// Credits-mode cost only — BYOK usage is not a cost we bear.
 			total:
-				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`.as(
+				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`.as(
 					"total",
 				),
 		})
@@ -12704,6 +13246,14 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 	for (const row of refundsPerDay) {
 		refundMap.set(row.date, Number(row.total));
 	}
+	const topupMap = new Map<string, number>();
+	for (const row of topupsPerDay) {
+		topupMap.set(row.date, Number(row.total));
+	}
+	const topupRefundMap = new Map<string, number>();
+	for (const row of topupRefundsPerDay) {
+		topupRefundMap.set(row.date, Number(row.total));
+	}
 	const costMap = new Map<string, number>();
 	for (const row of costPerDay) {
 		costMap.set(row.date, Number(row.total));
@@ -12713,6 +13263,7 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 		date: string;
 		revenue: number;
 		rawRevenue: number;
+		topupRevenue: number;
 		cost: number;
 		margin: number;
 	}> = [];
@@ -12732,19 +13283,25 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 
 	let totalRevenue = 0;
 	let totalRawRevenue = 0;
+	let totalTopupRevenue = 0;
 	let totalCost = 0;
 
 	// `rawRevenue` is the gross amount collected from dev plan payments that
-	// day; `revenue` nets refunds out of it. Margin stays net-based.
+	// day; `revenue` nets refunds out of it. `topupRevenue` is PAYG overflow
+	// top-ups net of their refunds — counted into margin because `cost`
+	// includes the overflow usage those top-ups fund. Margin stays net-based.
 	while (cursor.getTime() <= lastDay) {
 		const iso = cursor.toISOString().slice(0, 10);
 		const rawRevenue = revenueMap.get(iso) ?? 0;
 		const revenue = rawRevenue - (refundMap.get(iso) ?? 0);
+		const topupRevenue =
+			(topupMap.get(iso) ?? 0) - (topupRefundMap.get(iso) ?? 0);
 		const cost = costMap.get(iso) ?? 0;
-		const margin = revenue - cost;
-		data.push({ date: iso, revenue, rawRevenue, cost, margin });
+		const margin = revenue + topupRevenue - cost;
+		data.push({ date: iso, revenue, rawRevenue, topupRevenue, cost, margin });
 		totalRevenue += revenue;
 		totalRawRevenue += rawRevenue;
+		totalTopupRevenue += topupRevenue;
 		totalCost += cost;
 		cursor.setUTCDate(cursor.getUTCDate() + 1);
 	}
@@ -12754,12 +13311,165 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 		totals: {
 			revenue: totalRevenue,
 			rawRevenue: totalRawRevenue,
+			topupRevenue: totalTopupRevenue,
 			cost: totalCost,
-			margin: totalRevenue - totalCost,
+			margin: totalRevenue + totalTopupRevenue - totalCost,
 		},
 		range: {
 			from: startDate.toISOString().slice(0, 10),
 			to: endDate.toISOString().slice(0, 10),
+		},
+	});
+});
+
+admin.openapi(getDevpassPaygStats, async (c) => {
+	const query = c.req.valid("query");
+	const now = new Date();
+	const monthStart = new Date(
+		Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+	);
+
+	const hasRange = Boolean(query.from && query.to);
+	const rangeStart = hasRange ? new Date(query.from + "T00:00:00.000Z") : null;
+	const rangeEnd = hasRange ? new Date(query.to + "T23:59:59.999Z") : null;
+
+	// Adoption, balances, and cycle overflow across active subscribers.
+	// Mirrors the KPI strip on /admin/devpass (same universe filter and
+	// overflow derivation) without the rest of that endpoint's queries.
+	const paygRealCostSub = db
+		.select({
+			organizationId: tables.project.organizationId,
+			realCost:
+				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`.as(
+					"payg_real_cost",
+				),
+		})
+		.from(projectHourlyStats)
+		.innerJoin(
+			tables.project,
+			eq(projectHourlyStats.projectId, tables.project.id),
+		)
+		.innerJoin(
+			tables.organization,
+			and(
+				eq(tables.project.organizationId, tables.organization.id),
+				isNotNull(tables.organization.devPlanBillingCycleStart),
+				sql`${projectHourlyStats.hourTimestamp} >= ${tables.organization.devPlanBillingCycleStart}`,
+			),
+		)
+		.groupBy(tables.project.organizationId)
+		.as("payg_real_cost_sub");
+
+	const paygOverflowExpr = sql<string>`GREATEST(COALESCE(CAST(${paygRealCostSub.realCost} AS NUMERIC), 0) - CAST(${tables.organization.devPlanCreditsUsed} AS NUMERIC), 0)`;
+
+	const [universeRow] = await db
+		.select({
+			paygOptedIn: sql<number>`COUNT(*) FILTER (WHERE ${tables.organization.devPlanPaygEnabled})`,
+			paygBalanceHeld: sql<string>`COALESCE(SUM(CAST(${tables.organization.credits} AS NUMERIC)), 0)`,
+			totalOverflow: sql<string>`COALESCE(SUM(${paygOverflowExpr}), 0)`,
+		})
+		.from(tables.organization)
+		.leftJoin(
+			paygRealCostSub,
+			eq(tables.organization.id, paygRealCostSub.organizationId),
+		)
+		.where(
+			and(
+				eq(tables.organization.kind, "devpass"),
+				ne(tables.organization.devPlan, "none"),
+				or(
+					isNull(tables.organization.devPlanExpiresAt),
+					sql`${tables.organization.devPlanExpiresAt} > NOW()`,
+				)!,
+			),
+		);
+
+	// Gross top-ups by window. Refund reversals are negative same-type rows
+	// and excluded by the positive-amount filter; explicit refunds are netted
+	// from the query below instead.
+	const amountExpr = sql`CAST(${tables.transaction.amount} AS NUMERIC)`;
+	const [grossRow] = await db
+		.select({
+			allTime: sql<string>`COALESCE(SUM(${amountExpr}), 0)`,
+			thisMonth: sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${monthStart}), 0)`,
+			range: hasRange
+				? sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${rangeStart} AND ${tables.transaction.createdAt} <= ${rangeEnd}), 0)`
+				: sql<string>`0`,
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.type, "credit_topup"),
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "devpass"),
+				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+			),
+		);
+
+	const paygRefundOriginalTx = aliasedTable(
+		tables.transaction,
+		"payg_refund_original_tx",
+	);
+	const [refundRow] = await db
+		.select({
+			allTime: sql<string>`COALESCE(SUM(${amountExpr}), 0)`,
+			thisMonth: sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${monthStart}), 0)`,
+			range: hasRange
+				? sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${rangeStart} AND ${tables.transaction.createdAt} <= ${rangeEnd}), 0)`
+				: sql<string>`0`,
+		})
+		.from(tables.transaction)
+		.innerJoin(
+			paygRefundOriginalTx,
+			eq(tables.transaction.relatedTransactionId, paygRefundOriginalTx.id),
+		)
+		.innerJoin(
+			tables.organization,
+			eq(tables.transaction.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				eq(tables.transaction.type, "credit_refund"),
+				eq(tables.transaction.status, "completed"),
+				eq(tables.organization.kind, "devpass"),
+				refundsCountedTopupFilter(tables.transaction, paygRefundOriginalTx),
+			),
+		);
+
+	const window = (gross: number, refunds: number) => ({
+		gross,
+		refunds,
+		net: gross - refunds,
+	});
+
+	return c.json({
+		paygOptedIn: Number(universeRow?.paygOptedIn ?? 0),
+		paygBalanceHeld: Number(universeRow?.paygBalanceHeld ?? 0),
+		totalOverflowCostCycle: Number(universeRow?.totalOverflow ?? 0),
+		topups: {
+			thisMonth: window(
+				Number(grossRow?.thisMonth ?? 0),
+				Number(refundRow?.thisMonth ?? 0),
+			),
+			allTime: window(
+				Number(grossRow?.allTime ?? 0),
+				Number(refundRow?.allTime ?? 0),
+			),
+			range:
+				hasRange && rangeStart && rangeEnd
+					? {
+							from: rangeStart.toISOString().slice(0, 10),
+							to: rangeEnd.toISOString().slice(0, 10),
+							...window(
+								Number(grossRow?.range ?? 0),
+								Number(refundRow?.range ?? 0),
+							),
+						}
+					: null,
 		},
 	});
 });
@@ -12936,6 +13646,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 			userId: tables.user.id,
 			userName: tables.user.name,
 			userEmail: tables.user.email,
+			userUsername: tables.user.username,
 		})
 		.from(tables.userOrganization)
 		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
@@ -12984,7 +13695,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 	const [realCostRow] = org.devPlanBillingCycleStart
 		? await db
 				.select({
-					total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`,
+					total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`,
 				})
 				.from(projectHourlyStats)
 				.innerJoin(
@@ -13001,7 +13712,14 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 
 	const realCost = Number(realCostRow?.total ?? 0);
 	const mrr = tierPriceOf(org.devPlan);
-	const margin = mrr - realCost;
+	// Cycle cost above the plan-pool draw was paid from the org's own credits
+	// (PAYG overflow) and is funded by its top-ups, so plan margin only counts
+	// the pool-funded share. Mirrors the list endpoint's overflowCostExpr.
+	const cycleOverflowCost = Math.max(
+		0,
+		realCost - Number(org.devPlanCreditsUsed ?? 0),
+	);
+	const margin = mrr - (realCost - cycleOverflowCost);
 
 	// All-time figures: never windowed on the (resettable) billing cycle and
 	// never gated on plan status, so a blocked/expired/renewed org still shows
@@ -13016,7 +13734,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 			: [...DEV_PLAN_TX_TYPES];
 	const [allTimeCostRow] = await db
 		.select({
-			total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`,
+			total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`,
 		})
 		.from(projectHourlyStats)
 		.innerJoin(
@@ -13043,6 +13761,24 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 			),
 		);
 
+	// PAYG overflow top-ups (gross Stripe amount, cash basis) — counted into
+	// all-time revenue because allTimeCost includes the overflow usage they
+	// funded. Mirrors the list endpoint's allTimeTopupsSub.
+	const [allTimeTopupsRow] = await db
+		.select({
+			total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.organizationId, orgId),
+				eq(tables.transaction.type, "credit_topup"),
+				eq(tables.transaction.status, "completed"),
+				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+			),
+		);
+	const allTimeTopUps = Number(allTimeTopupsRow?.total ?? 0);
+
 	const detailRefundOriginalTx = aliasedTable(
 		tables.transaction,
 		"detail_refund_original_tx",
@@ -13061,12 +13797,18 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 				eq(tables.transaction.organizationId, orgId),
 				eq(tables.transaction.type, "credit_refund"),
 				eq(tables.transaction.status, "completed"),
-				inArray(detailRefundOriginalTx.type, allTimeRevenueTypes),
+				or(
+					inArray(detailRefundOriginalTx.type, allTimeRevenueTypes),
+					// Top-up refunds net out of revenue like the top-ups counted
+					// in, so they match the same rows allTimeTopUps sums.
+					refundsCountedTopupFilter(tables.transaction, detailRefundOriginalTx),
+				)!,
 			),
 		);
 
 	const allTimeRevenue =
-		Number(allTimeRevenueRow?.total ?? 0) -
+		Number(allTimeRevenueRow?.total ?? 0) +
+		allTimeTopUps -
 		Number(allTimeRefundRow?.total ?? 0);
 	const allTimeMargin = allTimeRevenue - allTimeCost;
 
@@ -13113,6 +13855,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		ownerUserId: owner[0]?.userId ?? null,
 		ownerName: owner[0]?.userName ?? null,
 		ownerEmail: owner[0]?.userEmail ?? null,
+		ownerUsername: owner[0]?.userUsername ?? null,
 		tier: org.devPlan,
 		pendingTier: org.devPlanPendingTier ?? null,
 		status,
@@ -13133,6 +13876,11 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		cancelled: org.devPlanCancelled,
 		mrr,
 		realCost,
+		paygEnabled: org.devPlanPaygEnabled,
+		paygBalance: String(org.credits ?? "0"),
+		autoTopUpEnabled: org.autoTopUpEnabled,
+		allTimeTopUps,
+		cycleOverflowCost,
 		margin,
 		marginPct,
 		allTimeRevenue,
@@ -13173,6 +13921,8 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 					"dev_plan_renewal",
 					"dev_plan_reset_pass",
 					"dev_plan_reset_pass_gift",
+					// PAYG overflow top-ups are DevPass billing events too.
+					"credit_topup",
 					// Legacy types — pre dev_plan_* rename, still in DB for older
 					// dev plan subscribers; without these their history reads as empty.
 					"subscription_start",
@@ -13603,12 +14353,14 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 		Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
 	);
 
-	// Subquery: real provider cost in current cycle, per org
+	// Subquery: real provider cost in current cycle, per org. Credits-mode cost
+	// only: BYOK ("api-keys") usage is paid by the customer's own provider key,
+	// so it is not a cost we bear and must not depress the margin.
 	const realCostSub = db
 		.select({
 			organizationId: tables.project.organizationId,
 			realCost:
-				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`.as(
+				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`.as(
 					"real_cost",
 				),
 		})
@@ -13684,7 +14436,8 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 	const allTimeCostSub = db
 		.select({
 			organizationId: tables.project.organizationId,
-			cost: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`.as(
+			// Credits-mode cost only — BYOK usage is not a cost we bear.
+			cost: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`.as(
 				"all_time_cost",
 			),
 		})
@@ -14341,8 +15094,9 @@ admin.openapi(getChatPlansTimeseries, async (c) => {
 	const costPerDay = await db
 		.select({
 			date: sql<string>`DATE(${projectHourlyStats.hourTimestamp})`.as("date"),
+			// Credits-mode cost only — BYOK usage is not a cost we bear.
 			total:
-				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`.as(
+				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`.as(
 					"total",
 				),
 		})
@@ -14655,7 +15409,7 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 	const [realCostRow] = org.chatPlanBillingCycleStart
 		? await db
 				.select({
-					total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`,
+					total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`,
 				})
 				.from(projectHourlyStats)
 				.innerJoin(
@@ -14679,7 +15433,7 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 
 	const [allTimeCostRow] = await db
 		.select({
-			total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.cost} AS NUMERIC)), 0)`,
+			total: sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.creditsCost} AS NUMERIC)), 0)`,
 		})
 		.from(projectHourlyStats)
 		.innerJoin(

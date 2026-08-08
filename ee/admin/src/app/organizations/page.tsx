@@ -412,6 +412,18 @@ export default async function OrganizationsPage({
 										{currencyFormatter.format(
 											parseFloat(org.totalSpent ?? "0"),
 										)}
+										{parseFloat(org.totalApiKeysSpent ?? "0") > 0 && (
+											<p className="text-xs">
+												{currencyFormatter.format(
+													parseFloat(org.totalCreditsSpent ?? "0"),
+												)}{" "}
+												credits •{" "}
+												{currencyFormatter.format(
+													parseFloat(org.totalApiKeysSpent ?? "0"),
+												)}{" "}
+												BYOK
+											</p>
+										)}
 									</TableCell>
 									<TableCell className="text-muted-foreground">
 										{formatDate(org.createdAt)}

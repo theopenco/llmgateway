@@ -147,9 +147,16 @@ export {
 	uniqueId,
 } from "./random.js";
 
+export {
+	getModelIdsByProvider,
+	getProviderModelIds,
+} from "./provider-model-ids.js";
+
 export { MARKETING_STATS, RUNWARE_PROMO } from "./marketing.js";
 
 export { isContentFilterErrorText } from "./content-filter.js";
+
+export { FAILURE_LABELS, failureLabel } from "./compliance-failure-labels.js";
 
 export {
 	MAX_BULK_BLOCK_ORGANIZATIONS,
@@ -200,6 +207,26 @@ export {
 	type RoutingTimeoutsConfig,
 	type RoutingWeightsConfig,
 } from "./routing-config.js";
+
+export {
+	isRoutingExclusionReason,
+	isRoutingSelectionReason,
+	ROUTING_EXCLUSION_REASON_LABELS,
+	ROUTING_EXCLUSION_REASON_MESSAGES,
+	ROUTING_EXCLUSION_REASONS,
+	ROUTING_SELECTION_KIND_LABELS,
+	ROUTING_SELECTION_KINDS,
+	ROUTING_SELECTION_REASON_LABELS,
+	ROUTING_SELECTION_REASONS,
+	routingExclusionReasonMessage,
+	routingSelectionKind,
+	type RoutingExclusionReason,
+	type RoutingSelectionKind,
+	type RoutingSelectionReason,
+	type ServiceTierMode,
+	toRoutingExclusionReason,
+	toRoutingSelectionReason,
+} from "./routing-telemetry.js";
 
 export {
 	assertSafeContentUrl,

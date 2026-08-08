@@ -1,10 +1,11 @@
 import { WebSocket } from "ws";
 
-import { getProviderEnvValue, type Provider } from "@llmgateway/models";
+import { getCredentialSetting } from "@/chat/tools/resolve-platform-credential.js";
 
 import { RealtimeConnectError } from "./errors.js";
 
 import type { RealtimePreflightResult } from "./preflight.js";
+import type { Provider } from "@llmgateway/models";
 import type { ClientRequest, IncomingMessage } from "node:http";
 
 const maxMessageBytes = () =>
@@ -30,10 +31,19 @@ export function resolveUpstreamTarget(
 ): UpstreamTarget {
 	const providerId = preflight.match.mapping.providerId as Provider;
 
+	// Base URL of the platform credential serving the session: the managed
+	// credential's own config when one is active, the provider's env var
+	// otherwise. BYOK base URLs are rejected in preflight.
+	const credentialBaseUrl = getCredentialSetting(
+		providerId,
+		"baseUrl",
+		preflight.managedKey,
+		{ configIndex: preflight.configIndex, variant: preflight.envVariant },
+	);
+
 	if (providerId === "google-ai-studio") {
 		const baseUrl =
-			getProviderEnvValue(providerId, "baseUrl", preflight.configIndex) ??
-			"https://generativelanguage.googleapis.com";
+			credentialBaseUrl ?? "https://generativelanguage.googleapis.com";
 		return {
 			url: `${baseUrl.replace(/^http/, "ws")}${GEMINI_LIVE_PATH}`,
 			headers: {
@@ -44,9 +54,7 @@ export function resolveUpstreamTarget(
 		};
 	}
 
-	const baseUrl =
-		getProviderEnvValue(providerId, "baseUrl", preflight.configIndex) ??
-		"https://api.openai.com";
+	const baseUrl = credentialBaseUrl ?? "https://api.openai.com";
 	return {
 		url: `${baseUrl.replace(/^http/, "ws")}/v1/realtime?model=${encodeURIComponent(preflight.match.mapping.externalId)}`,
 		headers: {

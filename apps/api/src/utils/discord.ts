@@ -98,12 +98,40 @@ export async function notifyUserSignup(
 	});
 }
 
-export async function notifyCreditsPurchased(
-	email: string,
-	name: string | null | undefined,
-	creditAmount: number,
-): Promise<void> {
-	const displayName = name ?? "Unknown";
+const creditTopUpSourceLabels = {
+	stripe_checkout: "Stripe Checkout",
+	payment_intent: "Saved card",
+	auto_topup: "Auto top-up",
+} as const;
+
+export type CreditTopUpSource = keyof typeof creditTopUpSourceLabels;
+
+export async function notifyCreditsPurchased(args: {
+	email?: string | null;
+	name?: string | null;
+	/** Credits bought, excluding any bonus — the amount the customer paid for. */
+	creditAmount: number;
+	bonusAmount?: number;
+	/** Total charged by Stripe, including platform and international card fees. */
+	grossAmount: number;
+	currency?: string;
+	organizationId: string;
+	organizationName?: string | null;
+	source: CreditTopUpSource;
+}): Promise<void> {
+	const {
+		email,
+		name,
+		creditAmount,
+		bonusAmount = 0,
+		grossAmount,
+		currency = "USD",
+		organizationId,
+		organizationName,
+		source,
+	} = args;
+
+	const fee = Math.max(0, grossAmount - creditAmount);
 
 	await sendDiscordNotification({
 		embeds: [
@@ -113,18 +141,49 @@ export async function notifyCreditsPurchased(
 				fields: [
 					{
 						name: "Email",
-						value: email,
+						value: email || "Unknown",
 						inline: true,
 					},
 					{
 						name: "Name",
-						value: displayName,
+						value: name ?? "Unknown",
 						inline: true,
 					},
 					{
 						name: "Credits",
-						value: `$${creditAmount.toFixed(2)}`,
+						value: formatAmount(creditAmount, currency),
 						inline: true,
+					},
+					...(bonusAmount > 0
+						? [
+								{
+									name: "Bonus",
+									value: formatAmount(bonusAmount, currency),
+									inline: true,
+								},
+							]
+						: []),
+					{
+						name: "Gross",
+						value: formatAmount(grossAmount, currency),
+						inline: true,
+					},
+					{
+						name: "Fee",
+						value: formatAmount(fee, currency),
+						inline: true,
+					},
+					{
+						name: "Source",
+						value: creditTopUpSourceLabels[source],
+						inline: true,
+					},
+					{
+						name: "Organization",
+						value: organizationName
+							? `${organizationName} (${organizationId})`
+							: organizationId,
+						inline: false,
 					},
 				],
 				timestamp: new Date().toISOString(),
@@ -623,6 +682,11 @@ export async function notifyChatPlanRenewed(
 export async function notifyUserAccountDeleted(
 	email: string,
 	name: string | null | undefined,
+	teardown?: {
+		closedOrganizations: number;
+		cancelledSubscriptions: number;
+		forfeitedCredits: string;
+	},
 ): Promise<void> {
 	const displayName = name ?? "Unknown";
 
@@ -634,6 +698,25 @@ export async function notifyUserAccountDeleted(
 				fields: [
 					{ name: "Email", value: email, inline: true },
 					{ name: "Name", value: displayName, inline: true },
+					...(teardown
+						? [
+								{
+									name: "Orgs Closed",
+									value: String(teardown.closedOrganizations),
+									inline: true,
+								},
+								{
+									name: "Subscriptions Cancelled",
+									value: String(teardown.cancelledSubscriptions),
+									inline: true,
+								},
+								{
+									name: "Credits Forfeited",
+									value: `$${teardown.forfeitedCredits}`,
+									inline: true,
+								},
+							]
+						: []),
 				],
 				timestamp: new Date().toISOString(),
 			},

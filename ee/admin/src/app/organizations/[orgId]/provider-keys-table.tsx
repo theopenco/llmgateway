@@ -1,3 +1,6 @@
+import { ProviderKeySpendCell } from "@/components/provider-key-spend-cell";
+import { ProviderKeySpendDialog } from "@/components/provider-key-spend-dialog";
+import { ProviderKeyStatusBadge } from "@/components/provider-key-status-badge";
 import { Badge } from "@/components/ui/badge";
 import {
 	Table,
@@ -35,15 +38,17 @@ export function ProviderKeysTable({
 						<TableHead>Name</TableHead>
 						<TableHead>Token</TableHead>
 						<TableHead>Base URL</TableHead>
+						<TableHead>Spend</TableHead>
 						<TableHead>Status</TableHead>
 						<TableHead>Created</TableHead>
+						<TableHead className="text-right">Usage</TableHead>
 					</TableRow>
 				</TableHeader>
 				<TableBody>
 					{providerKeys.length === 0 ? (
 						<TableRow>
 							<TableCell
-								colSpan={6}
+								colSpan={8}
 								className="h-24 text-center text-muted-foreground"
 							>
 								No provider keys found
@@ -60,15 +65,20 @@ export function ProviderKeysTable({
 								<TableCell className="max-w-[240px] truncate text-xs text-muted-foreground">
 									{key.baseUrl ?? "—"}
 								</TableCell>
+								<TableCell className="text-sm">
+									<ProviderKeySpendCell keyRow={key} />
+								</TableCell>
 								<TableCell>
-									<Badge
-										variant={key.status === "active" ? "secondary" : "outline"}
-									>
-										{key.status ?? "active"}
-									</Badge>
+									<ProviderKeyStatusBadge keyRow={key} />
 								</TableCell>
 								<TableCell className="text-muted-foreground">
 									{formatDate(key.createdAt)}
+								</TableCell>
+								<TableCell className="text-right">
+									<ProviderKeySpendDialog
+										providerKeyId={key.id}
+										label={key.name ?? key.provider}
+									/>
 								</TableCell>
 							</TableRow>
 						))

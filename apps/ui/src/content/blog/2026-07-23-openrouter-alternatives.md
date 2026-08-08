@@ -304,7 +304,7 @@ TrueFoundry ships an AI gateway as part of its broader ML platform, deployed Kub
 
 Older "OpenRouter alternatives" lists still recommend two products you should no longer adopt:
 
-- **Helicone** was acquired by Mintlify in March 2026 and is in maintenance mode. Fine if you already run it; the wrong choice for a new deployment.
+- **Helicone** was acquired by Mintlify in March 2026 and is in maintenance mode. Fine if you already run it; the wrong choice for a new deployment — see the [best Helicone alternatives](/blog/helicone-alternatives).
 - **Unify** shut down its LLM router and pivoted to AI agents. It's no longer a gateway.
 
 If a comparison article lists either as an active gateway, check its publish date.

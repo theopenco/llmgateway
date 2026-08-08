@@ -29,6 +29,10 @@
 			"types": "./dist/api-key-hash.d.ts",
 			"import": "./dist/api-key-hash.js"
 		},
+		"./mask-token": {
+			"types": "./dist/mask-token.d.ts",
+			"import": "./dist/mask-token.js"
+		},
 		"./random": {
 			"types": "./dist/random.d.ts",
 			"import": "./dist/random.js"
@@ -36,6 +40,10 @@
 		"./routing-config": {
 			"types": "./dist/routing-config.d.ts",
 			"import": "./dist/routing-config.js"
+		},
+		"./routing-telemetry": {
+			"types": "./dist/routing-telemetry.d.ts",
+			"import": "./dist/routing-telemetry.js"
 		},
 		"./url-safety-node": {
 			"types": "./dist/url-safety-node.d.ts",
@@ -82,6 +90,7 @@
 		"decimal.js": "10.5.0",
 		"embla-carousel-react": "8.6.0",
 		"lucide-react": "0.561.0",
+		"motion": "12.23.24",
 		"next": "16.2.12",
 		"next-themes": "^0.4.6",
 		"pretty-bytes": "7.1.0",

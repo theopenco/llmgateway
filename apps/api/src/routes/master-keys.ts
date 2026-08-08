@@ -2,14 +2,13 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { maskToken } from "@/lib/maskToken.js";
-
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, shortid, tables } from "@llmgateway/db";
 import {
 	getApiKeyFingerprint,
 	getMasterKeyPrefix,
 } from "@llmgateway/shared/api-key-hash";
+import { maskToken } from "@llmgateway/shared/mask-token";
 
 import type { ServerTypes } from "@/vars.js";
 

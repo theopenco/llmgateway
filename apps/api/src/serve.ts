@@ -25,7 +25,10 @@ const keepAliveTimeoutS = Number(process.env.KEEP_ALIVE_TIMEOUT_S) || 60;
 let sdk: NodeSDK | null = null;
 
 async function startServer() {
-	const port = Number(process.env.PORT) || 4002;
+	// API_PORT wins over PORT so a local worktree can pin api and gateway to
+	// different ports from one shared shell env (both services read PORT).
+	// Deployments only ever set PORT, so they are unaffected.
+	const port = Number(process.env.API_PORT || process.env.PORT) || 4002;
 
 	// Tag every DB query with the originating service for Cloud SQL Query Insights
 	setQueryTags({ application: "api" });

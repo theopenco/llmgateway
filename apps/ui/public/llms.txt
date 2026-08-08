@@ -5,6 +5,7 @@
 ## Key pages
 
 - [Models](https://llmgateway.io/models): Full catalog of supported LLMs with pricing, context windows, and capabilities.
+- [LLM Rankings](https://llmgateway.io/rankings): Which models developers actually run in production — live token volume, trends, and provider market share over 24h/7d/30d windows.
 - [Model release timeline](https://llmgateway.io/timeline): When each LLM was released by its provider and when it was added to LLM Gateway — a reference for AI model release dates (GPT, Claude, Gemini, Llama, Mistral, DeepSeek).
 - [Pricing](https://llmgateway.io/pricing): Per-token at provider rates. Pay-as-you-go credits carry a flat 5% platform fee; Bring-Your-Own-Keys is free; enterprise plans available.
 - [Pricing (machine-readable)](https://llmgateway.io/pricing.md): Plain-markdown pricing summary for AI agents.

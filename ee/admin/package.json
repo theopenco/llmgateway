@@ -9,7 +9,7 @@
 	],
 	"scripts": {
 		"build": "pnpm generate && tsc && next build --turbopack && mkdir -p .next/static && cp -r .next/static .next/standalone/ee/admin/.next/ && test -d public && cp -r public .next/standalone/ee/admin/",
-		"dev": "next dev --port 3006 --turbopack",
+		"dev": "next dev --port ${ADMIN_PORT:-3006} --turbopack",
 		"format": "eslint --fix . && prettier --write .",
 		"generate": "openapi-typescript ../../apps/api/openapi.json -o ./src/lib/api/v1.d.ts",
 		"lint": "eslint . && prettier --check .",

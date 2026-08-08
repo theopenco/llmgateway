@@ -186,6 +186,10 @@ export const organization = pgTable(
 			.defaultNow()
 			.$onUpdate(() => new Date()),
 		name: text().notNull(),
+		// Organization logo shown in the dashboard org switcher, stored as a
+		// small base64 data URL (raster image only, resized client-side) so no
+		// object storage is needed. Null = no logo, UI falls back to initials.
+		logo: text(),
 		billingEmail: text().notNull(),
 		billingCompany: text(),
 		billingAddress: text(),
@@ -260,6 +264,11 @@ export const organization = pgTable(
 			.default("none"),
 		devPlanCreditsUsed: decimal().notNull().default("0"),
 		devPlanCreditsLimit: decimal().notNull().default("0"),
+		// Opt-in pay-as-you-go overflow: when true and the monthly dev-plan
+		// allowance is exhausted, requests keep flowing and bill against the
+		// org's regular `credits` balance instead of being rejected. Off by
+		// default so a plan's allowance stays a hard cap unless the user asks.
+		devPlanPaygEnabled: boolean().notNull().default(false),
 		devPlanPremiumCreditsUsed: decimal().notNull().default("0"),
 		devPlanPremiumWeekStart: timestamp(),
 		// Purchased Reset Passes still unredeemed, tracked per tier bought.
@@ -1540,7 +1549,26 @@ export interface ProviderKeyOptions {
 	vertex_openai_project_id?: string;
 	vertex_openai_region?: "global";
 	vertex_anthropic_region?: string;
+	/**
+	 * Managed (platform-owned) credential settings, keyed by the logical env
+	 * keys a provider declares in its catalogue `env` block (`baseUrl`,
+	 * `region`, `project`, `tokenType`, `resource`, `apiVersion`, …). Populated
+	 * from `provider_key.config` for managed credentials and consulted before
+	 * the corresponding `LLM_*` environment variable, so a managed credential
+	 * fully describes itself without any env var being set.
+	 *
+	 * Never set on organization-owned (BYOK) keys.
+	 */
+	env_config?: Record<string, string>;
 }
+
+/**
+ * Variant a managed provider credential applies to, mirroring the `__ENTERPRISE`
+ * / `__PLANS` env-var suffixes: `default` credentials serve regular PAYG orgs,
+ * `enterprise` serves enterprise-plan orgs, and `plans` serves DevPass/Chat
+ * plan orgs. A variant with no credential of its own falls back to `default`.
+ */
+export type ProviderKeyVariant = "default" | "enterprise" | "plans";
 
 /**
  * Org-supplied compliance posture for a custom provider key. LLMGateway does
@@ -1564,7 +1592,20 @@ export const providerKey = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
-		token: text().notNull(),
+		// Legacy plaintext column. New writes set this to NULL and populate
+		// tokenCiphertext + tokenMasked instead. Existing rows from before
+		// BYOK encryption was added still carry plaintext here and are read
+		// through the legacy branch of readProviderKey().
+		token: text(),
+		tokenCiphertext: text(),
+		tokenMasked: text(),
+		// HMAC-SHA256 fingerprint of the plaintext token, computed at write time
+		// with the same helper the gateway uses for `log.usedApiKeyHash`. Lets an
+		// operator tie a credential to the requests it served without the
+		// plaintext ever being readable back: the admin dashboard shows this and
+		// the mask, and never decrypts. NULL for rows written before this column
+		// existed; it is filled on the next token write.
+		tokenHash: text(),
 		provider: text().notNull(),
 		name: text(), // Optional name for custom providers (lowercase a-z with single hyphens)
 		baseUrl: text(), // Optional base URL for custom providers
@@ -1577,9 +1618,58 @@ export const providerKey = pgTable(
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
-		organizationId: text()
+		// When true this is a platform-managed credential used to serve
+		// credits-mode traffic (the DB-backed replacement for the `LLM_*` env
+		// vars) instead of an organization-owned BYOK key. Managed rows have a
+		// NULL organizationId; BYOK rows always have one.
+		managed: boolean().notNull().default(false),
+		// Free-form note shown in the admin dashboard, e.g. which account or
+		// quota pool a managed credential belongs to. Providers routinely have
+		// several credentials and the token itself is masked, so this is the
+		// only way to tell them apart.
+		comment: text(),
+		// Managed-credential settings keyed by the provider's logical env keys
+		// (see ProviderKeyOptions.env_config). Mirrors everything the provider's
+		// `LLM_*` vars would carry apart from the API key itself, which lives in
+		// the encrypted token columns.
+		config: jsonb().$type<Record<string, string>>(),
+		// Which organizations a managed credential serves, mirroring the
+		// `__ENTERPRISE` / `__PLANS` env-var suffixes. Always "default" for BYOK.
+		variant: text({ enum: ["default", "enterprise", "plans"] })
 			.notNull()
-			.references(() => organization.id, { onDelete: "cascade" }),
+			.default("default"),
+		// Region a managed credential is scoped to, mirroring the
+		// `{ENV_VAR}__{REGION}` overrides. NULL means it serves every region the
+		// provider's credential covers.
+		region: text(),
+		// Optional USD spend cap. When cumulative attributed upstream spend
+		// (`usage`) reaches this, the billing worker flips status to "inactive"
+		// so the key drops out of rotation — a security fuse against a leaked or
+		// runaway key. Enforcement is lagged by one worker batch by design.
+		usageLimit: decimal(),
+		// Cumulative upstream provider cost (log.cost) attributed to this key by
+		// the billing worker. Lifetime counter; never reset automatically.
+		usage: decimal().notNull().default("0"),
+		// Canonical LLM Gateway model ids this credential may serve, for accounts
+		// that only have a subset of the provider's catalogue enabled upstream.
+		// Routing and credential selection skip the key for any model not listed,
+		// instead of picking it and failing upstream. NULL (or empty) means the
+		// key serves every model of its provider.
+		allowedModels: text().array(),
+		// Explicit position among a provider's keys, lowest first. The gateway
+		// treats the first key as primary and only falls back when one is
+		// unhealthy, so this is how an operator promotes a key.
+		//
+		// NULL means "no explicit position". Postgres sorts ASC as NULLS LAST, so
+		// unpositioned keys fall through to the createdAt/id tiebreak that ordered
+		// every key before reordering existed, and a key added after a reorder
+		// lands at the end rather than jumping the queue. Deliberately has no
+		// default: `default(0)` would tie a new key with position 0 and slot it
+		// second.
+		sortOrder: integer(),
+		organizationId: text().references(() => organization.id, {
+			onDelete: "cascade",
+		}),
 	},
 	(table) => [
 		// Uniqueness applies only to live rows so a soft-deleted provider's name
@@ -1588,6 +1678,28 @@ export const providerKey = pgTable(
 			.on(table.organizationId, table.name)
 			.where(sql`status <> 'deleted'`),
 		index("provider_key_organization_id_idx").on(table.organizationId),
+		index("provider_key_sort_order_idx").on(
+			table.organizationId,
+			table.provider,
+			table.sortOrder,
+		),
+		index("provider_key_managed_provider_idx").on(
+			table.managed,
+			table.provider,
+		),
+		// Exactly one storage form per row: a legacy plaintext token XOR an
+		// encrypted one. Also rejects rows with neither, which readProviderKey
+		// could never resolve into a credential.
+		check(
+			"provider_key_token_xor",
+			sql`(${table.token} IS NULL) <> (${table.tokenCiphertext} IS NULL)`,
+		),
+		// Managed credentials are platform-owned and never belong to an org;
+		// every other row must be org-scoped.
+		check(
+			"provider_key_managed_org_scope",
+			sql`(${table.managed} = true AND ${table.organizationId} IS NULL) OR (${table.managed} = false AND ${table.organizationId} IS NOT NULL)`,
+		),
 		check(
 			"provider_key_attestation_custom_only",
 			sql`${table.complianceAttestation} IS NULL OR ${table.provider} = 'custom'`,
@@ -1691,6 +1803,12 @@ export const log = pgTable(
 		organizationId: text().notNull(),
 		projectId: text().notNull(),
 		apiKeyId: text().notNull(),
+		// The provider_key row (BYOK or managed) whose token actually served the
+		// request; the billing worker accumulates per-key spend off this. NULL
+		// when an env-var credential served it, and on error paths that never
+		// resolved a credential. Attribution only — billing mode is carried by
+		// usedMode, never derived from this.
+		providerKeyId: text(),
 		// Set when the request was authenticated with an end-user session. apiKeyId
 		// points to the stable end-customer aggregate key; this points to the
 		// actual short-lived browser session.
@@ -1760,8 +1878,13 @@ export const log = pgTable(
 		estimatedCost: boolean().default(false),
 		discount: real(),
 		pricingTier: text(),
-		// The processing tier the client explicitly requested (e.g. "flex" /
-		// "priority"). Null when no premium tier was requested.
+		// The processing tier the gateway requested upstream (e.g. "flex" /
+		// "priority"), which is also the tier that narrows routing to tier-capable
+		// mappings. Null when the request ran on the standard tier. This is NOT
+		// necessarily what the client typed: a dev-plan org's configured default
+		// tier is recorded here too, and only
+		// `routingMetadata.serviceTierSource` distinguishes the two — which is why
+		// the service-tier coverage counters read both.
 		requestedServiceTier: text(),
 		// The processing tier the provider actually served (e.g. "flex" /
 		// "priority"), resolved from the upstream response. Null for the standard
@@ -1824,7 +1947,15 @@ export const log = pgTable(
 			filteredProviders?: Array<{
 				providerId: string;
 				reasons: string[];
+				// Stable RoutingExclusionReason codes for the same exclusions, used as
+				// the aggregation key for routing_exclusion_hourly. Absent on rows
+				// written before codes existed.
+				codes?: string[];
 			}>;
+			// Where the requested service tier came from: the request body, or a
+			// dev-plan (DevPass) org's configured default tier. Only set when a
+			// premium tier was in play.
+			serviceTierSource?: "request" | "coding-plan-default";
 			strippedParameters?: string[];
 		}>(),
 		processedAt: timestamp(),
@@ -1902,6 +2033,13 @@ export const log = pgTable(
 		index("log_end_customer_wallet_id_created_at_idx")
 			.on(table.endCustomerWalletId, table.createdAt)
 			.where(sql`end_customer_wallet_id IS NOT NULL`),
+		// Added in its own migration, after the one that creates
+		// log.provider_key_id: on a production-sized "log" this must be built
+		// out of band with CREATE INDEX CONCURRENTLY, which is only possible once
+		// the column exists.
+		index("log_provider_key_id_created_at_idx")
+			.on(table.providerKeyId, table.createdAt)
+			.where(sql`provider_key_id IS NOT NULL`),
 		index("log_end_user_session_id_created_at_idx")
 			.on(table.endUserSessionId, table.createdAt)
 			.where(sql`end_user_session_id IS NOT NULL`),
@@ -2031,6 +2169,24 @@ export const videoJob = pgTable(
 		usedProvider: text().notNull(),
 		usedModel: text().notNull(),
 		providerConfigIndex: integer(),
+		// Managed provider credential that created the job, when one served it.
+		// Polling, cancellation and content retrieval happen minutes to hours
+		// later — often from the worker — and some providers scope job
+		// visibility to the creating credential, so the exact row is pinned here
+		// rather than re-selected. NULL means the job was created from an
+		// organization's BYOK key or from the provider's LLM_* env vars, both of
+		// which are re-resolved the way they always were.
+		managedProviderKeyId: text().references(() => providerKey.id, {
+			onDelete: "set null",
+		}),
+		// BYOK provider key that created the job, for spend attribution on the
+		// final log row. Unlike managedProviderKeyId this does not pin polling:
+		// BYOK polls re-resolve the org's active key as they always did, so a
+		// job's spend may attribute to the creating key even if the org rotated
+		// keys mid-job — acceptable for the approximate spend-limit feature.
+		providerKeyId: text().references(() => providerKey.id, {
+			onDelete: "set null",
+		}),
 		upstreamId: text().notNull(),
 		prompt: text().notNull(),
 		status: text({
@@ -2929,6 +3085,23 @@ export const modelProviderMappingHistory = pgTable(
 		totalInputCost: real().notNull().default(0),
 		totalOutputCost: real().notNull().default(0),
 		totalCachedInputCost: real().notNull().default(0),
+		// Service-tier coverage. `explicit` counts requests that asked for a
+		// premium tier themselves; `implicit` counts the dev-plan default the
+		// gateway applies on the org's behalf, which still narrows routing to
+		// tier-capable mappings even though the client never asked for it — the
+		// two must stay separate or that narrowing is invisible. `served` counts
+		// requests the provider confirmed it processed at a premium tier.
+		//
+		// `unconfirmed` counts requests sent at a tier the response never
+		// confirmed. It deliberately does NOT claim a downgrade: a null
+		// usedServiceTier means either Google downgraded to standard, or the
+		// provider reports no tier at all (Fireworks). Both are billed at the
+		// standard rate because billing follows the served tier, which is what
+		// makes the count worth watching either way.
+		serviceTierExplicitCount: integer().notNull().default(0),
+		serviceTierImplicitCount: integer().notNull().default(0),
+		serviceTierServedCount: integer().notNull().default(0),
+		serviceTierUnconfirmedCount: integer().notNull().default(0),
 	},
 	(table) => [
 		// Unique constraint ensures one record per mapping-minute combination
@@ -3021,6 +3194,13 @@ export const modelHistory = pgTable(
 		totalInputCost: real().notNull().default(0),
 		totalOutputCost: real().notNull().default(0),
 		totalCachedInputCost: real().notNull().default(0),
+		// See model_provider_mapping_history: service-tier coverage counters. These
+		// are the model-level totals, i.e. the denominator for "what share of this
+		// model's traffic carries a service tier".
+		serviceTierExplicitCount: integer().notNull().default(0),
+		serviceTierImplicitCount: integer().notNull().default(0),
+		serviceTierServedCount: integer().notNull().default(0),
+		serviceTierUnconfirmedCount: integer().notNull().default(0),
 	},
 	(table) => [
 		// Unique constraint ensures one record per model-minute combination
@@ -3083,6 +3263,11 @@ export const modelProviderMappingHistoryHourly = pgTable(
 		totalInputCost: real().notNull().default(0),
 		totalOutputCost: real().notNull().default(0),
 		totalCachedInputCost: real().notNull().default(0),
+		// See model_provider_mapping_history: service-tier coverage counters.
+		serviceTierExplicitCount: integer().notNull().default(0),
+		serviceTierImplicitCount: integer().notNull().default(0),
+		serviceTierServedCount: integer().notNull().default(0),
+		serviceTierUnconfirmedCount: integer().notNull().default(0),
 	},
 	(table) => [
 		// Unique constraint ensures one record per mapping-hour combination
@@ -3167,6 +3352,11 @@ export const modelHistoryHourly = pgTable(
 		totalInputCost: real().notNull().default(0),
 		totalOutputCost: real().notNull().default(0),
 		totalCachedInputCost: real().notNull().default(0),
+		// See model_provider_mapping_history: service-tier coverage counters.
+		serviceTierExplicitCount: integer().notNull().default(0),
+		serviceTierImplicitCount: integer().notNull().default(0),
+		serviceTierServedCount: integer().notNull().default(0),
+		serviceTierUnconfirmedCount: integer().notNull().default(0),
 	},
 	(table) => [
 		// Unique constraint ensures one record per model-hour combination
@@ -3177,6 +3367,115 @@ export const modelHistoryHourly = pgTable(
 		index("model_history_hourly_model_ts_idx").on(
 			table.modelId,
 			table.hourTimestamp,
+		),
+	],
+);
+
+// Hourly rollup of how routing decided which provider serves a model, derived
+// from log.routingMetadata.selectionReason.
+//
+// The mapping history tables only record where traffic *landed*, so a mapping
+// with the best score can look like it lost when in truth no election ever ran
+// (the request pinned a provider, only one candidate survived filtering, a
+// session was sticky, …). This table is that missing denominator: comparing
+// `scored` request counts against the rest of the model's traffic is what
+// distinguishes "the score was wrong" from "the score was never consulted".
+export const routingElectionHourly = pgTable(
+	"routing_election_hourly",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		// Start of the hour bucket
+		hourTimestamp: timestamp().notNull(),
+		modelId: text().notNull(),
+		// Provider that ended up serving the request.
+		providerId: text().notNull(),
+		// One of ROUTING_SELECTION_REASONS; unrecognized values roll up to "unknown"
+		// so a future gateway build can never expand this table's cardinality.
+		selectionReason: text().notNull(),
+		requestCount: integer().notNull().default(0),
+		// How many candidate mappings the election chose between, summed over
+		// requests. Divided by requestCount it gives the average candidate-set size,
+		// which is how a collapsing candidate set shows up over time.
+		candidateCount: integer().notNull().default(0),
+		// Service-tier split for this (model, provider, selection reason) slice, so
+		// the tier that caused a narrowing is visible next to its effect.
+		serviceTierExplicitCount: integer().notNull().default(0),
+		serviceTierImplicitCount: integer().notNull().default(0),
+	},
+	(table) => [
+		unique().on(
+			table.hourTimestamp,
+			table.modelId,
+			table.providerId,
+			table.selectionReason,
+		),
+		// Admin routing analytics filters by model over a time range.
+		index("routing_election_hourly_model_ts_idx").on(
+			table.modelId,
+			table.hourTimestamp,
+		),
+		index("routing_election_hourly_ts_idx").on(table.hourTimestamp),
+	],
+);
+
+// Hourly rollup of provider mappings that were dropped from an election, and
+// why, derived from log.routingMetadata.filteredProviders[].codes.
+//
+// `excludedCount / candidateCount` answers the question the score table cannot:
+// for this mapping, what share of the requests it could have served was it not
+// even eligible for, and which constraint was responsible.
+export const routingExclusionHourly = pgTable(
+	"routing_exclusion_hourly",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		// Start of the hour bucket
+		hourTimestamp: timestamp().notNull(),
+		modelId: text().notNull(),
+		providerId: text().notNull(),
+		// One of ROUTING_EXCLUSION_REASONS; unrecognized values roll up to "other".
+		// No region column: recordFilteredProvider deliberately merges a provider's
+		// regional variants into one entry, so per-region attribution would be
+		// fabricated here.
+		reason: text().notNull(),
+		excludedCount: integer().notNull().default(0),
+		// Requests where this mapping was in the candidate set before filtering —
+		// the denominator for the exclusion rate. Recorded on every reason row for
+		// the mapping, so read it with max() rather than sum() when grouping across
+		// reasons.
+		candidateCount: integer().notNull().default(0),
+		// Requests where this mapping was dropped for ANY reason, counted once per
+		// request. `excludedCount` counts reasons, and one request can fire several
+		// on the same mapping, so summing reasons overstates how often the mapping
+		// was actually unavailable — eligibility must be derived from this instead.
+		// Like candidateCount it is repeated on every reason row, so read it with
+		// max() when grouping across reasons.
+		excludedDecisionCount: integer().notNull().default(0),
+	},
+	(table) => [
+		unique().on(
+			table.hourTimestamp,
+			table.modelId,
+			table.providerId,
+			table.reason,
+		),
+		index("routing_exclusion_hourly_model_ts_idx").on(
+			table.modelId,
+			table.hourTimestamp,
+		),
+		// Cross-model "which constraint costs us the most routing freedom" queries.
+		index("routing_exclusion_hourly_ts_reason_idx").on(
+			table.hourTimestamp,
+			table.reason,
 		),
 	],
 );
@@ -3224,6 +3523,7 @@ export const auditLogActions = [
 	"provider_key.create",
 	"provider_key.update",
 	"provider_key.delete",
+	"provider_key.reorder",
 	// Custom Model
 	"custom_model.create",
 	"custom_model.update",
@@ -4017,6 +4317,77 @@ export const apiKeyHourlyStats = pgTable(
 	],
 );
 
+// Provider key hourly statistics aggregation — upstream spend per credential.
+//
+// `provider_key.usage` is a lifetime scalar the billing worker increments; it
+// answers "has this key hit its cap" but nothing about when the spend happened
+// or who caused it. This table is the time dimension: the same attributed
+// upstream cost, bucketed hourly and split by project.
+//
+// The grain deliberately includes `projectId`. A provider key is not owned by
+// one project the way an api_key is — a managed credential serves every
+// organization at once — so a (providerKeyId, hour) grain could not be
+// recomputed from a single project-hour bucket without `+=` upserts, which the
+// aggregator's stale-bucket re-processing would double-count. Keeping the
+// project in the key preserves the replace-on-recalculate semantics every
+// sibling table relies on, and doubles as the per-tenant breakdown for a shared
+// managed credential.
+//
+// Only rows with a non-null `log.providerKeyId` land here: env-var credentials
+// and error paths that never resolved a credential are not attributable.
+export const providerKeyHourlyStats = pgTable(
+	"provider_key_hourly_stats",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerKeyId: text().notNull(),
+		projectId: text().notNull(), // Denormalized for per-tenant breakdowns
+		hourTimestamp: timestamp().notNull(), // Start of the hour bucket
+		requestCount: integer().notNull().default(0),
+		errorCount: integer().notNull().default(0),
+		// Subset of errorCount: failures the provider returned, which is what
+		// distinguishes an unhealthy credential from a misbehaving caller.
+		upstreamErrorCount: integer().notNull().default(0),
+		cacheCount: integer().notNull().default(0),
+		inputTokens: decimal().notNull().default("0"),
+		outputTokens: decimal().notNull().default("0"),
+		totalTokens: decimal().notNull().default("0"),
+		// Upstream provider cost (`log.cost`), matching what the billing worker
+		// accumulates into `provider_key.usage` — NOT billingCost, which carries
+		// the plan/margin adjustments on what the org pays us. Cached responses
+		// are logged with cost 0, so they contribute nothing here just as they are
+		// skipped by the worker's counter.
+		cost: real().notNull().default(0),
+	},
+	(table) => [
+		// Named explicitly: the auto-generated name for a three-column unique on
+		// this table is 74 characters, past Postgres' 63-byte identifier limit,
+		// so it would be silently truncated and drift from the snapshot.
+		unique("provider_key_hourly_stats_key_project_hour_unique").on(
+			table.providerKeyId,
+			table.projectId,
+			table.hourTimestamp,
+		),
+		// Dashboard queries: one credential over a time range.
+		index("provider_key_hourly_stats_key_id_hour_timestamp_idx").on(
+			table.providerKeyId,
+			table.hourTimestamp,
+		),
+		// Reverse lookup: every credential a project's traffic touched.
+		index("provider_key_hourly_stats_project_id_hour_timestamp_idx").on(
+			table.projectId,
+			table.hourTimestamp,
+		),
+		index("provider_key_hourly_stats_hour_timestamp_idx").on(
+			table.hourTimestamp,
+		),
+	],
+);
+
 // API key hourly model statistics aggregation - model breakdown per API key per hour
 export const apiKeyHourlyModelStats = pgTable(
 	"api_key_hourly_model_stats",
@@ -4103,6 +4474,25 @@ export const apiKeyHourlyModelStats = pgTable(
 	],
 );
 
+// Dimensions the global stats tables are keyed on in addition to the day
+// bucket and the model/source. Both carry an "unknown" member: rows written
+// before these columns existed keep it, and it is also the fallback for
+// requests whose organization row no longer exists.
+export const GLOBAL_STATS_USED_MODES = [
+	"credits",
+	"api-keys",
+	"unknown",
+] as const;
+export type GlobalStatsUsedMode = (typeof GLOBAL_STATS_USED_MODES)[number];
+
+export const GLOBAL_STATS_ORG_KINDS = [
+	"default",
+	"devpass",
+	"chat",
+	"unknown",
+] as const;
+export type GlobalStatsOrgKind = (typeof GLOBAL_STATS_ORG_KINDS)[number];
+
 // Global model statistics — cross-org, cross-project aggregation by model.
 // Rows are day-bucketed (`dayTimestamp`); the worker can update them at any
 // cadence via the configurable bucket size.
@@ -4118,6 +4508,17 @@ export const globalModelStats = pgTable(
 		dayTimestamp: timestamp().notNull(), // Start of the UTC day bucket
 		usedModel: text().notNull(),
 		usedProvider: text().notNull(),
+		// Billing mode the request was actually served under (log.usedMode).
+		// "unknown" on rows aggregated before this column existed.
+		usedMode: text({ enum: GLOBAL_STATS_USED_MODES })
+			.notNull()
+			.default("unknown"),
+		// organization.kind at aggregation time. "unknown" on rows aggregated
+		// before this column existed and on requests whose organization row is
+		// gone. Stored verbatim ("default" is labelled PAYG in the admin UI).
+		orgKind: text({ enum: GLOBAL_STATS_ORG_KINDS })
+			.notNull()
+			.default("unknown"),
 		// Request counts
 		requestCount: integer().notNull().default(0),
 		errorCount: integer().notNull().default(0),
@@ -4156,16 +4557,17 @@ export const globalModelStats = pgTable(
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
-		// Per-mode breakdowns
-		creditsRequestCount: integer().notNull().default(0),
-		apiKeysRequestCount: integer().notNull().default(0),
-		creditsCost: real().notNull().default(0),
-		apiKeysCost: real().notNull().default(0),
-		creditsDataStorageCost: real().notNull().default(0),
-		apiKeysDataStorageCost: real().notNull().default(0),
 	},
 	(table) => [
-		unique().on(table.dayTimestamp, table.usedModel, table.usedProvider),
+		// usedMode/orgKind are part of the key: every metric is therefore
+		// per-mode and per-kind, and blended totals are a plain SUM.
+		unique().on(
+			table.dayTimestamp,
+			table.usedModel,
+			table.usedProvider,
+			table.usedMode,
+			table.orgKind,
+		),
 		index("global_model_stats_day_timestamp_idx").on(table.dayTimestamp),
 		index("global_model_stats_used_model_day_timestamp_idx").on(
 			table.usedModel,
@@ -4193,6 +4595,13 @@ export const globalSourceStats = pgTable(
 		// NULL log.source rows are stored under the literal 'unknown' so the
 		// unique constraint and onConflictDoUpdate target stay valid.
 		source: text().notNull(),
+		// See globalModelStats for the semantics of these two dimensions.
+		usedMode: text({ enum: GLOBAL_STATS_USED_MODES })
+			.notNull()
+			.default("unknown"),
+		orgKind: text({ enum: GLOBAL_STATS_ORG_KINDS })
+			.notNull()
+			.default("unknown"),
 		// Request counts
 		requestCount: integer().notNull().default(0),
 		errorCount: integer().notNull().default(0),
@@ -4231,16 +4640,14 @@ export const globalSourceStats = pgTable(
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
-		// Per-mode breakdowns
-		creditsRequestCount: integer().notNull().default(0),
-		apiKeysRequestCount: integer().notNull().default(0),
-		creditsCost: real().notNull().default(0),
-		apiKeysCost: real().notNull().default(0),
-		creditsDataStorageCost: real().notNull().default(0),
-		apiKeysDataStorageCost: real().notNull().default(0),
 	},
 	(table) => [
-		unique().on(table.dayTimestamp, table.source),
+		unique().on(
+			table.dayTimestamp,
+			table.source,
+			table.usedMode,
+			table.orgKind,
+		),
 		index("global_source_stats_day_timestamp_idx").on(table.dayTimestamp),
 		index("global_source_stats_source_day_timestamp_idx").on(
 			table.source,

@@ -7,8 +7,10 @@ import {
 	projectHourlySourceStats,
 	apiKeyHourlyStats,
 	apiKeyHourlyModelStats,
+	providerKeyHourlyStats,
 	eq,
 	inArray,
+	isNotNull,
 } from "@llmgateway/db";
 
 import { app } from "./index.js";
@@ -46,6 +48,7 @@ export async function deleteAll() {
 			await db.delete(projectHourlySourceStats);
 			await db.delete(apiKeyHourlyStats);
 			await db.delete(apiKeyHourlyModelStats);
+			await db.delete(providerKeyHourlyStats);
 			await db.delete(tables.apiKey);
 			await db.delete(tables.providerKey);
 			await db.delete(tables.organizationInvite);
@@ -243,6 +246,7 @@ export async function aggregateLogsForTesting() {
 		db.delete(projectHourlyModelStats),
 		db.delete(apiKeyHourlyStats),
 		db.delete(apiKeyHourlyModelStats),
+		db.delete(providerKeyHourlyStats),
 	]);
 
 	const hourTrunc = sql`date_trunc('hour', ${tables.log.createdAt})`;
@@ -413,6 +417,72 @@ export async function aggregateLogsForTesting() {
 					apiKeyHourlyModelStats.hourTimestamp,
 					apiKeyHourlyModelStats.usedModel,
 					apiKeyHourlyModelStats.usedProvider,
+				],
+				set: {
+					...fields,
+					updatedAt: new Date(),
+				},
+			});
+	}
+
+	// Provider key hourly stats. Mirrors the worker's slimmer column set: only
+	// the attributed upstream cost plus volume and upstream-error signal.
+	const providerKeyStats = await db
+		.select({
+			providerKeyId: sql<string>`${tables.log.providerKeyId}`.as(
+				"providerKeyId",
+			),
+			projectId: tables.log.projectId,
+			hourTimestamp:
+				sql<string>`to_char(${hourTrunc}, 'YYYY-MM-DD HH24:MI:SS')`.as(
+					"hourTimestamp",
+				),
+			requestCount: sql<number>`count(*)::int`.as("requestCount"),
+			errorCount:
+				sql<number>`sum(case when ${tables.log.hasError} = true then 1 else 0 end)::int`.as(
+					"errorCount",
+				),
+			upstreamErrorCount:
+				sql<number>`sum(case when ${tables.log.unifiedFinishReason} = 'upstream_error' then 1 else 0 end)::int`.as(
+					"upstreamErrorCount",
+				),
+			cacheCount:
+				sql<number>`sum(case when ${tables.log.cached} = true then 1 else 0 end)::int`.as(
+					"cacheCount",
+				),
+			inputTokens:
+				sql<string>`coalesce(sum(cast(${tables.log.promptTokens} as numeric)), 0)`.as(
+					"inputTokens",
+				),
+			outputTokens:
+				sql<string>`coalesce(sum(cast(${tables.log.completionTokens} as numeric)), 0)`.as(
+					"outputTokens",
+				),
+			totalTokens:
+				sql<string>`coalesce(sum(cast(${tables.log.totalTokens} as numeric)), 0)`.as(
+					"totalTokens",
+				),
+			cost: sql<number>`coalesce(sum(${tables.log.cost}), 0)`.as("cost"),
+		})
+		.from(tables.log)
+		.where(isNotNull(tables.log.providerKeyId))
+		.groupBy(tables.log.providerKeyId, tables.log.projectId, hourTrunc);
+
+	for (const stat of providerKeyStats) {
+		const { providerKeyId, projectId, hourTimestamp, ...fields } = stat;
+		await db
+			.insert(providerKeyHourlyStats)
+			.values({
+				providerKeyId,
+				projectId,
+				hourTimestamp: sql`${hourTimestamp}::timestamp`,
+				...fields,
+			})
+			.onConflictDoUpdate({
+				target: [
+					providerKeyHourlyStats.providerKeyId,
+					providerKeyHourlyStats.projectId,
+					providerKeyHourlyStats.hourTimestamp,
 				],
 				set: {
 					...fields,

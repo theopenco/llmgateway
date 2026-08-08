@@ -32,6 +32,7 @@ import {
 	endUserSession as endUserSessionTable,
 	getEffectiveRateLimit,
 	addApiKeyPeriodDuration,
+	providerKeyAllowsModel,
 	organization as organizationTable,
 	project as projectTable,
 	providerKey as providerKeyTable,
@@ -66,6 +67,7 @@ import type {
 	userOrganization,
 	wallet,
 } from "@llmgateway/db";
+import type { EnvVarVariant } from "@llmgateway/models";
 
 // Type aliases for cleaner function signatures
 type ApiKey = InferSelectModel<typeof apiKey>;
@@ -429,7 +431,15 @@ export async function findCustomProviderKey(
 						eq(providerKeyTable.name, customProviderName),
 					),
 				)
-				.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id)),
+				.orderBy(
+					// Explicit position first (Postgres sorts ASC as NULLS LAST, so
+					// unpositioned keys keep the age order they always had), then the
+					// original createdAt/id tiebreak. Index 0 of this array is what
+					// selectProviderKeyWithFailover treats as the primary key.
+					asc(providerKeyTable.sortOrder),
+					asc(providerKeyTable.createdAt),
+					asc(providerKeyTable.id),
+				),
 	);
 	return selectProviderKeyWithFailover(results, selectionScope, excludedKeyIds);
 }
@@ -487,7 +497,15 @@ export async function findProviderKey(
 						eq(providerKeyTable.provider, provider),
 					),
 				)
-				.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id)),
+				.orderBy(
+					// Explicit position first (Postgres sorts ASC as NULLS LAST, so
+					// unpositioned keys keep the age order they always had), then the
+					// original createdAt/id tiebreak. Index 0 of this array is what
+					// selectProviderKeyWithFailover treats as the primary key.
+					asc(providerKeyTable.sortOrder),
+					asc(providerKeyTable.createdAt),
+					asc(providerKeyTable.id),
+				),
 	);
 	const filtered = filter ? results.filter(filter) : results;
 	return selectProviderKeyWithFailover(
@@ -516,7 +534,15 @@ export async function findActiveProviderKeys(
 						eq(providerKeyTable.organizationId, organizationId),
 					),
 				)
-				.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id)),
+				.orderBy(
+					// Explicit position first (Postgres sorts ASC as NULLS LAST, so
+					// unpositioned keys keep the age order they always had), then the
+					// original createdAt/id tiebreak. Index 0 of this array is what
+					// selectProviderKeyWithFailover treats as the primary key.
+					asc(providerKeyTable.sortOrder),
+					asc(providerKeyTable.createdAt),
+					asc(providerKeyTable.id),
+				),
 	);
 }
 
@@ -545,8 +571,187 @@ export async function findProviderKeysByProviders(
 						inArray(providerKeyTable.provider, providers),
 					),
 				)
-				.orderBy(asc(providerKeyTable.createdAt), asc(providerKeyTable.id)),
+				.orderBy(
+					// Explicit position first (Postgres sorts ASC as NULLS LAST, so
+					// unpositioned keys keep the age order they always had), then the
+					// original createdAt/id tiebreak. Index 0 of this array is what
+					// selectProviderKeyWithFailover treats as the primary key.
+					asc(providerKeyTable.sortOrder),
+					asc(providerKeyTable.createdAt),
+					asc(providerKeyTable.id),
+				),
 	);
+}
+
+export interface FindManagedProviderKeyOptions {
+	/**
+	 * Env-var variant the organization maps to. A credential configured for the
+	 * variant wins; when none exists the shared `default` credentials serve the
+	 * request, mirroring how `{ENV}__ENTERPRISE` falls back to `{ENV}`.
+	 */
+	variant?: EnvVarVariant;
+	/**
+	 * Region the request routes to. Region-scoped credentials win for their own
+	 * region; region-agnostic ones (region IS NULL) serve everything else,
+	 * mirroring `{ENV}__{REGION}` falling back to `{ENV}`.
+	 */
+	region?: string;
+	selectionScope?: string;
+	excludedKeyIds?: ReadonlySet<string>;
+	filter?: (key: ProviderKey) => boolean;
+}
+
+/**
+ * Find a platform-managed provider credential for credits-mode traffic
+ * (cacheable). These rows are the database-backed replacement for the `LLM_*`
+ * environment variables: they are not owned by any organization and carry
+ * their own base URL, project, region and other provider settings.
+ *
+ * Returns undefined when no managed credential is configured for the provider,
+ * which is the signal for callers to fall back to the environment variables.
+ */
+export async function findManagedProviderKey(
+	provider: string,
+	options: FindManagedProviderKeyOptions = {},
+): Promise<ProviderKey | undefined> {
+	const results = await swrWrap(
+		`providerKey:managed:${provider}`,
+		[providerKeyTableName],
+		async () =>
+			await db
+				.select()
+				.from(providerKeyTable)
+				.where(
+					and(
+						eq(providerKeyTable.status, "active"),
+						eq(providerKeyTable.managed, true),
+						eq(providerKeyTable.provider, provider),
+					),
+				)
+				.orderBy(
+					// Explicit position first (Postgres sorts ASC as NULLS LAST, so
+					// unpositioned keys keep the age order they always had), then the
+					// original createdAt/id tiebreak. Index 0 of this array is what
+					// selectProviderKeyWithFailover treats as the primary key.
+					asc(providerKeyTable.sortOrder),
+					asc(providerKeyTable.createdAt),
+					asc(providerKeyTable.id),
+				),
+	);
+
+	const candidates = options.filter ? results.filter(options.filter) : results;
+	if (candidates.length === 0) {
+		return undefined;
+	}
+
+	const variant = options.variant ?? "default";
+	const variantMatches = candidates.filter((key) => key.variant === variant);
+	const byVariant =
+		variantMatches.length > 0
+			? variantMatches
+			: candidates.filter((key) => key.variant === "default");
+
+	const regionMatches = options.region
+		? byVariant.filter((key) => key.region === options.region)
+		: [];
+	const byRegion =
+		regionMatches.length > 0
+			? regionMatches
+			: byVariant.filter((key) => !key.region);
+
+	return selectProviderKeyWithFailover(
+		byRegion,
+		options.selectionScope,
+		options.excludedKeyIds,
+	);
+}
+
+/**
+ * Providers holding an active managed credential this request could actually
+ * use (cacheable).
+ *
+ * Routing uses this alongside the `LLM_*` environment variables to decide
+ * which providers can serve credits-mode traffic, so a deployment that has
+ * moved a provider into the database no longer needs its env var set for the
+ * provider to be routable.
+ *
+ * Mirrors how `findManagedProviderKey` selects, on both axes, because a
+ * provider advertised here that then has no selectable credential fails the
+ * request outright: `resolvePlatformCredential` falls through to
+ * `getProviderEnv`, which throws a 500, and credential resolution happens
+ * outside the provider-fallback loop so nothing recovers.
+ *
+ * - Variant: an `enterprise`/`plans` request may fall back to a `default`
+ *   credential, but a `default` request can never use a variant-scoped one,
+ *   and a variant that has its own credentials never falls back.
+ * - Region: routing picks a provider before a region is known, so only a
+ *   region-agnostic credential is guaranteed to serve the request. A
+ *   region-pinned credential is an override — exactly like `{ENV}__{REGION}`,
+ *   which `hasProviderEnvironmentToken` likewise ignores in favour of the base
+ *   variable. A provider whose only credentials are region-pinned is therefore
+ *   not advertised, the same as a deployment that sets only
+ *   `LLM_X_API_KEY__US_EAST_1` and no `LLM_X_API_KEY`.
+ * - Model: a credential restricted via `allowedModels` cannot serve any other
+ *   model, so when the caller knows the model it is routing, credentials that
+ *   exclude it are ignored — a provider whose every credential excludes the
+ *   model is not advertised for it (unless its env var can still serve it).
+ */
+export async function findManagedProviderIds(
+	variant?: EnvVarVariant,
+	modelId?: string,
+): Promise<Set<string>> {
+	// Fetched whole and narrowed in memory so the request's variant stays out
+	// of the cache key, the same way findManagedProviderKey keeps variant,
+	// region and exclusions out of its own.
+	const rows = await swrWrap(
+		`providerKey:managedProviderScopes`,
+		[providerKeyTableName],
+		async () =>
+			await db
+				.select({
+					provider: providerKeyTable.provider,
+					variant: providerKeyTable.variant,
+					region: providerKeyTable.region,
+					allowedModels: providerKeyTable.allowedModels,
+				})
+				.from(providerKeyTable)
+				.where(
+					and(
+						eq(providerKeyTable.status, "active"),
+						eq(providerKeyTable.managed, true),
+					),
+				),
+	);
+
+	const byProvider = new Map<string, typeof rows>();
+	for (const row of rows) {
+		if (modelId && !providerKeyAllowsModel(row.allowedModels, modelId)) {
+			continue;
+		}
+		const existing = byProvider.get(row.provider);
+		if (existing) {
+			existing.push(row);
+		} else {
+			byProvider.set(row.provider, [row]);
+		}
+	}
+
+	const effectiveVariant = variant ?? "default";
+	const available = new Set<string>();
+	for (const [provider, candidates] of byProvider) {
+		const variantMatches = candidates.filter(
+			(key) => key.variant === effectiveVariant,
+		);
+		const byVariant =
+			variantMatches.length > 0
+				? variantMatches
+				: candidates.filter((key) => key.variant === "default");
+
+		if (byVariant.some((key) => !key.region)) {
+			available.add(provider);
+		}
+	}
+	return available;
 }
 
 /**

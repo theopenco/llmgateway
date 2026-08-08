@@ -67,6 +67,7 @@ function makeMapping(
 		supportsVideoAudio: true,
 		supportsVideoWithoutAudio: true,
 		perSecondPrice: null,
+		perImagePrice: null,
 		deprecatedAt: null,
 		deactivatedAt: null,
 		status: "active",

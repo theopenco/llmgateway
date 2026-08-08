@@ -2583,6 +2583,169 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		expect(params.required).toContain("prefill");
 	});
 
+	test("should strip unknown vendor extensions from Google tool parameters", async () => {
+		// Google's schema parser rejects any key it does not model, failing the
+		// whole request with `Unknown name "<key>" … Cannot find field.` — so a
+		// single `~optional` marker left in by a client's schema generator 400s
+		// every tool call. These keys are not enumerable in advance, which is why
+		// the filter is an allowlist.
+		const toolsWithVendorExtensions = [
+			{
+				type: "function" as const,
+				function: {
+					name: "test_tool",
+					description: "Test tool",
+					parameters: {
+						type: "object",
+						"~standard": { version: 1, vendor: "zod" },
+						properties: {
+							field_a: {
+								type: "string",
+								"~optional": true,
+							},
+							field_b: {
+								type: "string",
+								readOnly: true,
+								writeOnly: true,
+								deprecated: true,
+							},
+							field_c: {
+								type: "array",
+								items: { type: "string", "x-vendor-hint": "list" },
+								additionalItems: false,
+							},
+							field_d: {
+								type: "string",
+								enum: ["one"],
+								enumNames: ["One"],
+							},
+						},
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.0-flash",
+			null,
+			"gemini-2.0-flash",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			toolsWithVendorExtensions,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const params = requestBody.tools[0].functionDeclarations[0].parameters;
+
+		expect(params["~standard"]).toBeUndefined();
+		expect(params.properties.field_a["~optional"]).toBeUndefined();
+		expect(params.properties.field_b.readOnly).toBeUndefined();
+		expect(params.properties.field_b.writeOnly).toBeUndefined();
+		expect(params.properties.field_b.deprecated).toBeUndefined();
+		expect(params.properties.field_c.additionalItems).toBeUndefined();
+		expect(params.properties.field_c.items["x-vendor-hint"]).toBeUndefined();
+		expect(params.properties.field_d.enumNames).toBeUndefined();
+
+		// The supported parts of each schema must survive untouched
+		expect(params.type).toBe("object");
+		expect(params.properties.field_a.type).toBe("string");
+		expect(params.properties.field_c.items.type).toBe("string");
+		expect(params.properties.field_d.enum).toEqual(["one"]);
+	});
+
+	test("should keep the schema keys Google supports in tool parameters", async () => {
+		const toolsWithSupportedKeys = [
+			{
+				type: "function" as const,
+				function: {
+					name: "test_tool",
+					description: "Test tool",
+					parameters: {
+						type: "object",
+						title: "Params",
+						description: "Parameters",
+						propertyOrdering: ["choice", "config"],
+						properties: {
+							choice: {
+								type: "string",
+								format: "enum",
+								nullable: true,
+								enum: ["a", "b"],
+								default: "a",
+								example: "b",
+							},
+							union: {
+								anyOf: [{ type: "string" }, { type: "number" }],
+							},
+							// An object-valued default must survive verbatim: it holds an
+							// instance value, not a subschema, so its own keys are not
+							// schema keywords and must not be filtered.
+							config: {
+								type: "object",
+								properties: { retries: { type: "number" } },
+								default: { retries: 3, mode: "fast" },
+							},
+						},
+						required: ["choice"],
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.0-flash",
+			null,
+			"gemini-2.0-flash",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			toolsWithSupportedKeys,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const params = requestBody.tools[0].functionDeclarations[0].parameters;
+
+		expect(params.title).toBe("Params");
+		expect(params.description).toBe("Parameters");
+		expect(params.propertyOrdering).toEqual(["choice", "config"]);
+		expect(params.required).toEqual(["choice"]);
+		expect(params.properties.choice).toEqual({
+			type: "string",
+			format: "enum",
+			nullable: true,
+			enum: ["a", "b"],
+			default: "a",
+			example: "b",
+		});
+		expect(params.properties.union.anyOf).toEqual([
+			{ type: "string" },
+			{ type: "number" },
+		]);
+		expect(params.properties.config.default).toEqual({
+			retries: 3,
+			mode: "fast",
+		});
+	});
+
 	test("should add additionalProperties: false to Cerebras tool parameters", async () => {
 		const toolsWithoutAdditionalProps = [
 			{
@@ -5648,4 +5811,193 @@ describe("prepareRequestBody - developer role normalization", () => {
 		const requestBody = await prepare("openai", "gpt-4o-mini");
 		expect(requestBody.messages[0].role).toBe("developer");
 	});
+
+	test("rewrites developer to system for deepseek/deepseek-v4-pro", async () => {
+		const requestBody = await prepare("deepseek", "deepseek-v4-pro");
+		expect(requestBody.messages[0].role).toBe("system");
+		expect(requestBody.messages[0].content).toBe(
+			"You are a helpful assistant.",
+		);
+		expect(requestBody.messages[1].role).toBe("user");
+	});
+
+	test("rewrites developer to system for deepseek/deepseek-v4-flash", async () => {
+		const requestBody = await prepare("deepseek", "deepseek-v4-flash");
+		expect(requestBody.messages[0].role).toBe("system");
+		expect(requestBody.messages[1].role).toBe("user");
+	});
+
+	test("preserves developer role for another deepseek-v4-pro provider (deepinfra)", async () => {
+		const requestBody = await prepare("deepinfra", "deepseek-v4-pro");
+		expect(requestBody.messages[0].role).toBe("developer");
+	});
+});
+
+describe("prepareRequestBody - Sakana Fugu reasoning effort", () => {
+	async function prepare(
+		reasoning_effort:
+			| "none"
+			| "minimal"
+			| "low"
+			| "medium"
+			| "high"
+			| "xhigh"
+			| "max"
+			| undefined,
+		stream: boolean,
+	) {
+		return (await prepareRequestBody(
+			"sakana",
+			"fugu-ultra",
+			null,
+			"fugu-ultra",
+			[{ role: "user", content: "Hello" }] as any,
+			stream,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			reasoning_effort,
+			true,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			// useResponsesApi mirrors the endpoint choice: Responses when
+			// non-streaming, Chat Completions when streaming.
+			!stream,
+		)) as any;
+	}
+
+	describe("Responses API (non-streaming)", () => {
+		test("forwards max unchanged as its own tier", async () => {
+			const requestBody = await prepare("max", false);
+			expect(requestBody.reasoning.effort).toBe("max");
+		});
+
+		test("forwards xhigh unchanged", async () => {
+			const requestBody = await prepare("xhigh", false);
+			expect(requestBody.reasoning.effort).toBe("xhigh");
+		});
+
+		test.each(["none", "minimal", "low", "medium", "high"] as const)(
+			"collapses %s onto high",
+			async (effort) => {
+				const requestBody = await prepare(effort, false);
+				expect(requestBody.reasoning.effort).toBe("high");
+			},
+		);
+	});
+
+	describe("Chat Completions (streaming)", () => {
+		test("forwards max unchanged as its own tier", async () => {
+			const requestBody = await prepare("max", true);
+			expect(requestBody.reasoning_effort).toBe("max");
+		});
+
+		test("forwards xhigh unchanged", async () => {
+			const requestBody = await prepare("xhigh", true);
+			expect(requestBody.reasoning_effort).toBe("xhigh");
+		});
+
+		test.each(["minimal", "low", "medium", "high"] as const)(
+			"collapses %s onto high",
+			async (effort) => {
+				const requestBody = await prepare(effort, true);
+				expect(requestBody.reasoning_effort).toBe("high");
+			},
+		);
+
+		// "none" is stripped before the provider switch (the mapping does not
+		// declare it), so nothing is sent and Fugu applies its own Chat
+		// Completions default, which is "high".
+		test("omits reasoning_effort entirely for none", async () => {
+			const requestBody = await prepare("none", true);
+			expect(requestBody.reasoning_effort).toBeUndefined();
+		});
+	});
+
+	test("both API surfaces agree on every declared tier", async () => {
+		for (const effort of ["high", "xhigh", "max"] as const) {
+			const responses = await prepare(effort, false);
+			const chat = await prepare(effort, true);
+			expect(responses.reasoning.effort).toBe(chat.reasoning_effort);
+			expect(responses.reasoning.effort).toBe(effort);
+		}
+	});
+});
+
+describe("prepareRequestBody - DashScope web search", () => {
+	const prepare = (provider: string, model: string, webSearchTool?: any) =>
+		prepareRequestBody(
+			provider as any,
+			model,
+			null,
+			model,
+			[{ role: "user", content: "hi" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			webSearchTool,
+		) as Promise<any>;
+
+	test.each(["alibaba", "scx-ai-gp"])(
+		"%s pairs enable_search with forced_search",
+		async (provider) => {
+			const requestBody = await prepare(provider, "qwen3.8-max", {
+				type: "web_search",
+			});
+
+			// enable_search alone is a hint the model ignores; forced_search is what
+			// actually retrieves, so the two must always travel together.
+			expect(requestBody.enable_search).toBe(true);
+			expect(requestBody.search_options).toEqual({ forced_search: true });
+		},
+	);
+
+	test.each(["alibaba", "scx-ai-gp"])(
+		"%s omits search_strategy",
+		async (provider) => {
+			const requestBody = await prepare(provider, "qwen3.8-max", {
+				type: "web_search",
+			});
+
+			// The Qwen max models 400 on the documented "agent" policy.
+			expect(requestBody.search_options.search_strategy).toBeUndefined();
+		},
+	);
+
+	test.each(["alibaba", "scx-ai-gp"])(
+		"%s sends no search params without a web_search tool",
+		async (provider) => {
+			const requestBody = await prepare(provider, "qwen3.8-max");
+
+			expect(requestBody.enable_search).toBeUndefined();
+			expect(requestBody.search_options).toBeUndefined();
+		},
+	);
 });

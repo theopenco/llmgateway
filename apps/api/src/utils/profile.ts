@@ -84,6 +84,8 @@ export const CODING_AGENT_SOURCES = [
 	"soulforge",
 	"cline",
 	"codex",
+	"github-copilot",
+	"copilot",
 	"n8n",
 	"openclaw",
 ];

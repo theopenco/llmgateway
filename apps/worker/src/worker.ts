@@ -16,11 +16,13 @@ import {
 	addApiKeyPeriodDuration,
 	and,
 	apiKey,
+	cdb,
 	closeDatabase,
 	db,
 	enqueueWebhookDeliveries,
 	eq,
 	inArray,
+	isNotNull,
 	isApiKeyPeriodLimitConfigured,
 	log,
 	type LogInsertData,
@@ -207,6 +209,7 @@ const schema = z.object({
 	billing_cost: z.string().nullable(),
 	cached: z.boolean(),
 	api_key_id: z.string(),
+	provider_key_id: z.string().nullable(),
 	end_user_session_id: z.string().nullable(),
 	end_customer_wallet_id: z.string().nullable(),
 	project_mode: z.enum(["api-keys", "credits", "hybrid"]),
@@ -303,6 +306,50 @@ async function recordAutoTopUpFailure(org: {
 		.where(eq(tables.organization.id, org.id));
 }
 
+// DevPass orgs have no payment_method table rows; their card lives on the
+// Stripe subscription (or the customer default). Mirrors the resolution in
+// the /dev-plans/topup route so auto-reload charges the same card.
+async function resolveDevPassStripePaymentMethodId(org: {
+	id: string;
+	devPlanStripeSubscriptionId: string | null;
+	stripeCustomerId: string | null;
+}): Promise<string | null> {
+	if (org.devPlanStripeSubscriptionId) {
+		try {
+			const subscription = await getStripe().subscriptions.retrieve(
+				org.devPlanStripeSubscriptionId,
+			);
+			const pm = subscription.default_payment_method;
+			const id = typeof pm === "string" ? pm : (pm?.id ?? null);
+			if (id) {
+				return id;
+			}
+		} catch (err) {
+			logger.warn(
+				`Could not read DevPass subscription payment method for organization ${org.id}`,
+				{ error: err instanceof Error ? err.message : String(err) },
+			);
+		}
+	}
+	if (org.stripeCustomerId) {
+		try {
+			const customer = await getStripe().customers.retrieve(
+				org.stripeCustomerId,
+			);
+			if (!customer.deleted) {
+				const pm = customer.invoice_settings?.default_payment_method;
+				return typeof pm === "string" ? pm : (pm?.id ?? null);
+			}
+		} catch (err) {
+			logger.warn(
+				`Could not read DevPass customer payment method for organization ${org.id}`,
+				{ error: err instanceof Error ? err.message : String(err) },
+			);
+		}
+	}
+	return null;
+}
+
 export async function processAutoTopUp(): Promise<void> {
 	const lockAcquired = await acquireLock(AUTO_TOPUP_LOCK_KEY);
 	if (!lockAcquired) {
@@ -320,6 +367,12 @@ export async function processAutoTopUp(): Promise<void> {
 
 		// Filter organizations that need top-up based on credits vs threshold
 		const filteredOrgs = orgsNeedingTopUp.filter((org) => {
+			// DevPass orgs can only spend credits with the pay-as-you-go
+			// overflow opt-in; without it auto-reload would buy credits the
+			// org cannot use.
+			if (org.kind === "devpass" && !org.devPlanPaygEnabled) {
+				return false;
+			}
 			const credits = Number(org.credits || 0);
 			const threshold = Number(org.autoTopUpThreshold ?? 10);
 			return credits < threshold;
@@ -462,7 +515,17 @@ export async function processAutoTopUp(): Promise<void> {
 					},
 				});
 
-				if (!defaultPaymentMethod) {
+				// DevPass orgs keep their card as the Stripe subscription/customer
+				// default rather than in the payment_method table, so fall back to
+				// it — the same card the manual /dev-plans/topup route charges.
+				let stripePaymentMethodId =
+					defaultPaymentMethod?.stripePaymentMethodId ?? null;
+				if (!stripePaymentMethodId && org.kind === "devpass") {
+					stripePaymentMethodId =
+						await resolveDevPassStripePaymentMethodId(org);
+				}
+
+				if (!stripePaymentMethodId) {
 					logger.info(
 						`No default payment method for organization ${org.id}, skipping auto top-up`,
 					);
@@ -493,7 +556,7 @@ export async function processAutoTopUp(): Promise<void> {
 				let isInternational = false;
 				try {
 					const stripePaymentMethod = await getStripe().paymentMethods.retrieve(
-						defaultPaymentMethod.stripePaymentMethodId,
+						stripePaymentMethodId,
 					);
 
 					const paymentMethodCustomer =
@@ -507,7 +570,7 @@ export async function processAutoTopUp(): Promise<void> {
 					// the failure for backoff/auto-disable instead of charging.
 					if (paymentMethodCustomer !== org.stripeCustomerId) {
 						logger.error(
-							`Default payment method ${defaultPaymentMethod.stripePaymentMethodId} for organization ${org.id} is attached to Stripe customer ${paymentMethodCustomer}, but the organization's Stripe customer is ${org.stripeCustomerId}; skipping auto top-up`,
+							`Default payment method ${stripePaymentMethodId} for organization ${org.id} is attached to Stripe customer ${paymentMethodCustomer}, but the organization's Stripe customer is ${org.stripeCustomerId}; skipping auto top-up`,
 						);
 						await recordAutoTopUpFailure(org);
 						continue;
@@ -517,7 +580,7 @@ export async function processAutoTopUp(): Promise<void> {
 					isInternational = Boolean(country) && country !== "US";
 				} catch (err) {
 					logger.error(
-						`Failed to retrieve payment method ${defaultPaymentMethod.stripePaymentMethodId} for organization ${org.id}; skipping auto top-up cycle to avoid undercharging international cards`,
+						`Failed to retrieve payment method ${stripePaymentMethodId} for organization ${org.id}; skipping auto top-up cycle to avoid undercharging international cards`,
 						err as Error,
 					);
 					continue;
@@ -527,6 +590,34 @@ export async function processAutoTopUp(): Promise<void> {
 					amount: topUpAmount,
 					isInternational,
 				});
+
+				// The org row was read once at the start of the pass, and the
+				// payment-method resolution above makes network calls — the user
+				// may have switched auto-reload (or DevPass PAYG overflow) off in
+				// the meantime. Re-read and re-authorize immediately before money
+				// moves: a charge that loses this check stops before the pending
+				// transaction and PaymentIntent are ever created. The residual
+				// window is the Stripe call itself, which a settings write cannot
+				// revoke.
+				const freshOrg = await db.query.organization.findFirst({
+					where: {
+						id: {
+							eq: org.id,
+						},
+					},
+				});
+				if (
+					!freshOrg ||
+					!freshOrg.autoTopUpEnabled ||
+					(freshOrg.kind === "devpass" && !freshOrg.devPlanPaygEnabled) ||
+					Number(freshOrg.credits || 0) >=
+						Number(freshOrg.autoTopUpThreshold ?? 10)
+				) {
+					logger.info(
+						`Skipping auto top-up for organization ${org.id}: settings changed mid-pass`,
+					);
+					continue;
+				}
 
 				// Insert pending transaction before creating payment intent
 				const pendingTransaction = await db
@@ -552,17 +643,19 @@ export async function processAutoTopUp(): Promise<void> {
 						amount: Math.round(feeBreakdown.totalAmount * 100),
 						currency: "usd",
 						description: `Auto top-up for ${topUpAmount} USD (total: ${feeBreakdown.totalAmount} including fees)`,
-						payment_method: defaultPaymentMethod.stripePaymentMethodId,
+						payment_method: stripePaymentMethodId,
 						customer: org.stripeCustomerId!,
 						confirm: true,
 						off_session: true,
 						metadata: {
 							organizationId: org.id,
+							type: "credit_topup",
 							autoTopUp: "true",
 							transactionId: pendingTransaction.id,
 							baseAmount: feeBreakdown.baseAmount.toString(),
 							platformFee: feeBreakdown.platformFee.toString(),
 							internationalFee: feeBreakdown.internationalFee.toString(),
+							totalAmount: feeBreakdown.totalAmount.toString(),
 							isInternational: isInternational.toString(),
 							...(orgUser?.user?.email && { userEmail: orgUser.user.email }),
 						},
@@ -889,6 +982,9 @@ export async function batchProcessLogs(): Promise<number> {
 
 	let processedCount = 0;
 	const deductedOrgIds: string[] = [];
+	// Provider keys (BYOK or managed) whose accumulated usage crossed their
+	// spend limit this batch — deactivated after the transaction commits.
+	let overLimitProviderKeyIds: string[] = [];
 	// LLM SDK: wallets that crossed below the low-balance threshold this
 	// batch — webhooks are enqueued after the transaction commits.
 	const walletLowBalanceEvents: Array<{
@@ -915,6 +1011,7 @@ export async function batchProcessLogs(): Promise<number> {
 					billing_cost: log.billingCost,
 					cached: log.cached,
 					api_key_id: log.apiKeyId,
+					provider_key_id: log.providerKeyId,
 					end_user_session_id: log.endUserSessionId,
 					end_customer_wallet_id: log.endCustomerWalletId,
 					project_mode: tables.project.mode,
@@ -982,6 +1079,11 @@ export async function batchProcessLogs(): Promise<number> {
 			// usage_debit ledger row back to a gateway log.
 			const walletCosts = new Map<string, Decimal>();
 			const walletLogIds = new Map<string, string>();
+			// Upstream provider spend attributed per provider_key row (BYOK and
+			// managed alike). Uses the raw `cost` column — what the credential
+			// spends at the provider — not billingCost, which carries plan/margin
+			// adjustments on what the org pays us.
+			const providerKeyCosts = new Map<string, Decimal>();
 
 			const isChatSource = (source: string | null | undefined) =>
 				source === "chat.llmgateway.io";
@@ -1027,6 +1129,23 @@ export async function batchProcessLogs(): Promise<number> {
 					traceId: row.trace_id,
 					unifiedFinishReason: row.unified_finish_reason,
 				});
+
+				// Cached responses never hit the upstream, so they don't spend
+				// against the credential. Runs before the wallet `continue` below so
+				// end-user-wallet traffic still attributes provider spend.
+				if (
+					row.provider_key_id &&
+					row.cost !== null &&
+					row.cost > 0 &&
+					!row.cached
+				) {
+					providerKeyCosts.set(
+						row.provider_key_id,
+						(providerKeyCosts.get(row.provider_key_id) ?? new Decimal(0)).plus(
+							new Decimal(row.cost),
+						),
+					);
+				}
 
 				// Prefer the exact decimal billingCost (realtime and other
 				// decimal-billed rows) over the legacy float cost column.
@@ -1496,6 +1615,37 @@ export async function batchProcessLogs(): Promise<number> {
 				}
 			}
 
+			// Accumulate upstream spend per provider key. Plain (uncached) writes
+			// on purpose: nothing hot-path reads `usage`, and invalidating the
+			// provider_key read cache every batch would hammer the database.
+			if (providerKeyCosts.size > 0) {
+				for (const [providerKeyId, keyCost] of providerKeyCosts.entries()) {
+					const costStr = keyCost.toString();
+					await tx
+						.update(tables.providerKey)
+						.set({
+							usage: sql`${tables.providerKey.usage} + ${costStr}`,
+						})
+						.where(eq(tables.providerKey.id, providerKeyId));
+				}
+
+				// Detect keys that crossed their spend limit; the status flip
+				// happens after commit so it can go through the cache-invalidating
+				// client without holding the batch transaction open.
+				const overLimitKeys = await tx
+					.select({ id: tables.providerKey.id })
+					.from(tables.providerKey)
+					.where(
+						and(
+							inArray(tables.providerKey.id, [...providerKeyCosts.keys()]),
+							eq(tables.providerKey.status, "active"),
+							isNotNull(tables.providerKey.usageLimit),
+							sql`${tables.providerKey.usage} >= ${tables.providerKey.usageLimit}`,
+						),
+					);
+				overLimitProviderKeyIds = overLimitKeys.map((key) => key.id);
+			}
+
 			// Mark all logs as processed within the same transaction.
 			// `= ANY($1)` keeps the query text constant across batch sizes; see
 			// the data-retention cleanup above for why this matters.
@@ -1510,6 +1660,45 @@ export async function batchProcessLogs(): Promise<number> {
 
 			return unprocessedLogs.rows.length;
 		});
+
+		// Auto-deactivate provider keys that hit their spend limit. Goes through
+		// cdb so the gateway's provider_key read cache and SWR mirrors are
+		// invalidated and the key drops out of rotation promptly — and only runs
+		// when a key actually crossed, so the 5s batch loop never busts the
+		// cache on quiet batches. The predicate is repeated to stay idempotent
+		// and to respect a limit raised between commit and flip. If the process
+		// dies in between, the key's next attributed batch re-detects it.
+		if (overLimitProviderKeyIds.length > 0) {
+			const deactivated = await cdb
+				.update(tables.providerKey)
+				.set({ status: "inactive" })
+				.where(
+					and(
+						inArray(tables.providerKey.id, overLimitProviderKeyIds),
+						eq(tables.providerKey.status, "active"),
+						isNotNull(tables.providerKey.usageLimit),
+						sql`${tables.providerKey.usage} >= ${tables.providerKey.usageLimit}`,
+					),
+				)
+				.returning({
+					id: tables.providerKey.id,
+					provider: tables.providerKey.provider,
+					managed: tables.providerKey.managed,
+					organizationId: tables.providerKey.organizationId,
+					usage: tables.providerKey.usage,
+					usageLimit: tables.providerKey.usageLimit,
+				});
+			for (const key of deactivated) {
+				logger.info("Provider key auto-deactivated: spend limit reached", {
+					providerKeyId: key.id,
+					provider: key.provider,
+					managed: key.managed,
+					organizationId: key.organizationId,
+					usage: key.usage,
+					usageLimit: key.usageLimit,
+				});
+			}
+		}
 
 		// Async low-balance alert check (outside transaction, non-blocking)
 		if (deductedOrgIds.length > 0) {

@@ -8,6 +8,10 @@ export interface ActivityModelUsage {
 	outputTokens: number;
 	totalTokens: number;
 	cost: number;
+	creditsRequestCount: number;
+	apiKeysRequestCount: number;
+	creditsCost: number;
+	apiKeysCost: number;
 }
 
 export interface ActivityApiKeyUsage {
@@ -18,6 +22,10 @@ export interface ActivityApiKeyUsage {
 	outputTokens: number;
 	totalTokens: number;
 	cost: number;
+	creditsRequestCount: number;
+	apiKeysRequestCount: number;
+	creditsCost: number;
+	apiKeysCost: number;
 }
 
 export interface ActivityUserUsage {
@@ -28,6 +36,10 @@ export interface ActivityUserUsage {
 	outputTokens: number;
 	totalTokens: number;
 	cost: number;
+	creditsRequestCount: number;
+	apiKeysRequestCount: number;
+	creditsCost: number;
+	apiKeysCost: number;
 }
 
 export interface DailyActivity {

@@ -17,6 +17,10 @@ import {
 	ChartTooltip,
 	ChartTooltipContent,
 } from "@/components/ui/chart";
+import {
+	UsageModeSelector,
+	useUsageMode,
+} from "@/components/usage-mode-selector";
 import { cn } from "@/lib/utils";
 
 import type { ChartConfig } from "@/components/ui/chart";
@@ -27,6 +31,10 @@ export interface CostByModelEntry {
 	cost: number;
 	requestCount: number;
 	totalTokens: number;
+	creditsRequestCount?: number;
+	apiKeysRequestCount?: number;
+	creditsCost?: number;
+	apiKeysCost?: number;
 }
 
 export interface CostByModelData {
@@ -34,6 +42,8 @@ export interface CostByModelData {
 	models: CostByModelEntry[];
 	totalCost: number;
 	totalRequests: number;
+	totalCreditsCost?: number;
+	totalApiKeysCost?: number;
 }
 
 type ActiveView = "cost" | "requests" | "tokens";
@@ -138,6 +148,32 @@ export function CostByModelChart({
 		void loadData();
 	}, [loadData]);
 
+	const usageMode = useUsageMode();
+	// Narrow cost/request figures to the selected billing mode; tokens are only
+	// tracked blended. Sorting is preserved from the API (by blended cost).
+	const displayModels =
+		usageMode === "total"
+			? (data?.models ?? [])
+			: (data?.models ?? []).map((m) => ({
+					...m,
+					cost:
+						(usageMode === "credits" ? m.creditsCost : m.apiKeysCost) ?? m.cost,
+					requestCount:
+						(usageMode === "credits"
+							? m.creditsRequestCount
+							: m.apiKeysRequestCount) ?? m.requestCount,
+				}));
+	const displayTotalCost =
+		usageMode === "total"
+			? (data?.totalCost ?? 0)
+			: ((usageMode === "credits"
+					? data?.totalCreditsCost
+					: data?.totalApiKeysCost) ?? 0);
+	const displayTotalRequests =
+		usageMode === "total"
+			? (data?.totalRequests ?? 0)
+			: displayModels.reduce((sum, m) => sum + m.requestCount, 0);
+
 	const config = viewConfigs[activeView];
 	const dataKey = Object.keys(config)[0];
 
@@ -157,15 +193,23 @@ export function CostByModelChart({
 						{data && (
 							<div className="mt-1 flex items-center gap-4 text-xs text-muted-foreground">
 								<span>
-									Total Cost:{" "}
+									{usageMode === "credits"
+										? "Credits Cost: "
+										: usageMode === "api-keys"
+											? "BYOK Cost: "
+											: "Total Cost: "}
 									<strong className="text-foreground">
-										{currencyFormatter.format(data.totalCost)}
+										{currencyFormatter.format(displayTotalCost)}
 									</strong>
 								</span>
 								<span>
-									Total Requests:{" "}
+									{usageMode === "credits"
+										? "Credits Requests: "
+										: usageMode === "api-keys"
+											? "BYOK Requests: "
+											: "Total Requests: "}
 									<strong className="text-foreground">
-										{data.totalRequests.toLocaleString()}
+										{displayTotalRequests.toLocaleString()}
 									</strong>
 								</span>
 							</div>
@@ -189,6 +233,7 @@ export function CostByModelChart({
 							</button>
 						))}
 					</div>
+					<UsageModeSelector />
 					{showModelView && (
 						<div className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-1">
 							{modelViewOptions.map((opt) => {
@@ -215,7 +260,7 @@ export function CostByModelChart({
 					<div className="flex h-[300px] items-center justify-center text-sm text-muted-foreground">
 						Loading...
 					</div>
-				) : !data || data.models.length === 0 ? (
+				) : !data || displayModels.length === 0 ? (
 					<div className="flex h-[300px] items-center justify-center text-sm text-muted-foreground">
 						No data for this time window
 					</div>
@@ -224,11 +269,11 @@ export function CostByModelChart({
 						config={config}
 						className="aspect-auto w-full"
 						style={{
-							height: `${Math.max(300, data.models.length * 28)}px`,
+							height: `${Math.max(300, displayModels.length * 28)}px`,
 						}}
 					>
 						<BarChart
-							data={data.models}
+							data={displayModels}
 							layout="vertical"
 							margin={{ left: 8, right: 8, top: 20, bottom: 4 }}
 						>

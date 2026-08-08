@@ -19,8 +19,15 @@ const testWebSearch = process.env.TEST_WEB_SEARCH;
 // Skip all tests if TEST_WEB_SEARCH is not set
 const describeWebSearch = testWebSearch ? describe : describe.skip;
 
+// DashScope's OpenAI-compatible protocol does not return search sources at all
+// (no `search_info`, regardless of enable_source/enable_citation), so the
+// providers backed by it can report that a search ran but never where it read.
+const providersWithoutWebSearchAnnotations = ["zai/", "alibaba/", "scx-ai-gp/"];
+
 const expectsWebSearchAnnotations = (model: string) =>
-	!model.startsWith("zai/");
+	!providersWithoutWebSearchAnnotations.some((prefix) =>
+		model.startsWith(prefix),
+	);
 
 describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 	beforeAll(beforeAllHook);

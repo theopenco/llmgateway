@@ -204,7 +204,10 @@ export default function ResetPassCard({
 	const overflow = purchased > 4 ? purchased - 4 : 0;
 
 	return (
-		<div className="relative mt-4 overflow-hidden rounded-lg border border-dashed border-stone-400/70 bg-stone-50/70 dark:border-stone-600/70 dark:bg-stone-900/30">
+		<div
+			id="reset-pass-card"
+			className="relative mt-4 overflow-hidden rounded-lg border border-dashed border-stone-400/70 bg-stone-50/70 dark:border-stone-600/70 dark:bg-stone-900/30"
+		>
 			{/* Full-card stamp slammed on a successful redeem or purchase */}
 			<AnimatePresence>
 				{stampOverlay && (
