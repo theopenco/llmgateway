@@ -9,7 +9,10 @@ import {
 	RequestError,
 } from "./prepare-request-body.js";
 
-import type { AnthropicRequestBody } from "@llmgateway/models";
+import type {
+	AnthropicRequestBody,
+	ProviderModelMapping,
+} from "@llmgateway/models";
 
 function getCacheControl(block: unknown): unknown {
 	if (block && typeof block === "object" && "cache_control" in block) {
@@ -1132,7 +1135,7 @@ describe("prepareRequestBody - Moonshot thinking", () => {
 			const modelDef = models.find((m) => m.id === model);
 			const mapping = modelDef?.providers.find(
 				(p) => p.providerId === provider,
-			);
+			) as ProviderModelMapping | undefined;
 			expect(mapping?.supportedParameters).toContain("reasoning_effort");
 
 			const requestBody = (await prepareRequestBody(
