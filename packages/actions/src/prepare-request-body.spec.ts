@@ -994,6 +994,9 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 		["deepinfra", "hy3"],
 		["novita", "hy3"],
 		["runware", "deepseek-v4-flash"],
+		["canopywave", "kimi-k3"],
+		["runware", "deepseek-v4-pro"],
+		["runware", "gemma-4-31b-it"],
 	])(
 		"forwards none to %s when the mapping declares it",
 		async (provider, model) => {
