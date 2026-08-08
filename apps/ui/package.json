@@ -56,6 +56,7 @@
 		"@tailwindcss/typography": "0.5.19",
 		"@tanstack/react-query": "^5.90.5",
 		"@tanstack/react-table": "^8.21.3",
+		"@xyflow/react": "12.11.2",
 		"ai": "6.0.27",
 		"api": "workspace:*",
 		"babel-plugin-react-compiler": "1.0.0",
