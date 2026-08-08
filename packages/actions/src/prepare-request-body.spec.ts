@@ -1116,10 +1116,7 @@ describe("prepareRequestBody - Moonshot thinking", () => {
 		// effort value before the request was built (#3436, #3403).
 		["azure-ai-foundry", "grok-4-3", "medium"],
 		["azure-ai-foundry", "grok-4-1-fast-reasoning", "high"],
-		["vertex-openai", "grok-4-20-reasoning", "low"],
 		["xai", "grok-4", "high"],
-		["xai", "grok-4-20-beta-0309-reasoning", "medium"],
-		["xai", "grok-build-0-1", "low"],
 	];
 
 	test.each(xaiEffortCases)(
@@ -1157,6 +1154,52 @@ describe("prepareRequestBody - Moonshot thinking", () => {
 				true, // supportsReasoning
 			)) as unknown as Record<string, unknown>;
 			expect(requestBody.reasoning_effort).toBe(effort);
+		},
+	);
+
+	// The mirror image of the table above, and the more fragile half: these
+	// Grok deployments reason unconditionally but answer `reasoning_effort`
+	// with 400 "does not support parameter reasoningEffort" (verified against
+	// api.x.ai). Declaring the parameter for them — the obvious-looking
+	// completion of #3436/#3403 — turns every effort-bearing request into an
+	// upstream 400, so the drop is load-bearing and must stay asserted.
+	const xaiEffortRejectingCases: Array<
+		[Parameters<typeof prepareRequestBody>[0], string]
+	> = [
+		["vertex-openai", "grok-4-20-reasoning"],
+		["xai", "grok-4-20-beta-0309-reasoning"],
+		["xai", "grok-build-0-1"],
+	];
+
+	test.each(xaiEffortRejectingCases)(
+		"drops reasoning_effort for %s/%s, which rejects it upstream",
+		async (provider, model) => {
+			const modelDef = models.find((m) => m.id === model);
+			const mapping = modelDef?.providers.find(
+				(p) => p.providerId === provider,
+			) as ProviderModelMapping | undefined;
+			expect(mapping?.reasoning).toBe(true);
+			expect(mapping?.supportedParameters).not.toContain("reasoning_effort");
+
+			const requestBody = (await prepareRequestBody(
+				provider,
+				model,
+				null,
+				model,
+				[{ role: "user", content: "Hello!" }],
+				false, // stream
+				undefined, // temperature
+				undefined, // max_tokens
+				undefined, // top_p
+				undefined, // frequency_penalty
+				undefined, // presence_penalty
+				undefined, // response_format
+				undefined, // tools
+				undefined, // tool_choice
+				"high",
+				true, // supportsReasoning
+			)) as unknown as Record<string, unknown>;
+			expect(requestBody.reasoning_effort).toBeUndefined();
 		},
 	);
 });
