@@ -30,7 +30,7 @@ import type {
 
 export const routingConfig = new OpenAPIHono<ServerTypes>();
 
-async function checkProjectEnterpriseAccess(
+export async function checkProjectEnterpriseAccess(
 	userId: string,
 	projectId: string,
 ): Promise<{

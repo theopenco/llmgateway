@@ -251,17 +251,29 @@ export function getAvailableCredits(
  * hint tells opted-in orgs their PAYG balance is empty and everyone else
  * that overflow exists — the moment this error fires is the moment that
  * information is actionable.
+ *
+ * An org that already holds a balance it cannot spend (an admin credit gift,
+ * a referral bonus, credits left over from before it subscribed) is told the
+ * amount: without it the generic "enable overflow" nudge reads as "go spend
+ * more money" and the credits sit unused, which is exactly the case gifting
+ * credits to a maxed-out subscriber is meant to solve.
  */
 export function buildDevPlanCreditLimitError(
-	organization: Pick<OrgInfo, "devPlanPaygEnabled" | "devPlanExpiresAt">,
+	organization: Pick<
+		OrgInfo,
+		"credits" | "devPlanPaygEnabled" | "devPlanExpiresAt"
+	>,
 	messagePrefix = "",
 ): HTTPException {
 	const renewalDate = organization.devPlanExpiresAt
 		? new Date(organization.devPlanExpiresAt).toLocaleDateString()
 		: "your next billing date";
+	const waitingBalance = parseFloat(organization.credits ?? "0");
 	const paygHint = organization.devPlanPaygEnabled
 		? " Your pay-as-you-go balance is empty — top up credits from your DevPass dashboard to keep going."
-		: " Or enable pay-as-you-go overflow in your DevPass dashboard to keep going past your allowance.";
+		: waitingBalance > 0
+			? ` You have $${waitingBalance.toFixed(2)} in credits waiting — enable pay-as-you-go overflow in your DevPass dashboard to spend them.`
+			: " Or enable pay-as-you-go overflow in your DevPass dashboard to keep going past your allowance.";
 	return new HTTPException(402, {
 		message: `${messagePrefix}Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.${paygHint}`,
 	});

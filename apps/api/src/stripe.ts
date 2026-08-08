@@ -2049,9 +2049,17 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
 		purchaserUserId: resolvedUser?.id ?? null,
 	});
 
-	if (userEmail) {
-		await notifyCreditsPurchased(userEmail, resolvedUser?.name, creditAmount);
-	}
+	await notifyCreditsPurchased({
+		email: userEmail ?? organization.billingEmail,
+		name: resolvedUser?.name,
+		creditAmount,
+		bonusAmount,
+		grossAmount: totalAmountInDollars,
+		currency: (session.currency ?? "USD").toUpperCase(),
+		organizationId,
+		organizationName: organization.name,
+		source: "stripe_checkout",
+	});
 
 	logger.info(
 		`Added ${finalCreditAmount} credits to organization ${organizationId} via Stripe Checkout (paid $${totalAmountInDollars} including fees)`,
@@ -2689,6 +2697,14 @@ async function handlePaymentIntentSucceeded(
 		return;
 	}
 
+	// Credit top-ups paid through Stripe Checkout are fulfilled by
+	// checkout.session.completed (handleCreditTopUpCheckout). Their PaymentIntent
+	// carries the same metadata only so the charge is attributable in the Stripe
+	// dashboard — crediting it here as well would double-credit the organization.
+	if (paymentIntent.metadata.source === "stripe_checkout") {
+		return;
+	}
+
 	// payment_intent.succeeded also fires for subscription invoice payments;
 	// only credit top-up payment intents set baseAmount in metadata.
 	if (paymentIntent.metadata.baseAmount === undefined) {
@@ -2903,9 +2919,17 @@ async function handlePaymentIntentSucceeded(
 		});
 	}
 
-	if (userEmail) {
-		await notifyCreditsPurchased(userEmail, resolvedUser?.name, creditAmount);
-	}
+	await notifyCreditsPurchased({
+		email: userEmail ?? organization.billingEmail,
+		name: resolvedUser?.name,
+		creditAmount,
+		bonusAmount,
+		grossAmount: totalAmountInDollars,
+		currency: paymentIntent.currency.toUpperCase(),
+		organizationId,
+		organizationName: organization.name,
+		source: transactionId ? "auto_topup" : "payment_intent",
+	});
 
 	logger.info(
 		`Added credits to organization ${organizationId} (paid ${totalAmountInDollars} including fees)`,
@@ -2994,9 +3018,14 @@ export async function handlePaymentIntentFailed(
 	// subscription invoice intents carry neither. Failure tracking above
 	// (paymentFailure row + dunning email) still runs for subscription invoices,
 	// and dev/chat plan credit freezes are handled in handleInvoicePaymentFailed.
+	// Checkout-sourced top-ups are excluded as well: the Stripe-hosted page lets
+	// the customer retry a declined card on the same PaymentIntent, so recording a
+	// row per failure would spam the billing history, and no transaction exists
+	// until checkout.session.completed fulfils the payment.
 	const transactionId = metadata?.transactionId;
 	const isCreditTopup =
-		metadata?.baseAmount !== undefined || transactionId !== undefined;
+		(metadata?.baseAmount !== undefined || transactionId !== undefined) &&
+		metadata?.source !== "stripe_checkout";
 	if (isCreditTopup) {
 		if (transactionId) {
 			// Update existing pending transaction to failed

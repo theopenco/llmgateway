@@ -149,8 +149,9 @@ const catalogEntrySchema = z.object({
 	 * provider — the gateway's, or this process's own when no gateway has
 	 * published — across the base variable and its variant/region overrides.
 	 * These are read-only from the dashboard: they can only be changed by
-	 * redeploying, and once the provider has any active managed credential
-	 * covering an audience they stop being used for it.
+	 * redeploying, and once the provider has any active managed credential all
+	 * of them stop being used — managed credentials replace the environment for
+	 * their provider rather than taking precedence key by key.
 	 */
 	envCredentials: z.array(envCredentialSchema),
 	/**
