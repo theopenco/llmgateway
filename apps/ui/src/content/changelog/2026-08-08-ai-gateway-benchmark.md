@@ -39,7 +39,7 @@ The composite blends cold-start latency, warm latency, and throughput, weighting
 | Cold E2E p95    | **1262 ms** | 1266 ms          | 1374 ms             |
 | Cold E2E median | **594 ms**  | 601 ms           | 648 ms              |
 
-Median latency is where gateways look alike; the field is separated by a little over 100 ms there. The tail is where they don't. A warm p95 of 1151 ms against a field that ranges to 4329 ms is the difference between a p95 your users notice and one they don't — and for anything agentic, where a single turn fans out into many sequential calls, the tail is what compounds.
+Median latency is where gateways look alike: 54 ms covers our cold E2E median, the next-best gateway's, and the no-gateway baseline. The tail is where they don't. A warm p95 of 1151 ms against a field that ranges to 4329 ms is the difference between a p95 your users notice and one they don't — and for anything agentic, where a single turn fans out into many sequential calls, the tail is what compounds.
 
 **This is one run.** Latency benchmarks are noisy, the field is tightly packed, and week-to-week ordering moves. We publish the link rather than a screenshot precisely so you can check the current numbers instead of trusting a snapshot.
 
@@ -60,9 +60,15 @@ The benchmark is open source and vendor-neutral. The harness, the scoring weight
 
 ```bash
 git clone https://github.com/computesdk/benchmarks
-cd benchmarks && npm install
-npm run bench:ai-gateway
+cd benchmarks && git checkout 7548e7584940 && npm install
+
+export LLMGATEWAY_API_KEY=...   # from your dashboard
+export ANTHROPIC_API_KEY=...    # the no-gateway control
+
+npm run bench:ai-gateway -- --iterations 20
 ```
+
+`7548e7584940` is the commit holding the August 7 results. `--iterations 20` matches that run's 20 cold and 20 warm probes per gateway — the default is 10. Any gateway whose API key isn't set is skipped, so the command above measures us against the direct-to-Anthropic control; add the other gateways' keys to reproduce the full leaderboard.
 
 Results land in `results/ai-gateway/`, and the composite weighting is in `src/ai-gateway/scoring.ts`. Our participation was added in [computesdk/benchmarks#215](https://github.com/computesdk/benchmarks/pull/215).
 
