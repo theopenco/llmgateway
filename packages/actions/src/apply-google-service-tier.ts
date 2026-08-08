@@ -1,3 +1,5 @@
+import { getProviderDefinition } from "@llmgateway/models";
+
 import { getProviderDefaultBaseUrl } from "./get-provider-endpoint.js";
 
 import type { ProviderId, ProviderRequestBody } from "@llmgateway/models";
@@ -34,16 +36,22 @@ export function applyGoogleServiceTier(
 }
 
 /**
- * Providers whose premium tiers only apply when the request reaches their real
- * upstream: the Google providers (the `service_tier` body field for
- * BODY_TIER_PROVIDERS, the Vertex request headers for google-vertex) and
- * Fireworks. A key pointing at a proxy / custom base URL may silently drop the
- * tier, so the request is served (and billed) as standard, never at the tier
- * the caller asked for. Service-tier routing is therefore restricted to keys
- * targeting the provider's default base URL.
+ * A premium tier only applies when the request reaches the provider's real
+ * upstream. Whether the tier travels as a body field (OpenAI, the Gemini
+ * Developer API, Fireworks) or a request header (Vertex), a key pointing at a
+ * proxy / custom base URL may silently drop it — the request is then served,
+ * and billed, as standard, and the caller has no way to tell. Service-tier
+ * routing is therefore restricted to credentials targeting the provider's
+ * default base URL.
+ *
+ * Derived from the catalogue rather than hardcoded: any provider that declares
+ * `serviceTiers` is subject to the rule automatically. A hardcoded list silently
+ * exempted OpenAI, which is both the most-used tier provider and the one most
+ * likely to sit behind an OpenAI-compatible proxy.
  */
-const UPSTREAM_ONLY_TIER_PROVIDERS: ReadonlySet<ProviderId> =
-	new Set<ProviderId>([...BODY_TIER_PROVIDERS, "google-vertex", "fireworks"]);
+function isUpstreamOnlyTierProvider(provider: ProviderId): boolean {
+	return Boolean(getProviderDefinition(provider)?.serviceTiers?.length);
+}
 
 /**
  * The OpenAI-compatible processing tiers that select premium (Flex / Priority)
@@ -54,6 +62,30 @@ export function isPremiumServiceTier(
 	serviceTier: string | null | undefined,
 ): serviceTier is "flex" | "priority" {
 	return serviceTier === "flex" || serviceTier === "priority";
+}
+
+/**
+ * Base URLs an operator has declared to reach a provider's genuine upstream, so
+ * they may carry a premium tier despite not being the catalogue default —
+ * comma-separated in `SERVICE_TIER_TRUSTED_BASE_URLS`.
+ *
+ * Unset in production, where only the provider's own endpoint is trusted. It
+ * exists for deployments fronting a provider with a mirror they control (and for
+ * the test harness, whose mock server stands in for every upstream). Declaring a
+ * URL here asserts that it forwards `service_tier` untouched; a proxy that
+ * silently drops it will serve, and bill, standard.
+ */
+function isTrustedServiceTierBaseUrl(baseUrl: string): boolean {
+	const trusted = process.env.SERVICE_TIER_TRUSTED_BASE_URLS;
+	if (!trusted) {
+		return false;
+	}
+	const normalized = normalizeServiceTierBaseUrl(baseUrl);
+	return trusted
+		.split(",")
+		.map((entry) => normalizeServiceTierBaseUrl(entry))
+		.filter((entry) => entry.length > 0)
+		.includes(normalized);
 }
 
 function normalizeServiceTierBaseUrl(baseUrl: string): string {
@@ -69,19 +101,22 @@ function normalizeServiceTierBaseUrl(baseUrl: string): string {
 
 /**
  * Whether a provider key's base URL is eligible to carry a Flex/Priority
- * service-tier request. Eligible when the provider is not one of the
- * upstream-only tier providers, when the key uses the managed default (no
- * custom base URL), or when the custom base URL exactly matches the provider's
- * default base URL (its real upstream). A custom base URL on google-ai-studio /
- * google-vertex / fireworks is the only case this rejects — glacier has no
- * static default base URL (env-defined deployment), so there is no canonical
- * upstream to enforce.
+ * service-tier request. Eligible when the provider declares no service tiers at
+ * all, when the key uses the managed default (no custom base URL), or when the
+ * custom base URL exactly matches the provider's default base URL (its real
+ * upstream). Providers with no static default base URL (e.g. glacier, an
+ * env-defined deployment) have no canonical upstream to compare against, so
+ * they pass, as do base URLs an operator has explicitly trusted via
+ * SERVICE_TIER_TRUSTED_BASE_URLS.
  */
 export function providerKeyBaseUrlSupportsServiceTier(
 	provider: ProviderId,
 	baseUrl: string | null | undefined,
 ): boolean {
-	if (!UPSTREAM_ONLY_TIER_PROVIDERS.has(provider) || !baseUrl) {
+	if (!isUpstreamOnlyTierProvider(provider) || !baseUrl) {
+		return true;
+	}
+	if (isTrustedServiceTierBaseUrl(baseUrl)) {
 		return true;
 	}
 	const upstream = getProviderDefaultBaseUrl(provider);
