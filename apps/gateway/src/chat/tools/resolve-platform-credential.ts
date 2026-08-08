@@ -1,4 +1,9 @@
-import { findManagedProviderKey } from "@/lib/cached-queries.js";
+import { HTTPException } from "hono/http-exception";
+
+import {
+	findManagedProviderKey,
+	hasManagedProviderCredential,
+} from "@/lib/cached-queries.js";
 
 import { readProviderKey } from "@llmgateway/actions";
 import { providerKeyAllowsModel } from "@llmgateway/db";
@@ -72,11 +77,14 @@ export interface ResolvePlatformCredentialOptions {
 /**
  * Resolve the platform's own credential for a provider.
  *
- * Managed provider-key rows win when any are configured for the provider:
- * they are the database-backed replacement for the `LLM_*` environment
- * variables and carry their own base URL, project, region and other settings.
- * Deployments that have not migrated (or providers with no managed credential
- * yet) keep reading the environment exactly as before.
+ * Managed provider-key rows replace the `LLM_*` environment variables for
+ * their provider — they are not tried before them. Once a provider has any
+ * managed credential, its environment is out of play: if no managed credential
+ * can serve this request (all excluded after failing, or none matching the
+ * variant, region, model restriction or requested service tier) the request
+ * fails rather than falling back to an env key the operator superseded.
+ * Providers with no managed credential yet keep reading the environment
+ * exactly as before, so migrating can be done a provider at a time.
  */
 export async function resolvePlatformCredential(
 	provider: Provider,
@@ -104,6 +112,12 @@ export async function resolvePlatformCredential(
 			configIndex: 0,
 			envVarName: undefined,
 		};
+	}
+
+	if (await hasManagedProviderCredential(provider)) {
+		throw new HTTPException(500, {
+			message: `No managed credential available for provider: ${provider}`,
+		});
 	}
 
 	const excludedIndices = options.requiresServiceTier
