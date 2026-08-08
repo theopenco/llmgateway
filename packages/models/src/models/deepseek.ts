@@ -433,6 +433,8 @@ export const deepseekModels = [
 				maxOutput: 393216,
 				streaming: true,
 				reasoning: true,
+				// Fireworks rejects "minimal" for this model; the rest of the enum
+				// (plus "none" for non-thinking mode) is accepted.
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
 				vision: false,
 				tools: true,
@@ -622,12 +624,18 @@ export const deepseekModels = [
 				maxOutput: 163840,
 				streaming: true,
 				reasoning: true,
+				// Together's deployment accepts any reasoning_effort string without
+				// validating it, and only the top tiers measurably change behaviour:
+				// xhigh and max roughly double the reasoning tokens, while
+				// low/medium/high land on the provider default. `none` is honoured
+				// through the `thinking` switch, not through reasoning_effort.
 				reasoningEfforts: ["none", "xhigh", "max"],
 				requiresDisableThinkingParam: true,
 				reasoningOutput: "omit",
 				vision: false,
-				tools: false,
-				jsonOutput: false,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
 			},
 			{
 				// RanoAI serves DeepSeek V4 Flash on Furiosa RNGD NPUs. The NPU
