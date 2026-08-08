@@ -3459,6 +3459,13 @@ export const routingExclusionHourly = pgTable(
 		// the mapping, so read it with max() rather than sum() when grouping across
 		// reasons.
 		candidateCount: integer().notNull().default(0),
+		// Requests where this mapping was dropped for ANY reason, counted once per
+		// request. `excludedCount` counts reasons, and one request can fire several
+		// on the same mapping, so summing reasons overstates how often the mapping
+		// was actually unavailable — eligibility must be derived from this instead.
+		// Like candidateCount it is repeated on every reason row, so read it with
+		// max() when grouping across reasons.
+		excludedDecisionCount: integer().notNull().default(0),
 	},
 	(table) => [
 		unique().on(
@@ -4473,6 +4480,25 @@ export const apiKeyHourlyModelStats = pgTable(
 	],
 );
 
+// Dimensions the global stats tables are keyed on in addition to the day
+// bucket and the model/source. Both carry an "unknown" member: rows written
+// before these columns existed keep it, and it is also the fallback for
+// requests whose organization row no longer exists.
+export const GLOBAL_STATS_USED_MODES = [
+	"credits",
+	"api-keys",
+	"unknown",
+] as const;
+export type GlobalStatsUsedMode = (typeof GLOBAL_STATS_USED_MODES)[number];
+
+export const GLOBAL_STATS_ORG_KINDS = [
+	"default",
+	"devpass",
+	"chat",
+	"unknown",
+] as const;
+export type GlobalStatsOrgKind = (typeof GLOBAL_STATS_ORG_KINDS)[number];
+
 // Global model statistics — cross-org, cross-project aggregation by model.
 // Rows are day-bucketed (`dayTimestamp`); the worker can update them at any
 // cadence via the configurable bucket size.
@@ -4488,6 +4514,17 @@ export const globalModelStats = pgTable(
 		dayTimestamp: timestamp().notNull(), // Start of the UTC day bucket
 		usedModel: text().notNull(),
 		usedProvider: text().notNull(),
+		// Billing mode the request was actually served under (log.usedMode).
+		// "unknown" on rows aggregated before this column existed.
+		usedMode: text({ enum: GLOBAL_STATS_USED_MODES })
+			.notNull()
+			.default("unknown"),
+		// organization.kind at aggregation time. "unknown" on rows aggregated
+		// before this column existed and on requests whose organization row is
+		// gone. Stored verbatim ("default" is labelled PAYG in the admin UI).
+		orgKind: text({ enum: GLOBAL_STATS_ORG_KINDS })
+			.notNull()
+			.default("unknown"),
 		// Request counts
 		requestCount: integer().notNull().default(0),
 		errorCount: integer().notNull().default(0),
@@ -4526,16 +4563,17 @@ export const globalModelStats = pgTable(
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
-		// Per-mode breakdowns
-		creditsRequestCount: integer().notNull().default(0),
-		apiKeysRequestCount: integer().notNull().default(0),
-		creditsCost: real().notNull().default(0),
-		apiKeysCost: real().notNull().default(0),
-		creditsDataStorageCost: real().notNull().default(0),
-		apiKeysDataStorageCost: real().notNull().default(0),
 	},
 	(table) => [
-		unique().on(table.dayTimestamp, table.usedModel, table.usedProvider),
+		// usedMode/orgKind are part of the key: every metric is therefore
+		// per-mode and per-kind, and blended totals are a plain SUM.
+		unique().on(
+			table.dayTimestamp,
+			table.usedModel,
+			table.usedProvider,
+			table.usedMode,
+			table.orgKind,
+		),
 		index("global_model_stats_day_timestamp_idx").on(table.dayTimestamp),
 		index("global_model_stats_used_model_day_timestamp_idx").on(
 			table.usedModel,
@@ -4563,6 +4601,13 @@ export const globalSourceStats = pgTable(
 		// NULL log.source rows are stored under the literal 'unknown' so the
 		// unique constraint and onConflictDoUpdate target stay valid.
 		source: text().notNull(),
+		// See globalModelStats for the semantics of these two dimensions.
+		usedMode: text({ enum: GLOBAL_STATS_USED_MODES })
+			.notNull()
+			.default("unknown"),
+		orgKind: text({ enum: GLOBAL_STATS_ORG_KINDS })
+			.notNull()
+			.default("unknown"),
 		// Request counts
 		requestCount: integer().notNull().default(0),
 		errorCount: integer().notNull().default(0),
@@ -4601,16 +4646,14 @@ export const globalSourceStats = pgTable(
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
-		// Per-mode breakdowns
-		creditsRequestCount: integer().notNull().default(0),
-		apiKeysRequestCount: integer().notNull().default(0),
-		creditsCost: real().notNull().default(0),
-		apiKeysCost: real().notNull().default(0),
-		creditsDataStorageCost: real().notNull().default(0),
-		apiKeysDataStorageCost: real().notNull().default(0),
 	},
 	(table) => [
-		unique().on(table.dayTimestamp, table.source),
+		unique().on(
+			table.dayTimestamp,
+			table.source,
+			table.usedMode,
+			table.orgKind,
+		),
 		index("global_source_stats_day_timestamp_idx").on(table.dayTimestamp),
 		index("global_source_stats_source_day_timestamp_idx").on(
 			table.source,

@@ -26,7 +26,7 @@ import {
 	findActiveProviderKeys,
 	findApiKeyByToken,
 	findEffectiveDiscount,
-	findManagedProviderIds,
+	findManagedProviderAvailability,
 	findOrganizationById,
 	findProjectById,
 	findProviderKey,
@@ -334,7 +334,8 @@ describe("cached-queries SWR integration", () => {
 			// Prime once — the per-model narrowing happens in memory after the
 			// cached row fetch, so every model shares the same mirror entry.
 			expect(
-				await findManagedProviderIds(undefined, "special-model"),
+				(await findManagedProviderAvailability(undefined, "special-model"))
+					.usable,
 			).toContain("openai");
 			await waitForSwrMirrorWrites();
 			await flushDrizzleCache();
@@ -347,10 +348,12 @@ describe("cached-queries SWR integration", () => {
 			// JSON), so the restriction keeps filtering during the outage instead
 			// of failing open or erroring.
 			expect(
-				await findManagedProviderIds(undefined, "special-model"),
+				(await findManagedProviderAvailability(undefined, "special-model"))
+					.usable,
 			).toContain("openai");
 			expect(
-				await findManagedProviderIds(undefined, "some-other-model"),
+				(await findManagedProviderAvailability(undefined, "some-other-model"))
+					.usable,
 			).not.toContain("openai");
 
 			selectSpy.mockRestore();

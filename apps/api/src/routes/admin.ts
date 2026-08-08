@@ -1778,10 +1778,27 @@ admin.openapi(getTimeseries, async (c) => {
 });
 
 const globalStatsRangeSchema = z.enum(["7d", "30d", "90d", "365d", "all"]);
-const globalStatsGroupBySchema = z.enum(["model", "source"]);
+const globalStatsGroupBySchema = z.enum(["model", "source", "mode", "kind"]);
 const globalStatsModelViewSchema = z.enum(["mapping", "canonical", "provider"]);
+// Billing mode filter. "total" blends every mode, including the "unknown"
+// rows that predate per-mode attribution.
+const globalStatsModeSchema = z.enum([
+	"total",
+	"credits",
+	"api-keys",
+	"unknown",
+]);
+const globalStatsKindSchema = z.enum([
+	"all",
+	"default",
+	"devpass",
+	"chat",
+	"unknown",
+]);
 const globalStatsDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
+// Every metric is scoped by the mode/kind filters, because both are part of
+// the aggregation key rather than denormalized column pairs.
 const globalStatsMetricsSchema = z.object({
 	requestCount: z.number(),
 	errorCount: z.number(),
@@ -1794,11 +1811,20 @@ const globalStatsMetricsSchema = z.object({
 	inputCost: z.number(),
 	cachedInputCost: z.number(),
 	outputCost: z.number(),
-	creditsRequestCount: z.number(),
-	apiKeysRequestCount: z.number(),
-	creditsCost: z.number(),
-	apiKeysCost: z.number(),
 });
+
+// How the selected range splits across the *other* dimension, so the blended
+// view can show its composition without a second request. `byMode` honours the
+// kind filter and vice versa, so both always reconcile with `totals`.
+const globalStatsCompositionItemSchema = z
+	.object({
+		key: z.string(),
+		label: z.string(),
+		requestCount: z.number(),
+		cost: z.number(),
+		totalTokens: z.number(),
+	})
+	.openapi({});
 
 const globalStatsTimeseriesPointSchema = globalStatsMetricsSchema
 	.extend({
@@ -1824,10 +1850,6 @@ const globalStatsTimeseriesBreakdownPointSchema = z
 		requestCount: z.number(),
 		cost: z.number(),
 		totalTokens: z.number(),
-		creditsRequestCount: z.number(),
-		apiKeysRequestCount: z.number(),
-		creditsCost: z.number(),
-		apiKeysCost: z.number(),
 	})
 	.openapi({});
 
@@ -1836,7 +1858,13 @@ const globalStatsResponseSchema = z.object({
 	end: z.string(),
 	groupBy: globalStatsGroupBySchema,
 	modelView: globalStatsModelViewSchema,
+	mode: globalStatsModeSchema,
+	kind: globalStatsKindSchema,
 	totals: globalStatsMetricsSchema,
+	composition: z.object({
+		byMode: z.array(globalStatsCompositionItemSchema),
+		byKind: z.array(globalStatsCompositionItemSchema),
+	}),
 	timeseries: z.array(globalStatsTimeseriesPointSchema),
 	timeseriesBreakdown: z.array(globalStatsTimeseriesBreakdownPointSchema),
 	breakdown: z.array(globalStatsBreakdownItemSchema),
@@ -1852,6 +1880,8 @@ const getGlobalStats = createRoute({
 			to: globalStatsDateSchema.optional(),
 			groupBy: globalStatsGroupBySchema.default("model").optional(),
 			modelView: globalStatsModelViewSchema.default("mapping").optional(),
+			mode: globalStatsModeSchema.default("total").optional(),
+			kind: globalStatsKindSchema.default("all").optional(),
 		}),
 	},
 	responses: {
@@ -1870,12 +1900,22 @@ admin.openapi(getGlobalStats, async (c) => {
 	const query = c.req.valid("query");
 	const groupBy = query.groupBy ?? "model";
 	const modelView = query.modelView ?? "mapping";
+	const mode = query.mode ?? "total";
+	const kind = query.kind ?? "all";
 
 	const dayMs = 24 * 60 * 60 * 1000;
 	const MAX_GLOBAL_STATS_DAYS = 731;
 
+	// Only the model grouping needs the per-model table; source/mode/kind all
+	// read the (much smaller) source table, which covers the same requests.
 	const sourceTable =
 		groupBy === "model" ? globalModelStats : globalSourceStats;
+
+	// Narrowing happens in SQL, so every metric below — tokens, errors, cache,
+	// per-part costs — reflects exactly the selected slice.
+	const modeFilter = mode === "total" ? [] : [eq(sourceTable.usedMode, mode)];
+	const kindFilter = kind === "all" ? [] : [eq(sourceTable.orgKind, kind)];
+	const dimensionFilter = [...modeFilter, ...kindFilter];
 
 	// `all` means "all time": derive the span from the first/last recorded day
 	// so the card matches the dashboard's all-time totals instead of silently
@@ -1904,7 +1944,8 @@ admin.openapi(getGlobalStats, async (c) => {
 					string | null
 				>`to_char(MAX(${sourceTable.dayTimestamp}), 'YYYY-MM-DD')`.as("maxDay"),
 			})
-			.from(sourceTable);
+			.from(sourceTable)
+			.where(dimensionFilter.length ? and(...dimensionFilter) : undefined);
 		const minDay = bounds[0]?.minDay ?? null;
 		const maxDay = bounds[0]?.maxDay ?? null;
 		endDate = maxDay ? new Date(maxDay + "T00:00:00Z") : new Date();
@@ -1976,26 +2017,16 @@ admin.openapi(getGlobalStats, async (c) => {
 			sql<number>`COALESCE(SUM(${sourceTable.outputCost}), 0)::float8`.as(
 				"outputCost",
 			),
-		creditsRequestCount:
-			sql<number>`COALESCE(SUM(${sourceTable.creditsRequestCount}), 0)::int`.as(
-				"creditsRequestCount",
-			),
-		apiKeysRequestCount:
-			sql<number>`COALESCE(SUM(${sourceTable.apiKeysRequestCount}), 0)::int`.as(
-				"apiKeysRequestCount",
-			),
-		creditsCost:
-			sql<number>`COALESCE(SUM(${sourceTable.creditsCost}), 0)::float8`.as(
-				"creditsCost",
-			),
-		apiKeysCost:
-			sql<number>`COALESCE(SUM(${sourceTable.apiKeysCost}), 0)::float8`.as(
-				"apiKeysCost",
-			),
 	};
 
 	const dateExpr =
 		sql<string>`to_char(${sourceTable.dayTimestamp}, 'YYYY-MM-DD')`.as("date");
+
+	const rangeFilter = and(
+		gte(sourceTable.dayTimestamp, startDate),
+		lte(sourceTable.dayTimestamp, endDate),
+	);
+	const scopeFilter = and(rangeFilter, ...dimensionFilter);
 
 	const timeseriesRows = await db
 		.select({
@@ -2003,12 +2034,7 @@ admin.openapi(getGlobalStats, async (c) => {
 			...metricSums,
 		})
 		.from(sourceTable)
-		.where(
-			and(
-				gte(sourceTable.dayTimestamp, startDate),
-				lte(sourceTable.dayTimestamp, endDate),
-			),
-		)
+		.where(scopeFilter)
 		.groupBy(sourceTable.dayTimestamp)
 		.orderBy(asc(sourceTable.dayTimestamp));
 
@@ -2030,10 +2056,6 @@ admin.openapi(getGlobalStats, async (c) => {
 			inputCost: Number(row.inputCost),
 			cachedInputCost: Number(row.cachedInputCost),
 			outputCost: Number(row.outputCost),
-			creditsRequestCount: Number(row.creditsRequestCount),
-			apiKeysRequestCount: Number(row.apiKeysRequestCount),
-			creditsCost: Number(row.creditsCost),
-			apiKeysCost: Number(row.apiKeysCost),
 		});
 	}
 
@@ -2049,10 +2071,6 @@ admin.openapi(getGlobalStats, async (c) => {
 		inputCost: 0,
 		cachedInputCost: 0,
 		outputCost: 0,
-		creditsRequestCount: 0,
-		apiKeysRequestCount: 0,
-		creditsCost: 0,
-		apiKeysCost: 0,
 	};
 
 	const timeseries: z.infer<typeof globalStatsTimeseriesPointSchema>[] = [];
@@ -2072,10 +2090,6 @@ admin.openapi(getGlobalStats, async (c) => {
 			inputCost: 0,
 			cachedInputCost: 0,
 			outputCost: 0,
-			creditsRequestCount: 0,
-			apiKeysRequestCount: 0,
-			creditsCost: 0,
-			apiKeysCost: 0,
 		};
 		timeseries.push(point);
 		totals.requestCount += point.requestCount;
@@ -2089,11 +2103,17 @@ admin.openapi(getGlobalStats, async (c) => {
 		totals.inputCost += point.inputCost;
 		totals.cachedInputCost += point.cachedInputCost;
 		totals.outputCost += point.outputCost;
-		totals.creditsRequestCount += point.creditsRequestCount;
-		totals.apiKeysRequestCount += point.apiKeysRequestCount;
-		totals.creditsCost += point.creditsCost;
-		totals.apiKeysCost += point.apiKeysCost;
 	}
+
+	// The dimension the breakdown groups on. `model` needs the per-model table
+	// (and its mapping/canonical/provider views); the rest are single columns
+	// on the source table.
+	const breakdownColumn =
+		groupBy === "mode"
+			? globalSourceStats.usedMode
+			: groupBy === "kind"
+				? globalSourceStats.orgKind
+				: globalSourceStats.source;
 
 	const breakdownRows =
 		groupBy === "model"
@@ -2104,68 +2124,41 @@ admin.openapi(getGlobalStats, async (c) => {
 						...metricSums,
 					})
 					.from(globalModelStats)
-					.where(
-						and(
-							gte(globalModelStats.dayTimestamp, startDate),
-							lte(globalModelStats.dayTimestamp, endDate),
-						),
-					)
+					.where(scopeFilter)
 					.groupBy(globalModelStats.usedModel, globalModelStats.usedProvider)
 					.orderBy(desc(metricSums.requestCount))
 			: await db
 					.select({
-						source: globalSourceStats.source,
+						dimension: breakdownColumn,
 						...metricSums,
 					})
 					.from(globalSourceStats)
-					.where(
-						and(
-							gte(globalSourceStats.dayTimestamp, startDate),
-							lte(globalSourceStats.dayTimestamp, endDate),
-						),
-					)
-					.groupBy(globalSourceStats.source)
+					.where(scopeFilter)
+					.groupBy(breakdownColumn)
 					.orderBy(desc(metricSums.requestCount));
 
 	const breakdown: z.infer<typeof globalStatsBreakdownItemSchema>[] =
 		groupBy === "model" && modelView === "canonical"
-			? aggregateModelRowsByCanonicalId(
+			? aggregateBreakdownRows(
 					breakdownRows as Array<
-						(typeof breakdownRows)[number] & {
-							usedModel: string;
-						}
+						(typeof breakdownRows)[number] & { usedModel: string }
 					>,
+					(row) => extractCanonicalModelId(row.usedModel),
 				)
 			: groupBy === "model" && modelView === "provider"
-				? aggregateModelRowsByProvider(
+				? aggregateBreakdownRows(
 						breakdownRows as Array<
-							(typeof breakdownRows)[number] & {
-								usedProvider: string;
-							}
+							(typeof breakdownRows)[number] & { usedProvider: string }
 						>,
+						(row) => row.usedProvider || "unknown",
 					)
 				: breakdownRows.map((row) => {
-						const isModel = "usedModel" in row;
-						const key = isModel ? row.usedModel : row.source;
-						const label = isModel ? row.usedModel : row.source;
+						const key =
+							"usedModel" in row ? row.usedModel : (row.dimension ?? "unknown");
 						return {
+							...toBreakdownMetrics(row),
 							key,
-							label,
-							requestCount: Number(row.requestCount),
-							errorCount: Number(row.errorCount),
-							cacheCount: Number(row.cacheCount),
-							inputTokens: Number(row.inputTokens),
-							cachedTokens: Number(row.cachedTokens),
-							outputTokens: Number(row.outputTokens),
-							totalTokens: Number(row.totalTokens),
-							cost: Number(row.cost),
-							inputCost: Number(row.inputCost),
-							cachedInputCost: Number(row.cachedInputCost),
-							outputCost: Number(row.outputCost),
-							creditsRequestCount: Number(row.creditsRequestCount),
-							apiKeysRequestCount: Number(row.apiKeysRequestCount),
-							creditsCost: Number(row.creditsCost),
-							apiKeysCost: Number(row.apiKeysCost),
+							label: globalStatsDimensionLabel(groupBy, key),
 						};
 					});
 
@@ -2179,12 +2172,7 @@ admin.openapi(getGlobalStats, async (c) => {
 						...metricSums,
 					})
 					.from(globalModelStats)
-					.where(
-						and(
-							gte(globalModelStats.dayTimestamp, startDate),
-							lte(globalModelStats.dayTimestamp, endDate),
-						),
-					)
+					.where(scopeFilter)
 					.groupBy(
 						globalModelStats.dayTimestamp,
 						globalModelStats.usedModel,
@@ -2193,17 +2181,12 @@ admin.openapi(getGlobalStats, async (c) => {
 			: await db
 					.select({
 						date: dateExpr,
-						source: globalSourceStats.source,
+						dimension: breakdownColumn,
 						...metricSums,
 					})
 					.from(globalSourceStats)
-					.where(
-						and(
-							gte(globalSourceStats.dayTimestamp, startDate),
-							lte(globalSourceStats.dayTimestamp, endDate),
-						),
-					)
-					.groupBy(globalSourceStats.dayTimestamp, globalSourceStats.source);
+					.where(scopeFilter)
+					.groupBy(globalSourceStats.dayTimestamp, breakdownColumn);
 
 	const timeseriesBreakdownMap = new Map<
 		string,
@@ -2223,9 +2206,12 @@ admin.openapi(getGlobalStats, async (c) => {
 						? modelRow.usedProvider || "unknown"
 						: modelRow.usedModel;
 		} else {
-			key = (
-				row as (typeof timeseriesBreakdownRows)[number] & { source: string }
-			).source;
+			key =
+				(
+					row as (typeof timeseriesBreakdownRows)[number] & {
+						dimension: string;
+					}
+				).dimension ?? "unknown";
 		}
 		const mapKey = `${row.date}:${key}`;
 		const existing = timeseriesBreakdownMap.get(mapKey);
@@ -2233,33 +2219,69 @@ admin.openapi(getGlobalStats, async (c) => {
 			existing.requestCount += Number(row.requestCount);
 			existing.cost += Number(row.cost);
 			existing.totalTokens += Number(row.totalTokens);
-			existing.creditsRequestCount += Number(row.creditsRequestCount);
-			existing.apiKeysRequestCount += Number(row.apiKeysRequestCount);
-			existing.creditsCost += Number(row.creditsCost);
-			existing.apiKeysCost += Number(row.apiKeysCost);
 		} else {
 			timeseriesBreakdownMap.set(mapKey, {
 				date: row.date,
 				key,
-				label: key,
+				label: globalStatsDimensionLabel(groupBy, key),
 				requestCount: Number(row.requestCount),
 				cost: Number(row.cost),
 				totalTokens: Number(row.totalTokens),
-				creditsRequestCount: Number(row.creditsRequestCount),
-				apiKeysRequestCount: Number(row.apiKeysRequestCount),
-				creditsCost: Number(row.creditsCost),
-				apiKeysCost: Number(row.apiKeysCost),
 			});
 		}
 	}
 	const timeseriesBreakdown = Array.from(timeseriesBreakdownMap.values());
+
+	// Composition of the range along each dimension, each honouring the *other*
+	// filter so both always add up to `totals`.
+	const compositionSums = {
+		requestCount: metricSums.requestCount,
+		cost: metricSums.cost,
+		totalTokens: metricSums.totalTokens,
+	};
+	const [byModeRows, byKindRows] = await Promise.all([
+		db
+			.select({ dimension: sourceTable.usedMode, ...compositionSums })
+			.from(sourceTable)
+			.where(and(rangeFilter, ...kindFilter))
+			.groupBy(sourceTable.usedMode)
+			.orderBy(desc(compositionSums.requestCount)),
+		db
+			.select({ dimension: sourceTable.orgKind, ...compositionSums })
+			.from(sourceTable)
+			.where(and(rangeFilter, ...modeFilter))
+			.groupBy(sourceTable.orgKind)
+			.orderBy(desc(compositionSums.requestCount)),
+	]);
+
+	const toCompositionItem = (
+		dimension: "mode" | "kind",
+		row: {
+			dimension: string | null;
+			requestCount: number | string;
+			cost: number | string;
+			totalTokens: number | string;
+		},
+	) => ({
+		key: row.dimension ?? "unknown",
+		label: globalStatsDimensionLabel(dimension, row.dimension ?? "unknown"),
+		requestCount: Number(row.requestCount),
+		cost: Number(row.cost),
+		totalTokens: Number(row.totalTokens),
+	});
 
 	return c.json({
 		start: startDate.toISOString().split("T")[0],
 		end: endDate.toISOString().split("T")[0],
 		groupBy,
 		modelView,
+		mode,
+		kind,
 		totals,
+		composition: {
+			byMode: byModeRows.map((row) => toCompositionItem("mode", row)),
+			byKind: byKindRows.map((row) => toCompositionItem("kind", row)),
+		},
 		timeseries,
 		timeseriesBreakdown,
 		breakdown,
@@ -2277,139 +2299,73 @@ function extractCanonicalModelId(usedModel: string): string {
 	return colonIdx === -1 ? withoutProvider : withoutProvider.slice(0, colonIdx);
 }
 
-function aggregateModelRowsByCanonicalId(
-	rows: Array<{
-		usedModel: string;
-		requestCount: number;
-		errorCount: number;
-		cacheCount: number;
-		inputTokens: number;
-		cachedTokens: number;
-		outputTokens: number;
-		totalTokens: number;
-		cost: number;
-		inputCost: number;
-		cachedInputCost: number;
-		outputCost: number;
-		creditsRequestCount: number;
-		apiKeysRequestCount: number;
-		creditsCost: number;
-		apiKeysCost: number;
-	}>,
-): z.infer<typeof globalStatsBreakdownItemSchema>[] {
-	const aggregated = new Map<
-		string,
-		z.infer<typeof globalStatsBreakdownItemSchema>
-	>();
-	for (const row of rows) {
-		const canonical = extractCanonicalModelId(row.usedModel);
-		const existing = aggregated.get(canonical);
-		if (existing) {
-			existing.requestCount += Number(row.requestCount);
-			existing.errorCount += Number(row.errorCount);
-			existing.cacheCount += Number(row.cacheCount);
-			existing.inputTokens += Number(row.inputTokens);
-			existing.cachedTokens += Number(row.cachedTokens);
-			existing.outputTokens += Number(row.outputTokens);
-			existing.totalTokens += Number(row.totalTokens);
-			existing.cost += Number(row.cost);
-			existing.inputCost += Number(row.inputCost);
-			existing.cachedInputCost += Number(row.cachedInputCost);
-			existing.outputCost += Number(row.outputCost);
-			existing.creditsRequestCount += Number(row.creditsRequestCount);
-			existing.apiKeysRequestCount += Number(row.apiKeysRequestCount);
-			existing.creditsCost += Number(row.creditsCost);
-			existing.apiKeysCost += Number(row.apiKeysCost);
-		} else {
-			aggregated.set(canonical, {
-				key: canonical,
-				label: canonical,
-				requestCount: Number(row.requestCount),
-				errorCount: Number(row.errorCount),
-				cacheCount: Number(row.cacheCount),
-				inputTokens: Number(row.inputTokens),
-				cachedTokens: Number(row.cachedTokens),
-				outputTokens: Number(row.outputTokens),
-				totalTokens: Number(row.totalTokens),
-				cost: Number(row.cost),
-				inputCost: Number(row.inputCost),
-				cachedInputCost: Number(row.cachedInputCost),
-				outputCost: Number(row.outputCost),
-				creditsRequestCount: Number(row.creditsRequestCount),
-				apiKeysRequestCount: Number(row.apiKeysRequestCount),
-				creditsCost: Number(row.creditsCost),
-				apiKeysCost: Number(row.apiKeysCost),
-			});
-		}
+const GLOBAL_STATS_MODE_LABELS: Record<string, string> = {
+	credits: "Credits",
+	"api-keys": "BYOK",
+	unknown: "Unattributed",
+};
+
+// "default" is the plain pay-as-you-go org kind; it reads as PAYG everywhere
+// user-facing because "default" says nothing about how the traffic is paid for.
+const GLOBAL_STATS_KIND_LABELS: Record<string, string> = {
+	default: "PAYG",
+	devpass: "DevPass",
+	chat: "Chat",
+	unknown: "Unattributed",
+};
+
+function globalStatsDimensionLabel(dimension: string, key: string): string {
+	if (dimension === "mode") {
+		return GLOBAL_STATS_MODE_LABELS[key] ?? key;
 	}
-	return Array.from(aggregated.values()).sort(
-		(a, b) => b.requestCount - a.requestCount,
-	);
+	if (dimension === "kind") {
+		return GLOBAL_STATS_KIND_LABELS[key] ?? key;
+	}
+	return key;
 }
 
-function aggregateModelRowsByProvider(
-	rows: Array<{
-		usedProvider: string;
-		requestCount: number;
-		errorCount: number;
-		cacheCount: number;
-		inputTokens: number;
-		cachedTokens: number;
-		outputTokens: number;
-		totalTokens: number;
-		cost: number;
-		inputCost: number;
-		cachedInputCost: number;
-		outputCost: number;
-		creditsRequestCount: number;
-		apiKeysRequestCount: number;
-		creditsCost: number;
-		apiKeysCost: number;
-	}>,
+type GlobalStatsRowMetrics = z.infer<typeof globalStatsMetricsSchema>;
+
+function toBreakdownMetrics(
+	row: Record<keyof GlobalStatsRowMetrics, number | string>,
+): GlobalStatsRowMetrics {
+	return {
+		requestCount: Number(row.requestCount),
+		errorCount: Number(row.errorCount),
+		cacheCount: Number(row.cacheCount),
+		inputTokens: Number(row.inputTokens),
+		cachedTokens: Number(row.cachedTokens),
+		outputTokens: Number(row.outputTokens),
+		totalTokens: Number(row.totalTokens),
+		cost: Number(row.cost),
+		inputCost: Number(row.inputCost),
+		cachedInputCost: Number(row.cachedInputCost),
+		outputCost: Number(row.outputCost),
+	};
+}
+
+// Collapses per-mapping rows onto a coarser key (canonical model id, provider)
+// by summing every metric.
+function aggregateBreakdownRows<T extends GlobalStatsRowMetrics>(
+	rows: T[],
+	keyOf: (row: T) => string,
 ): z.infer<typeof globalStatsBreakdownItemSchema>[] {
 	const aggregated = new Map<
 		string,
 		z.infer<typeof globalStatsBreakdownItemSchema>
 	>();
 	for (const row of rows) {
-		const provider = row.usedProvider || "unknown";
-		const existing = aggregated.get(provider);
-		if (existing) {
-			existing.requestCount += Number(row.requestCount);
-			existing.errorCount += Number(row.errorCount);
-			existing.cacheCount += Number(row.cacheCount);
-			existing.inputTokens += Number(row.inputTokens);
-			existing.cachedTokens += Number(row.cachedTokens);
-			existing.outputTokens += Number(row.outputTokens);
-			existing.totalTokens += Number(row.totalTokens);
-			existing.cost += Number(row.cost);
-			existing.inputCost += Number(row.inputCost);
-			existing.cachedInputCost += Number(row.cachedInputCost);
-			existing.outputCost += Number(row.outputCost);
-			existing.creditsRequestCount += Number(row.creditsRequestCount);
-			existing.apiKeysRequestCount += Number(row.apiKeysRequestCount);
-			existing.creditsCost += Number(row.creditsCost);
-			existing.apiKeysCost += Number(row.apiKeysCost);
-		} else {
-			aggregated.set(provider, {
-				key: provider,
-				label: provider,
-				requestCount: Number(row.requestCount),
-				errorCount: Number(row.errorCount),
-				cacheCount: Number(row.cacheCount),
-				inputTokens: Number(row.inputTokens),
-				cachedTokens: Number(row.cachedTokens),
-				outputTokens: Number(row.outputTokens),
-				totalTokens: Number(row.totalTokens),
-				cost: Number(row.cost),
-				inputCost: Number(row.inputCost),
-				cachedInputCost: Number(row.cachedInputCost),
-				outputCost: Number(row.outputCost),
-				creditsRequestCount: Number(row.creditsRequestCount),
-				apiKeysRequestCount: Number(row.apiKeysRequestCount),
-				creditsCost: Number(row.creditsCost),
-				apiKeysCost: Number(row.apiKeysCost),
-			});
+		const key = keyOf(row);
+		const existing = aggregated.get(key);
+		const metrics = toBreakdownMetrics(row);
+		if (!existing) {
+			aggregated.set(key, { ...metrics, key, label: key });
+			continue;
+		}
+		for (const metric of Object.keys(
+			metrics,
+		) as (keyof GlobalStatsRowMetrics)[]) {
+			existing[metric] += metrics[metric];
 		}
 	}
 	return Array.from(aggregated.values()).sort(
