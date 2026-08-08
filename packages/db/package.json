@@ -38,7 +38,7 @@
 		"zod": "3.25.75"
 	},
 	"devDependencies": {
-		"@types/pg": "^8.15.5",
+		"@types/pg": "^8.21.0",
 		"drizzle-kit": "1.0.0-beta.1",
 		"ioredis": "5.7.0"
 	}

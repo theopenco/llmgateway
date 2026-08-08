@@ -6,6 +6,13 @@
 		"apps/*",
 		"packages/*"
 	],
+	"devEngines": {
+		"packageManager": {
+			"name": "pnpm",
+			"version": "10.28.1",
+			"onFail": "warn"
+		}
+	},
 	"scripts": {
 		"build": "TURBO_TOKEN=turbotokenoss turbo run build 2>&1",
 		"build:ci": "TURBO_TOKEN=turbotokenoss turbo run build --concurrency=1 2>&1",
@@ -43,31 +50,31 @@
 		"@steebchen/lint-base": "1.1.0",
 		"@steebchen/prettier-config": "^1.5.0",
 		"@types/canvas-confetti": "1.9.0",
-		"@types/node": "26.1.1",
+		"@types/node": "26.2.0",
 		"commitlint": "21.2.1",
-		"concurrently": "^10.0.3",
+		"concurrently": "^10.0.4",
 		"dotenv": "17.4.2",
 		"esbuild-fix-imports-plugin": "1.0.23",
-		"eslint": "^9.34.0",
+		"eslint": "^9.39.5",
 		"eslint-import-resolver-typescript": "4.4.5",
 		"eslint-plugin-import": "2.32.0",
 		"eslint-plugin-no-relative-import-paths": "1.6.1",
 		"husky": "^9.1.7",
-		"lint-staged": "16.4.0",
+		"lint-staged": "17.3.0",
 		"nodemon": "3.1.14",
 		"prettier": "^3.9.6",
 		"resolve-tspaths": "0.8.23",
-		"semantic-release": "^24.2.5",
+		"semantic-release": "^25.0.9",
 		"semantic-release-monorepo": "8.0.2",
 		"sort-package-json": "3.4.0",
-		"sql.js": "1.13.0",
-		"tsc-watch": "7.2.0",
-		"tsx": "4.22.4",
-		"turbo": "^2.9.14",
-		"typescript": "5.9.2",
-		"vite": "^7.3.5",
-		"vite-tsconfig-paths": "^5.1.4",
-		"vitest": "^4.1.8"
+		"sql.js": "1.14.1",
+		"tsc-watch": "7.2.1",
+		"tsx": "4.23.11",
+		"turbo": "^2.10.9",
+		"typescript": "5.9.3",
+		"vite": "^8.2.1",
+		"vite-tsconfig-paths": "^6.1.1",
+		"vitest": "^4.1.10"
 	},
 	"disabledLinters": [
 		"eslint-plugin-tailwindcss"
