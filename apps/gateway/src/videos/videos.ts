@@ -24,6 +24,7 @@ import {
 	findOrganizationById,
 	findProjectById,
 	findProviderKey,
+	hasManagedProviderCredential,
 	type GatewayApiKey,
 } from "@/lib/cached-queries.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
@@ -1651,14 +1652,13 @@ async function resolveProviderContext(
 		return providerContext;
 	}
 
-	if (
-		!(await hasManagedVideoCredential(
-			providerId,
-			defaultBaseUrl,
-			envVariant,
-		)) &&
-		!hasProviderEnvironmentToken(providerId)
-	) {
+	// A provider with any managed credential is served only by those: its
+	// `LLM_*` vars are superseded and no longer count, even when no managed
+	// credential is video-eligible.
+	const platformCanServe = (await hasManagedProviderCredential(providerId))
+		? await hasManagedVideoCredential(providerId, defaultBaseUrl, envVariant)
+		: hasProviderEnvironmentToken(providerId);
+	if (!platformCanServe) {
 		throw new HTTPException(400, {
 			message: `No provider key or environment token set for provider: ${providerId}. Please add the provider key in the settings or switch the project mode to credits or hybrid.`,
 		});
@@ -1805,18 +1805,18 @@ async function hasVideoProviderConfiguration(
 
 /**
  * Whether LLM Gateway holds a credential of its own that can serve video
- * generation for the provider — a managed credential or the provider's env
- * vars. Either alone makes the provider routable.
+ * generation for the provider — a managed credential, or the provider's env
+ * vars when no managed credential has superseded them.
  */
 async function hasPlatformVideoConfiguration(
 	providerId: Provider,
 	defaultBaseUrl: string | null,
 	organizationId: string,
 ): Promise<boolean> {
-	const organization = await findOrganizationById(organizationId);
-	const variant = getOrganizationEnvVariant(organization);
-	if (await hasManagedVideoCredential(providerId, defaultBaseUrl, variant)) {
-		return true;
+	if (await hasManagedProviderCredential(providerId)) {
+		const organization = await findOrganizationById(organizationId);
+		const variant = getOrganizationEnvVariant(organization);
+		return await hasManagedVideoCredential(providerId, defaultBaseUrl, variant);
 	}
 	return hasVideoEnvConfiguration(providerId, defaultBaseUrl);
 }

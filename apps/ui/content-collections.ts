@@ -29,10 +29,19 @@ const blog = defineCollection({
 		id: z.string(),
 		slug: z.string(),
 		date: z.string(),
+		updatedAt: z.string().optional(),
 		title: z.string(),
 		summary: z.string(),
 		draft: z.boolean().optional(),
 		categories: z.array(z.string()).default([]),
+		faqs: z
+			.array(
+				z.object({
+					question: z.string(),
+					answer: z.string(),
+				}),
+			)
+			.default([]),
 		image: z
 			.object({
 				src: z.string(),

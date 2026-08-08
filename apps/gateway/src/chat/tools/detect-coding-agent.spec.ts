@@ -108,6 +108,19 @@ describe("detectCodingAgentFromUserAgent", () => {
 		expect(detectCodingAgentFromUserAgent("VSCode copilot extension")).toBe(
 			"github-copilot",
 		);
+		// Real BYOK User-Agents: camel-cased, no word boundary around "copilot"
+		expect(detectCodingAgentFromUserAgent("GitHubCopilotChat/0.26.7")).toBe(
+			"github-copilot",
+		);
+		expect(detectCodingAgentFromUserAgent("GithubCopilot/1.155.0")).toBe(
+			"github-copilot",
+		);
+		expect(detectCodingAgentFromUserAgent("GitHubCopilotCLI/0.1.0")).toBe(
+			"github-copilot",
+		);
+		expect(detectCodingAgentFromUserAgent("copilot-cli/1.0.0")).toBe(
+			"github-copilot",
+		);
 	});
 
 	it("detects Pi Agent", () => {

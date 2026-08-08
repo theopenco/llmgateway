@@ -38,6 +38,8 @@ describe("managed provider credentials", () => {
 		token: string;
 		config?: Record<string, string>;
 		variant?: "default" | "enterprise" | "plans";
+		region?: string;
+		allowedModels?: string[];
 	}) {
 		await cdb.insert(tables.providerKey).values({
 			id: values.id,
@@ -47,6 +49,8 @@ describe("managed provider credentials", () => {
 			organizationId: null,
 			config: values.config,
 			variant: values.variant ?? "default",
+			region: values.region,
+			allowedModels: values.allowedModels,
 		});
 	}
 
@@ -390,6 +394,80 @@ describe("managed provider credentials", () => {
 		expect(new Set(seen)).toEqual(
 			new Set(["Bearer sk-managed-a", "Bearer sk-managed-b"]),
 		);
+	});
+
+	/**
+	 * Managed credentials replace the provider's `LLM_*` variables instead of
+	 * taking precedence over them: once the provider has one, the environment is
+	 * out of play for routing and for every fallback. Rotating onto an env key
+	 * after the managed fleet is exhausted would spend a credential the operator
+	 * has already retired on the admin dashboard.
+	 */
+	test("never rotates onto an env key when the managed credentials fail", async () => {
+		await seedApiKey();
+		await seedManagedCredential({
+			id: "managed-openai-lone",
+			provider: "openai",
+			token: "sk-managed-lone",
+		});
+
+		const previousEnvKey = process.env.LLM_OPENAI_API_KEY;
+		process.env.LLM_OPENAI_API_KEY = "sk-from-env";
+
+		const seen: (string | null)[] = [];
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+			seen.push(new Headers(init?.headers).get("authorization"));
+			return new Response(
+				JSON.stringify({ error: { message: "Invalid API key" } }),
+				{ status: 401, headers: { "Content-Type": "application/json" } },
+			);
+		});
+
+		try {
+			await app.request("/v1/moderations", {
+				method: "POST",
+				headers: {
+					Authorization: "Bearer real-token",
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({ input: "hello" }),
+			});
+		} finally {
+			if (previousEnvKey === undefined) {
+				delete process.env.LLM_OPENAI_API_KEY;
+			} else {
+				process.env.LLM_OPENAI_API_KEY = previousEnvKey;
+			}
+		}
+
+		expect(seen).toEqual(["Bearer sk-managed-lone"]);
+	});
+
+	test("fails instead of using the env key when no managed credential may serve the model", async () => {
+		await seedApiKey();
+		await seedManagedCredential({
+			id: "managed-openai-restricted",
+			provider: "openai",
+			token: "sk-managed-restricted",
+			allowedModels: ["gpt-4o"],
+		});
+
+		const previousEnvKey = process.env.LLM_OPENAI_API_KEY;
+		process.env.LLM_OPENAI_API_KEY = "sk-from-env";
+		const captured = captureUpstream(chatCompletion);
+
+		try {
+			const res = await completions("openai/gpt-4o-mini");
+			expect(res.status).not.toBe(200);
+		} finally {
+			if (previousEnvKey === undefined) {
+				delete process.env.LLM_OPENAI_API_KEY;
+			} else {
+				process.env.LLM_OPENAI_API_KEY = previousEnvKey;
+			}
+		}
+
+		expect(captured).toEqual([]);
 	});
 
 	test("routes a PAYG org to a default credential alongside a variant one", async () => {

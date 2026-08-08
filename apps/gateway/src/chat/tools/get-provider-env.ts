@@ -6,7 +6,7 @@ import {
 	peekRoundRobinValue,
 } from "@/lib/round-robin-env.js";
 
-import { providerKeyBaseUrlSupportsServiceTier } from "@llmgateway/actions";
+import { providerCredentialSupportsServiceTier } from "@llmgateway/actions";
 import {
 	type EnvVarVariant,
 	getProviderEnvValue,
@@ -54,29 +54,16 @@ function isServiceTierEligibleEnvIndex(
 	index: number,
 	variant?: EnvVarVariant,
 ): boolean {
-	const baseUrl = getProviderEnvValue(
-		provider,
-		"baseUrl",
-		index,
-		undefined,
-		variant,
-	);
-	if (!providerKeyBaseUrlSupportsServiceTier(provider, baseUrl)) {
-		return false;
-	}
-	if (provider === "google-vertex") {
-		const region = getProviderEnvValue(
+	return providerCredentialSupportsServiceTier(provider, {
+		baseUrl: getProviderEnvValue(
 			provider,
-			"region",
+			"baseUrl",
 			index,
-			"global",
+			undefined,
 			variant,
-		);
-		if (region !== "global") {
-			return false;
-		}
-	}
-	return true;
+		),
+		region: getProviderEnvValue(provider, "region", index, "global", variant),
+	});
 }
 
 /**

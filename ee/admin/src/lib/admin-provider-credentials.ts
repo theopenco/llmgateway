@@ -10,6 +10,12 @@ export type ProviderCredential =
 export type ProviderCredentialCatalogEntry =
 	paths["/admin/provider-credentials/catalog"]["get"]["responses"]["200"]["content"]["application/json"]["providers"][number];
 
+export type ProviderCredentialSelfTestResult =
+	paths["/admin/provider-credentials/self-test"]["post"]["responses"]["200"]["content"]["application/json"];
+
+export type ProviderCredentialModelVerification =
+	paths["/admin/provider-credentials/verify-models"]["post"]["responses"]["200"]["content"]["application/json"];
+
 export interface CredentialInput {
 	provider: string;
 	token: string;
@@ -18,7 +24,21 @@ export interface CredentialInput {
 	region?: string;
 	config?: Record<string, string>;
 	usageLimit?: string | null;
+	allowedModels?: string[] | null;
 	skipValidation?: boolean;
+}
+
+/**
+ * Identifies the credential a test endpoint should probe: a stored one via
+ * `credentialId` (its token is read server-side), or unsaved dialog values.
+ * Explicit fields win over the stored ones.
+ */
+export interface CredentialTestInput {
+	credentialId?: string;
+	provider?: string;
+	token?: string;
+	config?: Record<string, string>;
+	region?: string | null;
 }
 
 interface MutationResult {
@@ -68,6 +88,7 @@ export async function updateProviderCredential(
 		status?: "active" | "inactive";
 		config?: Record<string, string>;
 		usageLimit?: string | null;
+		allowedModels?: string[] | null;
 		skipValidation?: boolean;
 	},
 ): Promise<MutationResult> {
@@ -102,6 +123,48 @@ export async function deleteProviderCredential(
 		};
 	}
 	return { success: true };
+}
+
+/**
+ * Sends one minimal completion through a credential — stored or still in the
+ * dialog — and reports the outcome without storing anything.
+ */
+export async function selfTestProviderCredential(
+	body: CredentialTestInput,
+): Promise<MutationResult & { result?: ProviderCredentialSelfTestResult }> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.POST(
+		"/admin/provider-credentials/self-test",
+		{ body },
+	);
+	if (error || !data) {
+		return {
+			success: false,
+			error: toErrorMessage(error, "Failed to test credential"),
+		};
+	}
+	return { success: true, result: data };
+}
+
+/**
+ * Probes each listed model through a credential and returns the per-model
+ * report, so an admin can confirm the account has the models before saving.
+ */
+export async function verifyProviderCredentialModels(
+	body: CredentialTestInput & { models: string[] },
+): Promise<MutationResult & { result?: ProviderCredentialModelVerification }> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.POST(
+		"/admin/provider-credentials/verify-models",
+		{ body },
+	);
+	if (error || !data) {
+		return {
+			success: false,
+			error: toErrorMessage(error, "Failed to verify models"),
+		};
+	}
+	return { success: true, result: data };
 }
 
 /**

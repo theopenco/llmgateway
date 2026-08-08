@@ -10,6 +10,7 @@ import {
 import {
 	decryptProviderKey,
 	deleteProviderEnvInventory,
+	getPinnedValidationModel,
 	publishProviderEnvInventory,
 } from "@llmgateway/actions";
 import {
@@ -19,6 +20,19 @@ import {
 } from "@llmgateway/cache";
 import { and, asc, cdb, db, eq, getTableName, tables } from "@llmgateway/db";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
+
+import type * as LlmGatewayActions from "@llmgateway/actions";
+
+// Spy on the live probe so the pinned-model selection in
+// validateCredentialToken can be asserted without real upstream calls. The
+// default implementation stays the real one; tests that exercise the live
+// path queue a one-shot resolved value instead.
+const validateProviderKeyMock = vi.hoisted(() => vi.fn());
+vi.mock("@llmgateway/actions", async (importOriginal) => {
+	const actual = await importOriginal<typeof LlmGatewayActions>();
+	validateProviderKeyMock.mockImplementation(actual.validateProviderKey);
+	return { ...actual, validateProviderKey: validateProviderKeyMock };
+});
 
 interface Credential {
 	id: string;
@@ -1369,5 +1383,252 @@ describe("managed credential reorder cache invalidation", () => {
 			expect(quiet?.totalCost).toBe(0);
 			expect(quiet?.totalTokens).toBe("0");
 		});
+	});
+});
+
+describe("managed credential allowed models", () => {
+	let cookie: string;
+
+	beforeEach(async () => {
+		process.env.ADMIN_EMAILS = "admin@example.com";
+		cookie = await createTestUser();
+	});
+
+	afterEach(async () => {
+		vi.unstubAllEnvs();
+		validateProviderKeyMock.mockClear();
+		await deleteAll();
+	});
+
+	async function create(body: Record<string, unknown>) {
+		return await app.request("/admin/provider-credentials", {
+			method: "POST",
+			headers: { Cookie: cookie, "Content-Type": "application/json" },
+			body: JSON.stringify(body),
+		});
+	}
+
+	async function patch(id: string, body: Record<string, unknown>) {
+		return await app.request(`/admin/provider-credentials/${id}`, {
+			method: "PATCH",
+			headers: { Cookie: cookie, "Content-Type": "application/json" },
+			body: JSON.stringify(body),
+		});
+	}
+
+	async function post(path: string, body: Record<string, unknown>) {
+		return await app.request(path, {
+			method: "POST",
+			headers: { Cookie: cookie, "Content-Type": "application/json" },
+			body: JSON.stringify(body),
+		});
+	}
+
+	/**
+	 * Catalogue model ids for a provider, taken from the catalog route so the
+	 * tests never hardcode ids that rot when the catalogue changes.
+	 */
+	async function catalogModels(provider: string): Promise<string[]> {
+		const res = await app.request("/admin/provider-credentials/catalog", {
+			headers: { Cookie: cookie },
+		});
+		expect(res.status).toBe(200);
+		const json = (await res.json()) as {
+			providers: { id: string; models: string[] }[];
+		};
+		return json.providers.find((entry) => entry.id === provider)?.models ?? [];
+	}
+
+	test("catalog lists each provider's live models for the picker", async () => {
+		const models = await catalogModels("openai");
+		expect(models.length).toBeGreaterThan(0);
+	});
+
+	test("stores a normalized allowed-models list", async () => {
+		const [first, second] = await catalogModels("openai");
+		const res = await create({
+			provider: "openai",
+			token: "sk-restricted",
+			allowedModels: [` ${first} `, second, first, ""],
+		});
+		expect(res.status).toBe(201);
+		const json = (await res.json()) as {
+			credential: { allowedModels: string[] | null };
+		};
+		expect(json.credential.allowedModels).toEqual([first, second]);
+	});
+
+	test("treats an empty list as no restriction", async () => {
+		const res = await create({
+			provider: "openai",
+			token: "sk-unrestricted",
+			allowedModels: [],
+		});
+		expect(res.status).toBe(201);
+		const json = (await res.json()) as {
+			credential: { allowedModels: string[] | null };
+		};
+		expect(json.credential.allowedModels).toBeNull();
+	});
+
+	test("rejects a model the provider cannot serve", async () => {
+		const res = await create({
+			provider: "openai",
+			token: "sk-bad-model",
+			allowedModels: ["definitely-not-a-model"],
+		});
+		expect(res.status).toBe(400);
+		expect(await res.text()).toContain("definitely-not-a-model");
+	});
+
+	test("sets and clears the restriction on update", async () => {
+		const [model] = await catalogModels("openai");
+		const createRes = await create({ provider: "openai", token: "sk-update" });
+		const { credential } = (await createRes.json()) as {
+			credential: { id: string };
+		};
+
+		const setRes = await patch(credential.id, { allowedModels: [model] });
+		expect(setRes.status).toBe(200);
+		expect(
+			((await setRes.json()) as { credential: { allowedModels: string[] } })
+				.credential.allowedModels,
+		).toEqual([model]);
+
+		const clearRes = await patch(credential.id, { allowedModels: null });
+		expect(clearRes.status).toBe(200);
+		expect(
+			(
+				(await clearRes.json()) as {
+					credential: { allowedModels: string[] | null };
+				}
+			).credential.allowedModels,
+		).toBeNull();
+	});
+
+	test("save-time validation probes an allowed model, not the default", async () => {
+		// E2E_TEST re-enables the live path that unit tests otherwise skip; the
+		// probe itself is stubbed so nothing reaches a real upstream.
+		vi.stubEnv("E2E_TEST", "true");
+		validateProviderKeyMock.mockResolvedValueOnce({ valid: true });
+
+		const chatModel = (await catalogModels("openai")).find(
+			(modelId) =>
+				getPinnedValidationModel("openai", modelId)?.chatCapable === true,
+		);
+		expect(chatModel).toBeDefined();
+
+		const res = await create({
+			provider: "openai",
+			token: "sk-pinned-probe",
+			allowedModels: [chatModel],
+		});
+		expect(res.status).toBe(201);
+
+		expect(validateProviderKeyMock).toHaveBeenCalledTimes(1);
+		// (provider, token, baseUrl, skipValidation, options, pinnedModelId)
+		expect(validateProviderKeyMock.mock.calls[0][5]).toBe(chatModel);
+	});
+
+	test("save-time validation skips the probe when no allowed model can chat", async () => {
+		vi.stubEnv("E2E_TEST", "true");
+
+		const nonChatModel = (await catalogModels("openai")).find(
+			(modelId) =>
+				getPinnedValidationModel("openai", modelId)?.chatCapable === false,
+		);
+		expect(nonChatModel).toBeDefined();
+
+		const res = await create({
+			provider: "openai",
+			token: "sk-no-chat-probe",
+			allowedModels: [nonChatModel],
+		});
+		expect(res.status).toBe(201);
+		expect(validateProviderKeyMock).not.toHaveBeenCalled();
+	});
+
+	test("self-test probes a stored credential", async () => {
+		const createRes = await create({ provider: "openai", token: "sk-probe" });
+		const { credential } = (await createRes.json()) as {
+			credential: { id: string };
+		};
+
+		const res = await post("/admin/provider-credentials/self-test", {
+			credentialId: credential.id,
+		});
+		expect(res.status).toBe(200);
+		// Unit tests skip the live upstream call, so a resolvable credential
+		// reports valid.
+		expect(((await res.json()) as { valid: boolean }).valid).toBe(true);
+	});
+
+	test("self-test accepts unsaved dialog values", async () => {
+		const res = await post("/admin/provider-credentials/self-test", {
+			provider: "openai",
+			token: "sk-not-saved-anywhere",
+		});
+		expect(res.status).toBe(200);
+	});
+
+	test("self-test requires a credential or explicit values", async () => {
+		expect(
+			(await post("/admin/provider-credentials/self-test", {})).status,
+		).toBe(400);
+		expect(
+			(
+				await post("/admin/provider-credentials/self-test", {
+					provider: "openai",
+				})
+			).status,
+		).toBe(400);
+		expect(
+			(
+				await post("/admin/provider-credentials/self-test", {
+					credentialId: "missing-credential",
+				})
+			).status,
+		).toBe(404);
+	});
+
+	test("verify-models reports each model and flags unknown ones", async () => {
+		const [model] = await catalogModels("openai");
+		const createRes = await create({ provider: "openai", token: "sk-verify" });
+		const { credential } = (await createRes.json()) as {
+			credential: { id: string };
+		};
+
+		const res = await post("/admin/provider-credentials/verify-models", {
+			credentialId: credential.id,
+			models: [model, "definitely-not-a-model"],
+		});
+		expect(res.status).toBe(200);
+		const json = (await res.json()) as {
+			allValid: boolean;
+			results: {
+				model: string;
+				inCatalog: boolean;
+				valid: boolean | null;
+			}[];
+		};
+		expect(json.allValid).toBe(false);
+		const known = json.results.find((entry) => entry.model === model);
+		expect(known?.inCatalog).toBe(true);
+		expect(known?.valid).toBe(true);
+		const unknown = json.results.find(
+			(entry) => entry.model === "definitely-not-a-model",
+		);
+		expect(unknown?.inCatalog).toBe(false);
+	});
+
+	test("verify-models passes when every model checks out", async () => {
+		const models = (await catalogModels("openai")).slice(0, 2);
+		const res = await post("/admin/provider-credentials/verify-models", {
+			provider: "openai",
+			token: "sk-verify-all",
+			models,
+		});
+		expect(res.status).toBe(200);
+		expect(((await res.json()) as { allValid: boolean }).allValid).toBe(true);
 	});
 });

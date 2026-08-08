@@ -17,6 +17,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { BlockOrgButton } from "@/components/block-org-button";
+import { GiftCreditsDialog } from "@/components/gift-credits-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,7 +41,6 @@ import { createServerApiClient } from "@/lib/server-api";
 
 import { ApiKeysTable } from "./api-keys-table";
 import { AuditLogsTab } from "./audit-logs-tab";
-import { GiftCreditsDialog } from "./gift-credits-dialog";
 import { GuardrailsTab } from "./guardrails-tab";
 import { ManageOrgDialog } from "./manage-org-dialog";
 import { OrgCostByModel } from "./org-cost-by-model";
