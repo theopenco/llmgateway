@@ -33,6 +33,15 @@ const providersLink = (
 	</Link>
 );
 
+const subProcessorsLink = (
+	<Link
+		href="/legal/sub-processors"
+		className="text-primary hover:text-primary/80 underline underline-offset-4"
+	>
+		Sub-processor page
+	</Link>
+);
+
 const privacyCards: SummaryCard[] = [
 	{
 		icon: DatabaseZap,
@@ -64,8 +73,8 @@ const privacyCards: SummaryCard[] = [
 		body: (
 			<>
 				Your personal information is never sold. Data is shared only with a
-				small set of vetted sub-processors (Stripe, Google Cloud, Resend) and
-				the AI provider you choose to route to.
+				small set of vetted sub-processors — listed in full on our{" "}
+				{subProcessorsLink} — and the AI provider you choose to route to.
 			</>
 		),
 	},

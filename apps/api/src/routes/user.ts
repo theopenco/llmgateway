@@ -9,6 +9,7 @@ import {
 	updateResendContact,
 } from "@/auth/config.js";
 import {
+	anonymizeBillingRecordsForEmail,
 	findSoleMemberOrganizations,
 	tearDownSoleMemberOrganizations,
 } from "@/lib/account-deletion.js";
@@ -16,6 +17,7 @@ import { notifyUserAccountDeleted } from "@/utils/discord.js";
 import { computeProfileData, profileSchema } from "@/utils/profile.js";
 
 import { and, db, eq, tables } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -612,6 +614,20 @@ user.openapi(deleteUser, async (c) => {
 			new Decimal(0),
 		)
 		.toString();
+
+	// Strip the account email out of the billing tables that outlive the user
+	// row. `payment_failure` cascades from `organization`, and organizations are
+	// kept (marked deleted) for the 10-year accounting period, so the address
+	// would otherwise survive the erasure indefinitely.
+	const anonymizedBillingRecords = await anonymizeBillingRecordsForEmail(
+		userRecord.email,
+	);
+
+	if (anonymizedBillingRecords > 0) {
+		logger.info(
+			`Anonymized ${anonymizedBillingRecords} payment failure record(s) on account deletion of user ${authUser.id}`,
+		);
+	}
 
 	// Sign out before deleting the user: the delete cascades the session rows
 	// away, after which better-auth can no longer resolve the session to revoke

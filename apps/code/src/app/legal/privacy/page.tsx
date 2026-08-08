@@ -138,25 +138,21 @@ export default function PrivacyPage() {
 			</p>
 			<hr />
 			<h2>4. Sub-processors</h2>
-			<p>We rely on a small set of vetted sub-processors:</p>
-			<ul>
-				<li>
-					<strong>Stripe</strong> — billing and subscription management
-				</li>
-				<li>
-					<strong>PostgreSQL / Redis hosting</strong> — application data and
-					caching
-				</li>
-				<li>
-					<strong>PostHog</strong> — product analytics
-				</li>
-				<li>
-					<strong>Email delivery providers</strong> — transactional email
-				</li>
-				<li>AI providers, as listed in the DevPass model catalog</li>
-			</ul>
 			<p>
-				Each sub-processor is bound by contractual data-protection obligations.
+				DevPass uses the same sub-processors as the rest of the platform:{" "}
+				<strong>Stripe</strong> (billing), <strong>Google Cloud</strong>{" "}
+				(hosting, database and object storage), <strong>Resend</strong>{" "}
+				(transactional email) and <strong>PostHog</strong> (product analytics),
+				plus the AI providers serving the models in the DevPass catalog.
+			</p>
+			<p>
+				The complete, versioned list — what each one processes, where, and the
+				30-day notice we give before adding a new one — is published on the{" "}
+				<a href="https://llmgateway.io/legal/sub-processors">
+					LLM Gateway Sub-processor page
+				</a>
+				. Each sub-processor is bound by contractual data-protection
+				obligations.
 			</p>
 			<hr />
 			<h2>5. Data Retention</h2>

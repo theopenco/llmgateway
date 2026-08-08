@@ -1,7 +1,7 @@
 ---
 id: "2"
 slug: "privacy"
-date: "2026-06-11"
+date: "2026-08-08"
 title: "Privacy Policy"
 description: "Read LLM Gateway’s Privacy Policy to understand how we collect, use, share, and protect your data, our roles as controller and processor, AI provider routing, your GDPR and CCPA rights, data retention, and international transfers."
 ---
@@ -9,7 +9,7 @@ description: "Read LLM Gateway’s Privacy Policy to understand how we collect, 
 # Privacy Policy
 
 **Effective Date:** October 21, 2025  
-**Last Updated:** June 11, 2026
+**Last Updated:** August 8, 2026
 
 LLM Gateway (“we”, “our”, or “us”) provides a unified AI gateway platform that enables users to connect, manage, and analyze AI models across multiple providers. This Privacy Policy explains how we collect, use, share, and protect personal information when you use our website, APIs, SDKs, dashboards, and related services (collectively, the “Service”).
 
@@ -101,9 +101,12 @@ We do **not sell** your personal information. We share limited data only as need
 We rely on a small set of vetted sub-processors, each bound by contractual data-protection obligations:
 
 - **Stripe** — payment and subscription processing. Stripe acts as a separate processor and retains its own payment records to meet its legal and tax obligations, under their [Privacy Policy](https://stripe.com/privacy).
-- **Google Cloud** — application hosting and database storage
+- **Google Cloud** — application hosting, database and object storage
 - **Resend** — transactional and product email delivery
+- **PostHog** — product analytics and feature flags, under their [Privacy Policy](https://posthog.com/privacy)
 - **AI Providers** — as listed on our [Providers page](https://llmgateway.io/providers), when routing your requests
+
+The complete, versioned list — including what each sub-processor processes, where it processes it, and how we notify you before the list changes — is published on our [Sub-processor page](https://llmgateway.io/legal/sub-processors). We give **30 days' notice before adding a new operational sub-processor**; see that page for how to subscribe to change notices and how to object.
 
 ---
 
@@ -126,7 +129,12 @@ We keep personal data only as long as necessary for the purposes it was collecte
 - **AI request content and metadata:** request and response content is governed by your organization's retention setting (Retain All Data vs Metadata Only); aggregated usage and cost metadata is retained for analytics and billing accuracy.
 - **Billing and accounting records** (purchases of credits, payments, invoices, and the transaction history of credits bought and spent): retained for **10 years** to comply with applicable tax and accounting law, even after account deletion, after which they are deleted or anonymized.
 
-Where we retain billing records after account deletion, we restrict processing of that data to what the law requires and anonymize personal identifiers not needed for the accounting record.
+Where we retain billing records after account deletion, we restrict processing of that data to what the law requires and anonymize personal identifiers not needed for the accounting record. Concretely, when you delete your account:
+
+- Your user record, sessions, API keys, passkeys and chats are **hard-deleted**.
+- Any organization you were the last member of is **closed**: its subscriptions are cancelled, its Stripe customer record — including the name, email and billing address Stripe held — is **deleted at Stripe**, and its display name, billing contact email and logo are **overwritten with placeholders**.
+- Your email address is **removed** from retained billing records such as failed-payment entries.
+- What remains is the accounting record itself: the amounts, dates, currencies and tax identifiers on the invoices we issued, kept for the statutory period described above.
 
 ---
 
@@ -184,6 +192,8 @@ If you do not want your requests routed through stealth or undisclosed providers
 ## 11. International Transfers
 
 Data may be processed and stored on servers located in the **European Union or the United States**, and may be transferred to AI providers and sub-processors in other countries. Where we transfer personal data internationally, we use appropriate safeguards required by applicable law, such as the **Standard Contractual Clauses (SCCs)** or equivalent mechanisms, to protect your data.
+
+Not every AI provider you can route to is covered by an adequacy decision or by SCCs executed with us — several are headquartered in countries without an EU adequacy decision. Each provider's headquarters and GDPR posture is shown on our [Providers page](https://llmgateway.io/providers), and our [Sub-processor page](https://llmgateway.io/legal/sub-processors) explains how to constrain routing with provider pinning or a compliance policy. **If you submit personal data of EU/UK data subjects, review the provider's entry before routing to it.**
 
 ---
 

@@ -426,6 +426,15 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
+										href="/legal/sub-processors"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Sub-processors
+									</Link>
+								</li>
+								<li>
+									<Link
 										href="/legal/privacy"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch={true}
