@@ -13,6 +13,7 @@ import {
 	findSoleMemberOrganizations,
 	tearDownSoleMemberOrganizations,
 } from "@/lib/account-deletion.js";
+import { buildUserDataExport } from "@/lib/data-export.js";
 import { notifyUserAccountDeleted } from "@/utils/discord.js";
 import { computeProfileData, profileSchema } from "@/utils/profile.js";
 
@@ -530,6 +531,63 @@ user.openapi(getDeletionPreview, async (c) => {
 		},
 		200,
 	);
+});
+
+const exportUserData = createRoute({
+	method: "get",
+	path: "/me/export",
+	summary: "Export my personal data",
+	description:
+		"Returns everything LLM Gateway holds about the authenticated user as a JSON document, satisfying the GDPR right of access (Art. 15) and right to data portability (Art. 20). Credentials, organization-owned request logs and security audit records are excluded; the payload documents each exclusion and why.",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					// Served as a downloadable file, and described rather than
+					// schema-pinned: the payload mirrors every table referencing the
+					// user, so pinning it would mean editing two places for each
+					// schema change — and a stale schema would silently drop data from
+					// an export the law requires to be complete.
+					schema: z.any().openapi({ type: "string", format: "binary" }),
+				},
+			},
+			description: "The user's personal data as a JSON download.",
+		},
+	},
+});
+
+// Only the 200 is declared, matching the other download routes in this API
+// (e.g. the DevPass invoice PDF): the 401/404 paths throw `HTTPException` and
+// are rendered by the global error handler. Declaring them here would force the
+// handler's return type into a union that `c.body` cannot satisfy.
+user.openapi(exportUserData, async (c) => {
+	const authUser = c.get("user");
+
+	if (!authUser) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const data = await buildUserDataExport(authUser.id);
+
+	if (!data) {
+		throw new HTTPException(404, {
+			message: "User not found",
+		});
+	}
+
+	// Content-Disposition makes the browser write the file to disk under a
+	// sensible name instead of rendering a wall of JSON.
+	c.header(
+		"Content-Disposition",
+		`attachment; filename="llmgateway-data-export-${authUser.id}.json"`,
+	);
+	// Personal data — never let a shared cache hold a copy.
+	c.header("Cache-Control", "no-store");
+
+	return c.json(data, 200);
 });
 
 const deleteUser = createRoute({

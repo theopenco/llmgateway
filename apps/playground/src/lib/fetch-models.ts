@@ -10,6 +10,11 @@ export interface ApiProvider {
 	color: string | null;
 	website: string | null;
 	announcement: string | null;
+	/**
+	 * Whether the provider trains on prompts sent through its API. `null` means
+	 * it has published no data policy — not that it does not train.
+	 */
+	apiTraining: boolean | null;
 	status: "active" | "inactive";
 }
 

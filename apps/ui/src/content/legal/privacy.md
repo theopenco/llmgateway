@@ -159,7 +159,12 @@ Depending on your location, you may have the right to:
 - Withdraw consent for specific processing activities
 - Object to or restrict certain processing activities
 
-You can exercise these rights by emailing **[contact@llmgateway.io](mailto:contact@llmgateway.io)**. We will respond within the timeframe required by applicable law and may need to verify your identity first. You will not be discriminated against for exercising your rights.
+Two of these are self-serve and take effect immediately, without waiting on us:
+
+- **Download your data.** Go to **Settings → Account → Download Your Data** for a machine-readable JSON copy of your profile, organization memberships, API key details, chats, playground history and preferences. For your own safety the file never contains credentials, and it lists everything that was withheld and why.
+- **Delete your account.** Go to **Settings → Account → Delete Account**. See [Data Retention](#7-data-retention) for exactly what is deleted and what we are legally required to keep.
+
+For anything else, email **[contact@llmgateway.io](mailto:contact@llmgateway.io)**. We will respond within the timeframe required by applicable law and may need to verify your identity first. You will not be discriminated against for exercising your rights.
 
 ### EU/UK (GDPR)
 

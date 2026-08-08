@@ -74,10 +74,14 @@ Covered by `apps/api/src/lib/account-deletion.spec.ts`.
 - The amount, decline code and Stripe payment-intent id on `paymentFailure` —
   only the contact email is removed.
 
-### Remaining gaps
+## Access and portability
 
-- **Art. 15/20 access and portability are manual**, handled over email rather than
-  by a self-serve export. Tracked as item 8 in `docs/gdpr-compliance-plan.md` §4.
+`GET /user/me/export` (`apps/api/src/lib/data-export.ts`) lets a user download
+everything we hold about them as JSON, so Art. 15/20 requests no longer depend on
+someone running a query by hand. It never includes credentials, and it embeds a
+list of what was withheld and why. Covered by
+`apps/api/src/lib/data-export.spec.ts`, including a test that fails if any seeded
+secret appears anywhere in the payload.
 
 ## Operational duties
 

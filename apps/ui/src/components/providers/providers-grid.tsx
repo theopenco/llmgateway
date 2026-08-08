@@ -8,6 +8,7 @@ import {
 	MapPin,
 	Plus,
 	Search,
+	ShieldAlert,
 	ShieldCheck,
 	Zap,
 } from "lucide-react";
@@ -50,6 +51,7 @@ import {
 	type ProviderId,
 } from "@llmgateway/models";
 import {
+	API_TRAINING_SHORT_LABEL,
 	isMappingDeactivated,
 	providerLogoUrls,
 } from "@llmgateway/shared/components";
@@ -541,6 +543,15 @@ export function ProvidersGrid({
 												<span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
 													<ShieldCheck className="h-3 w-3" />
 													No training
+												</span>
+											)}
+											{/* The counterpart badge matters as much as the positive
+											    one: without it a provider that trains looks identical
+											    to one that has published no policy at all. */}
+											{provider.dataPolicy?.apiTraining === true && (
+												<span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-600 dark:text-amber-500">
+													<ShieldAlert className="h-3 w-3" />
+													{API_TRAINING_SHORT_LABEL}
 												</span>
 											)}
 											{provider.website && (

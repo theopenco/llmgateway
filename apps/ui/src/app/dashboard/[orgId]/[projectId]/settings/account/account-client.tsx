@@ -1,6 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
+import { Download } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
@@ -35,6 +36,7 @@ import {
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
 import { toast } from "@/lib/components/use-toast";
+import { useFetchClient } from "@/lib/fetch-client";
 
 interface DeletionPreviewOrganization {
 	id: string;
@@ -57,6 +59,76 @@ function formatCredits(credits: string): string {
 
 function titleCase(value: string): string {
 	return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+/**
+ * Self-serve GDPR Art. 15 (access) / Art. 20 (portability) export. Handling
+ * these by email meant every request depended on someone being available to
+ * run a query; this makes it a button.
+ */
+function DownloadDataCard() {
+	const fetchClient = useFetchClient();
+	const [loading, setLoading] = useState(false);
+
+	async function handleDownload() {
+		setLoading(true);
+		try {
+			const { data, response } = await fetchClient.GET("/user/me/export", {
+				parseAs: "blob",
+			});
+
+			if (!response.ok || !data) {
+				throw new Error("Failed to export data");
+			}
+
+			const url = URL.createObjectURL(data as unknown as Blob);
+			const link = document.createElement("a");
+			link.href = url;
+			link.download = "llmgateway-data-export.json";
+			document.body.appendChild(link);
+			link.click();
+			link.remove();
+			URL.revokeObjectURL(url);
+		} catch {
+			toast({
+				title: "Could not export your data",
+				description: "Please try again later.",
+				variant: "destructive",
+			});
+		} finally {
+			setLoading(false);
+		}
+	}
+
+	return (
+		<Card>
+			<CardHeader>
+				<CardTitle>Download Your Data</CardTitle>
+				<CardDescription>
+					Get a copy of the personal data we hold about you
+				</CardDescription>
+			</CardHeader>
+			<CardContent className="space-y-2">
+				<p className="text-muted-foreground text-sm">
+					Downloads a JSON file containing your profile, organization
+					memberships, API key details, chats, playground history and
+					preferences. It is machine-readable, so you can take it to another
+					service.
+				</p>
+				<p className="text-muted-foreground text-sm">
+					For your safety the file never contains credentials — API key tokens,
+					passwords and passkeys are excluded. The file itself lists everything
+					that was left out and why.
+				</p>
+			</CardContent>
+			<CardFooter>
+				<Button variant="outline" onClick={handleDownload} disabled={loading}>
+					<Download className="mr-2 h-4 w-4" />
+					{loading ? "Preparing..." : "Download my data"}
+				</Button>
+			</CardFooter>
+		</Card>
+	);
 }
 
 function describeSubscription(org: DeletionPreviewOrganization): string {
@@ -227,6 +299,7 @@ export function AccountClient() {
 							</Button>
 						</CardFooter>
 					</Card>
+					<DownloadDataCard />
 					<Card>
 						<CardHeader>
 							<CardTitle>Delete Account</CardTitle>

@@ -94,8 +94,11 @@ const privacyCards: SummaryCard[] = [
 		title: "You stay in control",
 		body: (
 			<>
-				You can access, export or delete your data at any time. Billing records
-				are kept for 10 years where tax and accounting law requires it.
+				Download a machine-readable copy of your data, or delete your account,
+				from{" "}
+				<span className="text-foreground font-medium">Settings → Account</span>{" "}
+				— both are self-serve. Billing records are kept for 10 years where tax
+				and accounting law requires it.
 			</>
 		),
 	},

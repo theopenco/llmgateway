@@ -50,16 +50,38 @@ one exists it controls over the Privacy Policy for Customer Data.
 
 | Right | Article | Status | Where |
 | --- | --- | --- | --- |
-| Access / portability | 15, 20 | Manual, via contact@llmgateway.io | — |
+| Access / portability | 15, 20 | Self-serve JSON export | `apps/api/src/lib/data-export.ts`, `GET /user/me/export` |
 | Rectification | 16 | Self-serve in the dashboard | Account settings |
 | Erasure | 17 | Self-serve, with documented retention carve-out | `apps/api/src/lib/account-deletion.ts`, `DELETE /user/me` |
 | Restriction | 18 | Manual | — |
 | Objection | 21 | Manual | — |
 | Complaint to a supervisory authority | 77 | Disclosed in the Privacy Policy §9 | — |
 
-**Erasure is the one right with a real code path**, and it is deliberately an
-*erasure-with-retention* flow, because the accounting record has to survive
-(Art. 17(3)(b) + HGB §257 / AO §147). What it does today:
+### Access and portability
+
+`GET /user/me/export` returns everything we hold about the caller as a single
+JSON document, reachable from **Account settings → Download Your Data**. Two
+constraints shape it:
+
+- **It never contains a credential.** API key tokens, master keys, provider
+  keys, password hashes, session tokens and passkey credentials are all
+  excluded. Art. 15 is a right to know what is held, not a mechanism for
+  extracting live secrets, and an export file is far more likely to be
+  mishandled than the credential store. A spec asserts this
+  (`data-export.spec.ts`) by seeding known secrets and failing if any appears
+  anywhere in the payload.
+- **It says what it withheld and why.** `EXCLUDED_FROM_EXPORT` is embedded in
+  the payload, so a data subject sees the exclusions rather than inferring them
+  from absence.
+
+Request/response logs are excluded because they belong to the organization that
+submitted them — that organization is the controller for that data, and its
+retention setting governs it.
+
+### Erasure
+
+Erasure is deliberately an *erasure-with-retention* flow, because the accounting
+record has to survive (Art. 17(3)(b) + HGB §257 / AO §147). What it does today:
 
 1. Cancels every Stripe subscription the closing organizations hold.
 2. Deletes the Stripe customer, so the name/email/billing address Stripe held is
@@ -95,10 +117,10 @@ rest are commercial/legal work that cannot be closed in this repository.
 
 | # | Item | Owner | Status |
 | --- | --- | --- | --- |
-| 5 | Warn at model-selection time when a provider trains on API inputs | engineering | Open — the Providers page shows the flag, and Enterprise compliance policies can block routing, but there is no warning in the model picker itself |
+| 5 | Warn at model-selection time when a provider trains on API inputs | engineering | **Done** — icon + explanatory warning in the playground model picker, and a "Trains on your prompts" badge on the Providers page |
 | 6 | Obtain data-processing terms for the undisclosed ("stealth") providers before routing EU personal data to them | legal | Open — mitigated by disclosure + provider pinning, not resolved |
 | 7 | Remediate the three known erasure gaps | engineering | **Done** — see §3 |
-| 8 | Build a self-serve data export (Art. 15/20) instead of handling requests by email | engineering | Open |
+| 8 | Build a self-serve data export (Art. 15/20) instead of handling requests by email | engineering | **Done** — see §3 |
 
 ### Low
 
