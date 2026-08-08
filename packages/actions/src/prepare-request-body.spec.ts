@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest";
 
+import { models } from "@llmgateway/models";
+
 import {
 	hashPromptCacheKey,
 	hashSessionCacheKey,
@@ -1120,6 +1122,19 @@ describe("prepareRequestBody - Moonshot thinking", () => {
 	test.each(xaiEffortCases)(
 		"forwards reasoning_effort for %s/%s once declared in supportedParameters",
 		async (provider, model, effort) => {
+			// Direct capability assertion on the mapping itself: the fix's
+			// whole point is that these mappings now declare
+			// reasoning_effort in supportedParameters. A serialization-only
+			// test could keep passing while the capability check silently
+			// regresses (e.g. a refactor that stops reading
+			// supportedParameters) — asserting the array directly catches
+			// that class of regression.
+			const modelDef = models.find((m) => m.id === model);
+			const mapping = modelDef?.providers.find(
+				(p) => p.providerId === provider,
+			);
+			expect(mapping?.supportedParameters).toContain("reasoning_effort");
+
 			const requestBody = (await prepareRequestBody(
 				provider,
 				model,
