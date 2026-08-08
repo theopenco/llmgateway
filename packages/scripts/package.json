@@ -26,7 +26,7 @@
 		"@llmgateway/db": "workspace:*",
 		"@llmgateway/models": "workspace:*",
 		"@llmgateway/shared": "workspace:*",
-		"nanoid": "5.1.5",
+		"nanoid": "5.1.16",
 		"openai": "4.104.0",
 		"resend": "4.5.1",
 		"sql.js": "1.12.0",
