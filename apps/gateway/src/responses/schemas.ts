@@ -224,6 +224,11 @@ export const responsesRequestSchema = z.object({
 					name: z.string(),
 				}),
 			}),
+			// Demands a web search rather than offering one. See the Chat
+			// Completions schema for what this unlocks.
+			z.object({
+				type: z.literal("web_search"),
+			}),
 		])
 		.optional(),
 	reasoning: z

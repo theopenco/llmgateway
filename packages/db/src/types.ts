@@ -47,6 +47,11 @@ export const toolChoice = z.union([
 			name: z.string(),
 		}),
 	}),
+	// Recorded as sent: it is why a search-on-demand-only provider was routable
+	// for this request, and why a web search was billed.
+	z.object({
+		type: z.literal("web_search"),
+	}),
 ]);
 
 export const toolCall = z.object({

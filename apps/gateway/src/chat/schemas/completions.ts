@@ -319,8 +319,15 @@ export const completionsRequestSchema = z.object({
 					name: z.string(),
 				}),
 			}),
+			z.object({
+				type: z.literal("web_search"),
+			}),
 		])
-		.optional(),
+		.optional()
+		.openapi({
+			description:
+				'Controls which tool the model calls. `{"type": "web_search"}` demands a search instead of offering one, and requires a `web_search` tool in `tools`. Providers whose web search is model-elected are unaffected by it — the model already decides — but it is the only way to reach providers that can search solely on demand (currently Alibaba\'s DashScope and its resellers), which are otherwise skipped when routing a web search request.',
+		}),
 	reasoning_effort: z
 		.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"])
 		.nullable()

@@ -1108,6 +1108,56 @@ describe("parseProviderResponse", () => {
 		});
 	});
 
+	describe("DashScope web search billing", () => {
+		// DashScope returns no search metadata whatsoever, so the count is
+		// inferred from the request. Only a forced request actually searches.
+		const json = {
+			choices: [
+				{
+					message: { content: "Hello", role: "assistant" },
+					finish_reason: "stop",
+				},
+			],
+			usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+		};
+
+		it.each(["alibaba", "scx-ai-gp"] as const)(
+			"%s counts one search when forced",
+			(provider) => {
+				const result = parseProviderResponse(
+					provider,
+					"qwen3.8-max",
+					json,
+					[],
+					true,
+					false,
+					true,
+					true,
+				);
+
+				expect(result.webSearchCount).toBe(1);
+			},
+		);
+
+		it.each(["alibaba", "scx-ai-gp"] as const)(
+			"%s bills nothing for an unforced request",
+			(provider) => {
+				const result = parseProviderResponse(
+					provider,
+					"qwen3.8-max",
+					json,
+					[],
+					true,
+					false,
+					true,
+					false,
+				);
+
+				expect(result.webSearchCount).toBeNull();
+			},
+		);
+	});
+
 	describe("minimax reasoning extraction", () => {
 		it("extracts reasoning from reasoning_details", () => {
 			const json = {

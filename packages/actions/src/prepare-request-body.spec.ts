@@ -5966,10 +5966,11 @@ describe("prepareRequestBody - DashScope web search", () => {
 		) as Promise<any>;
 
 	test.each(["alibaba", "scx-ai-gp"])(
-		"%s pairs enable_search with forced_search",
+		"%s pairs enable_search with forced_search when forced",
 		async (provider) => {
 			const requestBody = await prepare(provider, "qwen3.8-max", {
 				type: "web_search",
+				forced: true,
 			});
 
 			// enable_search alone is a hint the model ignores; forced_search is what
@@ -5984,12 +5985,50 @@ describe("prepareRequestBody - DashScope web search", () => {
 		async (provider) => {
 			const requestBody = await prepare(provider, "qwen3.8-max", {
 				type: "web_search",
+				forced: true,
 			});
 
 			// The Qwen max models 400 on the documented "agent" policy.
 			expect(requestBody.search_options.search_strategy).toBeUndefined();
 		},
 	);
+
+	test.each(["alibaba", "scx-ai-gp"])(
+		"%s sends no search params for a merely offered tool",
+		async (provider) => {
+			// A chat client that leaves a web search toggle on attaches the tool to
+			// every turn. Forcing there would search and bill on each one, so an
+			// unforced tool must send nothing — routing keeps these mappings out of
+			// such a request in the first place.
+			const requestBody = await prepare(provider, "qwen3.8-max", {
+				type: "web_search",
+			});
+
+			expect(requestBody.enable_search).toBeUndefined();
+			expect(requestBody.search_options).toBeUndefined();
+		},
+	);
+
+	test("openai forwards a forced search on the Responses API", async () => {
+		const requestBody = await prepare("openai", "gpt-5", {
+			type: "web_search",
+			forced: true,
+		});
+
+		// OpenAI takes the gateway's own directive verbatim here. Verified live:
+		// "What is 2+2?" yields no web_search_call without it, one with it.
+		expect(requestBody.tool_choice).toEqual({ type: "web_search" });
+		expect(requestBody.tools).toContainEqual({ type: "web_search" });
+	});
+
+	test("openai leaves an offered search to the model", async () => {
+		const requestBody = await prepare("openai", "gpt-5", {
+			type: "web_search",
+		});
+
+		expect(requestBody.tool_choice).toBeUndefined();
+		expect(requestBody.tools).toContainEqual({ type: "web_search" });
+	});
 
 	test.each(["alibaba", "scx-ai-gp"])(
 		"%s sends no search params without a web_search tool",

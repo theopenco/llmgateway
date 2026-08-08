@@ -501,6 +501,27 @@ export interface ProviderModelMapping {
 	 */
 	webSearchPrice?: Price;
 	/**
+	 * Whether this mapping's upstream can *only* search when the caller forces
+	 * it, because it has no model-elected search to fall back on.
+	 *
+	 * DashScope's `enable_search` is documented as a hint the model may act on,
+	 * but on the Qwen models mapped here it never fires — even "what is the
+	 * current price of Bitcoin?" comes back at an unchanged prompt size with the
+	 * model stating it has no live access. Only `search_options.forced_search`
+	 * actually retrieves, and that searches on every single call.
+	 *
+	 * Neither half is a sane default: forcing bills a search (plus ~2k tokens of
+	 * injected snippets) on turns that never needed one, which is what a chat UI
+	 * with a "web search" toggle left on would do to every follow-up message,
+	 * and not forcing returns confidently stale answers while still occupying
+	 * the route that a genuinely search-capable provider would have served.
+	 *
+	 * So mappings with this flag are only eligible for a request that forces
+	 * search via `tool_choice: {type: "web_search"}`. A plain `web_search` tool
+	 * with `tool_choice: "auto"` routes elsewhere instead.
+	 */
+	webSearchForcedOnly?: boolean;
+	/**
 	 * Price per content filter violation in USD (charged additionally when the
 	 * provider rejects a request for safety/usage-policy reasons, e.g. xAI's
 	 * "Content violates usage guidelines" response).

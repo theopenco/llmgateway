@@ -234,6 +234,14 @@ export type ToolChoiceType =
 			function: {
 				name: string;
 			};
+	  }
+	| {
+			/**
+			 * Demands a web search rather than offering one. Consumed by the
+			 * gateway (as `WebSearchTool.forced`) rather than forwarded upstream,
+			 * since no provider accepts it under this name in a chat body.
+			 */
+			type: "web_search";
 	  };
 
 /**
@@ -250,6 +258,14 @@ export type ResponsesToolChoice =
 	| {
 			type: "function";
 			name: string;
+	  }
+	| {
+			/**
+			 * Forces the native web search tool. Accepted by the Responses API
+			 * only — OpenAI's chat completions endpoint rejects a `web_search`
+			 * tool outright ("Supported values are: 'function' and 'custom'").
+			 */
+			type: "web_search";
 	  };
 
 export type PromptCacheRetention = "in_memory" | "24h";
@@ -628,6 +644,17 @@ export interface WebSearchTool {
 	 * with allowed_domains.
 	 */
 	blocked_domains?: string[];
+	/**
+	 * Whether the caller demanded a search rather than offering one, i.e. sent
+	 * `tool_choice: {type: "web_search"}`. Not part of the tool the client
+	 * sends: the gateway derives it from `tool_choice` and carries it here so
+	 * every consumer of the extracted tool can see the caller's intent.
+	 *
+	 * Providers whose search is model-elected ignore this — the model already
+	 * decides. It matters for mappings flagged `webSearchForcedOnly`, which are
+	 * only routable when it is set.
+	 */
+	forced?: boolean;
 }
 
 /**
