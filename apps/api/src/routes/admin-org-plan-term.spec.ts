@@ -94,6 +94,34 @@ describe("admin organization plan term", () => {
 		expect(org?.planExpiresAt).toBeNull();
 	});
 
+	it("rejects a start date with no expiry date", async () => {
+		const res = await manage(cookie, {
+			planStartedAt: "2026-01-15",
+			planExpiresAt: null,
+		});
+
+		expect(res.status).toBe(400);
+
+		const org = await readOrg();
+		expect(org?.planStartedAt).toBeNull();
+	});
+
+	it("keeps an expiry date that was never booked as a term", async () => {
+		// Stripe writes `planExpiresAt` on its own as a legacy Pro renewal date,
+		// so an organization carrying one must still be manageable without having
+		// to clear it first. It books no term: `getOrganizationTerm` needs both.
+		const res = await manage(cookie, {
+			planStartedAt: null,
+			planExpiresAt: "2027-01-15",
+		});
+
+		expect(res.status).toBe(200);
+
+		const org = await readOrg();
+		expect(org?.planStartedAt).toBeNull();
+		expect(org?.planExpiresAt?.toISOString()).toBe("2027-01-15T00:00:00.000Z");
+	});
+
 	it("rejects a start date that is not before the expiry", async () => {
 		const res = await manage(cookie, {
 			planStartedAt: "2027-01-15",

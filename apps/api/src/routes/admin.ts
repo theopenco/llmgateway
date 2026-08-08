@@ -6319,6 +6319,16 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 	const trialStartsAt = trialStartDate ? new Date(trialStartDate) : null;
 	const trialEndsAt = trialEndDate ? new Date(trialEndDate) : null;
 
+	// A start date with no expiry is not a term: no surface renders one, and an
+	// open-ended plan is expressed by leaving both dates empty. The reverse is
+	// deliberately allowed — Stripe writes `planExpiresAt` on its own as a legacy
+	// Pro renewal date, so organizations carrying one must stay manageable.
+	if (startedAt && !expiresAt) {
+		throw new HTTPException(400, {
+			message: "A plan start date needs a plan expiry date",
+		});
+	}
+
 	if (expiresAt && startedAt && startedAt.getTime() >= expiresAt.getTime()) {
 		throw new HTTPException(400, {
 			message: "Plan start date must be before the plan expiry date",
