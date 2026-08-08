@@ -425,6 +425,8 @@ export const deepseekModels = [
 				cachedInputPrice: "0.145e-6",
 				outputPrice: "3.48e-6",
 				requestPrice: "0",
+				// Fireworks prices DeepSeek's Priority tier at 1.5x standard rather
+				// than the 1.25x that applies to the rest of its catalogue.
 				serviceTiers: ["priority"],
 				serviceTierMultipliers: { priority: 1.5 },
 				contextSize: 1048576,
