@@ -40,6 +40,7 @@ import {
 	getProviderRefPolicyListFailures,
 	getProviderRequirementFailures,
 	models,
+	projectPolicyToDataProtection,
 	providers,
 	type ProviderCompliancePolicy,
 	type ProviderDefinition,
@@ -273,6 +274,19 @@ export function ComplianceClient() {
 		selectedOrganization?.providerCompliancePolicy,
 	]);
 
+	const isEnterprise = selectedOrganization?.plan === "enterprise";
+	const canManage = currentUserRole === "owner" || currentUserRole === "admin";
+
+	// What the gateway will actually enforce for this org. On a non-enterprise
+	// plan it narrows the policy to the data-protection controls, so everything
+	// that previews or persists the policy has to project the same way —
+	// otherwise the impact preview below promises filtering (by SOC 2, by a
+	// blocked-provider list) that will never happen at request time.
+	const effectivePolicy = useMemo(
+		() => (isEnterprise ? policy : projectPolicyToDataProtection(policy)),
+		[isEnterprise, policy],
+	);
+
 	const { allowed, blocked } = useMemo(() => {
 		const allowedList: ProviderDefinition[] = [];
 		const blockedList: { provider: ProviderDefinition; reasons: string[] }[] =
@@ -281,7 +295,7 @@ export function ComplianceClient() {
 			if (HIDDEN_PROVIDER_IDS.has(provider.id)) {
 				continue;
 			}
-			const failures = getProviderComplianceFailures(provider, policy);
+			const failures = getProviderComplianceFailures(provider, effectivePolicy);
 			if (failures.length === 0) {
 				allowedList.push(provider);
 			} else {
@@ -294,7 +308,7 @@ export function ComplianceClient() {
 			}
 		}
 		return { allowed: allowedList, blocked: blockedList };
-	}, [policy]);
+	}, [effectivePolicy]);
 	const totalProviders = allowed.length + blocked.length;
 
 	// The org's own custom providers, evaluated against their self-attested
@@ -314,7 +328,10 @@ export function ComplianceClient() {
 					customProviderRef(key.name ?? key.id),
 					policy,
 				),
-				...getAttestationComplianceFailures(key.complianceAttestation, policy),
+				...getAttestationComplianceFailures(
+					key.complianceAttestation,
+					effectivePolicy,
+				),
 			];
 			return {
 				id: key.id,
@@ -326,7 +343,7 @@ export function ComplianceClient() {
 				),
 			};
 		});
-	}, [providerKeysData, selectedOrganization?.id, policy]);
+	}, [providerKeysData, selectedOrganization?.id, effectivePolicy]);
 	const compliantCustomCount = customProviders.filter(
 		(provider) => provider.compliant,
 	).length;
@@ -340,7 +357,10 @@ export function ComplianceClient() {
 		useCustomProviderSelection();
 	const selectableProviders = useMemo<SelectableProviderOption[]>(() => {
 		const catalogueOptions = SELECTABLE_PROVIDERS.map((provider) => {
-			const failures = getProviderRequirementFailures(provider, policy);
+			const failures = getProviderRequirementFailures(
+				provider,
+				effectivePolicy,
+			);
 			return {
 				id: provider.id,
 				name: provider.name,
@@ -359,7 +379,10 @@ export function ComplianceClient() {
 		);
 		const customOptions = customProviderOptions.map((option) => {
 			const attestation = attestationByKeyId.get(option.providerKeyId);
-			const failures = getAttestationComplianceFailures(attestation, policy);
+			const failures = getAttestationComplianceFailures(
+				attestation,
+				effectivePolicy,
+			);
 			return {
 				...option,
 				meetsPolicy: failures.length === 0,
@@ -369,7 +392,7 @@ export function ComplianceClient() {
 			};
 		});
 		return [...catalogueOptions, ...customOptions];
-	}, [customProviderOptions, providerKeysData, policy]);
+	}, [customProviderOptions, providerKeysData, effectivePolicy]);
 	const selectableModels = useMemo(
 		() => [...models, ...customModelOptions],
 		[customModelOptions],
@@ -381,9 +404,6 @@ export function ComplianceClient() {
 			[key]: values.length > 0 ? values : undefined,
 		}));
 	};
-
-	const isEnterprise = selectedOrganization?.plan === "enterprise";
-	const canManage = currentUserRole === "owner" || currentUserRole === "admin";
 
 	const toggleCountry = (code: string) => {
 		setPolicy((p) => {
@@ -402,21 +422,15 @@ export function ComplianceClient() {
 			// those are locked above, but they are still in `policy`, and the API
 			// rejects them on a non-enterprise plan — so drop them here rather than
 			// surfacing a 403 the user cannot act on.
-			const body = isEnterprise
-				? policy
-				: {
-						enabled: policy.enabled,
-						requireGdpr: policy.requireGdpr,
-						blockApiTraining: policy.blockApiTraining,
-						blockPromptLogging: policy.blockPromptLogging,
-						blockStealthProviders: policy.blockStealthProviders,
-						allowedCountries: policy.allowedCountries,
-					};
+			const body = effectivePolicy;
 
 			await updateOrganization.mutateAsync({
 				params: { path: { id: organizationId } },
 				body: { providerCompliancePolicy: body },
 			});
+			// Adopt what was actually persisted, so the form and the impact
+			// preview stop showing enterprise-only fields the server discarded.
+			setPolicy(body);
 			toast({
 				title: "Settings saved",
 				description: "Your provider compliance policy has been updated.",

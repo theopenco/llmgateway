@@ -147,12 +147,25 @@ export default function PrivacyPage() {
 			</p>
 			<p>
 				The complete, versioned list — what each one processes, where, and the
-				30-day notice we give before adding a new one — is published on the{" "}
+				current status of its data-processing agreement — is published on the{" "}
 				<a href="https://llmgateway.io/legal/sub-processors">
 					LLM Gateway Sub-processor page
 				</a>
-				. Each sub-processor is bound by contractual data-protection
-				obligations.
+				. We require each sub-processor to be bound by contractual
+				data-protection obligations and are completing that coverage; see that
+				page rather than assuming every agreement is already in force.
+			</p>
+			<p>
+				We give{" "}
+				<strong>
+					30 days&rsquo; notice before adding a new operational sub-processor
+				</strong>{" "}
+				— one engaged to run the Service, such as hosting, billing, email or
+				analytics. That notice period does <strong>not</strong> apply to AI
+				providers: those are added continuously, and none receives your data
+				unless you select a model it serves or leave automatic routing enabled.
+				Use provider pinning or a compliance policy if you need provider
+				selection to be an explicit allowlist under your control.
 			</p>
 			<hr />
 			<h2>5. Data Retention</h2>

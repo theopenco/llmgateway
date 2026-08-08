@@ -1,6 +1,6 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Download } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
@@ -68,11 +68,9 @@ function titleCase(value: string): string {
  */
 function DownloadDataCard() {
 	const fetchClient = useFetchClient();
-	const [loading, setLoading] = useState(false);
 
-	async function handleDownload() {
-		setLoading(true);
-		try {
+	const exportData = useMutation({
+		mutationFn: async () => {
 			const { data, response } = await fetchClient.GET("/user/me/export", {
 				parseAs: "blob",
 			});
@@ -88,17 +86,19 @@ function DownloadDataCard() {
 			document.body.appendChild(link);
 			link.click();
 			link.remove();
-			URL.revokeObjectURL(url);
-		} catch {
+			// Revoking synchronously can cancel a download the browser has only
+			// just started reading the blob for. One turn of the event loop is
+			// enough for the fetch to be underway.
+			setTimeout(() => URL.revokeObjectURL(url), 0);
+		},
+		onError: () => {
 			toast({
 				title: "Could not export your data",
 				description: "Please try again later.",
 				variant: "destructive",
 			});
-		} finally {
-			setLoading(false);
-		}
-	}
+		},
+	});
 
 	return (
 		<Card>
@@ -116,15 +116,24 @@ function DownloadDataCard() {
 					service.
 				</p>
 				<p className="text-muted-foreground text-sm">
+					Gateway request logs are not included — those belong to the
+					organization that submitted them. If you have a very large chat
+					history the file includes your most recent chats and says so.
+				</p>
+				<p className="text-muted-foreground text-sm">
 					For your safety the file never contains credentials — API key tokens,
 					passwords and passkeys are excluded. The file itself lists everything
 					that was left out and why.
 				</p>
 			</CardContent>
 			<CardFooter>
-				<Button variant="outline" onClick={handleDownload} disabled={loading}>
+				<Button
+					variant="outline"
+					onClick={() => exportData.mutate()}
+					disabled={exportData.isPending}
+				>
 					<Download className="mr-2 h-4 w-4" />
-					{loading ? "Preparing..." : "Download my data"}
+					{exportData.isPending ? "Preparing..." : "Download my data"}
 				</Button>
 			</CardFooter>
 		</Card>

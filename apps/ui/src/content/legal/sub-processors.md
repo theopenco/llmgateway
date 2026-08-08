@@ -16,9 +16,17 @@ provide the Service. It is referenced by our [Privacy Policy](/legal/privacy) an
 by the Data Processing Addendum (DPA) we enter into with Enterprise customers.
 
 A **sub-processor** is a third party we engage to process personal data on behalf
-of our customers. Each sub-processor is bound by a written agreement imposing
-data-protection obligations no less protective than our own, and each is engaged
-only for the purpose described below.
+of our customers. Each is engaged only for the purpose described below, and we
+require each to be bound by a written agreement imposing data-protection
+obligations no less protective than our own.
+
+We are completing that coverage: the agreements with our payment and email
+sub-processors take effect automatically under their service terms, while our
+hosting and analytics sub-processors have data-processing terms that we are in
+the process of confirming and executing at the account level. We are not
+claiming every agreement is in force today. If you need the current status for a
+specific sub-processor before relying on it, ask us at the address in Section 5
+and we will tell you plainly.
 
 ---
 
@@ -120,17 +128,26 @@ prepaid fees for the unused term.
 ## 4. International Transfers
 
 Personal data may be transferred outside the EEA and the UK to the
-sub-processors above and to the AI providers you select. Where a transfer goes to
-a country without an adequacy decision, we rely on the **EU Standard Contractual
-Clauses** (and the UK International Data Transfer Addendum where applicable), or
-another Article 46 safeguard, together with supplementary technical measures
-including encryption in transit.
+sub-processors above and to the AI providers you select.
 
-Not every AI provider on our Providers page has an adequacy decision or executed
-SCCs on file with us. The Providers page shows each provider's headquarters and
-GDPR posture, and compliance policies let you restrict routing to providers whose
-posture you have accepted. **If you are transferring EU personal data, review the
-provider's entry before routing to it.**
+**The safeguard in place depends on which one.** For the operational
+sub-processors in Section 1, the applicable agreements incorporate the **EU
+Standard Contractual Clauses** (and the UK International Data Transfer Addendum
+where applicable), alongside supplementary technical measures including
+encryption in transit.
+
+For the AI providers in Section 2, this is **provider-specific and in several
+cases unresolved**. A number of providers we can route to are headquartered in
+countries with no adequacy decision, and we do not have SCCs executed with them.
+We are not representing that an Article 46 safeguard is in place for every
+provider, because it is not.
+
+**If you are routing personal data of EU or UK data subjects, send it only to
+providers whose documented safeguard you have reviewed and accepted.** The
+Providers page shows each provider's headquarters and GDPR posture, and the
+compliance controls described in Section 2 let you enforce that as a hard
+restriction rather than a convention — requests that no compliant provider can
+serve are rejected instead of being routed elsewhere.
 
 ---
 

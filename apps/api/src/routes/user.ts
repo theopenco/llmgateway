@@ -13,7 +13,10 @@ import {
 	findSoleMemberOrganizations,
 	tearDownSoleMemberOrganizations,
 } from "@/lib/account-deletion.js";
-import { buildUserDataExport } from "@/lib/data-export.js";
+import {
+	buildUserDataExport,
+	userDataExportSchema,
+} from "@/lib/data-export.js";
 import { notifyUserAccountDeleted } from "@/utils/discord.js";
 import { computeProfileData, profileSchema } from "@/utils/profile.js";
 
@@ -544,12 +547,7 @@ const exportUserData = createRoute({
 		200: {
 			content: {
 				"application/json": {
-					// Served as a downloadable file, and described rather than
-					// schema-pinned: the payload mirrors every table referencing the
-					// user, so pinning it would mean editing two places for each
-					// schema change — and a stale schema would silently drop data from
-					// an export the law requires to be complete.
-					schema: z.any().openapi({ type: "string", format: "binary" }),
+					schema: userDataExportSchema,
 				},
 			},
 			description: "The user's personal data as a JSON download.",
@@ -557,10 +555,8 @@ const exportUserData = createRoute({
 	},
 });
 
-// Only the 200 is declared, matching the other download routes in this API
-// (e.g. the DevPass invoice PDF): the 401/404 paths throw `HTTPException` and
-// are rendered by the global error handler. Declaring them here would force the
-// handler's return type into a union that `c.body` cannot satisfy.
+// Only the 200 is declared: the 401/404 paths throw `HTTPException` and are
+// rendered by the global error handler, matching the other download routes here.
 user.openapi(exportUserData, async (c) => {
 	const authUser = c.get("user");
 
@@ -679,6 +675,7 @@ user.openapi(deleteUser, async (c) => {
 	// would otherwise survive the erasure indefinitely.
 	const anonymizedBillingRecords = await anonymizeBillingRecordsForEmail(
 		userRecord.email,
+		closedOrganizations.map((org) => org.id),
 	);
 
 	if (anonymizedBillingRecords > 0) {

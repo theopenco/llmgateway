@@ -188,24 +188,37 @@ export const DATA_PROTECTION_POLICY_KEYS = [
 ] as const satisfies readonly (keyof ProviderCompliancePolicy)[];
 
 /**
- * Strips a policy down to the data-protection controls in
- * {@link DATA_PROTECTION_POLICY_KEYS}.
+ * Projects a policy onto the data-protection controls in
+ * {@link DATA_PROTECTION_POLICY_KEYS}, preserving `enabled`.
  *
- * Returns `undefined` when nothing is left to enforce, so callers keep hitting
- * the cheap "no policy" path rather than filtering every provider against an
- * empty policy that can never reject anything.
+ * This is the projection a non-enterprise organization is subject to, so
+ * anything that previews or persists such a policy — the gateway, the API and
+ * the dashboard's impact preview — must apply it, or they will disagree about
+ * what is actually enforced.
  */
-export function narrowPolicyToDataProtection(
+export function projectPolicyToDataProtection(
 	policy: ProviderCompliancePolicy,
-): ProviderCompliancePolicy | undefined {
-	const narrowed: ProviderCompliancePolicy = {
-		enabled: true,
+): ProviderCompliancePolicy {
+	return {
+		enabled: policy.enabled,
 		requireGdpr: policy.requireGdpr,
 		blockApiTraining: policy.blockApiTraining,
 		blockPromptLogging: policy.blockPromptLogging,
 		blockStealthProviders: policy.blockStealthProviders,
 		allowedCountries: policy.allowedCountries,
 	};
+}
+
+/**
+ * {@link projectPolicyToDataProtection}, but `undefined` when nothing is left to
+ * enforce — so the gateway keeps hitting its cheap "no policy" path rather than
+ * filtering every provider against an empty policy that can never reject
+ * anything.
+ */
+export function narrowPolicyToDataProtection(
+	policy: ProviderCompliancePolicy,
+): ProviderCompliancePolicy | undefined {
+	const narrowed = projectPolicyToDataProtection(policy);
 
 	const hasRequirement =
 		Boolean(narrowed.requireGdpr) ||
@@ -214,7 +227,7 @@ export function narrowPolicyToDataProtection(
 		Boolean(narrowed.blockStealthProviders) ||
 		(narrowed.allowedCountries?.length ?? 0) > 0;
 
-	return hasRequirement ? narrowed : undefined;
+	return hasRequirement ? { ...narrowed, enabled: true } : undefined;
 }
 
 export interface ProviderDefinition {

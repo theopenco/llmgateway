@@ -98,7 +98,7 @@ We do **not sell** your personal information. We share limited data only as need
 
 ### Sub-processors
 
-We rely on a small set of vetted sub-processors, each bound by contractual data-protection obligations:
+We rely on a small set of vetted sub-processors. We require each to be bound by contractual data-protection obligations, and we are completing that coverage — see the [Sub-processor page](https://llmgateway.io/legal/sub-processors) for the current position rather than assuming every agreement is already in force:
 
 - **Stripe** — payment and subscription processing. Stripe acts as a separate processor and retains its own payment records to meet its legal and tax obligations, under their [Privacy Policy](https://stripe.com/privacy).
 - **Google Cloud** — application hosting, database and object storage
@@ -134,7 +134,7 @@ Where we retain billing records after account deletion, we restrict processing o
 - Your user record, sessions, API keys, passkeys and chats are **hard-deleted**.
 - Any organization you were the last member of is **closed**: its subscriptions are cancelled, its Stripe customer record — including the name, email and billing address Stripe held — is **deleted at Stripe**, and its display name, billing contact email and logo are **overwritten with placeholders**.
 - Your email address is **removed** from retained billing records such as failed-payment entries.
-- What remains is the accounting record itself: the amounts, dates, currencies and tax identifiers on the invoices we issued, kept for the statutory period described above.
+- What remains is the accounting record itself, kept for the statutory period described above: the amounts, dates and currencies of the transactions, and the "bill to" identity that appears on the invoices we issued — the billing company name, billing address and tax identifier you supplied. Invoice law requires the recipient's identity on the document, so these are retained rather than anonymized.
 
 ---
 
@@ -196,11 +196,13 @@ If you do not want your requests routed through stealth or undisclosed providers
 
 ## 11. International Transfers
 
-Data may be processed and stored on servers located in the **European Union or the United States**, and may be transferred to AI providers and sub-processors in other countries. Where we transfer personal data internationally, we use appropriate safeguards required by applicable law, such as the **Standard Contractual Clauses (SCCs)** or equivalent mechanisms, to protect your data.
+Data may be processed and stored on servers located in the **European Union or the United States**, and may be transferred to AI providers and sub-processors in other countries.
 
-Not every AI provider you can route to is covered by an adequacy decision or by SCCs executed with us — several are headquartered in countries without an EU adequacy decision. Each provider's headquarters and GDPR posture is shown on our [Providers page](https://llmgateway.io/providers).
+**The safeguard depends on the recipient.** For the sub-processors we engage to run the Service (hosting, payments, email, analytics), the applicable agreements incorporate the **Standard Contractual Clauses (SCCs)** or an equivalent Article 46 mechanism, alongside technical measures including encryption in transit.
 
-You can restrict where your requests are allowed to go under **Compliance** in your organization dashboard: require GDPR-compliant providers, block providers that train on or log prompts, block undisclosed providers, and limit routing to chosen provider headquarters. Requests that no compliant provider can serve are rejected rather than routed elsewhere. **These controls are available on every plan**, and they are off until you enable them. **If you submit personal data of EU/UK data subjects, review the provider's entry before routing to it, or set a compliance policy.**
+For the **AI providers you route to, this is provider-specific and in several cases unresolved.** Several are headquartered in countries with no EU adequacy decision, and we do not have SCCs executed with them. We are not representing that an Article 46 safeguard is in place for every provider you can select, because it is not. Each provider's headquarters and GDPR posture is shown on our [Providers page](https://llmgateway.io/providers), and the current position is described on our [Sub-processor page](https://llmgateway.io/legal/sub-processors).
+
+You can restrict where your requests are allowed to go under **Compliance** in your organization dashboard: require GDPR-compliant providers, block providers that train on or log prompts, block undisclosed providers, and limit routing to chosen provider headquarters. Requests that no compliant provider can serve are rejected rather than routed elsewhere. **These controls are available on every plan**, and they are off until you enable them. **If you submit personal data of EU/UK data subjects, send it only to providers whose documented safeguard you have reviewed and accepted — set a compliance policy so that is enforced rather than left to convention.**
 
 ---
 

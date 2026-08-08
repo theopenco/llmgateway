@@ -43,24 +43,38 @@ sitting in the retained tables are overwritten. In order:
 
 1. **Cancel subscriptions.** Every Stripe subscription held by an organization the
    user is the last member of, with `invoice_now: false` / `prorate: false`.
-2. **Delete the Stripe customer.** Erases the name, email and billing address
-   Stripe held, and detaches saved payment methods. Stripe keeps the charges and
-   invoices attached to the deleted customer object under its own accounting
-   obligation. `organization.stripeCustomerId` is nulled locally.
+2. **Delete the Stripe customer** (`DELETE /v1/customers/:id`). Permanently
+   deletes the customer object — the name, email and billing address Stripe held
+   on it — and detaches saved payment methods. Charges and invoices Stripe issued
+   survive under its own accounting obligation, and the identity snapshot on an
+   already-issued invoice is **not** removed by this call; that residue mirrors
+   the statutory bill-to record we retain ourselves. Removing it too would need
+   Stripe's separate redaction process. `organization.stripeCustomerId` is nulled
+   locally.
 3. **Close and anonymize those organizations.** `status: "deleted"`, all plan
    state cleared, and `name` / `billingEmail` / `logo` overwritten with the
    placeholders in `account-deletion.ts`.
 4. **Null the account email on retained billing rows.** `paymentFailure.userEmail`
-   is cleared wherever it matches, including rows in shared organizations that
-   survive because other members remain.
+   is cleared wherever it matches the account email, and across every closing
+   organization regardless of the address on the row. `payment_failure` stores
+   the email as it was at the time of the failure and has no user foreign key, so
+   the org sweep is what catches rows written before an email change. **Known
+   residue:** a stale address on a *shared* organization that survives the
+   deletion, written before an email change, is not matched — closing that needs
+   a stable user reference on the table.
 5. **Hard-delete the user**, cascading `session`, `account`, `passkey`, `apiKey`,
    `masterKey` and chats.
-6. **Delete the Resend contact.**
+6. **Attempt to delete the Resend contact** — best effort; it is skipped when
+   `RESEND_API_KEY` is unset and logs a warning on a provider error, in neither
+   case failing the deletion. A contact can survive at Resend after erasure.
 
-Both Stripe calls happen before any local write, so a Stripe failure aborts the
-whole deletion with the account intact and retryable — strictly better than
-erasing locally while a card keeps being charged or while personal data stays at
-the sub-processor.
+Every Stripe call for every closing organization runs before the first local
+write, so a Stripe failure aborts with the account intact and retryable —
+strictly better than erasing locally while a card keeps being charged or while
+personal data stays at the sub-processor. Past that point the local writes are
+sequential, not transactional: a database failure mid-way can leave some
+organizations closed while the user row survives. That is retryable but **not
+atomic**, and should not be described as such.
 
 Covered by `apps/api/src/lib/account-deletion.spec.ts`.
 
@@ -77,9 +91,11 @@ Covered by `apps/api/src/lib/account-deletion.spec.ts`.
 ## Access and portability
 
 `GET /user/me/export` (`apps/api/src/lib/data-export.ts`) lets a user download
-everything we hold about them as JSON, so Art. 15/20 requests no longer depend on
-someone running a query by hand. It never includes credentials, and it embeds a
-list of what was withheld and why. Covered by
+the account-scoped records we hold about them as JSON, so Art. 15/20 requests no
+longer depend on someone running a query by hand. It never includes credentials,
+it embeds a list of what was withheld and why, and it caps the chats section —
+stating any truncation in the payload so a partial export is not mistaken for a
+complete one. Covered by
 `apps/api/src/lib/data-export.spec.ts`, including a test that fails if any seeded
 secret appears anywhere in the payload.
 

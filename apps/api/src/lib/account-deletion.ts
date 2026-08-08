@@ -3,7 +3,7 @@ import Stripe from "stripe";
 
 import { getStripe } from "@/routes/payments.js";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { db, eq, inArray, or, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 /**
@@ -161,11 +161,31 @@ export async function deleteOrganizationStripeCustomer(
  */
 export async function anonymizeBillingRecordsForEmail(
 	email: string,
+	closedOrganizationIds: string[] = [],
 ): Promise<number> {
+	// `payment_failure` records the email as it was at the time of the failure
+	// and has no user foreign key, so matching on the current address alone
+	// misses rows written before an email change. Sweeping the organizations
+	// being closed alongside it catches those: they are personal or
+	// last-member-only orgs, so every address on them belongs to this user.
+	// A shared organization that survives is still matched by email — the only
+	// residue is a stale address on a *shared* org from before an email change,
+	// which needs a stable user reference on the table to fix properly
+	// (tracked in legal/DATA_RETENTION_POLICY.md).
 	const anonymized = await db
 		.update(tables.paymentFailure)
 		.set({ userEmail: null })
-		.where(eq(tables.paymentFailure.userEmail, email))
+		.where(
+			closedOrganizationIds.length > 0
+				? or(
+						eq(tables.paymentFailure.userEmail, email),
+						inArray(
+							tables.paymentFailure.organizationId,
+							closedOrganizationIds,
+						),
+					)
+				: eq(tables.paymentFailure.userEmail, email),
+		)
 		.returning({ id: tables.paymentFailure.id });
 
 	return anonymized.length;
@@ -288,6 +308,11 @@ export async function tearDownSoleMemberOrganizations(
 
 	const now = new Date();
 
+	// Phase 1: every Stripe call, for every organization, before a single local
+	// write. Interleaving them per-organization would mean a Stripe failure on
+	// the second org left the first already anonymized and marked deleted while
+	// the account survived — a partial state no retry can clean up, since the
+	// anonymized org no longer carries the identifiers the retry would need.
 	for (const org of organizations) {
 		const cancelled = await cancelOrganizationSubscriptions(org.subscriptions);
 
@@ -306,7 +331,11 @@ export async function tearDownSoleMemberOrganizations(
 				`Deleted Stripe customer ${org.stripeCustomerId} for organization ${org.id} on account deletion of user ${userId}`,
 			);
 		}
+	}
 
+	// Phase 2: local writes only. Nothing here calls out, so once the first
+	// update lands the rest follow.
+	for (const org of organizations) {
 		await db
 			.update(tables.organization)
 			.set({

@@ -22,7 +22,7 @@ receives account identifiers, email addresses and IP addresses.
 2. Go to **app.posthog.com/legal**.
 3. Generate the DPA, sign it, and download the countersigned copy.
 4. File the PDF in the compliance folder.
-5. Set the PostHog row in `legal/SUBPROCESSOR_DPAS.md` to `in force` with the
+5. Set the PostHog row in `legal/SUBPROCESSOR_DPAS.md` to `executed` with the
    execution date.
 
 Estimated time: minutes. This is the highest value-per-effort item on the list.
@@ -53,21 +53,36 @@ The open Art. 46 exposure. **Do not paste a provider list into this file** — t
 catalogue changes continuously and a copy here would be wrong within days. Print
 the current set instead:
 
+`@llmgateway/models` is an ES module, so this runs as ESM (`--input-type=module`)
+rather than with `require`. Single-quote the script so the shell cannot expand
+anything inside it:
+
 ```bash
 pnpm --filter @llmgateway/models build
-node -e '
-const { providers } = require("./packages/models/dist/index.js");
+node --input-type=module -e '
+import { providers } from "./packages/models/dist/index.js";
 const ADEQUATE = new Set(["AT","BE","BG","HR","CY","CZ","DK","EE","FI","FR","DE","GR","HU","IE","IT","LV","LT","LU","MT","NL","PL","PT","RO","SK","SI","ES","SE","IS","LI","NO","GB","CH","CA","JP","KR","NZ","IL","AR","UY","AD","FO","GG","IM","JE"]);
 const EXEMPT = new Set(["llmgateway", "custom"]); // internal router, per-org endpoints
-const exposed = providers.filter(p => !EXEMPT.has(p.id) && p.dataPolicy?.gdpr !== true && (!p.headquarters || !ADEQUATE.has(p.headquarters)));
-console.log(exposed.map(p => `${p.id}\t${p.headquarters ?? "undisclosed"}\t${p.dataPolicy ? "policy, no GDPR position" : "no data policy"}`).join("\n"));
+const posture = (p) => !p.dataPolicy
+  ? "no data policy"
+  : p.dataPolicy.gdpr === false
+    ? "states NOT GDPR compliant"
+    : "policy, GDPR position unknown";
+const exposed = providers.filter((p) => !EXEMPT.has(p.id) && p.dataPolicy?.gdpr !== true && (!p.headquarters || !ADEQUATE.has(p.headquarters)));
+console.log(exposed.map((p) => [p.id, p.headquarters ?? "undisclosed", posture(p)].join("\t")).join("\n"));
 '
 ```
 
-The adequacy set above reflects the Commission decisions in force as of the
-review date — re-check it against the Commission's adequacy page before relying
-on the output, since decisions get added and (as with the UK) come up for
-renewal.
+Two caveats on the adequacy set, both of which make the output *optimistic*
+rather than conservative — treat it as a starting list, not a verdict:
+
+- **It is a snapshot.** Re-check it against the Commission's adequacy page before
+  relying on it; decisions get added, and existing ones (the UK's) come up for
+  renewal.
+- **`CA` is over-broad.** The Canadian decision covers only organisations subject
+  to PIPEDA — i.e. commercial activity — so it does not automatically cover every
+  Canadian provider. Confirm the specific provider falls in scope before treating
+  a `CA` headquarters as adequate.
 
 For each provider the command prints, one of these has to happen:
 

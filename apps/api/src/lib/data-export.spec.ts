@@ -150,6 +150,11 @@ describe("buildUserDataExport", () => {
 		}
 	});
 
+	test("reports no truncation for a small account", async () => {
+		const data = (await buildUserDataExport(USER_ID))!;
+		expect(data.notes.truncated).toEqual([]);
+	});
+
 	test("returns nothing for a user that does not exist", async () => {
 		expect(await buildUserDataExport("no-such-user")).toBeNull();
 	});

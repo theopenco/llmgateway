@@ -63,6 +63,22 @@ const NO_GDPR_POSITION_BASELINE = new Set([
 	"ranoai",
 ]);
 
+/**
+ * Providers with no `privacyPolicyUrl`. The Privacy Policy tells users to review
+ * a provider's policy before routing to it, so a missing link makes that
+ * instruction impossible to follow — it is a disclosure gap, not just missing
+ * metadata.
+ */
+const NO_PRIVACY_POLICY_URL_BASELINE = new Set([
+	"glacier",
+	"iceberg",
+	"granite",
+	"quartz",
+	"avalanche",
+	"tundra",
+	"gonka24",
+]);
+
 /** Providers whose headquarters are not disclosed. */
 const NO_HEADQUARTERS_BASELINE = new Set([
 	"glacier",
@@ -124,6 +140,19 @@ describe("provider data-protection coverage", () => {
 		).toEqual([]);
 	});
 
+	it("has no new provider without a privacy policy link", () => {
+		const offenders = auditable
+			.filter(
+				(p) => !p.privacyPolicyUrl && !NO_PRIVACY_POLICY_URL_BASELINE.has(p.id),
+			)
+			.map((p) => p.id);
+
+		expect(
+			offenders,
+			`These providers have no 'privacyPolicyUrl'. Our Privacy Policy tells users to review a provider's own policy before routing to it, which they cannot do without the link.`,
+		).toEqual([]);
+	});
+
 	it("keeps the baselines free of stale entries", () => {
 		const ids = new Set(providers.map((p) => p.id));
 
@@ -137,7 +166,18 @@ describe("provider data-protection coverage", () => {
 			}),
 			noGdprPosition: [...NO_GDPR_POSITION_BASELINE].filter((id) => {
 				const provider = providers.find((p) => p.id === id);
-				return !ids.has(id) || provider?.dataPolicy?.gdpr !== undefined;
+				// A provider that has lost its `dataPolicy` altogether belongs in
+				// NO_DATA_POLICY_BASELINE, not here — without this check it would sit
+				// in the wrong list and the data-policy test would stop covering it.
+				return (
+					!ids.has(id) ||
+					!provider?.dataPolicy ||
+					provider.dataPolicy.gdpr !== undefined
+				);
+			}),
+			noPrivacyPolicyUrl: [...NO_PRIVACY_POLICY_URL_BASELINE].filter((id) => {
+				const provider = providers.find((p) => p.id === id);
+				return !ids.has(id) || Boolean(provider?.privacyPolicyUrl);
 			}),
 			noHeadquarters: [...NO_HEADQUARTERS_BASELINE].filter((id) => {
 				const provider = providers.find((p) => p.id === id);
@@ -148,6 +188,7 @@ describe("provider data-protection coverage", () => {
 		expect(stale).toEqual({
 			noDataPolicy: [],
 			noGdprPosition: [],
+			noPrivacyPolicyUrl: [],
 			noHeadquarters: [],
 		});
 	});

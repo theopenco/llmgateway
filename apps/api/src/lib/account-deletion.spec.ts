@@ -831,4 +831,23 @@ describe("anonymizeBillingRecordsForEmail", () => {
 	test("is a no-op when the user never triggered a payment failure", async () => {
 		expect(await anonymizeBillingRecordsForEmail("nobody@example.com")).toBe(0);
 	});
+
+	test("clears rows on a closing organization whatever address they carry", async () => {
+		// `payment_failure` stores the email as it was at the time, so a user who
+		// changed address leaves rows the current-email match cannot find. Sweeping
+		// the organizations being closed is what catches them.
+		await db.insert(tables.paymentFailure).values([
+			{ organizationId: ORG_ID, userEmail: "old-address@example.com" },
+			{ organizationId: ORG_ID, userEmail: "current@example.com" },
+		]);
+
+		expect(
+			await anonymizeBillingRecordsForEmail("current@example.com", [ORG_ID]),
+		).toBe(2);
+
+		const failures = await db.query.paymentFailure.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(failures.every((failure) => failure.userEmail === null)).toBe(true);
+	});
 });

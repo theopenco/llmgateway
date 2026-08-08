@@ -62,8 +62,10 @@ one exists it controls over the Privacy Policy for Customer Data.
 
 ### Access and portability
 
-`GET /user/me/export` returns everything we hold about the caller as a single
-JSON document, reachable from **Account settings → Download Your Data**. Two
+`GET /user/me/export` returns the account-scoped records we hold about the
+caller as a single JSON document, reachable from **Account settings → Download
+Your Data**. It is not literally everything — see the exclusions below, and note
+that the chats section is capped, with any truncation stated in the payload. Two
 constraints shape it:
 
 - **It never contains a credential.** API key tokens, master keys, provider
@@ -87,18 +89,36 @@ Erasure is deliberately an *erasure-with-retention* flow, because the accounting
 record has to survive (Art. 17(3)(b) + HGB §257 / AO §147). What it does today:
 
 1. Cancels every Stripe subscription the closing organizations hold.
-2. Deletes the Stripe customer, so the name/email/billing address Stripe held is
-   erased at the sub-processor rather than only in our database.
+2. Deletes the Stripe customer with `DELETE /v1/customers/:id`, which permanently
+   deletes the customer object — including the name, email and billing address
+   Stripe held on it — and detaches its saved payment methods. Charges and
+   invoices Stripe issued survive under Stripe's own retention obligation, and
+   the identity snapshot on an already-issued invoice is not removed by this
+   call; that residue is the same statutory bill-to record we retain ourselves
+   (see `legal/DATA_RETENTION_POLICY.md`). If a request ever requires that
+   snapshot removed too, it needs Stripe's separate redaction process.
 3. Marks those organizations deleted and overwrites their display name, billing
    contact email and logo with placeholders.
 4. Hard-deletes the `user` row, cascading sessions, accounts, passkeys, API keys
    and chats.
 5. Nulls the account email on retained `payment_failure` rows.
-6. Deletes the Resend contact.
+6. Attempts to delete the Resend contact.
 
-Stripe calls happen before any local write, so a Stripe failure aborts the whole
-deletion with the account intact and retryable — better than erasing locally while
-a card keeps being charged or while personal data stays at the sub-processor.
+**Partial-failure boundary.** Every Stripe call for every closing organization
+runs before the first local write, so a Stripe failure aborts with the account
+intact and retryable. Past that point the local writes are sequential rather than
+transactional: a database failure mid-way can leave some organizations closed
+while the `user` row survives. That state is still retryable — the deletion
+endpoint is idempotent over already-closed organizations — but it is not atomic,
+and it is not claimed to be.
+
+Step 6 is **best effort**: `deleteResendContact` skips silently when
+`RESEND_API_KEY` is unset and logs a warning on a provider error, in both cases
+without failing the deletion. A contact can therefore survive at Resend after
+erasure. That is a deliberate trade — failing an otherwise-complete erasure on a
+marketing-list call would be worse — but it means Resend cleanup is not
+guaranteed, and a failed attempt is currently only visible in logs rather than
+tracked for retry.
 
 See `legal/DATA_RETENTION_POLICY.md` for the field-level retention schedule.
 
@@ -111,7 +131,7 @@ rest are commercial/legal work that cannot be closed in this repository.
 
 | # | Item | Owner | Status |
 | --- | --- | --- | --- |
-| 1 | Execute and file DPAs for Stripe, PostHog, Resend, Google Cloud | legal | **Mostly resolved** — Stripe and Resend incorporate their DPAs (with SCCs) automatically on accepting their service agreement, so those are in force; Google Cloud's is incorporated but needs account-level confirmation. **PostHog is the one real gap**: its DPA only binds once generated and countersigned at app.posthog.com/legal, which takes minutes. See `legal/SUBPROCESSOR_DPAS.md` |
+| 1 | Execute and file DPAs for Stripe, PostHog, Resend, Google Cloud | ops / legal | **Two of four in place.** Stripe and Resend incorporate their DPAs (with SCCs) automatically on accepting their service agreement. **Google Cloud is `unconfirmed`** — incorporated only from the point we accepted it, which has not been evidenced on the production billing account — and **PostHog is `action required`**, binding only once generated and countersigned at app.posthog.com/legal. Both must be read as no DPA in force. See `legal/SUBPROCESSOR_DPAS.md` |
 | 2 | Document the Art. 46 transfer mechanism for providers headquartered in countries without an adequacy decision, or restrict EU personal data from reaching them | legal | Open — see §5 |
 | 3 | Publish a versioned sub-processor list with 30-day change notice | engineering | **Done** — `apps/ui/src/content/legal/sub-processors.md` |
 | 4 | Disclose PostHog as a sub-processor | engineering | **Done** — Privacy Policy §5 |
