@@ -26,6 +26,9 @@ export default function UsageSummaryCard({
 }: UsageSummaryCardProps) {
 	const monthlyExhausted = creditsLimit > 0 && creditsUsed >= creditsLimit;
 	const paygAvailable = paygEnabled && regularCredits > 0;
+	// Credits held while overflow is off are unspendable, so a maxed-out user
+	// sitting on a gift or referral payout otherwise sees only "upgrade".
+	const unspendableBalance = !paygEnabled && regularCredits > 0;
 
 	return (
 		<div className="rounded-xl border bg-card p-6">
@@ -56,7 +59,9 @@ export default function UsageSummaryCard({
 						? "Allowance reached — pay-as-you-go overflow is covering requests from your credits balance."
 						: paygEnabled
 							? "Allowance reached — your pay-as-you-go balance is empty. Top up on the Usage page to keep coding."
-							: "Allowance reached for this billing cycle. Upgrade, or enable pay-as-you-go overflow on the Usage page."
+							: unspendableBalance
+								? `Allowance reached — you have $${regularCredits.toFixed(2)} in credits waiting. Enable pay-as-you-go overflow on the Usage page to spend them.`
+								: "Allowance reached for this billing cycle. Upgrade, or enable pay-as-you-go overflow on the Usage page."
 				}
 			/>
 			{paygEnabled && (
@@ -75,7 +80,11 @@ export default function UsageSummaryCard({
 						href="/dashboard/usage#payg-card"
 						className="inline-flex items-center gap-1 text-sm font-medium underline underline-offset-4 hover:text-foreground"
 					>
-						{paygEnabled ? "Top up credits" : "Set up pay-as-you-go overflow"}
+						{paygEnabled
+							? "Top up credits"
+							: unspendableBalance
+								? `Unlock $${regularCredits.toFixed(2)} in credits`
+								: "Set up pay-as-you-go overflow"}
 						<ArrowRight className="h-3.5 w-3.5" />
 					</Link>
 				</div>

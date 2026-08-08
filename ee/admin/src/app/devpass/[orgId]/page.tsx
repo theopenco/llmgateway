@@ -9,6 +9,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { CopyableId } from "@/components/copyable-id";
+import { GiftCreditsDialog } from "@/components/gift-credits-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,6 +22,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { giftResetPasses } from "@/lib/admin-devpass";
+import { giftCreditsToOrganization } from "@/lib/admin-organizations";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
@@ -400,13 +402,28 @@ export default async function DevpassDetailPage({
 						{sub.autoTopUpEnabled && (
 							<Badge variant="outline">auto-reload</Badge>
 						)}
+						<GiftCreditsDialog
+							orgId={orgId}
+							orgName={sub.name}
+							onGift={async (giftData) => {
+								"use server";
+								return await giftCreditsToOrganization(orgId, giftData);
+							}}
+						/>
 					</div>
 				}
 			>
 				<StatCell
 					label="Credits balance"
 					value={currencyFormatter.format(parseFloat(sub.paygBalance))}
-					hint="Deferred — charged but not yet spent"
+					hint={
+						// Gifting credits to a maxed-out subscriber does nothing on
+						// its own: the gateway zeroes this pool until the user opts
+						// into overflow, and only they can flip that switch.
+						!sub.paygEnabled && parseFloat(sub.paygBalance) > 0
+							? "Not spendable — overflow is off, the user must enable it"
+							: "Deferred — charged but not yet spent"
+					}
 				/>
 				<StatCell
 					label="Top-ups (all-time)"
