@@ -1,3 +1,5 @@
+import { sumTotalTokens } from "@/lib/costs.js";
+
 import { dedupeGoogleCandidateParts } from "./google-candidates.js";
 import { mapFinishReasonToOpenai } from "./map-finish-reason-to-openai.js";
 import { formatUsedModelForDisplay } from "./resolve-provider-context.js";
@@ -338,6 +340,7 @@ export function withCurrentRequestMetadataOnOpenAiResponse<
  * Helper function to build usage object with optional cost fields
  */
 function buildUsageObject(
+	usedProvider: Provider,
 	promptTokens: number | null,
 	completionTokens: number | null,
 	totalTokens: number | null,
@@ -356,8 +359,12 @@ function buildUsageObject(
 		prompt_tokens: Math.max(1, promptTokens ?? 1),
 		completion_tokens: completionTokens ?? 0,
 		total_tokens: (() => {
-			const fallbackTotal =
-				(promptTokens ?? 0) + (completionTokens ?? 0) + (reasoningTokens ?? 0);
+			const fallbackTotal = sumTotalTokens(
+				usedProvider,
+				promptTokens,
+				completionTokens,
+				reasoningTokens,
+			);
 			return Math.max(1, totalTokens ?? fallbackTotal);
 		})(),
 		...(reasoningTokens !== null && {
@@ -518,6 +525,7 @@ export function transformResponseToOpenai(
 				),
 				choices: googleChoices,
 				usage: buildUsageObject(
+					usedProvider,
 					promptTokens,
 					completionTokens,
 					totalTokens,
@@ -577,6 +585,7 @@ export function transformResponseToOpenai(
 					},
 				],
 				usage: buildUsageObject(
+					usedProvider,
 					promptTokens,
 					completionTokens,
 					totalTokens,
@@ -634,6 +643,7 @@ export function transformResponseToOpenai(
 						},
 					],
 					usage: buildUsageObject(
+						usedProvider,
 						promptTokens,
 						completionTokens,
 						totalTokens,
@@ -746,6 +756,7 @@ export function transformResponseToOpenai(
 					},
 				],
 				usage: buildUsageObject(
+					usedProvider,
 					promptTokens,
 					completionTokens,
 					totalTokens,
@@ -799,6 +810,7 @@ export function transformResponseToOpenai(
 						},
 					],
 					usage: buildUsageObject(
+						usedProvider,
 						promptTokens,
 						completionTokens,
 						totalTokens,
@@ -911,6 +923,7 @@ export function transformResponseToOpenai(
 						},
 					],
 					usage: buildUsageObject(
+						usedProvider,
 						promptTokens,
 						completionTokens,
 						totalTokens,
@@ -966,6 +979,7 @@ export function transformResponseToOpenai(
 						},
 					],
 					usage: buildUsageObject(
+						usedProvider,
 						promptTokens,
 						completionTokens,
 						totalTokens,
@@ -1079,6 +1093,7 @@ export function transformResponseToOpenai(
 						},
 					],
 					usage: buildUsageObject(
+						usedProvider,
 						promptTokens,
 						completionTokens,
 						totalTokens,
@@ -1178,6 +1193,7 @@ export function transformResponseToOpenai(
 						},
 					],
 					usage: buildUsageObject(
+						usedProvider,
 						promptTokens,
 						completionTokens,
 						totalTokens,
@@ -1278,6 +1294,7 @@ export function transformResponseToOpenai(
 						},
 					],
 					usage: buildUsageObject(
+						usedProvider,
 						promptTokens,
 						completionTokens,
 						totalTokens,
@@ -1382,6 +1399,7 @@ export function transformResponseToOpenai(
 						},
 					],
 					usage: buildUsageObject(
+						usedProvider,
 						promptTokens,
 						completionTokens,
 						totalTokens,

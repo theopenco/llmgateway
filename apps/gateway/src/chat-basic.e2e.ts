@@ -12,6 +12,7 @@ import {
 	validateLogByRequestId,
 	validateResponse,
 } from "@/chat-helpers.e2e.js";
+import { sumTotalTokens } from "@/lib/costs.js";
 
 import { uniqueId } from "@llmgateway/shared/random";
 
@@ -158,10 +159,15 @@ describe("e2e", getConcurrentTestOptions(), () => {
 				}
 				expect(json.usage.completion_tokens).toBeGreaterThan(0);
 				expect(json.usage.total_tokens).toBeGreaterThan(0);
+				// Providers whose completion count already contains reasoning must not
+				// have it added again — see sumTotalTokens.
 				expect(json.usage.total_tokens).toEqual(
-					json.usage.prompt_tokens +
-						json.usage.completion_tokens +
-						(json.usage.reasoning_tokens ?? 0),
+					sumTotalTokens(
+						provider.providerId,
+						json.usage.prompt_tokens,
+						json.usage.completion_tokens,
+						json.usage.reasoning_tokens,
+					),
 				);
 			},
 		);

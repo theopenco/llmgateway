@@ -1,3 +1,5 @@
+import { sumTotalTokens } from "@/lib/costs.js";
+
 import { redisClient } from "@llmgateway/cache";
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -103,7 +105,12 @@ export function parseProviderResponse(
 				totalTokens =
 					json.usage?.total_tokens ??
 					(promptTokens !== null && completionTokens !== null
-						? promptTokens + completionTokens + (reasoningTokens ?? 0)
+						? sumTotalTokens(
+								usedProvider,
+								promptTokens,
+								completionTokens,
+								reasoningTokens,
+							)
 						: null);
 				break;
 			}
@@ -656,7 +663,12 @@ export function parseProviderResponse(
 				totalTokens =
 					json.usage?.total_tokens ??
 					(promptTokens !== null && completionTokens !== null
-						? promptTokens + completionTokens + (reasoningTokens ?? 0)
+						? sumTotalTokens(
+								usedProvider,
+								promptTokens,
+								completionTokens,
+								reasoningTokens,
+							)
 						: null);
 				// Alibaba uses Anthropic-style `cache_control: {type: "ephemeral"}` on
 				// the request, but reports usage in OpenAI shape with
@@ -1138,7 +1150,12 @@ export function parseProviderResponse(
 				totalTokens =
 					json.usage?.total_tokens ??
 					(promptTokens !== null && completionTokens !== null
-						? promptTokens + completionTokens + (reasoningTokens ?? 0)
+						? sumTotalTokens(
+								usedProvider,
+								promptTokens,
+								completionTokens,
+								reasoningTokens,
+							)
 						: null);
 				// GPT-5.6+ bills prompt-cache writes at 1.25x and reports them in
 				// `cache_write_tokens` (a subset of prompt_tokens, like cached_tokens).

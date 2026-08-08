@@ -191,6 +191,60 @@ function getPricingForTokenCount(
 }
 
 /**
+ * Whether a provider's reported completion/output token count already contains
+ * its reasoning tokens.
+ *
+ * For Google models, completionTokens already includes reasoning tokens
+ * (merged during extraction). The same holds for OpenAI-style Responses API
+ * providers (OpenAI, Azure, Sakana, Meta), whose `output_tokens` counts
+ * reasoning — their `reasoning_tokens` detail is informational only. RanoAI
+ * reports reasoning in `completion_tokens_details` (which the streaming
+ * transform hoists to a top-level `reasoning_tokens`) while already counting
+ * it inside `completion_tokens`, so adding it again would roughly double the
+ * billed output on reasoning requests. Anthropic behaves the same way: its
+ * `output_tokens` already includes thinking tokens, which is why
+ * extract-token-usage builds totalTokens as prompt + output without re-adding
+ * reasoning. For remaining providers, reasoning is reported outside the
+ * completion count and must be added separately.
+ */
+export function completionIncludesReasoning(provider: string): boolean {
+	return (
+		provider === "google-ai-studio" ||
+		provider === "glacier" ||
+		provider === "iceberg" ||
+		provider === "google-vertex" ||
+		provider === "quartz" ||
+		provider === "openai" ||
+		provider === "azure" ||
+		provider === "sakana" ||
+		provider === "meta" ||
+		provider === "ranoai" ||
+		provider === "aws-mantle" ||
+		provider === "anthropic" ||
+		provider === "vertex-anthropic"
+	);
+}
+
+/**
+ * Sum a usage triple into a total token count, adding reasoning only for
+ * providers that report it outside their completion count. Mirrors how
+ * calculateCosts derives billable output tokens, so the `total_tokens` the
+ * gateway reports stays consistent with what it bills.
+ */
+export function sumTotalTokens(
+	provider: string,
+	promptTokens: number | null | undefined,
+	completionTokens: number | null | undefined,
+	reasoningTokens: number | null | undefined,
+): number {
+	return (
+		(promptTokens ?? 0) +
+		(completionTokens ?? 0) +
+		(completionIncludesReasoning(provider) ? 0 : (reasoningTokens ?? 0))
+	);
+}
+
+/**
  * Calculate costs based on model, provider, region, and token counts.
  * If promptTokens or completionTokens are not available, it will try to
  * calculate them from the fullOutput parameter if provided.
@@ -652,32 +706,7 @@ export async function calculateCosts(
 		.plus(imageInputCost ?? 0)
 		.plus(audioInputCost ?? 0);
 
-	// For Google models, completionTokens already includes reasoning tokens
-	// (merged during extraction). The same holds for OpenAI-style Responses API
-	// providers (OpenAI, Azure, Sakana, Meta), whose `output_tokens` counts
-	// reasoning — their `reasoning_tokens` detail is informational only. RanoAI
-	// reports reasoning in `completion_tokens_details` (which the streaming
-	// transform hoists to a top-level `reasoning_tokens`) while already counting
-	// it inside `completion_tokens`, so adding it again would roughly double the
-	// billed output on reasoning requests. Anthropic behaves the same way: its
-	// `output_tokens` already includes thinking tokens, which is why
-	// extract-token-usage builds totalTokens as prompt + output without
-	// re-adding reasoning. For remaining providers, add reasoning separately.
-	const completionIncludesReasoning =
-		provider === "google-ai-studio" ||
-		provider === "glacier" ||
-		provider === "iceberg" ||
-		provider === "google-vertex" ||
-		provider === "quartz" ||
-		provider === "openai" ||
-		provider === "azure" ||
-		provider === "sakana" ||
-		provider === "meta" ||
-		provider === "ranoai" ||
-		provider === "aws-mantle" ||
-		provider === "anthropic" ||
-		provider === "vertex-anthropic";
-	const totalOutputTokens = completionIncludesReasoning
+	const totalOutputTokens = completionIncludesReasoning(provider)
 		? calculatedCompletionTokens
 		: calculatedCompletionTokens + (reasoningTokens ?? 0);
 

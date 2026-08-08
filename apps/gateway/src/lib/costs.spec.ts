@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
 	calculateCosts,
+	completionIncludesReasoning,
 	isRefusalFinishReason,
 	shouldBillCancelledRequests,
+	sumTotalTokens,
 	zeroInferenceCosts,
 } from "./costs.js";
 
@@ -2056,5 +2058,37 @@ describe("shouldBillCancelledRequests", () => {
 	it("only disables billing when explicitly set to false", () => {
 		process.env.BILL_CANCELLED_REQUESTS = "false";
 		expect(shouldBillCancelledRequests()).toBe(false);
+	});
+});
+
+describe("sumTotalTokens", () => {
+	it("does not add reasoning for providers whose completion includes it", () => {
+		// 51 prompt + 136 completion (which already contains 31 reasoning) = 187,
+		// the same total extract-token-usage produces for Anthropic.
+		for (const provider of [
+			"anthropic",
+			"vertex-anthropic",
+			"google-ai-studio",
+			"google-vertex",
+			"openai",
+			"azure",
+			"ranoai",
+		]) {
+			expect(sumTotalTokens(provider, 51, 136, 31)).toBe(187);
+			expect(completionIncludesReasoning(provider)).toBe(true);
+		}
+	});
+
+	it("adds reasoning for providers that report it outside completion", () => {
+		for (const provider of ["deepseek", "groq", "aws-bedrock"]) {
+			expect(sumTotalTokens(provider, 51, 136, 31)).toBe(218);
+			expect(completionIncludesReasoning(provider)).toBe(false);
+		}
+	});
+
+	it("treats null and undefined token counts as zero", () => {
+		expect(sumTotalTokens("anthropic", null, null, null)).toBe(0);
+		expect(sumTotalTokens("deepseek", 51, 136, null)).toBe(187);
+		expect(sumTotalTokens("deepseek", undefined, undefined, 31)).toBe(31);
 	});
 });

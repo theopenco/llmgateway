@@ -51,6 +51,7 @@ import {
 	calculateCosts,
 	isRefusalFinishReason,
 	shouldBillCancelledRequests,
+	sumTotalTokens,
 	zeroInferenceCosts,
 } from "@/lib/costs.js";
 import { getPublishedDynamicRoute } from "@/lib/dynamic-route-loader.js";
@@ -5920,10 +5921,11 @@ chat.openapi(completions, async (c) => {
 						(costs.promptTokens ?? promptTokens)?.toString() ?? null,
 					completionTokens: completionTokens?.toString() ?? null,
 					totalTokens: costs.imageInputTokens
-						? (
-								(costs.promptTokens ?? promptTokens ?? 0) +
-								(completionTokens ?? 0) +
-								(reasoningTokens ?? 0)
+						? sumTotalTokens(
+								usedProvider,
+								costs.promptTokens ?? promptTokens,
+								completionTokens,
+								reasoningTokens,
 							).toString()
 						: (totalTokens?.toString() ?? null),
 					reasoningTokens: reasoningTokens?.toString() ?? null,
@@ -6239,12 +6241,11 @@ chat.openapi(completions, async (c) => {
 						)?.toString() ?? null,
 					completionTokens: cachedResponse.usage?.completion_tokens ?? null,
 					totalTokens: cachedCosts.imageInputTokens
-						? (
-								(cachedCosts.promptTokens ??
-									cachedResponse.usage?.prompt_tokens ??
-									0) +
-								(cachedResponse.usage?.completion_tokens ?? 0) +
-								(cachedResponse.usage?.reasoning_tokens ?? 0)
+						? sumTotalTokens(
+								usedProvider,
+								cachedCosts.promptTokens ?? cachedResponse.usage?.prompt_tokens,
+								cachedResponse.usage?.completion_tokens,
+								cachedResponse.usage?.reasoning_tokens,
 							).toString()
 						: (cachedResponse.usage?.total_tokens ?? null),
 					reasoningTokens: cachedResponse.usage?.reasoning_tokens ?? null,
@@ -9226,10 +9227,12 @@ chat.openapi(completions, async (c) => {
 								}
 
 								if (finalTotalTokens === null) {
-									finalTotalTokens =
-										(finalPromptTokens ?? 0) +
-										(finalCompletionTokens ?? 0) +
-										(reasoningTokens ?? 0);
+									finalTotalTokens = sumTotalTokens(
+										usedProvider,
+										finalPromptTokens,
+										finalCompletionTokens,
+										reasoningTokens,
+									);
 								}
 
 								// Send final usage chunk before [DONE] if we have any usage data
@@ -9302,11 +9305,13 @@ chat.openapi(completions, async (c) => {
 											0,
 										total_tokens: Math.max(
 											1,
-											(streamingCosts.promptTokens ?? finalPromptTokens ?? 0) +
-												(streamingCosts.completionTokens ??
-													finalCompletionTokens ??
-													0) +
-												(reasoningTokens ?? 0),
+											sumTotalTokens(
+												usedProvider,
+												streamingCosts.promptTokens ?? finalPromptTokens,
+												streamingCosts.completionTokens ??
+													finalCompletionTokens,
+												reasoningTokens,
+											),
 										),
 										...(calculatedReasoningTokens !== null &&
 											calculatedReasoningTokens > 0 && {
@@ -13397,10 +13402,11 @@ chat.openapi(completions, async (c) => {
 			(costs.promptTokens ?? 0) - (calculatedPromptTokens ?? 0);
 		if (promptDelta > 0) {
 			calculatedPromptTokens = costs.promptTokens;
-			totalTokens = (
-				(calculatedPromptTokens ?? 0) +
-				(calculatedCompletionTokens ?? 0) +
-				(calculatedReasoningTokens ?? 0)
+			totalTokens = sumTotalTokens(
+				usedProvider,
+				calculatedPromptTokens,
+				calculatedCompletionTokens,
+				calculatedReasoningTokens,
 			).toString();
 		}
 	}
@@ -13426,9 +13432,12 @@ chat.openapi(completions, async (c) => {
 		finishReason,
 		costs.promptTokens ?? calculatedPromptTokens,
 		costs.completionTokens ?? calculatedCompletionTokens,
-		(costs.promptTokens ?? calculatedPromptTokens ?? 0) +
-			(costs.completionTokens ?? calculatedCompletionTokens ?? 0) +
-			(reasoningTokens ?? 0),
+		sumTotalTokens(
+			usedProvider,
+			costs.promptTokens ?? calculatedPromptTokens,
+			costs.completionTokens ?? calculatedCompletionTokens,
+			reasoningTokens,
+		),
 		calculatedReasoningTokens,
 		cachedTokens,
 		toolResults,
