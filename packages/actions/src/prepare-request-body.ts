@@ -4082,7 +4082,21 @@ export async function prepareRequestBody(
 					supported.length === 0 ||
 					supported.includes("reasoning_effort")
 				) {
-					requestBody.reasoning_effort = reasoning_effort;
+					if (usedProvider === "embercloud") {
+						// embercloud's documented request body uses a nested
+						// `reasoning` object (`reasoning.enabled` +
+						// `reasoning.effort`) instead of the flat OpenAI-style
+						// `reasoning_effort` field, which it silently ignores
+						// (https://embercloud.ai/docs/request-body). "none"
+						// maps to enabled: false; any other tier enables
+						// reasoning at the requested effort.
+						requestBody.reasoning =
+							reasoning_effort === "none"
+								? { enabled: false }
+								: { enabled: true, effort: reasoning_effort };
+					} else {
+						requestBody.reasoning_effort = reasoning_effort;
+					}
 				}
 			}
 			// Hybrid models that keep thinking off by default (e.g. DeepSeek V3.2 on
