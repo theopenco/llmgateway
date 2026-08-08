@@ -74,6 +74,26 @@ describe("dev-plan PAYG overflow", () => {
 		expect(body).toContain("Dev Plan credit limit reached");
 		// The hint pointing at the new opt-in must be present.
 		expect(body).toContain("enable pay-as-you-go overflow");
+		// Gifted/leftover credits are unspendable until the opt-in, so the
+		// rejection names the amount instead of reading like an upsell.
+		expect(body).toContain("$100.00 in credits waiting");
+	});
+
+	test("names no waiting balance when the org holds no credits", async () => {
+		await setupCreditsApiKey("payg-off-empty-token");
+		await harness.setDevPlan({
+			devPlan: "pro",
+			creditsUsed: "100",
+			creditsLimit: "100",
+		});
+		await harness.setOrganizationCredits("0");
+
+		const res = await chatRequest("payg-off-empty-token", "gpt-4o");
+
+		expect(res.status).toBe(402);
+		const body = JSON.stringify(await res.json());
+		expect(body).toContain("Or enable pay-as-you-go overflow");
+		expect(body).not.toContain("in credits waiting");
 	});
 
 	test("monthly allowance exhausted with the opt-in and a positive balance proceeds", async () => {

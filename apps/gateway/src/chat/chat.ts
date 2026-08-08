@@ -20,7 +20,7 @@ import {
 import { resolveChatApiOrigin } from "@/lib/api-origin.js";
 import {
 	findApiKeyByToken,
-	findManagedProviderIds,
+	findManagedProviderAvailability,
 	findProjectById,
 	findOrganizationById,
 	findCustomProviderKey,
@@ -30,6 +30,7 @@ import {
 	findActiveProviderKeys,
 	findProviderKeysByProviders,
 	type CustomModel,
+	type ManagedProviderAvailability,
 } from "@/lib/cached-queries.js";
 import { raceClientAbort } from "@/lib/client-abort.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
@@ -224,8 +225,10 @@ import {
 import { hasMeaningfulAssistantOutput } from "./tools/has-meaningful-assistant-output.js";
 import { healJsonResponse } from "./tools/heal-json-response.js";
 import {
+	EMPTY_MANAGED_PROVIDER_AVAILABILITY,
 	getAvailableProvidersForProjectMode,
 	getRoutingCandidatesForProjectMode,
+	platformCredentialCoversRegion,
 	preferProvidersWithKeys,
 } from "./tools/hybrid-provider-routing.js";
 import { isModelTrulyFree } from "./tools/is-model-truly-free.js";
@@ -400,24 +403,40 @@ function customModelToProviderMapping(cm: CustomModel): ProviderModelMapping {
 
 function filterRegionsByAvailableKeys(
 	expandedProviders: ProviderModelMapping[],
+	managed: ManagedProviderAvailability,
 ): ProviderModelMapping[] {
-	return expandedProviders.filter((mapping) => {
-		if (!mapping.region) {
-			return true;
-		}
-		const providerDef = providers.find((p) => p.id === mapping.providerId) as
-			ProviderDefinition | undefined;
-		if (!providerDef?.regionConfig) {
-			return true;
-		}
-		if (mapping.region === providerDef.regionConfig.defaultRegion) {
-			return true;
-		}
-		return hasRegionSpecificEnvKey(
-			mapping.providerId as Provider,
-			mapping.region,
-		);
-	});
+	return expandedProviders.filter((mapping) =>
+		platformKeyCoversMappingRegion(mapping, managed),
+	);
+}
+
+/**
+ * Whether the platform's own credentials can serve this regional mapping.
+ * Mappings without a region, and providers the catalogue does not scope by
+ * region, are always kept — there is nothing to select against.
+ */
+function platformKeyCoversMappingRegion(
+	mapping: ProviderModelMapping,
+	managed: ManagedProviderAvailability,
+): boolean {
+	const region = mapping.region;
+	if (!region) {
+		return true;
+	}
+	const providerDef = providers.find((p) => p.id === mapping.providerId) as
+		ProviderDefinition | undefined;
+	const regionConfig = providerDef?.regionConfig;
+	if (!regionConfig) {
+		return true;
+	}
+	return platformCredentialCoversRegion(
+		mapping.providerId,
+		region,
+		managed,
+		() =>
+			region === regionConfig.defaultRegion ||
+			hasRegionSpecificEnvKey(mapping.providerId as Provider, region),
+	);
 }
 
 function preferConcreteRegionalMappings(
@@ -2028,48 +2047,48 @@ chat.openapi(completions, async (c) => {
 	let configIndex = 0; // Index for round-robin environment variables
 
 	// Filter region candidates based on available keys.
-	// - credits mode: only keep regions with env keys (base key → default region only)
+	// - credits mode: only keep regions a platform credential covers (a managed
+	//   credential pinned to the region, or — for providers with no managed
+	//   credential — the env key, whose base value covers the default region)
 	// - hybrid mode: providers with a DB key keep all regions (user chose their region);
 	//   providers without a DB key are filtered like credits mode
 	// - api-keys mode: no filtering (all regions available, user picks via DB key)
+	//
+	// Variant- and model-agnostic: this runs before the organization (and with
+	// it the env-var variant) is resolved, exactly like the env-var side.
+	const managedRegionAvailability =
+		project.mode === "api-keys"
+			? EMPTY_MANAGED_PROVIDER_AVAILABILITY
+			: await findManagedProviderAvailability();
 	if (project.mode === "credits") {
 		modelInfo = {
 			...modelInfo,
-			providers: filterRegionsByAvailableKeys(modelInfo.providers),
+			providers: filterRegionsByAvailableKeys(
+				modelInfo.providers,
+				managedRegionAvailability,
+			),
 		};
 		routingExpandedModelProviders = filterRegionsByAvailableKeys(
 			routingExpandedModelProviders,
+			managedRegionAvailability,
 		);
-		allModelProviders = filterRegionsByAvailableKeys(allModelProviders);
+		allModelProviders = filterRegionsByAvailableKeys(
+			allModelProviders,
+			managedRegionAvailability,
+		);
 	} else if (project.mode === "hybrid") {
 		const dbProviderKeys = await findActiveProviderKeys(project.organizationId);
 		const providersWithDbKeys = new Set(dbProviderKeys.map((k) => k.provider));
 		const filterHybridRegions = (
 			expanded: ProviderModelMapping[],
 		): ProviderModelMapping[] =>
-			expanded.filter((mapping) => {
-				// Providers with a DB key: keep all regions
-				if (providersWithDbKeys.has(mapping.providerId)) {
-					return true;
-				}
-				// Providers without a DB key: filter like credits mode
-				if (!mapping.region) {
-					return true;
-				}
-				const providerDef = providers.find(
-					(p) => p.id === mapping.providerId,
-				) as ProviderDefinition | undefined;
-				if (!providerDef?.regionConfig) {
-					return true;
-				}
-				if (mapping.region === providerDef.regionConfig.defaultRegion) {
-					return true;
-				}
-				return hasRegionSpecificEnvKey(
-					mapping.providerId as Provider,
-					mapping.region,
-				);
-			});
+			expanded.filter(
+				(mapping) =>
+					// Providers with a DB key: keep all regions
+					providersWithDbKeys.has(mapping.providerId) ||
+					// Providers without a DB key: filter like credits mode
+					platformKeyCoversMappingRegion(mapping, managedRegionAvailability),
+			);
 		modelInfo = {
 			...modelInfo,
 			providers: filterHybridRegions(modelInfo.providers),
@@ -3344,7 +3363,7 @@ chat.openapi(completions, async (c) => {
 						providerKeyAllowsModel(key.allowedModels, modelDef.id),
 					),
 					supportedProviderIds,
-					await findManagedProviderIds(envVariant, modelDef.id),
+					await findManagedProviderAvailability(envVariant, modelDef.id),
 				);
 
 			const candidateProviders = preferConcreteRegionalMappings(
@@ -3354,6 +3373,7 @@ chat.openapi(completions, async (c) => {
 								expandAllProviderRegions(
 									modelDef.providers as ProviderModelMapping[],
 								),
+								managedRegionAvailability,
 							)
 						: expandAllProviderRegions(
 								modelDef.providers as ProviderModelMapping[],
@@ -3889,7 +3909,7 @@ chat.openapi(completions, async (c) => {
 							providerKeyAllowsModel(key.allowedModels, baseModelId),
 						),
 						providerIds,
-						await findManagedProviderIds(envVariant, baseModelId),
+						await findManagedProviderAvailability(envVariant, baseModelId),
 					);
 
 				const availableModelProviders = preferConcreteRegionalMappings(
@@ -4111,7 +4131,7 @@ chat.openapi(completions, async (c) => {
 							providerKeyAllowsModel(key.allowedModels, baseModelId),
 						),
 						providerIds,
-						await findManagedProviderIds(envVariant, baseModelId),
+						await findManagedProviderAvailability(envVariant, baseModelId),
 					);
 
 				// Filter model providers to only those available (excluding the low-uptime one)
@@ -4339,7 +4359,7 @@ chat.openapi(completions, async (c) => {
 						providerKeyAllowsModel(key.allowedModels, routedModelId),
 					),
 					providerIds,
-					await findManagedProviderIds(envVariant, routedModelId),
+					await findManagedProviderAvailability(envVariant, routedModelId),
 				);
 
 			// Build a map of provider → locked region from DB provider keys.
