@@ -178,6 +178,15 @@ export function formatPlanTermBadge(term: PlanTerm): string {
  * trial end is the date that decides whether the customer keeps their
  * enterprise features, so that is the countdown both surfaces must show.
  * Returns null for organizations with neither a trial nor a plan term.
+ *
+ * A contract term needs **both** dates. `planExpiresAt` predates this feature
+ * and is also written by Stripe as the renewal date of a legacy Pro
+ * subscription, so an organization later moved to enterprise can be carrying
+ * one that nobody booked as an agreement. `planStartedAt` is new, is never
+ * backfilled, and is only ever written next to an expiry by an admin, so
+ * requiring the pair is what stops a long-standing enterprise plan from
+ * spontaneously announcing that it has expired. A trial needs no such guard:
+ * `isTrialActive` has never been set by anything but the admin panel.
  */
 export function getOrganizationTerm(input: {
 	isTrialActive?: boolean | null;
@@ -200,6 +209,10 @@ export function getOrganizationTerm(input: {
 		if (term) {
 			return { kind: "trial", term };
 		}
+	}
+
+	if (!input.planStartedAt || !input.planExpiresAt) {
+		return null;
 	}
 
 	const term = getPlanTerm({

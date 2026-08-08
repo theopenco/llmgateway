@@ -147,10 +147,15 @@ export function ManageOrgDialog({
 		String(ENTERPRISE_TRIAL_DAYS),
 	);
 
-	const previewTerm = getPlanTerm({
-		expiresAt: expiresAtValue || null,
-		startedAt: startedAtValue || null,
-	});
+	// Both dates or no term: an expiry on its own can be a legacy Pro renewal
+	// date left behind by Stripe, and the customer is shown nothing for it, so
+	// the preview must not promise a countdown that will never appear.
+	const previewTerm =
+		startedAtValue !== "" && expiresAtValue !== ""
+			? getPlanTerm({ expiresAt: expiresAtValue, startedAt: startedAtValue })
+			: null;
+
+	const expiryNeedsStart = expiresAtValue !== "" && startedAtValue === "";
 
 	// Previewed from the dates alone rather than from `getOrganizationTerm`, so
 	// the countdown stays visible while a lapsed trial is being extended — that
@@ -347,7 +352,7 @@ export function ManageOrgDialog({
 								</span>
 							) : (
 								<span className="text-muted-foreground text-xs">
-									No end date
+									{expiryNeedsStart ? "No term booked" : "No end date"}
 								</span>
 							)}
 						</div>
@@ -416,6 +421,15 @@ export function ManageOrgDialog({
 							Presets start a new term today; edit the dates directly to
 							backdate one. Leave both empty for an open-ended plan.
 						</p>
+
+						{expiryNeedsStart && (
+							<p className="text-muted-foreground text-xs">
+								A term needs both dates, so nothing is shown to the customer
+								yet. This expiry date on its own is most likely a leftover
+								renewal date from an old Pro subscription — set a start date to
+								book it as an agreement, or clear it.
+							</p>
+						)}
 					</div>
 
 					<div className="space-y-3 rounded-lg border p-3">

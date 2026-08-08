@@ -116,6 +116,33 @@ describe("getOrganizationTerm", () => {
 		).toBeNull();
 	});
 
+	test("ignores an expiry date that was never booked as a term", () => {
+		// A legacy Pro renewal date written by Stripe, on an organization since
+		// moved to enterprise: no start date, so no agreement, so no countdown.
+		// Without this an untouched enterprise plan would announce that it had
+		// expired months ago.
+		expect(
+			getOrganizationTerm({ planExpiresAt: "2026-03-01T00:00:00Z", now }),
+		).toBeNull();
+		expect(
+			getOrganizationTerm({ planExpiresAt: "2027-03-01T00:00:00Z", now }),
+		).toBeNull();
+		// A start date on its own is not a term either.
+		expect(
+			getOrganizationTerm({ planStartedAt: "2026-01-01T00:00:00Z", now }),
+		).toBeNull();
+	});
+
+	test("a trial is unaffected by the missing plan term", () => {
+		const resolved = getOrganizationTerm({
+			...trial,
+			planExpiresAt: "2026-03-01T00:00:00Z",
+			now,
+		});
+
+		expect(resolved?.kind).toBe("trial");
+	});
+
 	test("an active trial takes precedence over the contract term", () => {
 		const resolved = getOrganizationTerm({ ...trial, ...contract, now });
 
