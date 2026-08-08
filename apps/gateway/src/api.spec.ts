@@ -1643,12 +1643,15 @@ describe("api", () => {
 		// Fireworks never reports the tier it served, so a priority request is
 		// billed at the tier it was sent at. A proxy base URL may silently drop
 		// the field, which would overbill — the request must be rejected instead.
+		// Deliberately not the mock URL: the harness trusts that one via
+		// SERVICE_TIER_TRUSTED_BASE_URLS so the positive tier paths stay testable,
+		// and this case is about an untrusted proxy.
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-fireworks-proxy-tier",
 			token: "sk-test-key",
 			provider: "fireworks",
 			organizationId: "org-id",
-			baseUrl: mockServerUrl,
+			baseUrl: "https://fireworks-proxy.example.com",
 		});
 
 		const res = await app.request("/v1/chat/completions", {
