@@ -37,6 +37,10 @@
 			"types": "./dist/random.d.ts",
 			"import": "./dist/random.js"
 		},
+		"./sandbox-escape": {
+			"types": "./dist/sandbox-escape.d.ts",
+			"import": "./dist/sandbox-escape.js"
+		},
 		"./routing-config": {
 			"types": "./dist/routing-config.d.ts",
 			"import": "./dist/routing-config.js"
