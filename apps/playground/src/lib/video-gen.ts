@@ -12,7 +12,34 @@ export type VideoSize =
 	| "3840x2160"
 	| "2160x3840";
 
-export type VideoDuration = 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15;
+export type VideoDuration =
+	| 4
+	| 5
+	| 6
+	| 7
+	| 8
+	| 9
+	| 10
+	| 11
+	| 12
+	| 13
+	| 14
+	| 15
+	| 16
+	| 17
+	| 18
+	| 19
+	| 20
+	| 21
+	| 22
+	| 23
+	| 24
+	| 25
+	| 26
+	| 27
+	| 28
+	| 29
+	| 30;
 
 export interface VideoInputImage {
 	dataUrl: string;
@@ -68,7 +95,8 @@ export interface VideoGalleryItem {
 export type VideoInputMode = "none" | "frames" | "reference";
 
 const VIDEO_DURATIONS: VideoDuration[] = [
-	4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+	4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+	25, 26, 27, 28, 29, 30,
 ];
 
 const VIDEO_SIZE_LABELS: Record<VideoSize, string> = {
@@ -130,7 +158,11 @@ export function supportsVideoFrameInput(modelId: string): boolean {
 }
 
 function isSeedance2ReferenceModel(rootModelId: string): boolean {
-	return rootModelId === "seedance-2-0" || rootModelId === "seedance-2-0-fast";
+	return (
+		rootModelId === "seedance-2-0" ||
+		rootModelId === "seedance-2-0-fast" ||
+		rootModelId === "seedance-2-5"
+	);
 }
 
 function isGrokImagineVideoModel(rootModelId: string): boolean {
@@ -243,10 +275,7 @@ function mappingSupportsVideoRequest(
 	if (inputMode === "frames") {
 		// Match by canonical root model id — never by the upstream externalId.
 		if (mapping.providerId === "bytedance") {
-			return (
-				mapping.modelId === "seedance-2-0" ||
-				mapping.modelId === "seedance-2-0-fast"
-			);
+			return isSeedance2ReferenceModel(mapping.modelId);
 		}
 
 		if (
@@ -263,10 +292,7 @@ function mappingSupportsVideoRequest(
 	if (inputMode === "reference") {
 		// Match by canonical root model id — never by the upstream externalId.
 		if (mapping.providerId === "bytedance") {
-			return (
-				mapping.modelId === "seedance-2-0" ||
-				mapping.modelId === "seedance-2-0-fast"
-			);
+			return isSeedance2ReferenceModel(mapping.modelId);
 		}
 
 		// Veo reference images are only supported on the veo-3.1 family.

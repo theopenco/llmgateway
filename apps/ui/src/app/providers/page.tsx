@@ -2,8 +2,7 @@ import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { ProvidersGrid } from "@/components/providers/providers-grid";
 import { JsonLd } from "@/components/seo/json-ld";
-
-import { providers as providerDefinitions } from "@llmgateway/models";
+import { listedProviders } from "@/lib/providers-catalog";
 
 import type { Metadata } from "next";
 
@@ -20,10 +19,6 @@ export const metadata: Metadata = {
 		type: "website",
 	},
 };
-
-const listedProviders = providerDefinitions.filter(
-	(provider) => provider.name !== "LLM Gateway",
-);
 
 const collectionSchema = {
 	"@context": "https://schema.org",

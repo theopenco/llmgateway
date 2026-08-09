@@ -43,6 +43,7 @@ import {
 	desc,
 	effectiveTtftTotals,
 	eq,
+	excludeRegionalMappingRows,
 	gte,
 	inArray,
 	isNotNull,
@@ -414,6 +415,7 @@ const orgMetricsSchema = z.object({
 	cachedCost: z.number(),
 	cacheWriteTokens: z.number(),
 	cacheWriteCost: z.number(),
+	dataStorageCost: z.number(),
 	mostUsedModel: z.string().nullable(),
 	mostUsedProvider: z.string().nullable(),
 	mostUsedModelCost: z.number(),
@@ -2602,6 +2604,7 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 	let cachedCost = 0;
 	let cacheWriteTokens = 0;
 	let cacheWriteCost = 0;
+	let dataStorageCost = 0;
 	let discountSavings = 0;
 	let mostUsedModel: string | null = null;
 	let mostUsedProvider: string | null = null;
@@ -2659,6 +2662,10 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 					sql<number>`COALESCE(SUM(${projectHourlyStats.cacheWriteInputCost}), 0)`.as(
 						"cacheWriteInputCost",
 					),
+				dataStorageCost:
+					sql<number>`COALESCE(SUM(${projectHourlyStats.dataStorageCost}), 0)`.as(
+						"dataStorageCost",
+					),
 			})
 			.from(projectHourlyStats)
 			.where(
@@ -2685,6 +2692,7 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 			cachedCost = Number(totals.cachedInputCost) || 0;
 			cacheWriteTokens = Number(totals.cacheWriteTokens) || 0;
 			cacheWriteCost = Number(totals.cacheWriteInputCost) || 0;
+			dataStorageCost = Number(totals.dataStorageCost) || 0;
 			discountSavings = Number(totals.discountSavings) || 0;
 		}
 
@@ -2758,6 +2766,7 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 		cachedCost,
 		cacheWriteTokens,
 		cacheWriteCost,
+		dataStorageCost,
 		mostUsedModel,
 		mostUsedProvider,
 		mostUsedModelCost,
@@ -3112,6 +3121,7 @@ const projectMetricsSchema = z.object({
 	cachedCost: z.number(),
 	cacheWriteTokens: z.number(),
 	cacheWriteCost: z.number(),
+	dataStorageCost: z.number(),
 	mostUsedModel: z.string().nullable(),
 	mostUsedProvider: z.string().nullable(),
 	mostUsedModelCost: z.number(),
@@ -3194,6 +3204,7 @@ admin.openapi(getProjectMetrics, async (c) => {
 	let cachedCost = 0;
 	let cacheWriteTokens = 0;
 	let cacheWriteCost = 0;
+	let dataStorageCost = 0;
 	let discountSavings = 0;
 	let mostUsedModel: string | null = null;
 	let mostUsedProvider: string | null = null;
@@ -3249,6 +3260,10 @@ admin.openapi(getProjectMetrics, async (c) => {
 				sql<number>`COALESCE(SUM(${projectHourlyStats.cacheWriteInputCost}), 0)`.as(
 					"cacheWriteInputCost",
 				),
+			dataStorageCost:
+				sql<number>`COALESCE(SUM(${projectHourlyStats.dataStorageCost}), 0)`.as(
+					"dataStorageCost",
+				),
 		})
 		.from(projectHourlyStats)
 		.where(
@@ -3275,6 +3290,7 @@ admin.openapi(getProjectMetrics, async (c) => {
 		cachedCost = Number(totals.cachedInputCost) || 0;
 		cacheWriteTokens = Number(totals.cacheWriteTokens) || 0;
 		cacheWriteCost = Number(totals.cacheWriteInputCost) || 0;
+		dataStorageCost = Number(totals.dataStorageCost) || 0;
 		discountSavings = Number(totals.discountSavings) || 0;
 	}
 
@@ -3337,6 +3353,7 @@ admin.openapi(getProjectMetrics, async (c) => {
 		cachedCost,
 		cacheWriteTokens,
 		cacheWriteCost,
+		dataStorageCost,
 		mostUsedModel,
 		mostUsedProvider,
 		mostUsedModelCost,
@@ -4828,7 +4845,13 @@ admin.openapi(getProviderStats, async (c) => {
 				...tokenBreakdownSums(mph),
 			})
 			.from(mph)
-			.where(and(gte(mphTs, startDate), lt(mphTs, endDateExclusive)))
+			.where(
+				and(
+					gte(mphTs, startDate),
+					lt(mphTs, endDateExclusive),
+					excludeRegionalMappingRows(mph),
+				),
+			)
 			.groupBy(mph.providerId)
 			.as("provider_stats_sub");
 
@@ -5852,7 +5875,13 @@ admin.openapi(getModelDetail, async (c) => {
 				...tokenBreakdownSums(mph),
 			})
 			.from(mph)
-			.where(and(eq(mph.modelId, modelId), gte(mphTs, startDate)))
+			.where(
+				and(
+					eq(mph.modelId, modelId),
+					gte(mphTs, startDate),
+					excludeRegionalMappingRows(mph),
+				),
+			)
 			.groupBy(mph.providerId),
 	]);
 
@@ -7309,6 +7338,9 @@ admin.openapi(getProviderHistory, async (c) => {
 				and(
 					eq(modelProviderMappingHistoryHourly.providerId, providerId),
 					gte(modelProviderMappingHistoryHourly.hourTimestamp, hourStartDate),
+					// Provider totals across models: the region-less root row already
+					// carries each mapping's regional traffic.
+					excludeRegionalMappingRows(modelProviderMappingHistoryHourly),
 				),
 			)
 			.groupBy(modelProviderMappingHistoryHourly.hourTimestamp)
@@ -7376,6 +7408,7 @@ admin.openapi(getProviderHistory, async (c) => {
 				and(
 					eq(modelProviderMappingHistory.providerId, providerId),
 					gte(modelProviderMappingHistory.minuteTimestamp, startDate),
+					excludeRegionalMappingRows(modelProviderMappingHistory),
 				),
 			)
 			.groupBy(modelProviderMappingHistory.minuteTimestamp)
@@ -7670,6 +7703,9 @@ admin.openapi(getMappingHistory, async (c) => {
 	// When a region is given, restrict the minute-level mapping history to the
 	// exact regional mapping(s). The hourly project rollups have no region
 	// dimension, so region scoping only applies to the minute-granularity source.
+	// Without a region the rows are summed across the mapping's variants, which
+	// means the regional rows have to be dropped — the region-less root row
+	// already includes their traffic.
 	const regionMappingFilter =
 		region !== undefined
 			? inArray(
@@ -7685,7 +7721,7 @@ admin.openapi(getMappingHistory, async (c) => {
 							),
 						),
 				)
-			: undefined;
+			: excludeRegionalMappingRows(modelProviderMappingHistory);
 
 	if (projectId) {
 		const rows = await db
@@ -7776,7 +7812,7 @@ admin.openapi(getMappingHistory, async (c) => {
 								),
 							),
 					)
-				: undefined;
+				: excludeRegionalMappingRows(modelProviderMappingHistoryHourly);
 
 		const rows = await db
 			.select({
@@ -8063,7 +8099,15 @@ admin.openapi(getProviderDetail, async (c) => {
 				...tokenBreakdownSums(mph),
 			})
 			.from(mph)
-			.where(and(eq(mph.providerId, providerId), gte(mphTs, startDate)))
+			.where(
+				and(
+					eq(mph.providerId, providerId),
+					gte(mphTs, startDate),
+					// Grouped per model, so the mapping's regional rows would be added
+					// on top of the root row that already contains them.
+					excludeRegionalMappingRows(mph),
+				),
+			)
 			.groupBy(mph.modelId),
 	]);
 

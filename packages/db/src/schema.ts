@@ -4872,6 +4872,7 @@ export const loungePointEvent = pgTable(
 				| "image_generation"
 				| "video_generation"
 				| "audio_generation"
+				| "sandbox_escape"
 			>(),
 		points: integer().notNull(),
 	},
@@ -4881,6 +4882,51 @@ export const loungePointEvent = pgTable(
 			table.userId,
 			table.createdAt,
 		),
+	],
+);
+
+// Completed Sandbox Escape runs. Rows are written only after the API replays
+// the submitted move list against the level's deterministic engine, so `steps`,
+// `outcome`, and `score` are derived server-side rather than trusted from the
+// browser. `moves` is kept so any run can be re-verified or replayed later.
+export const sandboxEscapeRun = pgTable(
+	"sandbox_escape_run",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		// Organization the run was billed to. Null means the default Chat
+		// organization, matching the rest of the playground history tables.
+		organizationId: text().references(() => organization.id, {
+			onDelete: "set null",
+		}),
+		levelId: integer().notNull(),
+		// The model string the player picked, e.g. "openai/gpt-5-mini".
+		model: text().notNull(),
+		// What actually served the run once routing resolved, when known.
+		usedModel: text(),
+		usedProvider: text(),
+		outcome: text().notNull().$type<"escaped" | "terminated" | "timeout">(),
+		steps: integer().notNull(),
+		par: integer().notNull(),
+		score: integer().notNull().default(0),
+		moves: jsonb().notNull().$type<string[]>(),
+		promptTokens: integer().notNull().default(0),
+		completionTokens: integer().notNull().default(0),
+		cost: real().notNull().default(0),
+		durationMs: integer().notNull().default(0),
+	},
+	(table) => [
+		index("sandbox_escape_run_level_id_idx").on(table.levelId),
+		index("sandbox_escape_run_model_idx").on(table.model),
+		index("sandbox_escape_run_user_id_idx").on(table.userId),
+		index("sandbox_escape_run_created_at_idx").on(table.createdAt),
 	],
 );
 

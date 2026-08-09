@@ -270,6 +270,10 @@ export const deepseekModels = [
 				jsonOutput: true,
 				streaming: true,
 				reasoning: true,
+				// DeepSeek maps `low` onto `high` on the pro model, so it is left
+				// undeclared: `low` and `high` produce the same amount of thinking,
+				// while `max` reasons several times longer. The flash deployment
+				// does distinguish `low`, which is why it declares one more tier.
 				reasoningEfforts: ["none", "high", "max"],
 				vision: false,
 				tools: true,
@@ -327,12 +331,11 @@ export const deepseekModels = [
 				maxOutput: 163840,
 				streaming: true,
 				reasoning: true,
-				// Together's deployment accepts any reasoning_effort string without
-				// validating it, and only the top tiers measurably change behaviour:
-				// xhigh and max roughly double the reasoning tokens, while
-				// low/medium/high land on the provider default. `none` is honoured
-				// through the `thinking` switch, not through reasoning_effort.
-				reasoningEfforts: ["none", "xhigh", "max"],
+				// Together's docs list two native effort levels (high, max);
+				// low/medium are normalized to high and xhigh to max upstream.
+				// `none` is honoured through the `thinking` switch, not through
+				// reasoning_effort.
+				reasoningEfforts: ["none", "high", "max"],
 				requiresDisableThinkingParam: true,
 				reasoningOutput: "omit",
 				vision: false,
@@ -362,6 +365,18 @@ export const deepseekModels = [
 				streaming: true,
 				reasoning: true,
 				reasoningMaxTokens: true,
+				// DashScope is driven through `enable_thinking`/`thinking_budget`,
+				// never `reasoning_effort`, so every tier maps onto its own native
+				// budget and is genuinely distinct; `none` disables thinking outright.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				vision: false,
 				tools: true,
 				jsonOutput: true,
@@ -378,7 +393,7 @@ export const deepseekModels = [
 				quantization: "fp4",
 				streaming: true,
 				reasoning: true,
-				reasoningEfforts: ["none", "low", "medium", "high", "xhigh"],
+				reasoningEfforts: ["none", "high", "max"],
 				vision: false,
 				tools: true,
 				jsonOutput: true,
@@ -416,6 +431,36 @@ export const deepseekModels = [
 				reasoningOutput: "omit",
 				vision: false,
 				tools: true,
+				jsonOutput: true,
+			},
+			{
+				providerId: "canopywave",
+				externalId: "deepseek/deepseek-v4-pro",
+				inputPrice: "1.74e-6",
+				cachedInputPrice: "0.01e-6",
+				outputPrice: "3.48e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 393216,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: false,
+				tools: true,
+				// The deployment 400s on "required" and named-function tool_choice
+				// with "Thinking mode does not support this tool_choice"; both only
+				// work when thinking is off, which the catalogue cannot express, so
+				// they coerce to "auto" (verified 2026-08-09).
+				supportedToolChoices: ["auto", "none"],
 				jsonOutput: true,
 			},
 			{
@@ -463,7 +508,7 @@ export const deepseekModels = [
 				jsonOutput: true,
 				streaming: true,
 				reasoning: true,
-				reasoningEfforts: ["none", "high", "max"],
+				reasoningEfforts: ["none", "low", "high", "max"],
 				vision: false,
 				tools: true,
 				// DeepSeek's API 400s on the OpenAI-only `developer` role
@@ -521,6 +566,8 @@ export const deepseekModels = [
 				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
+				// Novita documents no reasoning_effort tiers for this model, so none
+				// are declared; the gateway still forwards whatever the caller sends.
 				vision: false,
 				tools: true,
 				// The -0731 deployment 400s on "required" and named-function
@@ -551,6 +598,18 @@ export const deepseekModels = [
 				streaming: true,
 				reasoning: true,
 				reasoningMaxTokens: true,
+				// DashScope is driven through `enable_thinking`/`thinking_budget`,
+				// never `reasoning_effort`, so every tier maps onto its own native
+				// budget and is genuinely distinct; `none` disables thinking outright.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				vision: false,
 				tools: true,
 				jsonOutput: true,
@@ -567,6 +626,9 @@ export const deepseekModels = [
 				quantization: "fp4",
 				streaming: true,
 				reasoning: true,
+				// DeepInfra keeps thinking off unless an effort is requested, and
+				// takes `none` to keep it off, exactly like its V4 Pro deployment.
+				reasoningEfforts: ["none", "low", "high", "max"],
 				vision: false,
 				tools: true,
 				jsonOutput: true,
@@ -653,6 +715,7 @@ export const deepseekModels = [
 				// `input_cache_read` rate /v1/models advertises.
 				providerId: "ranoai",
 				externalId: "deepseek-v4-flash",
+				deactivatedAt: new Date("2026-08-09"),
 				inputPrice: "0.15e-6",
 				outputPrice: "0.35e-6",
 				cachedInputPrice: "0.05e-6",
@@ -678,6 +741,36 @@ export const deepseekModels = [
 				jsonOutput: true,
 				jsonOutputSchema: true,
 				supportsN: true,
+			},
+			{
+				providerId: "canopywave",
+				externalId: "deepseek/deepseek-v4-flash",
+				inputPrice: "0.14e-6",
+				cachedInputPrice: "0.03e-6",
+				outputPrice: "0.28e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 393216,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: false,
+				tools: true,
+				// The deployment 400s on "required" and named-function tool_choice
+				// with "Thinking mode does not support this tool_choice"; both only
+				// work when thinking is off, which the catalogue cannot express, so
+				// they coerce to "auto" (verified 2026-08-09).
+				supportedToolChoices: ["auto", "none"],
+				jsonOutput: true,
 			},
 		],
 	},

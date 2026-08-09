@@ -359,7 +359,7 @@ const createVideoRequestSchema = z
 		image: videoImageInputSchema.optional(),
 		reference_images: videoReferenceImagesSchema.optional().openapi({
 			description:
-				"Reference images for provider-specific asset or material-guided video generation. ByteDance Seedance 2.0 models accept up to 9; other providers accept up to 3.",
+				"Reference images for provider-specific asset or material-guided video generation. ByteDance Seedance 2.x models accept up to 9; other providers accept up to 3.",
 			example: [
 				{
 					image_url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...",
@@ -368,7 +368,7 @@ const createVideoRequestSchema = z
 		}),
 		reference_videos: videoReferenceVideosSchema.optional().openapi({
 			description:
-				"One to three reference videos (HTTPS URLs) for omni-reference video generation. Currently only supported on ByteDance Seedance 2.0 models and can be combined with reference_images.",
+				"One to three reference videos (HTTPS URLs) for omni-reference video generation. Currently only supported on ByteDance Seedance 2.x models and can be combined with reference_images.",
 			example: [
 				{
 					video_url: "https://example.com/reference-motion.mp4",
@@ -377,7 +377,7 @@ const createVideoRequestSchema = z
 		}),
 		reference_audios: videoReferenceAudiosSchema.optional().openapi({
 			description:
-				"One to three reference audio clips (HTTPS URLs) for omni-reference video generation. Currently only supported on ByteDance Seedance 2.0 models and can be combined with reference_images and reference_videos.",
+				"One to three reference audio clips (HTTPS URLs) for omni-reference video generation. Currently only supported on ByteDance Seedance 2.x models and can be combined with reference_images and reference_videos.",
 			example: [
 				{
 					audio_url: "https://example.com/reference-track.mp3",
@@ -950,7 +950,8 @@ function isBytedanceSeedance2Model(externalId: string): boolean {
 	return (
 		externalId === "dreamina-seedance-2-0-260128" ||
 		externalId === "dreamina-seedance-2-0-fast-260128" ||
-		externalId === "dreamina-seedance-2-0-mini-260615"
+		externalId === "dreamina-seedance-2-0-mini-260615" ||
+		externalId === "dreamina-seedance-2-5-260628"
 	);
 }
 
@@ -1041,7 +1042,7 @@ function getVideoProviderConstraintReasons(
 		if (provider.providerId === "bytedance") {
 			if (!isBytedanceSeedance2Model(provider.externalId)) {
 				reasons.push(
-					"frame inputs are currently only supported on bytedance Seedance 2.0 (seedance-2-0, seedance-2-0-fast, seedance-2-0-mini)",
+					"frame inputs are currently only supported on bytedance Seedance 2.x (seedance-2-0, seedance-2-0-fast, seedance-2-0-mini, seedance-2-5)",
 				);
 			}
 		} else if (isAtlasCloudVideoProvider(provider.providerId)) {
@@ -1099,11 +1100,11 @@ function getVideoProviderConstraintReasons(
 		if (provider.providerId === "bytedance") {
 			if (!isBytedanceSeedance2Model(provider.externalId)) {
 				reasons.push(
-					"reference inputs are currently only supported on bytedance Seedance 2.0 (seedance-2-0, seedance-2-0-fast, seedance-2-0-mini)",
+					"reference inputs are currently only supported on bytedance Seedance 2.x (seedance-2-0, seedance-2-0-fast, seedance-2-0-mini, seedance-2-5)",
 				);
 			} else if (inputImageCount > SEEDANCE_2_MAX_REFERENCE_IMAGES) {
 				reasons.push(
-					`Seedance 2.0 supports at most ${SEEDANCE_2_MAX_REFERENCE_IMAGES} reference images`,
+					`Seedance 2.x supports at most ${SEEDANCE_2_MAX_REFERENCE_IMAGES} reference images`,
 				);
 			}
 
@@ -1112,13 +1113,13 @@ function getVideoProviderConstraintReasons(
 
 		if (referenceVideoCount > 0) {
 			reasons.push(
-				"reference videos are currently only supported on bytedance Seedance 2.0 models",
+				"reference videos are currently only supported on bytedance Seedance 2.x models",
 			);
 		}
 
 		if (referenceAudioCount > 0) {
 			reasons.push(
-				"reference audio is currently only supported on bytedance Seedance 2.0 models",
+				"reference audio is currently only supported on bytedance Seedance 2.x models",
 			);
 		}
 

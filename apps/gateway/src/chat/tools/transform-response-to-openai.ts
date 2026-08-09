@@ -1446,6 +1446,13 @@ export function transformResponseToOpenai(
 						message.annotations = annotations;
 					}
 				}
+				// Update finish_reason with the mapped value so canonicalizations
+				// applied by parseProviderResponse (e.g. "abort" -> "upstream_error",
+				// "tool_use" -> "tool_calls") reach the client instead of the raw
+				// upstream value, matching the provider-specific cases above.
+				if (transformedResponse.choices?.[0] && finishReason !== null) {
+					transformedResponse.choices[0].finish_reason = finishReason;
+				}
 				transformedResponse.model = formatUsedModelForDisplay(
 					usedProvider,
 					baseModelName,
