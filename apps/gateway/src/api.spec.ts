@@ -4159,7 +4159,9 @@ describe("api", () => {
 		expect(res.status).toBe(400);
 		const json = await res.json();
 		expect(json.error.message).toContain("Image size");
-		expect(json.error.message).toContain("exceeds your current limit");
+		expect(json.error.message).toContain(
+			"exceeds the 20MB limit for image inputs",
+		);
 
 		const log = await waitForLogByRequestId(requestId);
 		expect(log.finishReason).toBe("client_error");

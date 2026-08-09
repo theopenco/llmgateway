@@ -250,7 +250,15 @@ export const xaiModels = [
 				reasoning: true,
 				tools: true,
 				jsonOutput: true,
-				supportedParameters: xaiSupportedParamsNoFreqPresence,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
 			},
 		],
 	},
@@ -425,7 +433,15 @@ export const xaiModels = [
 				reasoningOutput: "omit",
 				tools: true,
 				jsonOutput: true,
-				supportedParameters: xaiSupportedParamsNoFreqPresence,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
 			},
 		],
 	},
@@ -573,6 +589,10 @@ export const xaiModels = [
 				reasoning: true,
 				tools: true,
 				jsonOutput: true,
+				// Always reasons, but rejects the effort knob: xAI answers
+				// `reasoning_effort` with 400 "does not support parameter
+				// reasoningEffort", so the omission here is deliberate and
+				// makes the gateway drop the value instead of forwarding it.
 				supportedParameters: xaiSupportedParamsNoFreqPresence,
 			},
 		],
@@ -641,6 +661,9 @@ export const xaiModels = [
 				reasoningOutput: "omit",
 				tools: true,
 				jsonOutput: true,
+				// Same upstream model as xai/grok-4-20-beta-0309-reasoning,
+				// which 400s on `reasoning_effort` — leaving it undeclared
+				// keeps the gateway from forwarding a value Grok 4.20 rejects.
 				supportedParameters: xaiSupportedParamsNoFreqPresence,
 			},
 		],
@@ -770,6 +793,7 @@ export const xaiModels = [
 					"top_p",
 					"tools",
 					"tool_choice",
+					"reasoning_effort",
 				],
 			},
 		],
@@ -981,6 +1005,9 @@ export const xaiModels = [
 				tools: true,
 				jsonOutput: true,
 				reasoning: true,
+				// Reasons by default but rejects the effort knob: xAI answers
+				// `reasoning_effort` with 400 "does not support parameter
+				// reasoningEffort", so it stays undeclared on purpose.
 				supportedParameters: xaiSupportedParamsNoFreqPresence,
 			},
 		],

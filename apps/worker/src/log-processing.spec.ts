@@ -354,6 +354,98 @@ describe("Log Processing", () => {
 			expect(Number(updatedOrg!.credits)).toBe(initialCredits);
 		});
 
+		test("should deduct storage cost on top of inference cost for credits mode logs", async () => {
+			const initialCredits = Number(testOrg.credits);
+
+			await db.insert(log).values({
+				requestId: "test-request-credits-storage",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.01,
+				dataStorageCost: "0.002",
+				cached: false,
+				usedMode: "credits",
+				duration: 2000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 150,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			expect(Number(updatedOrg!.credits)).toBe(initialCredits - 0.012);
+		});
+
+		test("should deduct only storage cost for api-keys mode logs", async () => {
+			const initialCredits = Number(testOrg.credits);
+
+			await db.insert(log).values({
+				requestId: "test-request-api-keys-storage",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.01,
+				dataStorageCost: "0.002",
+				cached: false,
+				usedMode: "api-keys",
+				duration: 2000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 150,
+				mode: "api-keys",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			expect(Number(updatedOrg!.credits)).toBe(initialCredits - 0.002);
+		});
+
+		test("should deduct storage cost even when inference cost is zero", async () => {
+			const initialCredits = Number(testOrg.credits);
+
+			// Unbilled refusals zero the inference cost but keep the storage cost
+			// (retention is billed separately from inference).
+			await db.insert(log).values({
+				requestId: "test-request-zero-cost-storage",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0,
+				dataStorageCost: "0.003",
+				cached: false,
+				usedMode: "credits",
+				duration: 2000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 150,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			expect(Number(updatedOrg!.credits)).toBe(initialCredits - 0.003);
+		});
+
 		test("should update API key usage for all non-cached logs with cost", async () => {
 			const initialUsage = Number(testApiKey.usage);
 

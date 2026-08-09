@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest";
 
+import { models } from "@llmgateway/models";
+
 import {
 	hashPromptCacheKey,
 	hashSessionCacheKey,
@@ -7,7 +9,10 @@ import {
 	RequestError,
 } from "./prepare-request-body.js";
 
-import type { AnthropicRequestBody } from "@llmgateway/models";
+import type {
+	AnthropicRequestBody,
+	ProviderModelMapping,
+} from "@llmgateway/models";
 
 function getCacheControl(block: unknown): unknown {
 	if (block && typeof block === "object" && "cache_control" in block) {
@@ -1100,6 +1105,149 @@ describe("prepareRequestBody - Moonshot thinking", () => {
 		});
 		expect(requestBody.max_completion_tokens).toBe(4096);
 		expect(requestBody.max_tokens).toBeUndefined();
+	});
+
+	type Effort = Parameters<typeof prepareRequestBody>[14];
+	const xaiEffortCases: Array<
+		[Parameters<typeof prepareRequestBody>[0], string, Extract<Effort, string>]
+	> = [
+		// xAI mappings that declare reasoning: true but previously omitted
+		// reasoning_effort from supportedParameters, silently dropping any
+		// effort value before the request was built (#3436, #3403).
+		["azure-ai-foundry", "grok-4-3", "medium"],
+		["azure-ai-foundry", "grok-4-1-fast-reasoning", "high"],
+		["xai", "grok-4", "high"],
+	];
+
+	test.each(xaiEffortCases)(
+		"forwards reasoning_effort for %s/%s once declared in supportedParameters",
+		async (provider, model, effort) => {
+			// Direct capability assertion on the mapping itself: the fix's
+			// whole point is that these mappings now declare
+			// reasoning_effort in supportedParameters. A serialization-only
+			// test could keep passing while the capability check silently
+			// regresses (e.g. a refactor that stops reading
+			// supportedParameters) — asserting the array directly catches
+			// that class of regression.
+			const modelDef = models.find((m) => m.id === model);
+			const mapping = modelDef?.providers.find(
+				(p) => p.providerId === provider,
+			) as ProviderModelMapping | undefined;
+			expect(mapping?.supportedParameters).toContain("reasoning_effort");
+
+			const requestBody = (await prepareRequestBody(
+				provider,
+				model,
+				null,
+				model,
+				[{ role: "user", content: "Hello!" }],
+				false, // stream
+				undefined, // temperature
+				undefined, // max_tokens
+				undefined, // top_p
+				undefined, // frequency_penalty
+				undefined, // presence_penalty
+				undefined, // response_format
+				undefined, // tools
+				undefined, // tool_choice
+				effort,
+				true, // supportsReasoning
+			)) as unknown as Record<string, unknown>;
+			expect(requestBody.reasoning_effort).toBe(effort);
+		},
+	);
+
+	// The mirror image of the table above, and the more fragile half: these
+	// Grok deployments reason unconditionally but answer `reasoning_effort`
+	// with 400 "does not support parameter reasoningEffort" (verified against
+	// api.x.ai). Declaring the parameter for them — the obvious-looking
+	// completion of #3436/#3403 — turns every effort-bearing request into an
+	// upstream 400, so the drop is load-bearing and must stay asserted.
+	const xaiEffortRejectingCases: Array<
+		[Parameters<typeof prepareRequestBody>[0], string]
+	> = [
+		["vertex-openai", "grok-4-20-reasoning"],
+		["xai", "grok-4-20-beta-0309-reasoning"],
+		["xai", "grok-build-0-1"],
+	];
+
+	test.each(xaiEffortRejectingCases)(
+		"drops reasoning_effort for %s/%s, which rejects it upstream",
+		async (provider, model) => {
+			const modelDef = models.find((m) => m.id === model);
+			const mapping = modelDef?.providers.find(
+				(p) => p.providerId === provider,
+			) as ProviderModelMapping | undefined;
+			expect(mapping?.reasoning).toBe(true);
+			expect(mapping?.supportedParameters).not.toContain("reasoning_effort");
+
+			const requestBody = (await prepareRequestBody(
+				provider,
+				model,
+				null,
+				model,
+				[{ role: "user", content: "Hello!" }],
+				false, // stream
+				undefined, // temperature
+				undefined, // max_tokens
+				undefined, // top_p
+				undefined, // frequency_penalty
+				undefined, // presence_penalty
+				undefined, // response_format
+				undefined, // tools
+				undefined, // tool_choice
+				"high",
+				true, // supportsReasoning
+			)) as unknown as Record<string, unknown>;
+			expect(requestBody.reasoning_effort).toBeUndefined();
+		},
+	);
+});
+
+describe("prepareRequestBody - embercloud reasoning shape", () => {
+	// embercloud's documented request body uses a nested `reasoning` object
+	// (reasoning.enabled + reasoning.effort) — the flat OpenAI-style
+	// `reasoning_effort` field is not documented and is silently ignored
+	// (https://embercloud.ai/docs/request-body).
+	async function prepare(
+		effort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max",
+	) {
+		return (await prepareRequestBody(
+			"embercloud",
+			"glm-5.2",
+			null,
+			"glm-5.2",
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			effort, // reasoning_effort
+			true, // supportsReasoning
+		)) as any;
+	}
+
+	test("builds the nested reasoning object instead of flat reasoning_effort", async () => {
+		const requestBody = await prepare("high");
+		expect(requestBody.reasoning).toEqual({
+			enabled: true,
+			effort: "high",
+		});
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("forwards the top declared tier through the nested shape", async () => {
+		const requestBody = await prepare("max");
+		expect(requestBody.reasoning).toEqual({
+			enabled: true,
+			effort: "max",
+		});
+		expect(requestBody.reasoning_effort).toBeUndefined();
 	});
 });
 
@@ -4304,7 +4452,7 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			expect(requestBody.max_tokens).toBe(8192);
 			expect(requestBody.max_completion_tokens).toBeUndefined();
 			expect(requestBody.top_p).toBe(0.9);
-			expect(requestBody.reasoning_effort).toBeUndefined();
+			expect(requestBody.reasoning_effort).toBe("medium");
 			expect(requestBody.inferenceConfig).toBeUndefined();
 		});
 	});

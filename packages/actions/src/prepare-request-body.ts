@@ -31,7 +31,7 @@ import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import { parseDataUrl } from "./parse-data-url.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
-import { processImageUrl } from "./process-image-url.js";
+import { ImageSizeLimitError, processImageUrl } from "./process-image-url.js";
 import { RequestError } from "./request-error.js";
 import { transformAnthropicMessages } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
@@ -3265,6 +3265,12 @@ export async function prepareRequestBody(
 									},
 								});
 							} catch (error) {
+								// A size rejection is the user's to act on: degrading to a
+								// placeholder would return a 200 that silently ignores the
+								// image and still bills for the turn.
+								if (error instanceof ImageSizeLimitError) {
+									throw error;
+								}
 								logger.error("Failed to process image for Bedrock", {
 									err:
 										error instanceof Error ? error : new Error(String(error)),
@@ -4082,7 +4088,21 @@ export async function prepareRequestBody(
 					supported.length === 0 ||
 					supported.includes("reasoning_effort")
 				) {
-					requestBody.reasoning_effort = reasoning_effort;
+					if (usedProvider === "embercloud") {
+						// embercloud's documented request body uses a nested
+						// `reasoning` object (`reasoning.enabled` +
+						// `reasoning.effort`) instead of the flat OpenAI-style
+						// `reasoning_effort` field, which it silently ignores
+						// (https://embercloud.ai/docs/request-body). "none"
+						// maps to enabled: false; any other tier enables
+						// reasoning at the requested effort.
+						requestBody.reasoning =
+							reasoning_effort === "none"
+								? { enabled: false }
+								: { enabled: true, effort: reasoning_effort };
+					} else {
+						requestBody.reasoning_effort = reasoning_effort;
+					}
 				}
 			}
 			// Hybrid models that keep thinking off by default (e.g. DeepSeek V3.2 on
