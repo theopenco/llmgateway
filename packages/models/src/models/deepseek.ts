@@ -270,9 +270,10 @@ export const deepseekModels = [
 				jsonOutput: true,
 				streaming: true,
 				reasoning: true,
-				// DeepSeek temporarily maps `low` to `high` on the pro model, so only
-				// high/max are genuine tiers here (expected to resolve in early
-				// August 2026 — see api-docs.deepseek.com/guides/thinking_mode).
+				// DeepSeek maps `low` onto `high` on the pro model, so it is left
+				// undeclared: `low` and `high` produce the same amount of thinking,
+				// while `max` reasons several times longer. The flash deployment
+				// does distinguish `low`, which is why it declares one more tier.
 				reasoningEfforts: ["none", "high", "max"],
 				vision: false,
 				tools: true,
@@ -364,7 +365,18 @@ export const deepseekModels = [
 				streaming: true,
 				reasoning: true,
 				reasoningMaxTokens: true,
-				reasoningEfforts: ["none", "high", "max"],
+				// DashScope is driven through `enable_thinking`/`thinking_budget`,
+				// never `reasoning_effort`, so every tier maps onto its own native
+				// budget and is genuinely distinct; `none` disables thinking outright.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				vision: false,
 				tools: true,
 				jsonOutput: true,
@@ -524,9 +536,8 @@ export const deepseekModels = [
 				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
-				// Novita documents no reasoning_effort parameter for this model
-				// (thinking is a binary enable_thinking switch), so no tiers are
-				// declared.
+				// Novita documents no reasoning_effort tiers for this model, so none
+				// are declared; the gateway still forwards whatever the caller sends.
 				vision: false,
 				tools: true,
 				// The -0731 deployment 400s on "required" and named-function
@@ -557,7 +568,18 @@ export const deepseekModels = [
 				streaming: true,
 				reasoning: true,
 				reasoningMaxTokens: true,
-				reasoningEfforts: ["none", "high", "max"],
+				// DashScope is driven through `enable_thinking`/`thinking_budget`,
+				// never `reasoning_effort`, so every tier maps onto its own native
+				// budget and is genuinely distinct; `none` disables thinking outright.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				vision: false,
 				tools: true,
 				jsonOutput: true,
@@ -574,7 +596,9 @@ export const deepseekModels = [
 				quantization: "fp4",
 				streaming: true,
 				reasoning: true,
-				reasoningEfforts: ["low", "high", "max"],
+				// DeepInfra keeps thinking off unless an effort is requested, and
+				// takes `none` to keep it off, exactly like its V4 Pro deployment.
+				reasoningEfforts: ["none", "low", "high", "max"],
 				vision: false,
 				tools: true,
 				jsonOutput: true,
