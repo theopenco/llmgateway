@@ -46,6 +46,7 @@ import {
 	ModelMappingSelector,
 	parseMappingValue,
 } from "@llmgateway/shared/components";
+import { isDeactivationScheduledSoon } from "@llmgateway/shared/deactivation";
 import {
 	ROUTING_EXCLUSION_REASON_LABELS,
 	ROUTING_SELECTION_KIND_LABELS,
@@ -196,6 +197,16 @@ function formatSelectionPrice(price: number, isImageModel: boolean): string {
 		return `$${price.toFixed(4)}/image`;
 	}
 	return `$${(price * 1e6).toFixed(2)}/M`;
+}
+
+function formatDeactivationDate(value: string | null): string {
+	if (!value) {
+		return "";
+	}
+	return new Date(value).toLocaleDateString("en-US", {
+		month: "short",
+		day: "numeric",
+	});
 }
 
 function formatContribution(value: number): string {
@@ -841,9 +852,23 @@ export function RoutingAnalyticsClient() {
 													</TableCell>
 													<TableCell>
 														{mapping.routable ? (
-															<Badge variant="outline" className="text-xs">
-																{mapping.stability}
-															</Badge>
+															<div className="flex flex-wrap gap-1">
+																<Badge variant="outline" className="text-xs">
+																	{mapping.stability}
+																</Badge>
+																{isDeactivationScheduledSoon(mapping) ? (
+																	<Badge
+																		variant="outline"
+																		className="text-xs border-amber-500 text-amber-600 dark:text-amber-400"
+																		title="Scheduled deactivation. The mapping still routes normally until this date."
+																	>
+																		deactivates{" "}
+																		{formatDeactivationDate(
+																			mapping.deactivatedAt,
+																		)}
+																	</Badge>
+																) : null}
+															</div>
 														) : (
 															<div className="flex flex-wrap gap-1">
 																{mapping.excludedReasons.map((reason) => (

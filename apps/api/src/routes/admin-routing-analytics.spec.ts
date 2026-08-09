@@ -4,7 +4,11 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { cdb, db, tables } from "@llmgateway/db";
-import { models, type ProviderModelMapping } from "@llmgateway/models";
+import {
+	getProviderDefinition,
+	models,
+	type ProviderModelMapping,
+} from "@llmgateway/models";
 
 const originalAdminEmails = process.env.ADMIN_EMAILS;
 
@@ -35,6 +39,41 @@ if (!testModel) {
 const [providerA, providerB] = testModel.providers
 	.filter(isRoutableMapping)
 	.map((p) => p.providerId);
+
+// Catalogue models carrying a deactivation date on either side of "now". A
+// scheduled (future) date is not a deactivation yet — routing compares against
+// the date — so only the past one may be reported as excluded.
+function findModelWithDeactivation(inThePast: boolean) {
+	const now = new Date();
+	for (const model of models) {
+		if ("stability" in model && (model.stability as string) !== "stable") {
+			continue;
+		}
+		const mapping = model.providers.find((p: ProviderModelMapping) => {
+			if (!p.deactivatedAt) {
+				return false;
+			}
+			// Any other exclusion reason would make `routable` false regardless of
+			// the deactivation date, which is what the test is asserting on.
+			if (p.stability === "unstable" || p.stability === "experimental") {
+				return false;
+			}
+			if ((getProviderDefinition(p.providerId)?.priority ?? 1) <= 0) {
+				return false;
+			}
+			return inThePast ? p.deactivatedAt <= now : p.deactivatedAt > now;
+		});
+		if (mapping) {
+			return { modelId: model.id, providerId: mapping.providerId };
+		}
+	}
+	throw new Error(
+		`No catalogue mapping with a ${inThePast ? "past" : "future"} deactivatedAt; update this fixture.`,
+	);
+}
+
+const pastDeactivation = findModelWithDeactivation(true);
+const futureDeactivation = findModelWithDeactivation(false);
 
 function currentHourStart(): Date {
 	const hour = new Date();
@@ -179,6 +218,29 @@ describe("admin routing analytics endpoint", () => {
 		);
 		expect(summaryA.requestCount).toBe(10);
 		expect(summaryA.uptime).toBe(80);
+	});
+
+	it("only excludes a mapping once its deactivation date has passed", async () => {
+		const scheduled = await (
+			await get(`?modelId=${futureDeactivation.modelId}&window=24h`, cookie)
+		).json();
+		const scheduledMapping = scheduled.mappings.find(
+			(m: { providerId: string }) =>
+				m.providerId === futureDeactivation.providerId,
+		);
+		expect(scheduledMapping.deactivatedAt).not.toBeNull();
+		expect(scheduledMapping.excludedReasons).not.toContain("deactivated");
+		expect(scheduledMapping.routable).toBe(true);
+
+		const retired = await (
+			await get(`?modelId=${pastDeactivation.modelId}&window=24h`, cookie)
+		).json();
+		const retiredMapping = retired.mappings.find(
+			(m: { providerId: string }) =>
+				m.providerId === pastDeactivation.providerId,
+		);
+		expect(retiredMapping.excludedReasons).toContain("deactivated");
+		expect(retiredMapping.routable).toBe(false);
 	});
 
 	it("reports election paths, eligibility and service-tier coverage", async () => {
