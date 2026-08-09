@@ -121,10 +121,10 @@ describe("getUnifiedFinishReason", () => {
 			UnifiedFinishReason.CONTENT_FILTER,
 		);
 		expect(getUnifiedFinishReason("IMAGE_OTHER", "google-ai-studio")).toBe(
-			UnifiedFinishReason.CONTENT_FILTER,
+			UnifiedFinishReason.UNKNOWN,
 		);
 		expect(getUnifiedFinishReason("NO_IMAGE", "google-ai-studio")).toBe(
-			UnifiedFinishReason.CONTENT_FILTER,
+			UnifiedFinishReason.UNKNOWN,
 		);
 		expect(getUnifiedFinishReason("OTHER", "google-ai-studio")).toBe(
 			UnifiedFinishReason.UNKNOWN,
@@ -175,7 +175,7 @@ describe("getUnifiedFinishReason", () => {
 			UnifiedFinishReason.CONTENT_FILTER,
 		);
 		expect(getUnifiedFinishReason("NO_IMAGE", "glacier")).toBe(
-			UnifiedFinishReason.CONTENT_FILTER,
+			UnifiedFinishReason.UNKNOWN,
 		);
 	});
 

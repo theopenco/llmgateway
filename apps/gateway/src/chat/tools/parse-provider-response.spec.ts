@@ -354,6 +354,42 @@ describe("parseProviderResponse", () => {
 		});
 	});
 
+	describe("google blocked responses", () => {
+		it("retains the original block reason when candidates are missing", () => {
+			const result = parseProviderResponse(
+				"google-ai-studio",
+				"gemini-3-pro-image-preview",
+				{ promptFeedback: { blockReason: "PROHIBITED_CONTENT" } },
+			);
+
+			expect(result.finishReason).toBe("PROHIBITED_CONTENT");
+		});
+
+		it("falls back to content_filter when google gives no reason at all", () => {
+			const result = parseProviderResponse(
+				"google-ai-studio",
+				"gemini-3-pro-image-preview",
+				{ candidates: [] },
+			);
+
+			expect(result.finishReason).toBe("content_filter");
+		});
+
+		it("retains NO_IMAGE rather than reporting it as a content filter", () => {
+			const result = parseProviderResponse(
+				"google-ai-studio",
+				"gemini-3-pro-image-preview",
+				{
+					candidates: [
+						{ content: { role: "model", parts: [] }, finishReason: "NO_IMAGE" },
+					],
+				},
+			);
+
+			expect(result.finishReason).toBe("NO_IMAGE");
+		});
+	});
+
 	describe("google multi-candidate (n > 1)", () => {
 		it("aggregates content across de-duplicated candidates and keys tool calls to candidate 0", () => {
 			// AI Studio quirk: candidate 0's parts also contain a copy of every
