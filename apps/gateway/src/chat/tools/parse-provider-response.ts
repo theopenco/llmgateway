@@ -318,11 +318,13 @@ export function parseProviderResponse(
 		case "iceberg":
 		case "google-vertex":
 		case "quartz": {
-			// A response with no candidates is only assumed to be a content filter
-			// when Google gave no reason of its own. Setting `finishReason` here
-			// unconditionally used to win over the `promptFeedback.blockReason`
-			// assignment below, so every such response was logged as the generic
-			// "content_filter" and the actual Google reason was lost.
+			// A response with no candidates used to be assigned "content_filter"
+			// here, which won over the `promptFeedback.blockReason` assignment
+			// below, so every such response was logged as the generic
+			// "content_filter" and the actual Google reason was lost. When Google
+			// reports no reason at all the finish reason is left unset (logged as
+			// "unknown") rather than guessing at a block — the warning below
+			// carries the full response for diagnosis.
 			const missingCandidates =
 				!json.candidates || json.candidates.length === 0;
 			if (missingCandidates && !json.promptFeedback?.blockReason) {
@@ -455,8 +457,6 @@ export function parseProviderResponse(
 					finishReason = promptBlockReason;
 				} else if (googleFinishReason) {
 					finishReason = googleFinishReason;
-				} else if (missingCandidates) {
-					finishReason = "content_filter";
 				}
 			}
 

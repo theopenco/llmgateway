@@ -365,14 +365,14 @@ describe("parseProviderResponse", () => {
 			expect(result.finishReason).toBe("PROHIBITED_CONTENT");
 		});
 
-		it("falls back to content_filter when google gives no reason at all", () => {
+		it("reports no finish reason when google gives none at all", () => {
 			const result = parseProviderResponse(
 				"google-ai-studio",
 				"gemini-3-pro-image-preview",
 				{ candidates: [] },
 			);
 
-			expect(result.finishReason).toBe("content_filter");
+			expect(result.finishReason).toBeNull();
 		});
 
 		it("retains NO_IMAGE rather than reporting it as a content filter", () => {
