@@ -9,7 +9,7 @@
 	],
 	"scripts": {
 		"build": "pnpm generate && next build --turbopack && tsc && mkdir -p .next/static && cp -r .next/static .next/standalone/apps/code/.next/ && test -d public && cp -r public .next/standalone/apps/code/",
-		"dev": "next dev --port 3004 --turbopack",
+		"dev": "next dev --port ${CODE_PORT:-3004} --turbopack",
 		"format": "eslint --fix . && prettier --write .",
 		"generate": "openapi-typescript ../api/openapi.json -o ./src/lib/api/v1.d.ts",
 		"lint": "eslint . && prettier --check .",
@@ -70,7 +70,7 @@
 		"@playwright/test": "1.61.1",
 		"@tailwindcss/postcss": "^4.1.16",
 		"@tanstack/react-query-devtools": "5.90.2",
-		"@types/node": "^26.1.1",
+		"@types/node": "^26.1.2",
 		"@types/react": "^19.2.17",
 		"@types/react-dom": "^19.2.3",
 		"@types/three": "0.185.1",

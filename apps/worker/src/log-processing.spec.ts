@@ -231,6 +231,97 @@ describe("Log Processing", () => {
 			expect(updatedOrg!.devPlanPremiumWeekStart).toBeInstanceOf(Date);
 		});
 
+		test("should bill overflow to organization credits once the dev plan pool is exhausted", async () => {
+			// PAYG overflow: with the monthly pool fully used, the cost cannot
+			// draw from the plan pool, so the worker drains the org's regular
+			// credits instead — this is the charging side of the gateway's
+			// opt-in overflow gate.
+			await db
+				.update(organization)
+				.set({
+					kind: "devpass",
+					devPlan: "pro",
+					devPlanCreditsLimit: "237",
+					devPlanCreditsUsed: "237",
+					devPlanPaygEnabled: true,
+				})
+				.where(eq(organization.id, testOrg.id));
+			const initialCredits = Number(testOrg.credits);
+
+			await db.insert(log).values({
+				requestId: "test-request-payg-overflow",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.25,
+				cached: false,
+				usedMode: "credits",
+				duration: 2000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 150,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			// The exhausted pool is untouched; the overflow hit the balance.
+			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBe(237);
+			expect(Number(updatedOrg!.credits)).toBe(initialCredits - 0.25);
+		});
+
+		test("should keep overflow on the plan pool when PAYG is disabled", async () => {
+			// Without the overflow opt-in the gateway zeroes the credits pool,
+			// so a balance the org holds (an admin gift, a referral payout) is
+			// unspendable. Draining it here would silently consume that gift
+			// and push an empty balance negative. Requests admitted while the
+			// pool still had room can still overshoot it, so the excess stays
+			// recorded as plan usage instead.
+			await db
+				.update(organization)
+				.set({
+					kind: "devpass",
+					devPlan: "pro",
+					devPlanCreditsLimit: "237",
+					devPlanCreditsUsed: "236.9",
+					devPlanPaygEnabled: false,
+				})
+				.where(eq(organization.id, testOrg.id));
+			const initialCredits = Number(testOrg.credits);
+
+			await db.insert(log).values({
+				requestId: "test-request-payg-off-overflow",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.25,
+				cached: false,
+				usedMode: "credits",
+				duration: 2000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 150,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			expect(Number(updatedOrg!.credits)).toBe(initialCredits);
+			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBeCloseTo(237.15, 6);
+		});
+
 		test("should not deduct credits for api-keys mode logs (no BYOK fee)", async () => {
 			const initialCredits = Number(testOrg.credits);
 

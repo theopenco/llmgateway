@@ -170,12 +170,12 @@ export type SerializedOrganization = Omit<
 	| "createdAt"
 	| "updatedAt"
 	| "planExpiresAt"
+	| "planStartedAt"
 	| "stripeCustomerId"
 	| "stripeSubscriptionId"
 	| "subscriptionCancelled"
 	| "trialStartDate"
 	| "trialEndDate"
-	| "isTrialActive"
 	| "paymentFailureCount"
 	| "lastPaymentFailureAt"
 	| "paymentFailureStartedAt"
@@ -203,6 +203,9 @@ export type SerializedOrganization = Omit<
 	createdAt: string;
 	updatedAt: string;
 	planExpiresAt: string | null;
+	planStartedAt: string | null;
+	trialStartDate: string | null;
+	trialEndDate: string | null;
 	devPlanBillingCycleStart: string | null;
 	devPlanPremiumWeekStart: string | null;
 	devPlanExpiresAt: string | null;

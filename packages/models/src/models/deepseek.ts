@@ -120,6 +120,11 @@ export const deepseekModels = [
 				streaming: true,
 				vision: false,
 				tools: true,
+				// DeepSeek's API 400s on the OpenAI-only `developer` role
+				// ("unknown variant `developer`, expected one of `system`, `user`,
+				// `assistant`, `tool`, `latest_reminder`"), so it gets rewritten to
+				// `system` before the request goes out.
+				supportsDeveloperRole: false,
 				deactivatedAt: new Date("2026-05-01"),
 			},
 			{
@@ -271,6 +276,11 @@ export const deepseekModels = [
 				reasoningEfforts: ["none", "high", "max"],
 				vision: false,
 				tools: true,
+				// DeepSeek's API 400s on the OpenAI-only `developer` role
+				// ("unknown variant `developer`, expected one of `system`, `user`,
+				// `assistant`, `tool`, `latest_reminder`"), so it gets rewritten to
+				// `system` before the request goes out.
+				supportsDeveloperRole: false,
 				supportedParameters: [
 					"temperature",
 					"max_tokens",
@@ -287,9 +297,6 @@ export const deepseekModels = [
 			{
 				providerId: "runware",
 				externalId: "deepseek-v4-pro",
-				// Temporarily deactivated until we decide to re-enable Runware
-				// for the DeepSeek V4 models.
-				deactivatedAt: new Date("2026-08-05"),
 				inputPrice: "0.961e-6",
 				outputPrice: "1.922e-6",
 				cachedInputPrice: "0.079e-6",
@@ -414,6 +421,29 @@ export const deepseekModels = [
 				tools: true,
 				jsonOutput: true,
 			},
+			{
+				providerId: "fireworks",
+				externalId: "accounts/fireworks/models/deepseek-v4-pro",
+				inputPrice: "1.74e-6",
+				cachedInputPrice: "0.145e-6",
+				outputPrice: "3.48e-6",
+				requestPrice: "0",
+				// Fireworks prices DeepSeek's Priority tier at 1.5x standard rather
+				// than the 1.25x that applies to the rest of its catalogue.
+				serviceTiers: ["priority"],
+				serviceTierMultipliers: { priority: 1.5 },
+				contextSize: 1048576,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				// Fireworks rejects "minimal" for this model; the rest of the enum
+				// (plus "none" for non-thinking mode) is accepted.
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
 		],
 	},
 	{
@@ -439,6 +469,11 @@ export const deepseekModels = [
 				reasoningEfforts: ["none", "low", "high", "max"],
 				vision: false,
 				tools: true,
+				// DeepSeek's API 400s on the OpenAI-only `developer` role
+				// ("unknown variant `developer`, expected one of `system`, `user`,
+				// `assistant`, `tool`, `latest_reminder`"), so it gets rewritten to
+				// `system` before the request goes out.
+				supportsDeveloperRole: false,
 				supportedParameters: [
 					"temperature",
 					"max_tokens",
@@ -455,9 +490,6 @@ export const deepseekModels = [
 			{
 				providerId: "runware",
 				externalId: "deepseek-v4-flash",
-				// Temporarily deactivated until we decide to re-enable Runware
-				// for the DeepSeek V4 models.
-				deactivatedAt: new Date("2026-08-05"),
 				inputPrice: "0.076e-6",
 				outputPrice: "0.153e-6",
 				cachedInputPrice: "0.014e-6",
@@ -588,6 +620,72 @@ export const deepseekModels = [
 				tools: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
+			},
+			{
+				providerId: "together-ai",
+				externalId: "deepseek-ai/DeepSeek-V4-Flash-0731",
+				inputPrice: "0.14e-6",
+				cachedInputPrice: "0.03e-6",
+				outputPrice: "0.28e-6",
+				requestPrice: "0",
+				contextSize: 163840,
+				maxOutput: 163840,
+				streaming: true,
+				reasoning: true,
+				// Together's deployment accepts any reasoning_effort string without
+				// validating it, and only the top tiers measurably change behaviour:
+				// xhigh and max roughly double the reasoning tokens, while
+				// low/medium/high land on the provider default. `none` is honoured
+				// through the `thinking` switch, not through reasoning_effort.
+				reasoningEfforts: ["none", "xhigh", "max"],
+				requiresDisableThinkingParam: true,
+				reasoningOutput: "omit",
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+			{
+				// RanoAI serves DeepSeek V4 Flash on Furiosa RNGD NPUs. The NPU
+				// deployment enforces a 128000-token window shared between the prompt
+				// and max_tokens, so a request 400s once the two together exceed it.
+				// Reasoning arrives as `reasoning_content` (streamed as deltas) only
+				// when `reasoning_effort` is passed explicitly — a request without it
+				// returns no reasoning at all, and "none" suppresses it.
+				// `reasoning_tokens` is reported inside completion_tokens, so costs.ts
+				// lists this provider in completionIncludesReasoning.
+				//
+				// All four tool_choice modes are honoured, so none are declared here.
+				// Prompt caching is automatic prefix caching — the first request
+				// misses and later ones report `cached_tokens` — priced at the
+				// `input_cache_read` rate /v1/models advertises.
+				providerId: "ranoai",
+				externalId: "deepseek-v4-flash",
+				inputPrice: "0.15e-6",
+				outputPrice: "0.35e-6",
+				cachedInputPrice: "0.05e-6",
+				requestPrice: "0",
+				contextSize: 128000,
+				maxOutput: 128000,
+				// RanoAI serves NVFP4 weights; the catalogue's quantization union only
+				// carries the generic 4-bit float value.
+				quantization: "fp4",
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				supportsN: true,
 			},
 		],
 	},

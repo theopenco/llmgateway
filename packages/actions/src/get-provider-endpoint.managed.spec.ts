@@ -10,6 +10,7 @@ const ENV_VARS = [
 	"LLM_GOOGLE_VERTEX_TOKEN_TYPE",
 	"LLM_OPENAI_BASE_URL",
 	"LLM_AZURE_RESOURCE",
+	"LLM_AZURE_BASE_URL",
 	"LLM_AZURE_DEPLOYMENT_TYPE",
 	"LLM_VERTEX_ANTHROPIC_REGION",
 	"LLM_VERTEX_ANTHROPIC_BASE_URL",
@@ -148,6 +149,85 @@ describe("managed credential config in getProviderEndpoint", () => {
 		expect(url).toBe(
 			"https://managed-resource.openai.azure.com/openai/deployments/gpt-4o-mini/chat/completions?api-version=2025-01-01",
 		);
+	});
+
+	it("reaches an Azure deployment that is not on azure.com via a base URL", () => {
+		delete process.env.LLM_AZURE_RESOURCE;
+		delete process.env.LLM_AZURE_BASE_URL;
+		delete process.env.LLM_AZURE_DEPLOYMENT_TYPE;
+
+		const url = getProviderEndpoint(
+			"azure",
+			undefined,
+			"gpt-4o-mini",
+			undefined,
+			false,
+			false,
+			false,
+			managed({
+				baseUrl: "https://azure.example.internal",
+				deploymentType: "openai",
+				apiVersion: "2025-01-01",
+			}),
+			0,
+			false,
+			undefined,
+			true,
+		);
+
+		expect(url).toBe(
+			"https://azure.example.internal/openai/deployments/gpt-4o-mini/chat/completions?api-version=2025-01-01",
+		);
+	});
+
+	it("prefers the Azure base URL over a resource when both are supplied", () => {
+		delete process.env.LLM_AZURE_RESOURCE;
+		delete process.env.LLM_AZURE_BASE_URL;
+		delete process.env.LLM_AZURE_DEPLOYMENT_TYPE;
+
+		const url = getProviderEndpoint(
+			"azure",
+			undefined,
+			"gpt-4o-mini",
+			undefined,
+			false,
+			false,
+			false,
+			managed({
+				resource: "managed-resource",
+				baseUrl: "https://azure.example.internal",
+				deploymentType: "openai",
+			}),
+			0,
+			false,
+			undefined,
+			true,
+		);
+
+		expect(url).toContain("https://azure.example.internal/");
+		expect(url).not.toContain("managed-resource");
+	});
+
+	it("rejects an Azure credential carrying neither a resource nor a base URL", () => {
+		delete process.env.LLM_AZURE_RESOURCE;
+		delete process.env.LLM_AZURE_BASE_URL;
+
+		expect(() =>
+			getProviderEndpoint(
+				"azure",
+				undefined,
+				"gpt-4o-mini",
+				undefined,
+				false,
+				false,
+				false,
+				managed({ deploymentType: "openai" }),
+				0,
+				false,
+				undefined,
+				true,
+			),
+		).toThrow(/resource or a base URL/);
 	});
 
 	it("keeps the Vertex Anthropic host and path on the same region", () => {

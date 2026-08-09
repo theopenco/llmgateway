@@ -211,6 +211,13 @@ export const responsesRequestSchema = z.object({
 			z.literal("auto"),
 			z.literal("none"),
 			z.literal("required"),
+			// Canonical Responses API shape: the function name is flat.
+			z.object({
+				type: z.literal("function"),
+				name: z.string(),
+			}),
+			// Chat Completions shape, still accepted because clients that port a
+			// chat-completions payload over to this endpoint keep sending it.
 			z.object({
 				type: z.literal("function"),
 				function: z.object({

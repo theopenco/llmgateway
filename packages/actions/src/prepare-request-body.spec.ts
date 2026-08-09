@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest";
 
+import { models } from "@llmgateway/models";
+
 import {
 	hashPromptCacheKey,
 	hashSessionCacheKey,
@@ -7,7 +9,10 @@ import {
 	RequestError,
 } from "./prepare-request-body.js";
 
-import type { AnthropicRequestBody } from "@llmgateway/models";
+import type {
+	AnthropicRequestBody,
+	ProviderModelMapping,
+} from "@llmgateway/models";
 
 function getCacheControl(block: unknown): unknown {
 	if (block && typeof block === "object" && "cache_control" in block) {
@@ -1100,6 +1105,149 @@ describe("prepareRequestBody - Moonshot thinking", () => {
 		});
 		expect(requestBody.max_completion_tokens).toBe(4096);
 		expect(requestBody.max_tokens).toBeUndefined();
+	});
+
+	type Effort = Parameters<typeof prepareRequestBody>[14];
+	const xaiEffortCases: Array<
+		[Parameters<typeof prepareRequestBody>[0], string, Extract<Effort, string>]
+	> = [
+		// xAI mappings that declare reasoning: true but previously omitted
+		// reasoning_effort from supportedParameters, silently dropping any
+		// effort value before the request was built (#3436, #3403).
+		["azure-ai-foundry", "grok-4-3", "medium"],
+		["azure-ai-foundry", "grok-4-1-fast-reasoning", "high"],
+		["xai", "grok-4", "high"],
+	];
+
+	test.each(xaiEffortCases)(
+		"forwards reasoning_effort for %s/%s once declared in supportedParameters",
+		async (provider, model, effort) => {
+			// Direct capability assertion on the mapping itself: the fix's
+			// whole point is that these mappings now declare
+			// reasoning_effort in supportedParameters. A serialization-only
+			// test could keep passing while the capability check silently
+			// regresses (e.g. a refactor that stops reading
+			// supportedParameters) — asserting the array directly catches
+			// that class of regression.
+			const modelDef = models.find((m) => m.id === model);
+			const mapping = modelDef?.providers.find(
+				(p) => p.providerId === provider,
+			) as ProviderModelMapping | undefined;
+			expect(mapping?.supportedParameters).toContain("reasoning_effort");
+
+			const requestBody = (await prepareRequestBody(
+				provider,
+				model,
+				null,
+				model,
+				[{ role: "user", content: "Hello!" }],
+				false, // stream
+				undefined, // temperature
+				undefined, // max_tokens
+				undefined, // top_p
+				undefined, // frequency_penalty
+				undefined, // presence_penalty
+				undefined, // response_format
+				undefined, // tools
+				undefined, // tool_choice
+				effort,
+				true, // supportsReasoning
+			)) as unknown as Record<string, unknown>;
+			expect(requestBody.reasoning_effort).toBe(effort);
+		},
+	);
+
+	// The mirror image of the table above, and the more fragile half: these
+	// Grok deployments reason unconditionally but answer `reasoning_effort`
+	// with 400 "does not support parameter reasoningEffort" (verified against
+	// api.x.ai). Declaring the parameter for them — the obvious-looking
+	// completion of #3436/#3403 — turns every effort-bearing request into an
+	// upstream 400, so the drop is load-bearing and must stay asserted.
+	const xaiEffortRejectingCases: Array<
+		[Parameters<typeof prepareRequestBody>[0], string]
+	> = [
+		["vertex-openai", "grok-4-20-reasoning"],
+		["xai", "grok-4-20-beta-0309-reasoning"],
+		["xai", "grok-build-0-1"],
+	];
+
+	test.each(xaiEffortRejectingCases)(
+		"drops reasoning_effort for %s/%s, which rejects it upstream",
+		async (provider, model) => {
+			const modelDef = models.find((m) => m.id === model);
+			const mapping = modelDef?.providers.find(
+				(p) => p.providerId === provider,
+			) as ProviderModelMapping | undefined;
+			expect(mapping?.reasoning).toBe(true);
+			expect(mapping?.supportedParameters).not.toContain("reasoning_effort");
+
+			const requestBody = (await prepareRequestBody(
+				provider,
+				model,
+				null,
+				model,
+				[{ role: "user", content: "Hello!" }],
+				false, // stream
+				undefined, // temperature
+				undefined, // max_tokens
+				undefined, // top_p
+				undefined, // frequency_penalty
+				undefined, // presence_penalty
+				undefined, // response_format
+				undefined, // tools
+				undefined, // tool_choice
+				"high",
+				true, // supportsReasoning
+			)) as unknown as Record<string, unknown>;
+			expect(requestBody.reasoning_effort).toBeUndefined();
+		},
+	);
+});
+
+describe("prepareRequestBody - embercloud reasoning shape", () => {
+	// embercloud's documented request body uses a nested `reasoning` object
+	// (reasoning.enabled + reasoning.effort) — the flat OpenAI-style
+	// `reasoning_effort` field is not documented and is silently ignored
+	// (https://embercloud.ai/docs/request-body).
+	async function prepare(
+		effort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max",
+	) {
+		return (await prepareRequestBody(
+			"embercloud",
+			"glm-5.2",
+			null,
+			"glm-5.2",
+			[{ role: "user", content: "Hello!" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			effort, // reasoning_effort
+			true, // supportsReasoning
+		)) as any;
+	}
+
+	test("builds the nested reasoning object instead of flat reasoning_effort", async () => {
+		const requestBody = await prepare("high");
+		expect(requestBody.reasoning).toEqual({
+			enabled: true,
+			effort: "high",
+		});
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
+	test("forwards the top declared tier through the nested shape", async () => {
+		const requestBody = await prepare("max");
+		expect(requestBody.reasoning).toEqual({
+			enabled: true,
+			effort: "max",
+		});
+		expect(requestBody.reasoning_effort).toBeUndefined();
 	});
 });
 
@@ -2581,6 +2729,169 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		// And `required` should still mention these user fields
 		expect(params.required).toContain("examples");
 		expect(params.required).toContain("prefill");
+	});
+
+	test("should strip unknown vendor extensions from Google tool parameters", async () => {
+		// Google's schema parser rejects any key it does not model, failing the
+		// whole request with `Unknown name "<key>" … Cannot find field.` — so a
+		// single `~optional` marker left in by a client's schema generator 400s
+		// every tool call. These keys are not enumerable in advance, which is why
+		// the filter is an allowlist.
+		const toolsWithVendorExtensions = [
+			{
+				type: "function" as const,
+				function: {
+					name: "test_tool",
+					description: "Test tool",
+					parameters: {
+						type: "object",
+						"~standard": { version: 1, vendor: "zod" },
+						properties: {
+							field_a: {
+								type: "string",
+								"~optional": true,
+							},
+							field_b: {
+								type: "string",
+								readOnly: true,
+								writeOnly: true,
+								deprecated: true,
+							},
+							field_c: {
+								type: "array",
+								items: { type: "string", "x-vendor-hint": "list" },
+								additionalItems: false,
+							},
+							field_d: {
+								type: "string",
+								enum: ["one"],
+								enumNames: ["One"],
+							},
+						},
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.0-flash",
+			null,
+			"gemini-2.0-flash",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			toolsWithVendorExtensions,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const params = requestBody.tools[0].functionDeclarations[0].parameters;
+
+		expect(params["~standard"]).toBeUndefined();
+		expect(params.properties.field_a["~optional"]).toBeUndefined();
+		expect(params.properties.field_b.readOnly).toBeUndefined();
+		expect(params.properties.field_b.writeOnly).toBeUndefined();
+		expect(params.properties.field_b.deprecated).toBeUndefined();
+		expect(params.properties.field_c.additionalItems).toBeUndefined();
+		expect(params.properties.field_c.items["x-vendor-hint"]).toBeUndefined();
+		expect(params.properties.field_d.enumNames).toBeUndefined();
+
+		// The supported parts of each schema must survive untouched
+		expect(params.type).toBe("object");
+		expect(params.properties.field_a.type).toBe("string");
+		expect(params.properties.field_c.items.type).toBe("string");
+		expect(params.properties.field_d.enum).toEqual(["one"]);
+	});
+
+	test("should keep the schema keys Google supports in tool parameters", async () => {
+		const toolsWithSupportedKeys = [
+			{
+				type: "function" as const,
+				function: {
+					name: "test_tool",
+					description: "Test tool",
+					parameters: {
+						type: "object",
+						title: "Params",
+						description: "Parameters",
+						propertyOrdering: ["choice", "config"],
+						properties: {
+							choice: {
+								type: "string",
+								format: "enum",
+								nullable: true,
+								enum: ["a", "b"],
+								default: "a",
+								example: "b",
+							},
+							union: {
+								anyOf: [{ type: "string" }, { type: "number" }],
+							},
+							// An object-valued default must survive verbatim: it holds an
+							// instance value, not a subschema, so its own keys are not
+							// schema keywords and must not be filtered.
+							config: {
+								type: "object",
+								properties: { retries: { type: "number" } },
+								default: { retries: 3, mode: "fast" },
+							},
+						},
+						required: ["choice"],
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.0-flash",
+			null,
+			"gemini-2.0-flash",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			toolsWithSupportedKeys,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const params = requestBody.tools[0].functionDeclarations[0].parameters;
+
+		expect(params.title).toBe("Params");
+		expect(params.description).toBe("Parameters");
+		expect(params.propertyOrdering).toEqual(["choice", "config"]);
+		expect(params.required).toEqual(["choice"]);
+		expect(params.properties.choice).toEqual({
+			type: "string",
+			format: "enum",
+			nullable: true,
+			enum: ["a", "b"],
+			default: "a",
+			example: "b",
+		});
+		expect(params.properties.union.anyOf).toEqual([
+			{ type: "string" },
+			{ type: "number" },
+		]);
+		expect(params.properties.config.default).toEqual({
+			retries: 3,
+			mode: "fast",
+		});
 	});
 
 	test("should add additionalProperties: false to Cerebras tool parameters", async () => {
@@ -4141,7 +4452,7 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			expect(requestBody.max_tokens).toBe(8192);
 			expect(requestBody.max_completion_tokens).toBeUndefined();
 			expect(requestBody.top_p).toBe(0.9);
-			expect(requestBody.reasoning_effort).toBeUndefined();
+			expect(requestBody.reasoning_effort).toBe("medium");
 			expect(requestBody.inferenceConfig).toBeUndefined();
 		});
 	});
@@ -5648,6 +5959,26 @@ describe("prepareRequestBody - developer role normalization", () => {
 		const requestBody = await prepare("openai", "gpt-4o-mini");
 		expect(requestBody.messages[0].role).toBe("developer");
 	});
+
+	test("rewrites developer to system for deepseek/deepseek-v4-pro", async () => {
+		const requestBody = await prepare("deepseek", "deepseek-v4-pro");
+		expect(requestBody.messages[0].role).toBe("system");
+		expect(requestBody.messages[0].content).toBe(
+			"You are a helpful assistant.",
+		);
+		expect(requestBody.messages[1].role).toBe("user");
+	});
+
+	test("rewrites developer to system for deepseek/deepseek-v4-flash", async () => {
+		const requestBody = await prepare("deepseek", "deepseek-v4-flash");
+		expect(requestBody.messages[0].role).toBe("system");
+		expect(requestBody.messages[1].role).toBe("user");
+	});
+
+	test("preserves developer role for another deepseek-v4-pro provider (deepinfra)", async () => {
+		const requestBody = await prepare("deepinfra", "deepseek-v4-pro");
+		expect(requestBody.messages[0].role).toBe("developer");
+	});
 });
 
 describe("prepareRequestBody - Sakana Fugu reasoning effort", () => {
@@ -5751,4 +6082,70 @@ describe("prepareRequestBody - Sakana Fugu reasoning effort", () => {
 			expect(responses.reasoning.effort).toBe(effort);
 		}
 	});
+});
+
+describe("prepareRequestBody - DashScope web search", () => {
+	const prepare = (provider: string, model: string, webSearchTool?: any) =>
+		prepareRequestBody(
+			provider as any,
+			model,
+			null,
+			model,
+			[{ role: "user", content: "hi" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			webSearchTool,
+		) as Promise<any>;
+
+	test.each(["alibaba", "scx-ai-gp"])(
+		"%s pairs enable_search with forced_search",
+		async (provider) => {
+			const requestBody = await prepare(provider, "qwen3.8-max", {
+				type: "web_search",
+			});
+
+			// enable_search alone is a hint the model ignores; forced_search is what
+			// actually retrieves, so the two must always travel together.
+			expect(requestBody.enable_search).toBe(true);
+			expect(requestBody.search_options).toEqual({ forced_search: true });
+		},
+	);
+
+	test.each(["alibaba", "scx-ai-gp"])(
+		"%s omits search_strategy",
+		async (provider) => {
+			const requestBody = await prepare(provider, "qwen3.8-max", {
+				type: "web_search",
+			});
+
+			// The Qwen max models 400 on the documented "agent" policy.
+			expect(requestBody.search_options.search_strategy).toBeUndefined();
+		},
+	);
+
+	test.each(["alibaba", "scx-ai-gp"])(
+		"%s sends no search params without a web_search tool",
+		async (provider) => {
+			const requestBody = await prepare(provider, "qwen3.8-max");
+
+			expect(requestBody.enable_search).toBeUndefined();
+			expect(requestBody.search_options).toBeUndefined();
+		},
+	);
 });
