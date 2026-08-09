@@ -203,9 +203,12 @@ function formatDeactivationDate(value: string | null): string {
 	if (!value) {
 		return "";
 	}
+	// Catalogue deactivation dates are UTC-midnight calendar dates, not instants:
+	// rendering them in the viewer's zone shows the previous day west of UTC.
 	return new Date(value).toLocaleDateString("en-US", {
 		month: "short",
 		day: "numeric",
+		timeZone: "UTC",
 	});
 }
 
