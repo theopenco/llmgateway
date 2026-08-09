@@ -393,6 +393,13 @@ async function validateCredentialToken(
 
 	const statusPart = result.statusCode ? ` (status ${result.statusCode})` : "";
 	const modelPart = result.model ? ` using model ${result.model}` : "";
+	// A connectivity failure says nothing about the credential — report it as
+	// what it is so the admin fixes the endpoint config, not the key.
+	if (result.unreachable) {
+		throw new HTTPException(400, {
+			message: `Could not reach ${provider} to validate the credential${modelPart}: ${errorMessage}. Pass skipValidation to store it anyway.`,
+		});
+	}
 	throw new HTTPException(400, {
 		message: `Credential rejected by ${provider}: ${errorMessage}${statusPart}${modelPart}. Pass skipValidation to store it anyway.`,
 	});

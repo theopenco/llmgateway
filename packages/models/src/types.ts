@@ -460,6 +460,12 @@ export interface ProviderValidationResult {
 	error?: string;
 	statusCode?: number;
 	model?: string;
+	/**
+	 * The probe never got an HTTP response (DNS, connection, TLS or timeout
+	 * failure), so the credential itself was never judged. Callers should word
+	 * this as "could not reach the provider" rather than "key rejected".
+	 */
+	unreachable?: boolean;
 }
 
 // Model with pricing information

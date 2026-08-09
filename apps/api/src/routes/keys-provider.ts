@@ -563,6 +563,15 @@ keysProvider.openapi(create, async (c) => {
 		const modelPart = validationResult.model
 			? ` using model ${validationResult.model}`
 			: "";
+		// The provider never answered, so the key was never judged: saying it was
+		// rejected would send the user off replacing a perfectly good key. The
+		// endpoint is derived from the submitted base URL / options, so this is a
+		// problem with the request, hence 400 rather than a 5xx.
+		if (validationResult.unreachable) {
+			throw new HTTPException(400, {
+				message: `Could not reach provider ${provider}${modelPart}: ${errorMessage}`,
+			});
+		}
 		// A 401 is an auth or entitlement failure, so "try again later" is the
 		// wrong advice — the key will keep failing until it is replaced or the
 		// account is granted access. The provider's own message distinguishes the
