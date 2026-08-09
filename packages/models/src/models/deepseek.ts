@@ -441,6 +441,11 @@ export const deepseekModels = [
 				],
 				vision: false,
 				tools: true,
+				// The deployment 400s on "required" and named-function tool_choice
+				// with "Thinking mode does not support this tool_choice"; both only
+				// work when thinking is off, which the catalogue cannot express, so
+				// they coerce to "auto" (verified 2026-08-09).
+				supportedToolChoices: ["auto", "none"],
 				jsonOutput: true,
 			},
 			{
@@ -727,6 +732,11 @@ export const deepseekModels = [
 				],
 				vision: false,
 				tools: true,
+				// The deployment 400s on "required" and named-function tool_choice
+				// with "Thinking mode does not support this tool_choice"; both only
+				// work when thinking is off, which the catalogue cannot express, so
+				// they coerce to "auto" (verified 2026-08-09).
+				supportedToolChoices: ["auto", "none"],
 				jsonOutput: true,
 			},
 		],
