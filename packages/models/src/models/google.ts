@@ -2466,6 +2466,7 @@ export const googleModels = [
 				// input rate (verified 2026-08-05).
 				providerId: "ranoai",
 				externalId: "gemma-4-31b",
+				deactivatedAt: new Date("2026-08-09"),
 				inputPrice: "0.1e-6",
 				outputPrice: "0.3e-6",
 				cachedInputPrice: "0.05e-6",

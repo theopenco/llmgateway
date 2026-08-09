@@ -280,32 +280,58 @@ export default function ResetPassCard({
 						)}
 					</p>
 					<div className="mt-3 flex flex-wrap items-center gap-2">
-						<Button
-							size="sm"
-							onClick={() => redeemMutation.mutate({})}
-							disabled={
-								available === 0 ||
-								nothingToReset ||
-								redeemBlocked ||
-								redeemMutation.isPending
-							}
-							title={
-								redeemBlocked
-									? "Over 90% of this cycle's credits are used — a reset would give you almost nothing. Your passes keep until your credits renew."
-									: available === 0
-										? "No passes held — buy one below"
-										: nothingToReset
-											? "Nothing to reset yet — your allowance is untouched"
-											: undefined
-							}
-						>
-							{redeemMutation.isPending ? (
-								<Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-							) : (
-								<Stamp className="mr-1.5 h-4 w-4" />
-							)}
-							Use a pass
-						</Button>
+						<AlertDialog>
+							<AlertDialogTrigger asChild>
+								<Button
+									size="sm"
+									disabled={
+										available === 0 ||
+										nothingToReset ||
+										redeemBlocked ||
+										redeemMutation.isPending
+									}
+									title={
+										redeemBlocked
+											? "Over 90% of this cycle's credits are used — a reset would give you almost nothing. Your passes keep until your credits renew."
+											: available === 0
+												? "No passes held — buy one below"
+												: nothingToReset
+													? "Nothing to reset yet — your allowance is untouched"
+													: undefined
+									}
+								>
+									{redeemMutation.isPending ? (
+										<Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+									) : (
+										<Stamp className="mr-1.5 h-4 w-4" />
+									)}
+									Use a pass
+								</Button>
+							</AlertDialogTrigger>
+							<AlertDialogContent data-testid="redeem-pass-confirm">
+								<AlertDialogHeader>
+									<AlertDialogTitle>Stamp a Reset Pass now?</AlertDialogTitle>
+									<AlertDialogDescription>
+										This spends one of your{" "}
+										{`${available} pass${available === 1 ? "" : "es"}`} (
+										{includedRemaining > 0 ? "included" : "purchased"}) and
+										immediately lifts the weekly premium limit back to{" "}
+										{`$${premiumWeeklyLimit.toFixed(2)}`}. It doesn&apos;t add
+										credits — usage still draws from your monthly allowance, and
+										a spent pass can&apos;t be undone.
+									</AlertDialogDescription>
+								</AlertDialogHeader>
+								<AlertDialogFooter>
+									<AlertDialogCancel>Not now</AlertDialogCancel>
+									<AlertDialogAction
+										onClick={() => redeemMutation.mutate({})}
+										data-testid="redeem-pass-confirm-action"
+									>
+										Stamp the pass
+									</AlertDialogAction>
+								</AlertDialogFooter>
+							</AlertDialogContent>
+						</AlertDialog>
 						{price !== null && purchaseBlocked && (
 							<Button
 								size="sm"

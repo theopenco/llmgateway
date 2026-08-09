@@ -11,6 +11,7 @@ export const LOUNGE_POINT_VALUES = {
 	image_generation: 10,
 	video_generation: 15,
 	audio_generation: 10,
+	sandbox_escape: 25,
 } as const;
 
 export type LoungePointKind = keyof typeof LOUNGE_POINT_VALUES;
@@ -23,6 +24,7 @@ const DAILY_POINT_CAPS: Record<LoungePointKind, number> = {
 	image_generation: 100,
 	video_generation: 150,
 	audio_generation: 100,
+	sandbox_escape: 150,
 };
 
 export const LOUNGE_LEVEL_TITLES = [
