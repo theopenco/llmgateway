@@ -2198,6 +2198,27 @@ mockOpenAIServer.post("/contents/generations/tasks", async (c) => {
 		});
 	}
 
+	const referenceVideoUrls: string[] = [];
+	for (const entry of content) {
+		if (
+			!entry ||
+			typeof entry !== "object" ||
+			(entry as Record<string, unknown>).role !== "reference_video"
+		) {
+			continue;
+		}
+		const videoUrl = (entry as Record<string, unknown>).video_url;
+		const url =
+			typeof videoUrl === "object" &&
+			videoUrl !== null &&
+			typeof (videoUrl as Record<string, unknown>).url === "string"
+				? ((videoUrl as Record<string, unknown>).url as string)
+				: undefined;
+		if (url) {
+			referenceVideoUrls.push(url);
+		}
+	}
+
 	videoCounter++;
 	const id = `bytedance_task_${videoCounter}`;
 	const job: MockVideoJobState = {
@@ -2209,6 +2230,8 @@ mockOpenAIServer.post("/contents/generations/tasks", async (c) => {
 		firstFrame: parseFrameByRole("first_frame"),
 		lastFrame: parseFrameByRole("last_frame"),
 		referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
+		referenceVideoUrls:
+			referenceVideoUrls.length > 0 ? referenceVideoUrls : undefined,
 		duration: typeof body.duration === "number" ? body.duration : undefined,
 		ratio: typeof body.ratio === "string" ? body.ratio : undefined,
 		resolution:
