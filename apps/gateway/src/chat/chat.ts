@@ -49,6 +49,7 @@ import {
 } from "@/lib/compliance.js";
 import {
 	calculateCosts,
+	isBilledFailureFinishReason,
 	isRefusalFinishReason,
 	shouldBillCancelledRequests,
 	zeroInferenceCosts,
@@ -11146,6 +11147,19 @@ chat.openapi(completions, async (c) => {
 									finishReason === "content_filter",
 								));
 
+					// A stream that ended in a gateway- or upstream-side failure returns
+					// an error to the caller, so it is not billed for the tokens the
+					// provider emitted before dying. Cancellations are excluded so
+					// aborting a stream stays billable and cannot be used as a billing
+					// bypass (GHSA-724j-f2pf-phf7).
+					if (
+						!canceled &&
+						streamingError !== null &&
+						!isBilledFailureFinishReason(finishReason)
+					) {
+						zeroInferenceCosts(costs);
+					}
+
 					// Use costs.promptTokens as canonical value (includes image input
 					// tokens for providers that exclude them from upstream usage)
 					if (costs.promptTokens !== null && costs.promptTokens !== undefined) {
@@ -13404,6 +13418,40 @@ chat.openapi(completions, async (c) => {
 		zeroInferenceCosts(costs);
 	}
 
+	// Check if the non-streaming response is empty (no content, tokens, or tool
+	// calls). Exclude content filter responses as they are intentionally empty.
+	const isContentFilterResponse = isContentFilterFinishReason(
+		finishReason,
+		usedProvider,
+	);
+	// A length-limit finish reason (e.g. a tiny `max_tokens`) can legitimately
+	// produce no content at all, so an empty response in that case is expected
+	// behavior rather than an upstream error.
+	const isLengthLimitResponse = isLengthLimitFinishReason(
+		finishReason,
+		usedProvider,
+	);
+	const hasEmptyNonStreamingResponse =
+		!!finishReason &&
+		finishReason !== "incomplete" &&
+		!isContentFilterResponse &&
+		!isLengthLimitResponse &&
+		!hasMeaningfulAssistantOutput({
+			completionTokens: calculatedCompletionTokens,
+			reasoningTokens: calculatedReasoningTokens,
+			content,
+			toolResults,
+			images: convertedImages,
+		});
+
+	// An empty response is recorded as an upstream error and hands the caller
+	// nothing usable, so it is not billed. Computed before
+	// transformResponseToOpenai so the cost echoed back to the client matches
+	// what the log is charged.
+	if (hasEmptyNonStreamingResponse) {
+		zeroInferenceCosts(costs);
+	}
+
 	costs.dataStorageCost = toDataStorageCostNumber(
 		costs.promptTokens ?? calculatedPromptTokens,
 		cachedTokens,
@@ -13579,32 +13627,6 @@ chat.openapi(completions, async (c) => {
 		pluginIds,
 		Object.keys(pluginResults).length > 0 ? pluginResults : undefined,
 	);
-
-	// Check if the non-streaming response is empty (no content, tokens, or tool calls)
-	// Exclude content filter responses as they are intentionally empty.
-	const isContentFilterResponse = isContentFilterFinishReason(
-		finishReason,
-		usedProvider,
-	);
-	// A length-limit finish reason (e.g. a tiny `max_tokens`) can legitimately
-	// produce no content at all, so an empty response in that case is expected
-	// behavior rather than an upstream error.
-	const isLengthLimitResponse = isLengthLimitFinishReason(
-		finishReason,
-		usedProvider,
-	);
-	const hasEmptyNonStreamingResponse =
-		!!finishReason &&
-		finishReason !== "incomplete" &&
-		!isContentFilterResponse &&
-		!isLengthLimitResponse &&
-		!hasMeaningfulAssistantOutput({
-			completionTokens: calculatedCompletionTokens,
-			reasoningTokens: calculatedReasoningTokens,
-			content,
-			toolResults,
-			images: convertedImages,
-		});
 
 	if (hasEmptyNonStreamingResponse) {
 		logger.debug("Empty non-streaming response detected", {

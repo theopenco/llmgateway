@@ -110,6 +110,30 @@ export function zeroInferenceCosts(costs: MutableInferenceCosts): void {
 }
 
 /**
+ * True when a request that ended in a failure is still billed for the inference
+ * it consumed.
+ *
+ * A request the gateway records as its own or the provider's fault
+ * (`upstream_error`, `gateway_error`, an upstream read fault, a timeout, or a
+ * stream that died before any terminal event) hands the caller an error, so
+ * charging for whatever tokens the provider happened to emit would bill the
+ * caller for a failure that is not theirs. Two failure classes stay billable:
+ *
+ * - `client_error` — the caller's own malformed request still consumed upstream
+ *   inference, so it must not become a free-inference path.
+ * - `content_filter` — a safety block is a served response and is billed on
+ *   purpose.
+ *
+ * Cancellations are a separate axis and keep billing by default — see
+ * {@link shouldBillCancelledRequests}.
+ */
+export function isBilledFailureFinishReason(
+	finishReason: string | null | undefined,
+): boolean {
+	return finishReason === "client_error" || finishReason === "content_filter";
+}
+
+/**
  * Check if billing for cancelled requests is enabled via environment variable.
  * Defaults to true if not set: a cancelled streaming request has already
  * consumed upstream inference (prompt tokens, plus any completion tokens

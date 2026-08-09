@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
 	calculateCosts,
+	isBilledFailureFinishReason,
 	isRefusalFinishReason,
 	shouldBillCancelledRequests,
 	zeroInferenceCosts,
@@ -1979,6 +1980,21 @@ describe("zeroInferenceCosts", () => {
 		expect(costs.totalCost).toBe(0);
 		// Storage retention is billed separately from inference.
 		expect(costs.dataStorageCost).toBe(0.01);
+	});
+});
+
+describe("isBilledFailureFinishReason", () => {
+	it("keeps client errors and content filters billable", () => {
+		expect(isBilledFailureFinishReason("client_error")).toBe(true);
+		expect(isBilledFailureFinishReason("content_filter")).toBe(true);
+	});
+
+	it("is false for gateway- and upstream-side failures", () => {
+		expect(isBilledFailureFinishReason("upstream_error")).toBe(false);
+		expect(isBilledFailureFinishReason("gateway_error")).toBe(false);
+		// A timeout or buffer overflow aborts before any finish reason is known.
+		expect(isBilledFailureFinishReason(null)).toBe(false);
+		expect(isBilledFailureFinishReason(undefined)).toBe(false);
 	});
 });
 
