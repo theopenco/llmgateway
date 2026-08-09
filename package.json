@@ -43,7 +43,7 @@
 		"@steebchen/lint-base": "1.1.0",
 		"@steebchen/prettier-config": "^1.5.0",
 		"@types/canvas-confetti": "1.9.0",
-		"@types/node": "26.1.1",
+		"@types/node": "26.1.2",
 		"commitlint": "21.2.1",
 		"concurrently": "^10.0.3",
 		"dotenv": "17.4.2",
