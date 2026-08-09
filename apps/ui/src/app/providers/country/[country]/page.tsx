@@ -4,12 +4,9 @@ import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { ProvidersGrid } from "@/components/providers/providers-grid";
 import { JsonLd } from "@/components/seo/json-ld";
+import { activeModelCounts, listedProviders } from "@/lib/providers-catalog";
 
-import {
-	getProviderCountries,
-	models as modelDefinitions,
-	providers as providerDefinitions,
-} from "@llmgateway/models";
+import { getProviderCountries } from "@llmgateway/models";
 
 import type { Metadata } from "next";
 
@@ -24,18 +21,14 @@ function findCountry(code: string) {
 }
 
 function providersForCountry(code: string) {
-	return providerDefinitions.filter(
-		(provider) =>
-			provider.name !== "LLM Gateway" &&
-			provider.id !== "custom" &&
-			provider.headquarters === code,
-	);
+	return listedProviders.filter((provider) => provider.headquarters === code);
 }
 
-function modelCountForProviders(providerIds: Set<string>): number {
-	return modelDefinitions.filter((model) =>
-		model.providers.some((p) => providerIds.has(p.providerId)),
-	).length;
+function modelCountForProviders(providers: { id: string }[]): number {
+	return providers.reduce(
+		(sum, provider) => sum + (activeModelCounts[provider.id] ?? 0),
+		0,
+	);
 }
 
 export default async function ProviderCountryPage({
@@ -49,9 +42,7 @@ export default async function ProviderCountryPage({
 	}
 
 	const countryProviders = providersForCountry(country.code);
-	const modelCount = modelCountForProviders(
-		new Set(countryProviders.map((p) => p.id)),
-	);
+	const modelCount = modelCountForProviders(countryProviders);
 
 	const countryUrl = `https://llmgateway.io/providers/country/${country.code.toLowerCase()}`;
 
