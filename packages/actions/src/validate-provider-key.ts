@@ -13,6 +13,7 @@ import { getGcpServiceAccountAccessToken } from "./gcp-access-token.js";
 import { getProviderEndpoint } from "./get-provider-endpoint.js";
 import { getProviderHeaders } from "./get-provider-headers.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
+import { describeNetworkFailure } from "./provider-key/network-error.js";
 import { redactToken } from "./provider-key/redact.js";
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
@@ -249,6 +250,8 @@ export async function validateProviderKey(
 	}
 
 	let validationModel: { modelId: string; externalId: string } | undefined;
+	// Hoisted so the catch can name the host that could not be reached.
+	let endpoint: string | undefined;
 
 	try {
 		validationModel = pinnedModelId
@@ -316,7 +319,7 @@ export async function validateProviderKey(
 			providerKeyOptions,
 		);
 
-		const endpoint = getProviderEndpoint(
+		endpoint = getProviderEndpoint(
 			provider,
 			baseUrl,
 			effectiveModelId, // Pass model ID for providers that need it in the URL (e.g., aws-bedrock, azure)
@@ -443,7 +446,35 @@ export async function validateProviderKey(
 	} catch (error) {
 		const rawMessage =
 			error instanceof Error ? error.message : "Unknown error occurred";
-		const safeErrorMessage = redactToken(rawMessage, token);
+		// `fetch` collapses every connectivity failure into "fetch failed", which
+		// is useless both to the caller and in logs — replace it with the actual
+		// reason (DNS, refused, timeout, TLS) whenever the error is one of those.
+		const networkFailure = describeNetworkFailure(error, endpoint);
+		const safeErrorMessage = redactToken(
+			networkFailure?.message ?? rawMessage,
+			token,
+		);
+
+		if (networkFailure) {
+			// Expected for a whole class of credentials: Azure resource names and
+			// custom base URLs are tenant-supplied, so a host that does not resolve
+			// or answer is bad input, not a gateway fault. Warn instead of error so
+			// it does not page anyone, and hand the reason back to the caller.
+			logger.warn("Provider key validation could not reach the provider", {
+				provider,
+				model: validationModel?.modelId,
+				errorCode: networkFailure.code,
+				error: safeErrorMessage,
+				detail: redactToken(networkFailure.detail, token),
+			});
+			return {
+				valid: false,
+				error: safeErrorMessage,
+				model: validationModel?.modelId,
+				unreachable: true,
+			};
+		}
+
 		const safeStack =
 			error instanceof Error
 				? redactToken(error.stack, token) || undefined

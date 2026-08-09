@@ -983,6 +983,48 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 		expect(requestBody.reasoning_effort).toBe("none");
 	});
 
+	test("forwards none to xAI Grok when the mapping declares it", async () => {
+		// xai/grok-4-3 publishes `none` in reasoningEfforts but xai is not in
+		// the handlesNoneNatively allowlist, so the gateway used to strip the
+		// value before the request was built (#3423).
+		const requestBody = await prepare({
+			provider: "xai",
+			model: "grok-4-3",
+		});
+		expect(requestBody.reasoning_effort).toBe("none");
+	});
+
+	test.each([
+		["deepinfra", "deepseek-v4-pro"],
+		["deepinfra", "hy3"],
+		["novita", "hy3"],
+		["runware", "deepseek-v4-flash"],
+		["canopywave", "kimi-k3"],
+		["runware", "deepseek-v4-pro"],
+		["runware", "gemma-4-31b-it"],
+	])(
+		"forwards none to %s when the mapping declares it",
+		async (provider, model) => {
+			// These providers are in the handlesNoneNatively allowlist, and
+			// their catalog entries also publish `none` — both paths must
+			// agree so a mapping-declared opt-in is never stripped (#3423).
+			const requestBody = await prepare({ provider, model });
+			expect(requestBody.reasoning_effort).toBe("none");
+		},
+	);
+
+	test("strips none for an OpenAI-compatible mapping that does not declare it", async () => {
+		// grok-4-3 via azure-ai-foundry speaks a non-allowlisted provider and
+		// its catalog entry omits `none` from reasoningEfforts. The mapping
+		// must be the authority: with `none` undeclared, the value is
+		// normalized away instead of forwarded to a provider that may 4xx.
+		const requestBody = await prepare({
+			provider: "azure-ai-foundry",
+			model: "grok-4-3",
+		});
+		expect(requestBody.reasoning_effort).toBeUndefined();
+	});
+
 	test("disables thinking for Google on none", async () => {
 		const requestBody = await prepare({
 			provider: "google-ai-studio",
@@ -2894,6 +2936,153 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		});
 	});
 
+	test("should collapse union type arrays in Google tool parameters", async () => {
+		// Google's `Schema` proto models `type` as a single enum, so the JSON
+		// Schema list form (`["string", "null"]`, which is how most generators
+		// spell an optional field) 400s the whole request with `Unknown name
+		// "type" … Proto field is not repeating, cannot start list.`
+		const toolsWithUnionTypes = [
+			{
+				type: "function" as const,
+				function: {
+					name: "create_memory",
+					description: "Test tool",
+					parameters: {
+						type: "object",
+						properties: {
+							extra: {
+								description: "Nullable string",
+								type: ["string", "null"],
+							},
+							sourceIds: {
+								items: { type: "string" },
+								type: ["array", "null"],
+							},
+							nested: {
+								type: "object",
+								properties: {
+									inner: { type: ["number", "null"] },
+								},
+							},
+							listed: {
+								type: "array",
+								items: {
+									type: ["object", "null"],
+									properties: {
+										flag: { type: ["boolean", "null"] },
+									},
+								},
+							},
+							multi: { type: ["string", "number"] },
+							onlyNull: { type: ["null"] },
+							contradictory: { type: ["string", "null"], nullable: false },
+						},
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.0-flash",
+			null,
+			"gemini-2.0-flash",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			toolsWithUnionTypes,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const params = requestBody.tools[0].functionDeclarations[0].parameters;
+
+		expect(params.properties.extra).toEqual({
+			description: "Nullable string",
+			type: "string",
+			nullable: true,
+		});
+		expect(params.properties.sourceIds).toEqual({
+			items: { type: "string" },
+			type: "array",
+			nullable: true,
+		});
+		expect(params.properties.nested.properties.inner).toEqual({
+			type: "number",
+			nullable: true,
+		});
+		expect(params.properties.listed.items.type).toBe("object");
+		expect(params.properties.listed.items.nullable).toBe(true);
+		expect(params.properties.listed.items.properties.flag).toEqual({
+			type: "boolean",
+			nullable: true,
+		});
+		// A union with no `null` member keeps its first type and stays non-nullable
+		expect(params.properties.multi).toEqual({ type: "string" });
+		// Google's Type enum has no NULL member, so `["null"]` degrades to a
+		// nullable string rather than an unset type
+		expect(params.properties.onlyNull).toEqual({
+			type: "string",
+			nullable: true,
+		});
+		expect(params.properties.contradictory.nullable).toBe(true);
+	});
+
+	test("should collapse tuple-form items in Google tool parameters", async () => {
+		const toolsWithTupleItems = [
+			{
+				type: "function" as const,
+				function: {
+					name: "test_tool",
+					description: "Test tool",
+					parameters: {
+						type: "object",
+						properties: {
+							pair: {
+								type: "array",
+								items: [
+									{ type: "string", "x-vendor": true },
+									{ type: "number" },
+								],
+							},
+						},
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.0-flash",
+			null,
+			"gemini-2.0-flash",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			toolsWithTupleItems,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const params = requestBody.tools[0].functionDeclarations[0].parameters;
+
+		expect(params.properties.pair.items).toEqual({ type: "string" });
+	});
+
 	test("should add additionalProperties: false to Cerebras tool parameters", async () => {
 		const toolsWithoutAdditionalProps = [
 			{
@@ -3790,7 +3979,7 @@ describe("prepareRequestBody - reasoning.max_tokens forwarding", () => {
 			[{ role: "user", content: "What is 2/3 + 1/4 + 5/6?" }],
 			false, // stream
 			undefined, // temperature
-			1024, // max_tokens (must exceed thinking budget)
+			1024, // max_tokens (raised by the gateway to clear the thinking budget)
 			undefined, // top_p
 			undefined, // frequency_penalty
 			undefined, // presence_penalty
@@ -3814,6 +4003,59 @@ describe("prepareRequestBody - reasoning.max_tokens forwarding", () => {
 			type: "enabled",
 			budget_tokens: budget,
 		});
+		expect(requestBody.max_tokens).toBeGreaterThan(budget);
+	});
+
+	test("anthropic raises max_tokens above a low-effort thinking budget", async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-sonnet-4-6",
+			null,
+			"claude-sonnet-4-6",
+			[{ role: "user", content: "What is 2/3 + 1/4 + 5/6?" }],
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens (equal to the "low" budget — Anthropic 400s on this)
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			"low", // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+		)) as any;
+
+		expect(requestBody.thinking).toEqual({
+			type: "enabled",
+			budget_tokens: 1024,
+		});
+		expect(requestBody.max_tokens).toBe(2024);
+	});
+
+	test("anthropic leaves a max_tokens that already clears the budget", async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-sonnet-4-6",
+			null,
+			"claude-sonnet-4-6",
+			[{ role: "user", content: "What is 2/3 + 1/4 + 5/6?" }],
+			false, // stream
+			undefined, // temperature
+			8000, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			"low", // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+		)) as any;
+
+		expect(requestBody.max_tokens).toBe(8000);
 	});
 
 	test("aws-bedrock forwards budget into additionalModelRequestFields.thinking.budget_tokens", async () => {
