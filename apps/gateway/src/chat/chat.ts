@@ -2192,6 +2192,22 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Coding (dev) plans only sell the standard and flex tiers — the dashboard
+	// setting is limited to those, and this is the server-side half of that gate:
+	// without it a client could opt into priority per request and burn plan
+	// credits at the tier's premium multiplier (2.5x on OpenAI, 1.8x on Google),
+	// which dev-plan pricing does not account for. Rejected rather than silently
+	// clamped to standard, matching how an ineligible `routing` strategy is
+	// handled and the gateway's general rule that a requested tier is never
+	// quietly downgraded. Checked before the tier-narrowing block below so the
+	// error names the plan restriction instead of a model's missing tier support.
+	if (isDevPlan && service_tier === "priority") {
+		throw new HTTPException(403, {
+			message: `Service tier 'priority' is not available on coding plans. Use 'flex' or 'default'.`,
+			cause: "unsupported_service_tier",
+		});
+	}
+
 	if (isRequestedServiceTier(service_tier)) {
 		const serviceTierCandidateProviders = modelInfo.providers.filter(
 			(mapping) => providerMatchesRequestedProvider(mapping, requestedProvider),

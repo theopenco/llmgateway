@@ -2091,6 +2091,8 @@ describe("api", () => {
 
 		await harness.setDevPlan({ devPlan: "pro", serviceTier: "flex" });
 
+		// gpt-5.5 sells flex and the org defaults to it, so an explicit
+		// `default` is only honored if the request beats the org setting.
 		const res = await app.request("/v1/chat/completions", {
 			method: "POST",
 			headers: {
@@ -2099,16 +2101,56 @@ describe("api", () => {
 			},
 			body: JSON.stringify({
 				model: "gpt-5.5",
-				service_tier: "priority",
+				service_tier: "default",
 				messages: [{ role: "user", content: "Hello!" }],
 			}),
 		});
 
 		expect(res.status).toBe(200);
 		const json = await res.json();
-		expect(json.service_tier).toBe("priority");
-		expect(json.metadata?.requested_service_tier).toBe("priority");
-		expect(json.metadata?.used_service_tier).toBe("priority");
+		expect(json.metadata?.requested_service_tier).toBeUndefined();
+		expect(json.metadata?.used_service_tier).toBeUndefined();
+	});
+
+	test("/v1/chat/completions rejects an explicit priority service_tier on dev plans", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-devplan-priority",
+			token: "real-token-devplan-priority",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-devplan-priority",
+			token: "sk-test-key",
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		await harness.setDevPlan({ devPlan: "pro", serviceTier: "flex" });
+
+		// gpt-5.5 does sell priority — the rejection has to come from the plan
+		// restriction, not from the model lacking tier support.
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-devplan-priority",
+			},
+			body: JSON.stringify({
+				model: "gpt-5.5",
+				service_tier: "priority",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Service tier 'priority' is not available on coding plans",
+		);
 	});
 
 	test("/v1/chat/completions skips the dev-plan flex default for models without flex support", async () => {

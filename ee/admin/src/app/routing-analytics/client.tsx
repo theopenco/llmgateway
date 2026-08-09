@@ -492,6 +492,24 @@ export function RoutingAnalyticsClient() {
 		[data],
 	);
 
+	// The election counts come from routing telemetry, a separate hourly rollup
+	// read from `log`, while every other count on this page comes from the
+	// mapping rollup. The two totals are therefore close but not identical — an
+	// hour whose telemetry never aggregated is simply missing from it — so the
+	// gap is stated rather than left for the reader to spot.
+	const telemetryCoverageHint = useMemo(() => {
+		if (!data || totalRequests <= 0) {
+			return undefined;
+		}
+		const missing = totalRequests - data.elections.requestCount;
+		if (missing === 0) {
+			return "routing telemetry on every request";
+		}
+		return missing > 0
+			? `${numberFormatter.format(missing)} requests without routing telemetry`
+			: `${numberFormatter.format(-missing)} decisions beyond the served requests`;
+	}, [data, totalRequests]);
+
 	const untieredRequests = data
 		? Math.max(
 				data.serviceTier.requestCount -
@@ -568,6 +586,7 @@ export function RoutingAnalyticsClient() {
 						<StatCard
 							label="Requests"
 							value={numberFormatter.format(totalRequests)}
+							hint="served, from the mapping rollup"
 						/>
 						<StatCard
 							label="Elected mapping"
@@ -580,6 +599,7 @@ export function RoutingAnalyticsClient() {
 									"—"
 								)
 							}
+							hint="lowest score, not the busiest"
 						/>
 						<StatCard
 							label="Routable mappings"
@@ -616,6 +636,7 @@ export function RoutingAnalyticsClient() {
 									</span>
 								</span>
 							}
+							hint={telemetryCoverageHint}
 						/>
 						<StatCard
 							label="Avg. candidates"
@@ -658,6 +679,7 @@ export function RoutingAnalyticsClient() {
 									<span className="text-muted-foreground">none</span>
 								)
 							}
+							hint="mapping drops, not requests"
 						/>
 					</section>
 

@@ -107,6 +107,7 @@ describe("admin routing analytics endpoint", () => {
 		await db.delete(tables.modelProviderMappingHistoryHourly);
 		await db.delete(tables.routingElectionHourly);
 		await db.delete(tables.routingExclusionHourly);
+		await db.delete(tables.modelProviderMapping);
 		await cdb.delete(tables.discount);
 		await deleteAll();
 	});
@@ -249,6 +250,75 @@ describe("admin routing analytics endpoint", () => {
 			}
 		}
 		expect(dated).toBeGreaterThan(0);
+	});
+
+	it("counts a mapping's regional traffic once", async () => {
+		const hour = currentHourStart();
+		// A mapping with regions is stored as a region-less root row plus one row
+		// per region, and the minute aggregator merges the regional traffic into
+		// the root row. Summing every row of the provider therefore reports double
+		// the requests that were actually served.
+		await db
+			.insert(tables.provider)
+			.values({ id: providerA, name: providerA, description: providerA })
+			.onConflictDoNothing();
+		await db
+			.insert(tables.model)
+			.values({ id: testModel.id, family: testModel.family })
+			.onConflictDoNothing();
+		await db.insert(tables.modelProviderMapping).values([
+			{
+				id: "routing-analytics-region-root",
+				modelId: testModel.id,
+				providerId: providerA,
+				externalId: testModel.id,
+			},
+			{
+				id: "routing-analytics-region-east",
+				modelId: testModel.id,
+				providerId: providerA,
+				externalId: testModel.id,
+				region: "us-east-1",
+			},
+		]);
+		await db.insert(tables.modelProviderMappingHistoryHourly).values([
+			{
+				id: "routing-analytics-region-root-hour",
+				modelId: testModel.id,
+				providerId: providerA,
+				modelProviderMappingId: "routing-analytics-region-root",
+				hourTimestamp: hour,
+				logsCount: 12,
+				serviceTierExplicitCount: 4,
+			},
+			{
+				id: "routing-analytics-region-east-hour",
+				modelId: testModel.id,
+				providerId: providerA,
+				modelProviderMappingId: "routing-analytics-region-east",
+				hourTimestamp: hour,
+				logsCount: 12,
+				serviceTierExplicitCount: 4,
+			},
+		]);
+
+		const res = await get(`?modelId=${testModel.id}&window=24h`, cookie);
+		const body = await res.json();
+
+		const summaryA = body.summary.find(
+			(s: { providerId: string }) => s.providerId === providerA,
+		);
+		expect(summaryA.requestCount).toBe(12);
+		expect(body.serviceTier.requestCount).toBe(12);
+		expect(body.serviceTier.explicit).toBe(4);
+
+		const trafficHour = body.hourly.find(
+			(h: { hour: string }) => h.hour === hour.toISOString(),
+		);
+		const entryA = trafficHour.providers.find(
+			(p: { providerId: string }) => p.providerId === providerA,
+		);
+		expect(entryA.requestCount).toBe(12);
 	});
 
 	it("reports election paths, eligibility and service-tier coverage", async () => {
