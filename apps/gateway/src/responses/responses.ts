@@ -313,7 +313,14 @@ responses.post("/", async (c) => {
 		chatRequest.tools = tools;
 	}
 	if (req.tool_choice) {
-		chatRequest.tool_choice = req.tool_choice;
+		// The chat handler speaks Chat Completions, so a Responses-shaped named
+		// function choice (`{type:"function",name}`) has to be nested back under
+		// `function` here; prepare-request-body flattens it again for upstreams
+		// that take the Responses API.
+		chatRequest.tool_choice =
+			typeof req.tool_choice === "object" && "name" in req.tool_choice
+				? { type: "function", function: { name: req.tool_choice.name } }
+				: req.tool_choice;
 	}
 	if (req.reasoning?.effort) {
 		chatRequest.reasoning_effort = req.reasoning.effort;

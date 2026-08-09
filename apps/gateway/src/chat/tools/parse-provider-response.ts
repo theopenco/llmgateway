@@ -391,7 +391,7 @@ export function parseProviderResponse(
 			toolResults =
 				parts
 					.filter((part: any) => part.functionCall)
-					.map((part: any, index: number) => {
+					.map((part: any) => {
 						const toolCall: any = {
 							// Google doesn't provide an id, so generate one. It MUST be
 							// globally unique: the id is the `thought_signature:<id>` Redis
@@ -672,6 +672,13 @@ export function parseProviderResponse(
 				if (json.choices?.[0]?.message?.images) {
 					images = json.choices[0].message.images;
 				}
+			}
+			// DashScope's OpenAI-compatible protocol never returns `search_info`,
+			// so there is no per-response signal that a search ran. We only ever
+			// enable search together with `forced_search`, which guarantees one,
+			// so requesting it is the count.
+			if (webSearchRequested) {
+				webSearchCount = 1;
 			}
 			break;
 		}
@@ -1192,6 +1199,13 @@ export function parseProviderResponse(
 					} else if (webSearchRequested) {
 						webSearchCount = 1;
 					}
+				}
+
+				// SCX resells Qwen through DashScope, which returns no search
+				// metadata over the OpenAI-compatible protocol. See the `alibaba`
+				// case: forced_search guarantees the search ran.
+				if (usedProvider === "scx-ai-gp" && webSearchRequested) {
+					webSearchCount = 1;
 				}
 			}
 			break;

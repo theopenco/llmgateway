@@ -1,7 +1,7 @@
 "use client";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePostHog } from "posthog-js/react";
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 
 import { Button } from "@/lib/components/button";
 import {
@@ -30,6 +30,8 @@ import {
 	isStealthProvider,
 	type ProviderDefinition,
 } from "@llmgateway/models";
+import { getProviderModelIds } from "@llmgateway/shared";
+import { MultiModelIdSelector } from "@llmgateway/shared/components";
 
 import { ProviderSelect } from "./provider-select";
 
@@ -70,6 +72,7 @@ export function CreateProviderKeyDialog({
 		"api-key",
 	);
 	const [usageLimit, setUsageLimit] = useState("");
+	const [allowedModels, setAllowedModels] = useState<string[]>([]);
 	const [isValidating, setIsValidating] = useState(false);
 
 	const api = useApi();
@@ -81,6 +84,11 @@ export function CreateProviderKeyDialog({
 	const selectedProviderDef = providers.find(
 		(p) => p.id === selectedProvider,
 	) as ProviderDefinition | undefined;
+
+	const availableModelIds = useMemo(
+		() => (selectedProvider ? getProviderModelIds(selectedProvider) : []),
+		[selectedProvider],
+	);
 
 	// Sentinel for "let the gateway pick". Radix Select cannot hold an empty
 	// string value, so the no-preference choice needs its own id.
@@ -183,6 +191,7 @@ export function CreateProviderKeyDialog({
 			options?: Record<string, string | undefined>;
 			organizationId: string;
 			usageLimit?: string;
+			allowedModels?: string[];
 		} = {
 			provider: selectedProvider,
 			token: trimmedToken,
@@ -196,6 +205,12 @@ export function CreateProviderKeyDialog({
 		}
 		if (selectedProvider === "custom" && customName) {
 			payload.name = customName;
+		}
+		// A custom provider's models live in the organization's own catalogue, so
+		// there is nothing for a canonical-id restriction to match; the API rejects
+		// one, and the field is hidden for it.
+		if (selectedProvider !== "custom" && allowedModels.length > 0) {
+			payload.allowedModels = allowedModels;
 		}
 		// Include region in options for providers that support it. Storing a
 		// region locks routing to it (a data-residency guarantee), so the
@@ -335,6 +350,7 @@ export function CreateProviderKeyDialog({
 			setGoogleVertexProjectId("");
 			setVertexTokenType("api-key");
 			setUsageLimit("");
+			setAllowedModels([]);
 		}, 300);
 	};
 
@@ -364,6 +380,9 @@ export function CreateProviderKeyDialog({
 							onValueChange={(value) => {
 								setSelectedProvider(value);
 								setSelectedRegion("");
+								// Model ids are provider-specific, so a list picked for the
+								// previous provider would only ever be rejected on save.
+								setAllowedModels([]);
 							}}
 							value={selectedProvider}
 							providers={availableProviders}
@@ -634,6 +653,25 @@ export function CreateProviderKeyDialog({
 								/>
 							</div>
 						</>
+					)}
+
+					{selectedProvider && selectedProvider !== "custom" && (
+						<div className="space-y-2">
+							<Label htmlFor="provider-key-allowed-models">
+								Allowed models
+							</Label>
+							<MultiModelIdSelector
+								availableIds={availableModelIds}
+								value={allowedModels}
+								onChange={setAllowedModels}
+								placeholder="All models (no restriction)"
+							/>
+							<p className="text-sm text-muted-foreground">
+								{allowedModels.length === 0
+									? "Optional: leave empty to use this key for every model of the provider."
+									: "The key is validated against one of these models and routing only uses it for them. In hybrid mode, other models fall back to credits."}
+							</p>
+						</div>
 					)}
 
 					<div className="space-y-2">

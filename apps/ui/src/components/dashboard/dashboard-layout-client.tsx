@@ -5,6 +5,7 @@ import { type ReactNode, useEffect } from "react";
 
 import { DashboardSidebar } from "@/components/dashboard/dashboard-sidebar";
 import { MobileHeader } from "@/components/dashboard/mobile-header";
+import { PlanExpiryBanner } from "@/components/dashboard/plan-expiry-banner";
 import { TopBar } from "@/components/dashboard/top-bar";
 import { EmailVerificationBanner } from "@/components/email-verification-banner";
 import { DashboardProvider } from "@/lib/dashboard-context";
@@ -83,6 +84,7 @@ export function DashboardLayoutClient({
 							announcementEntries={announcementEntries}
 						/>
 						<EmailVerificationBanner />
+						<PlanExpiryBanner />
 						<main className="bg-background relative w-full flex-1 overflow-y-auto overflow-x-hidden pt-10 pb-4 px-4 md:p-6 lg:p-8">
 							{children}
 						</main>

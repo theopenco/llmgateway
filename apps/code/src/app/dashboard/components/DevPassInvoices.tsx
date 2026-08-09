@@ -144,6 +144,9 @@ function RefundButton({ invoice }: { invoice: Invoice }) {
 	const api = useApi();
 	const queryClient = useQueryClient();
 	const isResetPass = invoice.type === "dev_plan_reset_pass";
+	// PAYG top-up refunds return the money and remove the credits — the
+	// DevPass subscription itself is untouched, unlike plan-payment refunds.
+	const isCreditTopup = invoice.type === "credit_topup";
 	const [open, setOpen] = useState(false);
 	const [reason, setReason] = useState<RefundReason | null>(null);
 	const [comments, setComments] = useState("");
@@ -162,7 +165,9 @@ function RefundButton({ invoice }: { invoice: Invoice }) {
 				toast.success(
 					isResetPass
 						? "Refund processing. The unused pass has been returned and the refund will arrive within a few business days."
-						: "Refund processing. Your DevPass has been cancelled and the refund will arrive within a few business days.",
+						: isCreditTopup
+							? "Refund processing. The credits have been removed from your balance and the refund will arrive within a few business days."
+							: "Refund processing. Your DevPass has been cancelled and the refund will arrive within a few business days.",
 				);
 				void queryClient.invalidateQueries({
 					predicate: (query) => {
@@ -221,12 +226,16 @@ function RefundButton({ invoice }: { invoice: Invoice }) {
 					<AlertDialogTitle>
 						{isResetPass
 							? "Refund this Reset Pass?"
-							: "Refund and cancel your DevPass?"}
+							: isCreditTopup
+								? "Refund this credits top-up?"
+								: "Refund and cancel your DevPass?"}
 					</AlertDialogTitle>
 					<AlertDialogDescription>
 						{isResetPass
 							? `${formatAmount(invoice.amount, invoice.currency)} will be refunded to your payment method and the unused pass removed from your passport. Your DevPass plan is not affected. This cannot be undone.`
-							: `Refunding cancels your subscription completely: ${formatAmount(invoice.amount, invoice.currency)} goes back to your payment method and your DevPass ends right away — not at the end of the billing period — so the rest of this cycle's credits are lost. To use DevPass again you would have to subscribe from scratch. This cannot be undone.`}
+							: isCreditTopup
+								? `${formatAmount(invoice.amount, invoice.currency)} will be refunded to your payment method and the purchased credits removed from your balance. Your DevPass plan is not affected. This cannot be undone.`
+								: `Refunding cancels your subscription completely: ${formatAmount(invoice.amount, invoice.currency)} goes back to your payment method and your DevPass ends right away — not at the end of the billing period — so the rest of this cycle's credits are lost. To use DevPass again you would have to subscribe from scratch. This cannot be undone.`}
 					</AlertDialogDescription>
 				</AlertDialogHeader>
 				<RefundReasonFieldset
@@ -239,7 +248,11 @@ function RefundButton({ invoice }: { invoice: Invoice }) {
 				/>
 				<AlertDialogFooter>
 					<AlertDialogCancel disabled={refundMutation.isPending}>
-						{isResetPass ? "Keep my pass" : "Keep my DevPass"}
+						{isResetPass
+							? "Keep my pass"
+							: isCreditTopup
+								? "Keep my credits"
+								: "Keep my DevPass"}
 					</AlertDialogCancel>
 					<AlertDialogAction
 						disabled={refundMutation.isPending || !canSubmit}
@@ -254,7 +267,11 @@ function RefundButton({ invoice }: { invoice: Invoice }) {
 							});
 						}}
 					>
-						{isResetPass ? "Refund pass" : "Refund and cancel"}
+						{isResetPass
+							? "Refund pass"
+							: isCreditTopup
+								? "Refund top-up"
+								: "Refund and cancel"}
 					</AlertDialogAction>
 				</AlertDialogFooter>
 			</AlertDialogContent>
@@ -267,6 +284,7 @@ const TYPE_LABELS: Record<Invoice["type"], string> = {
 	dev_plan_renewal: "Renewal",
 	dev_plan_upgrade: "Upgrade",
 	dev_plan_reset_pass: "Reset Pass",
+	credit_topup: "Credits top-up",
 };
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
