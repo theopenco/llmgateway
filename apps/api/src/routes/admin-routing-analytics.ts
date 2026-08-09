@@ -18,6 +18,7 @@ import {
 	db,
 	effectiveTtftTotals,
 	eq,
+	excludeRegionalMappingRows,
 	getEffectiveDiscount,
 	gte,
 	modelProviderMappingHistoryHourly,
@@ -537,6 +538,9 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 				and(
 					eq(modelProviderMappingHistoryHourly.modelId, model.id),
 					gte(modelProviderMappingHistoryHourly.hourTimestamp, windowStart),
+					// This view reports per provider, and the region-less root row
+					// already carries the provider's regional traffic.
+					excludeRegionalMappingRows(modelProviderMappingHistoryHourly),
 				),
 			),
 		db
