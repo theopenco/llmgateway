@@ -9,6 +9,7 @@ import {
 } from "@/test-utils/mock-openai-server.js";
 
 import { cdb, db, eq, tables } from "@llmgateway/db";
+import { buildGatewayVideoLogContentUrl } from "@llmgateway/shared";
 
 describe("videos", () => {
 	const harness = createGatewayApiTestHarness();
@@ -1510,9 +1511,7 @@ describe("videos", () => {
 		);
 
 		expect(logs[0].usedModelMapping).toBe("veo3_fast");
-		expect(logs[0].content).toBe(
-			`http://localhost:4001/v1/videos/logs/${logs[0].id}/content`,
-		);
+		expect(logs[0].content).toBe(buildGatewayVideoLogContentUrl(logs[0].id));
 		expect(logs[0].requestCost).toBe(0);
 		expect(logs[0].videoOutputCost).toBe(2.8);
 		expect(logs[0].cost).toBe(2.8);
@@ -1786,9 +1785,7 @@ describe("videos", () => {
 			);
 
 			expect(logs[0].usedModelMapping).toBe("veo-3.1-generate-001");
-			expect(logs[0].content).toBe(
-				`http://localhost:4001/v1/videos/logs/${logs[0].id}/content`,
-			);
+			expect(logs[0].content).toBe(buildGatewayVideoLogContentUrl(logs[0].id));
 			expect(logs[0].videoOutputCost).toBe(4.8);
 			expect(logs[0].cost).toBe(4.8);
 		} finally {
