@@ -318,20 +318,22 @@ export function parseProviderResponse(
 		case "iceberg":
 		case "google-vertex":
 		case "quartz": {
-			// Check if response is missing candidates - treat as content filter
-			if (!json.candidates || json.candidates.length === 0) {
-				// Only log warning if there's no blockReason explaining why
-				if (!json.promptFeedback?.blockReason) {
-					logger.warn(
-						"[parse-provider-response] Google response missing candidates",
-						{
-							usedProvider,
-							usedModel,
-							fullResponse: json,
-						},
-					);
-				}
-				finishReason = "content_filter";
+			// A response with no candidates is only assumed to be a content filter
+			// when Google gave no reason of its own. Setting `finishReason` here
+			// unconditionally used to win over the `promptFeedback.blockReason`
+			// assignment below, so every such response was logged as the generic
+			// "content_filter" and the actual Google reason was lost.
+			const missingCandidates =
+				!json.candidates || json.candidates.length === 0;
+			if (missingCandidates && !json.promptFeedback?.blockReason) {
+				logger.warn(
+					"[parse-provider-response] Google response missing candidates",
+					{
+						usedProvider,
+						usedModel,
+						fullResponse: json,
+					},
+				);
 			}
 
 			// AI Studio duplicates the other candidates' parts into candidate 0
@@ -448,12 +450,13 @@ export function parseProviderResponse(
 
 			// Preserve the original Google finish reason for logging
 			// Use promptBlockReason if present, otherwise use googleFinishReason
-			// Don't overwrite if already set (e.g., content_filter for missing candidates)
 			if (!finishReason) {
 				if (promptBlockReason) {
 					finishReason = promptBlockReason;
 				} else if (googleFinishReason) {
 					finishReason = googleFinishReason;
+				} else if (missingCandidates) {
+					finishReason = "content_filter";
 				}
 			}
 
