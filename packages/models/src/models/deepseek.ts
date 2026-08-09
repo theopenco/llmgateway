@@ -715,6 +715,7 @@ export const deepseekModels = [
 				// `input_cache_read` rate /v1/models advertises.
 				providerId: "ranoai",
 				externalId: "deepseek-v4-flash",
+				deactivatedAt: new Date("2026-08-09"),
 				inputPrice: "0.15e-6",
 				outputPrice: "0.35e-6",
 				cachedInputPrice: "0.05e-6",
