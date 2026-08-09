@@ -418,6 +418,29 @@ export const deepseekModels = [
 				tools: true,
 				jsonOutput: true,
 			},
+			{
+				providerId: "fireworks",
+				externalId: "accounts/fireworks/models/deepseek-v4-pro",
+				inputPrice: "1.74e-6",
+				cachedInputPrice: "0.145e-6",
+				outputPrice: "3.48e-6",
+				requestPrice: "0",
+				// Fireworks prices DeepSeek's Priority tier at 1.5x standard rather
+				// than the 1.25x that applies to the rest of its catalogue.
+				serviceTiers: ["priority"],
+				serviceTierMultipliers: { priority: 1.5 },
+				contextSize: 1048576,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				// Fireworks rejects "minimal" for this model; the rest of the enum
+				// (plus "none" for non-thinking mode) is accepted.
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
 		],
 	},
 	{
@@ -585,6 +608,30 @@ export const deepseekModels = [
 				// Fireworks rejects "minimal" for this model; the rest of the enum
 				// (plus "none" for non-thinking mode) is accepted.
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+			{
+				providerId: "together-ai",
+				externalId: "deepseek-ai/DeepSeek-V4-Flash-0731",
+				inputPrice: "0.14e-6",
+				cachedInputPrice: "0.03e-6",
+				outputPrice: "0.28e-6",
+				requestPrice: "0",
+				contextSize: 163840,
+				maxOutput: 163840,
+				streaming: true,
+				reasoning: true,
+				// Together's deployment accepts any reasoning_effort string without
+				// validating it, and only the top tiers measurably change behaviour:
+				// xhigh and max roughly double the reasoning tokens, while
+				// low/medium/high land on the provider default. `none` is honoured
+				// through the `thinking` switch, not through reasoning_effort.
+				reasoningEfforts: ["none", "xhigh", "max"],
+				requiresDisableThinkingParam: true,
+				reasoningOutput: "omit",
 				vision: false,
 				tools: true,
 				jsonOutput: true,
