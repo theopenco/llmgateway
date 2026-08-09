@@ -148,6 +148,14 @@ pnpm dev                      # every app on its offset port
 curl http://localhost:4101/v1/chat/completions -H "Authorization: Bearer test-token" ...
 ```
 
+ALWAYS tear the stack down once the work is finished — but ONLY when you started a worktree-specific one yourself (a `STACK_SUFFIX` stack, i.e. containers named `postgres-<suffix>` / `redis-<suffix>`). These containers otherwise sit around consuming memory and holding ports for every worktree that ever ran tests, and there are usually many worktrees on this machine:
+
+```bash
+docker compose down -v        # only this worktree's project, thanks to STACK_SUFFIX
+```
+
+NEVER run this against the default shared stack (no `STACK_SUFFIX` set): those containers are the user's own development database, another worktree may be serving from them, and `-v` destroys the volumes. If you did not bring the stack up in this session, leave it running.
+
 How the wiring works:
 
 - **Docker isolation**: `docker-compose.yml` derives both the compose project name (`llmgateway${STACK_SUFFIX}`) and each `container_name` from `STACK_SUFFIX`, and publishes `${POSTGRES_PORT}`/`${REDIS_PORT}`/`${STORAGE_REDIS_PORT}`. Because the project name differs, `docker compose down -v` and `pnpm setup` only destroy your own containers and the `redis_storage_data` volume of your own project. Address containers via `docker compose exec postgres …` (service name, resolved within your project) rather than `docker exec postgres …`.
@@ -295,7 +303,8 @@ When creating a new package in `packages/`, include these config files. Copy the
 - When writing pull request titles, use the conventional commit message format and limit to max 50 characters
 - Always open pull requests as normal ready-for-review PRs, not draft PRs, unless the user explicitly asks for a draft PR
 - When creating a pull request, always write/update both the PR title and description; if the PR's scope changes in later commits, update the title and description to reflect the final scope before handing it off
-- For UI-related changes (`apps/ui`, `apps/playground`, `apps/code`, `apps/docs`, `ee/admin`, or any other user-facing surface), always embed screenshots of the affected screens in the PR description — run the app locally, capture the new/changed state, and use the `pull-request` skill's screenshot workflow to attach them. For changes to an existing screen, show a before/after pair; for anything with light and dark styling, include both themes
+- Screenshots in a PR description are ONLY for changes to the three dashboard UIs: the main UI (`apps/ui`), the DevPass UI (`apps/code`), and the admin UI (`ee/admin`). For those, always embed screenshots of the affected screens — run the app locally, capture the new/changed state, and use the `pull-request` skill's screenshot workflow to attach them. For changes to an existing screen, show a before/after pair; for anything with light and dark styling, include both themes
+- NEVER screenshot `apps/docs`, and do not screenshot content-only changes elsewhere (marketing copy, changelog entries, MDX prose). Prose in a docs page always renders fine, so the screenshot proves nothing and just costs a local server run — link the changed file instead
 - Always use pnpm for package management
 - Use cookies for user-settings which are not saved in the database to ensure SSR works
 - Apply DRY principles for code reuse
