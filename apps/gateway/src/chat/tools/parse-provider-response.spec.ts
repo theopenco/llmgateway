@@ -1204,4 +1204,91 @@ describe("parseProviderResponse", () => {
 			expect(result.reasoningContent).toBe("structured reasoning");
 		});
 	});
+	describe("total_tokens fallback when upstream omits it", () => {
+		// Every branch below recomputes total_tokens itself, so it must follow the
+		// same rule the cost engine uses: only add reasoning for providers whose
+		// completion count excludes it (see completionIncludesReasoning).
+		const chatJson = (usage: Record<string, unknown>) => ({
+			choices: [
+				{
+					message: { role: "assistant", content: "9" },
+					finish_reason: "stop",
+				},
+			],
+			usage,
+		});
+
+		it("does not re-add reasoning for an inclusive provider (default branch)", () => {
+			const result = parseProviderResponse(
+				"canopywave",
+				"kimi-k2.6",
+				chatJson({
+					prompt_tokens: 25,
+					completion_tokens: 85,
+					reasoning_tokens: 82,
+				}),
+			);
+
+			expect(result.totalTokens).toBe(110);
+		});
+
+		it("adds reasoning for an additive provider (default branch)", () => {
+			const result = parseProviderResponse(
+				"xai",
+				"grok-4",
+				chatJson({
+					prompt_tokens: 205,
+					completion_tokens: 1,
+					reasoning_tokens: 118,
+				}),
+			);
+
+			expect(result.totalTokens).toBe(324);
+		});
+
+		it("does not re-add reasoning for alibaba", () => {
+			const result = parseProviderResponse(
+				"alibaba",
+				"qwen3.7-plus",
+				chatJson({
+					prompt_tokens: 23,
+					completion_tokens: 115,
+					reasoning_tokens: 109,
+				}),
+			);
+
+			expect(result.totalTokens).toBe(138);
+		});
+
+		it("adds reasoning for aws-bedrock", () => {
+			// Bedrock never itemizes reasoning tokens in practice, but if one ever
+			// arrives it sits outside outputTokens, so the additive branch applies.
+			const result = parseProviderResponse(
+				"aws-bedrock",
+				"claude-sonnet-4-5",
+				chatJson({
+					prompt_tokens: 51,
+					completion_tokens: 136,
+					reasoning_tokens: 31,
+				}),
+			);
+
+			expect(result.totalTokens).toBe(218);
+		});
+
+		it("prefers the upstream total over the fallback", () => {
+			const result = parseProviderResponse(
+				"canopywave",
+				"kimi-k2.6",
+				chatJson({
+					prompt_tokens: 25,
+					completion_tokens: 85,
+					reasoning_tokens: 82,
+					total_tokens: 999,
+				}),
+			);
+
+			expect(result.totalTokens).toBe(999);
+		});
+	});
 });

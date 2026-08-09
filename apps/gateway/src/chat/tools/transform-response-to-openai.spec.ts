@@ -577,4 +577,53 @@ describe("transformResponseToOpenai", () => {
 			],
 		});
 	});
+	describe("total_tokens fallback when the caller has no total", () => {
+		// buildUsageObject falls back to summing the parts. Passing null for
+		// totalTokens is what happens when neither upstream nor the parse layer
+		// produced one, and the sum must follow the same rule the cost engine
+		// uses. Both providers below reach buildUsageObject via their own branch.
+		const call = (
+			provider: "groq" | "xai",
+			extraJson: Record<string, unknown>,
+		) =>
+			transformResponseToOpenai(
+				provider,
+				"some-model",
+				{
+					object: "chat.completion",
+					created: 1,
+					choices: [
+						{
+							index: 0,
+							message: { role: "assistant", content: "9" },
+							finish_reason: "stop",
+						},
+					],
+					...extraJson,
+				},
+				"9",
+				null,
+				"stop",
+				25,
+				85,
+				null,
+				82,
+				null,
+				null,
+				[],
+				`${provider}/some-model`,
+				provider,
+				"some-model",
+			);
+
+		test("does not re-add reasoning for a provider whose completion includes it", () => {
+			// groq rebuilds the response (and its usage) when upstream omits `id`.
+			expect(call("groq", {}).usage.total_tokens).toBe(110);
+		});
+
+		test("adds reasoning for a provider that reports it separately", () => {
+			// xai rebuilds the response when the payload carries a `data` array.
+			expect(call("xai", { data: [] }).usage.total_tokens).toBe(192);
+		});
+	});
 });

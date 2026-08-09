@@ -777,6 +777,49 @@ describe("calculateCosts", () => {
 		expect(result.completionTokens).toBe(136);
 	});
 
+	it("should not double-count reasoning tokens for Canopywave", async () => {
+		// Canopywave is the one provider observed reporting reasoning_tokens at
+		// the *top level* of usage, which is the only shape extract-token-usage
+		// reads for OpenAI-format providers — so this one reached the cost engine
+		// and was billed twice. Live kimi-k2.6 answering "9": prompt 21,
+		// completion 82, reasoning 79, total 103 (= 21 + 82), i.e. the 79
+		// reasoning tokens are already inside the 82.
+		const result = await calculateCosts(
+			"kimi-k2.6",
+			"canopywave",
+			null,
+			21,
+			82,
+			0,
+			undefined,
+			79,
+		);
+
+		expect(result.inputCost).toBeCloseTo(0.0000105, 10); // 21 * 0.5e-6
+		// 82 * 2.8e-6, not 161 * 2.8e-6 = 0.0004508 (96% over)
+		expect(result.outputCost).toBeCloseTo(0.0002296, 10);
+		expect(result.completionTokens).toBe(82);
+	});
+
+	it("should still add reasoning tokens for xAI", async () => {
+		// xAI is the verified exception: grok-4 answering "9" reports
+		// completion_tokens 1, reasoning_tokens 118 and total_tokens 324, so its
+		// completion count excludes reasoning and the additive branch is correct.
+		const result = await calculateCosts(
+			"grok-4",
+			"xai",
+			null,
+			205,
+			1,
+			0,
+			undefined,
+			118,
+		);
+
+		expect(result.inputCost).toBeCloseTo(0.000615, 10); // 205 * 3.0e-6
+		expect(result.outputCost).toBeCloseTo(0.001785, 10); // (1 + 118) * 15.0e-6
+	});
+
 	it("should handle null reasoning tokens gracefully", async () => {
 		const result = await calculateCosts(
 			"gemini-2.5-pro",
@@ -2073,6 +2116,20 @@ describe("sumTotalTokens", () => {
 			"openai",
 			"azure",
 			"ranoai",
+			"alibaba",
+			"bytedance",
+			"canopywave",
+			"cerebras",
+			"deepseek",
+			"granite",
+			"groq",
+			"minimax",
+			"moonshot",
+			"novita",
+			"scx-ai",
+			"scx-ai-gp",
+			"together-ai",
+			"zai",
 		]) {
 			expect(sumTotalTokens(provider, 51, 136, 31)).toBe(187);
 			expect(completionIncludesReasoning(provider)).toBe(true);
@@ -2080,7 +2137,12 @@ describe("sumTotalTokens", () => {
 	});
 
 	it("adds reasoning for providers that report it outside completion", () => {
-		for (const provider of ["deepseek", "groq", "aws-bedrock"]) {
+		// xAI is the verified counter-example: grok-4 answers "9" with
+		// completion_tokens 1, reasoning_tokens 118 and total_tokens 324, so its
+		// completion count genuinely excludes reasoning. aws-bedrock bundles
+		// reasoning into outputTokens but exposes no reasoning count at all, so
+		// the additive branch is a no-op for it in practice.
+		for (const provider of ["xai", "aws-bedrock"]) {
 			expect(sumTotalTokens(provider, 51, 136, 31)).toBe(218);
 			expect(completionIncludesReasoning(provider)).toBe(false);
 		}
@@ -2088,7 +2150,7 @@ describe("sumTotalTokens", () => {
 
 	it("treats null and undefined token counts as zero", () => {
 		expect(sumTotalTokens("anthropic", null, null, null)).toBe(0);
-		expect(sumTotalTokens("deepseek", 51, 136, null)).toBe(187);
-		expect(sumTotalTokens("deepseek", undefined, undefined, 31)).toBe(31);
+		expect(sumTotalTokens("xai", 51, 136, null)).toBe(187);
+		expect(sumTotalTokens("xai", undefined, undefined, 31)).toBe(31);
 	});
 });

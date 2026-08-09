@@ -191,38 +191,67 @@ function getPricingForTokenCount(
 }
 
 /**
- * Whether a provider's reported completion/output token count already contains
- * its reasoning tokens.
+ * Providers whose reported completion/output token count already contains
+ * their reasoning tokens.
  *
- * For Google models, completionTokens already includes reasoning tokens
- * (merged during extraction). The same holds for OpenAI-style Responses API
- * providers (OpenAI, Azure, Sakana, Meta), whose `output_tokens` counts
- * reasoning — their `reasoning_tokens` detail is informational only. RanoAI
- * reports reasoning in `completion_tokens_details` (which the streaming
- * transform hoists to a top-level `reasoning_tokens`) while already counting
- * it inside `completion_tokens`, so adding it again would roughly double the
- * billed output on reasoning requests. Anthropic behaves the same way: its
+ * This is the near-universal convention: OpenAI documents `completion_tokens`
+ * as inclusive of `completion_tokens_details.reasoning_tokens`, and every
+ * provider below was confirmed against live upstream to follow it — a request
+ * whose visible answer is one token reports `completion_tokens ≈
+ * reasoning_tokens + 1` and `total_tokens = prompt_tokens + completion_tokens`.
+ * Google reports it differently (`candidatesTokenCount` /
+ * `thoughtsTokenCount`), but extract-token-usage merges the two before the
+ * cost engine sees them, so the same rule applies. Anthropic is the same:
  * `output_tokens` already includes thinking tokens, which is why
  * extract-token-usage builds totalTokens as prompt + output without re-adding
- * reasoning. For remaining providers, reasoning is reported outside the
- * completion count and must be added separately.
+ * reasoning.
+ *
+ * Adding reasoning on top for a provider on this list would roughly double the
+ * billed output — and the reported `total_tokens` — on reasoning requests.
+ *
+ * xAI is the notable exception and must stay off this list: `grok-4` reports
+ * `completion_tokens: 1` alongside `reasoning_tokens: 118` and
+ * `total_tokens: 324` for a one-token answer, i.e. its completion count
+ * genuinely excludes reasoning and its own total adds it back.
+ *
+ * Note that only a *top-level* `usage.reasoning_tokens` reaches the cost path
+ * for OpenAI-format providers (extract-token-usage reads the raw upstream
+ * chunk, not the normalized one), so most of these providers are latent rather
+ * than actively mis-billed today. Canopywave is the exception that is not:
+ * it reports `reasoning_tokens` at the top level.
  */
+const COMPLETION_INCLUDES_REASONING = new Set([
+	"alibaba",
+	"anthropic",
+	"aws-mantle",
+	"azure",
+	"bytedance",
+	"canopywave",
+	"cerebras",
+	"deepseek",
+	"glacier",
+	"google-ai-studio",
+	"google-vertex",
+	"granite",
+	"groq",
+	"iceberg",
+	"meta",
+	"minimax",
+	"moonshot",
+	"novita",
+	"openai",
+	"quartz",
+	"ranoai",
+	"sakana",
+	"scx-ai",
+	"scx-ai-gp",
+	"together-ai",
+	"vertex-anthropic",
+	"zai",
+]);
+
 export function completionIncludesReasoning(provider: string): boolean {
-	return (
-		provider === "google-ai-studio" ||
-		provider === "glacier" ||
-		provider === "iceberg" ||
-		provider === "google-vertex" ||
-		provider === "quartz" ||
-		provider === "openai" ||
-		provider === "azure" ||
-		provider === "sakana" ||
-		provider === "meta" ||
-		provider === "ranoai" ||
-		provider === "aws-mantle" ||
-		provider === "anthropic" ||
-		provider === "vertex-anthropic"
-	);
+	return COMPLETION_INCLUDES_REASONING.has(provider);
 }
 
 /**
