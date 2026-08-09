@@ -49,6 +49,8 @@ export function EscapeLeaderboard({ className }: EscapeLeaderboardProps) {
 					<button
 						type="button"
 						onClick={() => setLevelId(null)}
+						aria-label="All levels"
+						aria-pressed={levelId === null}
 						className={cn(
 							"rounded px-2 py-1 font-mono text-[10px] transition-colors",
 							levelId === null
@@ -63,6 +65,8 @@ export function EscapeLeaderboard({ className }: EscapeLeaderboardProps) {
 							key={level.id}
 							type="button"
 							onClick={() => setLevelId(level.id)}
+							aria-label={`Level ${level.id} — ${level.name}`}
+							aria-pressed={levelId === level.id}
 							className={cn(
 								"rounded px-2 py-1 font-mono text-[10px] transition-colors",
 								levelId === level.id

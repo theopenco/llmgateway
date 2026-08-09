@@ -1,5 +1,6 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import {
 	Check,
 	Loader2,
@@ -64,7 +65,6 @@ interface MoveResponse {
 interface EscapeClientProps {
 	models: ApiModel[];
 	providers: ApiProvider[];
-	organizations: Organization[];
 	selectedOrganization: Organization | null;
 	projects: Project[];
 	selectedProject: Project | null;
@@ -96,7 +96,6 @@ const OUTCOME_COPY = {
 export function EscapeClient({
 	models,
 	providers,
-	organizations,
 	selectedOrganization,
 	selectedProject,
 	initialModelPreference,
@@ -107,6 +106,7 @@ export function EscapeClient({
 	const searchParams = useSearchParams();
 	const posthog = usePostHog();
 	const api = useApi();
+	const queryClient = useQueryClient();
 	const { user, isLoading: isUserLoading } = useUser();
 
 	const [levelId, setLevelId] = useState(initialLevelId);
@@ -123,6 +123,7 @@ export function EscapeClient({
 	const [usedModel, setUsedModel] = useState<string | null>(null);
 	const [shareUrl, setShareUrl] = useState<string | null>(null);
 	const [copied, setCopied] = useState(false);
+	const [recordFailed, setRecordFailed] = useState(false);
 	const [startedAt, setStartedAt] = useState<number | null>(null);
 
 	const level = useMemo(() => getLevel(levelId), [levelId]);
@@ -139,6 +140,10 @@ export function EscapeClient({
 	// position and bill a turn the player already paid for.
 	const stateRef = useRef(state);
 	const totalsRef = useRef({ spent: 0, promptTokens: 0, completionTokens: 0 });
+	// A reset or a level change cannot cancel a turn that is already in flight.
+	// Bumping the generation lets the stale response be dropped instead of
+	// writing the previous run's board, trace and cost into the new one.
+	const generationRef = useRef(0);
 
 	const recordRun = api.useMutation("post", "/escape/runs");
 
@@ -173,6 +178,7 @@ export function EscapeClient({
 	}, [isAuthenticated, selectedOrganization, selectedProject]);
 
 	const reset = useCallback((nextLevelId: number) => {
+		generationRef.current += 1;
 		inFlight.current = false;
 		totalsRef.current = { spent: 0, promptTokens: 0, completionTokens: 0 };
 		stateRef.current = createGame(nextLevelId);
@@ -186,6 +192,7 @@ export function EscapeClient({
 		setUsedModel(null);
 		setShareUrl(null);
 		setCopied(false);
+		setRecordFailed(false);
 		setStartedAt(null);
 	}, []);
 
@@ -241,11 +248,30 @@ export function EscapeClient({
 				{
 					onSuccess: (data) => {
 						setShareUrl(`${window.location.origin}/escape/r/${data.run.id}`);
+						// The run the player just finished belongs on the board below
+						// them, not after a reload.
+						void queryClient.invalidateQueries({
+							queryKey: api
+								.queryOptions("get", "/public/escape/leaderboard")
+								.queryKey.slice(0, 2),
+						});
+					},
+					onError: () => {
+						setRecordFailed(true);
+						toast.error("Could not save this run to the leaderboard");
 					},
 				},
 			);
 		},
-		[isAuthenticated, model, posthog, recordRun, selectedOrganization?.id],
+		[
+			api,
+			isAuthenticated,
+			model,
+			posthog,
+			queryClient,
+			recordRun,
+			selectedOrganization?.id,
+		],
 	);
 
 	const takeTurn = useCallback(async () => {
@@ -253,6 +279,7 @@ export function EscapeClient({
 			return;
 		}
 		inFlight.current = true;
+		const generation = generationRef.current;
 		setThinking(true);
 		const runStartedAt = startedAt ?? Date.now();
 		setStartedAt(runStartedAt);
@@ -272,12 +299,18 @@ export function EscapeClient({
 				const payload = (await response.json().catch(() => null)) as {
 					error?: string;
 				} | null;
-				setRunning(false);
-				toast.error(payload?.error ?? "The model could not take a turn");
+				if (generation === generationRef.current) {
+					setRunning(false);
+					toast.error(payload?.error ?? "The model could not take a turn");
+				}
 				return;
 			}
 
 			const data = (await response.json()) as MoveResponse;
+			if (generation !== generationRef.current) {
+				// The player reset or switched level while this turn was in flight.
+				return;
+			}
 			const totals = {
 				spent: totalsRef.current.spent + data.usage.cost,
 				promptTokens: totalsRef.current.promptTokens + data.usage.promptTokens,
@@ -309,11 +342,17 @@ export function EscapeClient({
 				recordFinishedRun(data.state, data.usedModel, totals, runStartedAt);
 			}
 		} catch {
-			setRunning(false);
-			toast.error("Lost contact with the sandbox");
+			if (generation === generationRef.current) {
+				setRunning(false);
+				toast.error("Lost contact with the sandbox");
+			}
 		} finally {
-			inFlight.current = false;
-			setThinking(false);
+			// A newer run already owns these flags; leaving them alone stops a
+			// stale turn from unlocking a turn the new run has in flight.
+			if (generation === generationRef.current) {
+				inFlight.current = false;
+				setThinking(false);
+			}
 		}
 	}, [levelId, model, recordFinishedRun, startedAt]);
 
@@ -371,7 +410,6 @@ export function EscapeClient({
 			<SidebarProvider>
 				<div className="flex h-dvh w-full bg-[#020406]">
 					<EscapeSidebar
-						organizations={organizations}
 						selectedOrganization={selectedOrganization}
 						levelId={levelId}
 						onSelectLevel={selectLevel}
@@ -484,7 +522,9 @@ export function EscapeClient({
 																		? copied
 																			? "Copied"
 																			: "Share result"
-																		: "Saving…"}
+																		: recordFailed
+																			? "Could not save"
+																			: "Saving…"}
 																</Button>
 															</div>
 														</motion.div>

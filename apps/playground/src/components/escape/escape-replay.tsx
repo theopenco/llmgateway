@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { EscapeBoard } from "@/components/escape/escape-board";
 import { Button } from "@/components/ui/button";
 
-import { createGame, replayGame } from "@llmgateway/shared/sandbox-escape";
+import { applyMove, createGame } from "@llmgateway/shared/sandbox-escape";
 
 import type { Direction, GameState } from "@llmgateway/shared/sandbox-escape";
 
@@ -25,10 +25,12 @@ export function EscapeReplay({ levelId, moves }: EscapeReplayProps) {
 	const [cursor, setCursor] = useState(0);
 	const [playing, setPlaying] = useState(true);
 
+	// Accumulated in one pass: replaying each prefix from scratch would be
+	// quadratic in the move count.
 	const frames = useMemo(() => {
 		const all: GameState[] = [createGame(levelId)];
-		for (let i = 1; i <= moves.length; i++) {
-			all.push(replayGame(levelId, moves.slice(0, i)));
+		for (const move of moves) {
+			all.push(applyMove(all[all.length - 1], move));
 		}
 		return all;
 	}, [levelId, moves]);

@@ -875,6 +875,21 @@ export interface ParsedMove {
 	recovered: boolean;
 }
 
+/** Returns the body of the first ``` fenced block, or null when there is none. */
+function extractFencedBlock(text: string): string | null {
+	const open = text.indexOf("```");
+	if (open === -1) {
+		return null;
+	}
+	// Skip the info string ("json", "JSON", …) that follows the opening fence.
+	const bodyStart = text.indexOf("\n", open + 3);
+	if (bodyStart === -1) {
+		return null;
+	}
+	const close = text.indexOf("```", bodyStart);
+	return close === -1 ? null : text.slice(bodyStart + 1, close);
+}
+
 /**
  * Reads a move out of a model reply. Every model in the catalogue can play, so
  * this tolerates prose, markdown fences, and reasoning preambles rather than
@@ -884,9 +899,12 @@ export function parseMoveResponse(text: string): ParsedMove | null {
 	const trimmed = text.trim();
 
 	const candidates: string[] = [];
-	const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
+	// Fence extraction is done by index rather than by regex: a pattern like
+	// /```(?:json)?\s*([\s\S]*?)```/ backtracks polynomially on an unterminated
+	// fence followed by a long run of whitespace, and this input is model output.
+	const fenced = extractFencedBlock(trimmed);
 	if (fenced) {
-		candidates.push(fenced[1]);
+		candidates.push(fenced);
 	}
 	const firstBrace = trimmed.indexOf("{");
 	const lastBrace = trimmed.lastIndexOf("}");

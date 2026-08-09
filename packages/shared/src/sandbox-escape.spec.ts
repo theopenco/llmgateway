@@ -371,7 +371,12 @@ describe("replay", () => {
 	test("replay refuses to run past the move cap", () => {
 		const moves = new Array<Direction>(ESCAPE_MAX_MOVES + 50).fill("wait");
 		const state = replayGame(1, moves);
-		expect(state.step).toBeLessThanOrEqual(ESCAPE_MAX_MOVES);
+		// Assert the exact terminal state: a bare `step <= ESCAPE_MAX_MOVES` bound
+		// would still hold with the slice removed, because the step budget stops
+		// the run long before the cap is reached.
+		expect(state.moves.length).toBeLessThanOrEqual(ESCAPE_MAX_MOVES);
+		expect(state.outcome).toBe("timeout");
+		expect(state.step).toBe(state.stepBudget);
 	});
 });
 
@@ -445,6 +450,25 @@ describe("response parsing", () => {
 		expect(parsed?.move).toBe("up");
 		expect(parsed?.thought).toBe("North looks clear.");
 		expect(parsed?.recovered).toBe(false);
+	});
+
+	test("parses a fence with no info string or trailing newline", () => {
+		expect(parseMoveResponse('```\n{"move": "left"}\n```')?.move).toBe("left");
+		// No newline after the opening fence, so the brace scan has to carry it.
+		expect(parseMoveResponse('```{"move": "left"}```')?.move).toBe("left");
+	});
+
+	test("handles an unterminated fence without backtracking", () => {
+		// Regression: a regex-based fence match ran polynomially on this shape,
+		// and the input is model output.
+		const hostile = "```".concat(" ".repeat(50_000));
+		const started = Date.now();
+		expect(parseMoveResponse(hostile)).toBeNull();
+		expect(Date.now() - started).toBeLessThan(1000);
+
+		expect(
+			parseMoveResponse(`\`\`\`${" ".repeat(20_000)}{"move": "up"}`)?.move,
+		).toBe("up");
 	});
 
 	test("recovers a move from malformed JSON", () => {

@@ -4,33 +4,12 @@ import { notFound } from "next/navigation";
 import { EscapeReplay } from "@/components/escape/escape-replay";
 import { Button } from "@/components/ui/button";
 import { Wordmark } from "@/components/ui/wordmark";
-import { getConfig } from "@/lib/config-server";
+import { fetchEscapeRun } from "@/lib/escape-run";
 
 import { isDirection } from "@llmgateway/shared/sandbox-escape";
 
 import type { Direction } from "@llmgateway/shared/sandbox-escape";
 import type { Metadata } from "next";
-
-interface EscapeRunResponse {
-	run: {
-		id: string;
-		levelId: number;
-		levelName: string;
-		levelSlug: string;
-		model: string;
-		usedModel: string | null;
-		usedProvider: string | null;
-		outcome: "escaped" | "terminated" | "timeout";
-		steps: number;
-		par: number;
-		score: number;
-		moves: string[];
-		promptTokens: number;
-		completionTokens: number;
-		cost: number;
-		createdAt: string;
-	};
-}
 
 const OUTCOME_LABEL = {
 	escaped: "escaped the sandbox",
@@ -38,29 +17,13 @@ const OUTCOME_LABEL = {
 	timeout: "ran out of compute budget",
 } as const;
 
-async function fetchRun(runId: string): Promise<EscapeRunResponse | null> {
-	const config = getConfig();
-	try {
-		const response = await fetch(
-			`${config.apiBackendUrl}/public/escape/runs/${runId}`,
-			{ cache: "no-store" },
-		);
-		if (!response.ok) {
-			return null;
-		}
-		return (await response.json()) as EscapeRunResponse;
-	} catch {
-		return null;
-	}
-}
-
 export async function generateMetadata({
 	params,
 }: {
 	params: Promise<{ runId: string }>;
 }): Promise<Metadata> {
 	const { runId } = await params;
-	const data = await fetchRun(runId);
+	const data = await fetchEscapeRun(runId);
 
 	if (!data) {
 		return {
@@ -110,7 +73,7 @@ export default async function EscapeRunPage({
 	params: Promise<{ runId: string }>;
 }) {
 	const { runId } = await params;
-	const data = await fetchRun(runId);
+	const data = await fetchEscapeRun(runId);
 
 	if (!data) {
 		notFound();

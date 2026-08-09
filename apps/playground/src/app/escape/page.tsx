@@ -50,6 +50,9 @@ export default async function EscapePage({
 		await Promise.all([
 			fetchModels(),
 			fetchProviders(),
+			// Chained, not parallel: the first call's response is discarded and it is
+			// made purely for its side effect of creating the Chat organization,
+			// which must exist before the org list is read.
 			fetchServerData("GET", "/playground/chat-org").then(() =>
 				fetchServerData("GET", "/orgs", {
 					params: { query: { includeChat: "true" } },
@@ -124,7 +127,6 @@ export default async function EscapePage({
 			<EscapeClient
 				models={models}
 				providers={providers}
-				organizations={organizations}
 				selectedOrganization={selectedOrganization}
 				projects={projects}
 				selectedProject={selectedProject}

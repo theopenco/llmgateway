@@ -75,9 +75,12 @@ export function EscapeTrace({
 
 				<ul className="flex flex-col gap-3">
 					<AnimatePresence initial={false}>
-						{entries.map((entry) => (
+						{entries.map((entry, index) => (
 							<motion.li
-								key={entry.step}
+								// Keyed by position, not by `entry.step`: the step number comes
+								// from engine state and is only incidentally unique, so a
+								// repeated value would collide inside AnimatePresence.
+								key={index}
 								initial={{ opacity: 0, x: -8 }}
 								animate={{ opacity: 1, x: 0 }}
 								transition={{ duration: 0.2 }}

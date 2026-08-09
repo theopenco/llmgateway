@@ -128,14 +128,25 @@ export async function POST(req: Request) {
 	});
 
 	const startedAt = Date.now();
-	const result = await generateText({
-		model: llmgateway.chat(model as Parameters<typeof llmgateway.chat>[0], {
-			usage: { include: true },
-		}),
-		system: ESCAPE_SYSTEM_PROMPT,
-		messages: [{ role: "user", content: buildTurnPrompt(state) }],
-		maxOutputTokens: MAX_OUTPUT_TOKENS,
-	});
+	let result: Awaited<ReturnType<typeof generateText>>;
+	try {
+		result = await generateText({
+			model: llmgateway.chat(model as Parameters<typeof llmgateway.chat>[0], {
+				usage: { include: true },
+			}),
+			system: ESCAPE_SYSTEM_PROMPT,
+			messages: [{ role: "user", content: buildTurnPrompt(state) }],
+			maxOutputTokens: MAX_OUTPUT_TOKENS,
+		});
+	} catch (error) {
+		// Insufficient credits is the likeliest failure here, and the player can
+		// only act on it if they see it — letting the throw become a generic 500
+		// would surface as "the model could not take a turn".
+		return badRequest(
+			error instanceof Error ? error.message : "The gateway call failed",
+			502,
+		);
+	}
 
 	const parsed = parseMoveResponse(result.text);
 	// A model that cannot name a move still spent a turn deciding, so the turn
@@ -149,7 +160,6 @@ export async function POST(req: Request) {
 	return Response.json({
 		move,
 		thought: parsed?.thought ?? "",
-		recovered: parsed?.recovered ?? true,
 		understood: parsed !== null,
 		state: nextState,
 		usedModel: result.response?.modelId ?? null,

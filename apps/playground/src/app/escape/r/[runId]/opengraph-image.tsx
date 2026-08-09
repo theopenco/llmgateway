@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og";
 
-import { getConfig } from "@/lib/config-server";
+import { fetchEscapeRun } from "@/lib/escape-run";
 
 import { isDirection, replayGame } from "@llmgateway/shared/sandbox-escape";
 
@@ -8,22 +8,6 @@ import type { Direction, GameState } from "@llmgateway/shared/sandbox-escape";
 
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
-
-interface EscapeRunResponse {
-	run: {
-		id: string;
-		levelId: number;
-		levelName: string;
-		model: string;
-		outcome: "escaped" | "terminated" | "timeout";
-		steps: number;
-		par: number;
-		score: number;
-		moves: string[];
-		promptTokens: number;
-		completionTokens: number;
-	};
-}
 
 const OUTCOME = {
 	escaped: {
@@ -154,17 +138,13 @@ export default async function EscapeRunOgImage({
 }) {
 	try {
 		const { runId } = await params;
-		const config = getConfig();
-		const response = await fetch(
-			`${config.apiBackendUrl}/public/escape/runs/${runId}`,
-			{ cache: "no-store" },
-		);
+		const data = await fetchEscapeRun(runId);
 
-		if (!response.ok) {
+		if (!data) {
 			throw new Error("Run not found");
 		}
 
-		const { run } = (await response.json()) as EscapeRunResponse;
+		const { run } = data;
 		const state = replayGame(
 			run.levelId,
 			run.moves.filter(isDirection) as Direction[],
