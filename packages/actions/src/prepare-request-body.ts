@@ -1284,7 +1284,10 @@ export async function prepareRequestBody(
 	// Together AI, ByteDance, and Z.ai reason by default so they must explicitly disable
 	// thinking when asked. Every other provider treats the absence of
 	// reasoning_effort as "off" already, so normalize `none` away for them to
-	// avoid forwarding an unsupported enum value.
+	// avoid forwarding an unsupported enum value. A mapping that publishes
+	// `none` in its `reasoningEfforts` catalog entry is authoritative too —
+	// it documents that the provider accepts the value, so forward it even
+	// when the provider is not in the allowlist above (#3423).
 	const handlesNoneNatively =
 		usedProvider === "openai" ||
 		usedProvider === "azure" ||
@@ -1303,7 +1306,7 @@ export async function prepareRequestBody(
 		usedProvider === "together-ai" ||
 		usedProvider === "bytedance" ||
 		usedProvider === "zai" ||
-		providerMappingForOptions?.apiFormat === "openai-chat-completions";
+		(providerMappingForOptions?.reasoningEfforts?.includes("none") ?? false);
 	if (reasoning_effort === "none" && !handlesNoneNatively) {
 		reasoning_effort = undefined;
 	}
