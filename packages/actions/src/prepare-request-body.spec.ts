@@ -3790,7 +3790,7 @@ describe("prepareRequestBody - reasoning.max_tokens forwarding", () => {
 			[{ role: "user", content: "What is 2/3 + 1/4 + 5/6?" }],
 			false, // stream
 			undefined, // temperature
-			1024, // max_tokens (must exceed thinking budget)
+			1024, // max_tokens (raised by the gateway to clear the thinking budget)
 			undefined, // top_p
 			undefined, // frequency_penalty
 			undefined, // presence_penalty
@@ -3814,6 +3814,59 @@ describe("prepareRequestBody - reasoning.max_tokens forwarding", () => {
 			type: "enabled",
 			budget_tokens: budget,
 		});
+		expect(requestBody.max_tokens).toBeGreaterThan(budget);
+	});
+
+	test("anthropic raises max_tokens above a low-effort thinking budget", async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-sonnet-4-6",
+			null,
+			"claude-sonnet-4-6",
+			[{ role: "user", content: "What is 2/3 + 1/4 + 5/6?" }],
+			false, // stream
+			undefined, // temperature
+			1024, // max_tokens (equal to the "low" budget — Anthropic 400s on this)
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			"low", // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+		)) as any;
+
+		expect(requestBody.thinking).toEqual({
+			type: "enabled",
+			budget_tokens: 1024,
+		});
+		expect(requestBody.max_tokens).toBe(2024);
+	});
+
+	test("anthropic leaves a max_tokens that already clears the budget", async () => {
+		const requestBody = (await prepareRequestBody(
+			"anthropic",
+			"claude-sonnet-4-6",
+			null,
+			"claude-sonnet-4-6",
+			[{ role: "user", content: "What is 2/3 + 1/4 + 5/6?" }],
+			false, // stream
+			undefined, // temperature
+			8000, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			"low", // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+		)) as any;
+
+		expect(requestBody.max_tokens).toBe(8000);
 	});
 
 	test("aws-bedrock forwards budget into additionalModelRequestFields.thinking.budget_tokens", async () => {

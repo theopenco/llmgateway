@@ -2870,6 +2870,16 @@ export async function prepareRequestBody(
 						type: "enabled",
 						budget_tokens: thinkingBudget,
 					};
+					// Anthropic rejects the request outright when `max_tokens` is not
+					// strictly greater than `thinking.budget_tokens`. The budget cannot
+					// be lowered to fit (1024 is Anthropic's minimum), so a caller-
+					// supplied max_tokens that leaves no room for a reply is raised to
+					// the budget plus a minimum response allowance — mirroring the
+					// aws-bedrock branch.
+					const reasoningFloor = thinkingBudget + 1000;
+					if (requestBody.max_tokens < reasoningFloor) {
+						requestBody.max_tokens = reasoningFloor;
+					}
 				}
 				// Anthropic requires temperature to be exactly 1 when thinking is
 				// enabled — but only for models that still accept temperature. The
