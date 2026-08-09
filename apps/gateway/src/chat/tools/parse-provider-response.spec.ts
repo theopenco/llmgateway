@@ -824,6 +824,68 @@ describe("parseProviderResponse", () => {
 
 			expect(result.finishReason).toBe("upstream_error");
 		});
+
+		it("maps 'end_turn' finish reason to 'stop' for groq", () => {
+			const json = {
+				choices: [
+					{
+						message: { content: "Hello", role: "assistant" },
+						finish_reason: "end_turn",
+					},
+				],
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"groq",
+				"llama-3.3-70b-versatile",
+				json,
+			);
+
+			expect(result.finishReason).toBe("stop");
+		});
+
+		it("maps 'tool_use' finish reason to 'tool_calls' for together-ai", () => {
+			const json = {
+				choices: [
+					{
+						message: {
+							role: "assistant",
+							content: null,
+							tool_calls: [
+								{
+									id: "call_1",
+									type: "function",
+									function: {
+										name: "get_weather",
+										arguments: '{"city":"San Francisco"}',
+									},
+								},
+							],
+						},
+						finish_reason: "tool_use",
+					},
+				],
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"together-ai",
+				"deepseek-ai/DeepSeek-V3",
+				json,
+			);
+
+			expect(result.finishReason).toBe("tool_calls");
+			expect(result.toolResults).toHaveLength(1);
+		});
 	});
 
 	describe("refusal finish reason", () => {

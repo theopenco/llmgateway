@@ -1074,7 +1074,10 @@ export function parseProviderResponse(
 				reasoningContent = hasReasoning ? aggregatedReasoning : null;
 				finishReason = allChoices[0]?.finish_reason ?? null;
 
-				if (finishReason === "abort") {
+				// Map non-standard finish reasons to OpenAI-compatible values
+				if (finishReason === "end_turn") {
+					finishReason = "stop";
+				} else if (finishReason === "abort") {
 					logger.warn("Upstream sent abort finish_reason", {
 						provider: usedProvider,
 						model: usedModel,
@@ -1087,6 +1090,8 @@ export function parseProviderResponse(
 					// "abort" is an upstream-initiated interruption, not a client
 					// cancellation, so it counts as an upstream error.
 					finishReason = "upstream_error";
+				} else if (finishReason === "tool_use") {
+					finishReason = "tool_calls";
 				}
 
 				// ZAI-specific fix for incorrect finish_reason in tool response scenarios
