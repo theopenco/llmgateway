@@ -434,6 +434,9 @@ const transactionSchema = z.object({
 	currency: z.string(),
 	status: z.string(),
 	description: z.string().nullable(),
+	// Off-Stripe payment channel and its reference, set on manual payments only.
+	paymentMethod: z.string().nullable(),
+	externalReference: z.string().nullable(),
 });
 
 const transactionsListSchema = z.object({
@@ -2844,6 +2847,8 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			currency: tables.transaction.currency,
 			status: tables.transaction.status,
 			description: tables.transaction.description,
+			paymentMethod: tables.transaction.paymentMethod,
+			externalReference: tables.transaction.externalReference,
 		})
 		.from(tables.transaction)
 		.where(eq(tables.transaction.organizationId, orgId))
@@ -2881,6 +2886,8 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			currency: t.currency,
 			status: t.status,
 			description: t.description,
+			paymentMethod: t.paymentMethod,
+			externalReference: t.externalReference,
 		})),
 		total,
 		limit,
@@ -6187,6 +6194,9 @@ const manualCreditsRoute = createRoute({
 							.number()
 							.min(0.01, "Credit amount must be positive"),
 						paymentMethod: z.enum(manualPaymentMethods),
+						// Identifier for the payment on its own channel: a bank wire
+						// reference, an on-chain tx hash, a PayPal transaction id.
+						externalReference: z.string().trim().max(255).optional(),
 						comment: z.string().optional(),
 					}),
 				},
@@ -6221,7 +6231,8 @@ const manualCreditsRoute = createRoute({
 admin.openapi(manualCreditsRoute, async (c) => {
 	const user = c.get("user");
 	const { orgId } = c.req.valid("param");
-	const { creditAmount, paymentMethod, comment } = c.req.valid("json");
+	const { creditAmount, paymentMethod, externalReference, comment } =
+		c.req.valid("json");
 
 	const org = await db.query.organization.findFirst({
 		where: {
@@ -6254,6 +6265,7 @@ admin.openapi(manualCreditsRoute, async (c) => {
 				status: "completed",
 				description,
 				paymentMethod,
+				externalReference: externalReference || null,
 			})
 			.returning({ id: tables.transaction.id });
 
@@ -6280,6 +6292,7 @@ admin.openapi(manualCreditsRoute, async (c) => {
 		metadata: {
 			creditAmount,
 			paymentMethod,
+			externalReference,
 			comment,
 			transactionId,
 		},

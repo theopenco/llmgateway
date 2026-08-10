@@ -131,7 +131,8 @@ function getTransactionTypeBadgeVariant(type: string) {
 	if (
 		type.includes("start") ||
 		type.includes("topup") ||
-		type.includes("gift")
+		type.includes("gift") ||
+		type.includes("manual_payment")
 	) {
 		return "default";
 	}
@@ -485,6 +486,7 @@ export default async function OrganizationPage({
 										<TableHead>Amount</TableHead>
 										<TableHead>Credits</TableHead>
 										<TableHead>Status</TableHead>
+										<TableHead>Reference</TableHead>
 										<TableHead>Description</TableHead>
 									</TableRow>
 								</TableHeader>
@@ -492,7 +494,7 @@ export default async function OrganizationPage({
 									{transactions.length === 0 ? (
 										<TableRow>
 											<TableCell
-												colSpan={6}
+												colSpan={7}
 												className="h-24 text-center text-muted-foreground"
 											>
 												No transactions found
@@ -539,6 +541,9 @@ export default async function OrganizationPage({
 													>
 														{transaction.status}
 													</Badge>
+												</TableCell>
+												<TableCell className="max-w-[180px] truncate font-mono text-xs text-muted-foreground">
+													{transaction.externalReference ?? "—"}
 												</TableCell>
 												<TableCell className="max-w-[200px] truncate text-muted-foreground">
 													{transaction.description ?? "—"}

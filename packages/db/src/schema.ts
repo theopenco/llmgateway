@@ -505,6 +505,11 @@ export const transaction = pgTable(
 		paymentMethod: text({
 			enum: ["wire", "crypto", "paypal", "other"],
 		}),
+		// Free-form identifier for the payment on its own channel — a bank wire
+		// reference, an on-chain transaction hash, a PayPal transaction id. Set
+		// only on `credit_manual_payment` rows, so a credit can be traced back to
+		// the money that paid for it without digging through the description.
+		externalReference: text(),
 	},
 	(table) => [
 		index("transaction_organization_id_idx").on(table.organizationId),

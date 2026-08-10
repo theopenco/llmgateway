@@ -77,6 +77,7 @@ export async function addManualCreditsToOrganization(
 	body: {
 		creditAmount: number;
 		paymentMethod: "wire" | "crypto" | "paypal" | "other";
+		externalReference?: string;
 		comment?: string;
 	},
 ): Promise<{ success: boolean; error?: string }> {

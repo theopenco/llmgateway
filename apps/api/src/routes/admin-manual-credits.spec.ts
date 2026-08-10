@@ -45,6 +45,7 @@ describe("admin manual credits", () => {
 				body: JSON.stringify({
 					creditAmount: 250,
 					paymentMethod: "wire",
+					externalReference: "REF-20260810-ACME",
 					comment: "Invoice INV-42",
 				}),
 			},
@@ -69,8 +70,27 @@ describe("admin manual credits", () => {
 		expect(Number(txn.amount)).toBe(250);
 		expect(Number(txn.creditAmount)).toBe(250);
 		expect(txn.paymentMethod).toBe("wire");
+		expect(txn.externalReference).toBe("REF-20260810-ACME");
 		expect(txn.description).toContain("wire");
 		expect(txn.description).toContain("Invoice INV-42");
+	});
+
+	test("leaves the reference null when it is omitted", async () => {
+		const res = await app.request(
+			`/admin/organizations/${ORG_ID}/manual-credits`,
+			{
+				method: "POST",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({ creditAmount: 25, paymentMethod: "crypto" }),
+			},
+		);
+		expect(res.status).toBe(200);
+
+		const [txn] = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txn.externalReference).toBeNull();
+		expect(txn.paymentMethod).toBe("crypto");
 	});
 
 	test("rejects an unknown payment method", async () => {

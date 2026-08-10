@@ -39,6 +39,7 @@ interface ManualCreditsDialogProps {
 	onCredit: (data: {
 		creditAmount: number;
 		paymentMethod: ManualPaymentMethod;
+		externalReference?: string;
 		comment?: string;
 	}) => Promise<{ success: boolean; error?: string }>;
 }
@@ -54,6 +55,7 @@ export function ManualCreditsDialog({
 	const [creditAmount, setCreditAmount] = useState("");
 	const [paymentMethod, setPaymentMethod] =
 		useState<ManualPaymentMethod>("wire");
+	const [externalReference, setExternalReference] = useState("");
 	const [comment, setComment] = useState("");
 
 	const handleSubmit = async () => {
@@ -69,6 +71,7 @@ export function ManualCreditsDialog({
 		const result = await onCredit({
 			creditAmount: amount,
 			paymentMethod,
+			externalReference: externalReference.trim() || undefined,
 			comment: comment.trim() || undefined,
 		});
 
@@ -78,6 +81,7 @@ export function ManualCreditsDialog({
 			setOpen(false);
 			setCreditAmount("");
 			setPaymentMethod("wire");
+			setExternalReference("");
 			setComment("");
 			router.refresh();
 		} else {
@@ -141,6 +145,23 @@ export function ManualCreditsDialog({
 								))}
 							</SelectContent>
 						</Select>
+					</div>
+
+					<div className="space-y-2">
+						<Label htmlFor="manualExternalReference">
+							Transaction ID / Reference (Optional)
+						</Label>
+						<Input
+							id="manualExternalReference"
+							value={externalReference}
+							onChange={(e) => setExternalReference(e.target.value)}
+							placeholder="e.g. bank reference, tx hash, PayPal id"
+							maxLength={255}
+						/>
+						<p className="text-xs text-muted-foreground">
+							Identifier for the payment on its own channel, kept as a separate
+							field for reconciliation
+						</p>
 					</div>
 
 					<div className="space-y-2">

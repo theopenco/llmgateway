@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "b1b07cc6-86fd-4ca6-bea6-62297ed9f493",
+  "id": "555277a3-5022-4bee-8be6-545f0ed166b4",
   "prevId": "f2f76594-0578-454e-9169-df064a03d10e",
   "ddl": [
     {
@@ -21127,6 +21127,19 @@
       "generated": null,
       "identity": null,
       "name": "payment_method",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "transaction"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "external_reference",
       "entityType": "columns",
       "schema": "public",
       "table": "transaction"
