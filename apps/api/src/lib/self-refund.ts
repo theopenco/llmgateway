@@ -143,7 +143,8 @@ function latestOf(rows: TransactionRow[]): TransactionRow | undefined {
 /**
  * Total credits ever consumed by the org, reconstructed from the pooled
  * balance: every credit grant and drain besides gateway usage is recorded
- * either as a transaction row (topups, gifts, refunds, end-user bonuses) or on
+ * either as a transaction row (topups, manual payments, gifts, refunds,
+ * end-user bonuses) or on
  * the org row itself (referral earnings, which are only ever incremented), so
  * usage = grants − balance. Referral-bonus reversals aren't reconstructed,
  * which only over-counts usage — erring toward denying the refund.
@@ -160,6 +161,7 @@ function computeUsedCredits(
 		if (
 			t.type === "credit_topup" ||
 			t.type === "credit_gift" ||
+			t.type === "credit_manual_payment" ||
 			t.type === "credit_refund"
 		) {
 			// credit_refund rows carry a negative creditAmount, netting out the

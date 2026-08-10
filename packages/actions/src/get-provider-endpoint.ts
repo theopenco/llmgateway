@@ -9,8 +9,11 @@ import {
 	type VertexTokenType,
 	getProviderEnvValue,
 	getProviderEnvConfig,
+	getRegionEnvVarSuffix,
+	getRegionScopedProviderEnvValue,
 	getVariantEnvVarNameFor,
 	resolveVertexTokenType,
+	REGION_WORKSPACE_ID_PLACEHOLDER,
 } from "@llmgateway/models";
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
@@ -34,6 +37,55 @@ function getBedrockMantleBaseUrl(url: string, region?: string): string {
 		return `https://bedrock-mantle.${mantleRegion}.api.aws/openai/v1`;
 	}
 	return appendPath(url, "/openai/v1");
+}
+
+/**
+ * Fill the workspace placeholder of a workspace-scoped region endpoint
+ * (Alibaba Frankfurt), falling back to the region's shared entry point when no
+ * workspace id is configured. The workspace id becomes part of the hostname,
+ * so it is validated against the character set Model Studio issues (`ws-…`)
+ * rather than interpolated blindly.
+ */
+function resolveWorkspaceScopedEndpoint(
+	provider: ProviderId,
+	baseUrl: string,
+	region: string | undefined,
+	workspaceId: string | undefined,
+): string {
+	if (!baseUrl.includes(REGION_WORKSPACE_ID_PLACEHOLDER)) {
+		return baseUrl;
+	}
+
+	const envConfig = getProviderEnvConfig(provider);
+	const workspaceEnvVar = envConfig?.optional?.workspaceId;
+	const regionalEnvVar =
+		workspaceEnvVar && region
+			? `${workspaceEnvVar}__${getRegionEnvVarSuffix(region)}`
+			: workspaceEnvVar;
+
+	if (!workspaceId) {
+		// No workspace id: fall back to the region's shared entry point, which
+		// resolves the workspace from the API key. Only a region without such a
+		// host is unroutable.
+		const providerDef = providers.find((p) => p.id === provider) as
+			ProviderDefinition | undefined;
+		const fallback = region
+			? providerDef?.regionConfig?.endpointFallbackMap?.[region]
+			: undefined;
+		if (fallback) {
+			return fallback;
+		}
+		throw new Error(
+			`Provider ${provider} region ${region} is only reachable through a workspace-dedicated endpoint - set the workspace id on the provider key or via the ${regionalEnvVar} env var`,
+		);
+	}
+	if (!/^[a-zA-Z0-9-]{1,64}$/.test(workspaceId)) {
+		throw new Error(
+			`Provider ${provider} workspace id is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or the ${regionalEnvVar} env var)`,
+		);
+	}
+
+	return baseUrl.replace(REGION_WORKSPACE_ID_PLACEHOLDER, workspaceId);
 }
 
 function buildVertexCompatibleEndpoint(
@@ -374,8 +426,22 @@ export function getProviderEndpoint(
 				}
 				break;
 			case "alibaba": {
-				const alibabaBaseUrl =
-					regionBaseUrl ?? "https://dashscope-intl.aliyuncs.com";
+				const alibabaBaseUrl = resolveWorkspaceScopedEndpoint(
+					"alibaba",
+					regionBaseUrl ?? "https://dashscope-intl.aliyuncs.com",
+					region,
+					credentialConfig?.workspaceId ??
+						providerKeyOptions?.alibaba_workspace_id ??
+						(skipEnvVars
+							? undefined
+							: getRegionScopedProviderEnvValue(
+									"alibaba",
+									"workspaceId",
+									region,
+									configIndex,
+									variant,
+								)),
+				);
 				// Use different base URL for image generation vs chat completions
 				if (imageGenerations) {
 					url = alibabaBaseUrl;
