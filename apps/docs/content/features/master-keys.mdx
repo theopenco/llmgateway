@@ -353,6 +353,11 @@ Response (200):
 
 Returns usage and cost for the master key's organization as a flat list of rows, grouped by any combination of member, model, provider, project, and API key, and bucketed hourly, daily, or not at all. This is the endpoint to point an internal reporting tool, data warehouse, or chargeback job at — it is the only usage surface that authenticates with a token rather than a dashboard session.
 
+<Callout type="info">
+	Like every `/v1/master/*` endpoint, this requires an **Enterprise** plan. A
+	master key on any other plan receives a `403`.
+</Callout>
+
 ```bash
 # Cost per member for a month
 curl -G https://internal.llmgateway.io/v1/master/usage \
