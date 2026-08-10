@@ -18,6 +18,10 @@ import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useEffect, useRef, useState } from "react";
 
+import {
+	extractErrorMessage,
+	readCompletionStream,
+} from "@/components/onboarding/completion-stream";
 import { QuickStartSection } from "@/components/shared/quick-start-snippet";
 import { useDefaultProject } from "@/hooks/useDefaultProject";
 import { Button } from "@/lib/components/button";
@@ -30,7 +34,7 @@ import {
 } from "@/lib/components/card";
 import { Textarea } from "@/lib/components/textarea";
 import { useAppConfig } from "@/lib/config";
-import { useApi } from "@/lib/fetch-client";
+import { useApi, useFetchClient } from "@/lib/fetch-client";
 
 import { ONBOARDING_MODEL } from "@llmgateway/shared";
 
@@ -41,6 +45,7 @@ export function OnboardingWizard() {
 	const posthog = usePostHog();
 	const queryClient = useQueryClient();
 	const api = useApi();
+	const fetchClient = useFetchClient();
 	const config = useAppConfig();
 	const { data: project } = useDefaultProject();
 
@@ -123,111 +128,62 @@ export function OnboardingWizard() {
 
 		try {
 			// The gateway does not allow cross-origin browser requests, so the
-			// test request goes through the API's server-side proxy. That proxy
-			// sits behind the session middleware, so the session cookie has to
-			// be sent along — the API is on a different origin than the UI.
-			const res = await fetch(`${config.apiUrl}/chat/completion`, {
-				method: "POST",
-				credentials: "include",
-				headers: {
-					"Content-Type": "application/json",
+			// test request goes through the API's server-side proxy. The typed
+			// client sends the session cookie that proxy's session middleware
+			// requires, and `parseAs: "stream"` hands back the SSE body unread.
+			const { data, error, response } = await fetchClient.POST(
+				"/chat/completion",
+				{
+					body: {
+						model: ONBOARDING_MODEL,
+						messages: [
+							{
+								role: "system",
+								content: "Keep your answer short and under 2 sentences.",
+							},
+							{ role: "user", content: prompt.trim() },
+						],
+						stream: true,
+						apiKey,
+						onboarding: true,
+					},
+					parseAs: "stream",
+					signal: controller.signal,
 				},
-				body: JSON.stringify({
-					model: ONBOARDING_MODEL,
-					messages: [
-						{
-							role: "system",
-							content: "Keep your answer short and under 2 sentences.",
-						},
-						{ role: "user", content: prompt.trim() },
-					],
-					stream: true,
-					apiKey,
-					onboarding: true,
-				}),
-				signal: controller.signal,
-			});
+			);
 
-			if (!res.ok) {
-				const data = await res.json();
-				const errorMsg =
-					(typeof data.error === "string" ? data.error : data.error?.message) ??
-					"Request failed";
+			if (!response.ok) {
+				const errorMsg = extractErrorMessage(error);
 				setTryError(errorMsg);
 				posthog.capture("onboarding_try_error", { error: errorMsg });
 				return;
 			}
 
-			const reader = res.body?.getReader();
-			if (!reader) {
+			if (!data) {
 				setTryError("Streaming not supported.");
 				return;
 			}
 
-			const decoder = new TextDecoder();
-			let accumulated = "";
-			let model = "auto";
-			let buffer = "";
-			// The gateway reports failures that happen after the response has
-			// started as an SSE `error` event with a 200 status, so the stream
-			// has to be inspected for them instead of only the HTTP status.
-			let streamError: string | null = null;
+			const {
+				content,
+				model,
+				error: streamError,
+			} = await readCompletionStream(data, setTryResponse);
 
-			while (true) {
-				const { done, value } = await reader.read();
-				if (done) {
-					break;
-				}
-
-				buffer += decoder.decode(value, { stream: true });
-				const lines = buffer.split("\n");
-				buffer = lines.pop() ?? "";
-
-				for (const line of lines) {
-					const trimmed = line.trim();
-					if (!trimmed || !trimmed.startsWith("data: ")) {
-						continue;
-					}
-
-					const data = trimmed.slice(6);
-					if (data === "[DONE]") {
-						continue;
-					}
-
-					try {
-						const parsed = JSON.parse(data);
-						if (parsed.error) {
-							streamError =
-								(typeof parsed.error === "string"
-									? parsed.error
-									: parsed.error?.message) ?? "Request failed";
-						}
-						const delta = parsed.choices?.[0]?.delta?.content;
-						if (delta) {
-							accumulated += delta;
-							setTryResponse(accumulated);
-						}
-						if (parsed.model) {
-							model = parsed.model;
-						}
-					} catch {
-						// Skip malformed chunks
-					}
-				}
-			}
-
-			if (streamError && !accumulated) {
+			// A stream can carry partial content *and* an error; keep whatever
+			// arrived on screen but never record the attempt as a success.
+			if (streamError) {
 				setTryError(streamError);
 				posthog.capture("onboarding_try_error", { error: streamError });
 				return;
 			}
 
-			if (!accumulated) {
+			if (!content) {
 				setTryResponse("No response received");
 			}
 			setTriedApi(true);
 			posthog.capture("onboarding_try_success", {
-				model,
+				model: model ?? ONBOARDING_MODEL,
 				responseTimeMs: Date.now() - startTime,
 			});
 		} catch (err) {

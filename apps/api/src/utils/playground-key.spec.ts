@@ -12,7 +12,11 @@ describe("getGatewayUrl", () => {
 		} else {
 			process.env.GATEWAY_URL = previousGatewayUrl;
 		}
-		process.env.NODE_ENV = previousNodeEnv;
+		if (previousNodeEnv === undefined) {
+			delete process.env.NODE_ENV;
+		} else {
+			process.env.NODE_ENV = previousNodeEnv;
+		}
 	});
 
 	// Deployments and local `.envrc` blocks write GATEWAY_URL both ways, and
@@ -30,6 +34,11 @@ describe("getGatewayUrl", () => {
 	test("tolerates a trailing slash", () => {
 		process.env.GATEWAY_URL = "https://api.llmgateway.io/v1/";
 		expect(getGatewayUrl()).toBe("https://api.llmgateway.io/v1");
+	});
+
+	test("collapses a repeated /v1 suffix", () => {
+		process.env.GATEWAY_URL = "https://gateway.example/v1/v1";
+		expect(getGatewayUrl()).toBe("https://gateway.example/v1");
 	});
 
 	test("falls back to the local gateway in development", () => {

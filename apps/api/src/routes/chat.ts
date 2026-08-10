@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { getGatewayUrl } from "@/utils/playground-key.js";
 
+import { redisClient } from "@llmgateway/cache";
 import { db } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { ONBOARDING_MAX_TOKENS, ONBOARDING_MODEL } from "@llmgateway/shared";
@@ -22,6 +23,33 @@ function getOnboardingApiKey() {
 	return (
 		process.env.ONBOARDING_CHAT_API_KEY ?? process.env.SUPPORT_CHAT_API_KEY
 	);
+}
+
+// Onboarding is meant to be tried a couple of times, not looped: an account
+// that never clicks "Go to Dashboard" would otherwise keep spending our key.
+const SPONSORED_CALL_LIMIT = 5;
+const SPONSORED_CALL_WINDOW_SECONDS = 24 * 60 * 60;
+
+/**
+ * Consume one sponsored-call allowance for a user, atomically. Returns false
+ * once the allowance is spent — the caller then falls back to the account's own
+ * key. Fails closed: if the counter can't be read we don't spend our own key.
+ */
+async function reserveSponsoredCall(userId: string): Promise<boolean> {
+	const key = `onboarding_sponsored_calls:${userId}`;
+	try {
+		const used = await redisClient.incr(key);
+		if (used === 1) {
+			await redisClient.expire(key, SPONSORED_CALL_WINDOW_SECONDS);
+		}
+		return used <= SPONSORED_CALL_LIMIT;
+	} catch (error) {
+		logger.error(
+			"Could not reserve a sponsored onboarding call",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+		return false;
+	}
 }
 
 const chatCompletionSchema = z.object({
@@ -65,7 +93,7 @@ chat.openapi(completionRoute, async (c) => {
 
 		const sessionUser = c.get("user");
 		const onboardingApiKey = getOnboardingApiKey();
-		const sponsored = Boolean(
+		const sponsorable = Boolean(
 			onboarding &&
 			onboardingApiKey &&
 			sessionUser &&
@@ -76,6 +104,10 @@ chat.openapi(completionRoute, async (c) => {
 				})
 			)?.onboardingCompleted,
 		);
+		// The allowance is only consumed once we know the request would actually
+		// be sponsored, so an ordinary call never burns it.
+		const sponsored =
+			sponsorable && (await reserveSponsoredCall(sessionUser!.id));
 
 		// Require user to provide their own API key
 		if (!sponsored && !apiKey) {

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
+import { redisClient } from "@llmgateway/cache";
 import { db, eq, tables } from "@llmgateway/db";
 import { ONBOARDING_MAX_TOKENS, ONBOARDING_MODEL } from "@llmgateway/shared";
 
@@ -14,8 +15,16 @@ import { ONBOARDING_MAX_TOKENS, ONBOARDING_MODEL } from "@llmgateway/shared";
 // UI must send its cookie), and the sponsored path has to pin what it spends
 // rather than trusting the request body.
 
+// Both keys are real deployment env vars, so save and restore whatever the
+// developer's environment already had rather than deleting it outright.
+const PLATFORM_KEY_VARS = [
+	"ONBOARDING_CHAT_API_KEY",
+	"SUPPORT_CHAT_API_KEY",
+] as const;
+
 describe("chat completion proxy", () => {
 	let token: string;
+	let previousPlatformKeys: Record<string, string | undefined> = {};
 	let gatewayRequests: {
 		url: string;
 		authorization: string | null;
@@ -25,7 +34,16 @@ describe("chat completion proxy", () => {
 	beforeEach(async () => {
 		token = await createTestUser();
 		gatewayRequests = [];
+
+		previousPlatformKeys = Object.fromEntries(
+			PLATFORM_KEY_VARS.map((name) => [name, process.env[name]]),
+		);
+		delete process.env.SUPPORT_CHAT_API_KEY;
 		process.env.ONBOARDING_CHAT_API_KEY = "platform-onboarding-key";
+
+		// The sponsored-call allowance lives in Redis and outlives the database
+		// reset, so every test starts from a full allowance.
+		await redisClient.del("onboarding_sponsored_calls:test-user-id");
 
 		const originalFetch = globalThis.fetch;
 		vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
@@ -65,7 +83,14 @@ describe("chat completion proxy", () => {
 
 	afterEach(async () => {
 		vi.restoreAllMocks();
-		delete process.env.ONBOARDING_CHAT_API_KEY;
+		for (const name of PLATFORM_KEY_VARS) {
+			const previous = previousPlatformKeys[name];
+			if (previous === undefined) {
+				Reflect.deleteProperty(process.env, name);
+			} else {
+				process.env[name] = previous;
+			}
+		}
 		await deleteAll();
 	});
 
@@ -134,7 +159,9 @@ describe("chat completion proxy", () => {
 	});
 
 	test("falls back to the caller's key when no platform key is configured", async () => {
-		delete process.env.ONBOARDING_CHAT_API_KEY;
+		for (const name of PLATFORM_KEY_VARS) {
+			Reflect.deleteProperty(process.env, name);
+		}
 
 		await request(
 			{ model: ONBOARDING_MODEL, apiKey: "user-token", onboarding: true },
@@ -142,6 +169,24 @@ describe("chat completion proxy", () => {
 		);
 
 		expect(gatewayRequests[0].authorization).toBe("Bearer user-token");
+	});
+
+	test("stops sponsoring once the allowance is spent", async () => {
+		// One more attempt than the allowance; the tail must land on the user's
+		// own key rather than keep spending ours.
+		const authorizations: (string | null)[] = [];
+		for (let attempt = 0; attempt < 6; attempt++) {
+			await request(
+				{ model: ONBOARDING_MODEL, apiKey: "user-token", onboarding: true },
+				token,
+			);
+			authorizations.push(gatewayRequests[attempt].authorization);
+		}
+
+		expect(
+			authorizations.filter((a) => a === "Bearer platform-onboarding-key"),
+		).toHaveLength(5);
+		expect(authorizations[5]).toBe("Bearer user-token");
 	});
 
 	test("leaves non-onboarding requests on the caller's key", async () => {
