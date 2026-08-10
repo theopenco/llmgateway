@@ -1147,6 +1147,36 @@ export async function batchProcessLogs(): Promise<number> {
 					);
 				}
 
+				const sourceBucket = isChatSource(row.source) ? "chat" : "other";
+
+				const addToBucket = (amount: Decimal, premium: boolean) => {
+					const existing = orgCosts.get(row.organization_id) ?? {
+						chat: new Decimal(0),
+						other: new Decimal(0),
+						chatPremium: new Decimal(0),
+						otherPremium: new Decimal(0),
+					};
+					existing[sourceBucket] = existing[sourceBucket].plus(amount);
+					if (premium) {
+						const premiumBucket =
+							sourceBucket === "chat" ? "chatPremium" : "otherPremium";
+						existing[premiumBucket] = existing[premiumBucket].plus(amount);
+					}
+					orgCosts.set(row.organization_id, existing);
+				};
+
+				// Data retention storage is billed separately from inference (log.cost
+				// never includes it), so it is deducted from org credits for every
+				// mode: credits, api-keys (BYOK) and wallet-backed end-user traffic
+				// alike — and also when inference itself was free or zeroed (e.g.
+				// unbilled refusals keep their storage cost).
+				if (row.data_storage_cost) {
+					const storageCost = new Decimal(row.data_storage_cost);
+					if (storageCost.greaterThan(0)) {
+						addToBucket(storageCost, false);
+					}
+				}
+
 				// Prefer the exact decimal billingCost (realtime and other
 				// decimal-billed rows) over the legacy float cost column.
 				const effectiveCost =
@@ -1189,39 +1219,14 @@ export async function batchProcessLogs(): Promise<number> {
 						continue;
 					}
 
-					const sourceBucket = isChatSource(row.source) ? "chat" : "other";
-
-					const addToBucket = (amount: Decimal, premium: boolean) => {
-						const existing = orgCosts.get(row.organization_id) ?? {
-							chat: new Decimal(0),
-							other: new Decimal(0),
-							chatPremium: new Decimal(0),
-							otherPremium: new Decimal(0),
-						};
-						existing[sourceBucket] = existing[sourceBucket].plus(amount);
-						if (premium) {
-							const premiumBucket =
-								sourceBucket === "chat" ? "chatPremium" : "otherPremium";
-							existing[premiumBucket] = existing[premiumBucket].plus(amount);
-						}
-						orgCosts.set(row.organization_id, existing);
-					};
-
-					// Deduct organization credits based on mode:
-					// - Credits mode: deduct full cost (includes request cost + storage cost)
-					// - API keys mode: only deduct storage cost (data retention billing)
+					// Inference cost: credits mode deducts the full cost from org
+					// credits; api-keys mode pays the provider directly (BYOK), so
+					// only the storage cost above is billed.
 					if (row.used_mode === "credits") {
 						addToBucket(
 							apiKeyCost,
 							Boolean(row.used_model && isPremiumUsedModel(row.used_model)),
 						);
-					} else if (row.used_mode === "api-keys") {
-						if (row.data_storage_cost) {
-							const storageCost = new Decimal(row.data_storage_cost);
-							if (storageCost.greaterThan(0)) {
-								addToBucket(storageCost, false);
-							}
-						}
 					}
 				}
 

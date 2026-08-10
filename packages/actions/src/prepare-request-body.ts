@@ -31,7 +31,7 @@ import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import { parseDataUrl } from "./parse-data-url.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
-import { processImageUrl } from "./process-image-url.js";
+import { ImageSizeLimitError, processImageUrl } from "./process-image-url.js";
 import { RequestError } from "./request-error.js";
 import { transformAnthropicMessages } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
@@ -558,6 +558,44 @@ const GOOGLE_OPAQUE_SCHEMA_VALUE_KEYS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * JSON Schema lets `type` be a list of alternatives — `["string", "null"]` is
+ * how most schema generators express an optional field — but Google's `Schema`
+ * proto models `type` as a single enum. A list fails the entire request with
+ * `Invalid JSON payload received. Unknown name "type" at
+ * 'tools[0].function_declarations[N].parameters.properties[M].value': Proto
+ * field is not repeating, cannot start list.`, and since that is a 400 it
+ * classifies as `client_error`: no fallback, no retry.
+ *
+ * Collapse it the way the `response_format` path already does: `"null"` becomes
+ * `nullable: true` and the first remaining member becomes the type. Picking one
+ * member of a genuine multi-type union does lose information, but a single node
+ * cannot express the union in Google's schema, and a narrowed type still yields
+ * usable tool calls where the alternative is that every request carrying the
+ * tool fails.
+ */
+function normalizeGoogleSchemaType(type: unknown): {
+	type?: string;
+	nullable: boolean;
+} {
+	if (typeof type === "string") {
+		return { type, nullable: false };
+	}
+	if (!Array.isArray(type)) {
+		return { nullable: false };
+	}
+
+	const nullable = type.includes("null");
+	const firstNonNull = type.find(
+		(entry): entry is string => typeof entry === "string" && entry !== "null",
+	);
+	// `["null"]` on its own has no Google equivalent — its `Type` enum has no
+	// NULL member — so fall back to a nullable string.
+	const resolved = firstNonNull ?? (nullable ? "string" : undefined);
+
+	return { type: resolved, nullable };
+}
+
+/**
  * Recursively drops everything Google's schema parser does not accept and
  * expands $ref references inline, since Google supports neither $ref nor the
  * bulk of JSON Schema's validation vocabulary.
@@ -612,6 +650,7 @@ function stripUnsupportedSchemaProperties(
 	}
 
 	const cleaned: any = {};
+	let nullableFromType = false;
 
 	for (const [key, value] of Object.entries(schema)) {
 		if (!GOOGLE_SUPPORTED_SCHEMA_KEYS.has(key)) {
@@ -623,16 +662,23 @@ function stripUnsupportedSchemaProperties(
 			continue;
 		}
 
+		if (key === "type") {
+			const normalized = normalizeGoogleSchemaType(value);
+			if (normalized.type !== undefined) {
+				cleaned.type = normalized.type;
+			}
+			nullableFromType ||= normalized.nullable;
+			continue;
+		}
+
 		// For `properties` (a map of user-named fields to schemas), recurse into
 		// each value but do not filter the field names themselves — otherwise a
 		// tool parameter legitimately named `examples`, `prefill`, `const`, etc.
 		// would be silently dropped.
-		if (
-			key === "properties" &&
-			value &&
-			typeof value === "object" &&
-			!Array.isArray(value)
-		) {
+		if (key === "properties") {
+			if (!value || typeof value !== "object" || Array.isArray(value)) {
+				continue;
+			}
 			const cleanedProps: Record<string, any> = {};
 			for (const [propName, propSchema] of Object.entries(value)) {
 				cleanedProps[propName] = stripUnsupportedSchemaProperties(
@@ -645,12 +691,29 @@ function stripUnsupportedSchemaProperties(
 			continue;
 		}
 
+		// Draft-4 tuple validation puts a list in `items`, which hits the same
+		// "Proto field is not repeating" 400 as a list-valued `type`; Google's
+		// `items` is a single schema, so keep the first entry.
+		if (key === "items" && Array.isArray(value)) {
+			const [first] = value;
+			if (first && typeof first === "object") {
+				cleaned.items = stripUnsupportedSchemaProperties(first, defs, seenRefs);
+			}
+			continue;
+		}
+
 		// Recursively clean nested objects
 		if (value && typeof value === "object") {
 			cleaned[key] = stripUnsupportedSchemaProperties(value, defs, seenRefs);
 		} else {
 			cleaned[key] = value;
 		}
+	}
+
+	// Applied after the loop so it wins over an explicit `nullable: false` that
+	// contradicts a `"null"` member in the type list, whichever key came first.
+	if (nullableFromType) {
+		cleaned.nullable = true;
 	}
 
 	// Filter 'required' array to only include properties that exist in 'properties'
@@ -1221,7 +1284,10 @@ export async function prepareRequestBody(
 	// Together AI, ByteDance, and Z.ai reason by default so they must explicitly disable
 	// thinking when asked. Every other provider treats the absence of
 	// reasoning_effort as "off" already, so normalize `none` away for them to
-	// avoid forwarding an unsupported enum value.
+	// avoid forwarding an unsupported enum value. A mapping that publishes
+	// `none` in its `reasoningEfforts` catalog entry is authoritative too —
+	// it documents that the provider accepts the value, so forward it even
+	// when the provider is not in the allowlist above (#3423).
 	const handlesNoneNatively =
 		usedProvider === "openai" ||
 		usedProvider === "azure" ||
@@ -1240,7 +1306,7 @@ export async function prepareRequestBody(
 		usedProvider === "together-ai" ||
 		usedProvider === "bytedance" ||
 		usedProvider === "zai" ||
-		providerMappingForOptions?.apiFormat === "openai-chat-completions";
+		(providerMappingForOptions?.reasoningEfforts?.includes("none") ?? false);
 	if (reasoning_effort === "none" && !handlesNoneNatively) {
 		reasoning_effort = undefined;
 	}
@@ -2870,6 +2936,16 @@ export async function prepareRequestBody(
 						type: "enabled",
 						budget_tokens: thinkingBudget,
 					};
+					// Anthropic rejects the request outright when `max_tokens` is not
+					// strictly greater than `thinking.budget_tokens`. The budget cannot
+					// be lowered to fit (1024 is Anthropic's minimum), so a caller-
+					// supplied max_tokens that leaves no room for a reply is raised to
+					// the budget plus a minimum response allowance — mirroring the
+					// aws-bedrock branch.
+					const reasoningFloor = thinkingBudget + 1000;
+					if (requestBody.max_tokens < reasoningFloor) {
+						requestBody.max_tokens = reasoningFloor;
+					}
 				}
 				// Anthropic requires temperature to be exactly 1 when thinking is
 				// enabled — but only for models that still accept temperature. The
@@ -3265,6 +3341,12 @@ export async function prepareRequestBody(
 									},
 								});
 							} catch (error) {
+								// A size rejection is the user's to act on: degrading to a
+								// placeholder would return a 200 that silently ignores the
+								// image and still bills for the turn.
+								if (error instanceof ImageSizeLimitError) {
+									throw error;
+								}
 								logger.error("Failed to process image for Bedrock", {
 									err:
 										error instanceof Error ? error : new Error(String(error)),
@@ -4082,7 +4164,21 @@ export async function prepareRequestBody(
 					supported.length === 0 ||
 					supported.includes("reasoning_effort")
 				) {
-					requestBody.reasoning_effort = reasoning_effort;
+					if (usedProvider === "embercloud") {
+						// embercloud's documented request body uses a nested
+						// `reasoning` object (`reasoning.enabled` +
+						// `reasoning.effort`) instead of the flat OpenAI-style
+						// `reasoning_effort` field, which it silently ignores
+						// (https://embercloud.ai/docs/request-body). "none"
+						// maps to enabled: false; any other tier enables
+						// reasoning at the requested effort.
+						requestBody.reasoning =
+							reasoning_effort === "none"
+								? { enabled: false }
+								: { enabled: true, effort: reasoning_effort };
+					} else {
+						requestBody.reasoning_effort = reasoning_effort;
+					}
 				}
 			}
 			// Hybrid models that keep thinking off by default (e.g. DeepSeek V3.2 on

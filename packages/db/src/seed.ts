@@ -78,6 +78,12 @@ function daysAgo(days: number) {
 	/* eslint-enable no-mixed-operators */
 }
 
+function daysFromNow(days: number) {
+	/* eslint-disable no-mixed-operators */
+	return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+	/* eslint-enable no-mixed-operators */
+}
+
 function hoursAgo(hours: number) {
 	/* eslint-disable no-mixed-operators */
 	return new Date(Date.now() - hours * 60 * 60 * 1000);
@@ -254,6 +260,11 @@ const EXTRA_ORGS: Array<{
 	status: "active" | "inactive";
 	kind: "default" | "chat" | "devpass";
 	createdAt: Date;
+	// Enterprise contract window, so the dashboard countdown and the admin
+	// panel have terms in every urgency band to render.
+	planTermDays?: { started: number; endsIn: number };
+	// Active enterprise trial, so the trial countdown has data to render.
+	trialDays?: { started: number; endsIn: number };
 }> = [
 	{
 		id: "org-techcorp",
@@ -287,6 +298,7 @@ const EXTRA_ORGS: Array<{
 		status: "active",
 		kind: "default",
 		createdAt: daysAgo(365),
+		planTermDays: { started: 347, endsIn: 18 },
 	},
 	{
 		id: "org-cloudnative",
@@ -309,6 +321,7 @@ const EXTRA_ORGS: Array<{
 		status: "active",
 		kind: "default",
 		createdAt: daysAgo(270),
+		planTermDays: { started: 361, endsIn: 4 },
 	},
 	{
 		id: "org-webagency",
@@ -331,6 +344,7 @@ const EXTRA_ORGS: Array<{
 		status: "active",
 		kind: "default",
 		createdAt: daysAgo(400),
+		planTermDays: { started: 165, endsIn: 200 },
 	},
 	{
 		id: "org-robotics",
@@ -397,6 +411,7 @@ const EXTRA_ORGS: Array<{
 		status: "active",
 		kind: "default",
 		createdAt: daysAgo(450),
+		trialDays: { started: 18, endsIn: 12 },
 	},
 	{
 		id: "org-analytics",
@@ -2119,6 +2134,8 @@ async function seed() {
 		credits: 1000,
 		retentionLevel: "retain",
 		plan: "enterprise",
+		planStartedAt: daysAgo(300),
+		planExpiresAt: daysFromNow(65),
 	});
 
 	await upsert(tables.userOrganization, {
@@ -2298,6 +2315,15 @@ async function seed() {
 							: "none",
 			status: org.status,
 			kind: org.kind,
+			planStartedAt: org.planTermDays
+				? daysAgo(org.planTermDays.started)
+				: null,
+			planExpiresAt: org.planTermDays
+				? daysFromNow(org.planTermDays.endsIn)
+				: null,
+			isTrialActive: Boolean(org.trialDays),
+			trialStartDate: org.trialDays ? daysAgo(org.trialDays.started) : null,
+			trialEndDate: org.trialDays ? daysFromNow(org.trialDays.endsIn) : null,
 			devPlan: org.devPlan,
 			devPlanCreditsUsed:
 				org.devPlan !== "none" ? String(randomFloat(0, 20)) : "0",

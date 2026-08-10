@@ -43,6 +43,7 @@ import {
 	desc,
 	effectiveTtftTotals,
 	eq,
+	excludeRegionalMappingRows,
 	gte,
 	inArray,
 	isNotNull,
@@ -359,6 +360,15 @@ const organizationSchema = z.object({
 	kind: z.enum(["default", "chat", "devpass"]),
 	plan: z.string(),
 	devPlan: z.string(),
+	// Plan term window. Enterprise contracts are booked by hand, so both dates
+	// are admin-set; null = open-ended.
+	planExpiresAt: z.string().nullable().optional(),
+	planStartedAt: z.string().nullable().optional(),
+	// Enterprise trial window; an active trial takes precedence over the plan
+	// term when deciding which countdown to show.
+	isTrialActive: z.boolean().optional(),
+	trialStartDate: z.string().nullable().optional(),
+	trialEndDate: z.string().nullable().optional(),
 	// Manual seat-limit override; null = use the plan default.
 	seats: z.number().int().nullable().optional(),
 	// Manual API-key-limit override; null = use the plan default.
@@ -405,6 +415,7 @@ const orgMetricsSchema = z.object({
 	cachedCost: z.number(),
 	cacheWriteTokens: z.number(),
 	cacheWriteCost: z.number(),
+	dataStorageCost: z.number(),
 	mostUsedModel: z.string().nullable(),
 	mostUsedProvider: z.string().nullable(),
 	mostUsedModelCost: z.number(),
@@ -2464,6 +2475,11 @@ admin.openapi(getOrganizations, async (c) => {
 			kind: tables.organization.kind,
 			plan: tables.organization.plan,
 			devPlan: tables.organization.devPlan,
+			planExpiresAt: tables.organization.planExpiresAt,
+			planStartedAt: tables.organization.planStartedAt,
+			isTrialActive: tables.organization.isTrialActive,
+			trialStartDate: tables.organization.trialStartDate,
+			trialEndDate: tables.organization.trialEndDate,
 			credits: tables.organization.credits,
 			createdAt: tables.organization.createdAt,
 			status: tables.organization.status,
@@ -2509,6 +2525,11 @@ admin.openapi(getOrganizations, async (c) => {
 			kind: org.kind,
 			plan: org.plan,
 			devPlan: org.devPlan,
+			planExpiresAt: org.planExpiresAt?.toISOString() ?? null,
+			planStartedAt: org.planStartedAt?.toISOString() ?? null,
+			isTrialActive: org.isTrialActive,
+			trialStartDate: org.trialStartDate?.toISOString() ?? null,
+			trialEndDate: org.trialEndDate?.toISOString() ?? null,
 			credits: String(org.credits),
 			totalCreditsAllTime: String(org.totalCreditsAllTime ?? "0"),
 			totalSpent: String(org.totalSpent ?? "0"),
@@ -2583,6 +2604,7 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 	let cachedCost = 0;
 	let cacheWriteTokens = 0;
 	let cacheWriteCost = 0;
+	let dataStorageCost = 0;
 	let discountSavings = 0;
 	let mostUsedModel: string | null = null;
 	let mostUsedProvider: string | null = null;
@@ -2640,6 +2662,10 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 					sql<number>`COALESCE(SUM(${projectHourlyStats.cacheWriteInputCost}), 0)`.as(
 						"cacheWriteInputCost",
 					),
+				dataStorageCost:
+					sql<number>`COALESCE(SUM(${projectHourlyStats.dataStorageCost}), 0)`.as(
+						"dataStorageCost",
+					),
 			})
 			.from(projectHourlyStats)
 			.where(
@@ -2666,6 +2692,7 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 			cachedCost = Number(totals.cachedInputCost) || 0;
 			cacheWriteTokens = Number(totals.cacheWriteTokens) || 0;
 			cacheWriteCost = Number(totals.cacheWriteInputCost) || 0;
+			dataStorageCost = Number(totals.dataStorageCost) || 0;
 			discountSavings = Number(totals.discountSavings) || 0;
 		}
 
@@ -2710,6 +2737,11 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 			kind: org.kind,
 			plan: org.plan,
 			devPlan: org.devPlan,
+			planExpiresAt: org.planExpiresAt?.toISOString() ?? null,
+			planStartedAt: org.planStartedAt?.toISOString() ?? null,
+			isTrialActive: org.isTrialActive,
+			trialStartDate: org.trialStartDate?.toISOString() ?? null,
+			trialEndDate: org.trialEndDate?.toISOString() ?? null,
 			seats: org.seats,
 			apiKeyLimit: org.apiKeyLimit,
 			credits: String(org.credits),
@@ -2734,6 +2766,7 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 		cachedCost,
 		cacheWriteTokens,
 		cacheWriteCost,
+		dataStorageCost,
 		mostUsedModel,
 		mostUsedProvider,
 		mostUsedModelCost,
@@ -2796,6 +2829,11 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			kind: org.kind,
 			plan: org.plan,
 			devPlan: org.devPlan,
+			planExpiresAt: org.planExpiresAt?.toISOString() ?? null,
+			planStartedAt: org.planStartedAt?.toISOString() ?? null,
+			isTrialActive: org.isTrialActive,
+			trialStartDate: org.trialStartDate?.toISOString() ?? null,
+			trialEndDate: org.trialEndDate?.toISOString() ?? null,
 			seats: org.seats,
 			apiKeyLimit: org.apiKeyLimit,
 			credits: String(org.credits),
@@ -3083,6 +3121,7 @@ const projectMetricsSchema = z.object({
 	cachedCost: z.number(),
 	cacheWriteTokens: z.number(),
 	cacheWriteCost: z.number(),
+	dataStorageCost: z.number(),
 	mostUsedModel: z.string().nullable(),
 	mostUsedProvider: z.string().nullable(),
 	mostUsedModelCost: z.number(),
@@ -3165,6 +3204,7 @@ admin.openapi(getProjectMetrics, async (c) => {
 	let cachedCost = 0;
 	let cacheWriteTokens = 0;
 	let cacheWriteCost = 0;
+	let dataStorageCost = 0;
 	let discountSavings = 0;
 	let mostUsedModel: string | null = null;
 	let mostUsedProvider: string | null = null;
@@ -3220,6 +3260,10 @@ admin.openapi(getProjectMetrics, async (c) => {
 				sql<number>`COALESCE(SUM(${projectHourlyStats.cacheWriteInputCost}), 0)`.as(
 					"cacheWriteInputCost",
 				),
+			dataStorageCost:
+				sql<number>`COALESCE(SUM(${projectHourlyStats.dataStorageCost}), 0)`.as(
+					"dataStorageCost",
+				),
 		})
 		.from(projectHourlyStats)
 		.where(
@@ -3246,6 +3290,7 @@ admin.openapi(getProjectMetrics, async (c) => {
 		cachedCost = Number(totals.cachedInputCost) || 0;
 		cacheWriteTokens = Number(totals.cacheWriteTokens) || 0;
 		cacheWriteCost = Number(totals.cacheWriteInputCost) || 0;
+		dataStorageCost = Number(totals.dataStorageCost) || 0;
 		discountSavings = Number(totals.discountSavings) || 0;
 	}
 
@@ -3308,6 +3353,7 @@ admin.openapi(getProjectMetrics, async (c) => {
 		cachedCost,
 		cacheWriteTokens,
 		cacheWriteCost,
+		dataStorageCost,
 		mostUsedModel,
 		mostUsedProvider,
 		mostUsedModelCost,
@@ -4799,7 +4845,13 @@ admin.openapi(getProviderStats, async (c) => {
 				...tokenBreakdownSums(mph),
 			})
 			.from(mph)
-			.where(and(gte(mphTs, startDate), lt(mphTs, endDateExclusive)))
+			.where(
+				and(
+					gte(mphTs, startDate),
+					lt(mphTs, endDateExclusive),
+					excludeRegionalMappingRows(mph),
+				),
+			)
 			.groupBy(mph.providerId)
 			.as("provider_stats_sub");
 
@@ -5823,7 +5875,13 @@ admin.openapi(getModelDetail, async (c) => {
 				...tokenBreakdownSums(mph),
 			})
 			.from(mph)
-			.where(and(eq(mph.modelId, modelId), gte(mphTs, startDate)))
+			.where(
+				and(
+					eq(mph.modelId, modelId),
+					gte(mphTs, startDate),
+					excludeRegionalMappingRows(mph),
+				),
+			)
 			.groupBy(mph.providerId),
 	]);
 
@@ -6170,7 +6228,31 @@ admin.openapi(updateReferralBonusRoute, async (c) => {
 	});
 });
 
-// Manage an organization's plan tier, seat-limit and API-key-limit overrides
+/**
+ * Plan term dates are entered as plain calendar days (YYYY-MM-DD) because an
+ * enterprise contract renews on a date, not at a wall-clock instant. They are
+ * stored as the UTC midnight of that day, which is also the boundary the
+ * shared `getPlanTerm` countdown counts against.
+ */
+const planTermDateSchema = z
+	.string()
+	.regex(/^\d{4}-\d{2}-\d{2}$/, "Expected a YYYY-MM-DD date")
+	// `new Date("2027-02-31")` silently rolls over to March 3 rather than
+	// failing, so the parsed date has to round-trip back to the input before a
+	// typo can be accepted as a contract date.
+	.refine(
+		(value) => {
+			const parsed = new Date(value);
+			return (
+				!Number.isNaN(parsed.getTime()) &&
+				parsed.toISOString().slice(0, 10) === value
+			);
+		},
+		{ message: "Not a valid calendar date" },
+	)
+	.nullable();
+
+// Manage an organization's plan tier, plan term, seat-limit and API-key-limit overrides
 const manageOrganizationRoute = createRoute({
 	method: "patch",
 	path: "/organizations/{orgId}/manage",
@@ -6188,6 +6270,14 @@ const manageOrganizationRoute = createRoute({
 						seats: z.number().int().min(0).max(100000).nullable(),
 						// Null clears the override and reverts to the plan default.
 						apiKeyLimit: z.number().int().min(0).max(100000).nullable(),
+						// Null clears the plan term (open-ended plan).
+						planExpiresAt: planTermDateSchema,
+						planStartedAt: planTermDateSchema,
+						// Enterprise trial window. `isTrialActive` false leaves the dates
+						// on the record as history but stops the trial counting down.
+						isTrialActive: z.boolean(),
+						trialStartDate: planTermDateSchema,
+						trialEndDate: planTermDateSchema,
 					}),
 				},
 			},
@@ -6203,6 +6293,11 @@ const manageOrganizationRoute = createRoute({
 						plan: z.string(),
 						seats: z.number().int().nullable(),
 						apiKeyLimit: z.number().int().nullable(),
+						planExpiresAt: z.string().nullable(),
+						planStartedAt: z.string().nullable(),
+						isTrialActive: z.boolean(),
+						trialStartDate: z.string().nullable(),
+						trialEndDate: z.string().nullable(),
 					}),
 				},
 			},
@@ -6224,7 +6319,17 @@ const manageOrganizationRoute = createRoute({
 admin.openapi(manageOrganizationRoute, async (c) => {
 	const user = c.get("user");
 	const { orgId } = c.req.valid("param");
-	const { name, plan, seats, apiKeyLimit } = c.req.valid("json");
+	const {
+		name,
+		plan,
+		seats,
+		apiKeyLimit,
+		planExpiresAt,
+		planStartedAt,
+		isTrialActive,
+		trialStartDate,
+		trialEndDate,
+	} = c.req.valid("json");
 
 	const org = await db.query.organization.findFirst({
 		where: {
@@ -6238,6 +6343,44 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 		});
 	}
 
+	const expiresAt = planExpiresAt ? new Date(planExpiresAt) : null;
+	const startedAt = planStartedAt ? new Date(planStartedAt) : null;
+	const trialStartsAt = trialStartDate ? new Date(trialStartDate) : null;
+	const trialEndsAt = trialEndDate ? new Date(trialEndDate) : null;
+
+	// A start date with no expiry is not a term: no surface renders one, and an
+	// open-ended plan is expressed by leaving both dates empty. The reverse is
+	// deliberately allowed — Stripe writes `planExpiresAt` on its own as a legacy
+	// Pro renewal date, so organizations carrying one must stay manageable.
+	if (startedAt && !expiresAt) {
+		throw new HTTPException(400, {
+			message: "A plan start date needs a plan expiry date",
+		});
+	}
+
+	if (expiresAt && startedAt && startedAt.getTime() >= expiresAt.getTime()) {
+		throw new HTTPException(400, {
+			message: "Plan start date must be before the plan expiry date",
+		});
+	}
+
+	if (
+		trialStartsAt &&
+		trialEndsAt &&
+		trialStartsAt.getTime() >= trialEndsAt.getTime()
+	) {
+		throw new HTTPException(400, {
+			message: "Trial start date must be before the trial end date",
+		});
+	}
+
+	// A trial that is "active" with no end date would count down forever.
+	if (isTrialActive && !trialEndsAt) {
+		throw new HTTPException(400, {
+			message: "An active trial needs a trial end date",
+		});
+	}
+
 	await db
 		.update(tables.organization)
 		.set({
@@ -6245,6 +6388,11 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 			plan,
 			seats,
 			apiKeyLimit,
+			planExpiresAt: expiresAt,
+			planStartedAt: startedAt,
+			isTrialActive,
+			trialStartDate: trialStartsAt,
+			trialEndDate: trialEndsAt,
 		})
 		.where(eq(tables.organization.id, orgId));
 
@@ -6263,6 +6411,14 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 			newSeats: seats,
 			previousApiKeyLimit: org.apiKeyLimit,
 			newApiKeyLimit: apiKeyLimit,
+			previousPlanExpiresAt: org.planExpiresAt?.toISOString() ?? null,
+			newPlanExpiresAt: expiresAt?.toISOString() ?? null,
+			previousPlanStartedAt: org.planStartedAt?.toISOString() ?? null,
+			newPlanStartedAt: startedAt?.toISOString() ?? null,
+			previousIsTrialActive: org.isTrialActive,
+			newIsTrialActive: isTrialActive,
+			previousTrialEndDate: org.trialEndDate?.toISOString() ?? null,
+			newTrialEndDate: trialEndsAt?.toISOString() ?? null,
 		},
 	});
 
@@ -6272,6 +6428,11 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 		plan,
 		seats,
 		apiKeyLimit,
+		planExpiresAt: expiresAt?.toISOString() ?? null,
+		planStartedAt: startedAt?.toISOString() ?? null,
+		isTrialActive,
+		trialStartDate: trialStartsAt?.toISOString() ?? null,
+		trialEndDate: trialEndsAt?.toISOString() ?? null,
 	});
 });
 
@@ -7177,6 +7338,9 @@ admin.openapi(getProviderHistory, async (c) => {
 				and(
 					eq(modelProviderMappingHistoryHourly.providerId, providerId),
 					gte(modelProviderMappingHistoryHourly.hourTimestamp, hourStartDate),
+					// Provider totals across models: the region-less root row already
+					// carries each mapping's regional traffic.
+					excludeRegionalMappingRows(modelProviderMappingHistoryHourly),
 				),
 			)
 			.groupBy(modelProviderMappingHistoryHourly.hourTimestamp)
@@ -7244,6 +7408,7 @@ admin.openapi(getProviderHistory, async (c) => {
 				and(
 					eq(modelProviderMappingHistory.providerId, providerId),
 					gte(modelProviderMappingHistory.minuteTimestamp, startDate),
+					excludeRegionalMappingRows(modelProviderMappingHistory),
 				),
 			)
 			.groupBy(modelProviderMappingHistory.minuteTimestamp)
@@ -7538,6 +7703,9 @@ admin.openapi(getMappingHistory, async (c) => {
 	// When a region is given, restrict the minute-level mapping history to the
 	// exact regional mapping(s). The hourly project rollups have no region
 	// dimension, so region scoping only applies to the minute-granularity source.
+	// Without a region the rows are summed across the mapping's variants, which
+	// means the regional rows have to be dropped — the region-less root row
+	// already includes their traffic.
 	const regionMappingFilter =
 		region !== undefined
 			? inArray(
@@ -7553,7 +7721,7 @@ admin.openapi(getMappingHistory, async (c) => {
 							),
 						),
 				)
-			: undefined;
+			: excludeRegionalMappingRows(modelProviderMappingHistory);
 
 	if (projectId) {
 		const rows = await db
@@ -7644,7 +7812,7 @@ admin.openapi(getMappingHistory, async (c) => {
 								),
 							),
 					)
-				: undefined;
+				: excludeRegionalMappingRows(modelProviderMappingHistoryHourly);
 
 		const rows = await db
 			.select({
@@ -7931,7 +8099,15 @@ admin.openapi(getProviderDetail, async (c) => {
 				...tokenBreakdownSums(mph),
 			})
 			.from(mph)
-			.where(and(eq(mph.providerId, providerId), gte(mphTs, startDate)))
+			.where(
+				and(
+					eq(mph.providerId, providerId),
+					gte(mphTs, startDate),
+					// Grouped per model, so the mapping's regional rows would be added
+					// on top of the root row that already contains them.
+					excludeRegionalMappingRows(mph),
+				),
+			)
 			.groupBy(mph.modelId),
 	]);
 

@@ -436,3 +436,37 @@ export function buildYearFaqs(
 
 	return faqs;
 }
+
+const TIMELINE_BASE_URL = "https://llmgateway.io";
+
+/**
+ * Google validates a nested Dataset node (the `isPartOf` reference on a year
+ * page) exactly like a top-level one, so every Dataset we emit — nested or not
+ * — has to carry its own name, description, url, creator and license.
+ */
+export const DATASET_CREATOR = {
+	"@type": "Organization",
+	name: "LLM Gateway",
+	url: TIMELINE_BASE_URL,
+};
+
+export const DATASET_LICENSE = `${TIMELINE_BASE_URL}/legal/terms`;
+
+export const TIMELINE_DATASET_ID = `${TIMELINE_BASE_URL}/timeline#dataset`;
+
+export const TIMELINE_DATASET_NAME = "LLM Model Release Timeline";
+
+export const TIMELINE_DATASET_DESCRIPTION =
+	"A continuously updated dataset of large language model releases: the provider release date and the date each model was added to LLM Gateway.";
+
+/** Fully-specified reference to the parent timeline dataset. */
+export const TIMELINE_DATASET_REF = {
+	"@type": "Dataset",
+	"@id": TIMELINE_DATASET_ID,
+	name: TIMELINE_DATASET_NAME,
+	description: TIMELINE_DATASET_DESCRIPTION,
+	url: `${TIMELINE_BASE_URL}/timeline`,
+	creator: DATASET_CREATOR,
+	license: DATASET_LICENSE,
+	isAccessibleForFree: true,
+};

@@ -3,6 +3,7 @@
 import {
 	Activity,
 	CircleDollarSign,
+	Database,
 	Hash,
 	Loader2,
 	Server,
@@ -282,6 +283,13 @@ export function ProjectMetricsSection({
 								: "Billed against the organization's credits"
 					}
 					icon={<CircleDollarSign className="h-4 w-4" />}
+					accent="purple"
+				/>
+				<MetricCard
+					label="Storage Cost"
+					value={currencyFormatter.format(safeNumber(metrics.dataStorageCost))}
+					subtitle="Data retention billing, charged on top of usage costs"
+					icon={<Database className="h-4 w-4" />}
 					accent="purple"
 				/>
 				<MetricCard

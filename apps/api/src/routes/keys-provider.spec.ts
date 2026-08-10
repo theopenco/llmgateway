@@ -320,6 +320,43 @@ describe("provider keys route", () => {
 			expect(json.message).toContain("status 429");
 			expect(json.message).toContain("try again later");
 		});
+
+		// A host that does not resolve (a mistyped Azure resource name, a custom
+		// base URL pointing nowhere) means the key was never judged at all, so
+		// the response must not claim the provider rejected it.
+		test("reports an unreachable endpoint as such", async () => {
+			vi.mocked(validateProviderKey).mockResolvedValueOnce({
+				valid: false,
+				model: "gpt-5.6-sol",
+				unreachable: true,
+				error:
+					"Could not resolve typo.openai.azure.com (DNS lookup failed: ENOTFOUND). Check the base URL / resource name configured for this credential.",
+			});
+
+			const res = await app.request("/keys/provider", {
+				method: "POST",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({
+					provider: "azure",
+					token: "azure-test-token",
+					organizationId: "test-org-id",
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(json.message).toContain("Could not reach provider azure");
+			expect(json.message).toContain("typo.openai.azure.com");
+			expect(json.message).not.toContain("rejected the key");
+			expect(json.message).not.toContain("Invalid API key");
+			// "fetch failed" is exactly the useless wording this replaces.
+			expect(json.message).not.toContain("fetch failed");
+
+			const stored = await db.query.providerKey.findFirst({
+				where: { provider: { eq: "azure" } },
+			});
+			expect(stored).toBeUndefined();
+		});
 	});
 
 	test("POST /keys/provider rejects stealth providers", async () => {

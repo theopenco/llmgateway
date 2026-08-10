@@ -23,6 +23,7 @@ import type {
 	ProviderComplianceAttestation,
 	ProviderCompliancePolicy,
 } from "@llmgateway/models";
+import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type z from "zod";
 
@@ -207,6 +208,12 @@ export const organization = pgTable(
 			.notNull()
 			.default("free"),
 		planExpiresAt: timestamp(),
+		// Start of the current plan term, set by admins alongside `planExpiresAt`
+		// when an enterprise agreement is booked. The pair is what marks a plan
+		// term as deliberately booked: `planExpiresAt` alone is also written by
+		// Stripe as a legacy Pro renewal date, so a term countdown is only ever
+		// rendered when both dates are present (see `getOrganizationTerm`).
+		planStartedAt: timestamp(),
 		// Manual seat-limit override set by admins. Null = use the plan default
 		// (free/pro = 5, enterprise = 100). When set, this takes precedence for
 		// both display and enforcement of the team-member cap.
@@ -3884,6 +3891,60 @@ export const routingConfig = pgTable(
 	(table) => [index("routing_config_project_id_idx").on(table.projectId)],
 );
 
+// Dynamic routes - named, versioned routing flows invoked via the reserved
+// "dynamic/<name>" model-string prefix. The draft graph is mutable; publishing
+// snapshots it into an immutable dynamicRouteVersion row and re-points
+// publishedVersionId, so rollback is just re-pointing to a prior version.
+export const dynamicRoute = pgTable(
+	"dynamic_route",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+		name: text().notNull(),
+		description: text(),
+		enabled: boolean().default(true).notNull(),
+		draftGraph: jsonb("draft_graph").$type<DynamicRouteGraph>(),
+		publishedVersionId: text("published_version_id").references(
+			(): AnyPgColumn => dynamicRouteVersion.id,
+			{ onDelete: "set null" },
+		),
+		createdAt: timestamp("created_at").notNull().defaultNow(),
+		updatedAt: timestamp("updated_at")
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+	},
+	(table) => [
+		unique("dynamic_route_project_id_name_idx").on(table.projectId, table.name),
+		index("dynamic_route_project_id_idx").on(table.projectId),
+	],
+);
+
+export const dynamicRouteVersion = pgTable(
+	"dynamic_route_version",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		routeId: text("route_id")
+			.notNull()
+			.references(() => dynamicRoute.id, { onDelete: "cascade" }),
+		version: integer().notNull(),
+		graph: jsonb().$type<DynamicRouteGraph>().notNull(),
+		createdBy: text("created_by").references(() => user.id, {
+			onDelete: "set null",
+		}),
+		createdAt: timestamp("created_at").notNull().defaultNow(),
+	},
+	(table) => [
+		unique("dynamic_route_version_route_id_version_idx").on(
+			table.routeId,
+			table.version,
+		),
+		index("dynamic_route_version_route_id_idx").on(table.routeId),
+	],
+);
+
 // Discount - Admin-configurable discounts for providers/models
 // Can be global (organizationId = null) or org-specific
 export const discount = pgTable(
@@ -4811,6 +4872,7 @@ export const loungePointEvent = pgTable(
 				| "image_generation"
 				| "video_generation"
 				| "audio_generation"
+				| "sandbox_escape"
 			>(),
 		points: integer().notNull(),
 	},
@@ -4820,6 +4882,51 @@ export const loungePointEvent = pgTable(
 			table.userId,
 			table.createdAt,
 		),
+	],
+);
+
+// Completed Sandbox Escape runs. Rows are written only after the API replays
+// the submitted move list against the level's deterministic engine, so `steps`,
+// `outcome`, and `score` are derived server-side rather than trusted from the
+// browser. `moves` is kept so any run can be re-verified or replayed later.
+export const sandboxEscapeRun = pgTable(
+	"sandbox_escape_run",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		// Organization the run was billed to. Null means the default Chat
+		// organization, matching the rest of the playground history tables.
+		organizationId: text().references(() => organization.id, {
+			onDelete: "set null",
+		}),
+		levelId: integer().notNull(),
+		// The model string the player picked, e.g. "openai/gpt-5-mini".
+		model: text().notNull(),
+		// What actually served the run once routing resolved, when known.
+		usedModel: text(),
+		usedProvider: text(),
+		outcome: text().notNull().$type<"escaped" | "terminated" | "timeout">(),
+		steps: integer().notNull(),
+		par: integer().notNull(),
+		score: integer().notNull().default(0),
+		moves: jsonb().notNull().$type<string[]>(),
+		promptTokens: integer().notNull().default(0),
+		completionTokens: integer().notNull().default(0),
+		cost: real().notNull().default(0),
+		durationMs: integer().notNull().default(0),
+	},
+	(table) => [
+		index("sandbox_escape_run_level_id_idx").on(table.levelId),
+		index("sandbox_escape_run_model_idx").on(table.model),
+		index("sandbox_escape_run_user_id_idx").on(table.userId),
+		index("sandbox_escape_run_created_at_idx").on(table.createdAt),
 	],
 );
 

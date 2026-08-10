@@ -38,6 +38,8 @@ import { isStealthProvider, providers } from "@llmgateway/models";
 import {
 	CUSTOM_PROVIDER_NAME_MESSAGE,
 	CUSTOM_PROVIDER_NAME_REGEX,
+	RESERVED_CUSTOM_PROVIDER_NAME_MESSAGE,
+	RESERVED_CUSTOM_PROVIDER_NAMES,
 } from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 import { maskToken } from "@llmgateway/shared/mask-token";
@@ -204,7 +206,12 @@ function assertAllowedModelsSupported(provider: string) {
 // model strings, so it must stay URL-safe and unique within the organization.
 export const customProviderNameSchema = z
 	.string()
-	.regex(CUSTOM_PROVIDER_NAME_REGEX, CUSTOM_PROVIDER_NAME_MESSAGE);
+	.regex(CUSTOM_PROVIDER_NAME_REGEX, CUSTOM_PROVIDER_NAME_MESSAGE)
+	.refine(
+		(name) =>
+			!(RESERVED_CUSTOM_PROVIDER_NAMES as readonly string[]).includes(name),
+		RESERVED_CUSTOM_PROVIDER_NAME_MESSAGE,
+	);
 
 export async function assertCustomProviderNameAvailable(
 	organizationId: string,
@@ -556,6 +563,15 @@ keysProvider.openapi(create, async (c) => {
 		const modelPart = validationResult.model
 			? ` using model ${validationResult.model}`
 			: "";
+		// The provider never answered, so the key was never judged: saying it was
+		// rejected would send the user off replacing a perfectly good key. The
+		// endpoint is derived from the submitted base URL / options, so this is a
+		// problem with the request, hence 400 rather than a 5xx.
+		if (validationResult.unreachable) {
+			throw new HTTPException(400, {
+				message: `Could not reach provider ${provider}${modelPart}: ${errorMessage}`,
+			});
+		}
 		// A 401 is an auth or entitlement failure, so "try again later" is the
 		// wrong advice — the key will keep failing until it is replaced or the
 		// account is granted access. The provider's own message distinguishes the

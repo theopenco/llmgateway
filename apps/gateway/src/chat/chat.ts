@@ -53,6 +53,7 @@ import {
 	shouldBillCancelledRequests,
 	zeroInferenceCosts,
 } from "@/lib/costs.js";
+import { getPublishedDynamicRoute } from "@/lib/dynamic-route-loader.js";
 import {
 	assertOriginAllowed,
 	assertTestWalletModelAllowed,
@@ -202,6 +203,10 @@ import { countInputImages } from "./tools/count-input-images.js";
 import { createLogEntry } from "./tools/create-log-entry.js";
 import { estimateTokensFromContent } from "./tools/estimate-tokens-from-content.js";
 import { estimateTokens } from "./tools/estimate-tokens.js";
+import {
+	type DynamicRouteEvaluation,
+	evaluateDynamicRoute,
+} from "./tools/evaluate-dynamic-route.js";
 import {
 	extractAwsBedrockHttpError,
 	extractAwsBedrockStreamError,
@@ -927,6 +932,14 @@ function providerMatchesRequestedProvider(
 		requestedProvider === "llmgateway" ||
 		mapping.providerId === requestedProvider
 	);
+}
+
+// An operator-supplied image cap has to be a positive finite number of
+// megabytes. `Number(...) || fallback` alone lets "-5" through (rejecting every
+// image) and "Infinity" through (removing the cap), since both are truthy.
+function imageSizeLimitMB(value: string | undefined, fallback: number): number {
+	const parsed = Number(value);
+	return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 // Distinct providers the catalog still offers for a model, ignoring every
@@ -2179,6 +2192,22 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Coding (dev) plans only sell the standard and flex tiers — the dashboard
+	// setting is limited to those, and this is the server-side half of that gate:
+	// without it a client could opt into priority per request and burn plan
+	// credits at the tier's premium multiplier (2.5x on OpenAI, 1.8x on Google),
+	// which dev-plan pricing does not account for. Rejected rather than silently
+	// clamped to standard, matching how an ineligible `routing` strategy is
+	// handled and the gateway's general rule that a requested tier is never
+	// quietly downgraded. Checked before the tier-narrowing block below so the
+	// error names the plan restriction instead of a model's missing tier support.
+	if (isDevPlan && service_tier === "priority") {
+		throw new HTTPException(403, {
+			message: `Service tier 'priority' is not available on coding plans. Use 'flex' or 'default'.`,
+			cause: "unsupported_service_tier",
+		});
+	}
+
 	if (isRequestedServiceTier(service_tier)) {
 		const serviceTierCandidateProviders = modelInfo.providers.filter(
 			(mapping) => providerMatchesRequestedProvider(mapping, requestedProvider),
@@ -2789,12 +2818,26 @@ chat.openapi(completions, async (c) => {
 	let routingMetadata: RoutingMetadata | undefined;
 
 	// Get image size limits from environment variables or use defaults
-	const freeLimitMB = Number(process.env.IMAGE_SIZE_LIMIT_FREE_MB) || 50;
-	const proLimitMB = Number(process.env.IMAGE_SIZE_LIMIT_PRO_MB) || 100;
+	const freeLimitMB = imageSizeLimitMB(
+		process.env.IMAGE_SIZE_LIMIT_FREE_MB,
+		50,
+	);
+	const proLimitMB = imageSizeLimitMB(process.env.IMAGE_SIZE_LIMIT_PRO_MB, 100);
+	const enterpriseLimitMB = imageSizeLimitMB(
+		process.env.IMAGE_SIZE_LIMIT_ENTERPRISE_MB,
+		proLimitMB,
+	);
 
-	// Determine max image size based on plan
+	// Determine max image size based on plan. Enterprise is never capped below
+	// Pro — bucketing it with free rejected enterprise uploads at the free limit
+	// and then told them to contact us about raising their Enterprise limits.
 	const userPlan = organization?.plan ?? "free";
-	const maxImageSizeMB = userPlan === "pro" ? proLimitMB : freeLimitMB;
+	const maxImageSizeMB =
+		userPlan === "enterprise"
+			? enterpriseLimitMB
+			: userPlan === "pro"
+				? proLimitMB
+				: freeLimitMB;
 
 	// Validate IAM rules for model access
 	// Pass modelInfo (with deactivated providers already filtered) so IAM validation
@@ -3121,6 +3164,75 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Resolve a named dynamic route ("dynamic/<name>") to its target model and
+	// optional provider restriction. The route was tagged in parseModelInput and
+	// piggybacks the "auto" placeholder model until here, where project/org
+	// context needed by conditional and percentage nodes is available. The
+	// resolved target then flows through the auto-routing block below, which
+	// narrows candidates to the route's model/providers instead of the auto
+	// allowlist.
+	let dynamicRouteSelection:
+		| {
+				name: string;
+				version: number;
+				model: string;
+				providers?: string[];
+				path: string[];
+		  }
+		| undefined;
+	if (parseResult.dynamicRouteName) {
+		const dynamicRouteName = parseResult.dynamicRouteName;
+		if (organization.plan !== "enterprise") {
+			throw new HTTPException(403, {
+				message:
+					"Dynamic routes are only available on the enterprise plan. Contact us at contact@llmgateway.io to upgrade.",
+			});
+		}
+		const publishedRoute = await getPublishedDynamicRoute(
+			project.id,
+			dynamicRouteName,
+		);
+		if (!publishedRoute) {
+			throw new HTTPException(404, {
+				message: `Dynamic route "${dynamicRouteName}" not found, disabled, or has no published version`,
+			});
+		}
+		let evaluation: DynamicRouteEvaluation;
+		try {
+			evaluation = evaluateDynamicRoute(publishedRoute.graph, {
+				getHeader: (name) => c.req.header(name),
+				// The RAW request body, not validationResult.data: the completions
+				// schema strips unknown keys, which would make body conditions on
+				// caller-defined fields (e.g. "metadata.segment") silently never
+				// match.
+				body: rawBody as Record<string, unknown>,
+				metadata: {
+					orgId: project.organizationId,
+					projectId: project.id,
+					apiKeyId: apiKey.id,
+					plan: organization.plan,
+				},
+				splitKey: sessionId ?? requestId,
+			});
+		} catch (error) {
+			throw new HTTPException(400, {
+				message: `Dynamic route "${dynamicRouteName}" evaluation failed: ${toError(error).message}`,
+			});
+		}
+		if (evaluation.status === "end") {
+			throw new HTTPException(400, {
+				message: `Dynamic route "${dynamicRouteName}" ended without resolving to a model`,
+			});
+		}
+		dynamicRouteSelection = {
+			name: publishedRoute.name,
+			version: publishedRoute.version,
+			model: evaluation.model,
+			providers: evaluation.providers,
+			path: evaluation.path,
+		};
+	}
+
 	// Apply routing logic after apiKey and project are available
 	if (
 		(usedProvider === "llmgateway" && usedInternalModel === "auto") ||
@@ -3234,9 +3346,21 @@ chat.openapi(completions, async (c) => {
 				continue;
 			}
 
+			// A dynamic route already resolved the target model, so candidates
+			// narrow to exactly that model instead of the auto allowlist.
+			// free_models_only (including test-mode end-user wallets) still
+			// applies: a route resolving to a paid model must not select it.
+			if (dynamicRouteSelection) {
+				if (modelDef.id !== dynamicRouteSelection.model) {
+					continue;
+				}
+				if (effectiveFreeModelsOnly && !("free" in modelDef && modelDef.free)) {
+					continue;
+				}
+			}
 			// When free_models_only is true, only consider models marked as free
 			// Otherwise, only consider hardcoded allowed models
-			if (effectiveFreeModelsOnly) {
+			else if (effectiveFreeModelsOnly) {
 				if (!("free" in modelDef && modelDef.free)) {
 					continue;
 				}
@@ -3303,7 +3427,9 @@ chat.openapi(completions, async (c) => {
 				(provider) =>
 					availableProviders.includes(provider.providerId) &&
 					(!candidateAllowedProviders ||
-						candidateAllowedProviders.includes(provider.providerId)),
+						candidateAllowedProviders.includes(provider.providerId)) &&
+					(!dynamicRouteSelection?.providers ||
+						dynamicRouteSelection.providers.includes(provider.providerId)),
 			);
 			const cachedFilteredProviders = isDevPlan
 				? availableModelProviders.filter(providerSupportsCachedInput)
@@ -3469,6 +3595,15 @@ chat.openapi(completions, async (c) => {
 					message: complianceBlockMessage(modelInfo.id),
 				});
 			}
+			// A dynamic route must never silently fall back to the hardcoded
+			// default model — fail with the route's resolved target instead.
+			if (dynamicRouteSelection) {
+				throw new HTTPException(400, {
+					message: effectiveFreeModelsOnly
+						? `Dynamic route "${dynamicRouteSelection.name}" resolved to model "${dynamicRouteSelection.model}" which is not available with free_models_only`
+						: `Dynamic route "${dynamicRouteSelection.name}" resolved to model "${dynamicRouteSelection.model}" but no matching provider is currently available for this request`,
+				});
+			}
 			if (effectiveFreeModelsOnly) {
 				// If free_models_only is true but no suitable model found, return error
 				throw new HTTPException(400, {
@@ -3486,6 +3621,13 @@ chat.openapi(completions, async (c) => {
 			usedInternalModel = "claude-haiku-4-5";
 			usedExternalId = "claude-haiku-4-5";
 			usedProvider = "anthropic";
+		}
+		if (dynamicRouteSelection && routingMetadata) {
+			routingMetadata.dynamicRoute = {
+				name: dynamicRouteSelection.name,
+				version: dynamicRouteSelection.version,
+				path: dynamicRouteSelection.path,
+			};
 		}
 		// Update modelInfo to the selected model so retry/fallback logic can find
 		// alternative providers. Without this, modelInfo still points to the "auto"

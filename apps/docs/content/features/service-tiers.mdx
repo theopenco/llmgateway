@@ -43,6 +43,9 @@ The parameter works the same on the OpenAI-compatible **Responses API**
 (`/v1/responses`): the tier is forwarded to the provider and the response's
 `service_tier` field echoes the tier that was actually served.
 
+Coding (dev) plans are limited to `default`/`auto` and `flex` — the premium
+`priority` tier is not part of the plan and a request that asks for it returns a 403.
+
 ## Supported providers
 
 Service tiers are explicit per provider/model mapping. Check the model page for
@@ -78,13 +81,15 @@ the exact tiers exposed by each provider card.
 
 <Callout type="warn">
 	Flex and Priority are only honored when the request reaches the provider
-	directly, so a `google-vertex` / `google-ai-studio` / `fireworks` provider key
-	with a **custom base URL** (a proxy) is excluded from service-tier routing — a
-	proxy may silently drop the tier and serve standard. With multiple
-	providers/keys, the gateway routes around the ineligible key automatically; if
-	a request pins a provider whose only key uses a custom base URL, it returns a
-	400 instead of silently downgrading. Keys with no custom base URL (the managed
-	default) are always eligible.
+	directly, so a provider key with a **custom base URL** (a proxy) is excluded
+	from service-tier routing — a proxy may silently drop the tier and serve
+	standard. This applies to every provider that offers tiers, including OpenAI:
+	the tier travels as a `service_tier` body field that an OpenAI-compatible
+	proxy is free to ignore. With multiple providers/keys, the gateway routes
+	around the ineligible key automatically; if a request pins a provider whose
+	only key uses a custom base URL, it returns a 400 instead of silently
+	downgrading. Keys with no custom base URL (the managed default) are always
+	eligible.
 </Callout>
 
 ## Retries and fallback never downgrade the tier
@@ -109,7 +114,9 @@ carried through all of it.
 This applies to a tier you requested yourself. The optional coding-plan default
 tier is a cost preference rather than a requirement, so a request that cannot be
 served at that tier runs at standard instead of failing; `used_service_tier` in
-the response metadata always reports what was actually served.
+the response metadata always reports what was actually served. A tier sent on
+the request always takes precedence over that default, within the tiers the plan
+allows.
 
 <Callout type="info">
 	Rotating to another key for the same provider is a separate upstream account

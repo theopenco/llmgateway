@@ -354,6 +354,42 @@ describe("parseProviderResponse", () => {
 		});
 	});
 
+	describe("google blocked responses", () => {
+		it("retains the original block reason when candidates are missing", () => {
+			const result = parseProviderResponse(
+				"google-ai-studio",
+				"gemini-3-pro-image-preview",
+				{ promptFeedback: { blockReason: "PROHIBITED_CONTENT" } },
+			);
+
+			expect(result.finishReason).toBe("PROHIBITED_CONTENT");
+		});
+
+		it("reports no finish reason when google gives none at all", () => {
+			const result = parseProviderResponse(
+				"google-ai-studio",
+				"gemini-3-pro-image-preview",
+				{ candidates: [] },
+			);
+
+			expect(result.finishReason).toBeNull();
+		});
+
+		it("retains NO_IMAGE rather than reporting it as a content filter", () => {
+			const result = parseProviderResponse(
+				"google-ai-studio",
+				"gemini-3-pro-image-preview",
+				{
+					candidates: [
+						{ content: { role: "model", parts: [] }, finishReason: "NO_IMAGE" },
+					],
+				},
+			);
+
+			expect(result.finishReason).toBe("NO_IMAGE");
+		});
+	});
+
 	describe("google multi-candidate (n > 1)", () => {
 		it("aggregates content across de-duplicated candidates and keys tool calls to candidate 0", () => {
 			// AI Studio quirk: candidate 0's parts also contain a copy of every
@@ -823,6 +859,68 @@ describe("parseProviderResponse", () => {
 			const result = parseProviderResponse("minimax", "MiniMax-M3", json);
 
 			expect(result.finishReason).toBe("upstream_error");
+		});
+
+		it("maps 'end_turn' finish reason to 'stop' for groq", () => {
+			const json = {
+				choices: [
+					{
+						message: { content: "Hello", role: "assistant" },
+						finish_reason: "end_turn",
+					},
+				],
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"groq",
+				"llama-3.3-70b-versatile",
+				json,
+			);
+
+			expect(result.finishReason).toBe("stop");
+		});
+
+		it("maps 'tool_use' finish reason to 'tool_calls' for together-ai", () => {
+			const json = {
+				choices: [
+					{
+						message: {
+							role: "assistant",
+							content: null,
+							tool_calls: [
+								{
+									id: "call_1",
+									type: "function",
+									function: {
+										name: "get_weather",
+										arguments: '{"city":"San Francisco"}',
+									},
+								},
+							],
+						},
+						finish_reason: "tool_use",
+					},
+				],
+				usage: {
+					prompt_tokens: 10,
+					completion_tokens: 5,
+					total_tokens: 15,
+				},
+			};
+
+			const result = parseProviderResponse(
+				"together-ai",
+				"deepseek-ai/DeepSeek-V3",
+				json,
+			);
+
+			expect(result.finishReason).toBe("tool_calls");
+			expect(result.toolResults).toHaveLength(1);
 		});
 	});
 

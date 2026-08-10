@@ -17,6 +17,10 @@
 			"types": "./dist/video-access.d.ts",
 			"import": "./dist/video-access.js"
 		},
+		"./deactivation": {
+			"types": "./dist/deactivation.d.ts",
+			"import": "./dist/deactivation.js"
+		},
 		"./components": {
 			"types": "./dist/components/index.d.ts",
 			"import": "./dist/components/index.js"
@@ -37,9 +41,17 @@
 			"types": "./dist/random.d.ts",
 			"import": "./dist/random.js"
 		},
+		"./sandbox-escape": {
+			"types": "./dist/sandbox-escape.d.ts",
+			"import": "./dist/sandbox-escape.js"
+		},
 		"./routing-config": {
 			"types": "./dist/routing-config.d.ts",
 			"import": "./dist/routing-config.js"
+		},
+		"./dynamic-route": {
+			"types": "./dist/dynamic-route.d.ts",
+			"import": "./dist/dynamic-route.js"
 		},
 		"./routing-telemetry": {
 			"types": "./dist/routing-telemetry.d.ts",
@@ -91,7 +103,7 @@
 		"embla-carousel-react": "8.6.0",
 		"lucide-react": "0.561.0",
 		"motion": "12.23.24",
-		"next": "16.2.12",
+		"next": "16.3.0",
 		"next-themes": "^0.4.6",
 		"pretty-bytes": "7.1.0",
 		"prism-react-renderer": "2.4.1",
@@ -105,7 +117,7 @@
 		"zod": "3.25.75"
 	},
 	"devDependencies": {
-		"@types/react": "^19.2.17",
-		"@types/react-dom": "^19.2.3"
+		"@types/react": "^19.2.18",
+		"@types/react-dom": "^19.2.4"
 	}
 }

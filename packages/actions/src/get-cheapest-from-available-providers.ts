@@ -146,6 +146,13 @@ export interface RoutingMetadata {
 	serviceTierSource?: "request" | "coding-plan-default";
 	// Parameters that were stripped from the request because the selected provider doesn't support them
 	strippedParameters?: string[];
+	// Set when the request was resolved through a named dynamic route
+	dynamicRoute?: {
+		name: string;
+		version: number;
+		// Node ids traversed during graph evaluation
+		path: string[];
+	};
 }
 
 export interface ProviderSelectionResult<T extends AvailableModelProvider> {
