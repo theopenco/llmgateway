@@ -5,8 +5,8 @@ import { expect, test } from "@playwright/test";
 import type { Page, Response } from "@playwright/test";
 
 // Requires a locally running stack (API on :4002, gateway on :4001, UI on
-// :3002) with a seeded database (`pnpm setup`). Each run signs up a brand new
-// account, so the suite is safe to re-run without reseeding.
+// :3002, and the worker) with a seeded database (`pnpm setup`). Each run signs
+// up a brand new account, so the suite is safe to re-run without reseeding.
 //
 // This guards the post-signup "make your first API call" wizard, which is the
 // one place in the product where a freshly created account — no credits, email
@@ -17,10 +17,15 @@ import type { Page, Response } from "@playwright/test";
 //     which sits behind the session middleware. Without `credentials:
 //     "include"` the browser drops the session cookie (the API is on a
 //     different origin than the UI) and every first call 401s.
-//  2. The new organization has no credits, so the proxy sponsors the call with
-//     the platform key (`ONBOARDING_CHAT_API_KEY`). Without it the call 402s.
+//  2. The new organization has 0 credits, so the gateway zero-rates that one
+//     call (`ONBOARDING_SPONSOR_SECRET`). Without it configured the call 402s.
 //  3. A new account is unverified, so nothing on this path may require a
 //     verified email.
+//  4. The call must run on the account's OWN API key, so the request lands in
+//     that account's activity. When it was briefly routed through a platform
+//     key instead, onboarding showed a real streamed answer and left the user's
+//     activity log empty — the assertion at the end of the first test is what
+//     catches that regression.
 
 const API_URL = process.env.PW_API_URL ?? "http://localhost:4002";
 
@@ -70,6 +75,41 @@ async function signUp(page: Page, email: string) {
 	await page.waitForURL("**/onboarding**", { timeout: 45_000 });
 }
 
+interface ActivityLog {
+	id: string;
+	requestedModel: string;
+	usedModel: string;
+	source: string | null;
+}
+
+// The gateway publishes log rows to a queue and the worker inserts them, so the
+// row shows up shortly after the response rather than with it. Poll `/logs`
+// until it lands.
+async function waitForOwnActivity(page: Page): Promise<ActivityLog> {
+	const deadline = Date.now() + 60_000;
+	let lastCount = -1;
+
+	while (Date.now() < deadline) {
+		const res = await page.request.get(`${API_URL}/logs?source=onboarding`);
+		expect(res.status(), "the activity API rejected the session").not.toBe(401);
+
+		if (res.ok()) {
+			const { logs } = (await res.json()) as { logs: ActivityLog[] };
+			lastCount = logs.length;
+			if (logs.length > 0) {
+				return logs[0];
+			}
+		}
+
+		await page.waitForTimeout(1_000);
+	}
+
+	throw new Error(
+		`The onboarding request never appeared in this account's activity (last seen ${lastCount} rows). ` +
+			"Either the request was billed to another organization, or the worker that drains the log queue is not running.",
+	);
+}
+
 test("a brand new account completes onboarding without verifying its email", async ({
 	page,
 }) => {
@@ -78,8 +118,7 @@ test("a brand new account completes onboarding without verifying its email", asy
 
 	// Self-hosted installs auto-verify new signups, so the account is only
 	// genuinely unverified here when the API runs in hosted mode (`HOSTED=true`).
-	// Either way onboarding must not be complete yet — that is what makes the
-	// next call eligible for the platform-sponsored path.
+	// Either way onboarding must not be complete yet.
 	const me = await page.request.get(`${API_URL}/user/me`);
 	expect(me.ok()).toBe(true);
 	expect((await me.json()).user.onboardingCompleted).toBe(false);
@@ -117,6 +156,14 @@ test("a brand new account completes onboarding without verifying its email", asy
 	if (await error.isVisible()) {
 		expect(await error.textContent()).not.toMatch(GATE_ERROR_PATTERN);
 	}
+
+	// The call the user just made has to be visible to the account that made it.
+	// `/logs` only ever returns rows belonging to the caller's own
+	// organizations, so a hit here proves the request was authenticated with
+	// this account's key rather than a platform-owned one.
+	const log = await waitForOwnActivity(page);
+	expect(log.source).toBe("onboarding");
+	expect(log.requestedModel).toBeTruthy();
 
 	// Finishing the wizard marks onboarding complete and lands on the dashboard.
 	await page.getByTestId("onboarding-finish").click();

@@ -48,7 +48,7 @@ import {
 	type ComplianceCheckContext,
 } from "@/lib/compliance.js";
 import {
-	calculateCosts,
+	calculateCosts as _calculateCosts,
 	isRefusalFinishReason,
 	shouldBillCancelledRequests,
 	zeroInferenceCosts,
@@ -74,6 +74,7 @@ import {
 	isLengthLimitFinishReason,
 	insertLog as _insertLog,
 } from "@/lib/logs.js";
+import { isSponsoredOnboardingRequest } from "@/lib/onboarding-sponsorship.js";
 import {
 	createSessionProviderStore,
 	getPreferredProvider,
@@ -1388,6 +1389,24 @@ const completions = createRoute({
 chat.openapi(completions, async (c) => {
 	// Extract or generate request ID
 	const requestId = c.req.header("x-request-id")?.trim() || shortid(40);
+
+	// The onboarding wizard's first call is served without charging for it (see
+	// lib/onboarding-sponsorship.ts). Resolved up front because it has to be in
+	// scope for both the credit gate below and every cost calculation.
+	const sponsoredOnboarding = isSponsoredOnboardingRequest(c);
+
+	// Wraps the imported calculateCosts so a sponsored call is zeroed once, here,
+	// instead of at each of the ~11 places costs are computed (streaming,
+	// non-streaming, cached, cancelled, error paths). Mirrors the insertLog
+	// wrapper further down: miss one call site and the user gets billed for the
+	// first thing they ever did.
+	const calculateCosts: typeof _calculateCosts = async (...args) => {
+		const costs = await _calculateCosts(...args);
+		if (sponsoredOnboarding) {
+			zeroInferenceCosts(costs);
+		}
+		return costs;
+	};
 
 	// Parse JSON manually even if it's malformed
 	let rawBody: unknown;
@@ -5107,7 +5126,11 @@ chat.openapi(completions, async (c) => {
 		// to be usable without credits. Do not switch this to isModelTrulyFree.
 		if (
 			totalAvailableCredits <= 0 &&
-			!((finalModelInfo ?? modelInfo) as ModelDefinition).free
+			!((finalModelInfo ?? modelInfo) as ModelDefinition).free &&
+			// A brand new organization has no credits, which is the whole reason
+			// onboarding's first call is zero-rated — it is never debited, so there
+			// is nothing for this gate to protect.
+			!sponsoredOnboarding
 		) {
 			if (
 				organization.chatPlan !== "none" &&
@@ -5230,7 +5253,9 @@ chat.openapi(completions, async (c) => {
 
 			if (
 				totalAvailableCredits <= 0 &&
-				!isModelTrulyFree((finalModelInfo ?? modelInfo) as ModelDefinition)
+				!isModelTrulyFree((finalModelInfo ?? modelInfo) as ModelDefinition) &&
+				// Zero-rated onboarding call: nothing is debited, so no credits needed.
+				!sponsoredOnboarding
 			) {
 				if (
 					organization.chatPlan !== "none" &&
