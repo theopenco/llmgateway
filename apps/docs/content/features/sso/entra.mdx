@@ -6,6 +6,7 @@ icon: Microsoft
 
 import { Step, Steps } from "fumadocs-ui/components/steps";
 import { Callout } from "fumadocs-ui/components/callout";
+import { ThemedImage } from "@/components/themed-image";
 
 # Microsoft Entra ID
 
@@ -196,6 +197,8 @@ In Entra, on your Enterprise App → **Provisioning → Automatic → Admin Cred
 - **Secret Token:** the token from the previous step
 - Click **Test Connection** (Entra calls `/ServiceProviderConfig` with the bearer token), then **Save**.
 
+![Entra provisioning Connectivity page with bearer authentication, the SCIM Tenant URL and the secret token filled in](/sso/entra-connectivity.png)
+
 A green check confirms the credentials are valid.
 
 <Callout type="info">
@@ -230,6 +233,13 @@ On the **SSO** page, add mappings such as `Acme Admins → admin`. When Entra pu
 
 Provisioned members join as **developers**, who only see the projects they're granted (owners/admins always see every project). The **Group project access** card on the **SSO** page maps an Entra group to one or more projects, so project access follows group membership in your directory automatically.
 
+<ThemedImage
+	alt="Group project access card on the SSO page with a group mapped to a project"
+	basePath="/sso/group-project-access"
+/>
+
+Enter the Entra group's **display name**, pick one or more projects, and **Save mapping**. That's the whole gateway side — everything else is driven by what Entra pushes over SCIM.
+
 ### How the sync works
 
 - **Mapped projects replace the default set.** If a member belongs to at least one mapped group, they get exactly the union of their groups' mapped projects. Members in no mapped group fall back to the [Default project access](#default-project-access-optional) selection below.
@@ -239,11 +249,46 @@ Provisioned members join as **developers**, who only see the projects they're gr
 
 ### Configure Entra so project sync works
 
-Group-based project sync rides entirely on the SCIM setup above — there is no extra Entra credential to configure — but three Entra-side details determine whether the group data actually reaches LLM Gateway:
+Group-based project sync rides entirely on the SCIM setup above — there is no extra Entra credential to configure. What matters is that the group object itself (its display name and member list) actually reaches LLM Gateway over SCIM, and that is controlled by three Entra-side details:
 
-1. **Group provisioning must be on** (it is by default). On the Enterprise App → **Provisioning → Attribute mapping**, the **Provision Microsoft Entra ID Groups** mapping must be enabled. Entra then pushes each in-scope group's display name and member list over SCIM.
-2. **The group must be in the provisioning scope.** With the recommended **"Sync only assigned users and groups"** scope, assign the group itself under **Users and groups** on the Enterprise App. Assigning a group both provisions its members as users and pushes the group object used for the mapping.
-3. **The mapping's group name must match the Entra display name** exactly (e.g. `Data Science`, not a case-variant). If you rename the group in Entra, the rename is pushed on the next sync and members are re-evaluated against the mappings — update the mapping to the new name if you want it to keep applying.
+<Steps>
+<Step>
+#### Group provisioning must be on (it is by default)
+
+On the Enterprise App → **Provisioning → Attribute mapping**, switch to the **Groups** tab. These mappings are what push each in-scope group's `displayName`, `members` list, and object id over SCIM — leave them at their defaults. If someone deleted the group mappings (or disabled group provisioning under **Advanced options**), LLM Gateway never learns about your groups and project mappings simply never match.
+
+![Groups tab of the Entra attribute mapping page showing the default displayName, members and objectId mappings](/sso/entra-attribute-mapping-groups.png)
+
+</Step>
+
+<Step>
+#### The group must be assigned to the app
+
+With the recommended **"Sync only assigned users and groups"** scope, Entra only pushes what is assigned to the Enterprise App under **Users and groups**. Assign the **group itself** (not just its members): assigning a group both provisions its members as users and pushes the group object that project mappings match against.
+
+![Users and groups page of the Enterprise App with a group and a user assigned](/sso/entra-users-groups.png)
+
+Group membership is managed in the normal place — **Entra ID → Groups** — and Entra pushes membership changes to LLM Gateway on its regular provisioning cycle:
+
+![Members page of an Entra group showing one direct member](/sso/entra-group-members.png)
+
+</Step>
+
+<Step>
+#### The mapping's group name must match the Entra display name
+
+Matching is on the group's **display name** exactly as Entra pushes it (e.g. `Data Science`, not a case-variant). If you rename the group in Entra, the rename is pushed on the next sync and members are re-evaluated against the mappings — update the mapping to the new name if you want it to keep applying.
+
+</Step>
+</Steps>
+
+### Worked example
+
+Say Entra has a group **`LLMGW-Test-Data`** containing the user **SCIM Test One**, the group is assigned to the Enterprise App, and the SSO page maps `LLMGW-Test-Data` → project **Restricted Project**:
+
+1. Entra provisions the user over SCIM → they join the organization as a **developer**. At this moment Entra may not have pushed the group yet, so they briefly hold the default project set.
+2. Entra pushes the group `LLMGW-Test-Data` with its member list → LLM Gateway re-evaluates the user and swaps their access to exactly **Restricted Project** (mapped projects **replace** the defaults).
+3. You remove the user from the group in Entra → on the next sync Entra sends the membership change, and LLM Gateway revokes **Restricted Project** and falls back to the current default project selection. Membership and role are untouched (but see the deprovisioning callout below).
 
 <Callout type="info">
 	**Testing without waiting for the sync cycle:** group changes propagate on
@@ -254,6 +299,8 @@ Group-based project sync rides entirely on the SCIM setup above — there is no 
 	switch the selector from **View members only** to the all-users view so the
 	removed member can be selected and their removal pushed.
 </Callout>
+
+![Provision on demand page with a group selected and one member picked for provisioning](/sso/entra-provision-on-demand.png)
 
 <Callout type="warn">
 	**Leaving a mapped group can mean full deprovisioning, not just losing the

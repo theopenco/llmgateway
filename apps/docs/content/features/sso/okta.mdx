@@ -6,6 +6,7 @@ icon: Okta
 
 import { Step, Steps } from "fumadocs-ui/components/steps";
 import { Callout } from "fumadocs-ui/components/callout";
+import { ThemedImage } from "@/components/themed-image";
 
 # Okta
 
@@ -196,6 +197,11 @@ On the app's **Push Groups** tab, push the Okta groups whose membership should m
 ## Group → project access mapping (optional)
 
 Provisioned members join as **developers**, who only see the projects they're granted (owners/admins always see every project). The **Group project access** card on the **SSO** page maps an Okta group to one or more projects, so project access follows group membership in your directory automatically.
+
+<ThemedImage
+	alt="Group project access card on the SSO page with a group mapped to a project"
+	basePath="/sso/group-project-access"
+/>
 
 On the app's **Push Groups** tab, push the Okta groups whose membership should drive project access (the same mechanism role mappings use), then add mappings such as `Data Science → Analytics, ETL` on the **SSO** page. The sync behaves as follows:
 
