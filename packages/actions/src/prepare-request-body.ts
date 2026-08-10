@@ -22,7 +22,6 @@ import {
 	supportsOpenAIExplicitPromptCache,
 	supportsOpenAIExtendedPromptCache,
 	supportsServiceTier,
-	type ToolChoiceMode,
 	type ToolChoiceType,
 	type WebSearchTool,
 } from "@llmgateway/models";
@@ -33,6 +32,7 @@ import { parseDataUrl } from "./parse-data-url.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
 import { ImageSizeLimitError, processImageUrl } from "./process-image-url.js";
 import { RequestError } from "./request-error.js";
+import { mappingSupportsToolChoice } from "./tool-choice-support.js";
 import { transformAnthropicMessages } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
 
@@ -92,27 +92,6 @@ export function deriveConversationCacheKey(
 		.update(JSON.stringify(prefix))
 		.digest("hex")
 		.slice(0, 32);
-}
-
-/**
- * Collapse an OpenAI `tool_choice` value to its coarse mode so it can be
- * checked against a mapping's `supportedToolChoices`. A named function choice
- * (`{type:"function",...}`) maps to "function".
- */
-function toolChoiceModeOf(
-	toolChoice: ToolChoiceType,
-): ToolChoiceMode | undefined {
-	if (
-		toolChoice === "auto" ||
-		toolChoice === "none" ||
-		toolChoice === "required"
-	) {
-		return toolChoice;
-	}
-	if (typeof toolChoice === "object" && toolChoice?.type === "function") {
-		return "function";
-	}
-	return undefined;
 }
 
 /**
@@ -1918,25 +1897,14 @@ export async function prepareRequestBody(
 			supportedParams.length === 0 ||
 			supportedParams.includes("tool_choice");
 
-		// A mapping can accept extra modes while thinking is off — CanopyWave's
-		// DeepSeek V4 deployments 400 with "Thinking mode does not support this
-		// tool_choice" on "required" and named functions, but honour both once
-		// thinking is disabled. `reasoning_effort` is already normalized above,
-		// so "none" here means the mapping really turns thinking off upstream.
-		const declaredModes = mapping?.supportedToolChoices;
-		const modesWithThinkingDisabled =
-			mapping?.supportedToolChoicesWithThinkingDisabled;
-		const supportedModes =
-			declaredModes?.length &&
-			reasoning_effort === "none" &&
-			modesWithThinkingDisabled?.length
-				? [...declaredModes, ...modesWithThinkingDisabled]
-				: declaredModes;
-		const mode = toolChoiceModeOf(tool_choice);
+		// `reasoning_effort` is already normalized above, so "none" here means the
+		// mapping really turns thinking off upstream — which some mappings require
+		// before they accept a forced tool choice.
 		const modeSupported =
-			!supportedModes ||
-			supportedModes.length === 0 ||
-			(mode !== undefined && supportedModes.includes(mode));
+			!mapping ||
+			mappingSupportsToolChoice(mapping, tool_choice, {
+				thinkingDisabled: reasoning_effort === "none",
+			});
 
 		resolvedToolChoice =
 			toolChoiceParamSupported && modeSupported ? tool_choice : "auto";
