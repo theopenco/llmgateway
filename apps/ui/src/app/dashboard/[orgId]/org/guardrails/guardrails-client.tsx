@@ -164,24 +164,36 @@ export function GuardrailsClient() {
 			}),
 		]);
 
-		if (configResult.status === "fulfilled") {
-			if (configResult.value.data) {
-				setConfig(configResult.value.data as unknown as GuardrailConfig);
-			} else {
-				// No config exists yet, use defaults
-				setConfig(DEFAULT_CONFIG);
-			}
+		// openapi-fetch resolves non-2xx responses as { error }, so checking for a
+		// rejection alone would only catch network-level failures.
+		const configResponse =
+			configResult.status === "fulfilled" ? configResult.value : null;
+		const rulesResponse =
+			rulesResult.status === "fulfilled" ? rulesResult.value : null;
+
+		if (configResponse && !configResponse.error) {
+			// An org with no config yet gets a 200 with a null body — only then do
+			// the defaults apply. Falling back to them after an HTTP error would
+			// show guardrails as disabled and let the next save overwrite the
+			// org's real configuration.
+			setConfig(
+				(configResponse.data as unknown as GuardrailConfig | null) ??
+					DEFAULT_CONFIG,
+			);
 		}
 
-		if (rulesResult.status === "fulfilled" && rulesResult.value.data) {
+		if (rulesResponse && !rulesResponse.error) {
 			setCustomRules(
-				(rulesResult.value.data as { rules: CustomRule[] }).rules || [],
+				(rulesResponse.data as { rules: CustomRule[] } | undefined)?.rules ??
+					[],
 			);
 		}
 
 		if (
-			configResult.status === "rejected" ||
-			rulesResult.status === "rejected"
+			!configResponse ||
+			configResponse.error ||
+			!rulesResponse ||
+			rulesResponse.error
 		) {
 			setError("Failed to load guardrails configuration");
 		}

@@ -18,10 +18,11 @@ import type { AppConfig } from "@/lib/config-server";
 import type { ReactNode } from "react";
 
 // The support widget starts collapsed but statically pulls in the AI SDK and
-// streamdown/shiki, so defer it out of the initial bundle of every route.
-const ChatSupport = dynamic(
-	() => import("@/components/chat-support").then((mod) => mod.ChatSupport),
-	{ ssr: false },
+// streamdown/shiki, so defer it out of the initial bundle of every route. No
+// ssr: false — the collapsed trigger is a permanently visible button and must
+// stay in the server-rendered HTML instead of popping in after hydration.
+const ChatSupport = dynamic(() =>
+	import("@/components/chat-support").then((mod) => mod.ChatSupport),
 );
 
 interface ProvidersProps {

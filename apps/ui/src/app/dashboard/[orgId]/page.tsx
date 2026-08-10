@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { getLastUsedProjectId } from "@/lib/last-used-project-server";
-import { fetchServerData } from "@/lib/server-api";
+import { getOrgProjects } from "@/lib/server-api";
 
 interface OrgPageProps {
 	params: Promise<{ orgId: string }>;
@@ -11,13 +11,7 @@ export default async function OrgPage({ params }: OrgPageProps) {
 	const { orgId } = await params;
 
 	// Fetch projects for this organization
-	const projectsData = await fetchServerData("GET", "/orgs/{id}/projects", {
-		params: {
-			path: {
-				id: orgId,
-			},
-		},
-	});
+	const projectsData = await getOrgProjects(orgId);
 
 	// Check if API returned null (error case)
 	if (!projectsData) {
@@ -32,23 +26,18 @@ export default async function OrgPage({ params }: OrgPageProps) {
 		);
 	}
 
-	if (projectsData && typeof projectsData === "object") {
-		const projects = projectsData as {
-			projects?: Array<{ id: string; name: string }>;
-		};
+	const projects = projectsData.projects;
 
-		if (projects.projects && projects.projects.length > 0) {
-			// Check for last used project first, fallback to first project
-			const lastUsedProjectId = await getLastUsedProjectId(orgId);
-			const defaultProjectId =
-				lastUsedProjectId &&
-				projects.projects.some((p) => p.id === lastUsedProjectId)
-					? lastUsedProjectId
-					: projects.projects[0].id;
+	if (projects && projects.length > 0) {
+		// Check for last used project first, fallback to first project
+		const lastUsedProjectId = await getLastUsedProjectId(orgId);
+		const defaultProjectId =
+			lastUsedProjectId && projects.some((p) => p.id === lastUsedProjectId)
+				? lastUsedProjectId
+				: projects[0].id;
 
-			// Redirect to the selected project
-			redirect(`/dashboard/${orgId}/${defaultProjectId}`);
-		}
+		// Redirect to the selected project
+		redirect(`/dashboard/${orgId}/${defaultProjectId}`);
 	}
 
 	// If no projects found, show a message or redirect to create project

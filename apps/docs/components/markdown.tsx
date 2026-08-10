@@ -9,6 +9,7 @@ import {
 	isValidElement,
 	use,
 	useDeferredValue,
+	useEffect,
 } from "react";
 import { Fragment, jsx, jsxs } from "react/jsx-runtime";
 import { remark } from "remark";
@@ -128,7 +129,38 @@ export function Markdown({ text }: { text: string }) {
 const cache = new Map<string, Promise<ReactNode>>();
 const cacheLimit = 200;
 
+// Text a mounted Renderer still depends on, by reference count. Evicting one of
+// these would make that Renderer re-suspend on its next render and flash an
+// already-answered message back to the invisible fallback — messages stop
+// re-rendering once they finish streaming (apps/docs runs the React Compiler),
+// so LRU ordering alone does not keep them warm.
+const pinned = new Map<string, number>();
+
+function evictColdEntries() {
+	for (const key of cache.keys()) {
+		if (cache.size <= cacheLimit) {
+			return;
+		}
+		if (!pinned.has(key)) {
+			cache.delete(key);
+		}
+	}
+}
+
 function Renderer({ text }: { text: string }) {
+	useEffect(() => {
+		pinned.set(text, (pinned.get(text) ?? 0) + 1);
+
+		return () => {
+			const count = pinned.get(text) ?? 0;
+			if (count > 1) {
+				pinned.set(text, count - 1);
+			} else {
+				pinned.delete(text);
+			}
+		};
+	}, [text]);
+
 	let result = cache.get(text);
 
 	if (result) {
@@ -136,14 +168,9 @@ function Renderer({ text }: { text: string }) {
 		cache.delete(text);
 	} else {
 		result = processor.process(text);
-		if (cache.size >= cacheLimit) {
-			const oldest = cache.keys().next().value;
-			if (oldest !== undefined) {
-				cache.delete(oldest);
-			}
-		}
 	}
 	cache.set(text, result);
+	evictColdEntries();
 
 	return use(result);
 }

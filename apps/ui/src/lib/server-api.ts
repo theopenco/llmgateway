@@ -94,36 +94,68 @@ export async function fetchServerData<T>(
 	}
 }
 
-// Request-scoped memoized fetchers: sibling RSCs and nested layouts request
-// these endpoints independently, so React.cache() collapses the duplicate
-// round-trips into one per request.
-export const getProject = cache(
-	async (projectId: string) =>
-		await fetchServerData<{ project: Project }>("GET", "/projects/{id}", {
+// Request-scoped store for the memoized fetchers below. cache() gives one map
+// per request, so entries never leak across requests or users.
+const requestCache = cache(() => new Map<string, Promise<unknown>>());
+
+// Sibling RSCs and nested layouts request the same endpoints independently, so
+// share the in-flight promise to collapse the duplicate round-trips into one.
+// Failed lookups are dropped from the map instead of memoized: fetchServerData
+// resolves to null on any error, and retaining that null would turn a single
+// transient blip into a request-wide outage — every consumer would render its
+// "unauthorized"/error branch off one bad response.
+function dedupeRequest<T>(
+	key: string,
+	fetcher: () => Promise<T | null>,
+): Promise<T | null> {
+	const store = requestCache();
+	const inFlight = store.get(key) as Promise<T | null> | undefined;
+	if (inFlight) {
+		return inFlight;
+	}
+
+	const promise = fetcher().then(
+		(result) => {
+			if (result === null) {
+				store.delete(key);
+			}
+			return result;
+		},
+		(error: unknown) => {
+			store.delete(key);
+			throw error;
+		},
+	);
+	store.set(key, promise);
+	return promise;
+}
+
+export function getProject(projectId: string) {
+	return dedupeRequest(`project:${projectId}`, () =>
+		fetchServerData<{ project: Project }>("GET", "/projects/{id}", {
 			params: {
 				path: {
 					id: projectId,
 				},
 			},
 		}),
-);
+	);
+}
 
-export const getOrganizations = cache(
-	async () =>
-		await fetchServerData<{ organizations: Organization[] }>("GET", "/orgs"),
-);
+export function getOrganizations() {
+	return dedupeRequest("orgs", () =>
+		fetchServerData<{ organizations: Organization[] }>("GET", "/orgs"),
+	);
+}
 
-export const getOrgProjects = cache(
-	async (orgId: string) =>
-		await fetchServerData<{ projects: Project[] }>(
-			"GET",
-			"/orgs/{id}/projects",
-			{
-				params: {
-					path: {
-						id: orgId,
-					},
+export function getOrgProjects(orgId: string) {
+	return dedupeRequest(`orgProjects:${orgId}`, () =>
+		fetchServerData<{ projects: Project[] }>("GET", "/orgs/{id}/projects", {
+			params: {
+				path: {
+					id: orgId,
 				},
 			},
-		),
-);
+		}),
+	);
+}

@@ -89,6 +89,12 @@ export default async function Page(props: {
 		// Ignore errors (rate limits, network issues, missing auth in Docker builds)
 	}
 
+	// getGithubLastEdit is unauthenticated and therefore rate-limited well below
+	// the number of pages generated per build, so `time` is null for most pages
+	// in a token-less build. Fall back to the build date so every page still
+	// renders a "Last updated" line — fumadocs omits it entirely when undefined.
+	const lastUpdate = time ? new Date(time) : new Date();
+
 	const MDXContent = page.data.body;
 
 	const path = page.url === "/" ? "" : page.url;
@@ -119,7 +125,7 @@ export default async function Page(props: {
 				style: "clerk",
 				footer: <EnterpriseCTA />,
 			}}
-			lastUpdate={time ? new Date(time) : undefined}
+			lastUpdate={lastUpdate}
 		>
 			<JsonLd data={techArticleSchema} />
 			<nav

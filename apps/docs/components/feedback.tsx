@@ -44,9 +44,28 @@ interface Result extends Feedback {
 	response?: ActionResponse;
 }
 
+// localStorage throws outright in Safari Private Browsing and when site data is
+// blocked, so persistence is best-effort: it must never take the widget down or
+// block the confirmation UI.
 function readStoredFeedback(url: string): Result | null {
-	const item = localStorage.getItem(`docs-feedback-${url}`);
-	return item === null ? null : (JSON.parse(item) as Result);
+	try {
+		const item = localStorage.getItem(`docs-feedback-${url}`);
+		return item === null ? null : (JSON.parse(item) as Result);
+	} catch {
+		return null;
+	}
+}
+
+function writeStoredFeedback(url: string, result: Result | null) {
+	try {
+		if (result) {
+			localStorage.setItem(`docs-feedback-${url}`, JSON.stringify(result));
+		} else {
+			localStorage.removeItem(`docs-feedback-${url}`);
+		}
+	} catch {
+		// Ignore: the rating is already recorded server-side and in PostHog.
+	}
 }
 
 export function Feedback({
@@ -85,10 +104,12 @@ export function Feedback({
 					response,
 					...feedback,
 				};
-				localStorage.setItem(`docs-feedback-${url}`, JSON.stringify(result));
+				// Commit the UI first: a storage failure must not swallow the
+				// confirmation panel and leave Submit looking unresponsive.
 				replacePrevious(result);
 				setMessage("");
 				setOpinion(null);
+				writeStoredFeedback(url, result);
 			});
 		});
 
@@ -165,9 +186,9 @@ export function Feedback({
 									"text-xs",
 								)}
 								onClick={() => {
-									localStorage.removeItem(`docs-feedback-${url}`);
 									setOpinion(previous.opinion);
 									replacePrevious(null);
+									writeStoredFeedback(url, null);
 								}}
 							>
 								Submit Again

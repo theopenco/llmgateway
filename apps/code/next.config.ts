@@ -13,10 +13,6 @@ const nextConfig: NextConfig = {
 	reactCompiler: true,
 	experimental: {
 		serverSourceMaps: true,
-		// The shared components entry is a barrel fronting the full model
-		// directory, log cards, and provider icons; rewrite named imports to
-		// direct module imports so small symbols don't pull the whole barrel.
-		optimizePackageImports: ["@llmgateway/shared/components"],
 	},
 	async redirects() {
 		// Truncated pricing-toggle URLs ("/mo", "/yr") picked up by crawlers.

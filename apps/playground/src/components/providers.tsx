@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 
 import { Toaster } from "@/components/ui/sonner";
 import { AppConfigProvider } from "@/lib/config";
+import { flushPendingIdentity } from "@/lib/posthog-identity";
 
 import type { AppConfig } from "@/lib/config-server";
 import type { ReactNode } from "react";
@@ -49,6 +50,7 @@ export function Providers({ children, config }: ProvidersProps) {
 				ui_host: host,
 				capture_pageview: "history_change",
 				autocapture: true,
+				loaded: flushPendingIdentity,
 			});
 		};
 		// Captures fired before init() are dropped by posthog-js, so the idle

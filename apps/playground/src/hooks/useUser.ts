@@ -5,6 +5,7 @@ import { usePostHog } from "posthog-js/react";
 import { useEffect } from "react";
 
 import { useApi } from "@/lib/fetch-client";
+import { identifyUser } from "@/lib/posthog-identity";
 
 export interface UserUpdateData {
 	name?: string;
@@ -40,7 +41,10 @@ export function useUser(options?: UseUserOptions) {
 
 	useEffect(() => {
 		if (data?.user) {
-			posthog.identify(data.user.id, {
+			// Queued rather than called directly: this effect fires once and can
+			// win the race against the deferred posthog.init(), which would drop
+			// the identify() and leave the whole session anonymous.
+			identifyUser(posthog, data.user.id, {
 				email: data.user.email,
 				name: data.user.name,
 			});
