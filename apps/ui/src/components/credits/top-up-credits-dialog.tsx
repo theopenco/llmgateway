@@ -8,7 +8,7 @@ import {
 } from "@stripe/react-stripe-js";
 import { keepPreviousData, useQueryClient } from "@tanstack/react-query";
 import confetti from "canvas-confetti";
-import { ChevronDown, CreditCard, Lock, Plus } from "lucide-react";
+import { ChevronDown, Coins, CreditCard, Lock, Plus } from "lucide-react";
 import Link from "next/link";
 import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
@@ -490,7 +490,7 @@ function AmountStep({
 					type="button"
 					onClick={handleStripeCheckout}
 					disabled={isActionDisabled}
-					aria-label="Pay with Apple Pay, Google Pay, or another method"
+					aria-label="Pay with Apple Pay, Google Pay, crypto, or another method"
 					className="flex w-full items-center justify-center gap-2.5 rounded-lg border px-4 py-2.5 transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
 				>
 					{checkoutLoading ? (
@@ -502,6 +502,7 @@ function AmountStep({
 						<>
 							<ApplePayMark />
 							<GooglePayMark />
+							<CryptoMark />
 							<span className="text-xs text-muted-foreground">&amp; more</span>
 						</>
 					)}
@@ -1263,6 +1264,15 @@ function GooglePayMark() {
 				/>
 			</svg>
 			<span className="text-xs font-semibold text-[#5f6368]">Pay</span>
+		</span>
+	);
+}
+
+function CryptoMark() {
+	return (
+		<span className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-1">
+			<Coins className="h-3.5 w-3.5 text-amber-500" aria-hidden="true" />
+			<span className="text-xs font-semibold">Crypto</span>
 		</span>
 	);
 }
