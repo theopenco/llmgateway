@@ -6,7 +6,9 @@ import { createTestUser, deleteAll } from "@/testing.js";
 import { redisClient } from "@llmgateway/cache";
 import { db, eq, tables } from "@llmgateway/db";
 import {
+	ONBOARDING_MAX_PROMPT_CHARS,
 	ONBOARDING_MAX_TOKENS,
+	ONBOARDING_MODEL,
 	ONBOARDING_SPONSOR_HEADER,
 } from "@llmgateway/shared";
 
@@ -36,11 +38,13 @@ describe("chat completion proxy", () => {
 		body: Record<string, unknown>;
 	}[] = [];
 	let gatewayStatus = 200;
+	let gatewayBody: Record<string, unknown> | null = null;
 
 	beforeEach(async () => {
 		token = await createTestUser();
 		gatewayRequests = [];
 		gatewayStatus = 200;
+		gatewayBody = null;
 
 		previousSecret = process.env.ONBOARDING_SPONSOR_SECRET;
 		process.env.ONBOARDING_SPONSOR_SECRET = SPONSOR_SECRET;
@@ -78,10 +82,17 @@ describe("chat completion proxy", () => {
 				});
 			}
 
+			if (gatewayBody) {
+				return new Response(JSON.stringify(gatewayBody), {
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				});
+			}
+
 			return new Response(
 				JSON.stringify({
 					id: "chatcmpl-proxy",
-					model: "auto",
+					model: ONBOARDING_MODEL,
 					choices: [
 						{
 							index: 0,
@@ -151,10 +162,76 @@ describe("chat completion proxy", () => {
 		expect(gatewayRequests[0].sponsor).toBe(SPONSOR_SECRET);
 		expect(gatewayRequests[0].source).toBe("onboarding");
 		expect(gatewayRequests[0].body).toMatchObject({
-			model: "auto",
+			model: ONBOARDING_MODEL,
 			onboarding: true,
 			max_tokens: ONBOARDING_MAX_TOKENS,
 		});
+	});
+
+	// The call is zero-rated, so whatever model it names is billed to the
+	// platform. Letting the body choose would let a signup pick the bill.
+	test("pins the model on a sponsored call", async () => {
+		await request(
+			{ model: "gpt-4o", apiKey: "user-token", onboarding: true },
+			token,
+		);
+
+		expect(gatewayRequests[0].sponsor).toBe(SPONSOR_SECRET);
+		expect(gatewayRequests[0].body.model).toBe(ONBOARDING_MODEL);
+	});
+
+	test("refuses to sponsor an oversized prompt", async () => {
+		await request(
+			{
+				model: "auto",
+				apiKey: "user-token",
+				onboarding: true,
+				messages: [
+					{
+						role: "user",
+						content: "x".repeat(ONBOARDING_MAX_PROMPT_CHARS + 1),
+					},
+				],
+			},
+			token,
+		);
+
+		// Still forwarded — just billed to the caller, and with their own model.
+		expect(gatewayRequests[0].sponsor).toBeNull();
+		expect(gatewayRequests[0].body.model).toBe("auto");
+		expect(gatewayRequests[0].body).not.toHaveProperty("max_tokens");
+	});
+
+	// An unsponsored call is paid for by the user, so it must not be silently
+	// truncated or have its model swapped.
+	test("leaves an unsponsored onboarding call uncapped", async () => {
+		await db
+			.update(tables.user)
+			.set({ onboardingCompleted: true })
+			.where(eq(tables.user.id, "test-user-id"));
+
+		await request(
+			{ model: "gpt-4o", apiKey: "user-token", onboarding: true },
+			token,
+		);
+
+		expect(gatewayRequests[0].sponsor).toBeNull();
+		expect(gatewayRequests[0].body.model).toBe("gpt-4o");
+		expect(gatewayRequests[0].body).not.toHaveProperty("max_tokens");
+	});
+
+	test("refunds the allowance when a 200 carries an in-band error", async () => {
+		gatewayBody = { error: { message: "provider exploded" } };
+		for (let attempt = 0; attempt < 3; attempt++) {
+			await onboardingRequest();
+		}
+
+		gatewayBody = null;
+		for (let attempt = 0; attempt < 5; attempt++) {
+			await onboardingRequest();
+		}
+
+		expect(gatewayRequests.filter((r) => r.sponsor !== null)).toHaveLength(8);
 	});
 
 	test("does not assert sponsorship once onboarding is complete", async () => {

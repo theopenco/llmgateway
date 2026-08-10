@@ -1452,7 +1452,6 @@ chat.openapi(completions, async (c) => {
 		tool_choice,
 		routing,
 		free_models_only,
-		onboarding,
 		no_reasoning,
 		sensitive_word_check,
 		image_config,
@@ -2146,7 +2145,15 @@ chat.openapi(completions, async (c) => {
 	// insertLog wrapper further down — can decide whether payload fields should
 	// be persisted. Orgs backing end-user wallets are always regular PAYG orgs,
 	// so the withWalletCredits substitution below never changes this value.
-	const retentionLevel = organization.retentionLevel ?? "none";
+	// A sponsored onboarding call is treated as non-retaining. Storage is billed
+	// separately from inference — the worker debits data_storage_cost for every
+	// mode, "even when inference itself was free or zeroed" — so leaving it on
+	// would push the zero-credit org we just waived the charge for into negative
+	// credits. Forcing it here rather than zeroing at each cost site keeps the
+	// two in step: no stored payloads, therefore no storage to charge for.
+	const retentionLevel = sponsoredOnboarding
+		? "none"
+		: (organization.retentionLevel ?? "none");
 
 	// Note: the end-user-wallet credits substitution (withWalletCredits) happens
 	// further below — orgs backing end-user wallets are always regular
@@ -5126,11 +5133,7 @@ chat.openapi(completions, async (c) => {
 		// to be usable without credits. Do not switch this to isModelTrulyFree.
 		if (
 			totalAvailableCredits <= 0 &&
-			!((finalModelInfo ?? modelInfo) as ModelDefinition).free &&
-			// A brand new organization has no credits, which is the whole reason
-			// onboarding's first call is zero-rated — it is never debited, so there
-			// is nothing for this gate to protect.
-			!sponsoredOnboarding
+			!((finalModelInfo ?? modelInfo) as ModelDefinition).free
 		) {
 			if (
 				organization.chatPlan !== "none" &&
@@ -5147,9 +5150,16 @@ chat.openapi(completions, async (c) => {
 			if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
 				throw buildDevPlanCreditLimitError(organization);
 			}
-			throw new HTTPException(402, {
-				message: `Organization ${organization.id} has insufficient credits`,
-			});
+			// Only the plain zero-balance case is waived for onboarding: a brand new
+			// organization has no credits, and the call is never debited, so there is
+			// nothing here to protect. The plan allowances above are still enforced —
+			// an exhausted Dev/Chat plan is a cap the subscriber agreed to, not a
+			// starting balance, and sponsorship must not become a way around it.
+			if (!sponsoredOnboarding) {
+				throw new HTTPException(402, {
+					message: `Organization ${organization.id} has insufficient credits`,
+				});
+			}
 		}
 
 		if (usedProvider === "llmgateway") {
@@ -5253,9 +5263,7 @@ chat.openapi(completions, async (c) => {
 
 			if (
 				totalAvailableCredits <= 0 &&
-				!isModelTrulyFree((finalModelInfo ?? modelInfo) as ModelDefinition) &&
-				// Zero-rated onboarding call: nothing is debited, so no credits needed.
-				!sponsoredOnboarding
+				!isModelTrulyFree((finalModelInfo ?? modelInfo) as ModelDefinition)
 			) {
 				if (
 					organization.chatPlan !== "none" &&
@@ -5275,10 +5283,14 @@ chat.openapi(completions, async (c) => {
 						"No API key set for provider. ",
 					);
 				}
-				throw new HTTPException(402, {
-					message:
-						"No API key set for provider and organization has insufficient credits",
-				});
+				// See the matching gate above: sponsorship waives only the plain
+				// zero-balance case, never a plan allowance.
+				if (!sponsoredOnboarding) {
+					throw new HTTPException(402, {
+						message:
+							"No API key set for provider and organization has insufficient credits",
+					});
+				}
 			}
 
 			if (usedProvider === "llmgateway") {
@@ -5352,7 +5364,10 @@ chat.openapi(completions, async (c) => {
 			project.organizationId,
 			usedInternalModel,
 			modelInfo as ModelDefinition,
-			{ skipEmailVerification: onboarding },
+			// Keyed on the secret-verified signal, not the `onboarding` body flag:
+			// that flag is client-supplied, so trusting it let any unverified account
+			// use free models by asserting its own onboarding.
+			{ skipEmailVerification: sponsoredOnboarding },
 		);
 	}
 
@@ -5440,8 +5455,15 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Check if organization has credits for data retention costs
-	// Data storage is billed at $0.01 per 1M tokens, so we need credits when retention is enabled
-	if (organization && organization.retentionLevel === "retain") {
+	// Data storage is billed at $0.01 per 1M tokens, so we need credits when retention is enabled.
+	// A sponsored onboarding call is exempt: its storage cost is zeroed below, so
+	// there is nothing to fund. Without this, a new account that turned retention
+	// on before finishing the wizard hits the very 402 this path exists to avoid.
+	if (
+		organization &&
+		organization.retentionLevel === "retain" &&
+		!sponsoredOnboarding
+	) {
 		const { totalAvailableCredits } = getAvailableCredits(organization);
 
 		if (totalAvailableCredits <= 0) {
@@ -6803,6 +6825,10 @@ chat.openapi(completions, async (c) => {
 			originalRequestParams,
 			{
 				requestId,
+				// Every fallback candidate re-asserts credits against a platform
+				// credential, so the waiver has to travel with the retry or the
+				// sponsored call 402s the moment the first provider misbehaves.
+				sponsoredOnboarding,
 				stream: streamValue,
 				effectiveStream,
 				messages: messages as BaseMessage[],

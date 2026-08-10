@@ -1,12 +1,19 @@
 // The model the post-signup onboarding wizard's "try it now" request runs on.
-// "auto" so onboarding never pins a specific model that later gets retired or
-// repriced — the router picks whatever is healthy at the time.
-export const ONBOARDING_MODEL = "auto";
+// Pinned, and re-pinned server-side in apps/api/src/routes/chat.ts rather than
+// taken from the request body: the call is zero-rated, so whatever this names is
+// billed to the platform's provider account. Leaving it to the caller — or to
+// "auto", whose candidates are frontier models — would let a signup decide how
+// much we pay. Keep it cheap: it is paid for on every signup.
+export const ONBOARDING_MODEL = "deepseek/deepseek-v4-flash";
 
 // Onboarding answers are two sentences, and that one call is on us, so cap the
-// output. Applied server-side in apps/api/src/routes/chat.ts rather than
-// trusted from the request body.
+// output. Applied server-side, and only to the calls we actually pay for.
 export const ONBOARDING_MAX_TOKENS = 512;
+
+// Ceiling on the prompt a zero-rated call may carry. `max_tokens` bounds only
+// the output; without this a sponsored request could ship a multi-hundred-K
+// token prompt that we pay to have read. Onboarding prompts are one sentence.
+export const ONBOARDING_MAX_PROMPT_CHARS = 4000;
 
 // Header the API proxy uses to tell the gateway "this request is the onboarding
 // wizard's first call, don't charge for it". Carries a shared secret, because

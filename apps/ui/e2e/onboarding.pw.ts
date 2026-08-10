@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 
 import { expect, test } from "@playwright/test";
 
+import { ONBOARDING_MODEL } from "@llmgateway/shared";
+
 import type { Page, Response } from "@playwright/test";
 
 // Requires a locally running stack (API on :4002, gateway on :4001, UI on
@@ -86,7 +88,10 @@ interface ActivityLog {
 // row shows up shortly after the response rather than with it. Poll `/logs`
 // until it lands.
 async function waitForOwnActivity(page: Page): Promise<ActivityLog> {
-	const deadline = Date.now() + 60_000;
+	// Kept well under the per-test budget: this runs after two 60s waits and the
+	// suite's per-test timeout is 90s, so a longer poll would surface as a bare
+	// Playwright timeout instead of the diagnostic below.
+	const deadline = Date.now() + 20_000;
 	let lastCount = -1;
 
 	while (Date.now() < deadline) {
@@ -158,12 +163,21 @@ test("a brand new account completes onboarding without verifying its email", asy
 	}
 
 	// The call the user just made has to be visible to the account that made it.
-	// `/logs` only ever returns rows belonging to the caller's own
-	// organizations, so a hit here proves the request was authenticated with
-	// this account's key rather than a platform-owned one.
-	const log = await waitForOwnActivity(page);
-	expect(log.source).toBe("onboarding");
-	expect(log.requestedModel).toBeTruthy();
+	// `/logs` only ever returns rows belonging to the caller's own organizations,
+	// so a hit here proves the request was authenticated with this account's key
+	// rather than a platform-owned one.
+	//
+	// Only assert it when the call actually reached a provider. The tolerated
+	// failure above (no `LLM_*` key locally) is thrown before any provider
+	// attempt and writes no log row at all, so polling for one would fail for a
+	// reason that has nothing to do with attribution.
+	if (response.status() === 200 && !(await error.isVisible())) {
+		const log = await waitForOwnActivity(page);
+		expect(log.source).toBe("onboarding");
+		// Exact, not merely present: the proxy pins the model server-side for a
+		// call we pay for, so anything else here means the pin was bypassed.
+		expect(log.requestedModel).toBe(ONBOARDING_MODEL);
+	}
 
 	// Finishing the wizard marks onboarding complete and lands on the dashboard.
 	await page.getByTestId("onboarding-finish").click();

@@ -8,7 +8,9 @@ import { redisClient } from "@llmgateway/cache";
 import { db } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
+	ONBOARDING_MAX_PROMPT_CHARS,
 	ONBOARDING_MAX_TOKENS,
+	ONBOARDING_MODEL,
 	ONBOARDING_SPONSOR_HEADER,
 	getOnboardingSponsorSecret,
 } from "@llmgateway/shared";
@@ -27,6 +29,22 @@ function sponsoredCallKey(userId: string) {
 	return `onboarding_sponsored_calls:${userId}`;
 }
 
+// Check-and-increment in one round trip: a request that would exceed the limit
+// must not bump the counter at all. A plain INCR keeps climbing on every
+// rejected attempt, so a refund for a call that *was* sponsored could land
+// against an inflated count and hand back nothing, and the key's lifetime would
+// drift away from the window it is meant to measure. Setting the expiry in the
+// same script also closes the gap where a crash between INCR and EXPIRE would
+// leave a counter that never resets.
+const RESERVE_SPONSORED_CALL = `
+local used = tonumber(redis.call('get', KEYS[1]) or '0')
+if used >= tonumber(ARGV[1]) then return 0 end
+if redis.call('incr', KEYS[1]) == 1 then
+	redis.call('expire', KEYS[1], ARGV[2])
+end
+return 1
+`;
+
 /**
  * Consume one zero-rated onboarding call for a user, atomically. Returns false
  * once the allowance is spent — the caller then sends the request without the
@@ -35,14 +53,14 @@ function sponsoredCallKey(userId: string) {
  */
 async function reserveSponsoredCall(userId: string): Promise<boolean> {
 	try {
-		const used = await redisClient.incr(sponsoredCallKey(userId));
-		if (used === 1) {
-			await redisClient.expire(
-				sponsoredCallKey(userId),
-				SPONSORED_CALL_WINDOW_SECONDS,
-			);
-		}
-		return used <= SPONSORED_CALL_LIMIT;
+		const granted = await redisClient.eval(
+			RESERVE_SPONSORED_CALL,
+			1,
+			sponsoredCallKey(userId),
+			String(SPONSORED_CALL_LIMIT),
+			String(SPONSORED_CALL_WINDOW_SECONDS),
+		);
+		return granted === 1;
 	} catch (error) {
 		logger.error(
 			"Could not reserve a sponsored onboarding call",
@@ -130,10 +148,18 @@ chat.openapi(completionRoute, async (c) => {
 		// is irrelevant to the decision.
 		const sessionUser = c.get("user");
 		const sponsorSecret = getOnboardingSponsorSecret();
+		// The prompt is the one part of a sponsored call the client still chooses,
+		// and we pay to have it read, so it is bounded here rather than sponsored
+		// at any size.
+		const promptChars = messages.reduce(
+			(total, message) => total + message.content.length,
+			0,
+		);
 		const sponsorable = Boolean(
 			onboarding &&
 			sponsorSecret &&
 			sessionUser &&
+			promptChars <= ONBOARDING_MAX_PROMPT_CHARS &&
 			!(
 				await db.query.user.findFirst({
 					where: { id: { eq: sessionUser.id } },
@@ -155,12 +181,13 @@ chat.openapi(completionRoute, async (c) => {
 				...(sponsored && { [ONBOARDING_SPONSOR_HEADER]: sponsorSecret! }),
 			},
 			body: JSON.stringify({
-				model,
+				// Pin the model and cap the output for a call we pay for, instead of
+				// trusting the body. An unsponsored call is billed to the caller, so it
+				// keeps its own model and stays uncapped.
+				model: sponsored ? ONBOARDING_MODEL : model,
 				messages,
 				stream,
-				// Cap the onboarding answer server-side rather than trusting the body:
-				// this one is on us.
-				...(onboarding && { max_tokens: ONBOARDING_MAX_TOKENS }),
+				...(sponsored && { max_tokens: ONBOARDING_MAX_TOKENS }),
 				...(free_models_only !== undefined && { free_models_only }),
 				...(onboarding !== undefined && { onboarding }),
 			}),
@@ -211,6 +238,24 @@ chat.openapi(completionRoute, async (c) => {
 
 				const decoder = new TextDecoder();
 				let buffer = "";
+				// The gateway reports a post-headers failure in-band on a 200, so the
+				// status check above cannot see it. Track it here: without this a run
+				// of provider failures silently eats the whole allowance and the user
+				// ends up on the exact 402 the refund exists to prevent.
+				let streamFailed = false;
+
+				const relay = async (payload: string) => {
+					if (!streamFailed) {
+						try {
+							if (JSON.parse(payload)?.error) {
+								streamFailed = true;
+							}
+						} catch {
+							// Not JSON (e.g. the terminal [DONE]); nothing to inspect.
+						}
+					}
+					await stream.writeSSE({ data: payload });
+				};
 
 				try {
 					while (true) {
@@ -225,13 +270,12 @@ chat.openapi(completionRoute, async (c) => {
 
 						for (const line of lines) {
 							if (line.startsWith("data: ")) {
-								await stream.writeSSE({
-									data: line.slice(6),
-								});
+								await relay(line.slice(6));
 							}
 						}
 					}
 				} catch (error) {
+					streamFailed = true;
 					logger.error(
 						"Streaming error",
 						error instanceof Error ? error : new Error(String(error)),
@@ -241,6 +285,9 @@ chat.openapi(completionRoute, async (c) => {
 						event: "error",
 					});
 				} finally {
+					if (sponsored && streamFailed) {
+						await refundSponsoredCall(sessionUser!.id);
+					}
 					// Clean up the reader to prevent file descriptor leaks
 					await reader.cancel();
 				}
@@ -251,6 +298,11 @@ chat.openapi(completionRoute, async (c) => {
 
 			// Check if the response contains an error
 			if (responseData.error) {
+				// Same in-band failure as the streaming branch: a 200 carrying an
+				// error is not a call we served, so give the allowance back.
+				if (sponsored) {
+					await refundSponsoredCall(sessionUser!.id);
+				}
 				logger.error("Gateway returned error", {
 					requestedModel: model,
 					usedModel: responseData.model ?? "unknown",
