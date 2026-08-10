@@ -63,6 +63,7 @@ interface Transaction {
 		| "credit_refund"
 		| "credit_topup"
 		| "credit_gift"
+		| "credit_manual_payment"
 		| "subscription_start"
 		| "subscription_cancel"
 		| "subscription_end"
@@ -367,6 +368,8 @@ function TransactionCard({
 				return "Credit Refund";
 			case "credit_gift":
 				return "Credit Gift";
+			case "credit_manual_payment":
+				return "Credits Added";
 			case "subscription_start":
 				return "Subscription Start";
 			case "subscription_cancel":
@@ -531,6 +534,8 @@ export function TransactionsClient({
 													{transaction.type === "credit_refund" &&
 														"Credit Refund"}
 													{transaction.type === "credit_gift" && "Credit Gift"}
+													{transaction.type === "credit_manual_payment" &&
+														"Credits Added"}
 													{transaction.type === "subscription_start" &&
 														"Subscription Start"}
 													{transaction.type === "subscription_cancel" &&

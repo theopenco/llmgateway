@@ -13,11 +13,13 @@ import type { ProviderModelMapping } from "@llmgateway/models";
 function managedAvailability(values: {
 	configured?: string[];
 	usable?: string[];
+	defaultRegionUsable?: string[];
 	pinnedRegions?: Record<string, string[]>;
 }): ManagedProviderAvailability {
 	return {
 		configured: new Set(values.configured ?? []),
 		usable: new Set(values.usable ?? []),
+		defaultRegionUsable: new Set(values.defaultRegionUsable ?? []),
 		pinnedRegions: new Map(
 			Object.entries(values.pinnedRegions ?? {}).map(([provider, regions]) => [
 				provider,
@@ -108,6 +110,46 @@ describe("hybrid-provider-routing", () => {
 		);
 
 		expect(result.availableProviders).toEqual([]);
+	});
+
+	/**
+	 * A provider with no global region (Alibaba) can only ever hold region-pinned
+	 * credentials, and a region-less route is served from its default region — so
+	 * a credential pinned there backs the provider. It still covers no other
+	 * region: those stay gated behind their own pinned credential.
+	 */
+	it("backs a provider whose credential is pinned to its default region", () => {
+		const managed = managedAvailability({
+			configured: ["alibaba"],
+			usable: [],
+			defaultRegionUsable: ["alibaba"],
+			pinnedRegions: { alibaba: ["singapore", "eu-frankfurt"] },
+		});
+
+		const result = getAvailableProvidersForProjectMode(
+			"credits",
+			[],
+			["alibaba"],
+			managed,
+		);
+
+		expect(result.availableProviders).toEqual(["alibaba"]);
+		expect(
+			platformCredentialCoversRegion(
+				"alibaba",
+				"eu-frankfurt",
+				managed,
+				() => false,
+			),
+		).toBe(true);
+		expect(
+			platformCredentialCoversRegion(
+				"alibaba",
+				"cn-beijing",
+				managed,
+				() => true,
+			),
+		).toBe(false);
 	});
 
 	it("keeps reading the environment for providers with no managed credential", () => {

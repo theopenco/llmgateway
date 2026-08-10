@@ -325,6 +325,14 @@ Routing metadata reflects this:
 	explicit provider-key region restricts the request to that region.
 </Callout>
 
+A few regions are served by an endpoint that belongs to your own account rather
+than a shared one — Alibaba Cloud's EU (Frankfurt) region has no shared
+DashScope domain and is served by your Model Studio workspace's dedicated host.
+Such a region still works from an API key alone, via the provider's shared entry
+point, but that endpoint is rate-limited and carries no SLA. Set the workspace
+ID on the provider key (copy it from the API Host shown when you create the key)
+to route through your own endpoint instead.
+
 #### Low-Uptime Protection
 
 When you specify a provider explicitly, LLMGateway checks the provider's recent uptime (from the time-decayed metrics window described above). If the uptime falls below 90%, the system automatically routes your request to the best available alternative provider to ensure reliability. This protects your application from providers experiencing temporary issues. The fallback threshold (default `90%`) is configurable.

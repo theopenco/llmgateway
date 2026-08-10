@@ -6,6 +6,7 @@ import {
 	type ModelDefinition,
 	getProviderDefinition,
 	getProviderEnvVar,
+	getRegionScopedProviderEnvValue,
 	getSupportedServiceTiers,
 	models,
 	type ProviderModelMapping,
@@ -1270,6 +1271,17 @@ function providerEnvOptionsForTests(
 ): ProviderKeyOptions | undefined {
 	if (providerId === "azure" && process.env.LLM_AZURE_RESOURCE) {
 		return { azure_resource: process.env.LLM_AZURE_RESOURCE };
+	}
+	if (providerId === "alibaba") {
+		// BYOK keys never read env vars at request time, so a workspace-scoped
+		// region (Frankfurt) is only reachable when the seeded key carries the
+		// workspace id the way a real credential would.
+		const workspaceId = getRegionScopedProviderEnvValue(
+			"alibaba",
+			"workspaceId",
+			"eu-frankfurt",
+		);
+		return workspaceId ? { alibaba_workspace_id: workspaceId } : undefined;
 	}
 	if (providerId === "azure-ai-foundry") {
 		const resource = process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE;

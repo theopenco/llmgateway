@@ -470,6 +470,66 @@ describe("managed provider credentials", () => {
 		expect(captured).toEqual([]);
 	});
 
+	/**
+	 * A provider whose regions each have their own credential (Alibaba has no
+	 * global region, so every managed credential is region-pinned) must still
+	 * serve a request that never resolved a region — it is sent to the
+	 * provider's default region, so the credential pinned to that region is the
+	 * one that serves it. Falling through to "no managed credential" 500s every
+	 * region-less request the moment the last region-agnostic credential goes
+	 * away.
+	 */
+	test("serves a region-less request from the default-region credential", async () => {
+		await seedApiKey();
+		await seedManagedCredential({
+			id: "managed-alibaba-singapore",
+			provider: "alibaba",
+			token: "sk-managed-singapore",
+			region: "singapore",
+		});
+		await seedManagedCredential({
+			id: "managed-alibaba-frankfurt",
+			provider: "alibaba",
+			token: "sk-managed-frankfurt",
+			region: "eu-frankfurt",
+		});
+
+		const captured = captureUpstream(chatCompletion);
+
+		// Bare model id: no provider prefix and no `:region` suffix.
+		const res = await completions("qwen3.7-plus");
+		expect(res.status).toBe(200);
+
+		expect(captured).toHaveLength(1);
+		expect(captured[0].url).toContain("dashscope-intl.aliyuncs.com");
+		expect(captured[0].authorization).toBe("Bearer sk-managed-singapore");
+	});
+
+	test("serves each pinned region from its own credential", async () => {
+		await seedApiKey();
+		await seedManagedCredential({
+			id: "managed-alibaba-singapore",
+			provider: "alibaba",
+			token: "sk-managed-singapore",
+			region: "singapore",
+		});
+		await seedManagedCredential({
+			id: "managed-alibaba-frankfurt",
+			provider: "alibaba",
+			token: "sk-managed-frankfurt",
+			region: "eu-frankfurt",
+		});
+
+		const captured = captureUpstream(chatCompletion);
+
+		const res = await completions("alibaba/qwen3.7-plus:eu-frankfurt");
+		expect(res.status).toBe(200);
+
+		expect(captured).toHaveLength(1);
+		expect(captured[0].url).toContain("eu-central-1.maas.aliyuncs.com");
+		expect(captured[0].authorization).toBe("Bearer sk-managed-frankfurt");
+	});
+
 	test("routes a PAYG org to a default credential alongside a variant one", async () => {
 		await seedApiKey();
 		await seedManagedCredential({

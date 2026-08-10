@@ -172,6 +172,7 @@ import {
 	expandAllProviderRegions,
 	getOrganizationEnvVariant,
 	getProviderDefinition,
+	getRegionScopedDefaultRegion,
 	getRegionSpecificEnvVarName,
 } from "@llmgateway/models";
 import {
@@ -413,21 +414,25 @@ function filterRegionsByAvailableKeys(
 
 /**
  * Whether the platform's own credentials can serve this regional mapping.
- * Mappings without a region, and providers the catalogue does not scope by
- * region, are always kept — there is nothing to select against.
+ * Providers the catalogue does not scope by region are always kept — there is
+ * nothing to select against. A mapping without a region is served from the
+ * provider's default region, so for a provider whose credentials are
+ * region-scoped it is judged on that region; providers with a credential shared
+ * across regions (AWS Bedrock) keep the mapping unconditionally, as before.
  */
 function platformKeyCoversMappingRegion(
 	mapping: ProviderModelMapping,
 	managed: ManagedProviderAvailability,
 ): boolean {
-	const region = mapping.region;
-	if (!region) {
-		return true;
-	}
 	const providerDef = providers.find((p) => p.id === mapping.providerId) as
 		ProviderDefinition | undefined;
 	const regionConfig = providerDef?.regionConfig;
 	if (!regionConfig) {
+		return true;
+	}
+	const region =
+		mapping.region ?? getRegionScopedDefaultRegion(mapping.providerId);
+	if (!region) {
 		return true;
 	}
 	return platformCredentialCoversRegion(

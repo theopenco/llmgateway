@@ -239,6 +239,43 @@ describe("provider keys route", () => {
 		expect(res.status).toBe(400);
 	});
 
+	describe("POST /keys/provider workspace-scoped regions", () => {
+		const postAlibabaKey = (options: Record<string, string>) =>
+			app.request("/keys/provider", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+				},
+				body: JSON.stringify({
+					provider: "alibaba",
+					token: "sk-alibaba-test-key",
+					organizationId: "test-org-id",
+					options,
+				}),
+			});
+
+		// Frankfurt reaches a shared entry point without one, so the workspace id
+		// is an upgrade rather than a requirement.
+		test("accepts eu-frankfurt without a workspace id", async () => {
+			const res = await postAlibabaKey({ alibaba_region: "eu-frankfurt" });
+			expect(res.status).not.toBe(400);
+		});
+
+		test("rejects a workspace id that is not a bare hostname label", async () => {
+			const res = await postAlibabaKey({
+				alibaba_region: "eu-frankfurt",
+				alibaba_workspace_id: "evil.example.com/x",
+			});
+			expect(res.status).toBe(400);
+		});
+
+		test("accepts regions served by a shared host without a workspace id", async () => {
+			const res = await postAlibabaKey({ alibaba_region: "singapore" });
+			expect(res.status).not.toBe(400);
+		});
+	});
+
 	test("POST /keys/provider with invalid provider", async () => {
 		const res = await app.request("/keys/provider", {
 			method: "POST",

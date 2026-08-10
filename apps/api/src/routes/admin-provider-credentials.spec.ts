@@ -19,6 +19,10 @@ import {
 	waitForSwrMirrorWrites,
 } from "@llmgateway/cache";
 import { and, asc, cdb, db, eq, getTableName, tables } from "@llmgateway/db";
+import {
+	getProviderDefinition,
+	getRegionEnvVarSuffix,
+} from "@llmgateway/models";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 import type * as LlmGatewayActions from "@llmgateway/actions";
@@ -71,9 +75,13 @@ describe("admin provider credentials", () => {
 	 * ones it asserts on.
 	 */
 	function clearAlibabaEnvSlots() {
+		const regions =
+			getProviderDefinition("alibaba")?.regionConfig?.regions.map((r) =>
+				getRegionEnvVarSuffix(r.id),
+			) ?? [];
 		for (const variant of ["", "__ENTERPRISE", "__PLANS"]) {
 			vi.stubEnv(`LLM_ALIBABA_API_KEY${variant}`, "");
-			for (const region of ["SINGAPORE", "US_VIRGINIA", "CN_BEIJING"]) {
+			for (const region of regions) {
 				vi.stubEnv(`LLM_ALIBABA_API_KEY${variant}__${region}`, "");
 			}
 		}
