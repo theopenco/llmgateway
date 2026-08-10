@@ -766,7 +766,10 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_ALIBABA_API_KEY",
 			},
 			optional: {
-				region: "LLM_ALIBABA_REGION",
+				// No `region` key: the region comes from the model's `:region`
+				// suffix or the credential's own region binding, never from a
+				// provider-wide setting, so declaring one would only render a dead
+				// field on the credential form.
 				workspaceId: "LLM_ALIBABA_WORKSPACE_ID",
 			},
 		},
