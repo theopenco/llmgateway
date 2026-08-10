@@ -29,6 +29,13 @@ export function identifyUser(
 	pending = { id, properties };
 }
 
+// Drop a queued identity that never flushed — without this, an identity queued
+// before logout would be flushed after init and attribute the now-anonymous
+// session to the previous user.
+export function clearPendingIdentity() {
+	pending = null;
+}
+
 export function flushPendingIdentity(client: PostHogLike) {
 	isLoaded = true;
 

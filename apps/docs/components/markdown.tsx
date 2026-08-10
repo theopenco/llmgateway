@@ -136,12 +136,12 @@ const cacheLimit = 200;
 // so LRU ordering alone does not keep them warm.
 const pinned = new Map<string, number>();
 
-function evictColdEntries() {
+function evictColdEntries(exclude?: string) {
 	for (const key of cache.keys()) {
 		if (cache.size <= cacheLimit) {
 			return;
 		}
-		if (!pinned.has(key)) {
+		if (key !== exclude && !pinned.has(key)) {
 			cache.delete(key);
 		}
 	}
@@ -158,6 +158,9 @@ function Renderer({ text }: { text: string }) {
 			} else {
 				pinned.delete(text);
 			}
+			// A slot just went cold; reclaim it so the cache shrinks back once
+			// long-lived messages unmount.
+			evictColdEntries();
 		};
 	}, [text]);
 
@@ -170,7 +173,10 @@ function Renderer({ text }: { text: string }) {
 		result = processor.process(text);
 	}
 	cache.set(text, result);
-	evictColdEntries();
+	// The current entry is not pinned until the effect runs, so shield it from
+	// eviction — deleting it here would recreate the promise every render and
+	// suspend the message indefinitely once all other slots are pinned.
+	evictColdEntries(text);
 
 	return use(result);
 }

@@ -5,7 +5,7 @@ import { usePostHog } from "posthog-js/react";
 import { useEffect } from "react";
 
 import { useApi } from "@/lib/fetch-client";
-import { identifyUser } from "@/lib/posthog-identity";
+import { clearPendingIdentity, identifyUser } from "@/lib/posthog-identity";
 
 export interface UserUpdateData {
 	name?: string;
@@ -48,6 +48,8 @@ export function useUser(options?: UseUserOptions) {
 				email: data.user.email,
 				name: data.user.name,
 			});
+		} else {
+			clearPendingIdentity();
 		}
 	}, [data?.user, posthog]);
 
