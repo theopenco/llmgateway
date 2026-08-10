@@ -4,11 +4,25 @@ import { z } from "zod";
 
 import { getGatewayUrl } from "@/utils/playground-key.js";
 
+import { db } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { ONBOARDING_MAX_TOKENS, ONBOARDING_MODEL } from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
 
 const chat = new OpenAPIHono<ServerTypes>();
+
+// A brand new organization has no credits, so the onboarding wizard's first
+// call is sponsored by a platform-owned key. Because we pay for it, the
+// sponsored path pins the model and an output cap server-side instead of
+// trusting the request, and only applies to an account that hasn't finished
+// onboarding yet. Without a platform key configured (self-hosted, local dev)
+// the call falls back to the account's own key, exactly as before.
+function getOnboardingApiKey() {
+	return (
+		process.env.ONBOARDING_CHAT_API_KEY ?? process.env.SUPPORT_CHAT_API_KEY
+	);
+}
 
 const chatCompletionSchema = z.object({
 	messages: z.array(
@@ -49,22 +63,38 @@ chat.openapi(completionRoute, async (c) => {
 		const { messages, model, stream, apiKey, free_models_only, onboarding } =
 			body;
 
+		const sessionUser = c.get("user");
+		const onboardingApiKey = getOnboardingApiKey();
+		const sponsored = Boolean(
+			onboarding &&
+			onboardingApiKey &&
+			sessionUser &&
+			!(
+				await db.query.user.findFirst({
+					where: { id: { eq: sessionUser.id } },
+					columns: { onboardingCompleted: true },
+				})
+			)?.onboardingCompleted,
+		);
+
 		// Require user to provide their own API key
-		if (!apiKey) {
+		if (!sponsored && !apiKey) {
 			return c.json({ error: "API key is required" }, 400);
 		}
-		const authToken = apiKey;
+		const authToken = sponsored ? onboardingApiKey! : apiKey!;
 
 		const response = await fetch(`${getGatewayUrl()}/chat/completions`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
 				Authorization: `Bearer ${authToken}`,
+				...(sponsored && { "x-source": "onboarding" }),
 			},
 			body: JSON.stringify({
-				model,
+				model: sponsored ? ONBOARDING_MODEL : model,
 				messages,
 				stream,
+				...(sponsored && { max_tokens: ONBOARDING_MAX_TOKENS }),
 				...(free_models_only !== undefined && { free_models_only }),
 				...(onboarding !== undefined && { onboarding }),
 			}),

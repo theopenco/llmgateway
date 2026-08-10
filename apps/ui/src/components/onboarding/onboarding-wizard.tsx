@@ -32,6 +32,8 @@ import { Textarea } from "@/lib/components/textarea";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
+import { ONBOARDING_MODEL } from "@llmgateway/shared";
+
 const DEFAULT_PROMPT = "Explain what an LLM gateway is in 2 sentences.";
 
 export function OnboardingWizard() {
@@ -121,14 +123,17 @@ export function OnboardingWizard() {
 
 		try {
 			// The gateway does not allow cross-origin browser requests, so the
-			// test request goes through the API's server-side proxy.
+			// test request goes through the API's server-side proxy. That proxy
+			// sits behind the session middleware, so the session cookie has to
+			// be sent along — the API is on a different origin than the UI.
 			const res = await fetch(`${config.apiUrl}/chat/completion`, {
 				method: "POST",
+				credentials: "include",
 				headers: {
 					"Content-Type": "application/json",
 				},
 				body: JSON.stringify({
-					model: "auto",
+					model: ONBOARDING_MODEL,
 					messages: [
 						{
 							role: "system",
@@ -138,7 +143,6 @@ export function OnboardingWizard() {
 					],
 					stream: true,
 					apiKey,
-					free_models_only: true,
 					onboarding: true,
 				}),
 				signal: controller.signal,
@@ -164,6 +168,10 @@ export function OnboardingWizard() {
 			let accumulated = "";
 			let model = "auto";
 			let buffer = "";
+			// The gateway reports failures that happen after the response has
+			// started as an SSE `error` event with a 200 status, so the stream
+			// has to be inspected for them instead of only the HTTP status.
+			let streamError: string | null = null;
 
 			while (true) {
 				const { done, value } = await reader.read();
@@ -188,6 +196,12 @@ export function OnboardingWizard() {
 
 					try {
 						const parsed = JSON.parse(data);
+						if (parsed.error) {
+							streamError =
+								(typeof parsed.error === "string"
+									? parsed.error
+									: parsed.error?.message) ?? "Request failed";
+						}
 						const delta = parsed.choices?.[0]?.delta?.content;
 						if (delta) {
 							accumulated += delta;
@@ -200,6 +214,12 @@ export function OnboardingWizard() {
 						// Skip malformed chunks
 					}
 				}
+			}
+
+			if (streamError && !accumulated) {
+				setTryError(streamError);
+				posthog.capture("onboarding_try_error", { error: streamError });
+				return;
 			}
 
 			if (!accumulated) {
@@ -263,7 +283,10 @@ export function OnboardingWizard() {
 							<div className="h-10 w-full animate-pulse rounded-md bg-muted" />
 						) : apiKey ? (
 							<div className="flex items-center gap-2">
-								<code className="flex-1 rounded-md border bg-muted/50 p-3 text-sm font-mono break-all">
+								<code
+									data-testid="onboarding-api-key"
+									className="flex-1 rounded-md border bg-muted/50 p-3 text-sm font-mono break-all"
+								>
 									{apiKey}
 								</code>
 								<Button
@@ -295,7 +318,8 @@ export function OnboardingWizard() {
 							Try it now
 						</CardTitle>
 						<CardDescription>
-							Send a real request using a free model — no credits needed
+							Send a real request through the gateway — this one&apos;s on us,
+							no credits needed
 						</CardDescription>
 					</CardHeader>
 					<CardContent className="space-y-4">
@@ -308,6 +332,7 @@ export function OnboardingWizard() {
 						/>
 
 						<Button
+							data-testid="onboarding-send"
 							onClick={handleTryIt}
 							disabled={tryLoading || !prompt.trim() || !apiKey}
 							className="w-full"
@@ -327,7 +352,10 @@ export function OnboardingWizard() {
 
 						{tryError && (
 							<div className="rounded-md border border-red-200 bg-red-50 p-3 dark:border-red-800 dark:bg-red-900/20">
-								<p className="text-sm text-red-800 dark:text-red-200">
+								<p
+									data-testid="onboarding-error"
+									className="text-sm text-red-800 dark:text-red-200"
+								>
 									{tryError}
 								</p>
 							</div>
@@ -338,7 +366,10 @@ export function OnboardingWizard() {
 								<p className="text-xs font-medium text-muted-foreground mb-2">
 									Response
 								</p>
-								<p className="text-sm whitespace-pre-wrap">
+								<p
+									data-testid="onboarding-response"
+									className="text-sm whitespace-pre-wrap"
+								>
 									{tryResponse}
 									{tryLoading && (
 										<span className="inline-block w-1.5 h-4 bg-foreground/70 animate-pulse ml-0.5 align-text-bottom" />
@@ -392,6 +423,7 @@ export function OnboardingWizard() {
 
 				{/* Go to Dashboard */}
 				<Button
+					data-testid="onboarding-finish"
 					size="lg"
 					onClick={handleGoToDashboard}
 					disabled={isCompleting}
