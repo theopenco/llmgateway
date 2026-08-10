@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "15528268-47e3-4039-8828-1b37bc599412",
+  "id": "555277a3-5022-4bee-8be6-545f0ed166b4",
   "prevId": "f2f76594-0578-454e-9169-df064a03d10e",
   "ddl": [
     {
@@ -13983,19 +13983,6 @@
       "table": "organization_invite"
     },
     {
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "lead_project_ids",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization_invite"
-    },
-    {
       "type": "text",
       "typeSchema": null,
       "notNull": false,
@@ -21134,6 +21121,32 @@
     {
       "type": "text",
       "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "payment_method",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "transaction"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "external_reference",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "transaction"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
       "default": null,
@@ -21750,22 +21763,6 @@
       "generated": null,
       "identity": null,
       "name": "project_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "user_project"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'member'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "role",
       "entityType": "columns",
       "schema": "public",
       "table": "user_project"
