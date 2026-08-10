@@ -437,6 +437,12 @@ export const transaction = pgTable(
 				"credit_topup",
 				"credit_refund",
 				"credit_gift",
+				// Credits granted by an administrator against a payment that was
+				// received outside Stripe (wire transfer, crypto, …). Unlike
+				// `credit_gift` real money changed hands, so both `amount` (dollars
+				// received) and `creditAmount` (credits granted) are set and the row
+				// counts toward revenue. `paymentMethod` records the channel.
+				"credit_manual_payment",
 				"dev_plan_start",
 				"dev_plan_upgrade",
 				"dev_plan_downgrade",
@@ -493,6 +499,12 @@ export const transaction = pgTable(
 		description: text(),
 		relatedTransactionId: text(),
 		refundReason: text(),
+		// Off-Stripe payment channel, set only on `credit_manual_payment` rows so
+		// manually credited revenue can be reconciled per channel. Stripe-settled
+		// rows leave this null — the payment method lives in Stripe.
+		paymentMethod: text({
+			enum: ["wire", "crypto", "paypal", "other"],
+		}),
 	},
 	(table) => [
 		index("transaction_organization_id_idx").on(table.organizationId),
@@ -3549,6 +3561,7 @@ export const auditLogActions = [
 	"payment.self_refund",
 	// Credits
 	"credits.gift",
+	"credits.manual_payment",
 	// Referral
 	"referral_bonus.update",
 	// Dev Plan

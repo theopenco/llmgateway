@@ -18,6 +18,7 @@ import { notFound } from "next/navigation";
 
 import { BlockOrgButton } from "@/components/block-org-button";
 import { GiftCreditsDialog } from "@/components/gift-credits-dialog";
+import { ManualCreditsDialog } from "@/components/manual-credits-dialog";
 import { PlanTermBadge } from "@/components/plan-term-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+	addManualCreditsToOrganization,
 	blockOrganization,
 	giftCreditsToOrganization,
 	manageOrganization,
@@ -339,6 +341,13 @@ export default async function OrganizationPage({
 						onGift={async (data) => {
 							"use server";
 							return await giftCreditsToOrganization(orgId, data);
+						}}
+					/>
+					<ManualCreditsDialog
+						orgName={org.name}
+						onCredit={async (data) => {
+							"use server";
+							return await addManualCreditsToOrganization(orgId, data);
 						}}
 					/>
 					<ReferralBonusDialog
