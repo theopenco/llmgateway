@@ -13,8 +13,26 @@
 
 const MAX_UNWRAP_DEPTH = 4;
 
+/** Long enough for a provider's rejection, short enough to stay one line-ish. */
+const MAX_MESSAGE_LENGTH = 400;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
+}
+
+/**
+ * A non-JSON body is usually a proxy's HTML error page, which is worse than
+ * the status line it would replace. Keep plain text only, and truncate it —
+ * this ends up inside a dialog, not a log.
+ */
+function usableText(value: string): string | undefined {
+	const text = value.trim();
+	if (!text || text.startsWith("<")) {
+		return undefined;
+	}
+	return text.length > MAX_MESSAGE_LENGTH
+		? `${text.slice(0, MAX_MESSAGE_LENGTH)}…`
+		: text;
 }
 
 function fromZodIssues(issues: unknown): string | undefined {
@@ -36,7 +54,7 @@ function extract(value: unknown, depth = 0): string | undefined {
 		return undefined;
 	}
 	if (typeof value === "string") {
-		return value.trim() || undefined;
+		return usableText(value);
 	}
 	if (Array.isArray(value)) {
 		return fromZodIssues(value);
@@ -44,8 +62,11 @@ function extract(value: unknown, depth = 0): string | undefined {
 	if (!isRecord(value)) {
 		return undefined;
 	}
-	if (typeof value.message === "string" && value.message.trim()) {
-		return value.message.trim();
+	if (typeof value.message === "string") {
+		const message = usableText(value.message);
+		if (message) {
+			return message;
+		}
 	}
 	return (
 		fromZodIssues(value.issues) ??
@@ -79,7 +100,7 @@ export function apiErrorMessage(
  */
 export function thrownErrorMessage(cause: unknown, fallback: string): string {
 	const message =
-		cause instanceof Error ? cause.message.trim() : extract(cause);
+		cause instanceof Error ? usableText(cause.message) : extract(cause);
 	if (!message) {
 		return fallback;
 	}

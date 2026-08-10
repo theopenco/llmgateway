@@ -88,6 +88,22 @@ describe("apiErrorMessage", () => {
 			apiErrorMessage({ message: "   " }, "fallback", jsonResponse(500)),
 		).toBe("fallback (HTTP 500)");
 	});
+
+	test("prefers the status over a proxy's HTML error page", () => {
+		expect(
+			apiErrorMessage(
+				"<html><head><title>502 Bad Gateway</title></head></html>",
+				"Failed to test credential",
+				jsonResponse(502),
+			),
+		).toBe("Failed to test credential (HTTP 502)");
+	});
+
+	test("truncates a message too long for a dialog", () => {
+		const message = apiErrorMessage({ message: "x".repeat(1000) }, "fallback");
+		expect(message).toHaveLength(401);
+		expect(message.endsWith("…")).toBe(true);
+	});
 });
 
 describe("thrownErrorMessage", () => {
