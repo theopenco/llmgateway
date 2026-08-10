@@ -52,7 +52,7 @@ function readStoredFeedback(url: string): Result | null {
 export function Feedback({
 	onRateAction,
 }: {
-	onRateAction: (url: string, feedback: Feedback) => Promise<ActionResponse>;
+	onRateAction: (url: string) => Promise<ActionResponse>;
 }) {
 	const url = usePathname();
 	const posthog = usePostHog();
@@ -80,7 +80,7 @@ export function Feedback({
 			};
 
 			posthog.capture("on_rate_docs", { ...feedback, url });
-			void onRateAction(url, feedback).then((response) => {
+			void onRateAction(url).then((response) => {
 				const result: Result = {
 					response,
 					...feedback,

@@ -151,34 +151,40 @@ export function GuardrailsClient() {
 		(currentUserRole === "owner" || currentUserRole === "admin");
 
 	const fetchConfig = useCallback(async () => {
-		try {
-			setIsLoading(true);
-			const [response, rulesResponse] = await Promise.all([
-				fetchClient.GET("/guardrails/config/{organizationId}", {
-					params: { path: { organizationId } },
-				}),
-				fetchClient.GET("/guardrails/rules/{organizationId}", {
-					params: { path: { organizationId } },
-				}),
-			]);
+		setIsLoading(true);
+		// allSettled so a fulfilled response is still applied when the other
+		// request fails.
+		const [configResult, rulesResult] = await Promise.allSettled([
+			fetchClient.GET("/guardrails/config/{organizationId}", {
+				params: { path: { organizationId } },
+			}),
+			fetchClient.GET("/guardrails/rules/{organizationId}", {
+				params: { path: { organizationId } },
+			}),
+		]);
 
-			if (response.data) {
-				setConfig(response.data as unknown as GuardrailConfig);
+		if (configResult.status === "fulfilled") {
+			if (configResult.value.data) {
+				setConfig(configResult.value.data as unknown as GuardrailConfig);
 			} else {
 				// No config exists yet, use defaults
 				setConfig(DEFAULT_CONFIG);
 			}
-
-			if (rulesResponse.data) {
-				setCustomRules(
-					(rulesResponse.data as { rules: CustomRule[] }).rules || [],
-				);
-			}
-		} catch {
-			setError("Failed to load guardrails configuration");
-		} finally {
-			setIsLoading(false);
 		}
+
+		if (rulesResult.status === "fulfilled" && rulesResult.value.data) {
+			setCustomRules(
+				(rulesResult.value.data as { rules: CustomRule[] }).rules || [],
+			);
+		}
+
+		if (
+			configResult.status === "rejected" ||
+			rulesResult.status === "rejected"
+		) {
+			setError("Failed to load guardrails configuration");
+		}
+		setIsLoading(false);
 	}, [fetchClient, organizationId]);
 
 	useEffect(() => {

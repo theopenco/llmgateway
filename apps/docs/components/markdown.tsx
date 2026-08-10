@@ -131,7 +131,10 @@ const cacheLimit = 200;
 function Renderer({ text }: { text: string }) {
 	let result = cache.get(text);
 
-	if (!result) {
+	if (result) {
+		// Refresh insertion order so eviction removes cold entries first.
+		cache.delete(text);
+	} else {
 		result = processor.process(text);
 		if (cache.size >= cacheLimit) {
 			const oldest = cache.keys().next().value;
@@ -139,8 +142,8 @@ function Renderer({ text }: { text: string }) {
 				cache.delete(oldest);
 			}
 		}
-		cache.set(text, result);
 	}
+	cache.set(text, result);
 
 	return use(result);
 }

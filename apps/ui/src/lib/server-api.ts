@@ -115,11 +115,15 @@ export const getOrganizations = cache(
 
 export const getOrgProjects = cache(
 	async (orgId: string) =>
-		await fetchServerData("GET", "/orgs/{id}/projects", {
-			params: {
-				path: {
-					id: orgId,
+		await fetchServerData<{ projects: Project[] }>(
+			"GET",
+			"/orgs/{id}/projects",
+			{
+				params: {
+					path: {
+						id: orgId,
+					},
 				},
 			},
-		}),
+		),
 );
