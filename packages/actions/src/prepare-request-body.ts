@@ -1918,7 +1918,20 @@ export async function prepareRequestBody(
 			supportedParams.length === 0 ||
 			supportedParams.includes("tool_choice");
 
-		const supportedModes = mapping?.supportedToolChoices;
+		// A mapping can accept extra modes while thinking is off — CanopyWave's
+		// DeepSeek V4 deployments 400 with "Thinking mode does not support this
+		// tool_choice" on "required" and named functions, but honour both once
+		// thinking is disabled. `reasoning_effort` is already normalized above,
+		// so "none" here means the mapping really turns thinking off upstream.
+		const declaredModes = mapping?.supportedToolChoices;
+		const modesWithThinkingDisabled =
+			mapping?.supportedToolChoicesWithThinkingDisabled;
+		const supportedModes =
+			declaredModes?.length &&
+			reasoning_effort === "none" &&
+			modesWithThinkingDisabled?.length
+				? [...declaredModes, ...modesWithThinkingDisabled]
+				: declaredModes;
 		const mode = toolChoiceModeOf(tool_choice);
 		const modeSupported =
 			!supportedModes ||
