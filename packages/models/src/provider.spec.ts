@@ -10,6 +10,7 @@ import {
 	getVariantEnvVarName,
 	getVariantEnvVarNameFor,
 } from "./provider.js";
+import { getRegionScopedDefaultRegion } from "./providers.js";
 
 const BASE = "LLM_ALIBABA_API_KEY";
 const ENTERPRISE = `${BASE}__ENTERPRISE`;
@@ -299,5 +300,24 @@ describe("hasRegionSpecificEnvKey with workspace-scoped regions", () => {
 	it("leaves regions with a shared host unaffected", () => {
 		vi.stubEnv(`${BASE}__US_VIRGINIA`, "sk-us");
 		expect(hasRegionSpecificEnvKey("alibaba", "us-virginia")).toBe(true);
+	});
+});
+
+describe("getRegionScopedDefaultRegion", () => {
+	// Alibaba has no global region, so a credential always belongs to exactly
+	// one region and the default one serves requests that resolved none.
+	it("reports the default region for a provider with region-scoped keys", () => {
+		expect(getRegionScopedDefaultRegion("alibaba")).toBe("singapore");
+	});
+
+	// AWS keys are IAM-global: a region on a credential is the operator scoping
+	// it, never a hint that it may stand in for the default region.
+	it("reports nothing for a provider whose key works across regions", () => {
+		expect(getRegionScopedDefaultRegion("aws-bedrock")).toBeUndefined();
+		expect(getRegionScopedDefaultRegion("aws-mantle")).toBeUndefined();
+	});
+
+	it("reports nothing for a provider without regions", () => {
+		expect(getRegionScopedDefaultRegion("openai")).toBeUndefined();
 	});
 });

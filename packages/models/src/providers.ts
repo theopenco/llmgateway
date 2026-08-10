@@ -1882,6 +1882,28 @@ export function getProviderDefinition(
 }
 
 /**
+ * The region a credential must be pinned to in order to serve a request that
+ * resolved no region — but only for providers whose credentials are
+ * region-scoped, i.e. those with no global region, where every credential is
+ * necessarily bound to one region (Alibaba).
+ *
+ * Undefined for providers not scoped by region at all, and deliberately
+ * undefined for providers with a credential shared across regions (AWS
+ * Bedrock, whose `global` is a real region): there a region-pinned credential
+ * is a deliberate scoping by the operator and must never be substituted for a
+ * region the request actually asked for — the request fails instead.
+ */
+export function getRegionScopedDefaultRegion(
+	providerId: ProviderId | string,
+): string | undefined {
+	const regionConfig = getProviderDefinition(providerId)?.regionConfig;
+	if (!regionConfig || regionConfig.sharedCredentialAcrossRegions) {
+		return undefined;
+	}
+	return regionConfig.defaultRegion;
+}
+
+/**
  * Whether a region's preferred endpoint is completed with a per-credential
  * workspace id. The workspace id is worth collecting for such a region even
  * when a shared fallback exists, so the UI asks for it here.
