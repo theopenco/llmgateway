@@ -4,11 +4,53 @@ import { z } from "zod";
 
 import { getGatewayUrl } from "@/utils/playground-key.js";
 
+import { redisClient } from "@llmgateway/cache";
+import { db } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { ONBOARDING_MAX_TOKENS, ONBOARDING_MODEL } from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
 
 const chat = new OpenAPIHono<ServerTypes>();
+
+// A brand new organization has no credits, so the onboarding wizard's first
+// call is sponsored by a platform-owned key. Because we pay for it, the
+// sponsored path pins the model and an output cap server-side instead of
+// trusting the request, and only applies to an account that hasn't finished
+// onboarding yet. Without a platform key configured (self-hosted, local dev)
+// the call falls back to the account's own key, exactly as before.
+function getOnboardingApiKey() {
+	return (
+		process.env.ONBOARDING_CHAT_API_KEY ?? process.env.SUPPORT_CHAT_API_KEY
+	);
+}
+
+// Onboarding is meant to be tried a couple of times, not looped: an account
+// that never clicks "Go to Dashboard" would otherwise keep spending our key.
+const SPONSORED_CALL_LIMIT = 5;
+const SPONSORED_CALL_WINDOW_SECONDS = 24 * 60 * 60;
+
+/**
+ * Consume one sponsored-call allowance for a user, atomically. Returns false
+ * once the allowance is spent — the caller then falls back to the account's own
+ * key. Fails closed: if the counter can't be read we don't spend our own key.
+ */
+async function reserveSponsoredCall(userId: string): Promise<boolean> {
+	const key = `onboarding_sponsored_calls:${userId}`;
+	try {
+		const used = await redisClient.incr(key);
+		if (used === 1) {
+			await redisClient.expire(key, SPONSORED_CALL_WINDOW_SECONDS);
+		}
+		return used <= SPONSORED_CALL_LIMIT;
+	} catch (error) {
+		logger.error(
+			"Could not reserve a sponsored onboarding call",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+		return false;
+	}
+}
 
 const chatCompletionSchema = z.object({
 	messages: z.array(
@@ -49,22 +91,42 @@ chat.openapi(completionRoute, async (c) => {
 		const { messages, model, stream, apiKey, free_models_only, onboarding } =
 			body;
 
+		const sessionUser = c.get("user");
+		const onboardingApiKey = getOnboardingApiKey();
+		const sponsorable = Boolean(
+			onboarding &&
+			onboardingApiKey &&
+			sessionUser &&
+			!(
+				await db.query.user.findFirst({
+					where: { id: { eq: sessionUser.id } },
+					columns: { onboardingCompleted: true },
+				})
+			)?.onboardingCompleted,
+		);
+		// The allowance is only consumed once we know the request would actually
+		// be sponsored, so an ordinary call never burns it.
+		const sponsored =
+			sponsorable && (await reserveSponsoredCall(sessionUser!.id));
+
 		// Require user to provide their own API key
-		if (!apiKey) {
+		if (!sponsored && !apiKey) {
 			return c.json({ error: "API key is required" }, 400);
 		}
-		const authToken = apiKey;
+		const authToken = sponsored ? onboardingApiKey! : apiKey!;
 
 		const response = await fetch(`${getGatewayUrl()}/chat/completions`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
 				Authorization: `Bearer ${authToken}`,
+				...(sponsored && { "x-source": "onboarding" }),
 			},
 			body: JSON.stringify({
-				model,
+				model: sponsored ? ONBOARDING_MODEL : model,
 				messages,
 				stream,
+				...(sponsored && { max_tokens: ONBOARDING_MAX_TOKENS }),
 				...(free_models_only !== undefined && { free_models_only }),
 				...(onboarding !== undefined && { onboarding }),
 			}),
