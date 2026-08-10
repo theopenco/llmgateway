@@ -152,6 +152,7 @@ export function GuardrailsClient() {
 
 	const fetchConfig = useCallback(async () => {
 		setIsLoading(true);
+		setError(null);
 		// allSettled so a fulfilled response is still applied when the other
 		// request fails.
 		const [configResult, rulesResult] = await Promise.allSettled([
