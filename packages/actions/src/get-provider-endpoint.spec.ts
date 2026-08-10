@@ -19,6 +19,7 @@ const originalMantleRegion = process.env.LLM_AWS_MANTLE_REGION;
 
 afterEach(() => {
 	delete process.env.LLM_ALIBABA_WORKSPACE_ID__EU_FRANKFURT;
+	delete process.env.LLM_ALIBABA_WORKSPACE_ID__ENTERPRISE__EU_FRANKFURT;
 
 	if (originalAiStudioBaseUrl === undefined) {
 		delete process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
@@ -886,9 +887,9 @@ describe("getProviderEndpoint", () => {
 			);
 		});
 
-		it("throws for eu-frankfurt without a workspace id", () => {
-			expect(() => callAlibaba("eu-frankfurt")).toThrow(
-				/workspace-dedicated endpoint/,
+		it("falls back to the shared entry point without a workspace id", () => {
+			expect(callAlibaba("eu-frankfurt")).toBe(
+				"https://trial.eu-central-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions",
 			);
 		});
 
@@ -919,6 +920,57 @@ describe("getProviderEndpoint", () => {
 
 			expect(endpoint).toBe(
 				"https://llm-from-env.eu-central-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions",
+			);
+		});
+
+		it("prefers the variant-regional workspace id for matching orgs", () => {
+			process.env.LLM_ALIBABA_WORKSPACE_ID__EU_FRANKFURT = "llm-shared";
+			process.env.LLM_ALIBABA_WORKSPACE_ID__ENTERPRISE__EU_FRANKFURT =
+				"llm-enterprise";
+
+			const endpoint = getProviderEndpoint(
+				"alibaba",
+				undefined,
+				"qwen3.7-max",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"eu-frankfurt",
+				undefined,
+				undefined,
+				undefined,
+				"enterprise",
+			);
+
+			expect(endpoint).toBe(
+				"https://llm-enterprise.eu-central-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions",
+			);
+		});
+
+		it("selects the regional workspace id matching configIndex", () => {
+			process.env.LLM_ALIBABA_WORKSPACE_ID__EU_FRANKFURT =
+				"llm-first,llm-second";
+
+			const endpoint = getProviderEndpoint(
+				"alibaba",
+				undefined,
+				"qwen3.7-max",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				1, // configIndex
+				undefined,
+				"eu-frankfurt",
+			);
+
+			expect(endpoint).toBe(
+				"https://llm-second.eu-central-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions",
 			);
 		});
 	});

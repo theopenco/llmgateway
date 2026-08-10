@@ -244,8 +244,24 @@ export function getProviderEnvValue(
 	// its comma-separated list); an unset one falls back to the base var.
 	const effectiveEnvVarName =
 		getVariantEnvVarNameFor(envVarName, variant) ?? envVarName;
-	const envValue = process.env[effectiveEnvVarName];
+	return selectEnvListValue(
+		process.env[effectiveEnvVarName],
+		configIndex,
+		defaultValue,
+	);
+}
 
+/**
+ * Pick one entry out of a comma-separated env var. A deployment can rotate or
+ * shard a setting by listing several values; `configIndex` selects the one
+ * belonging to the credential in play, clamping to the last entry so a short
+ * list never leaves a credential without a value.
+ */
+function selectEnvListValue(
+	envValue: string | undefined,
+	configIndex?: number,
+	defaultValue?: string,
+): string | undefined {
 	if (!envValue) {
 		return defaultValue;
 	}
@@ -365,10 +381,11 @@ export function getRegionSpecificEnvValue(
 
 /**
  * Region-scoped read of any provider setting, not just the API key: checks
- * `{ENV_VAR}__{REGION}` before falling back to the plain lookup. Settings that
- * differ per region without being credentials — Alibaba's per-region Model
- * Studio workspace id, for instance — are resolved through this so they follow
- * the same naming as the regional keys they accompany.
+ * `{ENV_VAR}__{VARIANT}__{REGION}` and `{ENV_VAR}__{REGION}` before falling
+ * back to the plain lookup. Settings that differ per region without being
+ * credentials — Alibaba's per-region Model Studio workspace id, for instance —
+ * are resolved through this so they follow the same naming, variant precedence
+ * and comma-separated list selection as the regional keys they accompany.
  */
 export function getRegionScopedProviderEnvValue(
 	provider: Provider,
@@ -377,13 +394,19 @@ export function getRegionScopedProviderEnvValue(
 	configIndex?: number,
 	variant?: EnvVarVariant,
 ): string | undefined {
-	if (region) {
-		const envVarName = getProviderEnvVarNameFor(provider, key);
-		const regionalValue = envVarName
-			? process.env[`${envVarName}__${getRegionEnvVarSuffix(region)}`]
-			: undefined;
-		if (regionalValue) {
-			return regionalValue;
+	const envVarName = getProviderEnvVarNameFor(provider, key);
+	if (region && envVarName) {
+		const regionSuffix = getRegionEnvVarSuffix(region);
+		const candidates = variant
+			? [
+					`${envVarName}${ENV_VAR_VARIANT_SUFFIXES[variant]}__${regionSuffix}`,
+					`${envVarName}__${regionSuffix}`,
+				]
+			: [`${envVarName}__${regionSuffix}`];
+		for (const candidate of candidates) {
+			if (process.env[candidate]) {
+				return selectEnvListValue(process.env[candidate], configIndex);
+			}
 		}
 	}
 	return getProviderEnvValue(provider, key, configIndex, undefined, variant);

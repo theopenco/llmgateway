@@ -1382,9 +1382,6 @@ export const alibabaModels = [
 						cachedInputPrice: "0.33e-6",
 						cacheReadInputPrice: "0.165e-6",
 						cacheWriteInputPrice: "2.0625e-6",
-						// Frankfurt is served only through a workspace-dedicated endpoint,
-						// so there is no shared credential the e2e harness could use.
-						test: "skip",
 					},
 					{ id: "us-virginia" },
 					{
@@ -1556,9 +1553,6 @@ export const alibabaModels = [
 								cacheWriteInputPrice: "1.0325e-6",
 							},
 						],
-						// Frankfurt is served only through a workspace-dedicated endpoint,
-						// so there is no shared credential the e2e harness could use.
-						test: "skip",
 					},
 					{ id: "us-virginia" },
 					{ id: "cn-beijing" },
@@ -3090,9 +3084,6 @@ export const alibabaModels = [
 						inputPrice: "0.276e-6",
 						outputPrice: "1.651e-6",
 						cachedInputPrice: "0.0276e-6",
-						// Frankfurt is served only through a workspace-dedicated endpoint,
-						// so there is no shared credential the e2e harness could use.
-						test: "skip",
 					},
 				],
 				requestPrice: "0",

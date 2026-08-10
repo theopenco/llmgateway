@@ -44,6 +44,14 @@ export interface ProviderRegionConfig {
 	/** Maps region id to its base URL */
 	endpointMap: Record<string, string>;
 	/**
+	 * Base URL to use for a workspace-scoped region when no workspace id is
+	 * configured. Alibaba's Frankfurt region has such a shared entry point, so
+	 * the region stays usable from an API key alone; the workspace-dedicated
+	 * host remains the better path because the shared one is documented as
+	 * trial-only (1000 RPM, no SLA, "not recommended for production").
+	 */
+	endpointFallbackMap?: Record<string, string>;
+	/**
 	 * Maps region id to a model-id prefix for providers where the upstream model
 	 * identifier varies per region (e.g. AWS Bedrock cross-region inference
 	 * profiles: `global.`, `us.`, `eu.`, `apac.`). When unset, no prefix is
@@ -787,6 +795,13 @@ export const providers: ProviderDefinition[] = [
 				"eu-frankfurt": `https://${REGION_WORKSPACE_ID_PLACEHOLDER}.eu-central-1.maas.aliyuncs.com`,
 				"us-virginia": "https://dashscope-us.aliyuncs.com",
 				"cn-beijing": "https://dashscope.aliyuncs.com",
+			},
+			endpointFallbackMap: {
+				// Resolves the workspace from the API key, so Frankfurt still works
+				// without one being configured. Alibaba caps it at 1000 RPM with no
+				// SLA and advises against production use, so a credential that
+				// supplies a workspace id gets the dedicated host instead.
+				"eu-frankfurt": "https://trial.eu-central-1.maas.aliyuncs.com",
 			},
 		},
 		termsUrl:
@@ -1864,18 +1879,33 @@ export function getProviderDefinition(
 }
 
 /**
- * Whether a region's endpoint can only be completed with a per-credential
- * workspace id. Such a region is not routable from an API key alone, so both
- * the endpoint builder and the platform-credential availability check consult
- * this instead of hardcoding the provider.
+ * Whether a region's preferred endpoint is completed with a per-credential
+ * workspace id. The workspace id is worth collecting for such a region even
+ * when a shared fallback exists, so the UI asks for it here.
  */
-export function regionEndpointRequiresWorkspaceId(
+export function regionEndpointUsesWorkspaceId(
 	providerId: ProviderId | string,
 	region: string,
 ): boolean {
 	const endpoint =
 		getProviderDefinition(providerId)?.regionConfig?.endpointMap[region];
 	return Boolean(endpoint?.includes(REGION_WORKSPACE_ID_PLACEHOLDER));
+}
+
+/**
+ * Whether a region is unreachable without a workspace id — true only when its
+ * endpoint is workspace-scoped and no shared fallback host exists. Routing
+ * consults this so a region it cannot build a URL for is never selected.
+ */
+export function regionEndpointRequiresWorkspaceId(
+	providerId: ProviderId | string,
+	region: string,
+): boolean {
+	if (!regionEndpointUsesWorkspaceId(providerId, region)) {
+		return false;
+	}
+	const regionConfig = getProviderDefinition(providerId)?.regionConfig;
+	return !regionConfig?.endpointFallbackMap?.[region];
 }
 
 /**

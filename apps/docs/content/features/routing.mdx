@@ -326,11 +326,12 @@ Routing metadata reflects this:
 </Callout>
 
 A few regions are served by an endpoint that belongs to your own account rather
-than a shared one — Alibaba Cloud's EU (Frankfurt) region is reachable only
-through your Model Studio workspace's dedicated host. Selecting such a region on
-a provider key also requires the workspace ID, which you copy from the API Host
-shown when you create the key. Until it is set, the region is skipped instead of
-routed to.
+than a shared one — Alibaba Cloud's EU (Frankfurt) region has no shared
+DashScope domain and is served by your Model Studio workspace's dedicated host.
+Such a region still works from an API key alone, via the provider's shared entry
+point, but that endpoint is rate-limited and carries no SLA. Set the workspace
+ID on the provider key (copy it from the API Host shown when you create the key)
+to route through your own endpoint instead.
 
 #### Low-Uptime Protection
 

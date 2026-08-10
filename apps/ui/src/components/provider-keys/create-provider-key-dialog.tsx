@@ -29,6 +29,7 @@ import {
 	providers,
 	isStealthProvider,
 	regionEndpointRequiresWorkspaceId,
+	regionEndpointUsesWorkspaceId,
 	type ProviderDefinition,
 } from "@llmgateway/models";
 import { getProviderModelIds } from "@llmgateway/shared";
@@ -111,14 +112,20 @@ export function CreateProviderKeyDialog({
 				: selectedProviderDef?.regionConfig?.defaultRegion)) ??
 		"";
 
-	// Regions served only by a workspace-dedicated host (Alibaba Frankfurt)
-	// cannot be addressed by an API key alone, so the credential has to carry
-	// the workspace id that completes the hostname.
+	// Regions with a workspace-dedicated host (Alibaba Frankfurt) offer the
+	// field so a credential can use its own endpoint instead of the shared,
+	// trial-grade one. It is only mandatory where no shared host exists.
+	const workspaceIdRegion =
+		selectedProvider && effectiveRegion && effectiveRegion !== ANY_REGION
+			? effectiveRegion
+			: undefined;
+	const usesWorkspaceId = Boolean(
+		workspaceIdRegion &&
+		regionEndpointUsesWorkspaceId(selectedProvider, workspaceIdRegion),
+	);
 	const requiresWorkspaceId = Boolean(
-		selectedProvider &&
-		effectiveRegion &&
-		effectiveRegion !== ANY_REGION &&
-		regionEndpointRequiresWorkspaceId(selectedProvider, effectiveRegion),
+		workspaceIdRegion &&
+		regionEndpointRequiresWorkspaceId(selectedProvider, workspaceIdRegion),
 	);
 
 	// Exclude the gateway itself and stealth providers (no default base URL):
@@ -238,20 +245,33 @@ export function CreateProviderKeyDialog({
 			};
 		}
 
-		if (requiresWorkspaceId) {
-			if (!/^[a-zA-Z0-9-]{1,64}$/.test(alibabaWorkspaceId)) {
+		if (usesWorkspaceId) {
+			if (!alibabaWorkspaceId && requiresWorkspaceId) {
 				toast({
 					title: "Error",
-					description:
-						"Workspace ID is required for this region and must be 1-64 characters of letters, numbers, and hyphens",
+					description: "Workspace ID is required for this region",
 					variant: "destructive",
 				});
 				return;
 			}
-			payload.options = {
-				...payload.options,
-				alibaba_workspace_id: alibabaWorkspaceId,
-			};
+			if (
+				alibabaWorkspaceId &&
+				!/^[a-zA-Z0-9-]{1,64}$/.test(alibabaWorkspaceId)
+			) {
+				toast({
+					title: "Error",
+					description:
+						"Workspace ID must be 1-64 characters of letters, numbers, and hyphens",
+					variant: "destructive",
+				});
+				return;
+			}
+			if (alibabaWorkspaceId) {
+				payload.options = {
+					...payload.options,
+					alibaba_workspace_id: alibabaWorkspaceId,
+				};
+			}
 		}
 
 		if (selectedProvider === "azure") {
@@ -653,21 +673,23 @@ export function CreateProviderKeyDialog({
 						</div>
 					)}
 
-					{requiresWorkspaceId && (
+					{usesWorkspaceId && (
 						<div className="space-y-2">
-							<Label htmlFor="provider-workspace-id">Workspace ID</Label>
+							<Label htmlFor="provider-workspace-id">
+								Workspace ID{requiresWorkspaceId ? "" : " (optional)"}
+							</Label>
 							<Input
 								id="provider-workspace-id"
 								type="text"
-								placeholder="llm-xxxxxxxxxxxxxxxx"
+								placeholder="ws-xxxxxxxxxxxxxxxx"
 								value={alibabaWorkspaceId}
 								onChange={(e) => setAlibabaWorkspaceId(e.target.value.trim())}
-								required
+								required={requiresWorkspaceId}
 							/>
 							<p className="text-sm text-muted-foreground">
-								This region is served only by your workspace&apos;s own
-								endpoint. Copy the workspace ID from the API Host shown on the
-								Model Studio workspace management page.
+								{requiresWorkspaceId
+									? "This region is served only by your workspace's own endpoint. Copy the workspace ID from the API Host shown on the Model Studio workspace management page."
+									: "Without it, requests use the provider's shared endpoint, which is rate-limited and carries no SLA. Copy the workspace ID from the API Host shown on the Model Studio workspace management page to use your own."}
 							</p>
 						</div>
 					)}

@@ -40,10 +40,11 @@ function getBedrockMantleBaseUrl(url: string, region?: string): string {
 }
 
 /**
- * Fill the workspace placeholder of a region endpoint that has no shared host
- * (Alibaba Frankfurt). The workspace id becomes part of the hostname, so it is
- * validated against the character set Model Studio issues (`llm-…`) rather
- * than interpolated blindly.
+ * Fill the workspace placeholder of a workspace-scoped region endpoint
+ * (Alibaba Frankfurt), falling back to the region's shared entry point when no
+ * workspace id is configured. The workspace id becomes part of the hostname,
+ * so it is validated against the character set Model Studio issues (`ws-…`)
+ * rather than interpolated blindly.
  */
 function resolveWorkspaceScopedEndpoint(
 	provider: ProviderId,
@@ -63,6 +64,17 @@ function resolveWorkspaceScopedEndpoint(
 			: workspaceEnvVar;
 
 	if (!workspaceId) {
+		// No workspace id: fall back to the region's shared entry point, which
+		// resolves the workspace from the API key. Only a region without such a
+		// host is unroutable.
+		const providerDef = providers.find((p) => p.id === provider) as
+			ProviderDefinition | undefined;
+		const fallback = region
+			? providerDef?.regionConfig?.endpointFallbackMap?.[region]
+			: undefined;
+		if (fallback) {
+			return fallback;
+		}
 		throw new Error(
 			`Provider ${provider} region ${region} is only reachable through a workspace-dedicated endpoint - set the workspace id on the provider key or via the ${regionalEnvVar} env var`,
 		);

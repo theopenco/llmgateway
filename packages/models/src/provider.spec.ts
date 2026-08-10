@@ -277,20 +277,22 @@ describe("hasRegionSpecificEnvKey with workspace-scoped regions", () => {
 		vi.unstubAllEnvs();
 	});
 
-	it("does not consider Frankfurt available from an API key alone", () => {
+	// Frankfurt has a shared entry point, so the key alone makes it routable
+	// and the workspace id only upgrades which host is used.
+	it("considers Frankfurt available from the regional API key alone", () => {
 		vi.stubEnv(FRANKFURT_KEY, "sk-frankfurt");
-		expect(hasRegionSpecificEnvKey("alibaba", "eu-frankfurt")).toBe(false);
+		expect(hasRegionSpecificEnvKey("alibaba", "eu-frankfurt")).toBe(true);
 	});
 
-	it("considers Frankfurt available once the workspace id is configured", () => {
+	it("considers Frankfurt available with a workspace id too", () => {
 		vi.stubEnv(FRANKFURT_KEY, "sk-frankfurt");
-		vi.stubEnv(WORKSPACE_REGIONAL, "llm-abc123");
+		vi.stubEnv(WORKSPACE_REGIONAL, "ws-abc123");
 		expect(hasRegionSpecificEnvKey("alibaba", "eu-frankfurt")).toBe(true);
 	});
 
 	it("still requires the regional API key when only the workspace id is set", () => {
 		vi.stubEnv(BASE, "sk-singapore");
-		vi.stubEnv(WORKSPACE, "llm-abc123");
+		vi.stubEnv(WORKSPACE, "ws-abc123");
 		expect(hasRegionSpecificEnvKey("alibaba", "eu-frankfurt")).toBe(false);
 	});
 
