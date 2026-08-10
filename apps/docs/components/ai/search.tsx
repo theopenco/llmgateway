@@ -11,6 +11,7 @@ import {
 	Send,
 	X,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import {
 	type ComponentProps,
 	createContext,
@@ -26,9 +27,13 @@ import {
 
 import { cn } from "@/lib/cn";
 
-import { Markdown } from "../markdown";
-
 import type { ChatUIMessage, SearchTool } from "@/app/api/chat/route";
+
+// Defer the markdown pipeline (remark + shiki) out of the initial bundle of
+// every docs page; it is only needed once a chat message renders.
+const Markdown = dynamic(() =>
+	import("../markdown").then((mod) => ({ default: mod.Markdown })),
+);
 
 const Context = createContext<{
 	open: boolean;

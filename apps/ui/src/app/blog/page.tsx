@@ -14,11 +14,11 @@ export default async function BlogPage() {
 	const { allBlogs } = await import("content-collections");
 
 	const sortedEntries = allBlogs
+		.filter((entry: any) => !entry?.draft)
 		.sort(
 			(a: any, b: any) =>
 				new Date(b.date).getTime() - new Date(a.date).getTime(),
 		)
-		.filter((entry: any) => !entry?.draft)
 		.map(({ ...entry }: any) => entry as BlogItem);
 
 	// Standalone top-level ItemList (referenced by the CollectionPage via @id)

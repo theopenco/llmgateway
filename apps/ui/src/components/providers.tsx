@@ -2,13 +2,13 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
+import dynamic from "next/dynamic";
 import { ThemeProvider } from "next-themes";
 import posthog from "posthog-js";
 import { PostHogProvider } from "posthog-js/react";
-import { Suspense, useMemo, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { Toaster as SonnerToaster } from "sonner";
 
-import { ChatSupport } from "@/components/chat-support";
 import { ReferralHandler } from "@/components/referral-handler";
 import { Toaster } from "@/lib/components/toaster";
 import { toast } from "@/lib/components/use-toast";
@@ -16,6 +16,13 @@ import { AppConfigProvider } from "@/lib/config";
 
 import type { AppConfig } from "@/lib/config-server";
 import type { ReactNode } from "react";
+
+// The support widget starts collapsed but statically pulls in the AI SDK and
+// streamdown/shiki, so defer it out of the initial bundle of every route.
+const ChatSupport = dynamic(
+	() => import("@/components/chat-support").then((mod) => mod.ChatSupport),
+	{ ssr: false },
+);
 
 interface ProvidersProps {
 	children: ReactNode;
@@ -42,7 +49,9 @@ function extractErrorMessage(error: unknown): string {
 }
 
 export function Providers({ children, config }: ProvidersProps) {
-	const queryClient = useMemo(
+	// useState, not useMemo: React may discard a useMemo cache, which would
+	// silently swap in a fresh QueryClient and drop the whole query cache.
+	const [queryClient] = useState(
 		() =>
 			new QueryClient({
 				defaultOptions: {
@@ -59,7 +68,6 @@ export function Providers({ children, config }: ProvidersProps) {
 					},
 				},
 			}),
-		[],
 	);
 
 	// Defer PostHog initialization to reduce TBT

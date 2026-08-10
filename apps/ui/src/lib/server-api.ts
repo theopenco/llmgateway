@@ -1,9 +1,11 @@
 import { cookies } from "next/headers";
 import createFetchClient from "openapi-fetch";
+import { cache } from "react";
 
 import { getConfig } from "./config-server";
 
 import type { paths } from "./api/v1";
+import type { Organization, Project } from "./types";
 
 // Server-side API client
 export async function createServerApiClient() {
@@ -91,3 +93,33 @@ export async function fetchServerData<T>(
 		return null;
 	}
 }
+
+// Request-scoped memoized fetchers: sibling RSCs and nested layouts request
+// these endpoints independently, so React.cache() collapses the duplicate
+// round-trips into one per request.
+export const getProject = cache(
+	async (projectId: string) =>
+		await fetchServerData<{ project: Project }>("GET", "/projects/{id}", {
+			params: {
+				path: {
+					id: projectId,
+				},
+			},
+		}),
+);
+
+export const getOrganizations = cache(
+	async () =>
+		await fetchServerData<{ organizations: Organization[] }>("GET", "/orgs"),
+);
+
+export const getOrgProjects = cache(
+	async (orgId: string) =>
+		await fetchServerData("GET", "/orgs/{id}/projects", {
+			params: {
+				path: {
+					id: orgId,
+				},
+			},
+		}),
+);

@@ -12,7 +12,6 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { createHighlighter } from "shiki";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -148,10 +147,14 @@ const getHighlighter = (
 		return cached;
 	}
 
-	const highlighterPromise = createHighlighter({
-		langs: [language],
-		themes: ["github-light", "github-dark"],
-	});
+	// Import shiki lazily so its engine and grammar registry stay out of the
+	// chunk until a code block actually renders.
+	const highlighterPromise = import("shiki").then(({ createHighlighter }) =>
+		createHighlighter({
+			langs: [language],
+			themes: ["github-light", "github-dark"],
+		}),
+	);
 
 	highlighterCache.set(language, highlighterPromise);
 	return highlighterPromise;

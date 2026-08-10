@@ -6,6 +6,7 @@ import {
 } from "fumadocs-ui/components/ui/collapsible";
 import { ThumbsDown, ThumbsUp } from "lucide-react";
 import { usePathname } from "next/navigation";
+import { usePostHog } from "posthog-js/react";
 import {
 	type SyntheticEvent,
 	useEffect,
@@ -54,6 +55,7 @@ export function Feedback({
 	onRateAction: (url: string, feedback: Feedback) => Promise<ActionResponse>;
 }) {
 	const url = usePathname();
+	const posthog = usePostHog();
 	const [previous, replacePrevious] = useReducer(
 		(_previous: Result | null, nextPrevious: Result | null) => nextPrevious,
 		null,
@@ -66,16 +68,6 @@ export function Feedback({
 		replacePrevious(readStoredFeedback(url));
 	}, [url]);
 
-	useEffect(() => {
-		const key = `docs-feedback-${url}`;
-
-		if (previous) {
-			localStorage.setItem(key, JSON.stringify(previous));
-		} else {
-			localStorage.removeItem(key);
-		}
-	}, [previous, url]);
-
 	function submit(e?: SyntheticEvent) {
 		if (opinion === null) {
 			return;
@@ -87,11 +79,14 @@ export function Feedback({
 				message,
 			};
 
+			posthog.capture("on_rate_docs", { ...feedback, url });
 			void onRateAction(url, feedback).then((response) => {
-				replacePrevious({
+				const result: Result = {
 					response,
 					...feedback,
-				});
+				};
+				localStorage.setItem(`docs-feedback-${url}`, JSON.stringify(result));
+				replacePrevious(result);
 				setMessage("");
 				setOpinion(null);
 			});
@@ -170,6 +165,7 @@ export function Feedback({
 									"text-xs",
 								)}
 								onClick={() => {
+									localStorage.removeItem(`docs-feedback-${url}`);
 									setOpinion(previous.opinion);
 									replacePrevious(null);
 								}}

@@ -70,7 +70,34 @@ export async function renderPlaygroundShell({
 	const modelsPromise = fetchModels();
 	const providersPromise = fetchProviders();
 
-	const initialOrganizationsData = await fetchServerData("GET", "/orgs");
+	const shouldCheckChatPlan =
+		!orgId && !orgShareView && !cookieStore.get(CHAT_CONTEXT_COOKIE);
+
+	// /orgs, the chat-plan status, and the orgId-scoped projects list are
+	// mutually independent (the projects fetch only happens with an orgId, the
+	// plan check only without one), so resolve them in one round trip. Only the
+	// chat-org fetch below must stay sequenced after the plan-redirect check.
+	const [initialOrganizationsData, chatPlanStatusData, eagerProjectsData] =
+		await Promise.all([
+			fetchServerData("GET", "/orgs"),
+			shouldCheckChatPlan ? fetchServerData("GET", "/chat-plans/status") : null,
+			orgId
+				? fetchServerData("GET", "/orgs/{id}/projects", {
+						params: {
+							path: {
+								id: orgId,
+							},
+						},
+					}).catch((error) => {
+						console.warn(
+							"Failed to fetch projects for organization:",
+							orgId,
+							error,
+						);
+						return null;
+					})
+				: null,
+		]);
 	const allOrganizations = (
 		initialOrganizationsData &&
 		typeof initialOrganizationsData === "object" &&
@@ -89,11 +116,7 @@ export async function renderPlaygroundShell({
 	// chat-org fetch so redirected users never get a Chat org provisioned.
 	// Skipped when the user explicitly picked the Chat plan context in the org
 	// switcher (cookie) — this fallback must not override an explicit choice.
-	if (!orgId && !orgShareView && !cookieStore.get(CHAT_CONTEXT_COOKIE)) {
-		const chatPlanStatusData = await fetchServerData(
-			"GET",
-			"/chat-plans/status",
-		);
+	if (shouldCheckChatPlan) {
 		const chatPlanStatus =
 			chatPlanStatusData &&
 			typeof chatPlanStatusData === "object" &&
@@ -140,24 +163,9 @@ export async function renderPlaygroundShell({
 		notFound();
 	}
 
-	let initialProjectsData: { projects: Project[] } | null = null;
-	if (orgId) {
-		try {
-			initialProjectsData = (await fetchServerData(
-				"GET",
-				"/orgs/{id}/projects",
-				{
-					params: {
-						path: {
-							id: orgId,
-						},
-					},
-				},
-			)) as { projects: Project[] };
-		} catch (error) {
-			console.warn("Failed to fetch projects for organization:", orgId, error);
-		}
-	}
+	let initialProjectsData = eagerProjectsData as {
+		projects: Project[];
+	} | null;
 
 	if (
 		projectId &&

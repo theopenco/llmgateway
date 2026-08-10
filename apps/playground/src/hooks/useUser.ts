@@ -38,12 +38,14 @@ export function useUser(options?: UseUserOptions) {
 		},
 	);
 
-	if (data) {
-		posthog.identify(data.user.id, {
-			email: data.user.email,
-			name: data.user.name,
-		});
-	}
+	useEffect(() => {
+		if (data?.user) {
+			posthog.identify(data.user.id, {
+				email: data.user.email,
+				name: data.user.name,
+			});
+		}
+	}, [data?.user, posthog]);
 
 	// Check for onboarding completion for all authenticated users
 	useEffect(() => {

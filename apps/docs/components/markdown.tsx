@@ -123,11 +123,24 @@ export function Markdown({ text }: { text: string }) {
 	);
 }
 
+// Streaming answers render one snapshot per token, so cap the cache to keep
+// intermediate strings from accumulating for the lifetime of the tab.
 const cache = new Map<string, Promise<ReactNode>>();
+const cacheLimit = 200;
 
 function Renderer({ text }: { text: string }) {
-	const result = cache.get(text) ?? processor.process(text);
-	cache.set(text, result);
+	let result = cache.get(text);
+
+	if (!result) {
+		result = processor.process(text);
+		if (cache.size >= cacheLimit) {
+			const oldest = cache.keys().next().value;
+			if (oldest !== undefined) {
+				cache.delete(oldest);
+			}
+		}
+		cache.set(text, result);
+	}
 
 	return use(result);
 }

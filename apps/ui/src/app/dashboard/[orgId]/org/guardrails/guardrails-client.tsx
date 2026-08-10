@@ -153,12 +153,14 @@ export function GuardrailsClient() {
 	const fetchConfig = useCallback(async () => {
 		try {
 			setIsLoading(true);
-			const response = await fetchClient.GET(
-				"/guardrails/config/{organizationId}",
-				{
+			const [response, rulesResponse] = await Promise.all([
+				fetchClient.GET("/guardrails/config/{organizationId}", {
 					params: { path: { organizationId } },
-				},
-			);
+				}),
+				fetchClient.GET("/guardrails/rules/{organizationId}", {
+					params: { path: { organizationId } },
+				}),
+			]);
 
 			if (response.data) {
 				setConfig(response.data as unknown as GuardrailConfig);
@@ -166,13 +168,6 @@ export function GuardrailsClient() {
 				// No config exists yet, use defaults
 				setConfig(DEFAULT_CONFIG);
 			}
-
-			const rulesResponse = await fetchClient.GET(
-				"/guardrails/rules/{organizationId}",
-				{
-					params: { path: { organizationId } },
-				},
-			);
 
 			if (rulesResponse.data) {
 				setCustomRules(
