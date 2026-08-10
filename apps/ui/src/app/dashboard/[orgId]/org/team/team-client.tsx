@@ -45,6 +45,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
+import { Checkbox } from "@/lib/components/checkbox";
 import {
 	Dialog,
 	DialogContent,
@@ -605,8 +606,25 @@ function ManageAccessDialog({
 	const [projectIds, setProjectIds] = useState<string[]>(
 		member.projects ? member.projects.map((p) => p.id) : [],
 	);
+	const [leadProjectIds, setLeadProjectIds] = useState<string[]>(
+		member.projects
+			? member.projects.filter((p) => p.role === "lead").map((p) => p.id)
+			: [],
+	);
 
 	const memberName = member.user.name ?? member.user.email;
+	// A lead grant only means anything on a project the member can reach.
+	const effectiveLeadProjectIds = leadProjectIds.filter((id) =>
+		projectIds.includes(id),
+	);
+
+	const toggleLead = (projectId: string, isLead: boolean) => {
+		setLeadProjectIds((current) =>
+			isLead
+				? [...current, projectId]
+				: current.filter((id) => id !== projectId),
+		);
+	};
 
 	const handleSave = async () => {
 		if (role === "developer" && !isEnterprise) {
@@ -631,7 +649,9 @@ function ManageAccessDialog({
 			params: { path: { organizationId, memberId: member.id } },
 			body: {
 				role,
-				...(role === "developer" ? { projectIds } : {}),
+				...(role === "developer"
+					? { projectIds, leadProjectIds: effectiveLeadProjectIds }
+					: {}),
 			},
 		});
 		toast({ title: "Success", description: "Access updated successfully" });
@@ -675,6 +695,38 @@ function ManageAccessDialog({
 								selected={projectIds}
 								onChange={setProjectIds}
 							/>
+						</div>
+					)}
+
+					{role === "developer" && isEnterprise && projectIds.length > 0 && (
+						<div className="space-y-2">
+							<Label>Team lead</Label>
+							<p className="text-muted-foreground text-xs">
+								A lead sees every member's cost and usage inside that project,
+								without any organization-wide access.
+							</p>
+							<div className="space-y-2 rounded-md border p-3">
+								{projectIds.map((projectId) => {
+									const project = orgProjects.find((p) => p.id === projectId);
+									return (
+										<div key={projectId} className="flex items-center gap-2">
+											<Checkbox
+												id={`lead-${projectId}`}
+												checked={effectiveLeadProjectIds.includes(projectId)}
+												onCheckedChange={(checked) =>
+													toggleLead(projectId, checked === true)
+												}
+											/>
+											<Label
+												htmlFor={`lead-${projectId}`}
+												className="text-sm font-normal"
+											>
+												{project?.name ?? projectId}
+											</Label>
+										</div>
+									);
+								})}
+							</div>
 						</div>
 					)}
 				</div>
@@ -1158,6 +1210,11 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 																			className="font-normal"
 																		>
 																			{project.name}
+																			{project.role === "lead" && (
+																				<span className="text-muted-foreground ml-1">
+																					· lead
+																				</span>
+																			)}
 																		</Badge>
 																	))}
 																</div>

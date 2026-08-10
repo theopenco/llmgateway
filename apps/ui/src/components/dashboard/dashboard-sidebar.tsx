@@ -49,6 +49,7 @@ import {
 } from "@/components/dashboard/animated-nav-icons";
 import { ReferralDialog } from "@/components/dashboard/referral-dialog";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
+import { useMyMemberBudget } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
 import { clearLastUsedProjectCookiesAction } from "@/lib/actions/last-used-project";
 import { useAuth } from "@/lib/auth-client";
@@ -1144,7 +1145,7 @@ export function DashboardSidebar({
 	const posthog = usePostHog();
 	const queryClient = useQueryClient();
 	const { signOut } = useAuth();
-	const { buildUrl, buildOrgUrl } = useDashboardNavigation();
+	const { buildUrl, buildOrgUrl, orgId, projectId } = useDashboardNavigation();
 	const [showUpgradeCTA, setShowUpgradeCTA] = useState(true);
 	const [ctaLoaded, setCTALoaded] = useState(false);
 	const [searchQuery, setSearchQuery] = useState("");
@@ -1237,12 +1238,35 @@ export function DashboardSidebar({
 
 	const isDeveloper = selectedOrganization?.role === "developer";
 
+	// A developer who leads the current project also gets that project's
+	// analytics — the per-member cost view their lead grant is for.
+	const { data: myMembership } = useMyMemberBudget(
+		isDeveloper ? (orgId ?? "") : "",
+	);
+	const leadsCurrentProject =
+		!!projectId && (myMembership?.leadProjectIds?.includes(projectId) ?? false);
+
+	const developerNavigation = useMemo(
+		() =>
+			leadsCurrentProject
+				? [
+						...USER_NAVIGATION,
+						{
+							href: "analytics",
+							label: "Analytics",
+							icon: AnimatedChartArea,
+						},
+					]
+				: USER_NAVIGATION,
+		[leadsCurrentProject],
+	);
+
 	// Flat index of every link the sidebar can show for the current role, used
 	// by the search box to filter across all sections at once.
 	const searchableLinks = useMemo<SearchableLink[]>(() => {
 		if (isDeveloper) {
 			return [
-				...USER_NAVIGATION.map((item) => ({
+				...developerNavigation.map((item) => ({
 					href: buildUrl(item.href),
 					label: item.label,
 					section: "User",
@@ -1297,7 +1321,14 @@ export function DashboardSidebar({
 				external: !item.internal,
 			})),
 		];
-	}, [isDeveloper, buildUrl, buildOrgUrl, searchParams, toolsResources]);
+	}, [
+		isDeveloper,
+		developerNavigation,
+		buildUrl,
+		buildOrgUrl,
+		searchParams,
+		toolsResources,
+	]);
 
 	const searchMatches = useMemo(
 		() => filterSearchableLinks(searchableLinks, searchQuery),
@@ -1452,7 +1483,7 @@ export function DashboardSidebar({
 							</SidebarGroupLabel>
 							<SidebarGroupContent className="mt-2">
 								<SidebarMenu>
-									{USER_NAVIGATION.map((item) => (
+									{developerNavigation.map((item) => (
 										<NavigationItem
 											key={item.href}
 											item={item}

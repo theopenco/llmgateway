@@ -2189,6 +2189,68 @@ describe("activity endpoint", () => {
 			expect(res.status).toBe(403);
 		});
 
+		// A team lead is the whole point of the grant: they see their own project's
+		// per-member spend without being promoted to org admin.
+		describe("project lead", () => {
+			async function makeCallerLead(
+				leadProjectIds: string[],
+				grantedProjectIds = ["test-project-id", "test-project-id-2"],
+			) {
+				await db
+					.update(tables.userOrganization)
+					.set({ role: "developer" })
+					.where(eq(tables.userOrganization.id, "test-user-org-id"));
+
+				await db.insert(tables.userProject).values(
+					grantedProjectIds.map((projectId) => ({
+						id: `test-user-project-${projectId}`,
+						userOrganizationId: "test-user-org-id",
+						projectId,
+						role: leadProjectIds.includes(projectId)
+							? ("lead" as const)
+							: ("member" as const),
+					})),
+				);
+			}
+
+			test("lets a lead see every member's spend in their project", async () => {
+				await makeCallerLead(["test-project-id"]);
+
+				const { totals } = await fetchUserBreakdown(
+					"/activity?days=7&projectId=test-project-id&groupBy=user",
+				);
+
+				// Both the caller's own keys and the other member's key are visible.
+				expect(totals.size).toBe(2);
+				expect(totals.get(MEMBER_ID)!.cost).toBeCloseTo(0.75, 4);
+				expect(totals.get("test-user-id")!.cost).toBeCloseTo(0.25, 4);
+			});
+
+			test("rejects a project the member has access to but does not lead", async () => {
+				await makeCallerLead(["test-project-id"]);
+
+				const res = await app.request(
+					"/activity?days=7&projectId=test-project-id-2&groupBy=user",
+					{ headers: { Cookie: token } },
+				);
+				expect(res.status).toBe(403);
+			});
+
+			test("still requires the enterprise plan", async () => {
+				await makeCallerLead(["test-project-id"]);
+				await db
+					.update(tables.organization)
+					.set({ plan: "pro" })
+					.where(eq(tables.organization.id, "test-org-id"));
+
+				const res = await app.request(
+					"/activity?days=7&projectId=test-project-id&groupBy=user",
+					{ headers: { Cookie: token } },
+				);
+				expect(res.status).toBe(403);
+			});
+		});
+
 		test("requires authentication", async () => {
 			const res = await app.request(
 				"/activity?days=7&projectId=test-project-id&groupBy=user",

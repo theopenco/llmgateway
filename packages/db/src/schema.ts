@@ -942,6 +942,9 @@ export const organizationInvite = pgTable(
 		// Project grants applied at acceptance for "developer" invites. Projects
 		// deleted before acceptance are skipped.
 		projectIds: jsonb().$type<string[]>(),
+		// Subset of `projectIds` the invitee leads, applied at acceptance as
+		// `user_project.role = 'lead'`.
+		leadProjectIds: jsonb().$type<string[]>(),
 		invitedBy: text().references(() => user.id, { onDelete: "set null" }),
 		status: text({
 			enum: ["pending", "accepted", "revoked"],
@@ -982,6 +985,15 @@ export const userProject = pgTable(
 		projectId: text()
 			.notNull()
 			.references(() => project.id, { onDelete: "cascade" }),
+		// "lead" grants the member team-lead visibility inside this one project:
+		// every member's spend and every key's traffic, without any org-wide admin
+		// power. "member" is the historical behaviour — access to the project, but
+		// only to their own keys' usage.
+		role: text({
+			enum: ["member", "lead"],
+		})
+			.notNull()
+			.default("member"),
 	},
 	(table) => [
 		uniqueIndex("user_project_membership_project_unique").on(

@@ -97,12 +97,16 @@ export async function acceptPendingInvitesForUser(user: {
 						columns: { id: true },
 					});
 					if (projects.length) {
+						const leads = new Set(invite.leadProjectIds ?? []);
 						await db
 							.insert(tables.userProject)
 							.values(
 								projects.map((p) => ({
 									userOrganizationId: membership.id,
 									projectId: p.id,
+									role: leads.has(p.id)
+										? ("lead" as const)
+										: ("member" as const),
 								})),
 							)
 							.onConflictDoNothing();
