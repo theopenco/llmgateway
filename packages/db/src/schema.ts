@@ -1549,7 +1549,13 @@ export interface ProviderKeyOptions {
 	azure_deployment_name?: string;
 	azure_ai_foundry_resource?: string;
 	azure_ai_foundry_api_version?: string;
-	alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
+	alibaba_region?: "singapore" | "eu-frankfurt" | "us-virginia" | "cn-beijing";
+	/**
+	 * Model Studio workspace id, required for regions served only by the
+	 * workspace-dedicated `{WorkspaceId}.<region>.maas.aliyuncs.com` host
+	 * (Frankfurt). Ignored by regions that have a shared DashScope domain.
+	 */
+	alibaba_workspace_id?: string;
 	aws_mantle_region?: "us-east-1" | "us-east-2" | "us-west-2";
 	google_vertex_project_id?: string;
 	google_vertex_token_type?: "api-key" | "oauth";

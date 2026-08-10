@@ -3,6 +3,7 @@ import {
 	type ProviderEnvConfig,
 	type ProviderEnvExclusiveGroup,
 	getProviderDefinition,
+	regionEndpointRequiresWorkspaceId,
 } from "./providers.js";
 
 import type { Provider } from "./index.js";
@@ -203,6 +204,25 @@ export function hasProviderEnvironmentToken(
 	return envVar ? Boolean(process.env[envVar]) : false;
 }
 
+/**
+ * Environment variable carrying a provider's setting for one logical env key
+ * (`apiKey`, `baseUrl`, `region`, `workspaceId`, …), or undefined when the
+ * provider does not declare that setting.
+ */
+export function getProviderEnvVarNameFor(
+	provider: Provider,
+	key: string,
+): string | undefined {
+	const config = getProviderEnvConfig(provider);
+	if (!config) {
+		return undefined;
+	}
+	if (key in config.required) {
+		return config.required[key as keyof typeof config.required];
+	}
+	return config.optional?.[key];
+}
+
 export function getProviderEnvValue(
 	provider: Provider,
 	key: string,
@@ -210,19 +230,11 @@ export function getProviderEnvValue(
 	defaultValue?: string,
 	variant?: EnvVarVariant,
 ): string | undefined {
-	const config = getProviderEnvConfig(provider);
-	if (!config) {
+	if (!getProviderEnvConfig(provider)) {
 		return undefined;
 	}
 
-	let envVarName: string | undefined;
-
-	// Check required vars first, then optional
-	if (key in config.required) {
-		envVarName = config.required[key as keyof typeof config.required];
-	} else if (config.optional && key in config.optional) {
-		envVarName = config.optional[key];
-	}
+	const envVarName = getProviderEnvVarNameFor(provider, key);
 
 	if (!envVarName) {
 		return defaultValue;
@@ -352,6 +364,32 @@ export function getRegionSpecificEnvValue(
 }
 
 /**
+ * Region-scoped read of any provider setting, not just the API key: checks
+ * `{ENV_VAR}__{REGION}` before falling back to the plain lookup. Settings that
+ * differ per region without being credentials — Alibaba's per-region Model
+ * Studio workspace id, for instance — are resolved through this so they follow
+ * the same naming as the regional keys they accompany.
+ */
+export function getRegionScopedProviderEnvValue(
+	provider: Provider,
+	key: string,
+	region: string | undefined,
+	configIndex?: number,
+	variant?: EnvVarVariant,
+): string | undefined {
+	if (region) {
+		const envVarName = getProviderEnvVarNameFor(provider, key);
+		const regionalValue = envVarName
+			? process.env[`${envVarName}__${getRegionEnvVarSuffix(region)}`]
+			: undefined;
+		if (regionalValue) {
+			return regionalValue;
+		}
+	}
+	return getProviderEnvValue(provider, key, configIndex, undefined, variant);
+}
+
+/**
  * Get the region-specific env var name only when that var is actually set.
  * Returns `{BASE_ENV_VAR}__{REGION}` when the regional override exists, else
  * undefined. Use this when you need to attribute health to the regional
@@ -385,6 +423,10 @@ export function getRegionSpecificEnvVarName(
  * Check whether an env var exists for a specific region.
  * Returns true if a region-specific env var (`{BASE_ENV_VAR}__{REGION}`) exists,
  * OR if the base env var exists and the queried region is the provider's default region.
+ *
+ * A region whose endpoint is workspace-scoped additionally needs its workspace
+ * id configured: the key alone cannot address the region, so treating it as
+ * available would route traffic to an endpoint that cannot be built.
  */
 export function hasRegionSpecificEnvKey(
 	provider: Provider,
@@ -392,6 +434,12 @@ export function hasRegionSpecificEnvKey(
 ): boolean {
 	const baseEnvVar = getProviderEnvVar(provider);
 	if (!baseEnvVar) {
+		return false;
+	}
+	if (
+		regionEndpointRequiresWorkspaceId(provider, region) &&
+		!getRegionScopedProviderEnvValue(provider, "workspaceId", region)
+	) {
 		return false;
 	}
 	const regionSuffix = getRegionEnvVarSuffix(region);

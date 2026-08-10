@@ -28,6 +28,7 @@ import { useApi } from "@/lib/fetch-client";
 import {
 	providers,
 	isStealthProvider,
+	regionEndpointRequiresWorkspaceId,
 	type ProviderDefinition,
 } from "@llmgateway/models";
 import { getProviderModelIds } from "@llmgateway/shared";
@@ -67,6 +68,7 @@ export function CreateProviderKeyDialog({
 	const [azureAiFoundryApiVersion, setAzureAiFoundryApiVersion] =
 		useState("2024-05-01-preview");
 	const [selectedRegion, setSelectedRegion] = useState("");
+	const [alibabaWorkspaceId, setAlibabaWorkspaceId] = useState("");
 	const [googleVertexProjectId, setGoogleVertexProjectId] = useState("");
 	const [vertexTokenType, setVertexTokenType] = useState<"api-key" | "oauth">(
 		"api-key",
@@ -108,6 +110,16 @@ export function CreateProviderKeyDialog({
 				? ANY_REGION
 				: selectedProviderDef?.regionConfig?.defaultRegion)) ??
 		"";
+
+	// Regions served only by a workspace-dedicated host (Alibaba Frankfurt)
+	// cannot be addressed by an API key alone, so the credential has to carry
+	// the workspace id that completes the hostname.
+	const requiresWorkspaceId = Boolean(
+		selectedProvider &&
+		effectiveRegion &&
+		effectiveRegion !== ANY_REGION &&
+		regionEndpointRequiresWorkspaceId(selectedProvider, effectiveRegion),
+	);
 
 	// Exclude the gateway itself and stealth providers (no default base URL):
 	// users can't configure a stealth provider key because the platform behind
@@ -223,6 +235,22 @@ export function CreateProviderKeyDialog({
 			payload.options = {
 				...payload.options,
 				[selectedProviderDef.regionConfig.optionsKey]: effectiveRegion,
+			};
+		}
+
+		if (requiresWorkspaceId) {
+			if (!/^[a-zA-Z0-9-]{1,64}$/.test(alibabaWorkspaceId)) {
+				toast({
+					title: "Error",
+					description:
+						"Workspace ID is required for this region and must be 1-64 characters of letters, numbers, and hyphens",
+					variant: "destructive",
+				});
+				return;
+			}
+			payload.options = {
+				...payload.options,
+				alibaba_workspace_id: alibabaWorkspaceId,
 			};
 		}
 
@@ -347,6 +375,7 @@ export function CreateProviderKeyDialog({
 			setAzureAiFoundryResource("");
 			setAzureAiFoundryApiVersion("2024-05-01-preview");
 			setSelectedRegion("");
+			setAlibabaWorkspaceId("");
 			setGoogleVertexProjectId("");
 			setVertexTokenType("api-key");
 			setUsageLimit("");
@@ -620,6 +649,25 @@ export function CreateProviderKeyDialog({
 								{regionOptional
 									? "One key works across every region. Leave this on “Any region” to let the gateway route across all of them; pick one to keep requests in a single region."
 									: "API keys are region-specific. Make sure your key matches the selected region."}
+							</p>
+						</div>
+					)}
+
+					{requiresWorkspaceId && (
+						<div className="space-y-2">
+							<Label htmlFor="provider-workspace-id">Workspace ID</Label>
+							<Input
+								id="provider-workspace-id"
+								type="text"
+								placeholder="llm-xxxxxxxxxxxxxxxx"
+								value={alibabaWorkspaceId}
+								onChange={(e) => setAlibabaWorkspaceId(e.target.value.trim())}
+								required
+							/>
+							<p className="text-sm text-muted-foreground">
+								This region is served only by your workspace&apos;s own
+								endpoint. Copy the workspace ID from the API Host shown on the
+								Model Studio workspace management page.
 							</p>
 						</div>
 					)}

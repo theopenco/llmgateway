@@ -6,6 +6,7 @@ import {
 	getProviderEnvExclusiveViolations,
 	getProviderEnvValue,
 	getRegionSpecificEnvVarName,
+	hasRegionSpecificEnvKey,
 	getVariantEnvVarName,
 	getVariantEnvVarNameFor,
 } from "./provider.js";
@@ -258,5 +259,43 @@ describe("exclusive provider env groups", () => {
 	it("leaves providers without exclusive groups unconstrained", () => {
 		expect(getProviderEnvExclusiveGroups("openai")).toEqual([]);
 		expect(getProviderEnvExclusiveViolations("openai", {})).toEqual([]);
+	});
+});
+
+describe("hasRegionSpecificEnvKey with workspace-scoped regions", () => {
+	const WORKSPACE = "LLM_ALIBABA_WORKSPACE_ID";
+	const WORKSPACE_REGIONAL = `${WORKSPACE}__EU_FRANKFURT`;
+	const FRANKFURT_KEY = `${BASE}__EU_FRANKFURT`;
+
+	beforeEach(() => {
+		for (const name of [BASE, FRANKFURT_KEY, WORKSPACE, WORKSPACE_REGIONAL]) {
+			vi.stubEnv(name, undefined);
+		}
+	});
+
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
+	it("does not consider Frankfurt available from an API key alone", () => {
+		vi.stubEnv(FRANKFURT_KEY, "sk-frankfurt");
+		expect(hasRegionSpecificEnvKey("alibaba", "eu-frankfurt")).toBe(false);
+	});
+
+	it("considers Frankfurt available once the workspace id is configured", () => {
+		vi.stubEnv(FRANKFURT_KEY, "sk-frankfurt");
+		vi.stubEnv(WORKSPACE_REGIONAL, "llm-abc123");
+		expect(hasRegionSpecificEnvKey("alibaba", "eu-frankfurt")).toBe(true);
+	});
+
+	it("still requires the regional API key when only the workspace id is set", () => {
+		vi.stubEnv(BASE, "sk-singapore");
+		vi.stubEnv(WORKSPACE, "llm-abc123");
+		expect(hasRegionSpecificEnvKey("alibaba", "eu-frankfurt")).toBe(false);
+	});
+
+	it("leaves regions with a shared host unaffected", () => {
+		vi.stubEnv(`${BASE}__US_VIRGINIA`, "sk-us");
+		expect(hasRegionSpecificEnvKey("alibaba", "us-virginia")).toBe(true);
 	});
 });

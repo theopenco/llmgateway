@@ -83,6 +83,8 @@ function formatOptionLabel(key: string, value: string): string {
 		azure_api_version: "API Version",
 		azure_deployment_type: "Deployment",
 		azure_validation_model: "Validation Model",
+		alibaba_region: "Region",
+		alibaba_workspace_id: "Workspace ID",
 	};
 
 	const label = labels[key] || key;

@@ -1,3 +1,13 @@
+/**
+ * Placeholder inside a `regionConfig.endpointMap` entry for a region whose
+ * host is not a fixed domain but is derived from a per-credential workspace
+ * identifier. Alibaba's Frankfurt region is only reachable through the
+ * workspace-dedicated `{WorkspaceId}.eu-central-1.maas.aliyuncs.com` host —
+ * it has no shared DashScope domain — so the endpoint can only be completed
+ * once the credential's workspace id is known.
+ */
+export const REGION_WORKSPACE_ID_PLACEHOLDER = "{workspaceId}";
+
 export interface ProviderEnvConfig {
 	required: {
 		apiKey?: string;
@@ -749,6 +759,7 @@ export const providers: ProviderDefinition[] = [
 			},
 			optional: {
 				region: "LLM_ALIBABA_REGION",
+				workspaceId: "LLM_ALIBABA_WORKSPACE_ID",
 			},
 		},
 		streaming: true,
@@ -762,11 +773,18 @@ export const providers: ProviderDefinition[] = [
 			defaultRegion: "singapore",
 			regions: [
 				{ id: "singapore", label: "Singapore (default)" },
+				{ id: "eu-frankfurt", label: "EU (Frankfurt)" },
 				{ id: "us-virginia", label: "US (Virginia)" },
 				{ id: "cn-beijing", label: "China (Beijing)" },
 			],
 			endpointMap: {
 				singapore: "https://dashscope-intl.aliyuncs.com",
+				// Frankfurt is the one Model Studio region with no shared DashScope
+				// domain: `dashscope-eu`/`dashscope-de` do not exist and aliasing
+				// another region's host would silently execute EU-designated traffic
+				// elsewhere. It is served only by the workspace-dedicated host, whose
+				// workspace id comes from the credential (see the placeholder docs).
+				"eu-frankfurt": `https://${REGION_WORKSPACE_ID_PLACEHOLDER}.eu-central-1.maas.aliyuncs.com`,
 				"us-virginia": "https://dashscope-us.aliyuncs.com",
 				"cn-beijing": "https://dashscope.aliyuncs.com",
 			},
@@ -1843,6 +1861,21 @@ export function getProviderDefinition(
 	providerId: ProviderId | string,
 ): ProviderDefinition | undefined {
 	return providers.find((p) => p.id === providerId);
+}
+
+/**
+ * Whether a region's endpoint can only be completed with a per-credential
+ * workspace id. Such a region is not routable from an API key alone, so both
+ * the endpoint builder and the platform-credential availability check consult
+ * this instead of hardcoding the provider.
+ */
+export function regionEndpointRequiresWorkspaceId(
+	providerId: ProviderId | string,
+	region: string,
+): boolean {
+	const endpoint =
+		getProviderDefinition(providerId)?.regionConfig?.endpointMap[region];
+	return Boolean(endpoint?.includes(REGION_WORKSPACE_ID_PLACEHOLDER));
 }
 
 /**

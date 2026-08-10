@@ -1375,6 +1375,17 @@ export const alibabaModels = [
 				cacheWriteInputPrice: "3.125e-6",
 				regions: [
 					{ id: "singapore" },
+					{
+						id: "eu-frankfurt",
+						inputPrice: "1.65e-6",
+						outputPrice: "4.951e-6",
+						cachedInputPrice: "0.33e-6",
+						cacheReadInputPrice: "0.165e-6",
+						cacheWriteInputPrice: "2.0625e-6",
+						// Frankfurt is served only through a workspace-dedicated endpoint,
+						// so there is no shared credential the e2e harness could use.
+						test: "skip",
+					},
 					{ id: "us-virginia" },
 					{
 						id: "cn-beijing",
@@ -1518,6 +1529,37 @@ export const alibabaModels = [
 				],
 				regions: [
 					{ id: "singapore" },
+					{
+						id: "eu-frankfurt",
+						inputPrice: "0.276e-6",
+						outputPrice: "1.101e-6",
+						cachedInputPrice: "0.0552e-6",
+						cacheReadInputPrice: "0.0276e-6",
+						cacheWriteInputPrice: "0.345e-6",
+						pricingTiers: [
+							{
+								name: "Up to 256K",
+								upToTokens: 256000,
+								inputPrice: "0.276e-6",
+								outputPrice: "1.101e-6",
+								cachedInputPrice: "0.0552e-6",
+								cacheReadInputPrice: "0.0276e-6",
+								cacheWriteInputPrice: "0.345e-6",
+							},
+							{
+								name: "Over 256K",
+								upToTokens: Infinity,
+								inputPrice: "0.826e-6",
+								outputPrice: "3.301e-6",
+								cachedInputPrice: "0.1652e-6",
+								cacheReadInputPrice: "0.0826e-6",
+								cacheWriteInputPrice: "1.0325e-6",
+							},
+						],
+						// Frankfurt is served only through a workspace-dedicated endpoint,
+						// so there is no shared credential the e2e harness could use.
+						test: "skip",
+					},
 					{ id: "us-virginia" },
 					{ id: "cn-beijing" },
 				],
@@ -3041,7 +3083,18 @@ export const alibabaModels = [
 				inputPrice: "0.5e-6",
 				outputPrice: "3e-6",
 				cachedInputPrice: "0.05e-6",
-				regions: [{ id: "singapore" }],
+				regions: [
+					{ id: "singapore" },
+					{
+						id: "eu-frankfurt",
+						inputPrice: "0.276e-6",
+						outputPrice: "1.651e-6",
+						cachedInputPrice: "0.0276e-6",
+						// Frankfurt is served only through a workspace-dedicated endpoint,
+						// so there is no shared credential the e2e harness could use.
+						test: "skip",
+					},
+				],
 				requestPrice: "0",
 				contextSize: 262144,
 				maxOutput: 65536,
