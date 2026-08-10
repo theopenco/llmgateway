@@ -2,7 +2,7 @@ import { subDays, format } from "date-fns";
 import { redirect } from "next/navigation";
 
 import { DashboardClient } from "@/components/dashboard/dashboard-client";
-import { fetchServerData } from "@/lib/server-api";
+import { fetchServerData, getOrganizations } from "@/lib/server-api";
 
 import type { ActivitT } from "@/types/activity";
 
@@ -25,9 +25,7 @@ export default async function Dashboard({
 		searchParamsData?.from ?? format(subDays(today, 6), "yyyy-MM-dd");
 	const toParam = searchParamsData?.to ?? format(today, "yyyy-MM-dd");
 
-	const orgsDataPromise = fetchServerData<{
-		organizations?: { id: string; role?: string }[];
-	}>("GET", "/orgs");
+	const orgsDataPromise = getOrganizations();
 
 	const initialActivityDataPromise = fetchServerData<ActivitT>(
 		"GET",
