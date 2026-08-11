@@ -477,7 +477,9 @@ describe("managed provider credentials", () => {
 	 * provider's default region, so the credential pinned to that region is the
 	 * one that serves it. Falling through to "no managed credential" 500s every
 	 * region-less request the moment the last region-agnostic credential goes
-	 * away.
+	 * away. Uses `qwen-omni-turbo`, whose mapping has no regional variants at
+	 * all, so the request genuinely resolves no region — a model with regional
+	 * variants routes over those instead (see the cheapest-region test below).
 	 */
 	test("serves a region-less request from the default-region credential", async () => {
 		await seedApiKey();
@@ -497,12 +499,47 @@ describe("managed provider credentials", () => {
 		const captured = captureUpstream(chatCompletion);
 
 		// Bare model id: no provider prefix and no `:region` suffix.
-		const res = await completions("qwen3.7-plus");
+		const res = await completions("qwen-omni-turbo");
 		expect(res.status).toBe(200);
 
 		expect(captured).toHaveLength(1);
 		expect(captured[0].url).toContain("dashscope-intl.aliyuncs.com");
 		expect(captured[0].authorization).toBe("Bearer sk-managed-singapore");
+	});
+
+	/**
+	 * A bare model id must route over the provider's regional variants exactly
+	 * like the `provider/model` spelling does: the credentialed regions are
+	 * priced against each other and the cheapest one wins. The single-provider
+	 * shortcut used to read the un-expanded mapping's `region: undefined` and
+	 * send every such request to the default region, so `qwen3.7-plus` and
+	 * `alibaba/qwen3.7-plus` — the same request, two spellings — picked
+	 * different regions at different prices.
+	 */
+	test("routes a bare multi-region id to the cheapest eligible region", async () => {
+		await seedApiKey();
+		await seedManagedCredential({
+			id: "managed-alibaba-singapore",
+			provider: "alibaba",
+			token: "sk-managed-singapore",
+			region: "singapore",
+		});
+		await seedManagedCredential({
+			id: "managed-alibaba-frankfurt",
+			provider: "alibaba",
+			token: "sk-managed-frankfurt",
+			region: "eu-frankfurt",
+		});
+
+		const captured = captureUpstream(chatCompletion);
+
+		// Frankfurt undercuts the mapping's (singapore) prices for this model.
+		const res = await completions("qwen3.7-plus");
+		expect(res.status).toBe(200);
+
+		expect(captured).toHaveLength(1);
+		expect(captured[0].url).toContain("eu-central-1.maas.aliyuncs.com");
+		expect(captured[0].authorization).toBe("Bearer sk-managed-frankfurt");
 	});
 
 	test("serves each pinned region from its own credential", async () => {

@@ -1,6 +1,7 @@
 export * from "../deactivation";
 export * from "./account-list";
 export * from "./account-switcher";
+export * from "./credential-source-badge";
 export * from "./integration-guides-grid";
 export * from "./integration-icons";
 export * from "./log-card";

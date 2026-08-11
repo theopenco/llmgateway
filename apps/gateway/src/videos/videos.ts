@@ -52,6 +52,7 @@ import {
 	getProviderHeaders,
 	managedCredentialOptions,
 	processImageUrl,
+	providerKeyLabel,
 	readProviderKey,
 	type RoutingMetadata,
 	type VideoPricingContext,
@@ -104,6 +105,7 @@ import {
 
 import type { ServerTypes } from "@/vars.js";
 import type { ResolvedRoutingConfig } from "@llmgateway/shared/routing-config";
+import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
 import type { Context } from "hono";
 
 function createProviderDiscountResolver(organizationId: string) {
@@ -638,6 +640,11 @@ interface ProviderContext {
 	 * org's active key as they always did.
 	 */
 	providerKeyId?: string;
+	/**
+	 * That key named as its owner sees it, for the routing view. BYOK only —
+	 * providerKeyLabel() returns undefined for a platform credential.
+	 */
+	providerKeyLabel?: string;
 	vertexProjectId?: string;
 	vertexRegion?: string;
 	vertexTokenType?: VertexTokenType;
@@ -1579,6 +1586,7 @@ async function resolveProviderContext(
 			usedMode: "api-keys",
 			configIndex: null,
 			providerKeyId: providerKey.id,
+			providerKeyLabel: providerKeyLabel(providerKey),
 			vertexProjectId: sharedVertexProjectId,
 			vertexRegion: sharedVertexRegion,
 			vertexTokenType: resolveVideoVertexTokenType(
@@ -1637,6 +1645,7 @@ async function resolveProviderContext(
 			usedMode: "api-keys",
 			configIndex: null,
 			providerKeyId: providerKey.id,
+			providerKeyLabel: providerKeyLabel(providerKey),
 			vertexProjectId: sharedVertexProjectId,
 			vertexRegion: sharedVertexRegion,
 			vertexTokenType: resolveVideoVertexTokenType(
@@ -4302,6 +4311,35 @@ async function processVideoImageInputs(
 	).filter((image): image is ProcessedVideoImageInput => image !== null);
 }
 
+/**
+ * Whose credential a video attempt ran on. `usedMode` on the provider context
+ * is already decided by whether the organization's own provider key served the
+ * job, so it maps one-to-one onto the routing credential vocabulary.
+ */
+function videoCredentialSource(
+	providerContext: ProviderContext,
+): RoutingCredentialSource {
+	return providerContext.usedMode === "api-keys" ? "byok" : "platform";
+}
+
+/**
+ * Key identity for a video attempt, and only when the organization's own key
+ * served it: `usedMode` is the same BYOK discriminator credentialSource uses,
+ * so a platform credential contributes nothing here.
+ */
+function videoProviderKeyIdentity(providerContext: ProviderContext): {
+	providerKeyId?: string;
+	providerKeyLabel?: string;
+} {
+	if (providerContext.usedMode !== "api-keys") {
+		return {};
+	}
+	return {
+		providerKeyId: providerContext.providerKeyId,
+		providerKeyLabel: providerContext.providerKeyLabel,
+	};
+}
+
 function buildVideoClientErrorRoutingMetadata(
 	routingMetadata: RoutingMetadata | undefined,
 	providerContext: ProviderContext,
@@ -4311,6 +4349,8 @@ function buildVideoClientErrorRoutingMetadata(
 	const routingAttempt: RoutingAttempt = {
 		provider: providerContext.providerId,
 		model: modelId,
+		credentialSource: videoCredentialSource(providerContext),
+		...videoProviderKeyIdentity(providerContext),
 		status_code: statusCode,
 		error_type: "client_error",
 		succeeded: false,
@@ -4701,6 +4741,8 @@ videos.openapi(createVideo, async (c) => {
 			routingAttempts.push({
 				provider: selectedProviderContext.providerId,
 				model: modelInfo.id,
+				credentialSource: videoCredentialSource(selectedProviderContext),
+				...videoProviderKeyIdentity(selectedProviderContext),
 				status_code: 402,
 				error_type: "insufficient_credits",
 				succeeded: false,
@@ -4754,6 +4796,8 @@ videos.openapi(createVideo, async (c) => {
 			routingAttempts.push({
 				provider: selectedProviderContext.providerId,
 				model: modelInfo.id,
+				credentialSource: videoCredentialSource(selectedProviderContext),
+				...videoProviderKeyIdentity(selectedProviderContext),
 				status_code: statusCode,
 				error_type: "client_error",
 				succeeded: false,
@@ -4828,6 +4872,8 @@ videos.openapi(createVideo, async (c) => {
 			routingAttempts.push({
 				provider: selectedProviderContext.providerId,
 				model: modelInfo.id,
+				credentialSource: videoCredentialSource(selectedProviderContext),
+				...videoProviderKeyIdentity(selectedProviderContext),
 				status_code: 200,
 				error_type: "none",
 				succeeded: true,
@@ -4842,6 +4888,8 @@ videos.openapi(createVideo, async (c) => {
 			routingAttempts.push({
 				provider: selectedProviderContext.providerId,
 				model: modelInfo.id,
+				credentialSource: videoCredentialSource(selectedProviderContext),
+				...videoProviderKeyIdentity(selectedProviderContext),
 				status_code: statusCode,
 				error_type: getErrorType(statusCode),
 				succeeded: false,

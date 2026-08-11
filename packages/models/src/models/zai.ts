@@ -128,7 +128,12 @@ export const zaiModels = [
 				inputPrice: "1.4e-6",
 				cachedInputPrice: "0.28e-6",
 				outputPrice: "4.4e-6",
-				regions: [{ id: "singapore" }],
+				regions: [
+					{ id: "singapore" },
+					{ id: "eu-frankfurt" },
+					{ id: "us-virginia" },
+					{ id: "cn-beijing" },
+				],
 				requestPrice: "0",
 				contextSize: 1000000,
 				maxOutput: 131072,

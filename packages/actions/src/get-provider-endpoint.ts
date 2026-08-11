@@ -676,10 +676,13 @@ export function getProviderEndpoint(
 			return `${url}/v1/projects/${projectId}/locations/${vertexRegion}/endpoints/openapi/chat/completions`;
 		}
 		case "vertex-anthropic": {
+			// A managed credential states its project outright: by the time a
+			// request is built its service-account JSON has already been exchanged
+			// for an access token, so nothing downstream can derive one from it.
+			let vaProjectId = credentialConfig?.project;
 			// BYOK provider keys hold the customer's service-account JSON; derive
 			// the project from it so requests hit their project, not the server's.
-			let vaProjectId: string | undefined;
-			if (token) {
+			if (!vaProjectId && token) {
 				try {
 					const sa = JSON.parse(token) as { project_id?: string };
 					vaProjectId = sa.project_id;
@@ -689,11 +692,13 @@ export function getProviderEndpoint(
 				}
 			}
 			if (!vaProjectId) {
-				vaProjectId =
-					process.env[
-						getVariantEnvVarNameFor("LLM_VERTEX_ANTHROPIC_PROJECT", variant) ??
-							"LLM_VERTEX_ANTHROPIC_PROJECT"
-					];
+				vaProjectId = getProviderEnvValue(
+					"vertex-anthropic",
+					"project",
+					configIndex,
+					undefined,
+					variant,
+				);
 			}
 			if (!vaProjectId) {
 				const saJson =
@@ -729,7 +734,7 @@ export function getProviderEndpoint(
 
 			if (!vaProjectId) {
 				throw new Error(
-					"vertex-anthropic provider requires LLM_VERTEX_ANTHROPIC_PROJECT or a valid LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON with project_id",
+					"vertex-anthropic provider requires a project setting on the credential, LLM_VERTEX_ANTHROPIC_PROJECT, or a valid LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON with project_id",
 				);
 			}
 

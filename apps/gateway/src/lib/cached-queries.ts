@@ -475,15 +475,17 @@ export async function findCustomModel(
 }
 
 /**
- * Find a provider key by organization and provider (cacheable)
+ * The organization's own keys for a provider that can serve this request, in
+ * selection order (index 0 is the primary). This is exactly the candidate set
+ * findProviderKey picks from, before health failover and per-attempt
+ * exclusions narrow it — the "which of my keys could have been used" answer
+ * surfaced in routing metadata.
  */
-export async function findProviderKey(
+export async function listEligibleProviderKeys(
 	organizationId: string,
 	provider: string,
-	selectionScope?: string,
-	excludedKeyIds?: ReadonlySet<string>,
 	filter?: (key: ProviderKey) => boolean,
-): Promise<ProviderKey | undefined> {
+): Promise<ProviderKey[]> {
 	const results = await swrWrap(
 		`providerKey:${organizationId}:${provider}`,
 		[providerKeyTableName],
@@ -508,9 +510,26 @@ export async function findProviderKey(
 					asc(providerKeyTable.id),
 				),
 	);
-	const filtered = filter ? results.filter(filter) : results;
+	return filter ? results.filter(filter) : results;
+}
+
+/**
+ * Find a provider key by organization and provider (cacheable)
+ */
+export async function findProviderKey(
+	organizationId: string,
+	provider: string,
+	selectionScope?: string,
+	excludedKeyIds?: ReadonlySet<string>,
+	filter?: (key: ProviderKey) => boolean,
+): Promise<ProviderKey | undefined> {
+	const eligible = await listEligibleProviderKeys(
+		organizationId,
+		provider,
+		filter,
+	);
 	return selectProviderKeyWithFailover(
-		filtered,
+		eligible,
 		selectionScope,
 		excludedKeyIds,
 	);
