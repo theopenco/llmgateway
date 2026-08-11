@@ -8563,6 +8563,108 @@ describe("api", () => {
 			expect(Number(logs[0].promptTokens)).toBe(100);
 		});
 
+		// The expensive real-world shape: a long agentic run that streams only
+		// tool calls (no assistant text) and dies before the provider ever sends
+		// a usage frame. calculateCosts then estimates the completion count from
+		// the accumulated tool-call JSON — an estimate that never reaches
+		// log.completionTokens, so the row shows 0 output tokens next to a large
+		// output cost. Zeroing the failure has to cover this path too.
+		test("stream truncated after tool calls only is not billed", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "anthropic",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			// Large tool-call arguments, no text content at all.
+			const toolArgs = JSON.stringify({
+				query: "x".repeat(4000),
+			}).slice(1, -1);
+			const sse = [
+				`event: message_start\ndata: ${JSON.stringify({
+					type: "message_start",
+					message: {
+						id: "msg_tool_truncated",
+						type: "message",
+						role: "assistant",
+						model: "claude-opus-4-8",
+						content: [],
+						usage: { input_tokens: 100, output_tokens: 0 },
+					},
+				})}\n\n`,
+				`event: content_block_start\ndata: ${JSON.stringify({
+					type: "content_block_start",
+					index: 0,
+					content_block: { type: "tool_use", id: "toolu_1", name: "search" },
+				})}\n\n`,
+				`event: content_block_delta\ndata: ${JSON.stringify({
+					type: "content_block_delta",
+					index: 0,
+					delta: { type: "input_json_delta", partial_json: `{${toolArgs}}` },
+				})}\n\n`,
+			].join("");
+
+			const fetchSpy = spyUpstreamResponse(
+				`${mockServerUrl}/v1/messages`,
+				sse,
+				"text/event-stream",
+			);
+
+			try {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-opus-4-8",
+						messages: [{ role: "user", content: "Call a tool" }],
+						tools: [
+							{
+								type: "function",
+								function: {
+									name: "search",
+									description: "Search",
+									parameters: {
+										type: "object",
+										properties: { query: { type: "string" } },
+									},
+								},
+							},
+						],
+						stream: true,
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				const streamResult = await readAll(res.body);
+				expect(streamResult.hasError).toBe(true);
+			} finally {
+				fetchSpy.mockRestore();
+			}
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].finishReason).toBe("upstream_error");
+			expect(logs[0].hasError).toBe(true);
+			// The provider never reported a completion count, so the row records
+			// none — the charge must not be conjured from an estimate either.
+			expect(Number(logs[0].completionTokens ?? 0)).toBe(0);
+			expect(Number(logs[0].cost)).toBe(0);
+			expect(Number(logs[0].outputCost)).toBe(0);
+		});
+
 		test("empty non-streaming response is not billed", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
