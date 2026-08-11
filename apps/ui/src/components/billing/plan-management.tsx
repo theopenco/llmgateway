@@ -18,6 +18,7 @@ import {
 } from "@/lib/components/card";
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
+import { Progress } from "@/lib/components/progress";
 import { Separator } from "@/lib/components/separator";
 import { Switch } from "@/lib/components/switch";
 import { useToast } from "@/lib/components/use-toast";
@@ -70,18 +71,79 @@ function errorMessage(error: unknown): string {
 	return "Please try again.";
 }
 
+// Current usage vs the plan's limits, so the plan page always answers "how
+// much of what I pay for am I using?" at a glance. Limits come server-side
+// (admin override → purchased Pro quantities → plan defaults).
+function PlanUsageOverview({
+	seatsUsed,
+	seatLimit,
+	keysUsed,
+	keyLimit,
+}: {
+	seatsUsed: number | null;
+	seatLimit: number | null;
+	keysUsed: number | null;
+	keyLimit: number | null;
+}) {
+	const bars = [
+		{
+			label: "Seats",
+			used: seatsUsed,
+			limit: seatLimit,
+			hint: "Members plus pending invites",
+		},
+		{
+			label: "API keys",
+			used: keysUsed,
+			limit: keyLimit,
+			hint: "Active API keys across your organization",
+		},
+	].filter((bar) => bar.used !== null && bar.limit !== null && bar.limit > 0);
+
+	if (!bars.length) {
+		return null;
+	}
+
+	return (
+		<div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+			{bars.map((bar) => {
+				const used = bar.used ?? 0;
+				const limit = bar.limit ?? 1;
+				const atLimit = used >= limit;
+				return (
+					<div key={bar.label} className="space-y-2 rounded-lg border p-4">
+						<div className="flex items-baseline justify-between">
+							<span className="text-sm font-medium">{bar.label}</span>
+							<span
+								className={`text-sm font-medium ${atLimit ? "text-destructive" : "text-muted-foreground"}`}
+							>
+								{used} of {limit} used
+							</span>
+						</div>
+						<Progress value={Math.min(100, (used / limit) * 100)} />
+						<p className="text-xs text-muted-foreground">{bar.hint}</p>
+					</div>
+				);
+			})}
+		</div>
+	);
+}
+
 // Seat/extra-key/SSO selector with a live monthly price breakdown. Each seat
 // includes one API key — only keys beyond the seat count are billed extra.
 function ProPlanConfigurator({
 	selection,
 	onChange,
 	seatsUsed,
+	keysUsed,
 }: {
 	selection: ProSelection;
 	onChange: (selection: ProSelection) => void;
 	seatsUsed: number | null;
+	keysUsed: number | null;
 }) {
 	const total = getProPlanMonthlyTotal(selection);
+	const totalKeys = selection.seats + selection.extraApiKeys;
 
 	return (
 		<div className="space-y-4">
@@ -217,6 +279,22 @@ function ProPlanConfigurator({
 				</div>
 			</div>
 
+			<div className="rounded-lg border bg-muted/50 p-4 text-sm">
+				<span className="font-medium">
+					With this plan you get {selection.seats} seat
+					{selection.seats === 1 ? "" : "s"} and {totalKeys} API key
+					{totalKeys === 1 ? "" : "s"} in total.
+				</span>{" "}
+				<span className="text-muted-foreground">
+					Currently using {seatsUsed ?? 0} seat
+					{(seatsUsed ?? 0) === 1 ? "" : "s"}
+					{keysUsed !== null
+						? ` and ${keysUsed} API key${keysUsed === 1 ? "" : "s"}`
+						: ""}
+					.
+				</span>
+			</div>
+
 			<p className="text-xs text-muted-foreground">
 				Need more than {PRO_PLAN_MAX_SEATS} seats or volume discounts?{" "}
 				<Link href="/enterprise" className="underline underline-offset-2">
@@ -229,7 +307,7 @@ function ProPlanConfigurator({
 }
 
 export function PlanManagement() {
-	const { selectedOrganization } = useDashboardState();
+	const { selectedOrganization, selectedProject } = useDashboardState();
 	const { toast } = useToast();
 	const queryClient = useQueryClient();
 	const api = useApi();
@@ -255,6 +333,17 @@ export function PlanManagement() {
 		{ enabled: !!organizationId },
 	);
 
+	// planLimits counts active developer keys across the WHOLE org and returns
+	// the org-wide cap; the projectId only scopes the key listing itself.
+	const { data: keysData } = api.useQuery(
+		"get",
+		"/keys/api",
+		{
+			params: { query: { projectId: selectedProject?.id ?? "" } },
+		},
+		{ enabled: !!selectedProject?.id },
+	);
+
 	// Seat-based Pro state: proSeats is only set for the new per-seat
 	// subscriptions; legacy flat-fee Pro subscribers keep the old management UI.
 	const isPro = selectedOrganization?.plan === "pro";
@@ -264,6 +353,9 @@ export function PlanManagement() {
 	const seatsUsed = teamData
 		? teamData.members.length + teamData.invites.length
 		: null;
+	const seatLimit = teamData?.seatLimit ?? null;
+	const keysUsed = keysData?.planLimits?.currentCount ?? null;
+	const keyLimit = keysData?.planLimits?.maxKeys ?? null;
 
 	const currentSelection: ProSelection = {
 		seats:
@@ -526,6 +618,13 @@ export function PlanManagement() {
 							</p>
 						</div>
 					</div>
+
+					<PlanUsageOverview
+						seatsUsed={seatsUsed}
+						seatLimit={seatLimit}
+						keysUsed={keysUsed}
+						keyLimit={keyLimit}
+					/>
 				</CardContent>
 				<CardFooter className="flex justify-between">
 					<div className="flex gap-2">
@@ -611,12 +710,20 @@ export function PlanManagement() {
 						</div>
 					</div>
 
+					<PlanUsageOverview
+						seatsUsed={seatsUsed}
+						seatLimit={seatLimit}
+						keysUsed={keysUsed}
+						keyLimit={keyLimit}
+					/>
+
 					<Separator />
 
 					<ProPlanConfigurator
 						selection={selection}
 						onChange={setSelection}
 						seatsUsed={seatsUsed}
+						keysUsed={keysUsed}
 					/>
 				</CardContent>
 				<CardFooter className="flex flex-wrap items-center justify-between gap-2">
@@ -689,6 +796,13 @@ export function PlanManagement() {
 					</div>
 				</div>
 
+				<PlanUsageOverview
+					seatsUsed={seatsUsed}
+					seatLimit={seatLimit}
+					keysUsed={keysUsed}
+					keyLimit={keyLimit}
+				/>
+
 				<Separator />
 
 				<div className="space-y-4">
@@ -710,6 +824,7 @@ export function PlanManagement() {
 						selection={selection}
 						onChange={setSelection}
 						seatsUsed={seatsUsed}
+						keysUsed={keysUsed}
 					/>
 				</div>
 			</CardContent>

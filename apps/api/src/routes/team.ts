@@ -721,7 +721,7 @@ team.openapi(addMember, async (c) => {
 
 	if (currentMembers.length + pendingInvites.length >= memberLimit) {
 		throw new HTTPException(403, {
-			message: `Your organization has reached the maximum of ${memberLimit} team members. Upgrade to Pro on the billing page to add more seats, or contact us at contact@llmgateway.io.`,
+			message: `Your organization has reached the maximum of ${memberLimit} team members. Upgrade to Pro on the plan page to add more seats, or contact us at contact@llmgateway.io.`,
 		});
 	}
 

@@ -1,8 +1,10 @@
+import Link from "next/link";
+
 import { AutoTopUpSettings } from "@/components/billing/auto-topup-settings";
-import { PlanManagement } from "@/components/billing/plan-management";
 import { PaymentMethodsManagement } from "@/components/credits/payment-methods-management";
 import { TopUpCreditsButton } from "@/components/credits/top-up-credits-dialog";
 import { OrganizationBillingEmailSettings } from "@/components/settings/organization-billing-email-settings";
+import { Button } from "@/lib/components/button";
 import {
 	Card,
 	CardContent,
@@ -24,7 +26,11 @@ interface BillingPageProps {
 	}>;
 }
 
-export default async function BillingPage({ searchParams }: BillingPageProps) {
+export default async function BillingPage({
+	params,
+	searchParams,
+}: BillingPageProps) {
+	const { orgId } = await params;
 	const { success, canceled } = await searchParams;
 
 	const paymentStatus = success ? "success" : canceled ? "canceled" : undefined;
@@ -54,16 +60,21 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
 
 					<AutoTopUpSettings />
 
+					{/* Plan management lives on its own page now; keep a pointer here
+					    for anyone who heads to Billing out of habit. */}
 					<Card>
-						<CardHeader>
-							<CardTitle>Plan Management</CardTitle>
-							<CardDescription>
-								Manage your subscription plan and billing details
-							</CardDescription>
+						<CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+							<div className="space-y-1.5">
+								<CardTitle>Plan</CardTitle>
+								<CardDescription>
+									Your subscription plan, seats, and add-ons are managed on the
+									Plan page.
+								</CardDescription>
+							</div>
+							<Link href={`/dashboard/${orgId}/org/plan`}>
+								<Button variant="outline">Manage plan</Button>
+							</Link>
 						</CardHeader>
-						<CardContent>
-							<PlanManagement />
-						</CardContent>
 					</Card>
 
 					<Card>

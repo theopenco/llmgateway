@@ -268,8 +268,8 @@ subscriptions.openapi(createProSubscription, async (c) => {
 				scimAddon,
 			}),
 			allow_promotion_codes: true,
-			success_url: `${process.env.UI_URL ?? "http://localhost:3002"}/dashboard/${organization.id}/org/billing?success=true`,
-			cancel_url: `${process.env.UI_URL ?? "http://localhost:3002"}/dashboard/${organization.id}/org/billing?canceled=true`,
+			success_url: `${process.env.UI_URL ?? "http://localhost:3002"}/dashboard/${organization.id}/org/plan?success=true`,
+			cancel_url: `${process.env.UI_URL ?? "http://localhost:3002"}/dashboard/${organization.id}/org/plan?canceled=true`,
 			metadata: {
 				organizationId: organization.id,
 				plan: "pro",

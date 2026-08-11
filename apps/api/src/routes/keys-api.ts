@@ -911,7 +911,7 @@ export async function createApiKeyForProject(
 
 	if (orgActiveApiKeys.length >= maxApiKeys) {
 		throw new HTTPException(400, {
-			message: `API key limit reached. Maximum ${maxApiKeys} active API keys per organization. Upgrade to Pro on the billing page for more, or contact us at contact@llmgateway.io.`,
+			message: `API key limit reached. Maximum ${maxApiKeys} active API keys per organization. Upgrade to Pro on the plan page for more, or contact us at contact@llmgateway.io.`,
 		});
 	}
 

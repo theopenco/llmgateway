@@ -728,14 +728,14 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 	const pendingInvites = data?.invites ?? [];
 	const seatLimit = data?.seatLimit ?? 5;
 	const seatsUsed = (data?.members.length ?? 0) + pendingInvites.length;
-	// Seat-based Pro orgs manage their seat count on the billing page; legacy
+	// Seat-based Pro orgs manage their seat count on the plan page; legacy
 	// flat-fee Pro (proSeats null) and free orgs upgrade there instead.
 	const isSeatBasedPro =
 		selectedOrganization?.plan === "pro" &&
 		selectedOrganization?.proSeats !== null &&
 		selectedOrganization?.proSeats !== undefined;
 	const atSeatLimit = !isLoading && seatsUsed >= seatLimit;
-	const billingUrl = buildOrgUrl("org/billing");
+	const planUrl = buildOrgUrl("org/plan");
 
 	const { data: orgProjectsData } = api.useQuery(
 		"get",
@@ -992,7 +992,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 													Your plan includes up to {data?.seatLimit ?? 5} team
 													members.{" "}
 													<Link
-														href={`/dashboard/${organizationId}/org/billing`}
+														href={`/dashboard/${organizationId}/org/plan`}
 														className="underline"
 													>
 														Upgrade to Pro
@@ -1044,7 +1044,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 											: `Upgrade to Pro to add more seats ($${PRO_PLAN_PRICES.seat}/user/month).`}
 									</p>
 									<div className="flex shrink-0 gap-2">
-										<Link href={billingUrl}>
+										<Link href={planUrl}>
 											<Button size="sm">
 												{isSeatBasedPro ? "Add seats" : "Upgrade to Pro"}
 											</Button>
@@ -1062,9 +1062,9 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 					{!isEnterprise && isAdmin && !atSeatLimit && (
 						<p className="text-muted-foreground text-sm">
 							Need more seats?{" "}
-							<Link href={billingUrl} className="underline underline-offset-2">
+							<Link href={planUrl} className="underline underline-offset-2">
 								{isSeatBasedPro
-									? "Add seats on the billing page"
+									? "Add seats on the plan page"
 									: `Upgrade to Pro ($${PRO_PLAN_PRICES.seat}/user/month)`}
 							</Link>{" "}
 							or{" "}

@@ -576,12 +576,12 @@ export function SsoClient() {
 							Enterprise plan or as Pro plan add-ons (SSO ${PRO_PLAN_PRICES.sso}
 							/month, SCIM ${PRO_PLAN_PRICES.scim}/month on top).{" "}
 							{isSeatBasedPro
-								? "Enable the SSO add-on on your Pro subscription from the billing page."
-								: "Upgrade to Pro with the SSO add-on from the billing page."}
+								? "Enable the SSO add-on on your Pro subscription from the plan page."
+								: "Upgrade to Pro with the SSO add-on from the plan page."}
 						</CardDescription>
 					</CardHeader>
 					<CardContent className="flex flex-wrap gap-2">
-						<Link href={buildOrgUrl("org/billing")}>
+						<Link href={buildOrgUrl("org/plan")}>
 							<Button>
 								{isSeatBasedPro ? "Enable SSO add-on" : "Upgrade to Pro"}
 							</Button>
@@ -1021,10 +1021,10 @@ export function SsoClient() {
 								SCIM user provisioning is a separate Pro add-on ($
 								{PRO_PLAN_PRICES.scim}/month, on top of the SSO add-on).{" "}
 								<Link
-									href={buildOrgUrl("org/billing")}
+									href={buildOrgUrl("org/plan")}
 									className="text-primary underline underline-offset-4"
 								>
-									Enable it on the billing page
+									Enable it on the plan page
 								</Link>{" "}
 								to provision and deprovision members automatically.
 							</>
