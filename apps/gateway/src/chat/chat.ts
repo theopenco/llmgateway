@@ -123,6 +123,7 @@ import {
 	managedCredentialOptions,
 	parseGoogleUpstreamDocumentError,
 	prepareRequestBody,
+	providerKeyLabel,
 	providerSupportsCaching,
 	readProviderKey,
 	RequestError,
@@ -271,6 +272,7 @@ import {
 	buildDevPlanCreditLimitError,
 	formatUsedModelForDisplay,
 	getAvailableCredits,
+	resolveEligibleProviderKeys,
 	resolveProviderContext,
 } from "./tools/resolve-provider-context.js";
 import { resolveReasoningTokens } from "./tools/resolve-reasoning-tokens.js";
@@ -314,6 +316,7 @@ import type {
 } from "./tools/provider-filter-reasons.js";
 import type { OriginalRequestParams } from "./tools/resolve-provider-context.js";
 import type { ServerTypes } from "@/vars.js";
+import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
 
 const _derivedProjectId = getVertexAnthropicProjectId();
 if (_derivedProjectId && !process.env.LLM_VERTEX_ANTHROPIC_PROJECT) {
@@ -788,21 +791,40 @@ async function addContentFilterRoutingMetadata(
 	};
 }
 
-function withUsedApiKeyHash(
+function withUsedCredential(
 	routingMetadata: RoutingMetadata | undefined,
 	usedApiKeyHash: string | undefined,
+	usedCredentialSource: RoutingCredentialSource,
+	usedProviderKey: { providerKeyId?: string; providerKeyLabel?: string },
 ): RoutingMetadata | undefined {
 	if (!routingMetadata || !usedApiKeyHash) {
 		return routingMetadata;
 	}
 
-	if (routingMetadata.usedApiKeyHash === usedApiKeyHash) {
+	// A platform credential contributes no identity, and the previous BYOK
+	// attempt's must not linger once a fallback switched off it.
+	const usedProviderKeyId =
+		usedCredentialSource === "byok" ? usedProviderKey.providerKeyId : undefined;
+	const usedProviderKeyLabel =
+		usedCredentialSource === "byok"
+			? usedProviderKey.providerKeyLabel
+			: undefined;
+
+	if (
+		routingMetadata.usedApiKeyHash === usedApiKeyHash &&
+		routingMetadata.usedCredentialSource === usedCredentialSource &&
+		routingMetadata.usedProviderKeyId === usedProviderKeyId &&
+		routingMetadata.usedProviderKeyLabel === usedProviderKeyLabel
+	) {
 		return routingMetadata;
 	}
 
 	return {
 		...routingMetadata,
 		usedApiKeyHash,
+		usedCredentialSource,
+		usedProviderKeyId,
+		usedProviderKeyLabel,
 	};
 }
 
@@ -1357,7 +1379,25 @@ const completions = createRoute({
 										status_code: z.number(),
 										error_type: z.string(),
 										succeeded: z.boolean(),
-										apiKeyHash: z.string().optional(),
+										apiKeyHash: z.string().optional().openapi({
+											description:
+												"Stable fingerprint of the provider credential this attempt was sent with. Use it together with credentialSource to tell attempts apart when a request rotated keys.",
+										}),
+										credentialSource: z
+											.enum(["byok", "platform"])
+											.optional()
+											.openapi({
+												description:
+													"Whose provider credential served this attempt. `byok` is your organization's own provider key — the provider bills you directly and no credits are deducted. `platform` is an LLM Gateway credential, billed as credits. A hybrid-mode request whose own key fails falls back to `platform`, so both values can appear in one response.",
+											}),
+										providerKeyId: z.string().optional().openapi({
+											description:
+												"Id of your provider key that served this attempt. Set only when credentialSource is `byok`.",
+										}),
+										providerKeyLabel: z.string().optional().openapi({
+											description:
+												"Your provider key as it is named on the provider-keys page (its name, or its masked token when unnamed), so an attempt can be tied to a key without decoding the fingerprint. Set only when credentialSource is `byok`; LLM Gateway's own credentials are never described.",
+										}),
 										logId: z.string().optional(),
 									}),
 								)
@@ -5063,6 +5103,31 @@ chat.openapi(completions, async (c) => {
 	// credential via envVarName instead of blaming an unused DB key. Endpoint
 	// and option resolution still use providerKey for BYOK base URLs/options.
 	let trackedKeyHealthId: string | undefined;
+	// Whose key the current attempt is sending. Derived from `providerKey`
+	// alone — exactly like the `organizationProviderKeyId` that decides
+	// `usedMode` in createLogEntry — so the routing view can never claim an
+	// attempt ran on the caller's own key while billing it as credits.
+	// Read at each attempt because a retry can swap the credential (a failing
+	// BYOK key falling back to the platform credential in hybrid mode).
+	function currentCredentialSource(): RoutingCredentialSource {
+		return providerKey ? "byok" : "platform";
+	}
+	// How the current attempt's credential is named to the organization that
+	// owns it. Reads `providerKey` only, so a platform credential contributes
+	// nothing: its name and mask are operator-only and must never reach a
+	// tenant's routing view.
+	function currentProviderKeyIdentity(): {
+		providerKeyId?: string;
+		providerKeyLabel?: string;
+	} {
+		if (!providerKey) {
+			return {};
+		}
+		return {
+			providerKeyId: providerKey.id,
+			providerKeyLabel: providerKeyLabel(providerKey),
+		};
+	}
 	// Flex/Priority is only honored when the request reaches the provider's real
 	// upstream endpoint on a tier-capable location. Skip provider keys whose
 	// custom base URL (proxy) may silently drop the tier, and Vertex keys pinned
@@ -5502,7 +5567,27 @@ chat.openapi(completions, async (c) => {
 	}
 
 	usedApiKeyHash = getApiKeyFingerprint(usedToken);
-	routingMetadata = withUsedApiKeyHash(routingMetadata, usedApiKeyHash);
+	routingMetadata = withUsedCredential(
+		routingMetadata,
+		usedApiKeyHash,
+		currentCredentialSource(),
+		currentProviderKeyIdentity(),
+	);
+	if (routingMetadata) {
+		// Same resolver (and therefore the same model-aware filter) the retry
+		// path uses, so the list never changes shape just because a request
+		// fell back.
+		const eligibleProviderKeys = await resolveEligibleProviderKeys({
+			projectMode: project.mode,
+			organizationId: project.organizationId,
+			provider: usedProvider,
+			usedInternalModel,
+			serviceTierKeyFilter,
+		});
+		if (eligibleProviderKeys) {
+			routingMetadata = { ...routingMetadata, eligibleProviderKeys };
+		}
+	}
 
 	// Vertex's OpenAI-compatible endpoint requires an OAuth2 access token
 	// derived from the configured service account JSON. The SA JSON is the
@@ -6951,7 +7036,17 @@ chat.openapi(completions, async (c) => {
 		frequency_penalty = ctx.frequency_penalty;
 		presence_penalty = ctx.presence_penalty;
 		usedRegion = ctx.usedRegion;
-		routingMetadata = withUsedApiKeyHash(routingMetadata, usedApiKeyHash);
+		routingMetadata = withUsedCredential(
+			routingMetadata,
+			usedApiKeyHash,
+			currentCredentialSource(),
+			currentProviderKeyIdentity(),
+		);
+		if (routingMetadata) {
+			// A fallback can switch providers, so the candidate list has to follow
+			// the provider now in use rather than the one routing started on.
+			routingMetadata.eligibleProviderKeys = ctx.eligibleProviderKeys;
+		}
 		if (ctx.strippedParameters.length > 0 && routingMetadata) {
 			routingMetadata.strippedParameters = [
 				...new Set([
@@ -7751,6 +7846,8 @@ chat.openapi(completions, async (c) => {
 										{
 											region: usedRegion,
 											apiKeyHash: usedApiKeyHash,
+											credentialSource: currentCredentialSource(),
+											...currentProviderKeyIdentity(),
 											logId: attemptLogId,
 										},
 									),
@@ -7777,6 +7874,8 @@ chat.openapi(completions, async (c) => {
 										{
 											region: usedRegion,
 											apiKeyHash: usedApiKeyHash,
+											credentialSource: currentCredentialSource(),
+											...currentProviderKeyIdentity(),
 											logId: attemptLogId,
 										},
 									),
@@ -7796,6 +7895,8 @@ chat.openapi(completions, async (c) => {
 										{
 											region: usedRegion,
 											apiKeyHash: usedApiKeyHash,
+											credentialSource: currentCredentialSource(),
+											...currentProviderKeyIdentity(),
 											logId: attemptLogId,
 										},
 									),
@@ -8009,6 +8110,8 @@ chat.openapi(completions, async (c) => {
 										{
 											region: usedRegion,
 											apiKeyHash: usedApiKeyHash,
+											credentialSource: currentCredentialSource(),
+											...currentProviderKeyIdentity(),
 											logId: attemptLogId,
 										},
 									),
@@ -8035,6 +8138,8 @@ chat.openapi(completions, async (c) => {
 										{
 											region: usedRegion,
 											apiKeyHash: usedApiKeyHash,
+											credentialSource: currentCredentialSource(),
+											...currentProviderKeyIdentity(),
 											logId: attemptLogId,
 										},
 									),
@@ -8054,6 +8159,8 @@ chat.openapi(completions, async (c) => {
 										{
 											region: usedRegion,
 											apiKeyHash: usedApiKeyHash,
+											credentialSource: currentCredentialSource(),
+											...currentProviderKeyIdentity(),
 											logId: attemptLogId,
 										},
 									),
@@ -8366,6 +8473,8 @@ chat.openapi(completions, async (c) => {
 									{
 										region: usedRegion,
 										apiKeyHash: usedApiKeyHash,
+										credentialSource: currentCredentialSource(),
+										...currentProviderKeyIdentity(),
 										logId: attemptLogId,
 									},
 								),
@@ -8392,6 +8501,8 @@ chat.openapi(completions, async (c) => {
 									{
 										region: usedRegion,
 										apiKeyHash: usedApiKeyHash,
+										credentialSource: currentCredentialSource(),
+										...currentProviderKeyIdentity(),
 										logId: attemptLogId,
 									},
 								),
@@ -8411,6 +8522,8 @@ chat.openapi(completions, async (c) => {
 									{
 										region: usedRegion,
 										apiKeyHash: usedApiKeyHash,
+										credentialSource: currentCredentialSource(),
+										...currentProviderKeyIdentity(),
 										logId: attemptLogId,
 									},
 								),
@@ -8701,6 +8814,8 @@ chat.openapi(completions, async (c) => {
 									{
 										region: usedRegion,
 										apiKeyHash: usedApiKeyHash,
+										credentialSource: currentCredentialSource(),
+										...currentProviderKeyIdentity(),
 										logId: attemptLogId,
 									},
 								),
@@ -8727,6 +8842,8 @@ chat.openapi(completions, async (c) => {
 									{
 										region: usedRegion,
 										apiKeyHash: usedApiKeyHash,
+										credentialSource: currentCredentialSource(),
+										...currentProviderKeyIdentity(),
 										logId: attemptLogId,
 									},
 								),
@@ -8746,6 +8863,8 @@ chat.openapi(completions, async (c) => {
 									{
 										region: usedRegion,
 										apiKeyHash: usedApiKeyHash,
+										credentialSource: currentCredentialSource(),
+										...currentProviderKeyIdentity(),
 										logId: attemptLogId,
 									},
 								),
@@ -8801,6 +8920,8 @@ chat.openapi(completions, async (c) => {
 							{
 								region: usedRegion,
 								apiKeyHash: usedApiKeyHash,
+								credentialSource: currentCredentialSource(),
+								...currentProviderKeyIdentity(),
 								logId: finalLogId,
 							},
 						),
@@ -12142,6 +12263,8 @@ chat.openapi(completions, async (c) => {
 						{
 							region: usedRegion,
 							apiKeyHash: usedApiKeyHash,
+							credentialSource: currentCredentialSource(),
+							...currentProviderKeyIdentity(),
 							logId: attemptLogId,
 						},
 					),
@@ -12168,6 +12291,8 @@ chat.openapi(completions, async (c) => {
 						{
 							region: usedRegion,
 							apiKeyHash: usedApiKeyHash,
+							credentialSource: currentCredentialSource(),
+							...currentProviderKeyIdentity(),
 							logId: attemptLogId,
 						},
 					),
@@ -12187,6 +12312,8 @@ chat.openapi(completions, async (c) => {
 						{
 							region: usedRegion,
 							apiKeyHash: usedApiKeyHash,
+							credentialSource: currentCredentialSource(),
+							...currentProviderKeyIdentity(),
 							logId: attemptLogId,
 						},
 					),
@@ -12644,6 +12771,8 @@ chat.openapi(completions, async (c) => {
 						{
 							region: usedRegion,
 							apiKeyHash: usedApiKeyHash,
+							credentialSource: currentCredentialSource(),
+							...currentProviderKeyIdentity(),
 							logId: attemptLogId,
 						},
 					),
@@ -12670,6 +12799,8 @@ chat.openapi(completions, async (c) => {
 						{
 							region: usedRegion,
 							apiKeyHash: usedApiKeyHash,
+							credentialSource: currentCredentialSource(),
+							...currentProviderKeyIdentity(),
 							logId: attemptLogId,
 						},
 					),
@@ -12689,6 +12820,8 @@ chat.openapi(completions, async (c) => {
 						{
 							region: usedRegion,
 							apiKeyHash: usedApiKeyHash,
+							credentialSource: currentCredentialSource(),
+							...currentProviderKeyIdentity(),
 							logId: attemptLogId,
 						},
 					),
@@ -12820,6 +12953,8 @@ chat.openapi(completions, async (c) => {
 				{
 					region: usedRegion,
 					apiKeyHash: usedApiKeyHash,
+					credentialSource: currentCredentialSource(),
+					...currentProviderKeyIdentity(),
 					logId: finalLogId,
 				},
 			),
@@ -13199,6 +13334,8 @@ chat.openapi(completions, async (c) => {
 						{
 							region: usedRegion,
 							apiKeyHash: usedApiKeyHash,
+							credentialSource: currentCredentialSource(),
+							...currentProviderKeyIdentity(),
 							logId: finalLogId,
 						},
 					);

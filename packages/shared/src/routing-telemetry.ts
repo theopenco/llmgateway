@@ -240,6 +240,52 @@ export const ROUTING_SELECTION_KIND_LABELS: Record<
 };
 
 /**
+ * Whose credential a given upstream attempt was sent with.
+ *
+ * `byok` means the organization's own provider key served the attempt, so the
+ * provider bills the organization directly and no credits are deducted.
+ * `platform` means an LLM Gateway credential served it (a platform-managed
+ * provider key or an `LLM_*` environment credential), which is what credits
+ * mode — including the hybrid-mode fallback after a BYOK key fails — runs on.
+ *
+ * This mirrors the `usedMode` discriminator on the log row (`api-keys` vs
+ * `credits`): both are decided by whether an organization-owned provider key
+ * was used, so the routing view and the billing mode can never disagree.
+ */
+export type RoutingCredentialSource = "byok" | "platform";
+
+export function isRoutingCredentialSource(
+	value: string,
+): value is RoutingCredentialSource {
+	return value === "byok" || value === "platform";
+}
+
+export function toRoutingCredentialSource(
+	value: string | null | undefined,
+): RoutingCredentialSource | undefined {
+	return value && isRoutingCredentialSource(value) ? value : undefined;
+}
+
+/** Short badge labels for the routing views. */
+export const ROUTING_CREDENTIAL_SOURCE_LABELS: Record<
+	RoutingCredentialSource,
+	string
+> = {
+	byok: "your key",
+	platform: "LLM Gateway key",
+};
+
+/** Tooltip copy explaining who pays for an attempt served by this credential. */
+export const ROUTING_CREDENTIAL_SOURCE_DESCRIPTIONS: Record<
+	RoutingCredentialSource,
+	string
+> = {
+	byok: "Your own provider key (BYOK). The provider bills you directly — this attempt is not deducted from your credits.",
+	platform:
+		"LLM Gateway's own provider credential. This attempt runs on credits and is deducted from your balance.",
+};
+
+/**
  * Which service tier applied to a request. `implicit` covers the dev-plan
  * default (`organization.devPlanServiceTier`), which the client never asked for
  * but which still narrows routing to mappings that support the tier — the case
