@@ -535,6 +535,132 @@ describe("transformStreamingToOpenai", () => {
 		expect(result?.choices?.[0]?.finish_reason).toBe("stop");
 	});
 
+	it("preserves Google finishReason on a final chunk that also has text", () => {
+		const result = transformStreamingToOpenai(
+			"google-ai-studio",
+			"gemini-2.5-pro",
+			{
+				candidates: [
+					{
+						content: {
+							role: "model",
+							parts: [{ text: "Done." }],
+						},
+						finishReason: "STOP",
+						index: 0,
+					},
+				],
+				modelVersion: "gemini-2.5-pro",
+				responseId: "resp_final",
+			},
+			[],
+		);
+
+		expect(result).toMatchObject({
+			id: "resp_final",
+			choices: [
+				{
+					index: 0,
+					delta: { role: "assistant", content: "Done." },
+					finish_reason: "stop",
+				},
+			],
+		});
+	});
+
+	it("maps Google MAX_TOKENS on a final chunk that also has text", () => {
+		const result = transformStreamingToOpenai(
+			"google-vertex",
+			"gemini-2.5-pro",
+			{
+				candidates: [
+					{
+						content: {
+							role: "model",
+							parts: [{ text: "Partial answer" }],
+						},
+						finishReason: "MAX_TOKENS",
+						index: 0,
+					},
+				],
+			},
+			[],
+		);
+
+		expect(result?.choices?.[0]).toMatchObject({
+			delta: { role: "assistant", content: "Partial answer" },
+			finish_reason: "length",
+		});
+	});
+
+	it("keeps Google finish_reason null when a content chunk has no finishReason", () => {
+		const result = transformStreamingToOpenai(
+			"google-ai-studio",
+			"gemini-2.5-flash",
+			{
+				candidates: [
+					{
+						content: {
+							role: "model",
+							parts: [{ text: "Still streaming" }],
+						},
+						index: 0,
+					},
+				],
+			},
+			[],
+		);
+
+		expect(result?.choices?.[0]).toMatchObject({
+			delta: { role: "assistant", content: "Still streaming" },
+			finish_reason: null,
+		});
+	});
+
+	it("maps Google STOP to tool_calls on a final function-call chunk", () => {
+		const result = transformStreamingToOpenai(
+			"google-ai-studio",
+			"gemini-2.5-pro",
+			{
+				candidates: [
+					{
+						content: {
+							role: "model",
+							parts: [
+								{
+									functionCall: {
+										name: "get_weather",
+										args: { city: "Paris" },
+									},
+								},
+							],
+						},
+						finishReason: "STOP",
+						index: 0,
+					},
+				],
+			},
+			[],
+		);
+
+		expect(result?.choices?.[0]).toMatchObject({
+			delta: {
+				role: "assistant",
+				tool_calls: [
+					{
+						index: 0,
+						type: "function",
+						function: {
+							name: "get_weather",
+							arguments: JSON.stringify({ city: "Paris" }),
+						},
+					},
+				],
+			},
+			finish_reason: "tool_calls",
+		});
+	});
+
 	it("maps Google usage-only trailing chunk without logging", () => {
 		warn.mockClear();
 		error.mockClear();

@@ -653,7 +653,15 @@ export function transformStreamingToOpenai(
 							? candidate.index
 							: candidateIdx,
 					delta,
-					finish_reason: null,
+					finish_reason:
+						candidate.finishReason === undefined
+							? null
+							: mapFinishReasonToOpenai(
+									candidate.finishReason,
+									usedProvider,
+									toolCalls.length > 0,
+									data.promptFeedback?.blockReason,
+								),
 				};
 			});
 
