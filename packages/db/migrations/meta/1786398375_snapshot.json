@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "87ca8ef5-d672-4814-9d73-b516c80c9470",
+  "id": "555277a3-5022-4bee-8be6-545f0ed166b4",
   "prevId": "f2f76594-0578-454e-9169-df064a03d10e",
   "ddl": [
     {
@@ -475,12 +475,6 @@
     {
       "isRlsEnabled": false,
       "name": "sso_default_project",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "sso_project_mapping",
       "entityType": "tables",
       "schema": "public"
     },
@@ -20660,90 +20654,6 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
-      "table": "sso_project_mapping"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "sso_project_mapping"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "sso_project_mapping"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "organization_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "sso_project_mapping"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "group_name",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "sso_project_mapping"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "project_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "sso_project_mapping"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
       "table": "sso_provider"
     },
     {
@@ -21204,6 +21114,32 @@
       "generated": null,
       "identity": null,
       "name": "refund_reason",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "transaction"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "payment_method",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "transaction"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "external_reference",
       "entityType": "columns",
       "schema": "public",
       "table": "transaction"
@@ -21827,22 +21763,6 @@
       "generated": null,
       "identity": null,
       "name": "project_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "user_project"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'manual'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "source",
       "entityType": "columns",
       "schema": "public",
       "table": "user_project"
@@ -27678,62 +27598,6 @@
           "asc": true,
           "nullsFirst": false,
           "opclass": null
-        },
-        {
-          "value": "group_name",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "project_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": true,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "sso_project_mapping_org_group_project_unique",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "sso_project_mapping"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "organization_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "sso_project_mapping_organization_id_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "sso_project_mapping"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "organization_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
         }
       ],
       "isUnique": false,
@@ -30037,40 +29901,6 @@
     {
       "nameExplicit": false,
       "columns": [
-        "organization_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "organization",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "sso_project_mapping_organization_id_organization_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "sso_project_mapping"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "project_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "project",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "sso_project_mapping_project_id_project_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "sso_project_mapping"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
         "user_id"
       ],
       "schemaTo": "public",
@@ -31315,16 +31145,6 @@
       "name": "sso_default_project_pkey",
       "schema": "public",
       "table": "sso_default_project",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "sso_project_mapping_pkey",
-      "schema": "public",
-      "table": "sso_project_mapping",
       "entityType": "pks"
     },
     {
