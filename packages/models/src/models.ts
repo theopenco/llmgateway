@@ -478,7 +478,10 @@ export interface ProviderModelMapping {
 	 */
 	parallelToolCalls?: boolean;
 	/**
-	 * Whether this specific model supports JSON output mode for this provider
+	 * SOFT JSON output (models API: `json_output`): the model can be nudged
+	 * into emitting JSON (response_format json_object / prompt guidance).
+	 * There is no server-side schema guarantee — off-schema or malformed JSON
+	 * is possible and must be caught by the consumer's parser.
 	 */
 	jsonOutput?: boolean;
 	/**
@@ -489,7 +492,13 @@ export interface ProviderModelMapping {
 	 */
 	healStreamingJsonOutput?: boolean;
 	/**
-	 * Whether this provider supports JSON schema output mode (json_schema response format)
+	 * STRICT JSON output schema (models API: `structured_outputs`): the
+	 * UPSTREAM PROVIDER enforces schema-guided decoding (e.g. OpenAI
+	 * structured outputs, vLLM guided decoding). Declare true ONLY when the
+	 * true upstream provider natively supports it. The gateway MUST NOT
+	 * emulate schema enforcement (no prompt+validate adapter); when false,
+	 * requests with response_format: json_schema are rejected with a 400
+	 * ("does not support JSON schema output mode").
 	 */
 	jsonOutputSchema?: boolean;
 	/**

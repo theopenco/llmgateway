@@ -106,8 +106,7 @@ export function getProviderFilterReasons(
 		}
 	}
 	if (
-		(options.responseFormatType === "json_object" ||
-			options.responseFormatType === "json_schema") &&
+		options.responseFormatType === "json_object" &&
 		provider.jsonOutput !== true
 	) {
 		reasons.push(exclusionReason("json_output"));

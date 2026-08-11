@@ -281,7 +281,6 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
-				jsonOutputSchema: true,
 			},
 			{
 				providerId: "deepinfra",
@@ -390,7 +389,6 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
-				jsonOutputSchema: true,
 			},
 			{
 				providerId: "novita",
