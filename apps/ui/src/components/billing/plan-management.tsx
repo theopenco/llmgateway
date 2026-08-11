@@ -29,6 +29,7 @@ import {
 	getProPlanMonthlyTotal,
 	PRO_PLAN_MAX_EXTRA_API_KEYS,
 	PRO_PLAN_MAX_SEATS,
+	PRO_PLAN_MIN_SEATS,
 	PRO_PLAN_PRICES,
 } from "@llmgateway/shared";
 
@@ -45,6 +46,7 @@ interface ProSelection {
 	seats: number;
 	extraApiKeys: number;
 	ssoAddon: boolean;
+	scimAddon: boolean;
 }
 
 function clampInt(value: number, min: number, max: number): number {
@@ -89,19 +91,24 @@ function ProPlanConfigurator({
 					<Input
 						id="pro-seats"
 						type="number"
-						min={1}
+						min={PRO_PLAN_MIN_SEATS}
 						max={PRO_PLAN_MAX_SEATS}
 						value={selection.seats}
 						onChange={(e) =>
 							onChange({
 								...selection,
-								seats: clampInt(e.target.valueAsNumber, 1, PRO_PLAN_MAX_SEATS),
+								seats: clampInt(
+									e.target.valueAsNumber,
+									PRO_PLAN_MIN_SEATS,
+									PRO_PLAN_MAX_SEATS,
+								),
 							})
 						}
 					/>
 					<p className="text-xs text-muted-foreground">
-						${PRO_PLAN_PRICES.seat}/user/month, up to {PRO_PLAN_MAX_SEATS}{" "}
-						users. Each seat includes one API key.
+						${PRO_PLAN_PRICES.seat}/user/month, minimum {PRO_PLAN_MIN_SEATS}{" "}
+						seats, up to {PRO_PLAN_MAX_SEATS} users. Each seat includes one API
+						key.
 						{seatsUsed !== null && ` Currently using ${seatsUsed} seats.`}
 					</p>
 				</div>
@@ -134,17 +141,40 @@ function ProPlanConfigurator({
 
 			<div className="flex items-center justify-between rounded-lg border p-4">
 				<div className="space-y-0.5">
-					<Label htmlFor="pro-sso">SSO & SCIM add-on</Label>
+					<Label htmlFor="pro-sso">SSO add-on</Label>
 					<p className="text-xs text-muted-foreground">
-						SAML single sign-on and SCIM user provisioning for your
-						organization. ${PRO_PLAN_PRICES.sso}/month.
+						SAML single sign-on for your organization. ${PRO_PLAN_PRICES.sso}
+						/month.
 					</p>
 				</div>
 				<Switch
 					id="pro-sso"
 					checked={selection.ssoAddon}
 					onCheckedChange={(checked) =>
-						onChange({ ...selection, ssoAddon: checked })
+						onChange({
+							...selection,
+							ssoAddon: checked,
+							// SCIM rides on the SSO connection, so dropping SSO drops SCIM.
+							scimAddon: checked ? selection.scimAddon : false,
+						})
+					}
+				/>
+			</div>
+
+			<div className="flex items-center justify-between rounded-lg border p-4">
+				<div className="space-y-0.5">
+					<Label htmlFor="pro-scim">SCIM add-on</Label>
+					<p className="text-xs text-muted-foreground">
+						SCIM user provisioning from your identity provider. $
+						{PRO_PLAN_PRICES.scim}/month. Requires the SSO add-on.
+					</p>
+				</div>
+				<Switch
+					id="pro-scim"
+					checked={selection.scimAddon}
+					disabled={!selection.ssoAddon}
+					onCheckedChange={(checked) =>
+						onChange({ ...selection, scimAddon: checked })
 					}
 				/>
 			</div>
@@ -170,8 +200,14 @@ function ProPlanConfigurator({
 				)}
 				{selection.ssoAddon && (
 					<div className="flex justify-between">
-						<span>SSO & SCIM add-on</span>
+						<span>SSO add-on</span>
 						<span>${PRO_PLAN_PRICES.sso}</span>
+					</div>
+				)}
+				{selection.scimAddon && (
+					<div className="flex justify-between">
+						<span>SCIM add-on</span>
+						<span>${PRO_PLAN_PRICES.scim}</span>
 					</div>
 				)}
 				<Separator />
@@ -230,9 +266,12 @@ export function PlanManagement() {
 		: null;
 
 	const currentSelection: ProSelection = {
-		seats: selectedOrganization?.proSeats ?? Math.max(seatsUsed ?? 1, 1),
+		seats:
+			selectedOrganization?.proSeats ??
+			Math.max(seatsUsed ?? PRO_PLAN_MIN_SEATS, PRO_PLAN_MIN_SEATS),
 		extraApiKeys: selectedOrganization?.proExtraApiKeys ?? 0,
 		ssoAddon: selectedOrganization?.proSsoEnabled ?? false,
+		scimAddon: selectedOrganization?.proScimEnabled ?? false,
 	};
 
 	const [selection, setSelection] = useState<ProSelection>(currentSelection);
@@ -243,9 +282,13 @@ export function PlanManagement() {
 		setSelection({
 			seats:
 				selectedOrganization?.proSeats ??
-				Math.max(teamData ? teamData.members.length : 1, 1),
+				Math.max(
+					teamData ? teamData.members.length : PRO_PLAN_MIN_SEATS,
+					PRO_PLAN_MIN_SEATS,
+				),
 			extraApiKeys: selectedOrganization?.proExtraApiKeys ?? 0,
 			ssoAddon: selectedOrganization?.proSsoEnabled ?? false,
+			scimAddon: selectedOrganization?.proScimEnabled ?? false,
 		});
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [
@@ -253,6 +296,7 @@ export function PlanManagement() {
 		selectedOrganization?.proSeats,
 		selectedOrganization?.proExtraApiKeys,
 		selectedOrganization?.proSsoEnabled,
+		selectedOrganization?.proScimEnabled,
 	]);
 
 	const createSubscriptionMutation = api.useMutation(
@@ -520,7 +564,8 @@ export function PlanManagement() {
 		const hasChanges =
 			selection.seats !== currentSelection.seats ||
 			selection.extraApiKeys !== currentSelection.extraApiKeys ||
-			selection.ssoAddon !== currentSelection.ssoAddon;
+			selection.ssoAddon !== currentSelection.ssoAddon ||
+			selection.scimAddon !== currentSelection.scimAddon;
 
 		return (
 			<Card>
@@ -542,7 +587,11 @@ export function PlanManagement() {
 								{currentSelection.seats + currentSelection.extraApiKeys === 1
 									? ""
 									: "s"}
-								{currentSelection.ssoAddon ? ", SSO & SCIM" : ""}
+								{currentSelection.ssoAddon
+									? currentSelection.scimAddon
+										? ", SSO & SCIM"
+										: ", SSO"
+									: ""}
 							</p>
 							{planExpiresAt && (
 								<p className="text-sm text-muted-foreground mt-1">

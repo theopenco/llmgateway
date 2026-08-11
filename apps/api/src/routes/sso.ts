@@ -5,7 +5,12 @@ import { z } from "zod";
 
 import { apiAuth } from "@/auth/config.js";
 import { getApiBaseUrl } from "@/lib/api-url.js";
-import { hasSsoAccess, SSO_PLAN_REQUIRED_MESSAGE } from "@/lib/sso-access.js";
+import {
+	hasScimAccess,
+	hasSsoAccess,
+	SCIM_PLAN_REQUIRED_MESSAGE,
+	SSO_PLAN_REQUIRED_MESSAGE,
+} from "@/lib/sso-access.js";
 import { getOrgProjectsOldestFirst } from "@/lib/sso-default-projects.js";
 import { normalizeSsoDomains } from "@/lib/sso-domains.js";
 import { recomputeRoleForGroupName } from "@/lib/sso-roles.js";
@@ -26,7 +31,10 @@ const apiUrl = getApiBaseUrl();
 async function assertEnterpriseOrgAccess(
 	userId: string,
 	organizationId: string,
-): Promise<{ role: "owner" | "admin" }> {
+): Promise<{
+	role: "owner" | "admin";
+	organization: typeof tables.organization.$inferSelect;
+}> {
 	const userOrg = await db.query.userOrganization.findFirst({
 		where: {
 			userId: { eq: userId },
@@ -35,7 +43,8 @@ async function assertEnterpriseOrgAccess(
 		with: { organization: true },
 	});
 
-	if (!userOrg || userOrg.organization?.status === "deleted") {
+	const organization = userOrg?.organization;
+	if (!userOrg || !organization || organization.status === "deleted") {
 		throw new HTTPException(403, {
 			message: "You do not have access to this organization",
 		});
@@ -47,13 +56,34 @@ async function assertEnterpriseOrgAccess(
 		});
 	}
 
-	if (!hasSsoAccess(userOrg.organization)) {
+	if (!hasSsoAccess(organization)) {
 		throw new HTTPException(403, {
 			message: SSO_PLAN_REQUIRED_MESSAGE,
 		});
 	}
 
-	return { role: userOrg.role };
+	return { role: userOrg.role, organization };
+}
+
+// SCIM token management additionally requires the SCIM add-on for Pro orgs
+// (enterprise includes it). Layered on top of the SSO access check so the
+// caller-permission errors stay consistent.
+async function assertScimOrgAccess(
+	userId: string,
+	organizationId: string,
+): Promise<{ role: "owner" | "admin" }> {
+	const { role, organization } = await assertEnterpriseOrgAccess(
+		userId,
+		organizationId,
+	);
+
+	if (!hasScimAccess(organization)) {
+		throw new HTTPException(403, {
+			message: SCIM_PLAN_REQUIRED_MESSAGE,
+		});
+	}
+
+	return { role };
 }
 
 // Seed a sensible default per-developer spend cap ($500/month) onto the org's
@@ -1014,7 +1044,7 @@ sso.openapi(scimStatus, async (c) => {
 
 	const { organizationId } = c.req.valid("query");
 
-	await assertEnterpriseOrgAccess(user.id, organizationId);
+	await assertScimOrgAccess(user.id, organizationId);
 
 	const token = await db.query.scimToken.findFirst({
 		where: {
@@ -1068,7 +1098,7 @@ sso.openapi(generateScim, async (c) => {
 
 	const { organizationId, ssoProviderId } = c.req.valid("json");
 
-	await assertEnterpriseOrgAccess(user.id, organizationId);
+	await assertScimOrgAccess(user.id, organizationId);
 
 	// One active token per org: rotating replaces the previous one so the IdP
 	// only ever needs the latest secret.
@@ -1131,7 +1161,7 @@ sso.openapi(revokeScim, async (c) => {
 
 	const { organizationId } = c.req.valid("query");
 
-	await assertEnterpriseOrgAccess(user.id, organizationId);
+	await assertScimOrgAccess(user.id, organizationId);
 
 	// Resolve the active token first so the audit event identifies the revoked
 	// token (id + masked value), consistent with creation, rather than the org.

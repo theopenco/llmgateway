@@ -233,10 +233,14 @@ export const organization = pgTable(
 		// Additional API keys purchased beyond the one included per seat, synced
 		// from the Stripe subscription's extra-API-key line item.
 		proExtraApiKeys: integer().notNull().default(0),
-		// Whether the Pro subscription includes the SSO & SCIM add-on, synced from
-		// the Stripe subscription's SSO line item. Grants access to the SSO/SCIM
+		// Whether the Pro subscription includes the SSO add-on, synced from the
+		// Stripe subscription's SSO line item. Grants access to the SSO
 		// configuration routes that are otherwise enterprise-only.
 		proSsoEnabled: boolean().notNull().default(false),
+		// Whether the Pro subscription includes the SCIM provisioning add-on
+		// (requires the SSO add-on), synced from the Stripe subscription's SCIM
+		// line item. Grants access to SCIM token management.
+		proScimEnabled: boolean().notNull().default(false),
 		trialStartDate: timestamp(),
 		trialEndDate: timestamp(),
 		isTrialActive: boolean().notNull().default(false),

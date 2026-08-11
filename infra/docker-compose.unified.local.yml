@@ -54,6 +54,7 @@ services:
       - STRIPE_PRO_SEAT_PRICE_ID=${STRIPE_PRO_SEAT_PRICE_ID:-}
       - STRIPE_PRO_EXTRA_API_KEY_PRICE_ID=${STRIPE_PRO_EXTRA_API_KEY_PRICE_ID:-}
       - STRIPE_PRO_SSO_PRICE_ID=${STRIPE_PRO_SSO_PRICE_ID:-}
+      - STRIPE_PRO_SCIM_PRICE_ID=${STRIPE_PRO_SCIM_PRICE_ID:-}
 
       # Database and Redis
       - DATABASE_URL=postgres://postgres:llmgateway@localhost:5432/llmgateway

@@ -6,11 +6,16 @@ export const PRO_PLAN_PRICES = {
 	seat: 25,
 	// USD per month for each API key beyond the number of seats.
 	extraApiKey: 5,
-	// USD per month for the SSO & SCIM add-on (flat, org-wide).
+	// USD per month for the SSO add-on (flat, org-wide).
 	sso: 300,
+	// USD per month for the SCIM provisioning add-on (flat, org-wide).
+	// Requires the SSO add-on — SCIM rides on the SSO connection.
+	scim: 200,
 } as const;
 
-// Seats purchasable self-serve. Larger teams go through enterprise sales.
+// Seats purchasable self-serve. The minimum keeps the plan at a $75/month
+// floor; larger teams go through enterprise sales.
+export const PRO_PLAN_MIN_SEATS = 3;
 export const PRO_PLAN_MAX_SEATS = 500;
 
 // Upper bound on billable extra API keys, purely a sanity cap for the
@@ -21,6 +26,7 @@ export interface ProPlanSelection {
 	seats: number;
 	extraApiKeys: number;
 	ssoAddon: boolean;
+	scimAddon: boolean;
 }
 
 // Monthly USD total for a Pro configuration. Prices are whole dollars, so
@@ -29,5 +35,6 @@ export function getProPlanMonthlyTotal(selection: ProPlanSelection): number {
 	const seatCost = selection.seats * PRO_PLAN_PRICES.seat;
 	const extraKeyCost = selection.extraApiKeys * PRO_PLAN_PRICES.extraApiKey;
 	const ssoCost = selection.ssoAddon ? PRO_PLAN_PRICES.sso : 0;
-	return seatCost + extraKeyCost + ssoCost;
+	const scimCost = selection.scimAddon ? PRO_PLAN_PRICES.scim : 0;
+	return seatCost + extraKeyCost + ssoCost + scimCost;
 }

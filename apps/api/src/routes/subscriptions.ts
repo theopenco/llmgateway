@@ -10,6 +10,7 @@ import { logger } from "@llmgateway/logger";
 import {
 	PRO_PLAN_MAX_EXTRA_API_KEYS,
 	PRO_PLAN_MAX_SEATS,
+	PRO_PLAN_MIN_SEATS,
 } from "@llmgateway/shared";
 
 import { getStripe } from "./payments.js";
@@ -20,9 +21,9 @@ import type Stripe from "stripe";
 export const subscriptions = new OpenAPIHono<ServerTypes>();
 
 // Self-serve Pro configuration: seats (each including one API key), extra API
-// keys beyond the per-seat allowance, and the flat SSO & SCIM add-on.
+// keys beyond the per-seat allowance, and the flat SSO and SCIM add-ons.
 const proSelectionSchema = z.object({
-	seats: z.number().int().min(1).max(PRO_PLAN_MAX_SEATS),
+	seats: z.number().int().min(PRO_PLAN_MIN_SEATS).max(PRO_PLAN_MAX_SEATS),
 	extraApiKeys: z
 		.number()
 		.int()
@@ -31,23 +32,36 @@ const proSelectionSchema = z.object({
 		.optional()
 		.default(0),
 	ssoAddon: z.boolean().optional().default(false),
+	// SCIM provisioning rides on the SSO connection, so it can only be bought
+	// together with the SSO add-on.
+	scimAddon: z.boolean().optional().default(false),
 });
 
 export function getProPriceIds(): {
 	seat: string;
 	extraApiKey: string;
 	sso: string;
+	scim: string;
 } {
 	const seat = process.env.STRIPE_PRO_SEAT_PRICE_ID;
 	const extraApiKey = process.env.STRIPE_PRO_EXTRA_API_KEY_PRICE_ID;
 	const sso = process.env.STRIPE_PRO_SSO_PRICE_ID;
-	if (!seat || !extraApiKey || !sso) {
+	const scim = process.env.STRIPE_PRO_SCIM_PRICE_ID;
+	if (!seat || !extraApiKey || !sso || !scim) {
 		throw new HTTPException(500, {
 			message:
-				"Pro plan price IDs are not configured (STRIPE_PRO_SEAT_PRICE_ID, STRIPE_PRO_EXTRA_API_KEY_PRICE_ID, STRIPE_PRO_SSO_PRICE_ID)",
+				"Pro plan price IDs are not configured (STRIPE_PRO_SEAT_PRICE_ID, STRIPE_PRO_EXTRA_API_KEY_PRICE_ID, STRIPE_PRO_SSO_PRICE_ID, STRIPE_PRO_SCIM_PRICE_ID)",
 		});
 	}
-	return { seat, extraApiKey, sso };
+	return { seat, extraApiKey, sso, scim };
+}
+
+function assertAddonDependency(ssoAddon: boolean, scimAddon: boolean) {
+	if (scimAddon && !ssoAddon) {
+		throw new HTTPException(400, {
+			message: "The SCIM add-on requires the SSO add-on",
+		});
+	}
 }
 
 // Resolve the organization the request acts on. `organizationId` scopes the
@@ -142,6 +156,7 @@ function buildProLineItems(selection: {
 	seats: number;
 	extraApiKeys: number;
 	ssoAddon: boolean;
+	scimAddon: boolean;
 }): { price: string; quantity: number }[] {
 	const priceIds = getProPriceIds();
 	const lineItems = [{ price: priceIds.seat, quantity: selection.seats }];
@@ -153,6 +168,9 @@ function buildProLineItems(selection: {
 	}
 	if (selection.ssoAddon) {
 		lineItems.push({ price: priceIds.sso, quantity: 1 });
+	}
+	if (selection.scimAddon) {
+		lineItems.push({ price: priceIds.scim, quantity: 1 });
 	}
 	return lineItems;
 }
@@ -187,7 +205,9 @@ const createProSubscription = createRoute({
 
 subscriptions.openapi(createProSubscription, async (c) => {
 	const user = c.get("user");
-	const { seats, extraApiKeys, ssoAddon, organizationId } = c.req.valid("json");
+	const { seats, extraApiKeys, ssoAddon, scimAddon, organizationId } =
+		c.req.valid("json");
+	assertAddonDependency(ssoAddon, scimAddon);
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -241,7 +261,12 @@ subscriptions.openapi(createProSubscription, async (c) => {
 		const session = await getStripe().checkout.sessions.create({
 			customer: stripeCustomerId,
 			mode: "subscription",
-			line_items: buildProLineItems({ seats, extraApiKeys, ssoAddon }),
+			line_items: buildProLineItems({
+				seats,
+				extraApiKeys,
+				ssoAddon,
+				scimAddon,
+			}),
 			allow_promotion_codes: true,
 			success_url: `${process.env.UI_URL ?? "http://localhost:3002"}/dashboard/${organization.id}/org/billing?success=true`,
 			cancel_url: `${process.env.UI_URL ?? "http://localhost:3002"}/dashboard/${organization.id}/org/billing?canceled=true`,
@@ -274,6 +299,7 @@ subscriptions.openapi(createProSubscription, async (c) => {
 				seats,
 				extraApiKeys,
 				ssoAddon,
+				scimAddon,
 			},
 		});
 
@@ -321,7 +347,9 @@ const updateProSubscription = createRoute({
 
 subscriptions.openapi(updateProSubscription, async (c) => {
 	const user = c.get("user");
-	const { seats, extraApiKeys, ssoAddon, organizationId } = c.req.valid("json");
+	const { seats, extraApiKeys, ssoAddon, scimAddon, organizationId } =
+		c.req.valid("json");
+	assertAddonDependency(ssoAddon, scimAddon);
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -367,6 +395,7 @@ subscriptions.openapi(updateProSubscription, async (c) => {
 			{ price: priceIds.seat, quantity: seats },
 			{ price: priceIds.extraApiKey, quantity: extraApiKeys },
 			{ price: priceIds.sso, quantity: ssoAddon ? 1 : 0 },
+			{ price: priceIds.scim, quantity: scimAddon ? 1 : 0 },
 		];
 
 		const items: Stripe.SubscriptionUpdateParams.Item[] = [];
@@ -396,6 +425,7 @@ subscriptions.openapi(updateProSubscription, async (c) => {
 				proSeats: seats,
 				proExtraApiKeys: extraApiKeys,
 				proSsoEnabled: ssoAddon,
+				proScimEnabled: scimAddon,
 			})
 			.where(eq(tables.organization.id, organization.id));
 
@@ -409,6 +439,7 @@ subscriptions.openapi(updateProSubscription, async (c) => {
 				seats,
 				extraApiKeys,
 				ssoAddon,
+				scimAddon,
 			},
 		});
 
@@ -638,6 +669,7 @@ const getSubscriptionStatus = createRoute({
 						seats: z.number().nullable(),
 						extraApiKeys: z.number(),
 						ssoAddon: z.boolean(),
+						scimAddon: z.boolean(),
 					}),
 				},
 			},
@@ -695,5 +727,6 @@ subscriptions.openapi(getSubscriptionStatus, async (c) => {
 		seats: organization.proSeats,
 		extraApiKeys: organization.proExtraApiKeys,
 		ssoAddon: organization.proSsoEnabled,
+		scimAddon: organization.proScimEnabled,
 	});
 });

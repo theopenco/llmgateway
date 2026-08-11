@@ -8,6 +8,7 @@ export function extractProQuantities(subscription: Stripe.Subscription): {
 	proSeats: number;
 	proExtraApiKeys: number;
 	proSsoEnabled: boolean;
+	proScimEnabled: boolean;
 } | null {
 	const seatPriceId = process.env.STRIPE_PRO_SEAT_PRICE_ID;
 	if (!seatPriceId) {
@@ -24,9 +25,13 @@ export function extractProQuantities(subscription: Stripe.Subscription): {
 	const ssoItem = items.find(
 		(item) => item.price.id === process.env.STRIPE_PRO_SSO_PRICE_ID,
 	);
+	const scimItem = items.find(
+		(item) => item.price.id === process.env.STRIPE_PRO_SCIM_PRICE_ID,
+	);
 	return {
 		proSeats: seatItem.quantity ?? 1,
 		proExtraApiKeys: extraItem?.quantity ?? 0,
 		proSsoEnabled: !!ssoItem,
+		proScimEnabled: !!scimItem,
 	};
 }

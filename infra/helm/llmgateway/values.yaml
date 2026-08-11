@@ -488,6 +488,7 @@ stripe:
   proSeatPriceId: ""
   proExtraApiKeyPriceId: ""
   proSsoPriceId: ""
+  proScimPriceId: ""
   devPlanLitePriceId: ""
   devPlanProPriceId: ""
   devPlanMaxPriceId: ""

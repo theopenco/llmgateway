@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import {
 	MARKETING_STATS,
 	PRO_PLAN_MAX_SEATS,
+	PRO_PLAN_MIN_SEATS,
 	PRO_PLAN_PRICES,
 } from "@llmgateway/shared";
 
@@ -39,7 +40,7 @@ const pricingFeatures: PricingFeature[] = [
 		name: "Team Seats",
 		description: "Members across your organization",
 		free: "5 seats",
-		pro: `Up to ${PRO_PLAN_MAX_SEATS} at $${PRO_PLAN_PRICES.seat}/user/mo`,
+		pro: `${PRO_PLAN_MIN_SEATS}-${PRO_PLAN_MAX_SEATS} at $${PRO_PLAN_PRICES.seat}/user/mo`,
 		enterprise: "Custom",
 	},
 	{
@@ -50,12 +51,21 @@ const pricingFeatures: PricingFeature[] = [
 		enterprise: "Custom",
 	},
 	{
-		name: "SSO/SAML & SCIM",
-		description: "SAML 2.0 & OIDC with SCIM provisioning",
+		name: "SSO/SAML",
+		description: "SAML 2.0 & OIDC single sign-on",
 		learnMoreLink: "/enterprise/sso-saml",
 		learnMoreText: "Learn more →",
 		free: false,
 		pro: `$${PRO_PLAN_PRICES.sso}/mo add-on`,
+		enterprise: true,
+	},
+	{
+		name: "SCIM Provisioning",
+		description: "Directory user provisioning (requires SSO)",
+		learnMoreLink: "/enterprise/sso-saml",
+		learnMoreText: "Learn more →",
+		free: false,
+		pro: `$${PRO_PLAN_PRICES.scim}/mo add-on`,
 		enterprise: true,
 	},
 	{
@@ -294,7 +304,8 @@ export function PricingTable() {
 										per user/month
 									</div>
 									<div className="mt-1 text-xs font-medium text-blue-600 dark:text-blue-400">
-										Up to {PRO_PLAN_MAX_SEATS} users
+										{PRO_PLAN_MIN_SEATS}-seat minimum, up to{" "}
+										{PRO_PLAN_MAX_SEATS} users
 									</div>
 								</th>
 								<th scope="col" className="p-4 text-center w-1/4">

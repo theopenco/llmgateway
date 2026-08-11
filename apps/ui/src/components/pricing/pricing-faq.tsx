@@ -5,6 +5,7 @@ import { JsonLd } from "@/components/seo/json-ld";
 import {
 	MARKETING_STATS,
 	PRO_PLAN_MAX_SEATS,
+	PRO_PLAN_MIN_SEATS,
 	PRO_PLAN_PRICES,
 } from "@llmgateway/shared";
 
@@ -22,7 +23,7 @@ const FAQ_ITEMS: PricingFaqItem[] = [
 	},
 	{
 		question: "What does the Pro plan include?",
-		answer: `Pro has the same product features as Free — it raises your limits. Seats are $${PRO_PLAN_PRICES.seat} per user per month (up to ${PRO_PLAN_MAX_SEATS} users), and every seat includes one API key. Extra API keys beyond your seat count are $${PRO_PLAN_PRICES.extraApiKey}/month each, and an optional SSO & SCIM add-on is $${PRO_PLAN_PRICES.sso}/month. Need more than ${PRO_PLAN_MAX_SEATS} seats or volume discounts? That's Enterprise.`,
+		answer: `Pro has the same product features as Free — it raises your limits. Seats are $${PRO_PLAN_PRICES.seat} per user per month (minimum ${PRO_PLAN_MIN_SEATS} seats, up to ${PRO_PLAN_MAX_SEATS} users), and every seat includes one API key. Extra API keys beyond your seat count are $${PRO_PLAN_PRICES.extraApiKey}/month each. Optional add-ons: SSO for $${PRO_PLAN_PRICES.sso}/month and SCIM provisioning for another $${PRO_PLAN_PRICES.scim}/month. Need more than ${PRO_PLAN_MAX_SEATS} seats or volume discounts? That's Enterprise.`,
 	},
 	{
 		question: "Is there a fee when I bring my own API keys?",

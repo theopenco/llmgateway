@@ -175,6 +175,7 @@ export { MARKETING_STATS, RUNWARE_PROMO } from "./marketing.js";
 
 export {
 	PRO_PLAN_PRICES,
+	PRO_PLAN_MIN_SEATS,
 	PRO_PLAN_MAX_SEATS,
 	PRO_PLAN_MAX_EXTRA_API_KEYS,
 	getProPlanMonthlyTotal,

@@ -5264,6 +5264,7 @@ export async function handleSubscriptionDeleted(
 				proSeats: null,
 				proExtraApiKeys: 0,
 				proSsoEnabled: false,
+				proScimEnabled: false,
 			})
 			.where(eq(tables.organization.id, organizationId));
 

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveApiKeyLimit } from "./api-key-limit.js";
 import { extractProQuantities } from "./pro-plan.js";
 import { resolveSeatLimit } from "./seat-limit.js";
-import { hasSsoAccess } from "./sso-access.js";
+import { hasScimAccess, hasSsoAccess } from "./sso-access.js";
 
 import type Stripe from "stripe";
 
@@ -26,12 +26,14 @@ describe("extractProQuantities", () => {
 		STRIPE_PRO_EXTRA_API_KEY_PRICE_ID:
 			process.env.STRIPE_PRO_EXTRA_API_KEY_PRICE_ID,
 		STRIPE_PRO_SSO_PRICE_ID: process.env.STRIPE_PRO_SSO_PRICE_ID,
+		STRIPE_PRO_SCIM_PRICE_ID: process.env.STRIPE_PRO_SCIM_PRICE_ID,
 	};
 
 	beforeEach(() => {
 		process.env.STRIPE_PRO_SEAT_PRICE_ID = "price_seat";
 		process.env.STRIPE_PRO_EXTRA_API_KEY_PRICE_ID = "price_key";
 		process.env.STRIPE_PRO_SSO_PRICE_ID = "price_sso";
+		process.env.STRIPE_PRO_SCIM_PRICE_ID = "price_scim";
 	});
 
 	afterEach(() => {
@@ -51,24 +53,46 @@ describe("extractProQuantities", () => {
 		} else {
 			process.env.STRIPE_PRO_SSO_PRICE_ID = env.STRIPE_PRO_SSO_PRICE_ID;
 		}
+		if (env.STRIPE_PRO_SCIM_PRICE_ID === undefined) {
+			delete process.env.STRIPE_PRO_SCIM_PRICE_ID;
+		} else {
+			process.env.STRIPE_PRO_SCIM_PRICE_ID = env.STRIPE_PRO_SCIM_PRICE_ID;
+		}
 	});
 
-	it("extracts seats, extra keys, and the SSO add-on", () => {
+	it("extracts seats, extra keys, and both add-ons", () => {
 		const result = extractProQuantities(
 			subscriptionWithItems([
 				{ priceId: "price_seat", quantity: 12 },
 				{ priceId: "price_key", quantity: 3 },
 				{ priceId: "price_sso", quantity: 1 },
+				{ priceId: "price_scim", quantity: 1 },
 			]),
 		);
 		expect(result).toEqual({
 			proSeats: 12,
 			proExtraApiKeys: 3,
 			proSsoEnabled: true,
+			proScimEnabled: true,
 		});
 	});
 
-	it("defaults extra keys and SSO when their items are absent", () => {
+	it("reports SSO without SCIM when only the SSO item is present", () => {
+		const result = extractProQuantities(
+			subscriptionWithItems([
+				{ priceId: "price_seat", quantity: 4 },
+				{ priceId: "price_sso", quantity: 1 },
+			]),
+		);
+		expect(result).toEqual({
+			proSeats: 4,
+			proExtraApiKeys: 0,
+			proSsoEnabled: true,
+			proScimEnabled: false,
+		});
+	});
+
+	it("defaults extra keys and add-ons when their items are absent", () => {
 		const result = extractProQuantities(
 			subscriptionWithItems([{ priceId: "price_seat", quantity: 5 }]),
 		);
@@ -76,6 +100,7 @@ describe("extractProQuantities", () => {
 			proSeats: 5,
 			proExtraApiKeys: 0,
 			proSsoEnabled: false,
+			proScimEnabled: false,
 		});
 	});
 
@@ -196,5 +221,52 @@ describe("hasSsoAccess", () => {
 		expect(hasSsoAccess({ plan: "pro", proSsoEnabled: false })).toBe(false);
 		expect(hasSsoAccess({ plan: "free", proSsoEnabled: true })).toBe(false);
 		expect(hasSsoAccess(null)).toBe(false);
+	});
+});
+
+describe("hasScimAccess", () => {
+	it("is included with enterprise", () => {
+		expect(
+			hasScimAccess({
+				plan: "enterprise",
+				proSsoEnabled: false,
+				proScimEnabled: false,
+			}),
+		).toBe(true);
+	});
+
+	it("requires both the SSO and SCIM add-ons on pro", () => {
+		expect(
+			hasScimAccess({
+				plan: "pro",
+				proSsoEnabled: true,
+				proScimEnabled: true,
+			}),
+		).toBe(true);
+		expect(
+			hasScimAccess({
+				plan: "pro",
+				proSsoEnabled: true,
+				proScimEnabled: false,
+			}),
+		).toBe(false);
+		expect(
+			hasScimAccess({
+				plan: "pro",
+				proSsoEnabled: false,
+				proScimEnabled: true,
+			}),
+		).toBe(false);
+	});
+
+	it("denies free orgs", () => {
+		expect(
+			hasScimAccess({
+				plan: "free",
+				proSsoEnabled: true,
+				proScimEnabled: true,
+			}),
+		).toBe(false);
+		expect(hasScimAccess(null)).toBe(false);
 	});
 });

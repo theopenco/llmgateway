@@ -138,8 +138,10 @@ const organizationSchema = z.object({
 	proSeats: z.number().nullable(),
 	// Extra API keys purchased beyond the one included per Pro seat.
 	proExtraApiKeys: z.number(),
-	// Whether the Pro subscription includes the SSO & SCIM add-on.
+	// Whether the Pro subscription includes the SSO add-on.
 	proSsoEnabled: z.boolean(),
+	// Whether the Pro subscription includes the SCIM add-on (requires SSO).
+	proScimEnabled: z.boolean(),
 	retentionLevel: z.enum(["retain", "none"]),
 	providerCompliancePolicy: providerCompliancePolicySchema.nullable(),
 	ssoAutoJoinDomain: z.string().nullable(),

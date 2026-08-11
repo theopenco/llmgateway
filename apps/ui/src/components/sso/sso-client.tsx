@@ -183,11 +183,17 @@ export function SsoClient() {
 	const { apiUrl } = useAppConfig();
 
 	// SSO management is available to enterprise orgs and Pro orgs that
-	// purchased the SSO & SCIM add-on (mirrors the API's hasSsoAccess gate).
+	// purchased the SSO add-on; SCIM is a separate add-on on top (mirrors the
+	// API's hasSsoAccess / hasScimAccess gates).
 	const hasSsoAccess =
 		selectedOrganization?.plan === "enterprise" ||
 		(selectedOrganization?.plan === "pro" &&
 			!!selectedOrganization?.proSsoEnabled);
+	const hasScimAccess =
+		selectedOrganization?.plan === "enterprise" ||
+		(selectedOrganization?.plan === "pro" &&
+			!!selectedOrganization?.proSsoEnabled &&
+			!!selectedOrganization?.proScimEnabled);
 
 	const [providerType, setProviderType] = useState<
 		"" | "okta" | "entra" | "generic" | "google"
@@ -258,7 +264,7 @@ export function SsoClient() {
 		"get",
 		"/sso/scim",
 		{ params: { query: { organizationId } } },
-		{ enabled: !!organizationId && hasSsoAccess },
+		{ enabled: !!organizationId && hasScimAccess },
 	);
 
 	const mappingsQuery = api.useQuery(
@@ -559,8 +565,9 @@ export function SsoClient() {
 						</CardTitle>
 						<CardDescription>
 							SAML SSO and SCIM directory provisioning are available on the
-							Enterprise plan or as a Pro plan add-on ($300/month). Upgrade from
-							your billing page, or contact us at{" "}
+							Enterprise plan or as Pro plan add-ons (SSO $300/month, SCIM
+							$200/month on top). Upgrade from your billing page, or contact us
+							at{" "}
 							<a
 								href="mailto:contact@llmgateway.io"
 								className="text-primary underline underline-offset-4"
@@ -992,16 +999,18 @@ export function SsoClient() {
 				</CardContent>
 			</Card>
 
-			<Card className={googleOnly ? "opacity-60" : undefined}>
+			<Card className={googleOnly || !hasScimAccess ? "opacity-60" : undefined}>
 				<CardHeader>
 					<CardTitle>Directory sync (SCIM)</CardTitle>
 					<CardDescription>
-						{googleOnly
-							? "Not available for the Google Workspace connection — Google Workspace doesn't support SCIM provisioning for custom apps. Members are provisioned just-in-time when they sign in with Google; offboard them on the Team page."
-							: "Generate a SCIM token and configure it in your identity provider (Okta or Microsoft Entra ID) to provision and deprovision members of this organization automatically."}
+						{!hasScimAccess
+							? "SCIM user provisioning is a separate Pro add-on ($200/month, on top of the SSO add-on). Enable it from your billing page to provision and deprovision members automatically."
+							: googleOnly
+								? "Not available for the Google Workspace connection — Google Workspace doesn't support SCIM provisioning for custom apps. Members are provisioned just-in-time when they sign in with Google; offboard them on the Team page."
+								: "Generate a SCIM token and configure it in your identity provider (Okta or Microsoft Entra ID) to provision and deprovision members of this organization automatically."}
 					</CardDescription>
 				</CardHeader>
-				{!googleOnly && (
+				{!googleOnly && hasScimAccess && (
 					<CardContent className="space-y-4">
 						{scim && (
 							<ReadOnlyField label="SCIM base URL" value={scim.baseUrl} />
