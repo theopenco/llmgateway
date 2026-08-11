@@ -48,6 +48,12 @@ export function AccountMenu({ user }: { user: AccountUser | null }) {
 		enabled: open,
 	});
 
+	// Only offer the bulk sign-out when more than one account actually has a
+	// live session; remembered logins have nothing to sign out of.
+	const liveSessionCount = accounts.filter(
+		(account) => account.sessionToken,
+	).length;
+
 	// better-auth's /sign-out deletes every device session, so this is the
 	// "leave all accounts" path.
 	const signOutAll = async () => {
@@ -149,7 +155,7 @@ export function AccountMenu({ user }: { user: AccountUser | null }) {
 					<LogOut className="h-3.5 w-3.5" />
 					<span>Sign out</span>
 				</DropdownMenuItem>
-				{accounts.length > 1 ? (
+				{liveSessionCount > 1 ? (
 					<DropdownMenuItem onClick={() => void signOutAll()}>
 						<LogOut className="h-3.5 w-3.5" />
 						<span>Sign out of all accounts</span>

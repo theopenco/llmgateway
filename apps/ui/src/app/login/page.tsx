@@ -86,9 +86,12 @@ export default function Login() {
 
 	useUser({
 		redirectTo: redirectTarget,
-		redirectWhen: "authenticated",
+		// Clearing `redirectWhen` (rather than disabling the query) is what
+		// actually suppresses the redirect: other components on this page query
+		// `/user/me` too, so a disabled query still reads their cached result.
+		redirectWhen: isAddingAccount ? undefined : "authenticated",
 		checkOnboarding: true,
-		enabled: isAuthenticated && !isAddingAccount,
+		enabled: isAuthenticated,
 	});
 
 	useEffect(() => {

@@ -73,6 +73,12 @@ export function SidebarUserMenu({
 		enabled: open,
 	});
 
+	// Only offer the bulk sign-out when more than one account actually has a
+	// live session; remembered logins have nothing to sign out of.
+	const liveSessionCount = accounts.filter(
+		(account) => account.sessionToken,
+	).length;
+
 	const clearClientState = async () => {
 		posthog.reset();
 		try {
@@ -241,7 +247,7 @@ export function SidebarUserMenu({
 							<LogOut className="mr-2 h-4 w-4" />
 							Log out
 						</DropdownMenuItem>
-						{accounts.length > 1 ? (
+						{liveSessionCount > 1 ? (
 							<DropdownMenuItem onClick={() => void logoutAll()}>
 								<LogOut className="mr-2 h-4 w-4" />
 								Log out of all accounts

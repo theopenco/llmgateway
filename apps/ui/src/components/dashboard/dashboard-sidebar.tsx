@@ -988,6 +988,12 @@ function UserDropdownMenu({
 		enabled: open,
 	});
 
+	// Only offer the bulk sign-out when more than one account actually has a
+	// live session; remembered logins have nothing to sign out of.
+	const liveSessionCount = accounts.filter(
+		(account) => account.sessionToken,
+	).length;
+
 	const handleSwitch = async (account: DeviceAccount) => {
 		if (!account.sessionToken) {
 			window.location.assign(
@@ -1107,7 +1113,7 @@ function UserDropdownMenu({
 				<DropdownMenuItem onClick={onLogout}>
 					<span>Log out</span>
 				</DropdownMenuItem>
-				{accounts.length > 1 ? (
+				{liveSessionCount > 1 ? (
 					<DropdownMenuItem onClick={onLogoutAll}>
 						<span>Log out of all accounts</span>
 					</DropdownMenuItem>
