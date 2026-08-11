@@ -63,9 +63,8 @@ export function ProductShowcase() {
 							One platform for your entire LLM stack
 						</h2>
 						<p className="text-lg text-muted-foreground leading-relaxed">
-							Every surface in the walkthrough above ships with your deployment
-							— analytics, chat, media studios, admin, and docs. One contract,
-							one vendor, one place to look.
+							Analytics, chat, media studios, admin, and docs all ship with your
+							deployment. One contract, one vendor, one place to look.
 						</p>
 
 						<div className="mt-8 rounded-xl border border-border bg-muted/50 p-6">
