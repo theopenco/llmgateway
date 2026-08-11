@@ -348,6 +348,16 @@ export default async function Page({
 											},
 										]
 									: []),
+								...(metrics.grossManualPaymentsRevenue > 0
+									? [
+											{
+												label: "Manual payments",
+												value: currencyFormatter.format(
+													metrics.grossManualPaymentsRevenue,
+												),
+											},
+										]
+									: []),
 							]}
 						/>
 						<MetricCell

@@ -10,6 +10,7 @@ import {
 	db,
 	effectiveTtftTotals,
 	eq,
+	excludeRegionalMappingRows,
 	gte,
 	isNull,
 	modelProviderMappingHistory,
@@ -514,6 +515,9 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 			and(
 				eq(modelProviderMappingHistory.modelId, modelId),
 				gte(modelProviderMappingHistory.minuteTimestamp, since),
+				// Per-provider totals: the region-less root row already includes the
+				// provider's regional traffic.
+				excludeRegionalMappingRows(modelProviderMappingHistory),
 			),
 		)
 		.groupBy(modelProviderMappingHistory.providerId, tables.provider.name);
@@ -737,6 +741,7 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 				and(
 					eq(modelProviderMappingHistory.modelId, modelId),
 					gte(modelProviderMappingHistory.minuteTimestamp, since),
+					excludeRegionalMappingRows(modelProviderMappingHistory),
 				),
 			)
 			.groupBy(

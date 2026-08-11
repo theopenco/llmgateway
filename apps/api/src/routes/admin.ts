@@ -43,6 +43,7 @@ import {
 	desc,
 	effectiveTtftTotals,
 	eq,
+	excludeRegionalMappingRows,
 	gte,
 	inArray,
 	isNotNull,
@@ -311,6 +312,9 @@ const adminMetricsSchema = z.object({
 	grossResetPassRevenue: z.number(),
 	grossChatPlansRevenue: z.number(),
 	grossProSubscriptionsRevenue: z.number(),
+	// Credits paid for outside Stripe (wire, crypto, …) and credited manually by
+	// an administrator. Real revenue, just settled on another channel.
+	grossManualPaymentsRevenue: z.number(),
 });
 
 const timeseriesRangeSchema = z.enum(["7d", "30d", "90d", "365d", "all"]);
@@ -430,6 +434,9 @@ const transactionSchema = z.object({
 	currency: z.string(),
 	status: z.string(),
 	description: z.string().nullable(),
+	// Off-Stripe payment channel and its reference, set on manual payments only.
+	paymentMethod: z.string().nullable(),
+	externalReference: z.string().nullable(),
 });
 
 const transactionsListSchema = z.object({
@@ -856,7 +863,8 @@ admin.openapi(getMetrics, async (c) => {
 
 	const payingCustomers = Number(payingRow?.count ?? 0);
 
-	// Total revenue: completed credit-purchase rows — org credit top-ups AND
+	// Total revenue: completed credit-purchase rows — org credit top-ups,
+	// manually credited off-Stripe payments (`credit_manual_payment`) AND
 	// end-user wallet top-ups (`end_user_topup`, reversed on refund) — using
 	// creditAmount to exclude Stripe fees. Excludes gifts, all plan rows
 	// (DevPass/legacy subscription/Chat Plan), and the non-revenue end-user rows
@@ -972,7 +980,8 @@ admin.openapi(getMetrics, async (c) => {
 	const totalApiKeysSpent = Number(spentRow?.apiKeysValue ?? 0);
 	const totalDebitedSpend = Number(spentRow?.debitedValue ?? 0);
 
-	// Total processed (gross Stripe amounts from completed non-gift, non-plan transactions)
+	// Total processed (gross payment amounts from completed non-gift, non-plan
+	// transactions — Stripe charges plus off-Stripe manual payments)
 	const [processedRow] = await db
 		.select({
 			value:
@@ -1235,13 +1244,37 @@ admin.openapi(getMetrics, async (c) => {
 
 	const grossProSubscriptionsRevenue = Number(grossProSubsRow?.value ?? 0);
 
+	// Manual payments: credits an administrator granted against money received
+	// outside Stripe (wire, crypto, …). `amount` is the real payment, so these
+	// belong in gross revenue like any other purchase — kept as their own split
+	// because they never appear in Stripe reporting.
+	const [grossManualPaymentsRow] = await db
+		.select({
+			value:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"value",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.transaction.type, "credit_manual_payment"),
+				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+				transactionDateFilter,
+			),
+		);
+
+	const grossManualPaymentsRevenue = Number(grossManualPaymentsRow?.value ?? 0);
+
 	const grossRevenue =
 		grossCreditsRevenue +
 		grossDevpassRevenue +
 		grossDevpassTopupsRevenue +
 		grossResetPassRevenue +
 		grossChatPlansRevenue +
-		grossProSubscriptionsRevenue;
+		grossProSubscriptionsRevenue +
+		grossManualPaymentsRevenue;
 
 	// Balance derivation must use debited spend, not blended cost: BYOK usage
 	// never drains purchased credits, so subtracting it would understate
@@ -1273,6 +1306,7 @@ admin.openapi(getMetrics, async (c) => {
 		grossResetPassRevenue,
 		grossChatPlansRevenue,
 		grossProSubscriptionsRevenue,
+		grossManualPaymentsRevenue,
 	});
 });
 
@@ -2813,6 +2847,8 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			currency: tables.transaction.currency,
 			status: tables.transaction.status,
 			description: tables.transaction.description,
+			paymentMethod: tables.transaction.paymentMethod,
+			externalReference: tables.transaction.externalReference,
 		})
 		.from(tables.transaction)
 		.where(eq(tables.transaction.organizationId, orgId))
@@ -2850,6 +2886,8 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			currency: t.currency,
 			status: t.status,
 			description: t.description,
+			paymentMethod: t.paymentMethod,
+			externalReference: t.externalReference,
 		})),
 		total,
 		limit,
@@ -4844,7 +4882,13 @@ admin.openapi(getProviderStats, async (c) => {
 				...tokenBreakdownSums(mph),
 			})
 			.from(mph)
-			.where(and(gte(mphTs, startDate), lt(mphTs, endDateExclusive)))
+			.where(
+				and(
+					gte(mphTs, startDate),
+					lt(mphTs, endDateExclusive),
+					excludeRegionalMappingRows(mph),
+				),
+			)
 			.groupBy(mph.providerId)
 			.as("provider_stats_sub");
 
@@ -5868,7 +5912,13 @@ admin.openapi(getModelDetail, async (c) => {
 				...tokenBreakdownSums(mph),
 			})
 			.from(mph)
-			.where(and(eq(mph.modelId, modelId), gte(mphTs, startDate)))
+			.where(
+				and(
+					eq(mph.modelId, modelId),
+					gte(mphTs, startDate),
+					excludeRegionalMappingRows(mph),
+				),
+			)
 			.groupBy(mph.providerId),
 	]);
 
@@ -6122,6 +6172,134 @@ admin.openapi(giftCreditsRoute, async (c) => {
 
 	return c.json({
 		message: "Credits gifted successfully",
+		credits: updatedCredits,
+	});
+});
+
+// Manually credit an organization for a payment received outside Stripe
+const manualPaymentMethods = ["wire", "crypto", "paypal", "other"] as const;
+
+const manualCreditsRoute = createRoute({
+	method: "post",
+	path: "/organizations/{orgId}/manual-credits",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						creditAmount: z
+							.number()
+							.min(0.01, "Credit amount must be positive"),
+						paymentMethod: z.enum(manualPaymentMethods),
+						// Identifier for the payment on its own channel: a bank wire
+						// reference, an on-chain tx hash, a PayPal transaction id.
+						externalReference: z.string().trim().max(255).optional(),
+						comment: z.string().optional(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						credits: z.string(),
+					}),
+				},
+			},
+			description: "Credits added successfully.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Organization not found.",
+		},
+	},
+});
+
+admin.openapi(manualCreditsRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+	const { creditAmount, paymentMethod, externalReference, comment } =
+		c.req.valid("json");
+
+	const org = await db.query.organization.findFirst({
+		where: {
+			id: { eq: orgId },
+		},
+	});
+
+	if (!org || org.status === "deleted") {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	const description = comment
+		? `Manual payment (${paymentMethod}) credited by Administrator: ${comment}`
+		: `Manual payment (${paymentMethod}) credited by Administrator`;
+
+	const { transactionId, updatedCredits } = await db.transaction(async (tx) => {
+		const [txn] = await tx
+			.insert(tables.transaction)
+			.values({
+				organizationId: orgId,
+				type: "credit_manual_payment",
+				// The money was actually received, so `amount` (gross payment) and
+				// `creditAmount` (credits granted) are the same figure: there are no
+				// Stripe fees to net out on an off-Stripe channel.
+				amount: creditAmount.toString(),
+				creditAmount: creditAmount.toString(),
+				currency: "USD",
+				status: "completed",
+				description,
+				paymentMethod,
+				externalReference: externalReference || null,
+			})
+			.returning({ id: tables.transaction.id });
+
+		const [updatedOrg] = await tx
+			.update(tables.organization)
+			.set({
+				credits: sql`${tables.organization.credits} + ${creditAmount}`,
+			})
+			.where(eq(tables.organization.id, orgId))
+			.returning({ credits: tables.organization.credits });
+
+		return {
+			transactionId: txn.id,
+			updatedCredits: String(updatedOrg.credits),
+		};
+	});
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "credits.manual_payment",
+		resourceType: "organization",
+		resourceId: orgId,
+		metadata: {
+			creditAmount,
+			paymentMethod,
+			externalReference,
+			comment,
+			transactionId,
+		},
+	});
+
+	return c.json({
+		message: "Credits added successfully",
 		credits: updatedCredits,
 	});
 });
@@ -7325,6 +7503,9 @@ admin.openapi(getProviderHistory, async (c) => {
 				and(
 					eq(modelProviderMappingHistoryHourly.providerId, providerId),
 					gte(modelProviderMappingHistoryHourly.hourTimestamp, hourStartDate),
+					// Provider totals across models: the region-less root row already
+					// carries each mapping's regional traffic.
+					excludeRegionalMappingRows(modelProviderMappingHistoryHourly),
 				),
 			)
 			.groupBy(modelProviderMappingHistoryHourly.hourTimestamp)
@@ -7392,6 +7573,7 @@ admin.openapi(getProviderHistory, async (c) => {
 				and(
 					eq(modelProviderMappingHistory.providerId, providerId),
 					gte(modelProviderMappingHistory.minuteTimestamp, startDate),
+					excludeRegionalMappingRows(modelProviderMappingHistory),
 				),
 			)
 			.groupBy(modelProviderMappingHistory.minuteTimestamp)
@@ -7686,6 +7868,9 @@ admin.openapi(getMappingHistory, async (c) => {
 	// When a region is given, restrict the minute-level mapping history to the
 	// exact regional mapping(s). The hourly project rollups have no region
 	// dimension, so region scoping only applies to the minute-granularity source.
+	// Without a region the rows are summed across the mapping's variants, which
+	// means the regional rows have to be dropped — the region-less root row
+	// already includes their traffic.
 	const regionMappingFilter =
 		region !== undefined
 			? inArray(
@@ -7701,7 +7886,7 @@ admin.openapi(getMappingHistory, async (c) => {
 							),
 						),
 				)
-			: undefined;
+			: excludeRegionalMappingRows(modelProviderMappingHistory);
 
 	if (projectId) {
 		const rows = await db
@@ -7792,7 +7977,7 @@ admin.openapi(getMappingHistory, async (c) => {
 								),
 							),
 					)
-				: undefined;
+				: excludeRegionalMappingRows(modelProviderMappingHistoryHourly);
 
 		const rows = await db
 			.select({
@@ -8079,7 +8264,15 @@ admin.openapi(getProviderDetail, async (c) => {
 				...tokenBreakdownSums(mph),
 			})
 			.from(mph)
-			.where(and(eq(mph.providerId, providerId), gte(mphTs, startDate)))
+			.where(
+				and(
+					eq(mph.providerId, providerId),
+					gte(mphTs, startDate),
+					// Grouped per model, so the mapping's regional rows would be added
+					// on top of the root row that already contains them.
+					excludeRegionalMappingRows(mph),
+				),
+			)
 			.groupBy(mph.modelId),
 	]);
 

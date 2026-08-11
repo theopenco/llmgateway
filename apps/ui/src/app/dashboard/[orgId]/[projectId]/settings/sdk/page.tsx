@@ -6,9 +6,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
-import { fetchServerData } from "@/lib/server-api";
-
-import type { Project } from "@/lib/types";
+import { getProject } from "@/lib/server-api";
 
 export default async function SdkPage({
 	params,
@@ -16,17 +14,7 @@ export default async function SdkPage({
 	params: Promise<{ orgId: string; projectId: string }>;
 }) {
 	const { orgId, projectId } = await params;
-	const projectData = await fetchServerData<{ project: Project }>(
-		"GET",
-		"/projects/{id}",
-		{
-			params: {
-				path: {
-					id: projectId,
-				},
-			},
-		},
-	);
+	const projectData = await getProject(projectId);
 
 	return (
 		<div className="flex flex-col">

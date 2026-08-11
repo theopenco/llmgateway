@@ -8,7 +8,8 @@ const authErrorMessages: Record<string, string> = {
 		"This provider account is already linked to a different user.",
 	unable_to_link_account:
 		"We couldn't link this account. Please try a different sign-in method.",
-	signup_disabled: "Sign ups are currently disabled.",
+	signup_disabled:
+		"No account exists for that sign-in. Please sign up first to create one.",
 	unable_to_create_user: "We couldn't create your account. Please try again.",
 	unable_to_create_session:
 		"We couldn't start your session. Please try signing in again.",

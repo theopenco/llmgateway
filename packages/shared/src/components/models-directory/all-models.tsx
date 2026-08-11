@@ -74,9 +74,9 @@ import {
 	TooltipProvider,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { isMappingDeactivated } from "@/deactivation";
 import { cn } from "@/lib/utils";
 
-import { isMappingDeactivated } from "./deactivation";
 import { formatDeprecationDate, formatPerImagePriceRange } from "./format";
 import { ModelCard } from "./model-card";
 import { applyCategoryFilter } from "./model-category-filters";

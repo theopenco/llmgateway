@@ -173,6 +173,14 @@ export {
 
 export { MARKETING_STATS, RUNWARE_PROMO } from "./marketing.js";
 
+export {
+	ONBOARDING_MODEL,
+	ONBOARDING_MAX_TOKENS,
+	ONBOARDING_MAX_PROMPT_CHARS,
+	ONBOARDING_SPONSOR_HEADER,
+	getOnboardingSponsorSecret,
+} from "./onboarding.js";
+
 export { isContentFilterErrorText } from "./content-filter.js";
 
 export { FAILURE_LABELS, failureLabel } from "./compliance-failure-labels.js";

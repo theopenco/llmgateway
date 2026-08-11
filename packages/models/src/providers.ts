@@ -1,3 +1,13 @@
+/**
+ * Placeholder inside a `regionConfig.endpointMap` entry for a region whose
+ * host is not a fixed domain but is derived from a per-credential workspace
+ * identifier. Alibaba's Frankfurt region is only reachable through the
+ * workspace-dedicated `{WorkspaceId}.eu-central-1.maas.aliyuncs.com` host —
+ * it has no shared DashScope domain — so the endpoint can only be completed
+ * once the credential's workspace id is known.
+ */
+export const REGION_WORKSPACE_ID_PLACEHOLDER = "{workspaceId}";
+
 export interface ProviderEnvConfig {
 	required: {
 		apiKey?: string;
@@ -33,6 +43,14 @@ export interface ProviderRegionConfig {
 	regions: { id: string; label: string }[];
 	/** Maps region id to its base URL */
 	endpointMap: Record<string, string>;
+	/**
+	 * Base URL to use for a workspace-scoped region when no workspace id is
+	 * configured. Alibaba's Frankfurt region has such a shared entry point, so
+	 * the region stays usable from an API key alone; the workspace-dedicated
+	 * host remains the better path because the shared one is documented as
+	 * trial-only (1000 RPM, no SLA, "not recommended for production").
+	 */
+	endpointFallbackMap?: Record<string, string>;
 	/**
 	 * Maps region id to a model-id prefix for providers where the upstream model
 	 * identifier varies per region (e.g. AWS Bedrock cross-region inference
@@ -548,6 +566,12 @@ export const providers: ProviderDefinition[] = [
 		env: {
 			required: {
 				apiKey: "LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON",
+				// The GCP project the models are called under; it becomes part of the
+				// request path. An env-var deployment can leave it unset — the gateway
+				// derives it from the service-account JSON on startup — but a managed
+				// credential's JSON is only ever decrypted to mint an access token, so
+				// the credential has to carry the project itself.
+				project: "LLM_VERTEX_ANTHROPIC_PROJECT",
 			},
 			optional: {
 				baseUrl: "LLM_VERTEX_ANTHROPIC_BASE_URL",
@@ -748,7 +772,11 @@ export const providers: ProviderDefinition[] = [
 				apiKey: "LLM_ALIBABA_API_KEY",
 			},
 			optional: {
-				region: "LLM_ALIBABA_REGION",
+				// No `region` key: the region comes from the model's `:region`
+				// suffix or the credential's own region binding, never from a
+				// provider-wide setting, so declaring one would only render a dead
+				// field on the credential form.
+				workspaceId: "LLM_ALIBABA_WORKSPACE_ID",
 			},
 		},
 		streaming: true,
@@ -762,13 +790,27 @@ export const providers: ProviderDefinition[] = [
 			defaultRegion: "singapore",
 			regions: [
 				{ id: "singapore", label: "Singapore (default)" },
+				{ id: "eu-frankfurt", label: "EU (Frankfurt)" },
 				{ id: "us-virginia", label: "US (Virginia)" },
 				{ id: "cn-beijing", label: "China (Beijing)" },
 			],
 			endpointMap: {
 				singapore: "https://dashscope-intl.aliyuncs.com",
+				// Frankfurt is the one Model Studio region with no shared DashScope
+				// domain: `dashscope-eu`/`dashscope-de` do not exist and aliasing
+				// another region's host would silently execute EU-designated traffic
+				// elsewhere. It is served only by the workspace-dedicated host, whose
+				// workspace id comes from the credential (see the placeholder docs).
+				"eu-frankfurt": `https://${REGION_WORKSPACE_ID_PLACEHOLDER}.eu-central-1.maas.aliyuncs.com`,
 				"us-virginia": "https://dashscope-us.aliyuncs.com",
 				"cn-beijing": "https://dashscope.aliyuncs.com",
+			},
+			endpointFallbackMap: {
+				// Resolves the workspace from the API key, so Frankfurt still works
+				// without one being configured. Alibaba caps it at 1000 RPM with no
+				// SLA and advises against production use, so a credential that
+				// supplies a workspace id gets the dedicated host instead.
+				"eu-frankfurt": "https://trial.eu-central-1.maas.aliyuncs.com",
 			},
 		},
 		termsUrl:
@@ -1843,6 +1885,58 @@ export function getProviderDefinition(
 	providerId: ProviderId | string,
 ): ProviderDefinition | undefined {
 	return providers.find((p) => p.id === providerId);
+}
+
+/**
+ * The region a credential must be pinned to in order to serve a request that
+ * resolved no region — but only for providers whose credentials are
+ * region-scoped, i.e. those with no global region, where every credential is
+ * necessarily bound to one region (Alibaba).
+ *
+ * Undefined for providers not scoped by region at all, and deliberately
+ * undefined for providers with a credential shared across regions (AWS
+ * Bedrock, whose `global` is a real region): there a region-pinned credential
+ * is a deliberate scoping by the operator and must never be substituted for a
+ * region the request actually asked for — the request fails instead.
+ */
+export function getRegionScopedDefaultRegion(
+	providerId: ProviderId | string,
+): string | undefined {
+	const regionConfig = getProviderDefinition(providerId)?.regionConfig;
+	if (!regionConfig || regionConfig.sharedCredentialAcrossRegions) {
+		return undefined;
+	}
+	return regionConfig.defaultRegion;
+}
+
+/**
+ * Whether a region's preferred endpoint is completed with a per-credential
+ * workspace id. The workspace id is worth collecting for such a region even
+ * when a shared fallback exists, so the UI asks for it here.
+ */
+export function regionEndpointUsesWorkspaceId(
+	providerId: ProviderId | string,
+	region: string,
+): boolean {
+	const endpoint =
+		getProviderDefinition(providerId)?.regionConfig?.endpointMap[region];
+	return Boolean(endpoint?.includes(REGION_WORKSPACE_ID_PLACEHOLDER));
+}
+
+/**
+ * Whether a region is unreachable without a workspace id — true only when its
+ * endpoint is workspace-scoped and no shared fallback host exists. Routing
+ * consults this so a region it cannot build a URL for is never selected.
+ */
+export function regionEndpointRequiresWorkspaceId(
+	providerId: ProviderId | string,
+	region: string,
+): boolean {
+	if (!regionEndpointUsesWorkspaceId(providerId, region)) {
+		return false;
+	}
+	const regionConfig = getProviderDefinition(providerId)?.regionConfig;
+	return !regionConfig?.endpointFallbackMap?.[region];
 }
 
 /**

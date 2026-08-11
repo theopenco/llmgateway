@@ -36,6 +36,44 @@ const [providerA, providerB] = testModel.providers
 	.filter(isRoutableMapping)
 	.map((p) => p.providerId);
 
+// One model per side of "now": a retired mapping and a scheduled one. Mappings
+// are never removed from the catalogue, only dated, so the retired side always
+// exists; the scheduled side is whatever is still ahead today and is simply
+// omitted if nothing is. The test asserts the past/future rule as a property of
+// the response rather than pinning a fixture, so it cannot start failing on its
+// own once a scheduled date passes.
+function findModelsWithDeactivatedMappings(): string[] {
+	const now = new Date();
+	let retired: string | undefined;
+	let scheduled: string | undefined;
+	for (const model of models) {
+		for (const mapping of model.providers as ProviderModelMapping[]) {
+			if (!mapping.deactivatedAt) {
+				continue;
+			}
+			if (mapping.deactivatedAt <= now) {
+				retired ??= model.id;
+			} else {
+				scheduled ??= model.id;
+			}
+		}
+		if (retired && scheduled) {
+			break;
+		}
+	}
+	const modelIds = [
+		...new Set([retired, scheduled].filter(Boolean)),
+	] as string[];
+	if (modelIds.length === 0) {
+		throw new Error(
+			"No catalogue mapping carries a deactivatedAt; update this fixture.",
+		);
+	}
+	return modelIds;
+}
+
+const deactivationModelIds = findModelsWithDeactivatedMappings();
+
 function currentHourStart(): Date {
 	const hour = new Date();
 	hour.setUTCMinutes(0, 0, 0);
@@ -69,6 +107,7 @@ describe("admin routing analytics endpoint", () => {
 		await db.delete(tables.modelProviderMappingHistoryHourly);
 		await db.delete(tables.routingElectionHourly);
 		await db.delete(tables.routingExclusionHourly);
+		await db.delete(tables.modelProviderMapping);
 		await cdb.delete(tables.discount);
 		await deleteAll();
 	});
@@ -179,6 +218,107 @@ describe("admin routing analytics endpoint", () => {
 		);
 		expect(summaryA.requestCount).toBe(10);
 		expect(summaryA.uptime).toBe(80);
+	});
+
+	it("only excludes a mapping once its deactivation date has passed", async () => {
+		const now = new Date();
+		let dated = 0;
+		for (const modelId of deactivationModelIds) {
+			const res = await get(`?modelId=${modelId}&window=24h`, cookie);
+			expect(res.status).toBe(200);
+			const body = await res.json();
+
+			for (const mapping of body.mappings as {
+				providerId: string;
+				deactivatedAt: string | null;
+				routable: boolean;
+				excludedReasons: string[];
+			}[]) {
+				if (!mapping.deactivatedAt) {
+					expect(mapping.excludedReasons).not.toContain("deactivated");
+					continue;
+				}
+				dated++;
+				if (new Date(mapping.deactivatedAt) <= now) {
+					expect(mapping.excludedReasons).toContain("deactivated");
+					expect(mapping.routable).toBe(false);
+				} else {
+					// Scheduled, not deactivated: routing compares against the date, so
+					// the mapping still elects and must stay scoreable here.
+					expect(mapping.excludedReasons).not.toContain("deactivated");
+				}
+			}
+		}
+		expect(dated).toBeGreaterThan(0);
+	});
+
+	it("counts a mapping's regional traffic once", async () => {
+		const hour = currentHourStart();
+		// A mapping with regions is stored as a region-less root row plus one row
+		// per region, and the minute aggregator merges the regional traffic into
+		// the root row. Summing every row of the provider therefore reports double
+		// the requests that were actually served.
+		await db
+			.insert(tables.provider)
+			.values({ id: providerA, name: providerA, description: providerA })
+			.onConflictDoNothing();
+		await db
+			.insert(tables.model)
+			.values({ id: testModel.id, family: testModel.family })
+			.onConflictDoNothing();
+		await db.insert(tables.modelProviderMapping).values([
+			{
+				id: "routing-analytics-region-root",
+				modelId: testModel.id,
+				providerId: providerA,
+				externalId: testModel.id,
+			},
+			{
+				id: "routing-analytics-region-east",
+				modelId: testModel.id,
+				providerId: providerA,
+				externalId: testModel.id,
+				region: "us-east-1",
+			},
+		]);
+		await db.insert(tables.modelProviderMappingHistoryHourly).values([
+			{
+				id: "routing-analytics-region-root-hour",
+				modelId: testModel.id,
+				providerId: providerA,
+				modelProviderMappingId: "routing-analytics-region-root",
+				hourTimestamp: hour,
+				logsCount: 12,
+				serviceTierExplicitCount: 4,
+			},
+			{
+				id: "routing-analytics-region-east-hour",
+				modelId: testModel.id,
+				providerId: providerA,
+				modelProviderMappingId: "routing-analytics-region-east",
+				hourTimestamp: hour,
+				logsCount: 12,
+				serviceTierExplicitCount: 4,
+			},
+		]);
+
+		const res = await get(`?modelId=${testModel.id}&window=24h`, cookie);
+		const body = await res.json();
+
+		const summaryA = body.summary.find(
+			(s: { providerId: string }) => s.providerId === providerA,
+		);
+		expect(summaryA.requestCount).toBe(12);
+		expect(body.serviceTier.requestCount).toBe(12);
+		expect(body.serviceTier.explicit).toBe(4);
+
+		const trafficHour = body.hourly.find(
+			(h: { hour: string }) => h.hour === hour.toISOString(),
+		);
+		const entryA = trafficHour.providers.find(
+			(p: { providerId: string }) => p.providerId === providerA,
+		);
+		expect(entryA.requestCount).toBe(12);
 	});
 
 	it("reports election paths, eligibility and service-tier coverage", async () => {

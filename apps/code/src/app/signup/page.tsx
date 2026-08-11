@@ -341,6 +341,7 @@ function SignupForm() {
 							callbackPath={returnUrl}
 							errorCallbackPath="/signup"
 							newUserCallbackPath={returnUrl}
+							requestSignUp
 						/>
 					</div>
 

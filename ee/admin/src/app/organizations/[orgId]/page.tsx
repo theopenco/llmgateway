@@ -18,6 +18,7 @@ import { notFound } from "next/navigation";
 
 import { BlockOrgButton } from "@/components/block-org-button";
 import { GiftCreditsDialog } from "@/components/gift-credits-dialog";
+import { ManualCreditsDialog } from "@/components/manual-credits-dialog";
 import { PlanTermBadge } from "@/components/plan-term-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+	addManualCreditsToOrganization,
 	blockOrganization,
 	giftCreditsToOrganization,
 	manageOrganization,
@@ -129,7 +131,8 @@ function getTransactionTypeBadgeVariant(type: string) {
 	if (
 		type.includes("start") ||
 		type.includes("topup") ||
-		type.includes("gift")
+		type.includes("gift") ||
+		type.includes("manual_payment")
 	) {
 		return "default";
 	}
@@ -341,6 +344,13 @@ export default async function OrganizationPage({
 							return await giftCreditsToOrganization(orgId, data);
 						}}
 					/>
+					<ManualCreditsDialog
+						orgName={org.name}
+						onCredit={async (data) => {
+							"use server";
+							return await addManualCreditsToOrganization(orgId, data);
+						}}
+					/>
 					<ReferralBonusDialog
 						orgName={org.name}
 						enabled={org.referralBonusEnabled ?? false}
@@ -476,6 +486,7 @@ export default async function OrganizationPage({
 										<TableHead>Amount</TableHead>
 										<TableHead>Credits</TableHead>
 										<TableHead>Status</TableHead>
+										<TableHead>Reference</TableHead>
 										<TableHead>Description</TableHead>
 									</TableRow>
 								</TableHeader>
@@ -483,7 +494,7 @@ export default async function OrganizationPage({
 									{transactions.length === 0 ? (
 										<TableRow>
 											<TableCell
-												colSpan={6}
+												colSpan={7}
 												className="h-24 text-center text-muted-foreground"
 											>
 												No transactions found
@@ -530,6 +541,9 @@ export default async function OrganizationPage({
 													>
 														{transaction.status}
 													</Badge>
+												</TableCell>
+												<TableCell className="max-w-[180px] truncate font-mono text-xs text-muted-foreground">
+													{transaction.externalReference ?? "—"}
 												</TableCell>
 												<TableCell className="max-w-[200px] truncate text-muted-foreground">
 													{transaction.description ?? "—"}

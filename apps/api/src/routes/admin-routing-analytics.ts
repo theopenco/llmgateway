@@ -18,6 +18,7 @@ import {
 	db,
 	effectiveTtftTotals,
 	eq,
+	excludeRegionalMappingRows,
 	getEffectiveDiscount,
 	gte,
 	modelProviderMappingHistoryHourly,
@@ -29,6 +30,7 @@ import {
 	models,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
+import { isMappingDeactivated } from "@llmgateway/shared/deactivation";
 import { getDefaultRoutingConfig } from "@llmgateway/shared/routing-config";
 import { routingSelectionKind } from "@llmgateway/shared/routing-telemetry";
 
@@ -382,7 +384,12 @@ async function buildMappingInfos(
 			const stability = mapping.stability ?? modelStability ?? "stable";
 			const priority = providerDef?.priority ?? 1;
 			const excludedReasons: string[] = [];
-			if (mapping.deactivatedAt) {
+			// Only a deactivation date that has actually passed excludes a mapping.
+			// Routing itself compares against the date, so a scheduled (future)
+			// deactivation still elects and serves traffic — flagging it here would
+			// show the mapping as unroutable and drop it from the score table while
+			// it is demonstrably receiving requests.
+			if (isMappingDeactivated(mapping)) {
 				excludedReasons.push("deactivated");
 			}
 			if (stability === "unstable" || stability === "experimental") {
@@ -537,6 +544,9 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 				and(
 					eq(modelProviderMappingHistoryHourly.modelId, model.id),
 					gte(modelProviderMappingHistoryHourly.hourTimestamp, windowStart),
+					// This view reports per provider, and the region-less root row
+					// already carries the provider's regional traffic.
+					excludeRegionalMappingRows(modelProviderMappingHistoryHourly),
 				),
 			),
 		db

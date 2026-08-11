@@ -7,7 +7,15 @@ import {
 	pickModelHistoryTable,
 } from "@/utils/history-window.js";
 
-import { and, cdb, gte, inArray, lt, sql } from "@llmgateway/db";
+import {
+	and,
+	cdb,
+	excludeRegionalMappingRows,
+	gte,
+	inArray,
+	lt,
+	sql,
+} from "@llmgateway/db";
 import {
 	models as modelDefinitions,
 	providers as providerDefinitions,
@@ -154,10 +162,12 @@ publicModelStats.openapi(listRoute, async (c) => {
 			totalRequests: sql<string>`COALESCE(SUM(${mph.logsCount}), 0)`,
 		})
 		.from(mph)
-		.where(and(gte(mphTs, startDate)))
+		// The region-less root row already carries a mapping's regional traffic,
+		// so summing every row per provider would count it twice.
+		.where(and(gte(mphTs, startDate), excludeRegionalMappingRows(mph)))
 		.groupBy(mph.providerId)
 		.$withCache({
-			tag: `publicModelStats:providers:v1:${window}`,
+			tag: `publicModelStats:providers:v2:${window}`,
 			autoInvalidate: false,
 			config: { ex: STATS_CACHE_TTL_SECONDS },
 		});

@@ -6,9 +6,11 @@ import {
 	getProviderEnvExclusiveViolations,
 	getProviderEnvValue,
 	getRegionSpecificEnvVarName,
+	hasRegionSpecificEnvKey,
 	getVariantEnvVarName,
 	getVariantEnvVarNameFor,
 } from "./provider.js";
+import { getRegionScopedDefaultRegion } from "./providers.js";
 
 const BASE = "LLM_ALIBABA_API_KEY";
 const ENTERPRISE = `${BASE}__ENTERPRISE`;
@@ -258,5 +260,64 @@ describe("exclusive provider env groups", () => {
 	it("leaves providers without exclusive groups unconstrained", () => {
 		expect(getProviderEnvExclusiveGroups("openai")).toEqual([]);
 		expect(getProviderEnvExclusiveViolations("openai", {})).toEqual([]);
+	});
+});
+
+describe("hasRegionSpecificEnvKey with workspace-scoped regions", () => {
+	const WORKSPACE = "LLM_ALIBABA_WORKSPACE_ID";
+	const WORKSPACE_REGIONAL = `${WORKSPACE}__EU_FRANKFURT`;
+	const FRANKFURT_KEY = `${BASE}__EU_FRANKFURT`;
+
+	beforeEach(() => {
+		for (const name of [BASE, FRANKFURT_KEY, WORKSPACE, WORKSPACE_REGIONAL]) {
+			vi.stubEnv(name, undefined);
+		}
+	});
+
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
+	// Frankfurt has a shared entry point, so the key alone makes it routable
+	// and the workspace id only upgrades which host is used.
+	it("considers Frankfurt available from the regional API key alone", () => {
+		vi.stubEnv(FRANKFURT_KEY, "sk-frankfurt");
+		expect(hasRegionSpecificEnvKey("alibaba", "eu-frankfurt")).toBe(true);
+	});
+
+	it("considers Frankfurt available with a workspace id too", () => {
+		vi.stubEnv(FRANKFURT_KEY, "sk-frankfurt");
+		vi.stubEnv(WORKSPACE_REGIONAL, "ws-abc123");
+		expect(hasRegionSpecificEnvKey("alibaba", "eu-frankfurt")).toBe(true);
+	});
+
+	it("still requires the regional API key when only the workspace id is set", () => {
+		vi.stubEnv(BASE, "sk-singapore");
+		vi.stubEnv(WORKSPACE, "ws-abc123");
+		expect(hasRegionSpecificEnvKey("alibaba", "eu-frankfurt")).toBe(false);
+	});
+
+	it("leaves regions with a shared host unaffected", () => {
+		vi.stubEnv(`${BASE}__US_VIRGINIA`, "sk-us");
+		expect(hasRegionSpecificEnvKey("alibaba", "us-virginia")).toBe(true);
+	});
+});
+
+describe("getRegionScopedDefaultRegion", () => {
+	// Alibaba has no global region, so a credential always belongs to exactly
+	// one region and the default one serves requests that resolved none.
+	it("reports the default region for a provider with region-scoped keys", () => {
+		expect(getRegionScopedDefaultRegion("alibaba")).toBe("singapore");
+	});
+
+	// AWS keys are IAM-global: a region on a credential is the operator scoping
+	// it, never a hint that it may stand in for the default region.
+	it("reports nothing for a provider whose key works across regions", () => {
+		expect(getRegionScopedDefaultRegion("aws-bedrock")).toBeUndefined();
+		expect(getRegionScopedDefaultRegion("aws-mantle")).toBeUndefined();
+	});
+
+	it("reports nothing for a provider without regions", () => {
+		expect(getRegionScopedDefaultRegion("openai")).toBeUndefined();
 	});
 });

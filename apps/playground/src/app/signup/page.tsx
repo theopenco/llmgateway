@@ -255,6 +255,7 @@ function Signup() {
 							setIsLoading={setIsLoading}
 							callbackPath={returnUrl}
 							errorCallbackPath="/signup"
+							requestSignUp
 						/>
 					</div>
 
