@@ -300,7 +300,11 @@ export const moonshotModels = [
 				externalId: "kimi-k2.5",
 				inputPrice: "0.574e-6",
 				outputPrice: "3.011e-6",
-				regions: [{ id: "cn-beijing" }],
+				regions: [
+					{ id: "eu-frankfurt" },
+					{ id: "us-virginia" },
+					{ id: "cn-beijing" },
+				],
 				requestPrice: "0",
 				contextSize: 262144,
 				maxOutput: 98304,
