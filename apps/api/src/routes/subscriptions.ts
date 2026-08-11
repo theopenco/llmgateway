@@ -307,12 +307,15 @@ subscriptions.openapi(createProSubscription, async (c) => {
 			checkoutUrl: session.url,
 		});
 	} catch (error) {
+		if (error instanceof HTTPException) {
+			throw error;
+		}
 		logger.error(
 			"Stripe checkout session error",
 			error instanceof Error ? error : new Error(String(error)),
 		);
 		throw new HTTPException(500, {
-			message: `Failed to create checkout session: ${error}`,
+			message: "Failed to create checkout session",
 		});
 	}
 });
@@ -388,6 +391,23 @@ subscriptions.openapi(updateProSubscription, async (c) => {
 		const subscription = await stripe.subscriptions.retrieve(
 			organization.stripeSubscriptionId,
 		);
+
+		// A subscription that is ending or unpaid must not take prorated
+		// quantity changes — resume (or resolve payment) first.
+		if (subscription.cancel_at_period_end) {
+			throw new HTTPException(400, {
+				message:
+					"Your subscription is scheduled to cancel. Resume it before changing seats or add-ons.",
+			});
+		}
+		if (
+			subscription.status !== "active" &&
+			subscription.status !== "trialing"
+		) {
+			throw new HTTPException(400, {
+				message: `Your subscription is ${subscription.status} and cannot be changed right now.`,
+			});
+		}
 
 		// Map the desired quantities onto the existing subscription items:
 		// update quantities in place, add missing items, delete dropped ones.
@@ -695,9 +715,13 @@ subscriptions.openapi(getSubscriptionStatus, async (c) => {
 
 	const organization = userOrganization.organization;
 
-	// Get billing cycle from Stripe subscription if available
+	// Get billing cycle from Stripe subscription if available. Only legacy
+	// flat-fee subscriptions have a monthly/yearly distinction — seat-based
+	// subs are monthly by definition, and their first item is the seat price,
+	// so the yearly-price comparison below would be meaningless (and would
+	// error-log on deployments that only configure the new price IDs).
 	let billingCycle: "monthly" | "yearly" | null = null;
-	if (organization.stripeSubscriptionId) {
+	if (organization.stripeSubscriptionId && organization.proSeats === null) {
 		try {
 			const subscription = await getStripe().subscriptions.retrieve(
 				organization.stripeSubscriptionId,

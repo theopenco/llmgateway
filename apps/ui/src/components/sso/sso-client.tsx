@@ -581,14 +581,16 @@ export function SsoClient() {
 						</CardDescription>
 					</CardHeader>
 					<CardContent className="flex flex-wrap gap-2">
-						<Link href={buildOrgUrl("org/plan")}>
-							<Button>
+						<Button asChild>
+							<Link href={buildOrgUrl("org/plan")}>
 								{isSeatBasedPro ? "Enable SSO add-on" : "Upgrade to Pro"}
-							</Button>
-						</Link>
-						<a href="mailto:contact@llmgateway.io">
-							<Button variant="outline">Contact sales about Enterprise</Button>
-						</a>
+							</Link>
+						</Button>
+						<Button variant="outline" asChild>
+							<a href="mailto:contact@llmgateway.io">
+								Contact sales about Enterprise
+							</a>
+						</Button>
 					</CardContent>
 				</Card>
 			</div>

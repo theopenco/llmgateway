@@ -28,7 +28,7 @@ export const sso = new OpenAPIHono<ServerTypes>();
 
 const apiUrl = getApiBaseUrl();
 
-async function assertEnterpriseOrgAccess(
+async function assertSsoOrgAccess(
 	userId: string,
 	organizationId: string,
 ): Promise<{
@@ -72,7 +72,7 @@ async function assertScimOrgAccess(
 	userId: string,
 	organizationId: string,
 ): Promise<{ role: "owner" | "admin" }> {
-	const { role, organization } = await assertEnterpriseOrgAccess(
+	const { role, organization } = await assertSsoOrgAccess(
 		userId,
 		organizationId,
 	);
@@ -355,7 +355,7 @@ sso.openapi(register, async (c) => {
 		enforced,
 	} = c.req.valid("json");
 
-	await assertEnterpriseOrgAccess(user.id, organizationId);
+	await assertSsoOrgAccess(user.id, organizationId);
 
 	const normalizedDomain = parseDomainsOrThrow(domain);
 
@@ -516,7 +516,7 @@ sso.openapi(list, async (c) => {
 
 	const { organizationId } = c.req.valid("query");
 
-	await assertEnterpriseOrgAccess(user.id, organizationId);
+	await assertSsoOrgAccess(user.id, organizationId);
 
 	const rows = await db.query.ssoProvider.findMany({
 		where: { organizationId: { eq: organizationId } },
@@ -566,7 +566,7 @@ sso.openapi(removeProvider, async (c) => {
 	const { providerId } = c.req.valid("param");
 	const { organizationId } = c.req.valid("query");
 
-	await assertEnterpriseOrgAccess(user.id, organizationId);
+	await assertSsoOrgAccess(user.id, organizationId);
 
 	const existing = await db.query.ssoProvider.findFirst({
 		where: {
@@ -640,7 +640,7 @@ sso.openapi(updateProvider, async (c) => {
 	const { providerId } = c.req.valid("param");
 	const { organizationId, enforced, domain } = c.req.valid("json");
 
-	await assertEnterpriseOrgAccess(user.id, organizationId);
+	await assertSsoOrgAccess(user.id, organizationId);
 
 	if (enforced === undefined && domain === undefined) {
 		throw new HTTPException(400, {
@@ -738,7 +738,7 @@ sso.openapi(listRoleMappings, async (c) => {
 
 	const { organizationId } = c.req.valid("query");
 
-	await assertEnterpriseOrgAccess(user.id, organizationId);
+	await assertSsoOrgAccess(user.id, organizationId);
 
 	const mappings = await db.query.ssoRoleMapping.findMany({
 		where: { organizationId: { eq: organizationId } },
@@ -785,7 +785,7 @@ sso.openapi(createRoleMapping, async (c) => {
 
 	const { organizationId, groupName, role } = c.req.valid("json");
 
-	const { role: callerRole } = await assertEnterpriseOrgAccess(
+	const { role: callerRole } = await assertSsoOrgAccess(
 		user.id,
 		organizationId,
 	);
@@ -864,7 +864,7 @@ sso.openapi(removeRoleMapping, async (c) => {
 	const { id } = c.req.valid("param");
 	const { organizationId } = c.req.valid("query");
 
-	await assertEnterpriseOrgAccess(user.id, organizationId);
+	await assertSsoOrgAccess(user.id, organizationId);
 
 	const existing = await db.query.ssoRoleMapping.findFirst({
 		where: {
@@ -928,7 +928,7 @@ sso.openapi(listDefaultProjects, async (c) => {
 
 	const { organizationId } = c.req.valid("query");
 
-	await assertEnterpriseOrgAccess(user.id, organizationId);
+	await assertSsoOrgAccess(user.id, organizationId);
 
 	const liveProjects = await getOrgProjectsOldestFirst(organizationId);
 	const liveIds = new Set(liveProjects.map((p) => p.id));
@@ -979,7 +979,7 @@ sso.openapi(setDefaultProjects, async (c) => {
 
 	const { organizationId, projectIds } = c.req.valid("json");
 
-	await assertEnterpriseOrgAccess(user.id, organizationId);
+	await assertSsoOrgAccess(user.id, organizationId);
 
 	const liveProjects = await getOrgProjectsOldestFirst(organizationId);
 	const liveIds = new Set(liveProjects.map((p) => p.id));

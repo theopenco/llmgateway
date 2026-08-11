@@ -1615,7 +1615,11 @@ async function handleCheckoutSessionCompleted(
 			}
 
 			// Sync the purchased seat/API-key/SSO quantities from the
-			// subscription's line items so limits reflect what was bought.
+			// subscription's line items so limits reflect what was bought. A
+			// subscription without a seat line item (legacy price, or unmatched
+			// price IDs) must RESET the quantity fields — activating a new
+			// subscription while keeping a previous subscription's quantities
+			// would grant entitlements that are no longer paid for.
 			const proQuantities = subscriptionId
 				? extractProQuantities(
 						await getStripe().subscriptions.retrieve(subscriptionId),
@@ -1628,7 +1632,12 @@ async function handleCheckoutSessionCompleted(
 					plan: "pro",
 					stripeSubscriptionId: subscriptionId,
 					subscriptionCancelled: false,
-					...(proQuantities ?? {}),
+					...(proQuantities ?? {
+						proSeats: null,
+						proExtraApiKeys: 0,
+						proSsoEnabled: false,
+						proScimEnabled: false,
+					}),
 				})
 				.where(eq(tables.organization.id, organizationId))
 				.returning();
@@ -5092,14 +5101,32 @@ export async function handleSubscriptionUpdated(
 			});
 		}
 
+		// Re-sync purchased quantities so seat/add-on changes made via the
+		// dashboard or the Stripe portal are reflected in limits. Stripe does
+		// not guarantee webhook ordering, so quantities come from a fresh
+		// retrieve of the subscription (its CURRENT state) rather than the
+		// event payload — a late-arriving older event then still converges on
+		// the latest configuration. If the retrieve fails, skip the quantity
+		// sync instead of risking a stale write; the next event or the
+		// dashboard's own write will catch up.
+		let currentQuantities: ReturnType<typeof extractProQuantities> = null;
+		try {
+			currentQuantities = extractProQuantities(
+				await getStripe().subscriptions.retrieve(subscription.id),
+			);
+		} catch (error) {
+			logger.error(
+				`Failed to re-retrieve subscription ${subscription.id} for quantity sync; skipping`,
+				error as Error,
+			);
+		}
+
 		await db
 			.update(tables.organization)
 			.set({
 				planExpiresAt: expiresAt,
 				subscriptionCancelled: !isSubscriptionActive,
-				// Re-sync purchased quantities so seat/add-on changes made via the
-				// dashboard or the Stripe portal are reflected in limits.
-				...(extractProQuantities(subscription) ?? {}),
+				...(currentQuantities ?? {}),
 			})
 			.where(eq(tables.organization.id, organizationId));
 
@@ -5430,13 +5457,21 @@ async function handleSubscriptionCreated(
 	}
 
 	try {
+		// Same reset semantics as the checkout handler: activating a
+		// subscription with no matching seat item clears any previous
+		// subscription's quantities instead of carrying them over.
 		await db
 			.update(tables.organization)
 			.set({
 				plan: "pro",
 				stripeSubscriptionId: subscription.id,
 				subscriptionCancelled: false,
-				...(extractProQuantities(subscription) ?? {}),
+				...(extractProQuantities(subscription) ?? {
+					proSeats: null,
+					proExtraApiKeys: 0,
+					proSsoEnabled: false,
+					proScimEnabled: false,
+				}),
 			})
 			.where(eq(tables.organization.id, organizationId))
 			.returning();

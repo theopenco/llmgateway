@@ -195,7 +195,7 @@ function ProPlanConfigurator({
 					/>
 					<p className="text-xs text-muted-foreground">
 						${PRO_PLAN_PRICES.extraApiKey}/month each. Only keys beyond your{" "}
-						{selection.seats} included one{selection.seats === 1 ? "" : "s"} are
+						{selection.seats} included key{selection.seats === 1 ? "" : "s"} are
 						billed.
 					</p>
 				</div>
@@ -367,23 +367,34 @@ export function PlanManagement() {
 	};
 
 	const [selection, setSelection] = useState<ProSelection>(currentSelection);
+	// Once the user touches the form, stop re-seeding it — otherwise the team
+	// query resolving (or a background org refetch) would clobber their edits.
+	const [selectionDirty, setSelectionDirty] = useState(false);
 
-	// Re-seed the form when the org (or its subscription) changes, e.g. after a
-	// checkout redirect or org switch.
+	const handleSelectionChange = (next: ProSelection) => {
+		setSelectionDirty(true);
+		setSelection(next);
+	};
+
+	// Seed (and re-seed) the untouched form when the org, its subscription, or
+	// the team data changes — the team query resolves after first render, and
+	// for a free org the seat default must cover current members + invites or
+	// the server rejects the checkout.
 	useEffect(() => {
+		if (selectionDirty) {
+			return;
+		}
 		setSelection({
 			seats:
 				selectedOrganization?.proSeats ??
-				Math.max(
-					teamData ? teamData.members.length : PRO_PLAN_MIN_SEATS,
-					PRO_PLAN_MIN_SEATS,
-				),
+				Math.max(seatsUsed ?? PRO_PLAN_MIN_SEATS, PRO_PLAN_MIN_SEATS),
 			extraApiKeys: selectedOrganization?.proExtraApiKeys ?? 0,
 			ssoAddon: selectedOrganization?.proSsoEnabled ?? false,
 			scimAddon: selectedOrganization?.proScimEnabled ?? false,
 		});
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [
+		selectionDirty,
+		seatsUsed,
 		selectedOrganization?.id,
 		selectedOrganization?.proSeats,
 		selectedOrganization?.proExtraApiKeys,
@@ -457,6 +468,9 @@ export function PlanManagement() {
 			await updateSubscriptionMutation.mutateAsync({
 				body: { ...selection, organizationId },
 			});
+			// The form now matches the subscription again — let future org/team
+			// refreshes re-seed it.
+			setSelectionDirty(false);
 			await invalidatePlanQueries();
 			toast({
 				title: "Subscription updated",
@@ -480,17 +494,29 @@ export function PlanManagement() {
 			return;
 		}
 
+		if (!organizationId) {
+			return;
+		}
+
 		posthog.capture("subscription_cancel_initiated");
 
-		await cancelSubscriptionMutation.mutateAsync({
-			body: { organizationId },
-		});
-		await invalidatePlanQueries();
-		toast({
-			title: "Subscription Canceled",
-			description:
-				"Your Pro subscription has been canceled and will end at the current billing period.",
-		});
+		try {
+			await cancelSubscriptionMutation.mutateAsync({
+				body: { organizationId },
+			});
+			await invalidatePlanQueries();
+			toast({
+				title: "Subscription Canceled",
+				description:
+					"Your Pro subscription has been canceled and will end at the current billing period.",
+			});
+		} catch (error) {
+			toast({
+				title: "Could not cancel subscription",
+				description: errorMessage(error),
+				variant: "destructive",
+			});
+		}
 	};
 
 	const handleResumeSubscription = async () => {
@@ -502,16 +528,28 @@ export function PlanManagement() {
 			return;
 		}
 
+		if (!organizationId) {
+			return;
+		}
+
 		posthog.capture("subscription_resume_initiated");
 
-		await resumeSubscriptionMutation.mutateAsync({
-			body: { organizationId },
-		});
-		await invalidatePlanQueries();
-		toast({
-			title: "Subscription Resumed",
-			description: "Your Pro subscription has been resumed.",
-		});
+		try {
+			await resumeSubscriptionMutation.mutateAsync({
+				body: { organizationId },
+			});
+			await invalidatePlanQueries();
+			toast({
+				title: "Subscription Resumed",
+				description: "Your Pro subscription has been resumed.",
+			});
+		} catch (error) {
+			toast({
+				title: "Could not resume subscription",
+				description: errorMessage(error),
+				variant: "destructive",
+			});
+		}
 	};
 
 	if (!selectedOrganization) {
@@ -721,7 +759,7 @@ export function PlanManagement() {
 
 					<ProPlanConfigurator
 						selection={selection}
-						onChange={setSelection}
+						onChange={handleSelectionChange}
 						seatsUsed={seatsUsed}
 						keysUsed={keysUsed}
 					/>
@@ -822,7 +860,7 @@ export function PlanManagement() {
 
 					<ProPlanConfigurator
 						selection={selection}
-						onChange={setSelection}
+						onChange={handleSelectionChange}
 						seatsUsed={seatsUsed}
 						keysUsed={keysUsed}
 					/>

@@ -71,9 +71,9 @@ export default async function BillingPage({
 									Plan page.
 								</CardDescription>
 							</div>
-							<Link href={`/dashboard/${orgId}/org/plan`}>
-								<Button variant="outline">Manage plan</Button>
-							</Link>
+							<Button variant="outline" asChild>
+								<Link href={`/dashboard/${orgId}/org/plan`}>Manage plan</Link>
+							</Button>
 						</CardHeader>
 					</Card>
 

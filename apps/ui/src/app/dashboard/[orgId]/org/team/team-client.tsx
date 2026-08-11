@@ -991,20 +991,26 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 												<p>
 													Your plan includes up to {data?.seatLimit ?? 5} team
 													members.{" "}
-													<Link
-														href={`/dashboard/${organizationId}/org/plan`}
-														className="underline"
-													>
-														Upgrade to Pro
-													</Link>{" "}
-													to add more seats, or contact us at{" "}
+													{!isEnterprise && (
+														<>
+															<Link href={planUrl} className="underline">
+																{isSeatBasedPro
+																	? "Add seats"
+																	: "Upgrade to Pro"}
+															</Link>{" "}
+															to get more, or contact
+														</>
+													)}
+													{isEnterprise && <>Contact</>} us at{" "}
 													<a
 														href="mailto:contact@llmgateway.io"
 														className="underline"
 													>
 														contact@llmgateway.io
 													</a>{" "}
-													for role-based access control (RBAC).
+													{isEnterprise
+														? "to adjust your agreement."
+														: "for role-based access control (RBAC)."}
 												</p>
 											</AlertDescription>
 										</Alert>
@@ -1044,16 +1050,14 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 											: `Upgrade to Pro to add more seats ($${PRO_PLAN_PRICES.seat}/user/month).`}
 									</p>
 									<div className="flex shrink-0 gap-2">
-										<Link href={planUrl}>
-											<Button size="sm">
+										<Button size="sm" asChild>
+											<Link href={planUrl}>
 												{isSeatBasedPro ? "Add seats" : "Upgrade to Pro"}
-											</Button>
-										</Link>
-										<a href="mailto:contact@llmgateway.io">
-											<Button size="sm" variant="outline">
-												Contact sales
-											</Button>
-										</a>
+											</Link>
+										</Button>
+										<Button size="sm" variant="outline" asChild>
+											<a href="mailto:contact@llmgateway.io">Contact sales</a>
+										</Button>
 									</div>
 								</div>
 							</AlertDescription>

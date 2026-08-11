@@ -1567,6 +1567,34 @@ keysApi.openapi(updateStatus, async (c) => {
 		});
 	}
 
+	// Reactivating a key must respect the same org-wide active-key cap as
+	// creation, or downgrading a plan while keys sit inactive would let the org
+	// exceed what it pays for by flipping them back on.
+	if (
+		status === "active" &&
+		apiKey.status !== "active" &&
+		apiKey.keyType === "user" &&
+		userOrg?.organization
+	) {
+		const orgProjects = userOrg.organization.projects
+			.filter((project) => project.status !== "deleted")
+			.map((project) => project.id);
+		const orgActiveApiKeys = await db.query.apiKey.findMany({
+			where: {
+				projectId: { in: orgProjects },
+				status: { eq: "active" },
+				keyType: { eq: "user" },
+			},
+			columns: { id: true },
+		});
+		const maxApiKeys = resolveApiKeyLimit(userOrg.organization);
+		if (orgActiveApiKeys.length >= maxApiKeys) {
+			throw new HTTPException(400, {
+				message: `API key limit reached. Maximum ${maxApiKeys} active API keys per organization. Upgrade to Pro on the plan page for more, or contact us at contact@llmgateway.io.`,
+			});
+		}
+	}
+
 	// Update the API key status
 	// Update through the cached client so its onMutate invalidates the gateway's
 	// cached token lookups (Drizzle cache + SWR mirror) for the api_key table.
