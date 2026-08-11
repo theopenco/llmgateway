@@ -182,7 +182,12 @@ export function SsoClient() {
 	const queryClient = useQueryClient();
 	const { apiUrl } = useAppConfig();
 
-	const isEnterprise = selectedOrganization?.plan === "enterprise";
+	// SSO management is available to enterprise orgs and Pro orgs that
+	// purchased the SSO & SCIM add-on (mirrors the API's hasSsoAccess gate).
+	const hasSsoAccess =
+		selectedOrganization?.plan === "enterprise" ||
+		(selectedOrganization?.plan === "pro" &&
+			!!selectedOrganization?.proSsoEnabled);
 
 	const [providerType, setProviderType] = useState<
 		"" | "okta" | "entra" | "generic" | "google"
@@ -246,28 +251,28 @@ export function SsoClient() {
 		"get",
 		"/sso/providers",
 		{ params: { query: { organizationId } } },
-		{ enabled: !!organizationId && isEnterprise },
+		{ enabled: !!organizationId && hasSsoAccess },
 	);
 
 	const scimQuery = api.useQuery(
 		"get",
 		"/sso/scim",
 		{ params: { query: { organizationId } } },
-		{ enabled: !!organizationId && isEnterprise },
+		{ enabled: !!organizationId && hasSsoAccess },
 	);
 
 	const mappingsQuery = api.useQuery(
 		"get",
 		"/sso/role-mappings",
 		{ params: { query: { organizationId } } },
-		{ enabled: !!organizationId && isEnterprise },
+		{ enabled: !!organizationId && hasSsoAccess },
 	);
 
 	const defaultProjectsQuery = api.useQuery(
 		"get",
 		"/sso/default-projects",
 		{ params: { query: { organizationId } } },
-		{ enabled: !!organizationId && isEnterprise },
+		{ enabled: !!organizationId && hasSsoAccess },
 	);
 
 	const registerMutation = api.useMutation("post", "/sso/providers");
@@ -543,7 +548,7 @@ export function SsoClient() {
 		);
 	}
 
-	if (!isEnterprise) {
+	if (!hasSsoAccess) {
 		return (
 			<div className="flex flex-col space-y-4 p-4 pt-6 md:p-8">
 				<Card>
@@ -554,14 +559,15 @@ export function SsoClient() {
 						</CardTitle>
 						<CardDescription>
 							SAML SSO and SCIM directory provisioning are available on the
-							Enterprise plan. Contact us at{" "}
+							Enterprise plan or as a Pro plan add-on ($300/month). Upgrade from
+							your billing page, or contact us at{" "}
 							<a
 								href="mailto:contact@llmgateway.io"
 								className="text-primary underline underline-offset-4"
 							>
 								contact@llmgateway.io
 							</a>{" "}
-							to enable them.
+							to discuss Enterprise.
 						</CardDescription>
 					</CardHeader>
 				</Card>

@@ -25,6 +25,7 @@ import {
 	type DevPlanTier,
 } from "@llmgateway/shared";
 
+import { extractProQuantities } from "./lib/pro-plan.js";
 import { computeReferralBonus } from "./lib/referral-bonus.js";
 import { posthog } from "./posthog.js";
 import { getStripe, type StripeMode } from "./routes/payments.js";
@@ -1578,12 +1579,21 @@ async function handleCheckoutSessionCompleted(
 				return;
 			}
 
+			// Sync the purchased seat/API-key/SSO quantities from the
+			// subscription's line items so limits reflect what was bought.
+			const proQuantities = subscriptionId
+				? extractProQuantities(
+						await getStripe().subscriptions.retrieve(subscriptionId),
+					)
+				: null;
+
 			const result = await db
 				.update(tables.organization)
 				.set({
 					plan: "pro",
 					stripeSubscriptionId: subscriptionId,
 					subscriptionCancelled: false,
+					...(proQuantities ?? {}),
 				})
 				.where(eq(tables.organization.id, organizationId))
 				.returning();
@@ -1633,7 +1643,9 @@ async function handleCheckoutSessionCompleted(
 						billingNotes: organization.billingNotes,
 						lineItems: [
 							{
-								description: "Pro Subscription",
+								description: proQuantities
+									? `Pro Subscription (${proQuantities.proSeats} seat${proQuantities.proSeats === 1 ? "" : "s"}${proQuantities.proExtraApiKeys ? `, ${proQuantities.proExtraApiKeys} extra API key${proQuantities.proExtraApiKeys === 1 ? "" : "s"}` : ""}${proQuantities.proSsoEnabled ? ", SSO & SCIM add-on" : ""})`
+									: "Pro Subscription",
 								amount: (session.amount_total ?? 0) / 100,
 							},
 						],
@@ -4974,7 +4986,19 @@ export async function handleSubscriptionUpdated(
 			`Updated dev plan subscription for organization ${organizationId}, expires at: ${expiresAt}, cancelled: ${!isSubscriptionActive}`,
 		);
 	} else {
-		// Handle regular pro subscription update
+		// Handle regular pro subscription update. Same stale-event guard as the
+		// dev/chat branches above: once the org has activated a subscription,
+		// only that subscription may drive plan state (a superseded sub's
+		// trailing events must not overwrite the active quantities).
+		if (
+			organization.stripeSubscriptionId &&
+			organization.stripeSubscriptionId !== subscription.id
+		) {
+			logger.info(
+				`Ignoring stale subscription.updated ${subscription.id} for org ${organizationId} (active sub: ${organization.stripeSubscriptionId}, status: ${subscription.status})`,
+			);
+			return;
+		}
 		const wasSubscriptionCancelled = organization.subscriptionCancelled;
 
 		// Create transaction record for subscription cancellation if it was cancelled
@@ -4993,6 +5017,9 @@ export async function handleSubscriptionUpdated(
 			.set({
 				planExpiresAt: expiresAt,
 				subscriptionCancelled: !isSubscriptionActive,
+				// Re-sync purchased quantities so seat/add-on changes made via the
+				// dashboard or the Stripe portal are reflected in limits.
+				...(extractProQuantities(subscription) ?? {}),
 			})
 			.where(eq(tables.organization.id, organizationId));
 
@@ -5234,6 +5261,9 @@ export async function handleSubscriptionDeleted(
 				stripeSubscriptionId: null,
 				planExpiresAt: null,
 				subscriptionCancelled: false,
+				proSeats: null,
+				proExtraApiKeys: 0,
+				proSsoEnabled: false,
 			})
 			.where(eq(tables.organization.id, organizationId));
 
@@ -5325,6 +5355,7 @@ async function handleSubscriptionCreated(
 				plan: "pro",
 				stripeSubscriptionId: subscription.id,
 				subscriptionCancelled: false,
+				...(extractProQuantities(subscription) ?? {}),
 			})
 			.where(eq(tables.organization.id, organizationId))
 			.returning();

@@ -2,7 +2,11 @@ import Link from "next/link";
 
 import { JsonLd } from "@/components/seo/json-ld";
 
-import { MARKETING_STATS } from "@llmgateway/shared";
+import {
+	MARKETING_STATS,
+	PRO_PLAN_MAX_SEATS,
+	PRO_PLAN_PRICES,
+} from "@llmgateway/shared";
 
 interface PricingFaqItem {
 	question: string;
@@ -14,7 +18,11 @@ interface PricingFaqItem {
 const FAQ_ITEMS: PricingFaqItem[] = [
 	{
 		question: "How much does LLM Gateway cost?",
-		answer: `You pay per-token at each provider's own rates. The only platform fee is a flat ${MARKETING_STATS.platformFee} when you buy credits — no seats, no minimums, no subscription. You can start free without a credit card.`,
+		answer: `You pay per-token at each provider's own rates. The only platform fee is a flat ${MARKETING_STATS.platformFee} when you buy credits — no minimums, and the Free plan has no subscription. You can start free without a credit card.`,
+	},
+	{
+		question: "What does the Pro plan include?",
+		answer: `Pro has the same product features as Free — it raises your limits. Seats are $${PRO_PLAN_PRICES.seat} per user per month (up to ${PRO_PLAN_MAX_SEATS} users), and every seat includes one API key. Extra API keys beyond your seat count are $${PRO_PLAN_PRICES.extraApiKey}/month each, and an optional SSO & SCIM add-on is $${PRO_PLAN_PRICES.sso}/month. Need more than ${PRO_PLAN_MAX_SEATS} seats or volume discounts? That's Enterprise.`,
 	},
 	{
 		question: "Is there a fee when I bring my own API keys?",

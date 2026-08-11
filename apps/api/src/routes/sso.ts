@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { apiAuth } from "@/auth/config.js";
 import { getApiBaseUrl } from "@/lib/api-url.js";
+import { hasSsoAccess, SSO_PLAN_REQUIRED_MESSAGE } from "@/lib/sso-access.js";
 import { getOrgProjectsOldestFirst } from "@/lib/sso-default-projects.js";
 import { normalizeSsoDomains } from "@/lib/sso-domains.js";
 import { recomputeRoleForGroupName } from "@/lib/sso-roles.js";
@@ -46,9 +47,9 @@ async function assertEnterpriseOrgAccess(
 		});
 	}
 
-	if (userOrg.organization?.plan !== "enterprise") {
+	if (!hasSsoAccess(userOrg.organization)) {
 		throw new HTTPException(403, {
-			message: "SSO requires an enterprise plan",
+			message: SSO_PLAN_REQUIRED_MESSAGE,
 		});
 	}
 

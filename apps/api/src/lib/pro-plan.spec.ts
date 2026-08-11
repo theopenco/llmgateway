@@ -1,0 +1,200 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import { resolveApiKeyLimit } from "./api-key-limit.js";
+import { extractProQuantities } from "./pro-plan.js";
+import { resolveSeatLimit } from "./seat-limit.js";
+import { hasSsoAccess } from "./sso-access.js";
+
+import type Stripe from "stripe";
+
+function subscriptionWithItems(
+	items: { priceId: string; quantity?: number }[],
+): Stripe.Subscription {
+	return {
+		items: {
+			data: items.map((item) => ({
+				price: { id: item.priceId },
+				quantity: item.quantity,
+			})),
+		},
+	} as unknown as Stripe.Subscription;
+}
+
+describe("extractProQuantities", () => {
+	const env = {
+		STRIPE_PRO_SEAT_PRICE_ID: process.env.STRIPE_PRO_SEAT_PRICE_ID,
+		STRIPE_PRO_EXTRA_API_KEY_PRICE_ID:
+			process.env.STRIPE_PRO_EXTRA_API_KEY_PRICE_ID,
+		STRIPE_PRO_SSO_PRICE_ID: process.env.STRIPE_PRO_SSO_PRICE_ID,
+	};
+
+	beforeEach(() => {
+		process.env.STRIPE_PRO_SEAT_PRICE_ID = "price_seat";
+		process.env.STRIPE_PRO_EXTRA_API_KEY_PRICE_ID = "price_key";
+		process.env.STRIPE_PRO_SSO_PRICE_ID = "price_sso";
+	});
+
+	afterEach(() => {
+		if (env.STRIPE_PRO_SEAT_PRICE_ID === undefined) {
+			delete process.env.STRIPE_PRO_SEAT_PRICE_ID;
+		} else {
+			process.env.STRIPE_PRO_SEAT_PRICE_ID = env.STRIPE_PRO_SEAT_PRICE_ID;
+		}
+		if (env.STRIPE_PRO_EXTRA_API_KEY_PRICE_ID === undefined) {
+			delete process.env.STRIPE_PRO_EXTRA_API_KEY_PRICE_ID;
+		} else {
+			process.env.STRIPE_PRO_EXTRA_API_KEY_PRICE_ID =
+				env.STRIPE_PRO_EXTRA_API_KEY_PRICE_ID;
+		}
+		if (env.STRIPE_PRO_SSO_PRICE_ID === undefined) {
+			delete process.env.STRIPE_PRO_SSO_PRICE_ID;
+		} else {
+			process.env.STRIPE_PRO_SSO_PRICE_ID = env.STRIPE_PRO_SSO_PRICE_ID;
+		}
+	});
+
+	it("extracts seats, extra keys, and the SSO add-on", () => {
+		const result = extractProQuantities(
+			subscriptionWithItems([
+				{ priceId: "price_seat", quantity: 12 },
+				{ priceId: "price_key", quantity: 3 },
+				{ priceId: "price_sso", quantity: 1 },
+			]),
+		);
+		expect(result).toEqual({
+			proSeats: 12,
+			proExtraApiKeys: 3,
+			proSsoEnabled: true,
+		});
+	});
+
+	it("defaults extra keys and SSO when their items are absent", () => {
+		const result = extractProQuantities(
+			subscriptionWithItems([{ priceId: "price_seat", quantity: 5 }]),
+		);
+		expect(result).toEqual({
+			proSeats: 5,
+			proExtraApiKeys: 0,
+			proSsoEnabled: false,
+		});
+	});
+
+	it("returns null for legacy flat-fee subscriptions", () => {
+		const result = extractProQuantities(
+			subscriptionWithItems([{ priceId: "price_legacy_pro", quantity: 1 }]),
+		);
+		expect(result).toBeNull();
+	});
+
+	it("returns null when the seat price is not configured", () => {
+		delete process.env.STRIPE_PRO_SEAT_PRICE_ID;
+		const result = extractProQuantities(
+			subscriptionWithItems([{ priceId: "price_seat", quantity: 5 }]),
+		);
+		expect(result).toBeNull();
+	});
+});
+
+describe("resolveSeatLimit", () => {
+	it("uses the admin override over everything else", () => {
+		expect(resolveSeatLimit({ plan: "pro", seats: 42, proSeats: 10 })).toBe(42);
+	});
+
+	it("uses purchased Pro seats when no override is set", () => {
+		expect(resolveSeatLimit({ plan: "pro", seats: null, proSeats: 10 })).toBe(
+			10,
+		);
+	});
+
+	it("keeps the historical default for legacy Pro without proSeats", () => {
+		expect(resolveSeatLimit({ plan: "pro", seats: null, proSeats: null })).toBe(
+			5,
+		);
+	});
+
+	it("ignores proSeats for non-pro plans", () => {
+		expect(resolveSeatLimit({ plan: "free", seats: null, proSeats: 10 })).toBe(
+			5,
+		);
+		expect(
+			resolveSeatLimit({ plan: "enterprise", seats: null, proSeats: 10 }),
+		).toBe(100);
+	});
+
+	it("falls back to the free default when the org is missing", () => {
+		expect(resolveSeatLimit(null)).toBe(5);
+		expect(resolveSeatLimit(undefined)).toBe(5);
+	});
+});
+
+describe("resolveApiKeyLimit", () => {
+	it("uses the admin override over everything else", () => {
+		expect(
+			resolveApiKeyLimit({
+				plan: "pro",
+				apiKeyLimit: 99,
+				proSeats: 10,
+				proExtraApiKeys: 2,
+			}),
+		).toBe(99);
+	});
+
+	it("adds one included key per seat plus purchased extras", () => {
+		expect(
+			resolveApiKeyLimit({
+				plan: "pro",
+				apiKeyLimit: null,
+				proSeats: 10,
+				proExtraApiKeys: 3,
+			}),
+		).toBe(13);
+	});
+
+	it("keeps the historical default for legacy Pro without proSeats", () => {
+		expect(
+			resolveApiKeyLimit({
+				plan: "pro",
+				apiKeyLimit: null,
+				proSeats: null,
+				proExtraApiKeys: 0,
+			}),
+		).toBe(20);
+	});
+
+	it("ignores Pro quantities on other plans", () => {
+		expect(
+			resolveApiKeyLimit({
+				plan: "free",
+				apiKeyLimit: null,
+				proSeats: 10,
+				proExtraApiKeys: 3,
+			}),
+		).toBe(5);
+		expect(
+			resolveApiKeyLimit({
+				plan: "enterprise",
+				apiKeyLimit: null,
+				proSeats: 10,
+				proExtraApiKeys: 3,
+			}),
+		).toBe(500);
+	});
+});
+
+describe("hasSsoAccess", () => {
+	it("grants access to enterprise orgs", () => {
+		expect(hasSsoAccess({ plan: "enterprise", proSsoEnabled: false })).toBe(
+			true,
+		);
+	});
+
+	it("grants access to pro orgs with the SSO add-on", () => {
+		expect(hasSsoAccess({ plan: "pro", proSsoEnabled: true })).toBe(true);
+	});
+
+	it("denies pro orgs without the add-on and free orgs", () => {
+		expect(hasSsoAccess({ plan: "pro", proSsoEnabled: false })).toBe(false);
+		expect(hasSsoAccess({ plan: "free", proSsoEnabled: true })).toBe(false);
+		expect(hasSsoAccess(null)).toBe(false);
+	});
+});

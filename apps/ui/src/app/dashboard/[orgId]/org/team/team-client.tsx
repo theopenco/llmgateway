@@ -978,16 +978,22 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 										<Alert>
 											<AlertDescription>
 												<p>
-													Organizations can have up to {data?.seatLimit ?? 5}{" "}
-													team members. Contact us at{" "}
+													Your plan includes up to {data?.seatLimit ?? 5} team
+													members.{" "}
+													<Link
+														href={`/dashboard/${organizationId}/org/billing`}
+														className="underline"
+													>
+														Upgrade to Pro
+													</Link>{" "}
+													to add more seats, or contact us at{" "}
 													<a
 														href="mailto:contact@llmgateway.io"
 														className="underline"
 													>
 														contact@llmgateway.io
 													</a>{" "}
-													to unlock more seats and role-based access control
-													(RBAC).
+													for role-based access control (RBAC).
 												</p>
 											</AlertDescription>
 										</Alert>

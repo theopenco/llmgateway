@@ -7,7 +7,11 @@ import { AuthLink } from "@/components/shared/auth-link";
 import { Button } from "@/lib/components/button";
 import { cn } from "@/lib/utils";
 
-import { MARKETING_STATS } from "@llmgateway/shared";
+import {
+	MARKETING_STATS,
+	PRO_PLAN_MAX_SEATS,
+	PRO_PLAN_PRICES,
+} from "@llmgateway/shared";
 
 type FeatureValue = boolean | string;
 
@@ -17,19 +21,42 @@ interface PricingFeature {
 	learnMoreLink?: string;
 	learnMoreText?: string;
 	free: FeatureValue;
+	pro: FeatureValue;
 	enterprise: FeatureValue;
 }
 
+// Pro has the exact same product features as Free — it raises the seat and
+// API-key limits and unlocks the SSO & SCIM add-on. Keep the Pro column
+// identical to Free everywhere except limits, add-ons, and enterprise rows.
 const pricingFeatures: PricingFeature[] = [
 	{
 		name: "Platform Fees",
 		free: "5% on credit usage",
+		pro: "5% on credit usage",
 		enterprise: "Volume discounts",
 	},
 	{
-		name: "Free Trial",
-		free: "Free forever",
-		enterprise: "30-day trial",
+		name: "Team Seats",
+		description: "Members across your organization",
+		free: "5 seats",
+		pro: `Up to ${PRO_PLAN_MAX_SEATS} at $${PRO_PLAN_PRICES.seat}/user/mo`,
+		enterprise: "Custom",
+	},
+	{
+		name: "API Keys",
+		description: "Active API keys across your organization",
+		free: "5 keys",
+		pro: `1 per seat, +$${PRO_PLAN_PRICES.extraApiKey}/mo per extra key`,
+		enterprise: "Custom",
+	},
+	{
+		name: "SSO/SAML & SCIM",
+		description: "SAML 2.0 & OIDC with SCIM provisioning",
+		learnMoreLink: "/enterprise/sso-saml",
+		learnMoreText: "Learn more →",
+		free: false,
+		pro: `$${PRO_PLAN_PRICES.sso}/mo add-on`,
+		enterprise: true,
 	},
 	{
 		name: "Models",
@@ -37,6 +64,7 @@ const pricingFeatures: PricingFeature[] = [
 		learnMoreLink: "/models",
 		learnMoreText: "Browse all models →",
 		free: "All 200+ models",
+		pro: "All 200+ models",
 		enterprise: "All 200+ models",
 	},
 	{
@@ -45,12 +73,14 @@ const pricingFeatures: PricingFeature[] = [
 		learnMoreLink: "/providers",
 		learnMoreText: "View all providers →",
 		free: "Full control + BYOK",
+		pro: "Full control + BYOK",
 		enterprise: "Custom routing rules",
 	},
 	{
 		name: "Free Models",
 		description: "Zero-cost models with rate limits",
 		free: "3 (rate limited)",
+		pro: "3 (rate limited)",
 		enterprise: "3 (custom limits)",
 	},
 	{
@@ -59,11 +89,13 @@ const pricingFeatures: PricingFeature[] = [
 		learnMoreLink: "/guides",
 		learnMoreText: "View integration guides →",
 		free: true,
+		pro: true,
 		enterprise: true,
 	},
 	{
 		name: "Activity Logs & Export",
 		free: true,
+		pro: true,
 		enterprise: true,
 	},
 	{
@@ -73,6 +105,7 @@ const pricingFeatures: PricingFeature[] = [
 			"https://docs.llmgateway.io/features/data-retention#storage-pricing",
 		learnMoreText: "See storage pricing →",
 		free: "30 days",
+		pro: "30 days",
 		enterprise: "Unlimited",
 	},
 	{
@@ -80,39 +113,46 @@ const pricingFeatures: PricingFeature[] = [
 		description: "Automatic provider routing",
 		learnMoreLink: "/features/auto-routing",
 		free: true,
+		pro: true,
 		enterprise: true,
 	},
 	{
 		name: "Budgets & Spend Controls",
 		free: true,
+		pro: true,
 		enterprise: true,
 	},
 	{
 		name: "Prompt Caching",
 		description: "Cache prompts for faster responses",
 		free: true,
+		pro: true,
 		enterprise: true,
 	},
 	{
 		name: "Bring Your Own Keys (BYOK)",
 		description: "Use your own provider API keys",
 		free: "Included",
+		pro: "Included",
 		enterprise: "Custom limits",
 	},
 	{
 		name: "Team Management",
 		free: true,
+		pro: true,
 		enterprise: true,
 	},
 	{
 		name: "Advanced Analytics",
 		free: true,
+		pro: true,
 		enterprise: true,
 	},
 	{
 		name: "Admin Controls",
 		description: "Enterprise-level admin features",
 		free: false,
+		pro: false,
 		enterprise: true,
 	},
 	{
@@ -121,6 +161,7 @@ const pricingFeatures: PricingFeature[] = [
 		learnMoreLink: "/enterprise/audit-logs",
 		learnMoreText: "Learn more →",
 		free: false,
+		pro: false,
 		enterprise: true,
 	},
 	{
@@ -129,6 +170,7 @@ const pricingFeatures: PricingFeature[] = [
 		learnMoreLink: "/enterprise/guardrails",
 		learnMoreText: "Learn more →",
 		free: false,
+		pro: false,
 		enterprise: true,
 	},
 	{
@@ -137,6 +179,7 @@ const pricingFeatures: PricingFeature[] = [
 		learnMoreLink: "/enterprise/routing-overrides",
 		learnMoreText: "Learn more →",
 		free: false,
+		pro: false,
 		enterprise: true,
 	},
 	{
@@ -145,6 +188,7 @@ const pricingFeatures: PricingFeature[] = [
 		learnMoreLink: "/enterprise/compliance",
 		learnMoreText: "Learn more →",
 		free: false,
+		pro: false,
 		enterprise: true,
 	},
 	{
@@ -153,19 +197,13 @@ const pricingFeatures: PricingFeature[] = [
 		learnMoreLink: "/enterprise/discord-notifications",
 		learnMoreText: "Learn more →",
 		free: false,
-		enterprise: true,
-	},
-	{
-		name: "SSO/SAML",
-		description: "SAML 2.0 & OIDC with SCIM provisioning",
-		learnMoreLink: "/enterprise/sso-saml",
-		learnMoreText: "Learn more →",
-		free: false,
+		pro: false,
 		enterprise: true,
 	},
 	{
 		name: "Contractual SLAs",
 		free: false,
+		pro: false,
 		enterprise: true,
 	},
 	{
@@ -174,17 +212,20 @@ const pricingFeatures: PricingFeature[] = [
 		learnMoreLink: "/enterprise/white-label",
 		learnMoreText: "Learn more →",
 		free: false,
+		pro: false,
 		enterprise: true,
 	},
 	{
 		name: "Payment Options",
 		free: "Credit card",
+		pro: "Credit card",
 		enterprise: "Invoicing options",
 	},
 	{
 		name: "Rate Limits",
 		description: "Paid models are not rate limited",
 		free: "20 reqs/min on free models",
+		pro: "20 reqs/min on free models",
 		enterprise: "Custom limits",
 	},
 	{
@@ -193,11 +234,13 @@ const pricingFeatures: PricingFeature[] = [
 		learnMoreLink: "/models",
 		learnMoreText: "See model prices →",
 		free: "Pay per token + 5% fee",
+		pro: "Pay per token + 5% fee",
 		enterprise: "Volume discounts",
 	},
 	{
 		name: "Support",
 		free: "Discord Community",
+		pro: "Discord Community",
 		enterprise: "24/7 SLA + Slack channel",
 	},
 ];
@@ -225,24 +268,36 @@ export function PricingTable() {
 					Compare plans
 				</h2>
 				<div className="overflow-x-auto">
-					<table className="w-full border-collapse min-w-[600px]">
+					<table className="w-full border-collapse min-w-[760px]">
 						{/* Header */}
 						<thead>
 							<tr>
-								<th scope="col" className="text-left p-4 w-1/3">
+								<th scope="col" className="text-left p-4 w-1/4">
 									<span className="sr-only">Feature</span>
 								</th>
-								<th
-									scope="col"
-									className="p-4 text-center w-1/3 bg-blue-600/10 rounded-t-xl border-x border-t border-blue-600/20"
-								>
-									<div className="font-semibold text-lg text-blue-600 dark:text-blue-400">
-										Free
-									</div>
+								<th scope="col" className="p-4 text-center w-1/4">
+									<div className="font-semibold text-lg">Free</div>
 									<div className="text-2xl font-bold mt-1">$0</div>
 									<div className="text-sm text-muted-foreground">forever</div>
 								</th>
-								<th scope="col" className="p-4 text-center w-1/3">
+								<th
+									scope="col"
+									className="p-4 text-center w-1/4 bg-blue-600/10 rounded-t-xl border-x border-t border-blue-600/20"
+								>
+									<div className="font-semibold text-lg text-blue-600 dark:text-blue-400">
+										Pro
+									</div>
+									<div className="text-2xl font-bold mt-1">
+										${PRO_PLAN_PRICES.seat}
+									</div>
+									<div className="text-sm text-muted-foreground">
+										per user/month
+									</div>
+									<div className="mt-1 text-xs font-medium text-blue-600 dark:text-blue-400">
+										Up to {PRO_PLAN_MAX_SEATS} users
+									</div>
+								</th>
+								<th scope="col" className="p-4 text-center w-1/4">
 									<div className="font-semibold text-lg">Enterprise</div>
 									<div className="text-2xl font-bold mt-1">Custom</div>
 									<div className="text-sm text-muted-foreground">
@@ -279,8 +334,11 @@ export function PricingTable() {
 											</Link>
 										)}
 									</th>
-									<td className="p-4 text-center bg-blue-600/5 border-x border-blue-600/20">
+									<td className="p-4 text-center">
 										<FeatureCell value={feature.free} />
+									</td>
+									<td className="p-4 text-center bg-blue-600/5 border-x border-blue-600/20">
+										<FeatureCell value={feature.pro} />
 									</td>
 									<td className="p-4 text-center">
 										<FeatureCell value={feature.enterprise} />
@@ -292,10 +350,17 @@ export function PricingTable() {
 								<th scope="row" className="p-4 text-left font-normal">
 									<span className="sr-only">Get started</span>
 								</th>
+								<td className="p-6 text-center">
+									<AuthLink href="/signup">
+										<Button variant="outline" className="w-full max-w-[200px]">
+											Get Started Free
+										</Button>
+									</AuthLink>
+								</td>
 								<td className="p-6 text-center bg-blue-600/5 border-x border-b border-blue-600/20 rounded-b-xl">
 									<AuthLink href="/signup">
 										<Button className="w-full max-w-[200px]">
-											Get Started Free
+											Upgrade to Pro
 										</Button>
 									</AuthLink>
 								</td>
@@ -315,9 +380,10 @@ export function PricingTable() {
 				<div className="mt-12 text-center">
 					<p className="text-muted-foreground">
 						All plans include access to our API, documentation, and community
-						support.
+						support. Pro upgrades are managed from your organization&apos;s
+						billing page.
 						<br />
-						Need a custom solution?{" "}
+						Need volume discounts or a custom solution?{" "}
 						<Link
 							href="/enterprise"
 							className="text-blue-700 underline underline-offset-2 dark:text-blue-400"

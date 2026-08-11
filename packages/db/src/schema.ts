@@ -224,6 +224,19 @@ export const organization = pgTable(
 		// active developer keys across all of the org's projects).
 		apiKeyLimit: integer(),
 		subscriptionCancelled: boolean().notNull().default(false),
+		// Seat quantity purchased on the self-serve Pro subscription, synced from
+		// the Stripe subscription's seat line item. Null = not a seat-based Pro
+		// subscription (free orgs, enterprise orgs, and legacy flat-fee Pro
+		// subscribers, which keep the historical plan-default limits). Each seat
+		// includes one API key.
+		proSeats: integer(),
+		// Additional API keys purchased beyond the one included per seat, synced
+		// from the Stripe subscription's extra-API-key line item.
+		proExtraApiKeys: integer().notNull().default(0),
+		// Whether the Pro subscription includes the SSO & SCIM add-on, synced from
+		// the Stripe subscription's SSO line item. Grants access to the SSO/SCIM
+		// configuration routes that are otherwise enterprise-only.
+		proSsoEnabled: boolean().notNull().default(false),
 		trialStartDate: timestamp(),
 		trialEndDate: timestamp(),
 		isTrialActive: boolean().notNull().default(false),
@@ -3560,6 +3573,7 @@ export const auditLogActions = [
 	"custom_model.delete",
 	// Subscription
 	"subscription.create",
+	"subscription.update",
 	"subscription.cancel",
 	"subscription.resume",
 	"subscription.upgrade_yearly",

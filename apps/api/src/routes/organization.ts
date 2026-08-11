@@ -8,6 +8,7 @@ import {
 	isSelfRefundCandidateType,
 	refundFeedbackBodySchema,
 } from "@/lib/self-refund.js";
+import { hasSsoAccess } from "@/lib/sso-access.js";
 import {
 	getUserProjectIds,
 	userHasOrganizationAccess,
@@ -132,6 +133,13 @@ const organizationSchema = z.object({
 	seats: z.number().nullable(),
 	// Manual API-key-limit override; null = use the plan default.
 	apiKeyLimit: z.number().nullable(),
+	// Seat quantity purchased on a self-serve Pro subscription; null for
+	// non-Pro orgs and legacy flat-fee Pro subscribers.
+	proSeats: z.number().nullable(),
+	// Extra API keys purchased beyond the one included per Pro seat.
+	proExtraApiKeys: z.number(),
+	// Whether the Pro subscription includes the SSO & SCIM add-on.
+	proSsoEnabled: z.boolean(),
 	retentionLevel: z.enum(["retain", "none"]),
 	providerCompliancePolicy: providerCompliancePolicySchema.nullable(),
 	ssoAutoJoinDomain: z.string().nullable(),
@@ -692,13 +700,15 @@ organization.openapi(updateOrganization, async (c) => {
 		}
 	}
 
-	// Google SSO domain auto-join is an enterprise feature managed by owners and
-	// admins. The value is normalized and validated before storage.
+	// Google SSO domain auto-join is managed by owners and admins and follows
+	// SSO access (enterprise, or Pro with the SSO add-on). The value is
+	// normalized and validated before storage.
 	let normalizedSsoDomain: string | null | undefined;
 	if (ssoAutoJoinDomain !== undefined) {
-		if (userOrganization.organization?.plan !== "enterprise") {
+		if (!hasSsoAccess(userOrganization.organization)) {
 			throw new HTTPException(403, {
-				message: "SSO auto-join requires an enterprise plan",
+				message:
+					"SSO auto-join requires an enterprise plan or the Pro SSO & SCIM add-on",
 			});
 		}
 		if (

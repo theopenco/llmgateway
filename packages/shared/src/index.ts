@@ -174,6 +174,14 @@ export {
 export { MARKETING_STATS, RUNWARE_PROMO } from "./marketing.js";
 
 export {
+	PRO_PLAN_PRICES,
+	PRO_PLAN_MAX_SEATS,
+	PRO_PLAN_MAX_EXTRA_API_KEYS,
+	getProPlanMonthlyTotal,
+	type ProPlanSelection,
+} from "./pro-plan.js";
+
+export {
 	ONBOARDING_MODEL,
 	ONBOARDING_MAX_TOKENS,
 	ONBOARDING_MAX_PROMPT_CHARS,
