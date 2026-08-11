@@ -358,20 +358,21 @@ export async function calculateCosts(
 	// an estimated *output* count gets clamped below: a provider-reported count
 	// is the provider's own measurement and is billed as reported.
 	let completionTokensEstimated = false;
+	let promptTokensEstimated = false;
 
 	if ((!promptTokens || !completionTokens) && fullOutput) {
-		// We're going to estimate at least some of the tokens
-		isEstimated = true;
 		// Calculate prompt tokens using a cheap length-based estimate.
 		// Accuracy is intentionally traded for throughput so we never run
 		// gpt-tokenizer on the gateway hot path.
 		if (!promptTokens && fullOutput) {
 			if (fullOutput.messages) {
 				calculatedPromptTokens = encodeChatMessages(fullOutput.messages);
+				promptTokensEstimated = true;
 			} else if (fullOutput.prompt) {
 				calculatedPromptTokens = estimateTokensFromContent(
 					JSON.stringify(fullOutput.prompt),
 				);
+				promptTokensEstimated = true;
 			}
 		}
 
@@ -409,6 +410,12 @@ export async function calculateCosts(
 			}
 		}
 	}
+
+	// Derived from what was actually estimated, not from merely entering the
+	// block above: a request whose prompt tokens the provider reported and whose
+	// output estimation was declined has invented nothing, so it must not be
+	// labelled (or warned about) as estimated.
+	isEstimated = promptTokensEstimated || completionTokensEstimated;
 
 	// Find the provider-specific pricing, keyed by providerId + region.
 	// Region matters when a single root model id has multiple per-region
@@ -874,6 +881,28 @@ export async function calculateCosts(
 		.plus(requestCost)
 		.plus(webSearchCost)
 		.plus(contentFilterCost);
+
+	// Every request billed on a token count we made up rather than one the
+	// provider reported. Logged at warn on purpose: this is the class of charge
+	// that produced the phantom-billing incident, it should be rare (we ask every
+	// streaming provider for usage via `stream_options: { include_usage: true }`),
+	// and if it turns out not to be rare that is itself the finding. The logger
+	// attaches the trace id in production, which is also stored on the log row,
+	// so a hit here pivots straight to the request it charged.
+	if (isEstimated && totalCost.greaterThan(0)) {
+		logger.warn("Billed a request on estimated token counts", {
+			model,
+			provider,
+			region,
+			promptTokensEstimated,
+			completionTokensEstimated,
+			promptTokens: calculatedPromptTokens,
+			completionTokens: calculatedCompletionTokens,
+			inputCost: inputCost.toNumber(),
+			outputCost: outputCost.toNumber(),
+			totalCost: totalCost.toNumber(),
+		});
+	}
 
 	return {
 		inputCost: inputCost.toNumber(),

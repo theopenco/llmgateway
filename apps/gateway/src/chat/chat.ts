@@ -11287,10 +11287,14 @@ chat.openapi(completions, async (c) => {
 					// Surface it rather than papering over it with an estimate: the fix
 					// belongs in the request we send that provider, and until then its
 					// output is billed at 0 rather than at a guess.
+					// Deliberately narrower than the "billed on estimated token counts"
+					// warning in calculateCosts, so one event never logs twice: this
+					// fires only when the output ended up billed at zero.
 					if (
 						!streamingError &&
 						!canceled &&
 						!completionTokens &&
+						!costs.completionTokens &&
 						(fullContent.length > 0 ||
 							(streamingToolCalls && streamingToolCalls.length > 0))
 					) {
@@ -11302,7 +11306,6 @@ chat.openapi(completions, async (c) => {
 								finishReason,
 								contentLength: fullContent.length,
 								toolCallCount: streamingToolCalls?.length ?? 0,
-								billedCompletionTokens: costs.completionTokens ?? 0,
 							},
 						);
 					}
