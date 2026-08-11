@@ -89,7 +89,10 @@ import { useApi } from "@/lib/fetch-client";
 import { getBrowserTimeZone } from "@/lib/timezone";
 import { applyUsageMode } from "@/lib/usage-mode";
 
-import { SSO_TEAM_DEFAULT_DEVELOPER_BUDGET } from "@llmgateway/shared";
+import {
+	PRO_PLAN_PRICES,
+	SSO_TEAM_DEFAULT_DEVELOPER_BUDGET,
+} from "@llmgateway/shared";
 
 import type { Route } from "next";
 
@@ -725,6 +728,14 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 	const pendingInvites = data?.invites ?? [];
 	const seatLimit = data?.seatLimit ?? 5;
 	const seatsUsed = (data?.members.length ?? 0) + pendingInvites.length;
+	// Seat-based Pro orgs manage their seat count on the billing page; legacy
+	// flat-fee Pro (proSeats null) and free orgs upgrade there instead.
+	const isSeatBasedPro =
+		selectedOrganization?.plan === "pro" &&
+		selectedOrganization?.proSeats !== null &&
+		selectedOrganization?.proSeats !== undefined;
+	const atSeatLimit = !isLoading && seatsUsed >= seatLimit;
+	const billingUrl = buildOrgUrl("org/billing");
 
 	const { data: orgProjectsData } = api.useQuery(
 		"get",
@@ -1018,6 +1029,54 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 					</div>
 
 					{showUsage && <ApiKeyAnalyticsCallout href={buildUrl("api-keys")} />}
+
+					{/* Seat CTA: a hard alert once every seat is taken, a quiet pointer
+					    otherwise. Enterprise orgs negotiate seats with sales instead. */}
+					{!isEnterprise && isAdmin && atSeatLimit && (
+						<Alert>
+							<AlertDescription>
+								<div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+									<p>
+										You&apos;re using all {seatLimit} of your seats, so new
+										members can&apos;t be added.{" "}
+										{isSeatBasedPro
+											? "Add more seats to your Pro subscription to keep growing your team."
+											: `Upgrade to Pro to add more seats ($${PRO_PLAN_PRICES.seat}/user/month).`}
+									</p>
+									<div className="flex shrink-0 gap-2">
+										<Link href={billingUrl}>
+											<Button size="sm">
+												{isSeatBasedPro ? "Add seats" : "Upgrade to Pro"}
+											</Button>
+										</Link>
+										<a href="mailto:contact@llmgateway.io">
+											<Button size="sm" variant="outline">
+												Contact sales
+											</Button>
+										</a>
+									</div>
+								</div>
+							</AlertDescription>
+						</Alert>
+					)}
+					{!isEnterprise && isAdmin && !atSeatLimit && (
+						<p className="text-muted-foreground text-sm">
+							Need more seats?{" "}
+							<Link href={billingUrl} className="underline underline-offset-2">
+								{isSeatBasedPro
+									? "Add seats on the billing page"
+									: `Upgrade to Pro ($${PRO_PLAN_PRICES.seat}/user/month)`}
+							</Link>{" "}
+							or{" "}
+							<a
+								href="mailto:contact@llmgateway.io"
+								className="underline underline-offset-2"
+							>
+								contact sales
+							</a>{" "}
+							for Enterprise.
+						</p>
+					)}
 
 					{!isEnterprise && <MemberUsageUpsell />}
 
