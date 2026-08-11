@@ -566,6 +566,12 @@ export const providers: ProviderDefinition[] = [
 		env: {
 			required: {
 				apiKey: "LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON",
+				// The GCP project the models are called under; it becomes part of the
+				// request path. An env-var deployment can leave it unset — the gateway
+				// derives it from the service-account JSON on startup — but a managed
+				// credential's JSON is only ever decrypted to mint an access token, so
+				// the credential has to carry the project itself.
+				project: "LLM_VERTEX_ANTHROPIC_PROJECT",
 			},
 			optional: {
 				baseUrl: "LLM_VERTEX_ANTHROPIC_BASE_URL",

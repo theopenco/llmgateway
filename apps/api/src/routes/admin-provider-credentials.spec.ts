@@ -444,6 +444,18 @@ describe("admin provider credentials", () => {
 			required: true,
 		});
 		expect(vertex?.configKeys.map((k) => k.key)).not.toContain("apiKey");
+
+		// The gateway cannot recover the project from a managed credential's
+		// service-account JSON, so the form has to offer the field.
+		const vertexAnthropic = json.providers.find(
+			(p) => p.id === "vertex-anthropic",
+		);
+		expect(vertexAnthropic?.configKeys).toContainEqual({
+			key: "project",
+			envVar: "LLM_VERTEX_ANTHROPIC_PROJECT",
+			required: true,
+		});
+
 		expect(json.providers.some((p) => p.id === "custom")).toBe(false);
 	});
 
