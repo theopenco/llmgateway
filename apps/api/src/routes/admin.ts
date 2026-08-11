@@ -1905,6 +1905,23 @@ const globalStatsResponseSchema = z.object({
 	breakdown: z.array(globalStatsBreakdownItemSchema),
 });
 
+// Cost columns on the stats tables are `real` (float4), and Postgres accumulates
+// SUM(real) in float4 as well — only ~7 significant digits. Past a few hundred
+// thousand dollars the running sum's ulp is larger than a cent, so the result
+// depends on how the rows happened to be grouped: the blended total and the
+// per-mode / per-kind slices of the *same* rows drift apart by double-digit
+// dollars and the cards visibly stop adding up. NUMERIC accumulation is exact,
+// so every grouping of a set of rows yields the identical sum.
+//
+// The double-precision hop is required, not decorative: `real::numeric` goes
+// through float4's 6-digit display form (1234.5678 -> 1234.57), which throws
+// away more than the float4 sum did. `real::float8` is the exact stored value.
+function sumMoney(column: AnyColumn, alias: string) {
+	return sql<number>`COALESCE(SUM(CAST(CAST(${column} AS DOUBLE PRECISION) AS NUMERIC)), 0)::float8`.as(
+		alias,
+	);
+}
+
 const getGlobalStats = createRoute({
 	method: "get",
 	path: "/global-stats",
@@ -2011,16 +2028,19 @@ admin.openapi(getGlobalStats, async (c) => {
 	}
 
 	const metricSums = {
+		// Counts are exact (SUM(int) accumulates in bigint) but this endpoint sums
+		// all of history, so the result is carried as float8 rather than narrowed
+		// back to int4 — a cross-tenant all-time request count outgrows 2^31.
 		requestCount:
-			sql<number>`COALESCE(SUM(${sourceTable.requestCount}), 0)::int`.as(
+			sql<number>`COALESCE(SUM(${sourceTable.requestCount}), 0)::float8`.as(
 				"requestCount",
 			),
 		errorCount:
-			sql<number>`COALESCE(SUM(${sourceTable.errorCount}), 0)::int`.as(
+			sql<number>`COALESCE(SUM(${sourceTable.errorCount}), 0)::float8`.as(
 				"errorCount",
 			),
 		cacheCount:
-			sql<number>`COALESCE(SUM(${sourceTable.cacheCount}), 0)::int`.as(
+			sql<number>`COALESCE(SUM(${sourceTable.cacheCount}), 0)::float8`.as(
 				"cacheCount",
 			),
 		inputTokens:
@@ -2039,19 +2059,10 @@ admin.openapi(getGlobalStats, async (c) => {
 			sql<number>`COALESCE(SUM(CAST(${sourceTable.totalTokens} AS NUMERIC)), 0)::float8`.as(
 				"totalTokens",
 			),
-		cost: sql<number>`COALESCE(SUM(${sourceTable.cost}), 0)::float8`.as("cost"),
-		inputCost:
-			sql<number>`COALESCE(SUM(${sourceTable.inputCost}), 0)::float8`.as(
-				"inputCost",
-			),
-		cachedInputCost:
-			sql<number>`COALESCE(SUM(${sourceTable.cachedInputCost}), 0)::float8`.as(
-				"cachedInputCost",
-			),
-		outputCost:
-			sql<number>`COALESCE(SUM(${sourceTable.outputCost}), 0)::float8`.as(
-				"outputCost",
-			),
+		cost: sumMoney(sourceTable.cost, "cost"),
+		inputCost: sumMoney(sourceTable.inputCost, "inputCost"),
+		cachedInputCost: sumMoney(sourceTable.cachedInputCost, "cachedInputCost"),
+		outputCost: sumMoney(sourceTable.outputCost, "outputCost"),
 	};
 
 	const dateExpr =
