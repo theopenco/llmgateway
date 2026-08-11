@@ -3,7 +3,7 @@
 // billing is monthly, per seat.
 export const PRO_PLAN_PRICES = {
 	// USD per seat per month. Every seat includes one API key.
-	seat: 25,
+	seat: 15,
 	// USD per month for each API key beyond the number of seats.
 	extraApiKey: 5,
 	// USD per month for the SSO add-on (flat, org-wide).
@@ -13,7 +13,7 @@ export const PRO_PLAN_PRICES = {
 	scim: 200,
 } as const;
 
-// Seats purchasable self-serve. The minimum keeps the plan at a $75/month
+// Seats purchasable self-serve. The minimum keeps the plan at a $45/month
 // floor; larger teams go through enterprise sales.
 export const PRO_PLAN_MIN_SEATS = 3;
 export const PRO_PLAN_MAX_SEATS = 500;
