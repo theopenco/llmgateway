@@ -2,6 +2,8 @@ import { BlogList } from "@/components/blog/list";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { JsonLd } from "@/components/seo/json-ld";
 
+import type { Blog } from "content-collections";
+
 interface BlogItem {
 	id: string;
 	slug: string;
@@ -14,12 +16,12 @@ export default async function BlogPage() {
 	const { allBlogs } = await import("content-collections");
 
 	const sortedEntries = allBlogs
+		.filter((entry: Blog) => !entry?.draft)
 		.sort(
-			(a: any, b: any) =>
+			(a: Blog, b: Blog) =>
 				new Date(b.date).getTime() - new Date(a.date).getTime(),
 		)
-		.filter((entry: any) => !entry?.draft)
-		.map(({ ...entry }: any) => entry as BlogItem);
+		.map(({ ...entry }: Blog) => entry as BlogItem);
 
 	// Standalone top-level ItemList (referenced by the CollectionPage via @id)
 	// so parsers that only inspect top-level @type values still see the list.

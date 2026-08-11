@@ -1,14 +1,7 @@
-import { buttonVariants } from "fumadocs-ui/components/ui/button";
 import { DocsLayout } from "fumadocs-ui/layouts/docs";
-import { MessageCircleIcon } from "lucide-react";
 
 import { baseOptions } from "@/app/layout.config";
-import {
-	AISearch,
-	AISearchPanel,
-	AISearchTrigger,
-} from "@/components/ai/search";
-import { cn } from "@/lib/cn";
+import { AskAI } from "@/components/ai/ask-ai";
 import { source } from "@/lib/source";
 
 import type { DocsLayoutProps } from "fumadocs-ui/layouts/docs";
@@ -42,21 +35,7 @@ const docsOptions: DocsLayoutProps = {
 export default function Layout({ children }: { children: ReactNode }) {
 	return (
 		<DocsLayout {...docsOptions}>
-			<AISearch>
-				<AISearchPanel />
-				<AISearchTrigger
-					position="float"
-					className={cn(
-						buttonVariants({
-							color: "secondary",
-							className: "text-fd-muted-foreground rounded-2xl",
-						}),
-					)}
-				>
-					<MessageCircleIcon className="size-4.5" />
-					Ask AI
-				</AISearchTrigger>
-			</AISearch>
+			<AskAI />
 			{children}
 		</DocsLayout>
 	);

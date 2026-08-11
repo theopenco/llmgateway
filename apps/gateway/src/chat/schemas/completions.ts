@@ -403,7 +403,8 @@ export const completionsRequestSchema = z.object({
 	}),
 	onboarding: z.boolean().optional().default(false).openapi({
 		description:
-			"When true, skips email verification for free model usage. Intended for onboarding flows.",
+			"Deprecated and ignored. This once skipped email verification for free model usage, but the flag is client-supplied, so any account could assert it. Onboarding is now recognized server-side by the API proxy; setting this grants nothing.",
+		deprecated: true,
 		example: false,
 	}),
 	no_reasoning: z.boolean().optional().default(false).openapi({
