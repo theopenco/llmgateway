@@ -37,6 +37,7 @@ describe("managed provider credentials", () => {
 		provider: string;
 		token: string;
 		config?: Record<string, string>;
+		options?: Record<string, string> | null;
 		variant?: "default" | "enterprise" | "plans";
 		region?: string;
 		allowedModels?: string[];
@@ -48,6 +49,7 @@ describe("managed provider credentials", () => {
 			managed: true,
 			organizationId: null,
 			config: values.config,
+			options: values.options ?? null,
 			variant: values.variant ?? "default",
 			region: values.region,
 			allowedModels: values.allowedModels,
@@ -477,7 +479,8 @@ describe("managed provider credentials", () => {
 	 * provider's default region, so the credential pinned to that region is the
 	 * one that serves it. Falling through to "no managed credential" 500s every
 	 * region-less request the moment the last region-agnostic credential goes
-	 * away.
+	 * away. `qwen-omni-turbo` has no regional variants at all, so a bare id for
+	 * it genuinely resolves no region and lands on the default region.
 	 */
 	test("serves a region-less request from the default-region credential", async () => {
 		await seedApiKey();
@@ -497,12 +500,115 @@ describe("managed provider credentials", () => {
 		const captured = captureUpstream(chatCompletion);
 
 		// Bare model id: no provider prefix and no `:region` suffix.
-		const res = await completions("qwen3.7-plus");
+		const res = await completions("qwen-omni-turbo");
 		expect(res.status).toBe(200);
 
 		expect(captured).toHaveLength(1);
 		expect(captured[0].url).toContain("dashscope-intl.aliyuncs.com");
 		expect(captured[0].authorization).toBe("Bearer sk-managed-singapore");
+	});
+
+	/**
+	 * A bare id for a model with regional variants must route over those
+	 * regions exactly like the `provider/model` spelling: the expanded
+	 * candidates are priced against each other and the cheapest eligible
+	 * region wins. Before the fix, the single-provider shortcut read the
+	 * un-expanded mapping's `region: undefined` and always landed on the
+	 * default region (singapore), silently skipping cheapest-region routing.
+	 */
+	test("routes a bare multi-region id to the cheapest eligible region", async () => {
+		await seedApiKey();
+		await seedManagedCredential({
+			id: "managed-alibaba-singapore",
+			provider: "alibaba",
+			token: "sk-managed-singapore",
+			region: "singapore",
+		});
+		await seedManagedCredential({
+			id: "managed-alibaba-frankfurt",
+			provider: "alibaba",
+			token: "sk-managed-frankfurt",
+			region: "eu-frankfurt",
+		});
+
+		const captured = captureUpstream(chatCompletion);
+
+		// Bare model id, no provider prefix and no `:region` suffix — must
+		// still price the regional variants (eu-frankfurt is cheaper than
+		// singapore for qwen3.7-plus) instead of defaulting to singapore.
+		const res = await completions("qwen3.7-plus");
+		expect(res.status).toBe(200);
+
+		expect(captured).toHaveLength(1);
+		expect(captured[0].url).toContain("eu-central-1.maas.aliyuncs.com");
+		expect(captured[0].authorization).toBe("Bearer sk-managed-frankfurt");
+	});
+
+	test("routes a bare multi-region id to the default region when only it is credentialed", async () => {
+		await seedApiKey();
+		await seedManagedCredential({
+			id: "managed-alibaba-singapore",
+			provider: "alibaba",
+			token: "sk-man...pore",
+			region: "singapore",
+		});
+
+		const captured = captureUpstream(chatCompletion);
+
+		// Only the default region's credential exists: the routing branch must
+		// still resolve the bare id to it (the shortcut path would have done
+		// the same, but via the un-expanded mapping).
+		const res = await completions("qwen3.7-plus");
+		expect(res.status).toBe(200);
+
+		expect(captured).toHaveLength(1);
+		expect(captured[0].url).toContain("dashscope-intl.aliyuncs.com");
+		expect(captured[0].authorization).toBe("Bearer sk-man...pore");
+	});
+
+	test("routes a bare multi-region id to a provider-key-pinned region", async () => {
+		await seedApiKey();
+		await harness.setProjectMode("api-keys");
+		await cdb.insert(tables.providerKey).values({
+			id: "byok-alibaba-beijing",
+			provider: "alibaba",
+			token: "sk-byo...jing",
+			organizationId: "org-id",
+			options: { alibaba_region: "cn-beijing" },
+		});
+
+		const captured = captureUpstream(chatCompletion);
+
+		// A provider-key region pin (alibaba_region) must be honored for bare
+		// ids: the routing branch applies buildProviderLockedRegions, which the
+		// single-provider shortcut previously bypassed entirely.
+		const res = await completions("qwen3.7-plus");
+		expect(res.status).toBe(200);
+
+		expect(captured).toHaveLength(1);
+		expect(captured[0].url).toContain("dashscope.aliyuncs.com");
+		expect(captured[0].authorization).toBe("Bearer sk-byo...jing");
+	});
+
+	test("routes a bare multi-provider id through the provider that has a credential", async () => {
+		await seedApiKey();
+		await seedManagedCredential({
+			id: "managed-novita",
+			provider: "novita",
+			token: "sk-man...novita",
+		});
+
+		const captured = captureUpstream(chatCompletion);
+
+		// qwen3-vl-235b-a22b-instruct is catalogued with alibaba, novita and
+		// deepinfra. With only novita credentialed, the bare id must route to
+		// novita - the provider-level shortcut must not fire on alibaba.
+		const res = await completions("qwen3-vl-235b-a22b-instruct");
+		expect(res.status).toBe(200);
+
+		expect(captured).toHaveLength(1);
+		expect(captured[0].url).toContain("api.novita.ai");
+		expect(captured[0].authorization).toBe("Bearer sk-man...novita");
 	});
 
 	test("serves each pinned region from its own credential", async () => {

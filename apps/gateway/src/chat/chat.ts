@@ -4398,7 +4398,21 @@ chat.openapi(completions, async (c) => {
 			});
 		}
 
-		if (iamFilteredModelProviders.length === 1) {
+		// The shortcut only applies when the provider has a single expanded
+		// candidate. A bare model id (no provider prefix) keeps
+		// `modelInfo.providers` un-expanded — one Alibaba entry whose region is
+		// undefined, with the concrete regions still inside its `regions` array —
+		// so `iamFilteredModelProviders` has one entry while
+		// `expandedIamFilteredModelProviders` lists every regional variant. Taking
+		// the shortcut then reads `region: undefined` and the request falls
+		// through to the provider's default region, skipping the cheapest-region
+		// routing the multi-provider branch below would have performed. Gate the
+		// shortcut on the expanded count so a single provider with several regions
+		// routes over its regional candidates like `provider/model` spellings do.
+		if (
+			iamFilteredModelProviders.length === 1 &&
+			expandedIamFilteredModelProviders.length === 1
+		) {
 			usedProvider = iamFilteredModelProviders[0].providerId;
 			usedInternalModel = modelInfo.id;
 			usedExternalId = iamFilteredModelProviders[0].externalId;
