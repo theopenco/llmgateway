@@ -11230,6 +11230,10 @@ chat.openapi(completions, async (c) => {
 										explicitCacheUsed,
 										servedServiceTier,
 										customPricing: customPricingMapping,
+										// A stream that died never delivered a usage frame, so
+										// there is nothing to estimate from but the partial text
+										// and tool-call JSON that happened to arrive. Don't guess.
+										allowOutputEstimate: streamingError === null,
 									},
 									finishReason === "content_filter",
 								));
@@ -11257,6 +11261,50 @@ chat.openapi(completions, async (c) => {
 							calculatedTotalTokens =
 								(calculatedTotalTokens ?? 0) + promptDelta;
 						}
+					}
+
+					// Same for the completion count. calculateCosts derives its own
+					// estimate when the provider reported none, and that estimate is what
+					// the charge is computed from — so it has to be what the log records.
+					// Without this the row can read "0 completion tokens" next to a large
+					// output cost, which is how phantom charges stayed invisible until a
+					// customer noticed them.
+					if (
+						costs.completionTokens !== null &&
+						costs.completionTokens !== undefined
+					) {
+						const completionDelta =
+							costs.completionTokens - (calculatedCompletionTokens ?? 0);
+						if (completionDelta > 0) {
+							calculatedCompletionTokens = costs.completionTokens;
+							calculatedTotalTokens =
+								(calculatedTotalTokens ?? 0) + completionDelta;
+						}
+					}
+
+					// A successful stream that never reported a completion count means the
+					// provider ignored our `stream_options: { include_usage: true }`.
+					// Surface it rather than papering over it with an estimate: the fix
+					// belongs in the request we send that provider, and until then its
+					// output is billed at 0 rather than at a guess.
+					if (
+						!streamingError &&
+						!canceled &&
+						!completionTokens &&
+						(fullContent.length > 0 ||
+							(streamingToolCalls && streamingToolCalls.length > 0))
+					) {
+						logger.warn(
+							"[streaming] Provider reported no completion tokens on a successful stream",
+							{
+								provider: usedProvider,
+								model: usedInternalModel,
+								finishReason,
+								contentLength: fullContent.length,
+								toolCallCount: streamingToolCalls?.length ?? 0,
+								billedCompletionTokens: costs.completionTokens ?? 0,
+							},
+						);
 					}
 
 					// Extract plugin IDs for logging
