@@ -29,6 +29,7 @@ export const planExcludedTypes = [
 	"subscription_upgrade",
 	"subscription_downgrade",
 	"subscription_renewal",
+	"subscription_update",
 	"chat_plan_start",
 	"chat_plan_upgrade",
 	"chat_plan_downgrade",
@@ -68,6 +69,16 @@ export const LEGACY_DEV_PLAN_TX_TYPES = [
 	"subscription_start",
 	"subscription_cancel",
 	"subscription_end",
+] as const;
+
+// Org Pro subscription payment rows (seat-based plan on non-devpass orgs):
+// initial checkout, monthly renewals, and mid-cycle proration invoices. Each
+// carries the full invoice `amount`, with an optional per-feature
+// `amountBreakdown` (seats / extraApiKeys / sso / scim).
+export const PRO_SUBSCRIPTION_PAYMENT_TX_TYPES = [
+	"subscription_start",
+	"subscription_renewal",
+	"subscription_update",
 ] as const;
 
 export const CHAT_PLAN_TX_TYPES = [
@@ -133,6 +144,8 @@ export const paidTransactionTypes = [
 	"credit_topup",
 	"credit_manual_payment",
 	"subscription_start",
+	"subscription_renewal",
+	"subscription_update",
 	"dev_plan_start",
 	"dev_plan_upgrade",
 	"dev_plan_renewal",

@@ -65,6 +65,8 @@ interface Transaction {
 		| "credit_gift"
 		| "credit_manual_payment"
 		| "subscription_start"
+		| "subscription_renewal"
+		| "subscription_update"
 		| "subscription_cancel"
 		| "subscription_end"
 		| "dev_plan_start"
@@ -372,6 +374,10 @@ function TransactionCard({
 				return "Credits Added";
 			case "subscription_start":
 				return "Subscription Start";
+			case "subscription_renewal":
+				return "Subscription Renewal";
+			case "subscription_update":
+				return "Subscription Update";
 			case "subscription_cancel":
 				return "Subscription Cancelled";
 			case "subscription_end":
@@ -538,6 +544,10 @@ export function TransactionsClient({
 														"Credits Added"}
 													{transaction.type === "subscription_start" &&
 														"Subscription Start"}
+													{transaction.type === "subscription_renewal" &&
+														"Subscription Renewal"}
+													{transaction.type === "subscription_update" &&
+														"Subscription Update"}
 													{transaction.type === "subscription_cancel" &&
 														"Subscription Cancelled"}
 													{transaction.type === "subscription_end" &&

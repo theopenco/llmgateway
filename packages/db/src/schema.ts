@@ -449,6 +449,13 @@ export const transaction = pgTable(
 		type: text({
 			enum: [
 				"subscription_start",
+				// Recurring monthly charge for an org Pro subscription
+				// (billing_reason `subscription_cycle`). Real dollars in `amount`.
+				"subscription_renewal",
+				// Proration invoice from a mid-cycle Pro change (seats, extra API
+				// keys, add-ons — billing_reason `subscription_update`). Real
+				// dollars in `amount`; can be small when mostly credited.
+				"subscription_update",
 				"subscription_cancel",
 				"subscription_end",
 				"credit_topup",
@@ -513,6 +520,12 @@ export const transaction = pgTable(
 		stripePaymentIntentId: text(),
 		stripeInvoiceId: text(),
 		stripeRefundId: text(),
+		// Per-component USD amounts for multi-line-item purchases, keyed by
+		// component (Pro subscriptions: "seats" / "extraApiKeys" / "sso" /
+		// "scim"). Derived from the Stripe invoice's line items so feature-level
+		// revenue can be reported while `amount` stays the invoice total.
+		// Values are dollar strings and can be negative on proration credits.
+		amountBreakdown: json().$type<Record<string, string>>(),
 		description: text(),
 		relatedTransactionId: text(),
 		refundReason: text(),

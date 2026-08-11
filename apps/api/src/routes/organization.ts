@@ -283,6 +283,8 @@ const transactionSchema = z.object({
 	organizationId: z.string(),
 	type: z.enum([
 		"subscription_start",
+		"subscription_renewal",
+		"subscription_update",
 		"subscription_cancel",
 		"subscription_end",
 		"credit_topup",

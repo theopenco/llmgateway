@@ -346,6 +346,49 @@ export default async function Page({
 													metrics.grossProSubscriptionsRevenue,
 												),
 											},
+											// Feature-level split of the Pro subscription total
+											// (from per-line-item breakdowns; legacy flat-fee
+											// rows have none, so these can sum below the total).
+											...(metrics.grossProSeatsRevenue > 0
+												? [
+														{
+															label: "· Pro seats",
+															value: currencyFormatter.format(
+																metrics.grossProSeatsRevenue,
+															),
+														},
+													]
+												: []),
+											...(metrics.grossProExtraApiKeysRevenue > 0
+												? [
+														{
+															label: "· Extra API keys",
+															value: currencyFormatter.format(
+																metrics.grossProExtraApiKeysRevenue,
+															),
+														},
+													]
+												: []),
+											...(metrics.grossProSsoRevenue > 0
+												? [
+														{
+															label: "· SSO add-on",
+															value: currencyFormatter.format(
+																metrics.grossProSsoRevenue,
+															),
+														},
+													]
+												: []),
+											...(metrics.grossProScimRevenue > 0
+												? [
+														{
+															label: "· SCIM add-on",
+															value: currencyFormatter.format(
+																metrics.grossProScimRevenue,
+															),
+														},
+													]
+												: []),
 										]
 									: []),
 								...(metrics.grossManualPaymentsRevenue > 0

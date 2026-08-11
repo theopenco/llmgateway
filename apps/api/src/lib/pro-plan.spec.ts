@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { resolveApiKeyLimit } from "./api-key-limit.js";
-import { extractProQuantities } from "./pro-plan.js";
+import {
+	extractProInvoiceBreakdown,
+	extractProQuantities,
+} from "./pro-plan.js";
 import { resolveSeatLimit } from "./seat-limit.js";
 import { hasScimAccess, hasSsoAccess } from "./sso-access.js";
 
@@ -117,6 +120,68 @@ describe("extractProQuantities", () => {
 			subscriptionWithItems([{ priceId: "price_seat", quantity: 5 }]),
 		);
 		expect(result).toBeNull();
+	});
+
+	function invoiceWithLines(
+		lines: { priceId: string; amountCents: number }[],
+	): Stripe.Invoice {
+		return {
+			lines: {
+				data: lines.map((line) => ({
+					amount: line.amountCents,
+					pricing: {
+						type: "price_details",
+						price_details: { price: line.priceId, product: "prod_x" },
+					},
+				})),
+			},
+		} as unknown as Stripe.Invoice;
+	}
+
+	describe("extractProInvoiceBreakdown", () => {
+		it("splits an invoice into per-feature dollar amounts", () => {
+			const result = extractProInvoiceBreakdown(
+				invoiceWithLines([
+					{ priceId: "price_seat", amountCents: 25000 },
+					{ priceId: "price_key", amountCents: 1500 },
+					{ priceId: "price_sso", amountCents: 30000 },
+					{ priceId: "price_scim", amountCents: 20000 },
+				]),
+			);
+			expect(result).toEqual({
+				seats: "250.00",
+				extraApiKeys: "15.00",
+				sso: "300.00",
+				scim: "200.00",
+			});
+		});
+
+		it("nets proration credit and charge lines per component", () => {
+			// Mid-cycle seat bump: credit for unused time on the old quantity,
+			// charge for the remaining time on the new one.
+			const result = extractProInvoiceBreakdown(
+				invoiceWithLines([
+					{ priceId: "price_seat", amountCents: -12500 },
+					{ priceId: "price_seat", amountCents: 17500 },
+				]),
+			);
+			expect(result).toEqual({
+				seats: "50.00",
+				extraApiKeys: "0.00",
+				sso: "0.00",
+				scim: "0.00",
+			});
+		});
+
+		it("returns null when no line matches a Pro price", () => {
+			expect(
+				extractProInvoiceBreakdown(
+					invoiceWithLines([
+						{ priceId: "price_legacy_pro", amountCents: 5000 },
+					]),
+				),
+			).toBeNull();
+		});
 	});
 });
 

@@ -25,7 +25,10 @@ import {
 	type DevPlanTier,
 } from "@llmgateway/shared";
 
-import { extractProQuantities } from "./lib/pro-plan.js";
+import {
+	extractProInvoiceBreakdown,
+	extractProQuantities,
+} from "./lib/pro-plan.js";
 import { computeReferralBonus } from "./lib/referral-bonus.js";
 import { posthog } from "./posthog.js";
 import { getStripe, type StripeMode } from "./routes/payments.js";
@@ -56,6 +59,38 @@ import {
 } from "./utils/plan-billing.js";
 
 import type { ServerTypes } from "./vars.js";
+
+const PRO_COMPONENT_LABELS: Record<string, string> = {
+	seats: "Pro seats",
+	extraApiKeys: "Extra API keys",
+	sso: "SSO add-on",
+	scim: "SCIM add-on",
+};
+
+// Invoice email line items for a Pro payment: one line per purchased
+// component when the breakdown accounts for the charged total, otherwise a
+// single aggregate line (discounts or taxes make the line sum diverge from
+// the total, and a mismatched itemization on a customer invoice is worse
+// than none).
+function proInvoiceLineItems(
+	breakdown: Record<string, string> | null,
+	totalUsd: number,
+	fallbackDescription: string,
+): { description: string; amount: number }[] {
+	if (breakdown) {
+		const items = Object.entries(breakdown)
+			.filter(([, amount]) => Number(amount) !== 0)
+			.map(([component, amount]) => ({
+				description: PRO_COMPONENT_LABELS[component] ?? component,
+				amount: Number(amount),
+			}));
+		const sum = items.reduce((acc, item) => acc + item.amount, 0);
+		if (items.length && Math.abs(sum - totalUsd) < 0.005) {
+			return items;
+		}
+	}
+	return [{ description: fallbackDescription, amount: totalUsd }];
+}
 
 export async function ensureStripeCustomer(
 	organizationId: string,
@@ -1615,6 +1650,23 @@ async function handleCheckoutSessionCompleted(
 				: null;
 
 			if (!existing) {
+				// Per-feature amounts from the invoice's line items, so admin
+				// revenue can split Pro income by seats/keys/add-ons. Non-fatal:
+				// a failed retrieval just leaves the breakdown null.
+				let proBreakdown: Record<string, string> | null = null;
+				if (stripeInvoiceId) {
+					try {
+						const stripeInvoice =
+							await getStripe().invoices.retrieve(stripeInvoiceId);
+						proBreakdown = extractProInvoiceBreakdown(stripeInvoice);
+					} catch (e) {
+						logger.error(
+							"Failed to derive Pro invoice breakdown (checkout); storing without it",
+							e as Error,
+						);
+					}
+				}
+
 				// Create transaction record for subscription start
 				const [transaction] = await db
 					.insert(tables.transaction)
@@ -1625,6 +1677,7 @@ async function handleCheckoutSessionCompleted(
 						currency: (session.currency ?? "USD").toUpperCase(),
 						status: "completed",
 						stripeInvoiceId: stripeInvoiceId,
+						amountBreakdown: proBreakdown ?? undefined,
 						description: "Pro subscription started via Stripe Checkout",
 					})
 					.returning();
@@ -1641,14 +1694,13 @@ async function handleCheckoutSessionCompleted(
 						billingAddress: organization.billingAddress,
 						billingTaxId: organization.billingTaxId,
 						billingNotes: organization.billingNotes,
-						lineItems: [
-							{
-								description: proQuantities
-									? `Pro Subscription (${proQuantities.proSeats} seat${proQuantities.proSeats === 1 ? "" : "s"}${proQuantities.proExtraApiKeys ? `, ${proQuantities.proExtraApiKeys} extra API key${proQuantities.proExtraApiKeys === 1 ? "" : "s"}` : ""}${proQuantities.proSsoEnabled ? ", SSO & SCIM add-on" : ""})`
-									: "Pro Subscription",
-								amount: (session.amount_total ?? 0) / 100,
-							},
-						],
+						lineItems: proInvoiceLineItems(
+							proBreakdown,
+							(session.amount_total ?? 0) / 100,
+							proQuantities
+								? `Pro Subscription (${proQuantities.proSeats} seat${proQuantities.proSeats === 1 ? "" : "s"}${proQuantities.proExtraApiKeys ? `, ${proQuantities.proExtraApiKeys} extra API key${proQuantities.proExtraApiKeys === 1 ? "" : "s"}` : ""}${proQuantities.proSsoEnabled ? ", SSO add-on" : ""}${proQuantities.proScimEnabled ? ", SCIM add-on" : ""})`
+								: "Pro Subscription",
+						),
 						currency: (session.currency ?? "USD").toUpperCase(),
 					});
 				} catch (e) {
@@ -3237,6 +3289,8 @@ export async function handleChargeRefunded(
 		| "chat_plan_renewal"
 		| "chat_plan_upgrade"
 		| "subscription_start"
+		| "subscription_renewal"
+		| "subscription_update"
 	)[] = [
 		"credit_topup",
 		"dev_plan_start",
@@ -3247,6 +3301,8 @@ export async function handleChargeRefunded(
 		"chat_plan_renewal",
 		"chat_plan_upgrade",
 		"subscription_start",
+		"subscription_renewal",
+		"subscription_update",
 	];
 
 	// Find the original transaction by stripePaymentIntentId first (covers
@@ -4364,19 +4420,35 @@ export async function handleInvoicePaymentSucceeded(event: {
 			`Skipping non-renewal chat plan invoice for organization ${organizationId} (billingReason: ${invoice.billing_reason})`,
 		);
 	} else {
-		// Handle regular pro subscription
-		// Create transaction record for subscription start
+		// Handle regular pro subscription. Every invoice counts toward Pro
+		// subscription revenue; the type records WHY it was billed so renewals
+		// and mid-cycle changes don't read as new subscriptions.
+		const proTransactionType =
+			invoice.billing_reason === "subscription_cycle"
+				? ("subscription_renewal" as const)
+				: invoice.billing_reason === "subscription_update"
+					? ("subscription_update" as const)
+					: ("subscription_start" as const);
+		const proDescription =
+			proTransactionType === "subscription_renewal"
+				? "Pro subscription renewal"
+				: proTransactionType === "subscription_update"
+					? "Pro subscription updated"
+					: "Pro subscription started";
+		const proBreakdown = extractProInvoiceBreakdown(invoice);
+
 		const [transaction] = await db
 			.insert(tables.transaction)
 			.values({
 				organizationId,
-				type: "subscription_start",
+				type: proTransactionType,
 				amount: (invoice.amount_paid / 100).toString(),
 				currency: invoice.currency.toUpperCase(),
 				status: "completed",
 				stripePaymentIntentId: (invoice as any).payment_intent,
 				stripeInvoiceId: invoice.id,
-				description: "Pro subscription started",
+				amountBreakdown: proBreakdown ?? undefined,
+				description: proDescription,
 			})
 			.returning();
 
@@ -4409,16 +4481,19 @@ export async function handleInvoicePaymentSucceeded(event: {
 				billingCompany: organization.billingCompany,
 				billingAddress: organization.billingAddress,
 				billingNotes: organization.billingNotes,
-				lineItems: [
-					{
-						description: "Pro Subscription",
-						amount: invoice.amount_paid / 100,
-					},
-				],
+				lineItems: proInvoiceLineItems(
+					proBreakdown,
+					invoice.amount_paid / 100,
+					proTransactionType === "subscription_renewal"
+						? "Pro Subscription Renewal"
+						: proTransactionType === "subscription_update"
+							? "Pro Subscription Update"
+							: "Pro Subscription",
+				),
 				currency: invoice.currency.toUpperCase(),
 			});
 
-			// Track subscription creation in PostHog
+			// Track subscription lifecycle in PostHog
 			posthog.groupIdentify({
 				groupType: "organization",
 				groupKey: organizationId,
@@ -4428,7 +4503,12 @@ export async function handleInvoicePaymentSucceeded(event: {
 			});
 			posthog.capture({
 				distinctId: "organization",
-				event: "subscription_created",
+				event:
+					proTransactionType === "subscription_renewal"
+						? "subscription_renewed"
+						: proTransactionType === "subscription_update"
+							? "subscription_updated"
+							: "subscription_created",
 				groups: {
 					organization: organizationId,
 				},
