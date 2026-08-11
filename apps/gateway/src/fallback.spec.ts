@@ -2850,6 +2850,66 @@ describe("fallback and error status code handling", () => {
 			}
 		});
 
+		test("non-streaming: your-keys list skips a key the model is not allowed on", async () => {
+			await ensureBaseFixtures();
+			await ensureProviders(["openai"]);
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			// The second key is restricted to a different model, so it could never
+			// have served this request. It must not show up as one of the keys the
+			// gateway had to choose from — on the very first attempt, not only
+			// after a retry re-resolved the candidate set.
+			await db.insert(tables.providerKey).values([
+				{
+					id: "openai-key-general",
+					token: "openai-general-token",
+					tokenMasked: maskToken("openai-general-token"),
+					provider: "openai",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+					sortOrder: 0,
+				},
+				{
+					id: "openai-key-restricted",
+					token: "openai-restricted-token",
+					tokenMasked: maskToken("openai-restricted-token"),
+					name: "embeddings-only-key",
+					provider: "openai",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+					allowedModels: ["text-embedding-3-small"],
+					sortOrder: 1,
+				},
+			]);
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "openai/gpt-4o-mini",
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+
+			const logs = await waitForLogs(1);
+			expect(logs[0]?.routingMetadata?.eligibleProviderKeys).toEqual([
+				{
+					id: "openai-key-general",
+					label: maskToken("openai-general-token"),
+				},
+			]);
+		});
+
 		test("streaming: labels the BYOK attempt and the credits fallback that follows it", async () => {
 			const originalApiKey = process.env.LLM_OPENAI_API_KEY;
 			const originalBaseUrl = process.env.LLM_OPENAI_BASE_URL;

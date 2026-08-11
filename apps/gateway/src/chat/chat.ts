@@ -28,7 +28,6 @@ import {
 	findEffectiveDiscount,
 	findProviderKey,
 	findActiveProviderKeys,
-	listEligibleProviderKeys,
 	findProviderKeysByProviders,
 	type CustomModel,
 	type ManagedProviderAvailability,
@@ -272,6 +271,7 @@ import {
 	buildDevPlanCreditLimitError,
 	formatUsedModelForDisplay,
 	getAvailableCredits,
+	resolveEligibleProviderKeys,
 	resolveProviderContext,
 } from "./tools/resolve-provider-context.js";
 import { resolveReasoningTokens } from "./tools/resolve-reasoning-tokens.js";
@@ -825,32 +825,6 @@ function withUsedCredential(
 		usedProviderKeyId,
 		usedProviderKeyLabel,
 	};
-}
-
-/**
- * The organization's own keys that could have served this provider, in
- * selection order. Only BYOK-capable project modes have any: a credits-mode
- * project routes on platform credentials, which are never listed.
- */
-async function resolveEligibleProviderKeys(
-	projectMode: string,
-	organizationId: string,
-	provider: string,
-	filter?: (key: InferSelectModel<typeof tables.providerKey>) => boolean,
-): Promise<RoutingMetadata["eligibleProviderKeys"]> {
-	if (projectMode !== "api-keys" && projectMode !== "hybrid") {
-		return undefined;
-	}
-
-	const keys = await listEligibleProviderKeys(organizationId, provider, filter);
-	if (keys.length === 0) {
-		return undefined;
-	}
-
-	return keys.map((key) => ({
-		id: key.id,
-		label: providerKeyLabel(key),
-	}));
 }
 
 function usesGoogleQueryToken(provider: string): boolean {
@@ -5584,12 +5558,16 @@ chat.openapi(completions, async (c) => {
 		currentProviderKeyIdentity(),
 	);
 	if (routingMetadata) {
-		const eligibleProviderKeys = await resolveEligibleProviderKeys(
-			project.mode,
-			project.organizationId,
-			usedProvider,
+		// Same resolver (and therefore the same model-aware filter) the retry
+		// path uses, so the list never changes shape just because a request
+		// fell back.
+		const eligibleProviderKeys = await resolveEligibleProviderKeys({
+			projectMode: project.mode,
+			organizationId: project.organizationId,
+			provider: usedProvider,
+			usedInternalModel,
 			serviceTierKeyFilter,
-		);
+		});
 		if (eligibleProviderKeys) {
 			routingMetadata = { ...routingMetadata, eligibleProviderKeys };
 		}
