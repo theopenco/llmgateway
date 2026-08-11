@@ -85,6 +85,12 @@ export function EnterpriseDemoVideo() {
 							    at matched quality VP9 came out ~50% larger on this screen
 							    recording, and mp4 also plays on Safari before iOS 17.4. */}
 							<source src="/videos/enterprise-demo.mp4" type="video/mp4" />
+							<track
+								kind="captions"
+								src="/videos/enterprise-demo.vtt"
+								srcLang="en"
+								label="English"
+							/>
 						</video>
 
 						{!started && (
