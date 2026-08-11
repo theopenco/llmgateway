@@ -5,6 +5,12 @@ import { z } from "zod";
 
 import { apiAuth } from "@/auth/config.js";
 import { getApiBaseUrl } from "@/lib/api-url.js";
+import {
+	hasScimAccess,
+	hasSsoAccess,
+	SCIM_PLAN_REQUIRED_MESSAGE,
+	SSO_PLAN_REQUIRED_MESSAGE,
+} from "@/lib/sso-access.js";
 import { getOrgProjectsOldestFirst } from "@/lib/sso-default-projects.js";
 import { normalizeSsoDomains } from "@/lib/sso-domains.js";
 import { recomputeRoleForGroupName } from "@/lib/sso-roles.js";
@@ -24,10 +30,13 @@ export const sso = new OpenAPIHono<ServerTypes>();
 
 const apiUrl = getApiBaseUrl();
 
-async function assertEnterpriseOrgAccess(
+async function assertSsoOrgAccess(
 	userId: string,
 	organizationId: string,
-): Promise<{ role: "owner" | "admin" }> {
+): Promise<{
+	role: "owner" | "admin";
+	organization: typeof tables.organization.$inferSelect;
+}> {
 	const userOrg = await db.query.userOrganization.findFirst({
 		where: {
 			userId: { eq: userId },
@@ -36,7 +45,8 @@ async function assertEnterpriseOrgAccess(
 		with: { organization: true },
 	});
 
-	if (!userOrg || userOrg.organization?.status === "deleted") {
+	const organization = userOrg?.organization;
+	if (!userOrg || !organization || organization.status === "deleted") {
 		throw new HTTPException(403, {
 			message: "You do not have access to this organization",
 		});
@@ -48,18 +58,54 @@ async function assertEnterpriseOrgAccess(
 		});
 	}
 
-	if (
-		!hasOrganizationEnterpriseAccess(
-			userOrg.organization?.id,
-			userOrg.organization?.plan,
-		)
-	) {
+	if (!hasSsoAccess(organization)) {
 		throw new HTTPException(403, {
-			message: "SSO requires an enterprise plan",
+			message: SSO_PLAN_REQUIRED_MESSAGE,
 		});
 	}
 
-	return { role: userOrg.role };
+	return { role: userOrg.role, organization };
+}
+
+// SCIM token management additionally requires the SCIM add-on for Pro orgs
+// (enterprise includes it). Layered on top of the SSO access check so the
+// caller-permission errors stay consistent.
+async function assertScimOrgAccess(
+	userId: string,
+	organizationId: string,
+): Promise<{ role: "owner" | "admin" }> {
+	const { role, organization } = await assertSsoOrgAccess(
+		userId,
+		organizationId,
+	);
+
+	if (!hasScimAccess(organization)) {
+		throw new HTTPException(403, {
+			message: SCIM_PLAN_REQUIRED_MESSAGE,
+		});
+	}
+
+	return { role };
+}
+
+// Group-to-team mappings target organization teams, which stay an
+// enterprise-only feature, so the Pro SSO add-on does not unlock them.
+async function assertEnterpriseOrgAccess(
+	userId: string,
+	organizationId: string,
+): Promise<{ role: "owner" | "admin" }> {
+	const { role, organization } = await assertSsoOrgAccess(
+		userId,
+		organizationId,
+	);
+
+	if (!hasOrganizationEnterpriseAccess(organization.id, organization.plan)) {
+		throw new HTTPException(403, {
+			message: "SSO team mappings require an enterprise plan",
+		});
+	}
+
+	return { role };
 }
 
 // Seed a sensible default per-developer spend cap ($500/month) onto the org's
@@ -331,7 +377,7 @@ sso.openapi(register, async (c) => {
 		enforced,
 	} = c.req.valid("json");
 
-	await assertEnterpriseOrgAccess(user.id, organizationId);
+	await assertSsoOrgAccess(user.id, organizationId);
 
 	const normalizedDomain = parseDomainsOrThrow(domain);
 
@@ -492,7 +538,7 @@ sso.openapi(list, async (c) => {
 
 	const { organizationId } = c.req.valid("query");
 
-	await assertEnterpriseOrgAccess(user.id, organizationId);
+	await assertSsoOrgAccess(user.id, organizationId);
 
 	const rows = await db.query.ssoProvider.findMany({
 		where: { organizationId: { eq: organizationId } },
@@ -542,7 +588,7 @@ sso.openapi(removeProvider, async (c) => {
 	const { providerId } = c.req.valid("param");
 	const { organizationId } = c.req.valid("query");
 
-	await assertEnterpriseOrgAccess(user.id, organizationId);
+	await assertSsoOrgAccess(user.id, organizationId);
 
 	const existing = await db.query.ssoProvider.findFirst({
 		where: {
@@ -616,7 +662,7 @@ sso.openapi(updateProvider, async (c) => {
 	const { providerId } = c.req.valid("param");
 	const { organizationId, enforced, domain } = c.req.valid("json");
 
-	await assertEnterpriseOrgAccess(user.id, organizationId);
+	await assertSsoOrgAccess(user.id, organizationId);
 
 	if (enforced === undefined && domain === undefined) {
 		throw new HTTPException(400, {
@@ -714,7 +760,7 @@ sso.openapi(listRoleMappings, async (c) => {
 
 	const { organizationId } = c.req.valid("query");
 
-	await assertEnterpriseOrgAccess(user.id, organizationId);
+	await assertSsoOrgAccess(user.id, organizationId);
 
 	const mappings = await db.query.ssoRoleMapping.findMany({
 		where: { organizationId: { eq: organizationId } },
@@ -761,7 +807,7 @@ sso.openapi(createRoleMapping, async (c) => {
 
 	const { organizationId, groupName, role } = c.req.valid("json");
 
-	const { role: callerRole } = await assertEnterpriseOrgAccess(
+	const { role: callerRole } = await assertSsoOrgAccess(
 		user.id,
 		organizationId,
 	);
@@ -841,7 +887,7 @@ sso.openapi(removeRoleMapping, async (c) => {
 	const { id } = c.req.valid("param");
 	const { organizationId } = c.req.valid("query");
 
-	await assertEnterpriseOrgAccess(user.id, organizationId);
+	await assertSsoOrgAccess(user.id, organizationId);
 
 	const existing = await db.query.ssoRoleMapping.findFirst({
 		where: {
@@ -1112,7 +1158,7 @@ sso.openapi(listDefaultProjects, async (c) => {
 
 	const { organizationId } = c.req.valid("query");
 
-	await assertEnterpriseOrgAccess(user.id, organizationId);
+	await assertSsoOrgAccess(user.id, organizationId);
 
 	const liveProjects = await getOrgProjectsOldestFirst(organizationId);
 	const liveIds = new Set(liveProjects.map((p) => p.id));
@@ -1163,7 +1209,7 @@ sso.openapi(setDefaultProjects, async (c) => {
 
 	const { organizationId, projectIds } = c.req.valid("json");
 
-	await assertEnterpriseOrgAccess(user.id, organizationId);
+	await assertSsoOrgAccess(user.id, organizationId);
 
 	const liveProjects = await getOrgProjectsOldestFirst(organizationId);
 	const liveIds = new Set(liveProjects.map((p) => p.id));
@@ -1228,7 +1274,7 @@ sso.openapi(scimStatus, async (c) => {
 
 	const { organizationId } = c.req.valid("query");
 
-	await assertEnterpriseOrgAccess(user.id, organizationId);
+	await assertScimOrgAccess(user.id, organizationId);
 
 	const token = await db.query.scimToken.findFirst({
 		where: {
@@ -1282,7 +1328,7 @@ sso.openapi(generateScim, async (c) => {
 
 	const { organizationId, ssoProviderId } = c.req.valid("json");
 
-	await assertEnterpriseOrgAccess(user.id, organizationId);
+	await assertScimOrgAccess(user.id, organizationId);
 
 	// One active token per org: rotating replaces the previous one so the IdP
 	// only ever needs the latest secret.
@@ -1345,7 +1391,7 @@ sso.openapi(revokeScim, async (c) => {
 
 	const { organizationId } = c.req.valid("query");
 
-	await assertEnterpriseOrgAccess(user.id, organizationId);
+	await assertScimOrgAccess(user.id, organizationId);
 
 	// Resolve the active token first so the audit event identifies the revoked
 	// token (id + masked value), consistent with creation, rather than the org.

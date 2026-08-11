@@ -736,11 +736,12 @@ export async function createProjectForOrg(
 		organizationRow.id,
 		organizationRow.plan,
 		organizationRow.projectLimit,
+		organizationRow,
 	);
 
 	if (existingProjects.length >= projectLimit) {
 		throw new HTTPException(403, {
-			message: `You have reached the limit of ${projectLimit} projects. Contact us at contact@llmgateway.io to unlock more.`,
+			message: `You have reached the limit of ${projectLimit} projects. Add extra projects to a Pro plan on the plan page, or contact us at contact@llmgateway.io.`,
 		});
 	}
 
