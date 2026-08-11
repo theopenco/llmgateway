@@ -463,6 +463,15 @@ export default function Footer() {
 							<ul className="space-y-2">
 								<li>
 									<Link
+										href="/compare"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										All Comparisons
+									</Link>
+								</li>
+								<li>
+									<Link
 										href="/compare/github-copilot"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch={true}
@@ -513,6 +522,15 @@ export default function Footer() {
 										prefetch={true}
 									>
 										Azure AI Foundry
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/compare/vercel-ai-gateway"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Vercel AI Gateway
 									</Link>
 								</li>
 								<li>
