@@ -20,6 +20,7 @@
 		"dev": "concurrently \"tsc-watch --onSuccess 'resolve-tspaths'\" \"nodemon --exec node --enable-source-maps --env-file=../../.env dist/index.js\"",
 		"format": "eslint --fix . && prettier --write .",
 		"lint": "eslint . && prettier --check .",
+		"rebuild-global-stats": "tsx --env-file=../../.env ./src/scripts/rebuild-global-stats.ts",
 		"start": "node --enable-source-maps dist/index.js"
 	},
 	"dependencies": {
