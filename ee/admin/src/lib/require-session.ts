@@ -1,13 +1,17 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
-export async function requireSession() {
+export async function hasSessionCookie() {
 	const cookieStore = await cookies();
-	const hasSession =
-		cookieStore.has("better-auth.session_token") ||
-		cookieStore.has("__Secure-better-auth.session_token");
 
-	if (!hasSession) {
+	return (
+		cookieStore.has("better-auth.session_token") ||
+		cookieStore.has("__Secure-better-auth.session_token")
+	);
+}
+
+export async function requireSession() {
+	if (!(await hasSessionCookie())) {
 		redirect("/login");
 	}
 }
