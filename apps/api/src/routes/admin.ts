@@ -500,11 +500,67 @@ const apiKeySchema = z.object({
 	iamRules: z.array(iamRuleAdminSchema),
 });
 
+const keyStatusFilterSchema = z.enum(["all", "active", "inactive", "deleted"]);
+
+type KeyStatusFilter = z.infer<typeof keyStatusFilterSchema>;
+
+/**
+ * Per-status totals for a key list. Always computed over every key of the
+ * organization, never over the filtered rows, so the dashboard can show
+ * "active / total" next to a list that only renders one status.
+ */
+const keyStatusCountsSchema = z.object({
+	all: z.number(),
+	active: z.number(),
+	inactive: z.number(),
+	deleted: z.number(),
+});
+
+type KeyStatusCounts = z.infer<typeof keyStatusCountsSchema>;
+
+function emptyKeyStatusCounts(): KeyStatusCounts {
+	return { all: 0, active: 0, inactive: 0, deleted: 0 };
+}
+
+function toKeyStatusCounts(
+	rows: { status: string; count: number }[],
+): KeyStatusCounts {
+	const counts = emptyKeyStatusCounts();
+	for (const row of rows) {
+		const count = Number(row.count);
+		counts.all += count;
+		if (
+			row.status === "active" ||
+			row.status === "inactive" ||
+			row.status === "deleted"
+		) {
+			counts[row.status] += count;
+		}
+	}
+	return counts;
+}
+
+/**
+ * Both key tables declare `status` nullable with an `active` default, so legacy
+ * NULL rows have to be folded into `active` — otherwise they vanish from every
+ * filtered view and from the counts.
+ */
+function keyStatusCondition(column: AnyColumn, status: KeyStatusFilter) {
+	if (status === "all") {
+		return undefined;
+	}
+	if (status === "active") {
+		return or(eq(column, "active"), isNull(column));
+	}
+	return eq(column, status);
+}
+
 const apiKeysListSchema = z.object({
 	apiKeys: z.array(apiKeySchema),
 	total: z.number(),
 	limit: z.number(),
 	offset: z.number(),
+	counts: keyStatusCountsSchema,
 });
 
 const providerKeyAdminSchema = z.object({
@@ -528,6 +584,7 @@ const providerKeyAdminSchema = z.object({
 const providerKeysListSchema = z.object({
 	providerKeys: z.array(providerKeyAdminSchema),
 	total: z.number(),
+	counts: keyStatusCountsSchema,
 });
 
 const memberSchema = z.object({
@@ -694,6 +751,7 @@ const getOrganizationApiKeys = createRoute({
 		query: z.object({
 			limit: z.coerce.number().min(1).max(100).default(25).optional(),
 			offset: z.coerce.number().min(0).default(0).optional(),
+			status: keyStatusFilterSchema.default("active").optional(),
 		}),
 	},
 	responses: {
@@ -717,6 +775,9 @@ const getOrganizationProviderKeys = createRoute({
 	request: {
 		params: z.object({
 			orgId: z.string(),
+		}),
+		query: z.object({
+			status: keyStatusFilterSchema.default("active").optional(),
 		}),
 	},
 	responses: {
@@ -2937,6 +2998,7 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 	const query = c.req.valid("query");
 	const limit = query.limit ?? 25;
 	const offset = query.offset ?? 0;
+	const status = query.status ?? "active";
 
 	const org = await db.query.organization.findFirst({
 		where: {
@@ -2963,17 +3025,22 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 			total: 0,
 			limit,
 			offset,
+			counts: emptyKeyStatusCounts(),
 		});
 	}
 
-	const [countResult] = await db
+	const apiKeyStatusExpr = sql<string>`COALESCE(${tables.apiKey.status}, 'active')`;
+	const countRows = await db
 		.select({
-			count: sql<number>`COUNT(*)`.as("count"),
+			status: apiKeyStatusExpr,
+			count: sql<number>`COUNT(*)`,
 		})
 		.from(tables.apiKey)
-		.where(inArray(tables.apiKey.projectId, ids));
+		.where(inArray(tables.apiKey.projectId, ids))
+		.groupBy(apiKeyStatusExpr);
 
-	const total = Number(countResult?.count ?? 0);
+	const counts = toKeyStatusCounts(countRows);
+	const total = status === "all" ? counts.all : counts[status];
 
 	const apiKeys = await db
 		.select({
@@ -2989,7 +3056,12 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 		})
 		.from(tables.apiKey)
 		.innerJoin(tables.project, eq(tables.apiKey.projectId, tables.project.id))
-		.where(inArray(tables.apiKey.projectId, ids))
+		.where(
+			and(
+				inArray(tables.apiKey.projectId, ids),
+				keyStatusCondition(tables.apiKey.status, status),
+			),
+		)
 		.orderBy(desc(tables.apiKey.createdAt))
 		.limit(limit)
 		.offset(offset);
@@ -3029,11 +3101,13 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 		total,
 		limit,
 		offset,
+		counts,
 	});
 });
 
 admin.openapi(getOrganizationProviderKeys, async (c) => {
 	const { orgId } = c.req.valid("param");
+	const status = c.req.valid("query").status ?? "active";
 
 	const org = await db.query.organization.findFirst({
 		where: {
@@ -3046,6 +3120,18 @@ admin.openapi(getOrganizationProviderKeys, async (c) => {
 			message: "Organization not found",
 		});
 	}
+
+	const providerKeyStatusExpr = sql<string>`COALESCE(${tables.providerKey.status}, 'active')`;
+	const providerKeyCountRows = await db
+		.select({
+			status: providerKeyStatusExpr,
+			count: sql<number>`COUNT(*)`,
+		})
+		.from(tables.providerKey)
+		.where(eq(tables.providerKey.organizationId, orgId))
+		.groupBy(providerKeyStatusExpr);
+
+	const counts = toKeyStatusCounts(providerKeyCountRows);
 
 	const providerKeys = await db
 		.select({
@@ -3065,7 +3151,12 @@ admin.openapi(getOrganizationProviderKeys, async (c) => {
 			updatedAt: tables.providerKey.updatedAt,
 		})
 		.from(tables.providerKey)
-		.where(eq(tables.providerKey.organizationId, orgId))
+		.where(
+			and(
+				eq(tables.providerKey.organizationId, orgId),
+				keyStatusCondition(tables.providerKey.status, status),
+			),
+		)
 		.orderBy(desc(tables.providerKey.createdAt));
 
 	return c.json({
@@ -3086,6 +3177,7 @@ admin.openapi(getOrganizationProviderKeys, async (c) => {
 			updatedAt: k.updatedAt.toISOString(),
 		})),
 		total: providerKeys.length,
+		counts,
 	});
 });
 
