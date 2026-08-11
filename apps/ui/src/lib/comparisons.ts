@@ -119,9 +119,9 @@ export const comparisons: Comparison[] = [
 		openSource: "No",
 		selfHostable: "No",
 		keyDifference:
-			"LLM Gateway charges zero token markup and enforces hard budget caps per organization, project, and key, so an agent cannot run up an open-ended bill.",
+			"LLM Gateway charges zero token markup and enforces hard budget caps at organization, project, and key scope.",
 		betterForThem:
-			"You want a single vendor for editor, repository, and assistant, and per-seat simplicity matters more than cost ceilings.",
+			"You want a single vendor for editor, repository, and assistant, and one per-seat bill matters more than per-project and per-key cost attribution.",
 		migrationSlug: "github-copilot",
 	},
 ];
