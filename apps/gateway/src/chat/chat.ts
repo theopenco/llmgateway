@@ -4398,7 +4398,22 @@ chat.openapi(completions, async (c) => {
 			});
 		}
 
-		if (iamFilteredModelProviders.length === 1) {
+		// Only a genuinely single candidate may skip provider selection. A bare
+		// model id (no provider prefix) leaves `modelInfo.providers` un-expanded:
+		// one entry per provider, its `region` undefined and the concrete regions
+		// still inside its `regions` array. Gating on that count alone therefore
+		// pins `usedRegion = undefined` for a provider with several regions and
+		// sends the request to the provider's default region, so `qwen3.7-plus`
+		// and `alibaba/qwen3.7-plus` — the same request, two spellings — resolve
+		// different regions at different prices. Gate on the expanded count as
+		// well so those candidates go through the routing branch below, which
+		// prices the regions against each other. Providers that pin their default
+		// region (AWS Bedrock) are collapsed straight back to it there by
+		// `applyPinnedDefaultRegions`, so their routing is unchanged.
+		if (
+			iamFilteredModelProviders.length === 1 &&
+			expandedIamFilteredModelProviders.length === 1
+		) {
 			usedProvider = iamFilteredModelProviders[0].providerId;
 			usedInternalModel = modelInfo.id;
 			usedExternalId = iamFilteredModelProviders[0].externalId;
