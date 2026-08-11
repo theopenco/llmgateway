@@ -8443,6 +8443,293 @@ describe("api", () => {
 		});
 	});
 
+	describe("upstream failure billing", () => {
+		// A request the gateway records as an upstream/gateway failure hands the
+		// caller an error, so it is not billed for whatever the provider emitted
+		// before dying — even though the tokens are still recorded for analytics.
+		function spyUpstreamResponse(
+			matchUrlFragment: string,
+			body: string,
+			contentType: string,
+		): ReturnType<typeof vi.spyOn> {
+			const originalFetch = globalThis.fetch;
+			return vi
+				.spyOn(globalThis, "fetch")
+				.mockImplementation(async (input, init) => {
+					const url =
+						typeof input === "string"
+							? input
+							: input instanceof URL
+								? input.toString()
+								: input.url;
+
+					if (url.includes(matchUrlFragment)) {
+						const stream = new ReadableStream({
+							start(controller) {
+								controller.enqueue(new TextEncoder().encode(body));
+								controller.close();
+							},
+						});
+						return new Response(stream, {
+							status: 200,
+							headers: { "Content-Type": contentType },
+						});
+					}
+
+					return await originalFetch(input as RequestInfo | URL, init);
+				});
+		}
+
+		test("stream truncated after partial output is not billed", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "anthropic",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			// Partial output, then the upstream drops the connection without ever
+			// sending a terminal event — the shape of a mid-stream provider failure.
+			const sse = [
+				`event: message_start\ndata: ${JSON.stringify({
+					type: "message_start",
+					message: {
+						id: "msg_truncated",
+						type: "message",
+						role: "assistant",
+						model: "claude-opus-4-8",
+						content: [],
+						usage: { input_tokens: 100, output_tokens: 0 },
+					},
+				})}\n\n`,
+				`event: content_block_start\ndata: ${JSON.stringify({
+					type: "content_block_start",
+					index: 0,
+					content_block: { type: "text", text: "" },
+				})}\n\n`,
+				`event: content_block_delta\ndata: ${JSON.stringify({
+					type: "content_block_delta",
+					index: 0,
+					delta: { type: "text_delta", text: "Here is the start of an answer" },
+				})}\n\n`,
+			].join("");
+
+			const fetchSpy = spyUpstreamResponse(
+				`${mockServerUrl}/v1/messages`,
+				sse,
+				"text/event-stream",
+			);
+
+			try {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-opus-4-8",
+						messages: [{ role: "user", content: "Truncate the stream" }],
+						stream: true,
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				const streamResult = await readAll(res.body);
+				expect(streamResult.hasError).toBe(true);
+				expect(streamResult.errorEvents[0].error.type).toBe("upstream_error");
+			} finally {
+				fetchSpy.mockRestore();
+			}
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].finishReason).toBe("upstream_error");
+			expect(logs[0].hasError).toBe(true);
+			// The caller got an error, so nothing is charged.
+			expect(Number(logs[0].cost)).toBe(0);
+			expect(Number(logs[0].inputCost)).toBe(0);
+			expect(Number(logs[0].outputCost)).toBe(0);
+			// Tokens are still recorded for analytics.
+			expect(Number(logs[0].promptTokens)).toBe(100);
+		});
+
+		// The expensive real-world shape: a long agentic run that streams only
+		// tool calls (no assistant text) and dies before the provider ever sends
+		// a usage frame. calculateCosts then estimates the completion count from
+		// the accumulated tool-call JSON — an estimate that never reaches
+		// log.completionTokens, so the row shows 0 output tokens next to a large
+		// output cost. Zeroing the failure has to cover this path too.
+		test("stream truncated after tool calls only is not billed", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "anthropic",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			// Large tool-call arguments, no text content at all.
+			const toolArgs = JSON.stringify({
+				query: "x".repeat(4000),
+			}).slice(1, -1);
+			const sse = [
+				`event: message_start\ndata: ${JSON.stringify({
+					type: "message_start",
+					message: {
+						id: "msg_tool_truncated",
+						type: "message",
+						role: "assistant",
+						model: "claude-opus-4-8",
+						content: [],
+						usage: { input_tokens: 100, output_tokens: 0 },
+					},
+				})}\n\n`,
+				`event: content_block_start\ndata: ${JSON.stringify({
+					type: "content_block_start",
+					index: 0,
+					content_block: { type: "tool_use", id: "toolu_1", name: "search" },
+				})}\n\n`,
+				`event: content_block_delta\ndata: ${JSON.stringify({
+					type: "content_block_delta",
+					index: 0,
+					delta: { type: "input_json_delta", partial_json: `{${toolArgs}}` },
+				})}\n\n`,
+			].join("");
+
+			const fetchSpy = spyUpstreamResponse(
+				`${mockServerUrl}/v1/messages`,
+				sse,
+				"text/event-stream",
+			);
+
+			try {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-opus-4-8",
+						messages: [{ role: "user", content: "Call a tool" }],
+						tools: [
+							{
+								type: "function",
+								function: {
+									name: "search",
+									description: "Search",
+									parameters: {
+										type: "object",
+										properties: { query: { type: "string" } },
+									},
+								},
+							},
+						],
+						stream: true,
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				const streamResult = await readAll(res.body);
+				expect(streamResult.hasError).toBe(true);
+			} finally {
+				fetchSpy.mockRestore();
+			}
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].finishReason).toBe("upstream_error");
+			expect(logs[0].hasError).toBe(true);
+			// The provider never reported a completion count, so the row records
+			// none — the charge must not be conjured from an estimate either.
+			expect(Number(logs[0].completionTokens ?? 0)).toBe(0);
+			expect(Number(logs[0].cost)).toBe(0);
+			expect(Number(logs[0].outputCost)).toBe(0);
+		});
+
+		test("empty non-streaming response is not billed", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "anthropic",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const fetchSpy = spyUpstreamResponse(
+				`${mockServerUrl}/v1/messages`,
+				JSON.stringify({
+					id: "msg_empty",
+					type: "message",
+					role: "assistant",
+					model: "claude-opus-4-8",
+					content: [],
+					stop_reason: "end_turn",
+					stop_sequence: null,
+					usage: { input_tokens: 100, output_tokens: 0 },
+				}),
+				"application/json",
+			);
+
+			let json: { usage?: { cost?: number } };
+			try {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-opus-4-8",
+						messages: [{ role: "user", content: "Return nothing" }],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				json = await res.json();
+			} finally {
+				fetchSpy.mockRestore();
+			}
+
+			// The cost echoed to the client matches the zeroed charge.
+			expect(json.usage?.cost).toBe(0);
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].finishReason).toBe("upstream_error");
+			expect(logs[0].hasError).toBe(true);
+			expect(Number(logs[0].cost)).toBe(0);
+			expect(Number(logs[0].inputCost)).toBe(0);
+			expect(Number(logs[0].promptTokens)).toBe(100);
+		});
+	});
+
 	describe("native /v1/messages server-side tools", () => {
 		// Anthropic server-side tools (e.g. web_search_20250305) carry a versioned
 		// `type` and no `description`/`input_schema`. They must pass validation and
