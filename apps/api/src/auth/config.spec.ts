@@ -672,3 +672,209 @@ describe("Auth rate limiting", () => {
 		}
 	});
 });
+
+describe("multi-session device accounts", () => {
+	const SESSION_COOKIE = "better-auth.session_token";
+	const SIGNUP_IP = "10.77.0.1";
+
+	function updateJar(jar: Map<string, string>, response: Response) {
+		for (const raw of response.headers.getSetCookie()) {
+			const [pair, ...attributes] = raw.split(";");
+			const separator = pair.indexOf("=");
+			const name = pair.slice(0, separator).trim();
+			const value = pair.slice(separator + 1).trim();
+			const maxAge = attributes
+				.map((attribute) => attribute.trim().toLowerCase())
+				.find((attribute) => attribute.startsWith("max-age="));
+			if (!value || maxAge === "max-age=0") {
+				jar.delete(name);
+			} else {
+				jar.set(name, value);
+			}
+		}
+	}
+
+	function cookieHeader(jar: Map<string, string>) {
+		return [...jar].map(([name, value]) => `${name}=${value}`).join("; ");
+	}
+
+	function multiSessionCookieNames(jar: Map<string, string>) {
+		return [...jar.keys()].filter((name) => name.includes("_multi-"));
+	}
+
+	// Cookie values are signed as `<token>.<signature>`, so the raw session
+	// token is everything before the first dot.
+	function tokenFromCookie(value: string) {
+		return decodeURIComponent(value).split(".")[0];
+	}
+
+	async function request(
+		path: string,
+		jar: Map<string, string>,
+		init?: { method?: string; body?: unknown },
+	) {
+		const headers: Record<string, string> = {
+			"Content-Type": "application/json",
+			"CF-Connecting-IP": SIGNUP_IP,
+		};
+		const cookies = cookieHeader(jar);
+		if (cookies) {
+			headers.Cookie = cookies;
+		}
+		const response = await apiAuth.handler(
+			new Request(`http://localhost:4002/auth${path}`, {
+				method: init?.method ?? "POST",
+				headers,
+				body: init?.body ? JSON.stringify(init.body) : undefined,
+			}),
+		);
+		updateJar(jar, response);
+		return response;
+	}
+
+	// The signup hook allows one attempt per IP per minute, and these tests need
+	// several sign-ups on the *same* simulated device, so drop the counter first
+	// rather than hoping randomly picked IPs never collide.
+	async function clearSignupRateLimit() {
+		await redisClient.del(
+			`signup_rate_limit:${SIGNUP_IP}`,
+			`signup_rate_limit_attempts:${SIGNUP_IP}`,
+		);
+	}
+
+	async function signUp(jar: Map<string, string>, email: string) {
+		await clearSignupRateLimit();
+		const response = await request("/sign-up/email", jar, {
+			body: { email, password: "Password123!", name: email },
+		});
+		expect(response.status).toBe(200);
+		return email;
+	}
+
+	async function activeUserId(jar: Map<string, string>) {
+		const cookie = jar.get(SESSION_COOKIE);
+		if (!cookie) {
+			return null;
+		}
+		const session = await db.query.session.findFirst({
+			where: { token: { eq: tokenFromCookie(cookie) } },
+		});
+		return session?.userId ?? null;
+	}
+
+	beforeEach(async () => {
+		await db.delete(tables.userOrganization);
+		await db.delete(tables.project);
+		await db.delete(tables.account);
+		await db.delete(tables.organization);
+		await db.delete(tables.user);
+	});
+
+	afterEach(async () => {
+		await db.delete(tables.userOrganization);
+		await db.delete(tables.project);
+		await db.delete(tables.account);
+		await db.delete(tables.organization);
+		await db.delete(tables.user);
+	});
+
+	test("registers the multi-session plugin", () => {
+		const ids = (apiAuth.options.plugins ?? []).map(
+			(plugin: { id: string }) => plugin.id,
+		);
+		expect(ids).toContain("multi-session");
+	});
+
+	test("stores a device-session cookie for every signed-in account", async () => {
+		const jar = new Map<string, string>();
+		await signUp(jar, `multi-a-${Date.now()}@example.com`);
+		expect(multiSessionCookieNames(jar)).toHaveLength(1);
+
+		await signUp(jar, `multi-b-${Date.now()}@example.com`);
+		expect(multiSessionCookieNames(jar)).toHaveLength(2);
+
+		const listed = await request("/multi-session/list-device-sessions", jar, {
+			method: "GET",
+		});
+		expect(listed.status).toBe(200);
+		const sessions = (await listed.json()) as {
+			user: { email: string };
+			session: { token: string };
+		}[];
+		expect(sessions).toHaveLength(2);
+	});
+
+	test("lists device sessions without an active session cookie", async () => {
+		const jar = new Map<string, string>();
+		await signUp(jar, `multi-anon-${Date.now()}@example.com`);
+		jar.delete(SESSION_COOKIE);
+
+		const listed = await request("/multi-session/list-device-sessions", jar, {
+			method: "GET",
+		});
+		expect(listed.status).toBe(200);
+		expect((await listed.json()) as unknown[]).toHaveLength(1);
+	});
+
+	test("set-active switches the session cookie to the chosen account", async () => {
+		const jar = new Map<string, string>();
+		const emailA = await signUp(
+			jar,
+			`multi-switch-a-${Date.now()}@example.com`,
+		);
+		await signUp(jar, `multi-switch-b-${Date.now()}@example.com`);
+
+		const listed = await request("/multi-session/list-device-sessions", jar, {
+			method: "GET",
+		});
+		const sessions = (await listed.json()) as {
+			user: { id: string; email: string };
+			session: { token: string };
+		}[];
+		const target = sessions.find((entry) => entry.user.email === emailA);
+		expect(target).toBeDefined();
+
+		const setActive = await request("/multi-session/set-active", jar, {
+			body: { sessionToken: target!.session.token },
+		});
+		expect(setActive.status).toBe(200);
+		expect(await activeUserId(jar)).toBe(target!.user.id);
+	});
+
+	test("revoke drops one account and promotes the next", async () => {
+		const jar = new Map<string, string>();
+		const emailA = await signUp(
+			jar,
+			`multi-revoke-a-${Date.now()}@example.com`,
+		);
+		await signUp(jar, `multi-revoke-b-${Date.now()}@example.com`);
+
+		const activeToken = tokenFromCookie(jar.get(SESSION_COOKIE)!);
+		const revoked = await request("/multi-session/revoke", jar, {
+			body: { sessionToken: activeToken },
+		});
+		expect(revoked.status).toBe(200);
+		expect(multiSessionCookieNames(jar)).toHaveLength(1);
+
+		const remaining = await db.query.user.findFirst({
+			where: { email: { eq: emailA } },
+		});
+		expect(await activeUserId(jar)).toBe(remaining!.id);
+	});
+
+	test("sign-out clears every device session", async () => {
+		const jar = new Map<string, string>();
+		await signUp(jar, `multi-out-a-${Date.now()}@example.com`);
+		await signUp(jar, `multi-out-b-${Date.now()}@example.com`);
+		expect(multiSessionCookieNames(jar)).toHaveLength(2);
+
+		const signedOut = await request("/sign-out", jar);
+		expect(signedOut.status).toBe(200);
+		expect(multiSessionCookieNames(jar)).toHaveLength(0);
+
+		const listed = await request("/multi-session/list-device-sessions", jar, {
+			method: "GET",
+		});
+		expect((await listed.json()) as unknown[]).toHaveLength(0);
+	});
+});

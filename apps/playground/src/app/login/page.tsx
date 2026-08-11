@@ -8,7 +8,7 @@ import { motion } from "motion/react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import * as z from "zod/v3";
@@ -29,7 +29,10 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { useUser } from "@/hooks/useUser";
-import { useAuth } from "@/lib/auth-client";
+import { useAuth, useAuthClient } from "@/lib/auth-client";
+
+import { useLoginAccounts } from "@llmgateway/shared/accounts";
+import { AccountList } from "@llmgateway/shared/components";
 
 const formSchema = z.object({
 	email: z.string().email({ message: "Please enter a valid email address" }),
@@ -63,12 +66,16 @@ function Login() {
 	const posthog = usePostHog();
 	const [isLoading, setIsLoading] = useState(false);
 	const { signIn } = useAuth();
+	const authClient = useAuthClient();
 	const returnUrl = getSafeRedirectUrl(searchParams.get("returnUrl"));
 	const didAttemptPasskeyAutofillRef = useRef(false);
+	// `?add=1` means the user came from the profile switcher to sign into an
+	// additional account, so the already-authenticated redirect must not fire.
+	const isAddingAccount = searchParams.get("add") === "1";
 
 	useUser({
 		redirectTo: returnUrl,
-		redirectWhen: "authenticated",
+		redirectWhen: isAddingAccount ? undefined : "authenticated",
 	});
 
 	useEffect(() => {
@@ -81,6 +88,34 @@ function Login() {
 			email: "",
 			password: "",
 		},
+	});
+
+	const passwordInputRef = useRef<HTMLInputElement>(null);
+	const emailParam = searchParams.get("email");
+
+	const prefillEmail = useCallback(
+		(email: string) => {
+			form.setValue("email", email, { shouldValidate: true });
+			passwordInputRef.current?.focus();
+		},
+		[form],
+	);
+
+	useEffect(() => {
+		if (emailParam) {
+			prefillEmail(emailParam);
+		}
+	}, [emailParam, prefillEmail]);
+
+	const {
+		accounts,
+		pendingUserId,
+		selectAccount,
+		forget: forgetAccount,
+	} = useLoginAccounts({
+		client: authClient,
+		onPrefillEmail: prefillEmail,
+		redirectTo: returnUrl,
 	});
 
 	useEffect(() => {
@@ -215,14 +250,23 @@ function Login() {
 
 					<div className="flex flex-col space-y-2">
 						<h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-							Sign in
+							{isAddingAccount ? "Add another account" : "Sign in"}
 						</h1>
 						<p className="text-sm text-muted-foreground">
-							Sign in to continue your chats
+							{isAddingAccount
+								? "Sign in to switch between accounts without signing out"
+								: "Sign in to continue your chats"}
 						</p>
 					</div>
 
 					<div className="mt-8 space-y-4">
+						<AccountList
+							accounts={accounts}
+							pendingUserId={pendingUserId}
+							onSelect={(account) => void selectAccount(account)}
+							onForget={forgetAccount}
+						/>
+
 						<Form {...form}>
 							<form
 								onSubmit={form.handleSubmit(onSubmit)}
@@ -258,6 +302,10 @@ function Login() {
 													type="password"
 													autoComplete="current-password webauthn"
 													{...field}
+													ref={(element) => {
+														field.ref(element);
+														passwordInputRef.current = element;
+													}}
 												/>
 											</FormControl>
 											<FormMessage />

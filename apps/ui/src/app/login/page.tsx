@@ -15,13 +15,13 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
 import { SocialAuthButtons } from "@/components/social-auth-buttons";
 import { useSessionStatus, useUser } from "@/hooks/useUser";
-import { useAuth } from "@/lib/auth-client";
+import { useAuth, useAuthClient } from "@/lib/auth-client";
 import { getAuthErrorMessage } from "@/lib/auth-errors";
 import { Button } from "@/lib/components/button";
 import {
@@ -35,6 +35,9 @@ import {
 import { Input } from "@/lib/components/input";
 import { toast } from "@/lib/components/use-toast";
 import { useAppConfig } from "@/lib/config";
+
+import { useLoginAccounts } from "@llmgateway/shared/accounts";
+import { AccountList } from "@llmgateway/shared/components";
 
 import type { Route } from "next";
 
@@ -54,6 +57,7 @@ export default function Login() {
 	const [isLoading, setIsLoading] = useState(false);
 	const [showPassword, setShowPassword] = useState(false);
 	const { signIn } = useAuth();
+	const authClient = useAuthClient();
 	const { ssoEnabled } = useAppConfig();
 
 	// Support a post-login `?redirect=` target (e.g. the CLI connect flow). Only
@@ -68,13 +72,23 @@ export default function Login() {
 			: "/dashboard";
 	});
 
+	// `?add=1` means the user came from the profile switcher to sign into an
+	// additional account, so the already-authenticated redirect must not fire —
+	// otherwise they'd be bounced straight back to the dashboard.
+	const [isAddingAccount] = useState(() => {
+		if (typeof window === "undefined") {
+			return false;
+		}
+		return new URLSearchParams(window.location.search).get("add") === "1";
+	});
+
 	const { isAuthenticated } = useSessionStatus();
 
 	useUser({
 		redirectTo: redirectTarget,
 		redirectWhen: "authenticated",
 		checkOnboarding: true,
-		enabled: isAuthenticated,
+		enabled: isAuthenticated && !isAddingAccount,
 	});
 
 	useEffect(() => {
@@ -101,6 +115,35 @@ export default function Login() {
 			email: "",
 			password: "",
 		},
+	});
+
+	const passwordInputRef = useRef<HTMLInputElement>(null);
+
+	const prefillEmail = useCallback(
+		(email: string) => {
+			form.setValue("email", email, { shouldValidate: true });
+			passwordInputRef.current?.focus();
+		},
+		[form],
+	);
+
+	// Set after mount so the server-rendered form keeps its empty default.
+	useEffect(() => {
+		const email = new URLSearchParams(window.location.search).get("email");
+		if (email) {
+			prefillEmail(email);
+		}
+	}, [prefillEmail]);
+
+	const {
+		accounts,
+		pendingUserId,
+		selectAccount,
+		forget: forgetAccount,
+	} = useLoginAccounts({
+		client: authClient,
+		onPrefillEmail: prefillEmail,
+		redirectTo: redirectTarget,
 	});
 
 	const passkeyAutofillStarted = useRef(false);
@@ -269,14 +312,23 @@ export default function Login() {
 
 			<div className="flex flex-col space-y-2">
 				<h1 className="font-display text-2xl font-bold tracking-tight sm:text-3xl">
-					Sign in
+					{isAddingAccount ? "Add another account" : "Sign in"}
 				</h1>
 				<p className="text-sm text-muted-foreground">
-					Enter your credentials to access your dashboard
+					{isAddingAccount
+						? "Sign in to switch between accounts without signing out"
+						: "Enter your credentials to access your dashboard"}
 				</p>
 			</div>
 
 			<div className="mt-8 space-y-4">
+				<AccountList
+					accounts={accounts}
+					pendingUserId={pendingUserId}
+					onSelect={(account) => void selectAccount(account)}
+					onForget={forgetAccount}
+				/>
+
 				{/* Email/Password form */}
 				<Form {...form}>
 					<form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -320,6 +372,10 @@ export default function Login() {
 												autoComplete="current-password webauthn"
 												className="pr-10"
 												{...field}
+												ref={(element) => {
+													field.ref(element);
+													passwordInputRef.current = element;
+												}}
 											/>
 											<Button
 												type="button"

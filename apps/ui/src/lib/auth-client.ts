@@ -1,5 +1,6 @@
 import { passkeyClient } from "@better-auth/passkey/client";
 import { ssoClient } from "@better-auth/sso/client";
+import { multiSessionClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 import { useMemo } from "react";
 
@@ -12,7 +13,7 @@ export function useAuthClient() {
 	return useMemo(() => {
 		return createAuthClient({
 			baseURL: config.apiUrl + "/auth",
-			plugins: [passkeyClient(), ssoClient()],
+			plugins: [passkeyClient(), ssoClient(), multiSessionClient()],
 		});
 	}, [config.apiUrl]);
 }
@@ -29,6 +30,7 @@ export function useAuth() {
 			useSession: authClient.useSession,
 			getSession: authClient.getSession,
 			sendVerificationEmail: authClient.sendVerificationEmail,
+			multiSession: authClient.multiSession,
 		}),
 		[authClient],
 	);

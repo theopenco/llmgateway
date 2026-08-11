@@ -49,9 +49,9 @@ import {
 } from "@/components/dashboard/animated-nav-icons";
 import { ReferralDialog } from "@/components/dashboard/referral-dialog";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
-import { useUser } from "@/hooks/useUser";
+import { useSessionStatus, useUser } from "@/hooks/useUser";
 import { clearLastUsedProjectCookiesAction } from "@/lib/actions/last-used-project";
-import { useAuth } from "@/lib/auth-client";
+import { useAuth, useAuthClient } from "@/lib/auth-client";
 import { Button } from "@/lib/components/button";
 import {
 	DropdownMenu,
@@ -90,13 +90,23 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/lib/components/tooltip";
+import { toast } from "@/lib/components/use-toast";
 import Logo from "@/lib/icons/Logo";
 import { buildUrlWithParams } from "@/lib/navigation-utils";
+
+import {
+	revokeDeviceSession,
+	setActiveDeviceSession,
+	useDeviceAccounts,
+	useRecordRecentLogin,
+} from "@llmgateway/shared/accounts";
+import { AccountSwitcher } from "@llmgateway/shared/components";
 
 import { OrganizationSwitcher } from "./organization-switcher";
 
 import type { AnimatedIconProps } from "@/components/dashboard/animated-nav-icons";
 import type { Organization, User } from "@/lib/types";
+import type { DeviceAccount } from "@llmgateway/shared/accounts";
 import type { Route } from "next";
 
 type AnimatedIconComponent = React.ComponentType<AnimatedIconProps>;
@@ -956,14 +966,54 @@ function UserDropdownMenu({
 	isMobile,
 	toggleSidebar,
 	onLogout,
+	onLogoutAll,
 }: {
 	user: User;
 	isMobile: boolean;
 	toggleSidebar: () => void;
 	onLogout: () => void;
+	onLogoutAll: () => void;
 }) {
 	const { buildUrl, buildOrgUrl } = useDashboardNavigation();
 	const searchParams = useSearchParams();
+	const authClient = useAuthClient();
+	const posthog = usePostHog();
+	const [open, setOpen] = useState(false);
+	const [pendingUserId, setPendingUserId] = useState<string | null>(null);
+
+	// Only hit the device-sessions endpoint once the menu is actually opened.
+	const { accounts, isLoading, refresh, forget } = useDeviceAccounts({
+		client: authClient,
+		activeUserId: user?.id,
+		enabled: open,
+	});
+
+	const handleSwitch = async (account: DeviceAccount) => {
+		if (!account.sessionToken) {
+			window.location.assign(
+				`/login?add=1&email=${encodeURIComponent(account.email)}`,
+			);
+			return;
+		}
+
+		setPendingUserId(account.userId);
+		const error = await setActiveDeviceSession(
+			authClient,
+			account.sessionToken,
+		);
+		if (error) {
+			setPendingUserId(null);
+			toast({ title: error, variant: "destructive" });
+			void refresh();
+			return;
+		}
+
+		posthog.reset();
+		// Hard navigation on purpose: organizations, projects and credits are
+		// prefetched per user on the server and cached in the RSC payload, so a
+		// client-side push would keep rendering the previous account's data.
+		window.location.assign("/dashboard");
+	};
 
 	const getUserInitials = () => {
 		if (!user?.name) {
@@ -978,7 +1028,7 @@ function UserDropdownMenu({
 	};
 
 	return (
-		<DropdownMenu>
+		<DropdownMenu open={open} onOpenChange={setOpen}>
 			<DropdownMenuTrigger asChild>
 				<SidebarMenuButton
 					size="lg"
@@ -1002,6 +1052,24 @@ function UserDropdownMenu({
 				align="end"
 				sideOffset={4}
 			>
+				<AccountSwitcher
+					activeAccount={
+						user
+							? {
+									userId: user.id,
+									name: user.name,
+									email: user.email,
+								}
+							: null
+					}
+					accounts={accounts}
+					isLoading={isLoading}
+					pendingUserId={pendingUserId}
+					onSwitch={(account) => void handleSwitch(account)}
+					onAddAccount={() => window.location.assign("/login?add=1")}
+					onForget={forget}
+				/>
+				<DropdownMenuSeparator />
 				<div className="p-2">
 					<ThemeSelect />
 				</div>
@@ -1039,6 +1107,11 @@ function UserDropdownMenu({
 				<DropdownMenuItem onClick={onLogout}>
 					<span>Log out</span>
 				</DropdownMenuItem>
+				{accounts.length > 1 ? (
+					<DropdownMenuItem onClick={onLogoutAll}>
+						<span>Log out of all accounts</span>
+					</DropdownMenuItem>
+				) : null}
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);
@@ -1144,6 +1217,8 @@ export function DashboardSidebar({
 	const posthog = usePostHog();
 	const queryClient = useQueryClient();
 	const { signOut } = useAuth();
+	const authClient = useAuthClient();
+	const { session } = useSessionStatus();
 	const { buildUrl, buildOrgUrl } = useDashboardNavigation();
 	const [showUpgradeCTA, setShowUpgradeCTA] = useState(true);
 	const [ctaLoaded, setCTALoaded] = useState(false);
@@ -1157,6 +1232,8 @@ export function DashboardSidebar({
 		redirectTo: "/login",
 		redirectWhen: "unauthenticated",
 	});
+
+	useRecordRecentLogin(user);
 
 	// Check localStorage for dismissed CTA state after hydration
 	useEffect(() => {
@@ -1392,7 +1469,7 @@ export function DashboardSidebar({
 		}
 	};
 
-	const logout = async () => {
+	const clearClientState = async () => {
 		posthog.reset();
 
 		// Clear last used project cookies before signing out
@@ -1401,6 +1478,12 @@ export function DashboardSidebar({
 		} catch (error) {
 			console.error("Failed to clear last used project cookies:", error);
 		}
+	};
+
+	// better-auth's /sign-out deletes every device session, so this is the
+	// "leave all accounts" path.
+	const logoutAll = async () => {
+		await clearClientState();
 
 		await signOut({
 			fetchOptions: {
@@ -1410,6 +1493,29 @@ export function DashboardSidebar({
 				},
 			},
 		});
+	};
+
+	// Signs out only the active account. The revoke endpoint promotes the next
+	// remaining device session, so the user lands as that account instead of
+	// being kicked out of every login on this device.
+	const logout = async () => {
+		const sessionToken = session?.session?.token;
+		if (!sessionToken) {
+			await logoutAll();
+			return;
+		}
+
+		await clearClientState();
+
+		const error = await revokeDeviceSession(authClient, sessionToken);
+		if (error) {
+			await logoutAll();
+			return;
+		}
+
+		queryClient.clear();
+		// The dashboard layout bounces to /login when no session remains.
+		window.location.assign("/dashboard");
 	};
 
 	const handleNavClick = () => {
@@ -1533,6 +1639,7 @@ export function DashboardSidebar({
 							isMobile={isMobile}
 							toggleSidebar={toggleSidebar}
 							onLogout={logout}
+							onLogoutAll={logoutAll}
 						/>
 					</SidebarMenuItem>
 				</SidebarMenu>

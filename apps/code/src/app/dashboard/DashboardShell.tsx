@@ -8,7 +8,6 @@ import {
 	ExternalLink,
 	LayoutDashboard,
 	Loader2,
-	LogOut,
 	Settings,
 	Sparkles,
 	Stamp,
@@ -23,6 +22,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import SurveyReminderDialog from "@/app/dashboard/components/SurveyReminderDialog";
+import { AccountMenu } from "@/components/account-menu";
 import { EmailVerificationBanner } from "@/components/EmailVerificationBanner";
 import { ThemeToggle } from "@/components/landing/theme-toggle";
 import {
@@ -34,10 +34,8 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useUser } from "@/hooks/useUser";
-import { useAuth } from "@/lib/auth-client";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 import {
@@ -171,7 +169,6 @@ export default function DashboardShell({
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
 	const posthog = usePostHog();
-	const { signOut } = useAuth();
 	const config = useAppConfig();
 	const { posthogKey, googleAdsPurchaseConversion, googleAdsSignupConversion } =
 		config;
@@ -451,11 +448,6 @@ export default function DashboardShell({
 		}
 	};
 
-	const handleSignOut = async () => {
-		await signOut();
-		router.push("/");
-	};
-
 	const hasActivePlan =
 		devPlanStatus?.devPlan && devPlanStatus.devPlan !== "none";
 	const isPlanIndependentRoute = planIndependentRoutes.includes(pathname);
@@ -554,19 +546,8 @@ export default function DashboardShell({
 						)}
 					</div>
 					<div className="flex items-center gap-3">
-						<span className="hidden sm:block text-sm text-muted-foreground">
-							{user?.email}
-						</span>
 						<ThemeToggle size="compact" />
-						<Button
-							variant="ghost"
-							size="sm"
-							onClick={handleSignOut}
-							className="gap-1.5 text-muted-foreground"
-						>
-							<LogOut className="h-3.5 w-3.5" />
-							<span className="hidden sm:inline">Sign out</span>
-						</Button>
+						<AccountMenu user={user} />
 					</div>
 				</div>
 			</header>

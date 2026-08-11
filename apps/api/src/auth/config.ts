@@ -4,6 +4,7 @@ import { instrumentBetterAuth } from "@kubiks/otel-better-auth";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createAuthMiddleware } from "better-auth/api";
+import { multiSession } from "better-auth/plugins";
 import { Redis } from "ioredis";
 
 import { getApiBaseUrl } from "@/lib/api-url.js";
@@ -674,6 +675,17 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 					// instead of using the plugin's DNS-TXT verification flow.
 					domainVerification: { enabled: true },
 				}),
+				// Multi-account switching. Each created session also gets a signed
+				// `<sessionCookie>_multi-<token>` cookie, so the dashboard can list and
+				// switch between accounts on this device without re-authenticating.
+				// Two behaviours worth knowing before touching sign-out:
+				//   - `/sign-out` deletes EVERY device session, not just the active one.
+				//     Per-account logout must go through `/multi-session/revoke`, which
+				//     drops one session and promotes the next valid one.
+				//   - The cookies inherit `advanced.defaultCookieAttributes`, so they are
+				//     already scoped to COOKIE_DOMAIN and shared across the dashboard,
+				//     DevPass and playground apps.
+				multiSession({ maximumSessions: 5 }),
 			],
 			emailAndPassword: {
 				enabled: true,

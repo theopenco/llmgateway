@@ -1,28 +1,11 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
-import {
-	ChevronUp,
-	CreditCard,
-	ExternalLink,
-	FolderIcon,
-	LogOut,
-	Plus,
-} from "lucide-react";
+import { FolderIcon, Plus } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 
 import { CreditsDisplay } from "@/components/credits/credits-display";
-import { ThemeToggle } from "@/components/landing/theme-toggle";
 import { SidebarLoungePoints } from "@/components/lounge/sidebar-points";
 import { Button } from "@/components/ui/button";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuSeparator,
-	DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
 	Sidebar,
 	SidebarContent,
@@ -35,8 +18,6 @@ import {
 } from "@/components/ui/sidebar";
 import { Wordmark } from "@/components/ui/wordmark";
 import { useUser } from "@/hooks/useUser";
-import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
-import { useAuth } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 
 import { ChatSidebarSkeleton } from "./chat-sidebar-skeleton";
@@ -45,6 +26,7 @@ import {
 	SidebarShortcutKbd,
 	useSidebarShortcut,
 } from "./sidebar-actions";
+import { SidebarUserMenu } from "./sidebar-user-menu";
 import { StudioNav } from "./studio-nav";
 
 import type { ChatProject } from "@/hooks/useChatProjects";
@@ -69,33 +51,10 @@ export function ProjectsSidebar({
 	selectedOrganization,
 	className,
 }: ProjectsSidebarProps) {
-	const router = useRouter();
-	const queryClient = useQueryClient();
 	const { state: sidebarState, isMobile } = useSidebar();
 	const { user, isLoading: isUserLoading } = useUser();
-	const { signOut } = useAuth();
 
 	const isMac = useSidebarShortcut("j", onCreateOpen);
-
-	const logout = async () => {
-		try {
-			await clearLastUsedProjectCookiesAction();
-		} catch {
-			// ignore
-		}
-		await signOut({
-			fetchOptions: {
-				onSuccess: () => {
-					queryClient.clear();
-					router.push(
-						process.env.NODE_ENV === "development"
-							? "http://localhost:3003/login"
-							: "https://chat.llmgateway.io/login",
-					);
-				},
-			},
-		});
-	};
 
 	const isHistoryHidden = sidebarState === "collapsed" && !isMobile;
 
@@ -219,83 +178,7 @@ export function ProjectsSidebar({
 						isLoading={false}
 					/>
 				</div>
-				<SidebarMenu>
-					<SidebarMenuItem>
-						<DropdownMenu>
-							<DropdownMenuTrigger asChild>
-								<SidebarMenuButton
-									size="lg"
-									tooltip={user.name ?? "User"}
-									className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
-								>
-									<div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-										<span className="text-xs font-semibold">
-											{user.name
-												?.split(" ")
-												.map((n: string) => n[0])
-												.join("")
-												.toUpperCase()
-												.slice(0, 2) ?? "U"}
-										</span>
-									</div>
-									<div className="grid flex-1 text-left text-sm leading-tight">
-										<span className="truncate font-semibold">{user.name}</span>
-										<span className="truncate text-xs text-muted-foreground">
-											{user.email}
-										</span>
-									</div>
-									<ChevronUp className="ml-auto size-4 group-data-[collapsible=icon]:hidden" />
-								</SidebarMenuButton>
-							</DropdownMenuTrigger>
-							<DropdownMenuContent
-								className="w-[--radix-dropdown-menu-trigger-width] min-w-56 rounded-lg"
-								side="top"
-								align="end"
-								sideOffset={4}
-							>
-								<DropdownMenuItem asChild>
-									<Link href="/pricing" prefetch={true}>
-										<CreditCard className="mr-2 h-4 w-4" />
-										Membership &amp; Billing
-									</Link>
-								</DropdownMenuItem>
-								<DropdownMenuSeparator />
-								<DropdownMenuItem asChild>
-									<a
-										href={
-											process.env.NODE_ENV === "development"
-												? "http://localhost:3002/dashboard"
-												: "https://llmgateway.io/dashboard"
-										}
-										target="_blank"
-										rel="noopener noreferrer"
-									>
-										<ExternalLink className="mr-2 h-4 w-4" />
-										Dashboard
-									</a>
-								</DropdownMenuItem>
-								<DropdownMenuSeparator />
-								<DropdownMenuItem
-									className="justify-between gap-3"
-									onSelect={(event) => event.preventDefault()}
-								>
-									<span>Theme</span>
-									<div
-										onClick={(event) => event.stopPropagation()}
-										onKeyDown={(event) => event.stopPropagation()}
-									>
-										<ThemeToggle className="shrink-0" size="compact" />
-									</div>
-								</DropdownMenuItem>
-								<DropdownMenuSeparator />
-								<DropdownMenuItem onClick={logout}>
-									<LogOut className="mr-2 h-4 w-4" />
-									Log out
-								</DropdownMenuItem>
-							</DropdownMenuContent>
-						</DropdownMenu>
-					</SidebarMenuItem>
-				</SidebarMenu>
+				<SidebarUserMenu user={user} />
 			</SidebarFooter>
 		</Sidebar>
 	);

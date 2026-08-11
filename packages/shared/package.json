@@ -25,6 +25,10 @@
 			"types": "./dist/components/index.d.ts",
 			"import": "./dist/components/index.js"
 		},
+		"./accounts": {
+			"types": "./dist/accounts/index.d.ts",
+			"import": "./dist/accounts/index.js"
+		},
 		"./email": {
 			"types": "./dist/email.d.ts",
 			"import": "./dist/email.js"

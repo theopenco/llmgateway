@@ -1,9 +1,10 @@
 "use client";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useEffect } from "react";
 
+import { useAuthClient } from "@/lib/auth-client";
 import { useApi } from "@/lib/fetch-client";
 import { clearPendingIdentity, identifyUser } from "@/lib/posthog-identity";
 
@@ -20,6 +21,32 @@ export interface PasswordUpdateData {
 export interface UseUserOptions {
 	redirectTo?: string;
 	redirectWhen?: "authenticated" | "unauthenticated";
+}
+
+/**
+ * Lightweight session check backed by better-auth's get-session endpoint. Used
+ * where the session token itself is needed (per-account sign-out), which
+ * `/user/me` does not expose.
+ */
+export function useSessionStatus() {
+	const authClient = useAuthClient();
+
+	const { data, isLoading } = useQuery({
+		queryKey: ["auth-session-status"],
+		queryFn: async () => {
+			const { data: session } = await authClient.getSession();
+			return session ?? null;
+		},
+		retry: 0,
+		staleTime: 60 * 1000,
+		refetchOnWindowFocus: false,
+	});
+
+	return {
+		isAuthenticated: !!data?.user,
+		isLoading,
+		session: data ?? null,
+	};
 }
 
 export function useUser(options?: UseUserOptions) {

@@ -1,23 +1,12 @@
 "use client";
 
-import {
-	ChevronUp,
-	CreditCard,
-	Edit2,
-	ExternalLink,
-	ImageIcon,
-	LogOut,
-	MoreVerticalIcon,
-	Trash2,
-} from "lucide-react";
+import { Edit2, ImageIcon, MoreVerticalIcon, Trash2 } from "lucide-react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { usePostHog } from "posthog-js/react";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { List, type RowComponentProps } from "react-window";
 
 import { CreditsDisplay } from "@/components/credits/credits-display";
-import { ThemeToggle } from "@/components/landing/theme-toggle";
 import { SidebarLoungePoints } from "@/components/lounge/sidebar-points";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,7 +14,6 @@ import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
-	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -47,13 +35,12 @@ import {
 	useRenameImageHistory,
 } from "@/hooks/usePlaygroundHistory";
 import { useUser } from "@/hooks/useUser";
-import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
-import { useAuth } from "@/lib/auth-client";
 import { withOrgParam } from "@/lib/utils";
 
 import { HistorySkeleton } from "./history-skeleton";
 import { OrganizationSwitcher } from "./organization-switcher";
 import { SidebarChatSearch, SidebarNewAction } from "./sidebar-actions";
+import { SidebarUserMenu } from "./sidebar-user-menu";
 import { StudioNav } from "./studio-nav";
 
 import type { GalleryItem } from "@/lib/image-gen";
@@ -357,37 +344,14 @@ export function ImageSidebar({
 		switcherOrganizations.find((org) => org.id === selectedOrganization?.id) ??
 		null;
 	const listContainerRef = useRef<HTMLDivElement | null>(null);
-	const router = useRouter();
 	const searchParams = useSearchParams();
 	// Preserve the selected organization across playground navigation so users
 	// don't have to re-pick their org on every page.
 	const orgIdParam = searchParams.get("orgId");
 	const withOrg = (path: string) => withOrgParam(path, orgIdParam);
-	const posthog = usePostHog();
 	const { state: sidebarState, isMobile } = useSidebar();
 	const { user, isLoading: isUserLoading } = useUser();
-	const { signOut } = useAuth();
 	const { organization, isLoading: isOrgLoading } = useOrganization();
-
-	const logout = async () => {
-		posthog.reset();
-		try {
-			await clearLastUsedProjectCookiesAction();
-		} catch {
-			// ignore
-		}
-		await signOut({
-			fetchOptions: {
-				onSuccess: () => {
-					router.push(
-						process.env.NODE_ENV === "development"
-							? "http://localhost:3003/login"
-							: "https://chat.llmgateway.io/login",
-					);
-				},
-			},
-		});
-	};
 
 	const renameItem = useRenameImageHistory();
 	const deleteItem = useDeleteImageHistory();
@@ -640,83 +604,7 @@ export function ImageSidebar({
 						isChatPlanOrg={!switcherSelectedOrganization}
 					/>
 				</div>
-				<SidebarMenu>
-					<SidebarMenuItem>
-						<DropdownMenu>
-							<DropdownMenuTrigger asChild>
-								<SidebarMenuButton
-									size="lg"
-									tooltip={user?.name ?? "User"}
-									className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
-								>
-									<div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-										<span className="text-xs font-semibold">
-											{user?.name
-												?.split(" ")
-												.map((n: string) => n[0])
-												.join("")
-												.toUpperCase()
-												.slice(0, 2) ?? "U"}
-										</span>
-									</div>
-									<div className="grid flex-1 text-left text-sm leading-tight">
-										<span className="truncate font-semibold">{user?.name}</span>
-										<span className="truncate text-xs text-muted-foreground">
-											{user?.email}
-										</span>
-									</div>
-									<ChevronUp className="ml-auto size-4 group-data-[collapsible=icon]:hidden" />
-								</SidebarMenuButton>
-							</DropdownMenuTrigger>
-							<DropdownMenuContent
-								className="w-[--radix-dropdown-menu-trigger-width] min-w-56 rounded-lg"
-								side="top"
-								align="end"
-								sideOffset={4}
-							>
-								<DropdownMenuItem asChild>
-									<Link href="/pricing" prefetch={true}>
-										<CreditCard className="mr-2 h-4 w-4" />
-										Membership &amp; Billing
-									</Link>
-								</DropdownMenuItem>
-								<DropdownMenuSeparator />
-								<DropdownMenuItem asChild>
-									<a
-										href={
-											process.env.NODE_ENV === "development"
-												? "http://localhost:3002/dashboard"
-												: "https://llmgateway.io/dashboard"
-										}
-										target="_blank"
-										rel="noopener noreferrer"
-									>
-										<ExternalLink className="mr-2 h-4 w-4" />
-										Dashboard
-									</a>
-								</DropdownMenuItem>
-								<DropdownMenuSeparator />
-								<DropdownMenuItem
-									className="justify-between gap-3"
-									onSelect={(event) => event.preventDefault()}
-								>
-									<span>Theme</span>
-									<div
-										onClick={(event) => event.stopPropagation()}
-										onKeyDown={(event) => event.stopPropagation()}
-									>
-										<ThemeToggle className="shrink-0" size="compact" />
-									</div>
-								</DropdownMenuItem>
-								<DropdownMenuSeparator />
-								<DropdownMenuItem onClick={logout}>
-									<LogOut className="mr-2 h-4 w-4" />
-									Log out
-								</DropdownMenuItem>
-							</DropdownMenuContent>
-						</DropdownMenu>
-					</SidebarMenuItem>
-				</SidebarMenu>
+				<SidebarUserMenu user={user} />
 			</SidebarFooter>
 		</Sidebar>
 	);
