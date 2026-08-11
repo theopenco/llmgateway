@@ -84,7 +84,9 @@ export default function Login() {
 	useEffect(() => {
 		const params = new URLSearchParams(window.location.search);
 		const error = params.get("error");
-		if (error) {
+		// `signup_disabled` is handled by SocialAuthButtons, which turns it into
+		// a create-account confirmation dialog instead of an error toast.
+		if (error && error !== "signup_disabled") {
 			toast({
 				title: getAuthErrorMessage(error),
 				variant: "destructive",
