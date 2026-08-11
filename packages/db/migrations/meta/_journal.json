@@ -1608,15 +1608,8 @@
     {
       "idx": 229,
       "version": "8",
-      "when": 1786456781901,
-      "tag": "1786456781_abnormal_stepford_cuckoos",
-      "breakpoints": true
-    },
-    {
-      "idx": 230,
-      "version": "8",
-      "when": 1786465866770,
-      "tag": "1786465866_opposite_rogue",
+      "when": 1786469818540,
+      "tag": "1786469818_sudden_veda",
       "breakpoints": true
     }
   ]

@@ -1,1 +1,0 @@
-ALTER TABLE "organization" ADD COLUMN "pro_scim_enabled" boolean DEFAULT false NOT NULL;

@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "826ee54f-e70d-4ef2-8c95-8f2d5560595b",
+  "id": "8cae62cd-32dd-4f84-8fa0-10dd1678f8db",
   "prevId": "555277a3-5022-4bee-8be6-545f0ed166b4",
   "ddl": [
     {
@@ -13037,6 +13037,22 @@
       "generated": null,
       "identity": null,
       "name": "pro_sso_enabled",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "false",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "pro_scim_enabled",
       "entityType": "columns",
       "schema": "public",
       "table": "organization"
