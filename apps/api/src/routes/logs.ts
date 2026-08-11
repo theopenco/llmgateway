@@ -184,6 +184,7 @@ const logSchema = z.object({
 			selectedProvider: z.string().optional(),
 			selectionReason: z.string().optional(),
 			usedApiKeyHash: z.string().optional(),
+			usedCredentialSource: z.enum(["byok", "platform"]).optional(),
 			providerScores: z
 				.array(
 					z.object({
@@ -218,6 +219,7 @@ const logSchema = z.object({
 						error_type: z.string(),
 						succeeded: z.boolean(),
 						apiKeyHash: z.string().optional(),
+						credentialSource: z.enum(["byok", "platform"]).optional(),
 						logId: z.string().optional(),
 					}),
 				)

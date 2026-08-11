@@ -412,7 +412,7 @@ configured and the current key fails with a retryable error.
 
 ### Routing Transparency
 
-Every provider attempt — both failed and successful — is recorded in the `routing` array in the response metadata and activity logs:
+Every provider attempt — both failed and successful — is recorded in the `routing` array in the response metadata (streaming and non-streaming alike) and activity logs:
 
 ```json
 {
@@ -423,19 +423,34 @@ Every provider attempt — both failed and successful — is recorded in the `ro
 				"model": "gpt-4o",
 				"status_code": 500,
 				"error_type": "server_error",
-				"succeeded": false
+				"succeeded": false,
+				"credentialSource": "byok",
+				"apiKeyHash": "f029ee9"
 			},
 			{
 				"provider": "azure",
 				"model": "gpt-4o",
 				"status_code": 200,
 				"error_type": "none",
-				"succeeded": true
+				"succeeded": true,
+				"credentialSource": "platform",
+				"apiKeyHash": "ecb88d5"
 			}
 		]
 	}
 }
 ```
+
+#### Whose key served each attempt
+
+`credentialSource` says who owns the provider credential an attempt was sent with:
+
+| Value      | Meaning                                                                                                   |
+| ---------- | --------------------------------------------------------------------------------------------------------- |
+| `byok`     | Your own provider key. The provider bills you directly and the attempt is not deducted from your credits. |
+| `platform` | An LLM Gateway credential. The attempt runs on credits and is deducted from your balance.                 |
+
+This matters most in **hybrid** mode, where a request that fails on your own key falls back to LLM Gateway's credential: both attempts appear in the same `routing` array, and only `credentialSource` tells them apart — `apiKeyHash` is an opaque fingerprint that says two attempts used different keys, not which key was yours. The same value is stored on the log as `routingMetadata.usedCredentialSource` for the credential that ultimately served the request, and is shown as a **your key** / **LLM Gateway key** badge in the dashboard's routing view.
 
 ### Retried Log Tracking
 

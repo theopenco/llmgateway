@@ -70,6 +70,7 @@ import type { ServerTypes } from "@/vars.js";
 import type { RoutingMetadata } from "@llmgateway/actions";
 import type { InferSelectModel, tables } from "@llmgateway/db";
 import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
+import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
 
 const embeddingInputSchema = z
 	.union([
@@ -656,11 +657,12 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 	const routingAttempts: RoutingAttempt[] = [];
 	const buildEmbeddingRoutingMetadata = (
 		usedApiKeyHash: string | undefined,
+		usedCredentialSource: RoutingCredentialSource,
 	): RoutingMetadata => ({
 		availableProviders: [providerId],
 		selectedProvider: providerId,
 		selectionReason,
-		...(usedApiKeyHash ? { usedApiKeyHash } : {}),
+		...(usedApiKeyHash ? { usedApiKeyHash, usedCredentialSource } : {}),
 		providerScores: [],
 		...(routingAttempts.length > 0 ? { routing: routingAttempts } : {}),
 	});
@@ -1031,6 +1033,11 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		while (true) {
 			const attemptLogId = shortid();
 			const usedApiKeyHash = getApiKeyFingerprint(attempt.usedToken);
+			// BYOK only when the organization's own key served the attempt; a
+			// platform-managed credential is LLM Gateway's key and bills as credits.
+			const credentialSource: RoutingCredentialSource = attempt.providerKey
+				? "byok"
+				: "platform";
 			const baseLogEntry = createLogEntry({
 				requestId,
 				project,
@@ -1145,6 +1152,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 							false,
 							{
 								apiKeyHash: usedApiKeyHash,
+								credentialSource,
 								logId: willRetry ? attemptLogId : finalLogId,
 							},
 						),
@@ -1155,7 +1163,10 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 					{
 						...baseLogEntry,
 						id: willRetry ? attemptLogId : finalLogId,
-						routingMetadata: buildEmbeddingRoutingMetadata(usedApiKeyHash),
+						routingMetadata: buildEmbeddingRoutingMetadata(
+							usedApiKeyHash,
+							credentialSource,
+						),
 						duration,
 						timeToFirstToken: null,
 						timeToFirstReasoningToken: null,
@@ -1297,6 +1308,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 						false,
 						{
 							apiKeyHash: usedApiKeyHash,
+							credentialSource,
 							logId: willRetry ? attemptLogId : finalLogId,
 						},
 					),
@@ -1306,7 +1318,10 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 					{
 						...baseLogEntry,
 						id: willRetry ? attemptLogId : finalLogId,
-						routingMetadata: buildEmbeddingRoutingMetadata(usedApiKeyHash),
+						routingMetadata: buildEmbeddingRoutingMetadata(
+							usedApiKeyHash,
+							credentialSource,
+						),
 						duration,
 						timeToFirstToken: null,
 						timeToFirstReasoningToken: null,
@@ -1562,6 +1577,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 					true,
 					{
 						apiKeyHash: usedApiKeyHash,
+						credentialSource,
 						logId: finalLogId,
 					},
 				),
@@ -1571,7 +1587,10 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				{
 					...baseLogEntry,
 					id: finalLogId,
-					routingMetadata: buildEmbeddingRoutingMetadata(usedApiKeyHash),
+					routingMetadata: buildEmbeddingRoutingMetadata(
+						usedApiKeyHash,
+						credentialSource,
+					),
 					duration,
 					timeToFirstToken: null,
 					timeToFirstReasoningToken: null,

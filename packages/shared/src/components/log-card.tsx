@@ -29,6 +29,7 @@ import {
 import prettyBytes from "pretty-bytes";
 import { useState } from "react";
 
+import { CredentialSourceBadge } from "@/components/credential-source-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -57,6 +58,7 @@ import {
 interface RoutingMetadata {
 	selectionReason?: string;
 	usedApiKeyHash?: string;
+	usedCredentialSource?: string;
 	availableProviders?: string[];
 	xNoFallbackHeaderSet?: boolean;
 	noFallback?: boolean;
@@ -88,6 +90,7 @@ interface RoutingMetadata {
 		status_code?: number;
 		error_type?: string;
 		apiKeyHash?: string;
+		credentialSource?: string;
 		logId?: string;
 	}>;
 	filteredProviders?: Array<{
@@ -678,8 +681,11 @@ export function LogCard({
 										{routingMetadata.usedApiKeyHash && (
 											<div className="flex justify-between">
 												<span className="text-muted-foreground">Key</span>
-												<span className="font-mono">
+												<span className="font-mono flex items-center gap-1.5">
 													{formatApiKeyHash(routingMetadata.usedApiKeyHash)}
+													<CredentialSourceBadge
+														source={routingMetadata.usedCredentialSource}
+													/>
 												</span>
 											</div>
 										)}
@@ -841,6 +847,9 @@ export function LogCard({
 																			key {formatApiKeyHash(attempt.apiKeyHash)}
 																		</span>
 																	)}
+																	<CredentialSourceBadge
+																		source={attempt.credentialSource}
+																	/>
 																	{attempt.logId &&
 																		(getDetailUrl ? (
 																			<LinkComponent

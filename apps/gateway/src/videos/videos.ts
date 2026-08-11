@@ -104,6 +104,7 @@ import {
 
 import type { ServerTypes } from "@/vars.js";
 import type { ResolvedRoutingConfig } from "@llmgateway/shared/routing-config";
+import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
 import type { Context } from "hono";
 
 function createProviderDiscountResolver(organizationId: string) {
@@ -4302,6 +4303,17 @@ async function processVideoImageInputs(
 	).filter((image): image is ProcessedVideoImageInput => image !== null);
 }
 
+/**
+ * Whose credential a video attempt ran on. `usedMode` on the provider context
+ * is already decided by whether the organization's own provider key served the
+ * job, so it maps one-to-one onto the routing credential vocabulary.
+ */
+function videoCredentialSource(
+	providerContext: ProviderContext,
+): RoutingCredentialSource {
+	return providerContext.usedMode === "api-keys" ? "byok" : "platform";
+}
+
 function buildVideoClientErrorRoutingMetadata(
 	routingMetadata: RoutingMetadata | undefined,
 	providerContext: ProviderContext,
@@ -4311,6 +4323,7 @@ function buildVideoClientErrorRoutingMetadata(
 	const routingAttempt: RoutingAttempt = {
 		provider: providerContext.providerId,
 		model: modelId,
+		credentialSource: videoCredentialSource(providerContext),
 		status_code: statusCode,
 		error_type: "client_error",
 		succeeded: false,
@@ -4701,6 +4714,7 @@ videos.openapi(createVideo, async (c) => {
 			routingAttempts.push({
 				provider: selectedProviderContext.providerId,
 				model: modelInfo.id,
+				credentialSource: videoCredentialSource(selectedProviderContext),
 				status_code: 402,
 				error_type: "insufficient_credits",
 				succeeded: false,
@@ -4754,6 +4768,7 @@ videos.openapi(createVideo, async (c) => {
 			routingAttempts.push({
 				provider: selectedProviderContext.providerId,
 				model: modelInfo.id,
+				credentialSource: videoCredentialSource(selectedProviderContext),
 				status_code: statusCode,
 				error_type: "client_error",
 				succeeded: false,
@@ -4828,6 +4843,7 @@ videos.openapi(createVideo, async (c) => {
 			routingAttempts.push({
 				provider: selectedProviderContext.providerId,
 				model: modelInfo.id,
+				credentialSource: videoCredentialSource(selectedProviderContext),
 				status_code: 200,
 				error_type: "none",
 				succeeded: true,
@@ -4842,6 +4858,7 @@ videos.openapi(createVideo, async (c) => {
 			routingAttempts.push({
 				provider: selectedProviderContext.providerId,
 				model: modelInfo.id,
+				credentialSource: videoCredentialSource(selectedProviderContext),
 				status_code: statusCode,
 				error_type: getErrorType(statusCode),
 				succeeded: false,

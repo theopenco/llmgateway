@@ -1,4 +1,5 @@
 import type { RoutingAttempt } from "./retry-with-fallback.js";
+import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
 
 export function buildRoutingAttempt(
 	provider: string,
@@ -9,6 +10,7 @@ export function buildRoutingAttempt(
 	options?: {
 		region?: string;
 		apiKeyHash?: string;
+		credentialSource?: RoutingCredentialSource;
 		logId?: string;
 	},
 ): RoutingAttempt {
@@ -20,6 +22,9 @@ export function buildRoutingAttempt(
 		error_type: errorType,
 		succeeded,
 		...(options?.apiKeyHash && { apiKeyHash: options.apiKeyHash }),
+		...(options?.credentialSource && {
+			credentialSource: options.credentialSource,
+		}),
 		...(options?.logId && { logId: options.logId }),
 	};
 }

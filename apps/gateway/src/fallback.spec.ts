@@ -2642,6 +2642,168 @@ describe("fallback and error status code handling", () => {
 			}
 		});
 
+		test("non-streaming: labels the BYOK attempt and the credits fallback that follows it", async () => {
+			const originalApiKey = process.env.LLM_OPENAI_API_KEY;
+			const originalBaseUrl = process.env.LLM_OPENAI_BASE_URL;
+			process.env.LLM_OPENAI_API_KEY = "openai-env-platform-key";
+			process.env.LLM_OPENAI_BASE_URL = mockServerUrl;
+			try {
+				await ensureBaseFixtures();
+				await ensureProviders(["openai"]);
+				// Hybrid: the organization's own key is preferred, and when it fails
+				// the retry falls back to the platform credential — the two attempts
+				// this test exists to tell apart.
+				await db
+					.update(tables.project)
+					.set({ mode: "hybrid" })
+					.where(eq(tables.project.id, "project-id"));
+				await db.insert(tables.apiKey).values({
+					id: "token-id",
+					token: "real-token",
+					projectId: "project-id",
+					description: "Test API Key",
+					createdBy: "user-id",
+				});
+				await db.insert(tables.providerKey).values({
+					id: "openai-byok-key",
+					token: "openai-byok-token",
+					provider: "openai",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				});
+
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify({
+						model: "openai/gpt-4o-mini",
+						messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE hello" }],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				const json = await res.json();
+				expect(json.metadata.routing).toHaveLength(2);
+				expect(json.metadata.routing[0]).toMatchObject({
+					provider: "openai",
+					succeeded: false,
+					credentialSource: "byok",
+					apiKeyHash: getApiKeyFingerprint("openai-byok-token"),
+				});
+				expect(json.metadata.routing[1]).toMatchObject({
+					provider: "openai",
+					succeeded: true,
+					credentialSource: "platform",
+					apiKeyHash: getApiKeyFingerprint("openai-env-platform-key"),
+				});
+
+				const logs = await waitForLogs(2);
+				const failedLog = logs.find((log: Log) => log.hasError);
+				const successLog = logs.find((log: Log) => !log.hasError);
+				// The credential label always agrees with how the attempt was billed.
+				expect(failedLog?.usedMode).toBe("api-keys");
+				expect(successLog?.usedMode).toBe("credits");
+				expect(successLog?.routingMetadata?.usedCredentialSource).toBe(
+					"platform",
+				);
+				expect(
+					successLog?.routingMetadata?.routing?.map(
+						(attempt) => attempt.credentialSource,
+					),
+				).toEqual(["byok", "platform"]);
+			} finally {
+				if (originalApiKey !== undefined) {
+					process.env.LLM_OPENAI_API_KEY = originalApiKey;
+				} else {
+					delete process.env.LLM_OPENAI_API_KEY;
+				}
+				if (originalBaseUrl !== undefined) {
+					process.env.LLM_OPENAI_BASE_URL = originalBaseUrl;
+				} else {
+					delete process.env.LLM_OPENAI_BASE_URL;
+				}
+			}
+		});
+
+		test("streaming: labels the BYOK attempt and the credits fallback that follows it", async () => {
+			const originalApiKey = process.env.LLM_OPENAI_API_KEY;
+			const originalBaseUrl = process.env.LLM_OPENAI_BASE_URL;
+			process.env.LLM_OPENAI_API_KEY = "openai-env-platform-key";
+			process.env.LLM_OPENAI_BASE_URL = mockServerUrl;
+			try {
+				await ensureBaseFixtures();
+				await ensureProviders(["openai"]);
+				await db
+					.update(tables.project)
+					.set({ mode: "hybrid" })
+					.where(eq(tables.project.id, "project-id"));
+				await db.insert(tables.apiKey).values({
+					id: "token-id",
+					token: "real-token",
+					projectId: "project-id",
+					description: "Test API Key",
+					createdBy: "user-id",
+				});
+				await db.insert(tables.providerKey).values({
+					id: "openai-byok-key",
+					token: "openai-byok-token",
+					provider: "openai",
+					organizationId: "org-id",
+					baseUrl: mockServerUrl,
+				});
+
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify({
+						model: "openai/gpt-4o-mini",
+						messages: [{ role: "user", content: "TRIGGER_FAIL_ONCE hello" }],
+						stream: true,
+						stream_options: { include_usage: true },
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				const streamResult = await readAll(res.body);
+				expect(streamResult.hasError).toBe(false);
+
+				// Streaming carries the routing array on the final usage chunk.
+				const routingChunk = streamResult.chunks.find(
+					(chunk) => chunk?.metadata?.routing !== undefined,
+				);
+				expect(routingChunk).toBeDefined();
+				expect(
+					routingChunk.metadata.routing.map(
+						(attempt: { credentialSource?: string }) =>
+							attempt.credentialSource,
+					),
+				).toEqual(["byok", "platform"]);
+
+				const logs = await waitForLogs(2);
+				const successLog = logs.find((log: Log) => !log.hasError);
+				expect(successLog?.routingMetadata?.usedCredentialSource).toBe(
+					"platform",
+				);
+			} finally {
+				if (originalApiKey !== undefined) {
+					process.env.LLM_OPENAI_API_KEY = originalApiKey;
+				} else {
+					delete process.env.LLM_OPENAI_API_KEY;
+				}
+				if (originalBaseUrl !== undefined) {
+					process.env.LLM_OPENAI_BASE_URL = originalBaseUrl;
+				} else {
+					delete process.env.LLM_OPENAI_BASE_URL;
+				}
+			}
+		});
+
 		test("non-streaming: same-key retries stop after the retry budget is exhausted", async () => {
 			const originalApiKey = process.env.LLM_GOOGLE_AI_STUDIO_API_KEY;
 			const originalBaseUrl = process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;

@@ -22,7 +22,10 @@ import {
 	getEffectiveScoringWeights,
 } from "./compute-provider-scores.js";
 
-import type { RoutingExclusionReason } from "@llmgateway/shared/routing-telemetry";
+import type {
+	RoutingCredentialSource,
+	RoutingExclusionReason,
+} from "@llmgateway/shared/routing-telemetry";
 
 interface ProviderScore<T extends AvailableModelProvider> {
 	provider: T;
@@ -81,6 +84,11 @@ export interface RoutingMetadata {
 	selectedProvider: string;
 	selectionReason: string;
 	usedApiKeyHash?: string;
+	// Whose credential the served attempt was sent with: the organization's own
+	// provider key (`byok`) or an LLM Gateway platform credential (`platform`).
+	// Without it, `usedApiKeyHash` is an opaque fingerprint that gives no hint
+	// whether the request was billed to the provider or to credits.
+	usedCredentialSource?: RoutingCredentialSource;
 	providerScores: Array<{
 		providerId: string;
 		region?: string;
@@ -130,6 +138,10 @@ export interface RoutingMetadata {
 		error_type: string;
 		succeeded: boolean;
 		apiKeyHash?: string;
+		// Per attempt, because a single request can switch credential owners
+		// mid-flight: in hybrid mode a failing BYOK key falls back to the
+		// platform credential, and both attempts land in this array.
+		credentialSource?: RoutingCredentialSource;
 		logId?: string;
 	}>;
 	// Provider mappings that were filtered out because they don't support requested params/features
