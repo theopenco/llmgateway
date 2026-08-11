@@ -59,6 +59,8 @@ interface RoutingMetadata {
 	selectionReason?: string;
 	usedApiKeyHash?: string;
 	usedCredentialSource?: string;
+	usedProviderKeyLabel?: string;
+	eligibleProviderKeys?: Array<{ id: string; label?: string }>;
 	availableProviders?: string[];
 	xNoFallbackHeaderSet?: boolean;
 	noFallback?: boolean;
@@ -91,6 +93,7 @@ interface RoutingMetadata {
 		error_type?: string;
 		apiKeyHash?: string;
 		credentialSource?: string;
+		providerKeyLabel?: string;
 		logId?: string;
 	}>;
 	filteredProviders?: Array<{
@@ -685,10 +688,24 @@ export function LogCard({
 													{formatApiKeyHash(routingMetadata.usedApiKeyHash)}
 													<CredentialSourceBadge
 														source={routingMetadata.usedCredentialSource}
+														keyLabel={routingMetadata.usedProviderKeyLabel}
 													/>
 												</span>
 											</div>
 										)}
+										{routingMetadata.eligibleProviderKeys &&
+											routingMetadata.eligibleProviderKeys.length > 0 && (
+												<div className="flex justify-between gap-2">
+													<span className="text-muted-foreground">
+														Your keys
+													</span>
+													<span className="font-mono text-right">
+														{routingMetadata.eligibleProviderKeys
+															.map((key) => key.label ?? key.id)
+															.join(", ")}
+													</span>
+												</div>
+											)}
 										{routingMetadata.xNoFallbackHeaderSet !== undefined && (
 											<div className="flex justify-between">
 												<span className="text-muted-foreground">
@@ -849,6 +866,7 @@ export function LogCard({
 																	)}
 																	<CredentialSourceBadge
 																		source={attempt.credentialSource}
+																		keyLabel={attempt.providerKeyLabel}
 																	/>
 																	{attempt.logId &&
 																		(getDetailUrl ? (

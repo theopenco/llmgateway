@@ -687,12 +687,23 @@ export function LogDetailClient({
 													{formatApiKeyHash(log.routingMetadata.usedApiKeyHash)}
 													<CredentialSourceBadge
 														source={log.routingMetadata.usedCredentialSource}
+														keyLabel={log.routingMetadata.usedProviderKeyLabel}
 													/>
 												</span>
 											}
 											mono
 										/>
 									)}
+									{log.routingMetadata.eligibleProviderKeys &&
+										log.routingMetadata.eligibleProviderKeys.length > 0 && (
+											<Field
+												label="Your keys"
+												value={log.routingMetadata.eligibleProviderKeys
+													.map((key) => key.label ?? key.id)
+													.join(", ")}
+												mono
+											/>
+										)}
 									{log.routingMetadata.availableProviders &&
 										log.routingMetadata.availableProviders.length > 0 && (
 											<Field
@@ -816,6 +827,7 @@ export function LogDetailClient({
 																)}
 																<CredentialSourceBadge
 																	source={attempt.credentialSource}
+																	keyLabel={attempt.providerKeyLabel}
 																/>
 																{attempt.logId && (
 																	<Link

@@ -4,6 +4,7 @@ import { getApiKeyFingerprint } from "@/lib/api-key-fingerprint.js";
 import {
 	findCustomProviderKey,
 	findProviderKey,
+	listEligibleProviderKeys,
 } from "@/lib/cached-queries.js";
 import { posthog } from "@/posthog.js";
 
@@ -14,6 +15,7 @@ import {
 	isPremiumServiceTier,
 	managedCredentialOptions,
 	prepareRequestBody,
+	providerKeyLabel,
 	readProviderKey,
 	selectProviderMapping,
 } from "@llmgateway/actions";
@@ -108,6 +110,12 @@ export interface ProviderContext {
 	strippedParameters: string[];
 	headers: Record<string, string>;
 	usedRegion: string | undefined;
+	/**
+	 * The organization's own keys that could have served this provider, in
+	 * selection order — the candidate set the credential above was chosen from.
+	 * Undefined in credits mode, which routes on platform credentials only.
+	 */
+	eligibleProviderKeys: Array<{ id: string; label?: string }> | undefined;
 }
 
 export interface OriginalRequestParams {
@@ -524,6 +532,21 @@ export async function resolveProviderContext(
 	): boolean =>
 		providerKeyAllowsModel(key.allowedModels, usedInternalModel) &&
 		(serviceTierKeyFilter ? serviceTierKeyFilter(key) : true);
+
+	// Only BYOK-capable modes have candidates. Custom providers are excluded:
+	// their keys are looked up by provider name through a different query, so
+	// the list would not describe the same candidate set.
+	const eligibleProviderKeys =
+		(project.mode === "api-keys" || project.mode === "hybrid") &&
+		usedProvider !== "custom"
+			? (
+					await listEligibleProviderKeys(
+						project.organizationId,
+						usedProvider,
+						byokKeyFilter,
+					)
+				).map((key) => ({ id: key.id, label: providerKeyLabel(key) }))
+			: undefined;
 
 	if (project.mode === "api-keys") {
 		if (usedProvider === "custom" && options.customProviderName) {
@@ -998,5 +1021,9 @@ export async function resolveProviderContext(
 		strippedParameters,
 		headers,
 		usedRegion,
+		eligibleProviderKeys:
+			eligibleProviderKeys && eligibleProviderKeys.length > 0
+				? eligibleProviderKeys
+				: undefined,
 	};
 }

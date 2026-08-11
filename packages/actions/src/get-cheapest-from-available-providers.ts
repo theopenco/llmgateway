@@ -89,6 +89,15 @@ export interface RoutingMetadata {
 	// Without it, `usedApiKeyHash` is an opaque fingerprint that gives no hint
 	// whether the request was billed to the provider or to credits.
 	usedCredentialSource?: RoutingCredentialSource;
+	// The organization's own key that served the request, named as its owner
+	// sees it. Only set when usedCredentialSource is "byok" — a platform
+	// credential is never described to a tenant.
+	usedProviderKeyId?: string;
+	usedProviderKeyLabel?: string;
+	// The organization's own keys that were candidates for the used provider,
+	// in selection order, so an operator can see which of their keys the
+	// gateway had to choose from. BYOK rows only; never platform credentials.
+	eligibleProviderKeys?: Array<{ id: string; label?: string }>;
 	providerScores: Array<{
 		providerId: string;
 		region?: string;
@@ -142,6 +151,8 @@ export interface RoutingMetadata {
 		// mid-flight: in hybrid mode a failing BYOK key falls back to the
 		// platform credential, and both attempts land in this array.
 		credentialSource?: RoutingCredentialSource;
+		providerKeyId?: string;
+		providerKeyLabel?: string;
 		logId?: string;
 	}>;
 	// Provider mappings that were filtered out because they don't support requested params/features

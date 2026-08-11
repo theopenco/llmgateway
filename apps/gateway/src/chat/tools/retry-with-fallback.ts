@@ -46,6 +46,14 @@ export interface RoutingAttempt {
 	 * which of the two keys is the caller's own.
 	 */
 	credentialSource?: RoutingCredentialSource;
+	/**
+	 * The organization's own provider key that served this attempt, named the
+	 * way its owner sees it on the provider-keys page. Only ever set for `byok`
+	 * attempts — see providerKeyLabel(), which refuses to describe a
+	 * platform-managed credential.
+	 */
+	providerKeyId?: string;
+	providerKeyLabel?: string;
 	logId?: string;
 }
 

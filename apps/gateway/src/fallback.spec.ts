@@ -11,6 +11,7 @@ import {
 
 import { db, eq, tables, type Log } from "@llmgateway/db";
 import { getProviderDefinition } from "@llmgateway/models";
+import { maskToken } from "@llmgateway/shared/mask-token";
 
 import { app } from "./app.js";
 import { SAME_KEY_RETRY_DELAY_MS } from "./chat/tools/retry-with-fallback.js";
@@ -2714,6 +2715,127 @@ describe("fallback and error status code handling", () => {
 						(attempt) => attempt.credentialSource,
 					),
 				).toEqual(["byok", "platform"]);
+			} finally {
+				if (originalApiKey !== undefined) {
+					process.env.LLM_OPENAI_API_KEY = originalApiKey;
+				} else {
+					delete process.env.LLM_OPENAI_API_KEY;
+				}
+				if (originalBaseUrl !== undefined) {
+					process.env.LLM_OPENAI_BASE_URL = originalBaseUrl;
+				} else {
+					delete process.env.LLM_OPENAI_BASE_URL;
+				}
+			}
+		});
+
+		test("non-streaming: names both of the org's own keys, never the platform one", async () => {
+			const originalApiKey = process.env.LLM_OPENAI_API_KEY;
+			const originalBaseUrl = process.env.LLM_OPENAI_BASE_URL;
+			process.env.LLM_OPENAI_API_KEY = "openai-env-platform-key";
+			process.env.LLM_OPENAI_BASE_URL = mockServerUrl;
+			try {
+				await ensureBaseFixtures();
+				await ensureProviders(["openai"]);
+				await db
+					.update(tables.project)
+					.set({ mode: "hybrid" })
+					.where(eq(tables.project.id, "project-id"));
+				await db.insert(tables.apiKey).values({
+					id: "token-id",
+					token: "real-token",
+					projectId: "project-id",
+					description: "Test API Key",
+					createdBy: "user-id",
+				});
+				// Two of the organization's own keys, both pointed at a closed port
+				// so each fails and rotates to the next credential: primary key →
+				// secondary key → LLM Gateway's own credential (the env one, which
+				// does reach the mock server).
+				await db.insert(tables.providerKey).values([
+					{
+						id: "openai-byok-primary",
+						token: "openai-byok-primary-token",
+						tokenMasked: maskToken("openai-byok-primary-token"),
+						provider: "openai",
+						organizationId: "org-id",
+						baseUrl: "http://127.0.0.1:9",
+						sortOrder: 0,
+					},
+					{
+						id: "openai-byok-secondary",
+						token: "openai-byok-secondary-token",
+						tokenMasked: maskToken("openai-byok-secondary-token"),
+						// A named key, which is how its owner recognizes it.
+						name: "billing-team-key",
+						provider: "openai",
+						organizationId: "org-id",
+						baseUrl: "http://127.0.0.1:9",
+						sortOrder: 1,
+					},
+				]);
+
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify({
+						model: "openai/gpt-4o-mini",
+						messages: [{ role: "user", content: "Hello!" }],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				const json = await res.json();
+				expect(json.metadata.routing).toHaveLength(3);
+
+				// Each of the caller's own attempts names the key it used, the way
+				// the provider-keys page names it.
+				expect(json.metadata.routing[0]).toMatchObject({
+					succeeded: false,
+					credentialSource: "byok",
+					providerKeyId: "openai-byok-primary",
+					providerKeyLabel: maskToken("openai-byok-primary-token"),
+				});
+				expect(json.metadata.routing[1]).toMatchObject({
+					succeeded: false,
+					credentialSource: "byok",
+					providerKeyId: "openai-byok-secondary",
+					providerKeyLabel: "billing-team-key",
+				});
+
+				// The platform attempt is labelled as LLM Gateway's, and carries no
+				// identity at all: naming the credential that serves credits traffic
+				// would leak platform infrastructure to every tenant that falls back
+				// onto it.
+				expect(json.metadata.routing[2]).toMatchObject({
+					succeeded: true,
+					credentialSource: "platform",
+				});
+				expect(json.metadata.routing[2].providerKeyId).toBeUndefined();
+				expect(json.metadata.routing[2].providerKeyLabel).toBeUndefined();
+
+				const logs = await waitForLogs(3);
+				const successLog = logs.find((log: Log) => !log.hasError);
+				expect(successLog?.routingMetadata?.usedCredentialSource).toBe(
+					"platform",
+				);
+				expect(successLog?.routingMetadata?.usedProviderKeyId).toBeUndefined();
+				expect(
+					successLog?.routingMetadata?.usedProviderKeyLabel,
+				).toBeUndefined();
+
+				// Both of the organization's keys were candidates, in selection
+				// order; the platform credential is not one of "your keys".
+				expect(successLog?.routingMetadata?.eligibleProviderKeys).toEqual([
+					{
+						id: "openai-byok-primary",
+						label: maskToken("openai-byok-primary-token"),
+					},
+					{ id: "openai-byok-secondary", label: "billing-team-key" },
+				]);
 			} finally {
 				if (originalApiKey !== undefined) {
 					process.env.LLM_OPENAI_API_KEY = originalApiKey;

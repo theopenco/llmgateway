@@ -52,6 +52,7 @@ import {
 	getProviderHeaders,
 	managedCredentialOptions,
 	processImageUrl,
+	providerKeyLabel,
 	readProviderKey,
 	type RoutingMetadata,
 	type VideoPricingContext,
@@ -639,6 +640,11 @@ interface ProviderContext {
 	 * org's active key as they always did.
 	 */
 	providerKeyId?: string;
+	/**
+	 * That key named as its owner sees it, for the routing view. BYOK only —
+	 * providerKeyLabel() returns undefined for a platform credential.
+	 */
+	providerKeyLabel?: string;
 	vertexProjectId?: string;
 	vertexRegion?: string;
 	vertexTokenType?: VertexTokenType;
@@ -1580,6 +1586,7 @@ async function resolveProviderContext(
 			usedMode: "api-keys",
 			configIndex: null,
 			providerKeyId: providerKey.id,
+			providerKeyLabel: providerKeyLabel(providerKey),
 			vertexProjectId: sharedVertexProjectId,
 			vertexRegion: sharedVertexRegion,
 			vertexTokenType: resolveVideoVertexTokenType(
@@ -1638,6 +1645,7 @@ async function resolveProviderContext(
 			usedMode: "api-keys",
 			configIndex: null,
 			providerKeyId: providerKey.id,
+			providerKeyLabel: providerKeyLabel(providerKey),
 			vertexProjectId: sharedVertexProjectId,
 			vertexRegion: sharedVertexRegion,
 			vertexTokenType: resolveVideoVertexTokenType(
@@ -4314,6 +4322,24 @@ function videoCredentialSource(
 	return providerContext.usedMode === "api-keys" ? "byok" : "platform";
 }
 
+/**
+ * Key identity for a video attempt, and only when the organization's own key
+ * served it: `usedMode` is the same BYOK discriminator credentialSource uses,
+ * so a platform credential contributes nothing here.
+ */
+function videoProviderKeyIdentity(providerContext: ProviderContext): {
+	providerKeyId?: string;
+	providerKeyLabel?: string;
+} {
+	if (providerContext.usedMode !== "api-keys") {
+		return {};
+	}
+	return {
+		providerKeyId: providerContext.providerKeyId,
+		providerKeyLabel: providerContext.providerKeyLabel,
+	};
+}
+
 function buildVideoClientErrorRoutingMetadata(
 	routingMetadata: RoutingMetadata | undefined,
 	providerContext: ProviderContext,
@@ -4324,6 +4350,7 @@ function buildVideoClientErrorRoutingMetadata(
 		provider: providerContext.providerId,
 		model: modelId,
 		credentialSource: videoCredentialSource(providerContext),
+		...videoProviderKeyIdentity(providerContext),
 		status_code: statusCode,
 		error_type: "client_error",
 		succeeded: false,
@@ -4715,6 +4742,7 @@ videos.openapi(createVideo, async (c) => {
 				provider: selectedProviderContext.providerId,
 				model: modelInfo.id,
 				credentialSource: videoCredentialSource(selectedProviderContext),
+				...videoProviderKeyIdentity(selectedProviderContext),
 				status_code: 402,
 				error_type: "insufficient_credits",
 				succeeded: false,
@@ -4769,6 +4797,7 @@ videos.openapi(createVideo, async (c) => {
 				provider: selectedProviderContext.providerId,
 				model: modelInfo.id,
 				credentialSource: videoCredentialSource(selectedProviderContext),
+				...videoProviderKeyIdentity(selectedProviderContext),
 				status_code: statusCode,
 				error_type: "client_error",
 				succeeded: false,
@@ -4844,6 +4873,7 @@ videos.openapi(createVideo, async (c) => {
 				provider: selectedProviderContext.providerId,
 				model: modelInfo.id,
 				credentialSource: videoCredentialSource(selectedProviderContext),
+				...videoProviderKeyIdentity(selectedProviderContext),
 				status_code: 200,
 				error_type: "none",
 				succeeded: true,
@@ -4859,6 +4889,7 @@ videos.openapi(createVideo, async (c) => {
 				provider: selectedProviderContext.providerId,
 				model: modelInfo.id,
 				credentialSource: videoCredentialSource(selectedProviderContext),
+				...videoProviderKeyIdentity(selectedProviderContext),
 				status_code: statusCode,
 				error_type: getErrorType(statusCode),
 				succeeded: false,

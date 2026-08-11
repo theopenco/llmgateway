@@ -43,6 +43,7 @@ import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 import {
 	getProviderHeaders,
 	managedCredentialOptions,
+	providerKeyLabel,
 	readProviderKey,
 } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
@@ -679,11 +680,19 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 	const buildSpeechRoutingMetadata = (
 		usedApiKeyHash: string | undefined,
 		usedCredentialSource: RoutingCredentialSource,
+		usedProviderKey: { id?: string; label?: string },
 	): RoutingMetadata => ({
 		availableProviders: [providerId],
 		selectedProvider: providerId,
 		selectionReason,
-		...(usedApiKeyHash ? { usedApiKeyHash, usedCredentialSource } : {}),
+		...(usedApiKeyHash
+			? {
+					usedApiKeyHash,
+					usedCredentialSource,
+					usedProviderKeyId: usedProviderKey.id,
+					usedProviderKeyLabel: usedProviderKey.label,
+				}
+			: {}),
 		providerScores: [],
 		...(routingAttempts.length > 0 ? { routing: routingAttempts } : {}),
 	});
@@ -982,6 +991,11 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 			const credentialSource: RoutingCredentialSource = attempt.providerKey
 				? "byok"
 				: "platform";
+			// Named only for the organization's own key; providerKeyLabel()
+			// refuses to describe a platform-managed credential.
+			const providerKeyId = attempt.providerKey?.id;
+			const keyLabel = providerKeyLabel(attempt.providerKey);
+			const usedProviderKey = { id: providerKeyId, label: keyLabel };
 			const baseLogEntry = createLogEntry({
 				requestId,
 				project,
@@ -1086,6 +1100,8 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 							{
 								apiKeyHash: usedApiKeyHash,
 								credentialSource,
+								providerKeyId,
+								providerKeyLabel: keyLabel,
 								logId: willRetry ? attemptLogId : finalLogId,
 							},
 						),
@@ -1099,6 +1115,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 						routingMetadata: buildSpeechRoutingMetadata(
 							usedApiKeyHash,
 							credentialSource,
+							usedProviderKey,
 						),
 						duration,
 						timeToFirstToken: null,
@@ -1238,6 +1255,8 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 						{
 							apiKeyHash: usedApiKeyHash,
 							credentialSource,
+							providerKeyId,
+							providerKeyLabel: keyLabel,
 							logId: willRetry ? attemptLogId : finalLogId,
 						},
 					),
@@ -1250,6 +1269,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 						routingMetadata: buildSpeechRoutingMetadata(
 							usedApiKeyHash,
 							credentialSource,
+							usedProviderKey,
 						),
 						duration,
 						timeToFirstToken: null,
@@ -1405,6 +1425,8 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 								{
 									apiKeyHash: usedApiKeyHash,
 									credentialSource,
+									providerKeyId,
+									providerKeyLabel: keyLabel,
 									logId: finalLogId,
 								},
 							),
@@ -1416,6 +1438,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 								routingMetadata: buildSpeechRoutingMetadata(
 									usedApiKeyHash,
 									credentialSource,
+									usedProviderKey,
 								),
 								duration,
 								timeToFirstToken: null,
@@ -1523,6 +1546,8 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 						{
 							apiKeyHash: usedApiKeyHash,
 							credentialSource,
+							providerKeyId,
+							providerKeyLabel: keyLabel,
 							logId: finalLogId,
 						},
 					),
@@ -1535,6 +1560,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 						routingMetadata: buildSpeechRoutingMetadata(
 							usedApiKeyHash,
 							credentialSource,
+							usedProviderKey,
 						),
 						duration,
 						timeToFirstToken: null,
@@ -1640,6 +1666,8 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 							{
 								apiKeyHash: usedApiKeyHash,
 								credentialSource,
+								providerKeyId,
+								providerKeyLabel: keyLabel,
 								logId: finalLogId,
 							},
 						),
@@ -1650,6 +1678,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 						routingMetadata: buildSpeechRoutingMetadata(
 							usedApiKeyHash,
 							credentialSource,
+							usedProviderKey,
 						),
 						duration,
 						timeToFirstToken: null,
@@ -1727,6 +1756,8 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 						{
 							apiKeyHash: usedApiKeyHash,
 							credentialSource,
+							providerKeyId,
+							providerKeyLabel: keyLabel,
 							logId: finalLogId,
 						},
 					),
@@ -1738,6 +1769,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 					routingMetadata: buildSpeechRoutingMetadata(
 						usedApiKeyHash,
 						credentialSource,
+						usedProviderKey,
 					),
 					duration,
 					timeToFirstToken: null,
@@ -1824,6 +1856,8 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 						{
 							apiKeyHash: usedApiKeyHash,
 							credentialSource,
+							providerKeyId,
+							providerKeyLabel: keyLabel,
 							logId: finalLogId,
 						},
 					),
@@ -1836,6 +1870,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 						routingMetadata: buildSpeechRoutingMetadata(
 							usedApiKeyHash,
 							credentialSource,
+							usedProviderKey,
 						),
 						duration,
 						timeToFirstToken: null,
@@ -1936,6 +1971,8 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 					{
 						apiKeyHash: usedApiKeyHash,
 						credentialSource,
+						providerKeyId,
+						providerKeyLabel: keyLabel,
 						logId: finalLogId,
 					},
 				),
@@ -1948,6 +1985,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 					routingMetadata: buildSpeechRoutingMetadata(
 						usedApiKeyHash,
 						credentialSource,
+						usedProviderKey,
 					),
 					duration,
 					timeToFirstToken: null,

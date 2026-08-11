@@ -1943,6 +1943,14 @@ export const log = pgTable(
 			// key (`byok`) or an LLM Gateway platform credential (`platform`).
 			// Always agrees with the row's billing mode (`usedMode`).
 			usedCredentialSource?: "byok" | "platform";
+			// The organization's own key that served the request, named as its
+			// owner sees it. Only set for "byok" — a platform-managed credential
+			// is never described to a tenant.
+			usedProviderKeyId?: string;
+			usedProviderKeyLabel?: string;
+			// The organization's own keys that were candidates for the used
+			// provider, in selection order. BYOK rows only.
+			eligibleProviderKeys?: Array<{ id: string; label?: string }>;
 			providerScores?: Array<{
 				providerId: string;
 				region?: string;
@@ -1980,6 +1988,8 @@ export const log = pgTable(
 				// and fall back to the platform credential, so ownership differs
 				// between entries in this array.
 				credentialSource?: "byok" | "platform";
+				providerKeyId?: string;
+				providerKeyLabel?: string;
 				logId?: string;
 			}>;
 			filteredProviders?: Array<{
@@ -2277,6 +2287,14 @@ export const videoJob = pgTable(
 			// key (`byok`) or an LLM Gateway platform credential (`platform`).
 			// Always agrees with the row's billing mode (`usedMode`).
 			usedCredentialSource?: "byok" | "platform";
+			// The organization's own key that served the request, named as its
+			// owner sees it. Only set for "byok" — a platform-managed credential
+			// is never described to a tenant.
+			usedProviderKeyId?: string;
+			usedProviderKeyLabel?: string;
+			// The organization's own keys that were candidates for the used
+			// provider, in selection order. BYOK rows only.
+			eligibleProviderKeys?: Array<{ id: string; label?: string }>;
 			providerScores?: Array<{
 				providerId: string;
 				region?: string;
@@ -2314,6 +2332,8 @@ export const videoJob = pgTable(
 				// and fall back to the platform credential, so ownership differs
 				// between entries in this array.
 				credentialSource?: "byok" | "platform";
+				providerKeyId?: string;
+				providerKeyLabel?: string;
 				logId?: string;
 			}>;
 		}>(),

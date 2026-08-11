@@ -54,6 +54,7 @@ import { validateModelOutput } from "@/lib/validate-model-output.js";
 import {
 	getProviderDefaultBaseUrl,
 	getProviderHeaders,
+	providerKeyLabel,
 	readProviderKey,
 } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
@@ -545,13 +546,21 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 	const buildRerankRoutingMetadata = (
 		usedApiKeyHash: string | undefined,
 		usedCredentialSource: RoutingCredentialSource,
+		usedProviderKey: { id?: string; label?: string },
 	): RoutingMetadata => ({
 		availableProviders: [providerId],
 		selectedProvider: providerId,
 		selectionReason: explicitProvider
 			? "direct-provider-specified"
 			: "single-provider-available",
-		...(usedApiKeyHash ? { usedApiKeyHash, usedCredentialSource } : {}),
+		...(usedApiKeyHash
+			? {
+					usedApiKeyHash,
+					usedCredentialSource,
+					usedProviderKeyId: usedProviderKey.id,
+					usedProviderKeyLabel: usedProviderKey.label,
+				}
+			: {}),
 		providerScores: [],
 		...(routingAttempts.length > 0 ? { routing: routingAttempts } : {}),
 	});
@@ -781,6 +790,11 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 			const credentialSource: RoutingCredentialSource = attempt.providerKey
 				? "byok"
 				: "platform";
+			// Named only for the organization's own key; providerKeyLabel()
+			// refuses to describe a platform-managed credential.
+			const providerKeyId = attempt.providerKey?.id;
+			const keyLabel = providerKeyLabel(attempt.providerKey);
+			const usedProviderKey = { id: providerKeyId, label: keyLabel };
 			const baseLogEntry = createLogEntry({
 				requestId,
 				project,
@@ -888,6 +902,8 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 							{
 								apiKeyHash: usedApiKeyHash,
 								credentialSource,
+								providerKeyId,
+								providerKeyLabel: keyLabel,
 								logId: willRetry ? attemptLogId : finalLogId,
 							},
 						),
@@ -900,6 +916,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 					routingMetadata: buildRerankRoutingMetadata(
 						usedApiKeyHash,
 						credentialSource,
+						usedProviderKey,
 					),
 					duration,
 					timeToFirstToken: null,
@@ -1041,6 +1058,8 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 						{
 							apiKeyHash: usedApiKeyHash,
 							credentialSource,
+							providerKeyId,
+							providerKeyLabel: keyLabel,
 							logId: willRetry ? attemptLogId : finalLogId,
 						},
 					),
@@ -1052,6 +1071,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 					routingMetadata: buildRerankRoutingMetadata(
 						usedApiKeyHash,
 						credentialSource,
+						usedProviderKey,
 					),
 					duration,
 					timeToFirstToken: null,
@@ -1211,12 +1231,30 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 			const requestCostNum = Number(rerankMapping.requestPrice ?? "0");
 			const cost = inputCost + requestCostNum;
 
+			routingAttempts.push(
+				buildRoutingAttempt(
+					providerId,
+					modelDefId,
+					upstreamResponse.status,
+					"none",
+					true,
+					{
+						apiKeyHash: usedApiKeyHash,
+						credentialSource,
+						providerKeyId,
+						providerKeyLabel: keyLabel,
+						logId: finalLogId,
+					},
+				),
+			);
+
 			await insertLog({
 				...baseLogEntry,
 				id: finalLogId,
 				routingMetadata: buildRerankRoutingMetadata(
 					usedApiKeyHash,
 					credentialSource,
+					usedProviderKey,
 				),
 				duration,
 				timeToFirstToken: null,

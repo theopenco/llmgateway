@@ -44,7 +44,11 @@ import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
-import { getProviderHeaders, readProviderKey } from "@llmgateway/actions";
+import {
+	getProviderHeaders,
+	providerKeyLabel,
+	readProviderKey,
+} from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
@@ -544,11 +548,19 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 	const buildOcrRoutingMetadata = (
 		usedApiKeyHash: string | undefined,
 		usedCredentialSource: RoutingCredentialSource,
+		usedProviderKey: { id?: string; label?: string },
 	): RoutingMetadata => ({
 		availableProviders: [providerId],
 		selectedProvider: providerId,
 		selectionReason,
-		...(usedApiKeyHash ? { usedApiKeyHash, usedCredentialSource } : {}),
+		...(usedApiKeyHash
+			? {
+					usedApiKeyHash,
+					usedCredentialSource,
+					usedProviderKeyId: usedProviderKey.id,
+					usedProviderKeyLabel: usedProviderKey.label,
+				}
+			: {}),
 		providerScores: [],
 		...(routingAttempts.length > 0 ? { routing: routingAttempts } : {}),
 	});
@@ -740,6 +752,11 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 			const credentialSource: RoutingCredentialSource = attempt.providerKey
 				? "byok"
 				: "platform";
+			// Named only for the organization's own key; providerKeyLabel()
+			// refuses to describe a platform-managed credential.
+			const providerKeyId = attempt.providerKey?.id;
+			const keyLabel = providerKeyLabel(attempt.providerKey);
+			const usedProviderKey = { id: providerKeyId, label: keyLabel };
 			const baseLogEntry = createLogEntry({
 				requestId,
 				project,
@@ -839,6 +856,8 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 							{
 								apiKeyHash: usedApiKeyHash,
 								credentialSource,
+								providerKeyId,
+								providerKeyLabel: keyLabel,
 								logId: willRetry ? attemptLogId : finalLogId,
 							},
 						),
@@ -852,6 +871,7 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 						routingMetadata: buildOcrRoutingMetadata(
 							usedApiKeyHash,
 							credentialSource,
+							usedProviderKey,
 						),
 						duration,
 						timeToFirstToken: null,
@@ -992,6 +1012,8 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 						{
 							apiKeyHash: usedApiKeyHash,
 							credentialSource,
+							providerKeyId,
+							providerKeyLabel: keyLabel,
 							logId: willRetry ? attemptLogId : finalLogId,
 						},
 					),
@@ -1004,6 +1026,7 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 						routingMetadata: buildOcrRoutingMetadata(
 							usedApiKeyHash,
 							credentialSource,
+							usedProviderKey,
 						),
 						duration,
 						timeToFirstToken: null,
@@ -1125,6 +1148,8 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 					{
 						apiKeyHash: usedApiKeyHash,
 						credentialSource,
+						providerKeyId,
+						providerKeyLabel: keyLabel,
 						logId: finalLogId,
 					},
 				),
@@ -1137,6 +1162,7 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 					routingMetadata: buildOcrRoutingMetadata(
 						usedApiKeyHash,
 						credentialSource,
+						usedProviderKey,
 					),
 					duration,
 					timeToFirstToken: null,

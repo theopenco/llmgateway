@@ -19,12 +19,20 @@ import {
  * Says whose provider credential served an attempt: the organization's own key
  * or LLM Gateway's. Without it the routing view shows two indistinguishable key
  * fingerprints for a request that fell back from BYOK to credits.
+ *
+ * For the org's own keys the tooltip also names the exact key, so an attempt
+ * can be tied back to a row on the provider-keys page. The gateway only ever
+ * sends a label for BYOK attempts — LLM Gateway's own credentials are never
+ * described — and this component never renders one for a `platform` source
+ * even if a label were somehow present.
  */
 export function CredentialSourceBadge({
 	source,
+	keyLabel,
 	className,
 }: {
 	source: string | null | undefined;
+	keyLabel?: string | null;
 	className?: string;
 }) {
 	const credentialSource = toRoutingCredentialSource(source);
@@ -34,6 +42,7 @@ export function CredentialSourceBadge({
 
 	const isByok = credentialSource === "byok";
 	const Icon = isByok ? KeyRound : Building2;
+	const describedKey = isByok && keyLabel ? keyLabel : null;
 
 	return (
 		<Tooltip>
@@ -48,10 +57,13 @@ export function CredentialSourceBadge({
 					)}
 				>
 					<Icon className="h-2.5 w-2.5" />
-					{ROUTING_CREDENTIAL_SOURCE_LABELS[credentialSource]}
+					{describedKey ?? ROUTING_CREDENTIAL_SOURCE_LABELS[credentialSource]}
 				</span>
 			</TooltipTrigger>
 			<TooltipContent className="max-w-xs">
+				{describedKey && (
+					<p className="font-medium">Your key: {describedKey}</p>
+				)}
 				<p>{ROUTING_CREDENTIAL_SOURCE_DESCRIPTIONS[credentialSource]}</p>
 			</TooltipContent>
 		</Tooltip>
