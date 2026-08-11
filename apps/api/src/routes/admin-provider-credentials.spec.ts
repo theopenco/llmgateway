@@ -1191,12 +1191,36 @@ describe("managed credential reorder cache invalidation", () => {
 			expect(res.status).toBe(200);
 			const body = (await res.json()) as {
 				totalCost: number;
+				buckets: string[];
 				data: unknown[];
 				organizations: unknown[];
 			};
 			expect(body.totalCost).toBe(0);
 			expect(body.data).toEqual([]);
 			expect(body.organizations).toEqual([]);
+			// The chart still spans the whole window: the grid is returned even when
+			// nothing was spent, so the axis does not collapse to nothing.
+			expect(body.buckets).toHaveLength(25);
+		});
+
+		test("returns a bucket grid covering the whole window", async () => {
+			await seedTraffic([{ providerKeyId, cost: 0.01 }]);
+
+			const res = await getSpend();
+			const body = (await res.json()) as {
+				buckets: string[];
+				data: { timestamp: string }[];
+			};
+
+			// One hourly bucket per hour of the 24h window, and the only bucket that
+			// carried traffic is part of that grid — so zero-filling the rest lines
+			// the series up with the axis.
+			expect(body.buckets).toHaveLength(25);
+			expect(new Set(body.buckets).size).toBe(body.buckets.length);
+			expect(body.data.length).toBeGreaterThan(0);
+			for (const point of body.data) {
+				expect(body.buckets).toContain(point.timestamp);
+			}
 		});
 	});
 
@@ -1216,8 +1240,14 @@ describe("managed credential reorder cache invalidation", () => {
 
 		interface OverviewBody {
 			bucket: string;
+			buckets: string[];
 			keys: OverviewKey[];
-			data: { providerKeyId: string; cost: number; totalTokens: string }[];
+			data: {
+				providerKeyId: string;
+				timestamp: string;
+				cost: number;
+				totalTokens: string;
+			}[];
 		}
 
 		async function seedTraffic(
@@ -1327,6 +1357,28 @@ describe("managed credential reorder cache invalidation", () => {
 			expect(seriesIds).toEqual(
 				new Set(["overview-cred-a", "overview-cred-b"]),
 			);
+		});
+
+		test("returns a bucket grid covering the whole window", async () => {
+			await db.insert(tables.providerKey).values({
+				id: "overview-grid",
+				token: "sk-overview-grid",
+				provider: "openai",
+				managed: true,
+				organizationId: null,
+			});
+			await seedTraffic([{ providerKeyId: "overview-grid", cost: 0.01 }]);
+
+			const body = await getOverview();
+
+			// The rollup only holds the current hour, but the grid still spans the
+			// full 24h window so quiet buckets can be zero-filled client-side.
+			expect(body.buckets).toHaveLength(25);
+			expect(new Set(body.buckets).size).toBe(body.buckets.length);
+			expect(body.data.length).toBeGreaterThan(0);
+			for (const point of body.data) {
+				expect(body.buckets).toContain(point.timestamp);
+			}
 		});
 
 		test("excludes BYOK keys and their spend", async () => {
