@@ -120,6 +120,13 @@ export interface OriginalRequestParams {
 
 export interface ProviderContextOptions {
 	requestId: string;
+	/**
+	 * Set when the request is a zero-rated onboarding call. The credit assertion
+	 * below mirrors chat.ts's gate, so without this a fallback to a platform
+	 * credential re-imposes the 402 that the sponsored path just waived — only on
+	 * the flaky-provider branch, so it fails intermittently and invisibly.
+	 */
+	sponsoredOnboarding?: boolean;
 	stream: boolean;
 	effectiveStream: boolean;
 	messages: BaseMessage[];
@@ -400,6 +407,7 @@ export function formatTimeUntilReset(ms: number): string {
 function assertOrganizationHasCreditsForEnvFallback(
 	organization: OrgInfo,
 	modelInfo: ModelDefinition,
+	sponsoredOnboarding = false,
 ): void {
 	if (modelInfo.free) {
 		return;
@@ -427,6 +435,11 @@ function assertOrganizationHasCreditsForEnvFallback(
 	}
 	if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
 		throw buildDevPlanCreditLimitError(organization);
+	}
+	// Matches chat.ts: sponsorship waives only the plain zero-balance case, never
+	// the plan allowances asserted above.
+	if (sponsoredOnboarding) {
+		return;
 	}
 	throw new HTTPException(402, {
 		message: `Organization ${organization.id} has insufficient credits`,
@@ -538,7 +551,11 @@ export async function resolveProviderContext(
 
 		usedToken = readProviderKey(providerKey);
 	} else if (project.mode === "credits") {
-		assertOrganizationHasCreditsForEnvFallback(organization, modelInfo);
+		assertOrganizationHasCreditsForEnvFallback(
+			organization,
+			modelInfo,
+			options.sponsoredOnboarding,
+		);
 		const platformCredential = await resolvePlatformCredential(
 			usedProvider as Provider,
 			{
@@ -576,7 +593,11 @@ export async function resolveProviderContext(
 		if (providerKey) {
 			usedToken = readProviderKey(providerKey);
 		} else {
-			assertOrganizationHasCreditsForEnvFallback(organization, modelInfo);
+			assertOrganizationHasCreditsForEnvFallback(
+				organization,
+				modelInfo,
+				options.sponsoredOnboarding,
+			);
 			const platformCredential = await resolvePlatformCredential(
 				usedProvider as Provider,
 				{
