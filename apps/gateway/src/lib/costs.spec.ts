@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { logger } from "@llmgateway/logger";
+
 import {
 	calculateCosts,
 	isBilledFailureFinishReason,
@@ -1945,6 +1947,185 @@ describe("isRefusalFinishReason", () => {
 		expect(isRefusalFinishReason("refusal", "openai")).toBe(false);
 		expect(isRefusalFinishReason("refusal", "google-ai-studio")).toBe(false);
 		expect(isRefusalFinishReason("refusal", null)).toBe(false);
+	});
+});
+
+describe("output-token estimation guardrails", () => {
+	// Regression for the phantom-charge incident: a truncated agentic stream was
+	// billed 1,165,619 output tokens (9.1x the mapping's maxOutput) estimated
+	// from accumulated tool-call JSON, on a log row recording 0 output tokens.
+	const bigToolCall = [
+		{
+			id: "call_1",
+			type: "function" as const,
+			function: {
+				name: "search",
+				arguments: JSON.stringify({ q: "x".repeat(2_000_000) }),
+			},
+		},
+	];
+
+	it("does not estimate output tokens when estimation is disallowed", async () => {
+		const result = await calculateCosts(
+			"gpt-5.6-sol",
+			"openai",
+			null,
+			1000,
+			null,
+			null,
+			{ prompt: "hi", completion: "", toolResults: bigToolCall },
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			{ allowOutputEstimate: false },
+		);
+
+		expect(result.completionTokens).toBe(0);
+		expect(result.outputCost).toBe(0);
+		expect(result.inputCost).toBeGreaterThan(0);
+	});
+
+	it("clamps an estimated output count to the mapping's maxOutput", async () => {
+		const result = await calculateCosts(
+			"gpt-5.6-sol",
+			"openai",
+			null,
+			1000,
+			null,
+			null,
+			{ prompt: "hi", completion: "", toolResults: bigToolCall },
+		);
+
+		// gpt-5.6-sol advertises maxOutput 128000; the raw estimate is far larger.
+		expect(result.completionTokens).toBe(128000);
+		expect(result.outputCost).toBeCloseTo(128000 * 30e-6, 6);
+	});
+
+	it("never clamps a provider-reported output count", async () => {
+		const reported = 200000;
+		const result = await calculateCosts(
+			"gpt-5.6-sol",
+			"openai",
+			null,
+			1000,
+			reported,
+		);
+
+		expect(result.completionTokens).toBe(reported);
+		expect(result.outputCost).toBeCloseTo(reported * 30e-6, 6);
+	});
+
+	it("does not re-encode tool-call arguments when estimating", async () => {
+		// `arguments` is already a JSON string; JSON.stringify-ing it again
+		// escapes every quote and inflates the chars/4 estimate.
+		const args = JSON.stringify({ query: "a".repeat(400) });
+		const result = await calculateCosts(
+			"gpt-5.6-sol",
+			"openai",
+			null,
+			1000,
+			null,
+			null,
+			{
+				prompt: "hi",
+				completion: "",
+				toolResults: [
+					{
+						id: "call_1",
+						type: "function" as const,
+						function: { name: "search", arguments: args },
+					},
+				],
+			},
+		);
+
+		const withoutReEncoding = Math.ceil(("search" + args).length / 4);
+		expect(result.completionTokens).toBeLessThanOrEqual(withoutReEncoding);
+	});
+});
+
+describe("estimated-cost warning", () => {
+	// So an estimated charge is auditable after the fact: grep the message, and
+	// the trace id the logger attaches leads back to the log row it charged.
+	beforeEach(() => {
+		vi.mocked(mockGetEffectiveDiscount).mockImplementation(async () => ({
+			discount: "0",
+			source: "none",
+		}));
+	});
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	it("warns when a billed request used estimated token counts", async () => {
+		const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+
+		await calculateCosts("gpt-4", "openai", null, null, null, null, {
+			prompt: "Hello, how are you?",
+			completion: "I'm doing well, thank you for asking!",
+		});
+
+		const call = warn.mock.calls.find(
+			([message]) => message === "Billed a request on estimated token counts",
+		);
+		expect(call).toBeDefined();
+		expect(call?.[1]).toMatchObject({
+			model: "gpt-4",
+			provider: "openai",
+			promptTokensEstimated: true,
+			completionTokensEstimated: true,
+		});
+	});
+
+	it("does not warn when both token counts came from the provider", async () => {
+		const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+
+		await calculateCosts("gpt-4", "openai", null, 100, 50, null);
+
+		expect(
+			warn.mock.calls.some(
+				([message]) => message === "Billed a request on estimated token counts",
+			),
+		).toBe(false);
+	});
+
+	it("does not warn when the estimate produced no charge", async () => {
+		const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+
+		// Prompt tokens reported, output estimation disallowed: nothing is
+		// invented, so there is nothing to audit.
+		await calculateCosts(
+			"gpt-4",
+			"openai",
+			null,
+			100,
+			0,
+			null,
+			{ prompt: "hi", completion: "" },
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			{ allowOutputEstimate: false },
+		);
+
+		expect(
+			warn.mock.calls.some(
+				([message]) => message === "Billed a request on estimated token counts",
+			),
+		).toBe(false);
 	});
 });
 

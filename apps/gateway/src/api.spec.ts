@@ -8665,6 +8665,115 @@ describe("api", () => {
 			expect(Number(logs[0].outputCost)).toBe(0);
 		});
 
+		// The invariant that would have made the phantom charges self-evident:
+		// whatever count the charge was computed from is the count the row shows.
+		test("a successful stream logs the completion count it was billed for", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				token: "real-token",
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				token: "sk-test-key",
+				provider: "anthropic",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			// Completes cleanly, but the provider never reports output_tokens and
+			// emits tool calls only — so the cost comes from an estimate.
+			const toolArgs = JSON.stringify({ query: "y".repeat(4000) });
+			const sse = [
+				`event: message_start\ndata: ${JSON.stringify({
+					type: "message_start",
+					message: {
+						id: "msg_no_usage",
+						type: "message",
+						role: "assistant",
+						model: "claude-opus-4-8",
+						content: [],
+						usage: { input_tokens: 100 },
+					},
+				})}\n\n`,
+				`event: content_block_start\ndata: ${JSON.stringify({
+					type: "content_block_start",
+					index: 0,
+					content_block: { type: "tool_use", id: "toolu_1", name: "search" },
+				})}\n\n`,
+				`event: content_block_delta\ndata: ${JSON.stringify({
+					type: "content_block_delta",
+					index: 0,
+					delta: { type: "input_json_delta", partial_json: toolArgs },
+				})}\n\n`,
+				`event: content_block_stop\ndata: ${JSON.stringify({
+					type: "content_block_stop",
+					index: 0,
+				})}\n\n`,
+				`event: message_delta\ndata: ${JSON.stringify({
+					type: "message_delta",
+					delta: { stop_reason: "tool_use", stop_sequence: null },
+				})}\n\n`,
+				`event: message_stop\ndata: ${JSON.stringify({ type: "message_stop" })}\n\n`,
+			].join("");
+
+			const fetchSpy = spyUpstreamResponse(
+				`${mockServerUrl}/v1/messages`,
+				sse,
+				"text/event-stream",
+			);
+
+			try {
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: "anthropic/claude-opus-4-8",
+						messages: [{ role: "user", content: "Call a tool" }],
+						tools: [
+							{
+								type: "function",
+								function: {
+									name: "search",
+									description: "Search",
+									parameters: {
+										type: "object",
+										properties: { query: { type: "string" } },
+									},
+								},
+							},
+						],
+						stream: true,
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				await readAll(res.body);
+			} finally {
+				fetchSpy.mockRestore();
+			}
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+			expect(logs[0].hasError).toBe(false);
+
+			// Cost and tokens must tell the same story: outputCost is exactly the
+			// logged completion count at the mapping's output price, never a
+			// number that appears nowhere in the row.
+			const loggedCompletion = Number(logs[0].completionTokens ?? 0);
+			expect(loggedCompletion).toBeGreaterThan(0);
+			expect(Number(logs[0].outputCost)).toBeCloseTo(
+				loggedCompletion * 25e-6,
+				8,
+			);
+		});
+
 		test("empty non-streaming response is not billed", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",

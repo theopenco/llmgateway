@@ -4,6 +4,7 @@ import { estimateTokensFromContent } from "@/chat/tools/estimate-tokens-from-con
 import { encodeChatMessages } from "@/chat/tools/tokenizer.js";
 
 import { getEffectiveDiscount } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 import {
 	type ModelDefinition,
 	type ProviderModelMapping,
@@ -283,6 +284,18 @@ export async function calculateCosts(
 		 * entry (which remain unbilled).
 		 */
 		customPricing?: ProviderModelMapping;
+		/**
+		 * Whether an output-token count may be *estimated* from the response text
+		 * when the provider reported no completion count of its own.
+		 *
+		 * Pass `false` whenever the response did not complete. A truncated stream
+		 * never delivers a usage frame, so the only material left to estimate from
+		 * is whatever partial text and tool-call JSON happened to accumulate —
+		 * which is a guess about output we never saw the end of, not a measurement.
+		 * Billing that guess is how a request logged with 0 completion tokens ended
+		 * up charged for 1.17M of them.
+		 */
+		allowOutputEstimate?: boolean;
 	},
 	contentFilterTriggered = false,
 ) {
@@ -293,6 +306,7 @@ export async function calculateCosts(
 	const explicitCacheUsed = options?.explicitCacheUsed ?? false;
 	const servedServiceTier = options?.servedServiceTier ?? null;
 	const customPricing = options?.customPricing;
+	const allowOutputEstimate = options?.allowOutputEstimate ?? true;
 
 	// Look up the model definition by the canonical root id only.
 	// externalId-based lookups are intentionally not supported here — the
@@ -340,25 +354,30 @@ export async function calculateCosts(
 	let calculatedCompletionTokens = completionTokens;
 	// Track if we're using estimated tokens
 	let isEstimated = false;
+	// Narrower than isEstimated, which also covers a prompt-only estimate. Only
+	// an estimated *output* count gets clamped below: a provider-reported count
+	// is the provider's own measurement and is billed as reported.
+	let completionTokensEstimated = false;
+	let promptTokensEstimated = false;
 
 	if ((!promptTokens || !completionTokens) && fullOutput) {
-		// We're going to estimate at least some of the tokens
-		isEstimated = true;
 		// Calculate prompt tokens using a cheap length-based estimate.
 		// Accuracy is intentionally traded for throughput so we never run
 		// gpt-tokenizer on the gateway hot path.
 		if (!promptTokens && fullOutput) {
 			if (fullOutput.messages) {
 				calculatedPromptTokens = encodeChatMessages(fullOutput.messages);
+				promptTokensEstimated = true;
 			} else if (fullOutput.prompt) {
 				calculatedPromptTokens = estimateTokensFromContent(
 					JSON.stringify(fullOutput.prompt),
 				);
+				promptTokensEstimated = true;
 			}
 		}
 
 		// Calculate completion tokens
-		if (!completionTokens && fullOutput) {
+		if (!completionTokens && fullOutput && allowOutputEstimate) {
 			let completionText = "";
 
 			// Include main completion content
@@ -372,17 +391,31 @@ export async function calculateCosts(
 					if (toolResult?.function?.name) {
 						completionText += toolResult.function.name;
 					}
-					if (toolResult?.function?.arguments) {
-						completionText += JSON.stringify(toolResult.function.arguments);
+					const args = toolResult?.function?.arguments;
+					if (args) {
+						// `arguments` is already a JSON *string*. Running it through
+						// JSON.stringify re-escapes every quote and newline, inflating the
+						// character count — and therefore the chars/4 estimate — by a
+						// large factor on exactly the tool-heavy payloads where the
+						// estimate matters most.
+						completionText +=
+							typeof args === "string" ? args : JSON.stringify(args);
 					}
 				}
 			}
 
 			if (completionText) {
 				calculatedCompletionTokens = estimateTokensFromContent(completionText);
+				completionTokensEstimated = true;
 			}
 		}
 	}
+
+	// Derived from what was actually estimated, not from merely entering the
+	// block above: a request whose prompt tokens the provider reported and whose
+	// output estimation was declined has invented nothing, so it must not be
+	// labelled (or warned about) as estimated.
+	isEstimated = promptTokensEstimated || completionTokensEstimated;
 
 	// Find the provider-specific pricing, keyed by providerId + region.
 	// Region matters when a single root model id has multiple per-region
@@ -440,6 +473,28 @@ export async function calculateCosts(
 			discount: undefined,
 			pricingTier: undefined,
 		};
+	}
+
+	// An estimated output count is a guess, so bound it by what the deployment
+	// can physically emit. Without this a runaway estimate bills tokens the
+	// model could not have produced — the reported incident charged 1,165,619
+	// output tokens against a mapping whose maxOutput is 128,000. Provider-
+	// reported counts are never clamped: those are the provider's measurement,
+	// and quietly rewriting them would hide a real upstream disagreement.
+	if (
+		completionTokensEstimated &&
+		providerInfo.maxOutput &&
+		calculatedCompletionTokens !== null &&
+		calculatedCompletionTokens > providerInfo.maxOutput
+	) {
+		logger.warn("Clamped an estimated completion count to maxOutput", {
+			model,
+			provider,
+			region,
+			estimatedCompletionTokens: calculatedCompletionTokens,
+			maxOutput: providerInfo.maxOutput,
+		});
+		calculatedCompletionTokens = providerInfo.maxOutput;
 	}
 
 	// Without prompt tokens we can't calculate token costs — except for
@@ -826,6 +881,28 @@ export async function calculateCosts(
 		.plus(requestCost)
 		.plus(webSearchCost)
 		.plus(contentFilterCost);
+
+	// Every request billed on a token count we made up rather than one the
+	// provider reported. Logged at warn on purpose: this is the class of charge
+	// that produced the phantom-billing incident, it should be rare (we ask every
+	// streaming provider for usage via `stream_options: { include_usage: true }`),
+	// and if it turns out not to be rare that is itself the finding. The logger
+	// attaches the trace id in production, which is also stored on the log row,
+	// so a hit here pivots straight to the request it charged.
+	if (isEstimated && totalCost.greaterThan(0)) {
+		logger.warn("Billed a request on estimated token counts", {
+			model,
+			provider,
+			region,
+			promptTokensEstimated,
+			completionTokensEstimated,
+			promptTokens: calculatedPromptTokens,
+			completionTokens: calculatedCompletionTokens,
+			inputCost: inputCost.toNumber(),
+			outputCost: outputCost.toNumber(),
+			totalCost: totalCost.toNumber(),
+		});
+	}
 
 	return {
 		inputCost: inputCost.toNumber(),
