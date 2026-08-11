@@ -3,7 +3,7 @@ import { Inter, Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
 import { AdminShell } from "@/components/admin-shell";
 import { getConfig } from "@/lib/config-server";
 import { Providers } from "@/lib/providers";
-import { hasSessionCookie } from "@/lib/require-session";
+import { hasSessionCookie } from "@/lib/session-cookie";
 
 import "./globals.css";
 
