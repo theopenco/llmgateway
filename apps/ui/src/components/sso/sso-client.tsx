@@ -9,6 +9,7 @@ import {
 	Pencil,
 	Trash2,
 } from "lucide-react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 
@@ -61,6 +62,8 @@ import { Textarea } from "@/lib/components/textarea";
 import { toast } from "@/lib/components/use-toast";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
+
+import { PRO_PLAN_PRICES } from "@llmgateway/shared";
 
 import type React from "react";
 
@@ -177,7 +180,7 @@ function ReadOnlyField({ label, value }: { label: string; value: string }) {
 export function SsoClient() {
 	const params = useParams();
 	const organizationId = params.orgId as string;
-	const { selectedOrganization } = useDashboardNavigation();
+	const { selectedOrganization, buildOrgUrl } = useDashboardNavigation();
 	const api = useApi();
 	const queryClient = useQueryClient();
 	const { apiUrl } = useAppConfig();
@@ -555,6 +558,11 @@ export function SsoClient() {
 	}
 
 	if (!hasSsoAccess) {
+		// Seat-based Pro orgs just flip the add-on on; everyone else upgrades.
+		const isSeatBasedPro =
+			selectedOrganization.plan === "pro" &&
+			selectedOrganization.proSeats !== null &&
+			selectedOrganization.proSeats !== undefined;
 		return (
 			<div className="flex flex-col space-y-4 p-4 pt-6 md:p-8">
 				<Card>
@@ -565,18 +573,23 @@ export function SsoClient() {
 						</CardTitle>
 						<CardDescription>
 							SAML SSO and SCIM directory provisioning are available on the
-							Enterprise plan or as Pro plan add-ons (SSO $300/month, SCIM
-							$200/month on top). Upgrade from your billing page, or contact us
-							at{" "}
-							<a
-								href="mailto:contact@llmgateway.io"
-								className="text-primary underline underline-offset-4"
-							>
-								contact@llmgateway.io
-							</a>{" "}
-							to discuss Enterprise.
+							Enterprise plan or as Pro plan add-ons (SSO ${PRO_PLAN_PRICES.sso}
+							/month, SCIM ${PRO_PLAN_PRICES.scim}/month on top).{" "}
+							{isSeatBasedPro
+								? "Enable the SSO add-on on your Pro subscription from the billing page."
+								: "Upgrade to Pro with the SSO add-on from the billing page."}
 						</CardDescription>
 					</CardHeader>
+					<CardContent className="flex flex-wrap gap-2">
+						<Link href={buildOrgUrl("org/billing")}>
+							<Button>
+								{isSeatBasedPro ? "Enable SSO add-on" : "Upgrade to Pro"}
+							</Button>
+						</Link>
+						<a href="mailto:contact@llmgateway.io">
+							<Button variant="outline">Contact sales about Enterprise</Button>
+						</a>
+					</CardContent>
 				</Card>
 			</div>
 		);
@@ -1003,11 +1016,23 @@ export function SsoClient() {
 				<CardHeader>
 					<CardTitle>Directory sync (SCIM)</CardTitle>
 					<CardDescription>
-						{!hasScimAccess
-							? "SCIM user provisioning is a separate Pro add-on ($200/month, on top of the SSO add-on). Enable it from your billing page to provision and deprovision members automatically."
-							: googleOnly
-								? "Not available for the Google Workspace connection — Google Workspace doesn't support SCIM provisioning for custom apps. Members are provisioned just-in-time when they sign in with Google; offboard them on the Team page."
-								: "Generate a SCIM token and configure it in your identity provider (Okta or Microsoft Entra ID) to provision and deprovision members of this organization automatically."}
+						{!hasScimAccess ? (
+							<>
+								SCIM user provisioning is a separate Pro add-on ($
+								{PRO_PLAN_PRICES.scim}/month, on top of the SSO add-on).{" "}
+								<Link
+									href={buildOrgUrl("org/billing")}
+									className="text-primary underline underline-offset-4"
+								>
+									Enable it on the billing page
+								</Link>{" "}
+								to provision and deprovision members automatically.
+							</>
+						) : googleOnly ? (
+							"Not available for the Google Workspace connection — Google Workspace doesn't support SCIM provisioning for custom apps. Members are provisioned just-in-time when they sign in with Google; offboard them on the Team page."
+						) : (
+							"Generate a SCIM token and configure it in your identity provider (Okta or Microsoft Entra ID) to provision and deprovision members of this organization automatically."
+						)}
 					</CardDescription>
 				</CardHeader>
 				{!googleOnly && hasScimAccess && (
