@@ -229,6 +229,11 @@ chat.openapi(completionRoute, async (c) => {
 			return streamSSE(c, async (stream) => {
 				const reader = response.body?.getReader();
 				if (!reader) {
+					// A 200 with no body is a gateway failure like any other: nothing
+					// was served, so the allowance goes back.
+					if (sponsored) {
+						await refundSponsoredCall(sessionUser!.id);
+					}
 					await stream.writeSSE({
 						data: JSON.stringify({ error: "No response body" }),
 						event: "error",
@@ -293,76 +298,87 @@ chat.openapi(completionRoute, async (c) => {
 				}
 			});
 		} else {
-			// Handle non-streaming response
-			const responseData = await response.json();
+			// Handle non-streaming response.
+			//
+			// Everything below runs inside a refund guard: the gateway answers a
+			// post-headers failure with a 200 whose body carries the error, and a
+			// truncated or structurally invalid body means nothing was served
+			// either. None of those reach the status check above, so without this
+			// a bad provider window silently eats the allowance and leaves the
+			// user on the 402 the refund exists to prevent.
+			try {
+				const responseData = await response.json();
 
-			// Check if the response contains an error
-			if (responseData.error) {
-				// Same in-band failure as the streaming branch: a 200 carrying an
-				// error is not a call we served, so give the allowance back.
+				// Check if the response contains an error
+				if (responseData.error) {
+					logger.error("Gateway returned error", {
+						requestedModel: model,
+						usedModel: responseData.model ?? "unknown",
+						usedProvider: responseData.provider ?? "unknown",
+						error: responseData.error,
+						responseData,
+					});
+					const errorMessage =
+						typeof responseData.error === "string"
+							? responseData.error
+							: (responseData.error?.message ??
+								JSON.stringify(responseData.error));
+					throw new Error(errorMessage);
+				}
+
+				// Validate response structure
+				if (
+					!responseData.choices ||
+					!Array.isArray(responseData.choices) ||
+					responseData.choices.length === 0
+				) {
+					logger.error("Invalid response structure from gateway", {
+						requestedModel: model,
+						usedModel: responseData.model ?? "unknown",
+						usedProvider: responseData.provider ?? "unknown",
+						responseData,
+					});
+					throw new Error("Invalid response from gateway - no choices array");
+				}
+
+				const firstChoice = responseData.choices[0];
+				if (!firstChoice.message) {
+					logger.error("No message in first choice", {
+						requestedModel: model,
+						usedModel: responseData.model ?? "unknown",
+						usedProvider: responseData.provider ?? "unknown",
+						firstChoice,
+					});
+					throw new Error(
+						"Invalid response structure from gateway - no message",
+					);
+				}
+
+				const responseObject: {
+					content: string;
+					role: string;
+					images?: Array<{ type: string; image_url: { url: string } }>;
+				} = {
+					content: firstChoice.message.content,
+					role: firstChoice.message.role,
+				};
+
+				// Include images if present
+				if (
+					firstChoice.message.images &&
+					Array.isArray(firstChoice.message.images) &&
+					firstChoice.message.images.length > 0
+				) {
+					responseObject.images = firstChoice.message.images;
+				}
+
+				return c.json(responseObject);
+			} catch (error) {
 				if (sponsored) {
 					await refundSponsoredCall(sessionUser!.id);
 				}
-				logger.error("Gateway returned error", {
-					requestedModel: model,
-					usedModel: responseData.model ?? "unknown",
-					usedProvider: responseData.provider ?? "unknown",
-					error: responseData.error,
-					responseData,
-				});
-				const errorMessage =
-					typeof responseData.error === "string"
-						? responseData.error
-						: (responseData.error?.message ??
-							JSON.stringify(responseData.error));
-				throw new Error(errorMessage);
+				throw error;
 			}
-
-			// Validate response structure
-			if (
-				!responseData.choices ||
-				!Array.isArray(responseData.choices) ||
-				responseData.choices.length === 0
-			) {
-				logger.error("Invalid response structure from gateway", {
-					requestedModel: model,
-					usedModel: responseData.model ?? "unknown",
-					usedProvider: responseData.provider ?? "unknown",
-					responseData,
-				});
-				throw new Error("Invalid response from gateway - no choices array");
-			}
-
-			const firstChoice = responseData.choices[0];
-			if (!firstChoice.message) {
-				logger.error("No message in first choice", {
-					requestedModel: model,
-					usedModel: responseData.model ?? "unknown",
-					usedProvider: responseData.provider ?? "unknown",
-					firstChoice,
-				});
-				throw new Error("Invalid response structure from gateway - no message");
-			}
-
-			const responseObject: {
-				content: string;
-				role: string;
-				images?: Array<{ type: string; image_url: { url: string } }>;
-			} = {
-				content: firstChoice.message.content,
-				role: firstChoice.message.role,
-			};
-
-			// Include images if present
-			if (
-				firstChoice.message.images &&
-				Array.isArray(firstChoice.message.images) &&
-				firstChoice.message.images.length > 0
-			) {
-				responseObject.images = firstChoice.message.images;
-			}
-
-			return c.json(responseObject);
 		}
 	} catch (error) {
 		logger.error(

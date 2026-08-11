@@ -39,12 +39,16 @@ describe("chat completion proxy", () => {
 	}[] = [];
 	let gatewayStatus = 200;
 	let gatewayBody: Record<string, unknown> | null = null;
+	let gatewayRaw: string | null = null;
+	let gatewayEmptyBody = false;
 
 	beforeEach(async () => {
 		token = await createTestUser();
 		gatewayRequests = [];
 		gatewayStatus = 200;
 		gatewayBody = null;
+		gatewayRaw = null;
+		gatewayEmptyBody = false;
 
 		previousSecret = process.env.ONBOARDING_SPONSOR_SECRET;
 		process.env.ONBOARDING_SPONSOR_SECRET = SPONSOR_SECRET;
@@ -78,6 +82,20 @@ describe("chat completion proxy", () => {
 			if (gatewayStatus !== 200) {
 				return new Response(JSON.stringify({ message: "upstream exploded" }), {
 					status: gatewayStatus,
+					headers: { "Content-Type": "application/json" },
+				});
+			}
+
+			if (gatewayEmptyBody) {
+				return new Response(null, {
+					status: 200,
+					headers: { "Content-Type": "text/event-stream" },
+				});
+			}
+
+			if (gatewayRaw !== null) {
+				return new Response(gatewayRaw, {
+					status: 200,
 					headers: { "Content-Type": "application/json" },
 				});
 			}
@@ -218,6 +236,46 @@ describe("chat completion proxy", () => {
 		expect(gatewayRequests[0].sponsor).toBeNull();
 		expect(gatewayRequests[0].body.model).toBe("gpt-4o");
 		expect(gatewayRequests[0].body).not.toHaveProperty("max_tokens");
+	});
+
+	// A 200 whose body is unusable means the gateway served nothing, so it must
+	// not cost an allowance slot either.
+	test.each([
+		["a malformed body", "not json at all"],
+		["a body with no choices", JSON.stringify({ id: "chatcmpl-proxy" })],
+		[
+			"a choice with no message",
+			JSON.stringify({ id: "chatcmpl-proxy", choices: [{ index: 0 }] }),
+		],
+	])("refunds the allowance on %s", async (_label, raw) => {
+		gatewayRaw = raw;
+		for (let attempt = 0; attempt < 3; attempt++) {
+			await onboardingRequest();
+		}
+
+		gatewayRaw = null;
+		for (let attempt = 0; attempt < 5; attempt++) {
+			await onboardingRequest();
+		}
+
+		expect(gatewayRequests.filter((r) => r.sponsor !== null)).toHaveLength(8);
+	});
+
+	test("refunds the allowance when the stream has no body", async () => {
+		gatewayEmptyBody = true;
+		for (let attempt = 0; attempt < 3; attempt++) {
+			await request(
+				{ model: "auto", apiKey: "user-token", onboarding: true, stream: true },
+				token,
+			);
+		}
+
+		gatewayEmptyBody = false;
+		for (let attempt = 0; attempt < 5; attempt++) {
+			await onboardingRequest();
+		}
+
+		expect(gatewayRequests.filter((r) => r.sponsor !== null)).toHaveLength(8);
 	});
 
 	test("refunds the allowance when a 200 carries an in-band error", async () => {
