@@ -62,12 +62,14 @@ You agree to notify us immediately of any unauthorized access to or use of your 
 LLM Gateway offers free and paid plans, including pay-as-you-go (“PAYG”) usage:
 
 - **Free Plan:** Core features with usage limits, provided strictly on an “as is” basis.
+- **Pro Plan:** A recurring monthly subscription billed per seat, with optional paid quantities (such as additional API keys and projects) and optional add-ons (such as SSO and SCIM). The Pro Plan raises usage limits and unlocks the selected add-ons; it does not alter the underlying Service features. Current prices, minimum quantities, and included allowances are shown on the pricing page and in the checkout flow at the time of purchase.
 - **Paid / PAYG Plans:** You purchase credits or pay for usage as you make requests through the platform.
 
 You agree to the following billing terms:
 
 - **Credits and fees are non-refundable** and are consumed as you use the Service, except where a refund is required by applicable law. Unused credits may expire as described at the point of purchase.
 - Billing is processed by **Stripe**. You authorize us (and our payment processor) to **charge your payment method** for all applicable fees, including recurring and usage-based charges, and to **automatically replenish credits** if you enable auto-recharge.
+- **Subscriptions renew automatically** each billing period until cancelled. Mid-period changes to subscription quantities or add-ons are **prorated** on your next invoice. Cancelling stops future renewals; your subscription (including its raised limits and add-ons) remains active until the end of the paid period, after which the organization reverts to the Free Plan and its limits. Amounts already paid for the current period are non-refundable, except where required by applicable law.
 - All fees are **exclusive of taxes**. You are responsible for all applicable taxes, duties, and similar charges, other than taxes based on our net income.
 - You are responsible for all charges incurred under your account, including charges resulting from unauthorized use of your credentials or API keys.
 - If a payment fails, is reversed, or is charged back, we may **suspend or terminate** your access and recover amounts owed. Initiating a chargeback for legitimate charges is a breach of these Terms.

@@ -1,0 +1,43 @@
+---
+title: Plan
+description: The Pro plan — seats, API keys, projects, and the SSO/SCIM add-ons
+icon: Gem
+---
+
+The Plan page (**Organization → Settings → Plan**) is where you upgrade to the Pro plan and manage your subscription: seats, extra API keys, extra projects, and add-ons.
+
+## Free vs Pro
+
+Pro has the **same product features as Free** — it raises your limits. The Free plan includes 5 team seats, 5 API keys, and 10 projects per organization. Pro scales those up:
+
+|                       | Free | Pro                                          |
+| --------------------- | ---- | -------------------------------------------- |
+| **Seats**             | 5    | 3–500 at $15 per user per month              |
+| **API keys**          | 5    | 1 included per seat, +$5/month per extra key |
+| **Projects**          | 10   | 10 included, +$5/month per extra project     |
+| **SSO/SAML**          | —    | $300/month add-on                            |
+| **SCIM provisioning** | —    | $200/month add-on (requires SSO)             |
+
+The Pro plan has a 3-seat minimum, so it starts at $45/month. Need more than 500 seats, volume discounts, or features like audit logs and compliance policies? That's [Enterprise](https://llmgateway.io/enterprise).
+
+## Usage overview
+
+The top of the page shows progress bars for **seats** (members plus pending invites), **API keys** (active keys across the organization), and **projects**, each against your current plan's limit — so you can see at a glance when you're approaching a cap.
+
+## Upgrading
+
+Pick a seat count, add extra API keys or projects if you need more than the included allowance, toggle the add-ons, and review the live monthly total. The summary states exactly what you end up with ("With this plan you get 10 seats, 13 API keys, and 12 projects in total") before you're redirected to Stripe Checkout. Only organization **owners** can manage the subscription.
+
+Your selection must cover what the organization already uses: every member and pending invite needs a seat, every active API key needs an included or extra key, and every project needs an included or extra project slot.
+
+## Changing your subscription
+
+On an active Pro subscription the same controls update your plan in place. Changes are **prorated**: adding seats or add-ons mid-cycle charges only the remainder of the billing period, and reductions are credited against your next invoice. Each seat always includes one API key, so raising the seat count also raises your key allowance automatically.
+
+## SSO & SCIM add-ons
+
+The **SSO add-on** ($300/month) unlocks SAML single sign-on configuration for your organization — the same setup Enterprise uses, managed on the [SSO page](/features/sso). The **SCIM add-on** ($200/month) adds directory user provisioning on top and requires the SSO add-on, since provisioning rides on the SSO connection. Dropping SSO drops SCIM with it.
+
+## Cancelling
+
+Cancelling keeps your seats, keys, projects, and add-ons active until the end of the paid billing period, then the organization returns to the Free plan and its limits. You can resume any time before the period ends. Invoices for every payment — including renewals and prorated changes — are emailed to your billing address and listed on the Transactions page.
