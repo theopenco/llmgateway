@@ -596,6 +596,20 @@ export function isClientJsonError(message: string, args: unknown[]): boolean {
 	);
 }
 
+/**
+ * Better Auth logs failed OAuth callbacks at error severity even when the
+ * failure is ordinary user state rather than a server fault. `signup_disabled`
+ * is emitted every time someone uses social sign-in on a login page with an
+ * email that has no account yet — expected, because both social providers run
+ * with `disableImplicitSignUp: true` — and the UI turns it into a "sign up
+ * instead?" prompt. Logging it at error severity only trips production alerting.
+ */
+const clientAuthErrorCodes = new Set(["signup_disabled"]);
+
+export function isClientAuthError(message: string): boolean {
+	return clientAuthErrorCodes.has(message.trim());
+}
+
 function extractLogExtra(args: unknown[]): object | undefined {
 	const errArg = args.find((arg) => arg instanceof Error);
 	if (errArg) {
@@ -616,7 +630,8 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 				) => {
 					const text = `[Better Auth] ${message}`;
 					const effectiveLevel =
-						level === "error" && isClientJsonError(message, args)
+						level === "error" &&
+						(isClientJsonError(message, args) || isClientAuthError(message))
 							? "warn"
 							: level;
 					switch (effectiveLevel) {

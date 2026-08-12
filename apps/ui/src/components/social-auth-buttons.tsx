@@ -58,8 +58,8 @@ export function SocialAuthButtons({
 
 	// Captured lazily during the first render, before any effect strips
 	// `?error=` from the URL. `provider: null` means the round trip that failed
-	// with `signup_disabled` can't be retried (no stored provider), so we fall
-	// back to a toast instead of the confirmation dialog.
+	// with `signup_disabled` can't be retried (no stored provider), so the dialog
+	// sends the user to the signup page instead of re-running the same provider.
 	const [signupDisabledState, setSignupDisabledState] = useState<{
 		provider: SocialProvider | null;
 	} | null>(() => {
@@ -86,13 +86,6 @@ export function SocialAuthButtons({
 			params.delete("error");
 			const query = params.toString();
 			router.replace(window.location.pathname + (query ? `?${query}` : ""));
-		}
-		if (!signupDisabledState.provider) {
-			setSignupDisabledState(null);
-			toast({
-				title: "No account found for that sign-in. Please sign up first.",
-				variant: "destructive",
-			});
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
@@ -134,7 +127,7 @@ export function SocialAuthButtons({
 	return (
 		<>
 			<AlertDialog
-				open={Boolean(confirmProvider)}
+				open={Boolean(signupDisabledState)}
 				onOpenChange={(open) => {
 					if (!open) {
 						setSignupDisabledState(null);
@@ -143,11 +136,11 @@ export function SocialAuthButtons({
 			>
 				<AlertDialogContent>
 					<AlertDialogHeader>
-						<AlertDialogTitle>Create a new account?</AlertDialogTitle>
+						<AlertDialogTitle>No account found</AlertDialogTitle>
 						<AlertDialogDescription>
-							No LLM Gateway account exists for the{" "}
-							{confirmProvider ? PROVIDER_LABELS[confirmProvider] : "provider"}{" "}
-							login you used. Would you like to create a new account with it?
+							{confirmProvider
+								? `There is no LLM Gateway account for the ${PROVIDER_LABELS[confirmProvider]} login you used. You need to sign up first — we can create your account with that ${PROVIDER_LABELS[confirmProvider]} login right now.`
+								: "There is no LLM Gateway account for the login you used. You need to sign up first to create one."}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
@@ -158,11 +151,15 @@ export function SocialAuthButtons({
 									void handleSocialSignIn(confirmProvider, {
 										requestSignUp: true,
 									});
+								} else {
+									router.push("/signup");
 								}
 								setSignupDisabledState(null);
 							}}
 						>
-							Create account
+							{confirmProvider
+								? `Sign up with ${PROVIDER_LABELS[confirmProvider]}`
+								: "Go to sign up"}
 						</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>

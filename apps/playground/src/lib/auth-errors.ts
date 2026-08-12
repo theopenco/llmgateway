@@ -2,8 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
-
-import { toast } from "@/lib/components/use-toast";
+import { toast } from "sonner";
 
 // Error codes emitted by better-auth's social OAuth callback as the `?error=`
 // query param. The callback derives them from `result.error.split(" ").join("_")`
@@ -59,9 +58,11 @@ export function useAuthErrorToast(ignoredCodes: string[] = []): void {
 		if (!error || ignoredCodes.includes(error)) {
 			return;
 		}
-		toast({
-			title: getAuthErrorMessage(error),
-			variant: "destructive",
+		toast.error(getAuthErrorMessage(error), {
+			style: {
+				backgroundColor: "var(--destructive)",
+				color: "var(--destructive-foreground)",
+			},
 		});
 		params.delete("error");
 		const query = params.toString();
