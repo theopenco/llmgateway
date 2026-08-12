@@ -31,6 +31,8 @@ export const CODING_AGENTS: CodingAgentDefinition[] = [
 			/^codex_cli_rs\//i,
 			/^codex[-_]tui\//i,
 			/^codex[-_]vscode\//i,
+			// Headless `codex exec` runs identify as "codex_exec/<version> …".
+			/^codex[-_]exec/i,
 			/^codex\//i,
 		],
 	},
@@ -188,6 +190,27 @@ export const CODING_AGENTS: CodingAgentDefinition[] = [
 			/^droid\//i,
 			/\bfactory[-_]droid\b/i,
 		],
+	},
+	{
+		id: "mimo-code",
+		label: "MiMo Code",
+		xSourceValues: ["mimo-code", "mimocode"],
+		// The CLI sends a bare "mimocode" product token with no separator.
+		userAgentPatterns: [/^mimo[-_]?code/i, /\bmimo[-_]code\b/i],
+	},
+	{
+		id: "traycer",
+		label: "Traycer",
+		xSourceValues: ["traycer", "traycer-agents"],
+		userAgentPatterns: [/^traycer[-_]agents\b/i, /^traycer\//i, /\btraycer\b/i],
+	},
+	{
+		id: "foundry-toolkit",
+		label: "Foundry Toolkit",
+		// Microsoft's VS Code extension, formerly "AI Toolkit"/"Windows AI Studio";
+		// the marketplace id (and its User-Agent) still says windows-ai-studio.
+		xSourceValues: ["foundry-toolkit", "ai-toolkit", "windows-ai-studio"],
+		userAgentPatterns: [/^windows[-_]ai[-_]studio/i, /^foundry[-_]toolkit/i],
 	},
 	{
 		id: "openai-sdk",

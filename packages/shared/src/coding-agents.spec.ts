@@ -35,6 +35,11 @@ describe("isRecognizedCodingAgent", () => {
 		expect(isRecognizedCodingAgent("kimi-code")).toBe(true);
 		expect(isRecognizedCodingAgent("qwen-code")).toBe(true);
 		expect(isRecognizedCodingAgent("factory-droid")).toBe(true);
+		expect(isRecognizedCodingAgent("mimo-code")).toBe(true);
+		expect(isRecognizedCodingAgent("mimocode")).toBe(true);
+		expect(isRecognizedCodingAgent("traycer")).toBe(true);
+		expect(isRecognizedCodingAgent("foundry-toolkit")).toBe(true);
+		expect(isRecognizedCodingAgent("windows-ai-studio")).toBe(true);
 	});
 
 	it("recognizes *claw forks via pattern", () => {
@@ -67,6 +72,11 @@ describe("normalizeSourceToAgentId", () => {
 		expect(normalizeSourceToAgentId("qwencode")).toBe("qwen-code");
 		expect(normalizeSourceToAgentId("droid")).toBe("factory-droid");
 		expect(normalizeSourceToAgentId("pi-coding-agent")).toBe("pi-agent");
+		expect(normalizeSourceToAgentId("mimocode")).toBe("mimo-code");
+		expect(normalizeSourceToAgentId("traycer-agents")).toBe("traycer");
+		expect(normalizeSourceToAgentId("windows-ai-studio")).toBe(
+			"foundry-toolkit",
+		);
 	});
 
 	it("returns the same value for canonical IDs", () => {
