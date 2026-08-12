@@ -847,6 +847,154 @@ describe("api", () => {
 		expect(body.error.message).toContain("thinking.type.adaptive");
 	});
 
+	test("/v1/messages still accepts a valid body carrying OpenAI-only parameters", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		// The messages endpoint must never deny a request that is otherwise a
+		// sound Anthropic body just because it carries a stray OpenAI-only
+		// parameter: the schema strips unknown keys, so these all succeed today
+		// and a caller relying on that must not start seeing 400s. Diagnosing a
+		// misdirected OpenAI client is not worth breaking them.
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				max_tokens: 100,
+				messages: [{ role: "user", content: "Hello!" }],
+				response_format: { type: "json_object" },
+				stream_options: { include_usage: true },
+				max_completion_tokens: 100,
+				frequency_penalty: 0.5,
+				presence_penalty: 0.5,
+				tool_choice: "auto",
+				seed: 7,
+				stop: ["\n"],
+				n: 1,
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { type: string; content: any[] };
+		expect(body.type).toBe("message");
+		expect(body.content[0].type).toBe("text");
+	});
+
+	test("/v1/messages renders schema validation failures as Anthropic errors", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		// Anthropic requires `max_tokens`. Validation runs before the handler, so
+		// this used to leak a raw `{ success: false, error: ZodError }` body that
+		// no Anthropic client can parse.
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as {
+			type: string;
+			error: { type: string; message: string };
+		};
+		expect(body.type).toBe("error");
+		expect(body.error.type).toBe("invalid_request_error");
+		expect(body.error.message).toContain("max_tokens");
+
+		const logs = await waitForLogs(1);
+		expect(logs[0].finishReason).toBe("client_error");
+		expect(logs[0].errorDetails?.responseText).toContain("max_tokens");
+	});
+
+	test("/v1/messages explains an OpenAI-format tools rejection", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		// OpenAI-shaped tools already failed the Anthropic tool union before this
+		// change — the 400 is unchanged, only the message is, from an opaque
+		// "tools.0: Invalid input" to something that names the actual mismatch.
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				max_tokens: 100,
+				messages: [{ role: "user", content: "Hello!" }],
+				tools: [
+					{
+						type: "function",
+						function: {
+							name: "get_weather",
+							parameters: { type: "object", properties: {} },
+						},
+					},
+				],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as {
+			type: string;
+			error: { type: string; message: string };
+		};
+		expect(body.type).toBe("error");
+		expect(body.error.message).toContain("tools[0].function");
+		expect(body.error.message).toContain("/v1/chat/completions");
+
+		// The rejection happens before the internal /v1/chat/completions hop that
+		// owns log writing, so it must be logged here — otherwise the caller sees
+		// a 400 and nothing in their activity feed.
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		const log = logs[0];
+		expect(log.finishReason).toBe("client_error");
+		expect(log.hasError).toBe(true);
+		expect(log.errorDetails?.statusCode).toBe(400);
+		expect(log.errorDetails?.responseText).toContain("tools[0].function");
+		expect(log.requestedModel).toBe("llmgateway/custom");
+		// A rejected request never reached a provider, so it costs nothing.
+		expect(Number(log.cost ?? 0)).toBe(0);
+		expect(log.promptTokens).toBeNull();
+		expect(log.completionTokens).toBeNull();
+	});
+
 	test("/v1/chat/completions blocks providers failing the compliance policy", async () => {
 		// OpenAI's dataPolicy has promptLogging: true, so blockPromptLogging removes
 		// it. gpt-4o's only other (azure) mapping is deactivated, leaving no provider.
