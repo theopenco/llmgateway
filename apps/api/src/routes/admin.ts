@@ -319,6 +319,7 @@ const adminMetricsSchema = z.object({
 	// when legacy flat-fee rows (which have no breakdown) are in range.
 	grossProSeatsRevenue: z.number(),
 	grossProExtraApiKeysRevenue: z.number(),
+	grossProExtraProjectsRevenue: z.number(),
 	grossProSsoRevenue: z.number(),
 	grossProScimRevenue: z.number(),
 	// Credits paid for outside Stripe (wire, crypto, …) and credited manually by
@@ -1269,6 +1270,10 @@ admin.openapi(getMetrics, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amountBreakdown}->>'extraApiKeys' AS NUMERIC)), 0)`.as(
 					"extra_api_keys",
 				),
+			extraProjects:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amountBreakdown}->>'extraProjects' AS NUMERIC)), 0)`.as(
+					"extra_projects",
+				),
 			sso: sql<number>`COALESCE(SUM(CAST(${tables.transaction.amountBreakdown}->>'sso' AS NUMERIC)), 0)`.as(
 				"sso",
 			),
@@ -1290,6 +1295,9 @@ admin.openapi(getMetrics, async (c) => {
 
 	const grossProSeatsRevenue = Number(proFeatureRow?.seats ?? 0);
 	const grossProExtraApiKeysRevenue = Number(proFeatureRow?.extraApiKeys ?? 0);
+	const grossProExtraProjectsRevenue = Number(
+		proFeatureRow?.extraProjects ?? 0,
+	);
 	const grossProSsoRevenue = Number(proFeatureRow?.sso ?? 0);
 	const grossProScimRevenue = Number(proFeatureRow?.scim ?? 0);
 
@@ -1357,6 +1365,7 @@ admin.openapi(getMetrics, async (c) => {
 		grossProSubscriptionsRevenue,
 		grossProSeatsRevenue,
 		grossProExtraApiKeysRevenue,
+		grossProExtraProjectsRevenue,
 		grossProSsoRevenue,
 		grossProScimRevenue,
 		grossManualPaymentsRevenue,

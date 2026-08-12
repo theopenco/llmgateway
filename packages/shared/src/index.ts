@@ -178,6 +178,8 @@ export {
 	PRO_PLAN_MIN_SEATS,
 	PRO_PLAN_MAX_SEATS,
 	PRO_PLAN_MAX_EXTRA_API_KEYS,
+	PRO_PLAN_INCLUDED_PROJECTS,
+	PRO_PLAN_MAX_EXTRA_PROJECTS,
 	getProPlanMonthlyTotal,
 	type ProPlanSelection,
 } from "./pro-plan.js";

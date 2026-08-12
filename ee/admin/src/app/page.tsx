@@ -369,6 +369,16 @@ export default async function Page({
 														},
 													]
 												: []),
+											...(metrics.grossProExtraProjectsRevenue > 0
+												? [
+														{
+															label: "· Extra projects",
+															value: currencyFormatter.format(
+																metrics.grossProExtraProjectsRevenue,
+															),
+														},
+													]
+												: []),
 											...(metrics.grossProSsoRevenue > 0
 												? [
 														{

@@ -487,6 +487,7 @@ stripe:
   proYearlyPriceId: ""
   proSeatPriceId: ""
   proExtraApiKeyPriceId: ""
+  proExtraProjectPriceId: ""
   proSsoPriceId: ""
   proScimPriceId: ""
   devPlanLitePriceId: ""

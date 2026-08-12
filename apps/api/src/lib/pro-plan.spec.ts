@@ -28,6 +28,8 @@ describe("extractProQuantities", () => {
 		STRIPE_PRO_SEAT_PRICE_ID: process.env.STRIPE_PRO_SEAT_PRICE_ID,
 		STRIPE_PRO_EXTRA_API_KEY_PRICE_ID:
 			process.env.STRIPE_PRO_EXTRA_API_KEY_PRICE_ID,
+		STRIPE_PRO_EXTRA_PROJECT_PRICE_ID:
+			process.env.STRIPE_PRO_EXTRA_PROJECT_PRICE_ID,
 		STRIPE_PRO_SSO_PRICE_ID: process.env.STRIPE_PRO_SSO_PRICE_ID,
 		STRIPE_PRO_SCIM_PRICE_ID: process.env.STRIPE_PRO_SCIM_PRICE_ID,
 	};
@@ -35,6 +37,7 @@ describe("extractProQuantities", () => {
 	beforeEach(() => {
 		process.env.STRIPE_PRO_SEAT_PRICE_ID = "price_seat";
 		process.env.STRIPE_PRO_EXTRA_API_KEY_PRICE_ID = "price_key";
+		process.env.STRIPE_PRO_EXTRA_PROJECT_PRICE_ID = "price_project";
 		process.env.STRIPE_PRO_SSO_PRICE_ID = "price_sso";
 		process.env.STRIPE_PRO_SCIM_PRICE_ID = "price_scim";
 	});
@@ -51,6 +54,12 @@ describe("extractProQuantities", () => {
 			process.env.STRIPE_PRO_EXTRA_API_KEY_PRICE_ID =
 				env.STRIPE_PRO_EXTRA_API_KEY_PRICE_ID;
 		}
+		if (env.STRIPE_PRO_EXTRA_PROJECT_PRICE_ID === undefined) {
+			delete process.env.STRIPE_PRO_EXTRA_PROJECT_PRICE_ID;
+		} else {
+			process.env.STRIPE_PRO_EXTRA_PROJECT_PRICE_ID =
+				env.STRIPE_PRO_EXTRA_PROJECT_PRICE_ID;
+		}
 		if (env.STRIPE_PRO_SSO_PRICE_ID === undefined) {
 			delete process.env.STRIPE_PRO_SSO_PRICE_ID;
 		} else {
@@ -63,11 +72,12 @@ describe("extractProQuantities", () => {
 		}
 	});
 
-	it("extracts seats, extra keys, and both add-ons", () => {
+	it("extracts seats, extra keys, extra projects, and both add-ons", () => {
 		const result = extractProQuantities(
 			subscriptionWithItems([
 				{ priceId: "price_seat", quantity: 12 },
 				{ priceId: "price_key", quantity: 3 },
+				{ priceId: "price_project", quantity: 4 },
 				{ priceId: "price_sso", quantity: 1 },
 				{ priceId: "price_scim", quantity: 1 },
 			]),
@@ -75,6 +85,7 @@ describe("extractProQuantities", () => {
 		expect(result).toEqual({
 			proSeats: 12,
 			proExtraApiKeys: 3,
+			proExtraProjects: 4,
 			proSsoEnabled: true,
 			proScimEnabled: true,
 		});
@@ -90,6 +101,7 @@ describe("extractProQuantities", () => {
 		expect(result).toEqual({
 			proSeats: 4,
 			proExtraApiKeys: 0,
+			proExtraProjects: 0,
 			proSsoEnabled: true,
 			proScimEnabled: false,
 		});
@@ -102,6 +114,7 @@ describe("extractProQuantities", () => {
 		expect(result).toEqual({
 			proSeats: 5,
 			proExtraApiKeys: 0,
+			proExtraProjects: 0,
 			proSsoEnabled: false,
 			proScimEnabled: false,
 		});
@@ -151,6 +164,7 @@ describe("extractProQuantities", () => {
 			expect(result).toEqual({
 				seats: "250.00",
 				extraApiKeys: "15.00",
+				extraProjects: "0.00",
 				sso: "300.00",
 				scim: "200.00",
 			});
@@ -168,6 +182,7 @@ describe("extractProQuantities", () => {
 			expect(result).toEqual({
 				seats: "50.00",
 				extraApiKeys: "0.00",
+				extraProjects: "0.00",
 				sso: "0.00",
 				scim: "0.00",
 			});

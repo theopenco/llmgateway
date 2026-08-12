@@ -59,7 +59,7 @@ const pricingSchema = {
 				price: "15",
 				priceCurrency: "USD",
 				description:
-					"Everything in Free, per seat: $15 per user per month (3-seat minimum, up to 500 users), one API key included per seat ($5/month per extra key), plus optional add-ons — SSO for $300/month and SCIM provisioning for $200/month.",
+					"Everything in Free, per seat: $15 per user per month (3-seat minimum, up to 500 users), one API key included per seat ($5/month per extra key), 10 projects included ($5/month per extra project), plus optional add-ons — SSO for $300/month and SCIM provisioning for $200/month.",
 				url: "https://llmgateway.io/pricing",
 			},
 			{

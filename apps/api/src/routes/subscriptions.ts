@@ -8,7 +8,9 @@ import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
+	PRO_PLAN_INCLUDED_PROJECTS,
 	PRO_PLAN_MAX_EXTRA_API_KEYS,
+	PRO_PLAN_MAX_EXTRA_PROJECTS,
 	PRO_PLAN_MAX_SEATS,
 	PRO_PLAN_MIN_SEATS,
 } from "@llmgateway/shared";
@@ -31,6 +33,13 @@ const proSelectionSchema = z.object({
 		.max(PRO_PLAN_MAX_EXTRA_API_KEYS)
 		.optional()
 		.default(0),
+	extraProjects: z
+		.number()
+		.int()
+		.min(0)
+		.max(PRO_PLAN_MAX_EXTRA_PROJECTS)
+		.optional()
+		.default(0),
 	ssoAddon: z.boolean().optional().default(false),
 	// SCIM provisioning rides on the SSO connection, so it can only be bought
 	// together with the SSO add-on.
@@ -40,20 +49,22 @@ const proSelectionSchema = z.object({
 export function getProPriceIds(): {
 	seat: string;
 	extraApiKey: string;
+	extraProject: string;
 	sso: string;
 	scim: string;
 } {
 	const seat = process.env.STRIPE_PRO_SEAT_PRICE_ID;
 	const extraApiKey = process.env.STRIPE_PRO_EXTRA_API_KEY_PRICE_ID;
+	const extraProject = process.env.STRIPE_PRO_EXTRA_PROJECT_PRICE_ID;
 	const sso = process.env.STRIPE_PRO_SSO_PRICE_ID;
 	const scim = process.env.STRIPE_PRO_SCIM_PRICE_ID;
-	if (!seat || !extraApiKey || !sso || !scim) {
+	if (!seat || !extraApiKey || !extraProject || !sso || !scim) {
 		throw new HTTPException(500, {
 			message:
-				"Pro plan price IDs are not configured (STRIPE_PRO_SEAT_PRICE_ID, STRIPE_PRO_EXTRA_API_KEY_PRICE_ID, STRIPE_PRO_SSO_PRICE_ID, STRIPE_PRO_SCIM_PRICE_ID)",
+				"Pro plan price IDs are not configured (STRIPE_PRO_SEAT_PRICE_ID, STRIPE_PRO_EXTRA_API_KEY_PRICE_ID, STRIPE_PRO_EXTRA_PROJECT_PRICE_ID, STRIPE_PRO_SSO_PRICE_ID, STRIPE_PRO_SCIM_PRICE_ID)",
 		});
 	}
-	return { seat, extraApiKey, sso, scim };
+	return { seat, extraApiKey, extraProject, sso, scim };
 }
 
 function assertAddonDependency(ssoAddon: boolean, scimAddon: boolean) {
@@ -99,12 +110,15 @@ function assertOwner(role: string) {
 }
 
 // A Pro configuration must cover what the organization already uses: every
-// member (and pending invite) needs a seat, and every active developer API key
-// must be covered by a seat's included key or a purchased extra key.
+// member (and pending invite) needs a seat, every active developer API key
+// must be covered by a seat's included key or a purchased extra key, and
+// every non-deleted project must fit in the included allowance plus
+// purchased extra projects.
 async function assertSelectionCoversUsage(
 	organizationId: string,
 	seats: number,
 	extraApiKeys: number,
+	extraProjects: number,
 ) {
 	const [members, invites, orgProjects] = await Promise.all([
 		db.query.userOrganization.findMany({
@@ -119,7 +133,10 @@ async function assertSelectionCoversUsage(
 			columns: { expiresAt: true },
 		}),
 		db.query.project.findMany({
-			where: { organizationId: { eq: organizationId } },
+			where: {
+				organizationId: { eq: organizationId },
+				status: { ne: "deleted" },
+			},
 			columns: { id: true },
 		}),
 	]);
@@ -150,11 +167,19 @@ async function assertSelectionCoversUsage(
 			message: `Your organization has ${activeKeys.length} active API keys, but the selected plan only covers ${seats + extraApiKeys} (one per seat plus extra keys). Add extra API keys or delete unused keys first.`,
 		});
 	}
+
+	const projectAllowance = PRO_PLAN_INCLUDED_PROJECTS + extraProjects;
+	if (orgProjects.length > projectAllowance) {
+		throw new HTTPException(400, {
+			message: `Your organization has ${orgProjects.length} projects, but the selected plan only covers ${projectAllowance} (${PRO_PLAN_INCLUDED_PROJECTS} included plus extra projects). Add extra projects or delete unused ones first.`,
+		});
+	}
 }
 
 function buildProLineItems(selection: {
 	seats: number;
 	extraApiKeys: number;
+	extraProjects: number;
 	ssoAddon: boolean;
 	scimAddon: boolean;
 }): { price: string; quantity: number }[] {
@@ -164,6 +189,12 @@ function buildProLineItems(selection: {
 		lineItems.push({
 			price: priceIds.extraApiKey,
 			quantity: selection.extraApiKeys,
+		});
+	}
+	if (selection.extraProjects > 0) {
+		lineItems.push({
+			price: priceIds.extraProject,
+			quantity: selection.extraProjects,
 		});
 	}
 	if (selection.ssoAddon) {
@@ -205,8 +236,14 @@ const createProSubscription = createRoute({
 
 subscriptions.openapi(createProSubscription, async (c) => {
 	const user = c.get("user");
-	const { seats, extraApiKeys, ssoAddon, scimAddon, organizationId } =
-		c.req.valid("json");
+	const {
+		seats,
+		extraApiKeys,
+		extraProjects,
+		ssoAddon,
+		scimAddon,
+		organizationId,
+	} = c.req.valid("json");
 	assertAddonDependency(ssoAddon, scimAddon);
 
 	if (!user) {
@@ -252,7 +289,12 @@ subscriptions.openapi(createProSubscription, async (c) => {
 		});
 	}
 
-	await assertSelectionCoversUsage(organization.id, seats, extraApiKeys);
+	await assertSelectionCoversUsage(
+		organization.id,
+		seats,
+		extraApiKeys,
+		extraProjects,
+	);
 
 	try {
 		const stripeCustomerId = await ensureStripeCustomer(organization.id);
@@ -264,6 +306,7 @@ subscriptions.openapi(createProSubscription, async (c) => {
 			line_items: buildProLineItems({
 				seats,
 				extraApiKeys,
+				extraProjects,
 				ssoAddon,
 				scimAddon,
 			}),
@@ -298,6 +341,7 @@ subscriptions.openapi(createProSubscription, async (c) => {
 			metadata: {
 				seats,
 				extraApiKeys,
+				extraProjects,
 				ssoAddon,
 				scimAddon,
 			},
@@ -350,8 +394,14 @@ const updateProSubscription = createRoute({
 
 subscriptions.openapi(updateProSubscription, async (c) => {
 	const user = c.get("user");
-	const { seats, extraApiKeys, ssoAddon, scimAddon, organizationId } =
-		c.req.valid("json");
+	const {
+		seats,
+		extraApiKeys,
+		extraProjects,
+		ssoAddon,
+		scimAddon,
+		organizationId,
+	} = c.req.valid("json");
 	assertAddonDependency(ssoAddon, scimAddon);
 
 	if (!user) {
@@ -382,7 +432,12 @@ subscriptions.openapi(updateProSubscription, async (c) => {
 		});
 	}
 
-	await assertSelectionCoversUsage(organization.id, seats, extraApiKeys);
+	await assertSelectionCoversUsage(
+		organization.id,
+		seats,
+		extraApiKeys,
+		extraProjects,
+	);
 
 	const priceIds = getProPriceIds();
 
@@ -414,6 +469,7 @@ subscriptions.openapi(updateProSubscription, async (c) => {
 		const desired: { price: string; quantity: number }[] = [
 			{ price: priceIds.seat, quantity: seats },
 			{ price: priceIds.extraApiKey, quantity: extraApiKeys },
+			{ price: priceIds.extraProject, quantity: extraProjects },
 			{ price: priceIds.sso, quantity: ssoAddon ? 1 : 0 },
 			{ price: priceIds.scim, quantity: scimAddon ? 1 : 0 },
 		];
@@ -444,6 +500,7 @@ subscriptions.openapi(updateProSubscription, async (c) => {
 			.set({
 				proSeats: seats,
 				proExtraApiKeys: extraApiKeys,
+				proExtraProjects: extraProjects,
 				proSsoEnabled: ssoAddon,
 				proScimEnabled: scimAddon,
 			})
@@ -458,6 +515,7 @@ subscriptions.openapi(updateProSubscription, async (c) => {
 			metadata: {
 				seats,
 				extraApiKeys,
+				extraProjects,
 				ssoAddon,
 				scimAddon,
 			},
@@ -688,6 +746,7 @@ const getSubscriptionStatus = createRoute({
 						// enterprise, and legacy flat-fee Pro organizations.
 						seats: z.number().nullable(),
 						extraApiKeys: z.number(),
+						extraProjects: z.number(),
 						ssoAddon: z.boolean(),
 						scimAddon: z.boolean(),
 					}),
@@ -750,6 +809,7 @@ subscriptions.openapi(getSubscriptionStatus, async (c) => {
 		billingCycle,
 		seats: organization.proSeats,
 		extraApiKeys: organization.proExtraApiKeys,
+		extraProjects: organization.proExtraProjects,
 		ssoAddon: organization.proSsoEnabled,
 		scimAddon: organization.proScimEnabled,
 	});

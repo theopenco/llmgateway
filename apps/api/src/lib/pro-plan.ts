@@ -3,6 +3,7 @@ import type Stripe from "stripe";
 export const PRO_BREAKDOWN_COMPONENTS = [
 	"seats",
 	"extraApiKeys",
+	"extraProjects",
 	"sso",
 	"scim",
 ] as const;
@@ -16,6 +17,7 @@ export type ProBreakdownComponent = (typeof PRO_BREAKDOWN_COMPONENTS)[number];
 export function extractProQuantities(subscription: Stripe.Subscription): {
 	proSeats: number;
 	proExtraApiKeys: number;
+	proExtraProjects: number;
 	proSsoEnabled: boolean;
 	proScimEnabled: boolean;
 } | null {
@@ -31,6 +33,9 @@ export function extractProQuantities(subscription: Stripe.Subscription): {
 	const extraItem = items.find(
 		(item) => item.price.id === process.env.STRIPE_PRO_EXTRA_API_KEY_PRICE_ID,
 	);
+	const extraProjectItem = items.find(
+		(item) => item.price.id === process.env.STRIPE_PRO_EXTRA_PROJECT_PRICE_ID,
+	);
 	const ssoItem = items.find(
 		(item) => item.price.id === process.env.STRIPE_PRO_SSO_PRICE_ID,
 	);
@@ -40,6 +45,7 @@ export function extractProQuantities(subscription: Stripe.Subscription): {
 	return {
 		proSeats: seatItem.quantity ?? 1,
 		proExtraApiKeys: extraItem?.quantity ?? 0,
+		proExtraProjects: extraProjectItem?.quantity ?? 0,
 		proSsoEnabled: !!ssoItem,
 		proScimEnabled: !!scimItem,
 	};
@@ -60,6 +66,7 @@ export function extractProInvoiceBreakdown(
 		{
 			seats: process.env.STRIPE_PRO_SEAT_PRICE_ID,
 			extraApiKeys: process.env.STRIPE_PRO_EXTRA_API_KEY_PRICE_ID,
+			extraProjects: process.env.STRIPE_PRO_EXTRA_PROJECT_PRICE_ID,
 			sso: process.env.STRIPE_PRO_SSO_PRICE_ID,
 			scim: process.env.STRIPE_PRO_SCIM_PRICE_ID,
 		};
@@ -76,6 +83,7 @@ export function extractProInvoiceBreakdown(
 	const cents: Record<ProBreakdownComponent, number> = {
 		seats: 0,
 		extraApiKeys: 0,
+		extraProjects: 0,
 		sso: 0,
 		scim: 0,
 	};
@@ -95,6 +103,7 @@ export function extractProInvoiceBreakdown(
 	return {
 		seats: (cents.seats / 100).toFixed(2),
 		extraApiKeys: (cents.extraApiKeys / 100).toFixed(2),
+		extraProjects: (cents.extraProjects / 100).toFixed(2),
 		sso: (cents.sso / 100).toFixed(2),
 		scim: (cents.scim / 100).toFixed(2),
 	};

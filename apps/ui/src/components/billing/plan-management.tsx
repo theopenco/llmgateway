@@ -28,7 +28,9 @@ import { useApi } from "@/lib/fetch-client";
 import {
 	getOrganizationTerm,
 	getProPlanMonthlyTotal,
+	PRO_PLAN_INCLUDED_PROJECTS,
 	PRO_PLAN_MAX_EXTRA_API_KEYS,
+	PRO_PLAN_MAX_EXTRA_PROJECTS,
 	PRO_PLAN_MAX_SEATS,
 	PRO_PLAN_MIN_SEATS,
 	PRO_PLAN_PRICES,
@@ -46,6 +48,7 @@ const ENTERPRISE_FEATURES = [
 interface ProSelection {
 	seats: number;
 	extraApiKeys: number;
+	extraProjects: number;
 	ssoAddon: boolean;
 	scimAddon: boolean;
 }
@@ -79,11 +82,15 @@ function PlanUsageOverview({
 	seatLimit,
 	keysUsed,
 	keyLimit,
+	projectsUsed,
+	projectLimit,
 }: {
 	seatsUsed: number | null;
 	seatLimit: number | null;
 	keysUsed: number | null;
 	keyLimit: number | null;
+	projectsUsed: number | null;
+	projectLimit: number | null;
 }) {
 	const bars = [
 		{
@@ -98,6 +105,12 @@ function PlanUsageOverview({
 			limit: keyLimit,
 			hint: "Active API keys across your organization",
 		},
+		{
+			label: "Projects",
+			used: projectsUsed,
+			limit: projectLimit,
+			hint: "Projects in your organization",
+		},
 	].filter((bar) => bar.used !== null && bar.limit !== null && bar.limit > 0);
 
 	if (!bars.length) {
@@ -105,7 +118,7 @@ function PlanUsageOverview({
 	}
 
 	return (
-		<div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+		<div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
 			{bars.map((bar) => {
 				const used = bar.used ?? 0;
 				const limit = bar.limit ?? 1;
@@ -199,6 +212,30 @@ function ProPlanConfigurator({
 						billed.
 					</p>
 				</div>
+				<div className="space-y-2">
+					<Label htmlFor="pro-extra-projects">Extra projects</Label>
+					<Input
+						id="pro-extra-projects"
+						type="number"
+						min={0}
+						max={PRO_PLAN_MAX_EXTRA_PROJECTS}
+						value={selection.extraProjects}
+						onChange={(e) =>
+							onChange({
+								...selection,
+								extraProjects: clampInt(
+									e.target.valueAsNumber,
+									0,
+									PRO_PLAN_MAX_EXTRA_PROJECTS,
+								),
+							})
+						}
+					/>
+					<p className="text-xs text-muted-foreground">
+						${PRO_PLAN_PRICES.extraProject}/month each, beyond the{" "}
+						{PRO_PLAN_INCLUDED_PROJECTS} included projects.
+					</p>
+				</div>
 			</div>
 
 			<div className="flex items-center justify-between rounded-lg border p-4">
@@ -260,6 +297,18 @@ function ProPlanConfigurator({
 						<span>${selection.extraApiKeys * PRO_PLAN_PRICES.extraApiKey}</span>
 					</div>
 				)}
+				{selection.extraProjects > 0 && (
+					<div className="flex justify-between">
+						<span>
+							{selection.extraProjects} extra project
+							{selection.extraProjects === 1 ? "" : "s"} × $
+							{PRO_PLAN_PRICES.extraProject}
+						</span>
+						<span>
+							${selection.extraProjects * PRO_PLAN_PRICES.extraProject}
+						</span>
+					</div>
+				)}
 				{selection.ssoAddon && (
 					<div className="flex justify-between">
 						<span>SSO add-on</span>
@@ -282,8 +331,10 @@ function ProPlanConfigurator({
 			<div className="rounded-lg border bg-muted/50 p-4 text-sm">
 				<span className="font-medium">
 					With this plan you get {selection.seats} seat
-					{selection.seats === 1 ? "" : "s"} and {totalKeys} API key
-					{totalKeys === 1 ? "" : "s"} in total.
+					{selection.seats === 1 ? "" : "s"}, {totalKeys} API key
+					{totalKeys === 1 ? "" : "s"}, and{" "}
+					{PRO_PLAN_INCLUDED_PROJECTS + selection.extraProjects} projects in
+					total.
 				</span>{" "}
 				<span className="text-muted-foreground">
 					Currently using {seatsUsed ?? 0} seat
@@ -307,7 +358,8 @@ function ProPlanConfigurator({
 }
 
 export function PlanManagement() {
-	const { selectedOrganization, selectedProject } = useDashboardState();
+	const { selectedOrganization, selectedProject, projects } =
+		useDashboardState();
 	const { toast } = useToast();
 	const queryClient = useQueryClient();
 	const api = useApi();
@@ -356,12 +408,25 @@ export function PlanManagement() {
 	const seatLimit = teamData?.seatLimit ?? null;
 	const keysUsed = keysData?.planLimits?.currentCount ?? null;
 	const keyLimit = keysData?.planLimits?.maxKeys ?? null;
+	// Project usage: the org's project list is already loaded for the sidebar;
+	// the limit mirrors the API's rule (enterprise 250, seat-based Pro buys
+	// extras on top of the included allowance).
+	const projectsUsed = projects.length > 0 ? projects.length : null;
+	const projectLimit =
+		selectedOrganization?.plan === "enterprise"
+			? 250
+			: selectedOrganization?.plan === "pro" &&
+				  selectedOrganization?.proSeats !== null
+				? PRO_PLAN_INCLUDED_PROJECTS +
+					(selectedOrganization?.proExtraProjects ?? 0)
+				: PRO_PLAN_INCLUDED_PROJECTS;
 
 	const currentSelection: ProSelection = {
 		seats:
 			selectedOrganization?.proSeats ??
 			Math.max(seatsUsed ?? PRO_PLAN_MIN_SEATS, PRO_PLAN_MIN_SEATS),
 		extraApiKeys: selectedOrganization?.proExtraApiKeys ?? 0,
+		extraProjects: selectedOrganization?.proExtraProjects ?? 0,
 		ssoAddon: selectedOrganization?.proSsoEnabled ?? false,
 		scimAddon: selectedOrganization?.proScimEnabled ?? false,
 	};
@@ -389,6 +454,7 @@ export function PlanManagement() {
 				selectedOrganization?.proSeats ??
 				Math.max(seatsUsed ?? PRO_PLAN_MIN_SEATS, PRO_PLAN_MIN_SEATS),
 			extraApiKeys: selectedOrganization?.proExtraApiKeys ?? 0,
+			extraProjects: selectedOrganization?.proExtraProjects ?? 0,
 			ssoAddon: selectedOrganization?.proSsoEnabled ?? false,
 			scimAddon: selectedOrganization?.proScimEnabled ?? false,
 		});
@@ -398,6 +464,7 @@ export function PlanManagement() {
 		selectedOrganization?.id,
 		selectedOrganization?.proSeats,
 		selectedOrganization?.proExtraApiKeys,
+		selectedOrganization?.proExtraProjects,
 		selectedOrganization?.proSsoEnabled,
 		selectedOrganization?.proScimEnabled,
 	]);
@@ -662,6 +729,8 @@ export function PlanManagement() {
 						seatLimit={seatLimit}
 						keysUsed={keysUsed}
 						keyLimit={keyLimit}
+						projectsUsed={projectsUsed}
+						projectLimit={projectLimit}
 					/>
 				</CardContent>
 				<CardFooter className="flex justify-between">
@@ -701,6 +770,7 @@ export function PlanManagement() {
 		const hasChanges =
 			selection.seats !== currentSelection.seats ||
 			selection.extraApiKeys !== currentSelection.extraApiKeys ||
+			selection.extraProjects !== currentSelection.extraProjects ||
 			selection.ssoAddon !== currentSelection.ssoAddon ||
 			selection.scimAddon !== currentSelection.scimAddon;
 
@@ -753,6 +823,8 @@ export function PlanManagement() {
 						seatLimit={seatLimit}
 						keysUsed={keysUsed}
 						keyLimit={keyLimit}
+						projectsUsed={projectsUsed}
+						projectLimit={projectLimit}
 					/>
 
 					<Separator />
@@ -839,6 +911,8 @@ export function PlanManagement() {
 					seatLimit={seatLimit}
 					keysUsed={keysUsed}
 					keyLimit={keyLimit}
+					projectsUsed={projectsUsed}
+					projectLimit={projectLimit}
 				/>
 
 				<Separator />

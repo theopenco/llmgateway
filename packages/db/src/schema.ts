@@ -233,6 +233,9 @@ export const organization = pgTable(
 		// Additional API keys purchased beyond the one included per seat, synced
 		// from the Stripe subscription's extra-API-key line item.
 		proExtraApiKeys: integer().notNull().default(0),
+		// Additional projects purchased beyond the included allowance (10),
+		// synced from the Stripe subscription's extra-project line item.
+		proExtraProjects: integer().notNull().default(0),
 		// Whether the Pro subscription includes the SSO add-on, synced from the
 		// Stripe subscription's SSO line item. Grants access to the SSO
 		// configuration routes that are otherwise enterprise-only.

@@ -63,6 +63,7 @@ import type { ServerTypes } from "./vars.js";
 const PRO_COMPONENT_LABELS: Record<string, string> = {
 	seats: "Pro seats",
 	extraApiKeys: "Extra API keys",
+	extraProjects: "Extra projects",
 	sso: "SSO add-on",
 	scim: "SCIM add-on",
 };
@@ -1635,6 +1636,7 @@ async function handleCheckoutSessionCompleted(
 					...(proQuantities ?? {
 						proSeats: null,
 						proExtraApiKeys: 0,
+						proExtraProjects: 0,
 						proSsoEnabled: false,
 						proScimEnabled: false,
 					}),
@@ -5370,6 +5372,7 @@ export async function handleSubscriptionDeleted(
 				subscriptionCancelled: false,
 				proSeats: null,
 				proExtraApiKeys: 0,
+				proExtraProjects: 0,
 				proSsoEnabled: false,
 				proScimEnabled: false,
 			})
@@ -5469,6 +5472,7 @@ async function handleSubscriptionCreated(
 				...(extractProQuantities(subscription) ?? {
 					proSeats: null,
 					proExtraApiKeys: 0,
+					proExtraProjects: 0,
 					proSsoEnabled: false,
 					proScimEnabled: false,
 				}),

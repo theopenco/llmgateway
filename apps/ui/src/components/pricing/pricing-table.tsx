@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 
 import {
 	MARKETING_STATS,
+	PRO_PLAN_INCLUDED_PROJECTS,
 	PRO_PLAN_MAX_SEATS,
 	PRO_PLAN_MIN_SEATS,
 	PRO_PLAN_PRICES,
@@ -49,6 +50,13 @@ const pricingFeatures: PricingFeature[] = [
 		free: "5 keys",
 		pro: `1 per seat, +$${PRO_PLAN_PRICES.extraApiKey}/mo per extra key`,
 		enterprise: "Custom",
+	},
+	{
+		name: "Projects",
+		description: "Projects across your organization",
+		free: `${PRO_PLAN_INCLUDED_PROJECTS} projects`,
+		pro: `${PRO_PLAN_INCLUDED_PROJECTS} included, +$${PRO_PLAN_PRICES.extraProject}/mo per extra`,
+		enterprise: "250 projects",
 	},
 	{
 		name: "SSO/SAML",
