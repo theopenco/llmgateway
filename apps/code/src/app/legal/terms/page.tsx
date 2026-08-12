@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { LegalSummary } from "@/components/LegalSummary";
+
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -18,6 +20,7 @@ export default function TermsPage() {
 				<br />
 				<strong>Last Updated:</strong> August 2, 2026
 			</p>
+			<LegalSummary />
 			<p>
 				<strong>DevPass</strong> is a service operated by{" "}
 				<strong>LLM Gateway</strong> (&ldquo;we&rdquo;, &ldquo;our&rdquo;, or
