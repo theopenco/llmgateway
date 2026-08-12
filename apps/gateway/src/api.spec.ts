@@ -847,6 +847,153 @@ describe("api", () => {
 		expect(body.error.message).toContain("thinking.type.adaptive");
 	});
 
+	test("/v1/messages rejects an OpenAI-format body without calling a provider", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-test-key",
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const originalFetch = globalThis.fetch;
+		let upstreamCalls = 0;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+
+				if (url.startsWith(mockServerUrl)) {
+					upstreamCalls++;
+				}
+
+				return await originalFetch(input as any, init);
+			});
+
+		try {
+			// `response_format`/`stream_options` have no Anthropic equivalent, so the
+			// schema stripped them and the request was forwarded, billed, and
+			// answered in Anthropic's envelope — which the OpenAI client that sent
+			// this body cannot read. It must be rejected before any provider call.
+			const res = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					max_tokens: 100,
+					messages: [{ role: "user", content: "Hello!" }],
+					response_format: { type: "json_object" },
+					stream_options: { include_usage: true },
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const body = (await res.json()) as {
+				type: string;
+				error: { type: string; message: string };
+			};
+			expect(body.type).toBe("error");
+			expect(body.error.type).toBe("invalid_request_error");
+			expect(body.error.message).toContain("response_format");
+			expect(body.error.message).toContain("stream_options");
+			expect(body.error.message).toContain("/v1/chat/completions");
+			expect(upstreamCalls).toBe(0);
+		} finally {
+			fetchSpy.mockRestore();
+		}
+	});
+
+	test("/v1/messages renders schema validation failures as Anthropic errors", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		// Anthropic requires `max_tokens`. Validation runs before the handler, so
+		// this used to leak a raw `{ success: false, error: ZodError }` body that
+		// no Anthropic client can parse.
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as {
+			type: string;
+			error: { type: string; message: string };
+		};
+		expect(body.type).toBe("error");
+		expect(body.error.type).toBe("invalid_request_error");
+		expect(body.error.message).toContain("max_tokens");
+	});
+
+	test("/v1/messages rejects OpenAI-format tools with a pointer to /v1/chat/completions", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/messages", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model: "llmgateway/custom",
+				max_tokens: 100,
+				messages: [{ role: "user", content: "Hello!" }],
+				tools: [
+					{
+						type: "function",
+						function: {
+							name: "get_weather",
+							parameters: { type: "object", properties: {} },
+						},
+					},
+				],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as {
+			type: string;
+			error: { type: string; message: string };
+		};
+		expect(body.type).toBe("error");
+		expect(body.error.message).toContain("tools[0].function");
+		expect(body.error.message).toContain("/v1/chat/completions");
+	});
+
 	test("/v1/chat/completions blocks providers failing the compliance policy", async () => {
 		// OpenAI's dataPolicy has promptLogging: true, so blockPromptLogging removes
 		// it. gpt-4o's only other (azure) mapping is deactivated, leaving no provider.

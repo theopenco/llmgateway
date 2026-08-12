@@ -14,12 +14,72 @@ import { extractAnthropicSessionId } from "@/lib/session-id.js";
 
 import { logger, toError } from "@llmgateway/logger";
 
+import {
+	buildOpenAiRequestRejectionMessage,
+	detectOpenAiChatCompletionsFields,
+} from "./openai-request-detection.js";
 import { buildAnthropicErrorEvent } from "./streaming-error-translation.js";
 import { mapAnthropicThinkingToReasoning } from "./thinking-to-reasoning.js";
 
 import type { ServerTypes } from "@/vars.js";
 
-export const anthropic = new OpenAPIHono<ServerTypes>();
+// Most of the request schema is built from unions (content blocks, tool
+// variants), and a union issue's own message is a useless "Invalid input" —
+// the actionable detail sits in its branch errors. Expand those, then dedupe
+// and cap so a body that mismatches every branch doesn't produce a wall of
+// text.
+const MAX_REPORTED_ISSUES = 12;
+
+function flattenZodIssues(issues: z.ZodIssue[], depth = 0): string[] {
+	const flattened: string[] = [];
+	for (const issue of issues) {
+		if (issue.code === "invalid_union" && depth < 3) {
+			for (const unionError of issue.unionErrors) {
+				flattened.push(...flattenZodIssues(unionError.issues, depth + 1));
+			}
+			continue;
+		}
+		flattened.push(`${issue.path.join(".")}: ${issue.message}`);
+	}
+	return flattened;
+}
+
+function formatValidationIssues(error: z.ZodError): string {
+	const unique = [...new Set(flattenZodIssues(error.issues))];
+	const reported = unique.slice(0, MAX_REPORTED_ISSUES);
+	if (unique.length > reported.length) {
+		reported.push(`… and ${unique.length - reported.length} more`);
+	}
+	return reported.join(", ");
+}
+
+// Request validation runs before the handler, so its failures never reached the
+// handler's own error formatting and leaked a raw `{ success: false, error:
+// ZodError }` body — a shape no Anthropic client can parse. Render every
+// validation failure in Anthropic's error envelope instead, and upgrade the
+// message when the body is recognisably an OpenAI Chat Completions request.
+export const anthropic = new OpenAPIHono<ServerTypes>({
+	defaultHook: async (result, c) => {
+		if (result.success) {
+			return;
+		}
+
+		let rawBody: unknown = null;
+		try {
+			rawBody = await c.req.json();
+		} catch {
+			rawBody = null;
+		}
+
+		const openAiFields = detectOpenAiChatCompletionsFields(rawBody);
+		const message =
+			openAiFields.length > 0
+				? buildOpenAiRequestRejectionMessage(openAiFields)
+				: `Invalid request format: ${formatValidationIssues(result.error)}`;
+
+		return c.json(buildAnthropicErrorBody({ message, status: 400 }), 400);
+	},
+});
 
 const anthropicMessageSchema = z.object({
 	role: z.enum([
@@ -443,11 +503,25 @@ anthropic.openapi(messages, async (c) => {
 		});
 	}
 
+	// An OpenAI Chat Completions body can satisfy the Anthropic schema (the two
+	// formats share `model`/`messages`/`max_tokens`), with every OpenAI-only
+	// field silently stripped. Left alone, such a request reaches the provider,
+	// bills the completion, and comes back in an Anthropic envelope the OpenAI
+	// client cannot read — the caller pays for output they never see. Reject it
+	// here, before any provider call, and point at the endpoint that speaks
+	// their format.
+	const openAiFields = detectOpenAiChatCompletionsFields(rawRequest);
+	if (openAiFields.length > 0) {
+		throw new HTTPException(400, {
+			message: buildOpenAiRequestRejectionMessage(openAiFields),
+		});
+	}
+
 	// Validate with our schema
 	const validation = anthropicRequestSchema.safeParse(rawRequest);
 	if (!validation.success) {
 		throw new HTTPException(400, {
-			message: `Invalid request format: ${validation.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join(", ")}`,
+			message: `Invalid request format: ${formatValidationIssues(validation.error)}`,
 		});
 	}
 

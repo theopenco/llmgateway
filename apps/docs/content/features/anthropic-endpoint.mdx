@@ -133,6 +133,24 @@ The endpoint returns responses in Anthropic's message format:
 }
 ```
 
+### Request Format
+
+`/v1/messages` accepts Anthropic Messages requests only. Because the two formats share `model` and `messages`, an OpenAI Chat Completions body used to pass validation: the OpenAI-only fields were silently dropped, the request was billed, and the answer came back in Anthropic's envelope, which OpenAI SDKs cannot read. The gateway now rejects such a body with a `400` before any provider is called, so nothing is charged:
+
+```json
+{
+	"type": "error",
+	"error": {
+		"type": "invalid_request_error",
+		"message": "This endpoint implements Anthropic's Messages API, but the request body uses OpenAI Chat Completions fields (response_format, stream_options), which have no Anthropic equivalent and would be silently dropped. Send OpenAI-format requests to /v1/chat/completions instead, or convert the body to Anthropic's Messages format."
+	}
+}
+```
+
+The detected markers are OpenAI-only parameters (`max_completion_tokens`, `response_format`, `stream_options`, `n`, `stop`, `seed`, `logprobs`, `frequency_penalty`, `presence_penalty`, and similar), OpenAI-shaped `tools`/`tool_choice`, OpenAI content parts such as `image_url`, and assistant turns with `content: null`. Send those requests to `/v1/chat/completions` instead.
+
+A minimal `{ model, messages, max_tokens }` body is valid Anthropic and is accepted as such — it always returns an Anthropic-format response.
+
 ### Prompt Caching
 
 For Claude models, `cache_control` markers on `system` and message content blocks are forwarded to the provider unchanged, including the optional `ttl` (`5m` or `1h`):
