@@ -11,7 +11,7 @@ description: "Review the Terms of Use for LLM Gateway. Learn about account eligi
 **Effective Date:** June 11, 2026  
 **Last Updated:** June 11, 2026
 
-Welcome to **LLM Gateway** (“we”, “our”, or “us”). These Terms of Use (“Terms”) form a binding legal agreement between you (“you” or “Customer”) and LLM Gateway and govern your access to and use of the LLM Gateway platform, including our website **[llmgateway.io](https://llmgateway.io)**, APIs, SDKs, dashboards, and any related products or services (collectively, the “Service”).
+Welcome to **LLM Gateway** (“we”, “our”, or “us”), operated by **Polar Lights LLC**, 16192 Coastal Highway, Lewes, DE 19958, United States. These Terms of Use (“Terms”) form a binding legal agreement between you (“you” or “Customer”) and LLM Gateway and govern your access to and use of the LLM Gateway platform, including our website **[llmgateway.io](https://llmgateway.io)**, APIs, SDKs, dashboards, and any related products or services (collectively, the “Service”).
 
 **By clicking “I agree,” creating an account, or accessing or using the Service, you acknowledge that you have read, understood, and agree to be bound by these Terms and by our [Privacy Policy](https://llmgateway.io/privacy), which is incorporated by reference. If you do not agree, do not access or use the Service.**
 
@@ -259,6 +259,14 @@ We may update or modify these Terms at any time. The latest version will always 
 If you have questions about these Terms, contact us at:  
 📧 **[contact@llmgateway.io](mailto:contact@llmgateway.io)**  
 🌐 **[llmgateway.io](https://llmgateway.io)**
+
+**LLM Gateway**  
+on behalf of
+
+**Polar Lights LLC**  
+16192 Coastal Highway  
+Lewes, DE 19958  
+United States
 
 ---
 
