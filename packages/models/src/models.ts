@@ -2,6 +2,7 @@ import { alibabaModels } from "./models/alibaba.js";
 import { anthropicModels } from "./models/anthropic.js";
 import { atlascloudModels } from "./models/atlascloud.js";
 import { baaiModels } from "./models/baai.js";
+import { baiduModels } from "./models/baidu.js";
 import { bytedanceModels } from "./models/bytedance.js";
 import { deepseekModels } from "./models/deepseek.js";
 import { elevenlabsModels } from "./models/elevenlabs.js";
@@ -343,6 +344,14 @@ export interface ProviderModelMapping {
 	 * Whether this specific model supports vision (image inputs) for this provider
 	 */
 	vision?: boolean;
+	/**
+	 * Whether remote image URLs must be fetched by the gateway and inlined as
+	 * base64 data URLs before the request goes upstream. Some deployments only
+	 * decode a subset of formats when they fetch the URL themselves (e.g.
+	 * Novita's ERNIE 4.5 VL endpoint accepts a remote JPEG but rejects a remote
+	 * PNG outright, while accepting the very same PNG bytes as a data URL).
+	 */
+	requiresBase64Images?: boolean;
 	/**
 	 * Whether this specific model accepts audio inputs (`input_audio` content
 	 * blocks) for this provider. Used by the `model: "auto"` router to avoid
@@ -767,6 +776,7 @@ export const models = [
 	...alibabaModels,
 	...atlascloudModels,
 	...baaiModels,
+	...baiduModels,
 	...bytedanceModels,
 	...nousresearchModels,
 	...reveModels,

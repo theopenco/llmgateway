@@ -1870,6 +1870,49 @@ export async function prepareRequestBody(
 		});
 	}
 
+	// Some deployments fetch remote image URLs themselves but only decode a
+	// subset of the formats they accept inline (Novita's ERNIE 4.5 VL rejects a
+	// remote PNG while accepting the same bytes as a data URL), so mappings that
+	// declare `requiresBase64Images` get their remote images inlined here,
+	// before any provider branch runs. Every non-`data:` URL goes through
+	// `processImageUrl` with the SSRF guard left on (its default): the guard is
+	// what enforces https-only and refuses internal hosts, so an `http://` URL
+	// is rejected rather than quietly forwarded to the provider to fetch.
+	if (providerMappingForOptions?.requiresBase64Images) {
+		processedMessages = await Promise.all(
+			processedMessages.map(async (m) => {
+				if (!Array.isArray(m.content)) {
+					return m;
+				}
+				const content = await Promise.all(
+					m.content.map(async (part) => {
+						if (part?.type !== "image_url" || !part.image_url) {
+							return part;
+						}
+						const imageUrl =
+							typeof part.image_url === "string"
+								? part.image_url
+								: part.image_url.url;
+						if (!imageUrl || imageUrl.startsWith("data:")) {
+							return part;
+						}
+						const { data, mimeType } = await processImageUrl(
+							imageUrl,
+							isProd,
+							maxImageSizeMB,
+							userPlan,
+						);
+						return {
+							...part,
+							image_url: { url: `data:${mimeType};base64,${data}` },
+						};
+					}),
+				);
+				return { ...m, content };
+			}),
+		);
+	}
+
 	// Keep a pre-strip reference for the OpenAI Responses API path below, which
 	// converts `reasoning_details` entries back into `reasoning` input items.
 	const messagesWithReasoningDetails = processedMessages;
