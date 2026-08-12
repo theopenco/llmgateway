@@ -20,7 +20,7 @@ export default function TermsPage() {
 				<br />
 				<strong>Last Updated:</strong> August 2, 2026
 			</p>
-			<LegalSummary />
+			<LegalSummary variant="terms" />
 			<p>
 				<strong>DevPass</strong> is a service operated by{" "}
 				<strong>LLM Gateway</strong> (&ldquo;we&rdquo;, &ldquo;our&rdquo;, or
