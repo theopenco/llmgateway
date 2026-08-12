@@ -104,7 +104,7 @@ describe("getProviderFilterReasons", () => {
 			// them win the route would answer from stale weights.
 			expect(
 				getProviderFilterReasons(dashScope, { webSearchTool: true }),
-			).toEqual(["web_search requires tool_choice web_search"]);
+			).toEqual([exclusionReason("web_search_forced_only")]);
 		});
 
 		it("allows them once the caller forces", () => {
@@ -129,7 +129,7 @@ describe("getProviderFilterReasons", () => {
 				getProviderFilterReasons(dashScope, {
 					webSearchTool: { type: "web_search" },
 				}),
-			).toEqual(["web_search requires tool_choice web_search"]);
+			).toEqual([exclusionReason("web_search_forced_only")]);
 		});
 
 		it("leaves them alone when no web search was requested", () => {

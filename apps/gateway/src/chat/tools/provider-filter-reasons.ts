@@ -120,7 +120,7 @@ export function getProviderFilterReasons(
 		provider.webSearchForcedOnly === true &&
 		!webSearchForced
 	) {
-		reasons.push("web_search requires tool_choice web_search");
+		reasons.push(exclusionReason("web_search_forced_only"));
 	}
 	if (options.n !== undefined && options.n > 1) {
 		if (provider.supportsN !== true) {
