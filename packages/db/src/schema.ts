@@ -3607,6 +3607,8 @@ export const auditLogActions = [
 	"payment.auto_topup.update",
 	"payment.auto_topup.disable",
 	"payment.self_refund",
+	// Refund issued by an administrator on behalf of the customer.
+	"payment.admin_refund",
 	// Credits
 	"credits.gift",
 	"credits.manual_payment",
@@ -3627,6 +3629,8 @@ export const auditLogActions = [
 	// Free Reset Pass granted for a quarterly model-survey response.
 	"dev_plan.reset_pass_reward",
 	"dev_plan.reset_pass_gift",
+	// Cancellation performed by an administrator on behalf of the subscriber.
+	"dev_plan.admin_cancel",
 	// Chat Plan
 	"chat_plan.subscribe",
 	"chat_plan.cancel",

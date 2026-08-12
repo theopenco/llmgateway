@@ -38,6 +38,7 @@ import { hasErrorCode } from "@llmgateway/models";
 import {
 	assertSafeWebhookUrl,
 	calculateFees,
+	getRemainingPremiumWeeklyAllowance,
 	isCreditTopUpAmountInRange,
 	isLoungeSource,
 	isPremiumUsedModel,
@@ -77,6 +78,8 @@ import {
 	requestStop,
 	resetShutdown,
 } from "./shutdown.js";
+
+import type { DevPlanTier } from "@llmgateway/shared";
 
 // Configuration for current minute history calculation interval (defaults to 5 seconds)
 const CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS =
@@ -1368,6 +1371,37 @@ export async function batchProcessLogs(): Promise<number> {
 				): Promise<{ remaining: Decimal; remainingPremium: Decimal }> => {
 					let remaining = bucketCost;
 					let remainingPremium = premiumCost;
+					// With PAYG overflow enabled, premium spend past the weekly
+					// fair-use allowance must not consume the plan pools: the gateway
+					// admits those requests on the strength of the credits balance, so
+					// the excess is held out of the pool drain here and falls through
+					// to the regular-credits remainder below. Without this the cap
+					// would stop limiting anything — over-cap premium would just keep
+					// draining the monthly pool.
+					// Scoped to buckets whose spend is the dev pool's to pay (its own
+					// bucket, or any bucket when there is no chat pool) — a dual-plan
+					// org's chat-sourced premium keeps draining the chat pool as before.
+					let premiumOverflow = new Decimal(0);
+					if (
+						org?.devPlanPaygEnabled &&
+						devPool &&
+						(preferred === devPool || !chatPool) &&
+						remainingPremium.greaterThan(0)
+					) {
+						const allowanceLeft = new Decimal(
+							getRemainingPremiumWeeklyAllowance(
+								org.devPlan as DevPlanTier,
+								devPool.premiumCreditsUsed?.toNumber() ?? 0,
+								devPool.premiumWeekStart,
+							),
+						);
+						premiumOverflow = Decimal.max(
+							0,
+							remainingPremium.minus(allowanceLeft),
+						);
+						remaining = remaining.minus(premiumOverflow);
+						remainingPremium = remainingPremium.minus(premiumOverflow);
+					}
 					for (const pool of [preferred, fallback]) {
 						if (!pool || remaining.lessThanOrEqualTo(0)) {
 							continue;
@@ -1384,7 +1418,10 @@ export async function batchProcessLogs(): Promise<number> {
 						remaining = remaining.minus(take);
 						remainingPremium = remainingPremium.minus(premiumTake);
 					}
-					return { remaining, remainingPremium };
+					return {
+						remaining: remaining.plus(premiumOverflow),
+						remainingPremium,
+					};
 				};
 
 				const fromChat = buckets.chat.greaterThan(0)

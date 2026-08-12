@@ -553,6 +553,88 @@ describe("prepareRequestBody - OpenAI image generation", () => {
 	});
 });
 
+describe("prepareRequestBody - xAI image generation", () => {
+	async function prepareXaiImageRequest(imageConfig: {
+		aspect_ratio?: string;
+		image_size?: string;
+		image_quality?: string;
+		n?: number;
+	}) {
+		return (await prepareRequestBody(
+			"xai",
+			"grok-imagine-image-2-0",
+			null,
+			"grok-imagine-image-2.0",
+			[{ role: "user", content: "Generate a cinematic landscape" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			imageConfig,
+			undefined,
+			true,
+		)) as any;
+	}
+
+	test("should forward quality and resolution", async () => {
+		const requestBody = await prepareXaiImageRequest({
+			image_quality: "low",
+			image_size: "2k",
+			n: 2,
+		});
+
+		expect(requestBody).toMatchObject({
+			model: "grok-imagine-image-2.0",
+			prompt: "Generate a cinematic landscape",
+			quality: "low",
+			resolution: "2k",
+			n: 2,
+		});
+	});
+
+	// xAI's `resolution` enum only accepts the lowercase tier names, so pixel
+	// dimensions and casing variants are normalized rather than passed through.
+	test.each([
+		["1K", "1k"],
+		["2K", "2k"],
+		["1024x1024", "1k"],
+		["1536x1024", "1k"],
+		["2048x2048", "2k"],
+		["3840x2160", "2k"],
+	])("should map image_size %s to resolution %s", async (size, resolution) => {
+		const requestBody = await prepareXaiImageRequest({ image_size: size });
+
+		expect(requestBody.resolution).toBe(resolution);
+	});
+
+	test("should omit resolution for sizes that name no xAI tier", async () => {
+		const requestBody = await prepareXaiImageRequest({ image_size: "auto" });
+
+		expect(requestBody.resolution).toBeUndefined();
+	});
+
+	test("should drop the unified auto quality", async () => {
+		const requestBody = await prepareXaiImageRequest({
+			image_quality: "auto",
+			image_size: "1k",
+		});
+
+		expect(requestBody.quality).toBeUndefined();
+		expect(requestBody.resolution).toBe("1k");
+	});
+});
+
 describe("prepareRequestBody - OpenAI prompt caching", () => {
 	test("should forward prompt cache controls to OpenAI chat completions", async () => {
 		const requestBody = (await prepareOpenAITextRequest({

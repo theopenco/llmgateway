@@ -17,7 +17,8 @@ By default a DevPass plan is a hard cap: once the monthly allowance is fully use
 <Callout type="info">
 	Overflow is **off by default** — until you enable it, nothing ever charges
 	past your subscription price. It never touches your plan allowance either:
-	credits are spent only after the monthly pool is fully used.
+	credits cover only usage the plan itself wouldn't serve — spend past the
+	monthly pool, and premium usage past the weekly cap.
 </Callout>
 
 ## When overflow applies
@@ -26,11 +27,11 @@ By default a DevPass plan is a hard cap: once the monthly allowance is fully use
 | ------------------------------------------- | ---------------------------- | ---------------------------------- |
 | Within the monthly allowance                | Plan credits                 | Plan credits                       |
 | Monthly allowance exhausted                 | Requests rejected with `402` | Requests bill your credits balance |
-| Weekly premium cap hit, allowance remaining | Reset Pass or wait           | Reset Pass or wait — unchanged     |
+| Weekly premium cap hit, allowance remaining | Reset Pass or wait           | Premium models bill your balance   |
 | Weekly premium cap hit, allowance exhausted | Requests rejected with `402` | Premium models bill your balance   |
 | Credits balance empty                       | —                            | Requests rejected with `402`       |
 
-Mid-cycle, the weekly premium fair-use cap still applies even with overflow on — a [Reset Pass](/learn/reset-passes) remains the way to more premium usage inside your plan. Overflow takes over only once the monthly pool itself is gone: at that point you are paying provider rates from your own balance, so the fair-use cap no longer gates premium models.
+The weekly premium fair-use cap limits what the **plan allowance** pays for, not what your own balance can: with overflow on and a positive balance, premium requests past the cap keep flowing and bill your credits at provider rates, while standard models keep drawing from the monthly allowance as usual. A [Reset Pass](/learn/reset-passes) is still the way to keep that premium spend inside your already-paid plan allowance instead of on the balance. Once the monthly pool itself is gone, overflow covers everything.
 
 If the allowance runs out with overflow off (or with an empty balance), the gateway's `402` says what to do:
 
