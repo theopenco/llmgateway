@@ -51,10 +51,30 @@ function tierFromAmount(amount: string | null): ChatPlanTier | null {
 	return tiers.find((tier) => CHAT_PLAN_PRICES[tier] === value) ?? null;
 }
 
+/**
+ * Host and database name of the connection, credentials stripped. An unset
+ * DATABASE_URL silently falls back to local postgres, so print the target: a
+ * run that reports "0 rows" should be recognisable as "wrong database" rather
+ * than "nothing to repair".
+ */
+function describeTarget(): string {
+	const url = process.env.DATABASE_URL;
+	if (!url) {
+		return "local default (DATABASE_URL is not set)";
+	}
+	try {
+		const parsed = new URL(url);
+		return `${parsed.host}${parsed.pathname}`;
+	} catch {
+		return "unparseable DATABASE_URL";
+	}
+}
+
 async function main(): Promise<void> {
 	const commit = hasFlag("commit");
 	const scopeOrg = parseFlag("org");
 
+	console.log(`Database: ${describeTarget()}`);
 	console.log(
 		`Mode: ${commit ? "COMMIT (writes enabled)" : "DRY RUN (no writes)"}`,
 	);
