@@ -40,6 +40,8 @@ When full data retention is enabled, storage is billed at **$0.01 per 1 million 
 - Output tokens (completion)
 - Reasoning tokens
 
+Most providers (including OpenAI, Azure, and Google) already count reasoning tokens inside the output token count, so each token is billed exactly once. Reasoning tokens are only added separately for providers that report them outside the output count.
+
 Storage costs are calculated per request and billed separately from inference. When "Retain All Data" is enabled, each response's `usage.cost_details` object includes a `data_storage_cost` field with the per-request storage cost in USD. See [Cost Breakdown](/features/cost-breakdown) for the full list of cost fields.
 
 ### Example Cost Calculation

@@ -7,6 +7,7 @@ import {
 import { recordChatCompletionMetrics } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 
+import { completionIncludesReasoning } from "./costs.js";
 import {
 	redactErrorDetails,
 	shouldRedactProviderError,
@@ -267,6 +268,10 @@ function getErrorTypeFromUnifiedFinishReason(
  * $0.01 per 1M tokens (total tokens = input + output + reasoning)
  * promptTokens is the canonical total input count and already includes cached
  * input tokens for providers that report them separately.
+ * When `usedProvider` reports reasoning inside its completion count (see
+ * completionIncludesReasoning), reasoning tokens are ignored here —
+ * adding them would bill the same tokens twice. Callers without a provider in
+ * scope keep the legacy add-reasoning behavior.
  * Returns "0" if retention level is "none" since no data is stored
  */
 export function calculateDataStorageCost(
@@ -275,6 +280,7 @@ export function calculateDataStorageCost(
 	completionTokens: number | string | null | undefined,
 	reasoningTokens: number | string | null | undefined,
 	retentionLevel?: "retain" | "none" | null,
+	usedProvider?: string | null,
 ): string {
 	// No storage cost when data retention is disabled
 	if (retentionLevel === "none") {
@@ -283,7 +289,10 @@ export function calculateDataStorageCost(
 
 	const prompt = Number(promptTokens) || 0;
 	const completion = Number(completionTokens) || 0;
-	const reasoning = Number(reasoningTokens) || 0;
+	const reasoning =
+		usedProvider && completionIncludesReasoning(usedProvider)
+			? 0
+			: Number(reasoningTokens) || 0;
 
 	const totalTokens = prompt + completion + reasoning;
 

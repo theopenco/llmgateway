@@ -408,4 +408,31 @@ describe("calculateDataStorageCost", () => {
 		const cost = calculateDataStorageCost("500000", "0", "500000", "0");
 		expect(cost).toBe("0.01");
 	});
+
+	it("adds reasoning tokens for providers that report them outside the completion count", () => {
+		const cost = calculateDataStorageCost(
+			500000,
+			0,
+			250000,
+			250000,
+			"retain",
+			"xai",
+		);
+		expect(cost).toBe("0.01");
+	});
+
+	it("does not double-count reasoning tokens when the provider's completion count already includes them", () => {
+		// OpenAI's output_tokens (and chat completion_tokens) already contain
+		// reasoning tokens; the reasoning_tokens detail is a subset, not an
+		// additional count.
+		const cost = calculateDataStorageCost(
+			500000,
+			0,
+			500000,
+			250000,
+			"retain",
+			"openai",
+		);
+		expect(cost).toBe("0.01");
+	});
 });

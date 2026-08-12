@@ -359,6 +359,7 @@ function toDataStorageCostNumber(
 	completionTokens: number | string | null | undefined,
 	reasoningTokens: number | string | null | undefined,
 	retentionLevel: "retain" | "none" | null,
+	usedProvider?: string | null,
 ): number | null {
 	if (retentionLevel === "none") {
 		return null;
@@ -369,6 +370,7 @@ function toDataStorageCostNumber(
 		completionTokens,
 		reasoningTokens,
 		retentionLevel,
+		usedProvider,
 	);
 	const num = Number(str);
 	return Number.isFinite(num) ? num : null;
@@ -9512,6 +9514,7 @@ chat.openapi(completions, async (c) => {
 										streamingCosts.completionTokens ?? finalCompletionTokens,
 										reasoningTokens,
 										retentionLevel,
+										usedProvider,
 									);
 
 									// Include costs in response for all users
@@ -11024,6 +11027,7 @@ chat.openapi(completions, async (c) => {
 									calculatedCompletionTokens,
 								reasoningTokens,
 								retentionLevel,
+								usedProvider,
 							);
 						}
 
@@ -11608,6 +11612,7 @@ chat.openapi(completions, async (c) => {
 									calculatedCompletionTokens,
 									calculatedReasoningTokens,
 									retentionLevel,
+									usedProvider,
 								)
 							: "0",
 						cached: false,
@@ -13738,6 +13743,7 @@ chat.openapi(completions, async (c) => {
 		costs.completionTokens ?? calculatedCompletionTokens,
 		calculatedReasoningTokens,
 		retentionLevel,
+		usedProvider,
 	);
 
 	// Use costs.promptTokens as canonical value (includes image input
@@ -14007,6 +14013,7 @@ chat.openapi(completions, async (c) => {
 			calculatedCompletionTokens,
 			calculatedReasoningTokens,
 			retentionLevel,
+			usedProvider,
 		),
 		cached: false,
 		tools,
