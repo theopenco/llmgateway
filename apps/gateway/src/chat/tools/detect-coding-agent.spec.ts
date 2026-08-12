@@ -30,6 +30,11 @@ describe("detectCodingAgentFromUserAgent", () => {
 				"codex_vscode/0.147.0-alpha.6.5 (Ubuntu 24.4.0; x86_64) unknown (VS Code; 26.803.41515)",
 			),
 		).toBe("codex");
+		expect(
+			detectCodingAgentFromUserAgent(
+				"codex_exec/0.66.0 (Ubuntu 24.4.0; x86_64)",
+			),
+		).toBe("codex");
 	});
 
 	it("detects OpenCode", () => {
@@ -165,6 +170,30 @@ describe("detectCodingAgentFromUserAgent", () => {
 		expect(detectCodingAgentFromUserAgent("droid/1.2.3")).toBe("factory-droid");
 	});
 
+	it("detects MiMo Code", () => {
+		expect(detectCodingAgentFromUserAgent("mimocode")).toBe("mimo-code");
+		expect(detectCodingAgentFromUserAgent("mimocode/1.4.0")).toBe("mimo-code");
+		expect(detectCodingAgentFromUserAgent("mimo-code/2.0")).toBe("mimo-code");
+	});
+
+	it("detects Traycer", () => {
+		expect(detectCodingAgentFromUserAgent("traycer-agents/1.9.0")).toBe(
+			"traycer",
+		);
+		expect(detectCodingAgentFromUserAgent("Traycer/2.0 (vscode)")).toBe(
+			"traycer",
+		);
+	});
+
+	it("detects Foundry Toolkit", () => {
+		expect(detectCodingAgentFromUserAgent("windows-ai-studio/0.15.2")).toBe(
+			"foundry-toolkit",
+		);
+		expect(detectCodingAgentFromUserAgent("foundry-toolkit/1.0.0")).toBe(
+			"foundry-toolkit",
+		);
+	});
+
 	it("detects Hermes Agent", () => {
 		expect(detectCodingAgentFromUserAgent("hermes-agent/0.5.0")).toBe(
 			"hermes-agent",
@@ -201,10 +230,18 @@ describe("detectCodingAgentFromUserAgent", () => {
 				"ai/6.0.168 ai-sdk/provider-utils/4.0.23 runtime/node.js/26",
 			),
 		).toBeUndefined();
+		// Every OpenAI SDK variant, not just the async one: the SDK is only ever
+		// attributed via an explicit x-source, never via its User-Agent.
+		expect(
+			detectCodingAgentFromUserAgent("OpenAI/Python 2.32.0"),
+		).toBeUndefined();
 		expect(
 			detectCodingAgentFromUserAgent("AsyncOpenAI/Python 2.32.0"),
 		).toBeUndefined();
 		expect(detectCodingAgentFromUserAgent("OpenAI/JS 6.47.0")).toBeUndefined();
+		expect(
+			detectCodingAgentFromUserAgent("Anthropic/Python 0.75.0"),
+		).toBeUndefined();
 		expect(detectCodingAgentFromUserAgent("litellm/1.90.1")).toBeUndefined();
 		expect(
 			detectCodingAgentFromUserAgent("cli-proxy-openai-compat"),
@@ -213,6 +250,18 @@ describe("detectCodingAgentFromUserAgent", () => {
 			detectCodingAgentFromUserAgent(
 				"langchainjs-openai/1.0.0 ((node/v24.16.0; linux; x64))",
 			),
+		).toBeUndefined();
+		expect(
+			detectCodingAgentFromUserAgent("spring-ai-openai/1.0.0"),
+		).toBeUndefined();
+		expect(
+			detectCodingAgentFromUserAgent("tauri-plugin-http/2.4.0"),
+		).toBeUndefined();
+		expect(
+			detectCodingAgentFromUserAgent("Go-http-client/2.0"),
+		).toBeUndefined();
+		expect(
+			detectCodingAgentFromUserAgent("RikkaHub-Android/1.8.0"),
 		).toBeUndefined();
 	});
 });
