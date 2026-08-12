@@ -173,7 +173,13 @@ export {
 
 export { MARKETING_STATS, RUNWARE_PROMO } from "./marketing.js";
 
-export { ONBOARDING_MODEL, ONBOARDING_MAX_TOKENS } from "./onboarding.js";
+export {
+	ONBOARDING_MODEL,
+	ONBOARDING_MAX_TOKENS,
+	ONBOARDING_MAX_PROMPT_CHARS,
+	ONBOARDING_SPONSOR_HEADER,
+	getOnboardingSponsorSecret,
+} from "./onboarding.js";
 
 export { isContentFilterErrorText } from "./content-filter.js";
 
@@ -232,8 +238,11 @@ export {
 } from "./routing-config.js";
 
 export {
+	isRoutingCredentialSource,
 	isRoutingExclusionReason,
 	isRoutingSelectionReason,
+	ROUTING_CREDENTIAL_SOURCE_DESCRIPTIONS,
+	ROUTING_CREDENTIAL_SOURCE_LABELS,
 	ROUTING_EXCLUSION_REASON_LABELS,
 	ROUTING_EXCLUSION_REASON_MESSAGES,
 	ROUTING_EXCLUSION_REASONS,
@@ -243,10 +252,12 @@ export {
 	ROUTING_SELECTION_REASONS,
 	routingExclusionReasonMessage,
 	routingSelectionKind,
+	type RoutingCredentialSource,
 	type RoutingExclusionReason,
 	type RoutingSelectionKind,
 	type RoutingSelectionReason,
 	type ServiceTierMode,
+	toRoutingCredentialSource,
 	toRoutingExclusionReason,
 	toRoutingSelectionReason,
 } from "./routing-telemetry.js";

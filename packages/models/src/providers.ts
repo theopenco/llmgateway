@@ -566,6 +566,12 @@ export const providers: ProviderDefinition[] = [
 		env: {
 			required: {
 				apiKey: "LLM_VERTEX_ANTHROPIC_SERVICE_ACCOUNT_JSON",
+				// The GCP project the models are called under; it becomes part of the
+				// request path. An env-var deployment can leave it unset — the gateway
+				// derives it from the service-account JSON on startup — but a managed
+				// credential's JSON is only ever decrypted to mint an access token, so
+				// the credential has to carry the project itself.
+				project: "LLM_VERTEX_ANTHROPIC_PROJECT",
 			},
 			optional: {
 				baseUrl: "LLM_VERTEX_ANTHROPIC_BASE_URL",
@@ -1879,6 +1885,28 @@ export function getProviderDefinition(
 	providerId: ProviderId | string,
 ): ProviderDefinition | undefined {
 	return providers.find((p) => p.id === providerId);
+}
+
+/**
+ * The region a credential must be pinned to in order to serve a request that
+ * resolved no region — but only for providers whose credentials are
+ * region-scoped, i.e. those with no global region, where every credential is
+ * necessarily bound to one region (Alibaba).
+ *
+ * Undefined for providers not scoped by region at all, and deliberately
+ * undefined for providers with a credential shared across regions (AWS
+ * Bedrock, whose `global` is a real region): there a region-pinned credential
+ * is a deliberate scoping by the operator and must never be substituted for a
+ * region the request actually asked for — the request fails instead.
+ */
+export function getRegionScopedDefaultRegion(
+	providerId: ProviderId | string,
+): string | undefined {
+	const regionConfig = getProviderDefinition(providerId)?.regionConfig;
+	if (!regionConfig || regionConfig.sharedCredentialAcrossRegions) {
+		return undefined;
+	}
+	return regionConfig.defaultRegion;
 }
 
 /**

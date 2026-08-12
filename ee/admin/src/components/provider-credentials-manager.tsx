@@ -47,6 +47,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { thrownErrorMessage } from "@/lib/api-error";
 import { formatUsd, isInRotation } from "@/lib/provider-key-spend";
 import { cn } from "@/lib/utils";
 
@@ -1051,6 +1052,26 @@ const nonNegativeDecimalPattern = /^\d+(?:\.\d+)?$/;
 type ModelVerificationEntry =
 	ProviderCredentialModelVerification["results"][number];
 
+interface SelfTestOutcome {
+	result?: ProviderCredentialSelfTestResult;
+	error?: string;
+}
+
+/**
+ * Why the self-test failed, in the order the reason is most specific: the
+ * gateway could not run the probe at all, the provider explained itself, or it
+ * only answered with a status. The generic sentence is the last resort — it is
+ * all the admin gets, so nothing more specific may be dropped on the way here.
+ */
+function selfTestFailureReason(outcome: SelfTestOutcome): string {
+	const statusCode = outcome.result?.statusCode;
+	const suffix = statusCode ? ` (HTTP ${statusCode})` : "";
+	const reason = outcome.error ?? outcome.result?.error;
+	return reason
+		? `${reason}${suffix}`
+		: `the provider rejected the request${suffix}`;
+}
+
 function CredentialDialog({
 	catalog,
 	credential,
@@ -1103,7 +1124,7 @@ function CredentialDialog({
 	// cleared whenever an input that changes what the probe would send changes.
 	const [selfTestLoading, setSelfTestLoading] = useState(false);
 	const [selfTestOutcome, setSelfTestOutcome] = useState<
-		{ result?: ProviderCredentialSelfTestResult; error?: string } | undefined
+		SelfTestOutcome | undefined
 	>();
 	const [verifyLoading, setVerifyLoading] = useState(false);
 	const [verifyOutcome, setVerifyOutcome] = useState<
@@ -1140,8 +1161,10 @@ function CredentialDialog({
 					? { result: outcome.result }
 					: { error: outcome.error ?? "Failed to test credential" },
 			);
-		} catch {
-			setSelfTestOutcome({ error: "Failed to test credential" });
+		} catch (cause) {
+			setSelfTestOutcome({
+				error: thrownErrorMessage(cause, "Failed to test credential"),
+			});
 		} finally {
 			setSelfTestLoading(false);
 		}
@@ -1160,8 +1183,10 @@ function CredentialDialog({
 					? { result: outcome.result }
 					: { error: outcome.error ?? "Failed to verify models" },
 			);
-		} catch {
-			setVerifyOutcome({ error: "Failed to verify models" });
+		} catch (cause) {
+			setVerifyOutcome({
+				error: thrownErrorMessage(cause, "Failed to verify models"),
+			});
 		} finally {
 			setVerifyLoading(false);
 		}
@@ -1622,10 +1647,7 @@ function CredentialDialog({
 										{selfTestOutcome.result?.model
 											? ` (probed ${selfTestOutcome.result.model})`
 											: ""}
-										:{" "}
-										{selfTestOutcome.error ??
-											selfTestOutcome.result?.error ??
-											"the provider rejected the request"}
+										: {selfTestFailureReason(selfTestOutcome)}
 									</p>
 								) : (
 									<p className="flex items-center gap-1 text-sm text-green-600">

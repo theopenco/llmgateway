@@ -38,6 +38,7 @@ import {
 	manageOrganization,
 	updateReferralBonus,
 } from "@/lib/admin-organizations";
+import { KEY_STATUS_DEFAULT, parseKeyStatus } from "@/lib/key-status";
 import { getOrgDeletionBlockedReason } from "@/lib/org-deletion";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
@@ -146,6 +147,31 @@ function formatTransactionType(type: string) {
 	return type.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+/**
+ * Transactions pagination link. It carries the other tabs' state so paging one
+ * list does not silently reset the API-key page or its status filter.
+ */
+function buildTransactionsHref(
+	orgId: string,
+	txPage: number,
+	akPage: number,
+	akStatus: string,
+	pkStatus: string,
+) {
+	const params = new URLSearchParams({
+		tab: "transactions",
+		txPage: String(txPage),
+		akPage: String(akPage),
+	});
+	if (akStatus !== KEY_STATUS_DEFAULT) {
+		params.set("akStatus", akStatus);
+	}
+	if (pkStatus !== KEY_STATUS_DEFAULT) {
+		params.set("pkStatus", pkStatus);
+	}
+	return `/organizations/${orgId}?${params.toString()}`;
+}
+
 export default async function OrganizationPage({
 	params,
 	searchParams,
@@ -154,6 +180,8 @@ export default async function OrganizationPage({
 	searchParams?: Promise<{
 		txPage?: string;
 		akPage?: string;
+		akStatus?: string;
+		pkStatus?: string;
 		alPage?: string;
 		alAction?: string;
 		alResource?: string;
@@ -166,6 +194,8 @@ export default async function OrganizationPage({
 	const searchParamsData = await searchParams;
 	const txPage = parsePage(searchParamsData?.txPage);
 	const akPage = parsePage(searchParamsData?.akPage);
+	const akStatus = parseKeyStatus(searchParamsData?.akStatus);
+	const pkStatus = parseKeyStatus(searchParamsData?.pkStatus);
 	const alPage = parsePage(searchParamsData?.alPage);
 	const alAction = searchParamsData?.alAction ?? "";
 	const alResource = searchParamsData?.alResource ?? "";
@@ -201,11 +231,11 @@ export default async function OrganizationPage({
 		$api.GET("/admin/organizations/{orgId}/api-keys", {
 			params: {
 				path: { orgId },
-				query: { limit: akLimit, offset: akOffset },
+				query: { limit: akLimit, offset: akOffset, status: akStatus },
 			},
 		}),
 		$api.GET("/admin/organizations/{orgId}/provider-keys", {
-			params: { path: { orgId } },
+			params: { path: { orgId }, query: { status: pkStatus } },
 		}),
 		$api.GET("/admin/organizations/{orgId}/members", {
 			params: { path: { orgId } },
@@ -254,12 +284,14 @@ export default async function OrganizationPage({
 	const txTotal = transactionsData.total;
 	const txTotalPages = Math.ceil(txTotal / txLimit);
 
+	const emptyKeyCounts = { all: 0, active: 0, inactive: 0, deleted: 0 };
 	const projects = projectsData?.projects ?? [];
 	const apiKeys = apiKeysData?.apiKeys ?? [];
 	const akTotal = apiKeysData?.total ?? 0;
+	const akCounts = apiKeysData?.counts ?? emptyKeyCounts;
 	const akTotalPages = Math.ceil(akTotal / akLimit);
 	const providerKeys = providerKeysData?.providerKeys ?? [];
-	const providerKeysTotal = providerKeysData?.total ?? 0;
+	const pkCounts = providerKeysData?.counts ?? emptyKeyCounts;
 	const members = membersData?.members ?? [];
 	const membersTotal = membersData?.total ?? 0;
 
@@ -445,13 +477,16 @@ export default async function OrganizationPage({
 						<Receipt className="mr-1.5 h-4 w-4" />
 						Transactions ({txTotal})
 					</TabsTrigger>
-					<TabsTrigger value="api-keys">
+					<TabsTrigger value="api-keys" title="Active / total API keys">
 						<Key className="mr-1.5 h-4 w-4" />
-						API Keys ({akTotal})
+						API Keys ({akCounts.active}/{akCounts.all})
 					</TabsTrigger>
-					<TabsTrigger value="provider-keys">
+					<TabsTrigger
+						value="provider-keys"
+						title="Active / total provider keys"
+					>
 						<KeyRound className="mr-1.5 h-4 w-4" />
-						Provider Keys ({providerKeysTotal})
+						Provider Keys ({pkCounts.active}/{pkCounts.all})
 					</TabsTrigger>
 					<TabsTrigger value="members">
 						<Users className="mr-1.5 h-4 w-4" />
@@ -569,7 +604,13 @@ export default async function OrganizationPage({
 										disabled={txPage <= 1}
 									>
 										<Link
-											href={`/organizations/${orgId}?tab=transactions&txPage=${txPage - 1}&akPage=${akPage}`}
+											href={buildTransactionsHref(
+												orgId,
+												txPage - 1,
+												akPage,
+												akStatus,
+												pkStatus,
+											)}
 											className={
 												txPage <= 1 ? "pointer-events-none opacity-50" : ""
 											}
@@ -588,7 +629,13 @@ export default async function OrganizationPage({
 										disabled={txPage >= txTotalPages}
 									>
 										<Link
-											href={`/organizations/${orgId}?tab=transactions&txPage=${txPage + 1}&akPage=${akPage}`}
+											href={buildTransactionsHref(
+												orgId,
+												txPage + 1,
+												akPage,
+												akStatus,
+												pkStatus,
+											)}
 											className={
 												txPage >= txTotalPages
 													? "pointer-events-none opacity-50"
@@ -615,11 +662,17 @@ export default async function OrganizationPage({
 						akLimit={akLimit}
 						akTotal={akTotal}
 						akTotalPages={akTotalPages}
+						akStatus={akStatus}
+						counts={akCounts}
 					/>
 				</TabsContent>
 
 				<TabsContent value="provider-keys">
-					<ProviderKeysTable providerKeys={providerKeys} />
+					<ProviderKeysTable
+						providerKeys={providerKeys}
+						pkStatus={pkStatus}
+						counts={pkCounts}
+					/>
 				</TabsContent>
 
 				<TabsContent value="members">

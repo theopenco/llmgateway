@@ -4,6 +4,7 @@ import { getApiKeyFingerprint } from "@/lib/api-key-fingerprint.js";
 import {
 	findCustomProviderKey,
 	findProviderKey,
+	listEligibleProviderKeys,
 } from "@/lib/cached-queries.js";
 import { posthog } from "@/posthog.js";
 
@@ -14,6 +15,7 @@ import {
 	isPremiumServiceTier,
 	managedCredentialOptions,
 	prepareRequestBody,
+	providerKeyLabel,
 	readProviderKey,
 	selectProviderMapping,
 } from "@llmgateway/actions";
@@ -108,6 +110,12 @@ export interface ProviderContext {
 	strippedParameters: string[];
 	headers: Record<string, string>;
 	usedRegion: string | undefined;
+	/**
+	 * The organization's own keys that could have served this provider, in
+	 * selection order — the candidate set the credential above was chosen from.
+	 * Undefined in credits mode, which routes on platform credentials only.
+	 */
+	eligibleProviderKeys: Array<{ id: string; label?: string }> | undefined;
 }
 
 export interface OriginalRequestParams {
@@ -120,6 +128,13 @@ export interface OriginalRequestParams {
 
 export interface ProviderContextOptions {
 	requestId: string;
+	/**
+	 * Set when the request is a zero-rated onboarding call. The credit assertion
+	 * below mirrors chat.ts's gate, so without this a fallback to a platform
+	 * credential re-imposes the 402 that the sponsored path just waived — only on
+	 * the flaky-provider branch, so it fails intermittently and invisibly.
+	 */
+	sponsoredOnboarding?: boolean;
 	stream: boolean;
 	effectiveStream: boolean;
 	messages: BaseMessage[];
@@ -400,6 +415,7 @@ export function formatTimeUntilReset(ms: number): string {
 function assertOrganizationHasCreditsForEnvFallback(
 	organization: OrgInfo,
 	modelInfo: ModelDefinition,
+	sponsoredOnboarding = false,
 ): void {
 	if (modelInfo.free) {
 		return;
@@ -428,6 +444,11 @@ function assertOrganizationHasCreditsForEnvFallback(
 	if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
 		throw buildDevPlanCreditLimitError(organization);
 	}
+	// Matches chat.ts: sponsorship waives only the plain zero-balance case, never
+	// the plan allowances asserted above.
+	if (sponsoredOnboarding) {
+		return;
+	}
 	throw new HTTPException(402, {
 		message: `Organization ${organization.id} has insufficient credits`,
 	});
@@ -446,6 +467,67 @@ export function formatUsedModelForDisplay(
 
 	const base = `${usedModelProviderPrefix}/${usedInternalModel}`;
 	return usedRegion ? `${base}:${usedRegion}` : base;
+}
+
+/**
+ * Which of an organization's own keys may serve a given model.
+ *
+ * Skips BYOK keys whose allowedModels restriction excludes the model being
+ * served, so a key that cannot satisfy the request upstream is never picked
+ * over a sibling key (or the credits fallback in hybrid mode) that can, and
+ * layers on the service-tier filter when the request asks for a premium tier.
+ *
+ * Shared with the routing metadata so the "your keys" list can never disagree
+ * with the set the gateway actually chose from. Custom provider keys are
+ * exempt: their catalog already scopes them.
+ */
+export function buildByokKeyFilter(
+	usedInternalModel: string,
+	serviceTierKeyFilter?: (
+		key: InferSelectModel<typeof tables.providerKey>,
+	) => boolean,
+): (key: InferSelectModel<typeof tables.providerKey>) => boolean {
+	return (key) =>
+		providerKeyAllowsModel(key.allowedModels, usedInternalModel) &&
+		(serviceTierKeyFilter ? serviceTierKeyFilter(key) : true);
+}
+
+/**
+ * The organization's own keys that could have served this provider and model,
+ * in selection order, named the way their owner sees them.
+ *
+ * Only BYOK-capable modes have candidates: a credits-mode project routes on
+ * platform credentials, which are never listed. Custom providers are excluded
+ * because their keys are looked up by provider name through a different query,
+ * so the list would not describe the same candidate set.
+ */
+export async function resolveEligibleProviderKeys(args: {
+	projectMode: string;
+	organizationId: string;
+	provider: string;
+	usedInternalModel: string;
+	serviceTierKeyFilter?: (
+		key: InferSelectModel<typeof tables.providerKey>,
+	) => boolean;
+}): Promise<Array<{ id: string; label?: string }> | undefined> {
+	if (
+		(args.projectMode !== "api-keys" && args.projectMode !== "hybrid") ||
+		args.provider === "custom"
+	) {
+		return undefined;
+	}
+
+	const keys = await listEligibleProviderKeys(
+		args.organizationId,
+		args.provider,
+		buildByokKeyFilter(args.usedInternalModel, args.serviceTierKeyFilter),
+	);
+
+	if (keys.length === 0) {
+		return undefined;
+	}
+
+	return keys.map((key) => ({ id: key.id, label: providerKeyLabel(key) }));
 }
 
 /**
@@ -502,15 +584,18 @@ export async function resolveProviderContext(
 		? providerKeySupportsServiceTier
 		: undefined;
 
-	// Skip BYOK keys whose allowedModels restriction excludes the model being
-	// served, so a key that cannot satisfy the request upstream is never picked
-	// over a sibling key (or the credits fallback in hybrid mode) that can.
-	// Custom provider keys are exempt: their catalog already scopes them.
-	const byokKeyFilter = (
-		key: InferSelectModel<typeof tables.providerKey>,
-	): boolean =>
-		providerKeyAllowsModel(key.allowedModels, usedInternalModel) &&
-		(serviceTierKeyFilter ? serviceTierKeyFilter(key) : true);
+	const byokKeyFilter = buildByokKeyFilter(
+		usedInternalModel,
+		serviceTierKeyFilter,
+	);
+
+	const eligibleProviderKeys = await resolveEligibleProviderKeys({
+		projectMode: project.mode,
+		organizationId: project.organizationId,
+		provider: usedProvider,
+		usedInternalModel,
+		serviceTierKeyFilter,
+	});
 
 	if (project.mode === "api-keys") {
 		if (usedProvider === "custom" && options.customProviderName) {
@@ -538,7 +623,11 @@ export async function resolveProviderContext(
 
 		usedToken = readProviderKey(providerKey);
 	} else if (project.mode === "credits") {
-		assertOrganizationHasCreditsForEnvFallback(organization, modelInfo);
+		assertOrganizationHasCreditsForEnvFallback(
+			organization,
+			modelInfo,
+			options.sponsoredOnboarding,
+		);
 		const platformCredential = await resolvePlatformCredential(
 			usedProvider as Provider,
 			{
@@ -576,7 +665,11 @@ export async function resolveProviderContext(
 		if (providerKey) {
 			usedToken = readProviderKey(providerKey);
 		} else {
-			assertOrganizationHasCreditsForEnvFallback(organization, modelInfo);
+			assertOrganizationHasCreditsForEnvFallback(
+				organization,
+				modelInfo,
+				options.sponsoredOnboarding,
+			);
 			const platformCredential = await resolvePlatformCredential(
 				usedProvider as Provider,
 				{
@@ -977,5 +1070,6 @@ export async function resolveProviderContext(
 		strippedParameters,
 		headers,
 		usedRegion,
+		eligibleProviderKeys,
 	};
 }

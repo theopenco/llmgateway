@@ -3,6 +3,7 @@ import { Inter, Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
 import { AdminShell } from "@/components/admin-shell";
 import { getConfig } from "@/lib/config-server";
 import { Providers } from "@/lib/providers";
+import { hasSessionCookie } from "@/lib/session-cookie";
 
 import "./globals.css";
 
@@ -46,8 +47,13 @@ export const metadata: Metadata = {
 	},
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({
+	children,
+}: {
+	children: ReactNode;
+}) {
 	const config = getConfig();
+	const signedIn = await hasSessionCookie();
 
 	return (
 		<html
@@ -57,7 +63,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 		>
 			<body className="antialiased">
 				<Providers config={config}>
-					<AdminShell>{children}</AdminShell>
+					<AdminShell signedIn={signedIn}>{children}</AdminShell>
 				</Providers>
 			</body>
 		</html>

@@ -14,7 +14,10 @@ import { validateEmail } from "@/utils/email-validation.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 import { resolveSignupName } from "@/utils/infer-name.js";
 import { getOrCreatePersonalOrg } from "@/utils/personal-org.js";
-import { autoJoinByEmailDomain } from "@/utils/sso-domain.js";
+import {
+	autoJoinByEmailDomain,
+	autoJoinSsoProviderOrganization,
+} from "@/utils/sso-domain.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, tables } from "@llmgateway/db";
@@ -25,6 +28,7 @@ const apiUrl = getApiBaseUrl();
 const cookieDomain = process.env.COOKIE_DOMAIN ?? "localhost";
 const uiUrl = process.env.UI_URL ?? "http://localhost:3002";
 const codeUrl = process.env.CODE_URL ?? "http://localhost:3004";
+const adminUrl = process.env.ADMIN_URL ?? "http://localhost:3006";
 const originUrls =
 	process.env.ORIGIN_URLS ??
 	"http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:4002,http://localhost:3006";
@@ -652,9 +656,11 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 				passkey({
 					rpID: process.env.PASSKEY_RP_ID ?? "localhost",
 					rpName: process.env.PASSKEY_RP_NAME ?? "LLMGateway",
-					// Accept passkey ceremonies from both the main dashboard and the
-					// DevPass (code) app, which share the same registrable rpID.
-					origin: [uiUrl, codeUrl],
+					// Accept passkey ceremonies from the main dashboard, the DevPass
+					// (code) app and the admin dashboard, which all share the same
+					// registrable rpID. Passkeys are registered on the main dashboard;
+					// listing the admin origin lets admins reuse them to sign in there.
+					origin: [uiUrl, codeUrl, adminUrl],
 				}),
 				sso({
 					// This app uses a custom organization model (userOrganization),
@@ -662,7 +668,8 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 					// auto-provision orgs. With provisioning disabled and no
 					// organization plugin registered, the plugin only touches the
 					// ssoProvider/user/account models. Org membership is provisioned
-					// out-of-band via SCIM (see routes/scim.ts).
+					// via SCIM (see routes/scim.ts) or JIT-joined to the connection's
+					// org in the post-sign-in hook below.
 					organizationProvisioning: { disabled: true },
 					// Adds `domainVerified` to the plugin's ssoProvider model. The SAML
 					// callback treats a provider as trusted for implicit account linking
@@ -745,16 +752,21 @@ If you didn't request this, you can safely ignore this email. Your password won'
 				},
 			}),
 			socialProviders: {
+				// Social sign-in must never silently create an account: the login
+				// pages ask the user to confirm first and retry with
+				// `requestSignUp: true`, which the signup pages send from the start.
 				...(process.env.GITHUB_CLIENT_ID && {
 					github: {
 						clientId: process.env.GITHUB_CLIENT_ID,
 						clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+						disableImplicitSignUp: true,
 					},
 				}),
 				...(process.env.GOOGLE_CLIENT_ID && {
 					google: {
 						clientId: process.env.GOOGLE_CLIENT_ID,
 						clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+						disableImplicitSignUp: true,
 					},
 				}),
 			},
@@ -1054,6 +1066,12 @@ The LLM Gateway Team`.trim();
 					// whose slug matches one of the user's linked accounts (the same
 					// derivation used for `isSsoUser`). Logged before the org
 					// auto-creation early-returns below so every SSO login is recorded.
+					// The resolved provider is reused below to JIT-join its org.
+					let ssoProvider: {
+						id: string;
+						providerId: string;
+						organizationId: string | null;
+					} | null = null;
 					if (ctx.path.startsWith("/sso/")) {
 						const linkedAccounts = await db.query.account.findMany({
 							where: { userId: { eq: userId } },
@@ -1070,6 +1088,7 @@ The LLM Gateway Team`.trim();
 									},
 								})
 							: null;
+						ssoProvider = provider ?? null;
 						if (provider?.organizationId) {
 							await logAuditEvent({
 								organizationId: provider.organizationId,
@@ -1140,14 +1159,37 @@ The LLM Gateway Team`.trim();
 						(uo) => uo.organization?.kind === "devpass",
 					);
 
+					// Enterprise SSO JIT join: a user signing in through an org's SSO
+					// connection was vouched for by that org's IdP, so add them to the
+					// org as a developer instead of stranding them in a fresh personal
+					// "Default Organization". Orgs using SCIM already have the
+					// membership, making this a no-op. Never fatal to login.
+					let autoJoinedOrgId: string | null = null;
+					if (ssoProvider?.organizationId && dbUser?.email) {
+						try {
+							autoJoinedOrgId = await autoJoinSsoProviderOrganization({
+								userId,
+								email: dbUser.email,
+								name: dbUser.name,
+								organizationId: ssoProvider.organizationId,
+								ssoProviderId: ssoProvider.providerId,
+							});
+						} catch (error) {
+							logger.error("SSO organization auto-join failed", error);
+						}
+					}
+
 					// Google SSO domain auto-join: if this user has a Google account and
 					// their verified email domain matches an enterprise org's configured
 					// SSO domain, add them to that org as a developer. A successful join
 					// gives them an active dashboard org, so the default-org creation below
 					// is skipped (no redundant personal "Default Organization"). Existing
 					// members are a no-op. Never fatal to login.
-					let autoJoinedOrgId: string | null = null;
-					if (newSession.user.emailVerified && dbUser?.email) {
+					if (
+						!autoJoinedOrgId &&
+						newSession.user.emailVerified &&
+						dbUser?.email
+					) {
 						const googleAccount = await db.query.account.findFirst({
 							where: {
 								userId: { eq: userId },

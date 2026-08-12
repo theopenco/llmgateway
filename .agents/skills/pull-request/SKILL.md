@@ -30,6 +30,7 @@ EOF
 - Always **ready-for-review**, never a draft, unless the user explicitly asks for a draft.
 - Always write both a title **and** a description. If later commits change the scope, update both before handing the PR off — a stale description is worse than none.
 - A good description states the problem first, then the approach, then anything a reviewer would otherwise have to reverse-engineer (non-obvious constraints, deliberate omissions, verification performed).
+- **Never leak internal information.** This repository is public, and PR titles, descriptions, comments, commit messages and branch names are all permanently visible — editing them later does not remove them from the timeline or from anyone's email notifications. See the "no internal information" rule in AGENTS.md for the full list; in short, strip real user/customer names, email addresses, company names, org/project/user IDs, keys and tokens, dollar amounts, and internal dashboard/ticket links before you post. Say "a customer organization reported…", not who; say "the balance was miscalculated", not the amount. This applies to pasted logs, stack traces, SQL output and screenshots too — screenshots of the dashboards must come from locally seeded data, never from production.
 - End the body with:
 
   ```text

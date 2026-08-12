@@ -1951,6 +1951,18 @@ export const log = pgTable(
 			selectedProvider?: string;
 			selectionReason?: string;
 			usedApiKeyHash?: string;
+			// Whose credential served the request: the organization's own provider
+			// key (`byok`) or an LLM Gateway platform credential (`platform`).
+			// Always agrees with the row's billing mode (`usedMode`).
+			usedCredentialSource?: "byok" | "platform";
+			// The organization's own key that served the request, named as its
+			// owner sees it. Only set for "byok" — a platform-managed credential
+			// is never described to a tenant.
+			usedProviderKeyId?: string;
+			usedProviderKeyLabel?: string;
+			// The organization's own keys that were candidates for the used
+			// provider, in selection order. BYOK rows only.
+			eligibleProviderKeys?: Array<{ id: string; label?: string }>;
 			providerScores?: Array<{
 				providerId: string;
 				region?: string;
@@ -1984,6 +1996,12 @@ export const log = pgTable(
 				error_type: string;
 				succeeded: boolean;
 				apiKeyHash?: string;
+				// Per attempt: a hybrid-mode request can start on the org's own key
+				// and fall back to the platform credential, so ownership differs
+				// between entries in this array.
+				credentialSource?: "byok" | "platform";
+				providerKeyId?: string;
+				providerKeyLabel?: string;
 				logId?: string;
 			}>;
 			filteredProviders?: Array<{
@@ -2277,6 +2295,18 @@ export const videoJob = pgTable(
 			selectedProvider?: string;
 			selectionReason?: string;
 			usedApiKeyHash?: string;
+			// Whose credential served the request: the organization's own provider
+			// key (`byok`) or an LLM Gateway platform credential (`platform`).
+			// Always agrees with the row's billing mode (`usedMode`).
+			usedCredentialSource?: "byok" | "platform";
+			// The organization's own key that served the request, named as its
+			// owner sees it. Only set for "byok" — a platform-managed credential
+			// is never described to a tenant.
+			usedProviderKeyId?: string;
+			usedProviderKeyLabel?: string;
+			// The organization's own keys that were candidates for the used
+			// provider, in selection order. BYOK rows only.
+			eligibleProviderKeys?: Array<{ id: string; label?: string }>;
 			providerScores?: Array<{
 				providerId: string;
 				region?: string;
@@ -2310,6 +2340,12 @@ export const videoJob = pgTable(
 				error_type: string;
 				succeeded: boolean;
 				apiKeyHash?: string;
+				// Per attempt: a hybrid-mode request can start on the org's own key
+				// and fall back to the platform credential, so ownership differs
+				// between entries in this array.
+				credentialSource?: "byok" | "platform";
+				providerKeyId?: string;
+				providerKeyLabel?: string;
 				logId?: string;
 			}>;
 		}>(),

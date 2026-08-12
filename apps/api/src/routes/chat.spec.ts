@@ -5,44 +5,56 @@ import { createTestUser, deleteAll } from "@/testing.js";
 
 import { redisClient } from "@llmgateway/cache";
 import { db, eq, tables } from "@llmgateway/db";
-import { ONBOARDING_MAX_TOKENS, ONBOARDING_MODEL } from "@llmgateway/shared";
+import {
+	ONBOARDING_MAX_PROMPT_CHARS,
+	ONBOARDING_MAX_TOKENS,
+	ONBOARDING_MODEL,
+	ONBOARDING_SPONSOR_HEADER,
+} from "@llmgateway/shared";
 
 // The onboarding wizard's "try it now" request runs through this proxy: the
 // gateway refuses cross-origin browser calls, so the UI posts here with its
-// session cookie and the server forwards to the gateway. A brand new
-// organization has no credits, so that first call is sponsored by a
-// platform-owned key — which means the endpoint has to stay session-gated (the
-// UI must send its cookie), and the sponsored path has to pin what it spends
-// rather than trusting the request body.
+// session cookie and the server forwards to the gateway.
+//
+// Two things are load-bearing and pinned below:
+//  - The request always leaves on the CALLER'S OWN key. Routing it through a
+//    platform key put the log row in the platform's project, so the user saw a
+//    real answer and an empty activity log.
+//  - A brand new org has 0 credits, so that one call is zero-rated by the
+//    gateway. Eligibility is decided here (session, onboarding incomplete,
+//    allowance) and asserted with a secret, because the `onboarding` body flag
+//    is client-supplied and would otherwise let anyone waive their own charges.
 
-// Both keys are real deployment env vars, so save and restore whatever the
-// developer's environment already had rather than deleting it outright.
-const PLATFORM_KEY_VARS = [
-	"ONBOARDING_CHAT_API_KEY",
-	"SUPPORT_CHAT_API_KEY",
-] as const;
+const SPONSOR_SECRET = "test-onboarding-secret";
 
 describe("chat completion proxy", () => {
 	let token: string;
-	let previousPlatformKeys: Record<string, string | undefined> = {};
+	let previousSecret: string | undefined;
 	let gatewayRequests: {
 		url: string;
 		authorization: string | null;
+		sponsor: string | null;
+		source: string | null;
 		body: Record<string, unknown>;
 	}[] = [];
+	let gatewayStatus = 200;
+	let gatewayBody: Record<string, unknown> | null = null;
+	let gatewayRaw: string | null = null;
+	let gatewayEmptyBody = false;
 
 	beforeEach(async () => {
 		token = await createTestUser();
 		gatewayRequests = [];
+		gatewayStatus = 200;
+		gatewayBody = null;
+		gatewayRaw = null;
+		gatewayEmptyBody = false;
 
-		previousPlatformKeys = Object.fromEntries(
-			PLATFORM_KEY_VARS.map((name) => [name, process.env[name]]),
-		);
-		delete process.env.SUPPORT_CHAT_API_KEY;
-		process.env.ONBOARDING_CHAT_API_KEY = "platform-onboarding-key";
+		previousSecret = process.env.ONBOARDING_SPONSOR_SECRET;
+		process.env.ONBOARDING_SPONSOR_SECRET = SPONSOR_SECRET;
 
-		// The sponsored-call allowance lives in Redis and outlives the database
-		// reset, so every test starts from a full allowance.
+		// The allowance lives in Redis and outlives the database reset, so every
+		// test starts from a full allowance.
 		await redisClient.del("onboarding_sponsored_calls:test-user-id");
 
 		const originalFetch = globalThis.fetch;
@@ -58,11 +70,42 @@ describe("chat completion proxy", () => {
 				return await originalFetch(input, init);
 			}
 
+			const headers = new Headers(init?.headers);
 			gatewayRequests.push({
 				url,
-				authorization: new Headers(init?.headers).get("authorization"),
+				authorization: headers.get("authorization"),
+				sponsor: headers.get(ONBOARDING_SPONSOR_HEADER),
+				source: headers.get("x-source"),
 				body: JSON.parse(String(init?.body ?? "{}")),
 			});
+
+			if (gatewayStatus !== 200) {
+				return new Response(JSON.stringify({ message: "upstream exploded" }), {
+					status: gatewayStatus,
+					headers: { "Content-Type": "application/json" },
+				});
+			}
+
+			if (gatewayEmptyBody) {
+				return new Response(null, {
+					status: 200,
+					headers: { "Content-Type": "text/event-stream" },
+				});
+			}
+
+			if (gatewayRaw !== null) {
+				return new Response(gatewayRaw, {
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				});
+			}
+
+			if (gatewayBody) {
+				return new Response(JSON.stringify(gatewayBody), {
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				});
+			}
 
 			return new Response(
 				JSON.stringify({
@@ -83,13 +126,10 @@ describe("chat completion proxy", () => {
 
 	afterEach(async () => {
 		vi.restoreAllMocks();
-		for (const name of PLATFORM_KEY_VARS) {
-			const previous = previousPlatformKeys[name];
-			if (previous === undefined) {
-				Reflect.deleteProperty(process.env, name);
-			} else {
-				process.env[name] = previous;
-			}
+		if (previousSecret === undefined) {
+			Reflect.deleteProperty(process.env, "ONBOARDING_SPONSOR_SECRET");
+		} else {
+			process.env.ONBOARDING_SPONSOR_SECRET = previousSecret;
 		}
 		await deleteAll();
 	});
@@ -108,6 +148,13 @@ describe("chat completion proxy", () => {
 		});
 	}
 
+	function onboardingRequest() {
+		return request(
+			{ model: "auto", apiKey: "user-token", onboarding: true },
+			token,
+		);
+	}
+
 	test("rejects an unauthenticated request", async () => {
 		const res = await request({ model: "auto", apiKey: "test-token" });
 
@@ -115,18 +162,23 @@ describe("chat completion proxy", () => {
 		expect(gatewayRequests).toHaveLength(0);
 	});
 
-	test("sponsors the first onboarding call with the platform key", async () => {
-		const res = await request(
-			{ model: ONBOARDING_MODEL, apiKey: "user-token", onboarding: true },
-			token,
-		);
+	test("requires an API key", async () => {
+		const res = await request({ model: "auto" }, token);
+
+		expect(res.status).toBe(400);
+		expect(gatewayRequests).toHaveLength(0);
+	});
+
+	test("forwards the onboarding call on the caller's own key", async () => {
+		const res = await onboardingRequest();
 
 		expect(res.status).toBe(200);
 		expect(gatewayRequests).toHaveLength(1);
 		expect(gatewayRequests[0].url).toContain("/v1/chat/completions");
-		expect(gatewayRequests[0].authorization).toBe(
-			"Bearer platform-onboarding-key",
-		);
+		// The regression this whole change exists for: never a platform key.
+		expect(gatewayRequests[0].authorization).toBe("Bearer user-token");
+		expect(gatewayRequests[0].sponsor).toBe(SPONSOR_SECRET);
+		expect(gatewayRequests[0].source).toBe("onboarding");
 		expect(gatewayRequests[0].body).toMatchObject({
 			model: ONBOARDING_MODEL,
 			onboarding: true,
@@ -134,66 +186,169 @@ describe("chat completion proxy", () => {
 		});
 	});
 
-	test("pins the sponsored model instead of trusting the request", async () => {
+	// The call is zero-rated, so whatever model it names is billed to the
+	// platform. Letting the body choose would let a signup pick the bill.
+	test("pins the model on a sponsored call", async () => {
 		await request(
 			{ model: "gpt-4o", apiKey: "user-token", onboarding: true },
 			token,
 		);
 
+		expect(gatewayRequests[0].sponsor).toBe(SPONSOR_SECRET);
 		expect(gatewayRequests[0].body.model).toBe(ONBOARDING_MODEL);
 	});
 
-	test("stops sponsoring once onboarding is complete", async () => {
+	test("refuses to sponsor an oversized prompt", async () => {
+		await request(
+			{
+				model: "auto",
+				apiKey: "user-token",
+				onboarding: true,
+				messages: [
+					{
+						role: "user",
+						content: "x".repeat(ONBOARDING_MAX_PROMPT_CHARS + 1),
+					},
+				],
+			},
+			token,
+		);
+
+		// Still forwarded — just billed to the caller, and with their own model.
+		expect(gatewayRequests[0].sponsor).toBeNull();
+		expect(gatewayRequests[0].body.model).toBe("auto");
+		expect(gatewayRequests[0].body).not.toHaveProperty("max_tokens");
+	});
+
+	// An unsponsored call is paid for by the user, so it must not be silently
+	// truncated or have its model swapped.
+	test("leaves an unsponsored onboarding call uncapped", async () => {
 		await db
 			.update(tables.user)
 			.set({ onboardingCompleted: true })
 			.where(eq(tables.user.id, "test-user-id"));
 
 		await request(
-			{ model: ONBOARDING_MODEL, apiKey: "user-token", onboarding: true },
+			{ model: "gpt-4o", apiKey: "user-token", onboarding: true },
 			token,
 		);
 
-		expect(gatewayRequests[0].authorization).toBe("Bearer user-token");
+		expect(gatewayRequests[0].sponsor).toBeNull();
+		expect(gatewayRequests[0].body.model).toBe("gpt-4o");
 		expect(gatewayRequests[0].body).not.toHaveProperty("max_tokens");
 	});
 
-	test("falls back to the caller's key when no platform key is configured", async () => {
-		for (const name of PLATFORM_KEY_VARS) {
-			Reflect.deleteProperty(process.env, name);
+	// A 200 whose body is unusable means the gateway served nothing, so it must
+	// not cost an allowance slot either.
+	test.each([
+		["a malformed body", "not json at all"],
+		["a body with no choices", JSON.stringify({ id: "chatcmpl-proxy" })],
+		[
+			"a choice with no message",
+			JSON.stringify({ id: "chatcmpl-proxy", choices: [{ index: 0 }] }),
+		],
+	])("refunds the allowance on %s", async (_label, raw) => {
+		gatewayRaw = raw;
+		for (let attempt = 0; attempt < 3; attempt++) {
+			await onboardingRequest();
 		}
 
-		await request(
-			{ model: ONBOARDING_MODEL, apiKey: "user-token", onboarding: true },
-			token,
-		);
+		gatewayRaw = null;
+		for (let attempt = 0; attempt < 5; attempt++) {
+			await onboardingRequest();
+		}
 
-		expect(gatewayRequests[0].authorization).toBe("Bearer user-token");
+		expect(gatewayRequests.filter((r) => r.sponsor !== null)).toHaveLength(8);
 	});
 
-	test("stops sponsoring once the allowance is spent", async () => {
-		// One more attempt than the allowance; the tail must land on the user's
-		// own key rather than keep spending ours.
-		const authorizations: (string | null)[] = [];
-		for (let attempt = 0; attempt < 6; attempt++) {
+	test("refunds the allowance when the stream has no body", async () => {
+		gatewayEmptyBody = true;
+		for (let attempt = 0; attempt < 3; attempt++) {
 			await request(
-				{ model: ONBOARDING_MODEL, apiKey: "user-token", onboarding: true },
+				{ model: "auto", apiKey: "user-token", onboarding: true, stream: true },
 				token,
 			);
-			authorizations.push(gatewayRequests[attempt].authorization);
 		}
 
-		expect(
-			authorizations.filter((a) => a === "Bearer platform-onboarding-key"),
-		).toHaveLength(5);
-		expect(authorizations[5]).toBe("Bearer user-token");
+		gatewayEmptyBody = false;
+		for (let attempt = 0; attempt < 5; attempt++) {
+			await onboardingRequest();
+		}
+
+		expect(gatewayRequests.filter((r) => r.sponsor !== null)).toHaveLength(8);
 	});
 
-	test("leaves non-onboarding requests on the caller's key", async () => {
+	test("refunds the allowance when a 200 carries an in-band error", async () => {
+		gatewayBody = { error: { message: "provider exploded" } };
+		for (let attempt = 0; attempt < 3; attempt++) {
+			await onboardingRequest();
+		}
+
+		gatewayBody = null;
+		for (let attempt = 0; attempt < 5; attempt++) {
+			await onboardingRequest();
+		}
+
+		expect(gatewayRequests.filter((r) => r.sponsor !== null)).toHaveLength(8);
+	});
+
+	test("does not assert sponsorship once onboarding is complete", async () => {
+		await db
+			.update(tables.user)
+			.set({ onboardingCompleted: true })
+			.where(eq(tables.user.id, "test-user-id"));
+
+		await onboardingRequest();
+
+		expect(gatewayRequests[0].authorization).toBe("Bearer user-token");
+		expect(gatewayRequests[0].sponsor).toBeNull();
+	});
+
+	test("does not assert sponsorship when no secret is configured", async () => {
+		Reflect.deleteProperty(process.env, "ONBOARDING_SPONSOR_SECRET");
+
+		await onboardingRequest();
+
+		expect(gatewayRequests[0].authorization).toBe("Bearer user-token");
+		expect(gatewayRequests[0].sponsor).toBeNull();
+	});
+
+	test("stops asserting sponsorship once the allowance is spent", async () => {
+		for (let attempt = 0; attempt < 6; attempt++) {
+			await onboardingRequest();
+		}
+
+		const sponsored = gatewayRequests.filter((r) => r.sponsor !== null);
+		expect(sponsored).toHaveLength(5);
+		expect(gatewayRequests[5].sponsor).toBeNull();
+		// Even unsponsored, it still goes out on the user's own key.
+		expect(gatewayRequests[5].authorization).toBe("Bearer user-token");
+	});
+
+	test("refunds the allowance when the gateway call fails", async () => {
+		gatewayStatus = 500;
+		for (let attempt = 0; attempt < 3; attempt++) {
+			await onboardingRequest();
+		}
+
+		// A flaky provider must not burn onboarding: all three were refunded, so a
+		// full allowance is still available.
+		gatewayStatus = 200;
+		for (let attempt = 0; attempt < 5; attempt++) {
+			await onboardingRequest();
+		}
+
+		expect(gatewayRequests.filter((r) => r.sponsor !== null)).toHaveLength(8);
+	});
+
+	test("leaves non-onboarding requests untouched", async () => {
 		await request({ model: "gpt-4o", apiKey: "user-token" }, token);
 
 		expect(gatewayRequests[0].authorization).toBe("Bearer user-token");
 		expect(gatewayRequests[0].body.model).toBe("gpt-4o");
+		expect(gatewayRequests[0].sponsor).toBeNull();
+		expect(gatewayRequests[0].source).toBeNull();
 		expect(gatewayRequests[0].body).not.toHaveProperty("onboarding");
+		expect(gatewayRequests[0].body).not.toHaveProperty("max_tokens");
 	});
 });

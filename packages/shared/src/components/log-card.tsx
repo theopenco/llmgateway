@@ -29,6 +29,7 @@ import {
 import prettyBytes from "pretty-bytes";
 import { useState } from "react";
 
+import { CredentialSourceBadge } from "@/components/credential-source-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -57,6 +58,9 @@ import {
 interface RoutingMetadata {
 	selectionReason?: string;
 	usedApiKeyHash?: string;
+	usedCredentialSource?: string;
+	usedProviderKeyLabel?: string;
+	eligibleProviderKeys?: Array<{ id: string; label?: string }>;
 	availableProviders?: string[];
 	xNoFallbackHeaderSet?: boolean;
 	noFallback?: boolean;
@@ -88,6 +92,8 @@ interface RoutingMetadata {
 		status_code?: number;
 		error_type?: string;
 		apiKeyHash?: string;
+		credentialSource?: string;
+		providerKeyLabel?: string;
 		logId?: string;
 	}>;
 	filteredProviders?: Array<{
@@ -678,11 +684,28 @@ export function LogCard({
 										{routingMetadata.usedApiKeyHash && (
 											<div className="flex justify-between">
 												<span className="text-muted-foreground">Key</span>
-												<span className="font-mono">
+												<span className="font-mono flex items-center gap-1.5">
 													{formatApiKeyHash(routingMetadata.usedApiKeyHash)}
+													<CredentialSourceBadge
+														source={routingMetadata.usedCredentialSource}
+														keyLabel={routingMetadata.usedProviderKeyLabel}
+													/>
 												</span>
 											</div>
 										)}
+										{routingMetadata.eligibleProviderKeys &&
+											routingMetadata.eligibleProviderKeys.length > 0 && (
+												<div className="flex justify-between gap-2">
+													<span className="text-muted-foreground">
+														Your keys
+													</span>
+													<span className="font-mono text-right">
+														{routingMetadata.eligibleProviderKeys
+															.map((key) => key.label ?? key.id)
+															.join(", ")}
+													</span>
+												</div>
+											)}
 										{routingMetadata.xNoFallbackHeaderSet !== undefined && (
 											<div className="flex justify-between">
 												<span className="text-muted-foreground">
@@ -841,6 +864,10 @@ export function LogCard({
 																			key {formatApiKeyHash(attempt.apiKeyHash)}
 																		</span>
 																	)}
+																	<CredentialSourceBadge
+																		source={attempt.credentialSource}
+																		keyLabel={attempt.providerKeyLabel}
+																	/>
 																	{attempt.logId &&
 																		(getDetailUrl ? (
 																			<LinkComponent
