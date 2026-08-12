@@ -28,6 +28,7 @@ const apiUrl = getApiBaseUrl();
 const cookieDomain = process.env.COOKIE_DOMAIN ?? "localhost";
 const uiUrl = process.env.UI_URL ?? "http://localhost:3002";
 const codeUrl = process.env.CODE_URL ?? "http://localhost:3004";
+const adminUrl = process.env.ADMIN_URL ?? "http://localhost:3006";
 const originUrls =
 	process.env.ORIGIN_URLS ??
 	"http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:4002,http://localhost:3006";
@@ -655,9 +656,11 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 				passkey({
 					rpID: process.env.PASSKEY_RP_ID ?? "localhost",
 					rpName: process.env.PASSKEY_RP_NAME ?? "LLMGateway",
-					// Accept passkey ceremonies from both the main dashboard and the
-					// DevPass (code) app, which share the same registrable rpID.
-					origin: [uiUrl, codeUrl],
+					// Accept passkey ceremonies from the main dashboard, the DevPass
+					// (code) app and the admin dashboard, which all share the same
+					// registrable rpID. Passkeys are registered on the main dashboard;
+					// listing the admin origin lets admins reuse them to sign in there.
+					origin: [uiUrl, codeUrl, adminUrl],
 				}),
 				sso({
 					// This app uses a custom organization model (userOrganization),
