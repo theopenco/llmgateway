@@ -49,6 +49,28 @@ EOF
 - When checking out someone else's PR or a remote branch, set upstream so plain `git pull`/`git push` work: `gh pr checkout <n>`, or `git checkout -B <branch> FETCH_HEAD && git branch --set-upstream-to=origin/<branch>`.
 - Force-push only on feature branches, never on `main`. Do not `--amend` a commit that is already pushed.
 
+## Stacked pull requests
+
+When a change has layers worth reviewing separately — a UI feature plus the permission model it needs, a refactor plus the behaviour built on it — split it into a **native GitHub stack** rather than one large PR. Each layer gets its own PR showing only its own diff, and layers can be reviewed in parallel.
+
+Use the `gh stack` extension (`gh extension install github/gh-stack`). Do **not** hand-roll a stack by opening a PR whose `--base` points at another feature branch: it looks the same on day one, but GitHub then won't rebase or retarget the upper layers for you, and this repo squash-merges (merge commits are disabled), so the lower layer's commit lingers in the upper branch and turns into a conflict.
+
+```bash
+gh stack init feat/lower feat/upper   # adopts existing branches, bottom to top
+gh stack submit                       # pushes and creates/links the PRs (--auto to skip the editor)
+gh stack view                         # see the stack and its PR links
+gh stack rebase && gh stack push      # cascading restack onto the latest main
+gh stack merge                        # land the stack, or merge layers individually
+```
+
+Notes worth knowing:
+
+- `gh stack init` **adopts** branches that already exist and finds their open PRs, so an already-split pair of PRs can be converted into a stack without losing descriptions, screenshots, or review history. `gh stack submit` then reports them "up to date" and just links them.
+- Order the layers so each one is independently shippable: the bottom layer must make sense on its own even if the top never lands.
+- Keep a file that both layers touch to a minimal edit in the upper one — that is where a restack conflict would surface.
+- `gh stack rebase` rebases onto `origin/main`. It warns and falls back harmlessly if another worktree has `main` checked out, which is normal in Conductor.
+- Once merged, GitHub rebases and retargets every layer above automatically; you do not need to retarget bases by hand.
+
 ## Syncing a feature branch with main
 
 **Default to a merge commit.** `git fetch origin && git merge origin/main` — it preserves the branch's existing commits and their pushed hashes, so review comments stay anchored, CI results stay valid, and nobody working from the branch has to recover from rewritten history.

@@ -305,6 +305,7 @@ When creating a new package in `packages/`, include these config files. Copy the
 - When syncing a feature branch with main, default to a merge commit; only rebase when it is required or clearly the better choice, and say why
 - When resolving conflicts involving `pnpm-lock.yaml`, just run `pnpm install` to automatically resolve them
 - Use the local `pull-request` skill for opening pull requests, writing/updating PR titles and descriptions, embedding screenshots in a PR body, and triggering e2e CI on a PR.
+- When a change splits into layers that are worth reviewing separately (e.g. a UI feature plus the new permission it needs), use GitHub's **native stacked pull requests** via the `gh stack` extension — never hand-roll a stack by pointing one PR's base at another branch. `gh stack init <bottom> <top>` adopts existing branches, `gh stack submit` creates/links the PRs, `gh stack rebase && gh stack push` restacks onto main, and `gh stack merge` lands the stack. GitHub rebases and retargets the layers above automatically as each one merges, which is what keeps a squash-merge repo like this one from conflicting
 - When writing pull request titles, use the conventional commit message format and limit to max 50 characters
 - Always open pull requests as normal ready-for-review PRs, not draft PRs, unless the user explicitly asks for a draft PR
 - When creating a pull request, always write/update both the PR title and description; if the PR's scope changes in later commits, update the title and description to reflect the final scope before handing it off
