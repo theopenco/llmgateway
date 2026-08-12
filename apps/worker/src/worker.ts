@@ -38,7 +38,9 @@ import { hasErrorCode } from "@llmgateway/models";
 import {
 	assertSafeWebhookUrl,
 	calculateFees,
+	getRemainingPremiumWeeklyAllowance,
 	isCreditTopUpAmountInRange,
+	isLoungeSource,
 	isPremiumUsedModel,
 	isPremiumWeekExpired,
 	isPrivateOrReservedIp,
@@ -76,6 +78,8 @@ import {
 	requestStop,
 	resetShutdown,
 } from "./shutdown.js";
+
+import type { DevPlanTier } from "@llmgateway/shared";
 
 // Configuration for current minute history calculation interval (defaults to 5 seconds)
 const CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS =
@@ -649,11 +653,13 @@ export async function processAutoTopUp(): Promise<void> {
 						off_session: true,
 						metadata: {
 							organizationId: org.id,
+							type: "credit_topup",
 							autoTopUp: "true",
 							transactionId: pendingTransaction.id,
 							baseAmount: feeBreakdown.baseAmount.toString(),
 							platformFee: feeBreakdown.platformFee.toString(),
 							internationalFee: feeBreakdown.internationalFee.toString(),
+							totalAmount: feeBreakdown.totalAmount.toString(),
 							isInternational: isInternational.toString(),
 							...(orgUser?.user?.email && { userEmail: orgUser.user.email }),
 						},
@@ -1058,8 +1064,8 @@ export async function batchProcessLogs(): Promise<number> {
 			// Group logs by organization and api key to calculate total costs.
 			// We split per-org costs into a chat bucket and a default bucket so
 			// the deduction step below can prefer chat-plan credits for requests
-			// originating from chat.llmgateway.io (matching how users mentally
-			// account for their plans), and dev-plan credits everywhere else.
+			// originating from Lounge (matching how users mentally account for
+			// their plans), and dev-plan credits everywhere else.
 			// Use Decimal.js to avoid floating point rounding errors.
 			interface OrgCostBuckets {
 				chat: Decimal;
@@ -1083,8 +1089,10 @@ export async function batchProcessLogs(): Promise<number> {
 			// adjustments on what the org pays us.
 			const providerKeyCosts = new Map<string, Decimal>();
 
-			const isChatSource = (source: string | null | undefined) =>
-				source === "chat.llmgateway.io";
+			// Accepts both the current and the pre-move Lounge host: logs written
+			// before the domain move are still queued here, and rewriting them is
+			// not an option.
+			const isChatSource = isLoungeSource;
 
 			for (const raw of unprocessedLogs.rows) {
 				const row = schema.parse(raw);
@@ -1145,6 +1153,36 @@ export async function batchProcessLogs(): Promise<number> {
 					);
 				}
 
+				const sourceBucket = isChatSource(row.source) ? "chat" : "other";
+
+				const addToBucket = (amount: Decimal, premium: boolean) => {
+					const existing = orgCosts.get(row.organization_id) ?? {
+						chat: new Decimal(0),
+						other: new Decimal(0),
+						chatPremium: new Decimal(0),
+						otherPremium: new Decimal(0),
+					};
+					existing[sourceBucket] = existing[sourceBucket].plus(amount);
+					if (premium) {
+						const premiumBucket =
+							sourceBucket === "chat" ? "chatPremium" : "otherPremium";
+						existing[premiumBucket] = existing[premiumBucket].plus(amount);
+					}
+					orgCosts.set(row.organization_id, existing);
+				};
+
+				// Data retention storage is billed separately from inference (log.cost
+				// never includes it), so it is deducted from org credits for every
+				// mode: credits, api-keys (BYOK) and wallet-backed end-user traffic
+				// alike — and also when inference itself was free or zeroed (e.g.
+				// unbilled refusals keep their storage cost).
+				if (row.data_storage_cost) {
+					const storageCost = new Decimal(row.data_storage_cost);
+					if (storageCost.greaterThan(0)) {
+						addToBucket(storageCost, false);
+					}
+				}
+
 				// Prefer the exact decimal billingCost (realtime and other
 				// decimal-billed rows) over the legacy float cost column.
 				const effectiveCost =
@@ -1187,39 +1225,14 @@ export async function batchProcessLogs(): Promise<number> {
 						continue;
 					}
 
-					const sourceBucket = isChatSource(row.source) ? "chat" : "other";
-
-					const addToBucket = (amount: Decimal, premium: boolean) => {
-						const existing = orgCosts.get(row.organization_id) ?? {
-							chat: new Decimal(0),
-							other: new Decimal(0),
-							chatPremium: new Decimal(0),
-							otherPremium: new Decimal(0),
-						};
-						existing[sourceBucket] = existing[sourceBucket].plus(amount);
-						if (premium) {
-							const premiumBucket =
-								sourceBucket === "chat" ? "chatPremium" : "otherPremium";
-							existing[premiumBucket] = existing[premiumBucket].plus(amount);
-						}
-						orgCosts.set(row.organization_id, existing);
-					};
-
-					// Deduct organization credits based on mode:
-					// - Credits mode: deduct full cost (includes request cost + storage cost)
-					// - API keys mode: only deduct storage cost (data retention billing)
+					// Inference cost: credits mode deducts the full cost from org
+					// credits; api-keys mode pays the provider directly (BYOK), so
+					// only the storage cost above is billed.
 					if (row.used_mode === "credits") {
 						addToBucket(
 							apiKeyCost,
 							Boolean(row.used_model && isPremiumUsedModel(row.used_model)),
 						);
-					} else if (row.used_mode === "api-keys") {
-						if (row.data_storage_cost) {
-							const storageCost = new Decimal(row.data_storage_cost);
-							if (storageCost.greaterThan(0)) {
-								addToBucket(storageCost, false);
-							}
-						}
 					}
 				}
 
@@ -1230,7 +1243,7 @@ export async function batchProcessLogs(): Promise<number> {
 			// Also calculate referral earnings (1% of spent credits).
 			//
 			// Deduction order is source-aware:
-			//   • chat.llmgateway.io requests → chat plan → dev plan → regular
+			//   • Lounge requests → chat plan → dev plan → regular
 			//   • everything else → dev plan → chat plan → regular
 			// The non-preferred plan acts as a fallback if the preferred plan's
 			// cycle credits are exhausted, so a single org with both plans gets
@@ -1355,9 +1368,40 @@ export async function batchProcessLogs(): Promise<number> {
 					premiumCost: Decimal,
 					preferred: PlanPool | null,
 					fallback: PlanPool | null,
-				): Promise<Decimal> => {
+				): Promise<{ remaining: Decimal; remainingPremium: Decimal }> => {
 					let remaining = bucketCost;
 					let remainingPremium = premiumCost;
+					// With PAYG overflow enabled, premium spend past the weekly
+					// fair-use allowance must not consume the plan pools: the gateway
+					// admits those requests on the strength of the credits balance, so
+					// the excess is held out of the pool drain here and falls through
+					// to the regular-credits remainder below. Without this the cap
+					// would stop limiting anything — over-cap premium would just keep
+					// draining the monthly pool.
+					// Scoped to buckets whose spend is the dev pool's to pay (its own
+					// bucket, or any bucket when there is no chat pool) — a dual-plan
+					// org's chat-sourced premium keeps draining the chat pool as before.
+					let premiumOverflow = new Decimal(0);
+					if (
+						org?.devPlanPaygEnabled &&
+						devPool &&
+						(preferred === devPool || !chatPool) &&
+						remainingPremium.greaterThan(0)
+					) {
+						const allowanceLeft = new Decimal(
+							getRemainingPremiumWeeklyAllowance(
+								org.devPlan as DevPlanTier,
+								devPool.premiumCreditsUsed?.toNumber() ?? 0,
+								devPool.premiumWeekStart,
+							),
+						);
+						premiumOverflow = Decimal.max(
+							0,
+							remainingPremium.minus(allowanceLeft),
+						);
+						remaining = remaining.minus(premiumOverflow);
+						remainingPremium = remainingPremium.minus(premiumOverflow);
+					}
 					for (const pool of [preferred, fallback]) {
 						if (!pool || remaining.lessThanOrEqualTo(0)) {
 							continue;
@@ -1374,30 +1418,57 @@ export async function batchProcessLogs(): Promise<number> {
 						remaining = remaining.minus(take);
 						remainingPremium = remainingPremium.minus(premiumTake);
 					}
-					return remaining;
+					return {
+						remaining: remaining.plus(premiumOverflow),
+						remainingPremium,
+					};
 				};
 
-				const remainingFromChat = buckets.chat.greaterThan(0)
+				const fromChat = buckets.chat.greaterThan(0)
 					? await drainBucket(
 							buckets.chat,
 							buckets.chatPremium,
 							chatPool,
 							devPool,
 						)
-					: new Decimal(0);
+					: { remaining: new Decimal(0), remainingPremium: new Decimal(0) };
 
-				const remainingFromOther = buckets.other.greaterThan(0)
+				const fromOther = buckets.other.greaterThan(0)
 					? await drainBucket(
 							buckets.other,
 							buckets.otherPremium,
 							devPool,
 							chatPool,
 						)
-					: new Decimal(0);
+					: { remaining: new Decimal(0), remainingPremium: new Decimal(0) };
 
-				const remainingCost = remainingFromChat.plus(remainingFromOther);
+				const remainingCost = fromChat.remaining.plus(fromOther.remaining);
 
-				if (remainingCost.greaterThan(0)) {
+				// A dev-plan org that has not opted into pay-as-you-go overflow
+				// cannot spend its `credits` balance: getAvailableCredits zeroes
+				// that pool, so the gateway rejects the request rather than
+				// billing it. Draining `credits` here would therefore charge a
+				// balance the org was never allowed to use — silently eating an
+				// admin gift, or pushing an empty balance negative so a later
+				// top-up first pays off phantom debt. The overshoot exists
+				// because requests admitted while the pool still had room can
+				// collectively cost more than was left, so keep it on the plan
+				// pool: usage stays accounted for and the allowance stays the
+				// hard cap the plan promises.
+				const plannedOverflowOnly =
+					org && org.devPlan !== "none" && !org.devPlanPaygEnabled;
+
+				if (remainingCost.greaterThan(0) && plannedOverflowOnly && devPool) {
+					await deductFromPlanPool(
+						orgId,
+						devPool,
+						remainingCost,
+						fromChat.remainingPremium.plus(fromOther.remainingPremium),
+					);
+					logger.debug(
+						`Kept ${remainingCost.toString()} on the dev plan pool for organization ${orgId} (pay-as-you-go overflow disabled)`,
+					);
+				} else if (remainingCost.greaterThan(0)) {
 					const costStr = remainingCost.toString();
 					await tx
 						.update(organization)

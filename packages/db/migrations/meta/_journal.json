@@ -1555,6 +1555,55 @@
       "when": 1786115489851,
       "tag": "1786115489_motionless_fallen_one",
       "breakpoints": true
+    },
+    {
+      "idx": 222,
+      "version": "8",
+      "when": 1786134931147,
+      "tag": "1786134931_third_squadron_supreme",
+      "breakpoints": true
+    },
+    {
+      "idx": 223,
+      "version": "8",
+      "when": 1786136603962,
+      "tag": "1786136603_warm_omega_flight",
+      "breakpoints": true
+    },
+    {
+      "idx": 224,
+      "version": "8",
+      "when": 1786140948063,
+      "tag": "1786140948_overconfident_fabian_cortez",
+      "breakpoints": true
+    },
+    {
+      "idx": 225,
+      "version": "8",
+      "when": 1786186543748,
+      "tag": "1786186543_aromatic_morbius",
+      "breakpoints": true
+    },
+    {
+      "idx": 226,
+      "version": "8",
+      "when": 1786189936133,
+      "tag": "1786189936_fat_darkhawk",
+      "breakpoints": true
+    },
+    {
+      "idx": 227,
+      "version": "8",
+      "when": 1786284875565,
+      "tag": "1786284875_eager_meltdown",
+      "breakpoints": true
+    },
+    {
+      "idx": 228,
+      "version": "8",
+      "when": 1786398375414,
+      "tag": "1786398375_pretty_hedge_knight",
+      "breakpoints": true
     }
   ]
 }

@@ -78,6 +78,12 @@ function daysAgo(days: number) {
 	/* eslint-enable no-mixed-operators */
 }
 
+function daysFromNow(days: number) {
+	/* eslint-disable no-mixed-operators */
+	return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+	/* eslint-enable no-mixed-operators */
+}
+
 function hoursAgo(hours: number) {
 	/* eslint-disable no-mixed-operators */
 	return new Date(Date.now() - hours * 60 * 60 * 1000);
@@ -254,6 +260,11 @@ const EXTRA_ORGS: Array<{
 	status: "active" | "inactive";
 	kind: "default" | "chat" | "devpass";
 	createdAt: Date;
+	// Enterprise contract window, so the dashboard countdown and the admin
+	// panel have terms in every urgency band to render.
+	planTermDays?: { started: number; endsIn: number };
+	// Active enterprise trial, so the trial countdown has data to render.
+	trialDays?: { started: number; endsIn: number };
 }> = [
 	{
 		id: "org-techcorp",
@@ -287,6 +298,7 @@ const EXTRA_ORGS: Array<{
 		status: "active",
 		kind: "default",
 		createdAt: daysAgo(365),
+		planTermDays: { started: 347, endsIn: 18 },
 	},
 	{
 		id: "org-cloudnative",
@@ -309,6 +321,7 @@ const EXTRA_ORGS: Array<{
 		status: "active",
 		kind: "default",
 		createdAt: daysAgo(270),
+		planTermDays: { started: 361, endsIn: 4 },
 	},
 	{
 		id: "org-webagency",
@@ -331,6 +344,7 @@ const EXTRA_ORGS: Array<{
 		status: "active",
 		kind: "default",
 		createdAt: daysAgo(400),
+		planTermDays: { started: 165, endsIn: 200 },
 	},
 	{
 		id: "org-robotics",
@@ -397,6 +411,7 @@ const EXTRA_ORGS: Array<{
 		status: "active",
 		kind: "default",
 		createdAt: daysAgo(450),
+		trialDays: { started: 18, endsIn: 12 },
 	},
 	{
 		id: "org-analytics",
@@ -1896,8 +1911,17 @@ async function seed() {
 		const streamedCount = Math.floor(baseRequests * randomFloat(0.6, 0.95));
 		const inputTokens = baseRequests * randomInt(900, 6000);
 		const outputTokens = baseRequests * randomInt(200, 2200);
-		const costPerReq = randomFloat(0.02, 0.18);
-		const totalCost = baseRequests * costPerReq;
+		// Vary the cache-hit share widely so the usage chart's token/cost
+		// breakdown shows hours where a big token total is cheap (mostly cached)
+		// next to hours where a smaller total is expensive (fresh input + output).
+		const hourCachedTokens = Math.floor(inputTokens * randomFloat(0.05, 0.85));
+		// Derive costs from the token mix at plausible per-token rates so the
+		// per-class costs and the total reconcile ($3/M fresh input, $0.30/M
+		// cached input, $15/M output).
+		const hourInputCost = (inputTokens - hourCachedTokens) * 3e-6;
+		const hourCachedInputCost = hourCachedTokens * 0.3e-6;
+		const hourOutputCost = outputTokens * 15e-6;
+		const totalCost = hourInputCost + hourCachedInputCost + hourOutputCost;
 		devpassHourlyStats.push({
 			id: `devpass-phs-${h}`,
 			projectId: "test-personal-project-id",
@@ -1920,16 +1944,16 @@ async function seed() {
 			outputTokens: String(outputTokens),
 			totalTokens: String(inputTokens + outputTokens),
 			reasoningTokens: "0",
-			cachedTokens: String(Math.floor(inputTokens * 0.15)),
+			cachedTokens: String(hourCachedTokens),
 			cost: Number(totalCost.toFixed(4)),
-			inputCost: Number((totalCost * 0.55).toFixed(4)),
-			outputCost: Number((totalCost * 0.4).toFixed(4)),
-			requestCost: Number((totalCost * 0.05).toFixed(4)),
+			inputCost: Number(hourInputCost.toFixed(4)),
+			outputCost: Number(hourOutputCost.toFixed(4)),
+			requestCost: 0,
 			dataStorageCost: 0,
 			discountSavings: 0,
 			imageInputCost: 0,
 			imageOutputCost: 0,
-			cachedInputCost: 0,
+			cachedInputCost: Number(hourCachedInputCost.toFixed(4)),
 			creditsRequestCount: baseRequests,
 			apiKeysRequestCount: 0,
 			creditsCost: Number(totalCost.toFixed(4)),
@@ -2119,6 +2143,8 @@ async function seed() {
 		credits: 1000,
 		retentionLevel: "retain",
 		plan: "enterprise",
+		planStartedAt: daysAgo(300),
+		planExpiresAt: daysFromNow(65),
 	});
 
 	await upsert(tables.userOrganization, {
@@ -2298,6 +2324,15 @@ async function seed() {
 							: "none",
 			status: org.status,
 			kind: org.kind,
+			planStartedAt: org.planTermDays
+				? daysAgo(org.planTermDays.started)
+				: null,
+			planExpiresAt: org.planTermDays
+				? daysFromNow(org.planTermDays.endsIn)
+				: null,
+			isTrialActive: Boolean(org.trialDays),
+			trialStartDate: org.trialDays ? daysAgo(org.trialDays.started) : null,
+			trialEndDate: org.trialDays ? daysFromNow(org.trialDays.endsIn) : null,
 			devPlan: org.devPlan,
 			devPlanCreditsUsed:
 				org.devPlan !== "none" ? String(randomFloat(0, 20)) : "0",

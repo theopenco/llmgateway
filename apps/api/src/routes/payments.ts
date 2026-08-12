@@ -697,9 +697,11 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 			off_session: true,
 			metadata: {
 				organizationId: userOrganization.organization.id,
+				type: "credit_topup",
 				baseAmount: amount.toString(),
 				platformFee: feeBreakdown.platformFee.toString(),
 				internationalFee: feeBreakdown.internationalFee.toString(),
+				totalAmount: feeBreakdown.totalAmount.toString(),
 				isInternational: isInternational.toString(),
 				userEmail: user.email,
 				userId: user.id,
@@ -878,11 +880,25 @@ payments.openapi(createCheckoutSession, async (c) => {
 		cancelUrl = `${defaultBillingUrl}?canceled=true`;
 	}
 
-	// IMPORTANT: Metadata is intentionally set on the session only, NOT via
-	// payment_intent_data.metadata. This prevents handlePaymentIntentSucceeded
-	// from also processing this payment (it returns early when baseAmount is
-	// missing from the PaymentIntent metadata). Adding payment_intent_data.metadata
-	// here would cause double-crediting. See handleCreditTopUpCheckout in stripe.ts.
+	// The same metadata goes on the Checkout Session and on its PaymentIntent so
+	// the charge is attributable in the Stripe dashboard (organization, credits,
+	// gross, fees) instead of showing up bare. `source: "stripe_checkout"` marks
+	// the PaymentIntent as owned by the checkout.session.completed webhook:
+	// handlePaymentIntentSucceeded returns early on it, so the top-up is credited
+	// exactly once. See handleCreditTopUpCheckout in stripe.ts.
+	const topUpMetadata = {
+		organizationId,
+		type: "credit_topup",
+		baseAmount: amount.toString(),
+		platformFee: feeBreakdown.platformFee.toString(),
+		// Always 0 here: the checkout page collects the card itself, so the
+		// international-card fee is unknown up front and is not charged on this path.
+		internationalFee: feeBreakdown.internationalFee.toString(),
+		totalAmount: feeBreakdown.totalAmount.toString(),
+		userEmail: user.email,
+		userId: user.id,
+	};
+
 	const session = await getStripe().checkout.sessions.create({
 		customer: stripeCustomerId,
 		mode: "payment",
@@ -901,13 +917,13 @@ payments.openapi(createCheckoutSession, async (c) => {
 		],
 		success_url: successUrl,
 		cancel_url: cancelUrl,
-		metadata: {
-			organizationId,
-			type: "credit_topup",
-			baseAmount: amount.toString(),
-			platformFee: feeBreakdown.platformFee.toString(),
-			userEmail: user.email,
-			userId: user.id,
+		metadata: topUpMetadata,
+		payment_intent_data: {
+			description: `Credit purchase for ${amount} USD (including fees)`,
+			metadata: {
+				...topUpMetadata,
+				source: "stripe_checkout",
+			},
 		},
 	});
 

@@ -25,6 +25,11 @@ describe("detectCodingAgentFromUserAgent", () => {
 		expect(detectCodingAgentFromUserAgent("codex_cli_rs/0.4.2")).toBe("codex");
 		expect(detectCodingAgentFromUserAgent("codex-cli/2.1.0")).toBe("codex");
 		expect(detectCodingAgentFromUserAgent("codex/3.0.0 node/22")).toBe("codex");
+		expect(
+			detectCodingAgentFromUserAgent(
+				"codex_vscode/0.147.0-alpha.6.5 (Ubuntu 24.4.0; x86_64) unknown (VS Code; 26.803.41515)",
+			),
+		).toBe("codex");
 	});
 
 	it("detects OpenCode", () => {
@@ -64,6 +69,7 @@ describe("detectCodingAgentFromUserAgent", () => {
 	it("detects n8n", () => {
 		expect(detectCodingAgentFromUserAgent("n8n/1.50.0")).toBe("n8n");
 		expect(detectCodingAgentFromUserAgent("n8n-workflow runner")).toBe("n8n");
+		expect(detectCodingAgentFromUserAgent("n8n")).toBe("n8n");
 	});
 
 	it("detects OpenClaw", () => {
@@ -126,6 +132,37 @@ describe("detectCodingAgentFromUserAgent", () => {
 	it("detects Pi Agent", () => {
 		expect(detectCodingAgentFromUserAgent("pi-agent/1.0.0")).toBe("pi-agent");
 		expect(detectCodingAgentFromUserAgent("pi_agent/2.0")).toBe("pi-agent");
+		expect(detectCodingAgentFromUserAgent("pi-coding-agent")).toBe("pi-agent");
+	});
+
+	it("detects Crush", () => {
+		expect(
+			detectCodingAgentFromUserAgent(
+				"Charm-Crush/v0.87.0 (https://charm.land/crush)",
+			),
+		).toBe("crush");
+		expect(detectCodingAgentFromUserAgent("crush/0.88.0")).toBe("crush");
+	});
+
+	it("detects Kimi Code", () => {
+		expect(detectCodingAgentFromUserAgent("kimi-code-cli/0.34.0")).toBe(
+			"kimi-code",
+		);
+		expect(detectCodingAgentFromUserAgent("kimi-cli/1.0.0")).toBe("kimi-code");
+	});
+
+	it("detects Qwen Code", () => {
+		expect(detectCodingAgentFromUserAgent("QwenCode/0.21.5 (linux; x64)")).toBe(
+			"qwen-code",
+		);
+		expect(detectCodingAgentFromUserAgent("qwen-code/1.0")).toBe("qwen-code");
+	});
+
+	it("detects Factory Droid", () => {
+		expect(detectCodingAgentFromUserAgent("factory-cli/0.190.0")).toBe(
+			"factory-droid",
+		);
+		expect(detectCodingAgentFromUserAgent("droid/1.2.3")).toBe("factory-droid");
 	});
 
 	it("detects Hermes Agent", () => {
@@ -155,6 +192,27 @@ describe("detectCodingAgentFromUserAgent", () => {
 		expect(detectCodingAgentFromUserAgent("axios/1.6.5")).toBeUndefined();
 		expect(
 			detectCodingAgentFromUserAgent("python-requests/2.31"),
+		).toBeUndefined();
+	});
+
+	it("leaves generic SDKs and proxies unattributed", () => {
+		expect(
+			detectCodingAgentFromUserAgent(
+				"ai/6.0.168 ai-sdk/provider-utils/4.0.23 runtime/node.js/26",
+			),
+		).toBeUndefined();
+		expect(
+			detectCodingAgentFromUserAgent("AsyncOpenAI/Python 2.32.0"),
+		).toBeUndefined();
+		expect(detectCodingAgentFromUserAgent("OpenAI/JS 6.47.0")).toBeUndefined();
+		expect(detectCodingAgentFromUserAgent("litellm/1.90.1")).toBeUndefined();
+		expect(
+			detectCodingAgentFromUserAgent("cli-proxy-openai-compat"),
+		).toBeUndefined();
+		expect(
+			detectCodingAgentFromUserAgent(
+				"langchainjs-openai/1.0.0 ((node/v24.16.0; linux; x64))",
+			),
 		).toBeUndefined();
 	});
 });

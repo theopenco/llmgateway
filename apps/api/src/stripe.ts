@@ -2049,9 +2049,17 @@ async function handleCreditTopUpCheckout(session: Stripe.Checkout.Session) {
 		purchaserUserId: resolvedUser?.id ?? null,
 	});
 
-	if (userEmail) {
-		await notifyCreditsPurchased(userEmail, resolvedUser?.name, creditAmount);
-	}
+	await notifyCreditsPurchased({
+		email: userEmail ?? organization.billingEmail,
+		name: resolvedUser?.name,
+		creditAmount,
+		bonusAmount,
+		grossAmount: totalAmountInDollars,
+		currency: (session.currency ?? "USD").toUpperCase(),
+		organizationId,
+		organizationName: organization.name,
+		source: "stripe_checkout",
+	});
 
 	logger.info(
 		`Added ${finalCreditAmount} credits to organization ${organizationId} via Stripe Checkout (paid $${totalAmountInDollars} including fees)`,
@@ -2689,6 +2697,14 @@ async function handlePaymentIntentSucceeded(
 		return;
 	}
 
+	// Credit top-ups paid through Stripe Checkout are fulfilled by
+	// checkout.session.completed (handleCreditTopUpCheckout). Their PaymentIntent
+	// carries the same metadata only so the charge is attributable in the Stripe
+	// dashboard — crediting it here as well would double-credit the organization.
+	if (paymentIntent.metadata.source === "stripe_checkout") {
+		return;
+	}
+
 	// payment_intent.succeeded also fires for subscription invoice payments;
 	// only credit top-up payment intents set baseAmount in metadata.
 	if (paymentIntent.metadata.baseAmount === undefined) {
@@ -2903,9 +2919,17 @@ async function handlePaymentIntentSucceeded(
 		});
 	}
 
-	if (userEmail) {
-		await notifyCreditsPurchased(userEmail, resolvedUser?.name, creditAmount);
-	}
+	await notifyCreditsPurchased({
+		email: userEmail ?? organization.billingEmail,
+		name: resolvedUser?.name,
+		creditAmount,
+		bonusAmount,
+		grossAmount: totalAmountInDollars,
+		currency: paymentIntent.currency.toUpperCase(),
+		organizationId,
+		organizationName: organization.name,
+		source: transactionId ? "auto_topup" : "payment_intent",
+	});
 
 	logger.info(
 		`Added credits to organization ${organizationId} (paid ${totalAmountInDollars} including fees)`,
@@ -2994,9 +3018,14 @@ export async function handlePaymentIntentFailed(
 	// subscription invoice intents carry neither. Failure tracking above
 	// (paymentFailure row + dunning email) still runs for subscription invoices,
 	// and dev/chat plan credit freezes are handled in handleInvoicePaymentFailed.
+	// Checkout-sourced top-ups are excluded as well: the Stripe-hosted page lets
+	// the customer retry a declined card on the same PaymentIntent, so recording a
+	// row per failure would spam the billing history, and no transaction exists
+	// until checkout.session.completed fulfils the payment.
 	const transactionId = metadata?.transactionId;
 	const isCreditTopup =
-		metadata?.baseAmount !== undefined || transactionId !== undefined;
+		(metadata?.baseAmount !== undefined || transactionId !== undefined) &&
+		metadata?.source !== "stripe_checkout";
 	if (isCreditTopup) {
 		if (transactionId) {
 			// Update existing pending transaction to failed
@@ -3723,6 +3752,15 @@ export async function handleInvoicePaymentSucceeded(event: {
 	const isChatPlanUpgradeInvoice =
 		isChatPlanSubscription && invoice.billing_reason === "subscription_update";
 
+	// Stripe does not order webhooks: the first invoice of a brand new Lounge
+	// membership can arrive before the `checkout.session.completed` that
+	// activates the chat plan, in which case none of the org's chat fields point
+	// at this subscription yet. Recognise it from the subscription metadata the
+	// checkout set so it isn't mistaken for a Pro subscription below.
+	const isInitialChatPlanSubscription =
+		subscriptionMetadata.subscriptionType === "chat_plan" &&
+		!isChatPlanSubscription;
+
 	logger.info(
 		`Found organization: ${organization.name} (${organization.id}), current plan: ${organization.plan}, billingReason: ${invoice.billing_reason}, isDevPlanRenewal: ${isDevPlanRenewal}, isChatPlanRenewal: ${isChatPlanRenewal}`,
 	);
@@ -4321,6 +4359,25 @@ export async function handleInvoicePaymentSucceeded(event: {
 		// plan and email a Pro invoice.
 		logger.info(
 			`Skipping non-renewal chat plan invoice for organization ${organizationId} (billingReason: ${invoice.billing_reason})`,
+		);
+	} else if (isInitialChatPlanSubscription) {
+		// First invoice of a new Lounge membership, delivered before its
+		// `checkout.session.completed`. Skip it: the checkout handler owns the
+		// activation (including the duplicate-card check) and records the
+		// `chat_plan_start` row keyed on this same invoice id. Falling through to
+		// the Pro handler instead used to write a `subscription_start` row against
+		// the chat org, which the checkout handler then skipped as "already
+		// recorded" — leaving the membership with a payment row that is not a
+		// self-refund candidate, so the member never saw a Refund button.
+		logger.info(
+			`Skipping initial chat plan invoice ${invoice.id} for organization ${organizationId}; checkout.session.completed records it`,
+		);
+	} else if (organization.kind !== "default") {
+		// Pro is only sold to regular dashboard orgs; devpass/chat orgs use their
+		// product-specific plan fields. Mirrors the same guard in the checkout
+		// handler so a stray subscription invoice can never flip them to "pro".
+		logger.warn(
+			`Skipping plan: "pro" for ${organization.kind} org ${organizationId} (invoice ${invoice.id}) - non-default orgs use product-specific plan fields`,
 		);
 	} else {
 		// Handle regular pro subscription

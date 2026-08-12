@@ -46,6 +46,11 @@ auth:
   # -- (required) HMAC secret for hashing API keys and deriving the BYOK
   # encryption-at-rest data key
   gatewayApiKeyHashSecret: "change-me-to-a-random-secret"
+  # -- Shared secret letting the API tell the gateway a request is the
+  # onboarding wizard's first call, which is served without charging for it. A
+  # brand new organization has 0 credits, so without this the first thing a user
+  # does returns a 402. Leave empty to bill that call normally.
+  onboardingSponsorSecret: ""
   # -- Cookie domain for session cookies
   cookieDomain: ""
   # -- Comma-separated list of allowed CORS origins

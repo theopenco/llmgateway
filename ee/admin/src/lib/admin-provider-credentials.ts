@@ -1,5 +1,6 @@
 "use server";
 
+import { apiErrorMessage, thrownErrorMessage } from "./api-error";
 import { createServerApiClient } from "./server-api";
 
 import type { paths } from "./api/v1";
@@ -46,8 +47,38 @@ interface MutationResult {
 	error?: string;
 }
 
-function toErrorMessage(error: unknown, fallback: string): string {
-	return (error as { message?: string } | undefined)?.message ?? fallback;
+interface FetchOutcome<T> {
+	data?: T;
+	error?: unknown;
+	response: Response;
+}
+
+/**
+ * Runs one API call and reduces it to `{ success, error?, result? }`, keeping
+ * hold of the reason it failed. Both halves matter to the caller: an error
+ * response carries its message in one of several envelopes, and a request that
+ * throws would otherwise leave the server action with an opaque failure.
+ */
+async function request<T>(
+	fallback: string,
+	call: () => Promise<FetchOutcome<T>>,
+	isSuccess: (data: T) => boolean = () => true,
+): Promise<MutationResult & { result?: T }> {
+	let outcome: FetchOutcome<T>;
+	try {
+		outcome = await call();
+	} catch (cause) {
+		return { success: false, error: thrownErrorMessage(cause, fallback) };
+	}
+
+	const { data, error, response } = outcome;
+	if (error || !data || !isSuccess(data)) {
+		return {
+			success: false,
+			error: apiErrorMessage(error, fallback, response),
+		};
+	}
+	return { success: true, result: data };
 }
 
 export async function getProviderCredentials() {
@@ -66,16 +97,10 @@ export async function createProviderCredential(
 	body: CredentialInput,
 ): Promise<MutationResult> {
 	const $api = await createServerApiClient();
-	const { data, error } = await $api.POST("/admin/provider-credentials", {
-		body,
-	});
-	if (error || !data) {
-		return {
-			success: false,
-			error: toErrorMessage(error, "Failed to create credential"),
-		};
-	}
-	return { success: true };
+	const { success, error } = await request("Failed to create credential", () =>
+		$api.POST("/admin/provider-credentials", { body }),
+	);
+	return { success, error };
 }
 
 export async function updateProviderCredential(
@@ -93,36 +118,28 @@ export async function updateProviderCredential(
 	},
 ): Promise<MutationResult> {
 	const $api = await createServerApiClient();
-	const { data, error } = await $api.PATCH("/admin/provider-credentials/{id}", {
-		params: { path: { id } },
-		body,
-	});
-	if (error || !data) {
-		return {
-			success: false,
-			error: toErrorMessage(error, "Failed to update credential"),
-		};
-	}
-	return { success: true };
+	const { success, error } = await request("Failed to update credential", () =>
+		$api.PATCH("/admin/provider-credentials/{id}", {
+			params: { path: { id } },
+			body,
+		}),
+	);
+	return { success, error };
 }
 
 export async function deleteProviderCredential(
 	id: string,
 ): Promise<MutationResult> {
 	const $api = await createServerApiClient();
-	const { data, error } = await $api.DELETE(
-		"/admin/provider-credentials/{id}",
-		{
-			params: { path: { id } },
-		},
+	const { success, error } = await request(
+		"Failed to delete credential",
+		() =>
+			$api.DELETE("/admin/provider-credentials/{id}", {
+				params: { path: { id } },
+			}),
+		(data) => data.success,
 	);
-	if (error || !data?.success) {
-		return {
-			success: false,
-			error: toErrorMessage(error, "Failed to delete credential"),
-		};
-	}
-	return { success: true };
+	return { success, error };
 }
 
 /**
@@ -133,17 +150,9 @@ export async function selfTestProviderCredential(
 	body: CredentialTestInput,
 ): Promise<MutationResult & { result?: ProviderCredentialSelfTestResult }> {
 	const $api = await createServerApiClient();
-	const { data, error } = await $api.POST(
-		"/admin/provider-credentials/self-test",
-		{ body },
+	return await request("Failed to test credential", () =>
+		$api.POST("/admin/provider-credentials/self-test", { body }),
 	);
-	if (error || !data) {
-		return {
-			success: false,
-			error: toErrorMessage(error, "Failed to test credential"),
-		};
-	}
-	return { success: true, result: data };
 }
 
 /**
@@ -154,17 +163,9 @@ export async function verifyProviderCredentialModels(
 	body: CredentialTestInput & { models: string[] },
 ): Promise<MutationResult & { result?: ProviderCredentialModelVerification }> {
 	const $api = await createServerApiClient();
-	const { data, error } = await $api.POST(
-		"/admin/provider-credentials/verify-models",
-		{ body },
+	return await request("Failed to verify models", () =>
+		$api.POST("/admin/provider-credentials/verify-models", { body }),
 	);
-	if (error || !data) {
-		return {
-			success: false,
-			error: toErrorMessage(error, "Failed to verify models"),
-		};
-	}
-	return { success: true, result: data };
 }
 
 /**
@@ -176,14 +177,12 @@ export async function reorderProviderCredentials(
 	credentialIds: string[],
 ): Promise<MutationResult> {
 	const $api = await createServerApiClient();
-	const { data, error } = await $api.PUT("/admin/provider-credentials/order", {
-		body: { provider, credentialIds },
-	});
-	if (error || !data) {
-		return {
-			success: false,
-			error: toErrorMessage(error, "Failed to save credential order"),
-		};
-	}
-	return { success: true };
+	const { success, error } = await request(
+		"Failed to save credential order",
+		() =>
+			$api.PUT("/admin/provider-credentials/order", {
+				body: { provider, credentialIds },
+			}),
+	);
+	return { success, error };
 }

@@ -1,3 +1,5 @@
+import { LegalSummary } from "@/components/LegalSummary";
+
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -16,6 +18,7 @@ export default function PrivacyPage() {
 				<br />
 				<strong>Last Updated:</strong> August 2, 2026
 			</p>
+			<LegalSummary variant="privacy" />
 			<p>
 				This Supplemental Privacy Policy describes how{" "}
 				<strong>LLM Gateway</strong> (&ldquo;we&rdquo;, &ldquo;our&rdquo;, or

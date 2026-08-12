@@ -121,6 +121,13 @@ const organizationSchema = z.object({
 	credits: z.string(),
 	plan: z.enum(["free", "pro", "enterprise"]),
 	planExpiresAt: z.date().nullable(),
+	// Start of the current plan term; null when it was never recorded.
+	planStartedAt: z.date().nullable(),
+	// Enterprise trial window. While `isTrialActive` is set, the trial end is
+	// the date that decides whether the org keeps its enterprise features.
+	isTrialActive: z.boolean(),
+	trialStartDate: z.date().nullable(),
+	trialEndDate: z.date().nullable(),
 	// Manual seat-limit override; null = use the plan default.
 	seats: z.number().nullable(),
 	// Manual API-key-limit override; null = use the plan default.
@@ -136,7 +143,7 @@ const organizationSchema = z.object({
 	referralBonusEnabled: z.boolean(),
 	referralBonusPercent: z.string(),
 	// Organization kind: "default" (regular dashboard org), "devpass" (per-user
-	// Dev Plans org), or "chat" (per-user chat.llmgateway.io org).
+	// Dev Plans org), or "chat" (per-user lounge.llmgateway.io org).
 	kind: z.enum(["default", "chat", "devpass"]),
 	devPlan: z.enum(["none", "lite", "pro", "max"]),
 	devPlanCycle: z.enum(["monthly", "annual"]),
@@ -271,6 +278,7 @@ const transactionSchema = z.object({
 		"credit_topup",
 		"credit_refund",
 		"credit_gift",
+		"credit_manual_payment",
 		"dev_plan_start",
 		"dev_plan_upgrade",
 		"dev_plan_downgrade",
@@ -1019,7 +1027,7 @@ organization.openapi(deleteOrganization, async (c) => {
 	if (userOrganization.organization?.kind === "chat") {
 		throw new HTTPException(403, {
 			message:
-				"The Chat organization cannot be deleted. Please cancel your chat plan from the chat.llmgateway.io pricing page instead.",
+				"The Chat organization cannot be deleted. Please cancel your chat plan from the lounge.llmgateway.io pricing page instead.",
 		});
 	}
 

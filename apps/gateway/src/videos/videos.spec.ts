@@ -9,6 +9,7 @@ import {
 } from "@/test-utils/mock-openai-server.js";
 
 import { cdb, db, eq, tables } from "@llmgateway/db";
+import { buildGatewayVideoLogContentUrl } from "@llmgateway/shared";
 
 describe("videos", () => {
 	const harness = createGatewayApiTestHarness();
@@ -407,7 +408,9 @@ describe("videos", () => {
 		const json = await res.json();
 		expect(json.error.message).toContain("Invalid image input");
 		expect(json.error.message).toContain("Image size");
-		expect(json.error.message).toContain("exceeds your current limit");
+		expect(json.error.message).toContain(
+			"exceeds the 20MB limit for image inputs",
+		);
 
 		const logs = await db.query.log.findMany({
 			where: { requestId: { eq: requestId } },
@@ -870,7 +873,7 @@ describe("videos", () => {
 		expect(totalCosts[1]).toBeCloseTo(expectedCost, 6);
 	});
 
-	test("/v1/videos restricts reference inputs to Seedance 2.0 models", async () => {
+	test("/v1/videos restricts reference inputs to Seedance 2.x models", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			token: "real-token",
@@ -896,7 +899,7 @@ describe("videos", () => {
 
 		expect(res.status).toBe(400);
 		const json = await res.json();
-		expect(JSON.stringify(json)).toContain("Seedance 2.0");
+		expect(JSON.stringify(json)).toContain("Seedance 2.x");
 	});
 
 	test("/v1/videos forwards up to nine reference images to Seedance 2.0 Fast", async () => {
@@ -945,6 +948,105 @@ describe("videos", () => {
 
 		const mockVideo = getMockVideo(videoJob!.upstreamId);
 		expect(mockVideo?.referenceImages).toHaveLength(9);
+	});
+
+	test("/v1/videos routes Seedance 2.5 with its own resolution and duration range", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-bytedance-key",
+			provider: "bytedance",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "seedance-2-5",
+				prompt: "A long single-shot walk through a night market",
+				size: "848x480",
+				seconds: 30,
+				audio: false,
+				reference_videos: ["https://example.com/reference-motion.mp4"],
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(videoJob?.usedProvider).toBe("bytedance");
+		expect(videoJob?.usedModel).toBe("dreamina-seedance-2-5-260628");
+
+		const mockVideo = getMockVideo(videoJob!.upstreamId);
+		expect(mockVideo?.resolution).toBe("480p");
+		expect(mockVideo?.duration).toBe(30);
+		expect(mockVideo?.ratio).toBe("16:9");
+		expect(mockVideo?.referenceVideoUrls).toEqual([
+			"https://example.com/reference-motion.mp4",
+		]);
+	});
+
+	test("/v1/videos rejects 4K and over-30s durations on Seedance 2.5", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			token: "real-token",
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			token: "sk-bytedance-key",
+			provider: "bytedance",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const fourKRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "bytedance/seedance-2-5",
+				prompt: "A night market",
+				size: "3840x2160",
+				seconds: 4,
+			}),
+		});
+		expect(fourKRes.status).toBe(400);
+
+		const tooLongRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "bytedance/seedance-2-5",
+				prompt: "A night market",
+				size: "1280x720",
+				seconds: 31,
+			}),
+		});
+		expect(tooLongRes.status).toBe(400);
 	});
 
 	test("/v1/videos rejects more than nine reference images on Seedance 2.0 Fast", async () => {
@@ -1409,9 +1511,7 @@ describe("videos", () => {
 		);
 
 		expect(logs[0].usedModelMapping).toBe("veo3_fast");
-		expect(logs[0].content).toBe(
-			`http://localhost:4001/v1/videos/logs/${logs[0].id}/content`,
-		);
+		expect(logs[0].content).toBe(buildGatewayVideoLogContentUrl(logs[0].id));
 		expect(logs[0].requestCost).toBe(0);
 		expect(logs[0].videoOutputCost).toBe(2.8);
 		expect(logs[0].cost).toBe(2.8);
@@ -1685,9 +1785,7 @@ describe("videos", () => {
 			);
 
 			expect(logs[0].usedModelMapping).toBe("veo-3.1-generate-001");
-			expect(logs[0].content).toBe(
-				`http://localhost:4001/v1/videos/logs/${logs[0].id}/content`,
-			);
+			expect(logs[0].content).toBe(buildGatewayVideoLogContentUrl(logs[0].id));
 			expect(logs[0].videoOutputCost).toBe(4.8);
 			expect(logs[0].cost).toBe(4.8);
 		} finally {
@@ -2078,7 +2176,7 @@ describe("videos", () => {
 		expect(res.status).toBe(400);
 		const json = await res.json();
 		expect(JSON.stringify(json)).toContain(
-			"frame inputs are currently only supported on bytedance Seedance 2.0",
+			"frame inputs are currently only supported on bytedance Seedance 2.x",
 		);
 	});
 

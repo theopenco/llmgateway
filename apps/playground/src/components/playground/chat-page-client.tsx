@@ -764,8 +764,10 @@ export default function ChatPageClient({
 
 			// Always forward the user's quality choice (including "auto") so it
 			// surfaces in the activity log; the gateway treats "auto" as a no-op
-			// upstream.
-			const includeQuality = isGptImage && !!imageQuality;
+			// upstream. getModelImageConfig owns which models expose the control,
+			// so it stays the single source of truth for both playground surfaces.
+			const includeQuality =
+				getModelImageConfig(selectedModel).supportsQuality && !!imageQuality;
 
 			// Always send n explicitly to prevent providers from defaulting to >1
 			const imageConfig = useImageGen
@@ -786,6 +788,7 @@ export default function ChatPageClient({
 								aspect_ratio: imageAspectRatio,
 							}),
 							...(imageSize !== "1K" && { image_size: imageSize }),
+							...(includeQuality && { image_quality: imageQuality }),
 							n: imageCount,
 						}
 				: undefined;
@@ -2770,8 +2773,10 @@ function ExtraChatPanel({
 
 			// Always forward the user's quality choice (including "auto") so it
 			// surfaces in the activity log; the gateway treats "auto" as a no-op
-			// upstream.
-			const includeQuality = isGptImage && !!imageQuality;
+			// upstream. getModelImageConfig owns which models expose the control,
+			// so it stays the single source of truth for both playground surfaces.
+			const includeQuality =
+				getModelImageConfig(selectedModel).supportsQuality && !!imageQuality;
 
 			// Always send n explicitly to prevent providers from defaulting to >1
 			const imageConfig = useImageGen
@@ -2792,6 +2797,7 @@ function ExtraChatPanel({
 								aspect_ratio: imageAspectRatio,
 							}),
 							...(imageSize !== "1K" && { image_size: imageSize }),
+							...(includeQuality && { image_quality: imageQuality }),
 							n: imageCount,
 						}
 				: undefined;

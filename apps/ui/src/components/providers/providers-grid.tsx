@@ -38,21 +38,16 @@ import {
 	MIN_REQUESTS_FOR_STATS,
 	type ProviderWindowStats,
 } from "@/lib/provider-stats";
+import { activeModelCounts, listedProviders } from "@/lib/providers-catalog";
 
 import {
 	countryCodeToFlag,
 	getProviderCountries,
 	isProviderCompliant,
-	models as modelDefinitions,
-	providers as providerDefinitions,
-	type ModelDefinition,
 	type ProviderCompliancePolicy,
 	type ProviderId,
 } from "@llmgateway/models";
-import {
-	isMappingDeactivated,
-	providerLogoUrls,
-} from "@llmgateway/shared/components";
+import { providerLogoUrls } from "@llmgateway/shared/components";
 
 type SortKey = "fastest" | "slowest" | "popular" | "name" | "uptime";
 
@@ -67,26 +62,6 @@ const getProviderLogo = (providerId: ProviderId) => {
 	}
 	return <div className="size-12 shrink-0 rounded-lg bg-muted" />;
 };
-
-const getModelsCountByProvider = (): Record<string, number> => {
-	const counts: Record<string, number> = {};
-	for (const model of modelDefinitions as readonly ModelDefinition[]) {
-		for (const providerMapping of model.providers) {
-			if (isMappingDeactivated(providerMapping)) {
-				continue;
-			}
-			const providerId = providerMapping.providerId;
-			counts[providerId] = (counts[providerId] || 0) + 1;
-		}
-	}
-	return counts;
-};
-
-const modelCounts = getModelsCountByProvider();
-
-const baseProviders = providerDefinitions.filter(
-	(p) => p.name !== "LLM Gateway" && p.id !== "custom",
-);
 
 const PROVIDER_COUNTRIES = getProviderCountries();
 
@@ -193,14 +168,14 @@ export function ProvidersGrid({
 	const visibleProviders = useMemo(
 		() =>
 			countryCode
-				? baseProviders.filter((p) => p.headquarters === countryCode)
-				: baseProviders,
+				? listedProviders.filter((p) => p.headquarters === countryCode)
+				: listedProviders,
 		[countryCode],
 	);
 
 	const totalProviders = visibleProviders.length;
 	const totalModels = visibleProviders.reduce(
-		(sum, p) => sum + (modelCounts[p.id] || 0),
+		(sum, p) => sum + (activeModelCounts[p.id] || 0),
 		0,
 	);
 
@@ -241,7 +216,7 @@ export function ProvidersGrid({
 			return {
 				...provider,
 				stats,
-				modelsCount: modelCounts[provider.id] || 0,
+				modelsCount: activeModelCounts[provider.id] || 0,
 			};
 		});
 

@@ -17,7 +17,7 @@ export const metadata: Metadata = {
 		description:
 			"One subscription, every frontier model. See how Lounge stacks up against the AI chat apps you're evaluating.",
 		type: "website",
-		url: "https://chat.llmgateway.io/compare",
+		url: "https://lounge.llmgateway.io/compare",
 	},
 	twitter: {
 		card: "summary_large_image",
@@ -58,7 +58,7 @@ export default function CompareIndexPage() {
 			"@type": "ListItem",
 			position: index + 1,
 			name: `Lounge vs ${c.competitor}`,
-			url: `https://chat.llmgateway.io/compare/${c.slug}`,
+			url: `https://lounge.llmgateway.io/compare/${c.slug}`,
 		})),
 	};
 

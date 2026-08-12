@@ -41,7 +41,10 @@ import {
 	getServiceTier,
 } from "@llmgateway/models";
 import { regionFromUsedModel } from "@llmgateway/shared";
-import { API_ORIGIN_LABELS } from "@llmgateway/shared/components";
+import {
+	API_ORIGIN_LABELS,
+	CredentialSourceBadge,
+} from "@llmgateway/shared/components";
 
 import type { LogDetailData } from "@/types/activity";
 import type { Log } from "@llmgateway/db";
@@ -679,12 +682,28 @@ export function LogDetailClient({
 									{log.routingMetadata.usedApiKeyHash && (
 										<Field
 											label="Key"
-											value={formatApiKeyHash(
-												log.routingMetadata.usedApiKeyHash,
-											)}
+											value={
+												<span className="inline-flex items-center gap-1.5">
+													{formatApiKeyHash(log.routingMetadata.usedApiKeyHash)}
+													<CredentialSourceBadge
+														source={log.routingMetadata.usedCredentialSource}
+														keyLabel={log.routingMetadata.usedProviderKeyLabel}
+													/>
+												</span>
+											}
 											mono
 										/>
 									)}
+									{log.routingMetadata.eligibleProviderKeys &&
+										log.routingMetadata.eligibleProviderKeys.length > 0 && (
+											<Field
+												label="Your keys"
+												value={log.routingMetadata.eligibleProviderKeys
+													.map((key) => key.label ?? key.id)
+													.join(", ")}
+												mono
+											/>
+										)}
 									{log.routingMetadata.availableProviders &&
 										log.routingMetadata.availableProviders.length > 0 && (
 											<Field
@@ -806,6 +825,10 @@ export function LogDetailClient({
 																		key {formatApiKeyHash(attempt.apiKeyHash)}
 																	</span>
 																)}
+																<CredentialSourceBadge
+																	source={attempt.credentialSource}
+																	keyLabel={attempt.providerKeyLabel}
+																/>
 																{attempt.logId && (
 																	<Link
 																		href={`/dashboard/${orgId}/${projectId}/activity/${attempt.logId}`}

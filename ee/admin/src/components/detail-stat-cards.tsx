@@ -131,10 +131,13 @@ export function DetailStatCards({
 export function StatCard({
 	label,
 	value,
+	hint,
 	loading,
 }: {
 	label: string;
 	value: React.ReactNode;
+	/** Optional line under the value, for the source or unit of the number. */
+	hint?: React.ReactNode;
 	loading?: boolean;
 }) {
 	return (
@@ -147,6 +150,9 @@ export function StatCard({
 			>
 				{value}
 			</p>
+			{hint ? (
+				<p className="mt-1 text-xs text-muted-foreground">{hint}</p>
+			) : null}
 		</div>
 	);
 }

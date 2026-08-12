@@ -6,6 +6,19 @@ export const size = {
 };
 export const contentType = "image/png";
 
+// Prerendered at build time: rendering these cards on demand runs satori inside
+// the request, which the production pods do not have the headroom for and which
+// took the whole route down with a 503. Only the 1-99 range renders a distinct
+// card, so those are the only params worth generating; dynamicParams keeps
+// anything else from reaching the renderer at runtime.
+export const dynamicParams = false;
+
+export function generateStaticParams() {
+	return Array.from({ length: 99 }, (_, index) => ({
+		discount: String(index + 1),
+	}));
+}
+
 function parseDiscount(value: string): number {
 	const parsed = Number(value);
 	if (isNaN(parsed) || parsed < 1 || parsed > 99) {

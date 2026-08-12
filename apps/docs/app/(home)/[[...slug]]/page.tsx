@@ -7,7 +7,6 @@ import {
 	DocsTitle,
 } from "fumadocs-ui/page";
 import { notFound } from "next/navigation";
-import posthog from "posthog-js";
 
 import { LLMCopyButton, ViewOptions } from "@/components/ai/page-actions";
 import { EnterpriseCTA } from "@/components/enterprise-cta";
@@ -90,6 +89,11 @@ export default async function Page(props: {
 		// Ignore errors (rate limits, network issues, missing auth in Docker builds)
 	}
 
+	// Left undefined when the GitHub lookup fails: fumadocs then omits the line
+	// entirely, which is better than stamping the build date on a page that was
+	// not edited — "Last updated" must only ever reflect a real content edit.
+	const lastUpdate = time ? new Date(time) : undefined;
+
 	const MDXContent = page.data.body;
 
 	const path = page.url === "/" ? "" : page.url;
@@ -120,7 +124,7 @@ export default async function Page(props: {
 				style: "clerk",
 				footer: <EnterpriseCTA />,
 			}}
-			lastUpdate={time ? new Date(time) : new Date()}
+			lastUpdate={lastUpdate}
 		>
 			<JsonLd data={techArticleSchema} />
 			<nav
@@ -150,9 +154,8 @@ export default async function Page(props: {
 				/>
 			</DocsBody>
 			<Feedback
-				onRateAction={async (url, feedback) => {
+				onRateAction={async (url) => {
 					"use server";
-					posthog.capture("on_rate_docs", feedback);
 					return await Promise.resolve({
 						githubUrl: `https://github.com/theopenco/llmgateway/blob/main/apps/docs/content${url}.mdx`,
 					});

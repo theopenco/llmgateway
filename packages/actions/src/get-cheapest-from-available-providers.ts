@@ -22,6 +22,11 @@ import {
 	getEffectiveScoringWeights,
 } from "./compute-provider-scores.js";
 
+import type {
+	RoutingCredentialSource,
+	RoutingExclusionReason,
+} from "@llmgateway/shared/routing-telemetry";
+
 interface ProviderScore<T extends AvailableModelProvider> {
 	provider: T;
 	score: Decimal;
@@ -79,6 +84,20 @@ export interface RoutingMetadata {
 	selectedProvider: string;
 	selectionReason: string;
 	usedApiKeyHash?: string;
+	// Whose credential the served attempt was sent with: the organization's own
+	// provider key (`byok`) or an LLM Gateway platform credential (`platform`).
+	// Without it, `usedApiKeyHash` is an opaque fingerprint that gives no hint
+	// whether the request was billed to the provider or to credits.
+	usedCredentialSource?: RoutingCredentialSource;
+	// The organization's own key that served the request, named as its owner
+	// sees it. Only set when usedCredentialSource is "byok" — a platform
+	// credential is never described to a tenant.
+	usedProviderKeyId?: string;
+	usedProviderKeyLabel?: string;
+	// The organization's own keys that were candidates for the used provider,
+	// in selection order, so an operator can see which of their keys the
+	// gateway had to choose from. BYOK rows only; never platform credentials.
+	eligibleProviderKeys?: Array<{ id: string; label?: string }>;
 	providerScores: Array<{
 		providerId: string;
 		region?: string;
@@ -128,12 +147,21 @@ export interface RoutingMetadata {
 		error_type: string;
 		succeeded: boolean;
 		apiKeyHash?: string;
+		// Per attempt, because a single request can switch credential owners
+		// mid-flight: in hybrid mode a failing BYOK key falls back to the
+		// platform credential, and both attempts land in this array.
+		credentialSource?: RoutingCredentialSource;
+		providerKeyId?: string;
+		providerKeyLabel?: string;
 		logId?: string;
 	}>;
 	// Provider mappings that were filtered out because they don't support requested params/features
 	filteredProviders?: Array<{
 		providerId: string;
 		reasons: string[];
+		// Stable RoutingExclusionReason codes for the same exclusions; aggregated
+		// per hour into routing_exclusion_hourly.
+		codes?: RoutingExclusionReason[];
 	}>;
 	// Where the requested service tier came from: the request body, or a dev-plan
 	// (DevPass) org's configured default tier. Only set when a premium tier was in
@@ -141,6 +169,13 @@ export interface RoutingMetadata {
 	serviceTierSource?: "request" | "coding-plan-default";
 	// Parameters that were stripped from the request because the selected provider doesn't support them
 	strippedParameters?: string[];
+	// Set when the request was resolved through a named dynamic route
+	dynamicRoute?: {
+		name: string;
+		version: number;
+		// Node ids traversed during graph evaluation
+		path: string[];
+	};
 }
 
 export interface ProviderSelectionResult<T extends AvailableModelProvider> {

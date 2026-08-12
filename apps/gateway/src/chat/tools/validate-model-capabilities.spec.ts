@@ -350,3 +350,35 @@ describe("validateModelCapabilities - output capability", () => {
 		});
 	});
 });
+
+describe("validateModelCapabilities - reasoning.max_tokens", () => {
+	const lingModel = getModel("ling-3.0-flash");
+	const nonBudgetModel = getModel("gpt-4o-mini");
+
+	it("rejects reasoning.max_tokens for models with no budget support", () => {
+		expect(() =>
+			validateModelCapabilities(nonBudgetModel, nonBudgetModel.id, undefined, {
+				reasoning_max_tokens: 2048,
+			}),
+		).toThrow(HTTPException);
+	});
+
+	it("allows reasoning.max_tokens on chatTemplateThinkingKey mappings (budget is dropped to a binary toggle)", () => {
+		expect(() =>
+			validateModelCapabilities(lingModel, lingModel.id, undefined, {
+				reasoning_max_tokens: 2048,
+			}),
+		).not.toThrow();
+	});
+
+	it("rejects reasoning.max_tokens on a provider with no thinking control (thinking is always on)", () => {
+		// Novita's Ling mapping has no chatTemplateThinkingKey and no
+		// reasoningMaxTokens — its backend ignores the chat-template flag, so a
+		// budget request is rejected rather than silently accepted.
+		expect(() =>
+			validateModelCapabilities(lingModel, lingModel.id, "novita", {
+				reasoning_max_tokens: 2048,
+			}),
+		).toThrow(HTTPException);
+	});
+});

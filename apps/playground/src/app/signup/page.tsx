@@ -30,6 +30,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
+import { useAuthErrorToast } from "@/lib/auth-errors";
 
 const formSchema = z.object({
 	name: z.string().optional(),
@@ -74,6 +75,8 @@ function Signup() {
 	useEffect(() => {
 		posthog.capture("page_viewed_signup");
 	}, [posthog]);
+
+	useAuthErrorToast();
 
 	const form = useForm<z.infer<typeof formSchema>>({
 		resolver: zodResolver(formSchema),
@@ -255,6 +258,7 @@ function Signup() {
 							setIsLoading={setIsLoading}
 							callbackPath={returnUrl}
 							errorCallbackPath="/signup"
+							requestSignUp
 						/>
 					</div>
 

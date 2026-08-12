@@ -25,15 +25,18 @@ export function isExpectedUnknownFinishReason(
 	if (!finishReason) {
 		return false;
 	}
-	// Google's "OTHER" and "MALFORMED_RESPONSE" finish reasons are expected and
-	// map to UNKNOWN
+	// Google's "OTHER", "IMAGE_OTHER", "NO_IMAGE" and "MALFORMED_RESPONSE" finish
+	// reasons are expected and map to UNKNOWN
 	if (
 		(provider === "google-ai-studio" ||
 			provider === "glacier" ||
 			provider === "iceberg" ||
 			provider === "google-vertex" ||
 			provider === "quartz") &&
-		(finishReason === "OTHER" || finishReason === "MALFORMED_RESPONSE")
+		(finishReason === "OTHER" ||
+			finishReason === "IMAGE_OTHER" ||
+			finishReason === "NO_IMAGE" ||
+			finishReason === "MALFORMED_RESPONSE")
 	) {
 		return true;
 	}
@@ -140,13 +143,18 @@ export function getUnifiedFinishReason(
 				finishReason === "IMAGE_SAFETY" ||
 				finishReason === "IMAGE_PROHIBITED_CONTENT" ||
 				finishReason === "IMAGE_RECITATION" ||
-				finishReason === "IMAGE_OTHER" ||
-				finishReason === "NO_IMAGE" ||
 				finishReason === "content_filter" // OpenAI format sometimes returned by Google
 			) {
 				return UnifiedFinishReason.CONTENT_FILTER;
 			}
-			if (finishReason === "OTHER" || finishReason === "MALFORMED_RESPONSE") {
+			// NO_IMAGE and IMAGE_OTHER are not policy blocks, so they belong with
+			// OTHER rather than inflating the content_filter counts.
+			if (
+				finishReason === "OTHER" ||
+				finishReason === "IMAGE_OTHER" ||
+				finishReason === "NO_IMAGE" ||
+				finishReason === "MALFORMED_RESPONSE"
+			) {
 				return UnifiedFinishReason.UNKNOWN;
 			}
 			break;

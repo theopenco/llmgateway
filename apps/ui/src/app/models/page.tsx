@@ -185,7 +185,7 @@ export default async function ModelsPage() {
 											API — switch models by changing a single string. Chat with
 											any of them first in the{" "}
 											<a
-												href="https://chat.llmgateway.io"
+												href="https://lounge.llmgateway.io"
 												className="text-foreground underline underline-offset-4"
 											>
 												Lounge

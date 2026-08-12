@@ -12,6 +12,7 @@ import { redirect } from "next/navigation";
 import { BlockOrgButton } from "@/components/block-org-button";
 import { BulkBlockOrgsButton } from "@/components/bulk-block-orgs-button";
 import { OrgStatusToggleButton } from "@/components/org-status-toggle-button";
+import { PlanTermBadge } from "@/components/plan-term-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -387,9 +388,18 @@ export default async function OrganizationsPage({
 										</Badge>
 									</TableCell>
 									<TableCell>
-										<Badge variant={getPlanBadgeVariant(org.plan)}>
-											{org.plan}
-										</Badge>
+										<div className="flex flex-col items-start gap-1">
+											<Badge variant={getPlanBadgeVariant(org.plan)}>
+												{org.plan}
+											</Badge>
+											<PlanTermBadge
+												planExpiresAt={org.planExpiresAt}
+												planStartedAt={org.planStartedAt}
+												isTrialActive={org.isTrialActive}
+												trialStartDate={org.trialStartDate}
+												trialEndDate={org.trialEndDate}
+											/>
+										</div>
 									</TableCell>
 									<TableCell>
 										{org.devPlan !== "none" ? (

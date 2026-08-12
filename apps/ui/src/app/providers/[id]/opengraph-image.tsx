@@ -20,6 +20,18 @@ export const size = {
 
 export const contentType = "image/png";
 
+// Prerendered at build time: rendering these cards on demand runs satori inside
+// the request, which the production pods do not have the headroom for and which
+// took the whole route down with a 503. dynamicParams keeps unknown ids from
+// reaching the renderer at runtime at all.
+export const dynamicParams = false;
+
+export function generateStaticParams() {
+	return providerDefinitions
+		.filter((provider) => provider.name !== "LLM Gateway")
+		.map((provider) => ({ id: provider.id }));
+}
+
 interface ImageProps {
 	params: Promise<{ id: string }>;
 }
