@@ -216,7 +216,12 @@ export const CODING_AGENTS: CodingAgentDefinition[] = [
 		id: "openai-sdk",
 		label: "OpenAI SDK",
 		xSourceValues: ["openai-sdk"],
-		userAgentPatterns: [/^OpenAI\/Python/i, /^Is\/JS/i],
+		// Explicit x-source only. The SDK's own User-Agent ("OpenAI/Python 2.x",
+		// "AsyncOpenAI/Python 2.x", "OpenAI/JS 6.x") says nothing about what is
+		// driving it, so matching on it would attribute every plain API script as
+		// a coding agent — and did so asymmetrically, since the sync Python client
+		// matched while the async one and the JS client did not.
+		userAgentPatterns: [],
 	},
 ];
 

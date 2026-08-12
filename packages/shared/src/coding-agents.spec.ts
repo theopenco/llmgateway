@@ -40,6 +40,9 @@ describe("isRecognizedCodingAgent", () => {
 		expect(isRecognizedCodingAgent("traycer")).toBe(true);
 		expect(isRecognizedCodingAgent("foundry-toolkit")).toBe(true);
 		expect(isRecognizedCodingAgent("windows-ai-studio")).toBe(true);
+		// Detection never infers this one from a User-Agent, but callers that opt
+		// in explicitly are still recognized.
+		expect(isRecognizedCodingAgent("openai-sdk")).toBe(true);
 	});
 
 	it("recognizes *claw forks via pattern", () => {

@@ -230,10 +230,18 @@ describe("detectCodingAgentFromUserAgent", () => {
 				"ai/6.0.168 ai-sdk/provider-utils/4.0.23 runtime/node.js/26",
 			),
 		).toBeUndefined();
+		// Every OpenAI SDK variant, not just the async one: the SDK is only ever
+		// attributed via an explicit x-source, never via its User-Agent.
+		expect(
+			detectCodingAgentFromUserAgent("OpenAI/Python 2.32.0"),
+		).toBeUndefined();
 		expect(
 			detectCodingAgentFromUserAgent("AsyncOpenAI/Python 2.32.0"),
 		).toBeUndefined();
 		expect(detectCodingAgentFromUserAgent("OpenAI/JS 6.47.0")).toBeUndefined();
+		expect(
+			detectCodingAgentFromUserAgent("Anthropic/Python 0.75.0"),
+		).toBeUndefined();
 		expect(detectCodingAgentFromUserAgent("litellm/1.90.1")).toBeUndefined();
 		expect(
 			detectCodingAgentFromUserAgent("cli-proxy-openai-compat"),
