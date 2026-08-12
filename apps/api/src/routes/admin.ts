@@ -2499,6 +2499,24 @@ function aggregateBreakdownRows<T extends GlobalStatsRowMetrics>(
 	);
 }
 
+// `Date.parse` rolls impossible days over instead of rejecting them
+// ("2026-02-30" becomes March 2), so round-trip the parsed date and refuse
+// anything that did not survive unchanged.
+function parseUsageWindowDay(value: string, boundary: "from" | "to"): Date {
+	const parsed = /^\d{4}-\d{2}-\d{2}$/.test(value)
+		? new Date(value + "T00:00:00.000Z")
+		: new Date(Number.NaN);
+	if (
+		Number.isNaN(parsed.getTime()) ||
+		parsed.toISOString().slice(0, 10) !== value
+	) {
+		throw new HTTPException(400, {
+			message: `Invalid ${boundary} date (expected YYYY-MM-DD)`,
+		});
+	}
+	return parsed;
+}
+
 admin.openapi(getOrganizations, async (c) => {
 	const query = c.req.valid("query");
 	const limit = query.limit ?? 50;
@@ -2507,21 +2525,20 @@ admin.openapi(getOrganizations, async (c) => {
 	const sortBy = query.sortBy ?? "createdAt";
 	const sortOrder = query.sortOrder ?? "desc";
 
-	// Usage window for the spend/request/token aggregates. Both dates must be
-	// present to narrow the window; otherwise the aggregates cover all time.
+	// Usage window for the spend/request/token aggregates. Omitting both dates
+	// means all time; supplying only one is rejected rather than silently
+	// widening back to all time.
 	let usageStartDate: Date | undefined;
 	let usageEndDate: Date | undefined;
+	if (Boolean(query.from) !== Boolean(query.to)) {
+		throw new HTTPException(400, {
+			message: "Both from and to are required to narrow the usage window",
+		});
+	}
 	if (query.from && query.to) {
-		if (
-			Number.isNaN(Date.parse(query.from + "T00:00:00Z")) ||
-			Number.isNaN(Date.parse(query.to + "T00:00:00Z"))
-		) {
-			throw new HTTPException(400, {
-				message: "Invalid from/to date (expected YYYY-MM-DD)",
-			});
-		}
-		usageStartDate = new Date(query.from + "T00:00:00.000Z");
-		usageEndDate = new Date(query.to + "T23:59:59.999Z");
+		usageStartDate = parseUsageWindowDay(query.from, "from");
+		usageEndDate = parseUsageWindowDay(query.to, "to");
+		usageEndDate.setUTCHours(23, 59, 59, 999);
 	}
 
 	const whereClause = buildOrganizationSearchFilter(search);

@@ -234,4 +234,40 @@ describe("admin — organizations list usage window", () => {
 		);
 		expect(res.status).toBe(400);
 	});
+
+	// `Date.parse` would roll these over to a real day rather than reject them.
+	test.each(["2026-02-30", "2026-04-31", "2026-1-1"])(
+		"rejects the impossible date %s",
+		async (day) => {
+			const res = await app.request(
+				`/admin/organizations?limit=50&from=${day}&to=2026-12-01`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(res.status).toBe(400);
+		},
+	);
+
+	test("rejects a half-open window instead of silently widening it", async () => {
+		const fromOnly = await app.request(
+			"/admin/organizations?limit=50&from=2026-01-01",
+			{ headers: { Cookie: cookie } },
+		);
+		expect(fromOnly.status).toBe(400);
+
+		const toOnly = await app.request(
+			"/admin/organizations?limit=50&to=2026-01-31",
+			{ headers: { Cookie: cookie } },
+		);
+		expect(toOnly.status).toBe(400);
+	});
+
+	test("still treats an entirely absent window as all time", async () => {
+		const res = await app.request("/admin/organizations?limit=50", {
+			headers: { Cookie: cookie },
+		});
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as OrgListResponse;
+		const old = body.organizations.find((o) => o.id === OLD_ORG_ID);
+		expect(old!.totalRequests).toBe(1);
+	});
 });
