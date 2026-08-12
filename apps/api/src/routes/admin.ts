@@ -392,6 +392,8 @@ const organizationSchema = z.object({
 	totalSpent: z.string().optional(),
 	totalCreditsSpent: z.string().optional(),
 	totalApiKeysSpent: z.string().optional(),
+	totalRequests: z.number().optional(),
+	totalTokens: z.number().optional(),
 	createdAt: z.string(),
 	status: z.string().nullable(),
 	referralBonusEnabled: z.boolean().optional(),
@@ -648,6 +650,8 @@ const sortBySchema = z.enum([
 	"status",
 	"totalCreditsAllTime",
 	"totalSpent",
+	"totalRequests",
+	"totalTokens",
 ]);
 
 const sortOrderSchema = z.enum(["asc", "desc"]);
@@ -662,6 +666,10 @@ const getOrganizations = createRoute({
 			search: z.string().optional(),
 			sortBy: sortBySchema.default("createdAt").optional(),
 			sortOrder: sortOrderSchema.default("desc").optional(),
+			// Usage window (YYYY-MM-DD) for the spend/request/token columns.
+			// Omitting both means all time.
+			from: z.string().optional(),
+			to: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -2491,6 +2499,24 @@ function aggregateBreakdownRows<T extends GlobalStatsRowMetrics>(
 	);
 }
 
+// `Date.parse` rolls impossible days over instead of rejecting them
+// ("2026-02-30" becomes March 2), so round-trip the parsed date and refuse
+// anything that did not survive unchanged.
+function parseUsageWindowDay(value: string, boundary: "from" | "to"): Date {
+	const parsed = /^\d{4}-\d{2}-\d{2}$/.test(value)
+		? new Date(value + "T00:00:00.000Z")
+		: new Date(Number.NaN);
+	if (
+		Number.isNaN(parsed.getTime()) ||
+		parsed.toISOString().slice(0, 10) !== value
+	) {
+		throw new HTTPException(400, {
+			message: `Invalid ${boundary} date (expected YYYY-MM-DD)`,
+		});
+	}
+	return parsed;
+}
+
 admin.openapi(getOrganizations, async (c) => {
 	const query = c.req.valid("query");
 	const limit = query.limit ?? 50;
@@ -2498,6 +2524,22 @@ admin.openapi(getOrganizations, async (c) => {
 	const search = query.search;
 	const sortBy = query.sortBy ?? "createdAt";
 	const sortOrder = query.sortOrder ?? "desc";
+
+	// Usage window for the spend/request/token aggregates. Omitting both dates
+	// means all time; supplying only one is rejected rather than silently
+	// widening back to all time.
+	let usageStartDate: Date | undefined;
+	let usageEndDate: Date | undefined;
+	if (Boolean(query.from) !== Boolean(query.to)) {
+		throw new HTTPException(400, {
+			message: "Both from and to are required to narrow the usage window",
+		});
+	}
+	if (query.from && query.to) {
+		usageStartDate = parseUsageWindowDay(query.from, "from");
+		usageEndDate = parseUsageWindowDay(query.to, "to");
+		usageEndDate.setUTCHours(23, 59, 59, 999);
+	}
 
 	const whereClause = buildOrganizationSearchFilter(search);
 
@@ -2531,7 +2573,8 @@ admin.openapi(getOrganizations, async (c) => {
 		.groupBy(tables.transaction.organizationId)
 		.as("all_time_credits");
 
-	// Subquery for total spent (usage cost) per org
+	// Subquery for usage totals (cost, requests, tokens) per org, scoped to the
+	// selected window.
 	const totalSpentSub = db
 		.select({
 			organizationId: tables.project.organizationId,
@@ -2547,11 +2590,29 @@ admin.openapi(getOrganizations, async (c) => {
 				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.apiKeysCost} AS NUMERIC)), 0)`.as(
 					"api_keys_spent",
 				),
+			requestsTotal:
+				sql<string>`COALESCE(SUM(${projectHourlyStats.requestCount}), 0)`.as(
+					"total_requests",
+				),
+			tokensTotal:
+				sql<string>`COALESCE(SUM(CAST(${projectHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
+					"total_tokens",
+				),
 		})
 		.from(projectHourlyStats)
 		.innerJoin(
 			tables.project,
 			eq(projectHourlyStats.projectId, tables.project.id),
+		)
+		.where(
+			and(
+				usageStartDate
+					? gte(projectHourlyStats.hourTimestamp, usageStartDate)
+					: undefined,
+				usageEndDate
+					? lte(projectHourlyStats.hourTimestamp, usageEndDate)
+					: undefined,
+			),
 		)
 		.groupBy(tables.project.organizationId)
 		.as("total_spent");
@@ -2579,6 +2640,8 @@ admin.openapi(getOrganizations, async (c) => {
 		status: tables.organization.status,
 		totalCreditsAllTime: sql`COALESCE(CAST(${allTimeCredits.total} AS NUMERIC), 0)`,
 		totalSpent: sql`COALESCE(CAST(${totalSpentSub.total} AS NUMERIC), 0)`,
+		totalRequests: sql`COALESCE(CAST(${totalSpentSub.requestsTotal} AS NUMERIC), 0)`,
+		totalTokens: sql`COALESCE(CAST(${totalSpentSub.tokensTotal} AS NUMERIC), 0)`,
 	} as const;
 
 	const sortColumn = sortColumnMap[sortBy];
@@ -2614,6 +2677,13 @@ admin.openapi(getOrganizations, async (c) => {
 				sql<string>`COALESCE(${totalSpentSub.apiKeysTotal}, '0')`.as(
 					"totalApiKeysSpent",
 				),
+			totalRequests:
+				sql<string>`COALESCE(${totalSpentSub.requestsTotal}, '0')`.as(
+					"totalRequests",
+				),
+			totalTokens: sql<string>`COALESCE(${totalSpentSub.tokensTotal}, '0')`.as(
+				"totalTokens",
+			),
 			ownerUserId: ownerSub.userId,
 			ownerName: ownerSub.userName,
 			ownerEmail: ownerSub.userEmail,
@@ -2651,6 +2721,8 @@ admin.openapi(getOrganizations, async (c) => {
 			totalSpent: String(org.totalSpent ?? "0"),
 			totalCreditsSpent: String(org.totalCreditsSpent ?? "0"),
 			totalApiKeysSpent: String(org.totalApiKeysSpent ?? "0"),
+			totalRequests: Number(org.totalRequests ?? 0),
+			totalTokens: Number(org.totalTokens ?? 0),
 			createdAt: org.createdAt.toISOString(),
 			status: org.status,
 			ownerUserId: org.ownerUserId ?? null,
