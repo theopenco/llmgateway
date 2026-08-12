@@ -1,9 +1,19 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { deleteResendContact } from "@/auth/config.js";
-import { cancelOrganizationSubscriptions } from "@/lib/account-deletion.js";
+import {
+	cancelOrganizationSubscriptions,
+	isTerminalSubscriptionError,
+} from "@/lib/account-deletion.js";
+import {
+	ADMIN_REFUND_REASONS,
+	computeAdminRefundability,
+	executeAdminRefund,
+	sumRefundsByTransaction,
+} from "@/lib/admin-refund.js";
 import { modeSplitFields } from "@/lib/mode-split.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import {
@@ -12,6 +22,7 @@ import {
 	tokenWindowSchema,
 } from "@/lib/stats-window.js";
 import { adminMiddleware } from "@/middleware/admin.js";
+import { getStripe } from "@/routes/payments.js";
 import {
 	CHAT_PLAN_TX_TYPES,
 	DEV_PLAN_SUBSCRIPTION_TX_TYPES,
@@ -312,6 +323,9 @@ const adminMetricsSchema = z.object({
 	grossResetPassRevenue: z.number(),
 	grossChatPlansRevenue: z.number(),
 	grossProSubscriptionsRevenue: z.number(),
+	// Credits paid for outside Stripe (wire, crypto, …) and credited manually by
+	// an administrator. Real revenue, just settled on another channel.
+	grossManualPaymentsRevenue: z.number(),
 });
 
 const timeseriesRangeSchema = z.enum(["7d", "30d", "90d", "365d", "all"]);
@@ -431,6 +445,9 @@ const transactionSchema = z.object({
 	currency: z.string(),
 	status: z.string(),
 	description: z.string().nullable(),
+	// Off-Stripe payment channel and its reference, set on manual payments only.
+	paymentMethod: z.string().nullable(),
+	externalReference: z.string().nullable(),
 });
 
 const transactionsListSchema = z.object({
@@ -494,11 +511,67 @@ const apiKeySchema = z.object({
 	iamRules: z.array(iamRuleAdminSchema),
 });
 
+const keyStatusFilterSchema = z.enum(["all", "active", "inactive", "deleted"]);
+
+type KeyStatusFilter = z.infer<typeof keyStatusFilterSchema>;
+
+/**
+ * Per-status totals for a key list. Always computed over every key of the
+ * organization, never over the filtered rows, so the dashboard can show
+ * "active / total" next to a list that only renders one status.
+ */
+const keyStatusCountsSchema = z.object({
+	all: z.number(),
+	active: z.number(),
+	inactive: z.number(),
+	deleted: z.number(),
+});
+
+type KeyStatusCounts = z.infer<typeof keyStatusCountsSchema>;
+
+function emptyKeyStatusCounts(): KeyStatusCounts {
+	return { all: 0, active: 0, inactive: 0, deleted: 0 };
+}
+
+function toKeyStatusCounts(
+	rows: { status: string; count: number }[],
+): KeyStatusCounts {
+	const counts = emptyKeyStatusCounts();
+	for (const row of rows) {
+		const count = Number(row.count);
+		counts.all += count;
+		if (
+			row.status === "active" ||
+			row.status === "inactive" ||
+			row.status === "deleted"
+		) {
+			counts[row.status] += count;
+		}
+	}
+	return counts;
+}
+
+/**
+ * Both key tables declare `status` nullable with an `active` default, so legacy
+ * NULL rows have to be folded into `active` — otherwise they vanish from every
+ * filtered view and from the counts.
+ */
+function keyStatusCondition(column: AnyColumn, status: KeyStatusFilter) {
+	if (status === "all") {
+		return undefined;
+	}
+	if (status === "active") {
+		return or(eq(column, "active"), isNull(column));
+	}
+	return eq(column, status);
+}
+
 const apiKeysListSchema = z.object({
 	apiKeys: z.array(apiKeySchema),
 	total: z.number(),
 	limit: z.number(),
 	offset: z.number(),
+	counts: keyStatusCountsSchema,
 });
 
 const providerKeyAdminSchema = z.object({
@@ -522,6 +595,7 @@ const providerKeyAdminSchema = z.object({
 const providerKeysListSchema = z.object({
 	providerKeys: z.array(providerKeyAdminSchema),
 	total: z.number(),
+	counts: keyStatusCountsSchema,
 });
 
 const memberSchema = z.object({
@@ -688,6 +762,7 @@ const getOrganizationApiKeys = createRoute({
 		query: z.object({
 			limit: z.coerce.number().min(1).max(100).default(25).optional(),
 			offset: z.coerce.number().min(0).default(0).optional(),
+			status: keyStatusFilterSchema.default("active").optional(),
 		}),
 	},
 	responses: {
@@ -711,6 +786,9 @@ const getOrganizationProviderKeys = createRoute({
 	request: {
 		params: z.object({
 			orgId: z.string(),
+		}),
+		query: z.object({
+			status: keyStatusFilterSchema.default("active").optional(),
 		}),
 	},
 	responses: {
@@ -857,7 +935,8 @@ admin.openapi(getMetrics, async (c) => {
 
 	const payingCustomers = Number(payingRow?.count ?? 0);
 
-	// Total revenue: completed credit-purchase rows — org credit top-ups AND
+	// Total revenue: completed credit-purchase rows — org credit top-ups,
+	// manually credited off-Stripe payments (`credit_manual_payment`) AND
 	// end-user wallet top-ups (`end_user_topup`, reversed on refund) — using
 	// creditAmount to exclude Stripe fees. Excludes gifts, all plan rows
 	// (DevPass/legacy subscription/Chat Plan), and the non-revenue end-user rows
@@ -973,7 +1052,8 @@ admin.openapi(getMetrics, async (c) => {
 	const totalApiKeysSpent = Number(spentRow?.apiKeysValue ?? 0);
 	const totalDebitedSpend = Number(spentRow?.debitedValue ?? 0);
 
-	// Total processed (gross Stripe amounts from completed non-gift, non-plan transactions)
+	// Total processed (gross payment amounts from completed non-gift, non-plan
+	// transactions — Stripe charges plus off-Stripe manual payments)
 	const [processedRow] = await db
 		.select({
 			value:
@@ -1236,13 +1316,37 @@ admin.openapi(getMetrics, async (c) => {
 
 	const grossProSubscriptionsRevenue = Number(grossProSubsRow?.value ?? 0);
 
+	// Manual payments: credits an administrator granted against money received
+	// outside Stripe (wire, crypto, …). `amount` is the real payment, so these
+	// belong in gross revenue like any other purchase — kept as their own split
+	// because they never appear in Stripe reporting.
+	const [grossManualPaymentsRow] = await db
+		.select({
+			value:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
+					"value",
+				),
+		})
+		.from(tables.transaction)
+		.where(
+			and(
+				eq(tables.transaction.status, "completed"),
+				eq(tables.transaction.type, "credit_manual_payment"),
+				sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+				transactionDateFilter,
+			),
+		);
+
+	const grossManualPaymentsRevenue = Number(grossManualPaymentsRow?.value ?? 0);
+
 	const grossRevenue =
 		grossCreditsRevenue +
 		grossDevpassRevenue +
 		grossDevpassTopupsRevenue +
 		grossResetPassRevenue +
 		grossChatPlansRevenue +
-		grossProSubscriptionsRevenue;
+		grossProSubscriptionsRevenue +
+		grossManualPaymentsRevenue;
 
 	// Balance derivation must use debited spend, not blended cost: BYOK usage
 	// never drains purchased credits, so subtracting it would understate
@@ -1274,6 +1378,7 @@ admin.openapi(getMetrics, async (c) => {
 		grossResetPassRevenue,
 		grossChatPlansRevenue,
 		grossProSubscriptionsRevenue,
+		grossManualPaymentsRevenue,
 	});
 });
 
@@ -1872,6 +1977,23 @@ const globalStatsResponseSchema = z.object({
 	breakdown: z.array(globalStatsBreakdownItemSchema),
 });
 
+// Cost columns on the stats tables are `real` (float4), and Postgres accumulates
+// SUM(real) in float4 as well — only ~7 significant digits. Past a few hundred
+// thousand dollars the running sum's ulp is larger than a cent, so the result
+// depends on how the rows happened to be grouped: the blended total and the
+// per-mode / per-kind slices of the *same* rows drift apart by double-digit
+// dollars and the cards visibly stop adding up. NUMERIC accumulation is exact,
+// so every grouping of a set of rows yields the identical sum.
+//
+// The double-precision hop is required, not decorative: `real::numeric` goes
+// through float4's 6-digit display form (1234.5678 -> 1234.57), which throws
+// away more than the float4 sum did. `real::float8` is the exact stored value.
+function sumMoney(column: AnyColumn, alias: string) {
+	return sql<number>`COALESCE(SUM(CAST(CAST(${column} AS DOUBLE PRECISION) AS NUMERIC)), 0)::float8`.as(
+		alias,
+	);
+}
+
 const getGlobalStats = createRoute({
 	method: "get",
 	path: "/global-stats",
@@ -1978,16 +2100,19 @@ admin.openapi(getGlobalStats, async (c) => {
 	}
 
 	const metricSums = {
+		// Counts are exact (SUM(int) accumulates in bigint) but this endpoint sums
+		// all of history, so the result is carried as float8 rather than narrowed
+		// back to int4 — a cross-tenant all-time request count outgrows 2^31.
 		requestCount:
-			sql<number>`COALESCE(SUM(${sourceTable.requestCount}), 0)::int`.as(
+			sql<number>`COALESCE(SUM(${sourceTable.requestCount}), 0)::float8`.as(
 				"requestCount",
 			),
 		errorCount:
-			sql<number>`COALESCE(SUM(${sourceTable.errorCount}), 0)::int`.as(
+			sql<number>`COALESCE(SUM(${sourceTable.errorCount}), 0)::float8`.as(
 				"errorCount",
 			),
 		cacheCount:
-			sql<number>`COALESCE(SUM(${sourceTable.cacheCount}), 0)::int`.as(
+			sql<number>`COALESCE(SUM(${sourceTable.cacheCount}), 0)::float8`.as(
 				"cacheCount",
 			),
 		inputTokens:
@@ -2006,19 +2131,10 @@ admin.openapi(getGlobalStats, async (c) => {
 			sql<number>`COALESCE(SUM(CAST(${sourceTable.totalTokens} AS NUMERIC)), 0)::float8`.as(
 				"totalTokens",
 			),
-		cost: sql<number>`COALESCE(SUM(${sourceTable.cost}), 0)::float8`.as("cost"),
-		inputCost:
-			sql<number>`COALESCE(SUM(${sourceTable.inputCost}), 0)::float8`.as(
-				"inputCost",
-			),
-		cachedInputCost:
-			sql<number>`COALESCE(SUM(${sourceTable.cachedInputCost}), 0)::float8`.as(
-				"cachedInputCost",
-			),
-		outputCost:
-			sql<number>`COALESCE(SUM(${sourceTable.outputCost}), 0)::float8`.as(
-				"outputCost",
-			),
+		cost: sumMoney(sourceTable.cost, "cost"),
+		inputCost: sumMoney(sourceTable.inputCost, "inputCost"),
+		cachedInputCost: sumMoney(sourceTable.cachedInputCost, "cachedInputCost"),
+		outputCost: sumMoney(sourceTable.outputCost, "outputCost"),
 	};
 
 	const dateExpr =
@@ -2814,6 +2930,8 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			currency: tables.transaction.currency,
 			status: tables.transaction.status,
 			description: tables.transaction.description,
+			paymentMethod: tables.transaction.paymentMethod,
+			externalReference: tables.transaction.externalReference,
 		})
 		.from(tables.transaction)
 		.where(eq(tables.transaction.organizationId, orgId))
@@ -2851,6 +2969,8 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			currency: t.currency,
 			status: t.status,
 			description: t.description,
+			paymentMethod: t.paymentMethod,
+			externalReference: t.externalReference,
 		})),
 		total,
 		limit,
@@ -2900,6 +3020,7 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 	const query = c.req.valid("query");
 	const limit = query.limit ?? 25;
 	const offset = query.offset ?? 0;
+	const status = query.status ?? "active";
 
 	const org = await db.query.organization.findFirst({
 		where: {
@@ -2926,17 +3047,22 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 			total: 0,
 			limit,
 			offset,
+			counts: emptyKeyStatusCounts(),
 		});
 	}
 
-	const [countResult] = await db
+	const apiKeyStatusExpr = sql<string>`COALESCE(${tables.apiKey.status}, 'active')`;
+	const countRows = await db
 		.select({
-			count: sql<number>`COUNT(*)`.as("count"),
+			status: apiKeyStatusExpr,
+			count: sql<number>`COUNT(*)`,
 		})
 		.from(tables.apiKey)
-		.where(inArray(tables.apiKey.projectId, ids));
+		.where(inArray(tables.apiKey.projectId, ids))
+		.groupBy(apiKeyStatusExpr);
 
-	const total = Number(countResult?.count ?? 0);
+	const counts = toKeyStatusCounts(countRows);
+	const total = status === "all" ? counts.all : counts[status];
 
 	const apiKeys = await db
 		.select({
@@ -2952,7 +3078,12 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 		})
 		.from(tables.apiKey)
 		.innerJoin(tables.project, eq(tables.apiKey.projectId, tables.project.id))
-		.where(inArray(tables.apiKey.projectId, ids))
+		.where(
+			and(
+				inArray(tables.apiKey.projectId, ids),
+				keyStatusCondition(tables.apiKey.status, status),
+			),
+		)
 		.orderBy(desc(tables.apiKey.createdAt))
 		.limit(limit)
 		.offset(offset);
@@ -2992,11 +3123,13 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 		total,
 		limit,
 		offset,
+		counts,
 	});
 });
 
 admin.openapi(getOrganizationProviderKeys, async (c) => {
 	const { orgId } = c.req.valid("param");
+	const status = c.req.valid("query").status ?? "active";
 
 	const org = await db.query.organization.findFirst({
 		where: {
@@ -3009,6 +3142,18 @@ admin.openapi(getOrganizationProviderKeys, async (c) => {
 			message: "Organization not found",
 		});
 	}
+
+	const providerKeyStatusExpr = sql<string>`COALESCE(${tables.providerKey.status}, 'active')`;
+	const providerKeyCountRows = await db
+		.select({
+			status: providerKeyStatusExpr,
+			count: sql<number>`COUNT(*)`,
+		})
+		.from(tables.providerKey)
+		.where(eq(tables.providerKey.organizationId, orgId))
+		.groupBy(providerKeyStatusExpr);
+
+	const counts = toKeyStatusCounts(providerKeyCountRows);
 
 	const providerKeys = await db
 		.select({
@@ -3028,7 +3173,12 @@ admin.openapi(getOrganizationProviderKeys, async (c) => {
 			updatedAt: tables.providerKey.updatedAt,
 		})
 		.from(tables.providerKey)
-		.where(eq(tables.providerKey.organizationId, orgId))
+		.where(
+			and(
+				eq(tables.providerKey.organizationId, orgId),
+				keyStatusCondition(tables.providerKey.status, status),
+			),
+		)
 		.orderBy(desc(tables.providerKey.createdAt));
 
 	return c.json({
@@ -3049,6 +3199,7 @@ admin.openapi(getOrganizationProviderKeys, async (c) => {
 			updatedAt: k.updatedAt.toISOString(),
 		})),
 		total: providerKeys.length,
+		counts,
 	});
 });
 
@@ -6135,6 +6286,134 @@ admin.openapi(giftCreditsRoute, async (c) => {
 
 	return c.json({
 		message: "Credits gifted successfully",
+		credits: updatedCredits,
+	});
+});
+
+// Manually credit an organization for a payment received outside Stripe
+const manualPaymentMethods = ["wire", "crypto", "paypal", "other"] as const;
+
+const manualCreditsRoute = createRoute({
+	method: "post",
+	path: "/organizations/{orgId}/manual-credits",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						creditAmount: z
+							.number()
+							.min(0.01, "Credit amount must be positive"),
+						paymentMethod: z.enum(manualPaymentMethods),
+						// Identifier for the payment on its own channel: a bank wire
+						// reference, an on-chain tx hash, a PayPal transaction id.
+						externalReference: z.string().trim().max(255).optional(),
+						comment: z.string().optional(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						credits: z.string(),
+					}),
+				},
+			},
+			description: "Credits added successfully.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Organization not found.",
+		},
+	},
+});
+
+admin.openapi(manualCreditsRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+	const { creditAmount, paymentMethod, externalReference, comment } =
+		c.req.valid("json");
+
+	const org = await db.query.organization.findFirst({
+		where: {
+			id: { eq: orgId },
+		},
+	});
+
+	if (!org || org.status === "deleted") {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	const description = comment
+		? `Manual payment (${paymentMethod}) credited by Administrator: ${comment}`
+		: `Manual payment (${paymentMethod}) credited by Administrator`;
+
+	const { transactionId, updatedCredits } = await db.transaction(async (tx) => {
+		const [txn] = await tx
+			.insert(tables.transaction)
+			.values({
+				organizationId: orgId,
+				type: "credit_manual_payment",
+				// The money was actually received, so `amount` (gross payment) and
+				// `creditAmount` (credits granted) are the same figure: there are no
+				// Stripe fees to net out on an off-Stripe channel.
+				amount: creditAmount.toString(),
+				creditAmount: creditAmount.toString(),
+				currency: "USD",
+				status: "completed",
+				description,
+				paymentMethod,
+				externalReference: externalReference || null,
+			})
+			.returning({ id: tables.transaction.id });
+
+		const [updatedOrg] = await tx
+			.update(tables.organization)
+			.set({
+				credits: sql`${tables.organization.credits} + ${creditAmount}`,
+			})
+			.where(eq(tables.organization.id, orgId))
+			.returning({ credits: tables.organization.credits });
+
+		return {
+			transactionId: txn.id,
+			updatedCredits: String(updatedOrg.credits),
+		};
+	});
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "credits.manual_payment",
+		resourceType: "organization",
+		resourceId: orgId,
+		metadata: {
+			creditAmount,
+			paymentMethod,
+			externalReference,
+			comment,
+			transactionId,
+		},
+	});
+
+	return c.json({
+		message: "Credits added successfully",
 		credits: updatedCredits,
 	});
 });
@@ -12059,6 +12338,12 @@ const devpassTransactionSchema = z.object({
 	currency: z.string(),
 	status: z.string(),
 	description: z.string().nullable(),
+	// Whether an admin can refund this payment, and how much of it is left.
+	// `refundIneligibleReason` is null when `refundable` is true.
+	refundable: z.boolean(),
+	refundIneligibleReason: z.string().nullable(),
+	refundedAmount: z.string(),
+	refundableAmount: z.string(),
 });
 
 const devpassPaymentFailureSchema = z.object({
@@ -12145,6 +12430,130 @@ const giftResetPassesRoute = createRoute({
 				},
 			},
 			description: "Reset Passes gifted successfully.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Subscriber not found.",
+		},
+	},
+});
+
+// Refund a DevPass payment on behalf of the subscriber. The Stripe refund is
+// all this does directly: the `charge.refunded` webhook records the
+// `credit_refund` row, deducts top-up credits, claws back an unused Reset Pass,
+// and cancels the subscription when a plan payment is refunded in full.
+const refundDevpassPaymentRoute = createRoute({
+	method: "post",
+	path: "/devpass/{orgId}/refund",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						transactionId: z.string(),
+						// Omit for a full refund of whatever is left on the payment.
+						amount: z.number().positive().optional(),
+						reason: z
+							.enum(ADMIN_REFUND_REASONS)
+							.default("requested_by_customer"),
+						comment: z.string().max(500).optional(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						stripeRefundId: z.string(),
+						amount: z.string(),
+					}),
+				},
+			},
+			description:
+				"Refund created; bookkeeping is applied when Stripe confirms via webhook.",
+		},
+		400: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Payment is not refundable.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Subscriber or transaction not found.",
+		},
+	},
+});
+
+// Cancel a DevPass subscription on behalf of the subscriber, either at the end
+// of the paid period (the default, same as the customer-facing cancel) or
+// immediately. Plan state is updated by the resulting Stripe webhook.
+const cancelDevpassSubscriptionRoute = createRoute({
+	method: "post",
+	path: "/devpass/{orgId}/cancel-subscription",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						// Immediate cancellation ends access right away without
+						// refunding the current period — pair it with a refund when the
+						// customer should get their money back.
+						immediate: z.boolean().default(false),
+						comment: z.string().max(500).optional(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+						immediate: z.boolean(),
+						subscriptionId: z.string(),
+					}),
+				},
+			},
+			description: "DevPass subscription cancelled.",
+		},
+		400: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "No active DevPass subscription.",
 		},
 		404: {
 			content: {
@@ -14082,6 +14491,8 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 			currency: tables.transaction.currency,
 			status: tables.transaction.status,
 			description: tables.transaction.description,
+			stripePaymentIntentId: tables.transaction.stripePaymentIntentId,
+			stripeInvoiceId: tables.transaction.stripeInvoiceId,
 		})
 		.from(tables.transaction)
 		.where(
@@ -14109,6 +14520,13 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		)
 		.orderBy(desc(tables.transaction.createdAt))
 		.limit(100);
+
+	// Refunds already issued against those payments, so the panel can show what
+	// is left to refund instead of offering a button that Stripe would reject.
+	const refundedByTransactionId = await sumRefundsByTransaction(
+		orgId,
+		transactions.map((t) => t.id),
+	);
 
 	const paymentFailures = await db
 		.select({
@@ -14139,16 +14557,26 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 							org.devPlanIncludedResetPassesUsed,
 						),
 		},
-		transactions: transactions.map((t) => ({
-			id: t.id,
-			createdAt: t.createdAt.toISOString(),
-			type: t.type,
-			amount: t.amount ?? null,
-			creditAmount: t.creditAmount ?? null,
-			currency: t.currency,
-			status: t.status,
-			description: t.description ?? null,
-		})),
+		transactions: transactions.map((t) => {
+			const refundability = computeAdminRefundability({
+				transaction: t,
+				refundedAmount: refundedByTransactionId.get(t.id) ?? new Decimal(0),
+			});
+			return {
+				id: t.id,
+				createdAt: t.createdAt.toISOString(),
+				type: t.type,
+				amount: t.amount ?? null,
+				creditAmount: t.creditAmount ?? null,
+				currency: t.currency,
+				status: t.status,
+				description: t.description ?? null,
+				refundable: refundability.refundable,
+				refundIneligibleReason: refundability.reason,
+				refundedAmount: refundability.refundedAmount,
+				refundableAmount: refundability.refundableAmount,
+			};
+		}),
 		paymentFailures: paymentFailures.map((p) => ({
 			id: p.id,
 			createdAt: p.createdAt.toISOString(),
@@ -14231,6 +14659,123 @@ admin.openapi(giftResetPassesRoute, async (c) => {
 	return c.json({
 		message: "Reset Passes gifted successfully",
 		resetPasses,
+	});
+});
+
+admin.openapi(refundDevpassPaymentRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+	const { transactionId, amount, reason, comment } = c.req.valid("json");
+
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: orgId }, kind: { eq: "devpass" } },
+	});
+
+	if (!org) {
+		throw new HTTPException(404, { message: "Subscriber not found" });
+	}
+
+	const transaction = await db.query.transaction.findFirst({
+		where: { id: { eq: transactionId }, organizationId: { eq: orgId } },
+	});
+
+	if (!transaction) {
+		throw new HTTPException(404, { message: "Transaction not found" });
+	}
+
+	const refundedByTransactionId = await sumRefundsByTransaction(orgId, [
+		transaction.id,
+	]);
+
+	const { stripeRefundId, amount: refundedAmount } = await executeAdminRefund({
+		organization: org,
+		transaction,
+		adminUserId: user!.id,
+		amount,
+		refundedAmount:
+			refundedByTransactionId.get(transaction.id) ?? new Decimal(0),
+		reason,
+		comment,
+	});
+
+	return c.json({
+		message: `Refund of $${refundedAmount} created. Credits, Reset Passes and plan status update once Stripe confirms.`,
+		stripeRefundId,
+		amount: refundedAmount,
+	});
+});
+
+admin.openapi(cancelDevpassSubscriptionRoute, async (c) => {
+	const user = c.get("user");
+	const { orgId } = c.req.valid("param");
+	const { immediate, comment } = c.req.valid("json");
+
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: orgId }, kind: { eq: "devpass" } },
+	});
+
+	if (!org) {
+		throw new HTTPException(404, { message: "Subscriber not found" });
+	}
+
+	const subscriptionId = org.devPlanStripeSubscriptionId;
+	if (!subscriptionId) {
+		throw new HTTPException(400, {
+			message: "This subscriber has no active DevPass subscription",
+		});
+	}
+
+	const cancellationDetails = comment ? { comment } : undefined;
+
+	try {
+		if (immediate) {
+			await getStripe().subscriptions.cancel(subscriptionId, {
+				invoice_now: false,
+				prorate: false,
+				...(cancellationDetails
+					? { cancellation_details: cancellationDetails }
+					: {}),
+			});
+		} else {
+			await getStripe().subscriptions.update(subscriptionId, {
+				cancel_at_period_end: true,
+				...(cancellationDetails
+					? { cancellation_details: cancellationDetails }
+					: {}),
+			});
+		}
+	} catch (error) {
+		// A subscription Stripe has already ended is exactly the state we want;
+		// the plan columns are reset by the webhook (or the customer's next
+		// dashboard visit), so report success instead of failing the action.
+		if (isTerminalSubscriptionError(error)) {
+			logger.info(
+				`DevPass subscription ${subscriptionId} already terminal, skipping admin cancel`,
+			);
+		} else {
+			throw error;
+		}
+	}
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "dev_plan.admin_cancel",
+		resourceType: "dev_plan",
+		resourceId: subscriptionId,
+		metadata: {
+			tier: org.devPlan,
+			immediate,
+			comment,
+		},
+	});
+
+	return c.json({
+		message: immediate
+			? "DevPass subscription cancelled immediately"
+			: "DevPass subscription will end at the end of the current period",
+		immediate,
+		subscriptionId,
 	});
 });
 

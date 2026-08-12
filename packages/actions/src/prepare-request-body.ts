@@ -744,6 +744,44 @@ function mapGoogleImageSize(imageSize: string): string {
 }
 
 /**
+ * Maps the unified `image_config.image_size` to xAI's `resolution` enum, which
+ * only accepts the lowercase tier names `1k` and `2k` and 422s on anything else
+ * (including `1K` and pixel-dimension strings). Callers pass sizes in whichever
+ * shape their other providers use, so a tier is resolved from the longest pixel
+ * edge when dimensions are given. Returns undefined when the size names no
+ * xAI tier, so the request omits `resolution` and gets xAI's 1k default rather
+ * than a hard rejection.
+ */
+export function mapXaiImageResolution(imageSize: string): string | undefined {
+	const normalized = imageSize.trim().toLowerCase();
+	if (normalized === "1k" || normalized === "2k") {
+		return normalized;
+	}
+
+	const dimensions = normalized.match(/^(\d+)\s*[x*]\s*(\d+)$/);
+	if (dimensions) {
+		const longestEdge = Math.max(Number(dimensions[1]), Number(dimensions[2]));
+		return longestEdge > 1536 ? "2k" : "1k";
+	}
+
+	return undefined;
+}
+
+/**
+ * xAI's image models accept `quality` as a strict enum and 422 on anything
+ * outside it, so the unified `auto` (meaning "let the provider decide") is
+ * dropped rather than forwarded.
+ */
+export function mapXaiImageQuality(imageQuality: string): string | undefined {
+	const normalized = imageQuality.trim().toLowerCase();
+	return normalized === "low" ||
+		normalized === "medium" ||
+		normalized === "high"
+		? normalized
+		: undefined;
+}
+
+/**
  * Recursively sanitizes tool input schemas for AWS Bedrock Converse.
  * Bedrock is stricter than Anthropic's direct API and rejects several JSON Schema
  * keywords that appear in OpenAI-style tool definitions from external agents.
@@ -1432,6 +1470,12 @@ export async function prepareRequestBody(
 
 		// xAI Grok Imagine uses OpenAI-compatible image generation format
 		// When images are present, use the edits format
+		const xaiQuality = image_config?.image_quality
+			? mapXaiImageQuality(image_config.image_quality)
+			: undefined;
+		const xaiResolution = image_config?.image_size
+			? mapXaiImageResolution(image_config.image_size)
+			: undefined;
 		const xaiImageRequest: any = {
 			model: usedExternalId,
 			prompt,
@@ -1439,6 +1483,8 @@ export async function prepareRequestBody(
 			...(image_config?.aspect_ratio && {
 				aspect_ratio: image_config.aspect_ratio,
 			}),
+			...(xaiQuality && { quality: xaiQuality }),
+			...(xaiResolution && { resolution: xaiResolution }),
 			...(image_config?.n && { n: image_config.n }),
 		};
 
@@ -4181,24 +4227,33 @@ export async function prepareRequestBody(
 					}
 				}
 			}
-			// Hybrid models that keep thinking off by default (e.g. DeepSeek V3.2 on
-			// Novita) ignore `reasoning_effort` and require the vLLM chat-template
-			// flag to turn reasoning on. Only set it when the caller asked for
-			// reasoning so plain requests stay non-thinking.
-			if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
-				const thinkingMapping = modelDef?.providers.find(
-					(p) =>
-						p.providerId === usedProvider &&
-						((p as ProviderModelMapping).region ?? null) === usedRegion,
-				) as ProviderModelMapping | undefined;
-				if (thinkingMapping?.requiresEnableThinking) {
-					requestBody.chat_template_kwargs = {
-						...(requestBody.chat_template_kwargs ?? {}),
-						thinking: true,
-					};
-				}
-			}
 			break;
+		}
+	}
+
+	// vLLM chat-template thinking flags are handled after the provider switch so
+	// every provider branch (not just the OpenAI-compatible default) applies them
+	// uniformly. Hybrid models that keep thinking off by default (e.g. DeepSeek
+	// V3.2 on Novita) ignore `reasoning_effort` and require the chat-template flag
+	// to turn reasoning on; mappings that think by default (e.g. InclusionAI
+	// Ling-3.0-flash) declare `chatTemplateThinkingKey` for the flag that controls
+	// thinking. `reasoning_effort: "none"` flips it to false to turn thinking off,
+	// and any other effort flips it to true. A `reasoning_max_tokens` budget (from
+	// an Anthropic `thinking.budget_tokens`) is intentionally dropped for these
+	// mappings: the chat-template flag is a binary on/off toggle with no budget
+	// dimension, so the gateway only conveys whether thinking is on.
+	if (supportsReasoning && (reasoning_effort || reasoning_max_tokens)) {
+		if (providerMappingForOptions?.chatTemplateThinkingKey) {
+			requestBody.chat_template_kwargs = {
+				...(requestBody.chat_template_kwargs ?? {}),
+				[providerMappingForOptions.chatTemplateThinkingKey]:
+					reasoning_effort !== "none",
+			};
+		} else if (providerMappingForOptions?.requiresEnableThinking) {
+			requestBody.chat_template_kwargs = {
+				...(requestBody.chat_template_kwargs ?? {}),
+				thinking: true,
+			};
 		}
 	}
 

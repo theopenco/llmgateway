@@ -44,7 +44,11 @@ import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
-import { getProviderHeaders, readProviderKey } from "@llmgateway/actions";
+import {
+	getProviderHeaders,
+	providerKeyLabel,
+	readProviderKey,
+} from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
@@ -57,6 +61,7 @@ import type { ServerTypes } from "@/vars.js";
 import type { RoutingMetadata } from "@llmgateway/actions";
 import type { InferSelectModel, tables } from "@llmgateway/db";
 import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
+import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
 
 // The request arrives as multipart/form-data (OpenAI-compatible surface). The
 // schema documents the accepted fields; parsing happens via parseBody so file
@@ -559,11 +564,20 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 	const routingAttempts: RoutingAttempt[] = [];
 	const buildTranscriptionRoutingMetadata = (
 		usedApiKeyHash: string | undefined,
+		usedCredentialSource: RoutingCredentialSource,
+		usedProviderKey: { id?: string; label?: string },
 	): RoutingMetadata => ({
 		availableProviders: [providerId],
 		selectedProvider: providerId,
 		selectionReason,
-		...(usedApiKeyHash ? { usedApiKeyHash } : {}),
+		...(usedApiKeyHash
+			? {
+					usedApiKeyHash,
+					usedCredentialSource,
+					usedProviderKeyId: usedProviderKey.id,
+					usedProviderKeyLabel: usedProviderKey.label,
+				}
+			: {}),
 		providerScores: [],
 		...(routingAttempts.length > 0 ? { routing: routingAttempts } : {}),
 	});
@@ -770,6 +784,16 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 		while (true) {
 			const attemptLogId = shortid();
 			const usedApiKeyHash = getApiKeyFingerprint(attempt.usedToken);
+			// BYOK only when the organization's own key served the attempt; a
+			// platform-managed credential is LLM Gateway's key and bills as credits.
+			const credentialSource: RoutingCredentialSource = attempt.providerKey
+				? "byok"
+				: "platform";
+			// Named only for the organization's own key; providerKeyLabel()
+			// refuses to describe a platform-managed credential.
+			const providerKeyId = attempt.providerKey?.id;
+			const keyLabel = providerKeyLabel(attempt.providerKey);
+			const usedProviderKey = { id: providerKeyId, label: keyLabel };
 			const baseLogEntry = createLogEntry({
 				requestId,
 				project,
@@ -869,6 +893,9 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 							false,
 							{
 								apiKeyHash: usedApiKeyHash,
+								credentialSource,
+								providerKeyId,
+								providerKeyLabel: keyLabel,
 								logId: willRetry ? attemptLogId : finalLogId,
 							},
 						),
@@ -878,7 +905,11 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 				await insertLog({
 					...baseLogEntry,
 					id: willRetry ? attemptLogId : finalLogId,
-					routingMetadata: buildTranscriptionRoutingMetadata(usedApiKeyHash),
+					routingMetadata: buildTranscriptionRoutingMetadata(
+						usedApiKeyHash,
+						credentialSource,
+						usedProviderKey,
+					),
 					duration,
 					timeToFirstToken: null,
 					timeToFirstReasoningToken: null,
@@ -1015,6 +1046,9 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 						false,
 						{
 							apiKeyHash: usedApiKeyHash,
+							credentialSource,
+							providerKeyId,
+							providerKeyLabel: keyLabel,
 							logId: willRetry ? attemptLogId : finalLogId,
 						},
 					),
@@ -1023,7 +1057,11 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 				await insertLog({
 					...baseLogEntry,
 					id: willRetry ? attemptLogId : finalLogId,
-					routingMetadata: buildTranscriptionRoutingMetadata(usedApiKeyHash),
+					routingMetadata: buildTranscriptionRoutingMetadata(
+						usedApiKeyHash,
+						credentialSource,
+						usedProviderKey,
+					),
 					duration,
 					timeToFirstToken: null,
 					timeToFirstReasoningToken: null,
@@ -1148,6 +1186,9 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 					true,
 					{
 						apiKeyHash: usedApiKeyHash,
+						credentialSource,
+						providerKeyId,
+						providerKeyLabel: keyLabel,
 						logId: finalLogId,
 					},
 				),
@@ -1156,7 +1197,11 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 			await insertLog({
 				...baseLogEntry,
 				id: finalLogId,
-				routingMetadata: buildTranscriptionRoutingMetadata(usedApiKeyHash),
+				routingMetadata: buildTranscriptionRoutingMetadata(
+					usedApiKeyHash,
+					credentialSource,
+					usedProviderKey,
+				),
 				duration,
 				timeToFirstToken: null,
 				timeToFirstReasoningToken: null,

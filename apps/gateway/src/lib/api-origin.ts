@@ -23,6 +23,7 @@ const PROXIED_API_ORIGINS: readonly ApiOrigin[] = [
 	"messages",
 	"responses",
 	"images",
+	"ai-sdk",
 ];
 
 /**

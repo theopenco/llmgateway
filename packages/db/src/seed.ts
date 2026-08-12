@@ -1911,8 +1911,17 @@ async function seed() {
 		const streamedCount = Math.floor(baseRequests * randomFloat(0.6, 0.95));
 		const inputTokens = baseRequests * randomInt(900, 6000);
 		const outputTokens = baseRequests * randomInt(200, 2200);
-		const costPerReq = randomFloat(0.02, 0.18);
-		const totalCost = baseRequests * costPerReq;
+		// Vary the cache-hit share widely so the usage chart's token/cost
+		// breakdown shows hours where a big token total is cheap (mostly cached)
+		// next to hours where a smaller total is expensive (fresh input + output).
+		const hourCachedTokens = Math.floor(inputTokens * randomFloat(0.05, 0.85));
+		// Derive costs from the token mix at plausible per-token rates so the
+		// per-class costs and the total reconcile ($3/M fresh input, $0.30/M
+		// cached input, $15/M output).
+		const hourInputCost = (inputTokens - hourCachedTokens) * 3e-6;
+		const hourCachedInputCost = hourCachedTokens * 0.3e-6;
+		const hourOutputCost = outputTokens * 15e-6;
+		const totalCost = hourInputCost + hourCachedInputCost + hourOutputCost;
 		devpassHourlyStats.push({
 			id: `devpass-phs-${h}`,
 			projectId: "test-personal-project-id",
@@ -1935,16 +1944,16 @@ async function seed() {
 			outputTokens: String(outputTokens),
 			totalTokens: String(inputTokens + outputTokens),
 			reasoningTokens: "0",
-			cachedTokens: String(Math.floor(inputTokens * 0.15)),
+			cachedTokens: String(hourCachedTokens),
 			cost: Number(totalCost.toFixed(4)),
-			inputCost: Number((totalCost * 0.55).toFixed(4)),
-			outputCost: Number((totalCost * 0.4).toFixed(4)),
-			requestCost: Number((totalCost * 0.05).toFixed(4)),
+			inputCost: Number(hourInputCost.toFixed(4)),
+			outputCost: Number(hourOutputCost.toFixed(4)),
+			requestCost: 0,
 			dataStorageCost: 0,
 			discountSavings: 0,
 			imageInputCost: 0,
 			imageOutputCost: 0,
-			cachedInputCost: 0,
+			cachedInputCost: Number(hourCachedInputCost.toFixed(4)),
 			creditsRequestCount: baseRequests,
 			apiKeysRequestCount: 0,
 			creditsCost: Number(totalCost.toFixed(4)),

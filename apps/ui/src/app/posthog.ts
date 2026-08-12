@@ -2,6 +2,10 @@ import { PostHog } from "posthog-node";
 
 import { getConfig } from "@/lib/config-server";
 
+// Each PostHog instance owns an event queue and flush timer, so construct one
+// shared client per process instead of one per request.
+let client: PostHog | null = null;
+
 export default function PostHogClient() {
 	const config = getConfig();
 
@@ -15,8 +19,8 @@ export default function PostHogClient() {
 		return null;
 	}
 
-	const posthogClient = new PostHog(config.posthogKey!, {
+	client ??= new PostHog(config.posthogKey, {
 		host: config.posthogHost,
 	});
-	return posthogClient;
+	return client;
 }

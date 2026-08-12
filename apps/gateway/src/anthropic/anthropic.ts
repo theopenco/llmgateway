@@ -14,12 +14,83 @@ import { extractAnthropicSessionId } from "@/lib/session-id.js";
 
 import { logger, toError } from "@llmgateway/logger";
 
+import { logAnthropicClientError } from "./client-error-log.js";
+import {
+	buildOpenAiRequestRejectionMessage,
+	detectOpenAiChatCompletionsFields,
+} from "./openai-request-detection.js";
 import { buildAnthropicErrorEvent } from "./streaming-error-translation.js";
 import { mapAnthropicThinkingToReasoning } from "./thinking-to-reasoning.js";
 
 import type { ServerTypes } from "@/vars.js";
 
-export const anthropic = new OpenAPIHono<ServerTypes>();
+// Most of the request schema is built from unions (content blocks, tool
+// variants), and a union issue's own message is a useless "Invalid input" —
+// the actionable detail sits in its branch errors. Expand those, then dedupe
+// and cap so a body that mismatches every branch doesn't produce a wall of
+// text.
+const MAX_REPORTED_ISSUES = 12;
+
+function flattenZodIssues(issues: z.ZodIssue[], depth = 0): string[] {
+	const flattened: string[] = [];
+	for (const issue of issues) {
+		if (issue.code === "invalid_union" && depth < 3) {
+			for (const unionError of issue.unionErrors) {
+				flattened.push(...flattenZodIssues(unionError.issues, depth + 1));
+			}
+			continue;
+		}
+		flattened.push(`${issue.path.join(".")}: ${issue.message}`);
+	}
+	return flattened;
+}
+
+function formatValidationIssues(error: z.ZodError): string {
+	const unique = [...new Set(flattenZodIssues(error.issues))];
+	const reported = unique.slice(0, MAX_REPORTED_ISSUES);
+	if (unique.length > reported.length) {
+		reported.push(`… and ${unique.length - reported.length} more`);
+	}
+	return reported.join(", ");
+}
+
+// Request validation runs before the handler, so its failures never reached the
+// handler's own error formatting and leaked a raw `{ success: false, error:
+// ZodError }` body — a shape no Anthropic client can parse. Render every
+// validation failure in Anthropic's error envelope instead, and upgrade the
+// message when the body is recognisably an OpenAI Chat Completions request.
+//
+// This hook only runs once the schema has already rejected the request, so it
+// changes what a failure says, never whether one happens.
+export const anthropic = new OpenAPIHono<ServerTypes>({
+	defaultHook: async (result, c) => {
+		if (result.success) {
+			return;
+		}
+
+		let rawBody: unknown = null;
+		try {
+			rawBody = await c.req.json();
+		} catch {
+			rawBody = null;
+		}
+
+		const openAiFields = detectOpenAiChatCompletionsFields(rawBody);
+		const isOpenAiBody = openAiFields.length > 0;
+		const message = isOpenAiBody
+			? buildOpenAiRequestRejectionMessage(openAiFields)
+			: `Invalid request format: ${formatValidationIssues(result.error)}`;
+
+		await logAnthropicClientError(
+			c,
+			rawBody,
+			message,
+			isOpenAiBody ? "openai_request_format" : "invalid_request_format",
+		);
+
+		return c.json(buildAnthropicErrorBody({ message, status: 400 }), 400);
+	},
+});
 
 const anthropicMessageSchema = z.object({
 	role: z.enum([
@@ -443,12 +514,24 @@ anthropic.openapi(messages, async (c) => {
 		});
 	}
 
+	// Note: no OpenAI-format guard runs here. A body that reaches this point has
+	// already satisfied the Anthropic schema, and rejecting it for carrying an
+	// OpenAI-only parameter the schema stripped (`response_format`, `stop`,
+	// `n`, …) would deny requests that succeed today. Unknown parameters stay
+	// silently ignored; only structurally-OpenAI bodies are rejected, by the
+	// schema itself, and the validation hook explains those.
+
 	// Validate with our schema
 	const validation = anthropicRequestSchema.safeParse(rawRequest);
 	if (!validation.success) {
-		throw new HTTPException(400, {
-			message: `Invalid request format: ${validation.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join(", ")}`,
-		});
+		const message = `Invalid request format: ${formatValidationIssues(validation.error)}`;
+		await logAnthropicClientError(
+			c,
+			rawRequest,
+			message,
+			"invalid_request_format",
+		);
+		throw new HTTPException(400, { message });
 	}
 
 	const anthropicRequest: AnthropicRequest = validation.data;

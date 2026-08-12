@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect } from "vitest";
 
 import { db, eq, pool, tables } from "@llmgateway/db";
 import { getProviderDefinition, models } from "@llmgateway/models";
+import { getGatewayPublicBaseUrl } from "@llmgateway/shared";
 import { verifyVideoContentAccessToken } from "@llmgateway/shared/video-access";
 
 import {
@@ -275,7 +276,7 @@ export function createGatewayApiTestHarness() {
 			const validAfterSixDays = 6 * 24 * 60 * 60 * 1000;
 			const expiredAfterEightDays = 8 * 24 * 60 * 60 * 1000;
 			const parsed = new URL(url);
-			expect(parsed.origin).toBe("http://localhost:4001");
+			expect(parsed.origin).toBe(new URL(getGatewayPublicBaseUrl()).origin);
 			expect(parsed.pathname).toBe(`/v1/videos/logs/${logId}/content`);
 			const token = parsed.searchParams.get("token");
 			expect(token).toBeTruthy();

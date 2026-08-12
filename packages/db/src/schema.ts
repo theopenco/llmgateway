@@ -437,6 +437,12 @@ export const transaction = pgTable(
 				"credit_topup",
 				"credit_refund",
 				"credit_gift",
+				// Credits granted by an administrator against a payment that was
+				// received outside Stripe (wire transfer, crypto, …). Unlike
+				// `credit_gift` real money changed hands, so both `amount` (dollars
+				// received) and `creditAmount` (credits granted) are set and the row
+				// counts toward revenue. `paymentMethod` records the channel.
+				"credit_manual_payment",
 				"dev_plan_start",
 				"dev_plan_upgrade",
 				"dev_plan_downgrade",
@@ -493,6 +499,17 @@ export const transaction = pgTable(
 		description: text(),
 		relatedTransactionId: text(),
 		refundReason: text(),
+		// Off-Stripe payment channel, set only on `credit_manual_payment` rows so
+		// manually credited revenue can be reconciled per channel. Stripe-settled
+		// rows leave this null — the payment method lives in Stripe.
+		paymentMethod: text({
+			enum: ["wire", "crypto", "paypal", "other"],
+		}),
+		// Free-form identifier for the payment on its own channel — a bank wire
+		// reference, an on-chain transaction hash, a PayPal transaction id. Set
+		// only on `credit_manual_payment` rows, so a credit can be traced back to
+		// the money that paid for it without digging through the description.
+		externalReference: text(),
 	},
 	(table) => [
 		index("transaction_organization_id_idx").on(table.organizationId),
@@ -1549,7 +1566,13 @@ export interface ProviderKeyOptions {
 	azure_deployment_name?: string;
 	azure_ai_foundry_resource?: string;
 	azure_ai_foundry_api_version?: string;
-	alibaba_region?: "singapore" | "us-virginia" | "cn-beijing";
+	alibaba_region?: "singapore" | "eu-frankfurt" | "us-virginia" | "cn-beijing";
+	/**
+	 * Model Studio workspace id, required for regions served only by the
+	 * workspace-dedicated `{WorkspaceId}.<region>.maas.aliyuncs.com` host
+	 * (Frankfurt). Ignored by regions that have a shared DashScope domain.
+	 */
+	alibaba_workspace_id?: string;
 	aws_mantle_region?: "us-east-1" | "us-east-2" | "us-west-2";
 	google_vertex_project_id?: string;
 	google_vertex_token_type?: "api-key" | "oauth";
@@ -1785,6 +1808,7 @@ export const API_ORIGINS = [
 	"chat-completions",
 	"messages",
 	"responses",
+	"ai-sdk",
 	"embeddings",
 	"images",
 	"videos",
@@ -1916,6 +1940,18 @@ export const log = pgTable(
 			selectedProvider?: string;
 			selectionReason?: string;
 			usedApiKeyHash?: string;
+			// Whose credential served the request: the organization's own provider
+			// key (`byok`) or an LLM Gateway platform credential (`platform`).
+			// Always agrees with the row's billing mode (`usedMode`).
+			usedCredentialSource?: "byok" | "platform";
+			// The organization's own key that served the request, named as its
+			// owner sees it. Only set for "byok" — a platform-managed credential
+			// is never described to a tenant.
+			usedProviderKeyId?: string;
+			usedProviderKeyLabel?: string;
+			// The organization's own keys that were candidates for the used
+			// provider, in selection order. BYOK rows only.
+			eligibleProviderKeys?: Array<{ id: string; label?: string }>;
 			providerScores?: Array<{
 				providerId: string;
 				region?: string;
@@ -1949,6 +1985,12 @@ export const log = pgTable(
 				error_type: string;
 				succeeded: boolean;
 				apiKeyHash?: string;
+				// Per attempt: a hybrid-mode request can start on the org's own key
+				// and fall back to the platform credential, so ownership differs
+				// between entries in this array.
+				credentialSource?: "byok" | "platform";
+				providerKeyId?: string;
+				providerKeyLabel?: string;
 				logId?: string;
 			}>;
 			filteredProviders?: Array<{
@@ -2242,6 +2284,18 @@ export const videoJob = pgTable(
 			selectedProvider?: string;
 			selectionReason?: string;
 			usedApiKeyHash?: string;
+			// Whose credential served the request: the organization's own provider
+			// key (`byok`) or an LLM Gateway platform credential (`platform`).
+			// Always agrees with the row's billing mode (`usedMode`).
+			usedCredentialSource?: "byok" | "platform";
+			// The organization's own key that served the request, named as its
+			// owner sees it. Only set for "byok" — a platform-managed credential
+			// is never described to a tenant.
+			usedProviderKeyId?: string;
+			usedProviderKeyLabel?: string;
+			// The organization's own keys that were candidates for the used
+			// provider, in selection order. BYOK rows only.
+			eligibleProviderKeys?: Array<{ id: string; label?: string }>;
 			providerScores?: Array<{
 				providerId: string;
 				region?: string;
@@ -2275,6 +2329,12 @@ export const videoJob = pgTable(
 				error_type: string;
 				succeeded: boolean;
 				apiKeyHash?: string;
+				// Per attempt: a hybrid-mode request can start on the org's own key
+				// and fall back to the platform credential, so ownership differs
+				// between entries in this array.
+				credentialSource?: "byok" | "platform";
+				providerKeyId?: string;
+				providerKeyLabel?: string;
 				logId?: string;
 			}>;
 		}>(),
@@ -3547,8 +3607,11 @@ export const auditLogActions = [
 	"payment.auto_topup.update",
 	"payment.auto_topup.disable",
 	"payment.self_refund",
+	// Refund issued by an administrator on behalf of the customer.
+	"payment.admin_refund",
 	// Credits
 	"credits.gift",
+	"credits.manual_payment",
 	// Referral
 	"referral_bonus.update",
 	// Dev Plan
@@ -3566,6 +3629,8 @@ export const auditLogActions = [
 	// Free Reset Pass granted for a quarterly model-survey response.
 	"dev_plan.reset_pass_reward",
 	"dev_plan.reset_pass_gift",
+	// Cancellation performed by an administrator on behalf of the subscriber.
+	"dev_plan.admin_cancel",
 	// Chat Plan
 	"chat_plan.subscribe",
 	"chat_plan.cancel",
