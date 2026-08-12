@@ -588,6 +588,63 @@ function EnterpriseDeveloperNote() {
 	);
 }
 
+/**
+ * Marks which of a developer's granted projects they lead. A lead grant only
+ * opens that project's per-member cost breakdown — it carries no org-wide
+ * access, which is the whole point of having it separate from the admin role.
+ */
+function TeamLeadProjectSelector({
+	idPrefix,
+	orgProjects,
+	projectIds,
+	leadProjectIds,
+	onChange,
+}: {
+	idPrefix: string;
+	orgProjects: OrgProject[];
+	projectIds: string[];
+	leadProjectIds: string[];
+	onChange: (next: string[]) => void;
+}) {
+	if (!projectIds.length) {
+		return null;
+	}
+
+	return (
+		<div className="space-y-2">
+			<Label>Team lead</Label>
+			<p className="text-muted-foreground text-xs">
+				A lead sees every member's cost and usage inside that project, without
+				any organization-wide access.
+			</p>
+			<div className="space-y-2 rounded-md border p-3">
+				{projectIds.map((projectId) => {
+					const project = orgProjects.find((p) => p.id === projectId);
+					const inputId = `${idPrefix}-lead-${projectId}`;
+					return (
+						<div key={projectId} className="flex items-center gap-2">
+							<Checkbox
+								id={inputId}
+								checked={leadProjectIds.includes(projectId)}
+								onCheckedChange={(checked) =>
+									onChange(
+										checked === true
+											? [...leadProjectIds, projectId]
+											: leadProjectIds.filter((id) => id !== projectId),
+									)
+								}
+							/>
+							<Label htmlFor={inputId} className="text-sm font-normal">
+								{project?.name ?? projectId}
+							</Label>
+						</div>
+					);
+				})}
+			</div>
+		</div>
+	);
+}
+
 function ManageAccessDialog({
 	organizationId,
 	member,
@@ -617,14 +674,6 @@ function ManageAccessDialog({
 	const effectiveLeadProjectIds = leadProjectIds.filter((id) =>
 		projectIds.includes(id),
 	);
-
-	const toggleLead = (projectId: string, isLead: boolean) => {
-		setLeadProjectIds((current) =>
-			isLead
-				? [...current, projectId]
-				: current.filter((id) => id !== projectId),
-		);
-	};
 
 	const handleSave = async () => {
 		if (role === "developer" && !isEnterprise) {
@@ -698,36 +747,14 @@ function ManageAccessDialog({
 						</div>
 					)}
 
-					{role === "developer" && isEnterprise && projectIds.length > 0 && (
-						<div className="space-y-2">
-							<Label>Team lead</Label>
-							<p className="text-muted-foreground text-xs">
-								A lead sees every member's cost and usage inside that project,
-								without any organization-wide access.
-							</p>
-							<div className="space-y-2 rounded-md border p-3">
-								{projectIds.map((projectId) => {
-									const project = orgProjects.find((p) => p.id === projectId);
-									return (
-										<div key={projectId} className="flex items-center gap-2">
-											<Checkbox
-												id={`lead-${projectId}`}
-												checked={effectiveLeadProjectIds.includes(projectId)}
-												onCheckedChange={(checked) =>
-													toggleLead(projectId, checked === true)
-												}
-											/>
-											<Label
-												htmlFor={`lead-${projectId}`}
-												className="text-sm font-normal"
-											>
-												{project?.name ?? projectId}
-											</Label>
-										</div>
-									);
-								})}
-							</div>
-						</div>
+					{role === "developer" && isEnterprise && (
+						<TeamLeadProjectSelector
+							idPrefix="manage-access"
+							orgProjects={orgProjects}
+							projectIds={projectIds}
+							leadProjectIds={effectiveLeadProjectIds}
+							onChange={setLeadProjectIds}
+						/>
 					)}
 				</div>
 				<DialogFooter>
@@ -769,6 +796,9 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 	const [email, setEmail] = useState("");
 	const [role, setRole] = useState<MemberRole>("developer");
 	const [newMemberProjectIds, setNewMemberProjectIds] = useState<string[]>([]);
+	const [newMemberLeadProjectIds, setNewMemberLeadProjectIds] = useState<
+		string[]
+	>([]);
 	const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
 	const [budgetMember, setBudgetMember] = useState<TeamMember | null>(null);
 	const [accessMember, setAccessMember] = useState<TeamMember | null>(null);
@@ -876,7 +906,15 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 			body: {
 				email,
 				role,
-				...(role === "developer" ? { projectIds: newMemberProjectIds } : {}),
+				...(role === "developer"
+					? {
+							projectIds: newMemberProjectIds,
+							// A lead grant only means anything on a project they can reach.
+							leadProjectIds: newMemberLeadProjectIds.filter((id) =>
+								newMemberProjectIds.includes(id),
+							),
+						}
+					: {}),
 			},
 		});
 		toast({
@@ -888,6 +926,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 		setEmail("");
 		setRole("developer");
 		setNewMemberProjectIds([]);
+		setNewMemberLeadProjectIds([]);
 		setIsAddDialogOpen(false);
 	};
 
@@ -1013,18 +1052,27 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 										</div>
 
 										{role === "developer" && isEnterprise && (
-											<div className="space-y-2">
-												<Label>Project access</Label>
-												<p className="text-muted-foreground text-xs">
-													Developers can only see and use the projects you
-													grant.
-												</p>
-												<ProjectMultiSelect
+											<>
+												<div className="space-y-2">
+													<Label>Project access</Label>
+													<p className="text-muted-foreground text-xs">
+														Developers can only see and use the projects you
+														grant.
+													</p>
+													<ProjectMultiSelect
+														orgProjects={orgProjects}
+														selected={newMemberProjectIds}
+														onChange={setNewMemberProjectIds}
+													/>
+												</div>
+												<TeamLeadProjectSelector
+													idPrefix="add-member"
 													orgProjects={orgProjects}
-													selected={newMemberProjectIds}
-													onChange={setNewMemberProjectIds}
+													projectIds={newMemberProjectIds}
+													leadProjectIds={newMemberLeadProjectIds}
+													onChange={setNewMemberLeadProjectIds}
 												/>
-											</div>
+											</>
 										)}
 
 										<Alert>

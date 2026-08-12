@@ -402,20 +402,24 @@ export function toDimensionRows(
 		// Per-key rollups only cover "user" and "end_user_customer" keys, so a
 		// project driven by platform keys sums to less than its own total. Surface
 		// the difference instead of letting the breakdown quietly under-report.
+		//
+		// Each metric is tested independently: free-model platform traffic adds
+		// requests and tokens at zero cost, and gating on cost alone would drop it
+		// from the Requests and Tokens views.
 		const residualCost = row.cost - sum(breakdown, "cost");
-		if (residualCost > RESIDUAL_EPSILON) {
+		const residualRequests = row.requestCount - sum(breakdown, "requestCount");
+		const residualTokens = row.totalTokens - sum(breakdown, "totalTokens");
+		if (
+			residualCost > RESIDUAL_EPSILON ||
+			residualRequests > 0 ||
+			residualTokens > 0
+		) {
 			breakdown.push({
 				key: UNATTRIBUTED_KEY,
 				label: UNATTRIBUTED_LABEL,
-				cost: residualCost,
-				requestCount: Math.max(
-					0,
-					row.requestCount - sum(breakdown, "requestCount"),
-				),
-				totalTokens: Math.max(
-					0,
-					row.totalTokens - sum(breakdown, "totalTokens"),
-				),
+				cost: Math.max(0, residualCost),
+				requestCount: Math.max(0, residualRequests),
+				totalTokens: Math.max(0, residualTokens),
 				creditsRequestCount: 0,
 				apiKeysRequestCount: 0,
 				creditsCost: 0,

@@ -182,6 +182,36 @@ describe("toDimensionRows", () => {
 		expect(residual!.totalTokens).toBe(40);
 	});
 
+	// Free-model platform traffic costs nothing but still moves requests and
+	// tokens, so gating the residual on cost alone would hide it from those tabs.
+	test("adds an Unattributed entry for zero-cost platform traffic", () => {
+		const rows = toDimensionRows(
+			[
+				day({
+					cost: 4,
+					requestCount: 10,
+					totalTokens: 100,
+					userBreakdown: [
+						{
+							id: "user_1",
+							name: "Ada",
+							cost: 4,
+							requestCount: 6,
+							totalTokens: 60,
+						},
+					],
+				}),
+			],
+			"user",
+		);
+
+		const residual = rows[0].breakdown.find((e) => e.key === UNATTRIBUTED_KEY);
+		expect(residual).toBeDefined();
+		expect(residual!.cost).toBe(0);
+		expect(residual!.requestCount).toBe(4);
+		expect(residual!.totalTokens).toBe(40);
+	});
+
 	test("per-user costs sum back to the project total", () => {
 		const activity = [
 			day({

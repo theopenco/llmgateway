@@ -8,9 +8,26 @@ import { db, tables } from "@llmgateway/db";
 const ORG_ID = "lead-test-org";
 const OWNER_UO_ID = "lead-owner-uo";
 const MEMBER_USER_ID = "lead-member-user";
+const MEMBER_EMAIL = "lead-member@example.com";
 const MEMBER_UO_ID = "lead-member-uo";
 const PROJECT_A = "lead-project-a";
 const PROJECT_B = "lead-project-b";
+
+// The scrypt hash from the createTestUser fixture; it hashes the password below
+// and is not bound to an email, so it can be reused for other accounts.
+const PASSWORD = "admin@example.com1A";
+const PASSWORD_HASH =
+	"c11ef27a7f9264be08db228ebb650888:a4d985a9c6bd98608237fd507534424950aa7fc255930d972242b81cbe78594f8568feb0d067e95ddf7be242ad3e9d013f695f4414fce68bfff091079f1dc460";
+
+async function signInAs(email: string) {
+	const auth = await app.request("/auth/sign-in/email", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ email, password: PASSWORD }),
+	});
+	expect(auth.status).toBe(200);
+	return auth.headers.get("set-cookie")!;
+}
 
 describe("team project lead grants", () => {
 	let ownerToken: string;
@@ -35,8 +52,15 @@ describe("team project lead grants", () => {
 		await db.insert(tables.user).values({
 			id: MEMBER_USER_ID,
 			name: "Lead Member",
-			email: "lead-member@example.com",
+			email: MEMBER_EMAIL,
 			emailVerified: true,
+		});
+		await db.insert(tables.account).values({
+			id: `${MEMBER_USER_ID}-account`,
+			providerId: "credential",
+			accountId: `${MEMBER_USER_ID}-account`,
+			userId: MEMBER_USER_ID,
+			password: PASSWORD_HASH,
 		});
 
 		await db.insert(tables.userOrganization).values({
@@ -155,12 +179,44 @@ describe("team project lead grants", () => {
 		expect(await grantsFor(MEMBER_UO_ID)).toEqual(new Map());
 	});
 
+	// An invite for an email with no account yet stores the grants until sign-up,
+	// so the lead selection must survive on the invite row.
+	test("stores lead grants on an invite for a new email", async () => {
+		const res = await app.request(`/team/${ORG_ID}/members`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: ownerToken },
+			body: JSON.stringify({
+				email: "not-registered-yet@example.com",
+				role: "developer",
+				projectIds: [PROJECT_A, PROJECT_B],
+				leadProjectIds: [PROJECT_A],
+			}),
+		});
+		expect(res.status).toBe(200);
+		const { invite } = await res.json();
+		expect(invite).not.toBeNull();
+
+		const row = await db.query.organizationInvite.findFirst({
+			where: { id: { eq: invite.id } },
+		});
+		expect(row?.projectIds).toEqual([PROJECT_A, PROJECT_B]);
+		expect(row?.leadProjectIds).toEqual([PROJECT_A]);
+	});
+
 	test("exposes the caller's own lead grants on members/me", async () => {
 		await updateAccess({
 			role: "developer",
 			projectIds: [PROJECT_A, PROJECT_B],
 			leadProjectIds: [PROJECT_B],
 		});
+
+		// The lead themself is the caller the UI route guard and sidebar read.
+		const memberToken = await signInAs(MEMBER_EMAIL);
+		const memberRes = await app.request(`/team/${ORG_ID}/members/me`, {
+			headers: { Cookie: memberToken },
+		});
+		expect(memberRes.status).toBe(200);
+		expect((await memberRes.json()).leadProjectIds).toEqual([PROJECT_B]);
 
 		// The owner leads nothing — they reach every project through their role.
 		const ownerRes = await app.request(`/team/${ORG_ID}/members/me`, {
