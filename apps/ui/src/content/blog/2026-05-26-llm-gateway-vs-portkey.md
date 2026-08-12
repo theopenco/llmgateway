@@ -97,7 +97,7 @@ LLM Gateway is free to self-host. On the managed tier it's a flat 5% platform fe
 
 ### Prompt Management Is Genuinely Strong
 
-This is Portkey's standout. Versioned prompt templates, a prompt registry, deployments, and a playground that ties into production — if your team treats prompts as first-class, versioned artifacts and wants non-engineers iterating on them, Portkey's prompt management is more mature than ours today. We expose a [Playground](https://chat.llmgateway.io) for testing, but not a full versioned prompt registry.
+This is Portkey's standout. Versioned prompt templates, a prompt registry, deployments, and a playground that ties into production — if your team treats prompts as first-class, versioned artifacts and wants non-engineers iterating on them, Portkey's prompt management is more mature than ours today. We expose a [Playground](https://lounge.llmgateway.io) for testing, but not a full versioned prompt registry.
 
 ### Deep, Enterprise-Grade Observability
 

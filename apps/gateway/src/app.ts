@@ -21,6 +21,8 @@ import {
 import { logger, toError } from "@llmgateway/logger";
 import { HealthChecker } from "@llmgateway/shared";
 
+import { aisdk } from "./aisdk/aisdk.js";
+import { creditsRoute } from "./aisdk/credits.js";
 import { anthropic } from "./anthropic/anthropic.js";
 import { chat } from "./chat/chat.js";
 import { extractErrorCause } from "./chat/tools/extract-error-cause.js";
@@ -349,8 +351,20 @@ v1.route("/audio/speech", speechRoute);
 v1.route("/audio/transcriptions", transcriptionsRoute);
 v1.route("/realtime", realtimeClientSecretsRoute);
 v1.route("/videos", videosRoute);
+v1.route("/credits", creditsRoute);
 
 app.route("/v1", v1);
+
+// AI SDK Gateway protocol surface. `@ai-sdk/gateway` derives its default base
+// URL from the spec version it implements (`/v4/ai` for AI SDK 7, `/v2|3/ai`
+// for the versions before it), and the request carries the spec version in a
+// header — so every prefix maps to the same router, which answers in whichever
+// shape the header asked for. `/v1/ai` is registered too, for AI SDK 5's base
+// URL; it is registered after `app.route("/v1", v1)` because the `/v1` sub-app
+// has no `/ai` route and Hono falls through to the next matching handler.
+for (const prefix of ["/v1/ai", "/v2/ai", "/v3/ai", "/v4/ai"]) {
+	app.route(prefix, aisdk);
+}
 
 // MCP endpoint - Model Context Protocol server
 app.all("/mcp", mcpHandler);

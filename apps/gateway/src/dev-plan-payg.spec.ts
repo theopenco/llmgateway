@@ -8,7 +8,9 @@ import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harne
 // PAYG overflow for DevPass orgs: once the monthly allowance is exhausted,
 // an org that opted in (devPlanPaygEnabled) keeps flowing on its regular
 // credits balance; without the opt-in the plan allowance is a hard cap even
-// when the org holds credits.
+// when the org holds credits. The weekly premium fair-use cap follows the
+// same logic: with the opt-in and a positive balance, premium requests past
+// the cap proceed and bill the balance — mid-cycle included.
 describe("dev-plan PAYG overflow", () => {
 	const harness = createGatewayApiTestHarness();
 
@@ -130,9 +132,11 @@ describe("dev-plan PAYG overflow", () => {
 		expect(body).toContain("pay-as-you-go balance is empty");
 	});
 
-	test("weekly premium cap still rejects mid-cycle even with the opt-in (Reset Pass path preserved)", async () => {
+	test("weekly premium cap yields to PAYG overflow mid-cycle when the org holds credits", async () => {
 		await setupCreditsApiKey("payg-premium-midcycle-token");
-		// Monthly pool has room, so PAYG must not bypass the weekly premium cap.
+		// Monthly pool has room, weekly premium cap is exhausted, PAYG opted in
+		// with a positive balance (the seed leaves credits "100.00"): the excess
+		// premium spend bills the balance, so the request proceeds.
 		await harness.setDevPlan({
 			devPlan: "pro",
 			creditsUsed: "50",
@@ -144,9 +148,53 @@ describe("dev-plan PAYG overflow", () => {
 
 		const res = await chatRequest("payg-premium-midcycle-token", "gpt-5.5");
 
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.choices?.[0]?.message).toBeTruthy();
+	});
+
+	test("weekly premium cap still rejects mid-cycle when the PAYG balance is empty", async () => {
+		await setupCreditsApiKey("payg-premium-midcycle-empty-token");
+		// Opted in but nothing to overflow onto: the cap still bites, and the
+		// rejection points at the top-up instead of only the Reset Pass.
+		await harness.setDevPlan({
+			devPlan: "pro",
+			creditsUsed: "50",
+			creditsLimit: "100",
+			premiumCreditsUsed: "999",
+			premiumWeekStart: new Date(),
+			paygEnabled: true,
+		});
+		await harness.setOrganizationCredits("0");
+
+		const res = await chatRequest(
+			"payg-premium-midcycle-empty-token",
+			"gpt-5.5",
+		);
+
 		expect(res.status).toBe(402);
 		const body = JSON.stringify(await res.json());
 		expect(body).toContain("weekly allowance for premium-tier models");
+		expect(body).toContain("credits balance is empty");
+	});
+
+	test("weekly premium cap still rejects mid-cycle without the opt-in even with credits", async () => {
+		await setupCreditsApiKey("payg-premium-midcycle-off-token");
+		// No opt-in: the seed's credits balance must not soften the cap.
+		await harness.setDevPlan({
+			devPlan: "pro",
+			creditsUsed: "50",
+			creditsLimit: "100",
+			premiumCreditsUsed: "999",
+			premiumWeekStart: new Date(),
+		});
+
+		const res = await chatRequest("payg-premium-midcycle-off-token", "gpt-5.5");
+
+		expect(res.status).toBe(402);
+		const body = JSON.stringify(await res.json());
+		expect(body).toContain("weekly allowance for premium-tier models");
+		expect(body).not.toContain("credits balance is empty");
 	});
 
 	test("weekly premium cap yields to PAYG once the monthly pool is exhausted", async () => {

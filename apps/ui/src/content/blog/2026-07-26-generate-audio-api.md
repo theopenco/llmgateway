@@ -98,7 +98,7 @@ Not yet. The endpoint returns the complete audio file in a single response; ther
 
 ### How do I pick a voice without writing code?
 
-Use the [Audio Studio in Lounge](https://chat.llmgateway.io/audio) — it generates speech from up to three models side by side with per-model voice, format, and speed controls.
+Use the [Audio Studio in Lounge](https://lounge.llmgateway.io/audio) — it generates speech from up to three models side by side with per-model voice, format, and speed controls.
 
 ---
 

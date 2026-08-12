@@ -551,6 +551,7 @@ export default function ImagePageClient({
 							aspect_ratio: imageAspectRatio,
 						}),
 						...(imageSize !== "1K" && { image_size: imageSize }),
+						...(includeQuality && { image_quality: imageQuality }),
 						n: imageCount,
 					};
 

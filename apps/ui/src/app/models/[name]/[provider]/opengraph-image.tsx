@@ -1,7 +1,5 @@
 import { ImageResponse } from "next/og";
 
-import { discountFraction, getEffectiveProviderDiscount } from "@/lib/discount";
-import { fetchModelDiscounts } from "@/lib/fetch-models";
 import Logo from "@/lib/icons/Logo";
 import { formatContextSize } from "@/lib/utils";
 
@@ -25,7 +23,32 @@ export const size = {
 	height: 630,
 };
 export const contentType = "image/png";
-export const revalidate = 60;
+// Baked at build time rather than revalidated every 60s: rendering these cards
+// on demand runs satori inside the request, which the production pods do not
+// have the headroom for and which took the whole route down with a 503. The
+// canonical /models/[name] pages point their og:image here too, so this route
+// backs every model card on the site. Discount badges therefore refresh per
+// deploy instead of per minute — social scrapers cache these for days anyway.
+export const dynamic = "force-static";
+export const dynamicParams = false;
+
+export function generateStaticParams() {
+	const params: { name: string; provider: string }[] = [];
+
+	for (const model of modelDefinitions) {
+		const uniqueProviders = Array.from(
+			new Set(model.providers.map((mapping) => mapping.providerId)),
+		);
+		for (const providerId of uniqueProviders) {
+			params.push({
+				name: encodeURIComponent(model.id),
+				provider: encodeURIComponent(providerId),
+			});
+		}
+	}
+
+	return params;
+}
 
 interface ImageProps {
 	params: Promise<{ name: string; provider: string }>;
@@ -115,15 +138,14 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 								? FireworksIconStatic
 								: getProviderIcon(selectedMapping.providerId)
 			: null;
-		const discounts = await fetchModelDiscounts(decodedName);
-		const effectiveDiscount = selectedMapping
-			? getEffectiveProviderDiscount(
-					discounts,
-					selectedMapping.providerId,
-					decodedName,
-				)
-			: undefined;
-		const discountNum = discountFraction(effectiveDiscount);
+		// Cards show list prices, not discounted ones. Discounts live in the
+		// database behind the API, and API_URL is a runtime env var that is not
+		// set during the image build, so a lookup here can only ever fail and
+		// fall back to "no discount" — at the cost of one dead request per
+		// generated card. The price rendering below still handles a discount, so
+		// restoring the badge is a matter of feeding it one from a build-time
+		// source.
+		const discountNum = 0;
 
 		const hasPricingTiers = (selectedMapping?.pricingTiers?.length ?? 0) > 1;
 		const pricing = getEffectivePricePerMillion(selectedMapping, discountNum);

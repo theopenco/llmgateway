@@ -135,8 +135,9 @@ LLM_VERTEX_ANTHROPIC_REGION=global
 ```
 
 <Callout type="info">
-	The project ID is extracted automatically from the service account JSON — no
-	separate `LLM_VERTEX_ANTHROPIC_PROJECT` variable is needed.
+	The project ID is extracted automatically from the service account JSON, so
+	`LLM_VERTEX_ANTHROPIC_PROJECT` only needs setting to call a different project
+	than the service account's own.
 </Callout>
 
 ## How Token Refresh Works

@@ -32,7 +32,7 @@ The latest and most capable DeepSeek model. Unified chat and reasoning in a sing
 
 **Best price**: $0.182/M input via Canopywave — **35% cheaper than the official DeepSeek API**.
 
-[Try DeepSeek V3.2 in the Playground](https://chat.llmgateway.io/?model=deepseek/deepseek-v3.2)
+[Try DeepSeek V3.2 in the Playground](https://lounge.llmgateway.io/?model=deepseek/deepseek-v3.2)
 
 ### DeepSeek V3.1
 
@@ -42,7 +42,7 @@ The previous generation, still available for workloads that depend on it.
 | --------- | -------- | -------------- | --------------- | ------------ |
 | Bytedance | —        | $0.56          | $1.68           | $0.112       |
 
-[Try DeepSeek V3.1 in the Playground](https://chat.llmgateway.io/?model=deepseek/deepseek-v3.1)
+[Try DeepSeek V3.1 in the Playground](https://lounge.llmgateway.io/?model=deepseek/deepseek-v3.1)
 
 ### DeepSeek R1 (0528)
 
@@ -52,7 +52,7 @@ The May 2025 reasoning model, available through Nebius.
 | -------- | -------- | -------------- | --------------- |
 | Nebius   | —        | $0.80          | $2.40           |
 
-[Try DeepSeek R1 in the Playground](https://chat.llmgateway.io/?model=deepseek/deepseek-r1-0528)
+[Try DeepSeek R1 in the Playground](https://lounge.llmgateway.io/?model=deepseek/deepseek-r1-0528)
 
 ## How the Discounts Work
 
@@ -133,4 +133,4 @@ Smart routing picks the cheapest discounted provider automatically. No configura
 
 ---
 
-**[Browse discounted models](/models?discounted=true)** | **[Try DeepSeek V3.2](https://chat.llmgateway.io/?model=deepseek/deepseek-v3.2)** | **[Token Cost Calculator](https://llmgateway.io/token-cost-calculator)** | **[Get started free](https://llmgateway.io/signup)**
+**[Browse discounted models](/models?discounted=true)** | **[Try DeepSeek V3.2](https://lounge.llmgateway.io/?model=deepseek/deepseek-v3.2)** | **[Token Cost Calculator](https://llmgateway.io/token-cost-calculator)** | **[Get started free](https://llmgateway.io/signup)**

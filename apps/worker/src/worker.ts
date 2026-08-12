@@ -38,7 +38,9 @@ import { hasErrorCode } from "@llmgateway/models";
 import {
 	assertSafeWebhookUrl,
 	calculateFees,
+	getRemainingPremiumWeeklyAllowance,
 	isCreditTopUpAmountInRange,
+	isLoungeSource,
 	isPremiumUsedModel,
 	isPremiumWeekExpired,
 	isPrivateOrReservedIp,
@@ -76,6 +78,8 @@ import {
 	requestStop,
 	resetShutdown,
 } from "./shutdown.js";
+
+import type { DevPlanTier } from "@llmgateway/shared";
 
 // Configuration for current minute history calculation interval (defaults to 5 seconds)
 const CURRENT_MINUTE_HISTORY_INTERVAL_SECONDS =
@@ -1060,8 +1064,8 @@ export async function batchProcessLogs(): Promise<number> {
 			// Group logs by organization and api key to calculate total costs.
 			// We split per-org costs into a chat bucket and a default bucket so
 			// the deduction step below can prefer chat-plan credits for requests
-			// originating from chat.llmgateway.io (matching how users mentally
-			// account for their plans), and dev-plan credits everywhere else.
+			// originating from Lounge (matching how users mentally account for
+			// their plans), and dev-plan credits everywhere else.
 			// Use Decimal.js to avoid floating point rounding errors.
 			interface OrgCostBuckets {
 				chat: Decimal;
@@ -1085,8 +1089,10 @@ export async function batchProcessLogs(): Promise<number> {
 			// adjustments on what the org pays us.
 			const providerKeyCosts = new Map<string, Decimal>();
 
-			const isChatSource = (source: string | null | undefined) =>
-				source === "chat.llmgateway.io";
+			// Accepts both the current and the pre-move Lounge host: logs written
+			// before the domain move are still queued here, and rewriting them is
+			// not an option.
+			const isChatSource = isLoungeSource;
 
 			for (const raw of unprocessedLogs.rows) {
 				const row = schema.parse(raw);
@@ -1237,7 +1243,7 @@ export async function batchProcessLogs(): Promise<number> {
 			// Also calculate referral earnings (1% of spent credits).
 			//
 			// Deduction order is source-aware:
-			//   • chat.llmgateway.io requests → chat plan → dev plan → regular
+			//   • Lounge requests → chat plan → dev plan → regular
 			//   • everything else → dev plan → chat plan → regular
 			// The non-preferred plan acts as a fallback if the preferred plan's
 			// cycle credits are exhausted, so a single org with both plans gets
@@ -1365,6 +1371,37 @@ export async function batchProcessLogs(): Promise<number> {
 				): Promise<{ remaining: Decimal; remainingPremium: Decimal }> => {
 					let remaining = bucketCost;
 					let remainingPremium = premiumCost;
+					// With PAYG overflow enabled, premium spend past the weekly
+					// fair-use allowance must not consume the plan pools: the gateway
+					// admits those requests on the strength of the credits balance, so
+					// the excess is held out of the pool drain here and falls through
+					// to the regular-credits remainder below. Without this the cap
+					// would stop limiting anything — over-cap premium would just keep
+					// draining the monthly pool.
+					// Scoped to buckets whose spend is the dev pool's to pay (its own
+					// bucket, or any bucket when there is no chat pool) — a dual-plan
+					// org's chat-sourced premium keeps draining the chat pool as before.
+					let premiumOverflow = new Decimal(0);
+					if (
+						org?.devPlanPaygEnabled &&
+						devPool &&
+						(preferred === devPool || !chatPool) &&
+						remainingPremium.greaterThan(0)
+					) {
+						const allowanceLeft = new Decimal(
+							getRemainingPremiumWeeklyAllowance(
+								org.devPlan as DevPlanTier,
+								devPool.premiumCreditsUsed?.toNumber() ?? 0,
+								devPool.premiumWeekStart,
+							),
+						);
+						premiumOverflow = Decimal.max(
+							0,
+							remainingPremium.minus(allowanceLeft),
+						);
+						remaining = remaining.minus(premiumOverflow);
+						remainingPremium = remainingPremium.minus(premiumOverflow);
+					}
 					for (const pool of [preferred, fallback]) {
 						if (!pool || remaining.lessThanOrEqualTo(0)) {
 							continue;
@@ -1381,7 +1418,10 @@ export async function batchProcessLogs(): Promise<number> {
 						remaining = remaining.minus(take);
 						remainingPremium = remainingPremium.minus(premiumTake);
 					}
-					return { remaining, remainingPremium };
+					return {
+						remaining: remaining.plus(premiumOverflow),
+						remainingPremium,
+					};
 				};
 
 				const fromChat = buckets.chat.greaterThan(0)

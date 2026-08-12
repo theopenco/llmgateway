@@ -256,7 +256,7 @@ export const organization = pgTable(
 		// Organization kind:
 		// - "default": regular dashboard/team org.
 		// - "devpass": per-user personal org backing the Dev Plans (DevPass) product.
-		// - "chat": dedicated per-user "Chat" org backing chat.llmgateway.io.
+		// - "chat": dedicated per-user "Chat" org backing lounge.llmgateway.io.
 		// "devpass" and "chat" orgs are hidden from the dashboard org switcher and
 		// cannot be deleted or managed as team orgs.
 		kind: text({
@@ -333,7 +333,7 @@ export const organization = pgTable(
 		// prevent a single card from claiming the DevPass usage allowance from
 		// multiple personal organizations.
 		devPlanCardFingerprint: text(),
-		// Chat Plans fields (for chat.llmgateway.io subscribers)
+		// Chat Plans fields (for lounge.llmgateway.io subscribers)
 		chatPlan: text({
 			enum: ["none", "starter", "plus", "pro"],
 		})
@@ -1817,6 +1817,7 @@ export const API_ORIGINS = [
 	"chat-completions",
 	"messages",
 	"responses",
+	"ai-sdk",
 	"embeddings",
 	"images",
 	"videos",
@@ -1948,6 +1949,18 @@ export const log = pgTable(
 			selectedProvider?: string;
 			selectionReason?: string;
 			usedApiKeyHash?: string;
+			// Whose credential served the request: the organization's own provider
+			// key (`byok`) or an LLM Gateway platform credential (`platform`).
+			// Always agrees with the row's billing mode (`usedMode`).
+			usedCredentialSource?: "byok" | "platform";
+			// The organization's own key that served the request, named as its
+			// owner sees it. Only set for "byok" — a platform-managed credential
+			// is never described to a tenant.
+			usedProviderKeyId?: string;
+			usedProviderKeyLabel?: string;
+			// The organization's own keys that were candidates for the used
+			// provider, in selection order. BYOK rows only.
+			eligibleProviderKeys?: Array<{ id: string; label?: string }>;
 			providerScores?: Array<{
 				providerId: string;
 				region?: string;
@@ -1981,6 +1994,12 @@ export const log = pgTable(
 				error_type: string;
 				succeeded: boolean;
 				apiKeyHash?: string;
+				// Per attempt: a hybrid-mode request can start on the org's own key
+				// and fall back to the platform credential, so ownership differs
+				// between entries in this array.
+				credentialSource?: "byok" | "platform";
+				providerKeyId?: string;
+				providerKeyLabel?: string;
 				logId?: string;
 			}>;
 			filteredProviders?: Array<{
@@ -2274,6 +2293,18 @@ export const videoJob = pgTable(
 			selectedProvider?: string;
 			selectionReason?: string;
 			usedApiKeyHash?: string;
+			// Whose credential served the request: the organization's own provider
+			// key (`byok`) or an LLM Gateway platform credential (`platform`).
+			// Always agrees with the row's billing mode (`usedMode`).
+			usedCredentialSource?: "byok" | "platform";
+			// The organization's own key that served the request, named as its
+			// owner sees it. Only set for "byok" — a platform-managed credential
+			// is never described to a tenant.
+			usedProviderKeyId?: string;
+			usedProviderKeyLabel?: string;
+			// The organization's own keys that were candidates for the used
+			// provider, in selection order. BYOK rows only.
+			eligibleProviderKeys?: Array<{ id: string; label?: string }>;
 			providerScores?: Array<{
 				providerId: string;
 				region?: string;
@@ -2307,6 +2338,12 @@ export const videoJob = pgTable(
 				error_type: string;
 				succeeded: boolean;
 				apiKeyHash?: string;
+				// Per attempt: a hybrid-mode request can start on the org's own key
+				// and fall back to the platform credential, so ownership differs
+				// between entries in this array.
+				credentialSource?: "byok" | "platform";
+				providerKeyId?: string;
+				providerKeyLabel?: string;
 				logId?: string;
 			}>;
 		}>(),
@@ -3611,6 +3648,8 @@ export const auditLogActions = [
 	"payment.auto_topup.update",
 	"payment.auto_topup.disable",
 	"payment.self_refund",
+	// Refund issued by an administrator on behalf of the customer.
+	"payment.admin_refund",
 	// Credits
 	"credits.gift",
 	"credits.manual_payment",
@@ -3631,6 +3670,8 @@ export const auditLogActions = [
 	// Free Reset Pass granted for a quarterly model-survey response.
 	"dev_plan.reset_pass_reward",
 	"dev_plan.reset_pass_gift",
+	// Cancellation performed by an administrator on behalf of the subscriber.
+	"dev_plan.admin_cancel",
 	// Chat Plan
 	"chat_plan.subscribe",
 	"chat_plan.cancel",

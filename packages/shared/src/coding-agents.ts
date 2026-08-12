@@ -24,10 +24,13 @@ export const CODING_AGENTS: CodingAgentDefinition[] = [
 		id: "codex",
 		label: "Codex CLI",
 		xSourceValues: ["codex"],
+		// The IDE extension identifies as "codex_vscode/<version> (<os>) …", which
+		// none of the CLI-shaped patterns match.
 		userAgentPatterns: [
 			/^codex[-_]cli/i,
 			/^codex_cli_rs\//i,
 			/^codex[-_]tui\//i,
+			/^codex[-_]vscode\//i,
 			/^codex\//i,
 		],
 	},
@@ -83,7 +86,8 @@ export const CODING_AGENTS: CodingAgentDefinition[] = [
 		id: "n8n",
 		label: "n8n",
 		xSourceValues: ["n8n"],
-		userAgentPatterns: [/^n8n\//i, /\bn8n-workflow\b/i],
+		// n8n's OpenAI node sends a bare "n8n" with no version suffix.
+		userAgentPatterns: [/^n8n$/i, /^n8n\//i, /\bn8n-workflow\b/i],
 	},
 	{
 		id: "openclaw",
@@ -133,8 +137,13 @@ export const CODING_AGENTS: CodingAgentDefinition[] = [
 	{
 		id: "pi-agent",
 		label: "Pi Agent",
-		xSourceValues: ["pi-agent"],
-		userAgentPatterns: [/^pi-agent\//i, /\bpi[-_]agent\b/i],
+		xSourceValues: ["pi-agent", "pi-coding-agent"],
+		// The CLI sends a bare "pi-coding-agent" with no version suffix.
+		userAgentPatterns: [
+			/^pi-agent\//i,
+			/\bpi[-_]agent\b/i,
+			/\bpi[-_]coding[-_]agent\b/i,
+		],
 	},
 	{
 		id: "hermes-agent",
@@ -147,6 +156,38 @@ export const CODING_AGENTS: CodingAgentDefinition[] = [
 		],
 		titleValues: ["hermes agent"],
 		refererPatterns: [/hermes-agent\.nousresearch\.com/i],
+	},
+	{
+		id: "crush",
+		label: "Crush",
+		xSourceValues: ["crush", "charm-crush"],
+		userAgentPatterns: [
+			/^charm[-_]crush\//i,
+			/^crush\//i,
+			/charm\.land\/crush/i,
+		],
+	},
+	{
+		id: "kimi-code",
+		label: "Kimi Code",
+		xSourceValues: ["kimi-code", "kimi-cli"],
+		userAgentPatterns: [/^kimi[-_]code/i, /^kimi[-_]cli\//i],
+	},
+	{
+		id: "qwen-code",
+		label: "Qwen Code",
+		xSourceValues: ["qwen-code", "qwencode"],
+		userAgentPatterns: [/^qwencode\//i, /\bqwen[-_]code\b/i],
+	},
+	{
+		id: "factory-droid",
+		label: "Factory Droid",
+		xSourceValues: ["factory-droid", "factory", "droid"],
+		userAgentPatterns: [
+			/^factory[-_]cli\//i,
+			/^droid\//i,
+			/\bfactory[-_]droid\b/i,
+		],
 	},
 	{
 		id: "openai-sdk",

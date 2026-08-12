@@ -5,6 +5,7 @@ import { PLAYGROUND_KEY_COOKIE_NAME } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
 
 import { models as modelDefinitions } from "@llmgateway/models";
+import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 
 import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
 
@@ -198,7 +199,7 @@ export async function POST(req: Request) {
 			headers: {
 				"Content-Type": "application/json",
 				Authorization: `Bearer ${apiKey}`,
-				"x-source": "chat.llmgateway.io",
+				"x-source": LOUNGE_SOURCE,
 				...(forwardedFor ? { "x-forwarded-for": forwardedFor } : {}),
 			},
 			body: JSON.stringify({

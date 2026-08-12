@@ -14,7 +14,7 @@ image:
 
 Every new chat starts from zero. You paste the same product spec for the third time this week, re-upload the same README, and re-explain the same context the model forgot the moment you closed the tab. The model is smart; your setup is amnesiac.
 
-Today we're adding **Projects** to [LLM Gateway Chat](https://chat.llmgateway.io) — a knowledge base and workspace for your chats. Create a project, drop in your files once — PDFs, spreadsheets, docs, code — and every chat inside it answers from those documents, with the source file cited in the reply. It's retrieval-augmented generation (RAG) without standing up a vector database, and it works with any of the 280+ models in the picker.
+Today we're adding **Projects** to [LLM Gateway Chat](https://lounge.llmgateway.io) — a knowledge base and workspace for your chats. Create a project, drop in your files once — PDFs, spreadsheets, docs, code — and every chat inside it answers from those documents, with the source file cited in the reply. It's retrieval-augmented generation (RAG) without standing up a vector database, and it works with any of the 280+ models in the picker.
 
 Projects also have memory. Mention once that you're hiring for the Stockholm team, and a brand-new chat in the same project next week still knows — without you repeating it and without the fact living in any uploaded file.
 
@@ -63,7 +63,7 @@ Current limits: 20 files per project, up to 500 KB of extracted text per file (b
 
 ## Get started in three steps
 
-1. Open [chat.llmgateway.io/projects](https://chat.llmgateway.io/projects) and create a project.
+1. Open [lounge.llmgateway.io/projects](https://lounge.llmgateway.io/projects) and create a project.
 2. Add files to its knowledge base — a PDF is fine as-is — and optionally write instructions.
 3. Hit **New chat** and ask a question your documents can answer.
 
@@ -93,6 +93,6 @@ No. Embeddings and memory extraction are billed to the same credits as your chat
 
 **Try it now:**
 
-- **[Open LLM Gateway Chat](https://chat.llmgateway.io/projects)** — create your first project free
-- **[Chat plans](https://chat.llmgateway.io/pricing)** — more credits for heavy use, from $9/mo
+- **[Open LLM Gateway Chat](https://lounge.llmgateway.io/projects)** — create your first project free
+- **[Chat plans](https://lounge.llmgateway.io/pricing)** — more credits for heavy use, from $9/mo
 - **[DevPass Code](/blog/devpass-code)** — our terminal coding agent, if your knowledge base is a codebase

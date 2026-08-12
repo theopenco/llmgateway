@@ -3752,6 +3752,15 @@ export async function handleInvoicePaymentSucceeded(event: {
 	const isChatPlanUpgradeInvoice =
 		isChatPlanSubscription && invoice.billing_reason === "subscription_update";
 
+	// Stripe does not order webhooks: the first invoice of a brand new Lounge
+	// membership can arrive before the `checkout.session.completed` that
+	// activates the chat plan, in which case none of the org's chat fields point
+	// at this subscription yet. Recognise it from the subscription metadata the
+	// checkout set so it isn't mistaken for a Pro subscription below.
+	const isInitialChatPlanSubscription =
+		subscriptionMetadata.subscriptionType === "chat_plan" &&
+		!isChatPlanSubscription;
+
 	logger.info(
 		`Found organization: ${organization.name} (${organization.id}), current plan: ${organization.plan}, billingReason: ${invoice.billing_reason}, isDevPlanRenewal: ${isDevPlanRenewal}, isChatPlanRenewal: ${isChatPlanRenewal}`,
 	);
@@ -4350,6 +4359,25 @@ export async function handleInvoicePaymentSucceeded(event: {
 		// plan and email a Pro invoice.
 		logger.info(
 			`Skipping non-renewal chat plan invoice for organization ${organizationId} (billingReason: ${invoice.billing_reason})`,
+		);
+	} else if (isInitialChatPlanSubscription) {
+		// First invoice of a new Lounge membership, delivered before its
+		// `checkout.session.completed`. Skip it: the checkout handler owns the
+		// activation (including the duplicate-card check) and records the
+		// `chat_plan_start` row keyed on this same invoice id. Falling through to
+		// the Pro handler instead used to write a `subscription_start` row against
+		// the chat org, which the checkout handler then skipped as "already
+		// recorded" — leaving the membership with a payment row that is not a
+		// self-refund candidate, so the member never saw a Refund button.
+		logger.info(
+			`Skipping initial chat plan invoice ${invoice.id} for organization ${organizationId}; checkout.session.completed records it`,
+		);
+	} else if (organization.kind !== "default") {
+		// Pro is only sold to regular dashboard orgs; devpass/chat orgs use their
+		// product-specific plan fields. Mirrors the same guard in the checkout
+		// handler so a stray subscription invoice can never flip them to "pro".
+		logger.warn(
+			`Skipping plan: "pro" for ${organization.kind} org ${organizationId} (invoice ${invoice.id}) - non-default orgs use product-specific plan fields`,
 		);
 	} else {
 		// Handle regular pro subscription

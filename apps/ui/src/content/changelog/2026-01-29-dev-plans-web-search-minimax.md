@@ -110,7 +110,7 @@ The latest GLM models are now available across multiple providers:
 zai/glm-4.7-flash
 ```
 
-**[Try in Playground](https://chat.llmgateway.io/?model=zai/glm-4.7-flash)**
+**[Try in Playground](https://lounge.llmgateway.io/?model=zai/glm-4.7-flash)**
 
 **[zai/glm-4.7-flashx](/models/glm-4.7-flashx/zai)** — extended context
 
@@ -118,7 +118,7 @@ zai/glm-4.7-flash
 zai/glm-4.7-flashx
 ```
 
-**[Try in Playground](https://chat.llmgateway.io/?model=zai/glm-4.7-flashx)**
+**[Try in Playground](https://lounge.llmgateway.io/?model=zai/glm-4.7-flashx)**
 
 **[cerebras/glm-4.7](/models/glm-4.7/cerebras)** — ultra-low latency via Cerebras
 
@@ -126,7 +126,7 @@ zai/glm-4.7-flashx
 cerebras/glm-4.7
 ```
 
-**[Try in Playground](https://chat.llmgateway.io/?model=cerebras/glm-4.7)**
+**[Try in Playground](https://lounge.llmgateway.io/?model=cerebras/glm-4.7)**
 
 **[novita/glm-4.7-flash](/models/glm-4.7-flash/novita)** — cost-effective option
 
@@ -134,7 +134,7 @@ cerebras/glm-4.7
 novita/glm-4.7-flash
 ```
 
-**[Try in Playground](https://chat.llmgateway.io/?model=novita/glm-4.7-flash)**
+**[Try in Playground](https://lounge.llmgateway.io/?model=novita/glm-4.7-flash)**
 
 ### Image Generation
 
