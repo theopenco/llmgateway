@@ -21,9 +21,10 @@ export default function TermsPage() {
 			<p>
 				<strong>DevPass</strong> is a service operated by{" "}
 				<strong>LLM Gateway</strong> (&ldquo;we&rdquo;, &ldquo;our&rdquo;, or
-				&ldquo;us&rdquo;). These DevPass Supplemental Terms of Use
-				(&ldquo;DevPass Terms&rdquo;) govern your access to and use of DevPass,
-				including the website at{" "}
+				&ldquo;us&rdquo;), a service of <strong>Polar Lights LLC</strong>, 16192
+				Coastal Highway, Lewes, DE 19958, United States. These DevPass
+				Supplemental Terms of Use (&ldquo;DevPass Terms&rdquo;) govern your
+				access to and use of DevPass, including the website at{" "}
 				<a href="https://devpass.llmgateway.io">devpass.llmgateway.io</a>, the
 				DevPass dashboard, related APIs, SDKs, and any DevPass-branded products
 				or services (collectively, the &ldquo;Service&rdquo;).
@@ -272,6 +273,20 @@ export default function TermsPage() {
 			<p>
 				Questions about these DevPass Terms or the Base Terms? Email{" "}
 				<a href="mailto:contact@llmgateway.io">contact@llmgateway.io</a>.
+			</p>
+			<p>
+				<strong>LLM Gateway</strong>
+				<br />
+				on behalf of
+			</p>
+			<p>
+				<strong>Polar Lights LLC</strong>
+				<br />
+				16192 Coastal Highway
+				<br />
+				Lewes, DE 19958
+				<br />
+				United States
 			</p>
 			<p>© 2026 LLM Gateway. All rights reserved.</p>
 		</>
