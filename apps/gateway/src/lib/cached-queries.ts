@@ -21,7 +21,7 @@ import {
 	isNull,
 	ne,
 	or,
-	sum,
+	sql,
 	cdb as db,
 	apiKey as apiKeyTable,
 	apiKeyHourlyStats as apiKeyHourlyStatsTable,
@@ -1240,7 +1240,10 @@ export async function getMemberPeriodSpend(
 		[apiKeyHourlyStatsTableName, apiKeyTableName, projectTableName],
 		async () =>
 			await db
-				.select({ total: sum(apiKeyHourlyStatsTable.cost) })
+				// cost is float4; SUM(real) accumulates in float4 too, so cast first.
+				.select({
+					total: sql<string>`coalesce(sum(cast(${apiKeyHourlyStatsTable.cost} as double precision)), 0)`,
+				})
 				.from(apiKeyHourlyStatsTable)
 				.where(
 					and(
