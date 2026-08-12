@@ -14,6 +14,7 @@ import { extractAnthropicSessionId } from "@/lib/session-id.js";
 
 import { logger, toError } from "@llmgateway/logger";
 
+import { logAnthropicClientError } from "./client-error-log.js";
 import {
 	buildOpenAiRequestRejectionMessage,
 	detectOpenAiChatCompletionsFields,
@@ -72,10 +73,17 @@ export const anthropic = new OpenAPIHono<ServerTypes>({
 		}
 
 		const openAiFields = detectOpenAiChatCompletionsFields(rawBody);
-		const message =
-			openAiFields.length > 0
-				? buildOpenAiRequestRejectionMessage(openAiFields)
-				: `Invalid request format: ${formatValidationIssues(result.error)}`;
+		const isOpenAiBody = openAiFields.length > 0;
+		const message = isOpenAiBody
+			? buildOpenAiRequestRejectionMessage(openAiFields)
+			: `Invalid request format: ${formatValidationIssues(result.error)}`;
+
+		await logAnthropicClientError(
+			c,
+			rawBody,
+			message,
+			isOpenAiBody ? "openai_request_format" : "invalid_request_format",
+		);
 
 		return c.json(buildAnthropicErrorBody({ message, status: 400 }), 400);
 	},
@@ -512,17 +520,27 @@ anthropic.openapi(messages, async (c) => {
 	// their format.
 	const openAiFields = detectOpenAiChatCompletionsFields(rawRequest);
 	if (openAiFields.length > 0) {
-		throw new HTTPException(400, {
-			message: buildOpenAiRequestRejectionMessage(openAiFields),
-		});
+		const message = buildOpenAiRequestRejectionMessage(openAiFields);
+		await logAnthropicClientError(
+			c,
+			rawRequest,
+			message,
+			"openai_request_format",
+		);
+		throw new HTTPException(400, { message });
 	}
 
 	// Validate with our schema
 	const validation = anthropicRequestSchema.safeParse(rawRequest);
 	if (!validation.success) {
-		throw new HTTPException(400, {
-			message: `Invalid request format: ${formatValidationIssues(validation.error)}`,
-		});
+		const message = `Invalid request format: ${formatValidationIssues(validation.error)}`;
+		await logAnthropicClientError(
+			c,
+			rawRequest,
+			message,
+			"invalid_request_format",
+		);
+		throw new HTTPException(400, { message });
 	}
 
 	const anthropicRequest: AnthropicRequest = validation.data;

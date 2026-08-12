@@ -151,6 +151,8 @@ The detected markers are OpenAI-only parameters (`max_completion_tokens`, `respo
 
 A minimal `{ model, messages, max_tokens }` body is valid Anthropic and is accepted as such — it always returns an Anthropic-format response.
 
+Rejected requests are recorded in your logs with a `client_error` finish reason and zero cost, so a malformed client is visible in the activity feed rather than failing silently.
+
 ### Prompt Caching
 
 For Claude models, `cache_control` markers on `system` and message content blocks are forwarded to the provider unchanged, including the optional `ttl` (`5m` or `1h`):

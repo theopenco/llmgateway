@@ -914,6 +914,25 @@ describe("api", () => {
 			expect(body.error.message).toContain("stream_options");
 			expect(body.error.message).toContain("/v1/chat/completions");
 			expect(upstreamCalls).toBe(0);
+
+			// The rejection happens before the internal /v1/chat/completions hop
+			// that owns log writing, so it must be logged here — otherwise the
+			// caller sees a 400 and nothing in their activity feed, which is the
+			// symptom that made the dropped output so hard to diagnose.
+			const logs = await waitForLogs(1);
+			// Exactly one row: the validation hook and the handler guard must not
+			// both log the same rejection.
+			expect(logs.length).toBe(1);
+			const log = logs[0];
+			expect(log.finishReason).toBe("client_error");
+			expect(log.hasError).toBe(true);
+			expect(log.errorDetails?.statusCode).toBe(400);
+			expect(log.errorDetails?.responseText).toContain("response_format");
+			expect(log.requestedModel).toBe("llmgateway/custom");
+			// A rejected request never reached a provider, so it costs nothing.
+			expect(Number(log.cost ?? 0)).toBe(0);
+			expect(log.promptTokens).toBeNull();
+			expect(log.completionTokens).toBeNull();
 		} finally {
 			fetchSpy.mockRestore();
 		}
@@ -951,6 +970,10 @@ describe("api", () => {
 		expect(body.type).toBe("error");
 		expect(body.error.type).toBe("invalid_request_error");
 		expect(body.error.message).toContain("max_tokens");
+
+		const logs = await waitForLogs(1);
+		expect(logs[0].finishReason).toBe("client_error");
+		expect(logs[0].errorDetails?.responseText).toContain("max_tokens");
 	});
 
 	test("/v1/messages rejects OpenAI-format tools with a pointer to /v1/chat/completions", async () => {
