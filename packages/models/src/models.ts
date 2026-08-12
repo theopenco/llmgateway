@@ -7,6 +7,7 @@ import { deepseekModels } from "./models/deepseek.js";
 import { elevenlabsModels } from "./models/elevenlabs.js";
 import { googleModels } from "./models/google.js";
 import { inclusionaiModels } from "./models/inclusionai.js";
+import { kinfraModels } from "./models/kinfra.js";
 import { llmgatewayModels } from "./models/llmgateway.js";
 import { metaModels } from "./models/meta.js";
 import { microsoftModels } from "./models/microsoft.js";
@@ -792,6 +793,7 @@ export const models = [
 	...nousresearchModels,
 	...reveModels,
 	...sakanaModels,
+	...kinfraModels,
 	...tencentModels,
 	...nvidiaModels,
 	...openbmbModels,
