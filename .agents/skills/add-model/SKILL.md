@@ -24,9 +24,17 @@ Never work on one mapping when the change has several. Build the list before
 touching anything:
 
 ```bash
-git diff origin/main -- packages/models/src/models/   # for a PR / existing branch
-gh pr diff <n> -- packages/models/src/models/         # for someone else's PR
+# your own branch
+git diff origin/main...HEAD -- packages/models/src/models/
+
+# someone else's PR — check it out (this also sets the upstream), then diff the same way
+gh pr checkout <n>
+git diff origin/main...HEAD -- packages/models/src/models/
 ```
+
+`gh pr diff <n> --name-only` is a quick way to see which files a PR touches
+without checking it out. It takes no path argument — `gh pr diff <n> -- <path>`
+fails with "accepts at most 1 arg(s)".
 
 Write down every `(rootModelId, providerId, region)` triple that is new or
 changed — regions inside a `regions: []` array each count as their own mapping,
@@ -318,7 +326,7 @@ dashboard read `model_provider_mapping` from the **database** (via
 ```bash
 pnpm test:unit
 # faster loop:
-pnpm build:core && npx vitest run packages/models packages/actions apps/gateway/src/lib/costs.spec.ts
+pnpm build:core && pnpm vitest run packages/models packages/actions apps/gateway/src/lib/costs.spec.ts
 ```
 
 **Scoped e2e — required for every new mapping.** Never run the full suite; scope
