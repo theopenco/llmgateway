@@ -6,6 +6,7 @@ import { createTestUser, deleteAll } from "@/testing.js";
 import { db, eq, tables } from "@llmgateway/db";
 
 import type * as PaymentsModule from "@/routes/payments.js";
+import type * as StripeModule from "@/stripe.js";
 
 const stripeMock = vi.hoisted(() => ({
 	prices: {
@@ -20,6 +21,11 @@ const stripeMock = vi.hoisted(() => ({
 		finalizeInvoice: vi.fn(),
 		voidInvoice: vi.fn(),
 	},
+	checkout: {
+		sessions: {
+			create: vi.fn(),
+		},
+	},
 }));
 
 vi.mock("@/routes/payments.js", async (importOriginal) => {
@@ -27,6 +33,17 @@ vi.mock("@/routes/payments.js", async (importOriginal) => {
 	return {
 		...original,
 		getStripe: () => stripeMock,
+	};
+});
+
+// ensureStripeCustomer reaches Stripe through stripe.ts's own client (its
+// customers.update on the already-existing customer), which the payments mock
+// above does not rewire — stub just that helper and keep the rest real.
+vi.mock("@/stripe.js", async (importOriginal) => {
+	const original = await importOriginal<typeof StripeModule>();
+	return {
+		...original,
+		ensureStripeCustomer: vi.fn().mockResolvedValue("cus_dev_plan"),
 	};
 });
 
@@ -1217,5 +1234,68 @@ describe("dev plan status billing history", () => {
 		});
 
 		expect(await getStatus()).toMatchObject({ hasBillingHistory: true });
+	});
+});
+
+describe("dev plan subscribe checkout", () => {
+	let token: string;
+
+	beforeEach(async () => {
+		vi.clearAllMocks();
+		process.env.STRIPE_DEV_PLAN_PRO_PRICE_ID = "price_pro";
+		token = await createTestUser();
+
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Personal Org",
+			billingEmail: "admin@example.com",
+			stripeCustomerId: "cus_dev_plan",
+			kind: "devpass",
+			devPlan: "none",
+		});
+		await db.insert(tables.userOrganization).values({
+			userId: "test-user-id",
+			organizationId: ORG_ID,
+			role: "owner",
+		});
+	});
+
+	afterEach(async () => {
+		if (originalProPriceId === undefined) {
+			delete process.env.STRIPE_DEV_PLAN_PRO_PRICE_ID;
+		} else {
+			process.env.STRIPE_DEV_PLAN_PRO_PRICE_ID = originalProPriceId;
+		}
+		await db.delete(tables.transaction);
+		await deleteAll();
+	});
+
+	it("offers card and crypto on the setup-mode checkout session", async () => {
+		stripeMock.checkout.sessions.create.mockResolvedValue({
+			id: "cs_setup_001",
+			url: "https://checkout.stripe.test/cs_setup_001",
+		});
+
+		const res = await app.request("/dev-plans/subscribe", {
+			method: "POST",
+			headers: {
+				Cookie: token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({ tier: "pro" }),
+		});
+
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({
+			checkoutUrl: "https://checkout.stripe.test/cs_setup_001",
+		});
+
+		expect(stripeMock.checkout.sessions.create).toHaveBeenCalledTimes(1);
+		const params = stripeMock.checkout.sessions.create.mock.calls[0][0];
+		expect(params.mode).toBe("setup");
+		// Both instruments must be offered: cards, and Stripe's stablecoin
+		// ("crypto") payment method which is saved like a card and charged for
+		// recurring cycles.
+		expect(params.payment_method_types).toEqual(["card", "crypto"]);
 	});
 });

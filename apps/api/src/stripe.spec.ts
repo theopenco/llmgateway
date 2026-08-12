@@ -5,6 +5,7 @@ import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import {
+	finalizeDevPlanSetupSession,
 	handleChargeRefunded,
 	handleInvoicePaymentSucceeded,
 	handlePaymentIntentFailed,
@@ -21,9 +22,17 @@ const stripeMock = vi.hoisted(() => ({
 	refunds: { list: vi.fn() },
 	invoices: { list: vi.fn() },
 	invoicePayments: { list: vi.fn() },
-	subscriptions: { retrieve: vi.fn(), cancel: vi.fn() },
+	subscriptions: {
+		retrieve: vi.fn(),
+		cancel: vi.fn(),
+		list: vi.fn(),
+		create: vi.fn(),
+	},
 	paymentIntents: { retrieve: vi.fn() },
-	paymentMethods: { retrieve: vi.fn() },
+	paymentMethods: { retrieve: vi.fn(), list: vi.fn(), detach: vi.fn() },
+	checkout: { sessions: { retrieve: vi.fn() } },
+	setupIntents: { retrieve: vi.fn() },
+	customers: { update: vi.fn() },
 	webhooks: { constructEvent: vi.fn() },
 }));
 
@@ -1544,6 +1553,186 @@ describe("handleChargeRefunded — dev plan refund tracking", () => {
 			where: { id: { eq: ORG_ID } },
 		});
 		expect(org?.credits).toBe("0");
+	});
+});
+
+describe("finalizeDevPlanSetupSession — crypto payment methods", () => {
+	const SESSION_ID = "cs_setup_crypto_001";
+	const WALLET_FINGERPRINT = "wallet_fp_crypto_001";
+
+	function makeCryptoPaymentMethod(overrides?: Record<string, unknown>) {
+		return {
+			id: "pm_crypto_001",
+			type: "crypto",
+			crypto: {
+				fingerprint: WALLET_FINGERPRINT,
+				wallet_address: "0x1234abcd5678ef901234abcd5678ef901234abcd",
+				network: "base",
+			},
+			...overrides,
+		};
+	}
+
+	function mockSetupSessionFlow(paymentMethod: Record<string, unknown>) {
+		stripeMock.checkout.sessions.retrieve.mockResolvedValue({
+			id: SESSION_ID,
+			mode: "setup",
+			metadata: {
+				subscriptionType: "dev_plan",
+				organizationId: ORG_ID,
+				devPlan: "pro",
+				devPlanCycle: "monthly",
+				priceId: "price_devpass_pro",
+				userEmail: "billing@acme.test",
+			},
+			setup_intent: "seti_crypto_001",
+		});
+		stripeMock.setupIntents.retrieve.mockResolvedValue({
+			id: "seti_crypto_001",
+			payment_method: paymentMethod.id,
+		});
+		stripeMock.paymentMethods.retrieve.mockResolvedValue(paymentMethod);
+		stripeMock.customers.update.mockResolvedValue({});
+		stripeMock.subscriptions.list.mockResolvedValue({ data: [] });
+		stripeMock.paymentMethods.list.mockResolvedValue({ data: [] });
+		stripeMock.subscriptions.create.mockResolvedValue({
+			id: "sub_crypto_001",
+			status: "active",
+			customer: "cus_crypto_001",
+			metadata: {
+				organizationId: ORG_ID,
+				subscriptionType: "dev_plan",
+				devPlan: "pro",
+				setupSessionId: SESSION_ID,
+			},
+			items: {
+				data: [
+					{
+						current_period_end:
+							Math.floor(Date.now() / 1000) + SECONDS_IN_TWO_WEEKS,
+					},
+				],
+			},
+			latest_invoice: {
+				id: "in_crypto_001",
+				status: "paid",
+				amount_paid: 7900,
+				currency: "usd",
+				payment_intent: {
+					object: "payment_intent",
+					id: "pi_crypto_001",
+					status: "succeeded",
+					client_secret: "cs_secret_crypto_001",
+				},
+			},
+		});
+	}
+
+	async function seedUnactivatedDevPassOrg() {
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme DevPass",
+			kind: "devpass",
+			billingEmail: "billing@acme.test",
+			stripeCustomerId: "cus_crypto_001",
+			devPlan: "none",
+		});
+	}
+
+	beforeEach(async () => {
+		vi.clearAllMocks();
+		await deleteAll();
+	});
+
+	afterEach(async () => {
+		await db.delete(tables.transaction);
+		await deleteAll();
+	});
+
+	test("activates the plan and stores the wallet fingerprint for a stablecoin wallet", async () => {
+		await seedUnactivatedDevPassOrg();
+		mockSetupSessionFlow(makeCryptoPaymentMethod());
+
+		const result = await finalizeDevPlanSetupSession(SESSION_ID);
+
+		expect(result.status).toBe("ok");
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlan).toBe("pro");
+		expect(org?.devPlanStripeSubscriptionId).toBe("sub_crypto_001");
+		// The wallet fingerprint claims the one-payment-method-per-account slot
+		// exactly like a card fingerprint would.
+		expect(org?.devPlanCardFingerprint).toBe(WALLET_FINGERPRINT);
+
+		expect(stripeMock.subscriptions.create).toHaveBeenCalledTimes(1);
+		expect(stripeMock.subscriptions.create.mock.calls[0][0]).toMatchObject({
+			customer: "cus_crypto_001",
+			default_payment_method: "pm_crypto_001",
+		});
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+		expect(txns[0].type).toBe("dev_plan_start");
+	});
+
+	test("falls back to the wallet address when the crypto payment method has no fingerprint", async () => {
+		await seedUnactivatedDevPassOrg();
+		mockSetupSessionFlow(
+			makeCryptoPaymentMethod({
+				crypto: {
+					wallet_address: "0x1234abcd5678ef901234abcd5678ef901234abcd",
+					network: "base",
+				},
+			}),
+		);
+
+		const result = await finalizeDevPlanSetupSession(SESSION_ID);
+
+		expect(result.status).toBe("ok");
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlanCardFingerprint).toBe(
+			"0x1234abcd5678ef901234abcd5678ef901234abcd",
+		);
+	});
+
+	test("rejects a wallet already backing another DevPass account without creating a subscription", async () => {
+		await seedUnactivatedDevPassOrg();
+		await db.insert(tables.organization).values({
+			id: "other-devpass-org",
+			name: "Other DevPass",
+			kind: "devpass",
+			billingEmail: "other@acme.test",
+			devPlan: "pro",
+			devPlanCardFingerprint: WALLET_FINGERPRINT,
+		});
+		mockSetupSessionFlow(makeCryptoPaymentMethod());
+
+		const result = await finalizeDevPlanSetupSession(SESSION_ID);
+
+		expect(result.status).toBe("duplicate_card");
+		// The duplicate wallet is detached and no subscription (and so no
+		// charge) is ever created.
+		expect(stripeMock.paymentMethods.detach).toHaveBeenCalledWith(
+			"pm_crypto_001",
+		);
+		expect(stripeMock.subscriptions.create).not.toHaveBeenCalled();
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlan).toBe("none");
+		expect(org?.devPlanStripeSubscriptionId).toBeNull();
+
+		expect(sendEmailMock).toHaveBeenCalledTimes(1);
+		expect(sendEmailMock.mock.calls[0][0].subject).toContain(
+			"payment method already in use",
+		);
 	});
 });
 

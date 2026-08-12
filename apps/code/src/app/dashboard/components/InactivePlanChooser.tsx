@@ -96,7 +96,8 @@ export default function InactivePlanChooser({
 function InvoiceInfoLabel() {
 	return (
 		<p className="mx-auto mt-4 max-w-2xl text-center text-[11px] leading-relaxed text-muted-foreground">
-			Need company/address details on your invoice?{" "}
+			Pay by card or with crypto (USDC) at checkout. Need company/address
+			details on your invoice?{" "}
 			<BillingDetailsDialog>
 				<button
 					type="button"

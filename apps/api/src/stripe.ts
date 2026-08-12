@@ -757,15 +757,60 @@ async function cancelStaleDevPlanSubscriptions(
 }
 
 /**
- * Collapse duplicate copies of a card down to a single payment method. Each
- * setup session saves the card as a fresh PaymentMethod object, so a retried
- * checkout would otherwise leave several PaymentMethods for the same physical
- * card on the customer. Keeps `keepPaymentMethodId` and detaches every other
- * payment method that shares its fingerprint.
+ * Wallet details of a stablecoin ("crypto") payment method, read structurally
+ * because the pinned Stripe SDK's types predate the crypto payment method.
+ * Returns null for every other payment method type.
  */
-async function detachDuplicateCardPaymentMethods(
+export function getCryptoPaymentMethodDetails(
+	paymentMethod: Stripe.PaymentMethod,
+): {
+	fingerprint?: string | null;
+	wallet_address?: string | null;
+	network?: string | null;
+} | null {
+	if ((paymentMethod.type as string) !== "crypto") {
+		return null;
+	}
+	const { crypto } = paymentMethod as unknown as {
+		crypto?: {
+			fingerprint?: string | null;
+			wallet_address?: string | null;
+			network?: string | null;
+		};
+	};
+	return crypto ?? {};
+}
+
+/**
+ * Stable identifier of the payment instrument backing a DevPass subscription,
+ * used for the one-payment-method-per-account rule: the card fingerprint, or
+ * the wallet fingerprint (falling back to the wallet address) for stablecoin
+ * payment methods. Null for anything else, which skips the dedupe.
+ */
+function getDevPassPaymentMethodFingerprint(
+	paymentMethod: Stripe.PaymentMethod,
+): string | null {
+	if (paymentMethod.type === "card") {
+		return paymentMethod.card?.fingerprint ?? null;
+	}
+	const crypto = getCryptoPaymentMethodDetails(paymentMethod);
+	if (crypto) {
+		return crypto.fingerprint ?? crypto.wallet_address ?? null;
+	}
+	return null;
+}
+
+/**
+ * Collapse duplicate copies of a payment instrument down to a single payment
+ * method. Each setup session saves the card or wallet as a fresh PaymentMethod
+ * object, so a retried checkout would otherwise leave several PaymentMethods
+ * for the same physical instrument on the customer. Keeps `keepPaymentMethod`
+ * and detaches every other payment method of the same type that shares its
+ * fingerprint.
+ */
+async function detachDuplicateDevPassPaymentMethods(
 	customerId: string,
-	keepPaymentMethodId: string,
+	keepPaymentMethod: Stripe.PaymentMethod,
 	fingerprint: string | null,
 ): Promise<void> {
 	if (!fingerprint) {
@@ -773,21 +818,22 @@ async function detachDuplicateCardPaymentMethods(
 	}
 	const paymentMethods = await getStripe().paymentMethods.list({
 		customer: customerId,
-		type: "card",
+		type: keepPaymentMethod.type as Stripe.PaymentMethodListParams.Type,
 		limit: 100,
 	});
 	const duplicates = paymentMethods.data.filter(
 		(pm) =>
-			pm.id !== keepPaymentMethodId && pm.card?.fingerprint === fingerprint,
+			pm.id !== keepPaymentMethod.id &&
+			getDevPassPaymentMethodFingerprint(pm) === fingerprint,
 	);
 	for (const pm of duplicates) {
 		try {
 			await getStripe().paymentMethods.detach(pm.id);
 			logger.info(
-				`Detached duplicate card ${pm.id} (fingerprint ${fingerprint}) from customer ${customerId}`,
+				`Detached duplicate ${keepPaymentMethod.type} payment method ${pm.id} (fingerprint ${fingerprint}) from customer ${customerId}`,
 			);
 		} catch (err) {
-			logger.warn(`Failed to detach duplicate card ${pm.id}`, {
+			logger.warn(`Failed to detach duplicate payment method ${pm.id}`, {
 				error: err instanceof Error ? err.message : String(err),
 			});
 		}
@@ -888,10 +934,10 @@ export async function finalizeDevPlanSetupSession(
 		return { status: "no_payment_method" };
 	}
 
-	const fingerprint =
-		paymentMethod.type === "card"
-			? (paymentMethod.card?.fingerprint ?? null)
-			: null;
+	// Card fingerprint or wallet fingerprint/address — either way the same
+	// physical payment instrument yields the same value across accounts, which
+	// is what the one-payment-method-per-DevPass-account rule keys on.
+	const fingerprint = getDevPassPaymentMethodFingerprint(paymentMethod);
 
 	if (fingerprint && isDevPlanCardDedupeEnforced()) {
 		const conflictingOrg = await db.query.organization.findFirst({
@@ -933,7 +979,8 @@ export async function finalizeDevPlanSetupSession(
 					await sendTransactionalEmail({
 						to: notifyEmail,
 						organizationId: organization.id,
-						subject: "DevPass activation failed — card already in use",
+						subject:
+							"DevPass activation failed — payment method already in use",
 						html: generateDevPlanDuplicateCardEmailHtml(organization.name),
 					});
 				} catch (err) {
@@ -964,9 +1011,9 @@ export async function finalizeDevPlanSetupSession(
 	// subscriptions before detaching cards so we never detach a card still
 	// referenced by a live subscription.
 	await cancelStaleDevPlanSubscriptions(stripeCustomerId, sessionId);
-	await detachDuplicateCardPaymentMethods(
+	await detachDuplicateDevPassPaymentMethods(
 		stripeCustomerId,
-		paymentMethod.id,
+		paymentMethod,
 		fingerprint,
 	);
 

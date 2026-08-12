@@ -7,7 +7,7 @@ import {
 	useStripe as useStripeElements,
 } from "@stripe/react-stripe-js";
 import { useQueryClient } from "@tanstack/react-query";
-import { CreditCard, Loader2 } from "lucide-react";
+import { CreditCard, Loader2, Wallet } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -37,6 +37,7 @@ export default function DevPassPaymentMethod({
 		{ initialData: initialData ?? undefined },
 	);
 	const card = data?.card ?? null;
+	const wallet = data?.crypto ?? null;
 
 	return (
 		<div className="rounded-xl border bg-card p-6">
@@ -44,12 +45,12 @@ export default function DevPassPaymentMethod({
 				<div>
 					<h2 className="font-semibold">Payment method</h2>
 					<p className="mt-1 text-sm text-muted-foreground">
-						The card used for your DevPass subscription.
+						The payment method used for your DevPass subscription.
 					</p>
 				</div>
 				{!editing && (
 					<Button variant="outline" size="sm" onClick={() => setEditing(true)}>
-						{card ? "Update card" : "Add card"}
+						{card ? "Update card" : wallet ? "Switch to card" : "Add card"}
 					</Button>
 				)}
 			</div>
@@ -81,14 +82,42 @@ export default function DevPassPaymentMethod({
 							</p>
 						</div>
 					</div>
+				) : wallet ? (
+					<div className="flex items-center gap-3 rounded-lg border bg-muted/40 p-3.5">
+						<Wallet className="h-5 w-5 text-muted-foreground" />
+						<div>
+							<p className="text-sm font-medium">
+								Crypto wallet
+								{wallet.walletAddress
+									? ` ${truncateWalletAddress(wallet.walletAddress)}`
+									: ""}
+							</p>
+							<p className="text-xs text-muted-foreground">
+								Stablecoin subscription
+								{wallet.network ? (
+									<>
+										{" on "}
+										<span className="capitalize">{wallet.network}</span>
+									</>
+								) : null}
+							</p>
+						</div>
+					</div>
 				) : (
 					<p className="text-sm text-muted-foreground">
-						No card on file for this subscription.
+						No payment method on file for this subscription.
 					</p>
 				)}
 			</div>
 		</div>
 	);
+}
+
+function truncateWalletAddress(address: string): string {
+	if (address.length <= 12) {
+		return address;
+	}
+	return `${address.slice(0, 6)}…${address.slice(-4)}`;
 }
 
 function UpdateCardForm({

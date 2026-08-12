@@ -410,7 +410,7 @@ export function generateDevPlanDuplicateCardEmailHtml(
 								</p>
 
 								<p style="margin: 0 0 20px 0; font-size: 16px; line-height: 1.6; color: #333333;">
-									We couldn't activate DevPass for <strong>${escapedOrgName}</strong>. The card you provided is already linked to another DevPass account, so it can't be used a second time. <strong>You were not charged.</strong>
+									We couldn't activate DevPass for <strong>${escapedOrgName}</strong>. The payment method you provided is already linked to another DevPass account, so it can't be used a second time. <strong>You were not charged.</strong>
 								</p>
 
 								<p style="margin: 0 0 20px 0; font-size: 16px; line-height: 1.6; color: #333333;">

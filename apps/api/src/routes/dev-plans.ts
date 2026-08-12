@@ -15,6 +15,7 @@ import {
 	ensureStripeCustomer,
 	finalizeDevPlanSetupSession,
 	fulfillResetPassPurchase,
+	getCryptoPaymentMethodDetails,
 	getSubscriptionPaymentConfirmation,
 	isDevPlanCardDedupeEnforced,
 } from "@/stripe.js";
@@ -424,16 +425,26 @@ devPlans.openapi(subscribe, async (c) => {
 	try {
 		const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
 
-		// We use `mode: "setup"` (not "subscription") so the card is collected
-		// but the customer is NOT charged at checkout. After redirect we check
-		// the card fingerprint against existing DevPass orgs; if it conflicts
-		// we reject the activation without ever creating a Stripe subscription
-		// or charging the user. The shared metadata carries everything the
-		// finalize step needs to create the subscription server-side.
+		// We use `mode: "setup"` (not "subscription") so the payment method is
+		// collected but the customer is NOT charged at checkout. After redirect
+		// we check the payment-method fingerprint against existing DevPass orgs;
+		// if it conflicts we reject the activation without ever creating a
+		// Stripe subscription or charging the user. The shared metadata carries
+		// everything the finalize step needs to create the subscription
+		// server-side.
+		//
+		// "crypto" is Stripe's stablecoin payment method: the wallet is saved
+		// like a card (smart-contract authorization) and charged for recurring
+		// subscription cycles, so it rides the same setup-mode flow. The pinned
+		// SDK's literal union predates the crypto payment method — the API
+		// accepts it, hence the cast.
 		const session = await getStripe().checkout.sessions.create({
 			customer: stripeCustomerId,
 			mode: "setup",
-			payment_method_types: ["card"],
+			payment_method_types: [
+				"card",
+				"crypto",
+			] as string[] as Stripe.Checkout.SessionCreateParams.PaymentMethodType[],
 			success_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?setup_session_id={CHECKOUT_SESSION_ID}`,
 			cancel_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?canceled=true`,
 			metadata: {
@@ -616,7 +627,7 @@ devPlans.openapi(finalize, async (c) => {
 				{
 					error: "duplicate_card" as const,
 					message:
-						"This card is already associated with another DevPass account. Please use a different payment method.",
+						"This payment method is already associated with another DevPass account. Please use a different one.",
 				},
 				409,
 			);
@@ -2787,7 +2798,7 @@ devPlans.openapi(rotateApiKey, async (c) => {
 	});
 });
 
-// Get the card currently backing the DevPass subscription
+// Get the payment method currently backing the DevPass subscription
 const getPaymentMethod = createRoute({
 	method: "get",
 	path: "/payment-method",
@@ -2803,6 +2814,14 @@ const getPaymentMethod = createRoute({
 								last4: z.string(),
 								expiryMonth: z.number(),
 								expiryYear: z.number(),
+							})
+							.nullable(),
+						// Present when the subscription is backed by a stablecoin
+						// wallet (Stripe's "crypto" payment method) instead of a card.
+						crypto: z
+							.object({
+								network: z.string().nullable(),
+								walletAddress: z.string().nullable(),
 							})
 							.nullable(),
 					}),
@@ -2825,7 +2844,7 @@ devPlans.openapi(getPaymentMethod, async (c) => {
 	const personalOrg = await findPersonalOrg(user.id);
 
 	if (!personalOrg?.devPlanStripeSubscriptionId) {
-		return c.json({ card: null });
+		return c.json({ card: null, crypto: null });
 	}
 
 	const subscription = await getStripe().subscriptions.retrieve(
@@ -2835,7 +2854,7 @@ devPlans.openapi(getPaymentMethod, async (c) => {
 
 	const defaultPaymentMethod = subscription.default_payment_method;
 	if (!defaultPaymentMethod) {
-		return c.json({ card: null });
+		return c.json({ card: null, crypto: null });
 	}
 
 	const paymentMethod =
@@ -2843,8 +2862,19 @@ devPlans.openapi(getPaymentMethod, async (c) => {
 			? await getStripe().paymentMethods.retrieve(defaultPaymentMethod)
 			: defaultPaymentMethod;
 
+	const cryptoDetails = getCryptoPaymentMethodDetails(paymentMethod);
+	if (cryptoDetails) {
+		return c.json({
+			card: null,
+			crypto: {
+				network: cryptoDetails.network ?? null,
+				walletAddress: cryptoDetails.wallet_address ?? null,
+			},
+		});
+	}
+
 	if (paymentMethod.type !== "card" || !paymentMethod.card) {
-		return c.json({ card: null });
+		return c.json({ card: null, crypto: null });
 	}
 
 	return c.json({
@@ -2854,6 +2884,7 @@ devPlans.openapi(getPaymentMethod, async (c) => {
 			expiryMonth: paymentMethod.card.exp_month,
 			expiryYear: paymentMethod.card.exp_year,
 		},
+		crypto: null,
 	});
 });
 
