@@ -89,9 +89,10 @@ function WeeklyAllowanceMeter({
 	// replaced by the upgrade/PAYG promo, so don't point at a card that isn't
 	// there — and "standard models keep working" no longer holds either.
 	resetPassAvailable: boolean;
-	// True when PAYG overflow is actively billing usage (monthly pool gone,
-	// balance positive): premium usage keeps accruing past the cap, so the
-	// meter can legitimately exceed 100% and must not read as an error.
+	// True when PAYG overflow can bill premium usage past the weekly cap
+	// (opt-in on, balance positive): premium keeps accruing past the cap on
+	// the credits balance, so the meter can legitimately exceed 100% and must
+	// not read as an error.
 	overflowCovering: boolean;
 }) {
 	const percentage = limit > 0 ? (used / limit) * 100 : 0;
@@ -377,7 +378,7 @@ export default function UsageOverview({
 							limit={premiumWeeklyLimit}
 							resetsAt={premiumWeekResetsAt}
 							resetPassAvailable={!monthlyExhausted}
-							overflowCovering={monthlyExhausted && paygAvailable}
+							overflowCovering={paygAvailable}
 						/>
 						{!monthlyExhausted && (
 							<ResetPassCard
